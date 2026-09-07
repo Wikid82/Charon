@@ -22,6 +22,11 @@ type UptimeMonitor struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 
+	// NextCheckAt is the wall-clock time this monitor is next due for a check.
+	// Zero value ⇒ "due now" (legacy rows and freshly-created monitors).
+	// Written by the per-monitor scheduler; unused by the legacy global ticker.
+	NextCheckAt time.Time `json:"next_check_at" gorm:"index"`
+
 	// Current Status (Cached)
 	Status           string    `json:"status" gorm:"index"` // up, down, maintenance, pending
 	LastCheck        time.Time `json:"last_check"`

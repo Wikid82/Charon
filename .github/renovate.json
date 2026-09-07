@@ -9,6 +9,8 @@
   "baseBranchPatterns": [
     "development"
   ],
+  "semanticCommitType": "deps",
+  "semanticCommitScope": null,
   "postUpdateOptions": [
     "npmDedupe",
     "gomodTidy"
@@ -428,6 +430,19 @@
     },
     {
       "customType": "regex",
+      "description": "Track google.golang.org/grpc version ARG in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=google\\.golang\\.org/grpc\\s*\\nARG GRPC_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "google.golang.org/grpc",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "description": "Track golang-jwt/jwt v5 in go.mod via github-tags (workaround: Renovate go datasource no-result for /vN module paths)",
       "managerFilePatterns": [
         "/^backend/go\\.mod$/"
@@ -460,6 +475,25 @@
     ]
   },
   "packageRules": [
+    {
+      "description": "Release gating: bumps default to deps: (a release-triggering prefix for release-please) so a dependency that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins, and custom.regex trackers under .github/workflows, scripts, and .github/skills (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, NODE_VERSION/GO_VERSION) — does not ship, so force it back to chore: (non-releasable).",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "semanticCommitType": "chore"
+    },
+    {
+      "description": "See above: CI-only custom.regex trackers stay chore:, not deps:.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        ".github/workflows/**",
+        "scripts/**",
+        ".github/skills/**"
+      ],
+      "semanticCommitType": "chore"
+    },
     {
       "description": "Group GitHub Actions non-major updates into one PR",
       "matchManagers": [

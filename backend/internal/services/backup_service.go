@@ -204,6 +204,12 @@ type BackupService struct {
 	// without a Caddy manager, in which case restore simply skips R1 and
 	// reports caddy_reloaded=false.
 	caddyReloader CaddyReloader
+
+	// uptimeRehydrator re-seeds the uptime scheduler's in-memory schedule +
+	// debounce maps after a live DB restore so it does not wait ~30s for the
+	// rescan self-heal (spec §3.9 / S6). Nilable — satisfied by
+	// *services.UptimeScheduler, wired from routes.go.
+	uptimeRehydrator UptimeRehydrator
 }
 
 // RemoteUploadHook is invoked after CreateBackupWithOptions successfully
@@ -230,6 +236,18 @@ func (s *BackupService) SetRemoteUploadHook(hook RemoteUploadHook) {
 // SetCaddyReloader wires the post-restore Caddy reload hook (spec §3.5 R1).
 func (s *BackupService) SetCaddyReloader(reloader CaddyReloader) {
 	s.caddyReloader = reloader
+}
+
+// UptimeRehydrator is the minimal interface RestoreBackupSafe needs from the
+// uptime scheduler: re-run cold-start hydration + re-seed the pool debounce
+// maps from the just-restored DB (spec §3.9 / S6).
+type UptimeRehydrator interface {
+	Rehydrate(ctx context.Context)
+}
+
+// SetUptimeRehydrator wires the post-restore uptime-schedule rehydrate hook.
+func (s *BackupService) SetUptimeRehydrator(r UptimeRehydrator) {
+	s.uptimeRehydrator = r
 }
 
 // RequestAuditInfo carries the request-scoped values a Start*Job goroutine

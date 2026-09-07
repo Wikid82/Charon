@@ -276,10 +276,54 @@ func TestUptimeService_GetMonitorHistory(t *testing.T) {
 		CreatedAt: time.Now(),
 	}).Error)
 
-	history, err := us.GetMonitorHistory(monitor.ID, 100)
+	history, err := us.GetMonitorHistory(monitor.ID, 100, time.Time{})
 	assert.NoError(t, err)
 	assert.Len(t, history, 2)
 	assert.Equal(t, "down", history[0].Status)
+}
+
+func TestUptimeService_GetMonitorHistory_LimitCapAndBeforeCursor(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := newTestUptimeService(t, db, ns)
+
+	require.NoError(t, db.Create(&models.UptimeMonitor{ID: "hist-svc", Name: "Hist"}).Error)
+
+	anchor := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Second)
+	rows := make([]models.UptimeHeartbeat, 0, 700)
+	// 600 before the anchor, 100 after it.
+	for i := 1; i <= 600; i++ {
+		rows = append(rows, models.UptimeHeartbeat{MonitorID: "hist-svc", Status: "up", CreatedAt: anchor.Add(-time.Duration(i) * time.Second)})
+	}
+	for i := 1; i <= 100; i++ {
+		rows = append(rows, models.UptimeHeartbeat{MonitorID: "hist-svc", Status: "up", CreatedAt: anchor.Add(time.Duration(i) * time.Second)})
+	}
+	require.NoError(t, db.CreateInBatches(&rows, 200).Error)
+
+	t.Run("limit is hard-capped at 500", func(t *testing.T) {
+		got, err := us.GetMonitorHistory("hist-svc", 99999, time.Time{})
+		require.NoError(t, err)
+		assert.Len(t, got, 500)
+	})
+
+	t.Run("non-positive limit falls back to default 60", func(t *testing.T) {
+		got, err := us.GetMonitorHistory("hist-svc", 0, time.Time{})
+		require.NoError(t, err)
+		assert.Len(t, got, 60)
+
+		got, err = us.GetMonitorHistory("hist-svc", -5, time.Time{})
+		require.NoError(t, err)
+		assert.Len(t, got, 60)
+	})
+
+	t.Run("before cursor returns only older rows", func(t *testing.T) {
+		got, err := us.GetMonitorHistory("hist-svc", 500, anchor)
+		require.NoError(t, err)
+		require.NotEmpty(t, got)
+		for _, h := range got {
+			assert.True(t, h.CreatedAt.Before(anchor), "row %s must predate the cursor", h.CreatedAt)
+		}
+	})
 }
 
 func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
@@ -1196,7 +1240,7 @@ func TestUptimeService_GetMonitorHistory_EdgeCases(t *testing.T) {
 		ns := NewNotificationService(db, nil)
 		us := newTestUptimeService(t, db, ns)
 
-		history, err := us.GetMonitorHistory("non-existent", 100)
+		history, err := us.GetMonitorHistory("non-existent", 100, time.Time{})
 		assert.NoError(t, err)
 		assert.Len(t, history, 0)
 	})
@@ -1219,7 +1263,7 @@ func TestUptimeService_GetMonitorHistory_EdgeCases(t *testing.T) {
 			}).Error)
 		}
 
-		history, err := us.GetMonitorHistory(monitor.ID, 5)
+		history, err := us.GetMonitorHistory(monitor.ID, 5, time.Time{})
 		assert.NoError(t, err)
 		assert.Len(t, history, 5)
 	})
@@ -2348,4 +2392,36 @@ func TestCheckHost_NonOrthrusMonitorNoPort_SkipsTCPDial(t *testing.T) {
 	require.NoError(t, db.Where("id = ?", uptimeHost.ID).First(&refreshed).Error)
 	assert.Equal(t, "pending", refreshed.Status,
 		"host status must not change when no TCP dial was attempted")
+}
+
+// TestCheckHost_NoSleepRetryLoop_OnRefusedDial is the C4 de-blocking assertion
+// (spec §3.2.3): the inner `for retry { ... time.Sleep(2s) ... }` loop is gone,
+// so a host whose only port refuses the connection completes in well under a
+// second instead of the previous ~4s (2s x MaxRetries). The cross-cycle
+// FailureThreshold/FailureCount debounce is unchanged — a single failed cycle
+// still just increments the counter.
+func TestCheckHost_NoSleepRetryLoop_OnRefusedDial(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db, nil)
+	us := NewUptimeService(db, ns) // default config: MaxRetries=2, FailureThreshold=2, TCPTimeout=10s
+	t.Cleanup(func() { us.FlushPendingNotifications() })
+
+	host := models.UptimeHost{Host: "127.0.0.1", Name: "Refused Host", Status: "up"}
+	require.NoError(t, db.Create(&host).Error)
+	require.NoError(t, db.Create(&models.UptimeMonitor{
+		ID: "refused-mon", Name: "Refused", Type: "tcp", URL: "127.0.0.1:9", // discard port: connection refused
+		Enabled: true, Status: "up", UptimeHostID: &host.ID,
+	}).Error)
+
+	start := time.Now()
+	us.checkHost(context.Background(), &host)
+	elapsed := time.Since(start)
+
+	assert.Less(t, elapsed, time.Second,
+		"a refused dial must return promptly — no 2s x MaxRetries sleep-retry loop")
+
+	var refreshed models.UptimeHost
+	require.NoError(t, db.Where("id = ?", host.ID).First(&refreshed).Error)
+	assert.Equal(t, 1, refreshed.FailureCount, "one failed cycle increments the counter by exactly one")
+	assert.Equal(t, "up", refreshed.Status, "still up after a single failure (FailureThreshold=2)")
 }

@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as uptimeApi from '../../api/uptime'
 import Uptime from '../Uptime'
 
+import type { MonitorSummary } from '../../api/uptime'
+
 vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
 vi.mock('../../api/uptime')
 
@@ -20,25 +22,39 @@ const renderWithProviders = (ui: React.ReactNode) => {
   )
 }
 
+const mkSummary = (partial: Partial<MonitorSummary> & Pick<MonitorSummary, 'id' | 'name'>): MonitorSummary => ({
+  type: 'http',
+  url: 'http://example.com',
+  interval: 60,
+  enabled: true,
+  status: 'up',
+  latency: 10,
+  last_check: new Date().toISOString(),
+  proxy_host_id: null,
+  remote_server_id: null,
+  uptime_24h: null,
+  recent_beats: [],
+  max_retries: 3,
+  ...partial,
+})
+
 describe('Uptime page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   it('renders no monitors message', async () => {
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([])
     renderWithProviders(<Uptime />)
     expect(await screen.findByText(/No monitors found/i)).toBeTruthy()
   })
 
   it('calls updateMonitor when toggling monitoring', async () => {
-    const monitor = {
-      id: 'm1', name: 'Test Monitor', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3, proxy_host_id: 1,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
-    vi.mocked(uptimeApi.updateMonitor).mockResolvedValue({ ...monitor, enabled: false })
+    const monitor = mkSummary({ id: 'm1', name: 'Test Monitor', proxy_host_id: 1 })
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([monitor])
+    vi.mocked(uptimeApi.updateMonitor).mockResolvedValue({
+      id: 'm1', name: 'Test Monitor', type: 'http', url: 'http://example.com', interval: 60, enabled: false, status: 'up', latency: 10, max_retries: 3,
+    })
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('Test Monitor')).toBeInTheDocument()
@@ -51,63 +67,53 @@ describe('Uptime page', () => {
   })
 
   it('shows Never when last_check is missing', async () => {
-    const monitor = {
-      id: 'm2', name: 'NoLastCheck', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'up', last_check: null, latency: 10, max_retries: 3,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([mkSummary({ id: 'm2', name: 'NoLastCheck', last_check: null })])
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('NoLastCheck')).toBeInTheDocument()
-    const lastCheck = screen.getByText('Never')
-    expect(lastCheck).toBeTruthy()
+    expect(screen.getByText('Never')).toBeTruthy()
   })
 
   it('shows PAUSED state when monitor is disabled', async () => {
-    const monitor = {
-      id: 'm3', name: 'PausedMonitor', url: 'http://example.com', type: 'http', interval: 60, enabled: false,
-      status: 'down', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([mkSummary({ id: 'm3', name: 'PausedMonitor', enabled: false, status: 'down' })])
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('PausedMonitor')).toBeInTheDocument()
     expect(screen.getByText('PAUSED')).toBeTruthy()
   })
 
-  it('renders heartbeat bars from history and displays status in bar titles', async () => {
-    const monitor = {
-      id: 'm4', name: 'WithHistory', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
-    }
-    const now = new Date()
-    const history = [
-      { id: 1, monitor_id: 'm4', status: 'up', latency: 10, message: 'OK', created_at: new Date(now.getTime() - 30000).toISOString() },
-      { id: 2, monitor_id: 'm4', status: 'down', latency: 20, message: 'Fail', created_at: new Date(now.getTime() - 20000).toISOString() },
-      { id: 3, monitor_id: 'm4', status: 'up', latency: 5, message: 'OK', created_at: new Date(now.getTime() - 10000).toISOString() },
-    ]
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue(history)
+  it('renders heartbeat bars from recent_beats and displays status in bar titles', async () => {
+    const now = Date.now()
+    const monitor = mkSummary({
+      id: 'm4',
+      name: 'WithHistory',
+      recent_beats: [
+        { status: 'up', latency: 10, created_at: new Date(now - 30000).toISOString() },
+        { status: 'down', latency: 20, created_at: new Date(now - 20000).toISOString() },
+        { status: 'up', latency: 5, created_at: new Date(now - 10000).toISOString() },
+      ],
+    })
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([monitor])
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('WithHistory')).toBeInTheDocument()
 
-    // Bar titles include 'Status:' and the status should be capitalized
-    await waitFor(() => expect(document.querySelectorAll('[title*="Status:"]').length).toBeGreaterThanOrEqual(history.length))
+    await waitFor(() => expect(document.querySelectorAll('[title*="Status:"]').length).toBeGreaterThanOrEqual(3))
     const barTitles = Array.from(document.querySelectorAll('[title*="Status:"]'))
     expect(barTitles.some(el => (el.getAttribute('title') || '').includes('Status: UP'))).toBeTruthy()
     expect(barTitles.some(el => (el.getAttribute('title') || '').includes('Status: DOWN'))).toBeTruthy()
   })
 
+  it('does not issue a per-monitor history request when rendering cards', async () => {
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([mkSummary({ id: 'm4b', name: 'NoHistoryFetch' })])
+
+    renderWithProviders(<Uptime />)
+    expect(await screen.findByText('NoHistoryFetch')).toBeInTheDocument()
+    expect(uptimeApi.getMonitorHistory).not.toHaveBeenCalled()
+  })
+
   it('pause button is yellow and appears before delete in settings menu', async () => {
-    const monitor = {
-      id: 'm12', name: 'OrderTest', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([mkSummary({ id: 'm12', name: 'OrderTest' })])
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('OrderTest')).toBeInTheDocument()
@@ -115,7 +121,6 @@ describe('Uptime page', () => {
     await userEvent.click(within(card).getByTitle('Monitor settings'))
 
     const configureBtn = within(card).getByText('Configure')
-    // Find the menu container by traversing up until the absolute positioned menu is found
     let menuContainer: HTMLElement | null = configureBtn.parentElement
     while (menuContainer && !menuContainer.className.includes('absolute')) {
       menuContainer = menuContainer.parentElement
@@ -126,19 +131,12 @@ describe('Uptime page', () => {
     const deleteBtn = buttons.find(b => b.textContent?.trim() === 'Delete')
     expect(pauseBtn).toBeTruthy()
     expect(deleteBtn).toBeTruthy()
-    // Ensure Pause appears before Delete
     expect(buttons.indexOf(pauseBtn!)).toBeLessThan(buttons.indexOf(deleteBtn!))
-    // Ensure Pause has yellow styling class
     expect(pauseBtn!.className).toContain('text-yellow-600')
   })
 
   it('deletes monitor when delete confirmed and shows toast', async () => {
-    const monitor = {
-      id: 'm5', name: 'DeleteMe', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([mkSummary({ id: 'm5', name: 'DeleteMe' })])
     vi.mocked(uptimeApi.deleteMonitor).mockResolvedValue()
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
@@ -154,20 +152,17 @@ describe('Uptime page', () => {
   })
 
   it('opens configure modal and saves changes via updateMonitor', async () => {
-    const monitor = {
-      id: 'm6', name: 'ConfigMe', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3, proxy_host_id: 1,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
-    vi.mocked(uptimeApi.updateMonitor).mockResolvedValue({ ...monitor, max_retries: 6 })
+    const monitor = mkSummary({ id: 'm6', name: 'ConfigMe', proxy_host_id: 1 })
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([monitor])
+    vi.mocked(uptimeApi.updateMonitor).mockResolvedValue({
+      id: 'm6', name: 'ConfigMe', type: 'http', url: 'http://example.com', interval: 60, enabled: true, status: 'up', latency: 10, max_retries: 6,
+    })
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('ConfigMe')).toBeInTheDocument()
     const card = screen.getByText('ConfigMe').closest('div') as HTMLElement
     await userEvent.click(within(card).getByTitle('Monitor settings'))
     await userEvent.click(within(card).getByText('Configure'))
-    // Modal should open
     expect(await screen.findByText('Configure Monitor')).toBeInTheDocument()
     const spinbuttons = screen.getAllByRole('spinbutton')
     const maxRetriesInput = spinbuttons.find(el => el.getAttribute('value') === '3') as HTMLInputElement
@@ -180,12 +175,7 @@ describe('Uptime page', () => {
   })
 
   it('does not call deleteMonitor when canceling delete', async () => {
-    const monitor = {
-      id: 'm7', name: 'DoNotDelete', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([mkSummary({ id: 'm7', name: 'DoNotDelete' })])
     vi.mocked(uptimeApi.deleteMonitor).mockResolvedValue()
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => false)
@@ -199,12 +189,7 @@ describe('Uptime page', () => {
   })
 
   it('shows toast error when toggle update fails', async () => {
-    const monitor = {
-      id: 'm8', name: 'ToggleFail', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3, proxy_host_id: 1,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([mkSummary({ id: 'm8', name: 'ToggleFail', proxy_host_id: 1 })])
     vi.mocked(uptimeApi.updateMonitor).mockRejectedValue(new Error('Update failed'))
 
     renderWithProviders(<Uptime />)
@@ -217,11 +202,11 @@ describe('Uptime page', () => {
   })
 
   it('separates monitors into Proxy Hosts, Remote Servers and Other sections', async () => {
-    const proxyMonitor = { id: 'm9', name: 'ProxyMon', url: 'http://p', type: 'http', interval: 60, enabled: true, status: 'up', last_check: new Date().toISOString(), latency: 1, max_retries: 2, proxy_host_id: 1 }
-    const remoteMonitor = { id: 'm10', name: 'RemoteMon', url: 'http://r', type: 'http', interval: 60, enabled: true, status: 'up', last_check: new Date().toISOString(), latency: 2, max_retries: 2, remote_server_id: 2 }
-    const otherMonitor = { id: 'm11', name: 'OtherMon', url: 'http://o', type: 'http', interval: 60, enabled: true, status: 'up', last_check: new Date().toISOString(), latency: 3, max_retries: 2 }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([proxyMonitor, remoteMonitor, otherMonitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([
+      mkSummary({ id: 'm9', name: 'ProxyMon', proxy_host_id: 1 }),
+      mkSummary({ id: 'm10', name: 'RemoteMon', remote_server_id: 2 }),
+      mkSummary({ id: 'm11', name: 'OtherMon' }),
+    ])
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('Proxy Hosts')).toBeInTheDocument()
@@ -233,12 +218,9 @@ describe('Uptime page', () => {
   })
 
   it('shows CHECKING... state for pending monitor with no history', async () => {
-    const monitor = {
-      id: 'm13', name: 'PendingMonitor', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'pending', last_check: null, latency: 0, max_retries: 3,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([
+      mkSummary({ id: 'm13', name: 'PendingMonitor', status: 'pending', last_check: null, latency: 0 }),
+    ])
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('PendingMonitor')).toBeInTheDocument()
@@ -252,15 +234,14 @@ describe('Uptime page', () => {
   })
 
   it('treats pending monitor with heartbeat history as normal (not pending)', async () => {
-    const monitor = {
-      id: 'm14', name: 'PendingWithHistory', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'pending', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
-    }
-    const history = [
-      { id: 1, monitor_id: 'm14', status: 'up', latency: 10, message: 'OK', created_at: new Date().toISOString() },
-    ]
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue(history)
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([
+      mkSummary({
+        id: 'm14',
+        name: 'PendingWithHistory',
+        status: 'pending',
+        recent_beats: [{ status: 'up', latency: 10, created_at: new Date().toISOString() }],
+      }),
+    ])
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('PendingWithHistory')).toBeInTheDocument()
@@ -272,12 +253,9 @@ describe('Uptime page', () => {
   })
 
   it('shows DOWN indicator for down monitor (no regression)', async () => {
-    const monitor = {
-      id: 'm15', name: 'DownMonitor', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
-      status: 'down', last_check: new Date().toISOString(), latency: 0, max_retries: 3,
-    }
-    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
-    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+    vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([
+      mkSummary({ id: 'm15', name: 'DownMonitor', status: 'down', latency: 0 }),
+    ])
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('DownMonitor')).toBeInTheDocument()

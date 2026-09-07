@@ -740,4 +740,112 @@ describe('SystemSettings', () => {
       }, { timeout: 1000 })
     })
   })
+
+  describe('Uptime Monitoring Engine card', () => {
+    const seedUptime = (overrides: Record<string, string> = {}) => {
+      vi.mocked(settingsApi.getSettings).mockResolvedValue({
+        'caddy.admin_api': 'http://localhost:2019',
+        'caddy.ssl_provider': 'auto',
+        'caddy.keepalive_idle': '',
+        'caddy.keepalive_count': '',
+        'ui.domain_link_behavior': 'new_tab',
+        'uptime.default_interval_seconds': '60',
+        'uptime.worker_pool_size': '30',
+        'uptime.heartbeat_retention_days': '90',
+        ...overrides,
+      })
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': false,
+        'feature.uptime.enabled': true,
+      })
+    }
+
+    it('renders the three uptime fields seeded from settings', async () => {
+      seedUptime()
+      renderWithProviders(<SystemSettings />)
+
+      const interval = await screen.findByLabelText('Default check interval (seconds)')
+      expect(interval).toHaveValue(60)
+      expect(screen.getByLabelText('Worker pool size')).toHaveValue(30)
+      expect(screen.getByLabelText('Heartbeat retention (days)')).toHaveValue(90)
+    })
+
+    it('disables Save and shows an inline error for an out-of-bounds value', async () => {
+      seedUptime()
+      renderWithProviders(<SystemSettings />)
+
+      const workers = await screen.findByLabelText('Worker pool size')
+      const user = userEvent.setup()
+      await user.clear(workers)
+      await user.type(workers, '999')
+      await user.tab()
+
+      await waitFor(() => {
+        expect(screen.getByText('Enter a whole number between 1 and 200.')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'Save Uptime Settings' })).toBeDisabled()
+      expect(settingsApi.updateSetting).not.toHaveBeenCalled()
+    })
+
+    it('rejects a default interval below the 30s floor', async () => {
+      seedUptime()
+      renderWithProviders(<SystemSettings />)
+
+      const interval = await screen.findByLabelText('Default check interval (seconds)')
+      const user = userEvent.setup()
+      await user.clear(interval)
+      await user.type(interval, '5')
+      await user.tab()
+
+      await waitFor(() => {
+        expect(screen.getByText('Interval must be at least 30 seconds.')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'Save Uptime Settings' })).toBeDisabled()
+    })
+
+    it('writes one setting per changed field on Save', async () => {
+      seedUptime()
+      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
+      renderWithProviders(<SystemSettings />)
+
+      const interval = await screen.findByLabelText('Default check interval (seconds)')
+      const retention = screen.getByLabelText('Heartbeat retention (days)')
+      const user = userEvent.setup()
+      await user.clear(interval)
+      await user.type(interval, '45')
+      await user.clear(retention)
+      await user.type(retention, '120')
+
+      const save = screen.getByRole('button', { name: 'Save Uptime Settings' })
+      await waitFor(() => expect(save).toBeEnabled())
+      await user.click(save)
+
+      await waitFor(() => {
+        expect(settingsApi.updateSetting).toHaveBeenCalledWith('uptime.default_interval_seconds', '45', 'uptime', 'int')
+      })
+      expect(settingsApi.updateSetting).toHaveBeenCalledWith('uptime.heartbeat_retention_days', '120', 'uptime', 'int')
+      expect(settingsApi.updateSetting).not.toHaveBeenCalledWith('uptime.worker_pool_size', expect.anything(), 'uptime', 'int')
+      expect(settingsApi.updateSetting).toHaveBeenCalledTimes(2)
+    })
+
+    it('surfaces a rejected write as a per-field error', async () => {
+      seedUptime()
+      vi.mocked(settingsApi.updateSetting).mockRejectedValue(new Error('interval must be at least 30 seconds'))
+      renderWithProviders(<SystemSettings />)
+
+      const interval = await screen.findByLabelText('Default check interval (seconds)')
+      const user = userEvent.setup()
+      await user.clear(interval)
+      await user.type(interval, '45')
+
+      const save = screen.getByRole('button', { name: 'Save Uptime Settings' })
+      await waitFor(() => expect(save).toBeEnabled())
+      await user.click(save)
+
+      await waitFor(() => {
+        expect(screen.getByText('interval must be at least 30 seconds')).toBeInTheDocument()
+      })
+    })
+  })
 })

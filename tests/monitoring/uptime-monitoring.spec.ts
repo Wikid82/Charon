@@ -13,11 +13,54 @@
  * - Sync with Proxy Hosts (2 tests): sync button, preserve manual monitors
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { test, expect, type Page, type Route } from '@playwright/test';
+
 import {
   waitForLoadingComplete,
   waitForAPIResponse,
 } from '../utils/wait-helpers';
+
+// Mock-route style: no live backend. The authenticated session is stubbed
+// (seeded token + mocked /auth/me) and a catch-all API route keeps unmocked
+// calls from 401-ing into the axios session-expiry redirect. Run with
+// --no-deps so the backend-dependent `setup` project is skipped.
+test.use({ storageState: { cookies: [], origins: [] } });
+
+const SESSION_USER = {
+  user_id: 1,
+  role: 'admin',
+  name: 'E2E Uptime Admin',
+  email: 'e2e-uptime-admin@test.local',
+};
+
+/**
+ * Makes the app believe it holds a valid admin session with no backend:
+ * seeds the boot token, answers /auth/me with an admin user, and 200s every
+ * other API call ([] — the safe universal default; object consumers just
+ * read undefined keys, array consumers get an empty list). Scenario-specific
+ * page.route() calls registered afterwards win (last-registered-first match).
+ */
+async function stubSession(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('charon_auth_token', 'e2e-mock-token');
+    } catch {
+      /* storage unavailable */
+    }
+  });
+  await page.route('**/api/v1/**', async (route: Route) => {
+    const url = route.request().url();
+    if (url.includes('/auth/me')) {
+      await route.fulfill({ status: 200, json: SESSION_USER });
+      return;
+    }
+    if (url.includes('/feature-flags')) {
+      await route.fulfill({ status: 200, json: { 'feature.uptime.enabled': true } });
+      return;
+    }
+    await route.fulfill({ status: 200, json: [] });
+  });
+}
 
 /**
  * TypeScript interfaces matching the API
@@ -146,12 +189,50 @@ const SELECTORS = {
 };
 
 /**
- * Helper: Setup mock monitors API response
+ * One `MonitorSummary` row (§3.5.2) — the shape the dashboard now reads from
+ * `GET /uptime/monitors/summary`. `recent_beats` is embedded chronological
+ * ASC (oldest first); the card derives status/heartbeat-bar/tooltips from it,
+ * so there is no per-card history fetch any more.
+ */
+function toSummaryRow(monitor: UptimeMonitor) {
+  const latestStatus = monitor.status === 'down' ? 'down' : 'up';
+  const recentBeats = generateMockHistory(monitor.id, 60, latestStatus)
+    .slice()
+    .reverse()
+    .map((h) => ({ status: h.status, latency: h.latency, created_at: h.created_at }));
+
+  return {
+    id: monitor.id,
+    name: monitor.name,
+    type: monitor.type,
+    url: monitor.url,
+    enabled: monitor.enabled,
+    status: monitor.status,
+    latency: monitor.latency,
+    last_check: monitor.last_check ?? null,
+    interval: monitor.interval,
+    proxy_host_id: monitor.proxy_host_id ?? null,
+    remote_server_id: monitor.remote_server_id ?? null,
+    uptime_24h: monitor.status === 'paused' ? null : 99.5,
+    recent_beats: recentBeats,
+    max_retries: monitor.max_retries,
+  };
+}
+
+/**
+ * Helper: Setup mock monitors API response.
+ *
+ * Registers both the batch summary endpoint (the dashboard's sole read path)
+ * and the legacy list endpoint (kept for any older code path / widget) off
+ * the same fixture.
  */
 async function setupMonitorsAPI(
   page: import('@playwright/test').Page,
   monitors: UptimeMonitor[] = mockMonitors
 ) {
+  await page.route('**/api/v1/uptime/monitors/summary*', async (route) => {
+    await route.fulfill({ status: 200, json: monitors.map(toSummaryRow) });
+  });
   await page.route('**/api/v1/uptime/monitors', async (route) => {
     if (route.request().method() === 'GET') {
       await route.fulfill({ status: 200, json: monitors });
@@ -197,9 +278,8 @@ test.describe('Uptime Monitoring Page', () => {
   test.describe('Page Layout', () => {
     test('should display uptime monitoring page with correct heading', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       await page.goto('/uptime');
@@ -209,8 +289,8 @@ test.describe('Uptime Monitoring Page', () => {
       await expect(page.locator(SELECTORS.summaryCard)).toBeVisible();
     });
 
-    test('should show monitor list or empty state', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should show monitor list or empty state', async ({ page }) => {
+      await stubSession(page);
 
       // Test empty state
       await setupMonitorsAPI(page, []);
@@ -229,9 +309,8 @@ test.describe('Uptime Monitoring Page', () => {
 
     test('should display overall uptime summary with action buttons', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       await page.goto('/uptime');
@@ -253,9 +332,8 @@ test.describe('Uptime Monitoring Page', () => {
   test.describe('Monitor List Display', () => {
     test('should display all monitors with status indicators', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       await page.goto('/uptime');
@@ -273,9 +351,8 @@ test.describe('Uptime Monitoring Page', () => {
 
     test('should show uptime percentage or latency for each monitor', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       await page.goto('/uptime');
@@ -286,8 +363,8 @@ test.describe('Uptime Monitoring Page', () => {
       await expect(apiCard).toContainText('45ms');
     });
 
-    test('should show last check timestamp', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should show last check timestamp', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       await page.goto('/uptime');
@@ -304,9 +381,8 @@ test.describe('Uptime Monitoring Page', () => {
 
     test('should differentiate up/down/paused states visually', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       await page.goto('/uptime');
@@ -329,9 +405,8 @@ test.describe('Uptime Monitoring Page', () => {
 
     test('should show heartbeat history bar for each monitor', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       await page.goto('/uptime');
@@ -351,8 +426,8 @@ test.describe('Uptime Monitoring Page', () => {
   // Monitor CRUD Tests (6 tests)
   // =========================================================================
   test.describe('Monitor CRUD Operations', () => {
-    test('should create new HTTP monitor', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should create new HTTP monitor', async ({ page }) => {
+      await stubSession(page);
 
       let createPayload: Partial<UptimeMonitor> | null = null;
 
@@ -410,8 +485,8 @@ test.describe('Uptime Monitoring Page', () => {
       expect(createPayload?.type).toBe('http');
     });
 
-    test('should create new TCP monitor', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should create new TCP monitor', async ({ page }) => {
+      await stubSession(page);
 
       let createPayload: Partial<UptimeMonitor> | null = null;
 
@@ -464,8 +539,8 @@ test.describe('Uptime Monitoring Page', () => {
       expect(createPayload?.url).toBe('redis.local:6379');
     });
 
-    test('should update existing monitor', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should update existing monitor', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       let updatePayload: Partial<UptimeMonitor> | null = null;
@@ -518,8 +593,8 @@ test.describe('Uptime Monitoring Page', () => {
       expect(updatePayload?.name).toBe('Updated API Server');
     });
 
-    test('should delete monitor with confirmation', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should delete monitor with confirmation', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       let deleteRequested = false;
@@ -562,8 +637,8 @@ test.describe('Uptime Monitoring Page', () => {
       expect(deleteRequested).toBe(true);
     });
 
-    test('should validate monitor URL format', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should validate monitor URL format', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsAPI(page, []);
 
       await page.goto('/uptime');
@@ -585,8 +660,8 @@ test.describe('Uptime Monitoring Page', () => {
       await expect(submitButton).toBeEnabled();
     });
 
-    test('should validate check interval range', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should validate check interval range', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsAPI(page, []);
 
       await page.goto('/uptime');
@@ -598,10 +673,10 @@ test.describe('Uptime Monitoring Page', () => {
       await page.fill('input#create-monitor-name', 'Test Monitor');
       await page.fill('input#create-monitor-url', 'https://test.com');
 
-      // Interval input should have min/max attributes
+      // Interval input advertises the 30s floor (§3.6.2) and the 24h ceiling.
       const intervalInput = page.locator('input#create-monitor-interval');
-      await expect(intervalInput).toHaveAttribute('min', '10');
-      await expect(intervalInput).toHaveAttribute('max', '3600');
+      await expect(intervalInput).toHaveAttribute('min', '30');
+      await expect(intervalInput).toHaveAttribute('max', '86400');
 
       // Set a valid interval
       await page.fill('input#create-monitor-interval', '60');
@@ -615,8 +690,8 @@ test.describe('Uptime Monitoring Page', () => {
   // Manual Check Tests (3 tests)
   // =========================================================================
   test.describe('Manual Health Check', () => {
-    test('should trigger manual health check', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should trigger manual health check', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       let checkRequested = false;
@@ -643,8 +718,8 @@ test.describe('Uptime Monitoring Page', () => {
       expect(checkRequested).toBe(true);
     });
 
-    test('should update status after manual check', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should update status after manual check', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       let checkRequested = false;
@@ -675,8 +750,8 @@ test.describe('Uptime Monitoring Page', () => {
       expect(checkRequested).toBe(true);
     });
 
-    test('should show check in progress indicator', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should show check in progress indicator', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       await page.route('**/api/v1/uptime/monitors/1/check', async (route) => {
@@ -709,12 +784,10 @@ test.describe('Uptime Monitoring Page', () => {
   // Monitor History Tests (3 tests)
   // =========================================================================
   test.describe('Monitor History', () => {
-    test('should display uptime history in heartbeat bar', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should display uptime history in heartbeat bar', async ({ page }) => {
+      await stubSession(page);
 
-      const history = generateMockHistory('1', 60);
       await setupMonitorsAPI(page, [mockMonitors[0]]);
-      await setupHistoryAPI(page, '1', history);
 
       await page.goto('/uptime');
       await waitForLoadingComplete(page);
@@ -731,14 +804,11 @@ test.describe('Uptime Monitoring Page', () => {
 
     test('should show incident indicators in heartbeat bar', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
 
       // Create history with some failures
-      const history = generateMockHistory('1', 60);
       await setupMonitorsAPI(page, [mockMonitors[0]]);
-      await setupHistoryAPI(page, '1', history);
 
       await page.goto('/uptime');
       await waitForLoadingComplete(page);
@@ -765,13 +835,10 @@ test.describe('Uptime Monitoring Page', () => {
 
     test('should show tooltip with heartbeat details on hover', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
 
-      const history = generateMockHistory('1', 60);
       await setupMonitorsAPI(page, [mockMonitors[0]]);
-      await setupHistoryAPI(page, '1', history);
 
       await page.goto('/uptime');
       await waitForLoadingComplete(page);
@@ -795,8 +862,8 @@ test.describe('Uptime Monitoring Page', () => {
   // Sync with Proxy Hosts Tests (2 tests)
   // =========================================================================
   test.describe('Sync with Proxy Hosts', () => {
-    test('should sync monitors from proxy hosts', async ({ page, authenticatedUser }) => {
-      await loginUser(page, authenticatedUser);
+    test('should sync monitors from proxy hosts', async ({ page }) => {
+      await stubSession(page);
       await setupMonitorsWithHistory(page);
 
       let syncRequested = false;
@@ -826,9 +893,8 @@ test.describe('Uptime Monitoring Page', () => {
 
     test('should preserve manually added monitors after sync', async ({
       page,
-      authenticatedUser,
     }) => {
-      await loginUser(page, authenticatedUser);
+      await stubSession(page);
 
       // Setup monitors: one synced from proxy, one manual
       const monitorsWithTypes: UptimeMonitor[] = [

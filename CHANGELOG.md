@@ -93,6 +93,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **2026-09-04 supply-chain scan triage** (bundled Caddy / CrowdSec / Alpine base — no finding in Charon's own module graph). Full analysis: `docs/security/vulnerability-analysis-2026-09-04.md`
+  - **GO-2026-6354 / CVE-2026-78662 and GO-2026-6355 / CVE-2026-56855**: Fixed two `golang.org/x/crypto/ssh` server-side channel-flood deadlock DoS bugs in `golang.org/x/crypto` v0.55.0 embedded in the bundled CrowdSec binaries. The `crowdsec-builder` Dockerfile stage carried a stale hard-coded `x/crypto@v0.52.0` floor that had drifted behind the `caddy-builder` stage's shared `XCRYPTO_VERSION=0.56.0` pin; `crowdsec-builder` now consumes the same `XCRYPTO_VERSION` build-arg so the two stages cannot diverge again
+  - **CVE-2026-84304 / GHSA-vp52-pcj8-j9qc**: gRPC-Go HTTP/2 DATA-frame heap-exhaustion DoS in `google.golang.org/grpc` v1.83.0 in the bundled Caddy binary. `GRPC_VERSION=1.83.1` was already pinned (commit `761e37fd`), but the `caddy-builder` stage's OpenTelemetry `go get` block (`otel/...@v1.43.0`, `otlp*http@v0.19.0` — *downgrades*) was dragging grpc back down via `go get`'s downgrade cascade, because `otel v1.43.0` requires `grpc v1.83.0-dev`. Fixed by adding a final `go get google.golang.org/grpc@v${GRPC_VERSION}` re-pin after the OTel block (before `go mod tidy`) plus a post-build assertion that `/usr/bin/caddy` embeds the pinned grpc version, mirroring the Dockerfile's existing Caddy-core re-pin and cel-go assertion patterns. The `no-cache-filters: caddy-builder,crowdsec-builder` change to the two PR scan-gate workflows (commit `5c046238`) is kept as defence-in-depth. The published release image shipped grpc v1.83.0 until this fix; the build assertion now guarantees v1.83.1.
+  - **CVE-2026-41889 / GHSA-j88v-2chj-qfwx**: LOW pgx/v4 dollar-quote placeholder-confusion SQL injection (simple protocol only) in the bundled CrowdSec binaries — no fix for the pgx v4 line; not reachable in a standard Charon deployment (SQLite; pgx only with a non-default CrowdSec PostgreSQL backend). Added a matching `.grype.yaml` suppression to pair with the existing `.trivyignore` entry
+  - **CVE-2025-60876**: MEDIUM BusyBox `wget` request-target CRLF/header-injection in the Alpine 3.24.1 base image — no upstream Alpine fix; the `wget` applet is only invoked from the Dockerfile `HEALTHCHECK` and the build-time GeoIP download with static URLs. Suppressed in both `.trivyignore` and `.grype.yaml`
+  - **GO-2026-5932**: broadened the `.grype.yaml` `golang.org/x/crypto/openpgp` (unmaintained-by-design) entry to drop its stale `version: v0.53.0` pin so newer third-party binary rebuilds (now v0.55.0 / v0.56.0) stop re-surfacing it; still a module-level false positive for Charon's own code
+
+- **GHSA-r277-6w6q-xmqw / GHSA-jpcw-4wr7-c3vq (CVE-2026-73502)**: Fixed a CRITICAL (CVSS 9.1) fail-open authentication bypass and a related DoS panic in `github.com/getkin/kin-openapi` embedded in the bundled CrowdSec binaries (`/usr/local/bin/crowdsec`, `/usr/local/bin/cscli`)
+  - Root cause: a stale `CROWDSEC_VERSION=1.7.8` build-arg override in `nightly-build.yml` shadowed the Dockerfile's `ARG CROWDSEC_VERSION=1.8.0`, so nightly kept building EOL CrowdSec v1.7.8 (→ `kin-openapi v0.137.0`) while the PR/`main` image already built v1.8.0 (→ `kin-openapi v0.147.0`, patched)
+  - Removed the workflow override so the nightly build inherits the Dockerfile's CrowdSec v1.8.0 default (Dockerfile `ARG` is now the single source of truth)
+  - Bumped the Dockerfile's defensive `kin-openapi` pin to `v0.147.0` to match CrowdSec v1.8.0's native baseline
+  - Full analysis: `docs/security/vulnerability-analysis-2026-09-02.md`
+
+- **GHSA-gcjh-h69q-9w9g**: Fixed a MEDIUM information-exposure issue in `github.com/google/cel-go` v0.28.1 embedded in the bundled Caddy binary (`/usr/bin/caddy`), where struct fields tagged `json:"-"` were reachable from CEL expressions instead of being skipped
+  - Previously risk-accepted via a `.trivyignore` suppression because the upstream fix (cel-go v0.29) was source-incompatible with Caddy v2.11.4's `celmatcher.go` and no tagged Caddy release carried the adjustment
+  - Now resolved outright: the `caddy-builder` stage pins `cel-go v0.29.2` and source-patches Caddy v2.11.4's `celmatcher.go` in the module cache (the 2-line `interpreter.NewCall` signature change), replicating upstream Caddy commit `b2693fb` / PR #7872, with build-time assertions that the patch applied and that `/usr/bin/caddy` embeds cel-go v0.29.x
+  - The `.trivyignore` suppression is removed; revert the pin and source patch once `CADDY_VERSION` >= 2.11.5
+  - Real-world exploitability for Charon was ~zero: Caddy's CEL matcher only evaluates admin-authored static config expressions and never registers attacker-controlled native struct types at runtime
+  - Full analysis: `docs/security/vulnerability-analysis-2026-09-02.md`
+
 - **Orthrus Muzzle Normalization Order (GH #1160)**: Fixed a divergence
   between the backend and agent-side Docker API allowlist filters where the
   agent normalized a request path (version-prefix strip, then

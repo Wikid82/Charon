@@ -155,6 +155,13 @@ jobs:
       - name: Build Docker image (Local)
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         uses: ./.github/actions/build-charon-image
+        with:
+          # Force a clean rebuild of the two from-source stages so a stale GHA
+          # layer cache cannot retain a superseded pinned dependency (the
+          # `go get pkg@fixed` patch lives INSIDE the cached-and-skipped stage).
+          # Matches nightly-build.yml and e2e-tests-split.yml. CVE-scan gate:
+          # correctness beats the few minutes of rebuild time.
+          no-cache-filters: caddy-builder,crowdsec-builder
 
       - name: Check for PR image artifact
         id: check-artifact

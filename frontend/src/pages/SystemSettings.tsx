@@ -19,6 +19,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { Switch } from '../components/ui/Switch'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip'
 import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
+import { useUptimeHealth } from '../hooks/useUptimeSummary'
 import { cn } from '../utils/cn'
 import { toast } from '../utils/toast'
 
@@ -37,6 +38,24 @@ interface UpdateInfo {
   release_url?: string
 }
 
+/**
+ * Client-side bounds for the three `uptime.*` global tuning keys. These MUST
+ * match the server-side bounds enforced in `SettingsHandler.UpdateSetting`
+ * (spec §3.6.1); the server stays authoritative and a rejected write surfaces
+ * as a per-field error.
+ */
+const UPTIME_SETTING_KEYS = {
+  interval: 'uptime.default_interval_seconds',
+  workers: 'uptime.worker_pool_size',
+  retention: 'uptime.heartbeat_retention_days',
+} as const
+
+const UPTIME_BOUNDS: Record<string, { min: number; max: number }> = {
+  [UPTIME_SETTING_KEYS.interval]: { min: 30, max: 86400 },
+  [UPTIME_SETTING_KEYS.workers]: { min: 1, max: 200 },
+  [UPTIME_SETTING_KEYS.retention]: { min: 1, max: 3650 },
+}
+
 export default function SystemSettings() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -48,6 +67,13 @@ export default function SystemSettings() {
   const [publicURL, setPublicURL] = useState('')
   const [publicURLValid, setPublicURLValid] = useState<boolean | null>(null)
   const [publicURLSaving, setPublicURLSaving] = useState(false)
+
+  // --- Uptime Monitoring settings (three independent `uptime.*` tuning knobs) ---
+  const [uptimeInterval, setUptimeInterval] = useState('')
+  const [uptimeWorkers, setUptimeWorkers] = useState('')
+  const [uptimeRetention, setUptimeRetention] = useState('')
+  const [uptimeTouched, setUptimeTouched] = useState<Record<string, boolean>>({})
+  const [uptimeServerErrors, setUptimeServerErrors] = useState<Record<string, string>>({})
 
   const keepaliveIdlePattern = /^(?:\d+)(?:ns|us|µs|ms|s|m|h)$/
   const keepaliveIdleTrimmed = keepaliveIdle.trim()
@@ -88,6 +114,9 @@ export default function SystemSettings() {
       setKeepaliveCount(settings['caddy.keepalive_count'] ?? '')
       if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
       if (settings['app.public_url']) setPublicURL(settings['app.public_url'])
+      setUptimeInterval(settings[UPTIME_SETTING_KEYS.interval] ?? '')
+      setUptimeWorkers(settings[UPTIME_SETTING_KEYS.workers] ?? '')
+      setUptimeRetention(settings[UPTIME_SETTING_KEYS.retention] ?? '')
     }
   }, [settings])
 
@@ -183,11 +212,95 @@ export default function SystemSettings() {
     },
   })
 
+  // --- Uptime tuning knobs: per-field validation + independent save ---
+  const uptimeErrorI18n: Record<string, string> = {
+    [UPTIME_SETTING_KEYS.interval]: 'systemSettings.uptime.intervalError',
+    [UPTIME_SETTING_KEYS.workers]: 'systemSettings.uptime.workerPoolError',
+    [UPTIME_SETTING_KEYS.retention]: 'systemSettings.uptime.retentionError',
+  }
+  const uptimeFieldValues: Record<string, string> = {
+    [UPTIME_SETTING_KEYS.interval]: uptimeInterval,
+    [UPTIME_SETTING_KEYS.workers]: uptimeWorkers,
+    [UPTIME_SETTING_KEYS.retention]: uptimeRetention,
+  }
+
+  const validateUptimeValue = (key: string, raw: string): string | undefined => {
+    const trimmed = raw.trim()
+    if (!trimmed) return t(uptimeErrorI18n[key])
+    const n = Number(trimmed)
+    if (!Number.isInteger(n)) return t(uptimeErrorI18n[key])
+    if (key === UPTIME_SETTING_KEYS.interval && n < UPTIME_BOUNDS[key].min) {
+      return t('systemSettings.uptime.intervalFloorError')
+    }
+    const { min, max } = UPTIME_BOUNDS[key]
+    if (n < min || n > max) return t(uptimeErrorI18n[key])
+    return undefined
+  }
+
+  const uptimeClientErrors: Record<string, string | undefined> = {
+    [UPTIME_SETTING_KEYS.interval]: validateUptimeValue(UPTIME_SETTING_KEYS.interval, uptimeInterval),
+    [UPTIME_SETTING_KEYS.workers]: validateUptimeValue(UPTIME_SETTING_KEYS.workers, uptimeWorkers),
+    [UPTIME_SETTING_KEYS.retention]: validateUptimeValue(UPTIME_SETTING_KEYS.retention, uptimeRetention),
+  }
+  const hasUptimeClientErrors = Object.values(uptimeClientErrors).some(Boolean)
+
+  const uptimeDirtyKeys = (): Array<{ key: string; value: string }> => {
+    const persisted = settings ?? {}
+    return Object.values(UPTIME_SETTING_KEYS)
+      .map((key) => ({ key, value: uptimeFieldValues[key].trim() }))
+      .filter(({ key, value }) => value !== (persisted[key] ?? ''))
+  }
+  const uptimeDirty = uptimeDirtyKeys().length > 0
+
+  const uptimeFieldError = (key: string): string | undefined =>
+    uptimeServerErrors[key] ?? (uptimeTouched[key] ? uptimeClientErrors[key] : undefined)
+
+  const clearUptimeServerError = (key: string) =>
+    setUptimeServerErrors((prev) => {
+      if (!(key in prev)) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+
+  const saveUptimeMutation = useMutation({
+    mutationFn: async () => {
+      // Each key is a standalone knob with no cross-coupling — write them one
+      // at a time and tolerate partial success (spec §3.6.4).
+      const failures: string[] = []
+      const serverErrors: Record<string, string> = {}
+      for (const { key, value } of uptimeDirtyKeys()) {
+        try {
+          await updateSetting(key, value, 'uptime', 'int')
+        } catch (err) {
+          failures.push(key)
+          serverErrors[key] = err instanceof Error ? err.message : String(err)
+        }
+      }
+      setUptimeServerErrors(serverErrors)
+      if (failures.length > 0) throw new Error(failures.join(', '))
+    },
+    onSettled: () => {
+      // Re-read persisted state so the card always reflects what actually
+      // stored, including after a partial failure.
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+    onSuccess: () => {
+      toast.success(t('systemSettings.uptime.saved'))
+    },
+    onError: (error: Error) => {
+      toast.error(t('systemSettings.uptime.saveFailed', { error: error.message }))
+    },
+  })
+
   // Feature Flags
   const { data: featureFlags, refetch: refetchFlags } = useQuery({
     queryKey: ['feature-flags'],
     queryFn: getFeatureFlags,
   })
+
+  const uptimeFeatureEnabled = Boolean(featureFlags?.['feature.uptime.enabled'])
+  const { data: uptimeHealth } = useUptimeHealth()
 
   const featureToggles = useMemo(
     () => [
@@ -612,6 +725,100 @@ export default function SystemSettings() {
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               {t('systemSettings.updates.checkForUpdates')}
+            </Button>
+          </CardFooter>
+        </Card>
+
+        {/* Uptime Monitoring */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('systemSettings.uptime.title')}</CardTitle>
+            <CardDescription>{t('systemSettings.uptime.description')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="uptime-default-interval">{t('systemSettings.uptime.defaultInterval')}</Label>
+              <Input
+                id="uptime-default-interval"
+                type="number"
+                min={30}
+                max={86400}
+                step={1}
+                value={uptimeInterval}
+                disabled={!uptimeFeatureEnabled}
+                onChange={(e) => {
+                  setUptimeInterval(e.target.value)
+                  clearUptimeServerError(UPTIME_SETTING_KEYS.interval)
+                }}
+                onBlur={() => setUptimeTouched((prev) => ({ ...prev, [UPTIME_SETTING_KEYS.interval]: true }))}
+                error={uptimeFieldError(UPTIME_SETTING_KEYS.interval)}
+                helperText={t('systemSettings.uptime.defaultIntervalHelper')}
+                aria-invalid={uptimeFieldError(UPTIME_SETTING_KEYS.interval) ? 'true' : 'false'}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="uptime-worker-pool">{t('systemSettings.uptime.workerPoolSize')}</Label>
+              <Input
+                id="uptime-worker-pool"
+                type="number"
+                min={1}
+                max={200}
+                step={1}
+                value={uptimeWorkers}
+                disabled={!uptimeFeatureEnabled}
+                onChange={(e) => {
+                  setUptimeWorkers(e.target.value)
+                  clearUptimeServerError(UPTIME_SETTING_KEYS.workers)
+                }}
+                onBlur={() => setUptimeTouched((prev) => ({ ...prev, [UPTIME_SETTING_KEYS.workers]: true }))}
+                error={uptimeFieldError(UPTIME_SETTING_KEYS.workers)}
+                helperText={t('systemSettings.uptime.workerPoolSizeHelper')}
+                aria-invalid={uptimeFieldError(UPTIME_SETTING_KEYS.workers) ? 'true' : 'false'}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="uptime-retention-days">{t('systemSettings.uptime.retentionDays')}</Label>
+              <Input
+                id="uptime-retention-days"
+                type="number"
+                min={1}
+                max={3650}
+                step={1}
+                value={uptimeRetention}
+                disabled={!uptimeFeatureEnabled}
+                onChange={(e) => {
+                  setUptimeRetention(e.target.value)
+                  clearUptimeServerError(UPTIME_SETTING_KEYS.retention)
+                }}
+                onBlur={() => setUptimeTouched((prev) => ({ ...prev, [UPTIME_SETTING_KEYS.retention]: true }))}
+                error={uptimeFieldError(UPTIME_SETTING_KEYS.retention)}
+                helperText={t('systemSettings.uptime.retentionDaysHelper')}
+                aria-invalid={uptimeFieldError(UPTIME_SETTING_KEYS.retention) ? 'true' : 'false'}
+              />
+            </div>
+
+            {uptimeHealth && (
+              <div className="rounded-lg border border-border bg-surface-subtle p-4 text-sm">
+                <p className="font-medium text-content-primary mb-2">{t('systemSettings.uptime.healthTitle')}</p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-content-secondary">
+                  <span>{t('systemSettings.uptime.heartbeatsDropped')}: {uptimeHealth.heartbeats_dropped ?? 0}</span>
+                  <span>{t('systemSettings.uptime.checksEnqueueDropped')}: {uptimeHealth.checks_enqueue_dropped ?? 0}</span>
+                  <span>{t('systemSettings.uptime.queueDepth')}: {uptimeHealth.queue_depth ?? 0}</span>
+                  <span>{t('systemSettings.uptime.activeWorkers')}: {uptimeHealth.worker_pool_size ?? 0}</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="justify-end">
+            <Button
+              onClick={() => saveUptimeMutation.mutate()}
+              isLoading={saveUptimeMutation.isPending}
+              disabled={!uptimeFeatureEnabled || hasUptimeClientErrors || !uptimeDirty}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {t('systemSettings.uptime.save')}
             </Button>
           </CardFooter>
         </Card>

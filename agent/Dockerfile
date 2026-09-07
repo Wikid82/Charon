@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.27.0
+ARG GO_VERSION=1.27.1
 
 # Build on the host platform to avoid emulation overhead; cross-compile to the target.
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS builder

@@ -156,6 +156,19 @@ func main() {
 				log.Fatalf("migration failed: %v", err)
 			}
 
+			// Deferred composite index the uptime summary endpoint needs
+			// (spec §3.5.6). At runtime the retention pruner builds this
+			// prune-first, after trimming the table; the migrate CLI is an
+			// operator-initiated maintenance window, so it builds unconditionally
+			// against the full table with the cost made visible up front (S7).
+			logger.Log().Warn("building index idx_heartbeat_monitor_created on uptime_heartbeats; " +
+				"on a large database this can take several minutes and holds a write lock for the duration")
+			if err := db.Exec(
+				"CREATE INDEX IF NOT EXISTS idx_heartbeat_monitor_created ON uptime_heartbeats (monitor_id, created_at)",
+			).Error; err != nil {
+				log.Fatalf("migration failed: create idx_heartbeat_monitor_created: %v", err)
+			}
+
 			logger.Log().Info("Migration completed successfully")
 			return
 
@@ -270,7 +283,8 @@ func main() {
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	if err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb); err != nil {
+	uptimeShutdown, err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb)
+	if err != nil {
 		appCancel()
 		log.Fatalf("register routes: %v", err) //nolint:gocritic // exitAfterDefer: appCancel called explicitly above
 	}
@@ -309,6 +323,25 @@ func main() {
 
 	// Cancel the app-wide context to stop background goroutines (e.g. cert expiry checker)
 	appCancel()
+
+	// Wait out the ordered uptime teardown (scheduler stops enqueuing → worker
+	// pool drains in-flight checks → ingester final flush) so an in-flight
+	// check's heartbeat is not lost on shutdown (spec §3.1.4 / S4).
+	//
+	// Grace is hardCap (20s) + margin. A worker that reaches shutdown mid-check
+	// could in theory add the C1 notification dispatch's notifyTimeout (10s) on
+	// top of hardCap, exceeding 25s — but it cannot here: appCancel() above has
+	// already cancelled the pool's base ctx, so both the probe ctx and the
+	// dispatch ctx are born already-done and unwind immediately. The only real
+	// bound left is the HTTP client's own 20s timeout on a socket already
+	// reading a slow body, which fits inside 25s.
+	if uptimeShutdown != nil {
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 25*time.Second)
+		if drainErr := uptimeShutdown(drainCtx); drainErr != nil {
+			logger.Log().WithError(drainErr).Warn("uptime pipeline did not drain within grace period")
+		}
+		drainCancel()
+	}
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

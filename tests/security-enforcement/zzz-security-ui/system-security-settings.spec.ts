@@ -479,8 +479,17 @@ test.describe('System Settings', () => {
         await page.waitForTimeout(500);
       });
 
+      // Scope the save button to the Application URL card (the card that
+      // contains #public-url) rather than .last() on the whole page - other
+      // settings cards (e.g. "Save Uptime Settings") also render a save
+      // button and would otherwise be matched.
+      const urlCard = page
+        .locator('div.rounded-lg')
+        .filter({ has: page.locator('#public-url') })
+        .first();
+
       await test.step('Save settings', async () => {
-        const saveButton = page.getByRole('button', { name: /save.*settings|save/i }).last();
+        const saveButton = urlCard.getByRole('button', { name: /save/i });
         await saveButton.first().click();
 
         const feedback = getToastLocator(
@@ -499,7 +508,7 @@ test.describe('System Settings', () => {
       });
 
       await test.step('Restore original value', async () => {
-        const saveButton = page.getByRole('button', { name: /save.*settings|save/i }).last();
+        const saveButton = urlCard.getByRole('button', { name: /save/i });
         await publicUrlInput.clear();
         await publicUrlInput.fill(originalUrl || '');
         await saveButton.first().click();

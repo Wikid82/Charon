@@ -381,6 +381,106 @@ The stats subsystem collects, aggregates, and broadcasts request metrics for the
 - `frontend/src/hooks/useStatsWebSocket.ts` — WebSocket hook that triggers query invalidation on push
 - `frontend/src/components/stats/` — 8 components: `RequestCountWidget`, `TopHostsChart`, `StatusDistributionChart`, `TrafficVolumeChart`, `CertExpiryList`, `ServiceHealthWidget`, `PeriodSelector`, `BucketSelector`
 
+#### Uptime Subsystem (`internal/services/uptime_*`, `internal/api/handlers/uptime_*`)
+
+Monitors the availability of proxy hosts and remote servers at per-monitor
+intervals and serves the Uptime page. Rebuilt for scale (target ~500 monitors on
+one instance) by mirroring the Stats subsystem's buffered-write / cached-read
+split. Replaces the former global 1-minute `CheckAll()` + `checkAllHosts()`
+ticker.
+
+**Components:**
+
+- **`UptimeScheduler`** (`internal/services/uptime_scheduler.go`): single
+  goroutine, ~5 s tick. Maintains two in-memory schedule maps — monitors (keyed
+  on the persisted `uptime_monitors.next_check_at`, written back in batches) and
+  hosts (due-time = min child-monitor interval, in-memory only). Each tick runs a
+  host-connectivity pass then a monitor pass; the monitor pass consults the
+  worker pool's `hostState` map and skips TCP monitors of a known-down host.
+  Due-times advance by the per-monitor `Interval` (30 s floor;
+  `uptime.default_interval_seconds` substituted for zero / legacy / auto-created
+  rows). A jittered 60 s cold-start backfill spreads past-due monitors so a
+  restart does not stampede. `Rehydrate()` re-syncs the maps after a live DB
+  restore.
+
+- **`UptimeWorkerPool`** (`internal/services/uptime_worker_pool.go`): fixed-size
+  pool (`uptime.worker_pool_size`, default 30) over a bounded (512) job channel
+  carrying `Kind`-discriminated monitor-check and host-check jobs; drop-on-full
+  increments `checks_enqueue_dropped`. Owns the **authoritative in-memory
+  debounce state** — `monState` per monitor (`{status, failureCount,
+  lastStatusChange, lastNotifiedDown}`) and `hostState` per host — both seeded
+  from the DB at startup. The worker (not the ingester) read-modify-writes this
+  state synchronously, computes status transitions, dispatches notifications, and
+  on a host→down transition synthesizes `down` heartbeats for that host's TCP
+  monitors. All HTTP checks share one keep-alive SSRF-safe `*http.Client`
+  (`network.NewSafeHTTPClient(..., network.WithKeepAlive(100, 4, 30s))`) with the
+  same `safeDialer` / no-redirect / localhost + RFC1918 policy as the retired
+  per-check client. The host TCP pre-check is now a single non-blocking dial (was
+  a `2s × MaxRetries` sleep-retry loop). Shutdown waits on in-flight checks
+  (`workerWG`), then closes the results channel.
+
+- **`UptimeIngester`** (`internal/services/uptime_ingester.go`): mirrors
+  `StatsIngester`'s batching but is a **pure persistence mirror** — no transition
+  detection, no fan-out. Receives `CheckResult` / `HostCheckResult` values on a
+  channel the pool owns and closes; `Run` exits only when that channel closes (so
+  no in-flight result is lost at shutdown), then does a final flush.
+  Batch-inserts `uptime_heartbeats` and coalesces `uptime_monitors` /
+  `uptime_hosts` column updates every 500 ms or 100 results in one transaction.
+  Drop-on-full increments `heartbeats_dropped`; a dropped write can never
+  suppress an alert because runtime detection never reads these columns.
+
+- **`UptimePruner`** (`internal/services/uptime_pruner.go`): hourly, chunked
+  `DELETE` (5 000 rows per chunk via `WHERE id IN (SELECT ... LIMIT n)`; 50 ms
+  inter-chunk pause steady-state, 250 ms on the first cold pass) of
+  `uptime_heartbeats` older than `uptime.heartbeat_retention_days` (default 90).
+  `PRAGMA wal_checkpoint(TRUNCATE)` after a large prune; `PRAGMA optimize` daily;
+  no downsampling and no `VACUUM`. Also owns lazy creation of
+  `idx_heartbeat_monitor_created (monitor_id, created_at)` — issued as
+  `CREATE INDEX IF NOT EXISTS` at the end of every clean, caught-up pass and
+  retried until it lands, so a huge existing table is trimmed before the build.
+  `charon migrate` builds the index eagerly, with a warning log.
+
+- **`uptimeConfig`** (`internal/services/uptime_config.go`): a hot-reloading
+  (60 s TTL) snapshot of the three `uptime.*` settings, shared by the scheduler,
+  pruner, and `UptimeService`. Read-only; writes go through `POST /api/v1/settings`.
+
+- **`UptimeSummaryService`** (`internal/services/uptime_summary_service.go`):
+  serves `GET /api/v1/uptime/monitors/summary` from three windowed queries
+  (monitor metadata; a `ROW_NUMBER()` recent-beats query bounded to 24 h, default
+  30 beats / cap 60; a grouped 24 h-uptime query) behind a 30 s TTL cache — the
+  `StatsService` pattern. Correct (just slower) before
+  `idx_heartbeat_monitor_created` exists; never 503-gated. Replaces the per-card
+  N+1 history fetch on the Uptime page.
+
+- **Targeted monitor sync on mutation:** proxy-host create/update/delete already
+  drive `UptimeService.SyncAndCheckForHost` / `SyncMonitorForHost` / inline
+  cleanup; remote-server create/update/delete now do the same via
+  `SyncAndCheckForRemoteServer` / `SyncMonitorForRemoteServer` / inline cleanup
+  (`RemoteServerHandler` gains a nil-guarded `UptimeService`). The 5-minute
+  `UptimeSyncLoop` is the backstop. Auto-created monitors inherit
+  `uptime.default_interval_seconds` rather than a hardcoded 60.
+
+- **Ordered graceful shutdown:** scheduler stops enqueuing → worker pool drains
+  in-flight checks → pool closes the ingester channel → ingester does its final
+  flush. `cmd/api/main.go` allows up to 25 s for this chain.
+
+**Settings** (`models.Setting`, `Category = "uptime"`, editable via
+`POST /api/v1/settings` and the SystemSettings "Uptime Monitoring" card):
+
+| Key | Default | Bounds | Hot-reload |
+|-----|---------|--------|-----------|
+| `uptime.default_interval_seconds` | 60 | 30 – 86400 | Yes (~60 s TTL) |
+| `uptime.worker_pool_size` | 30 | 1 – 200 | No — restart to apply |
+| `uptime.heartbeat_retention_days` | 90 | 1 – 3650 | Yes (read each pruner pass) |
+
+**API Endpoints** (JWT auth, mounted in the `management` group):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/uptime/monitors/summary` | Per-monitor status, latency, last check, 24 h uptime %, and a `recent_beats` sparkline series — one response, 30 s cached |
+| `GET` | `/api/v1/uptime/monitors/:id/history` | Detailed heartbeat history for one monitor — `limit` (≤ 500), `before` cursor |
+| `GET` | `/api/v1/uptime/health` | `heartbeats_dropped`, `checks_enqueue_dropped`, `queue_depth`, `worker_pool_size` |
+
 #### Backup & Restore Subsystem (`internal/services/backup_service.go`, `internal/services/remotestorage/`, `internal/database/pending_restore.go`)
 
 Format-v2 backup archives, a validated safe-restore pipeline, optional archive encryption, and remote storage to S3, SFTP, WebDAV, Dropbox, or Google Drive. Extends the original v1 backup system (zip + `VACUUM INTO` SQLite snapshot).
@@ -610,6 +710,13 @@ This pattern is **intentional and valid**:
 - **WAL Mode:** Allows concurrent reads during writes
 - **Foreign Keys:** Enforced referential integrity
 - **Pragma Settings:** Performance optimizations
+- **Single Writer:** `SetMaxOpenConns(1)` serializes all writes through one
+  connection. The high-volume stats and uptime write paths are both funnelled
+  through a buffered ingester that batch-inserts every 500 ms instead of writing
+  on the request/check goroutine — this is what keeps a single write connection
+  viable at ~500 uptime monitors. Authoritative uptime debounce state lives in
+  memory (the worker pool's `monState` / `hostState` maps); the DB columns are a
+  persistence mirror.
 
 **Backup Strategy:**
 
@@ -623,6 +730,18 @@ This pattern is **intentional and valid**:
 - GORM AutoMigrate for schema changes
 - Manual migrations for complex data transformations
 - Rollback support via backup restoration
+
+**Data lifecycle:**
+
+- `uptime_heartbeats` rows are hard-deleted on a rolling window
+  (`uptime.heartbeat_retention_days`, default 90) by a background hourly pruner —
+  the only automatic data deletion in Charon.
+- The `idx_heartbeat_monitor_created` index is created lazily by that pruner
+  (`CREATE INDEX IF NOT EXISTS`, retried until it lands), not by AutoMigrate, so
+  an upgrade never stalls on a migration-time index build. On a very large
+  existing table the first background build is still a bounded multi-minute,
+  write-contending operation; `charon migrate` builds it eagerly, with a warning
+  log, for an out-of-band maintenance window.
 
 ---
 
@@ -717,7 +836,12 @@ graph LR
 
 **Additional Protections:**
 
-- **SSRF Prevention:** Block requests to private IP ranges in webhooks/URL validation
+- **SSRF Prevention:** Block requests to private IP ranges in webhooks/URL
+  validation. `network.NewSafeHTTPClient` disables HTTP keep-alives by default;
+  the uptime worker pool opts into a pooled variant via
+  `network.WithKeepAlive(100, 4, 30s)`, where `safeDialer` still re-validates
+  every new connection and the 30 s idle timeout bounds how long a reused
+  connection can skip re-resolution.
 - **HTTP Security Headers:** CSP, HSTS, X-Frame-Options, X-Content-Type-Options
 - **Input Validation:** Server-side validation for all user inputs
 - **SQL Injection Prevention:** Parameterized queries with GORM

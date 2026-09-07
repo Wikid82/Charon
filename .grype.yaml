@@ -927,10 +927,14 @@ ignore:
   #
   # References:
   # - GO-2026-5932: https://pkg.go.dev/vuln/GO-2026-5932
+  # NOTE: no `version:` constraint — this advisory has no fixed version and will never
+  # have one, and the flagged x/crypto version moves with every third-party binary rebuild
+  # (v0.53.0 -> v0.55.0 in crowdsec/cscli, v0.56.0 in /app/charon and /usr/bin/caddy as of
+  # the 2026-09-04 scan). Pinning a single version here let newer builds re-surface it.
+  # Mirrors the version-less `.trivyignore` entry.
   - vulnerability: GO-2026-5932
     package:
       name: golang.org/x/crypto
-      version: "v0.53.0"
       type: go-module
     reason: |
       UNKNOWN/HIGH — golang.org/x/crypto/openpgp is flagged as unmaintained and unsafe by design.
@@ -938,12 +942,12 @@ ignore:
       that Charon's own code (app/charon) does not import the openpgp subpackage — false positive
       from Trivy's module-level (not symbol-level) binary scanning. caddy/crowdsec/cscli are
       third-party binaries with their own transitive dependency on x/crypto.
-    expiry: "2026-08-08"  # Review: Initial suppression 2026-07-08. Next review: 2026-08-08.
+    expiry: "2026-12-04"  # Review: broadened + re-reviewed 2026-09-04 (was 2026-08-08). Next review: 2026-12-04.
 
     # Action items when this suppression expires:
     # 1. Check if Go vulndb has published a fixed version for golang.org/x/crypto
     # 2. Re-run `go list -deps ./...` in backend to confirm openpgp is still not imported
-    # 3. If neither changes: extend expiry by 30 days
+    # 3. If neither changes: extend expiry by 90 days
 
   # --- 2026-08-26 OpenSSL Alpine batch (9 CVEs, libcrypto3 + libssl3 3.5.7-r0) ---
   # CVE-2026-63072: OpenSSL heap buffer overflow in CMS key unwrapping
@@ -1262,6 +1266,99 @@ ignore:
     #    grype-results.json / trivy-pr-results.sarif, then remove all entries in this
     #    batch from both .grype.yaml and .trivyignore.
     # 3. If not yet bumped: extend expiry by 14 days and note the check date above.
+
+  # CVE-2026-41889 / GHSA-j88v-2chj-qfwx: pgx SQL-injection via placeholder confusion in
+  #   dollar-quoted string literals (simple protocol only)
+  # Severity: LOW (GHSA CVSS 2.3) / NVD CPE alias rates it Critical — Package:
+  #   github.com/jackc/pgx/v4 v4.18.3 (embedded in /usr/local/bin/crowdsec and
+  #   /usr/local/bin/cscli). Grype re-surfaced this on the 2026-09-04 nightly scan.
+  #
+  # Status: NO fix for the pgx v4 line. Patched only in pgx v5.9.2. The pgx/v4 module is in
+  # maintenance mode; CrowdSec v1.8.x still vendors pgx/v4 (same dependency chain as the
+  # pgproto3/v2 entries above). Already suppressed for Trivy in .trivyignore
+  # (CVE-2026-41889 + GHSA-j88v-2chj-qfwx); this is the matching Grype entry.
+  #
+  # Exploit preconditions (all required): the caller uses pgx's non-default *simple*
+  # query protocol, the query contains a dollar-quoted string literal, that literal
+  # embeds text that would parse as a bind placeholder outside a string, and the
+  # placeholder value is attacker-controlled.
+  #
+  # Risk Assessment: ACCEPTED (not reachable in a standard Charon deployment)
+  # - Charon itself uses SQLite via GORM and never links pgx.
+  # - pgx is present only inside the bundled CrowdSec binaries, and only exercised if an
+  #   operator explicitly configures CrowdSec with a PostgreSQL backend (default is SQLite).
+  # - CrowdSec builds its own parameterised queries via ent/dialect; it does not expose a
+  #   simple-protocol raw-SQL path to untrusted network input.
+  #
+  # Review: 2026-12-04. Remove once CrowdSec migrates to pgx/v5 (tracked together with the
+  # pgproto3/v2 -> pgproto3/v3 migration in the entries above) and a rebuild scans clean.
+  #
+  # References:
+  # - GHSA-j88v-2chj-qfwx: https://github.com/jackc/pgx/security/advisories/GHSA-j88v-2chj-qfwx
+  # - CVE-2026-41889: https://nvd.nist.gov/vuln/detail/CVE-2026-41889
+  # - pgx v5.9.2 (fix): https://github.com/jackc/pgx/releases/tag/v5.9.2
+  - vulnerability: GHSA-j88v-2chj-qfwx
+    package:
+      name: github.com/jackc/pgx/v4
+      type: go-module
+    reason: |
+      LOW (GHSA CVSS 2.3) — pgx SQL-injection via placeholder confusion in dollar-quoted
+      string literals, simple protocol only, in github.com/jackc/pgx/v4 v4.18.3 embedded in
+      the bundled CrowdSec binaries. No fix for the pgx v4 line (patched only in pgx v5.9.2).
+      Charon uses SQLite and never links pgx; pgx is reachable only if an operator configures
+      CrowdSec with a PostgreSQL backend, which is not the default. Same fix path as the
+      pgproto3/v2 entries above (CrowdSec -> pgx/v5). Mirrors the .trivyignore entry.
+    expiry: "2026-12-04"  # Review: initial suppression 2026-09-04. Aligned with pgproto3/v2 entries.
+  - vulnerability: CVE-2026-41889
+    package:
+      name: github.com/jackc/pgx/v4
+      type: go-module
+    reason: |
+      NVD CPE alias of GHSA-j88v-2chj-qfwx — pgx v4 dollar-quote placeholder-confusion
+      SQL-injection (simple protocol only). No fix for the pgx v4 line. Not reachable in a
+      standard Charon deployment (SQLite; pgx only in bundled CrowdSec with a non-default
+      PostgreSQL backend). See the GHSA-j88v-2chj-qfwx entry above for full justification.
+    expiry: "2026-12-04"  # Review: initial suppression 2026-09-04. Aligned with pgproto3/v2 entries.
+
+  # CVE-2025-60876: BusyBox wget accepts raw CR/LF/C0 control bytes in the HTTP
+  #   request-target -> request-line splitting / header injection (CWE-284)
+  # Severity: MEDIUM (CVSS 6.5) — Packages: busybox / busybox-binsh / busybox-extras /
+  #   ssl_client 1.37.0-r31 (Alpine apk, all upstream `busybox`). Re-surfaced on the
+  #   2026-09-04 nightly scan against the Alpine 3.24.1 base.
+  #
+  # Status: NO upstream fix available. Alpine's v3.24 branch still ships busybox 1.37.0-r31;
+  # the BusyBox project has not tagged a release carrying the request-target sanitisation.
+  #
+  # Risk Assessment: ACCEPTED (client-only applet; no attacker-controlled invocation path)
+  # - The flaw is in the `wget` applet acting as an HTTP *client*. Charon invokes busybox
+  #   wget in exactly two places, both with static, non-attacker-controlled URLs:
+  #     1. the Dockerfile HEALTHCHECK (`wget ... http://localhost:8080/api/v1/health`);
+  #     2. the build-time GeoLite2 download (a fixed github.com raw URL).
+  # - No runtime code path passes user input to busybox wget. Charon's own outbound HTTP
+  #   (health checks against proxied upstreams, plugin fetches) goes through the Go backend's
+  #   net/http with its own URL validation, not the busybox applet.
+  # - EPSS 0.29% (21st percentile).
+  #
+  # Documented in SECURITY.md ("[MEDIUM] CVE-2025-60876 · BusyBox wget HTTP Request
+  # Smuggling"). ID-only match (no `package:` block) so it covers all four busybox apk
+  # sub-packages at once; mirrors the .trivyignore entry.
+  #
+  # Review: 2026-12-04 — remove once Alpine 3.24 ships a patched busybox APK and a rebuild
+  # scans clean.
+  #
+  # References:
+  # - CVE-2025-60876: https://nvd.nist.gov/vuln/detail/CVE-2025-60876
+  # - Alpine tracker: https://security.alpinelinux.org/vuln/CVE-2025-60876
+  - vulnerability: CVE-2025-60876
+    reason: |
+      MEDIUM — BusyBox wget accepts raw CR/LF/C0 control bytes in the HTTP request-target
+      (request-line splitting / header injection) in busybox 1.37.0-r31 (Alpine 3.24.1 base
+      image). No upstream fix: Alpine v3.24 still ships 1.37.0-r31. The flaw is in the wget
+      applet as an HTTP client; Charon invokes busybox wget only from the Dockerfile
+      HEALTHCHECK and the build-time GeoIP download, both with static URLs. No runtime path
+      passes user input to busybox wget. Risk accepted pending an Alpine upstream patch.
+      Documented in SECURITY.md. Mirrors the .trivyignore entry.
+    expiry: "2026-12-04"  # Review: initial suppression 2026-09-04. Next review: 2026-12-04.
 
 # Match exclusions (patterns to ignore during scanning)
 # Use sparingly - prefer specific CVE suppressions above

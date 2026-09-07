@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"net/url"
 	"reflect"
 	"strconv"
@@ -16,8 +15,6 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/Wikid82/charon/backend/internal/network"
-	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -42,7 +39,36 @@ type UptimeService struct {
 	hostMutexLock sync.Mutex
 	// Configuration
 	config UptimeConfig
+	// uptimeCfg is the hot-reloading snapshot of the uptime.* Settings rows
+	// (default interval, worker pool size, retention days). Shared read-only
+	// with the scheduler/pruner in later commits; used here for write-time
+	// interval resolution. Named to avoid colliding with the config field above.
+	uptimeCfg *uptimeConfig
+
+	// Ingester is the buffered, batched write path for check results (spec
+	// §3.3). Constructed here so later commits (worker pool, /uptime/health)
+	// can hold a stable reference. Its Run loop is NOT started yet — nothing
+	// sends to it until the scheduler commit wires the worker pool — so it is
+	// inert: DroppedCount() returns 0 and no goroutine is spawned.
+	Ingester *UptimeIngester
+
+	// Pool is the bounded worker pool that owns the authoritative in-memory
+	// debounce maps (monState/hostState) and the shared keep-alive SSRF client
+	// (spec §3.2). When non-nil (production, from C5 on) the check paths
+	// (CheckAll, SyncAndCheckForHost/RemoteServer, the manual-check handler)
+	// enqueue onto it instead of probing inline. nil in most unit tests, which
+	// then take the synchronous inline path below.
+	Pool *UptimeWorkerPool
+
+	// checker is the one shared probe engine (single keep-alive SSRF client +
+	// one copy of the http/tcp/orthrus switch). Used by the inline check path
+	// here and reused by the worker pool (spec §3.1.5 / N3).
+	checker *uptimeChecker
 }
+
+// ErrIntervalTooLow is returned by UpdateMonitor when a caller tries to set a
+// check interval below the 30-second hard floor. Handlers map it to HTTP 400.
+var ErrIntervalTooLow = errors.New("interval must be at least 30 seconds")
 
 // UptimeConfig holds configurable timeouts and thresholds
 type UptimeConfig struct {
@@ -70,12 +96,14 @@ type monitorDownInfo struct {
 }
 
 func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
-	return &UptimeService{
+	s := &UptimeService{
 		DB:                   db,
 		NotificationService:  ns,
 		pendingNotifications: make(map[string]*pendingHostNotification),
 		batchWindow:          30 * time.Second, // Wait 30 seconds to batch notifications
 		hostMutexes:          make(map[string]*sync.Mutex),
+		uptimeCfg:            newUptimeConfig(db),
+		Ingester:             newUptimeIngester(db),
 		config: UptimeConfig{
 			TCPTimeout:       10 * time.Second,
 			MaxRetries:       2,
@@ -84,6 +112,19 @@ func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
 			StaggerDelay:     100 * time.Millisecond,
 		},
 	}
+	s.checker = newUptimeChecker(s)
+	return s
+}
+
+// uptimeFeatureEnabled reports whether feature.uptime.enabled is set to "true".
+// A missing row is treated as enabled (matches the pre-existing default at every
+// call site that used to inline this check).
+func (s *UptimeService) uptimeFeatureEnabled() bool {
+	var setting models.Setting
+	if err := s.DB.Where("key = ?", "feature.uptime.enabled").First(&setting).Error; err == nil {
+		return setting.Value == "true"
+	}
+	return true
 }
 
 // SetOrthrusResolver injects the Orthrus session resolver.
@@ -95,7 +136,7 @@ func (s *UptimeService) SetOrthrusResolver(r orthrusStatusChecker) {
 	}
 
 	rv := reflect.ValueOf(r)
-	if (rv.Kind() == reflect.Ptr || rv.Kind() == reflect.Interface) && rv.IsNil() {
+	if (rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface) && rv.IsNil() {
 		s.orthrusResolver = nil
 		return
 	}
@@ -220,7 +261,7 @@ func (s *UptimeService) SyncMonitors() error {
 				Type:         "http", // Check public access
 				URL:          publicURL,
 				UpstreamHost: upstreamHost,
-				Interval:     60,
+				Interval:     clampInterval(0, s.uptimeCfg), // honour uptime.default_interval_seconds (S3)
 				Enabled:      true,
 				Status:       "pending",
 			}
@@ -317,7 +358,7 @@ func (s *UptimeService) SyncMonitors() error {
 				Type:           targetType,
 				URL:            targetURL,
 				UpstreamHost:   upstreamHost,
-				Interval:       60,
+				Interval:       clampInterval(0, s.uptimeCfg), // honour uptime.default_interval_seconds (S3)
 				Enabled:        server.Enabled,
 				Status:         "pending",
 			}
@@ -415,18 +456,65 @@ func (s *UptimeService) ensureUptimeHost(host, defaultName string) string {
 	return uptimeHost.ID
 }
 
-// CheckAll runs checks for all enabled monitors with host-level pre-check
-func (s *UptimeService) CheckAll() {
-	// First, check all UptimeHosts
+// CheckAll triggers a check of every enabled host and monitor. It is the target
+// of POST /api/v1/system/uptime/check and a handful of tests.
+//
+// With a live worker pool (production, C5+) it enqueues one JobHostCheck per
+// UptimeHost and one JobMonitorCheck per enabled monitor onto the bounded queue
+// and returns (enqueued, dropped) counts (spec §3.1.5 / N5) — no goroutine
+// fan-out, no direct writes. Without a pool it falls back to a synchronous
+// inline sweep (host pre-checks then monitor checks, no goroutines) so legacy
+// tests keep working.
+func (s *UptimeService) CheckAll() (enqueued, dropped int) {
+	if s.Pool != nil {
+		return s.enqueueAllChecks()
+	}
+	return s.checkAllInline()
+}
+
+// enqueueAllChecks is the pool-backed CheckAll: every host + every enabled
+// monitor onto the bounded queue, drop-on-full counted.
+func (s *UptimeService) enqueueAllChecks() (enqueued, dropped int) {
+	var hosts []models.UptimeHost
+	if err := s.DB.Find(&hosts).Error; err != nil {
+		logger.Log().WithError(err).Error("CheckAll: failed to fetch uptime hosts")
+	}
+	for i := range hosts {
+		h := hosts[i]
+		if s.Pool.TryEnqueue(UptimeJob{Kind: JobHostCheck, Host: &h}) {
+			enqueued++
+		} else {
+			dropped++
+		}
+	}
+
+	var monitors []models.UptimeMonitor
+	if err := s.DB.Where("enabled = ?", true).Find(&monitors).Error; err != nil {
+		logger.Log().WithError(err).Error("CheckAll: failed to fetch monitors")
+		return enqueued, dropped
+	}
+	for _, m := range monitors {
+		if s.Pool.TryEnqueue(UptimeJob{Kind: JobMonitorCheck, Monitor: m, Manual: true}) {
+			enqueued++
+		} else {
+			dropped++
+		}
+	}
+	return enqueued, dropped
+}
+
+// checkAllInline is the no-pool fallback: synchronous host pre-checks, then a
+// synchronous per-monitor sweep with the same host-down short-circuit the legacy
+// path had, minus the unbounded goroutine fan-out.
+func (s *UptimeService) checkAllInline() (checked, dropped int) {
 	s.checkAllHosts()
 
 	var monitors []models.UptimeMonitor
 	if err := s.DB.Where("enabled = ?", true).Find(&monitors).Error; err != nil {
 		logger.Log().WithError(err).Error("Failed to fetch monitors")
-		return
+		return 0, 0
 	}
 
-	// Group monitors by UptimeHost
 	hostMonitors := make(map[string][]models.UptimeMonitor)
 	for _, monitor := range monitors {
 		hostID := ""
@@ -436,46 +524,35 @@ func (s *UptimeService) CheckAll() {
 		hostMonitors[hostID] = append(hostMonitors[hostID], monitor)
 	}
 
-	// Check each host's monitors
 	for hostID, monitors := range hostMonitors {
-		// If host is down, only short-circuit TCP monitors.
-		// HTTP/HTTPS monitors remain URL-truth authoritative and must still run checkMonitor.
 		if hostID != "" {
 			var uptimeHost models.UptimeHost
-			if err := s.DB.Where("id = ?", hostID).First(&uptimeHost).Error; err == nil {
-				if uptimeHost.Status == "down" {
-					tcpMonitors := make([]models.UptimeMonitor, 0, len(monitors))
-					nonTCPMonitors := make([]models.UptimeMonitor, 0, len(monitors))
-
-					// "orthrus" type is not "tcp", so it falls into nonTCPMonitors and
-					// continues to run checkMonitor independently even when the host is down.
-					for _, monitor := range monitors {
-						normalizedType := strings.ToLower(strings.TrimSpace(monitor.Type))
-						if normalizedType == "tcp" {
-							tcpMonitors = append(tcpMonitors, monitor)
-							continue
-						}
-						nonTCPMonitors = append(nonTCPMonitors, monitor)
+			if err := s.DB.Where("id = ?", hostID).First(&uptimeHost).Error; err == nil && uptimeHost.Status == "down" {
+				tcpMonitors := make([]models.UptimeMonitor, 0, len(monitors))
+				nonTCPMonitors := make([]models.UptimeMonitor, 0, len(monitors))
+				for _, monitor := range monitors {
+					if strings.ToLower(strings.TrimSpace(monitor.Type)) == "tcp" {
+						tcpMonitors = append(tcpMonitors, monitor)
+						continue
 					}
-
-					if len(tcpMonitors) > 0 {
-						s.markHostMonitorsDown(tcpMonitors, &uptimeHost)
-					}
-
-					for _, monitor := range nonTCPMonitors {
-						go s.checkMonitor(monitor)
-					}
-
-					continue
+					nonTCPMonitors = append(nonTCPMonitors, monitor)
 				}
+				if len(tcpMonitors) > 0 {
+					s.markHostMonitorsDown(tcpMonitors, &uptimeHost)
+				}
+				for _, monitor := range nonTCPMonitors {
+					s.checkMonitor(monitor)
+				}
+				checked += len(monitors)
+				continue
 			}
 		}
-
-		// Host is up, check individual monitors
 		for _, monitor := range monitors {
-			go s.checkMonitor(monitor)
+			s.checkMonitor(monitor)
 		}
+		checked += len(monitors)
 	}
+	return checked, 0
 }
 
 // checkAllHosts performs TCP connectivity check on all UptimeHosts
@@ -520,18 +597,35 @@ func (s *UptimeService) checkAllHosts() {
 	logger.Log().WithField("host_count", len(hosts)).Info("All host checks completed")
 }
 
+// lockHostKey acquires the per-key mutex used to serialise all targeted uptime
+// work for one subject and returns its unlock func (call it, typically via
+// `defer s.lockHostKey(key)()`). The key namespaces are shared across call
+// sites so they genuinely exclude one another:
+//
+//   - "proxy-<id>"     — SyncAndCheckForHost / RemoveForHost
+//   - "remote-<id>"    — SyncAndCheckForRemoteServer / RemoveForRemoteServer
+//   - "<uptimeHostID>" — checkHost
+//
+// Teardown (RemoveForHost / RemoveForRemoteServer) taking the SAME lock as the
+// create-and-check path is what closes the create/delete race: a sync already
+// running finishes before teardown proceeds, and a sync that starts afterwards
+// finds its parent row already gone and creates nothing.
+func (s *UptimeService) lockHostKey(key string) func() {
+	s.hostMutexLock.Lock()
+	if s.hostMutexes[key] == nil {
+		s.hostMutexes[key] = &sync.Mutex{}
+	}
+	mu := s.hostMutexes[key]
+	s.hostMutexLock.Unlock()
+
+	mu.Lock()
+	return mu.Unlock
+}
+
 // checkHost performs a basic TCP connectivity check to determine if the host is reachable
 func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) {
 	// Get host-specific mutex to prevent concurrent database updates
-	s.hostMutexLock.Lock()
-	if s.hostMutexes[host.ID] == nil {
-		s.hostMutexes[host.ID] = &sync.Mutex{}
-	}
-	mutex := s.hostMutexes[host.ID]
-	s.hostMutexLock.Unlock()
-
-	mutex.Lock()
-	defer mutex.Unlock()
+	defer s.lockHostKey(host.ID)()
 
 	start := time.Now()
 
@@ -566,81 +660,62 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 
 	// Track whether any non-Orthrus monitor with a valid port was attempted.
 	attempted := false
-
-	// Try to connect to any of the monitor ports with retry logic
 	success := false
 	var msg string
 	var lastErr error
 
-	for retry := 0; retry <= s.config.MaxRetries && !success; retry++ {
-		if retry > 0 {
-			logger.Log().WithFields(map[string]any{
-				"host_name": host.Name,
-				"retry":     retry,
-				"max":       s.config.MaxRetries,
-			}).Info("Retrying TCP check")
-			time.Sleep(2 * time.Second) // Brief delay between retries
+	// Single non-blocking dial per candidate port — no in-call sleep-retry loop
+	// (spec §3.2.3 de-blocking). The cross-cycle FailureThreshold/FailureCount
+	// debounce below is unchanged: a host still needs FailureThreshold
+	// consecutive failed check cycles to flip to "down". Removing the retry loop
+	// only drops up to ~4s (2s x MaxRetries) of blocked goroutine time per down
+	// host per cycle.
+	select {
+	case <-ctx.Done():
+		logger.Log().WithField("host_name", host.Name).Warn("TCP check cancelled")
+		return
+	default:
+	}
+
+	// Connect timeout: 3s in production; honour a smaller test-configured
+	// TCPTimeout so unit tests stay fast.
+	dialTimeout := s.config.TCPTimeout
+	if dialTimeout <= 0 || dialTimeout > 3*time.Second {
+		dialTimeout = 3 * time.Second
+	}
+
+	for _, monitor := range monitors {
+		// Orthrus liveness is checked per-monitor via session state, not TCP pre-check.
+		if strings.ToLower(monitor.Type) == "orthrus" {
+			continue
 		}
 
-		// Check if context is cancelled
-		select {
-		case <-ctx.Done():
-			logger.Log().WithField("host_name", host.Name).Warn("TCP check cancelled")
-			return
-		default:
+		var port string
+		if monitor.ProxyHost != nil {
+			// Use actual backend port from ProxyHost if available.
+			port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
+		} else {
+			// Fallback to extracting from URL for standalone monitors.
+			port = extractPort(monitor.URL)
+		}
+		if port == "" {
+			continue
 		}
 
-		for _, monitor := range monitors {
-			// Orthrus liveness is checked per-monitor via session state, not TCP pre-check.
-			if strings.ToLower(monitor.Type) == "orthrus" {
-				continue
+		attempted = true
+		addr := net.JoinHostPort(host.Host, port) // net.JoinHostPort for IPv6 compatibility
+		dialer := net.Dialer{Timeout: dialTimeout}
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		if err == nil {
+			if closeErr := conn.Close(); closeErr != nil {
+				logger.Log().WithError(closeErr).Warn("failed to close tcp connection")
 			}
-
-			var port string
-
-			// Use actual backend port from ProxyHost if available
-			if monitor.ProxyHost != nil {
-				port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
-			} else {
-				// Fallback to extracting from URL for standalone monitors
-				port = extractPort(monitor.URL)
-			}
-
-			if port == "" {
-				continue
-			}
-
-			attempted = true
-			logger.Log().WithFields(map[string]any{
-				"monitor":        monitor.Name,
-				"extracted_port": extractPort(monitor.URL),
-				"actual_port":    port,
-				"host":           host.Host,
-				"retry":          retry,
-			}).Debug("TCP check port resolution")
-
-			// Use net.JoinHostPort for IPv6 compatibility
-			addr := net.JoinHostPort(host.Host, port)
-
-			// Create dialer with timeout from context
-			dialer := net.Dialer{Timeout: s.config.TCPTimeout}
-			conn, err := dialer.DialContext(ctx, "tcp", addr)
-			if err == nil {
-				if closeErr := conn.Close(); closeErr != nil {
-					logger.Log().WithError(closeErr).Warn("failed to close tcp connection")
-				}
-				success = true
-				msg = fmt.Sprintf("TCP connection to %s successful (retry %d)", addr, retry)
-				logger.Log().WithFields(map[string]any{
-					"host_name": host.Name,
-					"addr":      addr,
-					"retry":     retry,
-				}).Debug("TCP connection successful")
-				break
-			}
-			lastErr = err
-			msg = fmt.Sprintf("TCP check failed: %v", err)
+			success = true
+			msg = fmt.Sprintf("TCP connection to %s successful", addr)
+			break
 		}
+		lastErr = err
+		msg = fmt.Sprintf("TCP check failed: %v", err)
 	}
 
 	// If every monitor for this host is Orthrus-type, there are no dialable ports.
@@ -701,7 +776,22 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 		"status_changed": statusChanged,
 	}).Debug("Host TCP check completed")
 
-	s.DB.Save(host)
+	// Persist through the single ingester write path (no direct s.DB.Save here
+	// any more — spec §3.1.5). The in-memory *host is still mutated above so
+	// callers that inspect the passed struct keep working.
+	if err := s.Ingester.FlushResults(HostCheckResult{
+		HostID:          host.ID,
+		Status:          host.Status,
+		FailureCount:    host.FailureCount,
+		Latency:         host.Latency,
+		Message:         msg,
+		CheckedAt:       host.LastCheck,
+		StatusChanged:   statusChanged,
+		StatusChangedAt: statusChangedAt(statusChanged, host.LastStatusChange),
+	}); err != nil {
+		logger.Log().WithError(err).WithField("host_id", host.ID).
+			Error("checkHost: failed to persist host check result")
+	}
 }
 
 // markHostMonitorsDown marks all monitors for a down host as down and sends a single notification
@@ -818,182 +908,69 @@ func (s *UptimeService) sendHostDownNotification(host *models.UptimeHost, downMo
 	logger.Log().WithField("host_name", host.Name).WithField("service_count", len(downMonitors)).Info("Sent consolidated DOWN notification")
 }
 
-// CheckMonitor is the exported version for on-demand checks
+// CheckMonitor runs one monitor check. When a live worker pool is wired
+// (production, C5 onward) the check is enqueued onto the bounded pool; otherwise
+// it runs inline via checkMonitor. Callers use it as a fire-and-forget trigger.
 func (s *UptimeService) CheckMonitor(monitor models.UptimeMonitor) {
+	if s.Pool != nil {
+		s.Pool.TryEnqueue(UptimeJob{Kind: JobMonitorCheck, Monitor: monitor, Manual: true})
+		return
+	}
 	s.checkMonitor(monitor)
 }
 
+// checkMonitor is the synchronous inline probe path used when no worker pool is
+// running (unit tests, legacy fallback). It runs the shared probe, resolves the
+// transition against this monitor's persisted debounce columns, and persists the
+// outcome through the single ingester write path — there is deliberately no
+// direct s.DB.Create(&heartbeat) / s.DB.Save(&monitor) here any more (spec
+// §3.1.5, N3 collapsed: the probe switch lives only in uptime_check.go).
 func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
-	start := time.Now()
-	success := false
-	var msg string
+	ctx, cancel := context.WithTimeout(context.Background(),
+		time.Duration(clampInterval(monitor.Interval, s.uptimeCfg))*time.Second)
+	defer cancel()
 
-	switch monitor.Type {
-	case "http", "https":
-		validatedURL, err := security.ValidateExternalURL(
-			monitor.URL,
-			// Uptime monitors are an explicit admin-configured feature and commonly
-			// target loopback in local/dev setups (and in unit tests).
-			security.WithAllowLocalhost(),
-			security.WithAllowHTTP(),
-			security.WithTimeout(3*time.Second),
-			// Admin-configured uptime monitors may target RFC 1918 private hosts.
-			// Link-local (169.254.x.x), cloud metadata, and all other restricted
-			// ranges remain blocked at both validation layers.
-			security.WithAllowRFC1918(),
-		)
-		if err != nil {
-			msg = fmt.Sprintf("security validation failed: %s", err.Error())
-			break
-		}
+	raw := s.checker.probe(ctx, monitor)
+	now := time.Now()
 
-		client := network.NewSafeHTTPClient(
-			network.WithTimeout(10*time.Second),
-			network.WithDialTimeout(5*time.Second),
-			// Explicit redirect policy per call site: disable.
-			network.WithMaxRedirects(0),
-			// Uptime monitors are an explicit admin-configured feature and commonly
-			// target loopback in local/dev setups (and in unit tests).
-			network.WithAllowLocalhost(),
-			// Mirror security.WithAllowRFC1918() above so the dial-time SSRF guard
-			// (Layer 2) permits the same RFC 1918 address space as URL validation
-			// (Layer 1). Without this, safeDialer would re-block private IPs that
-			// already passed URL validation, defeating the dual-layer bypass.
-			network.WithAllowRFC1918(),
-		)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, validatedURL, http.NoBody)
-		if err != nil {
-			msg = err.Error()
-			break
-		}
-
-		resp, err := client.Do(req)
-		if err == nil {
-			defer func() {
-				if closeErr := resp.Body.Close(); closeErr != nil {
-					logger.Log().WithError(closeErr).Warn("failed to close uptime service response body")
-				}
-			}()
-			// Accept 2xx, 3xx, and 401/403 (Unauthorized/Forbidden often means the service is up but protected)
-			if (resp.StatusCode >= 200 && resp.StatusCode < 400) || resp.StatusCode == 401 || resp.StatusCode == 403 {
-				success = true
-				msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
-			} else {
-				msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
-			}
-		} else {
-			msg = err.Error()
-		}
-	case "tcp":
-		// TCP monitors dial the configured host:port directly without URL validation.
-		// RFC 1918 addresses are intentionally permitted: TCP monitors are only created
-		// for RemoteServer entries, which are admin-configured and whose target is
-		// constructed internally from trusted fields (not raw user input).
-		conn, err := net.DialTimeout("tcp", monitor.URL, 10*time.Second)
-		if err == nil {
-			if closeErr := conn.Close(); closeErr != nil {
-				logger.Log().WithError(closeErr).Warn("failed to close tcp connection")
-			}
-			success = true
-			msg = "Connection successful"
-		} else {
-			msg = err.Error()
-		}
-	case "orthrus":
-		agentUUID := monitor.URL
-		if s.orthrusResolver == nil {
-			msg = "Orthrus subsystem unavailable"
-			break
-		}
-		if agentUUID == "" {
-			msg = "Monitor missing agent UUID"
-			break
-		}
-		_, ok := s.orthrusResolver.GetProxyAddr(agentUUID)
-		if ok {
-			success = true
-			msg = "Orthrus session active"
-		} else {
-			msg = "Orthrus agent not connected"
-		}
-	default:
-		msg = "Unknown monitor type"
+	maxRetries := monitor.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3 // legacy rows
 	}
 
-	latency := time.Since(start).Milliseconds()
+	prev := monDebounce{
+		status:           monitor.Status,
+		failureCount:     monitor.FailureCount,
+		lastStatusChange: monitor.LastStatusChange,
+		lastNotifiedDown: monitor.LastNotifiedDown,
+	}
+	if prev.status == "" {
+		prev.status = "pending"
+	}
+	next, changed, durationStr := applyMonitorDebounce(prev, raw, maxRetries, now)
 
-	// Determine new status based on success and retries
-	newStatus := monitor.Status
-
-	if success {
-		// If it was down or pending, it's now up immediately
-		if monitor.Status != "up" {
-			newStatus = "up"
-		}
-		// Reset failure count on success
-		monitor.FailureCount = 0
-	} else {
-		// Increment failure count
-		monitor.FailureCount++
-
-		// Only mark as down if we exceeded max retries
-		// Default MaxRetries to 3 if 0 (legacy records)
-		maxRetries := monitor.MaxRetries
-		if maxRetries <= 0 {
-			maxRetries = 3
-		}
-
-		if monitor.FailureCount >= maxRetries {
-			newStatus = "down"
-		}
+	result := CheckResult{
+		MonitorID:        monitor.ID,
+		HostID:           derefString(monitor.UptimeHostID),
+		HeartbeatStatus:  raw.heartbeatStatus(),
+		Latency:          raw.Latency,
+		Message:          raw.Message,
+		CheckedAt:        now,
+		NewMonitorStatus: next.status,
+		FailureCount:     next.failureCount,
+		StatusChanged:    changed,
+		StatusChangedAt:  statusChangedAt(changed, now),
+	}
+	if err := s.Ingester.FlushResults(result); err != nil {
+		logger.Log().WithError(err).WithField("monitor_id", monitor.ID).
+			Error("checkMonitor: failed to persist check result")
 	}
 
-	// Record Heartbeat (always record the raw result)
-	heartbeatStatus := "down"
-	if success {
-		heartbeatStatus = "up"
-	}
-
-	heartbeat := models.UptimeHeartbeat{
-		MonitorID: monitor.ID,
-		Status:    heartbeatStatus,
-		Latency:   latency,
-		Message:   msg,
-	}
-	_ = s.DB.Create(&heartbeat).Error
-
-	// Update Monitor Status
-	oldStatus := monitor.Status
-	statusChanged := oldStatus != newStatus && oldStatus != "pending"
-
-	// Calculate previous uptime/downtime if status changed
-	var durationStr string
-	if statusChanged && !monitor.LastStatusChange.IsZero() {
-		duration := time.Since(monitor.LastStatusChange)
-		durationStr = formatDuration(duration)
-	}
-
-	monitor.Status = newStatus
-	monitor.LastCheck = time.Now()
-	monitor.Latency = latency
-
-	if statusChanged {
-		monitor.LastStatusChange = time.Now()
-	}
-
-	s.DB.Save(&monitor)
-
-	// Handle notifications based on status change
-	if statusChanged {
-		switch newStatus {
+	if changed {
+		switch next.status {
 		case "down":
-			// Queue for batched notification
-			s.queueDownNotification(monitor, msg, durationStr)
+			s.queueDownNotification(monitor, raw.Message, durationStr)
 		case "up":
-			// Send recovery notification
 			s.sendRecoveryNotification(monitor, durationStr)
 		}
 	}
@@ -1119,8 +1096,30 @@ func (s *UptimeService) flushPendingNotification(hostID string) {
 	logger.Log().WithField("count", len(pending.downMonitors)).WithField("host", util.SanitizeForLog(pending.hostName)).Info("Sent batched DOWN notification")
 }
 
-// sendRecoveryNotification sends a notification when a service recovers
+// NotifyMonitorDown queues a batched "service down" alert for a monitor whose
+// status transition was detected synchronously by the worker pool (spec
+// §3.3.3). It is fast and non-blocking (map insert + AfterFunc timer); ctx is
+// accepted only for interface symmetry with NotifyMonitorUp.
+func (s *UptimeService) NotifyMonitorDown(_ context.Context, monitor models.UptimeMonitor, reason, previousUptime string) {
+	s.queueDownNotification(monitor, reason, previousUptime)
+}
+
+// NotifyMonitorUp sends a recovery alert. The external webhook send is bounded
+// by ctx so a hung notification provider cannot wedge the calling worker — and,
+// at shutdown, cannot block the teardown chain past the pool's dispatch
+// deadline (supervisor change #1 / spec §3.1.4).
+func (s *UptimeService) NotifyMonitorUp(ctx context.Context, monitor models.UptimeMonitor, downtime string) {
+	s.sendRecoveryNotificationCtx(ctx, monitor, downtime)
+}
+
+// sendRecoveryNotification sends a notification when a service recovers. Legacy
+// callers (checkMonitor, this commit) use the background-context wrapper; the
+// worker pool calls sendRecoveryNotificationCtx directly with a bounded ctx.
 func (s *UptimeService) sendRecoveryNotification(monitor models.UptimeMonitor, downtime string) {
+	s.sendRecoveryNotificationCtx(context.Background(), monitor, downtime)
+}
+
+func (s *UptimeService) sendRecoveryNotificationCtx(ctx context.Context, monitor models.UptimeMonitor, downtime string) {
 	title := fmt.Sprintf("🟢 %s is UP", monitor.Name)
 
 	var sb strings.Builder
@@ -1144,7 +1143,7 @@ func (s *UptimeService) sendRecoveryNotification(monitor models.UptimeMonitor, d
 		"Time":     time.Now().Format(time.RFC1123),
 		"URL":      monitor.URL,
 	}
-	s.NotificationService.SendExternal(context.Background(), "uptime", title, sb.String(), data)
+	s.NotificationService.SendExternal(ctx, "uptime", title, sb.String(), data)
 }
 
 // FlushPendingNotifications flushes all pending batched notifications immediately.
@@ -1236,10 +1235,10 @@ func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval
 		}
 	}
 
-	// Set defaults
-	if interval <= 0 {
-		interval = 60 // Default 60 seconds
-	}
+	// Resolve the interval at write time so the stored value is always
+	// concrete and >= the 30s floor: <=0 becomes uptime.default_interval_seconds,
+	// then anything below 30 is raised to 30 (spec §3.6.3 / S3).
+	interval = clampInterval(interval, s.uptimeCfg)
 	if maxRetries <= 0 {
 		maxRetries = 3 // Default 3 retries
 	}
@@ -1275,9 +1274,33 @@ func (s *UptimeService) GetMonitorByID(id string) (*models.UptimeMonitor, error)
 	return &monitor, nil
 }
 
-func (s *UptimeService) GetMonitorHistory(id string, limit int) ([]models.UptimeHeartbeat, error) {
+// uptimeHistoryDefaultLimit / uptimeHistoryMaxLimit bound the detail-view
+// history query. A non-positive limit falls back to the default; anything above
+// the cap is clamped (spec §3.5.4).
+const (
+	uptimeHistoryDefaultLimit = 60
+	uptimeHistoryMaxLimit     = 500
+)
+
+// GetMonitorHistory returns a monitor's heartbeats newest-first. limit is
+// clamped to (0, uptimeHistoryMaxLimit]; a non-positive limit uses
+// uptimeHistoryDefaultLimit. A non-zero before acts as a "load older" cursor:
+// only heartbeats with created_at < before are returned.
+func (s *UptimeService) GetMonitorHistory(id string, limit int, before time.Time) ([]models.UptimeHeartbeat, error) {
+	switch {
+	case limit <= 0:
+		limit = uptimeHistoryDefaultLimit
+	case limit > uptimeHistoryMaxLimit:
+		limit = uptimeHistoryMaxLimit
+	}
+
+	query := s.DB.Where("monitor_id = ?", id)
+	if !before.IsZero() {
+		query = query.Where("created_at < ?", before)
+	}
+
 	var heartbeats []models.UptimeHeartbeat
-	result := s.DB.Where("monitor_id = ?", id).Order("created_at desc").Limit(limit).Find(&heartbeats)
+	result := query.Order("created_at desc").Limit(limit).Find(&heartbeats)
 	return heartbeats, result.Error
 }
 
@@ -1293,6 +1316,12 @@ func (s *UptimeService) UpdateMonitor(id string, updates map[string]any) (*model
 		allowedUpdates["max_retries"] = val
 	}
 	if val, ok := updates["interval"]; ok {
+		// Enforce the 30s hard floor. A positive but sub-floor value is a
+		// client error (rejected); a non-positive value is left for the
+		// scheduler's clampInterval to resolve to the configured default.
+		if secs, parsed := coerceIntervalSeconds(val); parsed && secs > 0 && secs < minUptimeIntervalSeconds {
+			return nil, ErrIntervalTooLow
+		}
 		allowedUpdates["interval"] = val
 	}
 	if val, ok := updates["enabled"]; ok {
@@ -1331,6 +1360,80 @@ func (s *UptimeService) DeleteMonitor(id string) error {
 	return nil
 }
 
+// RemoveForRemoteServer purges the uptime monitor(s) linked to a remote server
+// (plus their heartbeat rows) and then runs deleteParent — the caller's delete
+// of the RemoteServer row itself — with the per-server "remote-<id>" lock held
+// across both steps. Ordering and locking together close the create/delete
+// race that SyncAndCheckForRemoteServer's fire-and-forget goroutine opens:
+//
+//   - The lock is the SAME one SyncAndCheckForRemoteServer takes, so a sync
+//     already mid-flight is waited out here; the subsequent purge removes the
+//     monitor it created.
+//   - A sync that acquires the lock only after deleteParent has run finds no
+//     RemoteServer row and bails on its existing "not found" guard.
+//   - Purge runs BEFORE deleteParent, so a linked uptime_monitors row never
+//     outlives its parent — required because uptime_monitors.proxy_host_id has
+//     a real FK, and for symmetry the remote path deletes in the same order.
+//
+// deleteParent may be nil (purge only). Any error from either step is returned
+// unwrapped enough for the handler to surface as a 500.
+func (s *UptimeService) RemoveForRemoteServer(remoteServerID uint, deleteParent func() error) error {
+	defer s.lockHostKey(fmt.Sprintf("remote-%d", remoteServerID))()
+	if err := s.purgeLinkedMonitors("remote_server_id = ?", remoteServerID); err != nil {
+		return err
+	}
+	if deleteParent != nil {
+		return deleteParent()
+	}
+	return nil
+}
+
+// RemoveForHost is the proxy-host equivalent of RemoveForRemoteServer: it takes
+// the "proxy-<id>" lock that SyncAndCheckForHost uses, purges the linked
+// monitor(s) and their heartbeats, then runs deleteParent (the ProxyHost row
+// delete) — all under that lock. Purge-before-parent-delete is mandatory here:
+// uptime_monitors.proxy_host_id carries an ON DELETE NO ACTION foreign key to
+// proxy_hosts.id (created by AutoMigrate from the UptimeMonitor.ProxyHost
+// association), so deleting the ProxyHost row while a linked monitor still
+// exists trips a FOREIGN KEY constraint failure.
+func (s *UptimeService) RemoveForHost(proxyHostID uint, deleteParent func() error) error {
+	defer s.lockHostKey(fmt.Sprintf("proxy-%d", proxyHostID))()
+	if err := s.purgeLinkedMonitors("proxy_host_id = ?", proxyHostID); err != nil {
+		return err
+	}
+	if deleteParent != nil {
+		return deleteParent()
+	}
+	return nil
+}
+
+// purgeLinkedMonitors deletes every UptimeMonitor matched by the parameterised
+// whereClause plus its UptimeHeartbeat rows, in one transaction. whereClause is
+// always a constant literal supplied by a sibling method (never user input) and
+// is parameterised with a single placeholder. Parent UptimeHost rows are left
+// in place, mirroring DeleteMonitor.
+func (s *UptimeService) purgeLinkedMonitors(whereClause string, arg any) error {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		var ids []string
+		if err := tx.Model(&models.UptimeMonitor{}).
+			Where(whereClause, arg).Pluck("id", &ids).Error; err != nil {
+			return fmt.Errorf("list linked monitors: %w", err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := tx.Where("monitor_id IN ?", ids).
+			Delete(&models.UptimeHeartbeat{}).Error; err != nil {
+			return fmt.Errorf("delete linked heartbeats: %w", err)
+		}
+		if err := tx.Where("id IN ?", ids).
+			Delete(&models.UptimeMonitor{}).Error; err != nil {
+			return fmt.Errorf("delete linked monitors: %w", err)
+		}
+		return nil
+	})
+}
+
 // SyncAndCheckForHost creates a monitor for the given proxy host (if one
 // doesn't already exist) and immediately triggers a health check in a
 // background goroutine. It is safe to call from any goroutine.
@@ -1339,25 +1442,14 @@ func (s *UptimeService) DeleteMonitor(id string) error {
 // does not block the API response.
 func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
 	// Check feature flag — bail if uptime is disabled
-	var setting models.Setting
-	if err := s.DB.Where("key = ?", "feature.uptime.enabled").First(&setting).Error; err == nil {
-		if setting.Value != "true" {
-			return
-		}
+	if !s.uptimeFeatureEnabled() {
+		return
 	}
 
 	// Per-host lock prevents duplicate monitors when multiple goroutines
-	// call SyncAndCheckForHost for the same hostID concurrently.
-	hostKey := fmt.Sprintf("proxy-%d", hostID)
-	s.hostMutexLock.Lock()
-	if s.hostMutexes[hostKey] == nil {
-		s.hostMutexes[hostKey] = &sync.Mutex{}
-	}
-	mu := s.hostMutexes[hostKey]
-	s.hostMutexLock.Unlock()
-
-	mu.Lock()
-	defer mu.Unlock()
+	// call SyncAndCheckForHost for the same hostID concurrently, and excludes
+	// RemoveForHost so a concurrent delete cannot race this create+check.
+	defer s.lockHostKey(fmt.Sprintf("proxy-%d", hostID))()
 
 	// Look up the proxy host; it may have been deleted between the API
 	// response and this goroutine executing.
@@ -1399,7 +1491,7 @@ func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
 			Type:         "http",
 			URL:          publicURL,
 			UpstreamHost: upstreamHost,
-			Interval:     60,
+			Interval:     clampInterval(0, s.uptimeCfg), // honour uptime.default_interval_seconds (S3)
 			Enabled:      true,
 			Status:       "pending",
 		}
@@ -1412,8 +1504,136 @@ func (s *UptimeService) SyncAndCheckForHost(hostID uint) {
 		return
 	}
 
-	// Run health check immediately
-	s.checkMonitor(monitor)
+	// Run an immediate check: enqueue host + monitor jobs onto the pool when it
+	// is live, otherwise probe inline.
+	s.checkOrEnqueue(monitor)
+}
+
+// checkOrEnqueue runs a monitor check the right way for the current wiring:
+// enqueue onto the live worker pool (also enqueueing its parent host so the
+// connectivity state is fresh), or probe inline when no pool is running.
+func (s *UptimeService) checkOrEnqueue(monitor models.UptimeMonitor) {
+	if s.Pool == nil {
+		s.checkMonitor(monitor)
+		return
+	}
+	if monitor.UptimeHostID != nil && *monitor.UptimeHostID != "" {
+		var host models.UptimeHost
+		if err := s.DB.Where("id = ?", *monitor.UptimeHostID).First(&host).Error; err == nil {
+			s.Pool.TryEnqueue(UptimeJob{Kind: JobHostCheck, Host: &host})
+		}
+	}
+	s.Pool.TryEnqueue(UptimeJob{Kind: JobMonitorCheck, Monitor: monitor, Manual: true})
+}
+
+// SyncAndCheckForRemoteServer ensures an uptime monitor exists for the given
+// remote server (creating it with the admin-configured default interval if
+// missing) and triggers an immediate check. Mirrors SyncAndCheckForHost.
+// Designed to be called as `go svc.SyncAndCheckForRemoteServer(id)`.
+//
+// Orthrus remote servers whose agent UUID has not yet bound return silently
+// with no monitor row (mirrors SyncMonitors' existing `continue`); the
+// 5-minute UptimeSyncLoop creates the monitor on a later pass once the UUID
+// is persisted.
+func (s *UptimeService) SyncAndCheckForRemoteServer(remoteServerID uint) {
+	if !s.uptimeFeatureEnabled() {
+		return
+	}
+
+	// Per-server lock excludes a concurrent RemoveForRemoteServer so a fast
+	// create-then-delete cannot race this create+check into an orphan monitor.
+	defer s.lockHostKey(fmt.Sprintf("remote-%d", remoteServerID))()
+
+	var server models.RemoteServer
+	if err := s.DB.Where("id = ?", remoteServerID).First(&server).Error; err != nil {
+		// Safe: remote_server_id is a uint (DB/route numeric ID), not an injectable string.
+		// codeql[go/log-injection]
+		logger.Log().WithField("remote_server_id", remoteServerID).
+			Debug("SyncAndCheckForRemoteServer: remote server not found (may have been deleted)")
+		return
+	}
+
+	targetType, targetURL, ok := remoteServerMonitorTarget(server)
+	if !ok {
+		return // Orthrus agent UUID not yet bound — nothing to check yet.
+	}
+
+	var monitor models.UptimeMonitor
+	err := s.DB.Where("remote_server_id = ?", server.ID).First(&monitor).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		uptimeHostID := s.ensureUptimeHost(server.Host, server.Name)
+		monitor = models.UptimeMonitor{
+			RemoteServerID: &server.ID,
+			UptimeHostID:   &uptimeHostID,
+			Name:           server.Name,
+			Type:           targetType,
+			URL:            targetURL,
+			UpstreamHost:   server.Host,
+			Interval:       clampInterval(0, s.uptimeCfg), // honour uptime.default_interval_seconds (S3)
+			Enabled:        server.Enabled,
+			Status:         "pending",
+		}
+		if createErr := s.createMonitorWithRetry(&monitor); createErr != nil {
+			logger.Log().WithError(createErr).WithField("remote_server_id", server.ID).
+				Error("SyncAndCheckForRemoteServer: failed to create monitor")
+			return
+		}
+	} else if err != nil {
+		logger.Log().WithError(err).WithField("remote_server_id", server.ID).
+			Error("SyncAndCheckForRemoteServer: failed to query monitor")
+		return
+	}
+
+	s.checkOrEnqueue(monitor)
+}
+
+// SyncMonitorForRemoteServer updates the uptime monitor linked to a remote
+// server from its current fields. No-op (nil) when no monitor exists.
+func (s *UptimeService) SyncMonitorForRemoteServer(remoteServerID uint) error {
+	var server models.RemoteServer
+	if err := s.DB.Where("id = ?", remoteServerID).First(&server).Error; err != nil {
+		return fmt.Errorf("load remote server %d: %w", remoteServerID, err)
+	}
+
+	var monitor models.UptimeMonitor
+	if err := s.DB.Where("remote_server_id = ?", remoteServerID).First(&monitor).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return fmt.Errorf("load monitor for remote server %d: %w", remoteServerID, err)
+	}
+
+	targetType, targetURL, ok := remoteServerMonitorTarget(server)
+	if !ok {
+		return nil // Orthrus agent UUID not yet bound.
+	}
+
+	monitor.Name = server.Name
+	monitor.Type = targetType
+	monitor.URL = targetURL
+	monitor.UpstreamHost = server.Host
+	monitor.Enabled = server.Enabled
+
+	if err := s.DB.Save(&monitor).Error; err != nil {
+		return fmt.Errorf("save monitor for remote server %d: %w", remoteServerID, err)
+	}
+	return nil
+}
+
+// remoteServerMonitorTarget derives the (type, url) an uptime monitor should
+// use for a remote server — the same rules SyncMonitors applies. ok is false
+// only for an Orthrus server with no bound agent UUID.
+func remoteServerMonitorTarget(server models.RemoteServer) (monitorType, monitorURL string, ok bool) {
+	if server.ConnectionType == models.ConnectionTypeOrthrus {
+		if server.OrthrusAgentUUID == nil || *server.OrthrusAgentUUID == "" {
+			return "", "", false
+		}
+		return "orthrus", *server.OrthrusAgentUUID, true
+	}
+	if server.Scheme == "http" || server.Scheme == "https" {
+		return server.Scheme, fmt.Sprintf("%s://%s:%d", server.Scheme, server.Host, server.Port), true
+	}
+	return "tcp", fmt.Sprintf("%s:%d", server.Host, server.Port), true
 }
 
 // createMonitorWithRetry creates an UptimeMonitor row, retrying with backoff
@@ -1472,4 +1692,45 @@ func (s *UptimeService) CleanupStaleFailureCounts() error {
 	}
 
 	return nil
+}
+
+// uptimeSyncLoopInterval is how often the off-hot-path monitor reconcile runs.
+// SyncMonitors is a backstop for any mutation that missed its targeted hook
+// (direct DB edits, Orthrus agent-UUID late-binding); the per-monitor scheduler
+// drives the actual checks.
+const uptimeSyncLoopInterval = 5 * time.Minute
+
+// UptimeSyncLoop periodically reconciles UptimeMonitor rows against ProxyHost /
+// RemoteServer rows. It replaces the SyncMonitors call that used to ride on the
+// global 60s check ticker (spec §3.1.3).
+type UptimeSyncLoop struct {
+	svc  *UptimeService
+	tick time.Duration
+}
+
+// NewUptimeSyncLoop builds the loop bound to svc.
+func NewUptimeSyncLoop(svc *UptimeService) *UptimeSyncLoop {
+	return &UptimeSyncLoop{svc: svc, tick: uptimeSyncLoopInterval}
+}
+
+// Run ticks every 5 minutes, calling SyncMonitors while the feature is enabled,
+// and returns on ctx cancellation. The boot-time SyncMonitors +
+// CleanupStaleFailureCounts still run once via runInitialUptimeBootstrap.
+func (l *UptimeSyncLoop) Run(ctx context.Context) {
+	ticker := time.NewTicker(l.tick)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !l.svc.uptimeFeatureEnabled() {
+				continue
+			}
+			if err := l.svc.SyncMonitors(); err != nil {
+				logger.Log().WithError(err).Warn("UptimeSyncLoop: SyncMonitors failed")
+			}
+		}
+	}
 }

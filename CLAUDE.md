@@ -11,7 +11,7 @@ Every session should improve the codebase, not just add to it. Actively refactor
 - **CLEAN**: Delete dead code immediately. Remove unused imports, variables, functions, types, commented code, and console logs.
 - **LEVERAGE**: Use battle-tested packages over custom implementations.
 - **READABLE**: Maintain comments and clear naming for complex logic. Favor clarity over cleverness.
-- **CONVENTIONAL COMMITS**: Write commit messages using `feat:`, `fix:`, `chore:`, `refactor:`, or `docs:` prefixes.
+- **CONVENTIONAL COMMITS**: Write commit messages using `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, or `deps:` prefixes.
 - **`(security)` SCOPE**: For genuinely security-relevant `feat`/`fix` commits (real vulnerability fixes, new protective mechanisms — not general bug fixes), use `feat(security): <subject>` or `fix(security): <subject>`. This scope feeds a dedicated "Security" category in the What's New changelog, so it's reserved for real security work — overusing it for visibility on ordinary fixes dilutes the category's signal. **Vague by default**: the subject line must describe the *category* of issue and mitigation in general terms, and must NEVER reveal the specific vulnerability class, attack vector, or exact vulnerable code path — the changelog displays it verbatim to every self-hosted user, including ones running un-upgraded, still-vulnerable instances. Good: `fix(security): harden input validation in the API layer`. Bad: `fix(security): fix SQL injection in host search filter`.
 
 ## Governance & Precedence
@@ -134,6 +134,7 @@ never affected by this.
 ## CI/CD & Commit Conventions
 
 - **Triggers**: Use `feat:`, `fix:`, or `perf:` to trigger Docker builds. `chore:` skips builds.
+- **Dependency bumps**: Renovate emits `deps:` (`.github/renovate.json` → `semanticCommitType: deps`, scope dropped). `deps:` is a release-triggering prefix for release-please, so a bump of anything that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins and the `custom.regex` trackers under `.github/workflows`, `scripts`, and `.github/skills` (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, `NODE_VERSION`/`GO_VERSION`) — is forced back to `chore:` by packageRules so it doesn't cut a release.
 - **Beta**: `feature/beta-release` always builds.
 - **Weekly Promotion PRs** (`nightly → main`): ALWAYS merge using **"Create a merge commit"** — NEVER squash or rebase. Squash merging collapses all commits into bullet lines that the `auto-versioning` workflow cannot parse, silently preventing minor version bumps and producing empty release notes.
 - **History-Rewrite PRs**: If a PR touches files in `scripts/history-rewrite/` or `docs/plans/history_rewrite.md`, the PR description MUST include the history-rewrite checklist from `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md`.

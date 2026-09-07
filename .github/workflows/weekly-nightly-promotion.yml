@@ -7,7 +7,7 @@ on:
   schedule:
     # Every Monday at 12:00 UTC (7:00am EST / 8:00am EDT)
     # Offset from nightly sync (09:00 UTC) to avoid schedule race and allow validation completion.
-    - cron: '0 12 * * 1'
+    - cron: '0 09 * * 1'
   workflow_dispatch:
     inputs:
       reason:

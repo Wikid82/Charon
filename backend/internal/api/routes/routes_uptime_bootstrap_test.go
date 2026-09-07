@@ -11,9 +11,8 @@ type testUptimeBootstrapService struct {
 	cleanupErr error
 	syncErr    error
 
-	cleanupCalls  int
-	syncCalls     int
-	checkAllCalls int
+	cleanupCalls int
+	syncCalls    int
 }
 
 func (s *testUptimeBootstrapService) CleanupStaleFailureCounts() error {
@@ -24,10 +23,6 @@ func (s *testUptimeBootstrapService) CleanupStaleFailureCounts() error {
 func (s *testUptimeBootstrapService) SyncMonitors() error {
 	s.syncCalls++
 	return s.syncErr
-}
-
-func (s *testUptimeBootstrapService) CheckAll() {
-	s.checkAllCalls++
 }
 
 func TestRunInitialUptimeBootstrap_Disabled_DoesNothing(t *testing.T) {
@@ -44,7 +39,6 @@ func TestRunInitialUptimeBootstrap_Disabled_DoesNothing(t *testing.T) {
 
 	assert.Equal(t, 0, svc.cleanupCalls)
 	assert.Equal(t, 0, svc.syncCalls)
-	assert.Equal(t, 0, svc.checkAllCalls)
 	assert.Equal(t, 0, warnLogs)
 	assert.Equal(t, 0, errorLogs)
 }
@@ -63,7 +57,6 @@ func TestRunInitialUptimeBootstrap_Enabled_HappyPath(t *testing.T) {
 
 	assert.Equal(t, 1, svc.cleanupCalls)
 	assert.Equal(t, 1, svc.syncCalls)
-	assert.Equal(t, 1, svc.checkAllCalls)
 	assert.Equal(t, 0, warnLogs)
 	assert.Equal(t, 0, errorLogs)
 }
@@ -82,12 +75,11 @@ func TestRunInitialUptimeBootstrap_Enabled_CleanupError_StillProceeds(t *testing
 
 	assert.Equal(t, 1, svc.cleanupCalls)
 	assert.Equal(t, 1, svc.syncCalls)
-	assert.Equal(t, 1, svc.checkAllCalls)
 	assert.Equal(t, 1, warnLogs)
 	assert.Equal(t, 0, errorLogs)
 }
 
-func TestRunInitialUptimeBootstrap_Enabled_SyncError_StillChecksAll(t *testing.T) {
+func TestRunInitialUptimeBootstrap_Enabled_SyncError_StillProceeds(t *testing.T) {
 	svc := &testUptimeBootstrapService{syncErr: errors.New("sync failed")}
 
 	warnLogs := 0
@@ -101,7 +93,6 @@ func TestRunInitialUptimeBootstrap_Enabled_SyncError_StillChecksAll(t *testing.T
 
 	assert.Equal(t, 1, svc.cleanupCalls)
 	assert.Equal(t, 1, svc.syncCalls)
-	assert.Equal(t, 1, svc.checkAllCalls)
 	assert.Equal(t, 0, warnLogs)
 	assert.Equal(t, 1, errorLogs)
 }

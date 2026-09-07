@@ -10,29 +10,38 @@ ARG BUILD_DEBUG=0
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.27.0
+ARG GO_VERSION=1.27.1
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.8
+ARG CROWDSEC_VERSION=1.8.1
 # CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
-ARG CROWDSEC_RELEASE_SHA256=704e37121e7ac215991441cef0d8732e33fa3b1a2b2b88b53a0bfe5e38f863bd
+ARG CROWDSEC_RELEASE_SHA256=deae1f43ddf1118339dc4f774289d745c957802423d0310ad1d2990067d05ea8
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
 ARG XNET_VERSION=0.58.0
+# Shared golang.org/x/crypto pin — consumed by BOTH the caddy-builder and the
+# crowdsec-builder stages so the two never drift. v0.56.0 also carries the
+# golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
 # renovate: datasource=go depName=golang.org/x/crypto
-ARG XCRYPTO_VERSION=0.55.0
+ARG XCRYPTO_VERSION=0.56.0
 # klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
 # renovate: datasource=go depName=github.com/klauspost/compress
-ARG KLAUSPOST_COMPRESS_VERSION=1.19.2
+ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
+# grpc-go HTTP/2 DATA-frame memory-exhaustion DoS fix (CVE-2026-84304), matching how
+# golang.org/x/crypto and klauspost/compress are patched above: pinned here so the Caddy
+# and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
+# ahead of upstream releases.
+# renovate: datasource=go depName=google.golang.org/grpc
+ARG GRPC_VERSION=1.83.1
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 
@@ -305,6 +314,7 @@ ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
 ARG KLAUSPOST_COMPRESS_VERSION
+ARG GRPC_VERSION
 ARG CROWDSEC_VERSION
 
 # hadolint ignore=DL3018
@@ -358,6 +368,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
             CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
         fi; \
+        # Reverse any cel-go v0.29 forward-patch left in the module cache by a
+        # previous build run (see Stage 3 below). xcaddy Stage 1 compiles Caddy
+        # v2.11.4 against its native cel-go v0.28.1, whose interpreter.NewCall
+        # signature takes []interpreter.Interpretable — a cache file already
+        # rewritten to the []interpreter.InterpretableV2 form would not compile.
+        _CELM_RESTORE="${_GOMC}/github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}/modules/caddyhttp/celmatcher.go"; \
+        if [ -f "${_CELM_RESTORE}" ]; then \
+            chmod +w "$(dirname "${_CELM_RESTORE}")" "${_CELM_RESTORE}"; \
+            sed -i "s#\[\]interpreter\.InterpretableV2{reqAttr}#[]interpreter.Interpretable{reqAttr}#g" "${_CELM_RESTORE}"; \
+        fi; \
         echo "Using Caddy target version: v${CADDY_TARGET_VERSION}"; \
         echo "Using Caddy patch scenario: ${CADDY_PATCH_SCENARIO}"; \
         export XCADDY_SKIP_CLEANUP=1; \
@@ -391,10 +411,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
         # (transitive dependency). Fix available at v1.18.7.
         _retry go get github.com/klauspost/compress@v${KLAUSPOST_COMPRESS_VERSION}; \
-        # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
-        # Patched in grpc-go v1.82.1. Pin here so the Caddy binary is patched immediately.
-        # renovate: datasource=go depName=google.golang.org/grpc
-        _retry go get google.golang.org/grpc@v1.82.1; \
+        # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS (CVE-2026-84304), plus the
+        # earlier GHSA-hrxh-6v49-42gf xDS RBAC / HTTP/2 fixes. Affects /usr/bin/caddy
+        # (transitive dependency). Fixed at v1.83.1.
+        _retry go get google.golang.org/grpc@v${GRPC_VERSION}; \
         # CVE-2026-34986: go-jose JOSE/JWT validation bypass
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
@@ -423,15 +443,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
         # renovate: datasource=go depName=github.com/buger/jsonparser
         _retry go get github.com/buger/jsonparser@v1.2.0; \
-        # GHSA-gcjh-h69q-9w9g: cel-go JSON private fields exposed via NativeTypes/ParseStructTag("json").
-        # NOT pinned here: bumping to the v0.29.0 fix breaks Caddy v2.11.4's own
-        # modules/caddyhttp/celmatcher.go, which calls interpreter.NewCall(..., []interpreter.Interpretable, ...) —
-        # v0.29.0 changed that parameter to []interpreter.InterpretableV2, a superset interface requiring an
-        # additional Exec(*ExecutionFrame) method, so this is a real source-incompatible break, not a version
-        # bump. No Caddy release newer than v2.11.4 exists yet with celmatcher.go updated for the new API.
-        # Suppressed in .trivyignore with full risk justification; see that file for exploitability analysis.
-        # TODO(renovate): bump github.com/google/cel-go to >= v0.29.0 once Caddy ships a release whose
-        # celmatcher.go is compatible with the new InterpretableV2 API; remove the .trivyignore entry then.
+        # GHSA-gcjh-h69q-9w9g (MEDIUM, /usr/bin/caddy): cel-go is pinned to the fixed
+        # v0.29.2 here, AND Caddy v2.11.4's modules/caddyhttp/celmatcher.go is source-patched
+        # in the module cache (Stage 3 below) with the matching 2-line []interpreter.Interpretable
+        # -> []interpreter.InterpretableV2 change. Together this replicates upstream Caddy commit
+        # b2693fb / PR #7872 ("bump cel-go from v0.28.1 to v0.29.2"), which is not yet in any
+        # tagged Caddy release. Remove this pin and the celmatcher.go source patch (both the
+        # Stage 3 forward-patch and the Stage 1 reverse-patch above) once CADDY_VERSION >= 2.11.5,
+        # the first release expected to contain b2693fb.
+        # renovate: datasource=go depName=github.com/google/cel-go
+        _retry go get github.com/google/cel-go@v0.29.2; \
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
         # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
@@ -463,6 +484,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         fi; \
         # Final re-pin: enforce requested Caddy core version after plugin/security updates.
         _retry go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
+        # Final re-pin: grpc-go (CVE-2026-84304). MUST come after the OpenTelemetry
+        # go.get block above: `go get .../otlp*http@v0.19.0 / v1.43.0` is a *downgrade*,
+        # and go get's downgrade cascade drags google.golang.org/grpc back down to the
+        # v1.83.0-dev that otel v1.43.0 requires (v1.83.1 => v1.83.0-dev => v1.83.0 in
+        # the build log), silently undoing the earlier pin. Re-pinning here — with grpc
+        # named on the command line so it is held fixed — and letting `go mod tidy`
+        # settle MVS keeps the shipped /usr/bin/caddy on the fixed v1.83.1. Same
+        # "final re-pin after plugin updates" pattern as the Caddy-core line above.
+        _retry go get google.golang.org/grpc@v${GRPC_VERSION}; \
         # Clean up go.mod and ensure all dependencies are resolved
         _retry go mod tidy; \
         # Patch DecisionsListOpts API: crowdsec v1.7.8 changed fields (IPEquals, ScopeEquals,
@@ -506,6 +536,22 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Remove any temporary binaries from initial xcaddy run
         rm -f /tmp/caddy-initial; \
         echo "Stage 3: Build final Caddy binary with patched dependencies..."; \
+        # GHSA-gcjh-h69q-9w9g: with cel-go now resolved to v0.29.2 (pinned above),
+        # forward-patch Caddy v2.11.4's celmatcher.go in the module cache so it uses the
+        # v0.29 interpreter.NewCall signature ([]interpreter.InterpretableV2). This is the
+        # exact 2-line change from upstream Caddy commit b2693fb / PR #7872. reqAttr's
+        # concrete type already satisfies interpreter.InterpretableV2 in cel-go v0.29.2.
+        CELM="${_GOMC}/github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}/modules/caddyhttp/celmatcher.go"; \
+        if [ ! -f "$CELM" ]; then \
+            echo "ERROR: celmatcher.go not found at $CELM"; exit 1; \
+        fi; \
+        chmod +w "$(dirname "$CELM")" "$CELM"; \
+        sed -i "s#\[\]interpreter\.Interpretable{reqAttr}#[]interpreter.InterpretableV2{reqAttr}#g" "$CELM"; \
+        grep -qF "InterpretableV2{reqAttr}" "$CELM" || { echo "ERROR: celmatcher.go cel-go v0.29 patch did not apply"; exit 1; }; \
+        if grep -qF "[]interpreter.Interpretable{reqAttr}" "$CELM"; then \
+            echo "ERROR: celmatcher.go still contains the pre-patch cel-go v0.28 form"; exit 1; \
+        fi; \
+        echo "Patched Caddy celmatcher.go for cel-go v0.29 InterpretableV2 API"; \
         # Build the final binary from scratch with the fully patched go.mod
         # This ensures no vulnerable metadata is embedded
         GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /usr/bin/caddy \
@@ -514,6 +560,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Verify the binary exists and is executable (no execution to avoid hang)
         test -x /usr/bin/caddy || exit 1; \
         echo "Caddy binary verified"; \
+        # Assert the shipped binary embeds the fixed cel-go (GHSA-gcjh-h69q-9w9g).
+        go version -m /usr/bin/caddy | grep -E "github.com/google/cel-go[[:space:]]+v0\.29\." || { echo "ERROR: /usr/bin/caddy did not embed cel-go v0.29.x"; exit 1; }; \
+        echo "Verified /usr/bin/caddy embeds cel-go v0.29.x"; \
+        # Assert the shipped binary embeds the fixed grpc-go (CVE-2026-84304). The
+        # OpenTelemetry downgrade block is prone to dragging grpc back to v1.83.0; fail
+        # the build loudly rather than ship a silently-regressed binary.
+        go version -m /usr/bin/caddy | grep -E "google\.golang\.org/grpc[[:space:]]+v${GRPC_VERSION}[[:space:]]" || { echo "ERROR: /usr/bin/caddy did not embed grpc-go v${GRPC_VERSION} (CVE-2026-84304)"; go version -m /usr/bin/caddy | grep "google.golang.org/grpc" || true; exit 1; }; \
+        echo "Verified /usr/bin/caddy embeds grpc-go v${GRPC_VERSION}"; \
         # Clean up temporary build directories
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
@@ -532,7 +586,9 @@ ARG CROWDSEC_VERSION
 ARG CROWDSEC_RELEASE_SHA256
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
+ARG XCRYPTO_VERSION
 ARG KLAUSPOST_COMPRESS_VERSION
+ARG GRPC_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
@@ -568,16 +624,21 @@ RUN set -e; \
         return 1; \
     }; \
     _retry go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
+    # golang.org/x/crypto/ssh channel-flood deadlock DoS (GO-2026-6354 / CVE-2026-78662
+    # and GO-2026-6355 / CVE-2026-56855). Affects /usr/local/bin/crowdsec and
+    # /usr/local/bin/cscli (transitive dependency). Fixed at v0.56.0. Pinned via the
+    # shared XCRYPTO_VERSION build-arg so this stays aligned with the caddy-builder pin
+    # instead of drifting behind on a hard-coded literal.
     # renovate: datasource=go depName=golang.org/x/crypto
-    _retry go get golang.org/x/crypto@v0.52.0; \
+    _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
     _retry go get golang.org/x/net@v${XNET_VERSION}; \
     # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/local/bin/crowdsec
     # and /usr/local/bin/cscli (transitive dependency). Fix available at v1.18.7.
     _retry go get github.com/klauspost/compress@v${KLAUSPOST_COMPRESS_VERSION}; \
-    # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
-    # Patched in grpc-go v1.82.1. Pin here so the CrowdSec binary is patched immediately.
-    # renovate: datasource=go depName=google.golang.org/grpc
-    _retry go get google.golang.org/grpc@v1.82.1; \
+    # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS (CVE-2026-84304), plus the earlier
+    # GHSA-hrxh-6v49-42gf xDS RBAC / HTTP/2 fixes. Affects /usr/local/bin/crowdsec and
+    # /usr/local/bin/cscli (transitive dependency). Fixed at v1.83.1.
+    _retry go get google.golang.org/grpc@v${GRPC_VERSION}; \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=github-tags depName=jackc/pgx
     _retry go get github.com/jackc/pgx/v4@v4.18.3; \
@@ -607,9 +668,13 @@ RUN set -e; \
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.2.0; \
-    # GHSA-r277-6w6q-xmqw: kin-openapi ValidationHandler.Load() Fail-Open Authentication Bypass via NoopAuthenticationFunc Default
+    # kin-openapi: CrowdSec v1.8.0 already ships v0.147.0 natively (its go.mod baseline),
+    # which is past the GHSA-r277-6w6q-xmqw (ValidationHandler.Load() fail-open auth bypass,
+    # fixed v0.144.0) and GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (DoS panic) fixes. This explicit
+    # pin is a defense-in-depth floor and a Renovate anchor so an accidental MVS downgrade or a
+    # CrowdSec version regression cannot reintroduce a pre-v0.147.0 (vulnerable) resolution.
     # renovate: datasource=go depName=github.com/getkin/kin-openapi
-    _retry go get github.com/getkin/kin-openapi@v0.144.0; \
+    _retry go get github.com/getkin/kin-openapi@v0.147.0; \
     # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
@@ -714,7 +779,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=861222bd9d28b27fdc4163189530d44eae0caa21d27b87859e79c163a9cccd09
+ARG GEOLITE2_COUNTRY_SHA256=18b3d93c007e4a6b36e8fb98370579b5479761dccbd9f9769bb4436a043db4f3
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

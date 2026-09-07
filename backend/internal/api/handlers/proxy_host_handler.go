@@ -749,20 +749,29 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Always clean up associated uptime monitors when deleting a proxy host.
-	// The query param delete_uptime=true is kept for backward compatibility but
-	// cleanup now runs unconditionally to prevent orphaned monitors.
+	// Purge linked uptime monitors, THEN delete the ProxyHost row, both under the
+	// per-host "proxy-<id>" lock RemoveForHost holds internally. Two things this
+	// buys us:
+	//   1. FK safety — uptime_monitors.proxy_host_id has a real foreign key to
+	//      proxy_hosts.id (ON DELETE NO ACTION), so the monitor rows MUST be
+	//      gone before the parent row is deleted or SQLite raises FOREIGN KEY
+	//      constraint failed.
+	//   2. Race safety — Create fires `go SyncAndCheckForHost(id)`; the lock
+	//      waits out any in-flight sync (the purge then removes the monitor it
+	//      created), and a sync that takes the lock after the row is gone hits
+	//      its "proxy host not found" guard and creates nothing.
+	// The legacy delete_uptime=true query param is ignored — cleanup is
+	// unconditional.
+	var delErr error
 	if h.uptimeService != nil {
-		var monitors []models.UptimeMonitor
-		if err := h.uptimeService.DB.Where("proxy_host_id = ?", host.ID).Find(&monitors).Error; err == nil {
-			for _, m := range monitors {
-				_ = h.uptimeService.DeleteMonitor(m.ID)
-			}
-		}
+		delErr = h.uptimeService.RemoveForHost(host.ID, func() error {
+			return h.service.Delete(host.ID)
+		})
+	} else {
+		delErr = h.service.Delete(host.ID)
 	}
-
-	if err := h.service.Delete(host.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if delErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": delErr.Error()})
 		return
 	}
 

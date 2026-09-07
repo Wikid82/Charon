@@ -250,6 +250,15 @@ jobs:
       - name: Build Docker image (Local)
         if: github.event_name != 'workflow_run'
         uses: ./.github/actions/build-charon-image
+        with:
+          # Force a clean rebuild of the two from-source stages so a stale GHA
+          # layer cache cannot retain a superseded pinned dependency (e.g. a
+          # caddy-builder layer built before a grpc-go / x-crypto pin bump still
+          # embeds the old, vulnerable version — the `go get pkg@fixed` lives
+          # INSIDE the cached-and-skipped stage). Matches nightly-build.yml and
+          # e2e-tests-split.yml. This is a CVE-scan gate; correctness beats the
+          # few minutes of xcaddy/crowdsec rebuild time.
+          no-cache-filters: caddy-builder,crowdsec-builder
 
       - name: Expose local image name
         if: github.event_name != 'workflow_run'

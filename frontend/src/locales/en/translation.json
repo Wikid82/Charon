@@ -678,7 +678,10 @@
     "urlHelperTcp": "Enter as host:port with no scheme prefix (e.g., 192.168.1.1:8080 or hostname:22)",
     "invalidTcpFormat": "TCP monitors require host:port format. Remove the scheme prefix (e.g., use 192.168.1.1:8080, not tcp://192.168.1.1:8080).",
     "pending": "CHECKING...",
-    "pendingFirstCheck": "Waiting for first check..."
+    "pendingFirstCheck": "Waiting for first check...",
+    "checkIntervalHelper": "Minimum 30 seconds",
+    "checkQueueFull": "Check queue full, try again in a moment",
+    "recentChecks": "Recent health checks"
   },
   "domains": {
     "title": "Domains",
@@ -1316,6 +1319,28 @@
       "upToDate": "Up to Date",
       "runningLatest": "You are running the latest version of Charon.",
       "checkForUpdates": "Check for Updates"
+    },
+    "uptime": {
+      "title": "Uptime Monitoring Engine",
+      "description": "Tune the uptime monitoring engine: default check interval, worker pool size and heartbeat retention.",
+      "defaultInterval": "Default check interval (seconds)",
+      "defaultIntervalHelper": "New monitors inherit this. Applies within ~1 minute, no restart.",
+      "workerPoolSize": "Worker pool size",
+      "workerPoolSizeHelper": "Number of concurrent checks. Takes effect after a restart.",
+      "retentionDays": "Heartbeat retention (days)",
+      "retentionDaysHelper": "Older heartbeats are permanently deleted. Applies within ~1 minute, no restart.",
+      "intervalError": "Enter a whole number between 30 and 86400.",
+      "intervalFloorError": "Interval must be at least 30 seconds.",
+      "workerPoolError": "Enter a whole number between 1 and 200.",
+      "retentionError": "Enter a whole number between 1 and 3650.",
+      "save": "Save Uptime Settings",
+      "saved": "Uptime settings saved",
+      "saveFailed": "Failed to save uptime settings: {{error}}",
+      "healthTitle": "Ingester health",
+      "heartbeatsDropped": "Heartbeats dropped",
+      "checksEnqueueDropped": "Checks not queued",
+      "queueDepth": "Queue depth",
+      "activeWorkers": "Active workers"
     }
   },
   "crowdsecConfig": {

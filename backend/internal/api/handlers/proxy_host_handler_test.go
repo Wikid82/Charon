@@ -95,6 +95,13 @@ func setupTestRouterWithUptime(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, sqlErr)
 	sqlDB.SetMaxOpenConns(1)
 
+	// Enforce foreign keys like production (glebarez/modernc sqlite defaults
+	// them ON; the mattn-backed OpenTestDB driver defaults them OFF). This makes
+	// the uptime_monitors.proxy_host_id FK real for these tests, so a ProxyHost
+	// delete that leaves a linked monitor behind fails here exactly as it does
+	// in production/E2E. Safe with the single connection above.
+	require.NoError(t, db.Exec("PRAGMA foreign_keys = ON").Error)
+
 	ns := services.NewNotificationService(db, nil)
 	us := services.NewUptimeService(db, ns)
 	h := NewProxyHostHandler(db, nil, ns, us)
@@ -393,6 +400,14 @@ func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{}))
 
+	// Enforce the uptime_monitors.proxy_host_id FK like production so this test
+	// proves the delete purges the monitor BEFORE dropping the parent row — the
+	// old parent-first ordering trips FOREIGN KEY constraint failed here.
+	sqlDB, sqlErr := db.DB()
+	require.NoError(t, sqlErr)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.Exec("PRAGMA foreign_keys = ON").Error)
+
 	ns := services.NewNotificationService(db, nil)
 	us := services.NewUptimeService(db, ns)
 	h := NewProxyHostHandler(db, nil, ns, us)
@@ -401,30 +416,80 @@ func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
 
-	// Create host and monitor
+	// Create host, a linked monitor, and a heartbeat under that monitor.
 	host := models.ProxyHost{UUID: "ph-delete-1", Name: "Del Host", DomainNames: "del.test", ForwardHost: "127.0.0.1", ForwardPort: 80}
-	db.Create(&host)
+	require.NoError(t, db.Create(&host).Error)
 	monitor := models.UptimeMonitor{ID: "ut-mon-1", ProxyHostID: &host.ID, Name: "linked", Type: "http", URL: "http://del.test"}
-	db.Create(&monitor)
+	require.NoError(t, db.Create(&monitor).Error)
+	require.NoError(t, db.Create(&models.UptimeHeartbeat{MonitorID: monitor.ID, Status: "up"}).Error)
 
-	// Ensure monitor exists
 	var count int64
 	db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", host.ID).Count(&count)
 	require.Equal(t, int64(1), count)
 
-	// Delete host with delete_uptime=true
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+host.UUID+"?delete_uptime=true", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	// Host should be deleted
+	// Host, monitor, and heartbeat should all be gone.
 	var ph models.ProxyHost
 	require.Error(t, db.First(&ph, "uuid = ?", host.UUID).Error)
-
-	// Monitor should also be deleted
 	db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", host.ID).Count(&count)
 	require.Equal(t, int64(0), count)
+	var hb int64
+	require.NoError(t, db.Model(&models.UptimeHeartbeat{}).Where("monitor_id = ?", monitor.ID).Count(&hb).Error)
+	require.Equal(t, int64(0), hb, "linked heartbeats must be purged with the monitor")
+}
+
+// TestProxyHostDelete_RaceWithInFlightUptimeCheck is the proxy-host parity
+// regression for the remote-server create/delete race: Create fires
+// `go SyncAndCheckForHost`, and deleting the host the instant its monitor row
+// appears used to let the in-flight check resurrect the monitor after Delete's
+// cleanup ran. Delete now removes the ProxyHost row first and purges monitors
+// under the same per-host lock the sync uses, so the monitor stays gone.
+func TestProxyHostDelete_RaceWithInFlightUptimeCheck(t *testing.T) {
+	t.Parallel()
+
+	router, db := setupTestRouterWithUptime(t)
+
+	for i := 0; i < 20; i++ {
+		domain := fmt.Sprintf("race-%d.del.test", i)
+		body := fmt.Sprintf(`{"name":"Race %d","domain_names":"%s","forward_scheme":"http","forward_host":"127.0.0.1","forward_port":1,"enabled":true}`, i, domain)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+		require.Equal(t, http.StatusCreated, resp.Code)
+
+		var created models.ProxyHost
+		require.NoError(t, db.Where("domain_names = ?", domain).First(&created).Error)
+
+		require.Eventuallyf(t, func() bool {
+			var c int64
+			db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&c)
+			return c == 1
+		}, 15*time.Second, 2*time.Millisecond, "iteration %d: Create should spawn the monitor sync", i)
+
+		delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+created.UUID, http.NoBody)
+		delResp := httptest.NewRecorder()
+		router.ServeHTTP(delResp, delReq)
+		require.Equal(t, http.StatusOK, delResp.Code)
+
+		var monitors int64
+		require.NoError(t, db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&monitors).Error)
+		require.Equalf(t, int64(0), monitors, "iteration %d: linked monitor survived / was resurrected by the in-flight check", i)
+
+		require.Neverf(t, func() bool {
+			var c int64
+			db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", created.ID).Count(&c)
+			return c != 0
+		}, 150*time.Millisecond, 10*time.Millisecond, "iteration %d: monitor reappeared after delete returned", i)
+
+		var heartbeats int64
+		require.NoError(t, db.Model(&models.UptimeHeartbeat{}).Count(&heartbeats).Error)
+		require.Equalf(t, int64(0), heartbeats, "iteration %d: orphan heartbeat rows left behind", i)
+	}
 }
 
 func TestProxyHostErrors(t *testing.T) {

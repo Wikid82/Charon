@@ -155,6 +155,19 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		}
 	}
 
+	// uptime.* tuning knobs are plain integers with fixed bounds (§3.6.1).
+	// They have no cron/side-effect coupling, so the generic endpoint owns
+	// them — it just enforces the range here.
+	if strings.HasPrefix(req.Key, "uptime.") {
+		if err := validateUptimeSetting(req.Key, req.Value); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":      err.Error(),
+				"error_code": "invalid_uptime_setting",
+			})
+			return
+		}
+	}
+
 	if err := validateOptionalKeepaliveSetting(req.Key, req.Value); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -423,6 +436,32 @@ func flattenConfig(config map[string]interface{}, prefix string, result map[stri
 			result[key] = fmt.Sprintf("%v", value)
 		}
 	}
+}
+
+// uptimeSettingBounds holds the inclusive [min, max] range for each writable
+// uptime.* integer setting (spec §3.6.1). Keys absent from this map are not
+// recognised uptime settings and are rejected.
+var uptimeSettingBounds = map[string][2]int{
+	"uptime.default_interval_seconds": {30, 86400},
+	"uptime.worker_pool_size":         {1, 200},
+	"uptime.heartbeat_retention_days": {1, 3650},
+}
+
+// validateUptimeSetting enforces the integer bounds for a uptime.* key.
+func validateUptimeSetting(key, value string) error {
+	bounds, ok := uptimeSettingBounds[key]
+	if !ok {
+		return fmt.Errorf("unknown uptime setting %q", key)
+	}
+
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return fmt.Errorf("%s must be an integer", key)
+	}
+	if n < bounds[0] || n > bounds[1] {
+		return fmt.Errorf("%s must be between %d and %d", key, bounds[0], bounds[1])
+	}
+	return nil
 }
 
 // validateAdminWhitelist validates IP CIDR format

@@ -1,15 +1,29 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw, Plus, Loader } from 'lucide-react';
 import { useMemo, useState, type FC, type FormEvent } from 'react';
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next';
 
-import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, type UptimeMonitor } from '../api/uptime';
+import { updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, type UptimeMonitor, type MonitorSummary, type BeatDTO } from '../api/uptime';
+import { useUptimeSummary } from '../hooks/useUptimeSummary';
 
 
 type BaseMonitorStatus = 'up' | 'down' | 'pending';
 type EffectiveMonitorStatus = BaseMonitorStatus | 'paused';
+
+/** Right-aligned heartbeat bar / sparkline width (§3.5.7). */
+const BEAT_BAR_SLOTS = 30;
+/** Per-monitor check interval floor, seconds (§3.6.2 hard floor). */
+const MIN_INTERVAL_SECONDS = 30;
+
+/** Clamps a check interval to the 30s floor; NaN / below-floor snap up to 30. */
+const clampInterval = (value: number): number =>
+  Number.isNaN(value) || value < MIN_INTERVAL_SECONDS ? MIN_INTERVAL_SECONDS : value;
+
+/** True when an unknown error carries an HTTP 503 (worker-pool saturated, N5). */
+const isQueueFull = (err: unknown): boolean =>
+  (err as { response?: { status?: number } })?.response?.status === 503;
 
 const normalizeMonitorStatus = (status: string | undefined): BaseMonitorStatus => {
   const normalized = status?.toLowerCase();
@@ -20,13 +34,7 @@ const normalizeMonitorStatus = (status: string | undefined): BaseMonitorStatus =
   return 'down';
 };
 
-const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor) => void; t: (key: string, options?: Record<string, unknown>) => string }> = ({ monitor, onEdit, t }) => {
-  const { data: history } = useQuery({
-    queryKey: ['uptimeHistory', monitor.id],
-    queryFn: () => getMonitorHistory(monitor.id, 60),
-    refetchInterval: 60000,
-  });
-
+const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummary) => void; t: (key: string, options?: Record<string, unknown>) => string }> = ({ monitor, onEdit, t }) => {
   const queryClient = useQueryClient()
 
   const deleteMutation = useMutation({
@@ -34,7 +42,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       return await deleteMonitor(id)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['monitors'] })
+      queryClient.invalidateQueries({ queryKey: ['uptimeSummary'] })
       toast.success(t('uptime.monitorDeleted'))
     },
     onError: (err: unknown) => {
@@ -47,7 +55,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       return await updateMonitor(id, { enabled })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['monitors'] })
+      queryClient.invalidateQueries({ queryKey: ['uptimeSummary'] })
     },
     onError: (err: unknown) => {
       toast.error(err instanceof Error ? err.message : t('uptime.failedToUpdateMonitor'))
@@ -60,25 +68,28 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
     },
     onSuccess: () => {
       toast.success(t('uptime.healthCheckTriggered'))
-      // Refetch monitor and history after a short delay to get updated results
+      // Refetch the summary after a short delay to pick up the fresh result.
       setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['monitors'] })
-        queryClient.invalidateQueries({ queryKey: ['uptimeHistory', monitor.id] })
+        queryClient.invalidateQueries({ queryKey: ['uptimeSummary'] })
       }, 2000)
     },
     onError: (err: unknown) => {
+      if (isQueueFull(err)) {
+        toast.error(t('uptime.checkQueueFull'))
+        return
+      }
       toast.error(err instanceof Error ? err.message : t('uptime.failedToTriggerCheck'))
     }
   })
 
   const [showMenu, setShowMenu] = useState(false)
 
-  // Determine current status from most recent heartbeat when available
-  const latestBeat = history && history.length > 0
-    ? history.reduce((a, b) => new Date(a.created_at) > new Date(b.created_at) ? a : b)
-    : null
+  // The summary payload carries recent beats chronological ASC (oldest first).
+  const beats: BeatDTO[] = monitor.recent_beats ?? []
+  const latestBeat = beats.length > 0 ? beats[beats.length - 1] : null
+  const hasHistory = beats.length > 0
+  const emptySlots = Math.max(0, BEAT_BAR_SLOTS - beats.length)
 
-  const hasHistory = Boolean(history && history.length > 0);
   const isPaused = monitor.enabled === false;
   const effectiveStatus: EffectiveMonitorStatus = isPaused
     ? 'paused'
@@ -183,6 +194,11 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
         <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-xs">
           {monitor.type.toUpperCase()}
         </span>
+        {monitor.uptime_24h != null && (
+          <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-xs" data-testid="uptime-24h">
+            {monitor.uptime_24h.toFixed(1)}% · 24h
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -200,14 +216,14 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
         </div>
       </div>
 
-      {/* Heartbeat Bar (Last 60 checks / 1 Hour) */}
-      <div className="flex gap-0.5 h-8 items-end relative" title={t('uptime.last60Checks')} data-testid="heartbeat-bar">
-        {/* Fill with empty bars if not enough history to keep alignment right-aligned */}
-        {Array.from({ length: Math.max(0, 60 - (history?.length || 0)) }).map((_, i) => (
+      {/* Heartbeat Bar / sparkline — recent checks from the summary payload */}
+      <div className="flex gap-0.5 h-8 items-end relative" title={t('uptime.recentChecks')} data-testid="heartbeat-bar">
+        {/* Empty slots keep the series right-aligned when there is not enough history. */}
+        {Array.from({ length: emptySlots }).map((_, i) => (
            <div key={`empty-${i}`} className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-sm h-full opacity-50" />
         ))}
 
-        {history?.slice().reverse().map((beat: { status: string; created_at: string; latency: number; message: string }, i: number) => (
+        {beats.map((beat, i) => (
           <div
             key={i}
             className={`flex-1 rounded-sm transition-all duration-200 hover:scale-110 ${
@@ -218,11 +234,10 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
             style={{ height: '100%' }}
             title={`${new Date(beat.created_at).toLocaleString()}
 Status: ${beat.status.toUpperCase()}
-Latency: ${beat.latency}ms
-Message: ${beat.message}`}
+Latency: ${beat.latency}ms`}
           />
         ))}
-        {(!history || history.length === 0) && (
+        {!hasHistory && (
           <div className="absolute w-full text-center text-xs text-gray-400">{effectiveStatus === 'pending' ? t('uptime.pendingFirstCheck') : t('uptime.noHistoryAvailable')}</div>
         )}
       </div>
@@ -230,23 +245,25 @@ Message: ${beat.message}`}
   );
 };
 
-const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void; t: (key: string) => string }> = ({ monitor, onClose, t }) => {
+const EditMonitorModal: FC<{ monitor: MonitorSummary; onClose: () => void; t: (key: string) => string }> = ({ monitor, onClose, t }) => {
     const queryClient = useQueryClient();
     const [name, setName] = useState(monitor.name || '')
-    const [maxRetries, setMaxRetries] = useState(monitor.max_retries || 3);
-    const [interval, setInterval] = useState(monitor.interval || 60);
+    const [maxRetries, setMaxRetries] = useState(monitor.max_retries ?? 3);
+    const [interval, setIntervalValue] = useState(monitor.interval || 60);
 
     const mutation = useMutation({
       mutationFn: (data: Partial<UptimeMonitor>) => updateMonitor(monitor.id, data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['monitors'] });
+            queryClient.invalidateQueries({ queryKey: ['uptimeSummary'] });
             onClose();
         },
     });
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
-      mutation.mutate({ name, max_retries: maxRetries, interval });
+      const safeInterval = clampInterval(interval);
+      setIntervalValue(safeInterval);
+      mutation.mutate({ name, max_retries: maxRetries, interval: safeInterval });
     };
 
     return (
@@ -300,20 +317,26 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void; t: (ke
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">
+                        <label htmlFor="edit-monitor-interval" className="block text-sm font-medium text-gray-300 mb-1">
                             {t('uptime.checkInterval')}
                         </label>
                         <input
+                            id="edit-monitor-interval"
                             type="number"
-                            min="10"
-                            max="3600"
+                            min="30"
+                            max="86400"
                             value={interval}
+                            aria-describedby="edit-monitor-interval-helper"
                             onChange={(e) => {
                                 const v = parseInt(e.target.value)
-                                setInterval(Number.isNaN(v) ? 0 : v)
+                                setIntervalValue(Number.isNaN(v) ? 0 : v)
                             }}
+                            onBlur={() => setIntervalValue((v) => clampInterval(v))}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
+                        <p id="edit-monitor-interval-helper" className="text-xs text-gray-500 mt-1">
+                            {t('uptime.checkIntervalHelper')}
+                        </p>
                     </div>
 
                     <div className="flex justify-end gap-3 pt-4">
@@ -344,7 +367,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
     const [name, setName] = useState('');
     const [url, setUrl] = useState('');
     const [type, setType] = useState<'http' | 'tcp'>('http');
-    const [interval, setInterval] = useState(60);
+    const [interval, setIntervalValue] = useState(60);
     const [maxRetries, setMaxRetries] = useState(3);
     const [urlError, setUrlError] = useState('');
 
@@ -356,7 +379,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
         mutationFn: (data: { name: string; url: string; type: string; interval?: number; max_retries?: number }) =>
             createMonitor(data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['monitors'] });
+            queryClient.invalidateQueries({ queryKey: ['uptimeSummary'] });
             toast.success(t('uptime.monitorCreated'));
             onClose();
         },
@@ -372,7 +395,9 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
             setUrlError(t('uptime.invalidTcpFormat'));
             return;
         }
-        mutation.mutate({ name: name.trim(), url: url.trim(), type, interval, max_retries: maxRetries });
+        const safeInterval = clampInterval(interval);
+        setIntervalValue(safeInterval);
+        mutation.mutate({ name: name.trim(), url: url.trim(), type, interval: safeInterval, max_retries: maxRetries });
     };
 
     return (
@@ -478,15 +503,20 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                         <input
                             id="create-monitor-interval"
                             type="number"
-                            min="10"
-                            max="3600"
+                            min="30"
+                            max="86400"
                             value={interval}
+                            aria-describedby="create-monitor-interval-helper"
                             onChange={(e) => {
                                 const v = parseInt(e.target.value);
-                                setInterval(Number.isNaN(v) ? 60 : v);
+                                setIntervalValue(Number.isNaN(v) ? 0 : v);
                             }}
+                            onBlur={() => setIntervalValue((v) => clampInterval(v))}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
+                        <p id="create-monitor-interval-helper" className="text-xs text-gray-400 mt-1">
+                            {t('uptime.checkIntervalHelper')}
+                        </p>
                     </div>
 
                     <div>
@@ -536,22 +566,26 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
 const Uptime: FC = () => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { data: monitors, isLoading } = useQuery({
-    queryKey: ['monitors'],
-    queryFn: getMonitors,
-    refetchInterval: 30000,
-  });
+  const { data: monitors, isLoading } = useUptimeSummary();
 
-  const [editingMonitor, setEditingMonitor] = useState<UptimeMonitor | null>(null);
+  const [editingMonitor, setEditingMonitor] = useState<MonitorSummary | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const syncMutation = useMutation({
     mutationFn: () => syncMonitors(),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['monitors'] });
+      queryClient.invalidateQueries({ queryKey: ['uptimeSummary'] });
+      if (typeof data.dropped === 'number' && data.dropped > 0) {
+        toast.error(t('uptime.checkQueueFull'));
+        return;
+      }
       toast.success(data.message || t('uptime.syncComplete'));
     },
     onError: (err: unknown) => {
+      if (isQueueFull(err)) {
+        toast.error(t('uptime.checkQueueFull'));
+        return;
+      }
       toast.error(err instanceof Error ? err.message : t('errors.genericError'));
     },
   });
