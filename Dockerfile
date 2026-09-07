@@ -41,7 +41,7 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
 # and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
 # ahead of upstream releases.
 # renovate: datasource=go depName=google.golang.org/grpc
-ARG GRPC_VERSION=1.83.1
+ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 
