@@ -1,0 +1,249 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+---
+name: Toolchain Image — Build & Publish
+
+# Builds and publishes ghcr.io/wikid82/charon-toolchain — a digest-pinned,
+# multi-arch prebuilt image carrying the custom Caddy + CrowdSec binaries that
+# the app Dockerfile's caddy-inline / crowdsec-inline stages produce. The app
+# build COPY --from's this image instead of recompiling xcaddy / CrowdSec on
+# every run (spec docs/plans/current_spec.md §3.1).
+#
+# Entry points (spec §3.4.1):
+#   schedule (daily 06:00 UTC)  -> --no-cache --pull freshness rebuild
+#   workflow_dispatch           -> manual rebuild (default --no-cache --pull)
+#   pull_request (paths)        -> validate the recipe still compiles; same-repo
+#                                  PRs also publish :<key>; forks build cacheonly
+#   workflow_call               -> heavier scan/report pass from
+#                                  security-weekly-rebuild.yml
+#
+# The sync-pin-on-pr / open-bump-pr jobs (which move the Dockerfile digest pin)
+# are added in a later commit, once the freshness guard is a required check.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Build with --no-cache --pull'
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/toolchain-image.yml'
+      - 'scripts/toolchain-key.sh'
+      - 'scripts/verify-toolchain-pin.sh'
+      - 'scripts/lib/dockerfile-stage.sh'
+      - '.trivyignore'
+  workflow_call:
+    inputs:
+      force_rebuild:
+        type: boolean
+        default: true
+      publish:
+        type: boolean
+        default: true
+
+concurrency:
+  group: toolchain-image-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+  pull-requests: write
+
+env:
+  TOOLCHAIN_IMAGE: ghcr.io/wikid82/charon-toolchain
+
+jobs:
+  build-toolchain:
+    name: Build & publish toolchain image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      digest: ${{ steps.digest.outputs.digest }}
+      same_repo: ${{ steps.trust.outputs.same_repo }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Classify trust (same-repo vs fork)
+        id: trust
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          # Each job that needs trust classification maps head.repo.full_name
+          # into env explicitly (supervisor caution #1 / B7).
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          same_repo=true
+          if [[ "$EVENT_NAME" == "pull_request" && "$PR_HEAD_REPO" != "$REPO" ]]; then
+            same_repo=false
+          fi
+          echo "same_repo=$same_repo" >> "$GITHUB_OUTPUT"
+          echo "Trust: same_repo=$same_repo (event=$EVENT_NAME head=${PR_HEAD_REPO:-n/a})"
+
+      - name: Compute toolchain key
+        id: key
+        run: |
+          set -euo pipefail
+          KEY="$(bash scripts/toolchain-key.sh)"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "Toolchain key: $KEY"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to GitHub Container Registry
+        if: steps.trust.outputs.same_repo == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decide cache flags
+        id: flags
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild }}
+        run: |
+          set -euo pipefail
+          no_cache=""
+          if [[ "$EVENT_NAME" == "schedule" || "$FORCE_REBUILD" == "true" ]]; then
+            no_cache="--no-cache --pull"
+          fi
+          echo "no_cache=$no_cache" >> "$GITHUB_OUTPUT"
+          echo "cache flags: '${no_cache:-<layer cache>}'"
+
+      - name: Build toolchain image (multi-arch $BUILDPLATFORM cross-compile, no QEMU)
+        id: build
+        env:
+          SAME_REPO: ${{ steps.trust.outputs.same_repo }}
+          KEY: ${{ steps.key.outputs.key }}
+          NO_CACHE: ${{ steps.flags.outputs.no_cache }}
+        run: |
+          set -euo pipefail
+          DATE_TAG="$(date -u +%Y%m%d)"
+          TAGS=(-t "${TOOLCHAIN_IMAGE}:${KEY}" -t "${TOOLCHAIN_IMAGE}:${DATE_TAG}")
+          OUT="--output=type=cacheonly"
+          if [[ "$SAME_REPO" == "true" ]]; then
+            TAGS+=(-t "${TOOLCHAIN_IMAGE}:latest")
+            OUT="--push"
+          fi
+
+          # shellcheck disable=SC2086  # NO_CACHE is an intentional word-split flag list
+          docker buildx build \
+            --target toolchain-runtime \
+            --platform linux/amd64,linux/arm64 \
+            $NO_CACHE \
+            --cache-from type=gha,scope=toolchain \
+            --cache-to type=gha,mode=max,scope=toolchain \
+            --build-arg "CHARON_TOOLCHAIN_TAG=${KEY}" \
+            "${TAGS[@]}" \
+            $OUT \
+            .
+
+      - name: Resolve published manifest-list digest
+        id: digest
+        if: steps.trust.outputs.same_repo == 'true'
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+        run: |
+          set -euo pipefail
+          DIGEST="$(docker buildx imagetools inspect "${TOOLCHAIN_IMAGE}:${KEY}" \
+            --format '{{json .Manifest}}' | jq -r '.digest')"
+          if [[ -z "$DIGEST" || "$DIGEST" == "null" ]]; then
+            echo "::error::Could not resolve manifest-list digest for ${TOOLCHAIN_IMAGE}:${KEY}"
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Published ${TOOLCHAIN_IMAGE}:${KEY} @ ${DIGEST}"
+
+      - name: Assert multi-arch manifest (linux/amd64 + linux/arm64)
+        if: steps.trust.outputs.same_repo == 'true'
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+        run: |
+          set -euo pipefail
+          PLATFORMS="$(docker buildx imagetools inspect "${TOOLCHAIN_IMAGE}:${KEY}" --raw \
+            | jq -r '.manifests[]?.platform | select(.) | "\(.os)/\(.architecture)"' | sort -u)"
+          echo "Published platforms:"
+          echo "$PLATFORMS"
+          echo "$PLATFORMS" | grep -qx 'linux/amd64' || { echo "::error::missing linux/amd64 child"; exit 1; }
+          echo "$PLATFORMS" | grep -qx 'linux/arm64' || { echo "::error::missing linux/arm64 child"; exit 1; }
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Toolchain image"
+            echo "- key: \`${{ steps.key.outputs.key }}\`"
+            echo "- digest: \`${{ steps.digest.outputs.digest || 'not published (fork PR / cacheonly build)' }}\`"
+            echo "- trust: same_repo=${{ steps.trust.outputs.same_repo }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  trivy-scan:
+    name: Trivy scan (toolchain image)
+    needs: build-toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Determine scan reference
+        id: ref
+        env:
+          SAME_REPO: ${{ needs.build-toolchain.outputs.same_repo }}
+          DIGEST: ${{ needs.build-toolchain.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ "$SAME_REPO" == "true" && -n "$DIGEST" ]]; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+            echo "image_ref=${TOOLCHAIN_IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
+            echo "Scanning ${TOOLCHAIN_IMAGE}@${DIGEST}"
+          else
+            echo "scan=false" >> "$GITHUB_OUTPUT"
+            echo "Fork PR / image not published — no remote image to scan."
+          fi
+
+      - name: Trivy vulnerability scan (CRITICAL/HIGH gate)
+        if: steps.ref.outputs.scan == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.ref.outputs.image_ref }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          trivyignores: '.trivyignore'
+          version: 'v0.74.0'
+        # Report-only on PRs (the app-image Trivy gates still run downstream);
+        # blocking on schedule / workflow_dispatch / workflow_call (spec §3.4.3).
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+
+      - name: Trivy vulnerability scan (SARIF)
+        if: steps.ref.outputs.scan == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.ref.outputs.image_ref }}
+          format: 'sarif'
+          output: 'trivy-toolchain.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          trivyignores: '.trivyignore'
+          version: 'v0.74.0'
+
+      - name: Upload Trivy SARIF
+        if: steps.ref.outputs.scan == 'true'
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: 'trivy-toolchain.sarif'
+          category: '.github/workflows/toolchain-image.yml:trivy-toolchain'

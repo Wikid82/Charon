@@ -258,7 +258,7 @@ jobs:
           # INSIDE the cached-and-skipped stage). Matches nightly-build.yml and
           # e2e-tests-split.yml. This is a CVE-scan gate; correctness beats the
           # few minutes of xcaddy/crowdsec rebuild time.
-          no-cache-filters: caddy-builder,crowdsec-builder
+          no-cache-filters: caddy-inline,crowdsec-inline
 
       - name: Expose local image name
         if: github.event_name != 'workflow_run'

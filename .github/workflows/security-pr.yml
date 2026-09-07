@@ -161,7 +161,7 @@ jobs:
           # `go get pkg@fixed` patch lives INSIDE the cached-and-skipped stage).
           # Matches nightly-build.yml and e2e-tests-split.yml. CVE-scan gate:
           # correctness beats the few minutes of rebuild time.
-          no-cache-filters: caddy-builder,crowdsec-builder
+          no-cache-filters: caddy-inline,crowdsec-inline
 
       - name: Check for PR image artifact
         id: check-artifact

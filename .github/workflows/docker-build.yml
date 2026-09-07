@@ -460,8 +460,8 @@ jobs:
               "${TAG_ARGS[@]}"
               --cache-from type=gha,scope=docker-build-amd64
               --cache-to type=gha,mode=max,scope=docker-build-amd64
-              --no-cache-filter caddy-builder
-              --no-cache-filter crowdsec-builder
+              --no-cache-filter caddy-inline
+              --no-cache-filter crowdsec-inline
               --pull
               --build-arg "VERSION=${{ needs.setup.outputs.version }}"
               --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
@@ -546,8 +546,8 @@ jobs:
               "${TAG_ARGS[@]}"
               --cache-from type=gha,scope=docker-build-arm64
               --cache-to type=gha,mode=max,scope=docker-build-arm64
-              --no-cache-filter caddy-builder
-              --no-cache-filter crowdsec-builder
+              --no-cache-filter caddy-inline
+              --no-cache-filter crowdsec-inline
               --pull
               --build-arg "VERSION=${{ needs.setup.outputs.version }}"
               --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"

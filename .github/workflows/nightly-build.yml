@@ -240,7 +240,7 @@ jobs:
             ALPINE_IMAGE=${{ steps.alpine.outputs.image }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          no-cache-filters: caddy-builder,crowdsec-builder
+          no-cache-filters: caddy-inline,crowdsec-inline
           provenance: true
           sbom: true
 
