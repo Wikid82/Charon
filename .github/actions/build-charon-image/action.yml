@@ -12,6 +12,24 @@ inputs:
     description: Value passed as the CI build-arg.
     required: false
     default: 'false'
+  builder-src:
+    description: >-
+      Which source the Caddy / CrowdSec binaries come from:
+        prebuilt (default) — COPY --from the digest-pinned toolchain image
+                             (ghcr.io/wikid82/charon-toolchain), no compile.
+        inline             — compile caddy-inline / crowdsec-inline from source
+                             (fork PR / bootstrap / offline; ~14 min).
+    required: false
+    default: prebuilt
+  ghcr-token:
+    description: >-
+      Token with packages:read, used to log in to ghcr.io so BuildKit can pull
+      the (private) prebuilt toolchain image. Callers pass secrets.GITHUB_TOKEN.
+      Composite actions cannot read the secrets context themselves, so this must
+      be threaded in from the calling workflow. Ignored when builder-src=inline;
+      a fork PR that cannot supply a working token should pass builder-src=inline.
+    required: false
+    default: ''
   no-cache-filters:
     description: >-
       Comma-separated Dockerfile stages to force-rebuild (never restore from the
@@ -39,8 +57,33 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Resolve builder source stages
+      id: srcsel
+      shell: bash
+      env:
+        BUILDER_SRC: ${{ inputs.builder-src }}
+      run: |
+        set -euo pipefail
+        case "${BUILDER_SRC:-prebuilt}" in
+          inline)
+            echo "caddy=caddy-inline"        >> "$GITHUB_OUTPUT"
+            echo "crowdsec=crowdsec-inline"  >> "$GITHUB_OUTPUT" ;;
+          prebuilt)
+            echo "caddy=toolchain-prebuilt"    >> "$GITHUB_OUTPUT"
+            echo "crowdsec=toolchain-prebuilt" >> "$GITHUB_OUTPUT" ;;
+          *)
+            echo "::error::build-charon-image: invalid builder-src '${BUILDER_SRC}' (want prebuilt|inline)"
+            exit 1 ;;
+        esac
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+    - name: Log in to GHCR (pull prebuilt toolchain image)
+      if: inputs.builder-src != 'inline' && inputs.ghcr-token != ''
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.ghcr-token }}
     - name: Build image
       uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
       with:
@@ -51,6 +94,8 @@ runs:
         tags: ${{ inputs.tag }}
         build-args: |
           CI=${{ inputs.ci }}
+          CADDY_BUILDER_SRC=${{ steps.srcsel.outputs.caddy }}
+          CROWDSEC_BUILDER_SRC=${{ steps.srcsel.outputs.crowdsec }}
         cache-from: type=gha,scope=charon-integration-image
         cache-to: type=gha,mode=max,scope=charon-integration-image
         no-cache-filters: ${{ inputs.no-cache-filters }}

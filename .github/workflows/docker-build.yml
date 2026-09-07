@@ -399,6 +399,10 @@ jobs:
     if: needs.setup.result == 'success' && needs.setup.outputs.skip_build != 'true'
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+      # Release path is same-repo only and never runs the inline compile; a fork
+      # PR (empty or foreign head repo) would still fall back to caddy-inline.
+      CADDY_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'caddy-inline' || 'toolchain-prebuilt' }}
+      CROWDSEC_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'crowdsec-inline' || 'toolchain-prebuilt' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -467,6 +471,8 @@ jobs:
               --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
               --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
               --build-arg "ALPINE_IMAGE=${{ needs.setup.outputs.alpine_image }}"
+              --build-arg "CADDY_BUILDER_SRC=${{ env.CADDY_BUILDER_SRC }}"
+              --build-arg "CROWDSEC_BUILDER_SRC=${{ env.CROWDSEC_BUILDER_SRC }}"
               --iidfile /tmp/image-digest-amd64.txt
               .
             )
@@ -483,6 +489,8 @@ jobs:
     if: needs.setup.result == 'success' && needs.setup.outputs.skip_build != 'true'
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+      CADDY_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'caddy-inline' || 'toolchain-prebuilt' }}
+      CROWDSEC_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'crowdsec-inline' || 'toolchain-prebuilt' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -553,6 +561,8 @@ jobs:
               --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
               --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
               --build-arg "ALPINE_IMAGE=${{ needs.setup.outputs.alpine_image }}"
+              --build-arg "CADDY_BUILDER_SRC=${{ env.CADDY_BUILDER_SRC }}"
+              --build-arg "CROWDSEC_BUILDER_SRC=${{ env.CROWDSEC_BUILDER_SRC }}"
               --iidfile /tmp/image-digest-arm64.txt
               .
             )

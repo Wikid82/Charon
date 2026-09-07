@@ -1,4 +1,4 @@
-.PHONY: help install test build run clean docker-build docker-run release go-check gopls-logs lint-fast lint-staticcheck-only security-local
+.PHONY: help install test build run clean docker-build docker-run build-offline release go-check gopls-logs lint-fast lint-staticcheck-only security-local
 
 # Default target
 help:
@@ -103,6 +103,16 @@ docker-build-versioned:
 		--build-arg VCS_REF=$$VCS_REF \
 		-t charon:$$VERSION \
 		-t charon:latest \
+		.
+
+# Build the image WITHOUT pulling the prebuilt toolchain image — compiles the
+# custom Caddy + CrowdSec binaries from source (caddy-inline / crowdsec-inline).
+# Use offline / air-gapped, or when not logged in to GHCR. Slow (~14 min extra).
+build-offline:
+	docker build \
+		--build-arg CADDY_BUILDER_SRC=caddy-inline \
+		--build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline \
+		-t charon:offline \
 		.
 
 # Run Docker containers (production)

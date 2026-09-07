@@ -238,6 +238,8 @@ jobs:
             VCS_REF=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.pushed_at }}
             ALPINE_IMAGE=${{ steps.alpine.outputs.image }}
+            CADDY_BUILDER_SRC=toolchain-prebuilt
+            CROWDSEC_BUILDER_SRC=toolchain-prebuilt
           cache-from: type=gha
           cache-to: type=gha,mode=max
           no-cache-filters: caddy-inline,crowdsec-inline

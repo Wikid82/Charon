@@ -21,6 +21,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   crowdsec-integration:
@@ -34,6 +35,9 @@ jobs:
         uses: ./.github/actions/build-charon-image
         with:
           ci: 'true'
+          # Fork PRs cannot pull the private toolchain image -> compile inline.
+          builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
+          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run CrowdSec integration tests
         id: crowdsec-test

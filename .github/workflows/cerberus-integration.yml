@@ -21,6 +21,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   cerberus-integration:
@@ -32,6 +33,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build Docker image (Local)
         uses: ./.github/actions/build-charon-image
+        with:
+          # Fork PRs cannot pull the private toolchain image -> compile inline.
+          builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
+          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Cerberus integration tests
         id: cerberus-test

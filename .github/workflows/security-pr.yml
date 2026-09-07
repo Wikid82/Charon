@@ -24,6 +24,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   security-scan:
@@ -156,11 +157,15 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         uses: ./.github/actions/build-charon-image
         with:
-          # Force a clean rebuild of the two from-source stages so a stale GHA
-          # layer cache cannot retain a superseded pinned dependency (the
+          # Default path COPY --from's the digest-pinned toolchain image; fork
+          # PRs (no private-package pull) compile caddy-inline/crowdsec-inline.
+          builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
+          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+          # Still force-rebuild the from-source stages on the inline path so a
+          # stale GHA layer cannot retain a superseded pinned dependency (the
           # `go get pkg@fixed` patch lives INSIDE the cached-and-skipped stage).
-          # Matches nightly-build.yml and e2e-tests-split.yml. CVE-scan gate:
-          # correctness beats the few minutes of rebuild time.
+          # Removed entirely in a later commit once verify-toolchain-pin is a
+          # required check and the default path no longer compiles at all.
           no-cache-filters: caddy-inline,crowdsec-inline
 
       - name: Check for PR image artifact

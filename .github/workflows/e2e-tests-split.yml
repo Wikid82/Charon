@@ -123,6 +123,9 @@ jobs:
   build:
     name: Prepare Application Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     outputs:
       image_source: ${{ steps.resolve-image.outputs.image_source }}
       image_ref: ${{ steps.resolve-image.outputs.image_ref }}
@@ -209,6 +212,14 @@ jobs:
         if: steps.resolve-image.outputs.image_source == 'build'
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
+      - name: Log in to GHCR (pull prebuilt toolchain image)
+        if: steps.resolve-image.outputs.image_source == 'build' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build Docker image
         id: build-image
         if: steps.resolve-image.outputs.image_source == 'build'
@@ -221,6 +232,10 @@ jobs:
           tags: ${{ steps.resolve-image.outputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Fork PRs cannot pull the private toolchain image -> compile inline.
+          build-args: |
+            CADDY_BUILDER_SRC=${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'caddy-inline' || 'toolchain-prebuilt' }}
+            CROWDSEC_BUILDER_SRC=${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'crowdsec-inline' || 'toolchain-prebuilt' }}
           no-cache-filters: caddy-inline,crowdsec-inline
 
       - name: Save Docker image

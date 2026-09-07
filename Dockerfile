@@ -17,9 +17,17 @@ ARG BUILD_DEBUG=0
 # stale for the current pins.
 ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
-# toolchain-image.yml bot owns these two lines.
+# toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
+# manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
 ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-1efe7f19fa52a512
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:6575f4c6a9f76074870c64df9dd4c9ebee812342f37f52ae5ef8f511ba9f8f00
+
+# Stage selector — default consumes the prebuilt toolchain image (no compile).
+# Fork PRs / bootstrap / offline builds pass
+#   --build-arg CADDY_BUILDER_SRC=caddy-inline --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline
+# (e.g. `make build-offline`) to compile from source instead.
+ARG CADDY_BUILDER_SRC=toolchain-prebuilt
+ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
@@ -758,17 +766,28 @@ COPY --from=caddy-inline    /usr/bin/caddy          /usr/bin/caddy
 COPY --from=crowdsec-inline /crowdsec-out/crowdsec  /crowdsec-out/crowdsec
 COPY --from=crowdsec-inline /crowdsec-out/cscli     /crowdsec-out/cscli
 COPY --from=crowdsec-inline /crowdsec-out/config    /crowdsec-out/config
-# Provenance: `docker inspect` on the toolchain image shows the content key.
-LABEL io.charon.toolchain.key="${CHARON_TOOLCHAIN_TAG}"
+# Provenance: `docker inspect` on the toolchain image shows the content key;
+# image.source links the GHCR package to the repo so same-repo CI can pull it.
+LABEL io.charon.toolchain.key="${CHARON_TOOLCHAIN_TAG}" \
+      org.opencontainers.image.source="https://github.com/Wikid82/charon"
 
-# ---- Effective builder stages ----
-# Commit 1: temporary aliases so the app build is byte-identical while the
-# selector / prebuilt-image consumption lands in Commit 2. The retargeted
-# `--no-cache-filter caddy-inline,crowdsec-inline` in CI keeps invalidating the
-# real RUN layers (which now live in caddy-inline / crowdsec-inline) through the
-# rename — the CVE-recurrence guard is never inert (B5).
-FROM caddy-inline    AS caddy-builder
-FROM crowdsec-inline AS crowdsec-builder
+# ---- Prebuilt toolchain (default source for caddy-builder / crowdsec-builder) ----
+# Digest-pinned OCI index; BuildKit auto-selects the child matching $TARGETPLATFORM.
+# Contains /usr/bin/caddy and /crowdsec-out/{crowdsec,cscli,config} at the SAME
+# paths the inline stages produce, so the final-stage COPY --from lines are
+# unchanged. Pruned from the graph (never pulled) when *_BUILDER_SRC=*-inline.
+FROM ${CHARON_TOOLCHAIN_IMAGE}@${CHARON_TOOLCHAIN_DIGEST} AS toolchain-prebuilt
+
+# ---- Effective builder stages: prebuilt image OR inline compile ----
+# `FROM ${ARG} AS name` where the ARG resolves to a prior stage name is valid
+# BuildKit; the unreferenced alternative is pruned and never built/pulled.
+# On the default (prebuilt) path caddy-inline / crowdsec-inline are not in the
+# graph, so the retargeted `--no-cache-filter caddy-inline,crowdsec-inline` in CI
+# is a no-op there and live only on the fork/offline inline path (B5). The
+# pin<->digest binding on the default path is enforced by
+# scripts/verify-toolchain-pin.sh (wired as a required check in Commit 3).
+FROM ${CADDY_BUILDER_SRC}    AS caddy-builder
+FROM ${CROWDSEC_BUILDER_SRC} AS crowdsec-builder
 
 # ---- Final Runtime with Caddy ----
 FROM ${ALPINE_IMAGE}
