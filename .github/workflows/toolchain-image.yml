@@ -426,14 +426,14 @@ jobs:
           base: development
           branch: bot/bump-toolchain-image
           delete-branch: true
-          title: "feat(security): refresh bundled proxy toolchain image"
+          title: "chore(docker): refresh bundled proxy toolchain image"
           labels: |
             dependencies
             automated
             docker
             security
           commit-message: |
-            feat(security): refresh bundled proxy toolchain image
+            chore(docker): refresh bundled proxy toolchain image
 
             Rebuilds the prebuilt Caddy/CrowdSec toolchain image so the shipped
             binaries pick up upstream fixes, and bumps the digest pin in the
