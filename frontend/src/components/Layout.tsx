@@ -109,7 +109,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: t('navigation.uptime'), path: '/uptime', icon: '📈' },
     { name: t('navigation.cerberus'), path: '/security', icon: '🛡️', children: [
       { name: t('navigation.dashboard'), path: '/security', icon: '🛡️' },
-      { name: t('navigation.crowdsec'), path: '/security/crowdsec', icon: '🛡️' },
+      ...(user?.role === 'admin' ? [{ name: t('navigation.crowdsec'), path: '/security/crowdsec', icon: '🛡️' }] : []),
       { name: t('navigation.accessLists'), path: '/security/access-lists', icon: '🔒' },
       { name: t('navigation.rateLimiting'), path: '/security/rate-limiting', icon: '⚡' },
       { name: t('navigation.waf'), path: '/security/waf', icon: '🛡️' },

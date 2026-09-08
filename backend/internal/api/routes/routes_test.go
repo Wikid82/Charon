@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -1402,4 +1403,91 @@ func TestRegister_UptimeSummaryAndHistoryRoutesResolve(t *testing.T) {
 		router.ServeHTTP(w, req)
 		assert.NotEqualf(t, http.StatusNotFound, w.Code, "%s must resolve to a handler", path)
 	}
+}
+
+// TestRegister_CrowdsecAdminRoutesRequireAdminRole verifies that the
+// /admin/crowdsec/* routes are guarded by RequireRole(admin) (spec §3.1.4,
+// advisory GHSA-3gc6-295r-xm5m). A role=user session must be rejected with a
+// hard 403 on these privileged routes while still retaining access to
+// genuinely user-allowed management routes; a role=admin session must reach
+// the handler (any non-401/403 status is acceptable since CrowdSec is not
+// running in the test).
+func TestRegister_CrowdsecAdminRoutesRequireAdminRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_crowdsec_admin_authz"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(context.Background(), router, db, cfg))
+
+	authSvc := services.NewAuthService(db, cfg)
+
+	userAcct := &models.User{
+		UUID:    uuid.NewString(),
+		APIKey:  uuid.NewString(),
+		Email:   "user-crowdsec-authz@example.com",
+		Role:    models.RoleUser,
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(userAcct).Error)
+	userToken, err := authSvc.GenerateToken(userAcct)
+	require.NoError(t, err)
+
+	adminAcct := &models.User{
+		UUID:    uuid.NewString(),
+		APIKey:  uuid.NewString(),
+		Email:   "admin-crowdsec-authz@example.com",
+		Role:    models.RoleAdmin,
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(adminAcct).Error)
+	adminToken, err := authSvc.GenerateToken(adminAcct)
+	require.NoError(t, err)
+
+	do := func(method, path, token string) int {
+		req := httptest.NewRequest(method, path, http.NoBody)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	routes := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"stop", http.MethodPost, "/api/v1/admin/crowdsec/stop"},
+		{"bouncer key", http.MethodGet, "/api/v1/admin/crowdsec/bouncer/key"},
+		{"ban", http.MethodPost, "/api/v1/admin/crowdsec/ban"},
+		{"read file", http.MethodGet, "/api/v1/admin/crowdsec/file?path=acquis.yaml"},
+	}
+
+	for _, tc := range routes {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, http.StatusUnauthorized, do(tc.method, tc.path, ""),
+				"no token must be rejected with 401")
+
+			assert.Equal(t, http.StatusForbidden, do(tc.method, tc.path, userToken),
+				"role=user must be rejected with 403 on privileged CrowdSec routes")
+
+			adminCode := do(tc.method, tc.path, adminToken)
+			assert.NotEqual(t, http.StatusUnauthorized, adminCode,
+				"role=admin must not be rejected as unauthorized")
+			assert.NotEqual(t, http.StatusForbidden, adminCode,
+				"role=admin must reach the handler, not be forbidden")
+		})
+	}
+
+	// Control: the same role=user token remains valid for a genuinely
+	// user-allowed management route, proving the 403s above are the new
+	// admin guard specifically and not a broken session.
+	assert.NotEqual(t, http.StatusForbidden, do(http.MethodGet, "/api/v1/proxy-hosts", userToken),
+		"role=user must still reach user-allowed management routes")
+	assert.NotEqual(t, http.StatusUnauthorized, do(http.MethodGet, "/api/v1/proxy-hosts", userToken),
+		"role=user session token must be accepted")
 }

@@ -373,6 +373,14 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management := protected.Group("/")
 		management.Use(middleware.RequireManagementAccess())
 
+		// managementAdmin — admin-only sibling of the management group, for
+		// routes that mutate or expose privileged infrastructure. Mirrors the
+		// securityAdmin / authenticatedAdmin idiom; the subgroup middleware is
+		// the only guard (no redundant in-handler role checks). Reused by
+		// subsequent management-API hardening work.
+		managementAdmin := management.Group("/")
+		managementAdmin.Use(middleware.RequireRole(models.RoleAdmin))
+
 		// Backups. Static routes (settings, remote-targets, upload, jobs) are
 		// registered alongside the pre-existing /:filename[...] wildcard
 		// routes — see routes_backup_test.go for the required regression
@@ -835,7 +843,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
-		crowdsecHandler.RegisterRoutes(management)
+		crowdsecHandler.RegisterRoutes(managementAdmin)
 
 		// NOTE: CrowdSec reconciliation now happens in main.go BEFORE HTTP server starts
 		// This ensures proper initialization order and prevents race conditions

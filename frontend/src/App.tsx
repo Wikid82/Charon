@@ -103,7 +103,7 @@ export default function App() {
               <Route path="security" element={<Security />} />
               <Route path="security/audit-logs" element={<AuditLogs />} />
               <Route path="security/access-lists" element={<AccessLists />} />
-              <Route path="security/crowdsec" element={<CrowdSecConfig />} />
+              <Route path="security/crowdsec" element={<RequireRole allowed={['admin']}><CrowdSecConfig /></RequireRole>} />
               <Route path="security/rate-limiting" element={<RateLimiting />} />
               <Route path="security/waf" element={<WafConfig />} />
               <Route path="security/headers" element={<SecurityHeaders />} />
