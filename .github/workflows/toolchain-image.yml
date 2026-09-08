@@ -314,10 +314,26 @@ jobs:
     # commit when the Dockerfile pin genuinely changes. With the deterministic
     # build above (same key => same digest) this essentially never fires unless a
     # tracked pin actually moved on the PR.
+    #
+    # Hard guards (2026-09-08 incident): this job pushes to
+    # `github.event.pull_request.head.ref`, so it must NEVER run when that head
+    # is a long-lived branch. The main -> development auto-propagation PR (#1307)
+    # has head ref `main`; its merge ref pulls development's gRPC bump into the
+    # key computation, and the resulting pin got committed straight to `main`.
+    # `github.actor` was not the bot on that event (propagation runs under a
+    # human/PAT identity), so the actor guard alone did not catch it — also
+    # check the PR author, and refuse any protected head ref outright. A genuine
+    # key move on `development` is handled by `open-bump-pr` (a reviewed bot PR),
+    # not by this in-place sync.
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'github-actions[bot]' &&
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      github.event.pull_request.head.ref != 'main' &&
+      github.event.pull_request.head.ref != 'development' &&
+      github.event.pull_request.head.ref != 'nightly' &&
+      github.event.pull_request.head.ref != 'feature/beta-release' &&
       needs.build-toolchain.outputs.digest != ''
     runs-on: ubuntu-latest
     permissions:
