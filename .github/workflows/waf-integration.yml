@@ -21,17 +21,22 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   waf-integration:
     name: Coraza WAF Integration
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # 20m: warm GHA cache builds in ~8-12m; first run on a fresh branch / after cache eviction is still a full cold build.
+    timeout-minutes: 20 # 20m: same-repo runs COPY Caddy/CrowdSec from the pinned toolchain image (~2-4m build); fork PRs compile them inline (~14m) + test work, which sets the floor (B6).
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build Docker image (Local)
         uses: ./.github/actions/build-charon-image
+        with:
+          # Fork PRs cannot pull the private toolchain image -> compile inline.
+          builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
+          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run WAF integration tests
         id: waf-test

@@ -8,6 +8,27 @@ ARG VCS_REF
 # Set BUILD_DEBUG=1 to build with debug symbols (required for Delve debugging)
 ARG BUILD_DEBUG=0
 
+# ---- Prebuilt Caddy + CrowdSec toolchain image ----
+# Built by .github/workflows/toolchain-image.yml from the caddy-inline /
+# crowdsec-inline stages below (--target toolchain-runtime). Bumped by that
+# workflow's bot PR when a security-relevant input moves OR the DAILY
+# `--no-cache --pull` rebuild produces a new digest. The freshness-guard CI
+# check (scripts/verify-toolchain-pin.sh) fails any PR where TAG/DIGEST is
+# stale for the current pins.
+ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
+# NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
+# toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
+# manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-1efe7f19fa52a512
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:6575f4c6a9f76074870c64df9dd4c9ebee812342f37f52ae5ef8f511ba9f8f00
+
+# Stage selector — default consumes the prebuilt toolchain image (no compile).
+# Fork PRs / bootstrap / offline builds pass
+#   --build-arg CADDY_BUILDER_SRC=caddy-inline --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline
+# (e.g. `make build-offline`) to compile from source instead.
+ARG CADDY_BUILDER_SRC=toolchain-prebuilt
+ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
+
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
 ARG GO_VERSION=1.27.1
@@ -18,8 +39,6 @@ ARG ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
 ARG CROWDSEC_VERSION=1.8.1
-# CrowdSec fallback tarball checksum (v${CROWDSEC_VERSION})
-ARG CROWDSEC_RELEASE_SHA256=deae1f43ddf1118339dc4f774289d745c957802423d0310ad1d2990067d05ea8
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
@@ -62,6 +81,15 @@ ARG CADDY_PATCH_SCENARIO=B
 ARG CADDY_SECURITY_VERSION=1.1.64
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.0
+# xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so
+# a toolchain-key.sh input moves when the plugin does. caddy-geoip2 publishes NO
+# semver tags, so its pin is the full pseudo-version (leading v included) and the
+# `--with` line interpolates it directly (no added `v`); the renovate marker is
+# kept for discoverability but does not track a pseudo-version (same caveat as N7).
+# renovate: datasource=go depName=github.com/zhangjiayin/caddy-geoip2
+ARG CADDY_GEOIP2_VERSION=v0.0.0-20260623062220-3675c6e7e63d
+# renovate: datasource=go depName=github.com/mholt/caddy-ratelimit
+ARG CADDY_RATELIMIT_VERSION=0.1.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -296,10 +324,22 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             -o charon ./cmd/api; \
     fi
 
-# ---- Caddy Builder ----
+# ---- Caddy Builder (inline / from-source) ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS caddy-builder
+#
+# This stage is the single source of truth for the Caddy build recipe. On the
+# default app-build path its output is NOT recompiled — it is COPY --from'd out
+# of the digest-pinned toolchain image (see the toolchain-prebuilt / caddy-builder
+# selector stages further down). It is compiled here only by
+# .github/workflows/toolchain-image.yml (--target toolchain-runtime) and on the
+# fork / bootstrap / offline fallback path.
+#
+# N4: the golang:${GO_VERSION}-alpine tag is a moving reference; digest-pin it so
+# a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
+# is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
+# renovate: datasource=docker depName=golang
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -308,6 +348,8 @@ ARG CADDY_USE_CANDIDATE
 ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
+ARG CADDY_GEOIP2_VERSION
+ARG CADDY_RATELIMIT_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.7
 ARG EXPR_LANG_VERSION
@@ -388,8 +430,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1 \
-            --with github.com/zhangjiayin/caddy-geoip2 \
-            --with github.com/mholt/caddy-ratelimit \
+            --with github.com/zhangjiayin/caddy-geoip2@${CADDY_GEOIP2_VERSION} \
+            --with github.com/mholt/caddy-ratelimit@v${CADDY_RATELIMIT_VERSION} \
             --output /tmp/caddy-initial; \
         # Find the build directory created by xcaddy
         BUILDDIR=$(ls -td /tmp/buildenv_* 2>/dev/null | head -1); \
@@ -571,10 +613,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Clean up temporary build directories
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
-# ---- CrowdSec Builder ----
+# ---- CrowdSec Builder (inline / from-source) ----
 # Build CrowdSec from source to ensure we use Go 1.26.3+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS crowdsec-builder
+#
+# Like caddy-inline, this is the single source of truth for the CrowdSec build
+# recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
+# default app build COPY --from's its output out of the pinned toolchain image.
+# renovate: datasource=docker depName=golang
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -583,7 +630,6 @@ ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 ARG CROWDSEC_VERSION
-ARG CROWDSEC_RELEASE_SHA256
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
@@ -709,43 +755,39 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN mkdir -p /crowdsec-out/config && \
     cp -r config/* /crowdsec-out/config/ || true
 
-# ---- CrowdSec Fallback (for architectures where build fails) ----
-FROM ${ALPINE_IMAGE} AS crowdsec-fallback
+# ---- Toolchain image assembly target (built by toolchain-image.yml) ----
+# NOT part of the app build graph — nothing FROMs it here. `docker buildx build
+# --target toolchain-runtime` produces the publishable multi-arch image that the
+# default app build then COPY --from's. The binaries land at the SAME paths the
+# inline stages produce, so the final-stage COPY --from lines need no change.
+FROM ${ALPINE_IMAGE} AS toolchain-runtime
+ARG CHARON_TOOLCHAIN_TAG
+COPY --from=caddy-inline    /usr/bin/caddy          /usr/bin/caddy
+COPY --from=crowdsec-inline /crowdsec-out/crowdsec  /crowdsec-out/crowdsec
+COPY --from=crowdsec-inline /crowdsec-out/cscli     /crowdsec-out/cscli
+COPY --from=crowdsec-inline /crowdsec-out/config    /crowdsec-out/config
+# Provenance: `docker inspect` on the toolchain image shows the content key;
+# image.source links the GHCR package to the repo so same-repo CI can pull it.
+LABEL io.charon.toolchain.key="${CHARON_TOOLCHAIN_TAG}" \
+      org.opencontainers.image.source="https://github.com/Wikid82/charon"
 
-SHELL ["/bin/ash", "-o", "pipefail", "-c"]
+# ---- Prebuilt toolchain (default source for caddy-builder / crowdsec-builder) ----
+# Digest-pinned OCI index; BuildKit auto-selects the child matching $TARGETPLATFORM.
+# Contains /usr/bin/caddy and /crowdsec-out/{crowdsec,cscli,config} at the SAME
+# paths the inline stages produce, so the final-stage COPY --from lines are
+# unchanged. Pruned from the graph (never pulled) when *_BUILDER_SRC=*-inline.
+FROM ${CHARON_TOOLCHAIN_IMAGE}@${CHARON_TOOLCHAIN_DIGEST} AS toolchain-prebuilt
 
-WORKDIR /tmp/crowdsec
-
-ARG TARGETARCH
-ARG CROWDSEC_VERSION
-ARG CROWDSEC_RELEASE_SHA256
-
-# hadolint ignore=DL3018
-RUN apk add --no-cache curl ca-certificates
-
-# Download static binaries as fallback (only available for amd64)
-# For other architectures, create empty placeholder files so COPY doesn't fail
-# hadolint ignore=DL3059,SC2015
-RUN set -eux; \
-    mkdir -p /crowdsec-out/bin /crowdsec-out/config; \
-    if [ "$TARGETARCH" = "amd64" ]; then \
-        echo "Downloading CrowdSec binaries for amd64 (fallback)..."; \
-        curl -fSL --retry 3 --retry-delay 5 --retry-all-errors \
-            "https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-release.tgz" \
-            -o /tmp/crowdsec.tar.gz && \
-        echo "${CROWDSEC_RELEASE_SHA256}  /tmp/crowdsec.tar.gz" | sha256sum -c - && \
-        tar -xzf /tmp/crowdsec.tar.gz -C /tmp && \
-        cp "/tmp/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec-cli/cscli" /crowdsec-out/bin/ && \
-        cp "/tmp/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec/crowdsec" /crowdsec-out/bin/ && \
-        chmod +x /crowdsec-out/bin/* && \
-        if [ -d "/tmp/crowdsec-v${CROWDSEC_VERSION}/config" ]; then \
-            cp -r "/tmp/crowdsec-v${CROWDSEC_VERSION}/config/"* /crowdsec-out/config/; \
-        fi && \
-        echo "CrowdSec fallback binaries installed successfully"; \
-    else \
-        echo "CrowdSec binaries not available for $TARGETARCH - skipping"; \
-        touch /crowdsec-out/bin/.placeholder /crowdsec-out/config/.placeholder; \
-    fi
+# ---- Effective builder stages: prebuilt image OR inline compile ----
+# `FROM ${ARG} AS name` where the ARG resolves to a prior stage name is valid
+# BuildKit; the unreferenced alternative is pruned and never built/pulled.
+# On the default (prebuilt) path caddy-inline / crowdsec-inline are not in the
+# graph, so the retargeted `--no-cache-filter caddy-inline,crowdsec-inline` in CI
+# is a no-op there and live only on the fork/offline inline path (B5). The
+# pin<->digest binding on the default path is enforced by
+# scripts/verify-toolchain-pin.sh (wired as a required check in Commit 3).
+FROM ${CADDY_BUILDER_SRC}    AS caddy-builder
+FROM ${CROWDSEC_BUILDER_SRC} AS crowdsec-builder
 
 # ---- Final Runtime with Caddy ----
 FROM ${ALPINE_IMAGE}
@@ -809,10 +851,38 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 # Allow non-root to bind privileged ports (80/443) securely
 RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
+# N5 — app-side sanity check on the toolchain-provided Caddy binary. On the
+# prebuilt path the "does it embed the fixed cel-go / grpc-go" assertions ran
+# only when the toolchain image was built, so a wrong / rolled-back
+# CHARON_TOOLCHAIN_DIGEST (or a hand-edited pin) would sail through silently.
+# The final stage has no Go toolchain, so instead assert the binary loads and
+# exposes the four custom plugins the recipe adds — a wrong-arch or stale-recipe
+# image fails here immediately. The authoritative embed-version checks remain in
+# caddy-inline (run by toolchain-image.yml) and docker-build.yml's post-build step.
+RUN set -e; \
+    mods="$(/usr/bin/caddy list-modules 2>/dev/null)"; \
+    for m in http.handlers.rate_limit http.handlers.crowdsec http.handlers.geoip2 http.handlers.waf; do \
+        printf '%s\n' "$mods" | grep -qx "$m" \
+            || { echo "ERROR: toolchain caddy binary missing expected module: $m"; printf '%s\n' "$mods"; exit 1; }; \
+    done; \
+    echo "Verified toolchain caddy binary exposes rate_limit / crowdsec / geoip2 / waf(coraza)"
+
 # Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.26.3+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
+
+# N5 — app-side sanity check on the toolchain-provided cscli binary: it must run
+# and emit its recognisable version block. (CrowdSec 1.8.x prints an empty
+# `version:` field here regardless of the -X ldflag, so match a stable field
+# instead.) A wrong-arch / stale-recipe image fails this immediately.
+RUN set -e; \
+    /usr/local/bin/cscli version >/tmp/cscli-v.txt 2>&1 \
+        || { echo "ERROR: toolchain cscli is not runnable"; cat /tmp/cscli-v.txt; exit 1; }; \
+    grep -q 'Constraint_api' /tmp/cscli-v.txt \
+        || { echo "ERROR: toolchain cscli version output not recognised"; cat /tmp/cscli-v.txt; exit 1; }; \
+    rm -f /tmp/cscli-v.txt; \
+    echo "Verified toolchain cscli runs (GoVersion: $(/usr/local/bin/cscli version 2>&1 | sed -n 's/^GoVersion: //p'))"
 # Copy CrowdSec configuration files to .dist directory (will be used at runtime)
 COPY --from=crowdsec-builder /crowdsec-out/config /etc/crowdsec.dist
 # Verify config files were copied successfully

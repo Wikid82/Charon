@@ -377,10 +377,13 @@ jobs:
 
   # `build-amd64` / `build-arm64` build+push a single platform each to a throwaway,
   # run-scoped tag (never exposed to end users), then `merge-and-publish` composes both
-  # digests into one multi-platform manifest list. This isolates arm64's slow
-  # QEMU-emulated cross-compile from amd64's fast native build so each gets its own
-  # right-sized timeout instead of sharing one 20-minute budget (root cause of the
-  # arm64 timeout flake this restructuring fixes — see docs/plans/current_spec.md §1.1).
+  # digests into one multi-platform manifest list, so each per-arch leg gets its own
+  # right-sized timeout instead of sharing one budget. The custom Caddy/CrowdSec
+  # compile no longer runs on either leg — both COPY --from the digest-pinned
+  # toolchain image (see docs/plans/current_spec.md §3.1); the builder stages were
+  # always $BUILDPLATFORM cross-compiled (never QEMU-emulated) regardless. QEMU on
+  # build-arm64 still runs only the final arm64 stage's RUN lines (apk, setcap,
+  # GeoIP fetch, verification).
   #
   # NOTE on retry mechanism: docker/build-push-action cannot be nested inside
   # nick-fields/retry (retry's `command:` only accepts a shell string, not a `uses:`
@@ -389,8 +392,11 @@ jobs:
   # today, which requires the raw `docker buildx build` CLI rather than the JS action.
   # Retry is therefore implemented the same way as today: raw buildx CLI wrapped in
   # nick-fields/retry at the step level (same action pin, same 3-attempts/10s-wait
-  # config), with cache-from/cache-to/no-cache-filter passed as native buildx flags
-  # (functionally identical to docker/build-push-action's equivalent inputs).
+  # config), with cache-from/cache-to passed as native buildx flags (functionally
+  # identical to docker/build-push-action's equivalent inputs). The Caddy/CrowdSec
+  # compile lives in the digest-pinned, daily-rebuilt-and-scanned toolchain image
+  # now, so normal type=gha layer caching is authoritative for every stage; pin
+  # freshness is enforced per-PR by scripts/verify-toolchain-pin.sh.
   build-amd64:
     needs: setup
     # An explicit job-level `if:` REPLACES (does not append to) the implicit
@@ -399,8 +405,12 @@ jobs:
     if: needs.setup.result == 'success' && needs.setup.outputs.skip_build != 'true'
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+      # Release path is same-repo only and never runs the inline compile; a fork
+      # PR (empty or foreign head repo) would still fall back to caddy-inline.
+      CADDY_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'caddy-inline' || 'toolchain-prebuilt' }}
+      CROWDSEC_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'crowdsec-inline' || 'toolchain-prebuilt' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -438,7 +448,7 @@ jobs:
         id: build
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
-          timeout_minutes: 15
+          timeout_minutes: 20
           max_attempts: 3
           retry_wait_seconds: 10
           retry_on: error
@@ -460,13 +470,13 @@ jobs:
               "${TAG_ARGS[@]}"
               --cache-from type=gha,scope=docker-build-amd64
               --cache-to type=gha,mode=max,scope=docker-build-amd64
-              --no-cache-filter caddy-builder
-              --no-cache-filter crowdsec-builder
               --pull
               --build-arg "VERSION=${{ needs.setup.outputs.version }}"
               --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
               --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
               --build-arg "ALPINE_IMAGE=${{ needs.setup.outputs.alpine_image }}"
+              --build-arg "CADDY_BUILDER_SRC=${{ env.CADDY_BUILDER_SRC }}"
+              --build-arg "CROWDSEC_BUILDER_SRC=${{ env.CROWDSEC_BUILDER_SRC }}"
               --iidfile /tmp/image-digest-amd64.txt
               .
             )
@@ -483,6 +493,8 @@ jobs:
     if: needs.setup.result == 'success' && needs.setup.outputs.skip_build != 'true'
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+      CADDY_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'caddy-inline' || 'toolchain-prebuilt' }}
+      CROWDSEC_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'crowdsec-inline' || 'toolchain-prebuilt' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -546,13 +558,13 @@ jobs:
               "${TAG_ARGS[@]}"
               --cache-from type=gha,scope=docker-build-arm64
               --cache-to type=gha,mode=max,scope=docker-build-arm64
-              --no-cache-filter caddy-builder
-              --no-cache-filter crowdsec-builder
               --pull
               --build-arg "VERSION=${{ needs.setup.outputs.version }}"
               --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
               --build-arg "VCS_REF=${{ env.TRIGGER_HEAD_SHA }}"
               --build-arg "ALPINE_IMAGE=${{ needs.setup.outputs.alpine_image }}"
+              --build-arg "CADDY_BUILDER_SRC=${{ env.CADDY_BUILDER_SRC }}"
+              --build-arg "CROWDSEC_BUILDER_SRC=${{ env.CROWDSEC_BUILDER_SRC }}"
               --iidfile /tmp/image-digest-arm64.txt
               .
             )
@@ -774,6 +786,23 @@ jobs:
           name: ${{ env.TRIGGER_EVENT == 'pull_request' && format('pr-image-{0}', env.TRIGGER_PR_NUMBER) || 'push-image' }}
           path: /tmp/charon-pr-image.tar
           retention-days: 1  # Only needed for workflow duration
+
+      - name: Verify pinned toolchain image matches the recipe (N5)
+        run: |
+          set -euo pipefail
+          KEY="$(bash scripts/toolchain-key.sh)"
+          PIN_IMG="$(grep -E '^ARG CHARON_TOOLCHAIN_IMAGE=' Dockerfile | cut -d= -f2)"
+          PIN_DIGEST="$(grep -E '^ARG CHARON_TOOLCHAIN_DIGEST=' Dockerfile | cut -d= -f2)"
+          echo "recomputed recipe key : $KEY"
+          echo "pinned image          : ${PIN_IMG}@${PIN_DIGEST}"
+          docker pull "${PIN_IMG}@${PIN_DIGEST}"
+          LABEL_KEY="$(docker inspect --format '{{ index .Config.Labels "io.charon.toolchain.key" }}' "${PIN_IMG}@${PIN_DIGEST}")"
+          echo "toolchain image label : ${LABEL_KEY:-<none>}"
+          if [ "$LABEL_KEY" != "$KEY" ]; then
+            echo "::error::Pinned toolchain image label ('${LABEL_KEY}') != recomputed recipe key ('${KEY}') — the Dockerfile digest pin is stale or hand-edited."
+            exit 1
+          fi
+          echo "✅ Pinned toolchain image matches the current recipe."
 
       - name: Verify Caddy Security Patches (CVE-2025-68156)
         timeout-minutes: 2

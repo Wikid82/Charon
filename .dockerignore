@@ -159,6 +159,17 @@ docs/implementation/
 dist/
 
 # -----------------------------------------------------------------------------
+# Build-only helper scripts — used by .github/workflows/toolchain-image.yml and
+# the quality-checks.yml verify-toolchain-pin / bats jobs from a plain checkout,
+# never from inside a built container. The Dockerfile's `COPY scripts/` would
+# otherwise ship them into /app/scripts/ in the runtime image.
+# -----------------------------------------------------------------------------
+scripts/tests/
+scripts/toolchain-key.sh
+scripts/verify-toolchain-pin.sh
+scripts/lib/dockerfile-stage.sh
+
+# -----------------------------------------------------------------------------
 # Tools (not needed in image)
 # -----------------------------------------------------------------------------
 tools/
