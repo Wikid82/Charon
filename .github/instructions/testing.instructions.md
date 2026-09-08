@@ -93,7 +93,7 @@ This step:
 - Test requests routing through Caddy proxy with full middleware
 - **Port: 80 (User Traffic via Caddy)**
 - **Location: `backend/integration/` with `//go:build integration` tag**
-- **CI: Runs in separate workflows (cerberus-integration.yml, waf-integration.yml, etc.)**
+- **CI: Runs in `integration-tests.yml` (one shared image build, then parallel `cerberus` / `waf` / `rate-limit` / `crowdsec` suite jobs)**
 
 ### Two Modes: Docker vs Vite
 
