@@ -377,10 +377,13 @@ jobs:
 
   # `build-amd64` / `build-arm64` build+push a single platform each to a throwaway,
   # run-scoped tag (never exposed to end users), then `merge-and-publish` composes both
-  # digests into one multi-platform manifest list. This isolates arm64's slow
-  # QEMU-emulated cross-compile from amd64's fast native build so each gets its own
-  # right-sized timeout instead of sharing one 20-minute budget (root cause of the
-  # arm64 timeout flake this restructuring fixes — see docs/plans/current_spec.md §1.1).
+  # digests into one multi-platform manifest list, so each per-arch leg gets its own
+  # right-sized timeout instead of sharing one budget. The custom Caddy/CrowdSec
+  # compile no longer runs on either leg — both COPY --from the digest-pinned
+  # toolchain image (see docs/plans/current_spec.md §3.1); the builder stages were
+  # always $BUILDPLATFORM cross-compiled (never QEMU-emulated) regardless. QEMU on
+  # build-arm64 still runs only the final arm64 stage's RUN lines (apk, setcap,
+  # GeoIP fetch, verification).
   #
   # NOTE on retry mechanism: docker/build-push-action cannot be nested inside
   # nick-fields/retry (retry's `command:` only accepts a shell string, not a `uses:`
@@ -407,7 +410,7 @@ jobs:
       CADDY_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'caddy-inline' || 'toolchain-prebuilt' }}
       CROWDSEC_BUILDER_SRC: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'crowdsec-inline' || 'toolchain-prebuilt' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -445,7 +448,7 @@ jobs:
         id: build
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
-          timeout_minutes: 15
+          timeout_minutes: 20
           max_attempts: 3
           retry_wait_seconds: 10
           retry_on: error
