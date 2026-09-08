@@ -3,6 +3,13 @@ name: Weekly Security Rebuild
 # Note: This workflow filename has remained consistent. The related docker-publish.yml
 # was replaced by docker-build.yml in commit f640524b (Dec 21, 2025).
 # GitHub Advanced Security may show warnings about the old filename until its tracking updates.
+#
+# Since the prebuilt-toolchain-image change this workflow no longer builds a
+# throwaway `charon:security-scan-YYYYMMDD` app image that nothing consumes. It
+# drives the SAME deterministic `--no-cache --pull` rebuild + blocking Trivy
+# CRITICAL/HIGH gate + digest-bump bot PR as the daily schedule, by
+# `workflow_call`ing toolchain-image.yml, then adds the fuller MEDIUM/LOW JSON
+# report artifact + installed-package table the weekly slot has always produced.
 
 on:
   schedule:
@@ -22,180 +29,96 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/charon
-  # Canonical SARIF category owner for weekly rebuild Trivy uploads.
-  # Keep this stable to prevent duplicate/stale code scanning tracks.
-  TRIVY_SARIF_CATEGORY: .github/workflows/security-weekly-rebuild.yml:trivy-weekly
-
 jobs:
-  security-rebuild:
-    name: Security Rebuild & Scan
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+  # Deterministic --no-cache --pull rebuild + publish + blocking Trivy
+  # CRITICAL/HIGH gate + :trivy-toolchain SARIF + (if the digest moved)
+  # bot/bump-toolchain-image PR. N6: a workflow_call'ed workflow cannot request
+  # perms the caller did not grant, so grant everything toolchain-image.yml's
+  # open-bump-pr job needs.
+  toolchain-rebuild:
+    name: Toolchain rebuild + scan
+    uses: ./.github/workflows/toolchain-image.yml
     permissions:
-      contents: read
+      contents: write
       packages: write
       security-events: write
+      pull-requests: write
+      issues: write
+    with:
+      # The weekly slot always forces a clean deterministic rebuild.
+      force_rebuild: true
 
+  extended-report:
+    name: Extended Trivy report (MEDIUM/LOW + package table)
+    needs: toolchain-rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      TOOLCHAIN_REF: ghcr.io/${{ github.repository_owner }}/charon-toolchain@${{ needs.toolchain-rebuild.outputs.digest }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Explicitly fetch the current HEAD of the ref at run time, not the
-          # SHA that was frozen when this scheduled job was queued. Without this,
-          # a queued job can run days later with stale code.
           ref: ${{ github.ref_name }}
 
-      - name: Normalize image name
+      - name: Normalize image ref
         run: |
-          echo "IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-      - name: Resolve Debian base image digest
-        id: base-image
-        run: |
-          docker pull debian:trixie-slim
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:trixie-slim)
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-          echo "Base image digest: $DIGEST"
+          echo "TOOLCHAIN_REF=$(echo "$TOOLCHAIN_REF" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Log in to Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=security-scan-{{date 'YYYYMMDD'}}
-
-      - name: Build Docker image (NO CACHE)
-        id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          no-cache: ${{ github.event_name == 'schedule' || inputs.force_rebuild }}
-          pull: true  # Always pull fresh base images to get latest security patches
-          build-args: |
-            VERSION=security-scan
-            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-            VCS_REF=${{ github.sha }}
-            BASE_IMAGE=${{ steps.base-image.outputs.digest }}
-
-      - name: Run Trivy vulnerability scanner (CRITICAL+HIGH)
+      - name: Run Trivy (JSON, all severities) for the artifact
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1' # Fail workflow if vulnerabilities found
-          version: 'v0.74.0'
-        continue-on-error: true
-
-      - name: Run Trivy vulnerability scanner (SARIF)
-        id: trivy-sarif
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-          format: 'sarif'
-          output: 'trivy-weekly-results.sarif'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          version: 'v0.74.0'
-          trivyignores: '.trivyignore'
-
-      - name: Upload Trivy results to GitHub Security
-        id: upload-trivy-weekly
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
-        with:
-          sarif_file: 'trivy-weekly-results.sarif'
-          category: ${{ env.TRIVY_SARIF_CATEGORY }}
-
-      - name: Verify SARIF was uploaded
-        if: always()
-        run: |
-          set -euo pipefail
-          if [ ! -f trivy-weekly-results.sarif ]; then
-            echo "::error::SARIF file trivy-weekly-results.sarif was not produced. Check Trivy scan step."
-            exit 1
-          fi
-
-          if [ "${{ steps.upload-trivy-weekly.outcome }}" != "success" ]; then
-            echo "::error::SARIF upload step did not succeed (outcome: ${{ steps.upload-trivy-weekly.outcome }})"
-            exit 1
-          fi
-
-          RESULT_COUNT=$(jq '[.runs[].results // [] | .[]] | length' trivy-weekly-results.sarif 2>/dev/null || echo "parse_error")
-          if [ "$RESULT_COUNT" = "parse_error" ]; then
-            echo "::error::SARIF file is not valid JSON or missing expected structure."
-            exit 1
-          fi
-
-          echo "SARIF upload verified. Finding count: ${RESULT_COUNT}"
-          echo "SARIF_RESULT_COUNT=${RESULT_COUNT}" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Run Trivy vulnerability scanner (JSON for artifact)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ env.TOOLCHAIN_REF }}
           format: 'json'
-          output: 'trivy-weekly-results.json'
+          output: 'trivy-toolchain-weekly.json'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
           version: 'v0.74.0'
 
       - name: Upload Trivy JSON results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: trivy-weekly-scan-${{ github.run_number }}
-          path: trivy-weekly-results.json
+          name: trivy-toolchain-weekly-${{ github.run_number }}
+          path: trivy-toolchain-weekly.json
           retention-days: 90
 
-      - name: Check Debian package versions
+      - name: Installed package versions (key security packages)
         run: |
           {
-            echo "## 📦 Installed Package Versions"
+            echo "## 📦 Bundled toolchain — key package versions"
             echo ""
-            echo "Checking key security packages:"
             echo '```'
-            docker run --rm --entrypoint "" "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}" \
-              sh -c "dpkg -l | grep -E 'libc-ares|curl|libcurl|openssl|libssl' || echo 'No matching packages found'"
+            docker run --rm --entrypoint "" "${TOOLCHAIN_REF}" \
+              sh -c "apk info -v 2>/dev/null | grep -E 'zlib|openssl|libcrypto|libssl|musl|xz' || echo 'no matching apk packages (scratch/distroless layers)'" \
+              || echo "toolchain image has no shell — inspect via the JSON artifact"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Create security scan summary
+      - name: Weekly rebuild summary
         if: always()
         run: |
           {
-            echo "## 🔒 Weekly Security Rebuild Complete"
+            echo "## 🔒 Weekly Toolchain Rebuild Complete"
             echo ""
-            echo "- **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
-            echo "- **Image:** ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
-            echo "- **SARIF Category:** ${{ env.TRIVY_SARIF_CATEGORY }}"
-            echo "- **Cache Used:** No (forced fresh build)"
-            echo "- **Trivy Scan:** Completed (see Security tab for details)"
+            echo "- **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            echo "- **Toolchain key:** \`${{ needs.toolchain-rebuild.outputs.key }}\`"
+            echo "- **Digest:** \`${{ needs.toolchain-rebuild.outputs.digest }}\`"
+            echo "- **Blocking CRITICAL/HIGH gate:** ran in the reusable toolchain-image workflow"
+            echo "- **SARIF:** uploaded under category .github/workflows/toolchain-image.yml:trivy-toolchain"
             echo ""
-            echo "### Next Steps:"
-            echo "1. Review Security tab for new vulnerabilities"
-            echo "2. Check Trivy JSON artifact for detailed package info"
-            echo "3. If critical CVEs found, trigger production rebuild"
+            echo "If the digest moved, bot/bump-toolchain-image has been opened."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Notify on security issues (optional)
+      - name: Notify on failure
         if: failure()
         run: |
-          echo "::warning::Weekly security scan found HIGH or CRITICAL vulnerabilities. Review the Security tab."
+          echo "::warning::Weekly toolchain rebuild / extended scan failed. Review the Security tab and the run log."

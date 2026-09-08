@@ -44,6 +44,13 @@ on:
       publish:
         type: boolean
         default: true
+    outputs:
+      key:
+        description: The content-addressed toolchain tag (caddy-crowdsec-<hex>).
+        value: ${{ jobs.build-toolchain.outputs.key }}
+      digest:
+        description: The published manifest-list (OCI index) digest.
+        value: ${{ jobs.build-toolchain.outputs.digest }}
 
 concurrency:
   group: toolchain-image-${{ github.ref }}
