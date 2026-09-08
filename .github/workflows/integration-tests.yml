@@ -50,7 +50,7 @@ jobs:
         with:
           name: charon-integration-image
           path: /tmp/charon-image.tar
-          retention-days: 1 # Only needed for the duration of this run's fan-out jobs.
+          retention-days: 3 # Outlives the run so "Re-run failed jobs" still works >24h later (suite jobs no longer self-contain the build).
           if-no-files-found: error
 
   cerberus:
