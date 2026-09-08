@@ -261,6 +261,22 @@ git merge upstream/development
 git push origin development
 ```
 
+### Container builds on fork PRs
+
+CI builds the container image by pulling a digest-pinned prebuilt toolchain image
+(`ghcr.io/wikid82/charon-toolchain`) that carries the custom Caddy/CrowdSec
+binaries. That image is private to this repo, so **fork PRs cannot pull it** —
+their CI compiles the Caddy/CrowdSec binaries from source instead (the
+byte-for-byte identical recipe, ~14 minutes slower per image build). This is
+automatic; you don't need to do anything. A maintainer re-running the trusted
+same-repo checks exercises the fast prebuilt path before merge.
+
+To build locally without the pull (offline, or not logged in to GHCR):
+
+```bash
+make build-offline
+```
+
 ## Coding Standards
 
 ### Go Backend

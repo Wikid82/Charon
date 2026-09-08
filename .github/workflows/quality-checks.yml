@@ -73,6 +73,52 @@ jobs:
         run: |
           bash scripts/ci/check-codecov-trigger-parity.sh
 
+  toolchain-key-tests:
+    name: Toolchain key / freshness-guard scripts (bats)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install bats + shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck
+
+      - name: shellcheck (shell severity=error)
+        run: |
+          shellcheck --severity=error \
+            scripts/toolchain-key.sh \
+            scripts/verify-toolchain-pin.sh \
+            scripts/lib/dockerfile-stage.sh
+
+      - name: bats
+        run: bats scripts/tests/toolchain-key.bats scripts/tests/verify-toolchain-pin.bats
+
+  verify-toolchain-pin:
+    name: Toolchain pin freshness (verify-toolchain-pin)
+    runs-on: ubuntu-latest
+    # Failure-closed on trusted same-repo runs (spec §3.4.2 / B7). A stale
+    # Dockerfile toolchain TAG/DIGEST for the current pins fails this required
+    # check with an actionable message.
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install regctl
+        uses: iarekylew00t/regctl-installer@c2202c17a65fe59371c71ecc169c9e58c3710a15 # v4.0.16
+
+      - name: Verify the pinned toolchain image matches the recipe
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          # Map head.repo.full_name into env explicitly (B7 / supervisor caution #1).
+          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/verify-toolchain-pin.sh
+
   backend-quality:
     name: Backend (Go)
     runs-on: ubuntu-latest

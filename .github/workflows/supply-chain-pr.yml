@@ -23,6 +23,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
   pull-requests: write
   security-events: write
   actions: read
@@ -31,7 +32,7 @@ jobs:
   verify-supply-chain:
     name: Verify Supply Chain
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # 20m: cold GHA cache (first run / post-eviction) is a full ~10-14m image build; warm-cache builds are far quicker.
+    timeout-minutes: 20 # 20m: same-repo warm build ~6-8m (toolchain image is COPY --from, not compiled); fork PRs compile the toolchain inline (~14m) + scan, which sets the floor (B6).
     # Run for: manual dispatch, or successful workflow_run triggered by push/PR
     if: >
       github.event_name == 'workflow_dispatch' ||
@@ -251,14 +252,10 @@ jobs:
         if: github.event_name != 'workflow_run'
         uses: ./.github/actions/build-charon-image
         with:
-          # Force a clean rebuild of the two from-source stages so a stale GHA
-          # layer cache cannot retain a superseded pinned dependency (e.g. a
-          # caddy-builder layer built before a grpc-go / x-crypto pin bump still
-          # embeds the old, vulnerable version — the `go get pkg@fixed` lives
-          # INSIDE the cached-and-skipped stage). Matches nightly-build.yml and
-          # e2e-tests-split.yml. This is a CVE-scan gate; correctness beats the
-          # few minutes of xcaddy/crowdsec rebuild time.
-          no-cache-filters: caddy-builder,crowdsec-builder
+          # Default path COPY --from's the digest-pinned toolchain image; fork
+          # PRs (no private-package pull) compile caddy-inline/crowdsec-inline.
+          builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
+          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Expose local image name
         if: github.event_name != 'workflow_run'

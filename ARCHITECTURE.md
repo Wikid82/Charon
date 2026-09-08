@@ -163,6 +163,7 @@ graph TB
 | **Base Image** | Debian Trixie Slim | Latest | Security-hardened base |
 | **CI/CD** | GitHub Actions | N/A | Automated testing and deployment |
 | **Registry** | Docker Hub + GHCR | N/A | Image distribution |
+| **Bundled proxy toolchain** | `ghcr.io/wikid82/charon-toolchain` | digest-pinned | Multi-arch prebuilt custom Caddy + CrowdSec binaries; deterministic daily `--no-cache --pull` rebuild + blocking Trivy gate; digest pinned in `Dockerfile` and freshness-guarded per-PR |
 | **Security Scanning** | Trivy + Grype + Semgrep | Latest | Vulnerability detection |
 | **SBOM Generation** | Syft | Latest | Software Bill of Materials |
 | **Signature Verification** | Cosign | Latest | Supply chain integrity |
@@ -305,7 +306,16 @@ graph TB
 - **`.docker/`**: All Docker-related files (prevents root clutter)
 - **`docs/implementation/`**: Archived implementation documentation
 - **`docs/plans/`**: Active planning documents (`current_spec.md`)
+- **`docs/ci/`**: CI/build operator runbooks (`toolchain-image.md`)
 - **`test-results/`**: Test artifacts (gitignored)
+
+**Bundled-toolchain tooling** (see Deployment Architecture → Prebuilt toolchain image):
+`.github/workflows/toolchain-image.yml`, `scripts/toolchain-key.sh`,
+`scripts/verify-toolchain-pin.sh`, `scripts/lib/dockerfile-stage.sh`. The
+`Dockerfile` `crowdsec-fallback` stage was removed (dead code); the
+`caddy-builder` / `crowdsec-builder` stages were renamed `caddy-inline` /
+`crowdsec-inline` and are now compiled only by the toolchain workflow and the
+fork/offline fallback.
 
 ---
 
@@ -794,6 +804,19 @@ graph LR
 - **Local Only:** No external API calls
 - **API Mode:** Sync with CrowdSec cloud for global intelligence
 
+**Supply-chain hardening:** the CrowdSec agent + `cscli` and the bouncer-enabled
+Caddy binary are built from source with pinned, in-place-patched transitive
+dependencies and shipped via the scanned, digest-pinned toolchain image
+(`ghcr.io/wikid82/charon-toolchain`). The CVE-2026-84304-class recurrence
+guarantee ("upstream ships a fix, no repo pin changes") is mechanised by: the
+**daily** deterministic `--no-cache --pull` toolchain rebuild + **blocking**
+Trivy gate + digest-bump bot PR, plus the per-PR `verify-toolchain-pin` check for
+tracked-pin bumps. This covers pinned-dependency and base-image drift; it does
+**not** close the pre-existing gap for a security fix to a genuinely *unpinned*
+transitive Go dependency where nothing raises the MVS lower bound — that is
+unchanged from before and is closed only by adding an explicit `go get dep@fixed`
+pin (the stage already carries ~40 such pins).
+
 ### Layer 3: Access Control Lists (ACL)
 
 **Purpose:** IP-based access control
@@ -1121,6 +1144,47 @@ ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["/app/charon"]
 ```
 
+> The real `Dockerfile` is a much larger multi-stage build. The illustrative
+> snippet above is schematic only.
+
+#### Prebuilt toolchain image
+
+Charon ships a **custom Caddy v2 binary** (built with `xcaddy` + in-place
+transitive-dependency security patches) and a **custom CrowdSec agent** built
+from source. Compiling both takes ~14 minutes, so it is **not** done on every app
+image build. Instead:
+
+- The recipe lives in the main `Dockerfile` as the `caddy-inline` /
+  `crowdsec-inline` stages (single source of truth).
+- `.github/workflows/toolchain-image.yml` builds `--target toolchain-runtime`
+  into `ghcr.io/wikid82/charon-toolchain` — a **multi-arch** (`linux/amd64` +
+  `linux/arm64`) manifest list, cross-compiled without QEMU. The build is
+  **deterministic** (`--provenance=false --sbom=false`, fixed
+  `SOURCE_DATE_EPOCH`, `rewrite-timestamp`): an unchanged recipe reproduces an
+  identical manifest-list digest.
+- Triggers: a **daily** `--no-cache --pull` schedule, `workflow_dispatch`, a
+  `pull_request` touching a tracked input, and a `workflow_call` from
+  `security-weekly-rebuild.yml`. Each publish runs a Trivy CRITICAL/HIGH gate
+  (blocking off the PR path).
+- The app `Dockerfile` pins `ARG CHARON_TOOLCHAIN_DIGEST` (manifest-list digest)
+  and `COPY --from`s `/usr/bin/caddy` + `/crowdsec-out/{crowdsec,cscli,config}`
+  out of it. Every app-build workflow logs in to GHCR (`packages: read`) to pull
+  it; no `xcaddy` / CrowdSec compile runs on the app hot path.
+- **Freshness guard:** `scripts/toolchain-key.sh` derives a content-addressed tag
+  (`caddy-crowdsec-<hex>`) from the two inline stage bodies + every consumed
+  version ARG (incl. the two pinned xcaddy plugins) + the digest-pinned
+  `golang`/`xx` bases + `.trivyignore`. `scripts/verify-toolchain-pin.sh` runs on
+  every PR (required check) and is **failure-closed** on trusted same-repo runs:
+  it fails if the Dockerfile's pinned tag/digest is stale for the current
+  recipe. When the daily rebuild produces a new digest, a bot opens
+  `bot/bump-toolchain-image` (base `development`).
+- **Fork PR / bootstrap / offline fallback:** pass
+  `--build-arg CADDY_BUILDER_SRC=caddy-inline --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline`
+  (or `make build-offline`) to compile the byte-for-byte-identical recipe from
+  source instead of pulling the image.
+
+Operator runbook: `docs/ci/toolchain-image.md`.
+
 ### Port Mapping
 
 | Port | Protocol | Purpose | Bind |
@@ -1242,6 +1306,19 @@ services:
    ```bash
    docker-compose -f .docker/compose/docker-compose.dev.yml up
    # Frontend + Backend + Caddy in one container
+   ```
+
+6. **Building the container image locally:**
+
+   `docker build .` pulls the digest-pinned toolchain image
+   (`ghcr.io/wikid82/charon-toolchain`, ~30 MB) for the custom Caddy/CrowdSec
+   binaries — a `docker login ghcr.io` is required (the package is private).
+   Offline / air-gapped, or to compile the binaries from source instead:
+
+   ```bash
+   make build-offline
+   # == docker build --build-arg CADDY_BUILDER_SRC=caddy-inline \
+   #                 --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline .
    ```
 
 ### Git Workflow

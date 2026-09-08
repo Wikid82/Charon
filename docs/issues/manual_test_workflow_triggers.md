@@ -11,10 +11,7 @@ Verify that all CI/CD workflows trigger correctly on feature branches and provid
 
 # Scope
 - `dry-run-history-rewrite.yml` (Modified)
-- `cerberus-integration.yml`
-- `crowdsec-integration.yml`
-- `waf-integration.yml`
-- `rate-limit-integration.yml`
+- `integration-tests.yml` (consolidated: builds the Charon image once, then fans out to the `cerberus` / `waf` / `rate-limit` / `crowdsec` suite jobs)
 - `e2e-tests-split.yml`
 
 # Test Steps
@@ -28,13 +25,9 @@ Verify that all CI/CD workflows trigger correctly on feature branches and provid
 
 ## 2. Integration Tests (Dual Mode Verification)
 - [ ] Using the same branch `feature/test-workflow-triggers`.
-- [ ] Verify the following workflows start immediately (building locally):
-  - [ ] `Cerberus Integration`
-  - [ ] `CrowdSec Integration`
-  - [ ] `Coraza WAF Integration`
-  - [ ] `Rate Limiting Integration`
-- [ ] Inspect the logs of one of them.
-- [ ] Confirm it executes the "Build Docker image (Local)" step and *skips* the "Pull Docker image from registry" step.
+- [ ] Verify the `Integration Tests` workflow starts immediately (building locally).
+- [ ] Confirm its `Build Charon image` job runs the "Build Docker image (Local)" step exactly once.
+- [ ] Confirm the `Cerberus Security Stack Integration`, `Coraza WAF Integration`, `Rate Limiting Integration` and `CrowdSec Bouncer Integration` jobs each `needs: build`, download the `charon-integration-image` artifact and `docker load` it instead of rebuilding.
 
 ## 3. Supply Chain (Split Verification)
 - [ ] Verify `Supply Chain Security (PR)` starts on the feature branch push.

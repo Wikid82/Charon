@@ -25,6 +25,40 @@ public disclosure.
 
 ---
 
+## Build Integrity — Bundled Caddy / CrowdSec Toolchain
+
+Charon ships a custom Caddy v2 binary (built with `xcaddy` + in-place
+transitive-dependency security patches) and a custom CrowdSec agent, built from
+source. Both are produced by `.github/workflows/toolchain-image.yml` into the
+**digest-pinned, multi-arch** image `ghcr.io/wikid82/charon-toolchain` and
+`COPY --from`'d into the app image — the compile does **not** run on the app
+build hot path.
+
+Keeping those bundled binaries patched is mechanised by:
+
+- a **daily** deterministic `--no-cache --pull` rebuild of the toolchain image
+  with a **blocking** Trivy CRITICAL/HIGH gate; a new digest or finding opens a
+  `feat(security)` bot PR and a failure opens a tracked issue;
+- `scripts/verify-toolchain-pin.sh` — a **required, failure-closed** per-PR check
+  that fails if the Dockerfile's pinned toolchain tag/digest is stale for the
+  current pinned inputs (the two inline stage bodies, every consumed version ARG
+  including the two now-pinned xcaddy plugins, the digest-pinned `golang`/`xx`
+  bases, and `.trivyignore`).
+
+**Scope, stated precisely.** This covers **pinned-dependency** drift (any tracked
+ARG or literal `go get x@vN` in the recipe) and **base-image** drift. It does
+**not** close the pre-existing gap where an upstream *security fix to a
+genuinely unpinned transitive Go dependency* is not picked up because nothing
+raises the MVS lower bound — that is unchanged, and is closed only by a human
+adding an explicit `go get <dep>@<fixed>` pin (the recipe already carries ~40).
+
+Fork PRs, first-run bootstrap, and offline builds compile the byte-for-byte
+identical recipe from source (`--build-arg CADDY_BUILDER_SRC=caddy-inline
+--build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline`, or `make build-offline`) — not
+weaker, just slower and unpinned. See `docs/ci/toolchain-image.md`.
+
+---
+
 ## Known Vulnerabilities
 
 Last reviewed: 2026-09-02
