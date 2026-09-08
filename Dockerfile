@@ -44,7 +44,7 @@ ARG CROWDSEC_VERSION=1.8.1
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.58.0
+ARG XNET_VERSION=0.59.0
 # Shared golang.org/x/crypto pin — consumed by BOTH the caddy-builder and the
 # crowdsec-builder stages so the two never drift. v0.56.0 also carries the
 # golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
