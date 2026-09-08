@@ -20,8 +20,12 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Building charon:local image..."
-docker build -t charon:local .
+if ! docker image inspect charon:local >/dev/null 2>&1; then
+  echo "Building charon:local image..."
+  docker build -t charon:local .
+else
+  echo "Using existing charon:local image"
+fi
 
 docker rm -f charon-debug >/dev/null 2>&1 || true
 if ! docker network inspect containers_default >/dev/null 2>&1; then

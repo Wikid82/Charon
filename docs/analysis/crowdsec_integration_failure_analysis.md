@@ -203,7 +203,7 @@ fi
 
 - `Dockerfile` (lines 218-310): CrowdSec builder and fallback stages
 - `.docker/docker-entrypoint.sh` (lines 120-230): CrowdSec initialization
-- `.github/workflows/crowdsec-integration.yml`: CI workflow
+- `.github/workflows/integration-tests.yml` (`crowdsec` job): CI workflow
 - `scripts/crowdsec_integration.sh`: Legacy integration test
 - `.github/skills/integration-test-crowdsec-scripts/run.sh`: Modern test wrapper
 
