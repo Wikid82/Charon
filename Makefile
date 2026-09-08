@@ -108,10 +108,19 @@ docker-build-versioned:
 # Build the image WITHOUT pulling the prebuilt toolchain image — compiles the
 # custom Caddy + CrowdSec binaries from source (caddy-inline / crowdsec-inline).
 # Use offline / air-gapped, or when not logged in to GHCR. Slow (~14 min extra).
+#
+# The two --build-arg selectors below are the single source of truth for "build
+# the inline path". Overridable knobs (used by .github/workflows/build-offline.yml):
+#   DOCKER_BUILD        - builder command (default "docker build"; CI passes
+#                         "docker buildx build" for GHA layer caching)
+#   BUILD_OFFLINE_ARGS  - extra flags (e.g. --platform, --load, --cache-from/to)
+DOCKER_BUILD ?= docker build
+BUILD_OFFLINE_ARGS ?=
 build-offline:
-	docker build \
+	$(DOCKER_BUILD) \
 		--build-arg CADDY_BUILDER_SRC=caddy-inline \
 		--build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline \
+		$(BUILD_OFFLINE_ARGS) \
 		-t charon:offline \
 		.
 

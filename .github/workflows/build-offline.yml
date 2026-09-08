@@ -1,0 +1,81 @@
+# Offline (inline-toolchain) build canary.
+#
+# The default app image build (docker-build.yml / nightly-build.yml) pulls the
+# prebuilt `ghcr.io/wikid82/charon-toolchain` image and `COPY --from`s the custom
+# Caddy + CrowdSec binaries out of it. This workflow exercises the OTHER path:
+# `CADDY_BUILDER_SRC=caddy-inline` / `CROWDSEC_BUILDER_SRC=crowdsec-inline`, which
+# compiles both binaries from source inside the app Dockerfile. That path is what
+# a fork PR, an air-gapped operator, or anyone not logged in to GHCR falls back
+# to, and nothing else in CI builds it end to end — so it can rot silently
+# (a broken `go get` pin, a stage rename, a base-image bump) until someone
+# actually tries to build offline.
+#
+# Why amd64-only + advisory (NOT a required check):
+#   * The inline compile is ~14 min on top of the normal build (Makefile notes
+#     this); a full run is ~20 min warm, more cold. Too slow to gate every PR.
+#   * arm64 would run the two Go compiles under QEMU emulation (45-90+ min) for
+#     no extra signal — the recipe is arch-independent in practice.
+#   * It is a canary: a weekly schedule catches upstream drift, and a tight
+#     `paths:` filter re-validates it whenever the inline recipe itself can
+#     change. Failures open a normal red check on matching PRs but do not block
+#     merge (this context is deliberately absent from the branch ruleset).
+
+name: Build (offline / inline toolchain)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Wednesday 08:00 UTC — a low-traffic slot clear of toolchain-image.yml
+    # (daily 06:00), security-weekly-rebuild.yml (Tue 12:00) and the Monday
+    # security/codeql/semgrep cluster.
+    - cron: '0 8 * * 3'
+  pull_request:
+    paths:
+      # Keep this minimal: only files that can change what the caddy-inline /
+      # crowdsec-inline stages actually build. Those stages take no repo build
+      # context (only `COPY --from=xx`), so the recipe lives entirely in the
+      # Dockerfile plus the build-context shape (.dockerignore).
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'Makefile'
+      - '.github/workflows/build-offline.yml'
+
+concurrency:
+  group: build-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-offline:
+    name: Build offline image (amd64, from-source Caddy + CrowdSec)
+    runs-on: ubuntu-latest
+    # ~14 min inline compile + normal build; generous headroom for a cold cache.
+    timeout-minutes: 35
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build charon:offline (inline toolchain path)
+        run: |
+          set -euo pipefail
+          make build-offline \
+            DOCKER_BUILD="docker buildx build" \
+            BUILD_OFFLINE_ARGS="--platform linux/amd64 --load --pull --cache-from type=gha,scope=build-offline --cache-to type=gha,mode=max,scope=build-offline"
+
+      - name: Smoke-check the from-source binaries landed in the image
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh charon:offline -c '
+            set -e
+            test -x /usr/bin/caddy
+            test -x /usr/local/bin/crowdsec
+            test -x /usr/local/bin/cscli
+            test -x /app/charon
+            # Functional check on the from-source Caddy (safe, no server start).
+            /usr/bin/caddy version
+          '
