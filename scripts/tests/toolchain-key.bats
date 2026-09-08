@@ -6,6 +6,8 @@
 #   * changes when a `go get` line INSIDE caddy-inline changes
 #   * changes when a tracked ARG default (CADDY_VERSION / CADDY_GEOIP2_VERSION) moves
 #   * changes when the digest-pinned golang base moves
+#   * changes when the tonistiigi/xx pin moves
+#   * changes when the ALPINE_IMAGE pin moves
 #   * changes when .trivyignore changes
 #   * fails loudly if stage extraction breaks
 
@@ -68,6 +70,32 @@ key_of() { bash "$TF_ROOT/scripts/toolchain-key.sh" "$TF_DF"; }
   tf_write_dockerfile
   after="$(key_of)"
   [ "$before" != "$after" ]
+}
+
+@test "changes when the tonistiigi/xx pin moves (N4)" {
+  before="$(key_of)"
+  export TF_XX_PIN='tonistiigi/xx:1.9.1@sha256:1111111111111111111111111111111111111111111111111111111111111111'
+  tf_write_dockerfile
+  after="$(key_of)"
+  [ "$before" != "$after" ]
+}
+
+@test "changes when the ALPINE_IMAGE pin moves" {
+  before="$(key_of)"
+  export TF_ALPINE_IMAGE='alpine:3.25.0@sha256:2222222222222222222222222222222222222222222222222222222222222222'
+  tf_write_dockerfile
+  after="$(key_of)"
+  [ "$before" != "$after" ]
+}
+
+@test "stable when the tonistiigi/xx and ALPINE_IMAGE pins are re-emitted unchanged" {
+  before="$(key_of)"
+  # Re-write the fixture with the exact same (default) xx / alpine pins.
+  export TF_XX_PIN='tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707'
+  export TF_ALPINE_IMAGE='alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b'
+  tf_write_dockerfile
+  after="$(key_of)"
+  [ "$before" = "$after" ]
 }
 
 @test "changes when .trivyignore changes" {
