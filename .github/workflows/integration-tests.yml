@@ -1,0 +1,451 @@
+name: Integration Tests
+
+# Builds the Charon image ONCE via the shared build-charon-image composite action
+# (GHA layer cache), uploads it as a short-lived, run-scoped artifact, then fans
+# out to parallel per-suite test jobs that `docker load` that image — the image
+# is built a single time per run, not once per suite.
+#
+# Replaces the former standalone workflows:
+#   cerberus-integration.yml   -> job `cerberus`   (was "Cerberus Security Stack Integration")
+#   waf-integration.yml        -> job `waf`        (was "Coraza WAF Integration")
+#   rate-limit-integration.yml -> job `rate-limit` (was "Rate Limiting Integration")
+#   crowdsec-integration.yml   -> job `crowdsec`   (was "CrowdSec Bouncer Integration")
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Prevent race conditions when a PR is updated mid-test; cancel superseded runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: Build Charon image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # 20m: same-repo runs COPY Caddy/CrowdSec from the pinned toolchain image (~2-4m build); fork PRs compile them inline (~14m), which sets the floor (B6). Test-only fan-out jobs below are sized smaller.
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Build Docker image (Local)
+        uses: ./.github/actions/build-charon-image
+        with:
+          ci: 'true'
+          # Fork PRs cannot pull the private toolchain image -> compile inline.
+          builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
+          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Save Charon image
+        run: docker save charon:local -o /tmp/charon-image.tar
+
+      - name: Upload Charon image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: charon-integration-image
+          path: /tmp/charon-image.tar
+          retention-days: 1 # Only needed for the duration of this run's fan-out jobs.
+          if-no-files-found: error
+
+  cerberus:
+    name: Cerberus Security Stack Integration
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12 # test-only work; image is built upstream in `build`.
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download Charon image artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: charon-integration-image
+          path: /tmp
+      - name: Load Charon image
+        run: docker load -i /tmp/charon-image.tar
+
+      - name: Run Cerberus integration tests
+        id: cerberus-test
+        run: |
+          chmod +x scripts/cerberus_integration.sh
+          scripts/cerberus_integration.sh 2>&1 | tee cerberus-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload Container Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cerberus-container-logs-${{ github.run_id }}
+          path: |
+            /tmp/charon-cerberus-test.log
+            /tmp/cerberus-backend.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
+
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=charon" --filter "name=cerberus" --filter "name=backend" 2>&1 || true
+            echo '```'
+            echo ""
+
+            echo "### Security Status API"
+            echo '```json'
+            curl -s http://localhost:8480/api/v1/security/status 2>/dev/null | head -100 || echo "Could not retrieve security status"
+            echo '```'
+            echo ""
+
+            echo "### Caddy Admin Config"
+            echo '```json'
+            curl -s http://localhost:2319/config 2>/dev/null | head -200 || echo "Could not retrieve Caddy config"
+            echo '```'
+            echo ""
+
+            echo "### Charon Container Logs (last 100 lines)"
+            echo '```'
+            docker logs charon-cerberus-test 2>&1 | tail -100 || echo "No container logs available"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cerberus Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## 🔱 Cerberus Integration Test Results"
+            if [ "${{ steps.cerberus-test.outcome }}" == "success" ]; then
+              echo "✅ **All Cerberus tests passed**"
+              echo ""
+              echo "### Test Results:"
+              echo '```'
+              grep -E "✓|PASS|TC-[0-9]|=== ALL" cerberus-test-output.txt || echo "See logs for details"
+              echo '```'
+              echo ""
+              echo "### Features Tested:"
+              echo "- WAF (Coraza) payload inspection"
+              echo "- Rate limiting enforcement"
+              echo "- Security handler ordering"
+              echo "- Legitimate traffic flow"
+            else
+              echo "❌ **Cerberus tests failed**"
+              echo ""
+              echo "### Failure Details:"
+              echo '```'
+              grep -E "✗|FAIL|Error|failed" cerberus-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f charon-cerberus-test || true
+          docker rm -f cerberus-backend || true
+          docker volume rm charon_cerberus_test_data caddy_cerberus_test_data caddy_cerberus_test_config 2>/dev/null || true
+          docker network rm containers_default || true
+
+  waf:
+    name: Coraza WAF Integration
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12 # test-only work; image is built upstream in `build`.
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download Charon image artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: charon-integration-image
+          path: /tmp
+      - name: Load Charon image
+        run: docker load -i /tmp/charon-image.tar
+
+      - name: Run WAF integration tests
+        id: waf-test
+        run: |
+          chmod +x scripts/waf_integration.sh
+          scripts/waf_integration.sh 2>&1 | tee waf-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
+
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=charon" --filter "name=waf" 2>&1 || true
+            echo '```'
+            echo ""
+
+            echo "### Caddy Admin Config"
+            echo '```json'
+            curl -s http://localhost:2119/config/ 2>/dev/null | head -200 || echo "Could not retrieve Caddy config"
+            echo '```'
+            echo ""
+
+            echo "### Charon Container Logs (last 100 lines)"
+            echo '```'
+            docker logs charon-waf-test 2>&1 | tail -100 || echo "No container logs available"
+            echo '```'
+            echo ""
+
+            echo "### WAF Ruleset Files"
+            echo '```'
+            docker exec charon-waf-test sh -c 'ls -la /app/data/caddy/coraza/rulesets/ 2>/dev/null && echo "---" && cat /app/data/caddy/coraza/rulesets/*.conf 2>/dev/null' || echo "No ruleset files found"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: WAF Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## 🛡️ WAF Integration Test Results"
+            if [ "${{ steps.waf-test.outcome }}" == "success" ]; then
+              echo "✅ **All WAF tests passed**"
+              echo ""
+              echo "### Test Results:"
+              echo '```'
+              grep -E "^✓|^===|^Coraza" waf-test-output.txt || echo "See logs for details"
+              echo '```'
+            else
+              echo "❌ **WAF tests failed**"
+              echo ""
+              echo "### Failure Details:"
+              echo '```'
+              grep -E "^✗|Unexpected|Error|failed" waf-test-output.txt | head -20 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f charon-waf-test || true
+          docker rm -f waf-backend || true
+          docker network rm containers_default || true
+
+  rate-limit:
+    name: Rate Limiting Integration
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12 # test-only work; image is built upstream in `build`.
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download Charon image artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: charon-integration-image
+          path: /tmp
+      - name: Load Charon image
+        run: docker load -i /tmp/charon-image.tar
+
+      - name: Run rate limit integration tests
+        id: ratelimit-test
+        run: |
+          chmod +x scripts/rate_limit_integration.sh
+          scripts/rate_limit_integration.sh 2>&1 | tee ratelimit-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
+
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=charon" --filter "name=ratelimit" --filter "name=backend" 2>&1 || true
+            echo '```'
+            echo ""
+
+            echo "### Security Config API"
+            echo '```json'
+            curl -s http://localhost:8280/api/v1/security/config 2>/dev/null | head -100 || echo "Could not retrieve security config"
+            echo '```'
+            echo ""
+
+            echo "### Security Status API"
+            echo '```json'
+            curl -s http://localhost:8280/api/v1/security/status 2>/dev/null | head -100 || echo "Could not retrieve security status"
+            echo '```'
+            echo ""
+
+            echo "### Caddy Admin Config (rate_limit handlers)"
+            echo '```json'
+            curl -s http://localhost:2119/config/ 2>/dev/null | grep -A 20 '"handler":"rate_limit"' | head -30 || echo "Could not retrieve Caddy config"
+            echo '```'
+            echo ""
+
+            echo "### Charon Container Logs (last 100 lines)"
+            echo '```'
+            docker logs charon-ratelimit-test 2>&1 | tail -100 || echo "No container logs available"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rate Limit Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## ⏱️ Rate Limit Integration Test Results"
+            if [ "${{ steps.ratelimit-test.outcome }}" == "success" ]; then
+              echo "✅ **All rate limit tests passed**"
+              echo ""
+              echo "### Test Results:"
+              echo '```'
+              grep -E "✓|=== ALL|HTTP 429|HTTP 200" ratelimit-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+              echo ""
+              echo "### Verified Behaviors:"
+              echo "- Requests within limit return HTTP 200"
+              echo "- Requests exceeding limit return HTTP 429"
+              echo "- Retry-After header present on blocked responses"
+              echo "- Rate limit window resets correctly"
+            else
+              echo "❌ **Rate limit tests failed**"
+              echo ""
+              echo "### Failure Details:"
+              echo '```'
+              grep -E "✗|FAIL|Error|failed|expected" ratelimit-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f charon-ratelimit-test || true
+          docker rm -f ratelimit-backend || true
+          docker volume rm charon_ratelimit_data caddy_ratelimit_data caddy_ratelimit_config 2>/dev/null || true
+          docker network rm containers_default || true
+
+  crowdsec:
+    name: CrowdSec Bouncer Integration
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # test-only work (two suites); image is built upstream in `build`.
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download Charon image artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: charon-integration-image
+          path: /tmp
+      - name: Load Charon image
+        run: docker load -i /tmp/charon-image.tar
+
+      - name: Run CrowdSec integration tests
+        id: crowdsec-test
+        run: |
+          chmod +x .github/skills/scripts/skill-runner.sh
+          .github/skills/scripts/skill-runner.sh integration-test-crowdsec 2>&1 | tee crowdsec-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Run CrowdSec Startup and LAPI Tests
+        id: lapi-test
+        run: |
+          chmod +x .github/skills/scripts/skill-runner.sh
+          .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup 2>&1 | tee lapi-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
+
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=charon" --filter "name=crowdsec" 2>&1 || true
+            echo '```'
+            echo ""
+
+            # Check which test container exists and dump its logs
+            if docker ps -a --filter "name=charon-crowdsec-startup-test" --format "{{.Names}}" | grep -q "charon-crowdsec-startup-test"; then
+              echo "### Charon Startup Test Container Logs (last 100 lines)"
+              echo '```'
+              docker logs charon-crowdsec-startup-test 2>&1 | tail -100 || echo "No container logs available"
+              echo '```'
+            elif docker ps -a --filter "name=charon-debug" --format "{{.Names}}" | grep -q "charon-debug"; then
+              echo "### Charon Container Logs (last 100 lines)"
+              echo '```'
+              docker logs charon-debug 2>&1 | tail -100 || echo "No container logs available"
+              echo '```'
+            fi
+            echo ""
+
+            # Check for CrowdSec specific logs if LAPI test ran
+            if [ -f "lapi-test-output.txt" ]; then
+              echo "### CrowdSec LAPI Test Failures"
+              echo '```'
+              grep -E "✗ FAIL|✗ CRITICAL|CROWDSEC.*BROKEN" lapi-test-output.txt 2>&1 || echo "No critical failures found in LAPI test"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: CrowdSec Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## 🛡️ CrowdSec Integration Test Results"
+
+          # CrowdSec Preset Integration Tests
+          if [ "${{ steps.crowdsec-test.outcome }}" == "success" ]; then
+            echo "✅ **CrowdSec Hub Presets: Passed**"
+            echo ""
+            echo "### Preset Test Results:"
+            echo '```'
+            grep -E "^✓|^===|^Pull|^Apply" crowdsec-test-output.txt || echo "See logs for details"
+            echo '```'
+          else
+            echo "❌ **CrowdSec Hub Presets: Failed**"
+            echo ""
+            echo "### Preset Failure Details:"
+            echo '```'
+            grep -E "^✗|Unexpected|Error|failed|FAIL" crowdsec-test-output.txt | head -20 || echo "See logs for details"
+            echo '```'
+          fi
+
+            echo ""
+
+          # CrowdSec Startup and LAPI Tests
+          if [ "${{ steps.lapi-test.outcome }}" == "success" ]; then
+            echo "✅ **CrowdSec Startup & LAPI: Passed**"
+            echo ""
+            echo "### LAPI Test Results:"
+            echo '```'
+            grep -E "^\[TEST\]|✓ PASS|Check [0-9]|CrowdSec LAPI" lapi-test-output.txt || echo "See logs for details"
+            echo '```'
+          else
+            echo "❌ **CrowdSec Startup & LAPI: Failed**"
+            echo ""
+            echo "### LAPI Failure Details:"
+            echo '```'
+            grep -E "✗ FAIL|✗ CRITICAL|Error|failed" lapi-test-output.txt | head -20 || echo "See logs for details"
+            echo '```'
+          fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f charon-debug || true
+          docker rm -f charon-crowdsec-startup-test || true
+          docker rm -f crowdsec || true
+          docker network rm containers_default || true
