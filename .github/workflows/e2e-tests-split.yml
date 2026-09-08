@@ -236,7 +236,6 @@ jobs:
           build-args: |
             CADDY_BUILDER_SRC=${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'caddy-inline' || 'toolchain-prebuilt' }}
             CROWDSEC_BUILDER_SRC=${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'crowdsec-inline' || 'toolchain-prebuilt' }}
-          no-cache-filters: caddy-inline,crowdsec-inline
 
       - name: Save Docker image
         if: steps.resolve-image.outputs.image_source == 'build'

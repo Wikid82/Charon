@@ -1,8 +1,12 @@
 name: Build Charon image
 description: >-
-  Build the Charon Docker image locally for integration / security-scan jobs,
-  with GitHub Actions layer caching (type=gha) so the multi-stage build is not
-  rebuilt cold on every run. Loads the image into the local Docker daemon.
+  Build the Charon Docker image locally for integration / security-scan jobs.
+  The custom Caddy + CrowdSec binaries come from the digest-pinned, daily-
+  rebuilt-and-Trivy-scanned prebuilt toolchain image
+  (ghcr.io/wikid82/charon-toolchain) via COPY --from — no xcaddy / CrowdSec
+  compile on this path. Every remaining stage is GitHub Actions layer-cached
+  (type=gha). Pin freshness is enforced per-PR by
+  scripts/verify-toolchain-pin.sh. Loads the image into the local Docker daemon.
 inputs:
   tag:
     description: Image tag to load locally.
@@ -28,30 +32,6 @@ inputs:
       Composite actions cannot read the secrets context themselves, so this must
       be threaded in from the calling workflow. Ignored when builder-src=inline;
       a fork PR that cannot supply a working token should pass builder-src=inline.
-    required: false
-    default: ''
-  no-cache-filters:
-    description: >-
-      Comma-separated Dockerfile stages to force-rebuild (never restore from the
-      layer cache). Empty by default: every stage is GHA layer-cached — that is
-      where the build time is recovered. Suitable for the integration-test
-      callers (waf/crowdsec/rate-limit/cerberus), which exercise runtime
-      behaviour and do not care about dependency freshness.
-
-      CVE-scan-gate callers (security-pr.yml, supply-chain-pr.yml) currently
-      override this with `caddy-inline,crowdsec-inline` (the RUN-bearing
-      from-source stages, renamed from caddy-builder/crowdsec-builder). Those
-      stages patch pinned transitive dependencies in-place (`go get pkg@fixed`),
-      and a global build-arg bump does not reliably invalidate the GHA
-      layer-cache key for a stage that only *consumes* that arg (the same edge
-      case that produced CVE-2026-45135 and the 2026-09-04 grpc-go v1.83.0
-      recurrence).
-
-      NOTE: on the default app-build path those stages are no longer compiled —
-      their output is COPY --from'd out of the digest-pinned, daily-rebuilt-and-
-      scanned toolchain image, and pin freshness is enforced per-PR by
-      scripts/verify-toolchain-pin.sh. This input is removed entirely in a later
-      commit once that guard is a required check.
     required: false
     default: ''
 runs:
@@ -98,4 +78,3 @@ runs:
           CROWDSEC_BUILDER_SRC=${{ steps.srcsel.outputs.crowdsec }}
         cache-from: type=gha,scope=charon-integration-image
         cache-to: type=gha,mode=max,scope=charon-integration-image
-        no-cache-filters: ${{ inputs.no-cache-filters }}

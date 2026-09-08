@@ -256,12 +256,6 @@ jobs:
           # PRs (no private-package pull) compile caddy-inline/crowdsec-inline.
           builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
           ghcr-token: ${{ secrets.GITHUB_TOKEN }}
-          # Still force-rebuild the from-source stages on the inline path so a
-          # stale GHA layer cannot retain a superseded pinned dependency (the
-          # `go get pkg@fixed` patch lives INSIDE the cached-and-skipped stage).
-          # Removed entirely in a later commit once verify-toolchain-pin is a
-          # required check and the default path no longer compiles at all.
-          no-cache-filters: caddy-inline,crowdsec-inline
 
       - name: Expose local image name
         if: github.event_name != 'workflow_run'

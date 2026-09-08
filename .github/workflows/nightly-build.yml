@@ -242,7 +242,6 @@ jobs:
             CROWDSEC_BUILDER_SRC=toolchain-prebuilt
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          no-cache-filters: caddy-inline,crowdsec-inline
           provenance: true
           sbom: true
 

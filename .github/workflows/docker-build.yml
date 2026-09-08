@@ -389,8 +389,11 @@ jobs:
   # today, which requires the raw `docker buildx build` CLI rather than the JS action.
   # Retry is therefore implemented the same way as today: raw buildx CLI wrapped in
   # nick-fields/retry at the step level (same action pin, same 3-attempts/10s-wait
-  # config), with cache-from/cache-to/no-cache-filter passed as native buildx flags
-  # (functionally identical to docker/build-push-action's equivalent inputs).
+  # config), with cache-from/cache-to passed as native buildx flags (functionally
+  # identical to docker/build-push-action's equivalent inputs). The Caddy/CrowdSec
+  # compile lives in the digest-pinned, daily-rebuilt-and-scanned toolchain image
+  # now, so normal type=gha layer caching is authoritative for every stage; pin
+  # freshness is enforced per-PR by scripts/verify-toolchain-pin.sh.
   build-amd64:
     needs: setup
     # An explicit job-level `if:` REPLACES (does not append to) the implicit
@@ -464,8 +467,6 @@ jobs:
               "${TAG_ARGS[@]}"
               --cache-from type=gha,scope=docker-build-amd64
               --cache-to type=gha,mode=max,scope=docker-build-amd64
-              --no-cache-filter caddy-inline
-              --no-cache-filter crowdsec-inline
               --pull
               --build-arg "VERSION=${{ needs.setup.outputs.version }}"
               --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
@@ -554,8 +555,6 @@ jobs:
               "${TAG_ARGS[@]}"
               --cache-from type=gha,scope=docker-build-arm64
               --cache-to type=gha,mode=max,scope=docker-build-arm64
-              --no-cache-filter caddy-inline
-              --no-cache-filter crowdsec-inline
               --pull
               --build-arg "VERSION=${{ needs.setup.outputs.version }}"
               --build-arg "BUILD_DATE=${{ needs.setup.outputs.created }}"
