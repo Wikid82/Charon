@@ -80,7 +80,11 @@ identical to before, and the app image content is byte-identical (same recipe).
   same-repo workflows pull it with `GITHUB_TOKEN` + `permissions: packages: read`
   + an explicit `docker login ghcr.io`. A maintainer may optionally flip it to
   public — not required.
-- `Dockerfile:` `COPY scripts/ /app/scripts/` copies the new shell scripts into
-  the runtime image (a few KB), consistent with the dozens of `scripts/*.sh`
-  already shipped. No `.dockerignore` / `.gitignore` / `.codecov.yml` change is
-  needed (shell/bats/YAML carry no Go/TS coverage).
+- `Dockerfile:` `COPY scripts/ /app/scripts/` copies the whole `scripts/`
+  directory into the runtime image. The build-only helpers this feature adds —
+  `scripts/toolchain-key.sh`, `scripts/verify-toolchain-pin.sh`,
+  `scripts/lib/dockerfile-stage.sh`, and `scripts/tests/` — are **excluded from
+  the image context via `.dockerignore`** (they run from a plain checkout in
+  `toolchain-image.yml` / `quality-checks.yml`, never from inside a container).
+  No `.gitignore` change (source files, must be committed); no `.codecov.yml`
+  change (shell/bats/YAML carry no Go/TS coverage).

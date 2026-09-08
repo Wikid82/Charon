@@ -11,6 +11,10 @@ You can disable it in **System Settings → Optional Features** if you don't nee
 
 Want the quick reference? See <https://wikid82.github.io/charon/security>.
 
+> The Caddy and CrowdSec software bundled inside Charon is kept patched
+> automatically. How that works is described in
+> [SECURITY.md → Build Integrity](../SECURITY.md#build-integrity--bundled-caddy--crowdsec-toolchain).
+
 ---
 
 ## What Is Cerberus?
