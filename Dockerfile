@@ -49,7 +49,7 @@ ARG XNET_VERSION=0.58.0
 # crowdsec-builder stages so the two never drift. v0.56.0 also carries the
 # golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
 # renovate: datasource=go depName=golang.org/x/crypto
-ARG XCRYPTO_VERSION=0.56.0
+ARG XCRYPTO_VERSION=0.57.0
 # klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
