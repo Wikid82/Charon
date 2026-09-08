@@ -6,6 +6,8 @@
 #   mismatched tag                               -> exit 1 (actionable)
 #   same-repo + regctl absent                    -> exit 1
 #   same-repo + GHCR_READ_TOKEN unset            -> exit 1
+#   same-repo + :$KEY tag does not resolve       -> exit 1
+#   same-repo + CHARON_TOOLCHAIN_DIGEST empty    -> exit 1
 #   same-repo + GHCR digest != pinned digest     -> exit 1
 #   same-repo + GHCR digest == pinned digest     -> exit 0
 
@@ -72,6 +74,40 @@ verify() { bash "$TF_ROOT/scripts/verify-toolchain-pin.sh" "$TF_DF"; }
   run verify
   [ "$status" -eq 1 ]
   [[ "$output" == *"hand-edited or stale"* ]]
+}
+
+@test "same-repo PR + pinned :\$KEY tag does not resolve in GHCR: exit 1 (failure-closed)" {
+  tf_stub_regctl_unresolvable
+  export GITHUB_EVENT_NAME=pull_request
+  export GITHUB_REPOSITORY=wikid82/Charon
+  export GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME=wikid82/Charon
+  export GHCR_READ_TOKEN=tok
+  run verify
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"does not resolve in GHCR"* ]]
+}
+
+@test "same-repo PR + CHARON_TOOLCHAIN_DIGEST value blank: exit 1 (failure-closed)" {
+  tf_stub_regctl "$GOOD_DIGEST"
+  sed -i "s|^ARG CHARON_TOOLCHAIN_DIGEST=.*|ARG CHARON_TOOLCHAIN_DIGEST=|" "$TF_DF"
+  export GITHUB_EVENT_NAME=pull_request
+  export GITHUB_REPOSITORY=wikid82/Charon
+  export GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME=wikid82/Charon
+  export GHCR_READ_TOKEN=tok
+  run verify
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"CHARON_TOOLCHAIN_DIGEST not found"* ]]
+}
+
+@test "same-repo PR + CHARON_TOOLCHAIN_DIGEST ARG line absent: exit 1 (failure-closed)" {
+  tf_stub_regctl "$GOOD_DIGEST"
+  sed -i "/^ARG CHARON_TOOLCHAIN_DIGEST=/d" "$TF_DF"
+  export GITHUB_EVENT_NAME=push
+  export GITHUB_REPOSITORY=wikid82/Charon
+  export GHCR_READ_TOKEN=tok
+  run verify
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"CHARON_TOOLCHAIN_DIGEST not found"* ]]
 }
 
 @test "same-repo PR + GHCR digest matches the pinned digest: exit 0" {

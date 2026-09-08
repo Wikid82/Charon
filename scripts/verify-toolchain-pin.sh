@@ -43,8 +43,8 @@ if [[ ! -f "$df" ]]; then
   exit 2
 fi
 
-arg_value() { # $1 = ARG name
-  grep -E "^ARG $1=" "$df" | head -n1 | cut -d= -f2-
+arg_value() { # $1 = ARG name; empty output (never a hard error) when absent
+  { grep -E "^ARG $1=" "$df" || true; } | head -n1 | cut -d= -f2-
 }
 
 KEY="$("$here/toolchain-key.sh" "$df")"
