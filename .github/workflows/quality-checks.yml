@@ -109,6 +109,11 @@ jobs:
 
       - name: Install regctl
         uses: iarekylew00t/regctl-installer@c2202c17a65fe59371c71ecc169c9e58c3710a15 # v4.0.16
+        with:
+          # Pin the regctl binary to an explicit released version (not the
+          # action's `latest` default) so this required check is reproducible
+          # and can't shift underneath us when a new regctl ships.
+          regctl-release: v0.11.6
 
       - name: Verify the pinned toolchain image matches the recipe
         env:

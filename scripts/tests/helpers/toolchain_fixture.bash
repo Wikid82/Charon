@@ -44,11 +44,13 @@ tf_write_dockerfile() {
   local geoip2_version="${TF_GEOIP2_VERSION:-v0.0.0-20260623062220-3675c6e7e63d}"
   local caddy_get_line="${TF_CADDY_GET_LINE:-    _retry go get golang.org/x/net@v0.58.0; \\}"
   local golang_digest="${TF_GOLANG_DIGEST:-sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125}"
+  local alpine_image="${TF_ALPINE_IMAGE:-alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b}"
+  local xx_pin="${TF_XX_PIN:-tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707}"
 
   cat > "$TF_DF" <<EOF
 # syntax=docker/dockerfile:1
 ARG GO_VERSION=1.27.1
-ARG ALPINE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+ARG ALPINE_IMAGE=${alpine_image}
 ARG CROWDSEC_VERSION=1.8.1
 ARG EXPR_LANG_VERSION=1.17.8
 ARG XNET_VERSION=0.58.0
@@ -69,7 +71,7 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-0000000000000000
 ARG CHARON_TOOLCHAIN_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
 
-FROM --platform=\$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
+FROM --platform=\$BUILDPLATFORM ${xx_pin} AS xx
 
 # renovate: datasource=docker depName=golang
 FROM --platform=\$BUILDPLATFORM golang:\${GO_VERSION}-alpine@${golang_digest} AS caddy-inline
@@ -143,6 +145,21 @@ tf_stub_regctl() {
 case "\$1 \$2" in
   "registry login") exit 0 ;;
   "image digest")   printf '%s\n' "${digest}"; exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$TF_BIN/regctl"
+}
+
+# Install a fake `regctl` on PATH whose `image digest` call FAILS (non-zero,
+# no stdout) — simulates the pinned `:$KEY` tag not resolving in the registry.
+# `registry login` still succeeds so the script reaches the digest lookup.
+tf_stub_regctl_unresolvable() {
+  cat > "$TF_BIN/regctl" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "registry login") exit 0 ;;
+  "image digest")   echo "regctl: manifest unknown" >&2; exit 1 ;;
   *) exit 0 ;;
 esac
 EOF

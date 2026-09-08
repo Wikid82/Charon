@@ -19,6 +19,7 @@ every CI image build.
 | `scripts/lib/dockerfile-stage.sh` | Shared `extract_stage` used by both scripts. |
 | `.github/workflows/toolchain-image.yml` | Builds / publishes / scans. |
 | `.github/workflows/security-weekly-rebuild.yml` | `workflow_call`s the above for the Tuesday full rebuild + MEDIUM/LOW JSON report. |
+| `.github/workflows/build-offline.yml` | Advisory canary (weekly + `Dockerfile`/`Makefile` PR paths, amd64-only). Builds the app image via the `caddy-inline` / `crowdsec-inline` path — i.e. `make build-offline` — so the fork/air-gapped fallback can't rot unnoticed. Not a required check. |
 
 ## Determinism
 
