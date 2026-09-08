@@ -8,6 +8,27 @@ ARG VCS_REF
 # Set BUILD_DEBUG=1 to build with debug symbols (required for Delve debugging)
 ARG BUILD_DEBUG=0
 
+# ---- Prebuilt Caddy + CrowdSec toolchain image ----
+# Built by .github/workflows/toolchain-image.yml from the caddy-inline /
+# crowdsec-inline stages below (--target toolchain-runtime). Bumped by that
+# workflow's bot PR when a security-relevant input moves OR the DAILY
+# `--no-cache --pull` rebuild produces a new digest. The freshness-guard CI
+# check (scripts/verify-toolchain-pin.sh) fails any PR where TAG/DIGEST is
+# stale for the current pins.
+ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
+# NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
+# toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
+# manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-1efe7f19fa52a512
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:6575f4c6a9f76074870c64df9dd4c9ebee812342f37f52ae5ef8f511ba9f8f00
+
+# Stage selector — default consumes the prebuilt toolchain image (no compile).
+# Fork PRs / bootstrap / offline builds pass
+#   --build-arg CADDY_BUILDER_SRC=caddy-inline --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline
+# (e.g. `make build-offline`) to compile from source instead.
+ARG CADDY_BUILDER_SRC=toolchain-prebuilt
+ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
+
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
 ARG GO_VERSION=1.27.1
