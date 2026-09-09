@@ -80,7 +80,7 @@ ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
 ARG CADDY_SECURITY_VERSION=1.1.64
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
-ARG CORAZA_CADDY_VERSION=2.6.0
+ARG CORAZA_CADDY_VERSION=2.6.1
 # xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so
 # a toolchain-key.sh input moves when the plugin does. caddy-geoip2 publishes NO
 # semver tags, so its pin is the full pseudo-version (leading v included) and the
