@@ -1,18 +1,9 @@
-# Technical Spec — Prebuilt Caddy + CrowdSec Toolchain Image (CI Docker-build timeout fix)
+# Technical Spec — GHSA-3gc6-295r-xm5m Fix + Management-API Authorization Hardening + Retire Public Registration
 
-**Status:** Revision 2 — for supervisor re-review
-**Branch:** `feat/prebuilt-toolchain-image`
-**Delivery model:** One feature = one PR, sliced into ordered logical commits (see [Commit Slicing Strategy](#12-commit-slicing-strategy)).
-**Author:** Planning (Principal Architect)
-**Date:** 2026-09-07
-**Supersedes on merge:** the previous `current_spec.md` (Uptime Monitoring at Scale — already delivered).
-
-### Revision history
-
-| Rev | Date | Change |
-|---|---|---|
-| 1 | 2026-09-07 | Initial draft. |
-| **2** | **2026-09-07** | **Supervisor "APPROVE WITH CHANGES (major)" — resolved 7 blocking items:** B1 added §2.6 Alternatives Considered (decision record); B2 corrected the true current recurrence baseline (daily via nightly, not weekly) and pulled a **daily** `schedule` toolchain rebuild into committed scope (§3.4.1, §3.8.1–3.8.2; workflow lands in Commit 1, security-rebuild reroute in Commit 5); B3 rewrote the overstated "fresh `go mod tidy` MVS" claim in §3.8/R3 to state accurately what the forced rebuild catches (base-image + pin-bump drift only); B4 pin the two unpinned xcaddy plugins + feed them to the key (§2.2, §3.2.1, §3.4.2, Commit 1); B5 reworked the Commit Slicing Strategy so the CVE recurrence guard is never inert — the `--no-cache-filter` is retargeted to `caddy-inline`/`crowdsec-inline` inside Commit 1 and every commit gate proves the guard is live; B6 reconciled §3.9 timeouts with §3.7 fork path (fork-reachable CVE-gate jobs stay at 20 min); B7 made `verify-toolchain-pin.sh` failure-closed on same-repo PRs. Folded non-blocking N1–N11. |
+**Status:** Draft for review (revised per coordinator rulings 2026-09-08)
+**Advisory:** GHSA-3gc6-295r-xm5m — "Improper Authorization on CrowdSec Admin APIs via Public User Registration" (CWE-862, CVSS 8.8, reporter EQSTLab)
+**Scope model:** ONE feature = ONE PR, delivered as an ordered sequence of logical commits (see [§9 Commit Slicing Strategy](#9-commit-slicing-strategy)). No PR splitting.
+**Branch:** `development` (per `CLAUDE.md`: no worktrees, work on the current branch).
 
 ---
 
@@ -20,922 +11,1102 @@
 
 ### 1.1 Overview
 
-Every CI workflow that builds the Charon container image recompiles a **custom Caddy v2 binary** (via `xcaddy`, with in-place source patching of transitive dependencies) and a **custom CrowdSec agent** (`crowdsec` + `cscli`) **from source, from scratch, on every run**. The two Dockerfile stages that do this — `caddy-builder` (`Dockerfile:302`) and `crowdsec-builder` (`Dockerfile:577`) — are explicitly excluded from all layer caching by `--no-cache-filter` / `no-cache-filters` in six workflows plus the shared composite action.
+A publicly reachable `POST /api/v1/auth/register` lets an anonymous attacker
+create a `role=user` account. That account then reaches the entire
+`/api/v1/admin/crowdsec/*` surface (~45 routes) because those routes are mounted
+on the bare `management` router group, which is guarded only by
+`RequireManagementAccess()` (rejects `role=passthrough` only — `role=user`
+passes). Impact: bouncer API-key disclosure, disabling the IPS
+(`POST /admin/crowdsec/stop` persists `SecurityConfig.Enabled=false`), ban
+add/remove, and CrowdSec config-file read/write.
 
-Measured on the PR #1298 amd64 run:
+This feature:
 
-| Stage | Cold build time |
-|---|---|
-| `caddy-builder` (xcaddy build + patch + rebuild) | **748 s (12.5 min)** |
-| `crowdsec-builder` (clone + patch + 2× `xx-go build`) | **~330 s** combined |
-| GHA cache export (`type=gha,mode=max`) | ~90 s |
+- **Part A** — closes the authorization hole (the advisory fix): mount the
+  CrowdSec admin routes behind an explicit `RequireRole(admin)` subgroup,
+  mirroring the existing `securityAdmin` pattern.
+- **Part B** — audits every route on the `management` group for the same class
+  of bug, fixes each under-guarded route found (at minimum: the
+  `/admin/plugins` mutation routes, a confirmed second live instance), and
+  introduces a "deny-by-default" structural guard + enforcement test so a
+  handler can no longer accidentally land privileged routes on an under-guarded
+  group.
+- **Part C** — **removes the public `POST /auth/register` endpoint entirely**
+  (coordinator ruling). First-admin bootstrap continues via `POST /setup`;
+  post-bootstrap account creation is served by the **existing** admin
+  invite-user / email-invite flow (`User.InviteToken`,
+  `UserHandler.InviteUser` / `ValidateInvite` / `AcceptInvite`,
+  `frontend/src/pages/AcceptInvite.tsx`). No new invite model / service /
+  endpoints / UI are built.
 
-`build-amd64` has `timeout-minutes: 15` with a nested `nick-fields/retry` `timeout_minutes: 15` (`docker-build.yml:403`, `:441`). The ~14-minute cold compile plus cache export blows the 15-minute budget; the integration jobs (`timeout-minutes: 20`) run out of budget once test work is stacked on top of the same cold compile. **PR #1298's four "failed" checks (`build-amd64`, `CrowdSec Bouncer Integration`, `Trivy Binary Scan`, `Cerberus Security Stack Integration`) were all CI job-timeout cancellations on the image build — not test or assertion failures.**
+### 1.2 Objectives / Goals
 
-The `--no-cache-filter` guards are deliberate (commits `5c046238`, `8cbc71f2`): the two builder stages patch pinned transitive dependencies **inside** the stage (`go get pkg@fixed`), and a build-arg bump does not reliably invalidate the GHA layer-cache key of a stage that only *consumes* that arg, so a restored stale layer keeps shipping a superseded, still-vulnerable dependency (this is exactly what produced the CVE-2026-45135 and 2026-09-04 grpc-go v1.83.0 recurrences). Removing the guards without another mechanism would reintroduce that class of silent regression.
-
-### 1.2 Objectives & Goals (ranked)
-
-1. **CI image builds stop timing out.** The `xcaddy` / CrowdSec compile must **not** run on the hot path of an ordinary app image build. Target: warm `build-amd64` completes in **< 8 min**; integration jobs **< 12 min**.
-2. **The CVE-2026-84304-class recurrence guarantee is preserved or strengthened.** "Upstream ships a security fix, no repo pin changes" must still be caught on a defined cadence with an explicit alert path.
-3. **Multi-arch is preserved.** `linux/amd64` and `linux/arm64` images keep getting a correctly cross-compiled Caddy/CrowdSec binary.
-4. **A bumped pin can never silently ship an old toolchain.** A stale digest in the Dockerfile against a newer pin must fail a PR fast.
-5. **Fork PRs, first-run bootstrap, and local `docker build` still work** without `packages: write` and without a published toolchain image.
-6. **One source of truth for the build logic.** The `xcaddy` / CrowdSec build recipe must not be duplicated between the app Dockerfile and a separate toolchain Dockerfile.
+1. A `role=user` (or unauthenticated) caller receives `403` on every CrowdSec
+   admin route; `role=admin` is unaffected.
+2. Every state-changing / privileged route on `management` is provably
+   admin-guarded or is a deliberate, documented `role=user` capability, enforced
+   by a CI test.
+3. `POST /api/v1/auth/register` no longer exists — the route returns `404`.
+4. First-admin bootstrap (`POST /setup`) and the existing email-invite
+   acceptance flow (`GET /invite/validate`, `POST /invite/accept`) continue to
+   work unchanged.
+5. Backend coverage ≥ 85 %, frontend coverage ≥ 85 %, targeted E2E green, all
+   Definition-of-Done gates pass.
 
 ### 1.3 Non-goals
 
-- Changing *which* Caddy plugins or CrowdSec version are shipped, or any dependency pin values.
-- Changing the runtime image contents, entrypoint, ports, or `internal/caddy` / `internal/cerberus` behavior.
-- Reworking the `arm64` QEMU split in `docker-build.yml` (already done in a prior spec).
-- Moving off GHCR or introducing a second registry.
-
-### 1.4 EARS-style requirements
-
-| # | Requirement (EARS) |
-|---|---|
-| R1 | **When** an app image build runs in CI or locally with the default build-args, the system **shall** obtain the Caddy and CrowdSec binaries by `COPY --from` a digest-pinned prebuilt toolchain image, **without** invoking `xcaddy` or compiling CrowdSec. |
-| R2 | **When** any security-relevant toolchain input changes on a PR (the two builder-stage bodies, their consumed version ARGs incl. the two now-pinned xcaddy plugins, `xx` pin, the digest-pinned `golang`/`alpine` builder bases, or `.trivyignore`), the toolchain-image workflow **shall** run and the freshness-guard check **shall** fail until the Dockerfile's pinned toolchain digest matches the newly published image for those inputs. |
-| R3 | **While** no repo pin has changed, the scheduled **daily** toolchain rebuild **shall** rebuild the toolchain image with `--no-cache --pull` and scan it with Trivy; it **catches base-image drift** (new `golang`/`alpine`/plugin-base CVEs picked up via `--pull` and the digest re-resolve) **and pin-bump drift**, and — if a new digest or a new CRITICAL/HIGH finding results — **shall** open a bot PR bumping the pinned digest and alert via a GitHub issue on failure. It does **not** independently discover upstream security fixes to *unpinned transitive* Go dependencies (see §3.8 — that gap exists identically today and is closed only by an explicit pin bump). |
-| R4 | **Where** the builder lacks `packages: write` or the toolchain image is unavailable (fork PR, first bootstrap, offline local build), the system **shall** fall back to compiling the `caddy-inline` / `crowdsec-inline` stages from source, producing an equivalent binary. |
-| R5 | **When** the toolchain image is built, it **shall** be published as a multi-arch manifest list covering `linux/amd64` and `linux/arm64`, each entry carrying the correctly cross-compiled binary. |
-| R6 | **When** `--no-cache-filter caddy-builder` / `crowdsec-builder` (and the `no-cache-filters` input) are removed from all six workflows and the composite action, normal `type=gha` layer caching **shall** cover every remaining stage. |
+- Any new invite mechanism, model, service, endpoint, or UI. (Earlier draft's
+  `models.Invite` / `InviteService` / `InviteHandler` / `frontend/src/api/invites.ts` /
+  `useInvites` / `UsersPage` invite section / `/register` page are **dropped**.)
+- Changes to the existing per-user email-invite flow beyond referencing it as
+  the supported post-bootstrap path.
+- A general-purpose RBAC engine. The 3-tier model (`admin` / `user` /
+  `passthrough`) is unchanged.
+- Per-IP auth rate limiting (see [§7](#7-remaining-open-questions) — deferred to
+  a follow-up issue; `/auth/register` is being removed and `/auth/login`
+  already has account lockout).
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Current build graph (verified)
+### 2.1 Existing architecture (verified in-repo on `development`)
 
-```
-Dockerfile stages (944 lines total):
+#### Auth / authorization primitives
 
-  xx  (tonistiigi/xx:1.9.0, Dockerfile:73)  ── cross-compile helper
-   │
-   ├─► gosu-builder          (:80,  COPY --from=xx)
-   ├─► frontend-builder      (:134, node:24)
-   ├─► backend-builder       (:178, COPY --from=xx)
-   │
-   ├─► caddy-builder         (:302)  FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine
-   │        NO `COPY --from=xx`. Pure Go cross-compile:
-   │        go install xcaddy → `xcaddy build` (Stage 1, generates go.mod)
-   │        → ~20× `go get pkg@fixed` security patches (Stage 2)
-   │        → module-cache source patches (celmatcher.go, bouncer)
-   │        → GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /usr/bin/caddy   ← 748 s
-   │        → embeds-version assertions (cel-go v0.29.x, grpc v1.83.1)
-   │
-   ├─► crowdsec-builder      (:577)  FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine
-   │        COPY --from=xx / /  (:578).  CGO cross-compile:
-   │        xx-apk add gcc musl-dev musl → git clone crowdsec vX.Y
-   │        → ~20× `go get pkg@fixed` → sed patch debugger.go
-   │        → CGO_ENABLED=1 xx-go build crowdsec + cscli  ← ~330 s
-   │        → xx-verify
-   │
-   ├─► crowdsec-fallback     (:713)  FROM ${ALPINE_IMAGE}  ── DEAD CODE (see note below)
-   │
-   └─► final runtime         (:751)  FROM ${ALPINE_IMAGE}
-            COPY --from=caddy-builder    /usr/bin/caddy        /usr/bin/caddy         (:807)
-            COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec (:814)
-            COPY --from=crowdsec-builder /crowdsec-out/cscli    /usr/local/bin/cscli    (:815)
-            COPY --from=crowdsec-builder /crowdsec-out/config   /etc/crowdsec.dist      (:817)
-```
-
-Key finding: **`caddy-builder` does not use `xx`** — it is a plain `$BUILDPLATFORM` golang image doing `GOOS/GOARCH` cross-compilation with `CGO` disabled. `crowdsec-builder` **does** use `xx` because CrowdSec needs `CGO_ENABLED=1` (sqlite). **Both stages are `FROM --platform=$BUILDPLATFORM`**, so on `docker-build.yml`'s arm64 leg the *builder* stages have always run natively on the amd64 host and cross-compiled — **QEMU has only ever emulated the final arm64 stage's `RUN` lines**, never the Caddy/CrowdSec compile. This is what makes a native-amd64, no-QEMU multi-arch toolchain build possible (see §3.5).
-
-**Correction (was wrong in Rev 1): `crowdsec-fallback` (`:713`) is dead code.** Verified: no `COPY --from=crowdsec-fallback`, no `FROM crowdsec-fallback`, and no `--target crowdsec-fallback` anywhere in the repo. It is never built and never consumed. The final stage copies unconditionally from `crowdsec-builder` (`:814-817`). Rev 1's §3.2.3 claim that "`crowdsec-fallback` is selected by the existing arch logic" was incorrect. **Action:** Commit 1 deletes the `crowdsec-fallback` stage (`:713-748`). `CROWDSEC_RELEASE_SHA256` (`:22`, re-declared at `:586`) is *only* used by the tarball `sha256sum -c` inside that stage — after deletion the global `ARG` and the `:586` re-declaration are dead too and are removed in the same commit. `crowdsec-inline` clones from git (`git clone --branch "v${CROWDSEC_VERSION}"`), so it is unaffected. **Verify at implementation time** whether `CROWDSEC_RELEASE_SHA256` has its own updater workflow (grep `.github/workflows/` for `CROWDSEC_RELEASE_SHA256`); if so, delete it in the same commit. (Per CLAUDE.md "delete dead code immediately". If the reviewer prefers to keep `crowdsec-fallback` as a deliberate escape hatch, the fallback position is: leave it untouched and simply exclude it from the toolchain key — it does not affect the shipped binary. Planning's recommendation is deletion.)
-
-### 2.2 Version ARGs consumed by the builder stages (verified line numbers)
-
-| ARG | Global default (line) | Re-declared in |
+| Element | Location | Behavior |
 |---|---|---|
-| `GO_VERSION` | `1.27.1` (`:13`) | base of both stages (`FROM golang:${GO_VERSION}-alpine` — **moving tag, see N4 below**) |
-| `ALPINE_IMAGE` | `alpine:3.24.1@sha256:28bd…` (`:16`) | toolchain-runtime base (already digest-pinned) |
-| `CROWDSEC_VERSION` | `1.8.1` (`:20`) | caddy `:318`, crowdsec `:585`, fallback `:720` |
-| `CROWDSEC_RELEASE_SHA256` | `deae1f43…` (`:22`) | crowdsec `:586`, fallback `:721` |
-| `EXPR_LANG_VERSION` | `1.17.8` (`:26`) | caddy `:313`, crowdsec `:587` |
-| `XNET_VERSION` | `0.58.0` (`:28`) | caddy `:314`, crowdsec `:588` |
-| `XCRYPTO_VERSION` | `0.56.0` (`:33`) | caddy `:315`, crowdsec `:589` |
-| `KLAUSPOST_COMPRESS_VERSION` | `1.20.0` (`:38`) | caddy `:316`, crowdsec `:590` |
-| `GRPC_VERSION` | `1.83.1` (`:44`) | caddy `:317`, crowdsec `:591` |
-| `CADDY_VERSION` | `2.11.4` (`:56`) | caddy `:305` |
-| `CADDY_CANDIDATE_VERSION` | `2.11.4` (`:58`) | caddy `:306` |
-| `CADDY_USE_CANDIDATE` | `0` (`:59`) | caddy `:307` |
-| `CADDY_PATCH_SCENARIO` | `B` (`:60`) | caddy `:308` |
-| `CADDY_SECURITY_VERSION` | `1.1.64` (`:62`) | caddy `:309` |
-| `CORAZA_CADDY_VERSION` | `2.6.0` (`:64`) | caddy `:310` |
-| `XCADDY_VERSION` | `0.4.7` (declared inside stage, `:~311`) | caddy only |
-| `xx` image | `tonistiigi/xx:1.9.0@sha256:c64defb9…` (`:73`) | crowdsec `:578` |
-| **`CADDY_GEOIP2_VERSION`** | **NEW — see B4** | caddy `:391` — currently `--with github.com/zhangjiayin/caddy-geoip2` with **no `@version`** |
-| **`CADDY_RATELIMIT_VERSION`** | **NEW — see B4** | caddy `:392` — currently `--with github.com/mholt/caddy-ratelimit` with **no `@version`** |
+| `AuthMiddleware` | `backend/internal/api/middleware/auth.go` | Validates JWT / cookie, sets `c.Set("userID", …)` and `c.Set("role", string(user.Role))`. |
+| `RequireManagementAccess()` | `backend/internal/api/middleware/auth.go:116` | **Only** aborts when `role == RolePassthrough`. `role=user` and `role=admin` pass. |
+| `RequireRole(role)` | `backend/internal/api/middleware/auth.go` | Aborts `401` if no role; aborts `403` unless `userRole == role` **or** `userRole == RoleAdmin`. So `RequireRole(RoleAdmin)` ⇒ admin-only, and `RequireRole(anything)` still lets admin through. |
+| `requireAdmin(c)` / `isAdmin(c)` | `backend/internal/api/handlers/permission_helpers.go` | In-handler guard. `isAdmin` = `c.GetString("role") == "admin"`. `requireAdmin` writes `403 {"error":"admin privileges required","error_code":"permissions_admin_only"}`. |
+| `rejectPassthrough(c, action)` | `backend/internal/api/handlers/user_handler.go:225` | In-handler 403 for passthrough. |
+| Roles | `backend/internal/models/user.go` | `RoleAdmin="admin"`, `RoleUser="user"`, `RolePassthrough="passthrough"`. `RoleUser` doc: "can access the Charon management UI with restricted permissions" (restriction is per-host `PermittedHosts`, not per-feature). |
 
-**B4 — two xcaddy plugins are unpinned (`Dockerfile:391-392`).** `--with github.com/zhangjiayin/caddy-geoip2` and `--with github.com/mholt/caddy-ratelimit` carry no `@version`, so `xcaddy` resolves "latest" at build time. The literal Dockerfile text never changes when those projects tag a release, so `toolchain-key.sh` would not notice, and a stale toolchain image would be reused when an upstream plugin fix actually warrants a rebuild. **Fix (Commit 1, preferred):** add `ARG CADDY_GEOIP2_VERSION=<current resolved>` and `ARG CADDY_RATELIMIT_VERSION=<current resolved>` near `:64` with `# renovate: datasource=go` annotations, and change lines `:391-392` to `--with github.com/zhangjiayin/caddy-geoip2@v${CADDY_GEOIP2_VERSION}` / `--with github.com/mholt/caddy-ratelimit@v${CADDY_RATELIMIT_VERSION}`. Resolve the current versions at implementation time via `xcaddy`'s build log or `go list -m` in the existing `caddy-inline` module cache. Both ARGs join the §3.4.2 key input set.
+#### Route groups — `backend/internal/api/routes/routes.go`
 
-**N4 — `golang:${GO_VERSION}-alpine` is a moving tag.** Only `GO_VERSION` (the minor, e.g. `1.27.1`) feeds the key; the underlying `-alpine` digest floats and, post-change, the app hot path no longer `--pull`s it (only the toolchain workflow does). A silent `golang:1.27.1-alpine` rebuild upstream (new Alpine base, patched toolchain) would not change the key. **Fix (Commit 1):** digest-pin both builder-stage bases — `FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:<digest> AS caddy-inline` (and `crowdsec-inline`) — with a `# renovate: datasource=docker depName=golang` annotation, and include the pinned digest line in the key input set. The **daily** toolchain rebuild's `--pull` + Renovate digest bumps then keep it fresh; the app build inherits it transitively through the pinned toolchain image — the intended daily-cadence refresh path for builder-base drift (the app hot path deliberately does not re-pull it).
+```
+api            := router.Group("/api/v1")                            // public
+  api.POST("/auth/login", …)
+  api.POST("/auth/register", authHandler.Register)                   // line 295 — PUBLIC, no gate      ← ADVISORY (Part C removes)
+  api.GET("/setup", …) / api.POST("/setup", …)                       // bootstrap first admin (Part C keeps)
+  api.GET("/invite/validate", …) / api.POST("/invite/accept", …)     // existing email-invite (Part C references as supported path)
+  protected  := api.Group("/"); protected.Use(authMiddleware)         // any authenticated user
+    management := protected.Group("/")
+    management.Use(middleware.RequireManagementAccess())               // line 373-374 — passthrough-only reject
+      securityAdmin := management.Group("/security")
+      securityAdmin.Use(middleware.RequireRole(models.RoleAdmin))      // line 796-797 — CORRECT admin gate (template)
+      adminEncryption := management.Group("/admin/encryption")          // line 546 — no RequireRole, BUT every handler calls isAdmin(c)
+      adminPlugins    := management.Group("/admin/plugins")             // line 560 — no RequireRole AND plugin_handler has NO admin check ← BUG (Part B)
+      crowdsecHandler.RegisterRoutes(management)                        // line 838 — no RequireRole AND crowdsec_handler has NO admin check ← ADVISORY (Part A)
+      … ~20 other *.RegisterRoutes(management) / inline management.* …
+RegisterImportHandler(…) {                                            // separate func, line 1005
+  authenticatedAdmin := api.Group("/")
+  authenticatedAdmin.Use(AuthMiddleware(authService), RequireRole(models.RoleAdmin))  // line 1011-1012 — CORRECT admin gate (2nd template / name precedent)
+}
+```
 
-Also inside the stages: many *literal* pinned versions in `go get` lines (e.g. `go-jose/v3@v3.0.5`, `cel-go@v0.29.2`, `quic-go@v0.60.0`, `golang.org/x/mod@v0.40.0`, `ipstore@v0.4.0`). Because these are literals in the stage body, the **content hash of the stage text** (not just the ARG list) must feed the toolchain tag key (§3.4).
+Verified line numbers (grep, `development` HEAD): `auth/register` route `:295`,
+`management := protected.Group("/")` `:373`, `adminPlugins` `:560`,
+`securityAdmin` `:796`, `crowdsecHandler.RegisterRoutes(management)` `:838`.
 
-### 2.3 `--no-cache-filter` / `no-cache-filters` occurrences (verified — full removal list)
+#### In-handler admin-check audit (grep `requireAdmin(|isAdmin(|RoleAdmin|GetString("role")|rejectPassthrough`, non-test)
 
-| # | File:line | Form | Job / context |
+| Handler | In-handler role refs | Mounted on | Effective guard for `role=user` |
 |---|---|---|---|
-| 1 | `.github/workflows/docker-build.yml:463-464` | raw `--no-cache-filter caddy-builder` / `crowdsec-builder` | `build-amd64` (`nick-fields/retry` → raw `docker buildx build`) |
-| 2 | `.github/workflows/docker-build.yml:549-550` | raw `--no-cache-filter …` | `build-arm64` |
-| 3 | `.github/workflows/security-pr.yml:164` | `no-cache-filters: caddy-builder,crowdsec-builder` (composite input) | `Build Docker image (Local)` step, job `timeout-minutes: 20` (`:32`) |
-| 4 | `.github/workflows/supply-chain-pr.yml:261` | `no-cache-filters:` (composite input) | `Build Docker image (Local)` step, job `timeout-minutes: 20` (`:34`) |
-| 5 | `.github/workflows/e2e-tests-split.yml:224` | `no-cache-filters:` on `docker/build-push-action` (`:215`) | `build` job |
-| 6 | `.github/workflows/nightly-build.yml:243` | `no-cache-filters:` on `docker/build-push-action` (`:229`) | `Build and push Docker image` (multi-arch) |
-| 7 | `.github/actions/build-charon-image/action.yml:15` (input decl) + `:52` (passthrough) | `no-cache-filters` composite input, default `''` | consumed by `cerberus-integration.yml:34`, `crowdsec-integration.yml:34`, `waf-integration.yml:34`, `rate-limit-integration.yml:34` (none of those four override it today) |
+| `crowdsec_handler.go` | **0** | `management` (bare) | **NONE — vulnerable** (advisory) |
+| `plugin_handler.go` | **0** | `management.Group("/admin/plugins")` (bare) | **NONE — mutations vulnerable** (Part B) |
+| `encryption_handler.go` | 4 (`isAdmin`) | `management.Group("/admin/encryption")` (bare) | OK (in-handler) |
+| `docker_handler.go` | 0 | `management` | none — read-only (`GET /docker/containers`, used by proxy-host create) |
+| `proxy_host_handler.go` / `proxy_group_handler.go` | 0 | `management` | none — intended `role=user` capability |
+| `remote_server_handler.go` | 0 | `management` | none |
+| `security_headers_handler.go` | 0 | `management.Group("/security/headers")` | none |
+| `hecate_handler.go` / `orthrus_handler.go` | 0 | `management` | none |
+| `manual_challenge_handler.go` | 0 | `management` (`/dns-providers/:id/...`) | none |
+| `settings_handler.go` | 8 | `management` + one `RequireRole` arg on `GET /settings/smtp` (`:457`) | partial in-handler |
+| `system_permissions_handler.go` | 3 | `management` | in-handler |
+| `certificate_handler.go`, `access_list_handler.go`, `domain_handler.go`, `uptime_handler.go`, `stats_handler.go`, `feature_flags_handler.go`, `audit_log_handler.go` | 0 | `management` | none — per-route verdict in §3.2 |
+| `notification_provider_handler.go` | 3 (`requireAdmin` — `Create`/`Update`/`Delete` only; **`Test` & `Preview` are NOT guarded**) | `management` | mutations OK in-handler; `POST /notifications/providers/test` + `/preview` unguarded → see table #33b |
+| `notification_template_handler.go` | 3 (`requireAdmin` — `Create`/`Update`/`Delete` only; **`Preview` NOT guarded**) | `management` | mutations OK in-handler; `POST /notifications/external-templates/preview` unguarded → see table #33b |
+| `security_notifications.go` | 2 (`requireAdmin` — `GetSettings`/`UpdateSettings`) | `management` | OK (in-handler) |
+| `notification_handler.go` (per-user inbox) | 0 | `management` | none — USER-OK (list / mark-read) |
+| `security_handler.go` | many (`requireAdmin`) | reads on `management`, writes on `securityAdmin` | OK |
+| `backup_handler.go` / `backup_remote_handler.go` | many (`requireAdmin`) | `management` | OK (in-handler) |
+| `user_handler.go` | many (`requireAdmin` / `rejectPassthrough`) | `management` | OK (in-handler; `UpdateUser` deliberately allows non-admin self-service) |
 
-The composite action's own doc comment (`action.yml:16-33`) instructs CVE-scan callers to set `no-cache-filters: caddy-builder,crowdsec-builder`; that comment must be rewritten (§3.6).
+**Conclusion:** `management` is a de-facto "any authenticated non-passthrough
+user" group; admin enforcement is applied inconsistently by three mechanisms
+(dedicated subgroup, per-route middleware arg, in-handler `requireAdmin`). Two
+areas — CrowdSec (all) and Plugins (mutations) — have **no** enforcement.
 
-### 2.4 Existing patterns to reuse
+#### Frontend route/nav gating — `frontend/src/App.tsx`, `frontend/src/components/Layout.tsx`
 
-- **Weekly security rebuild:** `.github/workflows/security-weekly-rebuild.yml` — `schedule: '0 12 * * 2'` (Tue 12:00 UTC) + `workflow_dispatch{force_rebuild}`, `timeout-minutes: 60`, `no-cache: ${{ schedule || force_rebuild }}`, `pull: true`, publishes `ghcr.io/wikid82/charon:security-scan-YYYYMMDD`, Trivy CRITICAL/HIGH gate + SARIF upload + JSON artifact + failure `::warning::`. **This spec repurposes this workflow to rebuild the *toolchain* image** rather than a throwaway app image (it currently scans an image nobody consumes).
-- **Bot-PR-bumps-a-pin:** `.github/workflows/update-geolite2.yml` — weekly cron + `workflow_dispatch`, downloads upstream, `sed -i` the `ARG …_SHA256=` line in the Dockerfile, `docker build --check` syntax gate, `peter-evans/create-pull-request@v8` targeting `base: development`, `branch: bot/update-geolite2-checksum`, labels `dependencies/automated/docker`, failure → `actions/github-script` opens an issue. Commits `15ca90b8` / `94b93fdf` are live examples. **Reuse verbatim structure for the digest-bump bot (§3.4.3).**
-- **Toolchain-bump scripts:** `scripts/update-go-toolchain.sh`, `scripts/update-node-toolchain.sh`, `scripts/caddy-compat-matrix.sh` — house style for a `scripts/*.sh` helper invoked by CI.
-- **Renovate regex managers** already track every `ARG` above via `# renovate:` annotations — must be preserved (§3.3).
+- The SPA has **almost no role gating**. `App.tsx` wraps only:
+  - `/settings/*` in `<RequireRole allowed={['admin','user']}>`
+  - `/settings/users` in `<RequireRole allowed={['admin']}>`
+  - Everything else under `/` (`/security/*`, `/access-lists`, `/dns/*`,
+    `/hecate/*`, `/certificates`, `/security/audit-logs`, `/security/crowdsec`,
+    …) is reachable by any authenticated non-passthrough user, incl. `role=user`.
+- `Layout.tsx` nav: only the **"Users"** entry is `role === 'admin'`-gated
+  (`:127`); passthrough sees no nav (`:151`); `uptime` / `cerberus` sections are
+  feature-flag gated. So a `role=user` today sees and can open CrowdSec config,
+  Access Lists, Security Headers, DNS providers, Certificates, Hecate, Audit
+  Logs, etc., and those pages call their APIs successfully because
+  `management` doesn't stop them.
+- `RequireRole` component: `frontend/src/components/RequireRole.tsx` — renders
+  children if `user.role ∈ allowed`, else redirects. Ready to reuse.
+- Public routes: `/login`, `/setup`, `/accept-invite` only. **No signup/register
+  page or route exists.** `grep "auth/register"` in `frontend/src` → 0 hits.
+  The endpoint is unused by the UI.
 
-### 2.5 Constraints from `CLAUDE.md` / `ARCHITECTURE.md`
+**Implication for Part B (Q7 ruling):** because non-admin screens currently
+consume many of these read endpoints, moving a *read/list* endpoint to
+admin-only would regress a `role=user` page. The classification in §3.2 is
+therefore **mutation-oriented**: reads/lists that back a `role=user`-reachable
+page stay on `management`; mutations move behind `RequireRole(admin)` (via a
+per-route arg, or a `RegisterRoutes(read, admin)` split where the handler
+registers its own routes). Only **CrowdSec** (forced by Part A — no
+`role=user` read need) moves *wholesale* to `managementAdmin`. Hecate, Orthrus
+and Remote Servers each keep a small set of `GET` reads on `management`
+(consumed by the proxy-host create/edit flow and the Dashboard) and move only
+their mutations — verified against `frontend/src` (§3.2.1 C1/C2). Where a page
+becomes admin-only in practice (CrowdSec, Audit Logs, the Orthrus
+agent-management page, Encryption) a **companion frontend `RequireRole` guard +
+nav filter** is added (mirroring the existing "Users" pattern) so `role=user`
+never lands on a 403-ing page.
 
-- All frontend in `frontend/`, backend in `backend/` — unaffected (this is CI/build only).
-- Conventional commits; `(security)` scope only for genuine security work, subject line vague. The initial-pin and freshness-guard commits *are* security-relevant — use `feat(security):` / `fix(security):` with vague subjects (e.g. `feat(security): pin bundled proxy toolchain to a scanned prebuilt image`). The routine daily digest-refresh bot PR uses **`chore(docker):`** — `feat:` there makes release-please cut a minor release on every refresh.
-- Weekly `nightly → main` promotion PRs merge via **merge commit**. This feature's PR targets `development` (normal flow) — **confirmed it does not touch `weekly-nightly-promotion.yml`** and imposes no new constraint on the promotion merge method. (`weekly-nightly-promotion.yml` carries the app image through unchanged; the toolchain digest pin travels with the Dockerfile like any other line.)
-- `ARCHITECTURE.md` §"Deployment Architecture / Multi-Stage Dockerfile" (`:1082`), §"Infrastructure" table (`:158`), §"Directory Structure" (`:286`), §"Layer 2: CrowdSec Integration" (`:780`) must be updated (§9).
-- **Ignore-file check (CLAUDE.md "Ignore Files"):** the new files are `scripts/toolchain-key.sh`, `scripts/verify-toolchain-pin.sh`, `scripts/lib/dockerfile-stage.sh`, `scripts/tests/toolchain-key.bats` (+ `verify-toolchain-pin.bats`, `helpers/toolchain_fixture.bash`), `.github/workflows/toolchain-image.yml`, `docs/ci/toolchain-image.md`. **Correction (Rev 2.1):** the earlier claim that `scripts/` is not copied into the image was wrong — `Dockerfile` `COPY scripts/ /app/scripts/` copies the whole directory into the runtime image (it already ships ~40 `scripts/*.sh` + a pre-existing `.bats`). These four build-only helpers are used only by `toolchain-image.yml` and the `quality-checks.yml` `verify-toolchain-pin` / bats jobs from a plain checkout — never from inside a built container — so **`.dockerignore` now excludes `scripts/tests/`, `scripts/toolchain-key.sh`, `scripts/verify-toolchain-pin.sh`, `scripts/lib/dockerfile-stage.sh`** (blacklist semantics, no `!scripts/…` re-includes to fight). `.github/` and `docs/` are already excluded, so `toolchain-image.yml` / `docs/ci/toolchain-image.md` never enter the context. `.gitignore` — these are source files that must be committed; none matches an existing ignore glob → **no `.gitignore` change**. `.codecov.yml` — shell/bats and YAML carry no Go/TS coverage → **no `.codecov.yml` change**. Recorded explicitly per CLAUDE.md.
+#### `/auth/register` and `/setup` — how the first admin is created
 
----
+- `authHandler.Register` — `backend/internal/api/handlers/auth_handler.go:244`;
+  `RegisterRequest{Email,Password,Name}` (`min=8` password) at `:238`. Calls
+  `h.authService.Register(req.Email, req.Password, req.Name)` at `:251`, returns
+  `201` + user JSON. **No gating of any kind.**
+- `authService.Register(email, password, name)` —
+  `backend/internal/services/auth_service.go:31`: `count == 0` ⇒ `RoleAdmin`,
+  else `RoleUser`. No toggle / invite / flag.
+- **`POST /setup` does NOT call `authService.Register`.**
+  `UserHandler.Setup` (`backend/internal/api/handlers/user_handler.go:141`)
+  builds `models.User{Role: models.RoleAdmin, …}` directly and `tx.Create(&user)`
+  inside its own transaction (also writes `caddy.acme_email`). It is fully
+  independent of `authService.Register` / `authHandler.Register`.
+- **`authService.Register` is NOT dead after removing the route.** grep
+  `\.Register(` (non-`metrics`/`tracker`/`dnsprovider`) — it is called from
+  ~28 test sites as a user-creation helper:
+  - `backend/internal/services/auth_service_test.go` (16 calls — incl. the
+    `count==0 → RoleAdmin` behavior test, `TestAuthService_Register*`)
+  - `backend/internal/api/middleware/auth_test.go` (12 calls)
+  - `backend/internal/api/handlers/user_integration_test.go:52`
+- **`authHandler.Register` (HTTP handler) references:** only
+  `routes.go:295` (the route) and
+  `backend/internal/api/handlers/additional_coverage_test.go:729`
+  (`TestAuthHandler_Register_InvalidJSON` — a 400-on-bad-JSON coverage test).
+- **Test / inventory references to the route path** (`grep "auth/register"`):
+  - `backend/internal/api/routes/routes_test.go:162` — `expectedRoutes` list in
+    `TestRegister_RoutesRegistration`
+  - `backend/internal/api/routes/routes_test.go:215` — `publicMutationAllowlist`
+    in `TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist`
+  - `backend/internal/api/routes/routes_test.go:335` —
+    `assert.Contains(t, routeMap, "/api/v1/auth/register")` in
+    `TestRegister_AllRoutesRegistered`
+  - `backend/integration/crowdsec_lapi_integration_test.go:59` — `authenticate()`
+    helper POSTs `/api/v1/auth/register` (errors ignored) to bootstrap a test
+    user; build-tagged integration test, not in default CI.
 
-## 2.6 Alternatives Considered (Decision Record)
+⇒ **Part C deletions are exactly:** the route (`routes.go:295`),
+`AuthHandler.Register` (`auth_handler.go:244-256`), `RegisterRequest`
+(`auth_handler.go:238-242`). **Keep** `AuthService.Register` (+ its
+`count==0 → RoleAdmin` logic) — still referenced by ~28 test call sites as a
+helper. Update the 4 test references above.
 
-The user has confirmed **approach A (prebuilt toolchain image)**. This section records the lighter alternative that was weighed against it, why that alternative is genuinely viable, and the concrete grounds on which A was still chosen — so the decision is auditable rather than assumed.
+#### Existing email-invite flow (unchanged — the supported post-bootstrap path)
 
-### Alternative B — Keep the two stages inline; replace `--no-cache-filter` with a content-hash-keyed buildx GHA cache scope
+- `models.User` fields (`backend/internal/models/user.go`): `InviteToken`
+  (`json:"-"`, `gorm:"index"`), `InviteExpires`, `InvitedAt`, `InvitedBy`,
+  `InviteStatus` (`"pending"|"accepted"|"expired"`); helper
+  `User.HasPendingInvite()`.
+- `UserHandler.InviteUser` (`POST /users/invite`, admin — `requireAdmin`),
+  `ResendInvite` (`POST /users/:id/resend-invite`), `PreviewInviteURL`,
+  `ValidateInvite` (`GET /invite/validate`, public), `AcceptInvite`
+  (`POST /invite/accept`, public). `generateSecureToken()` at
+  `user_handler.go:494` (`crypto/rand` 32B → hex).
+- Frontend: `frontend/src/pages/AcceptInvite.tsx` (route `/accept-invite`, reads
+  `?token=`), `frontend/src/api/users.ts`
+  (`inviteUser`/`validateInvite`/`acceptInvite`/`resendInvite`/`previewInviteURL`),
+  `frontend/src/pages/UsersPage.tsx` (`/settings/users`, admin-gated).
 
-**Mechanism.** Leave `caddy-builder` / `crowdsec-builder` exactly where they are in the Dockerfile. Delete every `--no-cache-filter caddy-builder,crowdsec-builder`. In its place, give the two expensive stages their own dedicated GHA cache scope whose key is the content hash of the pin set (the same `scripts/toolchain-key.sh` output proposed for approach A):
+#### AutoMigrate
 
-```
-KEY=$(scripts/toolchain-key.sh)          # caddy-crowdsec-<hex>
-docker buildx build \
-  --cache-from type=gha,scope=charon-app \
-  --cache-to   type=gha,mode=max,scope=charon-app \
-  --cache-from type=gha,scope=builders-${KEY} \
-  --cache-to   type=gha,mode=max,scope=builders-${KEY} \
-  ...
-```
+`backend/internal/api/routes/routes.go:112` — single `db.AutoMigrate(&models.X{}, …)`
+call. **No new models in this feature**, so no change here.
 
-When a pin moves, `KEY` changes, the `builders-<key>` scope is a guaranteed miss, and the stage recompiles exactly once; every subsequent build on that `KEY` restores the layer. When a pin does **not** move, the layer is restored and no compile happens.
+#### Test patterns
 
-**What Alternative B genuinely delivers — stated fairly:**
+- `backend/internal/api/routes/routes_test.go`:
+  - `TestRegister_AllRoutesRegistered` (`:310`) — asserts `routeMap` contains
+    `/api/v1/admin/crowdsec/*` and `/api/v1/auth/register`.
+  - `TestRegister_AdminRoutes` (`:481`) — GET admin paths expecting `401`
+    unauthenticated.
+  - `TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist`
+    (`:196`) — iterates every mutating `/api/v1/*` route, asserts `401|403`
+    unless in `publicMutationAllowlist`. **This is the Part B harness** — extend
+    it with a `role=user` dimension and remove the `auth/register` allowlist
+    entry.
+- E2E: `tests/security-enforcement/authorization-rbac.spec.ts` &
+  `auth-api-enforcement.spec.ts` — `loginAndGetToken(context, {email,password})`
+  vs `TEST_USERS.admin` / `TEST_USERS.user`; assert `role=user` → `403` on
+  privileged routes. Playwright projects: `security-tests` (CI shard),
+  `firefox` (local DoD, single browser).
 
-- It **does** fix the #1298 timeouts in the common case: after the first build on a given `KEY`, every PR/CI build restores the `caddy-builder` / `crowdsec-builder` layers from `builders-<key>` and skips the ~14 min compile.
-- It **preserves the exact pin-bump recurrence guarantee**: the cache key is derived from the pin content, so a bumped `CADDY_VERSION` (or any tracked ARG, or any edit to the stage body) forces a clean recompile — the same property approach A's freshness guard enforces, achieved without a guard because the key *is* the cache identity.
-- It is **~half the work**: no new image, no new registry package, no `toolchain-image.yml`, no digest-bump bot, no `verify-toolchain-pin.sh`, no fork-fallback selector stages, no `packages: read` cross-workflow plumbing. Roughly Commits 1, 3 and 6 of approach A's plan, and no new failure surface (GHCR availability, private-package permissions, bot-PR merge latency).
-- Local `docker build` is unaffected — no image pull, no login.
+### 2.2 Docs to update
 
-**Why approach A is still chosen — concrete grounds:**
+| Doc | Why |
+|---|---|
+| `ARCHITECTURE.md` → "Security Architecture" / "Authentication & Authorization" | New `managementAdmin` authorization boundary; public registration removed; bootstrap-via-`/setup` + email-invite is the account-creation model. |
+| `SECURITY.md` → "Authentication & Authorization" (~line 1148) | RBAC description: explicit admin-subgroup enforcement; no public self-registration. |
+| `docs/security.md`, `docs/features/access-control.md` | User-facing: how accounts are created (first-run setup + admin invites), admin-only security surfaces. |
+| `docs/features.md` | One-line touch if wording references self-registration. |
+| `docs/features/crowdsec.md`, `docs/features/custom-plugins.md` / `plugin-security.md` | Note admin-only requirement (behavior clarification). |
 
-1. **GHA cache eviction makes Alternative B's timeout fix unreliable.** GitHub Actions caches (`type=gha`) share a **10 GB per-repository LRU budget**. This repo already runs `gh_cache_cleanup.yml` and its existing timeout comments explicitly cite "cold GHA cache (first run / post-eviction) is a full ~10–14 m image build" (`security-pr.yml:32`, `supply-chain-pr.yml:34`, the integration workflows' `:29`). A `mode=max` multi-stage image cache for Charon is large; the `builders-<key>` scope competes with `docker-build-amd64`, `docker-build-arm64`, `charon-integration-image`, `charon-app`, npm, Go build caches, and the e2e image tarball for that 10 GB. On a busy week the `builders-<key>` entry is evicted between runs and the **next** PR eats a cold ~14 min compile again — i.e. Alternative B reduces the *frequency* of timeout-class builds but does not *eliminate* them, which is the actual acceptance bar (§5 AC #2: no timeout across 3 consecutive runs, and none thereafter). A digest-pinned image in GHCR's package store is **not** subject to the Actions cache LRU — it is pulled, not cache-restored — so approach A removes the cold-build possibility entirely rather than making it rarer.
+### 2.3 External dependencies
 
-2. **Trivy scans a small, stable, isolated artifact.** With approach A, the weekly/daily security scan targets `ghcr.io/wikid82/charon-toolchain` — two binaries plus an Alpine base, a stable surface whose findings map directly to the bundled Caddy/CrowdSec supply chain. With Alternative B there is no separate artifact: every scan re-derives bundled-binary findings from the full application image on every run, mixed with app-layer and base-image findings, and there is no way to pin/attest "the bundled toolchain that was scanned green on date X" independently of the app image.
-
-3. **The recompile cost is paid out-of-band.** Under approach A the ~14–30 min compile only ever runs in `toolchain-image.yml` (45 min budget) or `security-weekly-rebuild.yml` (60 min budget) — never on a contributor's PR or on `docker-build.yml`'s tight per-arch budgets. Under Alternative B the first build on every new `KEY` (every pin bump — routine, Renovate opens several a week) pays the full compile *on whatever PR happens to bump the pin*, on that PR's normal timeout budget. B6/§3.9 shows those budgets are already close to the edge.
-
-4. **Eviction-immunity also fixes the arm64 leg.** `docker-build.yml`'s `build-arm64` runs under QEMU; today it emulates the *fast* stages plus the final-stage `RUN` lines around a cold-or-warm builders layer. Under approach A the arm64 app build does a `COPY --from` of a pre-cross-compiled binary out of the pinned image's arm64 child — no dependence on an arm64-scoped GHA cache entry surviving. Alternative B's `builders-<key>` scope for arm64 is a separate, separately-evictable entry.
-
-**Residual point in Alternative B's favour, acknowledged:** approach A adds GHCR as a hard build dependency and a private-package permission surface (N8), needs a fork fallback (§3.7), and is more moving parts to operate. The mitigations are in §3.10 (retry wrap, documented inline fallback, `imagetools` platform assertion) and the operator runbook (`docs/ci/toolchain-image.md`, §9). On balance the eviction-immunity (point 1) is decisive: it is the difference between "timeouts become rarer" and "timeouts cannot happen", and the latter is the stated goal.
-
-### Alternative C — Bake binaries into a committed build artifact / Git LFS
-
-Rejected without deep analysis: storing compiled multi-arch binaries in the repo (or LFS) defeats reproducibility, bloats history, has no scan/attestation story, and still needs a refresh mechanism. Strictly worse than A on every axis that matters here.
+None new. Stdlib + existing libs only.
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 Target architecture
+### 3.1 Part A — Close the authorization hole (advisory fix)
 
-Extract the two expensive stages' *outputs* into a **separately-versioned, independently-scanned multi-arch prebuilt image** — `ghcr.io/wikid82/charon-toolchain` — so the `xcaddy` / CrowdSec compile happens on a **daily schedule and whenever a tracked pin moves**, not once per app build.
+#### 3.1.1 Structural change in `routes.go`
 
-**Single source of truth:** the build recipe stays in the **main `Dockerfile`**. The existing stage bodies are renamed `caddy-builder → caddy-inline` and `crowdsec-builder → crowdsec-inline`. A new thin `toolchain-runtime` stage assembles their outputs into a publishable image. The toolchain workflow builds `--target toolchain-runtime`; the app build selects between the prebuilt image and the inline stages via a build-arg. No recipe duplication.
+Declare one admin subgroup on `management`, immediately after `management` is
+created (`routes.go:373-374`), named for consistency with the existing
+`securityAdmin` / `authenticatedAdmin`:
 
-#### Build graph — BEFORE
+```go
+// management: any authenticated non-passthrough user (RequireManagementAccess).
+management := protected.Group("/")
+management.Use(middleware.RequireManagementAccess())
 
-```
-                          ┌─────────────────────────────┐
- every app build  ───────►│ caddy-builder   (748 s)     │──┐
- (CI: --no-cache-filter)  │ xcaddy build + patch + build│  │
-                          └─────────────────────────────┘  │  COPY --from
-                          ┌─────────────────────────────┐  ├──►  final runtime image
- every app build  ───────►│ crowdsec-builder (330 s)    │──┘
- (CI: --no-cache-filter)  │ clone + patch + xx-go build │
-                          └─────────────────────────────┘
-   cold compile on EVERY: docker-build (amd64+arm64), nightly, security-pr,
-   supply-chain-pr, e2e-tests-split, 4× integration workflows
-```
-
-#### Build graph — AFTER
-
-```
-  ┌──────────────────────── toolchain image lifecycle (rare) ─────────────────────────┐
-  │ trigger: daily cron | workflow_dispatch | PR touching toolchain inputs             │
-  │                                                                                   │
-  │   docker buildx build --target toolchain-runtime                                  │
-  │     --platform linux/amd64,linux/arm64  --no-cache --pull  (cron/dispatch)        │
-  │        caddy-inline  (cross-compile, no QEMU)  ─┐                                  │
-  │        crowdsec-inline (xx cross-compile, no QEMU) ─┤                              │
-  │        toolchain-runtime: FROM alpine; COPY both ─┘                               │
-  │     → push ghcr.io/wikid82/charon-toolchain:caddy-crowdsec-<key>  (+ :latest,     │
-  │       + :<date>)   → Trivy CRITICAL/HIGH gate → SARIF                             │
-  │     → if new digest: bot PR bumps ARG CHARON_TOOLCHAIN_DIGEST in Dockerfile       │
-  └───────────────────────────────────────────────────────────────────────────────────┘
-                                        │  digest pin (one ARG line in Dockerfile)
-                                        ▼
-  ┌──────────────────────── every app build (hot path) ──────────────────────────────┐
-  │  FROM ${CHARON_TOOLCHAIN_IMAGE}@${CHARON_TOOLCHAIN_DIGEST} AS toolchain-prebuilt  │
-  │  FROM ${CADDY_BUILDER_SRC}   AS caddy-builder      (default → toolchain-prebuilt) │
-  │  FROM ${CROWDSEC_BUILDER_SRC} AS crowdsec-builder  (default → toolchain-prebuilt) │
-  │       COPY --from=caddy-builder    /usr/bin/caddy         ...   (UNCHANGED)        │
-  │       COPY --from=crowdsec-builder /crowdsec-out/crowdsec ...   (UNCHANGED)       │
-  │  normal type=gha layer cache covers every stage; NO --no-cache-filter            │
-  │                                                                                   │
-  │  fallback (fork PR / bootstrap / offline):                                        │
-  │     --build-arg CADDY_BUILDER_SRC=caddy-inline                                    │
-  │     --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline   → compiles from source     │
-  └───────────────────────────────────────────────────────────────────────────────────┘
+// managementAdmin: management routes that mutate or expose privileged
+// infrastructure. Deny-by-default for role=user. Mirrors securityAdmin
+// (routes.go ~§"Security module enable/disable") and authenticatedAdmin
+// (RegisterImportHandler). Enforcement is the ONLY guard on these routes —
+// no redundant in-handler requireAdmin (see spec §3.2 Q6 ruling).
+managementAdmin := management.Group("/")
+managementAdmin.Use(middleware.RequireRole(models.RoleAdmin))
 ```
 
-### 3.2 `Dockerfile` changes
+Change `routes.go:838`:
 
-#### 3.2.1 New ARGs (add near the pinned-toolchain block, `:11`)
-
-```dockerfile
-# ---- Prebuilt Caddy + CrowdSec toolchain image ----
-# Built by .github/workflows/toolchain-image.yml from the caddy-inline /
-# crowdsec-inline stages below. Bumped by the open-bump-pr job (bot PR) when a
-# security-relevant input moves OR the DAILY --no-cache --pull rebuild produces
-# a new digest. The freshness-guard CI check (scripts/verify-toolchain-pin.sh)
-# fails any PR where TAG/DIGEST is stale for the current pins.
-ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
-# NOT Renovate-tracked (content-hash tag has no series to follow, N7) — the
-# open-bump-pr bot in toolchain-image.yml owns these two lines.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-0000000000000000
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:<filled-by-first-publish>
-
-# Stage selector — default uses the prebuilt image; fork PRs / bootstrap /
-# offline builds pass `--build-arg CADDY_BUILDER_SRC=caddy-inline
-# --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline` to compile from source.
-ARG CADDY_BUILDER_SRC=toolchain-prebuilt
-ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
+```go
+crowdsecHandler.RegisterRoutes(management)   →   crowdsecHandler.RegisterRoutes(managementAdmin)
 ```
 
-#### 3.2.2 Rename existing stages + close the two pin gaps (Commit 1)
+`CrowdsecHandler.RegisterRoutes` is unchanged (it already prefixes every route
+with `/admin/crowdsec/…`). The full path set is identical; only the middleware
+chain gains `RequireRole(admin)`. **No in-handler `requireAdmin` is added to
+`crowdsec_handler.go`** (Q6 ruling — subgroup-only, matching `securityAdmin`).
 
-- `Dockerfile:302` — `FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS caddy-builder` → `FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:<digest> AS caddy-inline` (N4 — digest-pin the base).
-- `Dockerfile:577` — same treatment for `crowdsec-builder` → `crowdsec-inline`.
-- Add near `:64`, with `# renovate: datasource=go` annotations (B4):
-  ```dockerfile
-  # renovate: datasource=go depName=github.com/zhangjiayin/caddy-geoip2
-  ARG CADDY_GEOIP2_VERSION=<resolve at impl time>
-  # renovate: datasource=go depName=github.com/mholt/caddy-ratelimit
-  ARG CADDY_RATELIMIT_VERSION=<resolve at impl time>
-  ```
-  and change `Dockerfile:391-392` to `--with github.com/zhangjiayin/caddy-geoip2@v${CADDY_GEOIP2_VERSION}` / `--with github.com/mholt/caddy-ratelimit@v${CADDY_RATELIMIT_VERSION}` (declare both ARGs inside `caddy-inline` alongside the other `ARG CADDY_*` at `:305-310`).
-- **Delete** the dead `crowdsec-fallback` stage (`:713-748`) and the now-dead `CROWDSEC_RELEASE_SHA256` ARG (`:22`, `:586`) — N1.
+#### 3.1.2 Companion frontend guard (prevents a `role=user` dead page)
 
-Apart from the base-image digest and the two plugin `@version` suffixes, **no logic inside the two stages changes**. All `go get` patches, module-cache source patches, and embeds-version assertions are retained verbatim — they are the security recipe and the toolchain image is *the* place they now run.
+`role=user` can currently open `/security/crowdsec` (`CrowdSecConfig` page) and
+its nav entry, which after Part A would 403 on every call. Add, in the same PR:
 
-#### 3.2.3 New `toolchain-prebuilt` and `toolchain-runtime` stages
+- `frontend/src/App.tsx` — wrap the `security/crowdsec` route element in
+  `<RequireRole allowed={['admin']}>` (like `/settings/users`).
+- `frontend/src/components/Layout.tsx` — gate the `navigation.crowdsec` child
+  entry (`:112`) with `user?.role === 'admin'` (spread-in pattern, same as
+  `:127` "Users").
 
-Insert after `crowdsec-inline` (where `crowdsec-fallback` used to be, now deleted):
+#### 3.1.3 Error contract
 
-```dockerfile
-# ---- Prebuilt toolchain (default source for caddy-builder / crowdsec-builder) ----
-# Digest-pinned. Contains /usr/bin/caddy and /crowdsec-out/{crowdsec,cscli,config}
-# at the SAME paths the inline stages produce, so the COPY --from lines in the
-# final stage need no change.
-FROM ${CHARON_TOOLCHAIN_IMAGE}@${CHARON_TOOLCHAIN_DIGEST} AS toolchain-prebuilt
+`RequireRole(models.RoleAdmin)` already returns `401 {"error":"Unauthorized"}`
+(no role) / `403 {"error":"Forbidden"}` (`role=user`/`passthrough`). No
+middleware change. Matches the reporter PoC's expectation of a hard `403` for a
+non-admin token.
 
-# ---- Toolchain image assembly target (built by toolchain-image.yml) ----
-# NOT part of the app build graph (nothing FROMs it there). `docker buildx build
-# --target toolchain-runtime` produces the publishable multi-arch image.
-FROM ${ALPINE_IMAGE} AS toolchain-runtime
-COPY --from=caddy-inline    /usr/bin/caddy          /usr/bin/caddy
-COPY --from=crowdsec-inline /crowdsec-out/crowdsec  /crowdsec-out/crowdsec
-COPY --from=crowdsec-inline /crowdsec-out/cscli     /crowdsec-out/cscli
-COPY --from=crowdsec-inline /crowdsec-out/config    /crowdsec-out/config
-# Provenance label so `docker inspect` on the toolchain image shows the key.
-LABEL io.charon.toolchain.key="${CHARON_TOOLCHAIN_TAG}"
+#### 3.1.4 Regression tests — `backend/internal/api/routes/routes_test.go` (+ handler test)
 
-# ---- Effective builder stages: alias to prebuilt image OR inline compile ----
-FROM ${CADDY_BUILDER_SRC}    AS caddy-builder
-FROM ${CROWDSEC_BUILDER_SRC} AS crowdsec-builder
-```
+New `TestRegister_CrowdsecAdminRoutesRequireAdminRole`:
 
-`FROM ${ARG} AS name` where the ARG resolves to a **prior stage name** is valid BuildKit; unreferenced stages (`caddy-inline` etc. when `…_SRC=toolchain-prebuilt`) are pruned from the graph and never built. When `…_SRC=caddy-inline`, `toolchain-prebuilt` is still declared but unreferenced → also pruned, so a fork build never needs to pull the image.
+| Case | Token role | Route | Expected |
+|---|---|---|---|
+| Control (PoC parity) | none | `POST /api/v1/admin/crowdsec/stop` | `401` |
+| Escalation blocked | `user` | `POST /api/v1/admin/crowdsec/stop` | `403` |
+| Escalation blocked | `user` | `GET /api/v1/admin/crowdsec/bouncer/key` | `403` |
+| Escalation blocked | `user` | `POST /api/v1/admin/crowdsec/ban` | `403` |
+| Escalation blocked | `user` | `GET /api/v1/admin/crowdsec/file?path=…` | `403` |
+| Admin unaffected | `admin` | `GET /api/v1/admin/crowdsec/status` | not `401` / not `403` |
 
-**`crowdsec-fallback` (`:713-748`):** deleted in Commit 1 — it is dead code (verified, §2.1 correction). Nothing referenced it before this change. If the reviewer wants it retained as an escape hatch, it stays out of the toolchain key and out of the graph regardless.
+Harness: `Register(ctx, gin.New(), db, cfg)`; seed a `role=user` + a
+`role=admin` user; mint JWTs via
+`services.NewAuthService(db,cfg).GenerateToken(&user)`; send
+`Authorization: Bearer …`. Reuse the in-memory sqlite + `cfg.JWTSecret` pattern
+already in `routes_test.go`.
 
-#### 3.2.4 Final-stage `COPY --from` lines — UNCHANGED, plus a cheap embed assertion (N5)
+### 3.2 Part B — Audit & structurally harden the `management` group
 
-`Dockerfile:807`, `:814`, `:815`, `:817` keep referencing `caddy-builder` / `crowdsec-builder` and the same source paths. This is the whole point of putting the binaries at identical paths in `toolchain-runtime`.
+#### 3.2.1 Rulings baked in
 
-**N5 — add a post-`COPY` assertion in the final stage.** Today the "did the binary embed the fixed cel-go / grpc-go" checks (`Dockerfile:564`, `:569`) run *inside* `caddy-inline` — so on the prebuilt path they only ever executed when the toolchain image was built, and a wrong/rolled-back `CHARON_TOOLCHAIN_DIGEST` (or a hand-edited pin pointing at an old image) would sail through the app build silently. Add a small `RUN` right after `COPY --from=caddy-builder … /usr/bin/caddy` (and the crowdsec copies):
+- **Q6 — belt-and-braces:** subgroup-only. Do **not** add in-handler
+  `requireAdmin` to `crowdsec_handler.go` / `plugin_handler.go`. Match
+  `securityAdmin` / `authenticatedAdmin` exactly.
+- **Q7 — reads that back non-admin screens stay on `management`.** The frontend
+  exposes nearly every management page to `role=user` (§2.1). So:
+  classification is **mutation vs. read**, not endpoint-group. A `GET`/`list`
+  that a `role=user`-reachable page calls is **READ (stays on `management`)**;
+  its `POST`/`PUT`/`PATCH`/`DELETE` siblings move behind
+  `RequireRole(admin)`. Where a whole capability is infra-admin **and no
+  `role=user`-reachable screen consumes any of its reads**, the group moves
+  wholesale **and** gets a companion `RequireRole` frontend guard + nav filter
+  (like Part A does for CrowdSec).
+- **Q8 — least-invasive split mechanism.** For routes registered inline in
+  `routes.go`, add `middleware.RequireRole(models.RoleAdmin)` as a per-route
+  2nd handler arg (exactly like the existing `routes.go:457`
+  `management.GET("/settings/smtp", middleware.RequireRole(models.RoleAdmin), …)`).
+  Where a handler's own `RegisterRoutes(rg)` registers a mix of read and
+  mutation routes and only the mutations move, change that handler's signature
+  to `RegisterRoutes(read, admin *gin.RouterGroup)` and register each route on
+  the correct group.
+  - **`HecateHandler`, `OrthrusHandler`, `RemoteServerHandler` — read/write
+    split, NOT wholesale move** (C1/C2). Verified: `GET /orthrus/agents` is
+    consumed by `frontend/src/components/hecate/ConnectionTypeSelector.tsx`
+    (`useAgentList`, rendered inside the `role=user`-reachable proxy-host
+    create/edit flow) and `GET /hecate/status` by
+    `frontend/src/api/hecate.ts` (imported by `Dashboard.tsx`, route `/`, all
+    roles). Reads that stay on `management`:
+    `GET /hecate/status`, `GET /hecate/tunnels`, `GET /hecate/tunnels/:uuid`,
+    `GET /orthrus/agents`, `GET /orthrus/agents/:uuid`,
+    `GET /remote-servers`, `GET /remote-servers/:uuid`. Everything else on those
+    three handlers (create/update/delete/start/stop/rotate-credentials/revoke/
+    provision/patch/install-snippets/proxy-status/test/provider-device
+    lists+sync) → `managementAdmin`. Each handler's `RegisterRoutes` takes
+    `(read, admin *gin.RouterGroup)`.
+  - **`SecurityHeadersHandler` — inline in `routes.go`, per-route args, NOT a
+    bespoke signature** (C6). Its ~11 routes move out of
+    `h.RegisterRoutes(management)` into explicit
+    `management.GET/POST(...)` / `managementAdmin.POST/PUT/DELETE(...)` lines in
+    `routes.go` (its siblings — certificates, access-lists, domains,
+    feature-flags — are already registered inline this way). The
+    `SecurityHeadersHandler.RegisterRoutes` method is removed.
+  - **`CrowdsecHandler`** moves wholesale (Part A) — no `role=user` read need.
+  - **`PluginHandler`, DNS/credential/manual-challenge, certificate,
+    access-list, domain, settings, feature-flags, system-repair, notification
+    test/preview** routes are all inline in `routes.go` → per-route
+    `RequireRole(admin)` args.
 
-```dockerfile
-RUN set -e; \
-    caddy list-modules 2>/dev/null | grep -q 'http.handlers.rate_limit' || { echo "toolchain image missing expected caddy plugins"; exit 1; }; \
-    go_ver_check() { command -v go >/dev/null && go version -m "$1" || true; }; \
-    /usr/local/bin/cscli version >/dev/null || { echo "cscli from toolchain image not runnable"; exit 1; }
-```
+#### 3.2.2 Route classification table
 
-The final stage has no Go toolchain, so a full `go version -m` embed check is not possible there — instead assert (a) the Caddy binary loads and lists the expected custom plugins (`rate_limit`, `crowdsec`, `geoip2`, `coraza`), (b) `cscli version` runs and prints the expected `v${CROWDSEC_VERSION}`. A wrong-arch or stale-recipe image fails these immediately. The authoritative embeds-version assertions remain in `caddy-inline` and run in `toolchain-image.yml`. Additionally, a CI step in `docker-build.yml` (it already has a "Caddy/CrowdSec CVE verification" step post-build, `merge-and-publish`) runs `docker run --rm <img> go version -m /usr/bin/caddy | grep …` against the *final* image for the full check — extend that existing step to also assert the toolchain `LABEL io.charon.toolchain.key` matches `scripts/toolchain-key.sh`.
+Verdicts: **MOVE-GROUP** = whole registration → `managementAdmin` + companion
+frontend guard (CrowdSec only) · **MOVE → `managementAdmin`** = these specific
+route(s) re-registered on `managementAdmin` (a read that, on review, no
+`role=user` screen needs) · **ADMIN-ARG** = keep on `management`, add per-route
+`RequireRole(admin)` to the mutations, reads stay (for handlers that register
+their own routes, this is a `RegisterRoutes(read, admin)` split) · **READ
+(stays)** = `GET`/list that a `role=user`-reachable page consumes, no change ·
+**USER-OK** = stays on `management`, no change (add to the enforcement-test
+allowlist if it is a non-mutating `POST`) · **KEEP (in-handler)** = already
+guarded inside the handler, leave mechanism, verify test.
 
-### 3.3 Renovate / pin-tracking
+> The implementing engineer MUST re-run
+> `grep -n "management\.\(GET\|POST\|PUT\|PATCH\|DELETE\)\|\.RegisterRoutes(management)" routes.go`
+> against HEAD at implementation time and reconcile drift with this table in the
+> PR description.
 
-- Every `# renovate:` annotation on the version ARGs stays. Renovate keeps bumping `CADDY_VERSION` etc. as today; the two new plugin ARGs (B4) and the digest-pinned `golang` base (N4) get annotations too.
-- A Renovate bump to any of those ARGs now *also* needs a toolchain rebuild. The **freshness guard** (§3.4.2) turns that into a hard PR failure with a one-line fix (`workflow_dispatch` the toolchain workflow, or wait for the bot), so a Renovate PR that bumps `CADDY_VERSION` cannot merge with a stale toolchain.
-- **N7 (corrected):** the `CHARON_TOOLCHAIN_IMAGE` / `_TAG` / `_DIGEST` three-ARG split with a **content-hash tag** (`caddy-crowdsec-<hex>`) is *not* something Renovate's `datasource=docker` manager tracks out of the box — it has no semver/digest series to follow on that tag. It simply won't fire, which is harmless: the daily rebuild + digest-bump bot (§3.4.3) is the sole authority on that pin. Do **not** add a Renovate entry implying it works; add a comment in `renovate.json` stating the toolchain digest is bot-owned.
+| # | Route(s) | Handler | Current guard | Verdict | Action |
+|---|---|---|---|---|---|
+| 1 | `POST/GET/DELETE /admin/crowdsec/*` (~45) | `CrowdsecHandler` | none | **MOVE-GROUP** | Part A: `RegisterRoutes(managementAdmin)` + frontend guard on `/security/crowdsec`. |
+| 2 | `GET /admin/plugins`, `GET /admin/plugins/:id` | `PluginHandler` | none | **READ (stays)** | `/dns/plugins` page (`role=user`-reachable) lists plugins. Keep on `management`. |
+| 3 | `POST /admin/plugins/:id/enable`, `/:id/disable`, `/reload` | `PluginHandler` | none | **ADMIN-ARG** | Add `middleware.RequireRole(models.RoleAdmin)` to these 3 inline registrations (`routes.go:562-565`). This closes the confirmed 2nd live instance. |
+| 4 | `GET/POST/PUT/DELETE /admin/encryption/*` | `EncryptionHandler` | in-handler `isAdmin(c)` | **KEEP (in-handler)** + also move the `adminEncryption` group decl to `managementAdmin.Group("/admin/encryption")` for defense-in-depth (no behavior change; removes the "silent 200 if the in-handler check is ever dropped" risk). Verify existing tests. |
+| 5 | `GET /security/status`, `/config`, `/decisions`, `/rulesets`, `/rate-limit/presets`, `/geoip/status`, `/waf/exclusions` | `SecurityHandler` (reads) | `management` | **READ (stays)** — security-posture visibility; `Security` dashboard is `role=user`-reachable. Document. |
+| 6 | `securityAdmin.*` (all `POST /security/*`, module enable/disable, PATCH) | `SecurityHandler` (writes) | `securityAdmin` = `RequireRole(admin)` | **KEEP** — already correct; the template for this work. |
+| 7 | `GET /security/headers/profiles`, `/profiles/:id`, `/presets`; `POST /score`, `/csp/validate`, `/csp/build` | `SecurityHeadersHandler` | `management` (`/security/headers` subgroup) | **USER-OK** — reads + pure calculators (the 3 `POST`s do not persist). `SecurityHeaders` page is `role=user`-reachable. Inline these on `management.GET/POST(...)` in `routes.go`; add the 3 calculator `POST`s to the enforcement-test allowlist. |
+| 8 | `POST/PUT/DELETE /security/headers/profiles`, `POST /security/headers/presets/apply` | `SecurityHeadersHandler` | `management` | **ADMIN-ARG** — inline on `managementAdmin.POST/PUT/DELETE(...)` in `routes.go` (C6 — per-route, no bespoke 2-group `RegisterRoutes` signature; delete the `SecurityHeadersHandler.RegisterRoutes` method — its siblings are already registered inline). |
+| 9 | `GET/POST/PUT/DELETE /proxy-hosts*`, bulk-update-{acl,group,security-headers} | `ProxyHostHandler` | `management` | **USER-OK** — core `role=user` capability; per-host authz via `PermittedHosts` / forward-auth. No change. |
+| 10 | `GET/POST/PUT/DELETE /proxy-groups*` | `ProxyGroupHandler` | `management` | **USER-OK** — same rationale. No change. |
+| 11 | `GET /remote-servers`, `GET /remote-servers/:uuid` | `RemoteServerHandler` | `management` | **READ (stays)** — proxy-host create/edit references remote servers; `RemoteServers` page is `role=user`-reachable. |
+| 12 | `POST/PUT/DELETE /remote-servers*`, `POST /remote-servers/test`, `POST /remote-servers/:uuid/test` | `RemoteServerHandler` | `management` | **ADMIN-ARG** (C2) — SSH targets + credentials. `RemoteServerHandler.RegisterRoutes(read, admin *gin.RouterGroup)`: the 2 `GET`s (row 11) on `read`, these 5 on `admin`. |
+| 13 | `GET /docker/containers` | `DockerHandler` | `management` | **READ (stays)** — proxy-host create picks a container. Read-only. |
+| 14a | `hecate/*` — reads: `GET /hecate/status`, `GET /hecate/tunnels`, `GET /hecate/tunnels/:uuid` | `HecateHandler` | `management` | **READ (stays)** (C1) — `GET /hecate/status` is consumed by `frontend/src/api/hecate.ts` (imported by `Dashboard.tsx`, route `/`, all roles). `HecateHandler.RegisterRoutes(read, admin *gin.RouterGroup)`: these 3 on `read`. |
+| 14b | `hecate/*` — mutations: tunnels create/update/delete, `:uuid/start`, `:uuid/stop`, `:uuid/rotate-credentials`, `cloudflare/tunnels`, `:uuid/config/cloudflared`, `tailscale/devices`+`sync`, `zerotier/networks`(+members), `netbird/peers`+`sync` | `HecateHandler` | `management` | **ADMIN-ARG** (C1) — tunnel-provider credentials + network topology. All non-`read` `HecateHandler` routes go on the `admin` group. Frontend: no nav/route guard change — `/hecate/tunnels` etc. stay visible to `role=user` (list loads; create/edit controls 403), same as Access Lists. |
+| 15a | `orthrus/agents` — reads: `GET /orthrus/agents`, `GET /orthrus/agents/:uuid` | `OrthrusHandler` | `management` | **READ (stays)** (C1) — `GET /orthrus/agents` is consumed by `frontend/src/components/hecate/ConnectionTypeSelector.tsx` (`useAgentList`), rendered inside the `role=user`-reachable proxy-host create/edit flow. `OrthrusHandler.RegisterRoutes(read, admin *gin.RouterGroup)`: these 2 on `read`. |
+| 15b | `orthrus/agents` — mutations + detail: `POST /orthrus/agents`, `PATCH /:uuid`, `DELETE /:uuid`, `POST /:uuid/revoke`, `GET /:uuid/snippets`, `GET /:uuid/proxy-status` | `OrthrusHandler` | `management` | **ADMIN-ARG** (C1) — agent provisioning = trust-boundary expansion; install snippets embed a bootstrap token. All non-`read` `OrthrusHandler` routes on the `admin` group. Frontend: keep `RequireRole allowed={['admin']}` on `/hecate/agent` + its nav child (the agent-management page is admin-only; the read used by the proxy-host form is not gated). |
+| 16 | `GET /dns-providers`, `/dns-providers/types`, `/dns-providers/:id`, `/dns-providers/detection-patterns` | `DNSProviderHandler`, `DNSDetectionHandler` | `management` (inside `if cfg.EncryptionKey != ""`) | **READ (stays)** — `DNSProviders` page is `role=user`-reachable and lists providers. |
+| 17 | `GET /dns-providers/:id/audit-logs` (`auditLogHandler.ListByProvider`, `routes.go:521`) | `AuditLogHandler` | `management` | **MOVE → `managementAdmin`** (C5) — same actor-PII concern as row 28. Move this single `GET` to `managementAdmin`. (`DNSProviders` page does not surface per-provider audit logs to non-admins.) |
+| 17b | `POST/PUT/DELETE /dns-providers*`, `POST /dns-providers/:id/test`, **`POST /dns-providers/test`** (id-less `TestCredentials`, `routes.go:519`), `POST /dns-providers/detect`, all `/:id/credentials*` (incl. `/:cred_id/test`), `POST /:id/enable-multi-credentials`, all `/dns-providers/:id/manual-challenge(s)*` | `DNSProviderHandler`, `CredentialHandler`, `ManualChallengeHandler` | `management` | **ADMIN-ARG** (C7) — DNS API credentials + ACME control. Inline registrations → per-route `RequireRole(admin)` arg; `ManualChallengeHandler.RegisterRoutes` → pass `managementAdmin` (all 6 routes are provider-mutation-adjacent; no `role=user` read need). Name both `POST /dns-providers/:id/test` **and** `POST /dns-providers/test` explicitly. |
+| 18 | `GET /certificates`, `GET /certificates/:uuid` | `CertificateHandler` | `management` | **READ (stays)** — `Certificates` page is `role=user`-reachable. |
+| 19 | `POST /certificates`, `POST /certificates/validate`, `PUT /certificates/:uuid`, `POST /certificates/:uuid/export`, `DELETE /certificates/:uuid` | `CertificateHandler` | `management` | **ADMIN-ARG** — `/export` returns private-key material. Per-route `RequireRole(admin)` args. |
+| 20 | `GET /access-lists`, `/access-lists/:id`, `/access-lists/templates`, `POST /access-lists/:id/test` | `AccessListHandler` | `management` | **USER-OK** — `AccessLists` page is `role=user`-reachable; `/test` is a non-persisting dry-run IP check. Reads stay; add `POST /:id/test` to the enforcement-test allowlist. |
+| 21 | `POST/PUT/DELETE /access-lists*` | `AccessListHandler` | `management` | **ADMIN-ARG** — ACLs are a security control. Per-route `RequireRole(admin)` args. |
+| 22 | `GET /settings`, `GET /feature-flags`, `GET /themes` | `SettingsHandler`, `FeatureFlagsHandler`, `CustomThemeHandler` | `management` | **READ (stays)** — the SPA loads these for every role (`Layout.tsx` uses `getSettings`). |
+| 23 | `POST/PATCH /settings`, `PATCH /config`, `POST/DELETE /settings/logo`, `/settings/banner`, `GET/POST /settings/smtp*`, `POST /settings/validate-url`, `/settings/test-url` | `SettingsHandler` | mixed (1 `RequireRole` arg, 8 in-handler refs) | **ADMIN-ARG** — normalize: per-route `RequireRole(admin)` arg on every settings mutation + `GET /settings/smtp` (keep its existing arg). Keep in-handler checks as belt-and-braces (do not remove — they predate this and some tests assert them). |
+| 24 | `PUT /feature-flags` | `FeatureFlagsHandler` | `management` | **ADMIN-ARG** — per-route arg; `GET` stays. |
+| 25 | `GET/POST/PUT/DELETE /themes` | `CustomThemeHandler` | `management` | **USER-OK** — code comment: "available to all management users (not admin-only)". No change; document. |
+| 26 | `backups*`, `backups/remote-targets*` | `BackupHandler`, `BackupRemoteHandler` | `management` + in-handler `requireAdmin` on every mutation | **KEEP (in-handler)** — verify each mutation path has a `requireAdmin` test; no structural move required. |
+| 27 | `users*` (`GET/POST/PUT/DELETE /users`, `/invite`, `/preview-invite-url`, `/permissions`, `/resend-invite`) | `UserHandler` | `management` + in-handler `requireAdmin` (except `UpdateUser` self-service branch) | **KEEP (in-handler)** — `UpdateUser` deliberately allows a non-admin to change their own name/password, so it cannot move wholesale. Verify tests cover the admin-only branches. |
+| 28 | `GET /audit-logs`, `GET /audit-logs/:uuid` (`routes.go:428-429`) | `AuditLogHandler` | `management` | **MOVE → `managementAdmin`** (C4) — audit records expose other users' emails, source IPs, and security-event detail (info disclosure to a lower-privilege role). Both `GET`s → `managementAdmin`. Frontend: wrap the `/security/audit-logs` route element in `<RequireRole allowed={['admin']}>` (`App.tsx:104`). No dedicated nav entry exists for it (`Layout.tsx` `cerberus` children do not include audit-logs), so no nav filter needed; if the `Security` dashboard renders an in-page link to it, hide that link for non-admins (optional polish). |
+| 29 | `GET /domains` | `DomainHandler` | `management` | **READ (stays)** — `Domains` page is `role=user`-reachable. |
+| 30 | `POST /domains`, `DELETE /domains/:id` | `DomainHandler` | `management` | **ADMIN-ARG** — per-route `RequireRole(admin)` args. |
+| 31 | `system/permissions*` (`GET`, `POST /repair`), `GET /system/updates`, `GET /system/my-ip`, `POST /system/uptime/check`, `POST /system/uptime/*` | `SystemPermissionsHandler`, `UpdateHandler`, `SystemHandler` | `management` (+ 3 in-handler refs in system-permissions) | **ADMIN-ARG** for `POST /system/permissions/repair` (arg) — keep `GET /system/permissions` as READ; `GET /system/updates`, `GET /system/my-ip` **USER-OK**; `POST /system/uptime/check` **USER-OK** (observability). |
+| 32 | `uptime/monitors*`, `stats/*`, `cerberus/logs/ws`, `logs*`, `websocket/*` | various | `management` | **USER-OK** — observability / read. WS auth already via `AuthMiddleware`. No change; a few non-mutating `POST`s (`/uptime/sync`, `/uptime/monitors/:id/check`) — **allowlist**. |
+| 33a | `notifications*` — `POST/PUT/DELETE /notifications/providers*`, `.../external-templates*` (Create/Update/Delete); `GET/PUT /notifications/settings/security` | `NotificationProviderHandler`, `NotificationTemplateHandler`, `SecurityNotificationHandler` | `management` + in-handler `requireAdmin` (verified: `notification_provider_handler.go` ×3, `notification_template_handler.go` ×3, `security_notifications.go` ×2) | **KEEP (in-handler)** — already guarded on Create/Update/Delete + settings. Verify tests. |
+| 33b | `POST /notifications/providers/test` (`routes.go:658`), `POST /notifications/providers/preview` (`:659`), `POST /notifications/external-templates/preview` (`:668`) | `NotificationProviderHandler.Test`/`.Preview`, `NotificationTemplateHandler.Preview` | `management` | **ADMIN-ARG** (C3) — **verified NO in-handler `requireAdmin`** on `Test`/`Preview` (only Create/Update/Delete). These send test messages / render templates with provider config → admin-only. Add `middleware.RequireRole(models.RoleAdmin)` per-route arg. (Without this, the new enforcement test asserts 403 for `role=user` and fails with no guidance.) |
+| 33c | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` | `NotificationHandler` | `management` | **USER-OK** — per-user inbox. Allowlist the 2 read-state `POST`s. |
+| 34 | `import` / NPM / JSON import (`RegisterImportHandler`) | `ImportHandler` etc. | `authenticatedAdmin` = `RequireRole(admin)` | **KEEP** — already correct. |
 
-### 3.4 New workflow: `.github/workflows/toolchain-image.yml`
+**Companion frontend guards added by Part B** (mirroring the "Users" pattern —
+`<RequireRole allowed={['admin']}>` on the route element + `user?.role === 'admin'`
+spread on the nav entry). Required:
 
-Builds & publishes `ghcr.io/wikid82/charon-toolchain`.
+- `/security/crowdsec` route + `navigation.crowdsec` nav child (Part A / row 1).
+- `/security/audit-logs` route (C4 / row 28). No nav entry exists for it —
+  route guard only; optionally hide any in-page link from the `Security`
+  dashboard for non-admins.
+- `/hecate/agent` route + its nav child (rows 15a/15b) — the Orthrus
+  *agent-management page* is admin-only; the `GET /orthrus/agents` read used by
+  the proxy-host form stays ungated so `ConnectionTypeSelector` still works for
+  `role=user`.
+- `/security/encryption` route + `navigation.encryption` nav child — already
+  effectively admin via in-handler `isAdmin(c)`; add the guard for UX parity
+  (row 4).
 
-#### 3.4.1 Triggers, permissions, concurrency
+**NOT guarded** (pages stay visible to `role=user`; reads succeed, mutation
+controls 403): Access Lists, Security Headers, DNS Providers, Certificates,
+Domains, Remote Servers, and the Hecate *tunnels* page (`/hecate/tunnels`,
+`/hecate/providers`). Optional follow-up ([§7](#7-remaining-open-questions)):
+hide the disabled create/edit/delete controls on these pages for non-admins.
+Do **not** guard `navigation.hecate` wholesale — its `remote-servers` and
+`tunnels` children remain `role=user`-usable for reads.
 
-```yaml
-name: Toolchain Image — Build & Publish
-on:
-  schedule:
-    - cron: '0 6 * * *'          # DAILY 06:00 UTC — committed scope (B2). --no-cache --pull.
-  workflow_dispatch:
-    inputs:
-      force_rebuild: { type: boolean, default: true, description: "Build with --no-cache --pull" }
-  pull_request:
-    paths:
-      - 'Dockerfile'                                  # coarse; the key script decides if it truly changed
-      - '.github/workflows/toolchain-image.yml'
-      - 'scripts/toolchain-key.sh'
-      - 'scripts/verify-toolchain-pin.sh'
-      - 'scripts/lib/dockerfile-stage.sh'
-      - '.trivyignore'
-  # The Tuesday `security-weekly-rebuild.yml` also `workflow_call`s this workflow for the
-  # heavier "full Trivy report + SARIF + JSON artifact" pass; the daily `schedule` above
-  # is the freshness driver. Two entry points, one build definition.
-  workflow_call:
-    inputs:
-      force_rebuild: { type: boolean, default: true }
-      publish:       { type: boolean, default: true }   # PR path builds but does not push :latest
-concurrency:
-  group: toolchain-image-${{ github.ref }}
-  cancel-in-progress: false          # never cancel a publish mid-push
-permissions:
-  contents: read
-  packages: write                    # push to GHCR
-  security-events: write             # Trivy SARIF
-  pull-requests: write               # bot digest-bump PR (schedule/dispatch/workflow_call only)
-```
+#### 3.2.3 Recommended structural fix (chosen) vs. alternative
 
-**Daily cadence is committed scope, not optional (B2).** See §3.8 for the baseline analysis that requires it. The `schedule` trigger runs `--no-cache --pull` every day at 06:00 UTC; on a day with no digest change it is a ~30-minute no-op (acceptable — one runner, off-peak). `security-weekly-rebuild.yml` keeps its Tuesday slot for the fuller scan/report but is no longer the *only* forced-rebuild driver.
+**Chosen:** one `managementAdmin := management.Group("/"); .Use(RequireRole(admin))`
+subgroup (Part A) + the per-route/per-group moves in the table + a
+deny-by-default enforcement test. Identical idiom to `securityAdmin` /
+`authenticatedAdmin`. DRY.
 
-- **`pull_request` from a fork:** GitHub grants only `contents: read`, no `packages: write`. The job's publish/push steps are guarded `if: github.event.pull_request.head.repo.full_name == github.repository`. On a fork PR the workflow still *builds* `--target toolchain-runtime` (validates the recipe compiles) but does not push and does not open a bot PR. The fork's *app* build meanwhile uses the inline fallback (§3.7), so a fork PR is fully testable without the image.
-- **`timeout-minutes: 45`** (cold amd64+arm64 cross-compile of both stages ≈ 25–30 min + Trivy).
+**Rejected as the sole mechanism:** a pure per-route `RequireRole` sweep with no
+subgroup — that is exactly the opt-in model that produced this advisory
+(`crowdsecHandler.RegisterRoutes` can't take per-route middleware without a
+signature change and would still land ~45 routes on a bare group). We use the
+per-route form only for the individually-registered mutations that sit next to
+USER-OK reads (Q8).
 
-#### 3.4.2 Tag key derivation — `scripts/toolchain-key.sh`
+#### 3.2.4 New enforcement test — `routes_test.go`
 
-Deterministic, content-addressed. Output: `caddy-crowdsec-<16 hex>`.
-
-Inputs to the SHA-256:
-
-1. The **exact text** of the `caddy-inline` stage (`Dockerfile` from `FROM … AS caddy-inline` to the blank line before the next `FROM`), extracted by the **shared** `extract_stage` routine in `scripts/lib/dockerfile-stage.sh` (N9 — one copy, `source`d by both `toolchain-key.sh` and `verify-toolchain-pin.sh`).
-2. The **exact text** of the `crowdsec-inline` stage (same routine).
-3. The resolved default values of every ARG in the §2.2 table — **including the two new `CADDY_GEOIP2_VERSION` / `CADDY_RATELIMIT_VERSION` plugin pins (B4)** — parsed from the `ARG NAME=default` lines, so a bump to `CADDY_VERSION` (or a plugin) changes the key even though the stage body only interpolates `${…}`.
-4. The `tonistiigi/xx` pin line (`:73`) **and the digest-pinned `golang:${GO_VERSION}-alpine@sha256:…` base lines of both inline stages (N4)**.
-5. `sha256sum .trivyignore`.
-6. A `SCHEMA_VERSION` constant in the script (bump to force a global rebuild if the recipe-extraction logic itself changes).
-
-```bash
-#!/usr/bin/env bash
-# scripts/lib/dockerfile-stage.sh — SHARED (N9). sourced by both scripts.
-extract_stage() {  # $1 = stage name, $2 = Dockerfile path
-  awk -v s="$1" '
-    $0 ~ ("AS "s"$") {c=1}
-    c {print}
-    c && /^$/ && NR>1 {exit}
-    END { if (!c) { print "extract_stage: no stage \"" s "\"" > "/dev/stderr"; exit 3 } }' "$2"
-}
-```
-
-```bash
-#!/usr/bin/env bash
-# scripts/toolchain-key.sh — prints the deterministic toolchain image tag.
-set -euo pipefail
-SCHEMA_VERSION=2   # rev-2: added plugin pins + digest-pinned golang base to the key
-df="${1:-Dockerfile}"
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib/dockerfile-stage.sh
-source "$here/lib/dockerfile-stage.sh"
-
-caddy_stage="$(extract_stage caddy-inline "$df")"
-crowdsec_stage="$(extract_stage crowdsec-inline "$df")"
-# sanity: each stage must be non-trivial and actually build something
-for s in "$caddy_stage" "$crowdsec_stage"; do
-  [[ "$(wc -l <<<"$s")" -ge 20 ]] && grep -q 'go build\|xx-go build' <<<"$s" \
-    || { echo "toolchain-key: stage extraction looks wrong" >&2; exit 3; }
-done
-{
-  echo "schema=$SCHEMA_VERSION"
-  printf '%s\n' "$caddy_stage" "$crowdsec_stage"
-  grep -E '^ARG (GO_VERSION|ALPINE_IMAGE|CROWDSEC_VERSION|EXPR_LANG_VERSION|XNET_VERSION|XCRYPTO_VERSION|KLAUSPOST_COMPRESS_VERSION|GRPC_VERSION|CADDY_VERSION|CADDY_CANDIDATE_VERSION|CADDY_USE_CANDIDATE|CADDY_PATCH_SCENARIO|CADDY_SECURITY_VERSION|CORAZA_CADDY_VERSION|CADDY_GEOIP2_VERSION|CADDY_RATELIMIT_VERSION)=' "$df"
-  grep -E 'tonistiigi/xx:|^FROM .*golang:.*-alpine@sha256:' "$df"
-  sha256sum .trivyignore | cut -d' ' -f1
-} | sha256sum | cut -c1-16 | sed 's/^/caddy-crowdsec-/'
-```
-
-Freshness guard — `scripts/verify-toolchain-pin.sh` (runs in `quality-checks.yml` on every PR, fast, no Docker build). **B7 — failure-closed on same-repo PRs:**
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-KEY="$(scripts/toolchain-key.sh)"
-PINNED_TAG="$(grep -E '^ARG CHARON_TOOLCHAIN_TAG=' Dockerfile | cut -d= -f2)"
-PINNED_DIGEST="$(grep -E '^ARG CHARON_TOOLCHAIN_DIGEST=' Dockerfile | cut -d= -f2)"
-
-# Is this a trusted, same-repo run (has/should-have a registry-read token)?
-#   - push / same-repo pull_request / workflow_dispatch / schedule  -> SAME_REPO=1
-#   - pull_request from a fork                                       -> SAME_REPO=0
-SAME_REPO=1
-if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" \
-   && "${GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME:-}" != "${GITHUB_REPOSITORY:-}" ]]; then
-  SAME_REPO=0
-fi
-
-if [[ "$KEY" != "$PINNED_TAG" ]]; then
-  echo "::error::Toolchain recipe/pins changed (recomputed $KEY, Dockerfile pins $PINNED_TAG)."
-  echo "::error::Run the 'Toolchain Image' workflow (workflow_dispatch) or wait for the bot PR, then bump ARG CHARON_TOOLCHAIN_TAG/DIGEST."
-  exit 1
-fi
-
-if [[ "$SAME_REPO" == "1" ]]; then
-  # HARD requirement: the tool AND the token must be present, and the pinned digest
-  # MUST resolve and MUST equal what GHCR serves for :$KEY. No silent skip.
-  command -v regctl >/dev/null || { echo "::error::regctl missing on a same-repo run — cannot verify digest"; exit 1; }
-  : "${GHCR_READ_TOKEN:?::error::GHCR_READ_TOKEN unset on a same-repo run — cannot verify digest}"
-  REMOTE_DIGEST="$(regctl image digest "ghcr.io/wikid82/charon-toolchain:$KEY")" \
-    || { echo "::error:::$KEY does not resolve in GHCR — toolchain image was never published for this pin"; exit 1; }
-  if [[ "$REMOTE_DIGEST" != "$PINNED_DIGEST" ]]; then
-    echo "::error::Dockerfile pins $PINNED_DIGEST but GHCR :$KEY = $REMOTE_DIGEST (hand-edited or stale)."
-    exit 1
-  fi
-  echo "Toolchain pin verified (same-repo): $KEY @ $PINNED_DIGEST"
-else
-  # Fork PR: no packages:read, cannot reach GHCR. Degrade to tag-only equality
-  # (already checked above). The real digest check runs when a maintainer
-  # re-dispatches the same-repo event (see security-pr.yml workflow_run gate).
-  echo "::warning::Fork PR — digest existence not verified (no registry access). Tag matches recomputed key."
-fi
-```
-
-`GHCR_READ_TOKEN` is `${{ secrets.GITHUB_TOKEN }}` (has `packages: read` for a repo-internal package once N8's package-linking is done); `regctl` is installed by the job (`ghcr.io/regclient/regctl` container or `iarekylew00t/regctl-installer`).
-
-- On a **same-repo PR that legitimately bumps a pin**: `toolchain-image.yml` (path trigger) builds & pushes `:<newkey>`, and its `sync-pin-on-pr` job commits the `CHARON_TOOLCHAIN_TAG`/`DIGEST` bump onto the PR head branch, so the guard goes green within the same PR.
-- On a **fork PR that bumps a pin**: guard fails on the tag mismatch with instructions to have a maintainer dispatch the workflow — acceptable, rare, safe. The fork's app build meanwhile uses the inline fallback (§3.7).
-
-#### 3.4.3 Jobs
-
-> **Amendment (Rev 2.1, post-approval — flagged for supervisor re-review).**
-> BuildKit's default provenance / SBOM attestation manifests embed per-run
-> timestamps + builder identity, so the OCI-index (manifest-list) digest of an
-> otherwise byte-identical build changes on every run. Combined with
-> `sync-pin-on-pr` + the path-filtered `pull_request` trigger this produced a
-> self-perpetuating bot-commit loop on the feature PR. Fixes, all in this PR:
->
-> 1. **Deterministic build.** `--provenance=false --sbom=false`, a **fixed**
->    `SOURCE_DATE_EPOCH` (`1700000000`), and
->    `--output type=image,"name=…:KEY,…:DATE,…:latest",push=true,rewrite-timestamp=true`.
->    The toolchain image is an internal build *input*; the app image's own
->    provenance/SBOM (in `docker-build.yml`) is separate and unaffected. Result:
->    identical toolchain key ⇒ identical manifest-list digest (verified by two
->    independent builds producing the same digest).
-> 2. **Skip-if-already-published.** On any non-forced event (`pull_request`,
->    plain path trigger) the job first `imagetools inspect`s `:${KEY}`; if it
->    resolves, it SKIPS the build/push entirely and emits that existing digest.
->    Only `schedule` / `workflow_dispatch force_rebuild=true` / `workflow_call`
->    actually rebuild + repush. This also removes the ~30-min rebuild from
->    unrelated Dockerfile PRs.
-> 3. **`sync-pin-on-pr` is idempotent + self-trigger-safe:** guarded
->    `github.actor != 'github-actions[bot]'` and no-ops unless
->    `git diff --quiet Dockerfile` shows a real change after the sed.
+`TestManagementGroup_MutationsAreAdminGuarded`:
 
 ```
-build-toolchain:
-  - checkout
-  - KEY=$(scripts/toolchain-key.sh); echo to $GITHUB_OUTPUT
-  - Set up QEMU? NO. Set up Buildx.
-  - login GHCR (skip on fork)
-  - PLAN: forced = (schedule || force_rebuild); if !forced && same-repo &&
-    `imagetools inspect :${KEY}` resolves -> should_build=false, reuse that digest
-  - if should_build:  SOURCE_DATE_EPOCH=1700000000 docker buildx build
-      --target toolchain-runtime
-      --platform linux/amd64,linux/arm64
-      $( forced && echo --no-cache --pull )
-      --provenance=false --sbom=false
-      --cache-from type=gha,scope=toolchain
-      --cache-to   type=gha,mode=max,scope=toolchain
-      --output type=image,"name=…:KEY,…:$(date +%Y%m%d)$( same-repo && echo ,…:latest )",push=$( same-repo && echo true || echo false via type=cacheonly ),rewrite-timestamp=true
-      .
-  - DIGEST = existing_digest (if skipped) else
-    $(docker buildx imagetools inspect …:${KEY} --format '{{json .Manifest}}' | jq -r .digest)
-  - outputs: key, digest, same_repo
-
-trivy-scan:
-  needs: build-toolchain
-  - trivy image --severity CRITICAL,HIGH --exit-code 1 --ignorefile .trivyignore \
-        ghcr.io/wikid82/charon-toolchain@${{ needs.build-toolchain.outputs.digest }}
-  - trivy image --format sarif ... → upload-sarif (category: toolchain-image:trivy)
-  - continue-on-error on the gate step is FALSE on schedule/dispatch (must be clean),
-    TRUE on PR (report-only; the app-image Trivy gates still run downstream)
-
-sync-pin-on-pr:              # pull_request && same-repo && actor != github-actions[bot]
-  needs: [build-toolchain]
-  - sed -i "s|^ARG CHARON_TOOLCHAIN_TAG=.*|ARG CHARON_TOOLCHAIN_TAG=${KEY}|" Dockerfile
-  - sed -i "s|^ARG CHARON_TOOLCHAIN_DIGEST=.*|ARG CHARON_TOOLCHAIN_DIGEST=${DIGEST}|" Dockerfile
-  - if `git diff --quiet Dockerfile`: exit 0 (no commit — idempotent)
-  - git commit -m "chore(docker): sync toolchain image pin to ${KEY}" && git push (to PR head branch)
-  - ::notice:: re-run the freshness check (GITHUB_TOKEN pushes don't re-trigger PR checks)
-
-open-bump-pr:                # event == schedule | workflow_dispatch | workflow_call ; NEVER on pull_request
-  needs: [build-toolchain, trivy-scan]
-  if: digest changed vs Dockerfile pin
-  - sed -i the two ARG lines (CHARON_TOOLCHAIN_TAG, CHARON_TOOLCHAIN_DIGEST)
-  - docker build --check -f Dockerfile .
-  - peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-      base: development
-      branch: bot/bump-toolchain-image           # updated in place if already open
-      title: "chore(docker): refresh bundled proxy toolchain image"
-      labels: dependencies, automated, docker, security
-      body: old→new digest, Trivy CRITICAL/HIGH summary, verification checklist
-  - on failure: actions/github-script → open issue "🚨 Toolchain image rebuild failed"
+build router via Register(...); seed role=user and role=admin; mint JWTs.
+for each route in router.Routes() where path starts /api/v1/ and method ∈ {POST,PUT,PATCH,DELETE}:
+    if route in PUBLIC_MUTATION_ALLOWLIST:  continue   // login, setup, invite/accept, security/events, emergency/security-reset  (NOTE: auth/register REMOVED)
+    if route in USER_OK_MUTATION_ALLOWLIST: continue   // proxy-hosts*, proxy-groups*, themes*, security-headers calculators (POST /score,/csp/validate,/csp/build), access-lists/:id/test, uptime sync + monitors/:id/check, notifications/:id/read + read-all, user self-service (PUT /users/:id), remote-servers reads are GET (not here)
+    send request with a valid role=user JWT  → assert 403     // deny-by-default
+    send request with a valid role=admin JWT → assert != 403  // admin reaches handler
 ```
 
-The bot-PR title/body must **not** name the specific CVE/dependency (CLAUDE.md `(security)` vagueness rule): "refresh bundled proxy toolchain image so the shipped Caddy/CrowdSec binaries pick up upstream fixes."
+- Both allowlists are committed as explicit constants with a per-entry comment —
+  this list **is** the deny-by-default policy and is what the supervisor
+  reviews.
+- Routes explicitly classified ADMIN-ARG in §3.2.2 that a reviewer might
+  otherwise expect on the allowlist (so they are **not** allowlisted and MUST
+  return 403 for `role=user`): `POST /notifications/providers/test`,
+  `POST /notifications/providers/preview`,
+  `POST /notifications/external-templates/preview` (C3);
+  `POST /dns-providers/test` + `POST /dns-providers/:id/test` (C7);
+  all Hecate mutation routes and all Orthrus mutation routes (C1). If any of
+  these lands on the bare `management` group at implementation time the test
+  fails — that is the intended tripwire.
+- Also update `TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist`:
+  remove the `POST /api/v1/auth/register` entry from its `publicMutationAllowlist`
+  (route no longer exists — see Part C).
 
-**Trivy gate semantics (revised):** the `--exit-code 1` CRITICAL/HIGH step is **blocking** on `schedule` / `workflow_dispatch` / `workflow_call` (a known CRITICAL in the bundled binaries turns the daily run red → failure issue). On `pull_request` it is **report-only** (`continue-on-error: true`) because the app-image Trivy gates in `docker-build.yml` / `security-pr.yml` still run downstream and a contributor PR must not be blocked by a pre-existing bundled-binary finding they did not introduce.
+### 3.3 Part C — Retire the public registration endpoint
 
-#### 3.4.4 Repurpose `security-weekly-rebuild.yml` (N6)
+#### 3.3.1 Behavior change
 
-Replace its `Build Docker image (NO CACHE)` step — which builds a `charon:security-scan-YYYYMMDD` app image **that nothing consumes** — with `uses: ./.github/workflows/toolchain-image.yml` (`workflow_call`, `force_rebuild: true`). Keep its Trivy CRITICAL/HIGH table + SARIF upload + JSON artifact + failure `::warning::` steps, re-pointed at the toolchain digest.
-
-- Its `permissions:` block (`security-weekly-rebuild.yml:21`, currently `contents: read`, and job-level `:36-39` `contents/packages/security-events`) **must add `pull-requests: write`** — a `workflow_call`ed workflow cannot request perms the caller did not grant, so the caller must grant everything `open-bump-pr` needs (`contents: write`, `pull-requests: write`, `packages: write`, `security-events: write`).
-- Keep `TRIVY_SARIF_CATEGORY` stable to avoid duplicate code-scanning tracks; rename the value to `…:trivy-toolchain`.
-- **Cadence:** the Tuesday slot stays for the fuller report; the **daily** `schedule` in `toolchain-image.yml` (§3.4.1) is the freshness driver. What the forced rebuild actually catches is stated precisely in §3.8 — **not** "upstream `go get` MVS drift" (that claim was wrong, see §3.8 / B3).
-
-### 3.5 Multi-arch handling (hard constraint)
-
-**Decision: publish a genuine multi-arch manifest list, built without QEMU via `$BUILDPLATFORM` cross-compilation.**
-
-Justification:
-- `caddy-inline` is already `FROM --platform=$BUILDPLATFORM golang:…` + `GOOS=$TARGETOS GOARCH=$TARGETARCH go build` (CGO off). `docker buildx build --platform linux/amd64,linux/arm64` runs this stage once per target platform, all on the amd64 host; each pass emits the correct-arch `caddy`. No emulation.
-- `crowdsec-inline` is `FROM --platform=$BUILDPLATFORM golang:…` + `COPY --from=xx / /` + `xx-apk add … musl` + `CGO_ENABLED=1 xx-go build`. `tonistiigi/xx` provides the cross linker/sysroot; this is exactly how CrowdSec cross-compiles today for the arm64 leg of `docker-build.yml`. No emulation.
-- `toolchain-runtime` is `FROM ${ALPINE_IMAGE}` + `COPY` only — no `RUN`, so nothing arch-specific executes; BuildKit assembles one layer per platform from the matching `caddy-inline`/`crowdsec-inline` outputs.
-- Result: `ghcr.io/wikid82/charon-toolchain:<key>` is a manifest list with `linux/amd64` and `linux/arm64` children. In the app build, `FROM …@sha256:<listdigest> AS toolchain-prebuilt` **without** `--platform` → BuildKit auto-selects the child matching the app build's `$TARGETPLATFORM`. So `docker-build.yml`'s `build-amd64` pulls the amd64 child, `build-arm64` (QEMU) pulls the arm64 child, and each does a plain `COPY --from` instead of running the builders.
-- **N2 — accurate framing:** the Caddy/CrowdSec compile was *never* QEMU-emulated on the arm64 leg — both builder stages are `FROM --platform=$BUILDPLATFORM` and always cross-compiled natively on the amd64 host. QEMU on `build-arm64` only ever executed the *final* arm64 stage's `RUN` lines (apk installs, setcap, GeoIP fetch, verification). The real win here is **no compile at all** on any app build (cold or warm, amd64 or arm64) — not "arm64 stops emulating a compile". The arm64 leg still runs its final-stage `RUN` lines under QEMU exactly as before.
-- The pinned `CHARON_TOOLCHAIN_DIGEST` is the **manifest-list digest** (arch-independent), so one pin covers both arches.
-
-Runner cost: the toolchain workflow does ~30 min of cross-compile once a day on one `ubuntu-latest` (mostly cache-hit no-ops between pin bumps), versus today's cold ~14-min compile on effectively every app build across `docker-build` (×2 arch), `nightly-build` (daily), `security-pr`, `supply-chain-pr`, `e2e-tests-split`, and 4 integration workflows.
-
-### 3.6 `--no-cache-filter` retarget (Commit 1) then removal (Commit 4, R6) — exact edits
-
-**Two-step, per B5.** Commit 1 changes the *value* at every site from `caddy-builder,crowdsec-builder` to `caddy-inline,crowdsec-inline` (so the recurrence guard keeps invalidating the actual `RUN` layers through the rename). Commit 4 — only after `verify-toolchain-pin` is a live required check — deletes them entirely. The table below is the Commit 4 removal list; Commit 1 touches the same sites with a value change.
-
-| File | Edit (Commit 4 = delete; Commit 1 = retarget value first) |
+| Before | After |
 |---|---|
-| `docker-build.yml:463-464` | delete the two `--no-cache-filter …` array lines in the `build-amd64` `BUILD_CMD` |
-| `docker-build.yml:549-550` | delete the two `--no-cache-filter …` lines in `build-arm64` `BUILD_CMD` |
-| `docker-build.yml:392` | rewrite comment: drop "no-cache-filter passed as native buildx flags"; note toolchain image is digest-pinned so layer cache is authoritative |
-| `security-pr.yml:157-164` | remove the `with: no-cache-filters:` block + its 6-line justification comment from the `build-charon-image` step |
-| `supply-chain-pr.yml:252-261` | same removal |
-| `e2e-tests-split.yml:224` | delete `no-cache-filters: caddy-builder,crowdsec-builder` from the `docker/build-push-action` `with:` |
-| `nightly-build.yml:243` | delete `no-cache-filters: caddy-builder,crowdsec-builder` |
-| `.github/actions/build-charon-image/action.yml` | remove the `no-cache-filters` input (`:11-33` decl) and the `no-cache-filters: ${{ inputs.no-cache-filters }}` passthrough (`:52`); rewrite the `description:` to state the toolchain image is prebuilt+digest-pinned and every stage is layer-cached |
-| `crowdsec-integration.yml`, `waf-integration.yml`, `rate-limit-integration.yml`, `cerberus-integration.yml` | no change needed (none passes the input) — but verify after the input is deleted that the composite still resolves (it will; input had a default) |
+| `POST /api/v1/auth/register {email,password,name}` → `201` (first caller `role=admin`, rest `role=user`) | Route does not exist → **`404`**. |
+| First admin via `POST /api/v1/setup` | **Unchanged.** |
+| Additional users: (undocumented) public register, or admin `POST /users` / `POST /users/invite` → `/accept-invite` | **Only** admin `POST /users` (direct create) or `POST /users/invite` → `GET /invite/validate` → `POST /invite/accept` (`/accept-invite` page). |
 
-After removal, add to each build step (where not already present) `--build-arg CHARON_TOOLCHAIN_DIGEST` is **not** needed — the Dockerfile default is authoritative. CI passes nothing extra on the happy path.
+No behavior change to `/setup`, `/users*`, `/invite/*`, `/auth/login`,
+`/auth/logout`, `/auth/refresh`, `/auth/me`, `/auth/change-password`.
 
-### 3.7 Fork PR / bootstrap / offline fallback (R4, hard constraint)
+#### 3.3.2 Backend deletions & edits (exact)
 
-Three cases, one mechanism (`CADDY_BUILDER_SRC` / `CROWDSEC_BUILDER_SRC` build-args, §3.2.1):
+**Delete:**
 
-| Case | Detection | Behavior |
+- `backend/internal/api/routes/routes.go:295` — the line
+  `api.POST("/auth/register", authHandler.Register)`.
+- `backend/internal/api/handlers/auth_handler.go` — `func (h *AuthHandler) Register`
+  (`:244-256`) and `type RegisterRequest struct` (`:238-242`). Remove any imports
+  that become unused as a result (compiler / `staticcheck` will flag).
+
+**Keep (do NOT delete — still referenced):**
+
+- `backend/internal/services/auth_service.go` — `func (s *AuthService) Register`
+  and its `count == 0 ⇒ RoleAdmin` logic. Referenced by ~28 test call sites
+  (`auth_service_test.go`, `middleware/auth_test.go`,
+  `handlers/user_integration_test.go`) as a user-creation helper. Add a doc
+  comment noting it is now an internal/test helper with no HTTP surface.
+
+**Edit (test references to the removed route):**
+
+- `backend/internal/api/routes/routes_test.go:162` — remove
+  `"/api/v1/auth/register"` from the `expectedRoutes` slice in
+  `TestRegister_RoutesRegistration`.
+- `backend/internal/api/routes/routes_test.go:215` — remove the
+  `http.MethodPost + " /api/v1/auth/register": true` entry from
+  `publicMutationAllowlist`.
+- `backend/internal/api/routes/routes_test.go:335` — change
+  `assert.Contains(t, routeMap, "/api/v1/auth/register")` to
+  `assert.NotContains(t, routeMap, "/api/v1/auth/register")` (or move the
+  assertion into the new Part C test, §3.3.4).
+- `backend/internal/api/handlers/additional_coverage_test.go` —
+  `TestAuthHandler_Register_InvalidJSON` (`:717-732`, calls `h.Register(c)`):
+  delete this test (the handler it covers is gone). Adjust the file's imports if
+  needed.
+- `backend/integration/crowdsec_lapi_integration_test.go:52-59` — the
+  `authenticate()` helper's "Register (may fail if user exists - that's OK)"
+  block: replace the `POST /api/v1/auth/register` call with
+  `POST /api/v1/setup` (same `{name,email,password}` shape; also tolerates a
+  "already completed" 403). Build-tagged integration test, not in default CI,
+  but must stay compilable/correct.
+
+#### 3.3.3 `util.GenerateSecureToken` promotion — **DROPPED**
+
+The earlier draft promoted `user_handler.go`'s `generateSecureToken()` to
+`backend/internal/util` for the now-cancelled invite pool. Nothing else needs
+it. **No refactor** — `generateSecureToken()` stays unexported in
+`user_handler.go` exactly as-is.
+
+#### 3.3.4 Tests — new `backend/internal/api/routes/routes_test.go`
+
+`TestRegister_PublicRegistrationEndpointRemoved`:
+
+| Case | Request | Expected |
 |---|---|---|
-| **Fork PR** (no `packages: write`, cannot pull an internal image) | job-level expression `github.event.pull_request.head.repo.full_name != github.repository` sets `TOOLCHAIN_SRC=inline` | Every app-image build step passes `--build-arg CADDY_BUILDER_SRC=${{ env.CADDY_SRC }} --build-arg CROWDSEC_BUILDER_SRC=${{ env.CROWDSEC_SRC }}` where the two env vars are `caddy-inline`/`crowdsec-inline` on a fork and `toolchain-prebuilt`/`toolchain-prebuilt` otherwise. Full from-source compile (~14 min). Layer cache (`type=gha`) still applies to the fork's own repeated runs. **Because this path exists, the job `timeout-minutes` for every fork-reachable build job stays ≥ 20 (see §3.9 / B6) — it is NOT cut to 15.** |
-| **Bootstrap** (toolchain image does not yet exist) | first `toolchain-image.yml` run publishes it; until then `CHARON_TOOLCHAIN_DIGEST` is a placeholder | Commit 1 publishes the image manually (`workflow_dispatch`) and links/marks the GHCR package internal (N8) **before** Commit 2 flips the Dockerfile default. Freshness guard lands in Commit 3; the `--no-cache-filter` sites are only removed in Commit 4, after the guard is live. |
-| **Local `docker build`** (dev, offline, or not logged into GHCR) | developer choice | `docker build .` uses the pinned image (one ~30 MB pull, then cached). Offline / air-gapped: `make build-offline` → `docker build --build-arg CADDY_BUILDER_SRC=caddy-inline --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline .`. |
+| Route gone | `POST /api/v1/auth/register {…}` (no auth) | `404` |
+| Route gone (any method) | `GET /api/v1/auth/register` | `404` |
+| Bootstrap intact | `GET /api/v1/setup` on empty DB | `200 {"setupRequired":true}` |
+| Bootstrap intact | `POST /api/v1/setup {name,email,password}` on empty DB | `201`; a `role=admin` user exists; `caddy.acme_email` setting written |
+| Bootstrap closed after first | `POST /api/v1/setup` again | `403 {"error":"Setup already completed"}` |
+| Email-invite intact | admin `POST /api/v1/users/invite {email}` → `GET /api/v1/invite/validate?token=…` → `POST /api/v1/invite/accept {token,name,password}` | invite validates; acceptance `200`; the invited user is `enabled` and can `POST /api/v1/auth/login` |
 
-**Security non-regression:** the release/CVE-gate paths — `docker-build.yml` (amd64+arm64), `nightly-build.yml`, `security-pr.yml`, `supply-chain-pr.yml` — always use the default (`toolchain-prebuilt`, digest-pinned, **daily-`--no-cache --pull`-rebuilt-and-scanned**). Fork PRs use `caddy-inline`, which is byte-for-byte the same recipe (same `go get pkg@fixed` lines, same embeds-version assertions) — a fork build is *not weaker*, just slower and unpinned. A fork PR cannot merge without a maintainer re-running the trusted same-repo path (`security-pr.yml` already gates this via its `workflow_run` trust-boundary check at `:146`), at which point the real prebuilt+scanned image is exercised.
+`AuthService.Register` unit tests in `auth_service_test.go` are unchanged
+(the method is unchanged).
 
-### 3.8 Security-guarantee analysis (CVE-2026-84304-class recurrence)
+#### 3.3.5 Frontend
 
-#### 3.8.1 The true current baseline (B2 — corrected)
+- **No new pages, routes, api modules, or hooks.**
+- `frontend/src/api/*` — confirm no `auth/register` caller exists (grep already
+  shows none). No edit.
+- `frontend/src/pages/AcceptInvite.tsx`, `frontend/src/api/users.ts`,
+  `frontend/src/pages/UsersPage.tsx` — unchanged by Part C. `UsersPage` remains
+  the admin surface for creating/inviting users.
+- Optional 1-line doc/help-text touch if any onboarding copy mentions
+  self-signup (grep `i18n` for "register" / "sign up" in
+  `frontend/src/locales` — likely none; skip if absent).
 
-Rev 1 understated this. Today, `--no-cache-filter caddy-builder,crowdsec-builder` forces a from-scratch rebuild of the two builder stages:
+### 3.4 Data flow (after this feature)
 
-- on **`nightly-build.yml`** — `schedule: '0 9 * * *'`, i.e. **daily**, and it builds the *shipped* `nightly` multi-arch image (`nightly-build.yml:229-243`);
-- on **every** `docker-build.yml` release build (push to `main`/`development`/`nightly`, every version tag);
-- on **every** `security-pr.yml` / `supply-chain-pr.yml` CVE-gate run (per PR);
-- on **every** `e2e-tests-split.yml` image build (per PR / per run).
+```
+First run (no users)
+  │  POST /api/v1/setup {name,email,password}
+  ▼
+api (public) → UserHandler.Setup → tx{ INSERT users(role=admin, enabled=true) ; upsert Setting caddy.acme_email }
+  ▼  201
 
-So the effective current cadence at which the bundled Caddy/CrowdSec binaries are recompiled from source (re-running every `go get pkg@fixed`, re-resolving `go mod tidy`, re-pulling base images via the accompanying `--pull`) is **at least daily, and in practice several times a day on active days**. The weekly `security-scan-YYYYMMDD` image is a *scan* artifact, not the only rebuild.
+Add a user (admin only)
+  │  admin → POST /api/v1/users {email,name,password,role?}         (direct)
+  │      or → POST /api/v1/users/invite {email,role?}  → email/link → /accept-invite?token=… → POST /api/v1/invite/accept
+  ▼  UserHandler.CreateUser / InviteUser / AcceptInvite   (all existing, unchanged)
 
-#### 3.8.2 What actually changes, and why the new cadence is acceptable
+Removed
+  │  POST /api/v1/auth/register …
+  ▼  404  (route deleted)
 
-After this change the forced-rebuild driver is the **daily** `schedule` on `toolchain-image.yml` (§3.4.1) plus per-PR rebuilds whenever a tracked pin moves. Refresh latency for the *shipped* image becomes: `daily toolchain rebuild` → `bot PR` → `human merge of bot PR` → next app build picks up the new digest.
+Attacker with a role=user token (however obtained)
+  │  POST /api/v1/admin/crowdsec/stop     → management → managementAdmin → RequireRole(admin) → 403   (Part A)
+  │  POST /api/v1/admin/plugins/x/enable  → RequireRole(admin) arg → 403                              (Part B #3)
+  │  POST /api/v1/certificates/x/export   → RequireRole(admin) arg → 403                              (Part B #19)
+  │  GET  /api/v1/certificates            → management → 200   (READ stays — non-admin page needs it) (Part B #18)
+```
 
-| Property | Today | After |
-|---|---|---|
-| Bundled-binary recompile cadence (no pin moved) | daily (nightly) + per active PR | **daily** (toolchain `schedule`) |
-| Latency from a new toolchain digest to it being in the shipped image | 0 (next nightly/release builds it directly) | **daily rebuild + bot-PR merge latency** (target: merge within 1 business day; the bot PR is `feat(security)`-labelled and shows in the same queue as a Renovate security bump) |
-| Human step in the loop | none | **yes — a maintainer merges `bot/bump-toolchain-image`** |
+### 3.5 Error handling & edge cases
 
-The added human-merge step is the real trade. It is acceptable because: (a) the daily rebuild + Trivy gate still *detects* a problem on the same ~24 h cadence as today — only *shipping* the fix now waits on a PR merge; (b) the bot PR is small (two ARG lines), CI-verified, and lands in the security review queue the team already watches for Renovate; (c) an urgent case is a one-click `workflow_dispatch` + expedited merge (~30 min end to end, §6); (d) the alternative — auto-committing digest bumps to `development` with no review — is worse for a security-sensitive artifact. **The daily cadence (not weekly) is therefore committed scope**, precisely so the *detection* cadence matches today's; only the merge step is new.
-
-#### 3.8.3 What the forced `--no-cache --pull` rebuild does and does NOT catch (B3 — corrected)
-
-Rev 1 claimed the weekly rebuild's "fresh `go mod tidy` MVS → new binary" catches upstream fixes to **unpinned transitive** deps. **That claim is withdrawn — it is false:**
-
-- `go mod tidy` / MVS is **deterministic**. It selects the *minimum* version satisfying the constraints in `go.mod`/`go.sum`. An upstream project publishing a patched `v1.2.4` does **not** cause MVS to move off `v1.2.3` unless something in the require graph raises the lower bound. "Latest patch" is not an MVS input.
-- `docker buildx build --no-cache` invalidates *layer* cache. It does **not** clear the `RUN --mount=type=cache,target=/go/pkg/mod` BuildKit cache mount — the Go module cache persists across `--no-cache` builds. (`--pull` only refreshes `FROM` images.)
-
-**What the daily `--no-cache --pull` toolchain rebuild genuinely catches:**
-
-| Vector | Caught? | Mechanism |
-|---|---|---|
-| Upstream fix to a **pinned** dep (any §2.2 ARG, incl. the two new plugin pins, or a literal `go get x@vN` in the stage body, or the stage text itself) | ✅ per-PR | Renovate/manual bump → `toolchain-key.sh` changes → `verify-toolchain-pin` **fails the PR** until the toolchain is rebuilt and the digest synced |
-| **Base-image** drift — new `golang:1.27.1-alpine` / `alpine@sha256:…` / plugin-source-image CVEs | ✅ daily | `--pull` re-resolves the `FROM` digests; with N4's digest-pinned golang base, a Renovate digest bump also trips the key |
-| **Alpine package** drift in `toolchain-runtime` / final stage (`apk upgrade`) | ✅ daily (toolchain) + per-release (app `--pull`, kept) | fresh `apk` index on `--no-cache` |
-| Trivy signature DB gaining a new match against an **already-shipped** bundled version | ✅ daily | Trivy runs against the toolchain digest every day; new CRITICAL/HIGH → red run + failure issue |
-| Upstream security fix to a genuinely **unpinned transitive** Go dep, where nothing raises the MVS lower bound | ❌ — **same gap as today** | only closed by a human adding an explicit `go get dep@fixed` pin (the existing pattern — the stage already has ~40 such pins). Renovate's Go-module manager + the `caddy-major-monitor.yml` / dependency-review tooling surface these; this spec does not change that surface either way. |
-
-**Net:** the recurrence guarantee for *pinned* deps is **strengthened** (a stale pin now hard-fails a PR instead of relying on a cache-key accident). The *unpinned-transitive* gap is **unchanged** — it exists identically today and is out of scope here; the plan explicitly does not claim to close it.
-
-**Strengthening vs today:** the daily toolchain Trivy gate is **blocking** on `schedule`/`dispatch`/`workflow_call` (`exit-code 1`) — today's `security-weekly-rebuild.yml` has `continue-on-error: true` on its first Trivy step, so a known CRITICAL currently only produces a `::warning::`. After this change it produces a red run + a tracked GitHub issue, daily.
-
-**Optional further hardening (follow-up, not committed):** a twice-daily `schedule` guarded by "rebuild only if no published tag for the current key OR last publish > 12 h" — halves detection latency for modest runner cost.
-
-### 3.9 Timeout right-sizing (R1 side-effect)
-
-| Job | File:line | Now | After | Rationale |
-|---|---|---|---|---|
-| `build-amd64` | `docker-build.yml:403`, `:441` | 15 / 15 | **20 / 20** | No compile on hot path; 20 gives headroom for a cold GHA cache miss on the *fast* stages + cache export + push. `docker-build.yml` never runs the inline fallback (release path, same-repo only), so 20 is safe. |
-| `build-arm64` | `docker-build.yml:487`, `:527` | 25 / 25 | **keep 25** | QEMU still runs the final arm64 stage's `RUN` lines + `COPY` from the arm64 toolchain child; 25 stays comfortable. |
-| `merge-and-publish` | `docker-build.yml:582` | 10 | keep 10 | unaffected |
-| `security-pr` build | `security-pr.yml:32` | 20 | **keep 20** | **B6:** this job IS fork-reachable and runs the inline compile (~14 min) on a fork PR → 14 + checkout + Trivy + overhead would blow a 15-min cap. Keep 20. Update the `:32` comment to: "20m — warm same-repo build ~6–8 m; fork PRs compile the toolchain inline (~14 m + scan), which sets the floor." |
-| `supply-chain-pr` build | `supply-chain-pr.yml:34` | 20 | **keep 20** | same reasoning; update comment `:34` identically. |
-| `cerberus/crowdsec/waf/rate-limit-integration` | each `:29` | 20 | **keep 20** | fork-reachable + integration test work on top; 20 still right. Update the "first run … full cold build" comments to: "fork PRs build the toolchain inline; same-repo runs `COPY` it from the pinned image". |
-| `e2e-tests-split.yml` build job | `:252` etc. | 60 | keep 60 | already generous; fork inline compile fits easily. |
-| `toolchain-image.yml` | new | — | **45** | cold amd64+arm64 cross-compile of both stages + Trivy |
-| `security-weekly-rebuild.yml` | `:35` | 60 | keep 60 (now mostly the `workflow_call` to toolchain-image) |
-
-**B6 reconciliation, explicit:** §3.7 establishes that `security-pr.yml`, `supply-chain-pr.yml`, and the four `*-integration.yml` jobs run the ~14-minute inline compile on fork PRs. Therefore **no job reachable by a fork inline build has its timeout cut**. Only `build-amd64` (release path, same-repo-only, never inline) is raised 15→20. If the team later wants tighter same-repo feedback, the reduction can be made conditional: `timeout-minutes: ${{ github.event.pull_request.head.repo.full_name == github.repository && 15 || 20 }}` — noted as an option, not adopted now (keeps the YAML simpler and 20 min idle-capacity cost is negligible).
-
-**Stale-comment fixes:** `docker-build.yml:381` ("amd64's fast native build") — reword: the Caddy/CrowdSec compile now lives in the prebuilt toolchain image, and the arm64 builder stages were always cross-compiled (never QEMU) regardless. Fix the dangling `docs/plans/current_spec.md §1.1` cross-reference in the same comment block (it points at the retired uptime spec) to cite this document. Grep `.github/**` for `no-cache-filter` / `xcaddy` / `10-14m` / `12-14 min` / `cold build` / `full cold build` and reconcile every comment (Commit 6).
-
-### 3.10 Error handling / edge cases
-
-| Scenario | Handling |
+| Case | Handling |
 |---|---|
-| Toolchain image pull fails mid app-build (GHCR outage) | app build fails fast with BuildKit's `failed to resolve source` — no silent fallback to a stale local layer. CI: `nick-fields/retry` already wraps `build-amd64`/`build-arm64` (3× / 10s). Document: maintainers can re-run or pass the inline build-args. |
-| `regctl` not on runner | every workflow that runs `verify-toolchain-pin.sh` installs `regctl` first (`iarekylew00t/regctl-installer` or `docker run ghcr.io/regclient/regctl`). **B7:** on a same-repo run the script `exit 1`s if `regctl` or `GHCR_READ_TOKEN` is missing — it does **not** silently skip. Only a fork PR (`SAME_REPO=0`) degrades to tag-only comparison, with a `::warning::`. |
-| Two toolchain builds race (dispatch + path-trigger on same commit) | `concurrency: toolchain-image-${{ github.ref }}`, `cancel-in-progress: false` → serialized; second is a cache hit / no-op. |
-| Bot PR already open | `peter-evans/create-pull-request` updates the existing `bot/bump-toolchain-image` branch in place (same as GeoLite2 bot). |
-| `toolchain-key.sh` awk stage-extraction breaks if a future edit removes the blank line between stages | script asserts each `extract_stage` returned ≥ 20 lines and contains `go build`; exits non-zero with a clear message otherwise. Unit-tested (§7). |
-| Digest pinned but tag `:latest` moved (someone pushed manually) | guard compares against `:${KEY}` (content tag), never `:latest`; manual `:latest` pushes are cosmetic. |
-| `CADDY_USE_CANDIDATE=1` experiment build | changes `toolchain-key.sh` output (ARG is in the hashed set) → distinct tag → distinct image; experiment is isolated, never collides with the mainline pin. |
-| Renovate bumps `ghcr.io/wikid82/charon-toolchain` digest directly | harmless; guard still requires `TAG == key`, so a digest-only Renovate bump without a matching key change fails the guard and is closed in favor of the bot PR. Document in `renovate.json` a `packageRules` comment. |
-| arm64 toolchain child missing (build published amd64-only by mistake) | app `build-arm64` fails at `FROM …@<listdigest>` with "no match for platform" — loud. `toolchain-image.yml` asserts `regctl manifest get` lists both platforms before pushing `:latest`. |
+| `POST /auth/register` after deploy | `404` (Gin default no-route). Covered by test. |
+| Client / script still POSTing `/auth/register` | Gets `404`; must switch to `/setup` (bootstrap) or admin invite. Called out in `ARCHITECTURE.md` + release notes. |
+| `/setup` on an already-bootstrapped instance | `403 {"error":"Setup already completed"}` (existing logic, unchanged). |
+| Concurrent `/setup` calls on empty DB | Existing `isSetupConflictError` / post-tx count re-check handles it (unchanged). |
+| Removing `RegisterRequest` leaves an unused import in `auth_handler.go` | `goimports` / `staticcheck` catches; remove in the same commit. |
+| `additional_coverage_test.go` import set after deleting the test | Adjust; `go build ./...` + `go vet` verify. |
+| A moved route (Part B) that a `role=user` UI screen actually needs | Prevented by the mutation-vs-read classification (Q7) + frontend E2E asserting `role=user` still `200`s on the READ endpoints + still loads the non-gated pages. |
+| `role=user` opens a page whose *mutations* now 403 (Access Lists, Security Headers, DNS Providers, Certificates, Domains, Remote Servers, Hecate tunnels) | Page loads (reads succeed — verified consumed by `role=user` screens); create/edit/delete return 403 `{"error":"Forbidden"}`. Acceptable; optional follow-up to hide the buttons ([§7](#7-remaining-open-questions)). |
+| `role=user` opens an admin-only page (CrowdSec, Audit Logs, Orthrus agent-management, Encryption) | Companion `RequireRole` guard redirects them away; nav entry hidden where one exists — same UX as "Users" today. No dead page. |
+| `ConnectionTypeSelector` / Dashboard hecate widget for `role=user` after Part B | Their reads (`GET /orthrus/agents`, `GET /hecate/status`, `GET /hecate/tunnels`) stay on `management` — verified they still return `200`. E2E asserts this. |
+| GORM security scan | No model / query changes in this feature → `scripts/scan-gorm-security.sh` is N/A, but run it anyway if any handler file under `backend/internal/models/**` is touched (none expected). |
+| Migration impact | None — no schema change. |
 
 ---
 
 ## 4. Implementation Plan
 
-The phases map 1:1 onto the Commit Slicing Strategy (§12); this is the same plan viewed as work packages.
+### Phase 1 — E2E specs (behavior, as `test.fixme`)
 
-### Phase 1 — "Spec behavior": key/guard scripts + toolchain workflow + stage split (Commit 1)
+- `tests/security-enforcement/crowdsec-admin-authz.spec.ts` (new) — `role=user`
+  → `403` on `/admin/crowdsec/stop`, `/bouncer/key`, `/ban`, `/file`;
+  unauthenticated → `401`; `role=admin` → not `403`.
+- Extend `tests/security-enforcement/authorization-rbac.spec.ts` —
+  `role=user` → `403` on: `POST /admin/plugins/:id/enable`,
+  `POST/DELETE /remote-servers*` (+ `POST /remote-servers/test`),
+  Hecate mutations (`POST /hecate/tunnels`, `POST /hecate/tunnels/:uuid/start`,
+  `POST /hecate/tailscale/sync`), Orthrus mutations (`POST /orthrus/agents`,
+  `DELETE /orthrus/agents/:uuid`, `GET /orthrus/agents/:uuid/snippets`),
+  `POST/PUT/DELETE /dns-providers*`, `POST /dns-providers/test`,
+  `POST /notifications/providers/test`, `POST /notifications/providers/preview`,
+  `POST /certificates/:uuid/export`, `POST/PUT/DELETE /access-lists*`,
+  `POST/DELETE /domains*`, `POST/PATCH /settings`, `GET /audit-logs`,
+  `GET /dns-providers/:id/audit-logs`;
+  `role=user` still `200` on `GET /proxy-hosts`, `GET /settings`,
+  `GET /themes`, `GET /certificates`, `GET /access-lists`, `GET /dns-providers`,
+  `GET /hecate/status`, `GET /hecate/tunnels`, `GET /orthrus/agents`,
+  `GET /remote-servers`.
+- `role=user` navigating directly to `/security/crowdsec`,
+  `/security/audit-logs`, `/hecate/agent`, `/security/encryption` is redirected
+  (companion `RequireRole` guards); those nav entries are absent for `role=user`
+  where a nav entry exists.
+- `tests/security-enforcement/public-registration-removed.spec.ts` (new) —
+  `POST /api/v1/auth/register` → `404`; `/setup` bootstrap still works on a
+  fresh instance; existing email-invite acceptance flow
+  (`/users/invite` → `/invite/validate` → `/invite/accept` → login) still works.
+- All `test.fixme` until Phase 2/3 land; un-fixme in Phase 4.
+- **Dropped from the earlier plan:** `invite-registration.spec.ts`.
 
-- `scripts/lib/dockerfile-stage.sh` (shared `extract_stage`), `scripts/toolchain-key.sh`, `scripts/verify-toolchain-pin.sh`, with **bats unit tests** under `scripts/tests/` (house style: `scripts/*.sh` + a `bats` runner; add `shellcheck` + `bats` to the fast-lint set).
-- No E2E/Playwright surface — this is CI/build infra. The executable "spec behavior" is: `toolchain-key.sh` is stable across a no-op Dockerfile reformat and changes when a tracked ARG / plugin pin / golang-base digest / stage line / `.trivyignore` changes; `verify-toolchain-pin.sh` is failure-closed on same-repo runs (B7).
-- `.github/workflows/toolchain-image.yml` (daily `schedule` + `workflow_dispatch` + `pull_request` paths + `workflow_call`; build/publish + trivy-scan only).
-- `Dockerfile`: rename stages, delete dead `crowdsec-fallback`, pin the two plugins + the golang base digest, add `toolchain-runtime` + temp aliases; **retarget the no-cache filters to `caddy-inline`/`crowdsec-inline`**.
-- Manual `workflow_dispatch` first publish → capture `:<key>` + manifest-list digest; set GHCR package **Internal** (N8).
+### Phase 2 — Backend
 
-### Phase 2 — Consume the pinned image; wire the fallback selector (Commit 2)
+- **Commit 2 (Part A):** `managementAdmin` subgroup decl;
+  `crowdsecHandler.RegisterRoutes(managementAdmin)`; companion frontend guard
+  (`/security/crowdsec` route + nav); `routes_test.go` regression (§3.1.4).
+  `fix(security):`.
+- **Commit 3 (Part B):** re-run audit; apply the §3.2.2 table:
+  - Wholesale: CrowdSec (done in Commit 2).
+  - `RegisterRoutes(read, admin)` split: `HecateHandler`, `OrthrusHandler`,
+    `RemoteServerHandler` (reads listed in rows 11/14a/15a stay on `management`;
+    all other routes → `managementAdmin`).
+  - `SecurityHeadersHandler`: **delete** its `RegisterRoutes` method; register
+    its ~11 routes inline in `routes.go` (reads + 3 calculators on `management`,
+    profile mutations + `presets/apply` on `managementAdmin`).
+  - Per-route `RequireRole(admin)` args: plugin enable/disable/reload;
+    dns-provider mutations + `POST /dns-providers/test` + `POST /dns-providers/:id/test`
+    + credentials + `POST /dns-providers/detect`; `ManualChallengeHandler.RegisterRoutes(managementAdmin)`;
+    certificate mutations incl. `/export`; access-list mutations; domain
+    mutations; settings mutations (+ keep existing `GET /settings/smtp` arg);
+    `PUT /feature-flags`; `POST /system/permissions/repair`;
+    `POST /notifications/providers/test` + `/preview` + `/external-templates/preview`.
+  - `MOVE → managementAdmin`: `GET /audit-logs`, `GET /audit-logs/:uuid`,
+    `GET /dns-providers/:id/audit-logs`; `adminEncryption` group decl →
+    `managementAdmin.Group("/admin/encryption")` (defense-in-depth).
+  - Companion frontend guards: `<RequireRole allowed={['admin']}>` on
+    `/security/audit-logs`, `/hecate/agent` (+ nav child),
+    `/security/encryption` (+ nav child); `/security/crowdsec` already done.
+  - `TestManagementGroup_MutationsAreAdminGuarded` + `USER_OK_MUTATION_ALLOWLIST`
+    + `PUBLIC_MUTATION_ALLOWLIST` (reviewed constants); update
+    `TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist`.
+  `fix(security):`.
+- **Commit 4 (Part C):** delete `/auth/register` route + `AuthHandler.Register`
+  + `RegisterRequest`; keep `AuthService.Register`; update the 4 backend test
+  references + the integration-test helper; new
+  `TestRegister_PublicRegistrationEndpointRemoved`. `fix(security):`.
 
-- `Dockerfile`: `CHARON_TOOLCHAIN_*` ARGs + `toolchain-prebuilt` + `FROM ${…_SRC} AS caddy-builder`.
-- Fork-detection build-args on every app-image build step + **new `builder-src` input on the `build-charon-image` composite** (§3.7, N10).
-- `Makefile` `build-offline`.
+### Phase 3 — Frontend
 
-### Phase 3 — Guardrails: freshness + app-side assertions (Commit 3)
+Rolled into Commits 2 & 3 (the companion `RequireRole` guards + nav filters are
+small and belong with the backend change that necessitates them). No standalone
+frontend commit — there is no new UI in this feature.
 
-- `verify-toolchain-pin` → required check in `quality-checks.yml` (with `regctl` + `GHCR_READ_TOKEN`).
-- `sync-pin-on-pr` + `open-bump-pr` jobs in `toolchain-image.yml`.
-- N5 final-stage `RUN` assertions; extend `docker-build.yml`'s post-build verification to check the toolchain `LABEL` key.
+### Phase 4 — Integration, hardening, docs
 
-### Phase 4 — Remove the forced rebuilds; reroute the security scan (Commits 4–5)
-
-- Delete every `--no-cache-filter` / `no-cache-filters` + the composite `no-cache-filters` input (Commit 4) — only after Phase 3's guard is live.
-- Repurpose `security-weekly-rebuild.yml` → `workflow_call` into `toolchain-image.yml`; blocking Trivy on `schedule`/`dispatch`/`workflow_call`; caller `permissions:` gains `contents: write` + `pull-requests: write` (N6) (Commit 5).
-
-### Phase 5 — Timeouts, comment sweep, docs (Commit 6)
-
-- Timeout edits (§3.9 — only `build-amd64` 15→20; CVE-gate jobs stay 20 per B6), stale-comment reconciliation.
-- `ARCHITECTURE.md`, `SECURITY.md`/`docs/security.md`, new `docs/ci/toolchain-image.md`, `CONTRIBUTING.md`, `renovate.json` (§9).
+- **Commit 5:** un-`fixme` the Phase 1 specs; run targeted specs (firefox).
+  File a follow-up issue for a general per-IP auth throttle middleware (out of
+  scope — noted, not built). Update `ARCHITECTURE.md`, `SECURITY.md`,
+  `docs/security.md`, `docs/features/access-control.md`, `docs/features.md`,
+  `docs/features/crowdsec.md`, `docs/features/custom-plugins.md` /
+  `plugin-security.md`. `docs:`.
 
 ---
 
 ## 5. Acceptance Criteria (Definition of Done)
 
-1. **No app-image build compiles Caddy/CrowdSec on the happy path.** A CI `build-amd64` run with a warm cache shows no `xcaddy`/`go build … caddy`/`xx-go build … crowdsec` step; total job < 8 min. Verified from the run log in the PR.
-2. **`build-amd64` / integration jobs no longer time out** across 3 consecutive CI runs on the PR (main gate that this feature exists to fix).
-3. **`verify-toolchain-pin` is a required check** and: (a) passes on `main` HEAD, (b) **fails** on a deliberate commit that bumps `CADDY_VERSION` (or a plugin pin) without rebuilding, (c) **fails** on a deliberate commit that hand-edits `CHARON_TOOLCHAIN_DIGEST` to a wrong-but-valid digest on a same-repo run (proves B7 failure-closed — not a tag-only check), (d) passes again after `sync-pin-on-pr` runs. Demonstrated with temporary commits that are then reverted.
-4. **Multi-arch intact:** `docker buildx imagetools inspect ghcr.io/wikid82/charon-toolchain:<key>` lists `linux/amd64` + `linux/arm64`; the merged app image manifest still lists both; `docker run --rm --platform linux/arm64 <app-image> /usr/bin/caddy version` and `… cscli version` succeed (in `docker-build.yml`'s existing verification step). Confirm the arm64 leg still runs only its final-stage `RUN` under QEMU (N2 — it never compiled the builders).
-5. **Fallback works:** a CI leg builds the app image with `--build-arg CADDY_BUILDER_SRC=caddy-inline --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline` and passes the in-`caddy-inline` embeds-version assertions; a simulated fork run stays under the 20-min job cap (B6).
-6. **Security guarantee mechanized:** the daily `schedule` on `toolchain-image.yml` runs `--no-cache --pull` + a **blocking** Trivy CRITICAL/HIGH gate; a wired failure issue; a new digest opens `bot/bump-toolchain-image`. `security-weekly-rebuild.yml` routes through the same `workflow_call`. §3.8.3's "does NOT catch unpinned-transitive MVS drift" statement is reflected verbatim in `SECURITY.md` (no overclaim). Dry-run via `workflow_dispatch` on the PR branch.
-7. **No `--no-cache-filter` / `no-cache-filters` string remains** under `.github/workflows` or `.github/actions` (grep clean; `docs/` history excepted). The composite action no longer exposes a `no-cache-filters` input.
-8. **All existing CI green:** `docker-build.yml`, `nightly-build.yml` (dispatch), `security-pr.yml`, `supply-chain-pr.yml`, `e2e-tests-split.yml`, 4× integration workflows pass on the PR.
-9. **Backend/frontend untouched:** `cd backend && go build ./... && go test ./...` and `cd frontend && npm run build && npm run type-check` unaffected (no diff there). GORM security scan **N/A** (no `backend/internal/models/**` change).
-10. **`ARCHITECTURE.md` updated** (§9) and `docs/` build/CI docs updated; `docs-writer` pass done.
-11. **Trivy on the final app image** (existing `merge-and-publish` step) shows **no new** CRITICAL/HIGH versus the pre-change baseline — the bundled binaries are the same recipe.
-12. Lefthook / staticcheck / `make lint-fast` clean; shell scripts pass `shellcheck` (add to `lefthook` if not already).
+1. **Advisory closed:** unauthenticated → `401`, `role=user` → `403`,
+   `role=admin` → handler executes, on `/admin/crowdsec/stop`,
+   `/admin/crowdsec/bouncer/key`, `/admin/crowdsec/ban`,
+   `/admin/crowdsec/file`. Proven by `routes_test.go` + E2E.
+2. **Plugins mutations closed:** `role=user` → `403` on
+   `POST /admin/plugins/:id/enable|disable`, `POST /admin/plugins/reload`;
+   `GET /admin/plugins*` still `200` for `role=user`.
+3. **Deny-by-default:** `TestManagementGroup_MutationsAreAdminGuarded` passes;
+   every mutating `/api/v1/*` route is admin-guarded or on a reviewed allowlist
+   with a per-entry comment.
+4. **Public registration gone:** `POST /api/v1/auth/register` → `404` (route
+   absent from `router.Routes()`).
+5. **Bootstrap + invites intact:** `/setup` first-admin flow succeeds on a
+   fresh instance and 403s afterward; email-invite
+   (`/users/invite` → `/invite/validate` → `/invite/accept` → login) succeeds.
+   Regression tests prove both.
+6. **`AuthService.Register` retained** and all its existing unit tests pass
+   unchanged; `AuthHandler.Register` / `RegisterRequest` / the register route
+   are removed with no dangling references (`go build ./...`, `staticcheck`,
+   `go vet` clean).
+7. **No `role=user` dead pages:** admin-only pages (CrowdSec, **Audit Logs**,
+   the Orthrus agent-management page `/hecate/agent`, Encryption) are hidden
+   from `role=user` in nav and redirect on direct navigation. READ-classified
+   pages (Access Lists, Certificates, DNS Providers, Security Headers, Domains,
+   Remote Servers, Hecate tunnels) still load for `role=user`, and their reads
+   (`GET /orthrus/agents`, `GET /hecate/status`, `GET /hecate/tunnels`,
+   `GET /remote-servers`, …) still return `200`. Frontend E2E covers both.
+8. **Coverage:** backend ≥ 85 % (`scripts/go-test-coverage.sh`), frontend
+   ≥ 85 % (`scripts/frontend-test-coverage.sh`); patch coverage green
+   (`bash scripts/local-patch-report.sh` → `test-results/local-patch-report.{md,json}`).
+9. **Security gates:** `lefthook run pre-commit` (CodeQL Go + JS) 0
+   high/critical; `make trivy` clean; `make lint-fast` / staticcheck clean.
+   (`scripts/scan-gorm-security.sh --check` if any `models/**` file is touched —
+   none expected.)
+10. **Targeted E2E green (firefox only):** `crowdsec-admin-authz.spec.ts`,
+    `authorization-rbac.spec.ts`, `public-registration-removed.spec.ts`,
+    `auth-api-enforcement.spec.ts`. Full-suite / cross-browser deferred to CI.
+11. **Type safety / build:** `cd frontend && npm run type-check` clean;
+    `cd backend && go build ./...`; `cd frontend && npm run build`.
+12. **Docs:** `ARCHITECTURE.md` + `SECURITY.md` reflect the new authorization
+    boundary and the removal of public self-registration.
 
 ---
 
-## 6. Risks & Rollback
-
-| Risk | Likelihood | Impact | Mitigation | Rollback |
-|---|---|---|---|---|
-| Toolchain image stale vs an urgent 0-day; bot-PR-merge latency too slow | Low | High | daily rebuild + Trivy **detects** on ~24 h cadence (unchanged from today); urgent path = `workflow_dispatch` + expedited merge (~30 min); follow-up twice-daily toggle (§3.8.3) | n/a — detection cadence matches today; only the merge step is new (§3.8.2) |
-| `FROM ${ARG} AS name` selector unsupported on a pinned BuildKit | Low | Med | verified against BuildKit ≥ 0.11 (repo uses current `buildx`); `docker build --check` + `--print` in Commit 1/2 gates | drop the selector; make `caddy-inline`/`crowdsec-inline` the direct stage names and gate the prebuilt image behind an explicit per-workflow `--build-arg` |
-| GHCR outage blocks all builds (new hard dependency) | Low | High | `nick-fields/retry` wraps the release builds; documented inline fallback; Docker Hub mirror is a follow-up | flip the selector build-args to `caddy-inline` fleet-wide via a one-line workflow edit |
-| `toolchain-key.sh` false-negative (misses a security-relevant change) | Med | High | key hashes full stage **text** + all consumed ARGs (incl. the 2 plugin pins) + golang-base digest + `.trivyignore` + `SCHEMA_VERSION`; bats tests; the **daily** `--no-cache --pull` rebuild is the base-image/`apk` backstop even if the key never moves (it is NOT a backstop for unpinned-transitive MVS — §3.8.3) | bump `SCHEMA_VERSION` → global rebuild + re-pin |
-| Bot PR churn (digest bump when nothing meaningful changed) | Low | Low | `open-bump-pr` fires only when the **manifest-list digest** actually changes; a no-op day (same base digests, same `apk` index) reproduces the same digest → no PR | close PR; tune to "digest changed AND (Trivy delta OR >7 d since last bump)" |
-| Fork PRs slower (full inline compile) | High (every fork PR) | Low | expected; fork CI already runs long; CVE-gate job timeouts stay at 20 (B6); documented in `CONTRIBUTING.md` | none needed |
-| Timeout bump to `build-amd64` masks a real slowdown | Low | Low | AC #1 asserts < 8 min actual; a run > 12 min is investigated | revert timeout to 15 |
-| Human forgets to merge the bot PR for days | Med | Med | bot PR carries the `security` label → shows in the same queue as Renovate security bumps; `repo-health.yml`/stale-bot surfaces it; runbook says target ≤ 1 business day | expedite; or `workflow_dispatch` + merge |
-
-**Whole-PR rollback:** revert the single merged commit. The `charon-toolchain` package stays in GHCR (harmless, unreferenced; `container-prune.yml` ages it out). `security-weekly-rebuild.yml` returns to building the throwaway scan image; the Dockerfile returns to inline `caddy-builder`/`crowdsec-builder` + `--no-cache-filter` — **security posture identical to today**. No data migration, no runtime change; app image content byte-identical (same recipe).
-
-**Contingency:** if the selector-stage approach hits a BuildKit bug in one workflow only, that workflow can pin `--build-arg CADDY_BUILDER_SRC=caddy-inline` as a temporary per-workflow escape hatch while keeping the prebuilt default everywhere else — no revert of the whole feature.
-
----
-
-## 7. Testing strategy (validate without a 14-min wait)
-
-| What | How | Where |
-|---|---|---|
-| `toolchain-key.sh` determinism | shell/bats test: run twice → identical; reformat whitespace outside the stages → identical; change a `go get` line inside `caddy-inline` → differs; bump `CADDY_VERSION` default → differs; touch `.trivyignore` → differs | `scripts/tests/toolchain-key.bats`, runs in `quality-checks.yml` (< 5 s) |
-| `verify-toolchain-pin.sh` | bats matrix: matching pin → exit 0; mismatched tag → exit 1 (actionable message); **same-repo run + missing `regctl`/token → exit 1** (B7 failure-closed, mocked); **same-repo run + GHCR digest ≠ pinned → exit 1**; fork run (`SAME_REPO=0`) + no registry access → exit 0 with `::warning::` | `scripts/tests/verify-toolchain-pin.bats` |
-| Selector stage resolves both ways | `docker build --check` + `docker buildx build --target caddy-builder --print` (BuildKit dry-run, no compile) for both `CADDY_BUILDER_SRC` values | new `toolchain-image.yml` PR-path job, seconds |
-| Cache behavior (the actual fix) | CI observation: run `build-amd64` twice on the PR; second run's log shows `CACHED` for every stage and **no** `xcaddy` / `xx-go build` compile lines; assert job wall-time < 8 min via a step that checks `$SECONDS` | PR CI, no local 14-min wait |
-| Guard-live check (B5) | in Commit 1's gate: `docker buildx build --no-cache-filter caddy-inline` re-runs the `xcaddy build` step (not `CACHED`); with the old `--no-cache-filter caddy-builder` value on the renamed graph it would show `CACHED` | Commit 1 CI leg |
-| Fallback correctness | one CI leg builds the app image with the inline build-args; the in-`caddy-inline` `go version -m /usr/bin/caddy | grep 'cel-go … v0.29'` / `grpc … v${GRPC_VERSION}` assertions (`Dockerfile:564`, `:569`) are the test — they already fail the build if the binary is wrong; plus the new N5 final-stage assertion | `toolchain-image.yml` PR-path matrix leg |
-| Wrong-digest detection (N5) | build the app image against a deliberately old `CHARON_TOOLCHAIN_DIGEST` → N5 final-stage `RUN` fails ("missing expected caddy plugins" / bad `cscli version`) | Commit 3 CI leg |
-| Multi-arch child selection | `docker buildx imagetools inspect` two-platform assertion in `toolchain-image.yml` (before pushing `:latest`); `docker run --platform linux/arm64 … caddy version` in `docker-build.yml`'s existing post-build verification | existing + new assertion |
-| Daily rebuild + bot | `workflow_dispatch` `toolchain-image.yml` from the PR branch with `force_rebuild: true`; confirm it publishes, scans, and (if digest changes) opens a draft `bot/bump-toolchain-image` PR; blocking Trivy gate on the dispatch path | manual, once, during PR review |
-| No regression in app-image Trivy | compare `merge-and-publish` Trivy JSON artifact on the PR vs a recent `main` run — diff must be empty for CRITICAL/HIGH | PR CI artifact |
-| E2E | existing `e2e-tests-split.yml` runs unchanged against the built image; targeted local run per CLAUDE.md DoD only if a spec is touched (none is) | CI |
-
-**Local dev validation (fast):** `scripts/toolchain-key.sh` + `bats scripts/tests/` (seconds); `docker buildx build --target caddy-builder --print` (no compile); pulling the published toolchain image and running `docker build .` end-to-end is a ~30 MB pull + fast stages only (~4–6 min), well under the old 14-min floor.
-
----
-
-## 8. Component complexity estimate
+## 6. Complexity Estimates
 
 | Component | Complexity | Notes |
 |---|---|---|
-| Dockerfile stage rename + delete dead `crowdsec-fallback` + pin 2 plugins + digest-pin golang base + selector + `toolchain-runtime` + N5 assertion | **M** | mostly mechanical; selector pattern needs `--check` validation; plugin/base pins need one-time version resolution; COPY paths chosen to keep final stage untouched |
-| `toolchain-image.yml` | **L** | multi-arch build, GHCR push, Trivy+SARIF, `sync-pin-on-pr`, `open-bump-pr`, fork guards, `workflow_call`, daily `schedule` |
-| `scripts/lib/dockerfile-stage.sh` + `toolchain-key.sh` + `verify-toolchain-pin.sh` (failure-closed) + bats | **M** | shared awk extraction; robust asserts; B7 same-repo/fork branching; token+regctl plumbing in CI |
-| Retarget then strip `--no-cache-filter` across 6 workflows + composite action | **S–M** | Commit 1 retarget (value change) + Commit 4 removal + composite input deletion (public interface change) + comment rewrites |
-| Repurpose `security-weekly-rebuild.yml` | **M** | swap build step for `workflow_call`; caller `permissions:` must grant `contents: write` + `pull-requests: write` (N6); keep Trivy plumbing; blocking gate |
-| Fork-detection build-args in every build step **+ new `builder-src` input on the `build-charon-image` composite (public interface change, 4 integration callers)** | **M** | ~8 build steps across 6 workflows + composite input + per-caller `head.repo.full_name` expression (N10 — was S–M, raised to M) |
-| Timeout + comment reconciliation | **S** | grep-driven sweep; only `build-amd64` actually changes value |
-| `ARCHITECTURE.md` + docs + `docs/ci/toolchain-image.md` runbook | **S–M** | §9 list + new runbook incl. one-time package-visibility step |
+| Part A route move + frontend guard + tests | **Low** | 2-line routing change, 1 route wrap + 1 nav filter, 1 test file. |
+| Part B audit + moves + splits + enforcement test | **Medium-High** | ~35 registration sites reviewed; ~16 per-route `RequireRole` args; 3 handlers gain a `RegisterRoutes(read, admin)` split (`Hecate`, `Orthrus`, `RemoteServer`); `SecurityHeadersHandler.RegisterRoutes` deleted + inlined; `GET /audit-logs*` + 1 per-provider audit read moved; 4 companion frontend `RequireRole` guards; new enforcement test + 2 reviewed allowlists; risk of a mis-classified `role=user` read (mitigated by `frontend/src` verification + E2E). |
+| Part C deletions | **Low** | Delete 1 route + 1 handler + 1 struct; keep the service; fix 4 test refs + 1 integration helper; 1 new test. |
+| Docs | **Low** | |
 
 ---
 
-## 9. `ARCHITECTURE.md` / documentation update list
+## 7. Remaining open questions
 
-| File | Section | Change |
+All earlier open questions and all supervisor blocking/should-fix items are
+resolved and baked into the spec:
+
+- Invite pool dropped → Q1/Q2/Q5 moot.
+- Q6 — subgroup-only, no belt-and-braces in-handler `requireAdmin`.
+- Q7 / C1 / C2 — mutation-vs-read classification; Hecate / Orthrus /
+  RemoteServer use a `RegisterRoutes(read, admin)` split (NOT wholesale move),
+  reads verified against `frontend/src`.
+- C3 — `POST /notifications/{providers/test,providers/preview,external-templates/preview}`
+  added to the table as ADMIN-ARG; §2.1 in-handler audit row corrected.
+- C4 / §7.1 — **resolved in this PR**: `GET /audit-logs*` → `managementAdmin` +
+  `<RequireRole allowed={['admin']}>` on `/security/audit-logs`.
+- C5 — `GET /dns-providers/:id/audit-logs` → `managementAdmin`.
+- C6 / §7.3 — **resolved**: `SecurityHeadersHandler.RegisterRoutes` deleted, its
+  routes inlined in `routes.go` with per-route args (matches its siblings).
+- C7 — `POST /dns-providers/test` (id-less `TestCredentials`) named explicitly,
+  separate from `POST /dns-providers/:id/test`.
+- Q4 — per-IP auth throttle: deferred, tracking issue filed in Commit 5.
+
+**Only remaining item — deferred UX polish (not a blocker, tracked in Commit 5):**
+
+1. Hide the disabled create/edit/delete controls for `role=user` on the
+   READ-classified pages (Access Lists, Certificates, DNS Providers, Security
+   Headers, Domains, Remote Servers, Hecate tunnels). The API already enforces
+   `403`; this is cosmetic. Out of scope for this PR; tracking issue filed
+   alongside the auth-throttle issue in Commit 5.
+
+---
+
+## 8. Risks & Mitigations
+
+| Risk | Impact | Mitigation |
 |---|---|---|
-| `ARCHITECTURE.md` | §"Deployment Architecture / Multi-Stage Dockerfile" (`:1082`) | replace the illustrative snippet's build-from-source framing; add a "Prebuilt toolchain image" subsection: what `charon-toolchain` contains, that Caddy/CrowdSec are compiled there (not in the app build), digest-pinned in `Dockerfile`, rebuilt **daily** `--no-cache --pull`, freshness-guarded, with the fork/offline inline fallback |
-| `ARCHITECTURE.md` | §"Infrastructure" table (`:158`) | add row: **Bundled proxy toolchain** — `ghcr.io/wikid82/charon-toolchain` — multi-arch prebuilt Caddy + CrowdSec, daily-rebuilt + Trivy-gated |
-| `ARCHITECTURE.md` | §"Directory Structure" (`:286`) | note `.github/workflows/toolchain-image.yml`, `scripts/toolchain-key.sh`, `scripts/verify-toolchain-pin.sh`, `scripts/lib/dockerfile-stage.sh`; note removal of the `crowdsec-fallback` Dockerfile stage |
-| `ARCHITECTURE.md` | §"Security Architecture / Layer 2: CrowdSec Integration" (`:780`) and the defense-in-depth intro (`:750`) | note the CrowdSec agent + bouncer-enabled Caddy are supply-chain-hardened via the scanned, digest-pinned toolchain image; recurrence guarantee = **daily** `--no-cache --pull` toolchain rebuild + blocking Trivy gate + bot PR (+ per-PR `verify-toolchain-pin` for pinned-dep bumps). Be precise per §3.8.3: it does not close the unpinned-transitive-MVS gap (unchanged from today) |
-| `ARCHITECTURE.md` | §"Development Workflow / Local Development Setup" (`:1204`) | add the offline build note (`--build-arg …_SRC=…-inline`) and `make build-offline` |
-| `CONTRIBUTING.md` | build section | fork PRs compile the toolchain from source (slower CI); maintainers re-dispatch for the prebuilt path |
-| `docs/features.md` | — | no user-facing capability change → **no edit** (per CLAUDE.md keep brief) |
-| `docs/security.md` / `SECURITY.md` | supply-chain / build integrity paragraph | describe the toolchain image, its **daily** `--no-cache --pull` rebuild + blocking Trivy gate, the digest pin, and the `verify-toolchain-pin` freshness guard as the mechanism that keeps bundled binaries patched; state the §3.8.3 scope precisely (pinned-dep + base-image drift covered; unpinned-transitive MVS gap unchanged from today) — do not overclaim |
-| new `docs/ci/toolchain-image.md` | — | operator/maintainer runbook: how the key works, how to force a rebuild, how to respond to the bot PR / failure issue, how to roll back |
-| `Makefile` | — | `build-offline` target |
-| `renovate.json` | — | comment on the `charon-toolchain` datasource entry: digest bumps are owned by the bot workflow, not Renovate |
+| A READ endpoint mis-classified as ADMIN regresses a `role=user` page | `role=user` UI breaks | Q7 mutation-vs-read rule; frontend E2E asserts `role=user` keeps `GET` access + page loads for every READ-classified area; classification table in PR description; each commit individually revertable. |
+| An admin-gated capability was actually needed by `role=user` | Lost functionality for `role=user` | Only CrowdSec moves wholesale (no `role=user` read). Hecate / Orthrus / RemoteServer keep their `role=user`-consumed `GET` reads on `management` (verified: `ConnectionTypeSelector` → `GET /orthrus/agents`, `Dashboard` → `GET /hecate/status`); only mutations move. Audit Logs / Orthrus agent page / Encryption become admin-only with a companion `RequireRole` guard (explicit redirect, not a silent 403). If a real `role=user` need surfaces, revert Commit 3 alone — Commit 2 (advisory fix) still stands. |
+| Removing `RegisterRequest`/`Register` leaves dangling refs | Build break | grep evidence in §2.1 enumerates every reference; `go build ./...` + `staticcheck` + `go vet` in the commit gate; integration-test helper explicitly updated. |
+| `AuthService.Register` mistakenly deleted | ~28 test call sites fail to compile | Spec is explicit: **keep** it; it is not dead. |
+| Advisory still private / embargoed | Disclosure via commit message / changelog | `fix(security):` subjects deliberately vague — category + mitigation only, never "CrowdSec", "authorization bypass", "public registration", or route paths (§10). No GHSA id in subjects or changelog-visible lines. |
+| `publicMutationAllowlist` still lists `auth/register` after route removal | Enforcement test references a non-existent route | Commit 4 removes that entry (§3.3.2). |
+| Coverage dip from the large Part B routing diff | PR fails 85 % gate | New tests target new/moved code paths; `local-patch-report.sh` preflight before pushing. |
+| Companion frontend guards missed for an admin-only page | `role=user` hits a 403-ing page | E2E: for `/security/crowdsec`, `/security/audit-logs`, `/hecate/agent`, `/security/encryption`, assert a `role=user` session is redirected and (where a nav entry exists) it is absent. |
+| A non-mutating `POST` (`/access-lists/:id/test`, `/security/headers/score` etc.) breaks for `role=user` because it's a POST | `role=user` diagnostic feature 403s | These are explicitly in `USER_OK_MUTATION_ALLOWLIST` (§3.2.4) and stay on `management`; the enforcement test asserts `role=user` is NOT 403 for them. |
 
 ---
 
-## 10. API / schema impact
+## 9. Commit Slicing Strategy
 
-**None.** No REST endpoint, no GORM model, no migration, no `internal/**` code, no frontend, no DB. This is entirely CI/build-graph and repo tooling. `routes.go` AutoMigrate untouched.
+**Decision:** ONE PR, merged only when the whole feature is complete and the
+full Definition of Done passes. Reviewability comes from the ordered commit
+sequence below — **not** from splitting into backend/frontend/security PRs.
+Each commit builds and passes its own validation gate. Order follows
+`CLAUDE.md` "Suggested Commit Sequence" (E2E fixme → backend → frontend →
+hardening+docs); the advisory fix (Part A) is placed first after the specs so it
+is independently revertable. Part C collapsed to a single deletion commit — the
+5-commit plan replaces the earlier 7.
 
----
-
-## 11. Out-of-scope / follow-ups
-
-- Mirror `charon-toolchain` to Docker Hub for GHCR-outage resilience.
-- Twice-daily toolchain freshness trigger (§3.8.3 hardening toggle).
-- Conditional `timeout-minutes` expression on `security-pr` / `supply-chain-pr` to give same-repo runs a tighter 15-min budget while forks keep 20 (§3.9 B6) — deferred to keep the YAML simple.
-- Fold `gosu-builder` / `backend-builder` into the toolchain image too (they are already fast; low value).
-- Cosign-sign the toolchain image and verify the signature in the app build `FROM` (needs BuildKit attestation verification; separate spec).
-- **N11 (confirmation, no action):** `orthrus-build.yml` builds `./agent/Dockerfile` — a **different** image (the Orthrus agent), with its own `cache-from/to type=gha` and no `caddy-builder`/`crowdsec-builder` stages. Verified out of scope; this spec makes no change to it.
+Base branch: `development`.
 
 ---
 
-## 12. Commit Slicing Strategy
+### Commit 1 — E2E specs for new behavior (`test.fixme`)
 
-**Decision:** one feature = **one PR** targeting `development`, sliced into 6 ordered logical commits. Each commit builds and passes its own gate; the PR merges only when the full DoD (§5) passes. Not split across multiple PRs.
-
-The `weekly-nightly-promotion.yml` "merge commit only" rule is **not** engaged — this PR follows the normal `development` flow and touches no promotion machinery.
-
-**B5 — the CVE-recurrence guard is never inert.** The old plan had a window (Commit 1→3) where the stages were renamed to `caddy-inline`/`crowdsec-inline` but the workflows still said `--no-cache-filter caddy-builder` — a filter on an *alias* node does not invalidate the `RUN` layers that moved into `caddy-inline`, so the guard was silently dead. Fixed below: **Commit 1 retargets every `--no-cache-filter` / `no-cache-filters` from `caddy-builder,crowdsec-builder` to `caddy-inline,crowdsec-inline` in the same commit as the rename**, and the freshness guard (`verify-toolchain-pin`, Commit 3) is in place **before** those filters are removed (Commit 4). Every commit's gate below explicitly checks that *some* live mechanism forces a from-source recompile when a pin/recipe changes.
-
-### Commit 1 — `feat(security): add toolchain-image workflow, key tooling, split builder stages`
-
-- **Scope:** the toolchain build/publish workflow + key/guard scripts; Dockerfile stage split; **retarget the no-cache filters to the RUN-bearing stage names**; first manual publish; make the new GHCR package internal.
+- **Type:** `test: add fixme e2e specs for privileged-route authz and removal of public registration`
+- **Scope:** Author (as `test.fixme`) the Playwright specs for Parts A/B/C. No
+  product code.
 - **Files:**
-  - `scripts/lib/dockerfile-stage.sh`, `scripts/toolchain-key.sh`, `scripts/verify-toolchain-pin.sh` (new)
-  - `scripts/tests/toolchain-key.bats` (+ wire into `quality-checks.yml` as a **non-blocking** job for now)
-  - `.github/workflows/toolchain-image.yml` (new — `schedule` daily + `workflow_dispatch` + `pull_request` paths + `workflow_call`; **build/publish + trivy-scan jobs only**; `sync-pin-on-pr` / `open-bump-pr` land in Commit 3)
-  - `Dockerfile` — rename `caddy-builder→caddy-inline`, `crowdsec-builder→crowdsec-inline`; **delete the dead `crowdsec-fallback` stage** (`:713-748`) and its now-dead `CROWDSEC_RELEASE_SHA256` ARG (N1); **pin the two xcaddy plugins** `CADDY_GEOIP2_VERSION` / `CADDY_RATELIMIT_VERSION` (B4); **digest-pin the `golang:${GO_VERSION}-alpine` base** of both inline stages (N4); add `toolchain-runtime` assembly stage; add temporary aliases `FROM caddy-inline AS caddy-builder` / `FROM crowdsec-inline AS crowdsec-builder` so the app build is unchanged this commit.
-  - **All six no-cache-filter sites + composite action** (§3.6) — change the value `caddy-builder,crowdsec-builder` → `caddy-inline,crowdsec-inline` (do **not** remove yet).
-- **Dependencies:** none.
-- **Bootstrap / N8:** after CI publishes the first image via `workflow_dispatch`, in GHCR set the `charon-toolchain` package visibility to **Internal** (or link it to the repo and grant the repo `packages: read`) so cross-workflow `FROM ghcr.io/…/charon-toolchain@digest` works with the default `GITHUB_TOKEN`. Document this one-time manual step in `docs/ci/toolchain-image.md` (Commit 6) and in the PR description.
+  - `tests/security-enforcement/crowdsec-admin-authz.spec.ts` (new)
+  - `tests/security-enforcement/public-registration-removed.spec.ts` (new)
+  - `tests/security-enforcement/authorization-rbac.spec.ts` (extend: plugin
+    mutations, remote-server mutations, Hecate mutations, Orthrus mutations
+    (incl. `/snippets`), dns-provider mutations + `POST /dns-providers/test`,
+    notification `test`/`preview`, cert `/export`, access-list/domain/settings
+    mutations, `GET /audit-logs*`; + `role=user` positive READ cases incl.
+    `GET /orthrus/agents`, `GET /hecate/status`, `GET /hecate/tunnels`,
+    `GET /remote-servers`; + admin-only nav/redirect checks for
+    `/security/crowdsec`, `/security/audit-logs`, `/hecate/agent`,
+    `/security/encryption`)
+- **Depends on:** nothing.
 - **Validation gate:**
-  1. `bats scripts/tests/` green; `shellcheck scripts/*.sh scripts/lib/*.sh` clean.
-  2. `scripts/toolchain-key.sh` is stable across a whitespace-only reformat outside the two stages, and **changes** when (a) a `go get` line inside `caddy-inline` is edited, (b) `CADDY_VERSION` / `CADDY_GEOIP2_VERSION` default is bumped, (c) the golang base digest changes, (d) `.trivyignore` changes.
-  3. `workflow_dispatch` toolchain-image.yml on the branch → publishes `ghcr.io/wikid82/charon-toolchain:caddy-crowdsec-<key>`; `docker buildx imagetools inspect` shows **both** `linux/amd64` and `linux/arm64`. Record `:<key>` + manifest-list digest for Commit 2.
-  4. **Guard-live check:** on a scratch build, `docker buildx build --no-cache-filter caddy-inline …` shows the `xcaddy build` step running (not `CACHED`); with the old `--no-cache-filter caddy-builder` value it would show `CACHED` — confirm the retarget is what keeps the guard effective.
-
-### Commit 2 — `feat(security): build app image from the pinned toolchain image`
-
-- **Scope:** default path consumes the prebuilt image by digest; inline stages become the selectable fallback; fork detection wired.
-- **Files:**
-  - `Dockerfile` — add `CHARON_TOOLCHAIN_IMAGE/TAG/DIGEST` ARGs (values from Commit 1's publish), `CADDY_BUILDER_SRC`/`CROWDSEC_BUILDER_SRC` selector ARGs, `toolchain-prebuilt` stage; replace the temp aliases with `FROM ${CADDY_BUILDER_SRC} AS caddy-builder` / `FROM ${CROWDSEC_BUILDER_SRC} AS crowdsec-builder`.
-  - **Every app-image build step** in `docker-build.yml`, `nightly-build.yml`, `security-pr.yml`, `supply-chain-pr.yml`, `e2e-tests-split.yml`, and the **`build-charon-image` composite action** (new `builder-src` input, default `toolchain-prebuilt`, with the `head.repo.full_name` expression in each caller) — pass `--build-arg CADDY_BUILDER_SRC=… --build-arg CROWDSEC_BUILDER_SRC=…` (`toolchain-prebuilt` same-repo, `caddy-inline`/`crowdsec-inline` on forks).
-  - `Makefile` — `build-offline` target.
-- **Dependencies:** Commit 1.
-- **Note on the guard in this window:** default builds no longer run `caddy-inline` at all, so the retargeted `--no-cache-filter caddy-inline` is a no-op there — **intended**: the only path that still compiles is the fork/inline path, and the filter remains live *there*. The pin↔digest binding on the default path is enforced by Commit 3's freshness guard, added before any filter is removed (Commit 4).
-- **Validation gate:** `docker build --check`; `docker build .` (default) → pulls the image, **no `xcaddy`/`xx-go build` in the log**, image boots, final-stage N5 assertions pass, `caddy version` + `cscli version` OK; `make build-offline` (inline) → compiles and passes the in-`caddy-inline` embeds-version assertions **and** still honours `--no-cache-filter caddy-inline`; `docker buildx build --target caddy-builder --print` resolves for both selector values; simulated fork run (push from a fork or manual expression override) uses the inline path and stays under the 20-min job cap (B6).
-
-### Commit 3 — `feat(security): enforce toolchain pin freshness + app-side embed assertions`
-
-- **Scope:** `verify-toolchain-pin` becomes a **required** check; `sync-pin-on-pr` + `open-bump-pr` jobs added to `toolchain-image.yml`; N5 final-stage assertions; extend `docker-build.yml`'s existing post-build CVE-verification step to also check the toolchain `LABEL` key.
-- **Files:** `.github/workflows/quality-checks.yml` (required `verify-toolchain-pin` job, with `regctl` install + `GHCR_READ_TOKEN`), `.github/workflows/toolchain-image.yml` (add `sync-pin-on-pr`, `open-bump-pr`), `Dockerfile` (N5 `RUN` assertion after the `COPY --from` lines), `docker-build.yml` (extend verification step), `renovate.json` (comment: toolchain digest is bot-owned, N7).
-- **Dependencies:** Commits 1–2 (a real pin must exist to guard).
-- **Validation gate:**
-  1. Temp commit bumping `CADDY_VERSION` (no rebuild) → `verify-toolchain-pin` **fails** with the actionable message; the `toolchain-image.yml` path trigger rebuilds and `sync-pin-on-pr` pushes the `TAG`/`DIGEST` bump onto the branch → check green → revert temp commit.
-  2. Temp commit hand-editing `CHARON_TOOLCHAIN_DIGEST` to a valid-but-wrong digest → `verify-toolchain-pin` **fails** on the same-repo digest-mismatch branch (proves B7 failure-closed: it is not a tag-only check).
-  3. `open-bump-pr` runs only on `schedule`/`workflow_dispatch`/`workflow_call`, never `pull_request` (assert via a dry `workflow_dispatch`).
-  4. Build an app image against a deliberately wrong (old) toolchain digest → the N5 final-stage assertion fails the build (proves a bad pin is caught even if `verify-toolchain-pin` were bypassed).
-
-### Commit 4 — `perf(ci): drop the forced from-source rebuilds; rely on the pinned image + guard`
-
-- **Scope:** remove every `--no-cache-filter` / `no-cache-filters` and the composite `no-cache-filters` input — now safe because (a) the default path never compiles, (b) `verify-toolchain-pin` enforces pin↔digest freshness per PR, (c) the daily toolchain rebuild + Trivy gate covers base-image drift, (d) the N5 assertion catches a wrong digest.
-- **Files:** `docker-build.yml` (`:463-464`, `:549-550`), `security-pr.yml` (`:157-164` block), `supply-chain-pr.yml` (`:252-261` block), `e2e-tests-split.yml` (`:224`), `nightly-build.yml` (`:243`), `.github/actions/build-charon-image/action.yml` (delete the `no-cache-filters` input decl `:11-33` + passthrough `:52`; rewrite `description`).
-- **Dependencies:** Commit 3 (guard must be live *before* the filters go).
-- **Validation gate:** `grep -rn "no-cache-filter" .github/workflows .github/actions` → empty (comments/docs excluded); `docker-build.yml build-amd64` run twice on the branch → second run every stage `CACHED`, wall-time **< 8 min**, zero compile lines; all 8 build-consuming workflows green; a bump-a-pin temp commit still fails `verify-toolchain-pin` (guard still live via the freshness mechanism, not the deleted filter).
-
-### Commit 5 — `feat(security): route the security rebuild through the toolchain image`
-
-- **Scope:** `security-weekly-rebuild.yml` `workflow_call`s `toolchain-image.yml` instead of building a throwaway app image; blocking Trivy on `schedule`/`dispatch`/`workflow_call`; caller grants all perms the bot job needs (N6).
-- **Files:** `.github/workflows/security-weekly-rebuild.yml` (swap build step; `permissions:` add `contents: write` + `pull-requests: write` at job level; keep Trivy table/SARIF/JSON/`::warning::`; rename `TRIVY_SARIF_CATEGORY` value to `…:trivy-toolchain`).
-- **Dependencies:** Commits 1, 3.
-- **Validation gate:** `workflow_dispatch` on the branch → toolchain rebuilds `--no-cache --pull`; Trivy runs; SARIF uploads under the stable category; **no** bot PR when the digest is unchanged; temporarily drop a known-ignored item from `.trivyignore` → `schedule`-path Trivy step is **red** and the failure issue is created → restore `.trivyignore`. Confirm the daily `schedule` on `toolchain-image.yml` (added Commit 1) now also produces a bot PR path via `open-bump-pr` (Commit 3) when the digest moves.
-
-### Commit 6 — `docs(ci): document the toolchain image; right-size timeouts; sweep stale comments`
-
-- **Scope:** timeout edits (§3.9), stale-comment sweep, all `ARCHITECTURE.md` / docs updates (§9).
-- **Files:** `docker-build.yml` (`build-amd64` timeout `:403`/`:441` 15→20; comment `:381` + dangling `§1.1` cross-ref), `security-pr.yml` (`:32` comment only — timeout **stays 20**, B6), `supply-chain-pr.yml` (`:34` comment only — stays 20), `*-integration.yml` (`:29` comments), `ARCHITECTURE.md` (§9 rows), `SECURITY.md` / `docs/security.md`, `docs/ci/toolchain-image.md` (new runbook — incl. the N8 one-time package-visibility step), `CONTRIBUTING.md`, `renovate.json` comment, `Makefile` (if not in C2).
-- **Dependencies:** Commits 1–5.
-- **Validation gate:** `grep -rn "xcaddy\|no-cache-filter\|cold build\|full cold build\|10-14m\|12-14 min" .github/` reconciled; markdown lint; `docs-writer` review; full CI green; DoD §5 all boxes checked.
-
-### PR-level rollback / contingency
-
-- **Rollback:** revert the single merged commit. The `charon-toolchain` package stays in GHCR unreferenced (`container-prune.yml` ages it out). `security-weekly-rebuild.yml` reverts to its prior behavior. The Dockerfile reverts to inline `caddy-builder`/`crowdsec-builder` with `--no-cache-filter` — **identical security posture to today**. Zero runtime/app-image content change (same recipe), so nothing to migrate or re-release.
-- **Contingency (partial):**
-  - Freshness guard misbehaves post-merge → make `verify-toolchain-pin` non-required (repo setting); the daily `--no-cache --pull` toolchain rebuild + Trivy gate + N5 assertion still protect the guarantee.
-  - Selector stage breaks one workflow → set that workflow's `--build-arg CADDY_BUILDER_SRC=caddy-inline` as a temporary escape hatch (its `--no-cache-filter caddy-inline` was removed in Commit 4 but can be re-added to that one workflow) — no full revert.
-  - GHCR unavailable for a release → the release build fails fast; run it again, or fleet-flip the selector build-args to `caddy-inline` via a one-line workflow edit.
-- **Forward-fix preferred over revert** for anything touching the security guarantee (CLAUDE.md: long-term fix over quick patch).
+  `npx playwright test crowdsec-admin-authz public-registration-removed authorization-rbac --project=firefox`
+  collects specs, all `fixme`/skipped, 0 failures; `eslint` clean on the new
+  spec files.
 
 ---
 
-## 13. Handoff
+### Commit 2 — Part A: enforce admin authorization on CrowdSec admin routes (advisory fix)
 
-On approval: route to **supervisor** for plan review; iterate here until approved; then present to the user for explicit go-ahead before implementation. Implementation is CI/build-only → delegate commit-by-commit primarily to **devops** (with **docs-writer** for Commit 6), each commit gated as above, then **supervisor** re-review, then **qa-security** last against `SECURITY.md` + DoD.
+- **Type:** `fix(security): tighten authorization checks on privileged API routes`
+- **Scope:**
+  - `routes.go`: declare `managementAdmin := management.Group("/"); .Use(RequireRole(admin))`;
+    change `crowdsecHandler.RegisterRoutes(management)` → `(managementAdmin)`.
+  - Frontend companion guard: wrap `security/crowdsec` route in
+    `<RequireRole allowed={['admin']}>` (`App.tsx`); gate the `navigation.crowdsec`
+    nav child with `user?.role === 'admin'` (`Layout.tsx`).
+  - `routes_test.go`: `TestRegister_CrowdsecAdminRoutesRequireAdminRole` (§3.1.4);
+    a handler-level 403 assertion in `crowdsec_handler_test.go` if lightweight.
+- **Files:** `backend/internal/api/routes/routes.go`,
+  `backend/internal/api/routes/routes_test.go`,
+  `backend/internal/api/handlers/crowdsec_handler_test.go` (maybe),
+  `frontend/src/App.tsx`, `frontend/src/components/Layout.tsx`,
+  `frontend/src/components/__tests__/Layout.test.tsx` (nav-gating assertion) or
+  a new small `App` route test.
+- **Depends on:** Commit 1 (ordering).
+- **Validation gate:**
+  `cd backend && go build ./... && go test ./internal/api/routes/... ./internal/api/handlers/...`;
+  new test proves unauth→401 / `role=user`→403 / `role=admin`→not-403 on the 4
+  representative routes; existing `TestRegister_AllRoutesRegistered` /
+  `TestRegister_CrowdSecRoutes` still pass (paths unchanged);
+  `cd frontend && npm run type-check && npx vitest run src/components/__tests__/Layout.test.tsx`;
+  `make lint-fast`; staticcheck clean.
+
+---
+
+### Commit 3 — Part B: deny-by-default authorization across the management group
+
+- **Type:** `fix(security): apply deny-by-default authorization on management API subroutes`
+- **Scope:**
+  - Re-run the route audit vs HEAD; reconcile with §3.2.2.
+  - `RegisterRoutes(read, admin *gin.RouterGroup)` split (C1/C2): `HecateHandler`
+    (reads `GET /hecate/status|/tunnels|/tunnels/:uuid` on `read`, rest on
+    `admin`); `OrthrusHandler` (reads `GET /orthrus/agents|/agents/:uuid` on
+    `read`, rest incl. `/snippets`, `/proxy-status` on `admin`);
+    `RemoteServerHandler` (reads `GET /remote-servers|/remote-servers/:uuid` on
+    `read`, rest incl. `/test` on `admin`).
+  - `SecurityHeadersHandler` (C6): **delete** `RegisterRoutes`; register its ~11
+    routes inline in `routes.go` — reads + 3 calculator `POST`s on `management`,
+    profile `POST/PUT/DELETE` + `presets/apply` on `managementAdmin`.
+  - `MOVE → managementAdmin`: `GET /audit-logs`, `GET /audit-logs/:uuid` (C4),
+    `GET /dns-providers/:id/audit-logs` (C5); `adminEncryption` group decl →
+    `managementAdmin.Group("/admin/encryption")`.
+  - ADMIN-ARG (per-route `middleware.RequireRole(models.RoleAdmin)` 2nd arg):
+    plugin enable/disable/reload; dns-provider mutations + `POST /dns-providers/test`
+    + `POST /dns-providers/:id/test` (C7) + credential + `POST /dns-providers/detect`;
+    `ManualChallengeHandler.RegisterRoutes(managementAdmin)`; certificate
+    mutations incl. `/export`; access-list mutations; domain mutations; settings
+    mutations (+ keep existing `GET /settings/smtp` arg); `PUT /feature-flags`;
+    `POST /system/permissions/repair`;
+    `POST /notifications/providers/test` + `/providers/preview`
+    + `/external-templates/preview` (C3).
+  - Frontend companion `RequireRole` guards + nav filters:
+    `/security/audit-logs` (route only — no nav entry), `/hecate/agent`
+    (route + nav child), `/security/encryption` (route + nav child).
+    Do **not** guard `navigation.hecate` wholesale or `/hecate/tunnels`.
+  - `TestManagementGroup_MutationsAreAdminGuarded` + `USER_OK_MUTATION_ALLOWLIST`
+    + `PUBLIC_MUTATION_ALLOWLIST` (reviewed constants).
+- **Files:** `backend/internal/api/routes/routes.go` (the ~35 sites in the
+  table), `backend/internal/api/handlers/security_headers_handler.go`
+  (delete `RegisterRoutes` method + its test that asserted the old group),
+  `backend/internal/api/handlers/hecate_handler.go` / `orthrus_handler.go` /
+  `remote_server_handler.go` (`RegisterRoutes(read, admin)` signature +
+  callers), `backend/internal/api/routes/routes_test.go`, any handler test that
+  assumed a now-moved route was reachable by `role=user`
+  (`hecate_handler_test.go`, `orthrus_handler_test.go`,
+  `audit_log_handler_test.go`, `notification_provider_handler_test.go`),
+  `frontend/src/App.tsx`, `frontend/src/components/Layout.tsx`, related frontend
+  tests.
+- **Depends on:** Commit 2 (`managementAdmin`).
+- **Validation gate:** `go build ./... && go test ./...` (full — catches handler
+  tests broken by moves); new enforcement test green; manual diff of
+  `router.Routes()` inventory before/after (path set unchanged, only middleware
+  chains differ); `cd frontend && npm run type-check && npx vitest run` (touched
+  suites); `make lint-fast`; staticcheck clean.
+
+---
+
+### Commit 4 — Part C: remove the public registration endpoint
+
+- **Type:** `fix(security): reduce unauthenticated API surface`
+- **Scope:**
+  - Delete `api.POST("/auth/register", …)` (`routes.go:295`),
+    `AuthHandler.Register`, `RegisterRequest` (`auth_handler.go`). Drop
+    now-unused imports.
+  - **Keep** `AuthService.Register` (+ `count==0 → RoleAdmin`); add a doc
+    comment marking it internal/test-only.
+  - Update `routes_test.go` refs (`:162` remove from `expectedRoutes`; `:215`
+    remove allowlist entry; `:335` → `assert.NotContains`); delete
+    `TestAuthHandler_Register_InvalidJSON` in `additional_coverage_test.go`;
+    switch `crowdsec_lapi_integration_test.go` `authenticate()` helper to
+    `POST /api/v1/setup`.
+  - New `TestRegister_PublicRegistrationEndpointRemoved` (§3.3.4) covering
+    route-gone + `/setup` bootstrap + email-invite acceptance.
+- **Files:** `backend/internal/api/routes/routes.go`,
+  `backend/internal/api/handlers/auth_handler.go`,
+  `backend/internal/services/auth_service.go` (doc comment only),
+  `backend/internal/api/routes/routes_test.go`,
+  `backend/internal/api/handlers/additional_coverage_test.go`,
+  `backend/integration/crowdsec_lapi_integration_test.go`.
+- **Depends on:** Commit 2 (shares `routes_test.go` allowlist edits — sequence
+  after B to avoid churn).
+- **Validation gate:** `go build ./...` (+ `-tags integration` compile check for
+  the integration file); `go test ./internal/api/...`; `staticcheck` / `go vet`
+  clean (no dangling refs); `AuthService.Register` unit tests unchanged & green;
+  `make lint-fast`.
+
+---
+
+### Commit 5 — Enable E2E, coverage, docs
+
+- **Type:** `docs: document management-API authorization model and account-creation flow`
+- **Scope:**
+  - Un-`fixme` the Commit 1 specs; adjust selectors/fixtures to the shipped
+    behavior; run targeted specs (firefox).
+  - File two follow-up issues (out of scope here): (1) "per-IP rate limit /
+    throttle middleware for `/api/v1/auth/*`" (`/auth/register` removed,
+    `/auth/login` already has account lockout); (2) "hide disabled
+    create/edit/delete controls for `role=user` on READ-classified admin pages
+    (Access Lists, Certificates, DNS Providers, Security Headers, Domains,
+    Remote Servers, Hecate tunnels)" — cosmetic; the API already returns `403`
+    (spec §7 item 1).
+  - Docs: `ARCHITECTURE.md` (Security Architecture / Auth & Authorization —
+    `managementAdmin` boundary; no public self-registration; bootstrap +
+    invite model), `SECURITY.md` (Authentication & Authorization section),
+    `docs/security.md`, `docs/features/access-control.md`, `docs/features.md`,
+    `docs/features/crowdsec.md`, `docs/features/custom-plugins.md` /
+    `plugin-security.md`.
+- **Files:** the Commit 1 spec files (remove `fixme`); the docs listed above.
+- **Depends on:** Commits 2-4.
+- **Validation gate (full DoD):**
+  `npx playwright test crowdsec-admin-authz authorization-rbac public-registration-removed auth-api-enforcement --project=firefox` all green;
+  `bash scripts/local-patch-report.sh` (artifacts present, patch coverage green);
+  `lefthook run pre-commit` (CodeQL Go+JS) 0 high/critical; `make trivy` clean;
+  `make lint-fast` + `make lint-backend` clean;
+  `scripts/go-test-coverage.sh` ≥ 85 %; `scripts/frontend-test-coverage.sh` ≥ 85 %;
+  `cd frontend && npm run type-check && npm run build`;
+  `cd backend && go build ./...`; `go test ./...` + `npx vitest run` zero
+  failures; debug/print cleanup.
+
+---
+
+### Rollback & contingency (PR-wide)
+
+- **Per-commit revert:** Commits 2, 3, 4 are individually revertable.
+  - Revert **Commit 3** alone if the Part B sweep regresses a `role=user`
+    workflow found late — Commit 2 (the actual advisory fix) and Commit 4 still
+    stand and ship value.
+  - Revert **Commit 4** alone (restore the register route) without affecting
+    the authz fixes, if an external consumer of `/auth/register` is discovered
+    that can't migrate to `/setup` in time — though the advisory title itself
+    frames public registration as the root enabler, so this should be a last
+    resort with a tracking issue.
+- **Minimum shippable:** Commits 1-2 + docs = the advisory is closed. Parts B/C
+  can be dropped from the PR (update this spec + PR description) if they need
+  more time — but the intent is to land all three together.
+- **No migration to roll back** — zero schema changes.
+- **Feature-flag option (contingency, not in the default plan):** if reviewers
+  want a kill switch for Part C rather than a hard delete, gate the register
+  route behind a `Setting` (`auth.public_registration_enabled`, default
+  `false`) instead of removing it. Adds surface; only if explicitly requested.
+- **Embargo:** keep the GHSA id, "CrowdSec", route paths, and
+  "authorization bypass / public registration" out of every commit subject and
+  any changelog-visible line. The PR description MAY reference the advisory
+  (repo private, pre-disclosure) — confirm with the maintainer before opening.
+
+---
+
+## 10. Commit Message Conventions (per `CLAUDE.md`)
+
+- Security-relevant commits use `fix(security):` with a **deliberately vague**
+  subject — category of issue + category of mitigation only. Never name the
+  vulnerability class, the component ("CrowdSec", "plugins"), the attack vector
+  ("public registration"), or any route path.
+  - Commit 2: `fix(security): tighten authorization checks on privileged API routes`
+  - Commit 3: `fix(security): apply deny-by-default authorization on management API subroutes`
+  - Commit 4: `fix(security): reduce unauthenticated API surface`
+- Non-security commits: `test:` (Commit 1), `docs:` (Commit 5).
+- `fix:` triggers Docker builds (intended here).
+- Every commit message ends with:
+  ```
+  Claude-Session: https://claude.ai/code/session_01Wm1jzKSdvz2LCusQC2qokM
+  ```
+- PR description ends with:
+  ```
+  https://claude.ai/code/session_01Wm1jzKSdvz2LCusQC2qokM
+  ```
+
+---
+
+## 11. Handoff
+
+- Next: `supervisor` review of this spec → iterate → user approval → implement
+  Commits 1-5 in order via `backend-dev` / `frontend-dev` (each commit passes
+  its gate before the next starts) → `supervisor` implementation review →
+  `qa-security` audit last → `docs-writer`.
+- Key references for implementers:
+  - Advisory root cause: `backend/internal/api/routes/routes.go:838`, `:373-374`;
+    correct pattern at `:796-797` and `:1011-1012`; per-route arg precedent at
+    `:457`.
+  - `backend/internal/api/middleware/auth.go` (`RequireRole`,
+    `RequireManagementAccess`).
+  - `backend/internal/api/handlers/permission_helpers.go` (`requireAdmin`,
+    `isAdmin`).
+  - Part C targets: `backend/internal/api/handlers/auth_handler.go:238-256`
+    (delete `RegisterRequest` + `Register`), `routes.go:295` (delete route),
+    `backend/internal/services/auth_service.go:31` (**keep**),
+    `backend/internal/api/handlers/user_handler.go:141` (`Setup` — the retained
+    bootstrap path).
+  - Test refs to fix: `routes_test.go:162,215,335`;
+    `additional_coverage_test.go:717-732`;
+    `backend/integration/crowdsec_lapi_integration_test.go:52-59`.
+  - Existing email-invite (the supported post-bootstrap path, unchanged):
+    `backend/internal/api/handlers/user_handler.go` (`InviteUser` / `ValidateInvite`
+    / `AcceptInvite`), `backend/internal/models/user.go` (invite fields),
+    `frontend/src/pages/AcceptInvite.tsx`, `frontend/src/api/users.ts`.
+  - Frontend gating pattern to mirror: `frontend/src/components/RequireRole.tsx`,
+    `frontend/src/App.tsx:120,126`, `frontend/src/components/Layout.tsx:127`.
+  - Test harness: `backend/internal/api/routes/routes_test.go`
+    (`TestRegister_*`, `materializeRoutePath`, `publicMutationAllowlist`),
+    `tests/security-enforcement/authorization-rbac.spec.ts`
+    (`loginAndGetToken`, `TEST_USERS`).
