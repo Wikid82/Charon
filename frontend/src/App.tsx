@@ -83,7 +83,7 @@ export default function App() {
                 <Route path="tunnels"        element={<HecateTunnels />} />
                 <Route path="remote-servers" element={<RemoteServers />} />
                 <Route path="providers"      element={<HecateProviders />} />
-                <Route path="agent"          element={<HecateAgent />} />
+                <Route path="agent"          element={<RequireRole allowed={['admin']}><HecateAgent /></RequireRole>} />
               </Route>
 
               {/* Legacy redirect for old Remote Servers bookmarks */}
@@ -101,13 +101,13 @@ export default function App() {
               <Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
 
               <Route path="security" element={<Security />} />
-              <Route path="security/audit-logs" element={<AuditLogs />} />
+              <Route path="security/audit-logs" element={<RequireRole allowed={['admin']}><AuditLogs /></RequireRole>} />
               <Route path="security/access-lists" element={<AccessLists />} />
               <Route path="security/crowdsec" element={<RequireRole allowed={['admin']}><CrowdSecConfig /></RequireRole>} />
               <Route path="security/rate-limiting" element={<RateLimiting />} />
               <Route path="security/waf" element={<WafConfig />} />
               <Route path="security/headers" element={<SecurityHeaders />} />
-              <Route path="security/encryption" element={<EncryptionManagement />} />
+              <Route path="security/encryption" element={<RequireRole allowed={['admin']}><EncryptionManagement /></RequireRole>} />
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
 

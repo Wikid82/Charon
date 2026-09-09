@@ -26,24 +26,31 @@ func NewHecateHandler(svc *services.HecateService) *HecateHandler {
 }
 
 // RegisterRoutes wires all Hecate management routes onto the given router group.
-func (h *HecateHandler) RegisterRoutes(rg *gin.RouterGroup) {
-	rg.GET("/hecate/status", h.GetStatus)
-	rg.GET("/hecate/tunnels", h.List)
-	rg.POST("/hecate/tunnels", h.Create)
-	rg.GET("/hecate/tunnels/:uuid", h.Get)
-	rg.PUT("/hecate/tunnels/:uuid", h.Update)
-	rg.DELETE("/hecate/tunnels/:uuid", h.Delete)
-	rg.POST("/hecate/tunnels/:uuid/start", h.Start)
-	rg.POST("/hecate/tunnels/:uuid/stop", h.Stop)
-	rg.POST("/hecate/tunnels/:uuid/rotate-credentials", h.RotateCredentials)
-	rg.GET("/hecate/cloudflare/tunnels", h.ListCloudflareTunnels)
-	rg.GET("/hecate/tunnels/:uuid/config/cloudflared", h.GetCloudflaredConfig)
-	rg.GET("/hecate/tailscale/devices", h.ListTailscaleDevices)
-	rg.POST("/hecate/tailscale/sync", h.SyncTailscale)
-	rg.GET("/hecate/zerotier/networks", h.ListZeroTierNetworks)
-	rg.GET("/hecate/zerotier/networks/:network_id/members", h.ListZeroTierMembers)
-	rg.GET("/hecate/netbird/peers", h.ListNetBirdPeers)
-	rg.POST("/hecate/netbird/sync", h.SyncNetBird)
+// RegisterRoutes wires the Hecate endpoints. Read-only status/list endpoints
+// that back role=user-reachable screens (the Dashboard hecate widget and the
+// proxy-host create/edit flow) are registered on read; everything that mutates
+// tunnels or exposes tunnel-provider credentials / network topology is
+// registered on admin (deny-by-default for role=user). Callers that do not
+// need the split may pass the same group for both.
+func (h *HecateHandler) RegisterRoutes(read, admin *gin.RouterGroup) {
+	read.GET("/hecate/status", h.GetStatus)
+	read.GET("/hecate/tunnels", h.List)
+	read.GET("/hecate/tunnels/:uuid", h.Get)
+
+	admin.POST("/hecate/tunnels", h.Create)
+	admin.PUT("/hecate/tunnels/:uuid", h.Update)
+	admin.DELETE("/hecate/tunnels/:uuid", h.Delete)
+	admin.POST("/hecate/tunnels/:uuid/start", h.Start)
+	admin.POST("/hecate/tunnels/:uuid/stop", h.Stop)
+	admin.POST("/hecate/tunnels/:uuid/rotate-credentials", h.RotateCredentials)
+	admin.GET("/hecate/cloudflare/tunnels", h.ListCloudflareTunnels)
+	admin.GET("/hecate/tunnels/:uuid/config/cloudflared", h.GetCloudflaredConfig)
+	admin.GET("/hecate/tailscale/devices", h.ListTailscaleDevices)
+	admin.POST("/hecate/tailscale/sync", h.SyncTailscale)
+	admin.GET("/hecate/zerotier/networks", h.ListZeroTierNetworks)
+	admin.GET("/hecate/zerotier/networks/:network_id/members", h.ListZeroTierMembers)
+	admin.GET("/hecate/netbird/peers", h.ListNetBirdPeers)
+	admin.POST("/hecate/netbird/sync", h.SyncNetBird)
 }
 
 // GetStatus returns the runtime status of all managed tunnels.

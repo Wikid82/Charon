@@ -45,7 +45,7 @@ func NewOrthrusHandler(orthrsuSvc *services.OrthrusService, securityService *ser
 func (h *OrthrusHandler) SetProxyResolver(r orthrusProxyStatusResolver) {
 	if r != nil {
 		rv := reflect.ValueOf(r)
-		if rv.Kind() == reflect.Ptr && rv.IsNil() {
+		if rv.Kind() == reflect.Pointer && rv.IsNil() {
 			h.proxyResolver = nil
 			return
 		}
@@ -54,15 +54,23 @@ func (h *OrthrusHandler) SetProxyResolver(r orthrusProxyStatusResolver) {
 }
 
 // RegisterRoutes wires all Orthrus management routes onto the given router group.
-func (h *OrthrusHandler) RegisterRoutes(rg *gin.RouterGroup) {
-	rg.GET("/orthrus/agents", h.List)
-	rg.POST("/orthrus/agents", h.Provision)
-	rg.GET("/orthrus/agents/:uuid", h.Get)
-	rg.PATCH("/orthrus/agents/:uuid", h.Patch)
-	rg.DELETE("/orthrus/agents/:uuid", h.Delete)
-	rg.POST("/orthrus/agents/:uuid/revoke", h.Revoke)
-	rg.GET("/orthrus/agents/:uuid/snippets", h.GetInstallSnippets)
-	rg.GET("/orthrus/agents/:uuid/proxy-status", h.GetProxyStatus)
+// RegisterRoutes wires the Orthrus agent endpoints. The agent list/summary
+// reads that back the role=user-reachable proxy-host create/edit flow are
+// registered on read; agent provisioning, mutation, revocation and the
+// detail endpoints (install snippets embed a bootstrap token; proxy-status
+// exposes agent internals) are registered on admin (deny-by-default for
+// role=user). Callers that do not need the split may pass the same group for
+// both.
+func (h *OrthrusHandler) RegisterRoutes(read, admin *gin.RouterGroup) {
+	read.GET("/orthrus/agents", h.List)
+	read.GET("/orthrus/agents/:uuid", h.Get)
+
+	admin.POST("/orthrus/agents", h.Provision)
+	admin.PATCH("/orthrus/agents/:uuid", h.Patch)
+	admin.DELETE("/orthrus/agents/:uuid", h.Delete)
+	admin.POST("/orthrus/agents/:uuid/revoke", h.Revoke)
+	admin.GET("/orthrus/agents/:uuid/snippets", h.GetInstallSnippets)
+	admin.GET("/orthrus/agents/:uuid/proxy-status", h.GetProxyStatus)
 }
 
 // List returns all registered Orthrus agents.

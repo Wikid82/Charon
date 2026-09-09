@@ -97,7 +97,7 @@ export default function Layout({ children }: LayoutProps) {
         { name: t('navigation.remoteServers'), path: '/hecate/remote-servers', icon: '🖥️' },
         { name: t('navigation.tunnels'),       path: '/hecate/tunnels',         icon: '🌐' },
         { name: t('navigation.providers'),     path: '/hecate/providers',       icon: '🔑' },
-        { name: t('navigation.agent'),         path: '/hecate/agent',           icon: '🤖' },
+        ...(user?.role === 'admin' ? [{ name: t('navigation.agent'), path: '/hecate/agent', icon: '🤖' }] : []),
       ],
     },
     { name: t('navigation.domains'), path: '/domains', icon: '🌍' },
@@ -114,7 +114,7 @@ export default function Layout({ children }: LayoutProps) {
       { name: t('navigation.rateLimiting'), path: '/security/rate-limiting', icon: '⚡' },
       { name: t('navigation.waf'), path: '/security/waf', icon: '🛡️' },
       { name: t('navigation.securityHeaders'), path: '/security/headers', icon: '🔐' },
-      { name: t('navigation.encryption'), path: '/security/encryption', icon: '🔑' },
+      ...(user?.role === 'admin' ? [{ name: t('navigation.encryption'), path: '/security/encryption', icon: '🔑' }] : []),
     ]},
     {
       name: t('navigation.settings'),

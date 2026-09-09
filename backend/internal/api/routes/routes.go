@@ -429,30 +429,35 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// System permissions diagnostics and repair
 		systemPermissionsHandler := handlers.NewSystemPermissionsHandler(cfg, securityService, nil)
 		management.GET("/system/permissions", systemPermissionsHandler.GetPermissions)
-		management.POST("/system/permissions/repair", systemPermissionsHandler.RepairPermissions)
+		management.POST("/system/permissions/repair", middleware.RequireRole(models.RoleAdmin), systemPermissionsHandler.RepairPermissions)
 
 		// Audit Logs
 		auditLogHandler := handlers.NewAuditLogHandler(securityService)
-		management.GET("/audit-logs", auditLogHandler.List)
-		management.GET("/audit-logs/:uuid", auditLogHandler.Get)
+		// Audit records expose other users' emails, source IPs and
+		// security-event detail — admin-only (info disclosure to a
+		// lower-privilege role otherwise).
+		managementAdmin.GET("/audit-logs", auditLogHandler.List)
+		managementAdmin.GET("/audit-logs/:uuid", auditLogHandler.Get)
 
 		// Settings - with CaddyManager and Cerberus for security settings reload
 		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot)
 
+		// Settings reads load for every role; every mutation is admin-only
+		// (per-route guard here + belt-and-braces in-handler checks retained).
 		management.GET("/settings", settingsHandler.GetSettings)
-		management.POST("/settings", settingsHandler.UpdateSetting)
-		management.PATCH("/settings", settingsHandler.UpdateSetting) // E2E tests use PATCH
-		management.PATCH("/config", settingsHandler.PatchConfig)     // Bulk configuration update
+		management.POST("/settings", middleware.RequireRole(models.RoleAdmin), settingsHandler.UpdateSetting)
+		management.PATCH("/settings", middleware.RequireRole(models.RoleAdmin), settingsHandler.UpdateSetting) // E2E tests use PATCH
+		management.PATCH("/config", middleware.RequireRole(models.RoleAdmin), settingsHandler.PatchConfig)     // Bulk configuration update
 
 		// Logo upload/delete — admin only
 		logoHandler := handlers.NewLogoHandler(db, dataRoot)
-		management.POST("/settings/logo", logoHandler.UploadLogo)
-		management.DELETE("/settings/logo", logoHandler.DeleteLogo)
+		management.POST("/settings/logo", middleware.RequireRole(models.RoleAdmin), logoHandler.UploadLogo)
+		management.DELETE("/settings/logo", middleware.RequireRole(models.RoleAdmin), logoHandler.DeleteLogo)
 
 		// Banner upload/delete — admin only (enforced inside ImageUploadHandler)
 		bannerHandler := handlers.NewBannerHandler(db, dataRoot)
-		management.POST("/settings/banner", bannerHandler.UploadBanner)
-		management.DELETE("/settings/banner", bannerHandler.DeleteBanner)
+		management.POST("/settings/banner", middleware.RequireRole(models.RoleAdmin), bannerHandler.UploadBanner)
+		management.DELETE("/settings/banner", middleware.RequireRole(models.RoleAdmin), bannerHandler.DeleteBanner)
 
 		// User-created named themes — available to all management users (not admin-only)
 		themeHandler := handlers.NewCustomThemeHandler(db)
@@ -463,18 +468,18 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// SMTP Configuration
 		management.GET("/settings/smtp", middleware.RequireRole(models.RoleAdmin), settingsHandler.GetSMTPConfig)
-		management.POST("/settings/smtp", settingsHandler.UpdateSMTPConfig)
-		management.POST("/settings/smtp/test", settingsHandler.TestSMTPConfig)
-		management.POST("/settings/smtp/test-email", settingsHandler.SendTestEmail)
+		management.POST("/settings/smtp", middleware.RequireRole(models.RoleAdmin), settingsHandler.UpdateSMTPConfig)
+		management.POST("/settings/smtp/test", middleware.RequireRole(models.RoleAdmin), settingsHandler.TestSMTPConfig)
+		management.POST("/settings/smtp/test-email", middleware.RequireRole(models.RoleAdmin), settingsHandler.SendTestEmail)
 
 		// URL Validation
-		management.POST("/settings/validate-url", settingsHandler.ValidatePublicURL)
-		management.POST("/settings/test-url", settingsHandler.TestPublicURL)
+		management.POST("/settings/validate-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.ValidatePublicURL)
+		management.POST("/settings/test-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.TestPublicURL)
 
 		// Feature flags (DB-backed with env fallback)
 		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
 		management.GET("/feature-flags", featureFlagsHandler.GetFlags)
-		management.PUT("/feature-flags", featureFlagsHandler.UpdateFlags)
+		management.PUT("/feature-flags", middleware.RequireRole(models.RoleAdmin), featureFlagsHandler.UpdateFlags)
 
 		// User Management (admin only routes are in RegisterRoutes)
 		management.GET("/users", userHandler.ListUsers)
@@ -505,8 +510,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// Domains
 		domainHandler := handlers.NewDomainHandler(db, notificationService)
 		management.GET("/domains", domainHandler.List)
-		management.POST("/domains", domainHandler.Create)
-		management.DELETE("/domains/:id", domainHandler.Delete)
+		management.POST("/domains", middleware.RequireRole(models.RoleAdmin), domainHandler.Create)
+		management.DELETE("/domains/:id", middleware.RequireRole(models.RoleAdmin), domainHandler.Delete)
 
 		// DNS Providers - only available if encryption key is configured
 		var orthrusServer *orthrus.OrthrusServer
@@ -517,33 +522,37 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			} else {
 				dnsProviderService := services.NewDNSProviderService(db, encryptionService)
 				dnsProviderHandler := handlers.NewDNSProviderHandler(dnsProviderService)
+				// DNS provider reads back the role=user-reachable DNSProviders
+				// page; every mutation and the credential-test endpoints
+				// (DNS API credentials + ACME control) are admin-only.
+				adminRole := middleware.RequireRole(models.RoleAdmin)
 				management.GET("/dns-providers", dnsProviderHandler.List)
-				management.POST("/dns-providers", dnsProviderHandler.Create)
+				management.POST("/dns-providers", adminRole, dnsProviderHandler.Create)
 				management.GET("/dns-providers/types", dnsProviderHandler.GetTypes)
 				management.GET("/dns-providers/:id", dnsProviderHandler.Get)
-				management.PUT("/dns-providers/:id", dnsProviderHandler.Update)
-				management.DELETE("/dns-providers/:id", dnsProviderHandler.Delete)
-				management.POST("/dns-providers/:id/test", dnsProviderHandler.Test)
-				management.POST("/dns-providers/test", dnsProviderHandler.TestCredentials)
-				// Audit logs for DNS providers
-				management.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
+				management.PUT("/dns-providers/:id", adminRole, dnsProviderHandler.Update)
+				management.DELETE("/dns-providers/:id", adminRole, dnsProviderHandler.Delete)
+				management.POST("/dns-providers/:id/test", adminRole, dnsProviderHandler.Test)
+				management.POST("/dns-providers/test", adminRole, dnsProviderHandler.TestCredentials)
+				// Audit logs for DNS providers — actor PII, admin-only.
+				managementAdmin.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
 
 				// DNS Provider Auto-Detection (Phase 4)
 				dnsDetectionService := services.NewDNSDetectionService(db)
 				dnsDetectionHandler := handlers.NewDNSDetectionHandler(dnsDetectionService)
-				management.POST("/dns-providers/detect", dnsDetectionHandler.Detect)
+				management.POST("/dns-providers/detect", adminRole, dnsDetectionHandler.Detect)
 				management.GET("/dns-providers/detection-patterns", dnsDetectionHandler.GetPatterns)
 
 				// Multi-Credential Management (Phase 3)
 				credentialService := services.NewCredentialService(db, encryptionService)
 				credentialHandler := handlers.NewCredentialHandler(credentialService)
 				management.GET("/dns-providers/:id/credentials", credentialHandler.List)
-				management.POST("/dns-providers/:id/credentials", credentialHandler.Create)
+				management.POST("/dns-providers/:id/credentials", adminRole, credentialHandler.Create)
 				management.GET("/dns-providers/:id/credentials/:cred_id", credentialHandler.Get)
-				management.PUT("/dns-providers/:id/credentials/:cred_id", credentialHandler.Update)
-				management.DELETE("/dns-providers/:id/credentials/:cred_id", credentialHandler.Delete)
-				management.POST("/dns-providers/:id/credentials/:cred_id/test", credentialHandler.Test)
-				management.POST("/dns-providers/:id/enable-multi-credentials", credentialHandler.EnableMultiCredentials)
+				management.PUT("/dns-providers/:id/credentials/:cred_id", adminRole, credentialHandler.Update)
+				management.DELETE("/dns-providers/:id/credentials/:cred_id", adminRole, credentialHandler.Delete)
+				management.POST("/dns-providers/:id/credentials/:cred_id/test", adminRole, credentialHandler.Test)
+				management.POST("/dns-providers/:id/enable-multi-credentials", adminRole, credentialHandler.EnableMultiCredentials)
 
 				// Encryption Management - Admin only endpoints
 				rotationService, rotErr := crypto.NewRotationService(db)
@@ -551,7 +560,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 					logger.Log().WithError(rotErr).Warn("Failed to initialize rotation service - key rotation features will be unavailable")
 				} else {
 					encryptionHandler := handlers.NewEncryptionHandler(rotationService, securityService)
-					adminEncryption := management.Group("/admin/encryption")
+					// Derive from managementAdmin for defense-in-depth: the
+					// handlers already call isAdmin(c), but the subgroup guard
+					// removes the "silent 200 if that check is ever dropped" risk.
+					adminEncryption := managementAdmin.Group("/admin/encryption")
 					adminEncryption.GET("/status", encryptionHandler.GetStatus)
 					adminEncryption.POST("/rotate", encryptionHandler.Rotate)
 					adminEncryption.GET("/history", encryptionHandler.GetHistory)
@@ -568,14 +580,18 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 				adminPlugins := management.Group("/admin/plugins")
 				adminPlugins.GET("", pluginHandler.ListPlugins)
 				adminPlugins.GET("/:id", pluginHandler.GetPlugin)
-				adminPlugins.POST("/:id/enable", pluginHandler.EnablePlugin)
-				adminPlugins.POST("/:id/disable", pluginHandler.DisablePlugin)
-				adminPlugins.POST("/reload", pluginHandler.ReloadPlugins)
+				// Mutations are admin-only (deny-by-default). Listing stays on
+				// management so the role=user-reachable /dns/plugins page loads.
+				adminPlugins.POST("/:id/enable", middleware.RequireRole(models.RoleAdmin), pluginHandler.EnablePlugin)
+				adminPlugins.POST("/:id/disable", middleware.RequireRole(models.RoleAdmin), pluginHandler.DisablePlugin)
+				adminPlugins.POST("/reload", middleware.RequireRole(models.RoleAdmin), pluginHandler.ReloadPlugins)
 
 				// Manual DNS Challenges (Phase 1) - For users without automated DNS API access
 				manualChallengeService := services.NewManualChallengeService(db)
 				manualChallengeHandler := handlers.NewManualChallengeHandler(manualChallengeService, dnsProviderService)
-				manualChallengeHandler.RegisterRoutes(management)
+				// All manual-challenge routes are provider-mutation-adjacent
+				// (ACME control) with no role=user read need — admin-only.
+				manualChallengeHandler.RegisterRoutes(managementAdmin)
 
 				// Hecate Tunnel & Pathway Manager
 				tunnelMgr := hecate.NewTunnelManager(db, encryptionService)
@@ -602,10 +618,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 				orthrsuSvc := services.NewOrthrusService(db, orthrusServer)
 
 				hecateHandler := handlers.NewHecateHandler(hecateSvc)
-				hecateHandler.RegisterRoutes(management)
+				hecateHandler.RegisterRoutes(management, managementAdmin)
 
 				orthrusHandler := handlers.NewOrthrusHandler(orthrsuSvc, securityService)
-				orthrusHandler.RegisterRoutes(management)
+				orthrusHandler.RegisterRoutes(management, managementAdmin)
 
 				if orthrusServer != nil {
 					orthrusHandler.SetProxyResolver(orthrusServer)
@@ -663,8 +679,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/notifications/providers", notificationProviderHandler.Create)
 		management.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
 		management.DELETE("/notifications/providers/:id", notificationProviderHandler.Delete)
-		management.POST("/notifications/providers/test", notificationProviderHandler.Test)
-		management.POST("/notifications/providers/preview", notificationProviderHandler.Preview)
+		// Test/Preview send test messages / render templates with provider
+		// config and have no in-handler admin check — admin-only.
+		management.POST("/notifications/providers/test", middleware.RequireRole(models.RoleAdmin), notificationProviderHandler.Test)
+		management.POST("/notifications/providers/preview", middleware.RequireRole(models.RoleAdmin), notificationProviderHandler.Preview)
 		management.GET("/notifications/templates", notificationProviderHandler.Templates)
 
 		// External notification templates (saved templates for providers)
@@ -673,7 +691,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/notifications/external-templates", notificationTemplateHandler.Create)
 		management.PUT("/notifications/external-templates/:id", notificationTemplateHandler.Update)
 		management.DELETE("/notifications/external-templates/:id", notificationTemplateHandler.Delete)
-		management.POST("/notifications/external-templates/preview", notificationTemplateHandler.Preview)
+		management.POST("/notifications/external-templates/preview", middleware.RequireRole(models.RoleAdmin), notificationTemplateHandler.Preview)
 
 		// Ensure uptime feature flag exists to avoid record-not-found logs
 		defaultUptime := models.Setting{Key: "feature.uptime.enabled", Value: "true", Type: "bool", Category: "feature"}
@@ -905,17 +923,33 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		if geoipSvc != nil {
 			accessListHandler.SetGeoIPService(geoipSvc)
 		}
+		// ACLs are a security control: reads + the non-persisting /:id/test
+		// dry-run stay on management; create/update/delete are admin-only.
 		management.GET("/access-lists/templates", accessListHandler.GetTemplates)
 		management.GET("/access-lists", accessListHandler.List)
-		management.POST("/access-lists", accessListHandler.Create)
+		management.POST("/access-lists", middleware.RequireRole(models.RoleAdmin), accessListHandler.Create)
 		management.GET("/access-lists/:id", accessListHandler.Get)
-		management.PUT("/access-lists/:id", accessListHandler.Update)
-		management.DELETE("/access-lists/:id", accessListHandler.Delete)
+		management.PUT("/access-lists/:id", middleware.RequireRole(models.RoleAdmin), accessListHandler.Update)
+		management.DELETE("/access-lists/:id", middleware.RequireRole(models.RoleAdmin), accessListHandler.Delete)
 		management.POST("/access-lists/:id/test", accessListHandler.TestIP)
 
-		// Security Headers
+		// Security Headers. Reads + the three pure calculator POSTs (they do
+		// not persist) stay on management so the role=user-reachable
+		// SecurityHeaders page works; profile create/update/delete and
+		// preset-apply are admin-only.
 		securityHeadersHandler := handlers.NewSecurityHeadersHandler(db, caddyManager)
-		securityHeadersHandler.RegisterRoutes(management)
+		securityHeaders := management.Group("/security/headers")
+		securityHeaders.GET("/profiles", securityHeadersHandler.ListProfiles)
+		securityHeaders.GET("/profiles/:id", securityHeadersHandler.GetProfile)
+		securityHeaders.GET("/presets", securityHeadersHandler.GetPresets)
+		securityHeaders.POST("/score", securityHeadersHandler.CalculateScore)
+		securityHeaders.POST("/csp/validate", securityHeadersHandler.ValidateCSP)
+		securityHeaders.POST("/csp/build", securityHeadersHandler.BuildCSP)
+		securityHeadersAdmin := managementAdmin.Group("/security/headers")
+		securityHeadersAdmin.POST("/profiles", securityHeadersHandler.CreateProfile)
+		securityHeadersAdmin.PUT("/profiles/:id", securityHeadersHandler.UpdateProfile)
+		securityHeadersAdmin.DELETE("/profiles/:id", securityHeadersHandler.DeleteProfile)
+		securityHeadersAdmin.POST("/presets/apply", securityHeadersHandler.ApplyPreset)
 
 		// Certificate routes
 		// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
@@ -940,13 +974,15 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			logger.Log().WithError(err).Warn("Failed to migrate certificate private keys")
 		}
 
+		// Certificate reads back the role=user-reachable Certificates page;
+		// mutations and /export (returns private-key material) are admin-only.
 		management.GET("/certificates", certHandler.List)
-		management.POST("/certificates", certHandler.Upload)
-		management.POST("/certificates/validate", certHandler.Validate)
+		management.POST("/certificates", middleware.RequireRole(models.RoleAdmin), certHandler.Upload)
+		management.POST("/certificates/validate", middleware.RequireRole(models.RoleAdmin), certHandler.Validate)
 		management.GET("/certificates/:uuid", certHandler.Get)
-		management.PUT("/certificates/:uuid", certHandler.Update)
-		management.POST("/certificates/:uuid/export", certHandler.Export)
-		management.DELETE("/certificates/:uuid", certHandler.Delete)
+		management.PUT("/certificates/:uuid", middleware.RequireRole(models.RoleAdmin), certHandler.Update)
+		management.POST("/certificates/:uuid/export", middleware.RequireRole(models.RoleAdmin), certHandler.Export)
+		management.DELETE("/certificates/:uuid", middleware.RequireRole(models.RoleAdmin), certHandler.Delete)
 
 		// Start certificate expiry checker
 		warningDays := 30
@@ -969,7 +1005,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 		remoteServerHandler.SetUptimeService(uptimeService) // targeted monitor sync on CRUD (spec §3.1.3)
-		remoteServerHandler.RegisterRoutes(management)
+		remoteServerHandler.RegisterRoutes(management, managementAdmin)
 	}
 
 	// Caddy Manager already created above
