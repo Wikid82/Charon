@@ -81,6 +81,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Non-PR entry points (schedule / workflow_dispatch, and the weekly
+          # rebuild's workflow_call — whose github.event_name is the caller's
+          # 'schedule'/'workflow_dispatch') evaluate `development`, not the
+          # default branch (main). `open-bump-pr` opens its digest-bump PR with
+          # `base: development`, and `development` carries its own Dockerfile ARG
+          # bumps (x/net, x/crypto, …) that move the toolchain key independently
+          # of main. Checking out main here made the daily bot blind to
+          # development-side drift, which then only surfaced on the next
+          # main -> development propagation PR's verify-toolchain-pin check.
+          # pull_request keeps the default merge-ref checkout.
+          ref: ${{ github.event_name != 'pull_request' && 'development' || '' }}
 
       - name: Classify trust (same-repo vs fork)
         id: trust
@@ -255,6 +267,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Match build-toolchain: on non-PR triggers, use development's
+          # .trivyignore so the CRITICAL/HIGH gate scores the development-recipe
+          # image against development's suppressions.
+          ref: ${{ github.event_name != 'pull_request' && 'development' || '' }}
 
       - name: Determine scan reference
         id: ref
@@ -389,6 +406,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Evaluate + bump development's Dockerfile pin (this job's PR targets
+          # `base: development`). Never runs on pull_request, so this is always
+          # `development`; the expression mirrors build-toolchain for symmetry.
+          ref: ${{ github.event_name != 'pull_request' && 'development' || '' }}
 
       - name: Decide whether the pin moved
         id: moved
