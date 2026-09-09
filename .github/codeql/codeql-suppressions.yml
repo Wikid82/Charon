@@ -48,7 +48,9 @@ suppressions:
 
   - rule_id: go/log-injection
     path: backend/internal/api/handlers/remote_server_handler.go
-    line: 142
+    line_range:
+      start: 146
+      end: 150
     reason: >
       False positive. The logged value is the goroutine's `id uint`
       parameter (bound from `server.ID`, a GORM-assigned numeric primary
@@ -67,6 +69,14 @@ suppressions:
       this entry is the documented fallback for when a local SARIF scan
       does not populate `result.suppressions` (see the
       go/cookie-secure-not-set entry above for the same limitation).
+      Extended 2026-09-09: the management-API authorization hardening
+      (fix(security): apply deny-by-default authorization on management
+      API subroutes) changed RemoteServerHandler.RegisterRoutes to a
+      (read, admin *gin.RouterGroup) split, adding lines above Update and
+      shifting the sink from line 142 to ~148; widened to a line_range so
+      the multi-line `logger.Log().WithError(...).WithField(...).Warn(...)`
+      chain stays covered regardless of which line CodeQL anchors
+      startLine to.
     added: "2026-08-27"
     review_by: "2026-11-27"
 

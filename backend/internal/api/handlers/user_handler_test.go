@@ -2819,6 +2819,66 @@ func TestUserHandler_UpdateUser_NonAdminSelfRoleChange(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "Cannot modify role or enabled status")
 }
 
+// TestUserHandler_UpdateUser_NonAdminSelfCannotEscalatePrivilegedFields is a
+// regression guard for the self-service path: PUT /api/v1/users/:id is on the
+// userOKMutationAllowlist (legit self-service of name/password), so
+// TestManagementGroup_MutationsAreAdminGuarded deliberately does not cover it.
+// This asserts the persisted record — not just the HTTP status — so a future
+// refactor that stops returning 403 and instead silently drops the field would
+// still be caught. A role=user editing their OWN record with privileged fields
+// (role, enabled) must not change those fields, and a role=user editing a
+// DIFFERENT user's record must be rejected outright with 403.
+func TestUserHandler_UpdateUser_NonAdminSelfCannotEscalatePrivilegedFields(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	self := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "noesc-self@example.com", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, db.Create(&self).Error)
+	other := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "noesc-other@example.com", Name: "Other", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, db.Create(&other).Error)
+
+	newRouter := func(actingUserID uint) *gin.Engine {
+		r := gin.New()
+		r.Use(func(c *gin.Context) {
+			c.Set("role", "user")
+			c.Set("userID", actingUserID)
+			c.Next()
+		})
+		r.PUT("/users/:id", handler.UpdateUser)
+		return r
+	}
+
+	// Case 1: acting on OWN record with privileged fields in the body. The
+	// non-admin branch rejects the request before any field is applied, so the
+	// persisted role stays RoleUser and enabled stays as seeded.
+	body, _ := json.Marshal(map[string]any{"role": "admin", "enabled": false})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", self.ID), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	newRouter(self.ID).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	var persistedSelf models.User
+	require.NoError(t, db.First(&persistedSelf, self.ID).Error)
+	assert.Equal(t, models.RoleUser, persistedSelf.Role, "role must not escalate via self-service update")
+	assert.True(t, persistedSelf.Enabled, "enabled must not be flipped via self-service update")
+
+	// Case 2: acting on a DIFFERENT user's record is rejected outright.
+	body2, _ := json.Marshal(map[string]any{"name": "hijacked"})
+	req2 := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/users/%d", other.ID), bytes.NewBuffer(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	newRouter(self.ID).ServeHTTP(w2, req2)
+
+	assert.Equal(t, http.StatusForbidden, w2.Code)
+	assert.Contains(t, w2.Body.String(), "Admin access required")
+
+	var persistedOther models.User
+	require.NoError(t, db.First(&persistedOther, other.ID).Error)
+	assert.Equal(t, "noesc-other@example.com", persistedOther.Email)
+	assert.NotEqual(t, "hijacked", persistedOther.Name)
+}
+
 // --- UpdateUser invalid role string ---
 
 func TestUserHandler_UpdateUser_InvalidRole(t *testing.T) {

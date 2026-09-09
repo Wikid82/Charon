@@ -145,7 +145,7 @@ for i in {1..30}; do
   sleep 1
 done
 
-echo "Skipping unauthenticated ruleset creation (will register and create with cookie later)..."
+echo "Skipping unauthenticated ruleset creation (will set up admin and create with cookie later)..."
 echo "Creating a backend container for proxy host..."
 # ensure the overlay network exists (docker-compose uses containers_default)
 CREATED_NETWORK=0
@@ -176,9 +176,9 @@ for i in {1..20}; do
   sleep 1
 done
 
-echo "Registering admin user and logging in to retrieve session cookie..."
+echo "Setting up admin user and logging in to retrieve session cookie..."
 TMP_COOKIE=$(mktemp)
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/auth/register >/dev/null || true
+curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/setup >/dev/null || true
 curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null
 
 echo "Creating proxy host 'integration.local' pointing to backend..."

@@ -704,50 +704,6 @@ func TestAuthHandler_Login_Errors(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func TestAuthHandler_Register(t *testing.T) {
-	t.Parallel()
-	handler, _ := setupAuthHandler(t)
-
-	r := gin.New()
-	r.POST("/register", handler.Register)
-
-	body := map[string]string{
-		"email":    "new@example.com",
-		"password": "password123",
-		"name":     "New User",
-	}
-	jsonBody, _ := json.Marshal(body)
-	req := httptest.NewRequest("POST", "/register", bytes.NewBuffer(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusCreated, w.Code)
-	assert.Contains(t, w.Body.String(), "new@example.com")
-}
-
-func TestAuthHandler_Register_Duplicate(t *testing.T) {
-	t.Parallel()
-	handler, db := setupAuthHandler(t)
-	db.Create(&models.User{UUID: uuid.NewString(), Email: "dup@example.com", Name: "Dup"})
-
-	r := gin.New()
-	r.POST("/register", handler.Register)
-
-	body := map[string]string{
-		"email":    "dup@example.com",
-		"password": "password123",
-		"name":     "Dup User",
-	}
-	jsonBody, _ := json.Marshal(body)
-	req := httptest.NewRequest("POST", "/register", bytes.NewBuffer(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
 func TestAuthHandler_Logout(t *testing.T) {
 	t.Parallel()
 	handler, _ := setupAuthHandler(t)
@@ -1689,21 +1645,6 @@ func TestAuthHandler_Refresh_Unauthorized(t *testing.T) {
 	r.ServeHTTP(res, req)
 
 	assert.Equal(t, http.StatusUnauthorized, res.Code)
-}
-
-func TestAuthHandler_Register_BadRequest(t *testing.T) {
-	t.Parallel()
-
-	handler, _ := setupAuthHandler(t)
-	r := gin.New()
-	r.POST("/register", handler.Register)
-
-	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString("not-json"))
-	req.Header.Set("Content-Type", "application/json")
-	res := httptest.NewRecorder()
-	r.ServeHTTP(res, req)
-
-	assert.Equal(t, http.StatusBadRequest, res.Code)
 }
 
 func TestAuthHandler_Logout_InvalidateSessionsFailure(t *testing.T) {

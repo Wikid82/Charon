@@ -4,7 +4,11 @@ This guide covers security configuration and deployment patterns for Charon's pl
 
 ## Overview
 
-Charon supports external DNS provider plugins via Go's plugin system. Because plugins execute **in-process** with full memory access, they must be treated as trusted code. This guide explains how to:
+Charon supports external DNS provider plugins via Go's plugin system. Because plugins execute **in-process** with full memory access, they must be treated as trusted code.
+
+Managing plugins at runtime — enabling, disabling, reloading, or unloading them — requires an **administrator account**. Standard users can see which plugins are installed but cannot change which ones are active.
+
+This guide explains how to:
 
 - Configure signature-based allowlisting
 - Deploy plugins securely in containers

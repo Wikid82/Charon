@@ -201,14 +201,14 @@ for i in {1..45}; do
 done
 
 # ============================================================================
-# Step 4: Register user and authenticate
+# Step 4: Set up admin user and authenticate
 # ============================================================================
 echo ""
-echo "Registering admin user and logging in..."
+echo "Setting up admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 curl -s -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123","name":"Rate Limit Tester"}' \
-    http://localhost:8280/api/v1/auth/register >/dev/null 2>&1 || true
+    http://localhost:8280/api/v1/setup >/dev/null 2>&1 || true
 
 LOGIN_STATUS=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123"}' \

@@ -504,7 +504,7 @@ func TestOrthrusHandler_RegisterRoutes(t *testing.T) {
 
 	r := gin.New()
 	group := r.Group("/management")
-	h.RegisterRoutes(group)
+	h.RegisterRoutes(group, group)
 
 	routes := r.Routes()
 	paths := make(map[string]bool)

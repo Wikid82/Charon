@@ -52,7 +52,7 @@ func TestRemoteServerHandler_List(t *testing.T) {
 	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group("/api/v1"), router.Group("/api/v1"))
 
 	// Test List
 	w := httptest.NewRecorder()
@@ -75,7 +75,7 @@ func TestRemoteServerHandler_Create(t *testing.T) {
 	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group("/api/v1"), router.Group("/api/v1"))
 
 	// Test Create
 	serverData := map[string]any{
@@ -119,7 +119,7 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group("/api/v1"), router.Group("/api/v1"))
 
 	// Test connection
 	w := httptest.NewRecorder()
@@ -153,7 +153,7 @@ func TestRemoteServerHandler_Get(t *testing.T) {
 	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group("/api/v1"), router.Group("/api/v1"))
 
 	// Test Get
 	w := httptest.NewRecorder()
@@ -186,7 +186,7 @@ func TestRemoteServerHandler_Update(t *testing.T) {
 	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group("/api/v1"), router.Group("/api/v1"))
 
 	// Test Update
 	updateData := map[string]any{
@@ -231,7 +231,7 @@ func TestRemoteServerHandler_Delete(t *testing.T) {
 	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group("/api/v1"), router.Group("/api/v1"))
 
 	// Test Delete
 	w := httptest.NewRecorder()
@@ -400,7 +400,7 @@ func TestRemoteServerHandler_Errors(t *testing.T) {
 	ns := services.NewNotificationService(db, nil)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
-	handler.RegisterRoutes(router.Group("/api/v1"))
+	handler.RegisterRoutes(router.Group("/api/v1"), router.Group("/api/v1"))
 
 	// Get non-existent
 	w := httptest.NewRecorder()

@@ -17,6 +17,29 @@ Want the quick reference? See <https://wikid82.github.io/charon/security>.
 
 ---
 
+## Accounts & Roles
+
+Charon has two kinds of account:
+
+- **Administrator** — full control. Only an admin can change security-sensitive
+  configuration: CrowdSec and the firewall, access lists, security headers,
+  certificates and the credentials used to issue them, DNS-provider logins, SSH
+  details for remote servers, tunnels and agents, app settings, plugins, and the
+  user list.
+- **Standard user** — manages proxy hosts. A standard user can still open and
+  read most settings pages, but the actions that change the areas above are
+  admin-only; Charon refuses them with a "forbidden" response. A few screens
+  (CrowdSec controls, audit log, remote agent management, encryption management)
+  are hidden from standard users entirely.
+
+**Creating accounts.** There is no public sign-up page and no anonymous
+registration request. The first administrator is created on the one-time setup
+screen the first time you open a new instance. After that, an existing admin adds
+every account from **Settings → Users**, either by emailing an invite link or by
+creating the user directly.
+
+---
+
 ## What Is Cerberus?
 
 Think of Cerberus as a guard dog for your websites. It has three heads (in Greek mythology), and each head watches for different threats:
