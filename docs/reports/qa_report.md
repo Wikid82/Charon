@@ -1,362 +1,167 @@
-# QA & Security Report — Prebuilt Caddy/CrowdSec Toolchain Image
+# QA & Security Report — Management-API Authorization Hardening (GHSA-3gc6-295r-xm5m)
 
-**PR**: #1300 — `feat(ci): prebuilt Caddy/CrowdSec toolchain image to fix Docker-build timeouts`
-**Branch**: `feat/prebuilt-toolchain-image` → base `main` (draft)
-**Branch tip audited**: `22e9c722` (working tree clean, rebased on `origin/main` `cc65e634`)
-**Reviewed by**: qa-security agent (final pipeline pass)
-**Date**: 2026-09-08
-**Spec**: `docs/plans/current_spec.md` (Rev 2 + §3.4.3 "Rev 2.1")
-
----
-
-## Verdict: PASS WITH FOLLOW-UPS
-
-Clear to bring PR #1300 out of draft. No blocking security or QA issues. Four
-non-blocking follow-ups and two residual supply-chain risks the merger should
-accept knowingly (enumerated at the end).
-
-The change is CI/build-infrastructure only — no Go or TypeScript application code,
-no `backend/internal/models/**`, no GORM queries, no migrations, no frontend
-surface. The new executable code is three shell scripts covered by a 17-test bats
-suite. All CI checks on the tip are green.
+- **Feature branch:** `development`
+- **Commits audited:** `9cf79091`, `dd05dd7c`, `21135f42`, `6a7cd24f`, `b73dd82a`, `2ac09dc1` (all after `3055a913`)
+- **Plan:** `docs/plans/current_spec.md` (§3.2.2 route table, §5 Acceptance Criteria)
+- **Date:** 2026-09-08
+- **Verdict:** **GHSA-3gc6-295r-xm5m: FIXED.** All Definition-of-Done gates pass. No blocking issues.
 
 ---
 
-## 1. Build-integrity / CVE-recurrence guarantee — VERIFIED
+## 1. Definition of Done — gate-by-gate
 
-`--no-cache-filter caddy-inline,crowdsec-inline` (the CVE-2026-84304 recurrence
-guard that forced from-source rebuilds on every CVE-gate PR) is removed. Every
-compensating link claimed in the brief exists and is wired:
+| # | Gate | Result | Numbers |
+|---|------|--------|---------|
+| 1 | Backend coverage (`scripts/go-test-coverage.sh`) | **PASS** | Statement 92.0%, line 88.7% vs gate 87% |
+| 2 | Frontend coverage (`scripts/frontend-test-coverage.sh`) | **PASS** | Statements 89.63% (8131/9071), lines 90.83% (7642/8413) vs gate 87% |
+| 3 | Local patch-coverage preflight (`scripts/local-patch-report.sh`) | **PASS** | strict mode; overall/backend patch coverage 100.0% (109/109 changed backend lines); frontend/agent 0 changed lines. `test-results/local-patch-report.{md,json}` produced. |
+| 4 | CodeQL Go + JS (`lefthook run codeql`) | **PASS (feature)** | Go scan 45.9s, JS scan 55.0s. JS: 0 results. Go: 4 results, **all pre-existing and outside feature-modified code** (see §3). Local findings-gate script aborted on missing `yq` only; CI runs it unconditionally. |
+| 5 | Trivy (`trivy fs`, container/deps) | **PASS (feature)** | 0 CRITICAL. 0 dependency CVEs. Zero dependency/manifest changes in the feature (`go.mod`/`go.sum`/`package*.json` untouched). HIGH findings are a pre-existing Dockerfile `USER` misconfig (Dockerfile not in feature diff), a third-party `node_modules/comlink/Dockerfile`, and a gitignored local test-artifact private key — none feature-attributable. |
+| 6 | GORM security scan | **N/A (verified)** | `git diff 3055a913..HEAD -- backend/internal/models/` is empty. No model/GORM/migration change. Scan not required. |
+| 7 | Full backend tests (`cd backend && go test ./...`) | **PASS** | Exit 0, zero failures across all packages. |
+| 8 | Full frontend tests (`npx vitest run`) + `npm run type-check` | **PASS** | 267 files, 3363 passed, 4 skipped, 2 todo, 0 failures. `tsc --noEmit` clean. |
+| 9 | Targeted E2E (`--project=security-tests`: `crowdsec-admin-authz`, `public-registration-removed`, `authorization-rbac`) | **PASS** | **110 passed, 0 failed, 0 skipped, 0 fixme** (12.5s). Ran against a fresh `charon:local` container; host `:8080` (held by `nextcloud-aio-mastercontainer`) worked around with a throwaway gitignored `.docker/compose/docker-compose.override.yml` port remap (`8085:8080`), removed after the run. No nextcloud disruption. |
+| 10 | Build (`go build ./...`, `npm run build`) | **PASS** | Both clean. |
+| 11 | Lint (`make lint-fast` / staticcheck) | **PASS (feature)** | 2 `govet` findings, **both confirmed pre-existing**: `cmd/api/main.go:261` (err shadow, from `f6361dc8` 2026-03-04) and `internal/api/handlers/docker_handler.go:47` (`reflect.Ptr` inline, present at `3055a913`). Neither file is in the feature diff. No other findings; staticcheck clean. |
+| 12 | Debug / cleanup scan of feature diff | **PASS** | No `fmt.Println`, `console.log`, `debugger`, stray `TODO/FIXME`, or commented-out blocks in added lines. `b73dd82a` removed 4 now-unused imports. |
 
-| Link | Where | Enforced? |
-|---|---|---|
-| (a) Content-hash key | `scripts/toolchain-key.sh` — SHA-256 over both inline stage bodies + 16 consumed version ARGs + the two pinned xcaddy plugins + `tonistiigi/xx` pin + digest-pinned `golang:*-alpine` bases + `sha256(.trivyignore)` + `SCHEMA_VERSION=2` | Yes — 10 bats tests assert determinism + per-input sensitivity + fail-loud on broken extraction |
-| (b) Daily forced rebuild | `toolchain-image.yml` `on.schedule: '0 6 * * *'`; plan step sets `no_cache="--no-cache --pull"` for `schedule`/`force_rebuild`; `--target toolchain-runtime` recompiles `caddy-inline` + `crowdsec-inline` from source | Yes |
-| (c) `verify-toolchain-pin.sh` per-PR check | `quality-checks.yml` job `verify-toolchain-pin` (installs regctl, maps trust env, runs the script) | Yes — passing on the tip; failure-closed on same-repo (see §2). **Branch-protection required-status enrolment is a merger check — see follow-up F1.** |
-| (d) LABEL ↔ recipe-key check | `docker-build.yml` step "Verify pinned toolchain image matches the recipe (N5)" — `docker pull @PIN_DIGEST`, reads `io.charon.toolchain.key` LABEL, compares to freshly recomputed `toolchain-key.sh` | Yes |
-| (e) Blocking weekly Trivy CRITICAL/HIGH | `toolchain-image.yml` `trivy-scan` job: `severity: CRITICAL,HIGH`, `exit-code: '1'`, `continue-on-error: ${{ github.event_name == 'pull_request' }}`. `security-weekly-rebuild.yml` reaches it via `workflow_call`, where `github.event_name` resolves to the caller's `schedule`/`workflow_dispatch` → `continue-on-error:false` → blocking | Yes |
-
-**Additional independent link** not in the brief: `docker-build.yml` `build-amd64`
-/ `build-arm64` and `nightly-build.yml` pull the toolchain by **immutable
-`@sha256:` digest** (`FROM ${CHARON_TOOLCHAIN_IMAGE}@${CHARON_TOOLCHAIN_DIGEST}`),
-then the merged app image is Syft-SBOM'd, `actions/attest`-attested, Trivy- and
-Grype-scanned, and Cosign-signed — so any poisoned content still has to survive
-the app-image scan gates.
-
-**Doc-overclaim check — PASS.** Both `SECURITY.md` ("Build Integrity — Bundled
-Caddy / CrowdSec Toolchain") and `ARCHITECTURE.md` ("Supply-chain hardening"
-callout) retain the caveat verbatim and accurately:
-
-> "…it does **not** close the pre-existing gap where an upstream security fix to a
-> genuinely *unpinned* transitive Go dependency is not picked up because nothing
-> raises the MVS lower bound — that is unchanged, and is closed only by a human
-> adding an explicit `go get <dep>@<fixed>` pin (the recipe already carries ~40)."
-
-Both files scope the guarantee to "pinned-dependency drift and base-image drift"
-only. No overclaim. `docs/ci/toolchain-image.md` "Roll back the whole feature"
-correctly states security posture and app-image content are byte-identical to the
-pre-PR inline path.
+Notes:
+- `scripts/local-patch-report.sh` requires `agent/coverage.txt` to exist even though the `agent/` module is untouched by this feature; it was generated with `scripts/agent-test-coverage.sh` (agent module: 82.6% stmt / 75.3% line, its own gate 65%) before the patch report would run.
 
 ---
 
-## 2. `verify-toolchain-pin.sh` robustness — FAILURE-CLOSED, no bypass found
+## 2. Security audit
 
-**Trust classification** (`SAME_REPO`): defaults to `1` (trusted / failure-closed)
-and only degrades to `0` (tag-only + `::warning::`) when
-`GITHUB_EVENT_NAME == pull_request` **and**
-`GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME != GITHUB_REPOSITORY`. Unknown /
-unset → trusted. This is the safe polarity: the only way to *reach* the degraded
-path is to be a genuine fork PR (whose token cannot read the private package
-anyway); anything ambiguous fails closed.
+### 2.1 Advisory closed — GHSA-3gc6-295r-xm5m: **FIXED**
 
-**Bypass attempts:**
+`crowdsecHandler.RegisterRoutes(managementAdmin)` (`routes.go:863`). `managementAdmin` =
+`management.Group("/")` with `RequireManagementAccess()` (inherited) **+** `RequireRole(models.RoleAdmin)`.
 
-- **Env-var spoofing of `GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME`** — the
-  two env vars are mapped in each workflow from trusted GitHub contexts
-  (`${{ github.event.pull_request.head.repo.full_name }}`, `${{ github.repository }}`),
-  not from anything a fork PR author controls. A fork PR cannot alter the base
-  workflow that runs. A same-repo branch *could* edit `quality-checks.yml` to
-  mis-map them, but that requires write access (already a trusted actor) and is
-  visible in the PR diff. Not a new weakness.
-- **Fork → convince script it's same-repo** — would only make it *stricter*
-  (failure-closed digest check); the fork runner has no `GITHUB_TOKEN` with
-  `packages:read` on the base repo, so it fails closed. No trust gained.
-- **Same-repo → convince script it's a fork** — needs `head.repo.full_name !=
-  repository`, impossible for a real same-repo PR without editing the workflow
-  (trusted-actor, diff-visible).
-- **Hand-edited `CHARON_TOOLCHAIN_DIGEST` that still passes** — on the trusted
-  path the script resolves `:$KEY` via `regctl image digest` and requires
-  `REMOTE_DIGEST == PINNED_DIGEST`. The only digest that passes is the one GHCR
-  actually serves for that content-addressed tag. Defence-in-depth: `docker-build.yml`
-  LABEL check rejects a digest that points at a *different-recipe* toolchain
-  image.
-- **TOCTOU between `imagetools inspect` / `regctl image digest` and the app
-  build's `FROM …@digest`** — not exploitable for injection. The app build
-  consumes an immutable `@sha256:` reference; re-tagging `:$KEY` afterwards cannot
-  change what `@digest` resolves to. Worst case is a spurious check failure
-  (false positive), never a silent poisoned pull.
+Independently confirmed (unit `TestRegister_CrowdsecAdminRoutesRequireAdminRole` + E2E `crowdsec-admin-authz.spec.ts`):
 
-**`bats scripts/tests/` result: 17/17 PASS** (local, `Bats 1.13.0`; also green in
-CI job "Toolchain key / freshness-guard scripts (bats)").
+| Caller | `/admin/crowdsec/stop`, `/bouncer/key`, `/ban`, `/file` |
+|--------|--------|
+| unauthenticated | **401** |
+| `role=user` (valid session) | **403** on every route — cannot read the bouncer key, cannot stop CrowdSec, cannot ban/unban, cannot read config files |
+| `role=admin` | reaches handler (never 401/403) |
 
-Failure modes **actually asserted** by `verify-toolchain-pin.bats`:
+The `role=user` token is proven still valid on a user-allowed route in the same test, so the 403 is the new admin guard, not a broken session.
 
-| Assertion | Covered |
-|---|---|
-| fork PR + matching tag → `exit 0` + `::warning::Fork PR` | ✅ |
-| mismatched tag (any trust level) → `exit 1`, actionable message | ✅ |
-| same-repo `push` + `regctl` absent → `exit 1` (failure-closed) | ✅ |
-| same-repo `push` + `GHCR_READ_TOKEN` unset → `exit 1` (failure-closed) | ✅ |
-| same-repo PR + GHCR digest ≠ pinned digest → `exit 1` ("hand-edited or stale") | ✅ |
-| same-repo PR + GHCR digest == pinned digest → `exit 0` ("verified (same-repo)") | ✅ |
-| `workflow_dispatch` treated as trusted same-repo (fails closed on missing regctl) | ✅ |
+### 2.2 Bug class closed — deny-by-default across the `management` group
 
-Failure-closed branches present in the script but **not** directly asserted (see
-follow-up F2):
+Reviewed the §3.2.2 table application in `routes.go` independently. Every state-changing `/api/v1/` route is
+either (a) on `managementAdmin`, (b) on `securityAdmin`/`authenticatedAdmin`, (c) carries a per-route
+`middleware.RequireRole(models.RoleAdmin)` argument, or (d) on a reviewed allowlist with a per-entry
+justification. `TestManagementGroup_MutationsAreAdminGuarded` walks every `POST/PUT/PATCH/DELETE` under
+`/api/v1/` (~90 mutating routes exercised) and asserts `role=user` → 403 / `role=admin` → not-403 unless
+allowlisted; `TestManagementGroup_RouteInventoryNoDuplicates` proves the read/admin splits did not
+double-register or orphan any path. Both pass.
 
-- `PINNED_DIGEST` empty on a same-repo run → `exit 1`.
-- `:$KEY` present but `regctl image digest` returns non-zero (unresolvable in
-  GHCR) → `exit 1` ("does not resolve in GHCR"). The bats `regctl` stub always
-  succeeds, so this specific exit path is uncovered.
+Allowlist entries scrutinised — all legitimate, none present merely to pass the test:
 
-`toolchain-key.bats` (10 tests) covers determinism, whitespace-stability of edits
-*outside* the two inline stages, and sensitivity to: a `go get` line inside
-`caddy-inline`, `CADDY_VERSION`, `CADDY_GEOIP2_VERSION` (B4 plugin pin), the
-digest-pinned `golang` base (N4), and `.trivyignore`; plus two fail-loud cases
-(stage removed, stage truncated to a stub). Not asserted: sensitivity to a
-`tonistiigi/xx` pin move, an `ALPINE_IMAGE` move, or a `SCHEMA_VERSION` bump —
-all three *are* in the hashed input set; the gap is test-only (F2).
+- **`PUT /users/:id` self-service** — `UpdateUser` has an explicit non-admin branch that returns
+  `403 "Cannot modify role or enabled status"` when `req.Role != "" || req.Enabled != nil`, and
+  `403 "Admin access required"` when acting on another user's record. `b73dd82a`'s
+  `TestUserHandler_UpdateUser_NonAdminSelfCannotEscalatePrivilegedFields` asserts the **persisted**
+  record (not just status) — role stays `user`, `enabled` unchanged, other user's name unchanged.
+  Real guard, real test. E2E `authorization-rbac.spec.ts:485` also covers it.
+- **proxy-hosts / proxy-groups / themes / uptime monitors** — object-level authz (`PermittedHosts` /
+  forward-auth) or explicitly all-management-user features; unchanged by design.
+- **security-headers calculators (`/score`, `/csp/validate`, `/csp/build`) and `/access-lists/:id/test`** —
+  verified by source inspection to perform **no DB writes** (pure calculators / dry-run).
+- **public/emergency allowlist** — `/auth/login`, `/setup`, `/invite/accept`, `/security/events`,
+  `/emergency/*` run their own auth schemes (unauthenticated bootstrap, IP + `X-Emergency-Token`), no
+  session-role semantics.
 
----
+**Security-headers preset entries in `adminHandlerRejectsByDesign`** (supervisor flag): `POST/PUT/DELETE
+/security/headers/profiles*` and `POST /security/headers/presets/apply` are registered on
+`securityHeadersAdmin := managementAdmin.Group("/security/headers")` — the admin route-group guard is
+**structurally present and confirmed by code inspection**. For `PUT`/`DELETE /profiles/:id` the test skips
+only the *admin-side positive* probe because the materialised id (`1`) is a seeded read-only preset the
+handler then rejects with 403 — the `role=user` → 403 assertion still runs and passes. `POST /profiles`
+and `POST /presets/apply` receive the full both-sided assertion and pass, positively verifying the admin
+path.
 
-## 3. Determinism fix (§3.4.3 Rev 2.1) — does NOT weaken app-image posture
+### 2.3 Privileged reads left on the bare `management` group
 
-`toolchain-image.yml` builds with `--provenance=false --sbom=false`, fixed
-`SOURCE_DATE_EPOCH=1700000000`, `--output type=image,push=true,rewrite-timestamp=true`.
+The enforcement test only covers mutations; walked the GET/read routes still on `management` (the `read`
+group in the `RegisterRoutes(read, admin)` splits) for secret/PII exposure to `role=user`:
 
-- **App-image supply-chain posture is unaffected.** Verified: `docker-build.yml`
-  `merge-and-publish` generates the app image's own SBOM (`anchore/sbom-action`
-  syft `v1.51.1`, with a pinned-syft fallback), attests it (`actions/attest`
-  `v4.2.2`), and Cosign-signs the merged digest — all against the final `charon`
-  app-image digest, not the toolchain image. `nightly-build.yml` retains
-  `provenance: true` / `sbom: true`. `grep` across `.github/workflows/` for any
-  consumer of the toolchain image's attestations: **none** — nothing runs
-  `cosign verify-attestation` / SBOM-diff against `charon-toolchain`. Disabling
-  provenance/SBOM on an internal build *input* that nobody verifies is correct;
-  it is what makes "same recipe key ⇒ identical manifest-list digest" hold and
-  stops `sync-pin-on-pr` from looping.
+| Read | Model protection |
+|------|------------------|
+| `GET /remote-servers`, `/remote-servers/:uuid` | `RemoteServer` struct carries **no** password/key/passphrase field — host/port/metadata only |
+| `GET /hecate/status`, `/hecate/tunnels`, `/hecate/tunnels/:uuid` | `TunnelConfig.EncryptedCredentials` is `json:"-"`; only non-secret `configuration` serialised |
+| `GET /orthrus/agents`, `/orthrus/agents/:uuid` | `OrthrusAgent.AuthKeyHash` is `json:"-"` ("never exposed"); bootstrap token only via `/snippets`, which **moved to admin** |
+| `GET /dns-providers`, `/dns-providers/:id`, `/dns-providers/:id/credentials*` | `DNSProvider.CredentialsEncrypted` and `DNSProviderCredential.CredentialsEncrypted` are `json:"-"` |
+| `GET /certificates`, `/certificates/:uuid` | metadata only; private-key material only via `POST /certificates/:uuid/export`, which is admin-gated |
 
-- **"Skip build if `:$KEY` already published"** (`toolchain-image.yml` "Decide
-  build plan"): on a **non-forced same-repo** run, if
-  `imagetools inspect ${TOOLCHAIN_IMAGE}:${KEY}` resolves, `should_build=false`
-  and the existing digest is reused / pinned. This does trust the current
-  content of the mutable `:$KEY` tag. Mitigations: (i) writing that tag requires
-  `packages: write` on the package = trusted maintainer; fork PRs never reach
-  this path (no login → `type=cacheonly`); (ii) the daily run is `forced=true`,
-  which bypasses skip-if-published, rebuilds deterministically, and — via
-  `open-bump-pr` — surfaces any digest discrepancy as a `feat(security)` bot PR,
-  so a poisoned tag self-heals within ~24 h; (iii) the app build ultimately pins
-  an immutable `@digest` and the resulting app image is Trivy/Grype-scanned and
-  signed. **Residual R1** (accept-knowingly): a maintainer-level credential
-  compromise could, within a one-day window, get a poisoned `:$KEY` digest
-  pinned via `sync-pin-on-pr` without that PR performing a from-source rebuild.
-  The pre-PR `--no-cache-filter` behaviour rebuilt from source on every CVE-gate
-  PR; this PR trades that for the daily deterministic rebuild + freshness guard.
+These reads were already `role=user`-reachable before this feature (Q7-accepted). The one PII-bearing
+read class — audit logs (other users' emails, source IPs, security-event detail) — was **moved to
+`managementAdmin`** (`GET /audit-logs`, `/audit-logs/:uuid`, `GET /dns-providers/:id/audit-logs`;
+`routes.go:438-439,537`), with an E2E assertion that `role=user` gets 403. No new secret/PII exposure.
 
-- **Who holds `packages: write` on `ghcr.io/wikid82/charon-toolchain`:**
-  - `toolchain-image.yml` → job `build-toolchain` (workflow-level
-    `permissions: packages: write`). GHCR login **and** push are gated
-    `if: steps.trust.outputs.same_repo == 'true'`; forks produce `type=cacheonly`
-    (no push).
-  - `security-weekly-rebuild.yml` → job `toolchain-rebuild`, which is
-    `uses: ./.github/workflows/toolchain-image.yml` with
-    `permissions: packages: write` (+ `contents/pull-requests/issues: write` for
-    the bump-PR job). Same underlying workflow; caller event is
-    `schedule`/`workflow_dispatch` ⇒ same-repo.
-  - `docker-build.yml` (`build-amd64`/`build-arm64`/`merge-and-publish`),
-    `nightly-build.yml`, `orthrus-build.yml` hold `packages: write` but target
-    the `charon` / `charon-agent` images — they only **read** (`FROM …@digest`)
-    the toolchain image, never push to it.
-  No fork-reachable job can write the toolchain package.
+### 2.4 `passthrough` role
+
+`RequireManagementAccess()` still aborts `403` for `role == RolePassthrough` and is inherited by both
+`management` and `managementAdmin`. `managementAdmin` additionally applies `RequireRole(admin)`, which
+also rejects `passthrough` (`userRole != admin`). No new path is reachable by a `passthrough` user.
+
+### 2.5 Public-registration removal — no residual account-creation path
+
+- `POST /api/v1/auth/register` route, `AuthHandler.Register`, and `RegisterRequest` are deleted;
+  `POST`/`GET /api/v1/auth/register` → **404** (unit `TestRegister_PublicRegistrationEndpointRemoved`,
+  E2E `public-registration-removed.spec.ts`).
+- `AuthService.Register` is retained but has **zero non-test callers** (`grep` across `backend/**/*.go`
+  excluding `_test.go`): no route, no service wiring. Documented as internal/test-only.
+- `POST /setup` self-closes: `UserHandler.Setup` returns `403 "Setup already completed"` when any user
+  exists, with both a pre-transaction check and a post-transaction re-count for the concurrent case.
+- Invite-accept requires a valid admin-issued token: `AcceptInvite` looks up the exact `invite_token`
+  (404 if absent), enforces `InviteExpires` (410) and `InviteStatus == "pending"` (409), and clears the
+  token on success. `InviteUser` is admin-only (`requireAdmin`).
+
+### 2.6 Docs consistency
+
+`SECURITY.md` ("Authentication & Authorization"), `docs/security.md` ("Accounts & Roles"), and
+`ARCHITECTURE.md` ("Management API Authentication & Authorization") all describe the shipped behavior
+accurately: 3-role model, `admin` required for the privileged areas, structural admin-only route group +
+deny-by-default CI test, no public self-registration, `/setup` bootstrap + admin invite/add. No
+contradictions; no governance "stricter wins" conflict.
 
 ---
 
-## 4. New third-party action `iarekylew00t/regctl-installer` — verified, low risk
+## 3. Pre-existing findings (not introduced by this feature — informational)
 
-`quality-checks.yml` `verify-toolchain-pin` job:
-`uses: iarekylew00t/regctl-installer@c2202c17a65fe59371c71ecc169c9e58c3710a15 # v4.0.16`
-
-- **SHA ↔ release: VERIFIED.** Annotated tag `v4.0.16` → tag object
-  `f14118b1…` → **points at commit `c2202c17a65fe59371c71ecc169c9e58c3710a15`**
-  (message "chore: Bumping version to v4.0.16", tagger 2026-08-05). The pin is
-  exact and matches the tag comment.
-- **Action source at the pinned SHA:** `action.yml` is a compiled
-  `using: node24` / `main: dist/index.js` action. Declared purpose: download the
-  `regctl` release (default `latest` — here left default, so it resolves newest
-  at run time) and, with `verify: true` (default, left on), **cosign-verify the
-  downloaded binary's signature**. Inputs are `regctl-release`, `verify`,
-  `cache`, `token` (`${{ github.token }}` default) — all consistent with a
-  GitHub-API release downloader; nothing in `action.yml` indicates behaviour
-  beyond install + verify. `dist/index.js` is a minified bundle and was not
-  line-audited.
-- **Blast radius:** runs only in the `verify-toolchain-pin` job, whose
-  `permissions` are `contents: read` + `packages: read` — no write scope, no
-  secrets beyond the read-only `GITHUB_TOKEN`.
-- **`curl | sha256sum -c` vs this action:** an inline pinned-hash install would
-  remove a compiled-JS third-party action from the trust chain, but it also
-  drops the cosign signature check the action performs and needs manual hash
-  bumps (staleness risk). Given the minimal job permissions, **not materially
-  safer** — noting it (F3) as an optional hardening, not a defect. If adopted,
-  pin `regctl-release` to an exact version too (currently `latest`).
+| Source | Finding | Evidence it pre-dates `3055a913` |
+|--------|---------|----------------------------------|
+| CodeQL Go | `go/cookie-secure-not-set` `auth_handler.go:198` (sev 4.0) | line dates to `88763c79` (2026-08-04); carries an explicit `// codeql[go/cookie-secure-not-set]` reviewed-suppression comment |
+| CodeQL Go | `go/log-injection` `remote_server_handler.go:148` ×2 (sev 6.1) | `c.JSON(...)` in the `Get` handler, from `f6361dc8` (2026-03-04); feature only changed this file's `RegisterRoutes` signature |
+| CodeQL Go | `go/log-injection` `services/uptime_service.go:1551` (sev 6.1) | file not in the feature diff at all |
+| golangci `govet` | `cmd/api/main.go:261` err shadow | `f6361dc8` (2026-03-04); `main.go` not in feature diff |
+| golangci `govet` | `docker_handler.go:47` `reflect.Ptr` should be inlined `reflect.Pointer` | present at `3055a913` (`80bdc0e3`); the feature fixed the *same* issue in `orthrus_handler.go` but not here |
+| Trivy secret | `backend/internal/api/routes/keys/hecate-ca.{key,crt}` flagged as private key | gitignored (`.gitignore:157 *.key`), never committed; local artifact from routes tests that call `orthrus.NewInternalCA` with an unset `cfg.DatabasePath` (writes into the source tree). Files dated Jul/Aug, predate this work. |
 
 ---
 
-## 5. Private `charon-toolchain` — every build path covered, forks still build
+## 4. Recommendations (non-blocking)
 
-**`uses: ./.github/actions/build-charon-image` — 6 call sites, all pass both
-`builder-src` (fork ternary) and `ghcr-token`:**
-
-| Workflow | `builder-src` | `ghcr-token` |
-|---|---|---|
-| `security-pr.yml:158` | fork ternary → `inline` \| `prebuilt` | `secrets.GITHUB_TOKEN` |
-| `supply-chain-pr.yml:253` | fork ternary | `secrets.GITHUB_TOKEN` |
-| `cerberus-integration.yml:35` | fork ternary | `secrets.GITHUB_TOKEN` |
-| `crowdsec-integration.yml:35` | fork ternary | `secrets.GITHUB_TOKEN` |
-| `waf-integration.yml:35` | fork ternary | `secrets.GITHUB_TOKEN` |
-| `rate-limit-integration.yml:35` | fork ternary | `secrets.GITHUB_TOKEN` |
-
-All six also gained `permissions: packages: read`. The composite action logs in
-to GHCR only `if: inputs.builder-src != 'inline' && inputs.ghcr-token != ''`, and
-rejects an invalid `builder-src` with `exit 1`.
-
-**Raw `docker buildx build` / `build-push-action` app-image paths:**
-
-| Workflow / job | Toolchain source | GHCR login |
-|---|---|---|
-| `docker-build.yml` `build-amd64` / `build-arm64` | `CADDY_BUILDER_SRC` / `CROWDSEC_BUILDER_SRC` env = fork ternary (`*-inline` for foreign head repo, else `toolchain-prebuilt`) | pre-existing "Log in to GitHub Container Registry" step (`secrets.GITHUB_TOKEN`) |
-| `e2e-tests-split.yml` `build` | build-args fork ternary | added `Log in to GHCR` step, `if: image_source == 'build' && head.repo.full_name == github.repository` |
-| `nightly-build.yml` | hard-coded `toolchain-prebuilt` (schedule/same-repo only — correct) | pre-existing login-action + `packages: write` |
-| `toolchain-image.yml` | builds the toolchain itself (`--target toolchain-runtime`, `caddy-inline`/`crowdsec-inline` from source) | login `if: same_repo == 'true'` |
-| `orthrus-build.yml` | builds `agent/Dockerfile` only — **does not use the root Dockerfile / toolchain image**; no change needed | n/a |
-
-**Fork PR path:** every ternary resolves `head.repo.full_name != '' &&
-head.repo.full_name != github.repository` → `caddy-inline` / `crowdsec-inline`,
-i.e. compile the byte-identical recipe from source (~14 min). `make build-offline`
-(new) does the same locally. No fork build path depends on pulling the private
-image. **Fork PRs still build.** ✅
-
-**Empty-head-repo guard:** the `head.repo.full_name != ''` conjunct means `push`
-and non-PR events (empty `head.repo.full_name`) correctly resolve to
-`toolchain-prebuilt`, not accidentally to `inline`.
+1. Fix the two pre-existing `govet` findings in a follow-up `chore:` — `docker_handler.go:47`
+   (`reflect.Ptr` → `reflect.Pointer`, mirroring the fix this feature already applied in
+   `orthrus_handler.go`) and `cmd/api/main.go:261` (rename the shadowed `err`). They currently make
+   `make lint-fast` exit non-zero.
+2. Make `scripts/local-patch-report.sh` tolerate a missing `agent/coverage.txt` (warn + treat agent
+   scope as 0 changed lines) instead of aborting `input_missing`, so the preflight is runnable without a
+   separate agent-coverage run when the agent module is untouched.
+3. Test hygiene: give the `routes` package tests that construct `config.Config{}` an explicit temp
+   `DatabasePath` so `orthrus.NewInternalCA` stops writing `keys/hecate-ca.*` into
+   `backend/internal/api/routes/`.
+4. Frontend patch-coverage scope reported 0 changed lines for `App.tsx` / `Layout.tsx` (these are outside
+   the vitest coverage instrumentation set). The guard behavior is covered instead by the new
+   `Layout.test.tsx` (116 lines) and the E2E redirect/nav-hiding assertions
+   (`authorization-rbac.spec.ts:467-492`). No action required, noted for traceability.
 
 ---
 
-## 6. Trivy — clean, no new suppressions
+## 5. Blocking issues
 
-- **`.trivyignore`: UNCHANGED in this PR.** `git log origin/main..tip -- .trivyignore`
-  → no commits; 257 non-blank lines, identical to `main`. **No new blanket
-  suppressions.** (`.trivyignore`'s `sha256` is itself a `toolchain-key.sh`
-  input, so any future edit forces a toolchain rebuild + re-pin.)
-- **CI Trivy runs on the tip — all green:**
-  - "Trivy scan (toolchain image)" — `toolchain-image.yml` `trivy-scan`,
-    `CRITICAL,HIGH`, `exit-code 1` — **pass**.
-  - "Trivy Binary Scan" — `security-pr.yml` — **pass**.
-  - "Security Scan PR Image" — app image built from the pinned toolchain —
-    **pass**.
-  - "Verify Supply Chain" — **pass**; "grype" — **pass**; "Semgrep SAST" /
-    "Semgrep OSS" / "semgrep-cloud-platform" — **pass**.
-  - Top-level "Trivy" shows `NEUTRAL / skipping` — this is the pre-existing
-    always-on external check that no-ops on this event path, not a regression.
-  - Zero unignored CRITICAL/HIGH on both the toolchain image and the app image
-    built from it (the two `exit-code: '1'` gates passed).
-- Local Trivy was **not** re-run: the toolchain image is a private GHCR package
-  and this environment has no GHCR credentials; CI ran it with proper auth.
-  Per CLAUDE.md this is a CI-scoped (`ci:`/`feat(ci)`) change and CI runs Trivy
-  unconditionally, so nothing is skipped.
-
----
-
-## 7. Definition of Done (CI-scoped change)
-
-| DoD item | Status |
-|---|---|
-| Targeted Playwright E2E (touched specs) | **N/A to run locally** — no FE/BE/spec files changed. CI full E2E on tip `22e9c722` is **legit and complete**: "Prepare Application Image" (which now exercises the `toolchain-prebuilt` `COPY --from` path on a same-repo PR) **pass**; all shards **pass** — Chromium 1–4 + Security Enforcement, Firefox 1–4 + Security Enforcement, WebKit 1–4 + Security Enforcement; "E2E Test Results (Final)" **pass**. A broken pin/image would have failed the image build, not silently passed. |
-| GORM security scan (`scan-gorm-security.sh`) | **N/A** — no `backend/internal/models/**`, no GORM queries, no migrations in the diff. |
-| `local-patch-report.sh` / Go+TS patch coverage | **N/A** — no Go/TS lines changed. `codecov/patch` check on PR: **pass** (0 changed coverable lines). New executable code is shell, covered by 17 bats tests (see §2). |
-| Frontend `npm run type-check` / `npm run build` / FE coverage 85% | **N/A** — no `frontend/` files touched. |
-| Backend `go build ./...` / Go coverage 85% | **N/A** — no `backend/` files touched. "Backend (Go)" / "Agent (Go)" CI: **pass** (unchanged). |
-| staticcheck / golangci-lint | **N/A** (no Go). Substituted by `shellcheck --severity=error` on the 3 new scripts — **clean locally** (also clean at default severity) and in CI job "Toolchain key / freshness-guard scripts (bats)"; `actionlint` on all 12 changed workflows — **clean locally** (`exit 0`). |
-| CodeQL Go / JS | Green on tip ("CodeQL analysis (go)" + "(javascript-typescript)" **pass**). Effectively N/A (no Go/JS/TS source changed) but ran. |
-| `bats scripts/tests/` | **17/17 PASS** locally + CI. |
-| Build verification, `docker build` both `builder-src` modes | `toolchain-prebuilt` path: exercised & green across `build-amd64`, `build-arm64`, "Prepare Application Image", and all 6 integration image builds on this same-repo PR. `caddy-inline`/`crowdsec-inline` full-app path: **not exercised on a same-repo PR** (fork-only) — see **F4 / R2**. The inline *stage bodies themselves* are compiled from source on every `toolchain-image.yml` run (daily + tracked-path PRs) via `--target toolchain-runtime`, and passed on this PR ("Build & publish toolchain image" **pass**). |
-| No debug leftovers in new scripts | **Clean** — `grep -nE 'TODO|FIXME|XXX|DEBUG|set -x|console.log|fmt.Print'` over the 3 scripts + 2 bats files + fixture helper → no matches. All three scripts use `set -euo pipefail`. |
-
----
-
-## Follow-ups (non-blocking)
-
-- **F1 — Confirm required-status enrolment.** Verify branch protection for `main`
-  (and `development`) lists **"Toolchain pin freshness (verify-toolchain-pin)"**
-  and **"Toolchain key / freshness-guard scripts (bats)"** as required checks.
-  The failure-closed guarantee in §1(c) / §2 only bites if the check is required;
-  the code is correct but enrolment is a repo-settings action outside this diff.
-- **F2 — Close two bats coverage gaps** in `verify-toolchain-pin.bats`: (i)
-  same-repo run with `regctl` present but `image digest` failing (unresolvable
-  `:$KEY`) → `exit 1`; (ii) same-repo run with `CHARON_TOOLCHAIN_DIGEST` empty →
-  `exit 1`. And in `toolchain-key.bats`: sensitivity to a `tonistiigi/xx` pin
-  move and an `ALPINE_IMAGE` move (both are hashed inputs, currently untested).
-- **F3 — (optional) `regctl-installer` hardening.** Either accept as-is (minimal
-  job perms, cosign verify on) or replace with a pinned-hash `curl | sha256sum -c`
-  install; if kept, pin `regctl-release` to an exact version rather than the
-  default `latest`.
-- **F4 — Add periodic coverage of the offline/inline app build.** A scheduled or
-  label-gated job running `make build-offline` (or at minimum
-  `docker build --build-arg CADDY_BUILDER_SRC=caddy-inline
-  --build-arg CROWDSEC_BUILDER_SRC=crowdsec-inline --check .`) so the
-  `FROM ${CADDY_BUILDER_SRC} AS caddy-builder` selector + final-stage assembly on
-  the fork path can't silently rot between fork PRs.
-- **F5 — Stale note in `docs/ci/toolchain-image.md`.** The "One-time bootstrap
-  notes" paragraph still says *"`COPY scripts/ /app/scripts/` copies the new
-  shell scripts into the runtime image … No `.dockerignore` … change is needed"*,
-  which the `.dockerignore` follow-up commit `22e9c722` (excludes
-  `scripts/tests/`, `scripts/toolchain-key.sh`, `scripts/verify-toolchain-pin.sh`,
-  `scripts/lib/dockerfile-stage.sh` from the build context) now contradicts.
-  One-paragraph doc fix.
-
-## Residual supply-chain risk — accept knowingly
-
-- **R1 — one-day poisoned-tag window.** An actor with `packages: write` on
-  `ghcr.io/wikid82/charon-toolchain` (maintainer-level) could push a poisoned
-  image to the mutable `:$KEY` tag; a non-forced same-repo PR that recomputes the
-  same key would skip the rebuild and `sync-pin-on-pr` could pin that digest
-  without a from-source rebuild *in that PR*. Bounded by: fork PRs cannot reach
-  the path; the daily `--no-cache --pull` deterministic rebuild + `open-bump-pr`
-  self-heal within ~24 h; the resulting app image is still Trivy/Grype-scanned,
-  SBOM-attested and Cosign-signed. Net change vs pre-PR: the "every CVE-gate PR
-  rebuilds Caddy/CrowdSec from source" property is replaced by "daily
-  deterministic rebuild + per-PR freshness guard + immutable digest pin."
-- **R2 — fork/offline `caddy-inline`+`crowdsec-inline` *whole-app* build is not
-  CI-exercised on same-repo PRs.** The stage bodies are compiled daily by
-  `toolchain-image.yml`; only the `FROM ${ARG} AS caddy-builder` indirection and
-  the final-stage COPY wiring on the inline path go unverified until a fork PR or
-  a manual `make build-offline`. Low severity (small surface, `toolchain-key.sh`
-  sanity-checks the stages exist and contain a build step). F4 closes it.
-- **R3 — the toolchain image itself is digest-pinned but not Cosign-signed.**
-  Acceptable: it is built by the repo's own Actions, pulled by immutable digest,
-  and recipe→digest is bound by the freshness guard + LABEL check; the shipped
-  app image carries the signature/attestation.
-
----
-
-## Scans run for this audit
-
-- `bats scripts/tests/toolchain-key.bats scripts/tests/verify-toolchain-pin.bats` → **17/17 pass** (`Bats 1.13.0`)
-- `shellcheck --severity=error` + default severity on `scripts/toolchain-key.sh`, `scripts/verify-toolchain-pin.sh`, `scripts/lib/dockerfile-stage.sh` → **clean**
-- `actionlint` on the 12 changed workflow files → **clean (exit 0)**
-- Debug-leftover grep over the 3 scripts + 2 bats + fixture → **clean**
-- `git log origin/main..tip -- .trivyignore` → **no changes**
-- `gh api` verification: `regctl-installer` tag `v4.0.16` → commit `c2202c17…` → **exact match**
-- `gh pr checks 1300` on tip `22e9c722` → **no failing / cancelled checks** (all pass or intentionally skipped)
-- Diff review of `Dockerfile`, `toolchain-image.yml`, `build-charon-image/action.yml`, and the 11 other changed workflows; `SECURITY.md`, `ARCHITECTURE.md`, `docs/ci/toolchain-image.md`
-- GORM security scan — **not run (N/A: no models/queries/migrations)**
-- Local Trivy / CodeQL — **deferred to CI** (CI-scoped change; both ran green with proper credentials)
+**None.** The feature meets every Definition-of-Done gate and closes GHSA-3gc6-295r-xm5m. Recommended for
+merge.
