@@ -319,6 +319,14 @@ Get alerted when it matters. Charon sends notifications through Discord, Gotify,
 
 ## 🛠️ Administration
 
+### 👥 User Accounts & Roles
+
+Charon has administrators, who can change anything, and standard users, who manage proxy hosts and can view most settings but can't touch security-sensitive configuration. There's no public sign-up page — an admin adds every account, by email invite or directly, and the first administrator is created during initial setup.
+
+→ [Learn More](features/user-accounts.md)
+
+---
+
 ### 💾 Backup & Restore
 
 Your configuration is valuable. Charon makes it easy to backup your entire setup and restore it when needed—whether you're migrating to new hardware or recovering from a problem. Backups include a validated, checksummed archive format, configurable scheduling, optional passphrase encryption, and automatic copies to S3, SFTP, WebDAV, Dropbox, or Google Drive.
