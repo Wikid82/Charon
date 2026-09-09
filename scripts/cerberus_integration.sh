@@ -234,14 +234,14 @@ done
 echo ""
 
 # ============================================================================
-# Step 3: Register user and authenticate
+# Step 3: Set up admin user and authenticate
 # ============================================================================
-log_info "Registering admin user and logging in..."
+log_info "Setting up admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 
 curl -s -X POST -H "Content-Type: application/json" \
     -d '{"email":"cerberus-test@example.local","password":"password123","name":"Cerberus Tester"}' \
-    "http://localhost:${API_PORT}/api/v1/auth/register" >/dev/null 2>&1 || true
+    "http://localhost:${API_PORT}/api/v1/setup" >/dev/null 2>&1 || true
 
 curl -s -X POST -H "Content-Type: application/json" \
     -d '{"email":"cerberus-test@example.local","password":"password123"}' \
