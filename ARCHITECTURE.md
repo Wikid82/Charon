@@ -331,7 +331,7 @@ fork/offline fallback.
 
 - **Handlers:** Process HTTP requests, validate input, return responses
 - **Middleware:** CORS, GZIP, authentication, logging, metrics, panic recovery
-- **Routes:** Route registration and grouping (public vs authenticated)
+- **Routes:** Route registration and grouping (public, authenticated, and admin-only — see [Management API Authentication & Authorization](#management-api-authentication--authorization))
 
 **Example Endpoints:**
 
@@ -872,6 +872,46 @@ pin (the stage already carries ~40 such pins).
 - **Credential Encryption:** AES-GCM with key rotation for stored credentials
 - **Password Hashing:** bcrypt with cost factor 12
 
+### Management API Authentication & Authorization
+
+**Roles** (`backend/internal/models/user.go`): `admin`, `user`, `passthrough`.
+`passthrough` is a forward-auth identity only and has no management access.
+
+**Route-group boundary** (`backend/internal/api/routes/routes.go`):
+
+| Group | Middleware chain | Who reaches it |
+|-------|------------------|----------------|
+| `protected` | `AuthMiddleware` | any authenticated caller |
+| `management` | `+ RequireManagementAccess()` | `admin` and `user` (rejects `passthrough`) |
+| `managementAdmin` | `+ RequireRole(models.RoleAdmin)` | `admin` only |
+| `securityAdmin`, `authenticatedAdmin` | `+ RequireRole(models.RoleAdmin)` | `admin` only (same idiom, area-scoped) |
+
+`managementAdmin` is a sibling group derived from `management` (`management.Group("/")`
+with `RequireRole(admin)` added). The classification rule is **mutation vs. read**:
+a `GET`/list that backs a `role=user`-reachable screen stays on `management`; its
+state-changing siblings — and any route exposing privileged infrastructure — move
+to `managementAdmin` (or take a per-route `RequireRole(admin)` argument where they
+are registered inline). Areas gated to `admin` this way include CrowdSec admin
+APIs, DNS-provider credentials and ACME, certificate export, access-list /
+security-header / domain writes, tunnel-provider (Hecate) config, Orthrus agent
+provisioning, remote-server (SSH) config, application settings, feature flags,
+plugin enable/disable, notification test/preview, audit-log viewing, and
+encryption management. The subgroup middleware is the only guard on these routes
+(no redundant in-handler role checks), matching the pre-existing `securityAdmin`
+pattern.
+
+**Deny-by-default enforcement:** `routes_test.go` iterates every
+`POST`/`PUT`/`PATCH`/`DELETE` route under `/api/v1/` and asserts a `role=user`
+token receives `403` unless the route is on an explicit, commented allowlist, so a
+newly added privileged route cannot silently land on an under-guarded group.
+
+**Account creation:** there is no public self-registration route. The first
+administrator is bootstrapped through `POST /api/v1/setup` on an instance with no
+users; every subsequent account is created by an existing admin — directly
+(`POST /api/v1/users`) or via the email-invite flow
+(`POST /api/v1/users/invite` → `GET /api/v1/invite/validate` →
+`POST /api/v1/invite/accept`). `/setup` refuses once any user exists.
+
 ### Emergency Break-Glass Protocol
 
 **3-Tier Recovery System:**
@@ -910,7 +950,7 @@ Charon operates with **two distinct traffic flows** on separate ports, each with
 
 - Management interface must remain accessible even when security modules are misconfigured
 - Emergency endpoints (`/api/v1/emergency/*`) require unrestricted access for system recovery
-- Separation of concerns: admin access control is handled by JWT, not proxy-level security
+- Separation of concerns: management access control is handled by JWT authentication plus role-based route guards (see [Management API Authentication & Authorization](#management-api-authentication--authorization)), not proxy-level security
 
 #### Proxy Traffic (Ports 80/443)
 

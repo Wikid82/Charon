@@ -38,15 +38,21 @@ func (h *RemoteServerHandler) SetUptimeService(u *services.UptimeService) {
 	h.uptimeService = u
 }
 
-// RegisterRoutes registers remote server routes.
-func (h *RemoteServerHandler) RegisterRoutes(router *gin.RouterGroup) {
-	router.GET("/remote-servers", h.List)
-	router.POST("/remote-servers", h.Create)
-	router.GET("/remote-servers/:uuid", h.Get)
-	router.PUT("/remote-servers/:uuid", h.Update)
-	router.DELETE("/remote-servers/:uuid", h.Delete)
-	router.POST("/remote-servers/test", h.TestConnectionCustom)
-	router.POST("/remote-servers/:uuid/test", h.TestConnection)
+// RegisterRoutes wires the remote-server endpoints. The list/detail reads that
+// back the role=user-reachable proxy-host create/edit flow and the Remote
+// Servers page are registered on read; create/update/delete and the SSH
+// connection-test endpoints (they act on stored SSH targets and credentials)
+// are registered on admin (deny-by-default for role=user). Callers that do not
+// need the split may pass the same group for both.
+func (h *RemoteServerHandler) RegisterRoutes(read, admin *gin.RouterGroup) {
+	read.GET("/remote-servers", h.List)
+	read.GET("/remote-servers/:uuid", h.Get)
+
+	admin.POST("/remote-servers", h.Create)
+	admin.PUT("/remote-servers/:uuid", h.Update)
+	admin.DELETE("/remote-servers/:uuid", h.Delete)
+	admin.POST("/remote-servers/test", h.TestConnectionCustom)
+	admin.POST("/remote-servers/:uuid/test", h.TestConnection)
 }
 
 // List retrieves all remote servers.

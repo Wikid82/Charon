@@ -14,14 +14,14 @@ docker run -d --name charon-debug \
 sleep 10
 
 echo ""
-echo "=== Registering user ==="
+echo "=== Setting up admin user ==="
 curl -s -X POST -H "Content-Type: application/json" \
-    -d '{"email":"debug@test.local","password":"pass123","name":"Debug"}' \
-    http://localhost:8280/api/v1/auth/register >/dev/null || true
+    -d '{"email":"debug@test.local","password":"pass1234","name":"Debug"}' \
+    http://localhost:8280/api/v1/setup >/dev/null || true
 
 echo "=== Logging in ==="
 TOKEN=$(curl -s -X POST -H "Content-Type: application/json" \
-    -d '{"email":"debug@test.local","password":"pass123"}' \
+    -d '{"email":"debug@test.local","password":"pass1234"}' \
     -c /tmp/debug-cookie \
     http://localhost:8280/api/v1/auth/login | jq -r '.token // empty')
 

@@ -12,6 +12,9 @@ import Layout from '../Layout'
 
 const mockLogout = vi.fn()
 
+// Mutable auth state so individual tests can exercise role-based nav gating.
+let mockUser: { role: string } | undefined
+
 vi.mock('../../hooks/useMediaQuery', () => ({
   useMediaQuery: vi.fn().mockReturnValue(false),
 }))
@@ -20,6 +23,7 @@ vi.mock('../../hooks/useMediaQuery', () => ({
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     logout: mockLogout,
+    user: mockUser,
   }),
 }))
 
@@ -78,6 +82,7 @@ const renderWithProviders = (children: ReactNode) => {
 describe('Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUser = { role: 'admin' }
     localStorage.clear()
     localStorage.setItem('sidebarCollapsed', 'false')
     // Default: all features enabled
@@ -558,6 +563,117 @@ describe('Layout', () => {
       await user.click(await screen.findByRole('button', { name: /import/i }))
       const link = await screen.findByRole('link', { name: 'Caddyfile' })
       expect(link).not.toHaveAttribute('aria-current')
+    })
+  })
+
+  describe('CrowdSec nav gating by role', () => {
+    const expandCerberus = async () => {
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /cerberus/i }))
+    }
+
+    it('shows the CrowdSec security nav item for an admin', async () => {
+      mockUser = { role: 'admin' }
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await expandCerberus()
+
+      const links = await screen.findAllByRole('link', { name: 'CrowdSec' })
+      expect(links.some((l) => l.getAttribute('href') === '/security/crowdsec')).toBe(true)
+    })
+
+    it('hides the CrowdSec security nav item for a non-admin user', async () => {
+      mockUser = { role: 'user' }
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await expandCerberus()
+
+      // Sibling Cerberus items still render for a non-admin...
+      expect(await screen.findByRole('link', { name: 'Access Lists' })).toBeInTheDocument()
+      // ...but the CrowdSec security config link is gone.
+      const links = screen.queryAllByRole('link', { name: 'CrowdSec' })
+      expect(links.some((l) => l.getAttribute('href') === '/security/crowdsec')).toBe(false)
+    })
+  })
+
+  describe('admin-only nav gating by role', () => {
+    const expandHecate = async () => {
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /hecate/i }))
+    }
+    const expandCerberus = async () => {
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /cerberus/i }))
+    }
+
+    it('shows the Hecate Agent nav child for an admin', async () => {
+      mockUser = { role: 'admin' }
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await expandHecate()
+
+      const links = await screen.findAllByRole('link', { name: 'Agent' })
+      expect(links.some((l) => l.getAttribute('href') === '/hecate/agent')).toBe(true)
+    })
+
+    it('hides the Hecate Agent nav child for a non-admin user', async () => {
+      mockUser = { role: 'user' }
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await expandHecate()
+
+      // Sibling Hecate items still render for a non-admin...
+      expect(await screen.findByRole('link', { name: 'Tunnels' })).toBeInTheDocument()
+      // ...but the agent-management link is gone.
+      const links = screen.queryAllByRole('link', { name: 'Agent' })
+      expect(links.some((l) => l.getAttribute('href') === '/hecate/agent')).toBe(false)
+    })
+
+    it('shows the Encryption nav child for an admin', async () => {
+      mockUser = { role: 'admin' }
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await expandCerberus()
+
+      const links = await screen.findAllByRole('link', { name: 'Encryption' })
+      expect(links.some((l) => l.getAttribute('href') === '/security/encryption')).toBe(true)
+    })
+
+    it('hides the Encryption nav child for a non-admin user', async () => {
+      mockUser = { role: 'user' }
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await expandCerberus()
+
+      // Sibling Cerberus items still render for a non-admin...
+      expect(await screen.findByRole('link', { name: 'Access Lists' })).toBeInTheDocument()
+      // ...but the Encryption link is gone.
+      const links = screen.queryAllByRole('link', { name: 'Encryption' })
+      expect(links.some((l) => l.getAttribute('href') === '/security/encryption')).toBe(false)
     })
   })
 })

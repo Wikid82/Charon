@@ -45,18 +45,20 @@ func newTestConfig() *testConfig {
 	}
 }
 
-// authenticate registers and logs in to get session cookies.
+// authenticate bootstraps the first admin (if setup is still required) and logs
+// in to get session cookies.
 func (tc *testConfig) authenticate(t *testing.T) error {
 	t.Helper()
 
-	// Register (may fail if user exists - that's OK)
-	registerPayload := map[string]string{
+	// Bootstrap the first admin via /setup (idempotent for our purposes: a
+	// "setup already completed" 403 just means the admin already exists).
+	setupPayload := map[string]string{
 		"email":    "lapi-test@example.local",
 		"password": "testpassword123",
 		"name":     "LAPI Tester",
 	}
-	payloadBytes, _ := json.Marshal(registerPayload)
-	_, _ = tc.Client.Post(tc.BaseURL+"/api/v1/auth/register", "application/json", bytes.NewReader(payloadBytes))
+	payloadBytes, _ := json.Marshal(setupPayload)
+	_, _ = tc.Client.Post(tc.BaseURL+"/api/v1/setup", "application/json", bytes.NewReader(payloadBytes))
 
 	// Login
 	loginPayload := map[string]string{
