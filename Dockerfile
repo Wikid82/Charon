@@ -82,12 +82,12 @@ ARG CADDY_SECURITY_VERSION=1.1.64
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.1
 # xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so
-# a toolchain-key.sh input moves when the plugin does. caddy-geoip2 publishes NO
-# semver tags, so its pin is the full pseudo-version (leading v included) and the
-# `--with` line interpolates it directly (no added `v`); the renovate marker is
-# kept for discoverability but does not track a pseudo-version (same caveat as N7).
+# a toolchain-key.sh input moves when the plugin does. caddy-geoip2 tags its
+# releases (v1.0-v1.3 as of 2026-06); pinned to the tag so Renovate tracks it.
+# The `--with` line interpolates the value directly (it already carries the
+# leading `v`), unlike the sibling pins that re-add `v` in `--with`.
 # renovate: datasource=go depName=github.com/zhangjiayin/caddy-geoip2
-ARG CADDY_GEOIP2_VERSION=v0.0.0-20260623062220-3675c6e7e63d
+ARG CADDY_GEOIP2_VERSION=v1.3
 # renovate: datasource=go depName=github.com/mholt/caddy-ratelimit
 ARG CADDY_RATELIMIT_VERSION=0.1.0
 ## When an official caddy image tag isn't available on the host, use a
