@@ -35,6 +35,10 @@ Key capabilities:
 
 No environment variables or manual configuration required.
 
+> **Admin only.** Enabling, disabling, and managing CrowdSec — bans, bouncer
+> keys, rulesets, and configuration — requires an administrator account. Standard
+> users don't see the CrowdSec controls.
+
 ### Hub Presets
 
 Access pre-built security configurations from the CrowdSec Hub:

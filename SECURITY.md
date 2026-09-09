@@ -1148,9 +1148,29 @@ attackers from using the application to access internal resources or cloud metad
 ### Authentication & Authorization
 
 - **JWT-based authentication**: Secure token-based sessions
-- **Role-based access control**: Admin vs. user permissions
 - **Session management**: Automatic expiration and renewal
 - **Secure cookie attributes**: HttpOnly, Secure (HTTPS), SameSite
+- **Role-based access control**: Three roles — `admin`, `user`, and `passthrough`
+  (forward-auth identity only, no management access).
+  - **`admin`** is required for all administrative and infrastructure operations:
+    CrowdSec controls, DNS-provider credentials and ACME, certificate export,
+    access-list / security-header / domain changes, tunnel-provider and remote
+    agent configuration, SSH remote-server configuration, application settings,
+    feature flags, plugin enable/disable, notification test/preview, audit-log
+    viewing, and encryption management.
+  - **`user`** covers day-to-day proxy-host management. A `user` may open and read
+    most configuration screens, but every state-changing action on the areas
+    above is rejected (`403 Forbidden`).
+  - Enforcement is structural: privileged API routes are mounted on an
+    admin-only route group (`RequireManagementAccess` + `RequireRole(admin)`),
+    distinct from the group that serves the read views behind non-admin screens.
+    A deny-by-default test in CI fails the build if a new state-changing route is
+    added without an explicit authorization decision.
+- **Account creation is admin-controlled**: there is no public self-registration
+  endpoint — it is not a configuration toggle, it is simply not exposed. The
+  first administrator is created through the one-time `/setup` screen on a fresh
+  instance; every account after that is created by an existing admin, either via
+  an email invite link or by adding the user directly.
 
 ### Data Protection
 
@@ -1318,6 +1338,10 @@ fails the build on any blocking finding.
 4. **Secure Webhooks**: Only use trusted webhook endpoints
 5. **Strong Passwords**: Enforce password complexity policies
 6. **Backup Encryption**: Encrypt backup files before storage
+7. **Account Creation**: Create accounts only through the initial `/setup` screen
+   and the admin-controlled invite / add-user flow. There is no public
+   registration endpoint to disable — it is not exposed at all — so no toggle
+   needs hardening here.
 
 ### Configuration Hardening
 

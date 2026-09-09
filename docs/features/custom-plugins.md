@@ -263,6 +263,10 @@ The plugin automatically configures Caddy's DNS challenge for Let's Encrypt:
 
 ## Plugin Management
 
+> **Admin only.** Enabling, disabling, reloading, and unloading plugins requires
+> an administrator account. Standard users can view the list of installed
+> plugins but cannot change which ones are active.
+
 ### Listing Loaded Plugins
 
 **Via Types Endpoint (Recommended):**

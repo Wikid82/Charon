@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-1efe7f19fa52a512
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:6575f4c6a9f76074870c64df9dd4c9ebee812342f37f52ae5ef8f511ba9f8f00
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-9eb9862f44b9e769
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:b41e571d5951bbfc3daa3dccdca033ad9dee535a8e720ac7e3b0bce338f223b2
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -60,7 +60,7 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
 # and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
 # ahead of upstream releases.
 # renovate: datasource=go depName=google.golang.org/grpc
-ARG GRPC_VERSION=1.83.1
+ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 

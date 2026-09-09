@@ -60,9 +60,9 @@ if [ "${API_READY}" != "true" ]; then
   exit 1
 fi
 
-echo "Registering admin user and logging in..."
+echo "Setting up admin user and logging in..."
 TMP_COOKIE=$(mktemp)
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/auth/register >/dev/null || true
+curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/setup >/dev/null || true
 curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null || true
 
 # Check hub availability first

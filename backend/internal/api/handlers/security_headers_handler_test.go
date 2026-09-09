@@ -16,6 +16,24 @@ import (
 	"gorm.io/gorm"
 )
 
+// registerSecurityHeadersRoutesForTest wires every security-headers route onto
+// a single group for handler-level tests. Production wiring (routes.go) splits
+// these across the management / managementAdmin groups; these tests exercise
+// handler behavior, not the authorization split, so a single group is fine.
+func registerSecurityHeadersRoutesForTest(rg *gin.RouterGroup, h *SecurityHeadersHandler) {
+	group := rg.Group("/security/headers")
+	group.GET("/profiles", h.ListProfiles)
+	group.GET("/profiles/:id", h.GetProfile)
+	group.POST("/profiles", h.CreateProfile)
+	group.PUT("/profiles/:id", h.UpdateProfile)
+	group.DELETE("/profiles/:id", h.DeleteProfile)
+	group.GET("/presets", h.GetPresets)
+	group.POST("/presets/apply", h.ApplyPreset)
+	group.POST("/score", h.CalculateScore)
+	group.POST("/csp/validate", h.ValidateCSP)
+	group.POST("/csp/build", h.BuildCSP)
+}
+
 func setupSecurityHeadersTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
@@ -26,7 +44,7 @@ func setupSecurityHeadersTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
-	handler.RegisterRoutes(router.Group("/"))
+	registerSecurityHeadersRoutesForTest(router.Group("/"), handler)
 
 	return router, db
 }
@@ -640,7 +658,7 @@ func TestUpdateProfile_LookupDBError(t *testing.T) {
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
-	handler.RegisterRoutes(router.Group("/"))
+	registerSecurityHeadersRoutesForTest(router.Group("/"), handler)
 
 	// Close DB before making request
 	sqlDB, _ := db.DB()
@@ -686,7 +704,7 @@ func TestDeleteProfile_LookupDBError(t *testing.T) {
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
-	handler.RegisterRoutes(router.Group("/"))
+	registerSecurityHeadersRoutesForTest(router.Group("/"), handler)
 
 	// Close DB before making request
 	sqlDB, _ := db.DB()
@@ -716,7 +734,7 @@ func TestDeleteProfile_CountDBError(t *testing.T) {
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
-	handler.RegisterRoutes(router.Group("/"))
+	registerSecurityHeadersRoutesForTest(router.Group("/"), handler)
 
 	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), http.NoBody)
 	w := httptest.NewRecorder()
@@ -741,7 +759,7 @@ func TestDeleteProfile_DeleteDBError(t *testing.T) {
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
-	handler.RegisterRoutes(router.Group("/"))
+	registerSecurityHeadersRoutesForTest(router.Group("/"), handler)
 
 	// Close DB before delete to simulate DB error
 	sqlDB, _ := db.DB()
@@ -850,7 +868,7 @@ func TestGetProfile_UUID_DBError_NonNotFound(t *testing.T) {
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
-	handler.RegisterRoutes(router.Group("/"))
+	registerSecurityHeadersRoutesForTest(router.Group("/"), handler)
 
 	// Close DB to force a non-NotFound error
 	sqlDB, _ := db.DB()
@@ -899,7 +917,7 @@ func TestUpdateProfile_SaveError(t *testing.T) {
 	router := gin.New()
 
 	handler := NewSecurityHeadersHandler(db, nil)
-	handler.RegisterRoutes(router.Group("/"))
+	registerSecurityHeadersRoutesForTest(router.Group("/"), handler)
 
 	// Close DB after profile is created - this will cause the First() to fail
 	// when trying to find the profile. However, to specifically test Save() error,

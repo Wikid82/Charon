@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -159,7 +160,6 @@ func TestRegister_RoutesRegistration(t *testing.T) {
 		"/api/v1/health",
 		"/metrics",
 		"/api/v1/auth/login",
-		"/api/v1/auth/register",
 		"/api/v1/setup",
 	}
 
@@ -212,7 +212,6 @@ func TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist(t *testi
 
 	publicMutationAllowlist := map[string]bool{
 		http.MethodPost + " /api/v1/auth/login":               true,
-		http.MethodPost + " /api/v1/auth/register":            true,
 		http.MethodPost + " /api/v1/setup":                    true,
 		http.MethodPost + " /api/v1/invite/accept":            true,
 		http.MethodPost + " /api/v1/security/events":          true,
@@ -332,7 +331,8 @@ func TestRegister_AllRoutesRegistered(t *testing.T) {
 
 	// Auth routes
 	assert.Contains(t, routeMap, "/api/v1/auth/login")
-	assert.Contains(t, routeMap, "/api/v1/auth/register")
+	// Public self-registration was removed (Part C); the route must not exist.
+	assert.NotContains(t, routeMap, "/api/v1/auth/register")
 	assert.Contains(t, routeMap, "/api/v1/auth/verify")
 	assert.Contains(t, routeMap, "/api/v1/auth/status")
 	assert.Contains(t, routeMap, "/api/v1/auth/logout")
@@ -375,6 +375,115 @@ func TestRegister_AllRoutesRegistered(t *testing.T) {
 
 	// Total route count should be substantial
 	assert.Greater(t, len(routes), 50, "Expected more than 50 routes to be registered")
+}
+
+// TestRegister_PublicRegistrationEndpointRemoved verifies that the public
+// self-registration endpoint no longer exists, while the two supported
+// account-creation paths — first-admin bootstrap via /setup and the admin
+// email-invite flow — keep working (spec §3.3.4).
+func TestRegister_PublicRegistrationEndpointRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	// Temp-file DB (not shared-cache :memory:) so the schema and rows survive the
+	// connection churn from the background workers Register() starts.
+	dsn := "file:" + filepath.Join(t.TempDir(), "pubreg_removed.db") + "?_busy_timeout=5000"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(context.Background(), router, db, cfg))
+
+	call := func(method, path string, body string, token string) *httptest.ResponseRecorder {
+		var r io.Reader = http.NoBody
+		if body != "" {
+			r = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(method, path, r)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	// --- The public registration route is gone (any method) ---
+	registeredPaths := make(map[string]bool)
+	for _, rt := range router.Routes() {
+		registeredPaths[rt.Path] = true
+	}
+	assert.NotContains(t, registeredPaths, "/api/v1/auth/register",
+		"the /auth/register route must not be registered")
+
+	assert.Equal(t, http.StatusNotFound,
+		call(http.MethodPost, "/api/v1/auth/register",
+			`{"email":"attacker@example.com","password":"password123","name":"Attacker"}`, "").Code,
+		"POST /api/v1/auth/register must 404")
+	assert.Equal(t, http.StatusNotFound,
+		call(http.MethodGet, "/api/v1/auth/register", "", "").Code,
+		"GET /api/v1/auth/register must 404")
+
+	// --- First-admin bootstrap via /setup still works ---
+	setupStatus := call(http.MethodGet, "/api/v1/setup", "", "")
+	assert.Equal(t, http.StatusOK, setupStatus.Code)
+	assert.Contains(t, setupStatus.Body.String(), `"setupRequired":true`)
+
+	created := call(http.MethodPost, "/api/v1/setup",
+		`{"name":"First Admin","email":"admin@example.com","password":"adminpassword123"}`, "")
+	require.Equal(t, http.StatusCreated, created.Code, "first /setup call must create the admin")
+
+	var adminUser models.User
+	require.NoError(t, db.Where("email = ?", "admin@example.com").First(&adminUser).Error)
+	assert.Equal(t, models.RoleAdmin, adminUser.Role, "bootstrap user must be role=admin")
+
+	var acmeEmail models.Setting
+	require.NoError(t, db.Where("key = ?", "caddy.acme_email").First(&acmeEmail).Error)
+	assert.Equal(t, "admin@example.com", acmeEmail.Value, "caddy.acme_email setting must be written")
+
+	// --- /setup closes itself after the first admin exists ---
+	again := call(http.MethodPost, "/api/v1/setup",
+		`{"name":"Second","email":"second@example.com","password":"anotherpassword123"}`, "")
+	assert.Equal(t, http.StatusForbidden, again.Code)
+	assert.Contains(t, again.Body.String(), "Setup already completed")
+
+	// --- The admin email-invite flow still creates a subsequent non-admin user ---
+	authSvc := services.NewAuthService(db, cfg)
+	adminToken, err := authSvc.GenerateToken(&adminUser)
+	require.NoError(t, err)
+
+	invited := call(http.MethodPost, "/api/v1/users/invite",
+		`{"email":"invitee@example.com"}`, adminToken)
+	require.Equal(t, http.StatusCreated, invited.Code, "admin invite must succeed")
+
+	var inviteeUser models.User
+	require.NoError(t, db.Where("email = ?", "invitee@example.com").First(&inviteeUser).Error)
+	require.NotEmpty(t, inviteeUser.InviteToken, "invited user must carry an invite token")
+	assert.Equal(t, models.RoleUser, inviteeUser.Role, "invited user defaults to role=user")
+	assert.False(t, inviteeUser.Enabled, "invited user is disabled until acceptance")
+
+	validate := call(http.MethodGet, "/api/v1/invite/validate?token="+inviteeUser.InviteToken, "", "")
+	assert.Equal(t, http.StatusOK, validate.Code)
+	assert.Contains(t, validate.Body.String(), `"valid":true`)
+
+	accept := call(http.MethodPost, "/api/v1/invite/accept",
+		`{"token":"`+inviteeUser.InviteToken+`","name":"Invitee","password":"inviteepassword123"}`, "")
+	require.Equal(t, http.StatusOK, accept.Code, "invite acceptance must succeed")
+
+	var acceptedUser models.User
+	require.NoError(t, db.Where("email = ?", "invitee@example.com").First(&acceptedUser).Error)
+	assert.True(t, acceptedUser.Enabled, "accepted invitee must be enabled")
+	assert.Equal(t, models.RoleUser, acceptedUser.Role, "accepted invitee stays role=user")
+
+	login := call(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"invitee@example.com","password":"inviteepassword123"}`, "")
+	assert.Equal(t, http.StatusOK, login.Code, "invited user can log in after acceptance")
 }
 
 func TestRegister_MiddlewareApplied(t *testing.T) {
@@ -1401,5 +1510,328 @@ func TestRegister_UptimeSummaryAndHistoryRoutesResolve(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		assert.NotEqualf(t, http.StatusNotFound, w.Code, "%s must resolve to a handler", path)
+	}
+}
+
+// TestRegister_CrowdsecAdminRoutesRequireAdminRole verifies that the
+// /admin/crowdsec/* routes are guarded by RequireRole(admin) (spec §3.1.4,
+// advisory GHSA-3gc6-295r-xm5m). A role=user session must be rejected with a
+// hard 403 on these privileged routes while still retaining access to
+// genuinely user-allowed management routes; a role=admin session must reach
+// the handler (any non-401/403 status is acceptable since CrowdSec is not
+// running in the test).
+func TestRegister_CrowdsecAdminRoutesRequireAdminRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_crowdsec_admin_authz"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(context.Background(), router, db, cfg))
+
+	authSvc := services.NewAuthService(db, cfg)
+
+	userAcct := &models.User{
+		UUID:    uuid.NewString(),
+		APIKey:  uuid.NewString(),
+		Email:   "user-crowdsec-authz@example.com",
+		Role:    models.RoleUser,
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(userAcct).Error)
+	userToken, err := authSvc.GenerateToken(userAcct)
+	require.NoError(t, err)
+
+	adminAcct := &models.User{
+		UUID:    uuid.NewString(),
+		APIKey:  uuid.NewString(),
+		Email:   "admin-crowdsec-authz@example.com",
+		Role:    models.RoleAdmin,
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(adminAcct).Error)
+	adminToken, err := authSvc.GenerateToken(adminAcct)
+	require.NoError(t, err)
+
+	do := func(method, path, token string) int {
+		req := httptest.NewRequest(method, path, http.NoBody)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	routes := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"stop", http.MethodPost, "/api/v1/admin/crowdsec/stop"},
+		{"bouncer key", http.MethodGet, "/api/v1/admin/crowdsec/bouncer/key"},
+		{"ban", http.MethodPost, "/api/v1/admin/crowdsec/ban"},
+		{"read file", http.MethodGet, "/api/v1/admin/crowdsec/file?path=acquis.yaml"},
+	}
+
+	for _, tc := range routes {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, http.StatusUnauthorized, do(tc.method, tc.path, ""),
+				"no token must be rejected with 401")
+
+			assert.Equal(t, http.StatusForbidden, do(tc.method, tc.path, userToken),
+				"role=user must be rejected with 403 on privileged CrowdSec routes")
+
+			adminCode := do(tc.method, tc.path, adminToken)
+			assert.NotEqual(t, http.StatusUnauthorized, adminCode,
+				"role=admin must not be rejected as unauthorized")
+			assert.NotEqual(t, http.StatusForbidden, adminCode,
+				"role=admin must reach the handler, not be forbidden")
+		})
+	}
+
+	// Control: the same role=user token remains valid for a genuinely
+	// user-allowed management route, proving the 403s above are the new
+	// admin guard specifically and not a broken session.
+	assert.NotEqual(t, http.StatusForbidden, do(http.MethodGet, "/api/v1/proxy-hosts", userToken),
+		"role=user must still reach user-allowed management routes")
+	assert.NotEqual(t, http.StatusUnauthorized, do(http.MethodGet, "/api/v1/proxy-hosts", userToken),
+		"role=user session token must be accepted")
+}
+
+// --- Deny-by-default management-API authorization enforcement (spec §3.2.4) ---
+//
+// publicMutationAllowlist and userOKMutationAllowlist below ARE the
+// deny-by-default policy for state-changing routes under /api/v1/. Every
+// mutating route (POST/PUT/PATCH/DELETE) that is NOT in one of these two lists
+// MUST reject a role=user caller with 403 and MUST let a role=admin caller
+// through to the handler. Adding a route to either list is a deliberate,
+// reviewed policy decision — each entry carries the reason it is reachable
+// without admin.
+
+// publicMutationAllowlistEnforcement: routes that are not part of the
+// authenticated management surface at all — they run their own auth scheme
+// (unauthenticated bootstrap, event intake, or the emergency IP+token
+// mechanism) and have no session-role semantics, so the role=user / role=admin
+// dimension does not apply.
+var publicMutationAllowlistEnforcement = map[string]string{
+	"POST /api/v1/auth/login":                  "unauthenticated credential exchange",
+	"POST /api/v1/setup":                       "first-admin bootstrap on an empty DB; closes itself after first use",
+	"POST /api/v1/invite/accept":               "invited user completes their own account before they have a session",
+	"POST /api/v1/security/events":             "internal security-event intake (Cerberus); not a user-facing route",
+	"POST /api/v1/emergency/security-reset":    "emergency recovery, guarded by ManagementCIDR + X-Emergency-Token, not by role",
+	"POST /api/v1/emergency/token/generate":    "emergency-token lifecycle, guarded by ManagementCIDR + X-Emergency-Token, not by role",
+	"DELETE /api/v1/emergency/token":           "emergency-token lifecycle, guarded by ManagementCIDR + X-Emergency-Token, not by role",
+	"PATCH /api/v1/emergency/token/expiration": "emergency-token lifecycle, guarded by ManagementCIDR + X-Emergency-Token, not by role",
+}
+
+// userOKMutationAllowlist: authenticated routes deliberately reachable by
+// role=user. Each is either a per-user self-service action, a non-persisting
+// diagnostic/calculator, or a core role=user capability (proxy hosts/groups,
+// named themes, uptime monitors) whose authorization is per-object, not
+// role-based.
+var userOKMutationAllowlist = map[string]string{
+	// Per-user self-service (the acting user's own session / profile).
+	"POST /api/v1/auth/logout":            "ends the caller's own session",
+	"POST /api/v1/auth/refresh":           "refreshes the caller's own session",
+	"POST /api/v1/auth/change-password":   "caller changes their own password",
+	"POST /api/v1/user/profile":           "caller updates their own profile",
+	"POST /api/v1/user/api-key":           "caller regenerates their own API key",
+	"POST /api/v1/changelog/ack":          "caller acknowledges the changelog for themselves",
+	"POST /api/v1/changelog/opt-in":       "caller sets their own changelog opt-in",
+	"PUT /api/v1/users/:id":               "UpdateUser has a deliberate self-service branch (own name/password); admin-only fields are rejected in-handler",
+	"POST /api/v1/notifications/:id/read": "per-user inbox: mark one of the caller's notifications read",
+	"POST /api/v1/notifications/read-all": "per-user inbox: mark all of the caller's notifications read",
+
+	// Core role=user capability — object-level authz (PermittedHosts / forward-auth), not role.
+	"POST /api/v1/proxy-hosts":                             "core role=user capability (per-host authz)",
+	"PUT /api/v1/proxy-hosts/:uuid":                        "core role=user capability (per-host authz)",
+	"DELETE /api/v1/proxy-hosts/:uuid":                     "core role=user capability (per-host authz)",
+	"POST /api/v1/proxy-hosts/test":                        "connection dry-run for the proxy-host form",
+	"PUT /api/v1/proxy-hosts/bulk-update-acl":              "core role=user capability (per-host authz)",
+	"PUT /api/v1/proxy-hosts/bulk-update-group":            "core role=user capability (per-host authz)",
+	"PUT /api/v1/proxy-hosts/bulk-update-security-headers": "core role=user capability (per-host authz)",
+	"POST /api/v1/proxy-groups":                            "core role=user capability",
+	"PUT /api/v1/proxy-groups/:uuid":                       "core role=user capability",
+	"DELETE /api/v1/proxy-groups/:uuid":                    "core role=user capability",
+	"POST /api/v1/themes":                                  "named themes are available to all management users by design",
+	"PUT /api/v1/themes/:id":                               "named themes are available to all management users by design",
+	"DELETE /api/v1/themes/:id":                            "named themes are available to all management users by design",
+
+	// Non-persisting calculators / diagnostics.
+	"POST /api/v1/security/headers/score":        "pure scoring calculator, no persistence",
+	"POST /api/v1/security/headers/csp/validate": "pure CSP validator, no persistence",
+	"POST /api/v1/security/headers/csp/build":    "pure CSP builder, no persistence",
+	"POST /api/v1/access-lists/:id/test":         "non-persisting IP dry-run against an existing access list",
+
+	// Observability — uptime monitoring is a role=user surface.
+	"POST /api/v1/uptime/monitors":           "observability: role=user manages uptime monitors",
+	"PUT /api/v1/uptime/monitors/:id":        "observability: role=user manages uptime monitors",
+	"DELETE /api/v1/uptime/monitors/:id":     "observability: role=user manages uptime monitors",
+	"POST /api/v1/uptime/monitors/:id/check": "observability: on-demand check, no privileged state",
+	"POST /api/v1/uptime/sync":               "observability: resync monitors from proxy hosts",
+	"POST /api/v1/system/uptime/check":       "observability: enqueue a full uptime sweep",
+}
+
+// adminHandlerRejectsByDesign: routes where a role=admin caller passes
+// authorization and reaches the handler, but the handler itself then returns
+// 401/403 for a non-authorization reason (a disabled feature, a missing
+// break-glass token, or a seeded read-only preset). The role=user 403
+// assertion still applies — only the admin-side "reached the handler"
+// assertion is skipped for these.
+var adminHandlerRejectsByDesign = map[string]string{
+	"POST /api/v1/system/permissions/repair":       "403 permissions_repair_disabled unless SingleContainer + root",
+	"POST /api/v1/security/disable":                "401 break-glass token required to disable Cerberus from non-localhost",
+	"PUT /api/v1/security/headers/profiles/:id":    "profile id 1 is a seeded read-only preset → 403 cannot modify preset",
+	"DELETE /api/v1/security/headers/profiles/:id": "profile id 1 is a seeded read-only preset → 403 cannot delete preset",
+}
+
+// TestManagementGroup_MutationsAreAdminGuarded walks every registered mutating
+// route under /api/v1/ and enforces the deny-by-default policy: unless a route
+// is explicitly allowlisted above, role=user must be rejected with 403 and
+// role=admin must reach the handler.
+//
+// Scope: this test only walks state-changing methods (POST/PUT/PATCH/DELETE).
+// Privileged GET/read routes are NOT exercised here — their placement is
+// governed by the §3.2.2 read-route audit in docs/plans/current_spec.md, not
+// by this walk. A future privileged read mistakenly mounted on the management
+// group (rather than a role-scoped read group) will therefore not be caught
+// automatically here; the audit is the backstop for that class.
+func TestManagementGroup_MutationsAreAdminGuarded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	// A temp-file DB (not shared-cache :memory:) so the schema and seeded users
+	// survive the connection churn of walking ~130 routes in one test. Single
+	// open connection + a busy timeout keeps the background workers Register()
+	// starts (stats ingester, expiry checker, uptime sync) from racing the
+	// request path into transient "not found" auth failures.
+	dsn := "file:" + filepath.Join(t.TempDir(), "mgmt_guard.db") + "?_busy_timeout=5000"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	cfg := config.Config{
+		JWTSecret:     "test-secret",
+		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	}
+	require.NoError(t, Register(context.Background(), router, db, cfg))
+
+	authSvc := services.NewAuthService(db, cfg)
+
+	// High, fixed IDs: materializeRoutePath turns every ":param" into "1", so
+	// the admin-side probe of DELETE /users/:id hits /users/1 — keep the
+	// seeded accounts well clear of that so the walk can't delete its own
+	// credentials mid-run.
+	userAcct := &models.User{
+		ID: 90000001, UUID: uuid.NewString(), APIKey: uuid.NewString(),
+		Email: "mgmt-guard-user@example.com", Role: models.RoleUser, Enabled: true,
+	}
+	require.NoError(t, db.Create(userAcct).Error)
+	userToken, err := authSvc.GenerateToken(userAcct)
+	require.NoError(t, err)
+
+	adminAcct := &models.User{
+		ID: 90000002, UUID: uuid.NewString(), APIKey: uuid.NewString(),
+		Email: "mgmt-guard-admin@example.com", Role: models.RoleAdmin, Enabled: true,
+	}
+	require.NoError(t, db.Create(adminAcct).Error)
+	adminToken, err := authSvc.GenerateToken(adminAcct)
+	require.NoError(t, err)
+
+	mutating := map[string]bool{
+		http.MethodPost: true, http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true,
+	}
+
+	do := func(method, path, token string) int {
+		var body io.Reader = http.NoBody
+		if method != http.MethodDelete {
+			body = strings.NewReader("{}")
+		}
+		req := httptest.NewRequest(method, materializeRoutePath(path), body)
+		if method != http.MethodDelete {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	seen := map[string]bool{}
+	for _, route := range router.Routes() {
+		if !strings.HasPrefix(route.Path, "/api/v1/") || !mutating[route.Method] {
+			continue
+		}
+		key := route.Method + " " + route.Path
+		seen[key] = true
+
+		if reason, ok := publicMutationAllowlistEnforcement[key]; ok {
+			t.Logf("skip (public): %s — %s", key, reason)
+			continue
+		}
+		if reason, ok := userOKMutationAllowlist[key]; ok {
+			t.Logf("skip (user-ok): %s — %s", key, reason)
+			continue
+		}
+
+		t.Run(key, func(t *testing.T) {
+			assert.Equalf(t, http.StatusForbidden, do(route.Method, route.Path, userToken),
+				"role=user must be denied (403) on non-allowlisted mutating route %s", key)
+
+			if reason, ok := adminHandlerRejectsByDesign[key]; ok {
+				t.Logf("admin-side check skipped for %s — %s", key, reason)
+				return
+			}
+			adminCode := do(route.Method, route.Path, adminToken)
+			assert.NotEqualf(t, http.StatusUnauthorized, adminCode,
+				"role=admin must not be rejected as unauthorized on %s", key)
+			assert.NotEqualf(t, http.StatusForbidden, adminCode,
+				"role=admin must reach the handler (not 403) on %s", key)
+		})
+	}
+
+	// Guard against an allowlist entry silently rotting: every allowlisted key
+	// must correspond to a real registered route.
+	for key := range publicMutationAllowlistEnforcement {
+		assert.Truef(t, seen[key], "stale publicMutationAllowlistEnforcement entry (no such route): %s", key)
+	}
+	for key := range userOKMutationAllowlist {
+		assert.Truef(t, seen[key], "stale userOKMutationAllowlist entry (no such route): %s", key)
+	}
+	for key := range adminHandlerRejectsByDesign {
+		assert.Truef(t, seen[key], "stale adminHandlerRejectsByDesign entry (no such route): %s", key)
+	}
+}
+
+// TestManagementGroup_RouteInventoryNoDuplicates guards the Commit 3 invariant
+// that the deny-by-default sweep only changed middleware chains, never the set
+// of registered endpoints. A read/mutation RegisterRoutes(read, admin) split
+// that accidentally registers a path on both groups, or an inline move that
+// leaves the old registration behind, shows up here as a duplicate
+// "METHOD /path".
+func TestManagementGroup_RouteInventoryNoDuplicates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	dsn := "file:" + filepath.Join(t.TempDir(), "route_inventory.db") + "?_busy_timeout=5000"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{
+		JWTSecret:     "test-secret",
+		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	}
+	require.NoError(t, Register(context.Background(), router, db, cfg))
+
+	seen := map[string]int{}
+	for _, route := range router.Routes() {
+		seen[route.Method+" "+route.Path]++
+	}
+	for key, n := range seen {
+		assert.Equalf(t, 1, n, "route %s is registered %d times (expected exactly once)", key, n)
 	}
 }

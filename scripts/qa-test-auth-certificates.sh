@@ -50,8 +50,8 @@ section "Phase 1: Certificate Page Authentication Tests"
 
 # Test 1.1: Login and Cookie Verification
 echo -e "${YELLOW}Test 1.1: Login and Cookie Verification${NC}"
-# First, ensure test user exists (idempotent)
-curl -s -X POST "$API_URL/auth/register" \
+# First, ensure the initial admin user exists (idempotent)
+curl -s -X POST "$API_URL/setup" \
     -H "Content-Type: application/json" \
     -d '{"email":"qa-test@example.com","password":"QATestPass123!","name":"QA Test User"}' > /dev/null 2>&1
 
