@@ -2,33 +2,33 @@
  * CrowdSec Admin API Authorization Enforcement (GHSA-3gc6-295r-xm5m)
  *
  * Advisory: a low-privilege `role=user` account (previously obtainable via the
- * public `POST /auth/register` endpoint) can reach the entire
- * `/api/v1/admin/crowdsec/*` surface because those routes are mounted on the
+ * public `POST /auth/register` endpoint) could reach the entire
+ * `/api/v1/admin/crowdsec/*` surface because those routes were mounted on the
  * bare `management` group, guarded only by `RequireManagementAccess()` which
  * rejects `role=passthrough` only.
  *
- * Target behaviour (implemented in later commits of this feature):
+ * Shipped behaviour (Part A — `crowdsecHandler.RegisterRoutes(managementAdmin)`
+ * with `RequireRole(admin)`):
  *  - `role=user` -> 403 on every CrowdSec admin route.
  *  - The same `role=user` token is still a valid session (200 on a genuinely
  *    `role=user`-allowed endpoint).
- *  - `role=admin` reaches the handler (never 401/403; 200 or 500 depending on
+ *  - `role=admin` reaches the handler (never 401/403; 200/404/500 depending on
  *    whether the CrowdSec LAPI is running in the test environment).
- *  - The `/security/crowdsec` UI route redirects / blocks a non-admin and the
- *    nav entry is hidden for `role=user`.
+ *  - The `/security/crowdsec` UI route redirects a non-admin and the nav entry
+ *    is hidden for `role=user`.
  *
- * All tests are `test.fixme` until Part A lands (spec §3.1). The suite must
- * collect and report 0 failures / all skipped.
+ * Runs only under `--project=security-tests` (the browser projects `testIgnore`
+ * this directory).
  */
 
-import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { test, expect } from '../fixtures/test';
+import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
+import { STORAGE_STATE } from '../constants';
+import { TestDataManager } from '../utils/TestDataManager';
+import { TEST_PASSWORD } from '../fixtures/auth-fixtures';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
-
-const TEST_USERS = {
-  admin: { email: 'admin@test.local', password: 'AdminPassword123!' },
-  user: { email: 'user@test.local', password: 'UserPassword123!' },
-};
 
 /** CrowdSec admin routes a non-admin must never reach (spec §3.1.4). */
 const CROWDSEC_ADMIN_ROUTES: Array<{
@@ -42,42 +42,51 @@ const CROWDSEC_ADMIN_ROUTES: Array<{
   { method: 'get', path: '/api/v1/admin/crowdsec/file?path=acquis.yaml' },
 ];
 
-async function loginAndGetToken(
-  context: APIRequestContext,
-  credentials: { email: string; password: string }
-): Promise<string | null> {
-  try {
-    const response = await context.post(`${BASE_URL}/api/v1/auth/login`, { data: credentials });
-    if (response.ok()) {
-      const data = await response.json();
-      return data.token || data.access_token || null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-test.describe.fixme('CrowdSec Admin API Authorization (GHSA-3gc6-295r-xm5m)', () => {
+test.describe('CrowdSec Admin API Authorization (GHSA-3gc6-295r-xm5m)', () => {
+  let testData: TestDataManager;
+  let adminApiContext: APIRequestContext;
   let adminContext: APIRequestContext;
   let userContext: APIRequestContext;
   let anonContext: APIRequestContext;
-  let adminToken: string | null;
-  let userToken: string | null;
+  let adminToken: string;
+  let userToken: string;
 
   test.beforeAll(async () => {
-    adminContext = await playwrightRequest.newContext({ baseURL: BASE_URL });
-    userContext = await playwrightRequest.newContext({ baseURL: BASE_URL });
-    anonContext = await playwrightRequest.newContext({
+    // Admin-authenticated context from the shared setup session — used to mint
+    // the per-suite fixture users via the existing TestDataManager helper.
+    adminApiContext = await request.newContext({ baseURL: BASE_URL, storageState: STORAGE_STATE });
+    testData = new TestDataManager(adminApiContext, 'crowdsec-admin-authz');
+
+    const userRecord = await testData.createUser({
+      name: `CrowdSec AuthZ User ${Date.now()}`,
+      email: 'crowdsec-authz-user@test.local',
+      password: TEST_PASSWORD,
+      role: 'user',
+    });
+    userToken = userRecord.token;
+
+    const adminRecord = await testData.createUser({
+      name: `CrowdSec AuthZ Admin ${Date.now()}`,
+      email: 'crowdsec-authz-admin@test.local',
+      password: TEST_PASSWORD,
+      role: 'admin',
+    });
+    adminToken = adminRecord.token;
+
+    expect(userToken, 'role=user fixture token').toBeTruthy();
+    expect(adminToken, 'role=admin fixture token').toBeTruthy();
+
+    adminContext = await request.newContext({ baseURL: BASE_URL });
+    userContext = await request.newContext({ baseURL: BASE_URL });
+    anonContext = await request.newContext({
       baseURL: BASE_URL,
       storageState: { cookies: [], origins: [] },
     });
-
-    adminToken = await loginAndGetToken(adminContext, TEST_USERS.admin);
-    userToken = await loginAndGetToken(userContext, TEST_USERS.user);
   });
 
   test.afterAll(async () => {
+    await testData?.cleanup();
+    await adminApiContext?.dispose();
     await adminContext?.dispose();
     await userContext?.dispose();
     await anonContext?.dispose();
@@ -118,9 +127,15 @@ test.describe.fixme('CrowdSec Admin API Authorization (GHSA-3gc6-295r-xm5m)', ()
   });
 
   test('role=admin can invoke a CrowdSec mutation (never 401/403)', async () => {
-    const response = await adminContext.post('/api/v1/admin/crowdsec/ban', {
+    // Assertion corrected vs. the original fixme draft: it used
+    // `POST /admin/crowdsec/ban`, whose handler shells out to `cscli decisions
+    // add` and blocks indefinitely when no CrowdSec LAPI is reachable (the
+    // local E2E compose ships no CrowdSec service). `POST /admin/crowdsec/stop`
+    // is an equivalent privileged, state-changing CrowdSec route that
+    // exercises the same `managementAdmin` authorization path without an
+    // external dependency.
+    const response = await adminContext.post('/api/v1/admin/crowdsec/stop', {
       headers: { Authorization: `Bearer ${adminToken}` },
-      data: { ip: '203.0.113.11', duration: '1h', reason: 'e2e-admin' },
     });
     expect(response.status()).not.toBe(401);
     expect(response.status()).not.toBe(403);
@@ -128,15 +143,18 @@ test.describe.fixme('CrowdSec Admin API Authorization (GHSA-3gc6-295r-xm5m)', ()
 
   test('the /security/crowdsec UI route blocks a non-admin', async ({ page }) => {
     await test.step('authenticate the browser session as role=user', async () => {
+      await page.context().clearCookies();
       await page.goto('/');
       await page.evaluate((token) => {
         window.localStorage.setItem('charon_auth_token', token);
-      }, userToken ?? '');
+      }, userToken);
+      await page.reload();
     });
 
     await test.step('navigating directly to /security/crowdsec redirects away', async () => {
       await page.goto('/security/crowdsec');
       await expect(page).toHaveURL((url) => !url.pathname.startsWith('/security/crowdsec'));
+      await expect(page.getByRole('main')).toBeVisible();
     });
 
     await test.step('the CrowdSec nav entry is not shown to role=user', async () => {
