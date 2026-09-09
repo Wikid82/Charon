@@ -25,7 +25,6 @@ func NewHecateHandler(svc *services.HecateService) *HecateHandler {
 	return &HecateHandler{svc: svc}
 }
 
-// RegisterRoutes wires all Hecate management routes onto the given router group.
 // RegisterRoutes wires the Hecate endpoints. Read-only status/list endpoints
 // that back role=user-reachable screens (the Dashboard hecate widget and the
 // proxy-host create/edit flow) are registered on read; everything that mutates

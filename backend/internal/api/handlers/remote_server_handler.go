@@ -38,7 +38,6 @@ func (h *RemoteServerHandler) SetUptimeService(u *services.UptimeService) {
 	h.uptimeService = u
 }
 
-// RegisterRoutes registers remote server routes.
 // RegisterRoutes wires the remote-server endpoints. The list/detail reads that
 // back the role=user-reachable proxy-host create/edit flow and the Remote
 // Servers page are registered on read; create/update/delete and the SSH

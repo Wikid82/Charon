@@ -53,7 +53,6 @@ func (h *OrthrusHandler) SetProxyResolver(r orthrusProxyStatusResolver) {
 	h.proxyResolver = r
 }
 
-// RegisterRoutes wires all Orthrus management routes onto the given router group.
 // RegisterRoutes wires the Orthrus agent endpoints. The agent list/summary
 // reads that back the role=user-reachable proxy-host create/edit flow are
 // registered on read; agent provisioning, mutation, revocation and the

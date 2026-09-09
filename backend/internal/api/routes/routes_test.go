@@ -1691,6 +1691,13 @@ var adminHandlerRejectsByDesign = map[string]string{
 // route under /api/v1/ and enforces the deny-by-default policy: unless a route
 // is explicitly allowlisted above, role=user must be rejected with 403 and
 // role=admin must reach the handler.
+//
+// Scope: this test only walks state-changing methods (POST/PUT/PATCH/DELETE).
+// Privileged GET/read routes are NOT exercised here — their placement is
+// governed by the §3.2.2 read-route audit in docs/plans/current_spec.md, not
+// by this walk. A future privileged read mistakenly mounted on the management
+// group (rather than a role-scoped read group) will therefore not be caught
+// automatically here; the audit is the backstop for that class.
 func TestManagementGroup_MutationsAreAdminGuarded(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

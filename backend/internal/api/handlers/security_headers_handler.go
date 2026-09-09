@@ -31,7 +31,6 @@ func NewSecurityHeadersHandler(db *gorm.DB, caddyManager *caddy.Manager) *Securi
 	}
 }
 
-// RegisterRoutes registers all security headers routes
 // ListProfiles returns all security header profiles
 // GET /api/v1/security/headers/profiles
 func (h *SecurityHeadersHandler) ListProfiles(c *gin.Context) {
