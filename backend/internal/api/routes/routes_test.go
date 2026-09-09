@@ -160,7 +160,6 @@ func TestRegister_RoutesRegistration(t *testing.T) {
 		"/api/v1/health",
 		"/metrics",
 		"/api/v1/auth/login",
-		"/api/v1/auth/register",
 		"/api/v1/setup",
 	}
 
@@ -213,7 +212,6 @@ func TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist(t *testi
 
 	publicMutationAllowlist := map[string]bool{
 		http.MethodPost + " /api/v1/auth/login":               true,
-		http.MethodPost + " /api/v1/auth/register":            true,
 		http.MethodPost + " /api/v1/setup":                    true,
 		http.MethodPost + " /api/v1/invite/accept":            true,
 		http.MethodPost + " /api/v1/security/events":          true,
@@ -333,7 +331,8 @@ func TestRegister_AllRoutesRegistered(t *testing.T) {
 
 	// Auth routes
 	assert.Contains(t, routeMap, "/api/v1/auth/login")
-	assert.Contains(t, routeMap, "/api/v1/auth/register")
+	// Public self-registration was removed (Part C); the route must not exist.
+	assert.NotContains(t, routeMap, "/api/v1/auth/register")
 	assert.Contains(t, routeMap, "/api/v1/auth/verify")
 	assert.Contains(t, routeMap, "/api/v1/auth/status")
 	assert.Contains(t, routeMap, "/api/v1/auth/logout")
@@ -376,6 +375,115 @@ func TestRegister_AllRoutesRegistered(t *testing.T) {
 
 	// Total route count should be substantial
 	assert.Greater(t, len(routes), 50, "Expected more than 50 routes to be registered")
+}
+
+// TestRegister_PublicRegistrationEndpointRemoved verifies that the public
+// self-registration endpoint no longer exists, while the two supported
+// account-creation paths — first-admin bootstrap via /setup and the admin
+// email-invite flow — keep working (spec §3.3.4).
+func TestRegister_PublicRegistrationEndpointRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	// Temp-file DB (not shared-cache :memory:) so the schema and rows survive the
+	// connection churn from the background workers Register() starts.
+	dsn := "file:" + filepath.Join(t.TempDir(), "pubreg_removed.db") + "?_busy_timeout=5000"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(context.Background(), router, db, cfg))
+
+	call := func(method, path string, body string, token string) *httptest.ResponseRecorder {
+		var r io.Reader = http.NoBody
+		if body != "" {
+			r = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(method, path, r)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	// --- The public registration route is gone (any method) ---
+	registeredPaths := make(map[string]bool)
+	for _, rt := range router.Routes() {
+		registeredPaths[rt.Path] = true
+	}
+	assert.NotContains(t, registeredPaths, "/api/v1/auth/register",
+		"the /auth/register route must not be registered")
+
+	assert.Equal(t, http.StatusNotFound,
+		call(http.MethodPost, "/api/v1/auth/register",
+			`{"email":"attacker@example.com","password":"password123","name":"Attacker"}`, "").Code,
+		"POST /api/v1/auth/register must 404")
+	assert.Equal(t, http.StatusNotFound,
+		call(http.MethodGet, "/api/v1/auth/register", "", "").Code,
+		"GET /api/v1/auth/register must 404")
+
+	// --- First-admin bootstrap via /setup still works ---
+	setupStatus := call(http.MethodGet, "/api/v1/setup", "", "")
+	assert.Equal(t, http.StatusOK, setupStatus.Code)
+	assert.Contains(t, setupStatus.Body.String(), `"setupRequired":true`)
+
+	created := call(http.MethodPost, "/api/v1/setup",
+		`{"name":"First Admin","email":"admin@example.com","password":"adminpassword123"}`, "")
+	require.Equal(t, http.StatusCreated, created.Code, "first /setup call must create the admin")
+
+	var adminUser models.User
+	require.NoError(t, db.Where("email = ?", "admin@example.com").First(&adminUser).Error)
+	assert.Equal(t, models.RoleAdmin, adminUser.Role, "bootstrap user must be role=admin")
+
+	var acmeEmail models.Setting
+	require.NoError(t, db.Where("key = ?", "caddy.acme_email").First(&acmeEmail).Error)
+	assert.Equal(t, "admin@example.com", acmeEmail.Value, "caddy.acme_email setting must be written")
+
+	// --- /setup closes itself after the first admin exists ---
+	again := call(http.MethodPost, "/api/v1/setup",
+		`{"name":"Second","email":"second@example.com","password":"anotherpassword123"}`, "")
+	assert.Equal(t, http.StatusForbidden, again.Code)
+	assert.Contains(t, again.Body.String(), "Setup already completed")
+
+	// --- The admin email-invite flow still creates a subsequent non-admin user ---
+	authSvc := services.NewAuthService(db, cfg)
+	adminToken, err := authSvc.GenerateToken(&adminUser)
+	require.NoError(t, err)
+
+	invited := call(http.MethodPost, "/api/v1/users/invite",
+		`{"email":"invitee@example.com"}`, adminToken)
+	require.Equal(t, http.StatusCreated, invited.Code, "admin invite must succeed")
+
+	var inviteeUser models.User
+	require.NoError(t, db.Where("email = ?", "invitee@example.com").First(&inviteeUser).Error)
+	require.NotEmpty(t, inviteeUser.InviteToken, "invited user must carry an invite token")
+	assert.Equal(t, models.RoleUser, inviteeUser.Role, "invited user defaults to role=user")
+	assert.False(t, inviteeUser.Enabled, "invited user is disabled until acceptance")
+
+	validate := call(http.MethodGet, "/api/v1/invite/validate?token="+inviteeUser.InviteToken, "", "")
+	assert.Equal(t, http.StatusOK, validate.Code)
+	assert.Contains(t, validate.Body.String(), `"valid":true`)
+
+	accept := call(http.MethodPost, "/api/v1/invite/accept",
+		`{"token":"`+inviteeUser.InviteToken+`","name":"Invitee","password":"inviteepassword123"}`, "")
+	require.Equal(t, http.StatusOK, accept.Code, "invite acceptance must succeed")
+
+	var acceptedUser models.User
+	require.NoError(t, db.Where("email = ?", "invitee@example.com").First(&acceptedUser).Error)
+	assert.True(t, acceptedUser.Enabled, "accepted invitee must be enabled")
+	assert.Equal(t, models.RoleUser, acceptedUser.Role, "accepted invitee stays role=user")
+
+	login := call(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"invitee@example.com","password":"inviteepassword123"}`, "")
+	assert.Equal(t, http.StatusOK, login.Code, "invited user can log in after acceptance")
 }
 
 func TestRegister_MiddlewareApplied(t *testing.T) {
@@ -1509,7 +1617,6 @@ func TestRegister_CrowdsecAdminRoutesRequireAdminRole(t *testing.T) {
 // dimension does not apply.
 var publicMutationAllowlistEnforcement = map[string]string{
 	"POST /api/v1/auth/login":                  "unauthenticated credential exchange",
-	"POST /api/v1/auth/register":               "TODO(Commit 4): public registration endpoint is removed in Part C; still present here because Commit 3 lands first",
 	"POST /api/v1/setup":                       "first-admin bootstrap on an empty DB; closes itself after first use",
 	"POST /api/v1/invite/accept":               "invited user completes their own account before they have a session",
 	"POST /api/v1/security/events":             "internal security-event intake (Cerberus); not a user-facing route",

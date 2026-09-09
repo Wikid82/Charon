@@ -292,7 +292,6 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	)
 
 	api.POST("/auth/login", authHandler.Login)
-	api.POST("/auth/register", authHandler.Register)
 
 	// Forward auth endpoint for Caddy (public, validates session internally)
 	api.GET("/auth/verify", authHandler.Verify)

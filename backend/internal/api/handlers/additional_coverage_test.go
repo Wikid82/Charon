@@ -705,32 +705,6 @@ func TestRemoteServerHandler_TestConnectionCustom_Unreachable2(t *testing.T) {
 	assert.Contains(t, w.Body.String(), `"reachable":false`)
 }
 
-// Auth Handler Register error paths
-
-func setupAuthCoverageDB(t *testing.T) *gorm.DB {
-	t.Helper()
-	db := OpenTestDB(t)
-	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
-	return db
-}
-
-func TestAuthHandler_Register_InvalidJSON(t *testing.T) {
-	db := setupAuthCoverageDB(t)
-
-	cfg := config.Config{JWTSecret: "test-secret"}
-	authService := services.NewAuthService(db, cfg)
-	h := NewAuthHandler(authService, nil)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/register", bytes.NewBufferString("invalid"))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	h.Register(c)
-
-	assert.Equal(t, 400, w.Code)
-}
-
 // Health handler coverage
 
 func TestHealthHandler_Basic(t *testing.T) {
