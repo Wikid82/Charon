@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-42331d0f574f9050
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:c677efc4b66f314c8aaf75d8706dece6f2af66cd410847e9219851ed700cae89
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-2d54488fed53f771
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:aff00920fe9646cbcbc4dc92df0f67784daeb17c4b84f09e08cd4767aeff1c0d
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -82,12 +82,11 @@ ARG CADDY_SECURITY_VERSION=1.1.64
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.1
 # xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so
-# a toolchain-key.sh input moves when the plugin does. caddy-geoip2 publishes NO
-# semver tags, so its pin is the full pseudo-version (leading v included) and the
-# `--with` line interpolates it directly (no added `v`); the renovate marker is
-# kept for discoverability but does not track a pseudo-version (same caveat as N7).
+# a toolchain-key.sh input moves when the plugin does. All values are bare
+# (no leading `v`); the `--with` lines add the `v`. Renovate tracks each via
+# the datasource=go marker.
 # renovate: datasource=go depName=github.com/zhangjiayin/caddy-geoip2
-ARG CADDY_GEOIP2_VERSION=v0.0.0-20260623062220-3675c6e7e63d
+ARG CADDY_GEOIP2_VERSION=1.3.0
 # renovate: datasource=go depName=github.com/mholt/caddy-ratelimit
 ARG CADDY_RATELIMIT_VERSION=0.1.0
 ## When an official caddy image tag isn't available on the host, use a
@@ -428,7 +427,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1 \
-            --with github.com/zhangjiayin/caddy-geoip2@${CADDY_GEOIP2_VERSION} \
+            --with github.com/zhangjiayin/caddy-geoip2@v${CADDY_GEOIP2_VERSION} \
             --with github.com/mholt/caddy-ratelimit@v${CADDY_RATELIMIT_VERSION} \
             --output /tmp/caddy-initial; \
         # Find the build directory created by xcaddy
