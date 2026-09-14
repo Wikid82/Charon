@@ -123,6 +123,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.ImportSession{},
 		&models.Notification{},
 		&models.NotificationProvider{},
+		&models.WebPushSubscription{}, // Web Push subscriptions — FK to NotificationProvider (Type="webpush")
 		&models.NotificationTemplate{},
 		&models.NotificationConfig{},
 		&models.UptimeMonitor{},
@@ -152,6 +153,16 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.BackupJob{},             // Async Backup/Restore Jobs: tracks in-flight create/restore jobs
 	); err != nil {
 		return uptimeShutdown, fmt.Errorf("auto migrate: %w", err)
+	}
+
+	// Enforce the Web Push provider singleton invariant at the database
+	// level — a service-layer COUNT-then-INSERT check alone is not atomic
+	// under concurrent requests (see docs/plans/current_spec.md §3.1).
+	// IF NOT EXISTS makes this idempotent across restarts, matching every
+	// other startup migration step in this function.
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webpush_singleton
+		ON notification_providers(type) WHERE type = 'webpush'`).Error; err != nil {
+		return uptimeShutdown, fmt.Errorf("create webpush singleton index: %w", err)
 	}
 
 	migrateViewerToPassthrough(db)
