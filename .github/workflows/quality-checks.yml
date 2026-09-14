@@ -37,6 +37,20 @@ jobs:
 
           cache-dependency-path: backend/go.sum
 
+      - name: Download Go module dependencies
+        working-directory: backend
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3 failed; retrying in $((attempt * 15))s..." >&2
+              sleep $((attempt * 15))
+            else
+              echo "ERROR: go mod download failed after 3 attempts" >&2
+              exit 1
+            fi
+          done
+
       - name: Run auth protection contract tests
         run: |
           set -euo pipefail
