@@ -269,6 +269,10 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 			go s.dispatchEmailViaNotify(ctx, provider, eventType, title, message)
 			continue
 		}
+		if strings.ToLower(strings.TrimSpace(provider.Type)) == "webpush" {
+			go s.dispatchWebPushViaNotify(ctx, provider, eventType, title, message, data)
+			continue
+		}
 		go func(p models.NotificationProvider) {
 			if !supportsJSONTemplates(p.Type) {
 				logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).WithField("type", p.Type).Warn("Provider type is not supported by notify-only runtime")
