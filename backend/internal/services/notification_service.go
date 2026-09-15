@@ -126,7 +126,7 @@ func validateDiscordProviderURL(providerType, rawURL string) error {
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 func supportsJSONTemplates(providerType string) bool {
 	switch strings.ToLower(providerType) {
-	case "webhook", "discord", "gotify", "slack", "generic", "telegram", "pushover", "ntfy":
+	case "webhook", "discord", "gotify", "slack", "generic", "telegram", "pushover", "ntfy", "webpush":
 		return true
 	default:
 		return false
@@ -135,7 +135,7 @@ func supportsJSONTemplates(providerType string) bool {
 
 func isSupportedNotificationProviderType(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "discord", "email", "gotify", "webhook", "telegram", "slack", "pushover", "ntfy":
+	case "discord", "email", "gotify", "webhook", "telegram", "slack", "pushover", "ntfy", "webpush":
 		return true
 	default:
 		return false
@@ -160,6 +160,8 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 		return s.getFeatureFlagValue(FlagPushoverServiceEnabled, true)
 	case "ntfy":
 		return s.getFeatureFlagValue(FlagNtfyServiceEnabled, true)
+	case "webpush":
+		return s.getFeatureFlagValue(FlagWebPushServiceEnabled, true)
 	default:
 		return false
 	}
@@ -265,6 +267,10 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 		}
 		if strings.ToLower(strings.TrimSpace(provider.Type)) == "email" {
 			go s.dispatchEmailViaNotify(ctx, provider, eventType, title, message)
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(provider.Type)) == "webpush" {
+			go s.dispatchWebPushViaNotify(ctx, provider, eventType, title, message, data)
 			continue
 		}
 		go func(p models.NotificationProvider) {
@@ -584,7 +590,7 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		}
 	}
 
-	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" && provider.Type != "ntfy" && provider.Type != "pushover" {
+	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" && provider.Type != "ntfy" && provider.Type != "pushover" && provider.Type != "webpush" {
 		provider.Token = ""
 	}
 
@@ -624,7 +630,7 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" || provider.Type == "ntfy" || provider.Type == "pushover" {
+	if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" || provider.Type == "ntfy" || provider.Type == "pushover" || provider.Type == "webpush" {
 		if strings.TrimSpace(provider.Token) == "" {
 			provider.Token = existing.Token
 		}

@@ -1342,8 +1342,13 @@ test.describe('Notification Providers', () => {
 
       await test.step('Open add provider form and verify accessible form structure', async () => {
         await page.getByRole('button', { name: /add.*provider/i }).click();
+        const providerForm = page.getByTestId('provider-form');
         await expect(page.getByTestId('provider-name')).toBeVisible();
-        await expect(page.getByLabel('Name')).toBeVisible();
+        // Scoped to the provider form: the page also renders a singleton
+        // Web Push provisioning card with its own "Name" field
+        // (WebPushCard, Notifications.tsx), so an unscoped getByLabel('Name')
+        // resolves to two elements.
+        await expect(providerForm.getByLabel('Name')).toBeVisible();
         await expect(page.getByLabel('Type')).toBeVisible();
         await expect(page.getByLabel(/URL \/ Webhook/i)).toBeVisible();
         await expect(page.getByTestId('provider-preview-btn')).toBeVisible();

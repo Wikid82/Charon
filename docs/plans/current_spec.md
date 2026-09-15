@@ -1,9 +1,8 @@
-# Technical Spec — GHSA-3gc6-295r-xm5m Fix + Management-API Authorization Hardening + Retire Public Registration
+# Technical Spec — Web Push Notification Provider (go_notify_yourself v0.3.0)
 
-**Status:** Draft for review (revised per coordinator rulings 2026-09-08)
-**Advisory:** GHSA-3gc6-295r-xm5m — "Improper Authorization on CrowdSec Admin APIs via Public User Registration" (CWE-862, CVSS 8.8, reporter EQSTLab)
+**Status:** Draft for review
 **Scope model:** ONE feature = ONE PR, delivered as an ordered sequence of logical commits (see [§9 Commit Slicing Strategy](#9-commit-slicing-strategy)). No PR splitting.
-**Branch:** `development` (per `CLAUDE.md`: no worktrees, work on the current branch).
+**Branch:** `development` (per `CLAUDE.md`: no worktrees, work on the current working branch).
 
 ---
 
@@ -11,1094 +10,1066 @@
 
 ### 1.1 Overview
 
-A publicly reachable `POST /api/v1/auth/register` lets an anonymous attacker
-create a `role=user` account. That account then reaches the entire
-`/api/v1/admin/crowdsec/*` surface (~45 routes) because those routes are mounted
-on the bare `management` router group, which is guarded only by
-`RequireManagementAccess()` (rejects `role=passthrough` only — `role=user`
-passes). Impact: bouncer API-key disclosure, disabling the IPS
-(`POST /admin/crowdsec/stop` persists `SecurityConfig.Enabled=false`), ban
-add/remove, and CrowdSec config-file read/write.
+`go_notify_yourself` v0.3.0 (released, local clone verified at tag `v0.3.0`,
+commit `9411a45`) adds a `providers/webpush` package implementing direct
+browser Web Push (RFC 8030 transport, RFC 8291 payload encryption, RFC 8292
+VAPID JWT auth) — no third-party relay. Charon currently pins v0.2.2.
 
-This feature:
+This feature adds Web Push as a ninth notification provider type so a
+Charon admin can receive host-down/cert-expiry/security-event alerts as
+native OS/browser push notifications, without installing a
+Telegram/Discord/Pushover account. It requires:
 
-- **Part A** — closes the authorization hole (the advisory fix): mount the
-  CrowdSec admin routes behind an explicit `RequireRole(admin)` subgroup,
-  mirroring the existing `securityAdmin` pattern.
-- **Part B** — audits every route on the `management` group for the same class
-  of bug, fixes each under-guarded route found (at minimum: the
-  `/admin/plugins` mutation routes, a confirmed second live instance), and
-  introduces a "deny-by-default" structural guard + enforcement test so a
-  handler can no longer accidentally land privileged routes on an under-guarded
-  group.
-- **Part C** — **removes the public `POST /auth/register` endpoint entirely**
-  (coordinator ruling). First-admin bootstrap continues via `POST /setup`;
-  post-bootstrap account creation is served by the **existing** admin
-  invite-user / email-invite flow (`User.InviteToken`,
-  `UserHandler.InviteUser` / `ValidateInvite` / `AcceptInvite`,
-  `frontend/src/pages/AcceptInvite.tsx`). No new invite model / service /
-  endpoints / UI are built.
+1. Bumping `go.mod` to `go_notify_yourself v0.3.0`.
+2. A data model resolving Web Push's one-VAPID-identity-to-N-subscriptions
+   shape against Charon's existing one-row-per-destination
+   `NotificationProvider` table.
+3. New backend endpoints for VAPID public-key distribution and subscription
+   lifecycle (register/unregister), wired through the existing
+   authenticated `management` route group.
+4. A frontend service worker + subscribe/unsubscribe UI in `Notifications.tsx`.
+5. Allowlist wiring through every gate `notification_service.go` already
+   enforces per provider type (blank import, supported-type switch,
+   dispatch-enabled feature flag, JSON-template support, config-field
+   mapping).
 
 ### 1.2 Objectives / Goals
 
-1. A `role=user` (or unauthenticated) caller receives `403` on every CrowdSec
-   admin route; `role=admin` is unaffected.
-2. Every state-changing / privileged route on `management` is provably
-   admin-guarded or is a deliberate, documented `role=user` capability, enforced
-   by a CI test.
-3. `POST /api/v1/auth/register` no longer exists — the route returns `404`.
-4. First-admin bootstrap (`POST /setup`) and the existing email-invite
-   acceptance flow (`GET /invite/validate`, `POST /invite/accept`) continue to
-   work unchanged.
-5. Backend coverage ≥ 85 %, frontend coverage ≥ 85 %, targeted E2E green, all
-   Definition-of-Done gates pass.
+1. An admin can enable Web Push from the Notifications page, generating (or
+   using an existing) app-wide VAPID identity with zero manual key entry.
+2. An admin's browser can subscribe/unsubscribe independently per
+   device/browser profile; multiple admins/devices can hold independent
+   subscriptions simultaneously.
+3. `SendExternal` fans a single logical notification out to every active
+   subscription under the Web Push provider row, respecting the same
+   per-event-type preference toggles (`NotifyProxyHosts`, `NotifyCerts`,
+   etc.) every other provider type already has.
+4. A subscription the push service reports as dead (404/410) is pruned
+   automatically on next send, without operator intervention.
+5. No behavior change to any of the other 8 provider types.
+6. Full Definition of Done passes: 85% coverage, staticcheck clean, E2E
+   specs for the new flow, type-check clean, GORM security scan clean
+   (new model + migration).
 
-### 1.3 Non-goals
+### 1.3 Non-Goals
 
-- Any new invite mechanism, model, service, endpoint, or UI. (Earlier draft's
-  `models.Invite` / `InviteService` / `InviteHandler` / `frontend/src/api/invites.ts` /
-  `useInvites` / `UsersPage` invite section / `/register` page are **dropped**.)
-- Changes to the existing per-user email-invite flow beyond referencing it as
-  the supported post-bootstrap path.
-- A general-purpose RBAC engine. The 3-tier model (`admin` / `user` /
-  `passthrough`) is unchanged.
-- Per-IP auth rate limiting (see [§7](#7-remaining-open-questions) — deferred to
-  a follow-up issue; `/auth/register` is being removed and `/auth/login`
-  already has account lockout).
+- No push-notification support for anonymous/unauthenticated visitors —
+  subscriptions are created by an authenticated Charon user's browser only
+  (see §3.6 auth model).
+- No mobile app / native push (APNs/FCM SDK) — this is purely W3C Push API
+  in a browser context, which is what `providers/webpush` implements.
+- No UI for editing an individual subscription's delivery hints (TTL,
+  Urgency, Topic) — Charon sets sane fixed defaults; only VAPID identity
+  and per-event-type preferences are admin-configurable, consistent with
+  how other providers expose no per-message delivery-hint UI either.
+- No automated VAPID key rotation UI in this PR (see §7 Risks — flagged as
+  a documented follow-up, not silently deferred).
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 Existing architecture (verified in-repo on `development`)
+### 2.1 `go_notify_yourself` v0.3.0 — `providers/webpush`
 
-#### Auth / authorization primitives
+Verified directly against the local clone (`/projects/go_notify_yourself`,
+tag `v0.3.0`):
 
-| Element | Location | Behavior |
-|---|---|---|
-| `AuthMiddleware` | `backend/internal/api/middleware/auth.go` | Validates JWT / cookie, sets `c.Set("userID", …)` and `c.Set("role", string(user.Role))`. |
-| `RequireManagementAccess()` | `backend/internal/api/middleware/auth.go:116` | **Only** aborts when `role == RolePassthrough`. `role=user` and `role=admin` pass. |
-| `RequireRole(role)` | `backend/internal/api/middleware/auth.go` | Aborts `401` if no role; aborts `403` unless `userRole == role` **or** `userRole == RoleAdmin`. So `RequireRole(RoleAdmin)` ⇒ admin-only, and `RequireRole(anything)` still lets admin through. |
-| `requireAdmin(c)` / `isAdmin(c)` | `backend/internal/api/handlers/permission_helpers.go` | In-handler guard. `isAdmin` = `c.GetString("role") == "admin"`. `requireAdmin` writes `403 {"error":"admin privileges required","error_code":"permissions_admin_only"}`. |
-| `rejectPassthrough(c, action)` | `backend/internal/api/handlers/user_handler.go:225` | In-handler 403 for passthrough. |
-| Roles | `backend/internal/models/user.go` | `RoleAdmin="admin"`, `RoleUser="user"`, `RolePassthrough="passthrough"`. `RoleUser` doc: "can access the Charon management UI with restricted permissions" (restriction is per-host `PermittedHosts`, not per-feature). |
+- **`webpush.Config`** (`providers/webpush/webpush.go`) mixes two field
+  groups in one struct, confirmed by the package doc comment:
+  - VAPID **application identity** (shared across every subscriber):
+    `VAPIDPublicKey`, `VAPIDPrivateKey`, `VAPIDSubject` (all
+    base64url-no-padding strings; `VAPIDSubject` must be `mailto:` or
+    `https:` prefixed).
+  - One subscriber's **destination** (per browser/device):
+    `Endpoint`, `P256dh`, `Auth` — the three fields of a browser
+    `PushSubscription`.
+  - Delivery hints: `TTL` (int, seconds; 0 → `DefaultTTL` = 4 weeks),
+    `Urgency` (`"very-low"|"low"|"normal"|"high"`, optional), `Topic`
+    (≤32 URL-safe base64 chars, optional).
+  - Payload templating: `Template`/`CustomTemplate` — same
+    minimal/detailed/custom convention as every other JSON-payload
+    provider (`providers/internal/render`).
+- **`webpush.Client`** (`New(cfg Config, w *transport.Wrapper) *Client`)
+  implements `notify.Sender` (`Send(ctx, Message) error`) **unchanged** —
+  confirmed via `var _ notify.Sender = (*Client)(nil)` in `webpush.go`. The
+  package doc comment states the intended fan-out pattern explicitly: *"a
+  host application fanning a Message out to many subscribers constructs one
+  `*Client` per subscription (cheap: New does no I/O) and calls Send on
+  each, exactly like fanning out to many Sender values of any other
+  provider type."* This resolves the open design question from project
+  memory — no new interface shape is needed.
+- **`webpush.GenerateVAPIDKeyPair() (publicKey, privateKey string, err error)`**
+  (`providers/webpush/vapid.go`) generates a P-256 keypair, base64url
+  (no padding) encoded, matching `Config.VAPIDPublicKey`/`VAPIDPrivateKey`.
+  Its doc comment is explicit: *"Intended to be called once at application
+  setup time... every existing PushSubscription is bound to the exact
+  public key it was created with... rotating this keypair invalidates every
+  existing subscription."* — this is the authoritative confirmation that
+  VAPID identity is app-wide and effectively-immutable-in-practice, driving
+  the singleton design in §3.2.
+- **Registration** (`providers/webpush/register.go`) follows the identical
+  `init()` → `notify.Register("webpush", factory)` pattern as every other
+  provider (compared directly against `providers/pushover/register.go`).
+  Expected config keys, read from the factory: `transport` (required,
+  `*transport.Wrapper`), `vapid_public_key`, `vapid_private_key`,
+  `vapid_subject`, `endpoint`, `p256dh`, `auth` (all required strings),
+  `ttl` (optional int), `urgency`, `topic`, `template`, `custom_template`
+  (optional strings). Registered name is `"webpush"` (lowercase, no
+  underscore) — `docs/INTEGRATION.md` §3.6 in the module repo calls this
+  out explicitly as a naming convention every provider must follow.
+- **Dead-subscription signal — important gap found in research, not in the
+  task brief's assumptions:** `transport.Wrapper.Send`
+  (`transport/wrapper.go` line ~223) returns errors for non-2xx responses
+  as a **plain formatted string**:
+  `fmt.Errorf("provider returned status %d: %s", resp.StatusCode, hint)` —
+  there is **no typed/sentinel error** (no `StatusError` type, no
+  `errors.Is`-compatible marker) anywhere in `transport/` or `webpush/`.
+  Detecting a 404/410 "subscription gone" signal (the standard Web Push
+  convention for "prune this subscription") therefore requires parsing the
+  numeric status code out of that formatted string on the Charon side —
+  this is called out explicitly as a design risk in §7 and a required
+  implementation detail in §3.5, since it was not something the task brief
+  could confirm without reading `transport/wrapper.go` directly.
+- `docs/INTEGRATION.md` (module repo) §"webpush" gives a worked example:
+  `sender := webpush.New(webpush.Config{...}, wrapper)`, looping
+  `for host, sub := range subscribers`, logging (not swallowing) each
+  `Send` error independently — confirming per-subscription error isolation
+  is the intended fan-out contract, not "abort on first failure."
 
-#### Route groups — `backend/internal/api/routes/routes.go`
+### 2.2 Charon's current notification-provider architecture
 
-```
-api            := router.Group("/api/v1")                            // public
-  api.POST("/auth/login", …)
-  api.POST("/auth/register", authHandler.Register)                   // line 295 — PUBLIC, no gate      ← ADVISORY (Part C removes)
-  api.GET("/setup", …) / api.POST("/setup", …)                       // bootstrap first admin (Part C keeps)
-  api.GET("/invite/validate", …) / api.POST("/invite/accept", …)     // existing email-invite (Part C references as supported path)
-  protected  := api.Group("/"); protected.Use(authMiddleware)         // any authenticated user
-    management := protected.Group("/")
-    management.Use(middleware.RequireManagementAccess())               // line 373-374 — passthrough-only reject
-      securityAdmin := management.Group("/security")
-      securityAdmin.Use(middleware.RequireRole(models.RoleAdmin))      // line 796-797 — CORRECT admin gate (template)
-      adminEncryption := management.Group("/admin/encryption")          // line 546 — no RequireRole, BUT every handler calls isAdmin(c)
-      adminPlugins    := management.Group("/admin/plugins")             // line 560 — no RequireRole AND plugin_handler has NO admin check ← BUG (Part B)
-      crowdsecHandler.RegisterRoutes(management)                        // line 838 — no RequireRole AND crowdsec_handler has NO admin check ← ADVISORY (Part A)
-      … ~20 other *.RegisterRoutes(management) / inline management.* …
-RegisterImportHandler(…) {                                            // separate func, line 1005
-  authenticatedAdmin := api.Group("/")
-  authenticatedAdmin.Use(AuthMiddleware(authService), RequireRole(models.RoleAdmin))  // line 1011-1012 — CORRECT admin gate (2nd template / name precedent)
-}
-```
+- **`models.NotificationProvider`** (`backend/internal/models/notification_provider.go`)
+  is a flat GORM row = one destination. `Type` discriminates row meaning;
+  `URL`/`Token` are repurposed per type (see mapping table below). Also
+  carries `ServiceConfig string` — **a JSON-blob column already present on
+  the model, tagged `// JSON blob for typed service config`, and currently
+  unused by any provider type** (`grep` across `internal/` found zero other
+  references). This is the designed escape hatch for a provider whose
+  config doesn't fit the URL/Token shape — see §3.2 for why Web Push uses
+  it instead of adding new columns.
+- Per-type field mapping (`notify_provider_adapter.go`
+  `providerConfigMap`, read directly from source, not inferred):
 
-Verified line numbers (grep, `development` HEAD): `auth/register` route `:295`,
-`management := protected.Group("/")` `:373`, `adminPlugins` `:560`,
-`securityAdmin` `:796`, `crowdsecHandler.RegisterRoutes(management)` `:838`.
+  | Type | `URL` column | `Token` column (never exposed, `json:"-"`) |
+  |---|---|---|
+  | discord | webhook URL | — |
+  | slack | (unused placeholder) | webhook URL |
+  | gotify | server URL | API token |
+  | pushover | user key | API token |
+  | ntfy | topic URL | auth token |
+  | telegram | chat ID | bot token |
+  | webhook/generic | target URL | — |
 
-#### In-handler admin-check audit (grep `requireAdmin(|isAdmin(|RoleAdmin|GetString("role")|rejectPassthrough`, non-test)
-
-| Handler | In-handler role refs | Mounted on | Effective guard for `role=user` |
-|---|---|---|---|
-| `crowdsec_handler.go` | **0** | `management` (bare) | **NONE — vulnerable** (advisory) |
-| `plugin_handler.go` | **0** | `management.Group("/admin/plugins")` (bare) | **NONE — mutations vulnerable** (Part B) |
-| `encryption_handler.go` | 4 (`isAdmin`) | `management.Group("/admin/encryption")` (bare) | OK (in-handler) |
-| `docker_handler.go` | 0 | `management` | none — read-only (`GET /docker/containers`, used by proxy-host create) |
-| `proxy_host_handler.go` / `proxy_group_handler.go` | 0 | `management` | none — intended `role=user` capability |
-| `remote_server_handler.go` | 0 | `management` | none |
-| `security_headers_handler.go` | 0 | `management.Group("/security/headers")` | none |
-| `hecate_handler.go` / `orthrus_handler.go` | 0 | `management` | none |
-| `manual_challenge_handler.go` | 0 | `management` (`/dns-providers/:id/...`) | none |
-| `settings_handler.go` | 8 | `management` + one `RequireRole` arg on `GET /settings/smtp` (`:457`) | partial in-handler |
-| `system_permissions_handler.go` | 3 | `management` | in-handler |
-| `certificate_handler.go`, `access_list_handler.go`, `domain_handler.go`, `uptime_handler.go`, `stats_handler.go`, `feature_flags_handler.go`, `audit_log_handler.go` | 0 | `management` | none — per-route verdict in §3.2 |
-| `notification_provider_handler.go` | 3 (`requireAdmin` — `Create`/`Update`/`Delete` only; **`Test` & `Preview` are NOT guarded**) | `management` | mutations OK in-handler; `POST /notifications/providers/test` + `/preview` unguarded → see table #33b |
-| `notification_template_handler.go` | 3 (`requireAdmin` — `Create`/`Update`/`Delete` only; **`Preview` NOT guarded**) | `management` | mutations OK in-handler; `POST /notifications/external-templates/preview` unguarded → see table #33b |
-| `security_notifications.go` | 2 (`requireAdmin` — `GetSettings`/`UpdateSettings`) | `management` | OK (in-handler) |
-| `notification_handler.go` (per-user inbox) | 0 | `management` | none — USER-OK (list / mark-read) |
-| `security_handler.go` | many (`requireAdmin`) | reads on `management`, writes on `securityAdmin` | OK |
-| `backup_handler.go` / `backup_remote_handler.go` | many (`requireAdmin`) | `management` | OK (in-handler) |
-| `user_handler.go` | many (`requireAdmin` / `rejectPassthrough`) | `management` | OK (in-handler; `UpdateUser` deliberately allows non-admin self-service) |
-
-**Conclusion:** `management` is a de-facto "any authenticated non-passthrough
-user" group; admin enforcement is applied inconsistently by three mechanisms
-(dedicated subgroup, per-route middleware arg, in-handler `requireAdmin`). Two
-areas — CrowdSec (all) and Plugins (mutations) — have **no** enforcement.
-
-#### Frontend route/nav gating — `frontend/src/App.tsx`, `frontend/src/components/Layout.tsx`
-
-- The SPA has **almost no role gating**. `App.tsx` wraps only:
-  - `/settings/*` in `<RequireRole allowed={['admin','user']}>`
-  - `/settings/users` in `<RequireRole allowed={['admin']}>`
-  - Everything else under `/` (`/security/*`, `/access-lists`, `/dns/*`,
-    `/hecate/*`, `/certificates`, `/security/audit-logs`, `/security/crowdsec`,
-    …) is reachable by any authenticated non-passthrough user, incl. `role=user`.
-- `Layout.tsx` nav: only the **"Users"** entry is `role === 'admin'`-gated
-  (`:127`); passthrough sees no nav (`:151`); `uptime` / `cerberus` sections are
-  feature-flag gated. So a `role=user` today sees and can open CrowdSec config,
-  Access Lists, Security Headers, DNS providers, Certificates, Hecate, Audit
-  Logs, etc., and those pages call their APIs successfully because
-  `management` doesn't stop them.
-- `RequireRole` component: `frontend/src/components/RequireRole.tsx` — renders
-  children if `user.role ∈ allowed`, else redirects. Ready to reuse.
-- Public routes: `/login`, `/setup`, `/accept-invite` only. **No signup/register
-  page or route exists.** `grep "auth/register"` in `frontend/src` → 0 hits.
-  The endpoint is unused by the UI.
-
-**Implication for Part B (Q7 ruling):** because non-admin screens currently
-consume many of these read endpoints, moving a *read/list* endpoint to
-admin-only would regress a `role=user` page. The classification in §3.2 is
-therefore **mutation-oriented**: reads/lists that back a `role=user`-reachable
-page stay on `management`; mutations move behind `RequireRole(admin)` (via a
-per-route arg, or a `RegisterRoutes(read, admin)` split where the handler
-registers its own routes). Only **CrowdSec** (forced by Part A — no
-`role=user` read need) moves *wholesale* to `managementAdmin`. Hecate, Orthrus
-and Remote Servers each keep a small set of `GET` reads on `management`
-(consumed by the proxy-host create/edit flow and the Dashboard) and move only
-their mutations — verified against `frontend/src` (§3.2.1 C1/C2). Where a page
-becomes admin-only in practice (CrowdSec, Audit Logs, the Orthrus
-agent-management page, Encryption) a **companion frontend `RequireRole` guard +
-nav filter** is added (mirroring the existing "Users" pattern) so `role=user`
-never lands on a 403-ing page.
-
-#### `/auth/register` and `/setup` — how the first admin is created
-
-- `authHandler.Register` — `backend/internal/api/handlers/auth_handler.go:244`;
-  `RegisterRequest{Email,Password,Name}` (`min=8` password) at `:238`. Calls
-  `h.authService.Register(req.Email, req.Password, req.Name)` at `:251`, returns
-  `201` + user JSON. **No gating of any kind.**
-- `authService.Register(email, password, name)` —
-  `backend/internal/services/auth_service.go:31`: `count == 0` ⇒ `RoleAdmin`,
-  else `RoleUser`. No toggle / invite / flag.
-- **`POST /setup` does NOT call `authService.Register`.**
-  `UserHandler.Setup` (`backend/internal/api/handlers/user_handler.go:141`)
-  builds `models.User{Role: models.RoleAdmin, …}` directly and `tx.Create(&user)`
-  inside its own transaction (also writes `caddy.acme_email`). It is fully
-  independent of `authService.Register` / `authHandler.Register`.
-- **`authService.Register` is NOT dead after removing the route.** grep
-  `\.Register(` (non-`metrics`/`tracker`/`dnsprovider`) — it is called from
-  ~28 test sites as a user-creation helper:
-  - `backend/internal/services/auth_service_test.go` (16 calls — incl. the
-    `count==0 → RoleAdmin` behavior test, `TestAuthService_Register*`)
-  - `backend/internal/api/middleware/auth_test.go` (12 calls)
-  - `backend/internal/api/handlers/user_integration_test.go:52`
-- **`authHandler.Register` (HTTP handler) references:** only
-  `routes.go:295` (the route) and
-  `backend/internal/api/handlers/additional_coverage_test.go:729`
-  (`TestAuthHandler_Register_InvalidJSON` — a 400-on-bad-JSON coverage test).
-- **Test / inventory references to the route path** (`grep "auth/register"`):
-  - `backend/internal/api/routes/routes_test.go:162` — `expectedRoutes` list in
-    `TestRegister_RoutesRegistration`
-  - `backend/internal/api/routes/routes_test.go:215` — `publicMutationAllowlist`
-    in `TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist`
-  - `backend/internal/api/routes/routes_test.go:335` —
-    `assert.Contains(t, routeMap, "/api/v1/auth/register")` in
-    `TestRegister_AllRoutesRegistered`
-  - `backend/integration/crowdsec_lapi_integration_test.go:59` — `authenticate()`
-    helper POSTs `/api/v1/auth/register` (errors ignored) to bootstrap a test
-    user; build-tagged integration test, not in default CI.
-
-⇒ **Part C deletions are exactly:** the route (`routes.go:295`),
-`AuthHandler.Register` (`auth_handler.go:244-256`), `RegisterRequest`
-(`auth_handler.go:238-242`). **Keep** `AuthService.Register` (+ its
-`count==0 → RoleAdmin` logic) — still referenced by ~28 test call sites as a
-helper. Update the 4 test references above.
-
-#### Existing email-invite flow (unchanged — the supported post-bootstrap path)
-
-- `models.User` fields (`backend/internal/models/user.go`): `InviteToken`
-  (`json:"-"`, `gorm:"index"`), `InviteExpires`, `InvitedAt`, `InvitedBy`,
-  `InviteStatus` (`"pending"|"accepted"|"expired"`); helper
-  `User.HasPendingInvite()`.
-- `UserHandler.InviteUser` (`POST /users/invite`, admin — `requireAdmin`),
-  `ResendInvite` (`POST /users/:id/resend-invite`), `PreviewInviteURL`,
-  `ValidateInvite` (`GET /invite/validate`, public), `AcceptInvite`
-  (`POST /invite/accept`, public). `generateSecureToken()` at
-  `user_handler.go:494` (`crypto/rand` 32B → hex).
-- Frontend: `frontend/src/pages/AcceptInvite.tsx` (route `/accept-invite`, reads
-  `?token=`), `frontend/src/api/users.ts`
-  (`inviteUser`/`validateInvite`/`acceptInvite`/`resendInvite`/`previewInviteURL`),
-  `frontend/src/pages/UsersPage.tsx` (`/settings/users`, admin-gated).
-
-#### AutoMigrate
-
-`backend/internal/api/routes/routes.go:112` — single `db.AutoMigrate(&models.X{}, …)`
-call. **No new models in this feature**, so no change here.
-
-#### Test patterns
-
-- `backend/internal/api/routes/routes_test.go`:
-  - `TestRegister_AllRoutesRegistered` (`:310`) — asserts `routeMap` contains
-    `/api/v1/admin/crowdsec/*` and `/api/v1/auth/register`.
-  - `TestRegister_AdminRoutes` (`:481`) — GET admin paths expecting `401`
-    unauthenticated.
-  - `TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist`
-    (`:196`) — iterates every mutating `/api/v1/*` route, asserts `401|403`
-    unless in `publicMutationAllowlist`. **This is the Part B harness** — extend
-    it with a `role=user` dimension and remove the `auth/register` allowlist
-    entry.
-- E2E: `tests/security-enforcement/authorization-rbac.spec.ts` &
-  `auth-api-enforcement.spec.ts` — `loginAndGetToken(context, {email,password})`
-  vs `TEST_USERS.admin` / `TEST_USERS.user`; assert `role=user` → `403` on
-  privileged routes. Playwright projects: `security-tests` (CI shard),
-  `firefox` (local DoD, single browser).
-
-### 2.2 Docs to update
-
-| Doc | Why |
-|---|---|
-| `ARCHITECTURE.md` → "Security Architecture" / "Authentication & Authorization" | New `managementAdmin` authorization boundary; public registration removed; bootstrap-via-`/setup` + email-invite is the account-creation model. |
-| `SECURITY.md` → "Authentication & Authorization" (~line 1148) | RBAC description: explicit admin-subgroup enforcement; no public self-registration. |
-| `docs/security.md`, `docs/features/access-control.md` | User-facing: how accounts are created (first-run setup + admin invites), admin-only security surfaces. |
-| `docs/features.md` | One-line touch if wording references self-registration. |
-| `docs/features/crowdsec.md`, `docs/features/custom-plugins.md` / `plugin-security.md` | Note admin-only requirement (behavior clarification). |
-
-### 2.3 External dependencies
-
-None new. Stdlib + existing libs only.
+- **Dispatch fan-out today is one row = one `notify.Sender` = one goroutine**
+  (`notification_service.go` `SendExternal`, confirmed at the `for _,
+  provider := range providers { ... go s.dispatchViaNotify(...) }` loop —
+  each provider row gets exactly one `buildNotifySender` call and one
+  `Send`). Web Push breaks this 1:1 assumption; §3.5 defines the new
+  fan-out shape.
+- **Allowlist gates that must be extended for `webpush`** (all confirmed by
+  direct read, not assumed from the task brief):
+  - `notify_providers_import.go` — blank-import list; comment explicitly
+    states it is kept in sync by hand with
+    `isSupportedNotificationProviderType`, guarded by
+    `notification_service_registry_consistency_test.go`
+    (`TestSupportedProviderAllowlistIsSubsetOfRegisteredTypes`), which
+    **must** gain `"webpush"` in its literal `supportedTypes` slice.
+  - `notification_service.go`:
+    - `isSupportedNotificationProviderType` (line ~136) — add `"webpush"`.
+    - `isDispatchEnabled` (line ~145) — add a `"webpush"` case reading a
+      new `FlagWebPushServiceEnabled` flag.
+    - `supportsJSONTemplates` (line ~127) — **decision: add `"webpush"`**.
+      Web Push payload is JSON (encrypted client-side by the module, but
+      the plaintext the admin/Charon controls via `Template`/
+      `CustomTemplate` is JSON, exactly like every other
+      `supportsJSONTemplates` type) — confirmed by `webpush.Config`'s
+      `Template string` field using the identical
+      `providers/internal/render` convention.
+    - `SendExternal` (line ~212) — the per-event-type `shouldSend` switch
+      needs no changes (it already switches on `eventType`, not provider
+      type); the dispatch loop needs a new branch for `webpush` (see §3.5)
+      analogous to the existing `email` special-case branch
+      (`dispatchEmailViaNotify`), since webpush also cannot go through the
+      generic single-`Sender`-per-row `dispatchViaNotify` unmodified.
+  - `notification_feature_flags.go` — add
+    `FlagWebPushServiceEnabled = "feature.notifications.service.webpush.enabled"`.
+  - `notify_provider_adapter.go` — `providerConfigMap`'s switch does **not**
+    gain a `webpush` case (Web Push's per-subscription config is built
+    per-subscription in the new dispatch path, not via the generic
+    single-row `buildNotifySender` — see §3.5). `resolveTemplateFields` is
+    reused unchanged (webpush respects the same
+    minimal/detailed/custom + legacy-detailed-template translation as every
+    other JSON provider).
+  - `notify_client_adapter.go` — **no changes needed.** The shared
+    `*transport.Wrapper` (`NewNotifyTransportWrapper`) is provider-agnostic;
+    its `notifyURLValidator` wraps `security.ValidateExternalURL`, confirmed
+    by reading `internal/security/url_validator.go` to have **no
+    provider-specific host allowlist** — only scheme (`https` required
+    outside dev), hostname format, and private-IP/localhost blocking. This
+    matters because Web Push endpoints are on arbitrary, unpredictable push
+    -service hosts (`fcm.googleapis.com`, `updates.push.services.mozilla.com`,
+    `*.notify.windows.com`, etc., varying per browser vendor) — unlike
+    Discord's fixed-host validation, no new host allowlist is needed or
+    possible to maintain.
+- **Auth model**: `backend/internal/api/routes/routes.go` line ~372-373:
+  `management := protected.Group("/"); management.Use(middleware.RequireManagementAccess())`
+  — every existing notification-provider route
+  (`/notifications/providers*`) sits under this authenticated group. The
+  new VAPID-public-key and subscription endpoints will sit under the same
+  group (§3.6) — these are **not** anonymous/public endpoints; Web Push in
+  Charon is "the logged-in admin's own browser opts in to receiving this
+  instance's alerts," not a public subscription surface.
+- **`c.Get("userID")`** is the established convention
+  (`internal/api/middleware/auth.go`, confirmed via grep across
+  `internal/api/middleware/*_test.go`) for retrieving the authenticated
+  user inside a handler — used to scope a `WebPushSubscription` row to the
+  user who created it (§3.2), enabling per-user unsubscribe-my-own-device
+  semantics without a new authorization concept.
+- **Migration registration**: `internal/api/routes/routes.go`
+  `db.AutoMigrate(...)` (line ~112) lists every persistent model
+  explicitly, most recently `models.BackupJob{}`. The new
+  `models.WebPushSubscription{}` must be added here (models are listed in
+  FK-dependency order — `WebPushSubscription` has an FK to
+  `NotificationProvider`, so it can be added anywhere after that model,
+  which is already present at line ~125).
+- **Singleton-row precedent**: `models.SecurityConfig`
+  (`internal/models/security_config.go`) is Charon's existing "one global
+  config row" pattern — single table, one seeded row
+  (`models.SeedDefaultSecurityConfig`, called unconditionally on every
+  startup in `routes.go`), sensitive field excluded from JSON
+  (`BreakGlassHash string json:"-"`). This is the direct precedent for how
+  Web Push's VAPID private key should never leave the backend (§3.2) —
+  reusing `NotificationProvider.Token`'s existing `json:"-"` contract
+  rather than inventing a new pattern.
+- **No existing PWA/service-worker infrastructure** in `frontend/`
+  (confirmed: no `sw.js`, no `vite-plugin-pwa`, no `workbox` reference
+  anywhere in `frontend/`). The service worker file and its registration
+  are a greenfield addition (§3.7).
+- **Frontend provider-type list**
+  (`frontend/src/api/notifications.ts` line 3):
+  `SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook',
+  'email', 'telegram', 'slack', 'pushover', 'ntfy']` — needs `'webpush'`
+  appended, plus a `SupportedNotificationProviderType` type-narrowing
+  update, mirrored in `Notifications.tsx`'s `isSupportedProviderType`/
+  `normalizeProviderType` helpers (both derive from the same const, so no
+  separate list to maintain there).
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 Part A — Close the authorization hole (advisory fix)
+### 3.1 The one-to-many resolution (central design decision)
 
-#### 3.1.1 Structural change in `routes.go`
+**Decision: Option (a) from the task brief — a single `NotificationProvider`
+row (`Type = "webpush"`) holds the VAPID application identity, and a new
+child table `WebPushSubscription` holds each browser's destination,
+FK'd to that provider row.**
 
-Declare one admin subgroup on `management`, immediately after `management` is
-created (`routes.go:373-374`), named for consistency with the existing
-`securityAdmin` / `authenticatedAdmin`:
+Rejected alternative (Option b, "some other shape" — e.g. a fully separate
+top-level model/dispatch path decoupled from `NotificationProvider`):
+rejected because it would require duplicating every piece of
+`NotificationProvider`-keyed machinery Web Push still legitimately needs —
+`Enabled` toggle, the six `NotifyXxx` per-event-type preference booleans,
+`Name`, the `SendExternal` dispatch-loop membership, the
+`isDispatchEnabled`/feature-flag gate, and the provider list/delete UI
+pattern. None of that is Web-Push-specific; only the "one row, N
+destinations" shape is. Keeping Web Push as a `NotificationProvider` row
+lets 90% of the existing dispatch/preferences/allowlist machinery apply
+unchanged, isolating the actually-novel part (fan-out over subscriptions)
+to one new function (§3.5).
+
+**Singleton constraint**: exactly one `Type = "webpush"` row may exist at a
+time. This mirrors `GenerateVAPIDKeyPair`'s own documented invariant (§2.1):
+rotating the VAPID keypair invalidates every existing subscription, so
+"multiple Web Push provider rows" would either mean multiple independent
+VAPID identities (which the UI has no reason to expose — there is exactly
+one Charon instance and one set of admin browsers) or be nonsensical
+duplicate identities. No other provider type has this constraint today;
+this is a deliberate, documented deviation from the generic
+create-any-number-of-rows pattern, called out explicitly rather than
+silently special-cased.
+
+**Enforcement (revised per Supervisor review — DB-level, not service-layer
+alone)**: an earlier version of this spec enforced the singleton purely as
+a service-layer pre-check in `NotificationService.CreateProvider`
+(`SELECT COUNT(*) FROM notification_providers WHERE type = 'webpush'`
+before `INSERT`, rejecting with 409 if count > 0). **Supervisor traced this
+and confirmed it is not atomic**: two concurrent provisioning requests can
+each run the `COUNT` and both observe `0` before either commits its
+`INSERT`, because SQLite's `sqlDB.SetMaxOpenConns(1)` in
+`backend/internal/database/database.go:144` only serializes individual
+statements through the single connection — it does not make the
+`COUNT`-then-`INSERT` *sequence* atomic across two separate request
+goroutines interleaving their statements on that one connection. The
+result is two independent `webpush` provider rows with two independent
+VAPID identities, silently breaking the invariant this whole section
+argues for. This is the same class of check-then-act race already fixed
+elsewhere in this codebase for `UptimeHost` creation (GitHub issue #1221,
+see `ensureUptimeHost` in `backend/internal/services/uptime_service.go:408-416`),
+which resolved it with a DB-level unique index plus `clause.OnConflict`.
+
+The fix here (see §3.3.4 for the exact migration, §3.4.1 for the resulting
+API error shape): a **DB-level partial unique index**,
+`CREATE UNIQUE INDEX idx_webpush_singleton ON notification_providers(type)
+WHERE type = 'webpush'` (SQLite supports partial indexes), makes the
+second concurrent `INSERT` fail at the database regardless of what either
+caller's `COUNT` observed — this is the actual enforcement mechanism, and
+it is safe under concurrent writers by construction (unlike the
+count-then-insert sequence). Unlike `ensureUptimeHost`'s
+`OnConflict{DoNothing}`-then-refetch (appropriate there because a second
+caller wanting "the host row" is happy to receive the winner's row), a
+second `webpush` provisioning attempt is treated as a genuine conflict the
+caller should see and react to (they may not realize a provider already
+exists), so `CreateProvider` catches the resulting constraint-violation
+error and maps it to `409`, using this codebase's existing
+detection idiom (`errors.Is(err, gorm.ErrDuplicatedKey) ||
+strings.Contains(err.Error(), "UNIQUE constraint failed")`, already used
+in `backend/internal/api/handlers/custom_theme_handler.go:71,121` and
+`backend/internal/services/crowdsec_whitelist_service.go:67`) rather than
+introducing a new error-detection pattern. The service-layer `COUNT` check
+is retained as a cheap, non-authoritative fast-path (returns a clear 409
+without waiting on a constraint-violation round trip in the common,
+uncontended case) — but the index is what actually guarantees the
+invariant, and the 409-on-constraint-violation path is what makes that
+guarantee visible to the loser of a race instead of surfacing as an
+unhandled 500.
+
+### 3.2 VAPID identity storage
+
+- **`VAPIDPrivateKey` → `NotificationProvider.Token`** (existing column,
+  already `json:"-"`, already the established "never expose this" contract
+  used by gotify/pushover/ntfy/telegram tokens and Slack's webhook URL).
+  No schema change.
+- **`VAPIDPublicKey` and `VAPIDSubject` → `NotificationProvider.ServiceConfig`**
+  (existing unused JSON-blob column), as:
+  ```json
+  {"vapid_public_key": "BN...", "vapid_subject": "mailto:admin@example.com"}
+  ```
+  Both values are safe to expose in the provider-list API response (the
+  public key is, by construction, public; the subject is an
+  operator-supplied contact URI already visible in the Web Push form) —
+  unlike `Token`, `ServiceConfig` is not `json:"-"`, which is intentional:
+  the frontend needs `vapid_public_key` to call
+  `PushManager.subscribe({applicationServerKey: ...})` and it is served
+  from the provider row the admin already fetches. (The dedicated
+  `GET /notifications/providers/webpush/vapid-public-key` endpoint in §3.6
+  exists for the *subscribing browser's* convenience/caching, not because
+  the key is sensitive.)
+- **Provisioning**: auto-generated on first use, no manual key entry.
+  `POST /notifications/providers/webpush/provision` (§3.6) calls
+  `webpush.GenerateVAPIDKeyPair()`, requires the admin to supply only
+  `name` and `vapid_subject` (validated server-side: must start with
+  `mailto:` or `https://`, per `webpush.Client.Send`'s own runtime check —
+  duplicating that validation client- and server-side avoids a
+  provision-succeeds-but-every-send-fails footgun), then creates the
+  singleton `NotificationProvider` row. This is a **dedicated endpoint**,
+  not the generic `POST /notifications/providers` create form — the
+  generic form's `URL`/`Token` text inputs don't apply to Web Push (no
+  webhook URL to paste), and key generation is a server-side action, not
+  client-submitted config. `Notifications.tsx`'s existing per-type
+  conditional-fields pattern (see `isGotify`/`isTelegram`/... constants at
+  lines 147-152) already renders a different field set per `type`, so
+  Web Push's "Provision" button replacing the URL/Token fields is
+  consistent with that existing per-type branching, not a new UI paradigm.
+  **Race-safety** (see §3.1 "Enforcement" and §3.3.4): the handler behind
+  this endpoint calls `NotificationService.CreateProvider`, which after
+  its cheap `COUNT`-based fast-path check still relies on the DB-level
+  partial unique index as the actual source of truth. If the `INSERT`
+  fails with a unique-constraint violation on `idx_webpush_singleton`
+  (i.e., a concurrent request won the race), `CreateProvider` returns a
+  sentinel error that the handler maps to the same `409` as the fast-path
+  case (§3.4.1) — the caller cannot distinguish "lost a race" from
+  "checked after someone else already provisioned," which is correct,
+  since both are the same user-facing fact ("a Web Push provider already
+  exists").
+
+### 3.3 Database schema
+
+#### 3.3.1 `NotificationProvider` (existing table — no column additions)
+
+Reused as-is: `Type = "webpush"`, `Token` = VAPID private key,
+`ServiceConfig` = `{"vapid_public_key","vapid_subject"}` JSON, `Name`,
+`Enabled`, and the existing six `NotifyXxx` booleans all apply unchanged.
+`URL` is left empty for this type (matching Slack's existing
+"unused placeholder" pattern for a type whose real destination lives
+elsewhere).
+
+#### 3.3.2 New table: `WebPushSubscription`
+
+New file `backend/internal/models/webpush_subscription.go`:
 
 ```go
-// management: any authenticated non-passthrough user (RequireManagementAccess).
-management := protected.Group("/")
-management.Use(middleware.RequireManagementAccess())
+package models
 
-// managementAdmin: management routes that mutate or expose privileged
-// infrastructure. Deny-by-default for role=user. Mirrors securityAdmin
-// (routes.go ~§"Security module enable/disable") and authenticatedAdmin
-// (RegisterImportHandler). Enforcement is the ONLY guard on these routes —
-// no redundant in-handler requireAdmin (see spec §3.2 Q6 ruling).
-managementAdmin := management.Group("/")
-managementAdmin.Use(middleware.RequireRole(models.RoleAdmin))
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+// WebPushSubscription is one browser/device's Web Push destination,
+// created when an authenticated Charon user's browser completes
+// PushManager.subscribe() and POSTs the resulting PushSubscription to the
+// backend. Each row is fanned out to individually by
+// NotificationService.dispatchWebPushViaNotify (one webpush.Client per
+// row), all sharing the parent NotificationProvider's VAPID identity.
+type WebPushSubscription struct {
+	ID         string `gorm:"primaryKey" json:"id"`
+	ProviderID string `gorm:"index;not null" json:"provider_id"` // FK -> NotificationProvider.ID (Type="webpush")
+	UserID     string `gorm:"index;not null" json:"user_id"`     // FK -> User.ID; owner, for scoped unsubscribe
+
+	// PushSubscription destination (from the browser's PushSubscription
+	// object; see webpush.Config's matching field doc comments).
+	Endpoint string `gorm:"uniqueIndex;type:text;not null" json:"endpoint"`
+	P256dh   string `gorm:"type:text;not null" json:"-"` // subscriber DH public key; not attacker-sensitive but never needed client-side after registration
+	Auth     string `gorm:"type:text;not null" json:"-"` // subscriber auth secret; same rationale
+
+	// Display/diagnostic metadata, not used for dispatch.
+	UserAgent string `json:"user_agent,omitempty" gorm:"type:text"`
+
+	// Pruning bookkeeping (§3.5).
+	LastSeenAt     time.Time  `json:"last_seen_at"`               // updated on successful send or (re)registration
+	LastFailureAt  *time.Time `json:"last_failure_at,omitempty"`
+	FailureCount   int        `json:"failure_count" gorm:"default:0"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (s *WebPushSubscription) BeforeCreate(tx *gorm.DB) (err error) {
+	if s.ID == "" {
+		s.ID = uuid.New().String()
+	}
+	return
+}
 ```
 
-Change `routes.go:838`:
+Design notes:
+- `Endpoint` is `uniqueIndex` — the same browser subscribing twice (e.g.
+  re-subscribing after clearing site data produces the same or a new
+  endpoint depending on browser; if identical, `POST .../subscribe` is
+  idempotent via upsert-on-conflict, see §3.6) must not create duplicate
+  rows that both receive the same push.
+- `P256dh`/`Auth` are `json:"-"` — while not bearer-token-equivalent secrets
+  the way `NotificationProvider.Token` is, they are per-subscriber
+  encryption material with no legitimate reason to round-trip back to any
+  frontend after registration (the frontend already has them locally from
+  `PushManager.subscribe()`); withholding them is defense-in-depth
+  consistent with the project's "never expose what the client doesn't need
+  back" convention.
+- `FailureCount`/`LastFailureAt` back a **soft-delete-after-N-failures**
+  policy rather than instant deletion on the first non-410 failure (a
+  transient 5xx from the push service should not nuke a subscription) —
+  see §3.5 for the exact pruning rule.
+
+#### 3.3.3 Migration registration
+
+`backend/internal/api/routes/routes.go`, `db.AutoMigrate(...)` block
+(§2.2): add `&models.WebPushSubscription{}` immediately after
+`&models.NotificationProvider{}` (FK dependency ordering — GORM's
+auto-migrate doesn't strictly require FK-target-first ordering for SQLite,
+but the file's existing comments show this codebase's convention of
+ordering by FK dependency, e.g. `ProxyGroup{}` before `ProxyHost{}`).
 
 ```go
-crowdsecHandler.RegisterRoutes(management)   →   crowdsecHandler.RegisterRoutes(managementAdmin)
+&models.NotificationProvider{},
+&models.WebPushSubscription{}, // Web Push subscriptions — FK to NotificationProvider (Type="webpush")
+&models.NotificationTemplate{},
 ```
 
-`CrowdsecHandler.RegisterRoutes` is unchanged (it already prefixes every route
-with `/admin/crowdsec/…`). The full path set is identical; only the middleware
-chain gains `RequireRole(admin)`. **No in-handler `requireAdmin` is added to
-`crowdsec_handler.go`** (Q6 ruling — subgroup-only, matching `securityAdmin`).
+#### 3.3.4 Singleton enforcement: partial unique index (race-condition fix)
 
-#### 3.1.2 Companion frontend guard (prevents a `role=user` dead page)
+**Added per Supervisor review** — see §3.1 "Enforcement" for the full
+rationale. GORM struct tags (`gorm:"uniqueIndex"`) cannot express a
+*partial* (`WHERE`-qualified) index, so this cannot be expressed as a
+`WebPushSubscription`/`NotificationProvider` struct tag; it is created via
+a raw, idempotent `db.Exec` immediately after the `AutoMigrate(...)` call
+in `backend/internal/api/routes/routes.go`, following the same
+post-AutoMigrate idempotent-migration-step pattern already used there for
+`migrateViewerToPassthrough` (`routes.go:64-69`, called at `routes.go:151`):
 
-`role=user` can currently open `/security/crowdsec` (`CrowdSecConfig` page) and
-its nav entry, which after Part A would 403 on every call. Add, in the same PR:
+```go
+// Enforce the Web Push provider singleton invariant at the database
+// level — a service-layer COUNT-then-INSERT check alone is not atomic
+// under concurrent requests (see docs/plans/current_spec.md §3.1).
+// IF NOT EXISTS makes this idempotent across restarts, matching every
+// other startup migration step in this function.
+if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webpush_singleton
+    ON notification_providers(type) WHERE type = 'webpush'`).Error; err != nil {
+    return uptimeShutdown, fmt.Errorf("create webpush singleton index: %w", err)
+}
+```
 
-- `frontend/src/App.tsx` — wrap the `security/crowdsec` route element in
-  `<RequireRole allowed={['admin']}>` (like `/settings/users`).
-- `frontend/src/components/Layout.tsx` — gate the `navigation.crowdsec` child
-  entry (`:112`) with `user?.role === 'admin'` (spread-in pattern, same as
-  `:127` "Users").
+Placement: after the main `AutoMigrate(...)` block (the `notification_providers`
+table must exist first) and before any code path that could call
+`NotificationService.CreateProvider` — i.e., before `Register`/`RegisterWithDeps`
+finishes wiring routes. Failure to create the index fails startup loudly
+(matching the existing `auto migrate: %w` error-return convention
+immediately above it in the same function) rather than silently running
+without the safety guarantee.
 
-#### 3.1.3 Error contract
+**SQLite partial-index support**: confirmed available — SQLite has
+supported partial indexes (the `WHERE` clause on `CREATE INDEX`) since
+3.8.0 (2015); this codebase's SQLite driver/runtime is well past that
+baseline (no version-gating needed).
 
-`RequireRole(models.RoleAdmin)` already returns `401 {"error":"Unauthorized"}`
-(no role) / `403 {"error":"Forbidden"}` (`role=user`/`passthrough`). No
-middleware change. Matches the reporter PoC's expectation of a hard `403` for a
-non-admin token.
+**Test coverage for this commit** (see §9 Commit Slicing Strategy, commit 3):
+a concurrency test that fires two goroutines both calling
+`NotificationService.CreateProvider` with `Type: "webpush"` against the
+same `*gorm.DB` and asserts exactly one succeeds and the other's `Insert`
+returns a unique-constraint-violation error — this is the regression test
+for the exact race Supervisor identified, and it must fail against the
+pre-fix (service-layer-`COUNT`-only) code to prove it actually exercises
+the race rather than passing vacuously.
 
-#### 3.1.4 Regression tests — `backend/internal/api/routes/routes_test.go` (+ handler test)
+#### 3.3.5 GORM Security Scan
 
-New `TestRegister_CrowdsecAdminRoutesRequireAdminRole`:
+Per CLAUDE.md §1.5, this change touches `internal/models/**` and adds a
+migration — `./scripts/scan-gorm-security.sh --check` is a **mandatory**
+gate before this PR merges (see §8).
 
-| Case | Token role | Route | Expected |
+### 3.4 API contracts
+
+All routes below are mounted on the existing authenticated `management`
+group (`routes.go` line ~372: `management.Use(middleware.RequireManagementAccess())`),
+matching every existing `/notifications/*` route.
+
+| Method | Path | Purpose | Auth |
 |---|---|---|---|
-| Control (PoC parity) | none | `POST /api/v1/admin/crowdsec/stop` | `401` |
-| Escalation blocked | `user` | `POST /api/v1/admin/crowdsec/stop` | `403` |
-| Escalation blocked | `user` | `GET /api/v1/admin/crowdsec/bouncer/key` | `403` |
-| Escalation blocked | `user` | `POST /api/v1/admin/crowdsec/ban` | `403` |
-| Escalation blocked | `user` | `GET /api/v1/admin/crowdsec/file?path=…` | `403` |
-| Admin unaffected | `admin` | `GET /api/v1/admin/crowdsec/status` | not `401` / not `403` |
+| `POST` | `/notifications/providers/webpush/provision` | Generate VAPID keypair + create the singleton provider row | `RequireManagementAccess()`; provisioning is destructive-ish (any existing subscriptions become orphaned if re-run — see §7) so handler additionally checks `RequireRole(admin)`, mirroring `Test`/`Preview`'s existing admin-only pattern on this same route group |
+| `GET` | `/notifications/providers/webpush/vapid-public-key` | Serve the current VAPID public key for `PushManager.subscribe` | `RequireManagementAccess()` (any authenticated user, not just admin — a non-admin user's browser can still subscribe to receive alerts, same as any authenticated user can view the Notifications page) |
+| `POST` | `/notifications/providers/webpush/subscriptions` | Register (upsert) a browser's `PushSubscription` | `RequireManagementAccess()` |
+| `GET` | `/notifications/providers/webpush/subscriptions` | List the **current user's own** subscriptions (for the "manage this device's subscription" UI state) | `RequireManagementAccess()` |
+| `DELETE` | `/notifications/providers/webpush/subscriptions/:id` | Unsubscribe; 404 if the subscription isn't owned by the caller | `RequireManagementAccess()`; ownership checked in-handler (`subscription.UserID == c.GetString("userID")`), returning 404 (not 403) for a foreign ID to avoid confirming existence, consistent with this codebase's existing `respondSanitizedProviderError` pattern of not leaking cross-tenant existence |
 
-Harness: `Register(ctx, gin.New(), db, cfg)`; seed a `role=user` + a
-`role=admin` user; mint JWTs via
-`services.NewAuthService(db,cfg).GenerateToken(&user)`; send
-`Authorization: Bearer …`. Reuse the in-memory sqlite + `cfg.JWTSecret` pattern
-already in `routes_test.go`.
+#### 3.4.0 Authorization model — resolved (§7 risk 5 closed by user decision)
 
-### 3.2 Part B — Audit & structurally harden the `management` group
+**Decision** (resolves the open question previously logged as §7 risk 5 —
+this is now settled, not reopened): any authenticated user with management
+access (`RequireManagementAccess()` — any role other than
+`RolePassthrough`, so `RoleUser` included, not just `RoleAdmin`) may
+self-service subscribe/list/unsubscribe their own Web Push destination, and
+read the VAPID public key needed to do so. This is what the table above
+already specifies for the four non-provision routes; provisioning itself
+stays admin-only (`RequireRole(admin)`, row 1) since it creates the shared
+singleton identity.
 
-#### 3.2.1 Rulings baked in
+**The security-event forwarding carve-out.** The four security-event
+`NotifyXxx` toggles on a provider row (`NotifySecurityWAFBlocks`,
+`NotifySecurityACLDenies`, `NotifySecurityRateLimitHits`,
+`NotifySecurityCrowdSecDecisions`) are what actually gate whether security
+telemetry gets forwarded to a given destination (`notification_service.go`
+lines 243-249, `enhanced_security_notification_service.go` lines 110-119).
+The exfiltration scenario Supervisor flagged: a low-privileged (`RoleUser`)
+account self-service-subscribes a device pointed at an endpoint it
+controls, then flips those four toggles on to have Charon forward WAF
+blocks / ACL denies / rate-limit hits / CrowdSec decisions to it.
 
-- **Q6 — belt-and-braces:** subgroup-only. Do **not** add in-handler
-  `requireAdmin` to `crowdsec_handler.go` / `plugin_handler.go`. Match
-  `securityAdmin` / `authenticatedAdmin` exactly.
-- **Q7 — reads that back non-admin screens stay on `management`.** The frontend
-  exposes nearly every management page to `role=user` (§2.1). So:
-  classification is **mutation vs. read**, not endpoint-group. A `GET`/`list`
-  that a `role=user`-reachable page calls is **READ (stays on `management`)**;
-  its `POST`/`PUT`/`PATCH`/`DELETE` siblings move behind
-  `RequireRole(admin)`. Where a whole capability is infra-admin **and no
-  `role=user`-reachable screen consumes any of its reads**, the group moves
-  wholesale **and** gets a companion `RequireRole` frontend guard + nav filter
-  (like Part A does for CrowdSec).
-- **Q8 — least-invasive split mechanism.** For routes registered inline in
-  `routes.go`, add `middleware.RequireRole(models.RoleAdmin)` as a per-route
-  2nd handler arg (exactly like the existing `routes.go:457`
-  `management.GET("/settings/smtp", middleware.RequireRole(models.RoleAdmin), …)`).
-  Where a handler's own `RegisterRoutes(rg)` registers a mix of read and
-  mutation routes and only the mutations move, change that handler's signature
-  to `RegisterRoutes(read, admin *gin.RouterGroup)` and register each route on
-  the correct group.
-  - **`HecateHandler`, `OrthrusHandler`, `RemoteServerHandler` — read/write
-    split, NOT wholesale move** (C1/C2). Verified: `GET /orthrus/agents` is
-    consumed by `frontend/src/components/hecate/ConnectionTypeSelector.tsx`
-    (`useAgentList`, rendered inside the `role=user`-reachable proxy-host
-    create/edit flow) and `GET /hecate/status` by
-    `frontend/src/api/hecate.ts` (imported by `Dashboard.tsx`, route `/`, all
-    roles). Reads that stay on `management`:
-    `GET /hecate/status`, `GET /hecate/tunnels`, `GET /hecate/tunnels/:uuid`,
-    `GET /orthrus/agents`, `GET /orthrus/agents/:uuid`,
-    `GET /remote-servers`, `GET /remote-servers/:uuid`. Everything else on those
-    three handlers (create/update/delete/start/stop/rotate-credentials/revoke/
-    provision/patch/install-snippets/proxy-status/test/provider-device
-    lists+sync) → `managementAdmin`. Each handler's `RegisterRoutes` takes
-    `(read, admin *gin.RouterGroup)`.
-  - **`SecurityHeadersHandler` — inline in `routes.go`, per-route args, NOT a
-    bespoke signature** (C6). Its ~11 routes move out of
-    `h.RegisterRoutes(management)` into explicit
-    `management.GET/POST(...)` / `managementAdmin.POST/PUT/DELETE(...)` lines in
-    `routes.go` (its siblings — certificates, access-lists, domains,
-    feature-flags — are already registered inline this way). The
-    `SecurityHeadersHandler.RegisterRoutes` method is removed.
-  - **`CrowdsecHandler`** moves wholesale (Part A) — no `role=user` read need.
-  - **`PluginHandler`, DNS/credential/manual-challenge, certificate,
-    access-list, domain, settings, feature-flags, system-repair, notification
-    test/preview** routes are all inline in `routes.go` → per-route
-    `RequireRole(admin)` args.
+**Finding**: this is already closed by existing code, with no new gate to
+add. All four toggles are fields on `notificationProviderUpsertRequest`
+(`backend/internal/api/handlers/notification_provider_handler.go:37-40`)
+and are only ever set through the **generic**
+`PUT /notifications/providers/:id` endpoint (`Update`,
+`notification_provider_handler.go:216`) — there is no webpush-specific
+"update my provider's toggles" route in this spec, and there never has
+been one for any provider type. `Update` already calls `requireAdmin(c)`
+unconditionally as its first line (`notification_provider_handler.go:217-219`,
+same as `Create` at line 174), for **every** provider type, not just
+webpush — this was confirmed by reading the handler, not assumed. So a
+`RoleUser` caller can self-service-subscribe a device (via the five
+webpush-specific routes above) but literally cannot reach a code path that
+sets `NotifySecurityWAFBlocks` etc. on any provider, webpush included —
+`Update` rejects them with `403` before the request body is even
+inspected for which fields it's trying to change.
 
-#### 3.2.2 Route classification table
+**Consequence for implementation scope**: per the task's
+root-cause-analysis instruction to prefer the minimum change that closes
+the flagged gap, **no code change is needed here** — this is a
+documentation/spec-confirmation finding, not a new webpush-specific
+carve-out on `Update`, and not a tightening of the existing (already
+admin-gated) behavior for other provider types either. A `RoleUser`
+self-service subscriber receives whatever event categories (proxy hosts,
+remote servers, domains, certs, uptime, and — only if an admin already
+turned them on — the four security categories) are already enabled on the
+webpush provider row at the time they subscribe; they cannot themselves
+enable any category, security or otherwise, since all toggle changes go
+through the same admin-gated `Update` endpoint. This matches the
+requested shape exactly: self-service opt-in preserved, security-telemetry
+forwarding to arbitrary endpoints impossible for a non-admin.
+**Phase 2/commit 6 should add a regression test** asserting a `RoleUser`
+token gets `403` from `PUT /notifications/providers/:id` when the target
+row is `Type = "webpush"` with a body that sets any `NotifySecurityXxx`
+field to `true` — this pins the *current* behavior so a future refactor of
+`Update`'s auth check cannot silently reopen the gap Supervisor identified,
+even though today's code already prevents it.
 
-Verdicts: **MOVE-GROUP** = whole registration → `managementAdmin` + companion
-frontend guard (CrowdSec only) · **MOVE → `managementAdmin`** = these specific
-route(s) re-registered on `managementAdmin` (a read that, on review, no
-`role=user` screen needs) · **ADMIN-ARG** = keep on `management`, add per-route
-`RequireRole(admin)` to the mutations, reads stay (for handlers that register
-their own routes, this is a `RegisterRoutes(read, admin)` split) · **READ
-(stays)** = `GET`/list that a `role=user`-reachable page consumes, no change ·
-**USER-OK** = stays on `management`, no change (add to the enforcement-test
-allowlist if it is a non-mutating `POST`) · **KEEP (in-handler)** = already
-guarded inside the handler, leave mechanism, verify test.
+#### 3.4.1 `POST /notifications/providers/webpush/provision`
 
-> The implementing engineer MUST re-run
-> `grep -n "management\.\(GET\|POST\|PUT\|PATCH\|DELETE\)\|\.RegisterRoutes(management)" routes.go`
-> against HEAD at implementation time and reconcile drift with this table in the
-> PR description.
-
-| # | Route(s) | Handler | Current guard | Verdict | Action |
-|---|---|---|---|---|---|
-| 1 | `POST/GET/DELETE /admin/crowdsec/*` (~45) | `CrowdsecHandler` | none | **MOVE-GROUP** | Part A: `RegisterRoutes(managementAdmin)` + frontend guard on `/security/crowdsec`. |
-| 2 | `GET /admin/plugins`, `GET /admin/plugins/:id` | `PluginHandler` | none | **READ (stays)** | `/dns/plugins` page (`role=user`-reachable) lists plugins. Keep on `management`. |
-| 3 | `POST /admin/plugins/:id/enable`, `/:id/disable`, `/reload` | `PluginHandler` | none | **ADMIN-ARG** | Add `middleware.RequireRole(models.RoleAdmin)` to these 3 inline registrations (`routes.go:562-565`). This closes the confirmed 2nd live instance. |
-| 4 | `GET/POST/PUT/DELETE /admin/encryption/*` | `EncryptionHandler` | in-handler `isAdmin(c)` | **KEEP (in-handler)** + also move the `adminEncryption` group decl to `managementAdmin.Group("/admin/encryption")` for defense-in-depth (no behavior change; removes the "silent 200 if the in-handler check is ever dropped" risk). Verify existing tests. |
-| 5 | `GET /security/status`, `/config`, `/decisions`, `/rulesets`, `/rate-limit/presets`, `/geoip/status`, `/waf/exclusions` | `SecurityHandler` (reads) | `management` | **READ (stays)** — security-posture visibility; `Security` dashboard is `role=user`-reachable. Document. |
-| 6 | `securityAdmin.*` (all `POST /security/*`, module enable/disable, PATCH) | `SecurityHandler` (writes) | `securityAdmin` = `RequireRole(admin)` | **KEEP** — already correct; the template for this work. |
-| 7 | `GET /security/headers/profiles`, `/profiles/:id`, `/presets`; `POST /score`, `/csp/validate`, `/csp/build` | `SecurityHeadersHandler` | `management` (`/security/headers` subgroup) | **USER-OK** — reads + pure calculators (the 3 `POST`s do not persist). `SecurityHeaders` page is `role=user`-reachable. Inline these on `management.GET/POST(...)` in `routes.go`; add the 3 calculator `POST`s to the enforcement-test allowlist. |
-| 8 | `POST/PUT/DELETE /security/headers/profiles`, `POST /security/headers/presets/apply` | `SecurityHeadersHandler` | `management` | **ADMIN-ARG** — inline on `managementAdmin.POST/PUT/DELETE(...)` in `routes.go` (C6 — per-route, no bespoke 2-group `RegisterRoutes` signature; delete the `SecurityHeadersHandler.RegisterRoutes` method — its siblings are already registered inline). |
-| 9 | `GET/POST/PUT/DELETE /proxy-hosts*`, bulk-update-{acl,group,security-headers} | `ProxyHostHandler` | `management` | **USER-OK** — core `role=user` capability; per-host authz via `PermittedHosts` / forward-auth. No change. |
-| 10 | `GET/POST/PUT/DELETE /proxy-groups*` | `ProxyGroupHandler` | `management` | **USER-OK** — same rationale. No change. |
-| 11 | `GET /remote-servers`, `GET /remote-servers/:uuid` | `RemoteServerHandler` | `management` | **READ (stays)** — proxy-host create/edit references remote servers; `RemoteServers` page is `role=user`-reachable. |
-| 12 | `POST/PUT/DELETE /remote-servers*`, `POST /remote-servers/test`, `POST /remote-servers/:uuid/test` | `RemoteServerHandler` | `management` | **ADMIN-ARG** (C2) — SSH targets + credentials. `RemoteServerHandler.RegisterRoutes(read, admin *gin.RouterGroup)`: the 2 `GET`s (row 11) on `read`, these 5 on `admin`. |
-| 13 | `GET /docker/containers` | `DockerHandler` | `management` | **READ (stays)** — proxy-host create picks a container. Read-only. |
-| 14a | `hecate/*` — reads: `GET /hecate/status`, `GET /hecate/tunnels`, `GET /hecate/tunnels/:uuid` | `HecateHandler` | `management` | **READ (stays)** (C1) — `GET /hecate/status` is consumed by `frontend/src/api/hecate.ts` (imported by `Dashboard.tsx`, route `/`, all roles). `HecateHandler.RegisterRoutes(read, admin *gin.RouterGroup)`: these 3 on `read`. |
-| 14b | `hecate/*` — mutations: tunnels create/update/delete, `:uuid/start`, `:uuid/stop`, `:uuid/rotate-credentials`, `cloudflare/tunnels`, `:uuid/config/cloudflared`, `tailscale/devices`+`sync`, `zerotier/networks`(+members), `netbird/peers`+`sync` | `HecateHandler` | `management` | **ADMIN-ARG** (C1) — tunnel-provider credentials + network topology. All non-`read` `HecateHandler` routes go on the `admin` group. Frontend: no nav/route guard change — `/hecate/tunnels` etc. stay visible to `role=user` (list loads; create/edit controls 403), same as Access Lists. |
-| 15a | `orthrus/agents` — reads: `GET /orthrus/agents`, `GET /orthrus/agents/:uuid` | `OrthrusHandler` | `management` | **READ (stays)** (C1) — `GET /orthrus/agents` is consumed by `frontend/src/components/hecate/ConnectionTypeSelector.tsx` (`useAgentList`), rendered inside the `role=user`-reachable proxy-host create/edit flow. `OrthrusHandler.RegisterRoutes(read, admin *gin.RouterGroup)`: these 2 on `read`. |
-| 15b | `orthrus/agents` — mutations + detail: `POST /orthrus/agents`, `PATCH /:uuid`, `DELETE /:uuid`, `POST /:uuid/revoke`, `GET /:uuid/snippets`, `GET /:uuid/proxy-status` | `OrthrusHandler` | `management` | **ADMIN-ARG** (C1) — agent provisioning = trust-boundary expansion; install snippets embed a bootstrap token. All non-`read` `OrthrusHandler` routes on the `admin` group. Frontend: keep `RequireRole allowed={['admin']}` on `/hecate/agent` + its nav child (the agent-management page is admin-only; the read used by the proxy-host form is not gated). |
-| 16 | `GET /dns-providers`, `/dns-providers/types`, `/dns-providers/:id`, `/dns-providers/detection-patterns` | `DNSProviderHandler`, `DNSDetectionHandler` | `management` (inside `if cfg.EncryptionKey != ""`) | **READ (stays)** — `DNSProviders` page is `role=user`-reachable and lists providers. |
-| 17 | `GET /dns-providers/:id/audit-logs` (`auditLogHandler.ListByProvider`, `routes.go:521`) | `AuditLogHandler` | `management` | **MOVE → `managementAdmin`** (C5) — same actor-PII concern as row 28. Move this single `GET` to `managementAdmin`. (`DNSProviders` page does not surface per-provider audit logs to non-admins.) |
-| 17b | `POST/PUT/DELETE /dns-providers*`, `POST /dns-providers/:id/test`, **`POST /dns-providers/test`** (id-less `TestCredentials`, `routes.go:519`), `POST /dns-providers/detect`, all `/:id/credentials*` (incl. `/:cred_id/test`), `POST /:id/enable-multi-credentials`, all `/dns-providers/:id/manual-challenge(s)*` | `DNSProviderHandler`, `CredentialHandler`, `ManualChallengeHandler` | `management` | **ADMIN-ARG** (C7) — DNS API credentials + ACME control. Inline registrations → per-route `RequireRole(admin)` arg; `ManualChallengeHandler.RegisterRoutes` → pass `managementAdmin` (all 6 routes are provider-mutation-adjacent; no `role=user` read need). Name both `POST /dns-providers/:id/test` **and** `POST /dns-providers/test` explicitly. |
-| 18 | `GET /certificates`, `GET /certificates/:uuid` | `CertificateHandler` | `management` | **READ (stays)** — `Certificates` page is `role=user`-reachable. |
-| 19 | `POST /certificates`, `POST /certificates/validate`, `PUT /certificates/:uuid`, `POST /certificates/:uuid/export`, `DELETE /certificates/:uuid` | `CertificateHandler` | `management` | **ADMIN-ARG** — `/export` returns private-key material. Per-route `RequireRole(admin)` args. |
-| 20 | `GET /access-lists`, `/access-lists/:id`, `/access-lists/templates`, `POST /access-lists/:id/test` | `AccessListHandler` | `management` | **USER-OK** — `AccessLists` page is `role=user`-reachable; `/test` is a non-persisting dry-run IP check. Reads stay; add `POST /:id/test` to the enforcement-test allowlist. |
-| 21 | `POST/PUT/DELETE /access-lists*` | `AccessListHandler` | `management` | **ADMIN-ARG** — ACLs are a security control. Per-route `RequireRole(admin)` args. |
-| 22 | `GET /settings`, `GET /feature-flags`, `GET /themes` | `SettingsHandler`, `FeatureFlagsHandler`, `CustomThemeHandler` | `management` | **READ (stays)** — the SPA loads these for every role (`Layout.tsx` uses `getSettings`). |
-| 23 | `POST/PATCH /settings`, `PATCH /config`, `POST/DELETE /settings/logo`, `/settings/banner`, `GET/POST /settings/smtp*`, `POST /settings/validate-url`, `/settings/test-url` | `SettingsHandler` | mixed (1 `RequireRole` arg, 8 in-handler refs) | **ADMIN-ARG** — normalize: per-route `RequireRole(admin)` arg on every settings mutation + `GET /settings/smtp` (keep its existing arg). Keep in-handler checks as belt-and-braces (do not remove — they predate this and some tests assert them). |
-| 24 | `PUT /feature-flags` | `FeatureFlagsHandler` | `management` | **ADMIN-ARG** — per-route arg; `GET` stays. |
-| 25 | `GET/POST/PUT/DELETE /themes` | `CustomThemeHandler` | `management` | **USER-OK** — code comment: "available to all management users (not admin-only)". No change; document. |
-| 26 | `backups*`, `backups/remote-targets*` | `BackupHandler`, `BackupRemoteHandler` | `management` + in-handler `requireAdmin` on every mutation | **KEEP (in-handler)** — verify each mutation path has a `requireAdmin` test; no structural move required. |
-| 27 | `users*` (`GET/POST/PUT/DELETE /users`, `/invite`, `/preview-invite-url`, `/permissions`, `/resend-invite`) | `UserHandler` | `management` + in-handler `requireAdmin` (except `UpdateUser` self-service branch) | **KEEP (in-handler)** — `UpdateUser` deliberately allows a non-admin to change their own name/password, so it cannot move wholesale. Verify tests cover the admin-only branches. |
-| 28 | `GET /audit-logs`, `GET /audit-logs/:uuid` (`routes.go:428-429`) | `AuditLogHandler` | `management` | **MOVE → `managementAdmin`** (C4) — audit records expose other users' emails, source IPs, and security-event detail (info disclosure to a lower-privilege role). Both `GET`s → `managementAdmin`. Frontend: wrap the `/security/audit-logs` route element in `<RequireRole allowed={['admin']}>` (`App.tsx:104`). No dedicated nav entry exists for it (`Layout.tsx` `cerberus` children do not include audit-logs), so no nav filter needed; if the `Security` dashboard renders an in-page link to it, hide that link for non-admins (optional polish). |
-| 29 | `GET /domains` | `DomainHandler` | `management` | **READ (stays)** — `Domains` page is `role=user`-reachable. |
-| 30 | `POST /domains`, `DELETE /domains/:id` | `DomainHandler` | `management` | **ADMIN-ARG** — per-route `RequireRole(admin)` args. |
-| 31 | `system/permissions*` (`GET`, `POST /repair`), `GET /system/updates`, `GET /system/my-ip`, `POST /system/uptime/check`, `POST /system/uptime/*` | `SystemPermissionsHandler`, `UpdateHandler`, `SystemHandler` | `management` (+ 3 in-handler refs in system-permissions) | **ADMIN-ARG** for `POST /system/permissions/repair` (arg) — keep `GET /system/permissions` as READ; `GET /system/updates`, `GET /system/my-ip` **USER-OK**; `POST /system/uptime/check` **USER-OK** (observability). |
-| 32 | `uptime/monitors*`, `stats/*`, `cerberus/logs/ws`, `logs*`, `websocket/*` | various | `management` | **USER-OK** — observability / read. WS auth already via `AuthMiddleware`. No change; a few non-mutating `POST`s (`/uptime/sync`, `/uptime/monitors/:id/check`) — **allowlist**. |
-| 33a | `notifications*` — `POST/PUT/DELETE /notifications/providers*`, `.../external-templates*` (Create/Update/Delete); `GET/PUT /notifications/settings/security` | `NotificationProviderHandler`, `NotificationTemplateHandler`, `SecurityNotificationHandler` | `management` + in-handler `requireAdmin` (verified: `notification_provider_handler.go` ×3, `notification_template_handler.go` ×3, `security_notifications.go` ×2) | **KEEP (in-handler)** — already guarded on Create/Update/Delete + settings. Verify tests. |
-| 33b | `POST /notifications/providers/test` (`routes.go:658`), `POST /notifications/providers/preview` (`:659`), `POST /notifications/external-templates/preview` (`:668`) | `NotificationProviderHandler.Test`/`.Preview`, `NotificationTemplateHandler.Preview` | `management` | **ADMIN-ARG** (C3) — **verified NO in-handler `requireAdmin`** on `Test`/`Preview` (only Create/Update/Delete). These send test messages / render templates with provider config → admin-only. Add `middleware.RequireRole(models.RoleAdmin)` per-route arg. (Without this, the new enforcement test asserts 403 for `role=user` and fails with no guidance.) |
-| 33c | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` | `NotificationHandler` | `management` | **USER-OK** — per-user inbox. Allowlist the 2 read-state `POST`s. |
-| 34 | `import` / NPM / JSON import (`RegisterImportHandler`) | `ImportHandler` etc. | `authenticatedAdmin` = `RequireRole(admin)` | **KEEP** — already correct. |
-
-**Companion frontend guards added by Part B** (mirroring the "Users" pattern —
-`<RequireRole allowed={['admin']}>` on the route element + `user?.role === 'admin'`
-spread on the nav entry). Required:
-
-- `/security/crowdsec` route + `navigation.crowdsec` nav child (Part A / row 1).
-- `/security/audit-logs` route (C4 / row 28). No nav entry exists for it —
-  route guard only; optionally hide any in-page link from the `Security`
-  dashboard for non-admins.
-- `/hecate/agent` route + its nav child (rows 15a/15b) — the Orthrus
-  *agent-management page* is admin-only; the `GET /orthrus/agents` read used by
-  the proxy-host form stays ungated so `ConnectionTypeSelector` still works for
-  `role=user`.
-- `/security/encryption` route + `navigation.encryption` nav child — already
-  effectively admin via in-handler `isAdmin(c)`; add the guard for UX parity
-  (row 4).
-
-**NOT guarded** (pages stay visible to `role=user`; reads succeed, mutation
-controls 403): Access Lists, Security Headers, DNS Providers, Certificates,
-Domains, Remote Servers, and the Hecate *tunnels* page (`/hecate/tunnels`,
-`/hecate/providers`). Optional follow-up ([§7](#7-remaining-open-questions)):
-hide the disabled create/edit/delete controls on these pages for non-admins.
-Do **not** guard `navigation.hecate` wholesale — its `remote-servers` and
-`tunnels` children remain `role=user`-usable for reads.
-
-#### 3.2.3 Recommended structural fix (chosen) vs. alternative
-
-**Chosen:** one `managementAdmin := management.Group("/"); .Use(RequireRole(admin))`
-subgroup (Part A) + the per-route/per-group moves in the table + a
-deny-by-default enforcement test. Identical idiom to `securityAdmin` /
-`authenticatedAdmin`. DRY.
-
-**Rejected as the sole mechanism:** a pure per-route `RequireRole` sweep with no
-subgroup — that is exactly the opt-in model that produced this advisory
-(`crowdsecHandler.RegisterRoutes` can't take per-route middleware without a
-signature change and would still land ~45 routes on a bare group). We use the
-per-route form only for the individually-registered mutations that sit next to
-USER-OK reads (Q8).
-
-#### 3.2.4 New enforcement test — `routes_test.go`
-
-`TestManagementGroup_MutationsAreAdminGuarded`:
-
+Request:
+```json
+{ "name": "Browser Push", "vapid_subject": "mailto:admin@example.com" }
 ```
-build router via Register(...); seed role=user and role=admin; mint JWTs.
-for each route in router.Routes() where path starts /api/v1/ and method ∈ {POST,PUT,PATCH,DELETE}:
-    if route in PUBLIC_MUTATION_ALLOWLIST:  continue   // login, setup, invite/accept, security/events, emergency/security-reset  (NOTE: auth/register REMOVED)
-    if route in USER_OK_MUTATION_ALLOWLIST: continue   // proxy-hosts*, proxy-groups*, themes*, security-headers calculators (POST /score,/csp/validate,/csp/build), access-lists/:id/test, uptime sync + monitors/:id/check, notifications/:id/read + read-all, user self-service (PUT /users/:id), remote-servers reads are GET (not here)
-    send request with a valid role=user JWT  → assert 403     // deny-by-default
-    send request with a valid role=admin JWT → assert != 403  // admin reaches handler
+Response `201`:
+```json
+{
+  "id": "uuid",
+  "name": "Browser Push",
+  "type": "webpush",
+  "enabled": true,
+  "service_config": "{\"vapid_public_key\":\"BN...\",\"vapid_subject\":\"mailto:admin@example.com\"}",
+  "notify_proxy_hosts": true,
+  "...": "...same NotificationProvider JSON shape as every other provider"
+}
+```
+Errors: `400` invalid/missing `vapid_subject` scheme; `409` a `webpush`
+provider row already exists (`{"error": "a Web Push provider is already configured"}`)
+— returned both for the common case (service-layer `COUNT` fast-path finds
+an existing row) and the race case (the `INSERT` loses to a concurrent
+request at the `idx_webpush_singleton` partial unique index; see §3.1
+"Enforcement" and §3.3.4). Both paths produce the identical response body
+— the client has no way to tell them apart and does not need to.
+
+#### 3.4.2 `GET /notifications/providers/webpush/vapid-public-key`
+
+Response `200`: `{"vapid_public_key": "BN..."}`. `404` if no `webpush`
+provider row exists yet (frontend shows a "not yet enabled" state, prompting
+provisioning by an admin) or if `Enabled = false` (subscribing while
+disabled would create dead-on-arrival subscriptions).
+
+#### 3.4.3 `POST /notifications/providers/webpush/subscriptions`
+
+Request (body is the browser's `PushSubscription.toJSON()` shape,
+matching the W3C spec verbatim so the frontend can forward it with no
+reshaping):
+```json
+{
+  "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+  "keys": { "p256dh": "BN...", "auth": "xy..." },
+  "user_agent": "Mozilla/5.0 ..."
+}
+```
+Response `201` (new) or `200` (idempotent re-registration of an existing
+`endpoint`, refreshing `LastSeenAt`/`UserAgent`/resetting `FailureCount`):
+```json
+{ "id": "uuid", "endpoint": "https://fcm.googleapis.com/fcm/send/..." }
+```
+Validation: `endpoint` required, must parse as an `https://` URL (reject
+`http://` outright — Web Push endpoints are always HTTPS in production;
+this is a basic format check, not a re-run of `security.ValidateExternalURL`,
+since the actual SSRF-safe validation happens at send time via the shared
+`transport.Wrapper`, §2.2); `keys.p256dh`/`keys.auth` required
+non-empty strings. `404` if no `webpush` provider is provisioned.
+`503` (`{"error": "Web Push provider is disabled"}`) if the singleton row's
+`Enabled = false`.
+
+#### 3.4.4 `GET /notifications/providers/webpush/subscriptions`
+
+Response `200`: array of `{id, endpoint, user_agent, created_at, last_seen_at}`
+for the caller's own `UserID` only (never another user's rows — reinforces
+per-user device management without a cross-user admin view in this PR;
+an admin wanting to see *all* subscribers' device counts is a documented
+non-goal/follow-up, §7).
+
+#### 3.4.5 `DELETE /notifications/providers/webpush/subscriptions/:id`
+
+`204` on success. `404` if not found or not owned by the caller.
+
+### 3.5 Dispatch fan-out design
+
+New function in `notification_service.go`, invoked from `SendExternal`'s
+existing per-provider dispatch loop as a new branch parallel to the
+existing `email` special case:
+
+```go
+if strings.ToLower(strings.TrimSpace(provider.Type)) == "email" {
+    go s.dispatchEmailViaNotify(ctx, provider, eventType, title, message)
+    continue
+}
+if strings.ToLower(strings.TrimSpace(provider.Type)) == "webpush" {
+    go s.dispatchWebPushViaNotify(ctx, provider, eventType, title, message, data)
+    continue
+}
 ```
 
-- Both allowlists are committed as explicit constants with a per-entry comment —
-  this list **is** the deny-by-default policy and is what the supervisor
-  reviews.
-- Routes explicitly classified ADMIN-ARG in §3.2.2 that a reviewer might
-  otherwise expect on the allowlist (so they are **not** allowlisted and MUST
-  return 403 for `role=user`): `POST /notifications/providers/test`,
-  `POST /notifications/providers/preview`,
-  `POST /notifications/external-templates/preview` (C3);
-  `POST /dns-providers/test` + `POST /dns-providers/:id/test` (C7);
-  all Hecate mutation routes and all Orthrus mutation routes (C1). If any of
-  these lands on the bare `management` group at implementation time the test
-  fails — that is the intended tripwire.
-- Also update `TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist`:
-  remove the `POST /api/v1/auth/register` entry from its `publicMutationAllowlist`
-  (route no longer exists — see Part C).
+`dispatchWebPushViaNotify` (new, `notify_webpush_adapter.go` — new file,
+mirroring the existing per-concern-file split of
+`notify_provider_adapter.go`/`notify_email_adapter.go`/`notify_client_adapter.go`):
 
-### 3.3 Part C — Retire the public registration endpoint
+1. Parse `provider.ServiceConfig` → `vapid_public_key`, `vapid_subject`;
+   `provider.Token` → `vapid_private_key`. Malformed/missing → log and
+   return (matches `dispatchViaNotify`'s existing "log and return" error
+   style, no panics).
+2. `s.DB.Where("provider_id = ?", provider.ID).Find(&subscriptions)`.
+3. For each subscription, construct one `webpush.Client` via
+   `webpush.New(webpush.Config{VAPIDPublicKey: ..., VAPIDPrivateKey: ...,
+   VAPIDSubject: ..., Endpoint: sub.Endpoint, P256dh: sub.P256dh, Auth:
+   sub.Auth, Template: tmpl, CustomTemplate: customTemplate}, s.notifyWrapper)`
+   (reusing `resolveTemplateFields`, unchanged, from
+   `notify_provider_adapter.go`) and call `Send` — **sequentially within
+   the already-async outer goroutine, not one goroutine per subscription**.
+   Rationale: `SendExternal` already backgrounds each *provider* dispatch in
+   its own goroutine (`go s.dispatchWebPushViaNotify(...)`); nesting a
+   second layer of per-subscription goroutines is unbounded fan-out with no
+   cap (a provider with hundreds of stale subscriptions would spawn
+   hundreds of concurrent outbound HTTP requests) — sequential-within-one-
+   goroutine bounds concurrency to 1 outbound push service call at a time
+   per dispatch event, trading a little latency (bounded further by
+   `transport.Wrapper`'s existing 3-attempt/200ms-2s retry policy applying
+   per subscription) for predictable resource usage. This is flagged as a
+   documented, deliberate trade-off in §7, not an oversight — a future
+   worker-pool-bounded-concurrency improvement is a legitimate follow-up if
+   subscription counts grow large in practice, but is out of scope here
+   (no existing precedent in this codebase for bounded worker pools in the
+   notification path to follow).
+4. **Partial-failure handling** (per-subscription, independent — matching
+   the module's own `docs/INTEGRATION.md` example of logging each error
+   independently rather than aborting):
+   - `Send` returns `nil`: update `LastSeenAt = now()`, reset
+     `FailureCount = 0`.
+   - `Send` returns an error: parse the numeric HTTP status out of the
+     error string via a small helper,
+     `extractHTTPStatusFromNotifyError(err error) (status int, ok bool)`,
+     using a regex (`provider returned status (\d+)`) matched against
+     `err.Error()` — **necessary because, per §2.1, `transport.Wrapper`
+     exposes no typed status error.** This is fragile-by-construction
+     (an upstream wording change silently breaks detection) so:
+     - If `ok && (status == 404 || status == 410)`: delete the subscription
+       row immediately (standard Web Push "subscription is gone" signal —
+       RFC 8030 doesn't mandate this status/action pairing itself, but it
+       is the universal convention every push service and every Web Push
+       client library follows).
+     - Otherwise (`!ok`, or any other status, or a non-HTTP transport
+       error): increment `FailureCount`, set `LastFailureAt = now()`; if
+       `FailureCount >= 10` (new const `webpushMaxConsecutiveFailures`),
+       delete the row as presumed-dead (a bound on rows accumulating
+       forever from a subscription failing for non-404/410 reasons, e.g. a
+       push service outage that never resolves before it starts returning
+       410) — chosen instead of never deleting on ambiguous failures, since
+       an unbounded table of permanently-failing rows is its own
+       maintenance problem, and instead of deleting on the very first
+       ambiguous failure, since a single transient failure (network blip,
+       push service 503) must not nuke a live subscription.
+     - Log every failure via the existing `logger.Log().WithError(err)...`
+       convention (`dispatchViaNotify`'s existing style) — never silent.
+5. This function does not return an error to `SendExternal` (matching the
+   fire-and-forget style of every existing `dispatchXxxViaNotify`); it logs
+   per-subscription outcomes only.
 
-#### 3.3.1 Behavior change
+### 3.6 Frontend
 
-| Before | After |
+#### 3.6.1 Service worker
+
+New file `frontend/public/sw.js` (static asset, served at `/sw.js` — root
+scope required so `PushManager.subscribe` can receive pushes for the whole
+origin, per the W3C Push API's same-scope requirement). Minimal handler:
+
+```js
+self.addEventListener('push', (event) => {
+  const data = event.data ? event.data.json() : {};
+  const title = data.title || 'Charon';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.message || data.body || '',
+      icon: '/favicon.png',
+      data,
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(clients.openWindow('/'));
+});
+```
+
+The JSON shape (`title`/`message`) matches the `minimal`/`detailed`
+template's existing field names (`render.MinimalTemplate`), so no new
+payload contract is invented — the service worker just needs to
+`JSON.parse` what `dispatchWebPushViaNotify` already renders via the shared
+template engine.
+
+#### 3.6.2 API client — `frontend/src/api/notifications.ts`
+
+- `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` gains `'webpush'`.
+- New typed functions:
+  - `provisionWebPush(data: {name: string; vapid_subject: string}): Promise<NotificationProvider>`
+  - `getWebPushVapidPublicKey(): Promise<{vapid_public_key: string}>`
+  - `subscribeWebPush(subscription: PushSubscriptionJSON & {user_agent?: string}): Promise<{id: string; endpoint: string}>`
+  - `listWebPushSubscriptions(): Promise<WebPushSubscription[]>`
+  - `unsubscribeWebPush(id: string): Promise<void>`
+- New exported type `WebPushSubscription` (id, endpoint, user_agent,
+  created_at, last_seen_at) matching §3.4.4's response shape.
+
+#### 3.6.3 UI — `frontend/src/pages/Notifications.tsx`
+
+Following the existing per-type conditional-field pattern
+(`isGotify`/`isTelegram`/.../`isNtfy` constants, lines 147-152): add
+`isWebPush = type === 'webpush'`. When `isWebPush`:
+- If no `webpush` provider row exists yet: render a "Provision Web Push"
+  button (calls `provisionWebPush`) instead of the generic URL/Token
+  fields, consistent with §3.2's dedicated-provisioning-flow decision.
+- If provisioned: render a browser-side "Enable push notifications on this
+  device" toggle that, on enable, does:
+  1. `Notification.requestPermission()` (browser permission prompt).
+  2. `navigator.serviceWorker.register('/sw.js')`.
+  3. `registration.pushManager.subscribe({userVisibleOnly: true,
+     applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)})` (a
+     small base64url→`Uint8Array` helper is required — the browser
+     `PushManager` API needs the raw bytes, not the string Charon stores;
+     this is standard boilerplate for every Web Push frontend integration,
+     not Charon-specific).
+  4. `subscribeWebPush(subscription.toJSON())`.
+  - On disable: `subscription.unsubscribe()` (browser-side) then
+    `unsubscribeWebPush(id)` (backend-side) — both directions, so a
+    revoked browser permission and a deleted backend row stay consistent.
+- The per-event-type `NotifyXxx` checkboxes already rendered generically
+  for every provider type require no changes — they apply to the
+  `NotificationProvider` row exactly as they do for every other type.
+
+### 3.7 `go.mod` bump
+
+```
+github.com/Wikid82/go_notify_yourself v0.2.2 → v0.3.0
+```
+`go get github.com/Wikid82/go_notify_yourself@v0.3.0 && go mod tidy` in
+`backend/`. No other dependency in the module's own `go.mod` changed
+between v0.2.2 and v0.3.0 in a way that adds a new transitive dependency
+Charon doesn't already have (the module's diff between these tags is the
+webpush package plus its supporting stdlib-only `crypto/ecdsa`,
+`crypto/elliptic` usage — no new third-party import) — **verify this
+holds at implementation time** via `go mod why` / diffing `go.sum` before
+and after the bump, since this spec's research window only inspected the
+webpush package's own imports, not a full `go.sum` diff. Flag any
+unexpected new transitive dependency to the `qa-security` agent's
+Trivy/CodeQL pass rather than assuming it's clean.
+
+### 3.8 Error handling summary
+
+| Failure | Handling |
 |---|---|
-| `POST /api/v1/auth/register {email,password,name}` → `201` (first caller `role=admin`, rest `role=user`) | Route does not exist → **`404`**. |
-| First admin via `POST /api/v1/setup` | **Unchanged.** |
-| Additional users: (undocumented) public register, or admin `POST /users` / `POST /users/invite` → `/accept-invite` | **Only** admin `POST /users` (direct create) or `POST /users/invite` → `GET /invite/validate` → `POST /invite/accept` (`/accept-invite` page). |
+| `webpush.GenerateVAPIDKeyPair()` fails (crypto/rand exhaustion — effectively never) | `500`, logged, provision endpoint returns error, no row created |
+| Second provision attempt while a `webpush` row exists | `409`, no mutation |
+| Two provision requests race concurrently (both pass the `COUNT` fast-path before either's `INSERT` commits) | The `idx_webpush_singleton` partial unique index (§3.3.4) fails the losing `INSERT`; `CreateProvider` catches the constraint-violation error and returns the same `409` as the non-race case (§3.4.1) — never a raw `500` |
+| `PushManager.subscribe` rejected by browser (permission denied) | Frontend-only; no backend call made; UI shows a non-blocking inline message, no `NotificationXxx` internal-notification row created (matches: permission denial isn't a Charon-side error) |
+| `POST .../subscriptions` with malformed `PushSubscription` shape | `400`, validation message, no row created |
+| Send to a subscription returns 404/410 | Row deleted, no admin-facing internal notification generated (silent, expected steady-state cleanup — consistent with no other provider type raising an internal notification on send failure either) |
+| Send to a subscription fails for another reason, `FailureCount < 10` | Logged only, row retained, `FailureCount` incremented |
+| Send to a subscription fails, `FailureCount` reaches 10 | Row deleted, logged at `Warn` (elevated from the default failure `Error` log, to make bulk pruning visible in logs without a dedicated internal-notification row) |
+| VAPID keypair provisioned, but zero subscriptions exist yet | `dispatchWebPushViaNotify` finds zero rows, no-op, no error |
+| `provider.Enabled = false` | Same as every other type: `SendExternal`'s outer `Where("enabled = ?", true)` query already excludes it before `dispatchWebPushViaNotify` is ever called — no separate check needed inside the new function |
 
-No behavior change to `/setup`, `/users*`, `/invite/*`, `/auth/login`,
-`/auth/logout`, `/auth/refresh`, `/auth/me`, `/auth/change-password`.
+---
 
-#### 3.3.2 Backend deletions & edits (exact)
+## 4. Component Design / Data Flow
 
-**Delete:**
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant SW as Service Worker
+    participant API as Charon Backend
+    participant DB as SQLite
+    participant Push as Push Service (FCM/Mozilla/etc.)
 
-- `backend/internal/api/routes/routes.go:295` — the line
-  `api.POST("/auth/register", authHandler.Register)`.
-- `backend/internal/api/handlers/auth_handler.go` — `func (h *AuthHandler) Register`
-  (`:244-256`) and `type RegisterRequest struct` (`:238-242`). Remove any imports
-  that become unused as a result (compiler / `staticcheck` will flag).
+    Note over Browser,API: Provisioning (once, by an admin)
+    Browser->>API: POST /notifications/providers/webpush/provision
+    API->>API: webpush.GenerateVAPIDKeyPair()
+    API->>DB: INSERT NotificationProvider(type=webpush)
+    API-->>Browser: 201 provider row
 
-**Keep (do NOT delete — still referenced):**
+    Note over Browser,API: Subscribing (per device)
+    Browser->>API: GET .../vapid-public-key
+    API-->>Browser: {vapid_public_key}
+    Browser->>SW: navigator.serviceWorker.register('/sw.js')
+    Browser->>Browser: pushManager.subscribe({applicationServerKey})
+    Browser->>API: POST .../subscriptions {endpoint, keys}
+    API->>DB: INSERT WebPushSubscription
 
-- `backend/internal/services/auth_service.go` — `func (s *AuthService) Register`
-  and its `count == 0 ⇒ RoleAdmin` logic. Referenced by ~28 test call sites
-  (`auth_service_test.go`, `middleware/auth_test.go`,
-  `handlers/user_integration_test.go`) as a user-creation helper. Add a doc
-  comment noting it is now an internal/test helper with no HTTP surface.
-
-**Edit (test references to the removed route):**
-
-- `backend/internal/api/routes/routes_test.go:162` — remove
-  `"/api/v1/auth/register"` from the `expectedRoutes` slice in
-  `TestRegister_RoutesRegistration`.
-- `backend/internal/api/routes/routes_test.go:215` — remove the
-  `http.MethodPost + " /api/v1/auth/register": true` entry from
-  `publicMutationAllowlist`.
-- `backend/internal/api/routes/routes_test.go:335` — change
-  `assert.Contains(t, routeMap, "/api/v1/auth/register")` to
-  `assert.NotContains(t, routeMap, "/api/v1/auth/register")` (or move the
-  assertion into the new Part C test, §3.3.4).
-- `backend/internal/api/handlers/additional_coverage_test.go` —
-  `TestAuthHandler_Register_InvalidJSON` (`:717-732`, calls `h.Register(c)`):
-  delete this test (the handler it covers is gone). Adjust the file's imports if
-  needed.
-- `backend/integration/crowdsec_lapi_integration_test.go:52-59` — the
-  `authenticate()` helper's "Register (may fail if user exists - that's OK)"
-  block: replace the `POST /api/v1/auth/register` call with
-  `POST /api/v1/setup` (same `{name,email,password}` shape; also tolerates a
-  "already completed" 403). Build-tagged integration test, not in default CI,
-  but must stay compilable/correct.
-
-#### 3.3.3 `util.GenerateSecureToken` promotion — **DROPPED**
-
-The earlier draft promoted `user_handler.go`'s `generateSecureToken()` to
-`backend/internal/util` for the now-cancelled invite pool. Nothing else needs
-it. **No refactor** — `generateSecureToken()` stays unexported in
-`user_handler.go` exactly as-is.
-
-#### 3.3.4 Tests — new `backend/internal/api/routes/routes_test.go`
-
-`TestRegister_PublicRegistrationEndpointRemoved`:
-
-| Case | Request | Expected |
-|---|---|---|
-| Route gone | `POST /api/v1/auth/register {…}` (no auth) | `404` |
-| Route gone (any method) | `GET /api/v1/auth/register` | `404` |
-| Bootstrap intact | `GET /api/v1/setup` on empty DB | `200 {"setupRequired":true}` |
-| Bootstrap intact | `POST /api/v1/setup {name,email,password}` on empty DB | `201`; a `role=admin` user exists; `caddy.acme_email` setting written |
-| Bootstrap closed after first | `POST /api/v1/setup` again | `403 {"error":"Setup already completed"}` |
-| Email-invite intact | admin `POST /api/v1/users/invite {email}` → `GET /api/v1/invite/validate?token=…` → `POST /api/v1/invite/accept {token,name,password}` | invite validates; acceptance `200`; the invited user is `enabled` and can `POST /api/v1/auth/login` |
-
-`AuthService.Register` unit tests in `auth_service_test.go` are unchanged
-(the method is unchanged).
-
-#### 3.3.5 Frontend
-
-- **No new pages, routes, api modules, or hooks.**
-- `frontend/src/api/*` — confirm no `auth/register` caller exists (grep already
-  shows none). No edit.
-- `frontend/src/pages/AcceptInvite.tsx`, `frontend/src/api/users.ts`,
-  `frontend/src/pages/UsersPage.tsx` — unchanged by Part C. `UsersPage` remains
-  the admin surface for creating/inviting users.
-- Optional 1-line doc/help-text touch if any onboarding copy mentions
-  self-signup (grep `i18n` for "register" / "sign up" in
-  `frontend/src/locales` — likely none; skip if absent).
-
-### 3.4 Data flow (after this feature)
-
-```
-First run (no users)
-  │  POST /api/v1/setup {name,email,password}
-  ▼
-api (public) → UserHandler.Setup → tx{ INSERT users(role=admin, enabled=true) ; upsert Setting caddy.acme_email }
-  ▼  201
-
-Add a user (admin only)
-  │  admin → POST /api/v1/users {email,name,password,role?}         (direct)
-  │      or → POST /api/v1/users/invite {email,role?}  → email/link → /accept-invite?token=… → POST /api/v1/invite/accept
-  ▼  UserHandler.CreateUser / InviteUser / AcceptInvite   (all existing, unchanged)
-
-Removed
-  │  POST /api/v1/auth/register …
-  ▼  404  (route deleted)
-
-Attacker with a role=user token (however obtained)
-  │  POST /api/v1/admin/crowdsec/stop     → management → managementAdmin → RequireRole(admin) → 403   (Part A)
-  │  POST /api/v1/admin/plugins/x/enable  → RequireRole(admin) arg → 403                              (Part B #3)
-  │  POST /api/v1/certificates/x/export   → RequireRole(admin) arg → 403                              (Part B #19)
-  │  GET  /api/v1/certificates            → management → 200   (READ stays — non-admin page needs it) (Part B #18)
+    Note over API,Push: Dispatch (on any notifiable event)
+    API->>DB: SendExternal loads enabled providers
+    API->>DB: dispatchWebPushViaNotify loads subscriptions for provider
+    loop each subscription
+        API->>Push: webpush.Client.Send (VAPID JWT + RFC8291 ciphertext)
+        alt 404/410
+            API->>DB: DELETE subscription
+        else success
+            API->>DB: UPDATE last_seen_at
+        else other failure
+            API->>DB: UPDATE failure_count
+        end
+    end
+    Push->>SW: push event
+    SW->>Browser: showNotification()
 ```
 
-### 3.5 Error handling & edge cases
+---
 
-| Case | Handling |
-|---|---|
-| `POST /auth/register` after deploy | `404` (Gin default no-route). Covered by test. |
-| Client / script still POSTing `/auth/register` | Gets `404`; must switch to `/setup` (bootstrap) or admin invite. Called out in `ARCHITECTURE.md` + release notes. |
-| `/setup` on an already-bootstrapped instance | `403 {"error":"Setup already completed"}` (existing logic, unchanged). |
-| Concurrent `/setup` calls on empty DB | Existing `isSetupConflictError` / post-tx count re-check handles it (unchanged). |
-| Removing `RegisterRequest` leaves an unused import in `auth_handler.go` | `goimports` / `staticcheck` catches; remove in the same commit. |
-| `additional_coverage_test.go` import set after deleting the test | Adjust; `go build ./...` + `go vet` verify. |
-| A moved route (Part B) that a `role=user` UI screen actually needs | Prevented by the mutation-vs-read classification (Q7) + frontend E2E asserting `role=user` still `200`s on the READ endpoints + still loads the non-gated pages. |
-| `role=user` opens a page whose *mutations* now 403 (Access Lists, Security Headers, DNS Providers, Certificates, Domains, Remote Servers, Hecate tunnels) | Page loads (reads succeed — verified consumed by `role=user` screens); create/edit/delete return 403 `{"error":"Forbidden"}`. Acceptable; optional follow-up to hide the buttons ([§7](#7-remaining-open-questions)). |
-| `role=user` opens an admin-only page (CrowdSec, Audit Logs, Orthrus agent-management, Encryption) | Companion `RequireRole` guard redirects them away; nav entry hidden where one exists — same UX as "Users" today. No dead page. |
-| `ConnectionTypeSelector` / Dashboard hecate widget for `role=user` after Part B | Their reads (`GET /orthrus/agents`, `GET /hecate/status`, `GET /hecate/tunnels`) stay on `management` — verified they still return `200`. E2E asserts this. |
-| GORM security scan | No model / query changes in this feature → `scripts/scan-gorm-security.sh` is N/A, but run it anyway if any handler file under `backend/internal/models/**` is touched (none expected). |
-| Migration impact | None — no schema change. |
+## 5. Implementation Plan
+
+### Phase 1: Playwright Tests (spec behavior, `test.fixme`)
+New spec `tests/e2e/notifications-webpush.spec.ts`:
+- Provision Web Push provider from the Notifications page.
+- Subscribe this device (mocking `PushManager`/`Notification.requestPermission`
+  via Playwright's browser context, since real push delivery cannot be
+  exercised in CI).
+- Unsubscribe removes the device from the subscriptions list.
+- Per-event-type toggles persist for a `webpush` provider row identically
+  to an existing type (regression coverage that the generic preference UI
+  still works for the new type).
+All `test.fixme` until Phase 4.
+
+### Phase 2: Backend Implementation
+- `go.mod` bump (§3.7).
+- `models.WebPushSubscription` + migration registration (§3.3).
+- `notify_providers_import.go` blank import.
+- Allowlist wiring: `isSupportedNotificationProviderType`,
+  `isDispatchEnabled` + `FlagWebPushServiceEnabled`,
+  `supportsJSONTemplates` (§2.2).
+- `notify_webpush_adapter.go`: `dispatchWebPushViaNotify`,
+  `extractHTTPStatusFromNotifyError` (§3.5).
+- `WebPushHandler` (new, `internal/api/handlers/webpush_handler.go`):
+  `Provision`, `VAPIDPublicKey`, `Subscribe`, `ListSubscriptions`,
+  `Unsubscribe` (§3.4).
+- `NotificationService` additions: `ProvisionWebPush`,
+  `GetWebPushVAPIDPublicKey`, `RegisterWebPushSubscription`,
+  `ListWebPushSubscriptionsForUser`, `DeleteWebPushSubscription`
+  (singleton-check, validation per §3.2/3.4).
+- Routes wired in `routes.go` under `management` group.
+- Unit tests for every new function; `notification_service_registry_consistency_test.go`
+  gains `"webpush"`.
+
+### Phase 3: Frontend Implementation
+- `frontend/public/sw.js` (§3.6.1).
+- `notifications.ts` additions (§3.6.2).
+- `Notifications.tsx` UI additions (§3.6.3), including the
+  `urlBase64ToUint8Array` helper (new, colocated or in a small
+  `src/utils/webpush.ts`).
+- Vitest unit tests: API client functions, `urlBase64ToUint8Array`,
+  and component tests for the provision/subscribe/unsubscribe UI states
+  (mocking `navigator.serviceWorker`/`PushManager`/`Notification`, none of
+  which exist in jsdom by default — test setup must stub them).
+
+### Phase 4: Integration and Testing
+- Un-`fixme` the Phase 1 E2E spec; run `npx playwright test
+  tests/e2e/notifications-webpush.spec.ts --project=firefox`.
+- `./scripts/scan-gorm-security.sh --check` (new model/migration — mandatory
+  per CLAUDE.md §1.5).
+- `scripts/go-test-coverage.sh` / `scripts/frontend-test-coverage.sh` ≥ 85%.
+- `lefthook run pre-commit`, `make lint-fast`.
+- CodeQL Go/JS locally (new feature surface, per CLAUDE.md §3 "run locally
+  when the change adds a new feature").
+
+### Phase 5: Documentation and Deployment
+- `docs/features.md`: add Web Push to the notification-provider list.
+- New `docs/features/notifications-webpush.md` (or a section in the
+  existing notifications doc, whichever `docs-writer` finds already
+  structured): user-facing walkthrough — enabling, per-device subscribe,
+  troubleshooting ("no prompt appeared" → browser permission blocked at
+  the OS/browser level, outside Charon's control).
+- `ARCHITECTURE.md`: update the `go_notify_yourself` technology-stack row
+  to mention Web Push alongside the existing provider list; note the new
+  `WebPushSubscription` table under whatever section lists persistent
+  models, if one exists.
 
 ---
 
-## 4. Implementation Plan
+## 6. Acceptance Criteria
 
-### Phase 1 — E2E specs (behavior, as `test.fixme`)
-
-- `tests/security-enforcement/crowdsec-admin-authz.spec.ts` (new) — `role=user`
-  → `403` on `/admin/crowdsec/stop`, `/bouncer/key`, `/ban`, `/file`;
-  unauthenticated → `401`; `role=admin` → not `403`.
-- Extend `tests/security-enforcement/authorization-rbac.spec.ts` —
-  `role=user` → `403` on: `POST /admin/plugins/:id/enable`,
-  `POST/DELETE /remote-servers*` (+ `POST /remote-servers/test`),
-  Hecate mutations (`POST /hecate/tunnels`, `POST /hecate/tunnels/:uuid/start`,
-  `POST /hecate/tailscale/sync`), Orthrus mutations (`POST /orthrus/agents`,
-  `DELETE /orthrus/agents/:uuid`, `GET /orthrus/agents/:uuid/snippets`),
-  `POST/PUT/DELETE /dns-providers*`, `POST /dns-providers/test`,
-  `POST /notifications/providers/test`, `POST /notifications/providers/preview`,
-  `POST /certificates/:uuid/export`, `POST/PUT/DELETE /access-lists*`,
-  `POST/DELETE /domains*`, `POST/PATCH /settings`, `GET /audit-logs`,
-  `GET /dns-providers/:id/audit-logs`;
-  `role=user` still `200` on `GET /proxy-hosts`, `GET /settings`,
-  `GET /themes`, `GET /certificates`, `GET /access-lists`, `GET /dns-providers`,
-  `GET /hecate/status`, `GET /hecate/tunnels`, `GET /orthrus/agents`,
-  `GET /remote-servers`.
-- `role=user` navigating directly to `/security/crowdsec`,
-  `/security/audit-logs`, `/hecate/agent`, `/security/encryption` is redirected
-  (companion `RequireRole` guards); those nav entries are absent for `role=user`
-  where a nav entry exists.
-- `tests/security-enforcement/public-registration-removed.spec.ts` (new) —
-  `POST /api/v1/auth/register` → `404`; `/setup` bootstrap still works on a
-  fresh instance; existing email-invite acceptance flow
-  (`/users/invite` → `/invite/validate` → `/invite/accept` → login) still works.
-- All `test.fixme` until Phase 2/3 land; un-fixme in Phase 4.
-- **Dropped from the earlier plan:** `invite-registration.spec.ts`.
-
-### Phase 2 — Backend
-
-- **Commit 2 (Part A):** `managementAdmin` subgroup decl;
-  `crowdsecHandler.RegisterRoutes(managementAdmin)`; companion frontend guard
-  (`/security/crowdsec` route + nav); `routes_test.go` regression (§3.1.4).
-  `fix(security):`.
-- **Commit 3 (Part B):** re-run audit; apply the §3.2.2 table:
-  - Wholesale: CrowdSec (done in Commit 2).
-  - `RegisterRoutes(read, admin)` split: `HecateHandler`, `OrthrusHandler`,
-    `RemoteServerHandler` (reads listed in rows 11/14a/15a stay on `management`;
-    all other routes → `managementAdmin`).
-  - `SecurityHeadersHandler`: **delete** its `RegisterRoutes` method; register
-    its ~11 routes inline in `routes.go` (reads + 3 calculators on `management`,
-    profile mutations + `presets/apply` on `managementAdmin`).
-  - Per-route `RequireRole(admin)` args: plugin enable/disable/reload;
-    dns-provider mutations + `POST /dns-providers/test` + `POST /dns-providers/:id/test`
-    + credentials + `POST /dns-providers/detect`; `ManualChallengeHandler.RegisterRoutes(managementAdmin)`;
-    certificate mutations incl. `/export`; access-list mutations; domain
-    mutations; settings mutations (+ keep existing `GET /settings/smtp` arg);
-    `PUT /feature-flags`; `POST /system/permissions/repair`;
-    `POST /notifications/providers/test` + `/preview` + `/external-templates/preview`.
-  - `MOVE → managementAdmin`: `GET /audit-logs`, `GET /audit-logs/:uuid`,
-    `GET /dns-providers/:id/audit-logs`; `adminEncryption` group decl →
-    `managementAdmin.Group("/admin/encryption")` (defense-in-depth).
-  - Companion frontend guards: `<RequireRole allowed={['admin']}>` on
-    `/security/audit-logs`, `/hecate/agent` (+ nav child),
-    `/security/encryption` (+ nav child); `/security/crowdsec` already done.
-  - `TestManagementGroup_MutationsAreAdminGuarded` + `USER_OK_MUTATION_ALLOWLIST`
-    + `PUBLIC_MUTATION_ALLOWLIST` (reviewed constants); update
-    `TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist`.
-  `fix(security):`.
-- **Commit 4 (Part C):** delete `/auth/register` route + `AuthHandler.Register`
-  + `RegisterRequest`; keep `AuthService.Register`; update the 4 backend test
-  references + the integration-test helper; new
-  `TestRegister_PublicRegistrationEndpointRemoved`. `fix(security):`.
-
-### Phase 3 — Frontend
-
-Rolled into Commits 2 & 3 (the companion `RequireRole` guards + nav filters are
-small and belong with the backend change that necessitates them). No standalone
-frontend commit — there is no new UI in this feature.
-
-### Phase 4 — Integration, hardening, docs
-
-- **Commit 5:** un-`fixme` the Phase 1 specs; run targeted specs (firefox).
-  File a follow-up issue for a general per-IP auth throttle middleware (out of
-  scope — noted, not built). Update `ARCHITECTURE.md`, `SECURITY.md`,
-  `docs/security.md`, `docs/features/access-control.md`, `docs/features.md`,
-  `docs/features/crowdsec.md`, `docs/features/custom-plugins.md` /
-  `plugin-security.md`. `docs:`.
+1. `go.mod` pins `go_notify_yourself v0.3.0`; `go build ./...` succeeds.
+2. Admin can provision a Web Push provider with zero manual key entry;
+   a second provision attempt — sequential **or concurrent** (racing the
+   `idx_webpush_singleton` partial unique index, §3.3.4) — is rejected with
+   `409`, never `500`, and never results in two `webpush` provider rows.
+3. An authenticated browser can subscribe and receive a real push
+   notification end-to-end in manual testing (documented in the PR
+   description as a manual verification step, since CI cannot receive a
+   real browser push).
+4. Unsubscribing removes the row and stops further delivery to that
+   device.
+5. A subscription that a push service reports as 404/410 is
+   auto-pruned on next dispatch; a subscription failing for other reasons
+   survives up to 9 consecutive failures before being pruned as presumed-dead.
+6. Every other provider type's tests still pass unmodified (no regression).
+7. `notification_service_registry_consistency_test.go` passes with
+   `"webpush"` included.
+8. Targeted Playwright spec passes on `--project=firefox`.
+9. `./scripts/scan-gorm-security.sh --check` reports zero CRITICAL/HIGH.
+10. Backend and frontend coverage both ≥ 85%.
+11. `make lint-fast` / staticcheck clean; `npm run type-check` clean.
+12. `docs/features.md` and `ARCHITECTURE.md` updated.
 
 ---
 
-## 5. Acceptance Criteria (Definition of Done)
+## 7. Risks and Open Questions
 
-1. **Advisory closed:** unauthenticated → `401`, `role=user` → `403`,
-   `role=admin` → handler executes, on `/admin/crowdsec/stop`,
-   `/admin/crowdsec/bouncer/key`, `/admin/crowdsec/ban`,
-   `/admin/crowdsec/file`. Proven by `routes_test.go` + E2E.
-2. **Plugins mutations closed:** `role=user` → `403` on
-   `POST /admin/plugins/:id/enable|disable`, `POST /admin/plugins/reload`;
-   `GET /admin/plugins*` still `200` for `role=user`.
-3. **Deny-by-default:** `TestManagementGroup_MutationsAreAdminGuarded` passes;
-   every mutating `/api/v1/*` route is admin-guarded or on a reviewed allowlist
-   with a per-entry comment.
-4. **Public registration gone:** `POST /api/v1/auth/register` → `404` (route
-   absent from `router.Routes()`).
-5. **Bootstrap + invites intact:** `/setup` first-admin flow succeeds on a
-   fresh instance and 403s afterward; email-invite
-   (`/users/invite` → `/invite/validate` → `/invite/accept` → login) succeeds.
-   Regression tests prove both.
-6. **`AuthService.Register` retained** and all its existing unit tests pass
-   unchanged; `AuthHandler.Register` / `RegisterRequest` / the register route
-   are removed with no dangling references (`go build ./...`, `staticcheck`,
-   `go vet` clean).
-7. **No `role=user` dead pages:** admin-only pages (CrowdSec, **Audit Logs**,
-   the Orthrus agent-management page `/hecate/agent`, Encryption) are hidden
-   from `role=user` in nav and redirect on direct navigation. READ-classified
-   pages (Access Lists, Certificates, DNS Providers, Security Headers, Domains,
-   Remote Servers, Hecate tunnels) still load for `role=user`, and their reads
-   (`GET /orthrus/agents`, `GET /hecate/status`, `GET /hecate/tunnels`,
-   `GET /remote-servers`, …) still return `200`. Frontend E2E covers both.
-8. **Coverage:** backend ≥ 85 % (`scripts/go-test-coverage.sh`), frontend
-   ≥ 85 % (`scripts/frontend-test-coverage.sh`); patch coverage green
-   (`bash scripts/local-patch-report.sh` → `test-results/local-patch-report.{md,json}`).
-9. **Security gates:** `lefthook run pre-commit` (CodeQL Go + JS) 0
-   high/critical; `make trivy` clean; `make lint-fast` / staticcheck clean.
-   (`scripts/scan-gorm-security.sh --check` if any `models/**` file is touched —
-   none expected.)
-10. **Targeted E2E green (firefox only):** `crowdsec-admin-authz.spec.ts`,
-    `authorization-rbac.spec.ts`, `public-registration-removed.spec.ts`,
-    `auth-api-enforcement.spec.ts`. Full-suite / cross-browser deferred to CI.
-11. **Type safety / build:** `cd frontend && npm run type-check` clean;
-    `cd backend && go build ./...`; `cd frontend && npm run build`.
-12. **Docs:** `ARCHITECTURE.md` + `SECURITY.md` reflect the new authorization
-    boundary and the removal of public self-registration.
-
----
-
-## 6. Complexity Estimates
-
-| Component | Complexity | Notes |
+| # | Risk | Mitigation / Note |
 |---|---|---|
-| Part A route move + frontend guard + tests | **Low** | 2-line routing change, 1 route wrap + 1 nav filter, 1 test file. |
-| Part B audit + moves + splits + enforcement test | **Medium-High** | ~35 registration sites reviewed; ~16 per-route `RequireRole` args; 3 handlers gain a `RegisterRoutes(read, admin)` split (`Hecate`, `Orthrus`, `RemoteServer`); `SecurityHeadersHandler.RegisterRoutes` deleted + inlined; `GET /audit-logs*` + 1 per-provider audit read moved; 4 companion frontend `RequireRole` guards; new enforcement test + 2 reviewed allowlists; risk of a mis-classified `role=user` read (mitigated by `frontend/src` verification + E2E). |
-| Part C deletions | **Low** | Delete 1 route + 1 handler + 1 struct; keep the service; fix 4 test refs + 1 integration helper; 1 new test. |
-| Docs | **Low** | |
+| 1 | **No typed status error from `transport.Wrapper.Send`** — 404/410 detection relies on regex-parsing a formatted error string (`"provider returned status %d..."`) that upstream could reword without a major version bump (it's not part of any documented stable contract). | `extractHTTPStatusFromNotifyError` is isolated to one function with its own unit tests asserting the exact current string shape; if it ever stops matching, the failure mode is "subscriptions never auto-prune, `FailureCount` accumulates and prunes at 10" (safe-ish degradation, not silent data loss) rather than a crash. **Suggest filing an upstream issue against `go_notify_yourself` requesting a typed `transport.StatusError` with a `StatusCode` field** — out of scope for this PR but worth raising given Web Push is the first provider where distinguishing status codes actually matters to the caller. |
+| 2 | **VAPID key rotation is unsupported in this PR.** If an admin wants to rotate/regenerate the keypair (e.g. suspected key compromise), there is no endpoint for it — only initial provisioning. Re-running provision is blocked by the 409 singleton check. | Documented non-goal (§1.3). A rotation endpoint would need to also cascade-delete every existing `WebPushSubscription` (per §2.1's confirmed invariant: rotating invalidates every subscriber) and prompt every device to re-subscribe — enough additional surface (confirmation UX, cascade semantics) to warrant its own follow-up spec rather than folding it into this PR. |
+| 3 | **Sequential-per-subscription dispatch (§3.5) has no concurrency cap tuning.** A provider with a very large number of subscriptions serializes all sends behind one goroutine, so total dispatch latency for that event scales linearly with subscription count. | Acceptable for Charon's expected scale (a handful of admin browsers per self-hosted instance, not a multi-tenant SaaS fan-out) — explicitly a self-hosted, novice-admin-focused tool per `ARCHITECTURE.md`'s stated audience. Flagged, not silently assumed away. |
+| 4 | **No admin-wide view of all users' subscriptions** — `GET .../subscriptions` is scoped to the caller only (§3.4.4). An admin cannot see "3 other users have devices subscribed" from the UI. | Deliberate scope cut for this PR (§1.3); a follow-up could add an admin-only `GET .../subscriptions/all` if that visibility is requested. |
+| 5 | **RESOLVED by user decision (no longer open)**: non-admin authenticated users with management access (`RoleUser`, not `RolePassthrough`) may self-service subscribe/list/unsubscribe their own Web Push destination and read the VAPID public key — no admin gate on those four routes. Provisioning stays admin-only. See §3.4.0 for the full decision writeup and how it interacts with the four security-event `NotifyXxx` toggles (closed via existing `Update`-endpoint admin gate, confirmed by reading the handler — no new code required). | Decision made; §3.4/§3.4.0 updated to match. No further action beyond the regression test called out in §3.4.0 (commit 6, §9). |
+| 6 | **`go.sum` transitive-dependency diff unverified** (§3.7) — spec inspected only the webpush package's own imports, not a full `go mod tidy` diff. | Explicit implementation-time verification step called out in §3.7 and Phase 2; not assumed clean. |
+| 7 | **VAPID private key is stored in plaintext at rest** — `NotificationProvider.Token` (§3.2) holds `VAPIDPrivateKey` unencrypted in SQLite, same as all 8 other provider types' bearer tokens/webhook URLs (`grep` across `internal/models` confirms **no** `Token`-shaped field in this codebase is currently encrypted at rest — this is existing practice, not a regression introduced by this PR, so it is **not a blocker** here). It is, however, a materially different class of secret than a bearer token or webhook URL: compromise of the VAPID private key lets an attacker forge and send arbitrary push messages, indefinitely, to every subscriber of that key (every browser that ever ran `PushManager.subscribe` against this instance's public key) — not just abuse one destination the way a leaked Gotify/ntfy token would. Charon already has a stronger pattern available and in production use for exactly this class of problem: `internal/crypto.EncryptionService` (AES-256-GCM), currently used for `DNSProviderCredential.CredentialsEncrypted` (`backend/internal/models/dns_provider_credential.go:22`, `backend/internal/models/dns_provider.go:26`) — this feature does not use it, consistent with (not worse than) every other provider token today. | **Documented, non-blocking for this PR.** Flagging a **future hardening pass across all `NotificationProvider.Token` values** (not scoped to webpush specifically — encrypting only the VAPID key while leaving Gotify/Telegram/Slack/Pushover/ntfy tokens in plaintext would be an inconsistent half-measure and would need its own migration/key-management design either way) as a follow-up, out of scope for this PR. Not scoping encryption into this PR's Commit Slicing Strategy (§9). |
 
 ---
 
-## 7. Remaining open questions
+## 8. Definition of Done Checklist (repeated from CLAUDE.md, for the implementation phase)
 
-All earlier open questions and all supervisor blocking/should-fix items are
-resolved and baked into the spec:
-
-- Invite pool dropped → Q1/Q2/Q5 moot.
-- Q6 — subgroup-only, no belt-and-braces in-handler `requireAdmin`.
-- Q7 / C1 / C2 — mutation-vs-read classification; Hecate / Orthrus /
-  RemoteServer use a `RegisterRoutes(read, admin)` split (NOT wholesale move),
-  reads verified against `frontend/src`.
-- C3 — `POST /notifications/{providers/test,providers/preview,external-templates/preview}`
-  added to the table as ADMIN-ARG; §2.1 in-handler audit row corrected.
-- C4 / §7.1 — **resolved in this PR**: `GET /audit-logs*` → `managementAdmin` +
-  `<RequireRole allowed={['admin']}>` on `/security/audit-logs`.
-- C5 — `GET /dns-providers/:id/audit-logs` → `managementAdmin`.
-- C6 / §7.3 — **resolved**: `SecurityHeadersHandler.RegisterRoutes` deleted, its
-  routes inlined in `routes.go` with per-route args (matches its siblings).
-- C7 — `POST /dns-providers/test` (id-less `TestCredentials`) named explicitly,
-  separate from `POST /dns-providers/:id/test`.
-- Q4 — per-IP auth throttle: deferred, tracking issue filed in Commit 5.
-
-**Only remaining item — deferred UX polish (not a blocker, tracked in Commit 5):**
-
-1. Hide the disabled create/edit/delete controls for `role=user` on the
-   READ-classified pages (Access Lists, Certificates, DNS Providers, Security
-   Headers, Domains, Remote Servers, Hecate tunnels). The API already enforces
-   `403`; this is cosmetic. Out of scope for this PR; tracking issue filed
-   alongside the auth-throttle issue in Commit 5.
-
----
-
-## 8. Risks & Mitigations
-
-| Risk | Impact | Mitigation |
-|---|---|---|
-| A READ endpoint mis-classified as ADMIN regresses a `role=user` page | `role=user` UI breaks | Q7 mutation-vs-read rule; frontend E2E asserts `role=user` keeps `GET` access + page loads for every READ-classified area; classification table in PR description; each commit individually revertable. |
-| An admin-gated capability was actually needed by `role=user` | Lost functionality for `role=user` | Only CrowdSec moves wholesale (no `role=user` read). Hecate / Orthrus / RemoteServer keep their `role=user`-consumed `GET` reads on `management` (verified: `ConnectionTypeSelector` → `GET /orthrus/agents`, `Dashboard` → `GET /hecate/status`); only mutations move. Audit Logs / Orthrus agent page / Encryption become admin-only with a companion `RequireRole` guard (explicit redirect, not a silent 403). If a real `role=user` need surfaces, revert Commit 3 alone — Commit 2 (advisory fix) still stands. |
-| Removing `RegisterRequest`/`Register` leaves dangling refs | Build break | grep evidence in §2.1 enumerates every reference; `go build ./...` + `staticcheck` + `go vet` in the commit gate; integration-test helper explicitly updated. |
-| `AuthService.Register` mistakenly deleted | ~28 test call sites fail to compile | Spec is explicit: **keep** it; it is not dead. |
-| Advisory still private / embargoed | Disclosure via commit message / changelog | `fix(security):` subjects deliberately vague — category + mitigation only, never "CrowdSec", "authorization bypass", "public registration", or route paths (§10). No GHSA id in subjects or changelog-visible lines. |
-| `publicMutationAllowlist` still lists `auth/register` after route removal | Enforcement test references a non-existent route | Commit 4 removes that entry (§3.3.2). |
-| Coverage dip from the large Part B routing diff | PR fails 85 % gate | New tests target new/moved code paths; `local-patch-report.sh` preflight before pushing. |
-| Companion frontend guards missed for an admin-only page | `role=user` hits a 403-ing page | E2E: for `/security/crowdsec`, `/security/audit-logs`, `/hecate/agent`, `/security/encryption`, assert a `role=user` session is redirected and (where a nav entry exists) it is absent. |
-| A non-mutating `POST` (`/access-lists/:id/test`, `/security/headers/score` etc.) breaks for `role=user` because it's a POST | `role=user` diagnostic feature 403s | These are explicitly in `USER_OK_MUTATION_ALLOWLIST` (§3.2.4) and stay on `management`; the enforcement test asserts `role=user` is NOT 403 for them. |
+- [ ] Targeted Playwright spec, `--project=firefox`, passes.
+- [ ] `./scripts/scan-gorm-security.sh --check` — zero CRITICAL/HIGH.
+- [ ] `bash scripts/local-patch-report.sh` artifacts produced.
+- [ ] CodeQL Go/JS + Trivy run locally (new feature surface).
+- [ ] `lefthook run pre-commit` clean.
+- [ ] `make lint-fast` / staticcheck clean.
+- [ ] Backend + frontend coverage ≥ 85%.
+- [ ] `npm run type-check` clean.
+- [ ] `go build ./...` and `npm run build` succeed.
+- [ ] All existing + new unit tests pass.
+- [ ] No debug prints/dead code left behind.
 
 ---
 
 ## 9. Commit Slicing Strategy
 
-**Decision:** ONE PR, merged only when the whole feature is complete and the
-full Definition of Done passes. Reviewability comes from the ordered commit
-sequence below — **not** from splitting into backend/frontend/security PRs.
-Each commit builds and passes its own validation gate. Order follows
-`CLAUDE.md` "Suggested Commit Sequence" (E2E fixme → backend → frontend →
-hardening+docs); the advisory fix (Part A) is placed first after the specs so it
-is independently revertable. Part C collapsed to a single deletion commit — the
-5-commit plan replaces the earlier 7.
+**Decision: single PR, one feature ("Web Push notification provider"),
+delivered as the ordered sequence of logical commits below. No PR
+splitting** (per CLAUDE.md "Commit Slicing & PR Strategy" — backend,
+frontend, and hardening all land in one PR, reviewed together).
 
-Base branch: `development`.
+| # | Commit | Scope / Files | Depends on | Validation gate |
+|---|---|---|---|---|
+| 1 | `test: add e2e specs for web push subscribe/unsubscribe flow (fixme)` | `tests/e2e/notifications-webpush.spec.ts` (all `test.fixme`) | — | Spec file parses/lints; no assertions run yet |
+| 2 | `chore: bump go_notify_yourself to v0.3.0` | `backend/go.mod`, `backend/go.sum` | — | `go build ./...`, `go mod verify`, `go.sum` diff reviewed for unexpected transitive deps (§7 risk 6) |
+| 3 | `feat: add WebPushSubscription model, migration, and singleton index` | `backend/internal/models/webpush_subscription.go` (+ test), `backend/internal/api/routes/routes.go` (AutoMigrate line **and** the new `idx_webpush_singleton` partial-unique-index `db.Exec`, §3.3.4) | 2 | `go build ./...`; `go test ./internal/models/...`; `./scripts/scan-gorm-security.sh --check`; **new**: concurrency test asserting two simultaneous `INSERT`s racing the index produce exactly one success and one unique-constraint-violation error (§3.3.4) |
+| 4 | `feat: wire webpush into notify provider allowlist` | `notify_providers_import.go`, `notification_service.go` (`isSupportedNotificationProviderType`, `isDispatchEnabled`, `supportsJSONTemplates`), `notification_feature_flags.go` (`FlagWebPushServiceEnabled`), `notification_service_registry_consistency_test.go` | 2 | `go test ./internal/services/... -run Registry` |
+| 5 | `feat: add web push dispatch fan-out and subscription pruning` | `internal/services/notify_webpush_adapter.go` (+ test: fan-out, 404/410 pruning, failure-count threshold, `extractHTTPStatusFromNotifyError`) | 3, 4 | `go test ./internal/services/...`; coverage on new file ≥ 85% |
+| 6 | `feat: add web push provisioning and subscription API endpoints` | `internal/api/handlers/webpush_handler.go` (+ test), `NotificationService` additions (`ProvisionWebPush` — including the constraint-violation → `409` mapping on `CreateProvider`, §3.1/§3.4.1 — plus `GetWebPushVAPIDPublicKey`, `RegisterWebPushSubscription`, `ListWebPushSubscriptionsForUser`, `DeleteWebPushSubscription`), `routes.go` route registration | 3, 4, 5 | `go test ./internal/api/handlers/...`; `go build ./...`; **new**: test asserting a `409` (not `500`) response when `CreateProvider`'s `INSERT` fails on `idx_webpush_singleton`; **new**: regression test asserting `RoleUser` gets `403` from `PUT /notifications/providers/:id` when setting a `NotifySecurityXxx` field on a `Type: "webpush"` row (§3.4.0) |
+| 7 | `feat: add web push service worker and subscribe/unsubscribe UI` | `frontend/public/sw.js`, `frontend/src/api/notifications.ts`, `frontend/src/utils/webpush.ts` (new helper), `frontend/src/pages/Notifications.tsx` (+ Vitest tests) | 6 | `npm run type-check`; `npm test` (Vitest); coverage ≥ 85% |
+| 8 | `test: enable web push e2e specs` | Un-`fixme` `tests/e2e/notifications-webpush.spec.ts` | 6, 7 | `npx playwright test tests/e2e/notifications-webpush.spec.ts --project=firefox` passes |
+| 9 | `docs: document web push notification provider` | `docs/features.md`, `docs/features/notifications-webpush.md` (or existing notifications doc section), `ARCHITECTURE.md` | 8 | Docs review only; no code gate |
 
----
+Each commit builds and passes its own gate before the next starts, per
+CLAUDE.md's "Per-Commit Requirement." The PR as a whole must pass the full
+Definition of Done (§8) before merge.
 
-### Commit 1 — E2E specs for new behavior (`test.fixme`)
+### Rollback / contingency (PR-wide)
 
-- **Type:** `test: add fixme e2e specs for privileged-route authz and removal of public registration`
-- **Scope:** Author (as `test.fixme`) the Playwright specs for Parts A/B/C. No
-  product code.
-- **Files:**
-  - `tests/security-enforcement/crowdsec-admin-authz.spec.ts` (new)
-  - `tests/security-enforcement/public-registration-removed.spec.ts` (new)
-  - `tests/security-enforcement/authorization-rbac.spec.ts` (extend: plugin
-    mutations, remote-server mutations, Hecate mutations, Orthrus mutations
-    (incl. `/snippets`), dns-provider mutations + `POST /dns-providers/test`,
-    notification `test`/`preview`, cert `/export`, access-list/domain/settings
-    mutations, `GET /audit-logs*`; + `role=user` positive READ cases incl.
-    `GET /orthrus/agents`, `GET /hecate/status`, `GET /hecate/tunnels`,
-    `GET /remote-servers`; + admin-only nav/redirect checks for
-    `/security/crowdsec`, `/security/audit-logs`, `/hecate/agent`,
-    `/security/encryption`)
-- **Depends on:** nothing.
-- **Validation gate:**
-  `npx playwright test crowdsec-admin-authz public-registration-removed authorization-rbac --project=firefox`
-  collects specs, all `fixme`/skipped, 0 failures; `eslint` clean on the new
-  spec files.
-
----
-
-### Commit 2 — Part A: enforce admin authorization on CrowdSec admin routes (advisory fix)
-
-- **Type:** `fix(security): tighten authorization checks on privileged API routes`
-- **Scope:**
-  - `routes.go`: declare `managementAdmin := management.Group("/"); .Use(RequireRole(admin))`;
-    change `crowdsecHandler.RegisterRoutes(management)` → `(managementAdmin)`.
-  - Frontend companion guard: wrap `security/crowdsec` route in
-    `<RequireRole allowed={['admin']}>` (`App.tsx`); gate the `navigation.crowdsec`
-    nav child with `user?.role === 'admin'` (`Layout.tsx`).
-  - `routes_test.go`: `TestRegister_CrowdsecAdminRoutesRequireAdminRole` (§3.1.4);
-    a handler-level 403 assertion in `crowdsec_handler_test.go` if lightweight.
-- **Files:** `backend/internal/api/routes/routes.go`,
-  `backend/internal/api/routes/routes_test.go`,
-  `backend/internal/api/handlers/crowdsec_handler_test.go` (maybe),
-  `frontend/src/App.tsx`, `frontend/src/components/Layout.tsx`,
-  `frontend/src/components/__tests__/Layout.test.tsx` (nav-gating assertion) or
-  a new small `App` route test.
-- **Depends on:** Commit 1 (ordering).
-- **Validation gate:**
-  `cd backend && go build ./... && go test ./internal/api/routes/... ./internal/api/handlers/...`;
-  new test proves unauth→401 / `role=user`→403 / `role=admin`→not-403 on the 4
-  representative routes; existing `TestRegister_AllRoutesRegistered` /
-  `TestRegister_CrowdSecRoutes` still pass (paths unchanged);
-  `cd frontend && npm run type-check && npx vitest run src/components/__tests__/Layout.test.tsx`;
-  `make lint-fast`; staticcheck clean.
-
----
-
-### Commit 3 — Part B: deny-by-default authorization across the management group
-
-- **Type:** `fix(security): apply deny-by-default authorization on management API subroutes`
-- **Scope:**
-  - Re-run the route audit vs HEAD; reconcile with §3.2.2.
-  - `RegisterRoutes(read, admin *gin.RouterGroup)` split (C1/C2): `HecateHandler`
-    (reads `GET /hecate/status|/tunnels|/tunnels/:uuid` on `read`, rest on
-    `admin`); `OrthrusHandler` (reads `GET /orthrus/agents|/agents/:uuid` on
-    `read`, rest incl. `/snippets`, `/proxy-status` on `admin`);
-    `RemoteServerHandler` (reads `GET /remote-servers|/remote-servers/:uuid` on
-    `read`, rest incl. `/test` on `admin`).
-  - `SecurityHeadersHandler` (C6): **delete** `RegisterRoutes`; register its ~11
-    routes inline in `routes.go` — reads + 3 calculator `POST`s on `management`,
-    profile `POST/PUT/DELETE` + `presets/apply` on `managementAdmin`.
-  - `MOVE → managementAdmin`: `GET /audit-logs`, `GET /audit-logs/:uuid` (C4),
-    `GET /dns-providers/:id/audit-logs` (C5); `adminEncryption` group decl →
-    `managementAdmin.Group("/admin/encryption")`.
-  - ADMIN-ARG (per-route `middleware.RequireRole(models.RoleAdmin)` 2nd arg):
-    plugin enable/disable/reload; dns-provider mutations + `POST /dns-providers/test`
-    + `POST /dns-providers/:id/test` (C7) + credential + `POST /dns-providers/detect`;
-    `ManualChallengeHandler.RegisterRoutes(managementAdmin)`; certificate
-    mutations incl. `/export`; access-list mutations; domain mutations; settings
-    mutations (+ keep existing `GET /settings/smtp` arg); `PUT /feature-flags`;
-    `POST /system/permissions/repair`;
-    `POST /notifications/providers/test` + `/providers/preview`
-    + `/external-templates/preview` (C3).
-  - Frontend companion `RequireRole` guards + nav filters:
-    `/security/audit-logs` (route only — no nav entry), `/hecate/agent`
-    (route + nav child), `/security/encryption` (route + nav child).
-    Do **not** guard `navigation.hecate` wholesale or `/hecate/tunnels`.
-  - `TestManagementGroup_MutationsAreAdminGuarded` + `USER_OK_MUTATION_ALLOWLIST`
-    + `PUBLIC_MUTATION_ALLOWLIST` (reviewed constants).
-- **Files:** `backend/internal/api/routes/routes.go` (the ~35 sites in the
-  table), `backend/internal/api/handlers/security_headers_handler.go`
-  (delete `RegisterRoutes` method + its test that asserted the old group),
-  `backend/internal/api/handlers/hecate_handler.go` / `orthrus_handler.go` /
-  `remote_server_handler.go` (`RegisterRoutes(read, admin)` signature +
-  callers), `backend/internal/api/routes/routes_test.go`, any handler test that
-  assumed a now-moved route was reachable by `role=user`
-  (`hecate_handler_test.go`, `orthrus_handler_test.go`,
-  `audit_log_handler_test.go`, `notification_provider_handler_test.go`),
-  `frontend/src/App.tsx`, `frontend/src/components/Layout.tsx`, related frontend
-  tests.
-- **Depends on:** Commit 2 (`managementAdmin`).
-- **Validation gate:** `go build ./... && go test ./...` (full — catches handler
-  tests broken by moves); new enforcement test green; manual diff of
-  `router.Routes()` inventory before/after (path set unchanged, only middleware
-  chains differ); `cd frontend && npm run type-check && npx vitest run` (touched
-  suites); `make lint-fast`; staticcheck clean.
-
----
-
-### Commit 4 — Part C: remove the public registration endpoint
-
-- **Type:** `fix(security): reduce unauthenticated API surface`
-- **Scope:**
-  - Delete `api.POST("/auth/register", …)` (`routes.go:295`),
-    `AuthHandler.Register`, `RegisterRequest` (`auth_handler.go`). Drop
-    now-unused imports.
-  - **Keep** `AuthService.Register` (+ `count==0 → RoleAdmin`); add a doc
-    comment marking it internal/test-only.
-  - Update `routes_test.go` refs (`:162` remove from `expectedRoutes`; `:215`
-    remove allowlist entry; `:335` → `assert.NotContains`); delete
-    `TestAuthHandler_Register_InvalidJSON` in `additional_coverage_test.go`;
-    switch `crowdsec_lapi_integration_test.go` `authenticate()` helper to
-    `POST /api/v1/setup`.
-  - New `TestRegister_PublicRegistrationEndpointRemoved` (§3.3.4) covering
-    route-gone + `/setup` bootstrap + email-invite acceptance.
-- **Files:** `backend/internal/api/routes/routes.go`,
-  `backend/internal/api/handlers/auth_handler.go`,
-  `backend/internal/services/auth_service.go` (doc comment only),
-  `backend/internal/api/routes/routes_test.go`,
-  `backend/internal/api/handlers/additional_coverage_test.go`,
-  `backend/integration/crowdsec_lapi_integration_test.go`.
-- **Depends on:** Commit 2 (shares `routes_test.go` allowlist edits — sequence
-  after B to avoid churn).
-- **Validation gate:** `go build ./...` (+ `-tags integration` compile check for
-  the integration file); `go test ./internal/api/...`; `staticcheck` / `go vet`
-  clean (no dangling refs); `AuthService.Register` unit tests unchanged & green;
-  `make lint-fast`.
-
----
-
-### Commit 5 — Enable E2E, coverage, docs
-
-- **Type:** `docs: document management-API authorization model and account-creation flow`
-- **Scope:**
-  - Un-`fixme` the Commit 1 specs; adjust selectors/fixtures to the shipped
-    behavior; run targeted specs (firefox).
-  - File two follow-up issues (out of scope here): (1) "per-IP rate limit /
-    throttle middleware for `/api/v1/auth/*`" (`/auth/register` removed,
-    `/auth/login` already has account lockout); (2) "hide disabled
-    create/edit/delete controls for `role=user` on READ-classified admin pages
-    (Access Lists, Certificates, DNS Providers, Security Headers, Domains,
-    Remote Servers, Hecate tunnels)" — cosmetic; the API already returns `403`
-    (spec §7 item 1).
-  - Docs: `ARCHITECTURE.md` (Security Architecture / Auth & Authorization —
-    `managementAdmin` boundary; no public self-registration; bootstrap +
-    invite model), `SECURITY.md` (Authentication & Authorization section),
-    `docs/security.md`, `docs/features/access-control.md`, `docs/features.md`,
-    `docs/features/crowdsec.md`, `docs/features/custom-plugins.md` /
-    `plugin-security.md`.
-- **Files:** the Commit 1 spec files (remove `fixme`); the docs listed above.
-- **Depends on:** Commits 2-4.
-- **Validation gate (full DoD):**
-  `npx playwright test crowdsec-admin-authz authorization-rbac public-registration-removed auth-api-enforcement --project=firefox` all green;
-  `bash scripts/local-patch-report.sh` (artifacts present, patch coverage green);
-  `lefthook run pre-commit` (CodeQL Go+JS) 0 high/critical; `make trivy` clean;
-  `make lint-fast` + `make lint-backend` clean;
-  `scripts/go-test-coverage.sh` ≥ 85 %; `scripts/frontend-test-coverage.sh` ≥ 85 %;
-  `cd frontend && npm run type-check && npm run build`;
-  `cd backend && go build ./...`; `go test ./...` + `npx vitest run` zero
-  failures; debug/print cleanup.
-
----
-
-### Rollback & contingency (PR-wide)
-
-- **Per-commit revert:** Commits 2, 3, 4 are individually revertable.
-  - Revert **Commit 3** alone if the Part B sweep regresses a `role=user`
-    workflow found late — Commit 2 (the actual advisory fix) and Commit 4 still
-    stand and ship value.
-  - Revert **Commit 4** alone (restore the register route) without affecting
-    the authz fixes, if an external consumer of `/auth/register` is discovered
-    that can't migrate to `/setup` in time — though the advisory title itself
-    frames public registration as the root enabler, so this should be a last
-    resort with a tracking issue.
-- **Minimum shippable:** Commits 1-2 + docs = the advisory is closed. Parts B/C
-  can be dropped from the PR (update this spec + PR description) if they need
-  more time — but the intent is to land all three together.
-- **No migration to roll back** — zero schema changes.
-- **Feature-flag option (contingency, not in the default plan):** if reviewers
-  want a kill switch for Part C rather than a hard delete, gate the register
-  route behind a `Setting` (`auth.public_registration_enabled`, default
-  `false`) instead of removing it. Adds surface; only if explicitly requested.
-- **Embargo:** keep the GHSA id, "CrowdSec", route paths, and
-  "authorization bypass / public registration" out of every commit subject and
-  any changelog-visible line. The PR description MAY reference the advisory
-  (repo private, pre-disclosure) — confirm with the maintainer before opening.
-
----
-
-## 10. Commit Message Conventions (per `CLAUDE.md`)
-
-- Security-relevant commits use `fix(security):` with a **deliberately vague**
-  subject — category of issue + category of mitigation only. Never name the
-  vulnerability class, the component ("CrowdSec", "plugins"), the attack vector
-  ("public registration"), or any route path.
-  - Commit 2: `fix(security): tighten authorization checks on privileged API routes`
-  - Commit 3: `fix(security): apply deny-by-default authorization on management API subroutes`
-  - Commit 4: `fix(security): reduce unauthenticated API surface`
-- Non-security commits: `test:` (Commit 1), `docs:` (Commit 5).
-- `fix:` triggers Docker builds (intended here).
-
----
-
-## 11. Handoff
-
-- Next: `supervisor` review of this spec → iterate → user approval → implement
-  Commits 1-5 in order via `backend-dev` / `frontend-dev` (each commit passes
-  its gate before the next starts) → `supervisor` implementation review →
-  `qa-security` audit last → `docs-writer`.
-- Key references for implementers:
-  - Advisory root cause: `backend/internal/api/routes/routes.go:838`, `:373-374`;
-    correct pattern at `:796-797` and `:1011-1012`; per-route arg precedent at
-    `:457`.
-  - `backend/internal/api/middleware/auth.go` (`RequireRole`,
-    `RequireManagementAccess`).
-  - `backend/internal/api/handlers/permission_helpers.go` (`requireAdmin`,
-    `isAdmin`).
-  - Part C targets: `backend/internal/api/handlers/auth_handler.go:238-256`
-    (delete `RegisterRequest` + `Register`), `routes.go:295` (delete route),
-    `backend/internal/services/auth_service.go:31` (**keep**),
-    `backend/internal/api/handlers/user_handler.go:141` (`Setup` — the retained
-    bootstrap path).
-  - Test refs to fix: `routes_test.go:162,215,335`;
-    `additional_coverage_test.go:717-732`;
-    `backend/integration/crowdsec_lapi_integration_test.go:52-59`.
-  - Existing email-invite (the supported post-bootstrap path, unchanged):
-    `backend/internal/api/handlers/user_handler.go` (`InviteUser` / `ValidateInvite`
-    / `AcceptInvite`), `backend/internal/models/user.go` (invite fields),
-    `frontend/src/pages/AcceptInvite.tsx`, `frontend/src/api/users.ts`.
-  - Frontend gating pattern to mirror: `frontend/src/components/RequireRole.tsx`,
-    `frontend/src/App.tsx:120,126`, `frontend/src/components/Layout.tsx:127`.
-  - Test harness: `backend/internal/api/routes/routes_test.go`
-    (`TestRegister_*`, `materializeRoutePath`, `publicMutationAllowlist`),
-    `tests/security-enforcement/authorization-rbac.spec.ts`
-    (`loginAndGetToken`, `TEST_USERS`).
+- **Pre-merge**: any commit's validation gate failing blocks progression to
+  the next commit in the sequence — implementation halts and the failing
+  commit is fixed in place (new commit, never force-amend, per CLAUDE.md
+  git safety rules) before continuing.
+- **Post-merge regression**: revert is safe and self-contained — the new
+  `WebPushSubscription` table and the `webpush` provider-type branch are
+  fully additive; no existing provider type's code path, schema, or
+  dispatch logic is modified by this feature (confirmed throughout §2.2:
+  every existing switch/map gains a new case, none of the existing cases
+  change). A `git revert` of the merge commit removes the feature cleanly;
+  the only residual state is the `WebPushSubscription` table and any
+  provisioned `webpush` `NotificationProvider` row left in the database,
+  which are inert (no code references them post-revert) and can be cleaned
+  up via a follow-up migration if desired, but pose no correctness risk if
+  left in place.
+- **Partial rollback within the PR is not applicable** — per CLAUDE.md, one
+  feature merges as one PR or not at all; there is no supported "merge
+  commits 1-6 but not 7-9" state.

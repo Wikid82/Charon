@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('../../api/notifications', () => ({
-  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy'],
+  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy', 'webpush'],
   getProviders: vi.fn(),
   createProvider: vi.fn(),
   updateProvider: vi.fn(),
@@ -29,6 +29,11 @@ vi.mock('../../api/notifications', () => ({
   createExternalTemplate: vi.fn(),
   updateExternalTemplate: vi.fn(),
   deleteExternalTemplate: vi.fn(),
+  provisionWebPush: vi.fn(),
+  getWebPushVapidPublicKey: vi.fn(),
+  subscribeWebPush: vi.fn(),
+  listWebPushSubscriptions: vi.fn(),
+  unsubscribeWebPush: vi.fn(),
 }))
 
 vi.mock('../../utils/toast', () => ({
@@ -36,6 +41,11 @@ vi.mock('../../utils/toast', () => ({
     success: vi.fn(),
     error: vi.fn(),
   },
+}))
+
+const mockUseAuth = vi.fn()
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => mockUseAuth(),
 }))
 
 const baseProvider: NotificationProvider = {
@@ -63,6 +73,8 @@ const setupMocks = (providers: NotificationProvider[] = []) => {
   vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([])
   vi.mocked(notificationsApi.createProvider).mockResolvedValue(baseProvider)
   vi.mocked(notificationsApi.updateProvider).mockResolvedValue(baseProvider)
+  vi.mocked(notificationsApi.listWebPushSubscriptions).mockResolvedValue([])
+  mockUseAuth.mockReturnValue({ user: { id: 'u1', username: 'admin', role: 'admin' } })
 }
 
 let user: ReturnType<typeof userEvent.setup>
@@ -679,5 +691,37 @@ describe('Notifications', () => {
 
     expect(screen.getByTestId('provider-gotify-token')).toBeInTheDocument()
     expect(screen.getByTestId('provider-url')).toHaveAttribute('placeholder', 'notificationProviders.pushoverUserKeyPlaceholder')
+  })
+
+  it('hides the URL field and shows the Web Push guidance note when editing a webpush provider', async () => {
+    const webpushProvider: NotificationProvider = {
+      ...baseProvider,
+      id: 'provider-webpush',
+      name: 'Browser Push',
+      type: 'webpush',
+      url: '',
+    }
+
+    setupMocks([webpushProvider])
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    const row = await screen.findByTestId('provider-row-provider-webpush')
+    const buttons = within(row).getAllByRole('button')
+    await user.click(buttons[1])
+
+    // The generic URL/Webhook field (and its type-dependent label ternary)
+    // is suppressed for webpush — device management lives in the Web Push
+    // panel above, not this form.
+    expect(screen.queryByTestId('provider-url')).not.toBeInTheDocument()
+    expect(screen.getByTestId('webpush-provider-form-note')).toBeInTheDocument()
+
+    // The Type select must still show "Web Push" as a selectable/selected
+    // option for an already-provisioned row (it's otherwise hidden from
+    // the options list for new providers).
+    const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
+    expect(typeSelect.value).toBe('webpush')
+    expect(within(typeSelect).getByRole('option', { name: 'Web Push' })).toBeInTheDocument()
   })
 })

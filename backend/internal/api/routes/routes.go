@@ -123,6 +123,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.ImportSession{},
 		&models.Notification{},
 		&models.NotificationProvider{},
+		&models.WebPushSubscription{}, // Web Push subscriptions — FK to NotificationProvider (Type="webpush")
 		&models.NotificationTemplate{},
 		&models.NotificationConfig{},
 		&models.UptimeMonitor{},
@@ -152,6 +153,16 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.BackupJob{},             // Async Backup/Restore Jobs: tracks in-flight create/restore jobs
 	); err != nil {
 		return uptimeShutdown, fmt.Errorf("auto migrate: %w", err)
+	}
+
+	// Enforce the Web Push provider singleton invariant at the database
+	// level — a service-layer COUNT-then-INSERT check alone is not atomic
+	// under concurrent requests (see docs/plans/current_spec.md §3.1).
+	// IF NOT EXISTS makes this idempotent across restarts, matching every
+	// other startup migration step in this function.
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webpush_singleton
+		ON notification_providers(type) WHERE type = 'webpush'`).Error; err != nil {
+		return uptimeShutdown, fmt.Errorf("create webpush singleton index: %w", err)
 	}
 
 	migrateViewerToPassthrough(db)
@@ -683,6 +694,18 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/notifications/providers/test", middleware.RequireRole(models.RoleAdmin), notificationProviderHandler.Test)
 		management.POST("/notifications/providers/preview", middleware.RequireRole(models.RoleAdmin), notificationProviderHandler.Preview)
 		management.GET("/notifications/templates", notificationProviderHandler.Templates)
+
+		// Web Push provisioning + subscription lifecycle (docs/plans/current_spec.md §3.4).
+		// Provisioning creates the shared VAPID identity, so it is admin-only,
+		// mirroring Test/Preview above; the VAPID public key read and the
+		// subscribe/list/unsubscribe routes are self-service for any
+		// authenticated management-access user (§3.4.0).
+		webPushHandler := handlers.NewWebPushHandler(notificationService)
+		management.POST("/notifications/providers/webpush/provision", middleware.RequireRole(models.RoleAdmin), webPushHandler.Provision)
+		management.GET("/notifications/providers/webpush/vapid-public-key", webPushHandler.VAPIDPublicKey)
+		management.POST("/notifications/providers/webpush/subscriptions", webPushHandler.Subscribe)
+		management.GET("/notifications/providers/webpush/subscriptions", webPushHandler.ListSubscriptions)
+		management.DELETE("/notifications/providers/webpush/subscriptions/:id", webPushHandler.Unsubscribe)
 
 		// External notification templates (saved templates for providers)
 		notificationTemplateHandler := handlers.NewNotificationTemplateHandlerWithDeps(notificationService, securityService, dataRoot)
