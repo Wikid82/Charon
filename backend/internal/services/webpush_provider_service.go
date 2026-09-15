@@ -75,7 +75,9 @@ func (s *NotificationService) ProvisionWebPush(name, vapidSubject string) (*mode
 	}
 
 	var count int64
-	if err := s.DB.Model(&models.NotificationProvider{}).Where("type = ?", "webpush").Count(&count).Error; err != nil {
+	if err := withTransientSQLiteLockRetry(func() error {
+		return s.DB.Model(&models.NotificationProvider{}).Where("type = ?", "webpush").Count(&count).Error
+	}); err != nil {
 		return nil, fmt.Errorf("check existing web push provider: %w", err)
 	}
 	if count > 0 {
@@ -106,7 +108,7 @@ func (s *NotificationService) ProvisionWebPush(name, vapidSubject string) (*mode
 		NotifyUptime:        true,
 	}
 
-	if err := s.CreateProvider(provider); err != nil {
+	if err := withTransientSQLiteLockRetry(func() error { return s.CreateProvider(provider) }); err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return nil, ErrWebPushAlreadyProvisioned
 		}
@@ -114,6 +116,34 @@ func (s *NotificationService) ProvisionWebPush(name, vapidSubject string) (*mode
 	}
 
 	return provider, nil
+}
+
+// withTransientSQLiteLockRetry retries fn a bounded number of times when it
+// fails with a transient SQLite lock error. In shared-cache SQLite (used by
+// the in-process test DB and single-file deployments), two connections
+// racing to INSERT into the same table can surface "database table is
+// locked" (SQLITE_LOCKED) rather than the "database is locked"
+// (SQLITE_BUSY) error the driver's busy_timeout already retries — so this
+// covers the gap for the two concurrent-provision race in
+// TestWebPushHandler_Provision_ConcurrentRequestsNeverReturn500. Mirrors the
+// retry pattern already used in security_service.go's persistAuditWithRetry
+// and credential_service.go's Delete.
+func withTransientSQLiteLockRetry(fn func() error) error {
+	const maxAttempts = 10
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err = fn()
+		if err == nil {
+			return nil
+		}
+		errMsg := strings.ToLower(err.Error())
+		isTransientLock := strings.Contains(errMsg, "database is locked") || strings.Contains(errMsg, "database table is locked") || strings.Contains(errMsg, "busy")
+		if !isTransientLock || attempt == maxAttempts {
+			return err
+		}
+		time.Sleep(time.Duration(attempt) * 5 * time.Millisecond)
+	}
+	return err
 }
 
 // getWebPushProvider loads the singleton Type="webpush" provider row

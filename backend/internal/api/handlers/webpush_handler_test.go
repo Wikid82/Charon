@@ -373,3 +373,110 @@ func TestNotificationProviderUpdate_RoleUserForbiddenFromSecurityToggleOnWebPush
 	assert.False(t, reloaded.NotifySecurityWAFBlocks)
 	assert.False(t, reloaded.NotifySecurityACLDenies)
 }
+
+// --- Error-path coverage: malformed JSON, unauthenticated, and internal errors ---
+
+func closeUnderlyingDB(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+}
+
+func TestWebPushHandler_Provision_MalformedJSONReturns400(t *testing.T) {
+	r, _ := setupWebPushHandlerTest(t)
+
+	w := doJSONRequest(t, r, http.MethodPost, "/api/v1/notifications/providers/webpush/provision", "not-an-object", nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestWebPushHandler_Provision_UnexpectedServiceErrorReturns500(t *testing.T) {
+	r, db := setupWebPushHandlerTest(t)
+	closeUnderlyingDB(t, db)
+
+	w := doJSONRequest(t, r, http.MethodPost, "/api/v1/notifications/providers/webpush/provision",
+		map[string]string{"name": "Browser Push", "vapid_subject": "mailto:ops@example.com"}, nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestWebPushHandler_VAPIDPublicKey_UnexpectedServiceErrorReturns500(t *testing.T) {
+	r, db := setupWebPushHandlerTest(t)
+	closeUnderlyingDB(t, db)
+
+	w := doJSONRequest(t, r, http.MethodGet, "/api/v1/notifications/providers/webpush/vapid-public-key", nil, nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestWebPushHandler_Subscribe_MalformedJSONReturns400(t *testing.T) {
+	r, _ := setupWebPushHandlerTest(t)
+	provisionWebPush(t, r)
+
+	w := doJSONRequest(t, r, http.MethodPost, "/api/v1/notifications/providers/webpush/subscriptions", "not-an-object", nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestWebPushHandler_Subscribe_UnexpectedServiceErrorReturns500(t *testing.T) {
+	r, db := setupWebPushHandlerTest(t)
+	provisionWebPush(t, r)
+	closeUnderlyingDB(t, db)
+
+	w := doJSONRequest(t, r, http.MethodPost, "/api/v1/notifications/providers/webpush/subscriptions",
+		subscribeBody("https://push.example.net/a"), nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestWebPushHandler_ListSubscriptions_UnexpectedServiceErrorReturns500(t *testing.T) {
+	r, db := setupWebPushHandlerTest(t)
+	closeUnderlyingDB(t, db)
+
+	w := doJSONRequest(t, r, http.MethodGet, "/api/v1/notifications/providers/webpush/subscriptions", nil, nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestWebPushHandler_Unsubscribe_UnexpectedServiceErrorReturns500(t *testing.T) {
+	r, db := setupWebPushHandlerTest(t)
+	closeUnderlyingDB(t, db)
+
+	w := doJSONRequest(t, r, http.MethodDelete, "/api/v1/notifications/providers/webpush/subscriptions/some-id", nil, nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// unauthenticatedWebPushRouter mounts the caller-scoped Web Push routes with
+// no middleware setting "userID" in the gin context, so webPushUserID's
+// requireUserID call hits its not-authenticated branch — exercising
+// Subscribe/ListSubscriptions/Unsubscribe's own `!ok` early-return path
+// (each a distinct statement from webPushUserID's own), matching how a
+// request would look if AuthMiddleware were ever bypassed or misconfigured.
+func unauthenticatedWebPushRouter(t *testing.T) *gin.Engine {
+	t.Helper()
+	db := handlers.OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.WebPushSubscription{}, &models.Notification{}))
+	service := services.NewNotificationService(db, nil)
+	webPushHandler := handlers.NewWebPushHandler(service)
+
+	r := gin.New()
+	api := r.Group("/api/v1")
+	api.POST("/notifications/providers/webpush/subscriptions", webPushHandler.Subscribe)
+	api.GET("/notifications/providers/webpush/subscriptions", webPushHandler.ListSubscriptions)
+	api.DELETE("/notifications/providers/webpush/subscriptions/:id", webPushHandler.Unsubscribe)
+	return r
+}
+
+func TestWebPushHandler_Subscribe_UnauthenticatedReturns401(t *testing.T) {
+	r := unauthenticatedWebPushRouter(t)
+	w := doJSONRequest(t, r, http.MethodPost, "/api/v1/notifications/providers/webpush/subscriptions",
+		subscribeBody("https://push.example.net/a"), nil)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestWebPushHandler_ListSubscriptions_UnauthenticatedReturns401(t *testing.T) {
+	r := unauthenticatedWebPushRouter(t)
+	w := doJSONRequest(t, r, http.MethodGet, "/api/v1/notifications/providers/webpush/subscriptions", nil, nil)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestWebPushHandler_Unsubscribe_UnauthenticatedReturns401(t *testing.T) {
+	r := unauthenticatedWebPushRouter(t)
+	w := doJSONRequest(t, r, http.MethodDelete, "/api/v1/notifications/providers/webpush/subscriptions/some-id", nil, nil)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}

@@ -114,6 +114,38 @@ func TestRegister_AutoMigrateFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "auto migrate")
 }
 
+// TestRegister_WebPushSingletonIndexFailure covers the error branch of the
+// idx_webpush_singleton CREATE UNIQUE INDEX step (RegisterWithDeps, right
+// after AutoMigrate) by pre-creating a conflicting table with that exact
+// name, so AutoMigrate itself succeeds but the index statement fails with a
+// real SQLite "object already exists" error — unlike
+// TestRegister_AutoMigrateFailure's closed-connection approach, which fails
+// before ever reaching this later step.
+func TestRegister_WebPushSingletonIndexFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	// A dedicated on-disk file (rather than the "file::memory:?cache=shared"
+	// pattern this file's other tests use) is required here: SQLite's
+	// shared-cache mode keys purely off the path before "?", so every
+	// "file::memory:?cache=shared&..." URI in this process collapses onto
+	// the same underlying in-memory database regardless of query string —
+	// harmless for those tests, but it means an earlier test's successful
+	// `CREATE UNIQUE INDEX ... idx_webpush_singleton` would already exist by
+	// the time this test's conflicting `CREATE TABLE idx_webpush_singleton`
+	// runs, making the pre-creation step (and thus this test) order-dependent.
+	dsn := filepath.Join(t.TempDir(), "webpush-index-fail.db")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE TABLE idx_webpush_singleton (id INTEGER)").Error)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+
+	err = Register(context.Background(), router, db, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create webpush singleton index")
+}
+
 func TestRegisterImportHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
