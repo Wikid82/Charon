@@ -1,6 +1,6 @@
 import client from './client';
 
-export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy'] as const;
+export const SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy', 'webpush'] as const;
 export type SupportedNotificationProviderType = (typeof SUPPORTED_NOTIFICATION_PROVIDER_TYPES)[number];
 const DEFAULT_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
 
@@ -268,4 +268,76 @@ export const updateSecurityNotificationSettings = async (
 ): Promise<SecurityNotificationSettings> => {
   const response = await client.put<SecurityNotificationSettings>('/notifications/settings/security', settings);
   return response.data;
+};
+
+// Web Push provider
+/** A single browser/device subscription registered for Web Push delivery. */
+export interface WebPushSubscription {
+  id: string;
+  endpoint: string;
+  user_agent?: string;
+  created_at: string;
+  last_seen_at: string;
+}
+
+/** Payload shape for registering a new Web Push subscription, matching the browser's `PushSubscription.toJSON()` output. */
+export interface WebPushSubscriptionPayload {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  user_agent?: string;
+}
+
+/**
+ * Provisions the (singleton) Web Push notification provider. Admin-only —
+ * the backend route rejects non-admin callers with a 403.
+ * @param data - Provider name and the RFC 8292 VAPID subject (a `mailto:` or `https:` URI)
+ * @returns Promise resolving to the created NotificationProvider
+ * @throws {AxiosError} 409 if already provisioned, 400 for an invalid vapid_subject
+ */
+export const provisionWebPush = async (data: { name: string; vapid_subject: string }) => {
+  const response = await client.post<NotificationProvider>('/notifications/providers/webpush/provision', data);
+  return response.data;
+};
+
+/**
+ * Fetches the public VAPID key needed to create a browser push subscription.
+ * @returns Promise resolving to the base64url-encoded VAPID public key
+ * @throws {AxiosError} 404 if Web Push has not been provisioned yet
+ */
+export const getWebPushVapidPublicKey = async () => {
+  const response = await client.get<{ vapid_public_key: string }>('/notifications/providers/webpush/vapid-public-key');
+  return response.data;
+};
+
+/**
+ * Registers (or idempotently re-registers) this device's push subscription.
+ * @param subscription - The subscription details from `PushSubscription.toJSON()` plus the device's user agent
+ * @returns Promise resolving to the subscription's id and endpoint
+ * @throws {AxiosError} 404 if not provisioned, 503 if the provider is disabled, 400 for a malformed payload
+ */
+export const subscribeWebPush = async (subscription: WebPushSubscriptionPayload) => {
+  const response = await client.post<{ id: string; endpoint: string }>('/notifications/providers/webpush/subscriptions', subscription);
+  return response.data;
+};
+
+/**
+ * Fetches the caller's own Web Push subscriptions.
+ * @returns Promise resolving to an array of WebPushSubscription objects
+ * @throws {AxiosError} If the request fails
+ */
+export const listWebPushSubscriptions = async () => {
+  const response = await client.get<WebPushSubscription[]>('/notifications/providers/webpush/subscriptions');
+  return response.data;
+};
+
+/**
+ * Deletes a Web Push subscription owned by the caller.
+ * @param id - The subscription ID to delete
+ * @throws {AxiosError} 404 if not found or not owned by the caller
+ */
+export const unsubscribeWebPush = async (id: string) => {
+  await client.delete(`/notifications/providers/webpush/subscriptions/${id}`);
 };

@@ -16,7 +16,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('../../api/notifications', () => ({
-  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy'],
+  SUPPORTED_NOTIFICATION_PROVIDER_TYPES: ['discord', 'gotify', 'webhook', 'email', 'telegram', 'slack', 'pushover', 'ntfy', 'webpush'],
   getProviders: vi.fn(),
   createProvider: vi.fn(),
   updateProvider: vi.fn(),
@@ -29,6 +29,11 @@ vi.mock('../../api/notifications', () => ({
   createExternalTemplate: vi.fn(),
   updateExternalTemplate: vi.fn(),
   deleteExternalTemplate: vi.fn(),
+  provisionWebPush: vi.fn(),
+  getWebPushVapidPublicKey: vi.fn(),
+  subscribeWebPush: vi.fn(),
+  listWebPushSubscriptions: vi.fn(),
+  unsubscribeWebPush: vi.fn(),
 }))
 
 vi.mock('../../utils/toast', () => ({
@@ -36,6 +41,11 @@ vi.mock('../../utils/toast', () => ({
     success: vi.fn(),
     error: vi.fn(),
   },
+}))
+
+const mockUseAuth = vi.fn()
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => mockUseAuth(),
 }))
 
 const baseProvider: NotificationProvider = {
@@ -63,6 +73,8 @@ const setupMocks = (providers: NotificationProvider[] = []) => {
   vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([])
   vi.mocked(notificationsApi.createProvider).mockResolvedValue(baseProvider)
   vi.mocked(notificationsApi.updateProvider).mockResolvedValue(baseProvider)
+  vi.mocked(notificationsApi.listWebPushSubscriptions).mockResolvedValue([])
+  mockUseAuth.mockReturnValue({ user: { id: 'u1', username: 'admin', role: 'admin' } })
 }
 
 let user: ReturnType<typeof userEvent.setup>
