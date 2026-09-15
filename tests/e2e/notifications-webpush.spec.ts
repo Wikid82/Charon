@@ -1,16 +1,31 @@
 /**
  * Web Push Notification Provider E2E Tests
  *
- * Phase 1 (docs/plans/current_spec.md §5, §9 commit 1): encodes the intended
+ * Phase 1 (docs/plans/current_spec.md §5, §9 commit 1) encoded the intended
  * Web Push provider behavior against the API contracts (§3.4) and frontend
- * design (§3.6) before any backend/frontend code for this feature exists.
- * All tests below are `test.fixme` and are flipped to live tests in commit 8
- * (§9), once commits 2-7 (backend model/dispatch/handlers, frontend service
+ * design (§3.6) as `test.fixme` specs, before any backend/frontend code for
+ * this feature existed. Commit 8 (§9) flips them to live tests now that
+ * commits 2-7 (backend model/dispatch/handlers, frontend service
  * worker/API client/UI) have landed.
  *
+ * The API contracts (§3.4) landed exactly as specified — same routes
+ * (`backend/internal/api/routes/routes.go`), same request/response shapes
+ * (`backend/internal/api/handlers/webpush_handler.go`,
+ * `frontend/src/api/notifications.ts`).
+ *
+ * The frontend UI (`frontend/src/pages/Notifications.tsx`) landed with one
+ * deliberate deviation from the §3.6 sketch: rather than provisioning
+ * through the generic "Add Provider" form (which has no way to select
+ * `webpush` as a type — it's a singleton, never a user choice), the
+ * implementation adds a dedicated `WebPushCard` above the provider list
+ * with its own provisioning form and its own subscribe/unsubscribe
+ * controls (a "Enable push notifications on this device" button plus a
+ * per-row remove button in a "Subscribed devices" list, rather than a
+ * single on/off toggle). The tests below exercise that actual card.
+ *
  * Scenarios covered:
- *  - Provisioning a Web Push provider from the Notifications page, and that
- *    provisioning is admin-only (§3.4.0, §3.4.1).
+ *  - Provisioning the Web Push provider from the dedicated Web Push card,
+ *    and that provisioning is admin-only (§3.4.0, §3.4.1).
  *  - Subscribing this device (§3.4.2 VAPID key, §3.4.3 subscribe), mocking
  *    `Notification`/`navigator.serviceWorker`/`PushManager` via
  *    `page.addInitScript` — real push delivery cannot be exercised in CI
@@ -18,14 +33,18 @@
  *  - Unsubscribing removes the device from the subscriptions list (§3.4.5).
  *  - Per-event-type `NotifyXxx` toggles persist for a `webpush` provider row
  *    exactly like every other provider type (regression coverage for the
- *    generic preference UI, §3.6.3's closing note).
+ *    generic preference UI, §3.6.3's closing note) — this flow is
+ *    unaffected by the dedicated Web Push card, since it edits the
+ *    provider row through the same generic `ProviderForm` every other
+ *    provider type uses.
  *
  * See docs/plans/current_spec.md §3.4 (API contracts), §3.4.0 (authorization
- * model), §3.6 (frontend design), §9 commit 1.
+ * model), §3.6 (frontend design), §9 commit 1 and commit 8.
  */
 
-import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { test, expect, loginUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { suppressChangelogModal } from '../utils/api-helpers';
 import type { Page } from '@playwright/test';
 
 const WEBPUSH_BASE = '/api/v1/notifications/providers/webpush';
@@ -33,7 +52,9 @@ const PROVIDERS_ENDPOINT = '/api/v1/notifications/providers';
 const MOCK_ENDPOINT = 'https://fcm.googleapis.com/fcm/send/mock-endpoint-e2e';
 const MOCK_VAPID_PUBLIC_KEY = 'BN_mock_vapid_public_key_0123456789';
 
-/** §3.4.1 response shape for a provisioned `webpush` provider row. */
+/** §3.4.1 response shape for a provisioned `webpush` provider row
+ * (`backend/internal/models/notification_provider.go`, mirrored in
+ * `frontend/src/api/notifications.ts`'s `NotificationProvider`). */
 interface WebPushProviderFixture {
   id: string;
   name: string;
@@ -97,6 +118,10 @@ function buildSubscriptionFixture(
  * real OS permission prompt or a real round trip to a push service. Real push
  * delivery cannot be exercised in CI (spec §5 Phase 1) — this stub is what
  * lets the subscribe/unsubscribe flow be driven end-to-end anyway.
+ *
+ * Mirrors the actual calls `WebPushCard` makes
+ * (`frontend/src/pages/Notifications.tsx`): `register()` for subscribing,
+ * `getRegistration()` for unsubscribing.
  */
 async function stubBrowserPushApis(page: Page): Promise<void> {
   await page.addInitScript((mockEndpoint: string) => {
@@ -136,75 +161,84 @@ async function stubBrowserPushApis(page: Page): Promise<void> {
       value: {
         register: async () => mockRegistration,
         ready: Promise.resolve(mockRegistration),
+        getRegistration: async () => mockRegistration,
       },
     });
   }, MOCK_ENDPOINT);
 }
 
-/** Locator matching the §3.6.3 "Enable push notifications on this device"
- * control, tolerant of either a checkbox (matching every other toggle in
- * this form) or a switch-styled control, since the exact implementation
- * hasn't landed yet. */
-function deviceToggleLocator(page: Page) {
-  return page
-    .getByRole('checkbox', { name: /enable push notifications on this device/i })
-    .or(page.getByRole('switch', { name: /enable push notifications on this device/i }));
+/** Mocks the provider list endpoint (`GET /notifications/providers`), which
+ * `Notifications.tsx` always fetches on mount regardless of the Web Push
+ * card's own state. */
+async function mockProvidersList(page: Page, getProviders: () => unknown[]): Promise<void> {
+  await page.route(`**${PROVIDERS_ENDPOINT}`, async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, json: getProviders() });
+    } else {
+      await route.continue();
+    }
+  });
 }
 
 test.describe('Web Push Notification Provider', () => {
   test.describe('Provisioning (§3.4.1, admin-only per §3.4.0)', () => {
-    test.fixme(
-      'admin can provision a Web Push provider from the Notifications page',
+    test(
+      'admin can provision a Web Push provider from the Web Push card',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
 
         let capturedPayload: Record<string, unknown> | null = null;
+        let provisioned = false;
         let providers: WebPushProviderFixture[] = [];
-        const provisioned = buildWebPushProviderFixture();
+        const provisionedProvider = buildWebPushProviderFixture();
 
-        await test.step('Mock the provision endpoint and the provider list', async () => {
+        await test.step('Mock the vapid-public-key, provision, providers-list, and subscriptions endpoints', async () => {
+          await page.route(`**${WEBPUSH_BASE}/vapid-public-key`, async (route) => {
+            if (provisioned) {
+              await route.fulfill({ status: 200, json: { vapid_public_key: MOCK_VAPID_PUBLIC_KEY } });
+            } else {
+              await route.fulfill({ status: 404, json: { error: 'web push has not been provisioned' } });
+            }
+          });
+
           await page.route(`**${WEBPUSH_BASE}/provision`, async (route) => {
             if (route.request().method() === 'POST') {
               capturedPayload = route.request().postDataJSON();
-              providers = [provisioned];
-              await route.fulfill({ status: 201, json: provisioned });
+              provisioned = true;
+              providers = [provisionedProvider];
+              await route.fulfill({ status: 201, json: provisionedProvider });
             } else {
               await route.continue();
             }
           });
 
-          await page.route(`**${PROVIDERS_ENDPOINT}`, async (route) => {
+          await page.route(`**${WEBPUSH_BASE}/subscriptions`, async (route) => {
             if (route.request().method() === 'GET') {
-              await route.fulfill({ status: 200, json: providers });
+              await route.fulfill({ status: 200, json: [] });
             } else {
               await route.continue();
             }
           });
+
+          await mockProvidersList(page, () => providers);
         });
 
         await page.goto('/settings/notifications');
         await waitForLoadingComplete(page);
 
-        await test.step('Open Add Provider form and select Web Push', async () => {
-          await page.getByRole('button', { name: /add.*provider/i }).click();
-          await expect(page.getByTestId('provider-name')).toBeVisible({ timeout: 5000 });
-          await page.getByTestId('provider-type').selectOption('webpush');
-        });
-
-        await test.step('Verify the dedicated provisioning flow replaces the generic URL/token fields (§3.6.3)', async () => {
-          await expect(page.getByTestId('provider-url')).toHaveCount(0);
-          await expect(page.getByTestId('provider-gotify-token')).toHaveCount(0);
+        await test.step('Verify the Web Push card shows the provisioning form to an admin (not yet provisioned)', async () => {
+          const provisionForm = page.getByTestId('webpush-provision-form');
+          await expect(provisionForm).toBeVisible({ timeout: 10000 });
 
           const provisionButton = page.getByRole('button', { name: /provision web push/i });
-          await expect(provisionButton).toBeVisible();
           await expect(provisionButton).toMatchAriaSnapshot(`
             - button "Provision Web Push"
           `);
         });
 
         await test.step('Fill provisioning details and provision', async () => {
-          await page.getByTestId('provider-name').fill('Browser Push');
-          await page.getByLabel(/vapid subject/i).fill('mailto:admin@example.com');
+          await page.getByTestId('webpush-provision-name').fill('Browser Push');
+          await page.getByTestId('webpush-vapid-subject').fill('mailto:admin@example.com');
 
           await Promise.all([
             page.waitForResponse(
@@ -220,15 +254,19 @@ test.describe('Web Push Notification Provider', () => {
           expect(capturedPayload?.vapid_subject).toBe('mailto:admin@example.com');
         });
 
-        await test.step('Verify the provisioned provider appears in the list', async () => {
-          const row = page.getByTestId(`provider-row-${provisioned.id}`);
+        await test.step('Verify the provisioned provider appears in the general provider list', async () => {
+          const row = page.getByTestId(`provider-row-${provisionedProvider.id}`);
           await expect(row).toBeVisible({ timeout: 10000 });
           await expect(row).toContainText('Browser Push');
+        });
+
+        await test.step('Verify the card now offers to subscribe this device', async () => {
+          await expect(page.getByTestId('webpush-subscribe-btn')).toBeVisible({ timeout: 10000 });
         });
       }
     );
 
-    test.fixme(
+    test(
       'a non-admin user is forbidden from provisioning a Web Push provider',
       async ({ page, regularUser }) => {
         await loginUser(page, regularUser);
@@ -245,26 +283,50 @@ test.describe('Web Push Notification Provider', () => {
         });
       }
     );
+
+    test(
+      'a non-admin user sees a message instead of the provisioning form when Web Push is not yet provisioned',
+      async ({ page, regularUser }) => {
+        await stubBrowserPushApis(page);
+        await loginUser(page, regularUser);
+        // `regularUser` deliberately opts out of changelog auto-suppression
+        // (see tests/fixtures/auth-fixtures.ts) for whats-new-changelog.spec.ts;
+        // every other spec using it must dismiss the "What's New" modal itself
+        // or it blocks all page interaction.
+        await suppressChangelogModal(page, regularUser.email, TEST_PASSWORD);
+
+        await test.step('Mock Web Push as not-yet-provisioned', async () => {
+          await page.route(`**${WEBPUSH_BASE}/vapid-public-key`, async (route) => {
+            await route.fulfill({ status: 404, json: { error: 'web push has not been provisioned' } });
+          });
+          await mockProvidersList(page, () => []);
+        });
+
+        await page.goto('/settings/notifications');
+        await waitForLoadingComplete(page);
+
+        await test.step('Verify no provisioning form is offered, only an informational message', async () => {
+          await expect(page.getByTestId('webpush-not-provisioned-message')).toBeVisible({ timeout: 10000 });
+          await expect(page.getByTestId('webpush-provision-form')).toHaveCount(0);
+        });
+      }
+    );
   });
 
   test.describe('Device subscription (§3.4.2 VAPID key, §3.4.3 subscribe)', () => {
-    test.fixme(
+    test(
       'an authenticated user can subscribe this device to Web Push notifications',
       async ({ page, regularUser }) => {
         await stubBrowserPushApis(page);
         await loginUser(page, regularUser);
+        // See the "non-admin ... sees a message" test above for why this is needed.
+        await suppressChangelogModal(page, regularUser.email, TEST_PASSWORD);
 
         let subscriptions: WebPushSubscriptionFixture[] = [];
         let capturedSubscribePayload: Record<string, unknown> | null = null;
 
-        await test.step('Mock the provisioned provider, VAPID key, and subscriptions endpoints', async () => {
-          await page.route(`**${PROVIDERS_ENDPOINT}`, async (route) => {
-            if (route.request().method() === 'GET') {
-              await route.fulfill({ status: 200, json: [buildWebPushProviderFixture()] });
-            } else {
-              await route.continue();
-            }
-          });
+        await test.step('Mock the provisioned provider, VAPID key, provider list, and subscriptions endpoints', async () => {
+          await mockProvidersList(page, () => [buildWebPushProviderFixture()]);
 
           await page.route(`**${WEBPUSH_BASE}/vapid-public-key`, async (route) => {
             await route.fulfill({ status: 200, json: { vapid_public_key: MOCK_VAPID_PUBLIC_KEY } });
@@ -291,6 +353,7 @@ test.describe('Web Push Notification Provider', () => {
         await waitForLoadingComplete(page);
 
         await test.step('Enable push notifications on this device', async () => {
+          await expect(page.getByTestId('webpush-subscribe-btn')).toBeVisible({ timeout: 10000 });
           await Promise.all([
             page.waitForResponse(
               (resp) =>
@@ -298,7 +361,7 @@ test.describe('Web Push Notification Provider', () => {
                 resp.request().method() === 'POST' &&
                 resp.status() === 201
             ),
-            deviceToggleLocator(page).click(),
+            page.getByTestId('webpush-subscribe-btn').click(),
           ]);
         });
 
@@ -311,31 +374,32 @@ test.describe('Web Push Notification Provider', () => {
         });
 
         await test.step("Verify the device now appears in this user's subscribed devices list", async () => {
-          await expect(page.getByText(MOCK_ENDPOINT).or(page.getByText(/this device/i)).first()).toBeVisible({
-            timeout: 10000,
-          });
+          const row = page.getByTestId(`webpush-subscription-row-${subscriptions[0].id}`);
+          await expect(row).toBeVisible({ timeout: 10000 });
+          await expect(row).toContainText(subscriptions[0].user_agent);
         });
       }
     );
   });
 
   test.describe('Device unsubscription (§3.4.5)', () => {
-    test.fixme(
+    test(
       'unsubscribing removes the device from the subscriptions list',
       async ({ page, regularUser }) => {
         await stubBrowserPushApis(page);
         await loginUser(page, regularUser);
+        // See the "non-admin ... sees a message" test above for why this is needed.
+        await suppressChangelogModal(page, regularUser.email, TEST_PASSWORD);
 
         let subscriptions: WebPushSubscriptionFixture[] = [buildSubscriptionFixture()];
         let deleteCalled = false;
+        const existingSubscription = subscriptions[0];
 
         await test.step("Mock the provisioned provider and this device's existing subscription", async () => {
-          await page.route(`**${PROVIDERS_ENDPOINT}`, async (route) => {
-            if (route.request().method() === 'GET') {
-              await route.fulfill({ status: 200, json: [buildWebPushProviderFixture()] });
-            } else {
-              await route.continue();
-            }
+          await mockProvidersList(page, () => [buildWebPushProviderFixture()]);
+
+          await page.route(`**${WEBPUSH_BASE}/vapid-public-key`, async (route) => {
+            await route.fulfill({ status: 200, json: { vapid_public_key: MOCK_VAPID_PUBLIC_KEY } });
           });
 
           await page.route(`**${WEBPUSH_BASE}/subscriptions`, async (route) => {
@@ -361,15 +425,9 @@ test.describe('Web Push Notification Provider', () => {
         await waitForLoadingComplete(page);
 
         await test.step('Verify the subscribed device is listed', async () => {
-          await expect(page.getByText(MOCK_ENDPOINT).or(page.getByText(/this device/i)).first()).toBeVisible({
-            timeout: 10000,
-          });
-        });
-
-        await test.step('Verify the enabled toggle reflects the existing subscription', async () => {
-          await expect(deviceToggleLocator(page)).toMatchAriaSnapshot(`
-            - checkbox "Enable push notifications on this device" [checked]
-          `);
+          const row = page.getByTestId(`webpush-subscription-row-${existingSubscription.id}`);
+          await expect(row).toBeVisible({ timeout: 10000 });
+          await expect(row).toContainText(existingSubscription.user_agent);
         });
 
         await test.step('Unsubscribe this device', async () => {
@@ -380,20 +438,21 @@ test.describe('Web Push Notification Provider', () => {
                 resp.request().method() === 'DELETE' &&
                 resp.status() === 204
             ),
-            deviceToggleLocator(page).click(),
+            page.getByTestId(`webpush-unsubscribe-${existingSubscription.id}`).click(),
           ]);
         });
 
         await test.step('Verify the device is removed from the list and the backend delete fired (§3.4.5)', async () => {
           expect(deleteCalled).toBe(true);
-          await expect(page.getByText(MOCK_ENDPOINT)).toHaveCount(0);
+          await expect(page.getByTestId(`webpush-subscription-row-${existingSubscription.id}`)).toHaveCount(0);
+          await expect(page.getByTestId('webpush-no-subscriptions')).toBeVisible();
         });
       }
     );
   });
 
   test.describe('Per-event-type toggle regression (§3.4.0 closing note, §3.6.3)', () => {
-    test.fixme(
+    test(
       'per-event-type notification toggles persist for a webpush provider row identically to other provider types',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -410,13 +469,7 @@ test.describe('Web Push Notification Provider', () => {
         ];
 
         await test.step('Mock the existing webpush provider row', async () => {
-          await page.route(`**${PROVIDERS_ENDPOINT}`, async (route) => {
-            if (route.request().method() === 'GET') {
-              await route.fulfill({ status: 200, json: providers });
-            } else {
-              await route.continue();
-            }
-          });
+          await mockProvidersList(page, () => providers);
 
           await page.route(`**${PROVIDERS_ENDPOINT}/*`, async (route) => {
             if (route.request().method() === 'PUT') {
