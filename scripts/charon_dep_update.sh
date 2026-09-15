@@ -132,7 +132,18 @@ update_npm() {
             while IFS= read -r PKG; do
                 [ -z "$PKG" ] && continue
                 [ "$PKG" = "js-yaml" ] && continue
-                npx --yes npm-check-updates -u --dep overrides --filter "$PKG"
+                if ! npx --yes npm-check-updates -u --dep overrides --filter "$PKG"; then
+                    # Some override packages (observed: markdown-it) hit a
+                    # reproducible ncu "Overlapping edit" crash regardless of
+                    # the one-at-a-time workaround above. Fall back to a
+                    # direct registry lookup, preserving the existing range
+                    # prefix (^ or ~), so the update isn't lost.
+                    echo "npm-check-updates crashed on override '$PKG' (known upstream bug); falling back to direct registry lookup" >&2
+                    CURRENT="$(node -e "console.log(require('./package.json').overrides['$PKG'])")"
+                    PREFIX="$(echo "$CURRENT" | grep -o '^[\^~]' || true)"
+                    LATEST="$(npm view "$PKG" version)"
+                    npm pkg set "overrides.$PKG=${PREFIX}${LATEST}"
+                fi
             done <<< "$OVERRIDE_PACKAGES"
         fi
 
