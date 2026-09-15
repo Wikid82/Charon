@@ -126,7 +126,7 @@ func validateDiscordProviderURL(providerType, rawURL string) error {
 // supportsJSONTemplates returns true if the provider type can use JSON templates
 func supportsJSONTemplates(providerType string) bool {
 	switch strings.ToLower(providerType) {
-	case "webhook", "discord", "gotify", "slack", "generic", "telegram", "pushover", "ntfy":
+	case "webhook", "discord", "gotify", "slack", "generic", "telegram", "pushover", "ntfy", "webpush":
 		return true
 	default:
 		return false
@@ -135,7 +135,7 @@ func supportsJSONTemplates(providerType string) bool {
 
 func isSupportedNotificationProviderType(providerType string) bool {
 	switch strings.ToLower(strings.TrimSpace(providerType)) {
-	case "discord", "email", "gotify", "webhook", "telegram", "slack", "pushover", "ntfy":
+	case "discord", "email", "gotify", "webhook", "telegram", "slack", "pushover", "ntfy", "webpush":
 		return true
 	default:
 		return false
@@ -160,6 +160,8 @@ func (s *NotificationService) isDispatchEnabled(providerType string) bool {
 		return s.getFeatureFlagValue(FlagPushoverServiceEnabled, true)
 	case "ntfy":
 		return s.getFeatureFlagValue(FlagNtfyServiceEnabled, true)
+	case "webpush":
+		return s.getFeatureFlagValue(FlagWebPushServiceEnabled, true)
 	default:
 		return false
 	}

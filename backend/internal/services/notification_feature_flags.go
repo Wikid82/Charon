@@ -17,5 +17,6 @@ const (
 	FlagSlackServiceEnabled           = "feature.notifications.service.slack.enabled"
 	FlagPushoverServiceEnabled        = "feature.notifications.service.pushover.enabled"
 	FlagNtfyServiceEnabled            = "feature.notifications.service.ntfy.enabled"
+	FlagWebPushServiceEnabled         = "feature.notifications.service.webpush.enabled"
 	FlagSecurityProviderEventsEnabled = "feature.notifications.security_provider_events.enabled"
 )

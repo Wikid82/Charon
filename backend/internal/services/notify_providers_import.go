@@ -29,4 +29,5 @@ import (
 	_ "github.com/Wikid82/go_notify_yourself/providers/slack"
 	_ "github.com/Wikid82/go_notify_yourself/providers/telegram"
 	_ "github.com/Wikid82/go_notify_yourself/providers/webhook"
+	_ "github.com/Wikid82/go_notify_yourself/providers/webpush"
 )
