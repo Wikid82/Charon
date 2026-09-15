@@ -12,6 +12,8 @@
     "bgIsolation": "none"
    },
   "attribution": {
-     "sessionUrl": false
+     "sessionUrl": false,
+     "commit": "",
+     "pr": ""
   }
 }
