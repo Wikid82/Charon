@@ -12,13 +12,13 @@
   },
   "dependencies": {
     "@typescript/analyze-trace": "^0.11.1",
-    "tldts": "^7.4.12",
+    "tldts": "^7.4.13",
     "type-check": "^0.4.0"
   },
   "overrides": {
     "smol-toml": "^1.8.0",
     "js-yaml": "^4.3.0",
-    "markdown-it": "^15.0.1"
+    "markdown-it": "^15.0.2"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
