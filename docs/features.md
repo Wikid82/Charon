@@ -311,7 +311,7 @@ See exactly how your sites are performing — right from the home screen. The Da
 
 ### 🔔 Notifications
 
-Get alerted when it matters. Charon sends notifications through Discord, Gotify, Ntfy, Pushover, Slack, Email, and Custom Webhook providers. Choose a built-in JSON template or write your own to control exactly what your alerts look like.
+Get alerted when it matters. Charon sends notifications through Discord, Gotify, Ntfy, Pushover, Slack, Telegram, Email, Custom Webhook, and Web Push providers. Choose a built-in JSON template or write your own to control exactly what your alerts look like, or turn on Web Push for alerts that land right on your phone or computer — no extra app required.
 
 → [Learn More](features/notifications.md)
 

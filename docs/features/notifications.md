@@ -20,7 +20,9 @@ Notifications can be triggered by various events:
 | **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
 | **Pushover** | ✅ Yes | ✅ HTTP API | ✅ Priority + Sound |
 | **Ntfy** | ✅ Yes | ✅ HTTP API | ✅ Priority + Tags |
+| **Telegram** | ✅ Yes | ✅ Bot API | ✅ Rich Text |
 | **Custom Webhook** | ✅ Yes | ✅ HTTP API | ✅ Template-Controlled |
+| **Web Push** | ✅ Yes | ✅ Browser Push | ✅ Native OS/Browser Notifications |
 | **Email** | ❌ No | ✅ SMTP | ✅ HTML Branded Templates |
 
 Additional providers are planned for later staged releases.
@@ -306,9 +308,44 @@ Ntfy delivers push notifications to your phone or desktop using a simple HTTP-ba
 - `4` - High
 - `5` - Max (urgent)
 
+### Web Push
+
+Web Push sends alerts straight to your phone or computer as a native notification — the same kind of pop-up you get from any app — with nothing to install and no third-party account to sign up for. It works right in your browser.
+
+Web Push has two steps: an administrator turns it on for the whole Charon instance (once), and then each person subscribes their own individual devices.
+
+#### Step 1: Turn on Web Push (admin, once)
+
+1. Go to **Settings** → **Notifications**
+2. Find the **Web Push** card
+3. Enter a **Name** (any label you like, e.g. "Browser Push")
+4. Enter a **Contact URI** — this is just a contact address (an email like `mailto:admin@example.com`, or a webpage like `https://example.com`) that the browser's push service may use to reach you if something goes wrong. It's not shown to anyone else.
+5. Click **Provision Web Push**
+
+That's it — Web Push is now available for everyone with a Charon account to subscribe to.
+
+> **Note:** This only needs to happen once. There's currently no way to regenerate these keys later — doing so would silently disconnect every device that has already subscribed — so treat this as a one-time setup step rather than something to redo.
+
+#### Step 2: Subscribe your device (every user, on every device)
+
+Once Web Push is turned on, anyone with a Charon account — not just administrators — can subscribe their own browser:
+
+1. Go to **Settings** → **Notifications**
+2. In the **Web Push** card, click **Enable push notifications on this device**
+3. Your browser will show a permission prompt — click **Allow**
+4. Your device now appears in the **Subscribed devices** list, and you'll start receiving alerts there
+
+**What "per-device" means:** each browser you enable this on is its own independent subscription. If you enable it on your phone's browser and your laptop's browser, both receive alerts — turning one off doesn't affect the other. If you switch to a different browser, or clear your browser's site data, that subscription is gone and you'll need to click **Enable push notifications on this device** again from the new browser.
+
+To stop receiving alerts on a device, find it in the **Subscribed devices** list and click the trash icon next to it.
+
+#### Troubleshooting: no permission prompt appeared
+
+If clicking **Enable push notifications on this device** doesn't show a permission prompt, your browser or operating system is blocking notifications at the system level — this happens outside Charon and isn't something Charon controls. Check your browser's site settings and your operating system's notification settings to make sure notifications aren't already blocked for this site.
+
 ## Planned Provider Expansion
 
-Additional providers (for example Telegram) are planned for later staged
+Additional providers are planned for later staged
 releases. This page will be expanded as each provider is validated and released.
 
 ## Template Variables
