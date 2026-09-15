@@ -590,7 +590,7 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 		}
 	}
 
-	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" && provider.Type != "ntfy" && provider.Type != "pushover" {
+	if provider.Type != "gotify" && provider.Type != "telegram" && provider.Type != "slack" && provider.Type != "ntfy" && provider.Type != "pushover" && provider.Type != "webpush" {
 		provider.Token = ""
 	}
 
@@ -630,7 +630,7 @@ func (s *NotificationService) UpdateProvider(provider *models.NotificationProvid
 		return err
 	}
 
-	if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" || provider.Type == "ntfy" || provider.Type == "pushover" {
+	if provider.Type == "gotify" || provider.Type == "telegram" || provider.Type == "slack" || provider.Type == "ntfy" || provider.Type == "pushover" || provider.Type == "webpush" {
 		if strings.TrimSpace(provider.Token) == "" {
 			provider.Token = existing.Token
 		}

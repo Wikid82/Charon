@@ -1633,16 +1633,18 @@ var publicMutationAllowlistEnforcement = map[string]string{
 // role-based.
 var userOKMutationAllowlist = map[string]string{
 	// Per-user self-service (the acting user's own session / profile).
-	"POST /api/v1/auth/logout":            "ends the caller's own session",
-	"POST /api/v1/auth/refresh":           "refreshes the caller's own session",
-	"POST /api/v1/auth/change-password":   "caller changes their own password",
-	"POST /api/v1/user/profile":           "caller updates their own profile",
-	"POST /api/v1/user/api-key":           "caller regenerates their own API key",
-	"POST /api/v1/changelog/ack":          "caller acknowledges the changelog for themselves",
-	"POST /api/v1/changelog/opt-in":       "caller sets their own changelog opt-in",
-	"PUT /api/v1/users/:id":               "UpdateUser has a deliberate self-service branch (own name/password); admin-only fields are rejected in-handler",
-	"POST /api/v1/notifications/:id/read": "per-user inbox: mark one of the caller's notifications read",
-	"POST /api/v1/notifications/read-all": "per-user inbox: mark all of the caller's notifications read",
+	"POST /api/v1/auth/logout":                                         "ends the caller's own session",
+	"POST /api/v1/auth/refresh":                                        "refreshes the caller's own session",
+	"POST /api/v1/auth/change-password":                                "caller changes their own password",
+	"POST /api/v1/user/profile":                                        "caller updates their own profile",
+	"POST /api/v1/user/api-key":                                        "caller regenerates their own API key",
+	"POST /api/v1/changelog/ack":                                       "caller acknowledges the changelog for themselves",
+	"POST /api/v1/changelog/opt-in":                                    "caller sets their own changelog opt-in",
+	"PUT /api/v1/users/:id":                                            "UpdateUser has a deliberate self-service branch (own name/password); admin-only fields are rejected in-handler",
+	"POST /api/v1/notifications/:id/read":                              "per-user inbox: mark one of the caller's notifications read",
+	"POST /api/v1/notifications/read-all":                              "per-user inbox: mark all of the caller's notifications read",
+	"POST /api/v1/notifications/providers/webpush/subscriptions":       "self-service: any management-access user's own browser may subscribe to receive alerts (docs/plans/current_spec.md §3.4.0); provisioning the shared VAPID identity is the separate admin-only /provision route",
+	"DELETE /api/v1/notifications/providers/webpush/subscriptions/:id": "self-service: caller may unsubscribe their own device; ownership is enforced in-handler (404 for a foreign ID, docs/plans/current_spec.md §3.4.0/§3.4.5)",
 
 	// Core role=user capability — object-level authz (PermittedHosts / forward-auth), not role.
 	"POST /api/v1/proxy-hosts":                             "core role=user capability (per-host authz)",
