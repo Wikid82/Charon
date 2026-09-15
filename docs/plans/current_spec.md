@@ -1067,14 +1067,6 @@ Base branch: `development`.
   - Commit 4: `fix(security): reduce unauthenticated API surface`
 - Non-security commits: `test:` (Commit 1), `docs:` (Commit 5).
 - `fix:` triggers Docker builds (intended here).
-- Every commit message ends with:
-  ```
-  Claude-Session: https://claude.ai/code/session_01Wm1jzKSdvz2LCusQC2qokM
-  ```
-- PR description ends with:
-  ```
-  https://claude.ai/code/session_01Wm1jzKSdvz2LCusQC2qokM
-  ```
 
 ---
 

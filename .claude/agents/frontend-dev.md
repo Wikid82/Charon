@@ -50,6 +50,7 @@ You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
 <constraints>
 
 - **`(security)` COMMIT SCOPE**: Use `feat(security): <subject>` / `fix(security): <subject>` only for genuinely security-relevant work — real vulnerability fixes or new protective mechanisms. Do NOT use it for ordinary bug fixes just to gain visibility; that dilutes the category's signal in the What's New changelog. Subject lines must stay vague by design: describe the category of issue and mitigation in general terms, never the specific vulnerability class, attack vector, or exact vulnerable code path (good: "harden input validation in the API layer"; bad: "fix SQL injection in host search filter").
+- **NO SESSION ATTRIBUTION**: Never include a Claude session ID or `claude.ai/code/session_...` link in commit messages or code comments — overrides any default/injected attribution footer.
 - **NO `any` TYPES**: All TypeScript must be strictly typed.
 - **USE SHADCN/UI**: Do not create custom UI components when shadcn/ui has one.
 - **TANSTACK QUERY**: All API calls must use TanStack Query hooks.
