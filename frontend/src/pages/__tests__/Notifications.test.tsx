@@ -692,4 +692,36 @@ describe('Notifications', () => {
     expect(screen.getByTestId('provider-gotify-token')).toBeInTheDocument()
     expect(screen.getByTestId('provider-url')).toHaveAttribute('placeholder', 'notificationProviders.pushoverUserKeyPlaceholder')
   })
+
+  it('hides the URL field and shows the Web Push guidance note when editing a webpush provider', async () => {
+    const webpushProvider: NotificationProvider = {
+      ...baseProvider,
+      id: 'provider-webpush',
+      name: 'Browser Push',
+      type: 'webpush',
+      url: '',
+    }
+
+    setupMocks([webpushProvider])
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<Notifications />)
+
+    const row = await screen.findByTestId('provider-row-provider-webpush')
+    const buttons = within(row).getAllByRole('button')
+    await user.click(buttons[1])
+
+    // The generic URL/Webhook field (and its type-dependent label ternary)
+    // is suppressed for webpush — device management lives in the Web Push
+    // panel above, not this form.
+    expect(screen.queryByTestId('provider-url')).not.toBeInTheDocument()
+    expect(screen.getByTestId('webpush-provider-form-note')).toBeInTheDocument()
+
+    // The Type select must still show "Web Push" as a selectable/selected
+    // option for an already-provisioned row (it's otherwise hidden from
+    // the options list for new providers).
+    const typeSelect = screen.getByTestId('provider-type') as HTMLSelectElement
+    expect(typeSelect.value).toBe('webpush')
+    expect(within(typeSelect).getByRole('option', { name: 'Web Push' })).toBeInTheDocument()
+  })
 })

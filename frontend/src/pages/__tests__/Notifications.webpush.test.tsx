@@ -329,4 +329,87 @@ describe('Notifications - Web Push', () => {
     })
     expect(vi.mocked(notificationsApi.unsubscribeWebPush).mock.calls[0][0]).toBe('sub-1')
   })
+
+  it('defaults the provision name to "Web Push" when left blank', async () => {
+    setSupportsWebPush(true)
+    vi.mocked(notificationsApi.getWebPushVapidPublicKey).mockRejectedValue(notProvisionedError)
+    vi.mocked(notificationsApi.provisionWebPush).mockResolvedValue({
+      id: 'wp-1', name: 'Web Push', type: 'webpush', url: '', enabled: true, has_token: true,
+      notify_proxy_hosts: true, notify_remote_servers: true, notify_domains: true, notify_certs: true,
+      notify_uptime: true, notify_security_waf_blocks: false, notify_security_acl_denies: false,
+      notify_security_rate_limit_hits: false, created_at: '2026-01-01T00:00:00Z',
+    })
+
+    renderWithQueryClient(<Notifications />)
+
+    await screen.findByTestId('webpush-provision-form')
+    await user.clear(screen.getByTestId('webpush-provision-name'))
+    await user.type(screen.getByTestId('webpush-vapid-subject'), 'mailto:admin@example.com')
+    await user.click(screen.getByTestId('webpush-provision-btn'))
+
+    await waitFor(() => {
+      expect(notificationsApi.provisionWebPush).toHaveBeenCalled()
+    })
+    expect(vi.mocked(notificationsApi.provisionWebPush).mock.calls[0][0]).toEqual({ name: 'Web Push', vapid_subject: 'mailto:admin@example.com' })
+  })
+
+  it('does nothing when the subscribe button is clicked before the VAPID key has loaded', async () => {
+    setSupportsWebPush(true)
+    // Never resolves — vapidQuery stays in isLoading, so the subscribe
+    // button (gated on isProvisioned/browserSupported) isn't shown, but
+    // handleSubscribe's own `if (!vapidQuery.data?.vapid_public_key) return;`
+    // guard is what actually protects a race where the button briefly
+    // renders with stale/empty query data.
+    vi.mocked(notificationsApi.getWebPushVapidPublicKey).mockImplementation(() => new Promise(() => {}))
+
+    renderWithQueryClient(<Notifications />)
+
+    expect(await screen.findByTestId('webpush-loading')).toBeInTheDocument()
+    expect(notificationsApi.subscribeWebPush).not.toHaveBeenCalled()
+  })
+
+  it('falls back to empty strings when the browser PushSubscription JSON omits endpoint/keys', async () => {
+    setSupportsWebPush(true)
+    vi.mocked(notificationsApi.getWebPushVapidPublicKey).mockResolvedValue({ vapid_public_key: 'test-vapid-key' })
+    mockPushManager.subscribe.mockResolvedValue({
+      toJSON: () => ({}),
+    })
+    vi.mocked(notificationsApi.subscribeWebPush).mockResolvedValue({ id: 'sub-new', endpoint: '' })
+
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('webpush-subscribe-btn'))
+
+    await waitFor(() => {
+      expect(notificationsApi.subscribeWebPush).toHaveBeenCalled()
+    })
+    expect(vi.mocked(notificationsApi.subscribeWebPush).mock.calls[0][0]).toEqual({
+      endpoint: '',
+      keys: { p256dh: '', auth: '' },
+      user_agent: navigator.userAgent,
+    })
+  })
+
+  it('shows a generic error when the browser subscribe call throws a non-Error value', async () => {
+    setSupportsWebPush(true)
+    vi.mocked(notificationsApi.getWebPushVapidPublicKey).mockResolvedValue({ vapid_public_key: 'test-vapid-key' })
+    mockPushManager.subscribe.mockRejectedValue('boom')
+
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('webpush-subscribe-btn'))
+
+    expect(await screen.findByTestId('webpush-subscribe-error')).toHaveTextContent('Failed to subscribe this device.')
+  })
+
+  it('falls back to the endpoint when a subscription has no user agent', async () => {
+    setSupportsWebPush(true)
+    vi.mocked(notificationsApi.getWebPushVapidPublicKey).mockResolvedValue({ vapid_public_key: 'test-vapid-key' })
+    setupMocks({ subscriptions: [{ ...baseSubscription, user_agent: undefined }] })
+
+    renderWithQueryClient(<Notifications />)
+
+    const row = await screen.findByTestId('webpush-subscription-row-sub-1')
+    expect(within(row).getByText(baseSubscription.endpoint)).toBeInTheDocument()
+  })
 })

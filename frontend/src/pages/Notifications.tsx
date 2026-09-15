@@ -186,7 +186,7 @@ const ProviderForm: FC<{
   };
 
   return (
-    <form onSubmit={handleSubmit((data) => onSubmit(normalizeProviderPayloadForSubmit(data as Partial<NotificationProvider>)))} className="space-y-4">
+    <form onSubmit={handleSubmit((data) => onSubmit(normalizeProviderPayloadForSubmit(data as Partial<NotificationProvider>)))} className="space-y-4" data-testid="provider-form">
       <div>
         <label htmlFor="provider-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')} <span aria-hidden="true">*</span></label>
         <input
