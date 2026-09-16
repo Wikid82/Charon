@@ -43,6 +43,15 @@ frontend/*.tsbuildinfo
 /frontend/.eslintcache
 /backend/.vscode/
 /data/geoip/
+
+# -----------------------------------------------------------------------------
+# Docs site (Docusaurus) - generated content and build output
+# -----------------------------------------------------------------------------
+docs-site/node_modules/
+docs-site/docs/
+docs-site/build/
+docs-site/.docusaurus/
+docs-site/.cache-loader/
 /frontend/frontend/
 
 # -----------------------------------------------------------------------------
