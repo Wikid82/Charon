@@ -27,6 +27,36 @@ npm start
 ```
 
 Starts a local dev server with live reload at `http://localhost:3000/Charon/`.
+The `start` script runs `npm run sync-docs` first (`"start": "npm run
+sync-docs && docusaurus start"` in `package.json`) so the site always
+reflects the current repo-root `docs/` content before the dev server boots.
+
+## Content Sync
+
+```bash
+npm run sync-docs
+```
+
+Runs `scripts/sync-docs.mjs`, which wipes and repopulates `docs-site/docs/`
+from the curated subset of the repo-root `docs/` directory listed in
+`scripts/docs-manifest.json`. It also runs automatically as the first step
+of both `npm start` and `npm run build` (chained via `&&` in `package.json`),
+so you rarely need to invoke it directly — it's idempotent and safe to run
+any time. Never hand-edit files under `docs-site/docs/` directly; they are
+deleted and regenerated on every sync.
+
+### Adding a New Page
+
+1. Add the Markdown file to the repo-root `docs/` directory as normal (this
+   remains the single source of truth for content).
+2. Add its path to `docs-site/scripts/docs-manifest.json` — either to the
+   `"files"` array (a single file, path relative to `docs/`) or the
+   `"directories"` array (an entire subdirectory, migrated as a unit). Only
+   paths listed in this manifest are copied into the site; anything else
+   under `docs/` stays internal/contributor-facing.
+3. Run `npm start` (or `npm run sync-docs`) to pick up the change — the
+   sidebar is auto-generated from whatever lands in `docs-site/docs/`, so no
+   manual sidebar entry is needed.
 
 ## Build
 
