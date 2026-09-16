@@ -476,4 +476,4 @@ If you're still experiencing issues:
 - [Cloudflare Setup](../guides/dns-providers/cloudflare.md)
 - [AWS Route 53 Setup](../guides/dns-providers/route53.md)
 - [DigitalOcean Setup](../guides/dns-providers/digitalocean.md)
-- [Certificate Management](../guides/certificates.md)
+- Certificate Management (guide not yet published)

@@ -26,6 +26,72 @@ function HomepageHeader() {
   );
 }
 
+type StartHereGroup = {
+  title: string;
+  links: {label: string; to: string}[];
+};
+
+const startHereGroups: StartHereGroup[] = [
+  {
+    title: 'Getting Started',
+    links: [
+      {label: 'Getting Started', to: '/docs/getting-started'},
+      {label: 'What Can It Do?', to: '/docs/features'},
+      {label: 'Import Your Old Setup', to: '/docs/import-guide'},
+    ],
+  },
+  {
+    title: 'Security',
+    links: [
+      {label: 'Security Features', to: '/docs/security'},
+      {label: 'Live Logs & Notifications', to: '/docs/live-logs-guide'},
+      {label: 'Testing SSL Certificates', to: '/docs/acme-staging'},
+      {label: 'Migration Guide', to: '/docs/migration-guide'},
+    ],
+  },
+  {
+    title: 'API',
+    links: [
+      {label: 'API Reference', to: '/docs/api'},
+      {label: 'Database Schema', to: '/docs/database-schema'},
+    ],
+  },
+  {
+    title: 'Remote Access',
+    links: [
+      {label: 'Orthrus Tunnel Agent', to: '/docs/features/orthrus'},
+      {label: 'Hecate Agent Manager', to: '/docs/features/hecate'},
+      {label: 'Connecting a Remote Docker Host', to: '/docs/guides/remote-docker-setup'},
+    ],
+  },
+];
+
+function StartHere() {
+  return (
+    <section className={styles.startHere}>
+      <div className="container">
+        <Heading as="h2" className={styles.startHereTitle}>
+          Start Here
+        </Heading>
+        <div className="row">
+          {startHereGroups.map((group) => (
+            <div key={group.title} className="col col--3">
+              <Heading as="h3">{group.title}</Heading>
+              <ul>
+                {group.links.map((link) => (
+                  <li key={link.to}>
+                    <Link to={link.to}>{link.label}</Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Home(): ReactNode {
   const {siteConfig} = useDocusaurusContext();
   return (
@@ -33,6 +99,9 @@ export default function Home(): ReactNode {
       title={siteConfig.title}
       description="Documentation for Charon, a self-hosted reverse proxy manager.">
       <HomepageHeader />
+      <main>
+        <StartHere />
+      </main>
     </Layout>
   );
 }

@@ -109,5 +109,5 @@ Clients can use these headers to implement backoff strategies.
 
 - [Access Control](./access-control.md) — IP-based access restrictions
 - [CrowdSec Integration](./crowdsec.md) — Automatic attacker blocking
-- [Proxy Hosts](./proxy-hosts.md) — Configure rate limits per host
+- Proxy Hosts — Configure rate limits per host (guide not yet published)
 - [Back to Features](../features.md)

@@ -81,5 +81,5 @@ We welcome contributions for:
 ## Related
 
 - [Contributing Translations](../../CONTRIBUTING_TRANSLATIONS.md)
-- [Settings](../getting-started/configuration.md)
+- Settings (guide not yet published)
 - [Back to Features](../features.md)

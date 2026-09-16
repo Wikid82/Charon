@@ -301,8 +301,8 @@ When your certificate approaches expiration:
 For production use with automatic renewal, consider:
 
 - [Supported DNS Providers](dns-providers.md)
-- [Webhook DNS Provider](../features/webhook-dns.md) for custom integrations
-- [RFC 2136 Provider](../features/rfc2136-dns.md) for self-hosted DNS
+- Webhook DNS Provider for custom integrations (guide not yet published)
+- RFC 2136 Provider for self-hosted DNS (guide not yet published)
 
 ### Challenge Timeout
 
@@ -389,7 +389,7 @@ The security of your certificate depends on:
 ## Related Documentation
 
 - [DNS Providers Overview](dns-providers.md)
-- [Certificates Guide](certificates.md)
+- Certificates Guide (guide not yet published)
 - [DNS Challenges Troubleshooting](../troubleshooting/dns-challenges.md)
 - [Custom DNS Plugins](../features/custom-plugins.md)
 

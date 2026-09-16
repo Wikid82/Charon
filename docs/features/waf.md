@@ -86,5 +86,5 @@ For TCP/UDP protection, use [CrowdSec](./crowdsec.md) or network-level firewalls
 
 - [CrowdSec Integration](./crowdsec.md) — Behavioral threat detection
 - [Access Control](./access-control.md) — IP and geo-based restrictions
-- [Proxy Hosts](./proxy-hosts.md) — Configure WAF per host
+- Proxy Hosts — Configure WAF per host (guide not yet published)
 - [Back to Features](../features.md)

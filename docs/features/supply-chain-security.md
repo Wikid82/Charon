@@ -143,6 +143,6 @@ These artifacts support compliance requirements:
 
 ## Related
 
-- [Security Hardening](security-hardening.md) - Runtime security features
-- [Coraza WAF](coraza-waf.md) - Application firewall
+- Security Hardening - Runtime security features (guide not yet published)
+- [Application Firewall (WAF)](waf.md) - Application firewall
 - [Back to Features](../features.md)

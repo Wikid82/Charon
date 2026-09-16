@@ -74,8 +74,6 @@ Control your security modules with a single click. The Security Dashboard provid
 - **Optimistic UI** — Toggle changes reflect instantly with automatic rollback on failure
 - **Performance Optimized** — 60-second cache layer minimizes database queries in middleware
 
-→ [Learn More](features/security-dashboard.md)
-
 ---
 
 ### 🕵️ CrowdSec Integration
@@ -255,15 +253,11 @@ Migrating from another Caddy setup? Import your existing Caddyfile configuration
 
 Migrating from Nginx Proxy Manager? Import your proxy host configurations directly from NPM export files. Charon parses your domains, upstream servers, SSL settings, and access lists, giving you a preview before committing.
 
-→ [Learn More](features/npm-import.md)
-
 ---
 
 ### 📄 JSON Configuration Import
 
 Import configurations from generic JSON exports or Charon backup files. Supports both Charon's native export format and Nginx Proxy Manager format with automatic detection. Perfect for restoring backups or migrating between Charon instances.
-
-→ [Learn More](features/json-import.md)
 
 ---
 

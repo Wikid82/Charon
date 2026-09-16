@@ -21,3 +21,12 @@
   align-items: center;
   justify-content: center;
 }
+
+.startHere {
+  padding: 2rem 0 4rem;
+}
+
+.startHereTitle {
+  text-align: center;
+  margin-bottom: 2rem;
+}
