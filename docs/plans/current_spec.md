@@ -1,8 +1,9 @@
-# Technical Spec — Web Push Notification Provider (go_notify_yourself v0.3.0)
+# Technical Spec: Migrate Charon Docs to a Docusaurus Site
 
-**Status:** Draft for review
-**Scope model:** ONE feature = ONE PR, delivered as an ordered sequence of logical commits (see [§9 Commit Slicing Strategy](#9-commit-slicing-strategy)). No PR splitting.
-**Branch:** `development` (per `CLAUDE.md`: no worktrees, work on the current working branch).
+**Status:** Draft — pending Supervisor review and user approval
+**Author:** Planning agent
+**Date:** 2026-09-16
+**Related:** `CLAUDE.md` (Commit Slicing & PR Strategy), `ARCHITECTURE.md` (Directory Structure, Deployment Architecture)
 
 ---
 
@@ -10,1066 +11,556 @@
 
 ### 1.1 Overview
 
-`go_notify_yourself` v0.3.0 (released, local clone verified at tag `v0.3.0`,
-commit `9411a45`) adds a `providers/webpush` package implementing direct
-browser Web Push (RFC 8030 transport, RFC 8291 payload encryption, RFC 8292
-VAPID JWT auth) — no third-party relay. Charon currently pins v0.2.2.
+Charon's user-facing documentation currently lives as plain Markdown in `docs/` at
+the repo root, alongside a large body of internal, agent/contributor-facing
+working documents (`docs/plans/`, `docs/reports/`, `docs/reviews/`, etc.). The
+only public presentation layer today is `.github/workflows/docs.yml`, which
+runs a hand-rolled `marked`-based Markdown→HTML converter
+(`.github/pages/build-docs.sh`) against `docs/` and deploys the result to
+GitHub Pages at `https://wikid82.github.io/Charon/`.
 
-This feature adds Web Push as a ninth notification provider type so a
-Charon admin can receive host-down/cert-expiry/security-event alerts as
-native OS/browser push notifications, without installing a
-Telegram/Discord/Pushover account. It requires:
+This plan replaces that hand-rolled pipeline with a proper static-site
+generator — [Docusaurus](https://docusaurus.io/) (TypeScript template) — living
+in a new top-level `docs-site/` directory, with its own Node project,
+dependency-update coverage, and GitHub Actions deploy workflow. The existing
+`docs/` directory is **not** touched in its layout or purpose: it remains the
+single source of truth for both user-facing and internal-only documentation.
+A repo-root build script copies the subset of `docs/` that is user-facing into
+`docs-site/docs/` at build time — nothing is hand-duplicated or manually kept
+in sync.
 
-1. Bumping `go.mod` to `go_notify_yourself v0.3.0`.
-2. A data model resolving Web Push's one-VAPID-identity-to-N-subscriptions
-   shape against Charon's existing one-row-per-destination
-   `NotificationProvider` table.
-3. New backend endpoints for VAPID public-key distribution and subscription
-   lifecycle (register/unregister), wired through the existing
-   authenticated `management` route group.
-4. A frontend service worker + subscribe/unsubscribe UI in `Notifications.tsx`.
-5. Allowlist wiring through every gate `notification_service.go` already
-   enforces per provider type (blank import, supported-type switch,
-   dispatch-enabled feature flag, JSON-template support, config-field
-   mapping).
+### 1.2 Objectives
 
-### 1.2 Objectives / Goals
-
-1. An admin can enable Web Push from the Notifications page, generating (or
-   using an existing) app-wide VAPID identity with zero manual key entry.
-2. An admin's browser can subscribe/unsubscribe independently per
-   device/browser profile; multiple admins/devices can hold independent
-   subscriptions simultaneously.
-3. `SendExternal` fans a single logical notification out to every active
-   subscription under the Web Push provider row, respecting the same
-   per-event-type preference toggles (`NotifyProxyHosts`, `NotifyCerts`,
-   etc.) every other provider type already has.
-4. A subscription the push service reports as dead (404/410) is pruned
-   automatically on next send, without operator intervention.
-5. No behavior change to any of the other 8 provider types.
-6. Full Definition of Done passes: 85% coverage, staticcheck clean, E2E
-   specs for the new flow, type-check clean, GORM security scan clean
-   (new model + migration).
+1. Stand up `docs-site/` as an independent Docusaurus (TypeScript) project that builds a browsable, searchable documentation site from a curated subset of `docs/`.
+2. Establish `docs/` → `docs-site/docs/` as a one-directional, scripted copy step (not a second hand-maintained copy) so there is exactly one authored source of truth per file.
+3. Wire `docs-site/` into `scripts/charon_dep_update.sh`'s `NPM_MODULES` array so its dependencies get the same automated update/audit/build/type-check treatment as `frontend/` and the repo root.
+4. Replace the existing ad hoc `docs.yml` GitHub Pages pipeline with a new workflow that builds and deploys `docs-site/` to GitHub Pages on merges to `main`, following this repo's existing CI conventions (pinned actions by SHA, pinned `NODE_VERSION`, `concurrency` groups, emoji step names, etc.).
+5. Cross-link the deployed docs site from `README.md` (replacing the now-stale link) without disturbing the internal `docs/` directory's own navigation (`docs/index.md` stays as-is; it documents the internal tree, not the public site).
+6. Leave `ARCHITECTURE.md` update as a flagged, explicitly-assigned follow-up step (for `docs-writer`), not written by this plan.
 
 ### 1.3 Non-Goals
 
-- No push-notification support for anonymous/unauthenticated visitors —
-  subscriptions are created by an authenticated Charon user's browser only
-  (see §3.6 auth model).
-- No mobile app / native push (APNs/FCM SDK) — this is purely W3C Push API
-  in a browser context, which is what `providers/webpush` implements.
-- No UI for editing an individual subscription's delivery hints (TTL,
-  Urgency, Topic) — Charon sets sane fixed defaults; only VAPID identity
-  and per-event-type preferences are admin-configurable, consistent with
-  how other providers expose no per-message delivery-hint UI either.
-- No automated VAPID key rotation UI in this PR (see §7 Risks — flagged as
-  a documented follow-up, not silently deferred).
+- No changes to `docs/`'s existing internal-only subdirectories (`plans/`, `reports/`, `reviews/`, `analysis/`, `decisions/`, `issues/`, `superpowers/`, `runbooks/`, `patches/`, `testing/`, `development/`, `ci/`, `actions/`, `maintenance/`, `performance/`, `implementation/`) — these stay exactly where they are and are excluded from the site.
+- No changes to `frontend/` (the Charon web app). `docs-site/` is a separate, independent Node/TypeScript project for documentation publishing — see §1.4 for why this does not violate the "Single Frontend Source" rule.
+- No search backend (Algolia DocSearch, etc.) is configured in this pass — local Docusaurus search (`@easyops-cn/docusaurus-search-local` or the built-in offline search) is sufficient for launch and avoids an external service dependency, consistent with Charon's "no external dependencies" ethos. A follow-up can add hosted search later if desired.
+- No versioned-docs (Docusaurus `docs-versioned` multi-version) setup. Charon ships one current version; a single `current` docs version is sufficient.
+- No i18n/localization of the docs site in this pass (the app itself has i18next; the docs site starts English-only).
+
+### 1.4 Why `docs-site/` Does Not Violate "Single Frontend Source"
+
+`CLAUDE.md`'s rule reads: *"All frontend code MUST reside in `frontend/`. NEVER
+create `backend/frontend/` or any other nested frontend directory."* That rule
+governs Charon's **application** frontend — the React/TypeScript SPA that the
+Go backend serves and that end users interact with when managing their proxy
+(`internal/server`'s `attachFrontend`, built via Vite, mounted into the
+binary). `docs-site/` is not that: it is a separate, static **documentation**
+website, built and deployed independently via GitHub Pages, never bundled into
+the Charon Docker image, never served by `internal/server`, and never linked
+into the `frontend/dist` build output. It has no relationship to the
+single-binary + static-assets deployment model described in
+`ARCHITECTURE.md`'s Overview and Deployment Architecture sections. Treating
+"frontend" in that rule as "any directory containing a package.json and
+TypeScript" would also outlaw tooling directories the repo already accepts
+implicitly (e.g. root `package.json` for Playwright/lint tooling). The rule's
+intent — preventing a second, competing copy of the *app* UI — is preserved:
+there is exactly one `frontend/` and it is unaffected by this change.
+
+`ARCHITECTURE.md`'s Directory Structure section should be updated to list
+`docs-site/` alongside `backend/` and `frontend/` once this lands (see §6,
+Commit 5 — flagged for `docs-writer`, not written here).
 
 ---
 
 ## 2. Research Findings
 
-### 2.1 `go_notify_yourself` v0.3.0 — `providers/webpush`
+### 2.1 Existing `docs/` Structure (as of this plan)
 
-Verified directly against the local clone (`/projects/go_notify_yourself`,
-tag `v0.3.0`):
+Top-level files in `docs/` (39 files) and directories, classified below.
+Directories confirmed via `find docs -maxdepth 2`.
 
-- **`webpush.Config`** (`providers/webpush/webpush.go`) mixes two field
-  groups in one struct, confirmed by the package doc comment:
-  - VAPID **application identity** (shared across every subscriber):
-    `VAPIDPublicKey`, `VAPIDPrivateKey`, `VAPIDSubject` (all
-    base64url-no-padding strings; `VAPIDSubject` must be `mailto:` or
-    `https:` prefixed).
-  - One subscriber's **destination** (per browser/device):
-    `Endpoint`, `P256dh`, `Auth` — the three fields of a browser
-    `PushSubscription`.
-  - Delivery hints: `TTL` (int, seconds; 0 → `DefaultTTL` = 4 weeks),
-    `Urgency` (`"very-low"|"low"|"normal"|"high"`, optional), `Topic`
-    (≤32 URL-safe base64 chars, optional).
-  - Payload templating: `Template`/`CustomTemplate` — same
-    minimal/detailed/custom convention as every other JSON-payload
-    provider (`providers/internal/render`).
-- **`webpush.Client`** (`New(cfg Config, w *transport.Wrapper) *Client`)
-  implements `notify.Sender` (`Send(ctx, Message) error`) **unchanged** —
-  confirmed via `var _ notify.Sender = (*Client)(nil)` in `webpush.go`. The
-  package doc comment states the intended fan-out pattern explicitly: *"a
-  host application fanning a Message out to many subscribers constructs one
-  `*Client` per subscription (cheap: New does no I/O) and calls Send on
-  each, exactly like fanning out to many Sender values of any other
-  provider type."* This resolves the open design question from project
-  memory — no new interface shape is needed.
-- **`webpush.GenerateVAPIDKeyPair() (publicKey, privateKey string, err error)`**
-  (`providers/webpush/vapid.go`) generates a P-256 keypair, base64url
-  (no padding) encoded, matching `Config.VAPIDPublicKey`/`VAPIDPrivateKey`.
-  Its doc comment is explicit: *"Intended to be called once at application
-  setup time... every existing PushSubscription is bound to the exact
-  public key it was created with... rotating this keypair invalidates every
-  existing subscription."* — this is the authoritative confirmation that
-  VAPID identity is app-wide and effectively-immutable-in-practice, driving
-  the singleton design in §3.2.
-- **Registration** (`providers/webpush/register.go`) follows the identical
-  `init()` → `notify.Register("webpush", factory)` pattern as every other
-  provider (compared directly against `providers/pushover/register.go`).
-  Expected config keys, read from the factory: `transport` (required,
-  `*transport.Wrapper`), `vapid_public_key`, `vapid_private_key`,
-  `vapid_subject`, `endpoint`, `p256dh`, `auth` (all required strings),
-  `ttl` (optional int), `urgency`, `topic`, `template`, `custom_template`
-  (optional strings). Registered name is `"webpush"` (lowercase, no
-  underscore) — `docs/INTEGRATION.md` §3.6 in the module repo calls this
-  out explicitly as a naming convention every provider must follow.
-- **Dead-subscription signal — important gap found in research, not in the
-  task brief's assumptions:** `transport.Wrapper.Send`
-  (`transport/wrapper.go` line ~223) returns errors for non-2xx responses
-  as a **plain formatted string**:
-  `fmt.Errorf("provider returned status %d: %s", resp.StatusCode, hint)` —
-  there is **no typed/sentinel error** (no `StatusError` type, no
-  `errors.Is`-compatible marker) anywhere in `transport/` or `webpush/`.
-  Detecting a 404/410 "subscription gone" signal (the standard Web Push
-  convention for "prune this subscription") therefore requires parsing the
-  numeric status code out of that formatted string on the Charon side —
-  this is called out explicitly as a design risk in §7 and a required
-  implementation detail in §3.5, since it was not something the task brief
-  could confirm without reading `transport/wrapper.go` directly.
-- `docs/INTEGRATION.md` (module repo) §"webpush" gives a worked example:
-  `sender := webpush.New(webpush.Config{...}, wrapper)`, looping
-  `for host, sub := range subscribers`, logging (not swallowing) each
-  `Send` error independently — confirming per-subscription error isolation
-  is the intended fan-out contract, not "abort on first failure."
+**User-facing / operator-facing (candidates for migration):**
 
-### 2.2 Charon's current notification-provider architecture
+| Path | Notes |
+|---|---|
+| `docs/getting-started.md` | Explicitly named in scope by user |
+| `docs/features.md` | Explicitly named in scope |
+| `docs/features/*.md` (30 files: `access-control.md`, `api.md`, `audit-logging.md`, `backup-remote-oauth-setup.md`, `backup-restore.md`, `caddyfile-import.md`, `crowdsec.md`, `custom-plugins.md`, `disaster-recovery.md`, `dns-autodetection.md`, `dns-auto-detection.md`, `dns-challenge.md`, `dns-providers.md`, `docker-integration.md`, `hecate.md`, `key-rotation.md`, `live-reload.md`, `localization.md`, `logs.md`, `multi-credential.md`, `notifications.md`, `orthrus.md`, `plugin-security.md`, `proxy-headers.md`, `rate-limiting.md`, `security-headers.md`, `security.md`, `ssl-certificates.md`, `supply-chain-security.md`, `ui-themes.md`, `uptime-monitoring.md`, `user-accounts.md`, `waf.md`, `websocket.md`, `web-ui.md`) | Per-feature user docs; `docs/index.md` already links two of these (`features/orthrus.md`, `features/hecate.md`) as public pages |
+| `docs/configuration/emergency-setup.md` | Explicitly named in scope (dir) |
+| `docs/guides/*.md` + `docs/guides/dns-providers/*.md` (`crowdsec-setup.md`, `dns-providers.md`, `local-key-management.md`, `manual-dns-provider.md`, `remote-docker-setup.md`, `supply-chain-security-developer-guide.md`, `supply-chain-security-user-guide.md`, plus `dns-providers/{azure-dns,cloudflare,digitalocean,google-cloud-dns,route53}.md`) | Explicitly named in scope (dir) |
+| `docs/security.md` | Explicitly named in scope |
+| `docs/troubleshooting/*.md` (`crowdsec.md`, `dns-challenges.md`, `e2e-tests.md`, `go-gopls.md`, `proxy-headers.md`, `react-production-errors.md`, `websocket.md`) | Explicitly named in scope (dir) — see note below on `e2e-tests.md`/`go-gopls.md` |
+| `docs/api.md` | Explicitly named in scope |
+| `docs/api/DNS_DETECTION_API.md` | Sibling of `api.md`; developer/integration-facing, same audience |
+| `docs/migration-guide.md` | Explicitly named in scope |
+| `docs/database-schema.md` | Explicitly named in scope |
+| `docs/import-guide.md` | Explicitly named in scope |
+| `docs/live-logs-guide.md` | Explicitly named in scope |
+| `docs/acme-staging.md` | Operator-facing ("Testing SSL Certificates", linked from `docs/index.md`) |
+| `docs/cerberus.md` | Operator-facing security suite overview, linked from `docs/index.md`'s spirit (security section) |
+| `docs/database-maintenance.md` | Operator-facing maintenance task |
+| `docs/crowdsec-auto-start-quickref.md` | Operator-facing quick reference |
+| `docs/migration-guide-crowdsec-auto-start.md` | Operator-facing migration doc, same family as `migration-guide.md` |
+| `docs/security-incident-response.md` | Operator-facing ("what do I do if I'm breached") — distinct from the internal `docs/runbooks/` |
 
-- **`models.NotificationProvider`** (`backend/internal/models/notification_provider.go`)
-  is a flat GORM row = one destination. `Type` discriminates row meaning;
-  `URL`/`Token` are repurposed per type (see mapping table below). Also
-  carries `ServiceConfig string` — **a JSON-blob column already present on
-  the model, tagged `// JSON blob for typed service config`, and currently
-  unused by any provider type** (`grep` across `internal/` found zero other
-  references). This is the designed escape hatch for a provider whose
-  config doesn't fit the URL/Token shape — see §3.2 for why Web Push uses
-  it instead of adding new columns.
-- Per-type field mapping (`notify_provider_adapter.go`
-  `providerConfigMap`, read directly from source, not inferred):
+**Judgment calls (bias toward keeping internal, listed for visibility):**
 
-  | Type | `URL` column | `Token` column (never exposed, `json:"-"`) |
-  |---|---|---|
-  | discord | webhook URL | — |
-  | slack | (unused placeholder) | webhook URL |
-  | gotify | server URL | API token |
-  | pushover | user key | API token |
-  | ntfy | topic URL | auth token |
-  | telegram | chat ID | bot token |
-  | webhook/generic | target URL | — |
+| Path | Decision | Reasoning |
+|---|---|---|
+| `docs/troubleshooting/e2e-tests.md`, `docs/troubleshooting/go-gopls.md` | **Migrate** (dir was explicitly named in scope wholesale; splitting the dir adds sync complexity for two files) | Slightly contributor-leaning content, but low harm being public, and user asked to migrate `troubleshooting/` as a unit |
+| `docs/debugging-local-container.md` | **Stay in `docs/`** | Contributor/dev-environment debugging, not an operator running the shipped binary |
+| `docs/github-setup.md` | **Stay in `docs/`** | Repo/CI setup for contributors, not product docs |
+| `docs/i18n-examples.md` | **Stay in `docs/`** | Translator/contributor pattern examples, not end-user material |
+| `docs/SECURITY_PRACTICES.md` | **Stay in `docs/`** | Internal engineering security practices (parallel to root `SECURITY.md`), distinct from the public `docs/security.md` |
+| `docs/stats_feature_warmup.md` | **Stay in `docs/`** | Reads as an internal implementation note, not user guidance |
+| `docs/security/*.md` (`ghsa-*-options.md`, `vulnerability-analysis-*.md`) | **Stay in `docs/`** | Internal vulnerability-analysis working notes, not the public `security.md` |
+| `docs/maintenance/`, `docs/performance/`, `docs/implementation/` | **Stay in `docs/`** | Not in the user's explicit migrate list; read as internal engineering/ops dirs (diagnostics, implementation notes). Flag for a human/`docs-writer` follow-up pass in case any single file inside warrants promotion later. |
 
-- **Dispatch fan-out today is one row = one `notify.Sender` = one goroutine**
-  (`notification_service.go` `SendExternal`, confirmed at the `for _,
-  provider := range providers { ... go s.dispatchViaNotify(...) }` loop —
-  each provider row gets exactly one `buildNotifySender` call and one
-  `Send`). Web Push breaks this 1:1 assumption; §3.5 defines the new
-  fan-out shape.
-- **Allowlist gates that must be extended for `webpush`** (all confirmed by
-  direct read, not assumed from the task brief):
-  - `notify_providers_import.go` — blank-import list; comment explicitly
-    states it is kept in sync by hand with
-    `isSupportedNotificationProviderType`, guarded by
-    `notification_service_registry_consistency_test.go`
-    (`TestSupportedProviderAllowlistIsSubsetOfRegisteredTypes`), which
-    **must** gain `"webpush"` in its literal `supportedTypes` slice.
-  - `notification_service.go`:
-    - `isSupportedNotificationProviderType` (line ~136) — add `"webpush"`.
-    - `isDispatchEnabled` (line ~145) — add a `"webpush"` case reading a
-      new `FlagWebPushServiceEnabled` flag.
-    - `supportsJSONTemplates` (line ~127) — **decision: add `"webpush"`**.
-      Web Push payload is JSON (encrypted client-side by the module, but
-      the plaintext the admin/Charon controls via `Template`/
-      `CustomTemplate` is JSON, exactly like every other
-      `supportsJSONTemplates` type) — confirmed by `webpush.Config`'s
-      `Template string` field using the identical
-      `providers/internal/render` convention.
-    - `SendExternal` (line ~212) — the per-event-type `shouldSend` switch
-      needs no changes (it already switches on `eventType`, not provider
-      type); the dispatch loop needs a new branch for `webpush` (see §3.5)
-      analogous to the existing `email` special-case branch
-      (`dispatchEmailViaNotify`), since webpush also cannot go through the
-      generic single-`Sender`-per-row `dispatchViaNotify` unmodified.
-  - `notification_feature_flags.go` — add
-    `FlagWebPushServiceEnabled = "feature.notifications.service.webpush.enabled"`.
-  - `notify_provider_adapter.go` — `providerConfigMap`'s switch does **not**
-    gain a `webpush` case (Web Push's per-subscription config is built
-    per-subscription in the new dispatch path, not via the generic
-    single-row `buildNotifySender` — see §3.5). `resolveTemplateFields` is
-    reused unchanged (webpush respects the same
-    minimal/detailed/custom + legacy-detailed-template translation as every
-    other JSON provider).
-  - `notify_client_adapter.go` — **no changes needed.** The shared
-    `*transport.Wrapper` (`NewNotifyTransportWrapper`) is provider-agnostic;
-    its `notifyURLValidator` wraps `security.ValidateExternalURL`, confirmed
-    by reading `internal/security/url_validator.go` to have **no
-    provider-specific host allowlist** — only scheme (`https` required
-    outside dev), hostname format, and private-IP/localhost blocking. This
-    matters because Web Push endpoints are on arbitrary, unpredictable push
-    -service hosts (`fcm.googleapis.com`, `updates.push.services.mozilla.com`,
-    `*.notify.windows.com`, etc., varying per browser vendor) — unlike
-    Discord's fixed-host validation, no new host allowlist is needed or
-    possible to maintain.
-- **Auth model**: `backend/internal/api/routes/routes.go` line ~372-373:
-  `management := protected.Group("/"); management.Use(middleware.RequireManagementAccess())`
-  — every existing notification-provider route
-  (`/notifications/providers*`) sits under this authenticated group. The
-  new VAPID-public-key and subscription endpoints will sit under the same
-  group (§3.6) — these are **not** anonymous/public endpoints; Web Push in
-  Charon is "the logged-in admin's own browser opts in to receiving this
-  instance's alerts," not a public subscription surface.
-- **`c.Get("userID")`** is the established convention
-  (`internal/api/middleware/auth.go`, confirmed via grep across
-  `internal/api/middleware/*_test.go`) for retrieving the authenticated
-  user inside a handler — used to scope a `WebPushSubscription` row to the
-  user who created it (§3.2), enabling per-user unsubscribe-my-own-device
-  semantics without a new authorization concept.
-- **Migration registration**: `internal/api/routes/routes.go`
-  `db.AutoMigrate(...)` (line ~112) lists every persistent model
-  explicitly, most recently `models.BackupJob{}`. The new
-  `models.WebPushSubscription{}` must be added here (models are listed in
-  FK-dependency order — `WebPushSubscription` has an FK to
-  `NotificationProvider`, so it can be added anywhere after that model,
-  which is already present at line ~125).
-- **Singleton-row precedent**: `models.SecurityConfig`
-  (`internal/models/security_config.go`) is Charon's existing "one global
-  config row" pattern — single table, one seeded row
-  (`models.SeedDefaultSecurityConfig`, called unconditionally on every
-  startup in `routes.go`), sensitive field excluded from JSON
-  (`BreakGlassHash string json:"-"`). This is the direct precedent for how
-  Web Push's VAPID private key should never leave the backend (§3.2) —
-  reusing `NotificationProvider.Token`'s existing `json:"-"` contract
-  rather than inventing a new pattern.
-- **No existing PWA/service-worker infrastructure** in `frontend/`
-  (confirmed: no `sw.js`, no `vite-plugin-pwa`, no `workbox` reference
-  anywhere in `frontend/`). The service worker file and its registration
-  are a greenfield addition (§3.7).
-- **Frontend provider-type list**
-  (`frontend/src/api/notifications.ts` line 3):
-  `SUPPORTED_NOTIFICATION_PROVIDER_TYPES = ['discord', 'gotify', 'webhook',
-  'email', 'telegram', 'slack', 'pushover', 'ntfy']` — needs `'webpush'`
-  appended, plus a `SupportedNotificationProviderType` type-narrowing
-  update, mirrored in `Notifications.tsx`'s `isSupportedProviderType`/
-  `normalizeProviderType` helpers (both derive from the same const, so no
-  separate list to maintain there).
+**Confirmed internal-only, explicitly named by the user (unchanged, not re-litigated):**
+`docs/plans/`, `docs/reports/`, `docs/reviews/`, `docs/analysis/`, `docs/decisions/`, `docs/issues/`, `docs/superpowers/`, `docs/runbooks/`, `docs/patches/`, `docs/testing/`, `docs/development/`, `docs/ci/`, `docs/actions/`.
+
+`docs/index.md` itself **stays in `docs/`** unmigrated — it is the nav page for
+the *internal* tree (mixes links to internal and public docs). The Docusaurus
+site gets its own generated landing page (`docs-site/src/pages/index.tsx`,
+scaffolded by the template) plus an `intro`/overview doc, not a copy of
+`docs/index.md`.
+
+### 2.2 Sync Mechanism Decision: Scripted Copy, `docs/` Remains Source of Truth
+
+**Decision: `docs/` remains the single source of truth. `docs-site/docs/` is a
+build-time, scripted, git-ignored copy — never hand-edited, never committed.**
+
+Rationale:
+- A manually-duplicated second copy (both directories committed and hand-kept-in-sync) has the classic two-masters problem: nothing enforces that an editor of one updates the other, and CI has no mechanism to catch drift short of a diff-check gate on every PR. That is extra process for zero benefit here.
+- A copy-and-commit-generated-copy approach (script runs, output committed) still risks a contributor editing `docs-site/docs/*.md` directly and the change silently not round-tripping back to `docs/`.
+- A build-time copy that is **not committed** (git-ignored, regenerated by both the local dev script and CI before every build) has exactly one edit location (`docs/`), and Docusaurus's local dev server (`npm start`) picking up live edits requires only that the copy script also be runnable in watch/pre-dev context (see §3.3).
+- Docusaurus's build pipeline is filesystem-driven (it reads whatever is in the configured `docs` dir at `docusaurus.config.ts`'s `presets[0].docs.path`, default `docs`), so pointing it at a git-ignored, freshly-populated `docs-site/docs/` directory is a supported, idiomatic pattern (equivalent to a generated `dist/` or `build/` directory) — no Docusaurus plugin fork or custom loader is required.
+
+Mechanism:
+- New script `docs-site/scripts/sync-docs.mjs` (Node, no new runtime dependency — uses `node:fs`, `node:path`) that:
+  1. Reads an explicit allowlist of source paths from `docs-site/scripts/docs-manifest.json` (the file/dir list in §2.1's "user-facing" table — an explicit allowlist, not a glob-exclude of the internal dirs, so that a newly-added internal dir under `docs/` is safe-by-default and never leaks into the public site without a deliberate manifest edit).
+  2. Recursively copies each allowlisted path from `docs/<path>` into `docs-site/docs/<path>` (mirroring the relative structure, e.g. `docs/features/orthrus.md` → `docs-site/docs/features/orthrus.md`), stripping nothing — Docusaurus consumes standard Markdown + optional frontmatter directly, and the existing YAML frontmatter style already seen in `docs/index.md` (`title`, `description`) is exactly what Docusaurus's `docs` plugin expects for page metadata, so files migrate with zero content rewriting in the common case.
+  3. Deletes and recreates `docs-site/docs/` on every run (idempotent, no stale-file accumulation when a file is removed from the manifest).
+  4. Exits non-zero with a clear message if a manifest path does not exist under `docs/` (catches typos/renames early rather than silently producing a thinner site).
+- `docs-site/package.json` scripts:
+  - `"presync": "node scripts/sync-docs.mjs"` is **not** used (npm's implicit pre-hooks only fire for a matching script name, not arbitrary scripts); instead `"sync-docs": "node scripts/sync-docs.mjs"` is explicit, and both `"start"` and `"build"` are wrapped: `"start": "npm run sync-docs && docusaurus start"`, `"build": "npm run sync-docs && docusaurus build"`. This guarantees the copy is always fresh before either a local preview or a CI build, with no separate manual step to forget.
+- `docs-site/docs/` (the generated copy) is added to `.gitignore` (see §5) — it must never be committed, exactly like `frontend/dist/`.
+
+### 2.3 Existing GitHub Pages Pipeline (Must Be Retired)
+
+`.github/workflows/docs.yml` currently:
+- Triggers on `workflow_run` completion of "Docker Build, Publish & Test" (on `main`) plus manual `workflow_dispatch`.
+- Uses `NODE_VERSION: '24.21.0'`, pinned `actions/checkout@3d3c42e5...` (v7), pinned `actions/setup-node@820762786026...` (v7).
+- Runs `npm install -g marked` then `bash .github/pages/build-docs.sh`, which hand-renders `README.md` + `docs/**/*.md` (frontmatter-aware) into `_site/`, wraps pages with nav/SEO/OG tags, rewrites paths, emits `sitemap.xml`/`robots.txt`, and copies a hand-authored `.github/pages/docs-index.html` landing page.
+- Uploads via `actions/upload-pages-artifact@fc324d35...` (v5) and deploys via `actions/deploy-pages@368f8252...` (v5.0.1) to the `github-pages` environment, permissions `contents: read`, `pages: write`, `id-token: write`.
+- Deployed site is linked from `README.md:136`: `https://wikid82.github.io/Charon/docs/getting-started.html`.
+
+**This pipeline must be retired, not left running in parallel.** GitHub Pages
+serves one live site per repo from the `github-pages` deployment environment;
+running both `docs.yml` and a new Docusaurus deploy workflow would race to
+deploy on every push to `main`, non-deterministically clobbering each other
+(whichever job's `deploy-pages` step lands last wins), and would leave two
+divergent copies of "the docs" (marked's flat HTML render vs. Docusaurus's
+site) both partially live depending on timing. There is no reasonable
+"transition period" here — GitHub Pages doesn't support two concurrent sites
+from one repo without path-based sharding, which is not worth the complexity
+for a docs site with one obvious owner going forward. `docs.yml`,
+`.github/pages/build-docs.sh`, and `.github/pages/docs-index.html` are deleted
+in the same PR that introduces the new deploy workflow (§4.4, Commit 4) so
+there is never a window with two live deploy paths.
+
+### 2.4 Repo Conventions Confirmed
+
+- **Node version pin**: `NODE_VERSION: '24.21.0'` is the repo-wide convention (`docs.yml`, `docs-to-issues.yml`, `quality-checks.yml`). `docs-site/` follows the same pin, both in its new workflow's `env:` block and (see §3.2) implicitly via `engines` in `package.json` for local-dev clarity.
+- **Action pinning**: All third-party actions pinned by full commit SHA with a trailing `# vX` comment (`actions/checkout@3d3c42e...  # v7`, `actions/setup-node@820762786026...  # v7`, `actions/upload-pages-artifact@fc324d35...  # v5`, `actions/deploy-pages@368f82528645...  # v5.0.1`). The new workflow reuses these exact pins (same major versions already vetted in this repo) rather than introducing new ones.
+- **`audit:ci` pattern**: Both `package.json` (root) and `frontend/package.json` define `"audit:ci": "audit-ci --config ./audit-ci.json"`, each with a sibling `audit-ci.json` (`{"$schema": ..., "high": true, "allowlist": []}`). `charon_dep_update.sh`'s `update_npm()` calls `npm run audit:ci` unconditionally for every `NPM_MODULES` entry (`rm -rf node_modules package-lock.json && npm install && npm dedupe && npm run --if-present build && npm run --if-present type-check && npm run audit:ci`) — note `audit:ci` is **not** `--if-present` gated, so `docs-site/package.json` **must** define it or the update script hard-fails on that module. `docs-site/` gets its own `audit-ci.json` (root's is empty-allowlist `high: true`; docs-site starts the same — no known findings to allowlist yet).
+- **`build`/`type-check` are `--if-present`-gated** in the update script, so they're optional for correctness, but the plan defines both anyway (`docusaurus build`, `tsc --noEmit`) since Docusaurus's TS template ships a `tsconfig.json` and both scripts are cheap, high-value CI/update-time checks.
+- No `.nvmrc` exists at repo root or in `frontend/`; Node version is carried entirely via each workflow's `env.NODE_VERSION` and (for local dev) documented in each project's README/CLAUDE.md — `docs-site/` follows this pattern rather than introducing a new `.nvmrc` convention.
+- `.gitignore` already has a "Docs & Plans" section (lines 7–11) for specific internal working files, and a general `node_modules/` + per-package `frontend/node_modules/`, `backend/node_modules/`, `frontend/dist/` pattern (lines 34–37, 81) — `docs-site/` additions follow the same per-package explicit-path style rather than relying on the blanket `node_modules/` alone (defense in depth, matches existing style).
 
 ---
 
 ## 3. Technical Specifications
 
-### 3.1 The one-to-many resolution (central design decision)
+### 3.1 Directory Structure for `docs-site/`
 
-**Decision: Option (a) from the task brief — a single `NotificationProvider`
-row (`Type = "webpush"`) holds the VAPID application identity, and a new
-child table `WebPushSubscription` holds each browser's destination,
-FK'd to that provider row.**
+Docusaurus's official TypeScript classic template (`npx create-docusaurus@latest docs-site classic --typescript`), scaffolded then adapted:
 
-Rejected alternative (Option b, "some other shape" — e.g. a fully separate
-top-level model/dispatch path decoupled from `NotificationProvider`):
-rejected because it would require duplicating every piece of
-`NotificationProvider`-keyed machinery Web Push still legitimately needs —
-`Enabled` toggle, the six `NotifyXxx` per-event-type preference booleans,
-`Name`, the `SendExternal` dispatch-loop membership, the
-`isDispatchEnabled`/feature-flag gate, and the provider list/delete UI
-pattern. None of that is Web-Push-specific; only the "one row, N
-destinations" shape is. Keeping Web Push as a `NotificationProvider` row
-lets 90% of the existing dispatch/preferences/allowlist machinery apply
-unchanged, isolating the actually-novel part (fan-out over subscriptions)
-to one new function (§3.5).
-
-**Singleton constraint**: exactly one `Type = "webpush"` row may exist at a
-time. This mirrors `GenerateVAPIDKeyPair`'s own documented invariant (§2.1):
-rotating the VAPID keypair invalidates every existing subscription, so
-"multiple Web Push provider rows" would either mean multiple independent
-VAPID identities (which the UI has no reason to expose — there is exactly
-one Charon instance and one set of admin browsers) or be nonsensical
-duplicate identities. No other provider type has this constraint today;
-this is a deliberate, documented deviation from the generic
-create-any-number-of-rows pattern, called out explicitly rather than
-silently special-cased.
-
-**Enforcement (revised per Supervisor review — DB-level, not service-layer
-alone)**: an earlier version of this spec enforced the singleton purely as
-a service-layer pre-check in `NotificationService.CreateProvider`
-(`SELECT COUNT(*) FROM notification_providers WHERE type = 'webpush'`
-before `INSERT`, rejecting with 409 if count > 0). **Supervisor traced this
-and confirmed it is not atomic**: two concurrent provisioning requests can
-each run the `COUNT` and both observe `0` before either commits its
-`INSERT`, because SQLite's `sqlDB.SetMaxOpenConns(1)` in
-`backend/internal/database/database.go:144` only serializes individual
-statements through the single connection — it does not make the
-`COUNT`-then-`INSERT` *sequence* atomic across two separate request
-goroutines interleaving their statements on that one connection. The
-result is two independent `webpush` provider rows with two independent
-VAPID identities, silently breaking the invariant this whole section
-argues for. This is the same class of check-then-act race already fixed
-elsewhere in this codebase for `UptimeHost` creation (GitHub issue #1221,
-see `ensureUptimeHost` in `backend/internal/services/uptime_service.go:408-416`),
-which resolved it with a DB-level unique index plus `clause.OnConflict`.
-
-The fix here (see §3.3.4 for the exact migration, §3.4.1 for the resulting
-API error shape): a **DB-level partial unique index**,
-`CREATE UNIQUE INDEX idx_webpush_singleton ON notification_providers(type)
-WHERE type = 'webpush'` (SQLite supports partial indexes), makes the
-second concurrent `INSERT` fail at the database regardless of what either
-caller's `COUNT` observed — this is the actual enforcement mechanism, and
-it is safe under concurrent writers by construction (unlike the
-count-then-insert sequence). Unlike `ensureUptimeHost`'s
-`OnConflict{DoNothing}`-then-refetch (appropriate there because a second
-caller wanting "the host row" is happy to receive the winner's row), a
-second `webpush` provisioning attempt is treated as a genuine conflict the
-caller should see and react to (they may not realize a provider already
-exists), so `CreateProvider` catches the resulting constraint-violation
-error and maps it to `409`, using this codebase's existing
-detection idiom (`errors.Is(err, gorm.ErrDuplicatedKey) ||
-strings.Contains(err.Error(), "UNIQUE constraint failed")`, already used
-in `backend/internal/api/handlers/custom_theme_handler.go:71,121` and
-`backend/internal/services/crowdsec_whitelist_service.go:67`) rather than
-introducing a new error-detection pattern. The service-layer `COUNT` check
-is retained as a cheap, non-authoritative fast-path (returns a clear 409
-without waiting on a constraint-violation round trip in the common,
-uncontended case) — but the index is what actually guarantees the
-invariant, and the 409-on-constraint-violation path is what makes that
-guarantee visible to the loser of a race instead of surfacing as an
-unhandled 500.
-
-### 3.2 VAPID identity storage
-
-- **`VAPIDPrivateKey` → `NotificationProvider.Token`** (existing column,
-  already `json:"-"`, already the established "never expose this" contract
-  used by gotify/pushover/ntfy/telegram tokens and Slack's webhook URL).
-  No schema change.
-- **`VAPIDPublicKey` and `VAPIDSubject` → `NotificationProvider.ServiceConfig`**
-  (existing unused JSON-blob column), as:
-  ```json
-  {"vapid_public_key": "BN...", "vapid_subject": "mailto:admin@example.com"}
-  ```
-  Both values are safe to expose in the provider-list API response (the
-  public key is, by construction, public; the subject is an
-  operator-supplied contact URI already visible in the Web Push form) —
-  unlike `Token`, `ServiceConfig` is not `json:"-"`, which is intentional:
-  the frontend needs `vapid_public_key` to call
-  `PushManager.subscribe({applicationServerKey: ...})` and it is served
-  from the provider row the admin already fetches. (The dedicated
-  `GET /notifications/providers/webpush/vapid-public-key` endpoint in §3.6
-  exists for the *subscribing browser's* convenience/caching, not because
-  the key is sensitive.)
-- **Provisioning**: auto-generated on first use, no manual key entry.
-  `POST /notifications/providers/webpush/provision` (§3.6) calls
-  `webpush.GenerateVAPIDKeyPair()`, requires the admin to supply only
-  `name` and `vapid_subject` (validated server-side: must start with
-  `mailto:` or `https://`, per `webpush.Client.Send`'s own runtime check —
-  duplicating that validation client- and server-side avoids a
-  provision-succeeds-but-every-send-fails footgun), then creates the
-  singleton `NotificationProvider` row. This is a **dedicated endpoint**,
-  not the generic `POST /notifications/providers` create form — the
-  generic form's `URL`/`Token` text inputs don't apply to Web Push (no
-  webhook URL to paste), and key generation is a server-side action, not
-  client-submitted config. `Notifications.tsx`'s existing per-type
-  conditional-fields pattern (see `isGotify`/`isTelegram`/... constants at
-  lines 147-152) already renders a different field set per `type`, so
-  Web Push's "Provision" button replacing the URL/Token fields is
-  consistent with that existing per-type branching, not a new UI paradigm.
-  **Race-safety** (see §3.1 "Enforcement" and §3.3.4): the handler behind
-  this endpoint calls `NotificationService.CreateProvider`, which after
-  its cheap `COUNT`-based fast-path check still relies on the DB-level
-  partial unique index as the actual source of truth. If the `INSERT`
-  fails with a unique-constraint violation on `idx_webpush_singleton`
-  (i.e., a concurrent request won the race), `CreateProvider` returns a
-  sentinel error that the handler maps to the same `409` as the fast-path
-  case (§3.4.1) — the caller cannot distinguish "lost a race" from
-  "checked after someone else already provisioned," which is correct,
-  since both are the same user-facing fact ("a Web Push provider already
-  exists").
-
-### 3.3 Database schema
-
-#### 3.3.1 `NotificationProvider` (existing table — no column additions)
-
-Reused as-is: `Type = "webpush"`, `Token` = VAPID private key,
-`ServiceConfig` = `{"vapid_public_key","vapid_subject"}` JSON, `Name`,
-`Enabled`, and the existing six `NotifyXxx` booleans all apply unchanged.
-`URL` is left empty for this type (matching Slack's existing
-"unused placeholder" pattern for a type whose real destination lives
-elsewhere).
-
-#### 3.3.2 New table: `WebPushSubscription`
-
-New file `backend/internal/models/webpush_subscription.go`:
-
-```go
-package models
-
-import (
-	"time"
-
-	"github.com/google/uuid"
-	"gorm.io/gorm"
-)
-
-// WebPushSubscription is one browser/device's Web Push destination,
-// created when an authenticated Charon user's browser completes
-// PushManager.subscribe() and POSTs the resulting PushSubscription to the
-// backend. Each row is fanned out to individually by
-// NotificationService.dispatchWebPushViaNotify (one webpush.Client per
-// row), all sharing the parent NotificationProvider's VAPID identity.
-type WebPushSubscription struct {
-	ID         string `gorm:"primaryKey" json:"id"`
-	ProviderID string `gorm:"index;not null" json:"provider_id"` // FK -> NotificationProvider.ID (Type="webpush")
-	UserID     string `gorm:"index;not null" json:"user_id"`     // FK -> User.ID; owner, for scoped unsubscribe
-
-	// PushSubscription destination (from the browser's PushSubscription
-	// object; see webpush.Config's matching field doc comments).
-	Endpoint string `gorm:"uniqueIndex;type:text;not null" json:"endpoint"`
-	P256dh   string `gorm:"type:text;not null" json:"-"` // subscriber DH public key; not attacker-sensitive but never needed client-side after registration
-	Auth     string `gorm:"type:text;not null" json:"-"` // subscriber auth secret; same rationale
-
-	// Display/diagnostic metadata, not used for dispatch.
-	UserAgent string `json:"user_agent,omitempty" gorm:"type:text"`
-
-	// Pruning bookkeeping (§3.5).
-	LastSeenAt     time.Time  `json:"last_seen_at"`               // updated on successful send or (re)registration
-	LastFailureAt  *time.Time `json:"last_failure_at,omitempty"`
-	FailureCount   int        `json:"failure_count" gorm:"default:0"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-func (s *WebPushSubscription) BeforeCreate(tx *gorm.DB) (err error) {
-	if s.ID == "" {
-		s.ID = uuid.New().String()
-	}
-	return
-}
+```
+docs-site/
+├── package.json                 # New — see §3.2
+├── package-lock.json            # Generated by npm install (committed, like frontend/)
+├── tsconfig.json                # From template, extends @docusaurus/tsconfig
+├── audit-ci.json                # New — mirrors root/frontend pattern
+├── docusaurus.config.ts         # Site config — see below
+├── sidebars.ts                  # Sidebar structure — see below
+├── .gitignore                   # Docusaurus template default (build/, .docusaurus/, node_modules/) — superseded/reinforced by repo-root .gitignore too
+├── docs/                        # GIT-IGNORED generated copy — populated by scripts/sync-docs.mjs from ../docs/. Never hand-edited.
+├── scripts/
+│   ├── sync-docs.mjs            # New — copy script, see §2.2
+│   └── docs-manifest.json       # New — explicit allowlist of docs/ paths to migrate
+├── src/
+│   ├── css/
+│   │   └── custom.css           # Template default; Charon brand colors applied here
+│   └── pages/
+│       └── index.tsx            # Landing page (template default, customized with Charon branding/links)
+├── static/
+│   └── img/
+│       ├── favicon.ico          # Reuse existing Charon favicon asset (copy from frontend/public/ or root)
+│       └── banner.webp          # Reuse existing OG image already referenced in build-docs.sh (frontend/public/banner.webp)
+└── README.md                    # New — how to run/build docs-site locally, references sync-docs.mjs
 ```
 
-Design notes:
-- `Endpoint` is `uniqueIndex` — the same browser subscribing twice (e.g.
-  re-subscribing after clearing site data produces the same or a new
-  endpoint depending on browser; if identical, `POST .../subscribe` is
-  idempotent via upsert-on-conflict, see §3.6) must not create duplicate
-  rows that both receive the same push.
-- `P256dh`/`Auth` are `json:"-"` — while not bearer-token-equivalent secrets
-  the way `NotificationProvider.Token` is, they are per-subscriber
-  encryption material with no legitimate reason to round-trip back to any
-  frontend after registration (the frontend already has them locally from
-  `PushManager.subscribe()`); withholding them is defense-in-depth
-  consistent with the project's "never expose what the client doesn't need
-  back" convention.
-- `FailureCount`/`LastFailureAt` back a **soft-delete-after-N-failures**
-  policy rather than instant deletion on the first non-410 failure (a
-  transient 5xx from the push service should not nuke a subscription) —
-  see §3.5 for the exact pruning rule.
+Key `docusaurus.config.ts` settings (values, not full file — implementer fills in per Docusaurus TS template conventions):
 
-#### 3.3.3 Migration registration
+| Setting | Value | Reasoning |
+|---|---|---|
+| `title` | `"Charon"` | Matches product name |
+| `tagline` | `"Your server, your rules — without the headaches."` | Pulled verbatim from `ARCHITECTURE.md`'s Core Value Proposition |
+| `url` | `"https://wikid82.github.io"` | GitHub Pages org/user domain |
+| `baseUrl` | `"/Charon/"` | Project page path, matches current live URL structure (`https://wikid82.github.io/Charon/...`) so the README link in §3.5 stays a natural extension of the existing pattern |
+| `organizationName` | `"Wikid82"` | GitHub org/user |
+| `projectName` | `"Charon"` | Repo name |
+| `deploymentBranch` | N/A — deploy handled by Actions workflow, not `docusaurus deploy` (see §3.4) | Avoids needing a `gh-pages` branch/token; matches existing Pages Actions-based deploy model already used by `docs.yml` |
+| `presets[0].docs.path` | `"docs"` | Points at the git-ignored, sync-script-populated `docs-site/docs/` |
+| `presets[0].docs.sidebarPath` | `"./sidebars.ts"` | Default |
+| `presets[0].docs.routeBasePath` | `"docs"` (default, or `"/"` if the landing page should *be* the docs home — recommend keeping default `"docs"` since `src/pages/index.tsx` provides a proper marketing-style landing page, matching the current site's separate landing-page-vs-docs split in `docs-index.html`) | Matches existing UX shape |
+| `presets[0].blog` | `false` (disabled) | Charon docs are reference material, not a blog; avoids an empty, confusing "Blog" nav item |
+| `themeConfig.navbar.items` | Links to Getting Started, Features, Guides, API, GitHub repo | Mirrors `docs/index.md`'s "Start Here" grouping |
+| Search | `@easyops-cn/docusaurus-search-local` plugin (offline, no external service) | Consistent with "no external dependencies" ethos (§1.3) |
 
-`backend/internal/api/routes/routes.go`, `db.AutoMigrate(...)` block
-(§2.2): add `&models.WebPushSubscription{}` immediately after
-`&models.NotificationProvider{}` (FK dependency ordering — GORM's
-auto-migrate doesn't strictly require FK-target-first ordering for SQLite,
-but the file's existing comments show this codebase's convention of
-ordering by FK dependency, e.g. `ProxyGroup{}` before `ProxyHost{}`).
+`sidebars.ts` uses Docusaurus's `autogenerated` sidebar type pointed at the
+synced `docs/` tree (`{type: 'autogenerated', dirName: '.'}`) rather than a
+hand-maintained manual sidebar array — this means the sidebar tracks whatever
+is in `docs-manifest.json` automatically, with per-directory ordering
+controlled by lightweight `_category_.json` files added under
+`docs-site/docs-category-overrides/` that the sync script merges in (or,
+simpler for v1: rely on Docusaurus's default alphabetical + `sidebar_position`
+frontmatter, which the copied files can gain incrementally). **Recommendation
+for v1: autogenerated + alphabetical, no category overrides** — lowest
+implementation cost, revisit if navigation ordering proves confusing after
+launch.
 
-```go
-&models.NotificationProvider{},
-&models.WebPushSubscription{}, // Web Push subscriptions — FK to NotificationProvider (Type="webpush")
-&models.NotificationTemplate{},
-```
+### 3.2 `docs-site/package.json`
 
-#### 3.3.4 Singleton enforcement: partial unique index (race-condition fix)
-
-**Added per Supervisor review** — see §3.1 "Enforcement" for the full
-rationale. GORM struct tags (`gorm:"uniqueIndex"`) cannot express a
-*partial* (`WHERE`-qualified) index, so this cannot be expressed as a
-`WebPushSubscription`/`NotificationProvider` struct tag; it is created via
-a raw, idempotent `db.Exec` immediately after the `AutoMigrate(...)` call
-in `backend/internal/api/routes/routes.go`, following the same
-post-AutoMigrate idempotent-migration-step pattern already used there for
-`migrateViewerToPassthrough` (`routes.go:64-69`, called at `routes.go:151`):
-
-```go
-// Enforce the Web Push provider singleton invariant at the database
-// level — a service-layer COUNT-then-INSERT check alone is not atomic
-// under concurrent requests (see docs/plans/current_spec.md §3.1).
-// IF NOT EXISTS makes this idempotent across restarts, matching every
-// other startup migration step in this function.
-if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webpush_singleton
-    ON notification_providers(type) WHERE type = 'webpush'`).Error; err != nil {
-    return uptimeShutdown, fmt.Errorf("create webpush singleton index: %w", err)
-}
-```
-
-Placement: after the main `AutoMigrate(...)` block (the `notification_providers`
-table must exist first) and before any code path that could call
-`NotificationService.CreateProvider` — i.e., before `Register`/`RegisterWithDeps`
-finishes wiring routes. Failure to create the index fails startup loudly
-(matching the existing `auto migrate: %w` error-return convention
-immediately above it in the same function) rather than silently running
-without the safety guarantee.
-
-**SQLite partial-index support**: confirmed available — SQLite has
-supported partial indexes (the `WHERE` clause on `CREATE INDEX`) since
-3.8.0 (2015); this codebase's SQLite driver/runtime is well past that
-baseline (no version-gating needed).
-
-**Test coverage for this commit** (see §9 Commit Slicing Strategy, commit 3):
-a concurrency test that fires two goroutines both calling
-`NotificationService.CreateProvider` with `Type: "webpush"` against the
-same `*gorm.DB` and asserts exactly one succeeds and the other's `Insert`
-returns a unique-constraint-violation error — this is the regression test
-for the exact race Supervisor identified, and it must fail against the
-pre-fix (service-layer-`COUNT`-only) code to prove it actually exercises
-the race rather than passing vacuously.
-
-#### 3.3.5 GORM Security Scan
-
-Per CLAUDE.md §1.5, this change touches `internal/models/**` and adds a
-migration — `./scripts/scan-gorm-security.sh --check` is a **mandatory**
-gate before this PR merges (see §8).
-
-### 3.4 API contracts
-
-All routes below are mounted on the existing authenticated `management`
-group (`routes.go` line ~372: `management.Use(middleware.RequireManagementAccess())`),
-matching every existing `/notifications/*` route.
-
-| Method | Path | Purpose | Auth |
-|---|---|---|---|
-| `POST` | `/notifications/providers/webpush/provision` | Generate VAPID keypair + create the singleton provider row | `RequireManagementAccess()`; provisioning is destructive-ish (any existing subscriptions become orphaned if re-run — see §7) so handler additionally checks `RequireRole(admin)`, mirroring `Test`/`Preview`'s existing admin-only pattern on this same route group |
-| `GET` | `/notifications/providers/webpush/vapid-public-key` | Serve the current VAPID public key for `PushManager.subscribe` | `RequireManagementAccess()` (any authenticated user, not just admin — a non-admin user's browser can still subscribe to receive alerts, same as any authenticated user can view the Notifications page) |
-| `POST` | `/notifications/providers/webpush/subscriptions` | Register (upsert) a browser's `PushSubscription` | `RequireManagementAccess()` |
-| `GET` | `/notifications/providers/webpush/subscriptions` | List the **current user's own** subscriptions (for the "manage this device's subscription" UI state) | `RequireManagementAccess()` |
-| `DELETE` | `/notifications/providers/webpush/subscriptions/:id` | Unsubscribe; 404 if the subscription isn't owned by the caller | `RequireManagementAccess()`; ownership checked in-handler (`subscription.UserID == c.GetString("userID")`), returning 404 (not 403) for a foreign ID to avoid confirming existence, consistent with this codebase's existing `respondSanitizedProviderError` pattern of not leaking cross-tenant existence |
-
-#### 3.4.0 Authorization model — resolved (§7 risk 5 closed by user decision)
-
-**Decision** (resolves the open question previously logged as §7 risk 5 —
-this is now settled, not reopened): any authenticated user with management
-access (`RequireManagementAccess()` — any role other than
-`RolePassthrough`, so `RoleUser` included, not just `RoleAdmin`) may
-self-service subscribe/list/unsubscribe their own Web Push destination, and
-read the VAPID public key needed to do so. This is what the table above
-already specifies for the four non-provision routes; provisioning itself
-stays admin-only (`RequireRole(admin)`, row 1) since it creates the shared
-singleton identity.
-
-**The security-event forwarding carve-out.** The four security-event
-`NotifyXxx` toggles on a provider row (`NotifySecurityWAFBlocks`,
-`NotifySecurityACLDenies`, `NotifySecurityRateLimitHits`,
-`NotifySecurityCrowdSecDecisions`) are what actually gate whether security
-telemetry gets forwarded to a given destination (`notification_service.go`
-lines 243-249, `enhanced_security_notification_service.go` lines 110-119).
-The exfiltration scenario Supervisor flagged: a low-privileged (`RoleUser`)
-account self-service-subscribes a device pointed at an endpoint it
-controls, then flips those four toggles on to have Charon forward WAF
-blocks / ACL denies / rate-limit hits / CrowdSec decisions to it.
-
-**Finding**: this is already closed by existing code, with no new gate to
-add. All four toggles are fields on `notificationProviderUpsertRequest`
-(`backend/internal/api/handlers/notification_provider_handler.go:37-40`)
-and are only ever set through the **generic**
-`PUT /notifications/providers/:id` endpoint (`Update`,
-`notification_provider_handler.go:216`) — there is no webpush-specific
-"update my provider's toggles" route in this spec, and there never has
-been one for any provider type. `Update` already calls `requireAdmin(c)`
-unconditionally as its first line (`notification_provider_handler.go:217-219`,
-same as `Create` at line 174), for **every** provider type, not just
-webpush — this was confirmed by reading the handler, not assumed. So a
-`RoleUser` caller can self-service-subscribe a device (via the five
-webpush-specific routes above) but literally cannot reach a code path that
-sets `NotifySecurityWAFBlocks` etc. on any provider, webpush included —
-`Update` rejects them with `403` before the request body is even
-inspected for which fields it's trying to change.
-
-**Consequence for implementation scope**: per the task's
-root-cause-analysis instruction to prefer the minimum change that closes
-the flagged gap, **no code change is needed here** — this is a
-documentation/spec-confirmation finding, not a new webpush-specific
-carve-out on `Update`, and not a tightening of the existing (already
-admin-gated) behavior for other provider types either. A `RoleUser`
-self-service subscriber receives whatever event categories (proxy hosts,
-remote servers, domains, certs, uptime, and — only if an admin already
-turned them on — the four security categories) are already enabled on the
-webpush provider row at the time they subscribe; they cannot themselves
-enable any category, security or otherwise, since all toggle changes go
-through the same admin-gated `Update` endpoint. This matches the
-requested shape exactly: self-service opt-in preserved, security-telemetry
-forwarding to arbitrary endpoints impossible for a non-admin.
-**Phase 2/commit 6 should add a regression test** asserting a `RoleUser`
-token gets `403` from `PUT /notifications/providers/:id` when the target
-row is `Type = "webpush"` with a body that sets any `NotifySecurityXxx`
-field to `true` — this pins the *current* behavior so a future refactor of
-`Update`'s auth check cannot silently reopen the gap Supervisor identified,
-even though today's code already prevents it.
-
-#### 3.4.1 `POST /notifications/providers/webpush/provision`
-
-Request:
-```json
-{ "name": "Browser Push", "vapid_subject": "mailto:admin@example.com" }
-```
-Response `201`:
 ```json
 {
-  "id": "uuid",
-  "name": "Browser Push",
-  "type": "webpush",
-  "enabled": true,
-  "service_config": "{\"vapid_public_key\":\"BN...\",\"vapid_subject\":\"mailto:admin@example.com\"}",
-  "notify_proxy_hosts": true,
-  "...": "...same NotificationProvider JSON shape as every other provider"
+  "name": "charon-docs-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync-docs": "node scripts/sync-docs.mjs",
+    "start": "npm run sync-docs && docusaurus start",
+    "build": "npm run sync-docs && docusaurus build",
+    "swizzle": "docusaurus swizzle",
+    "deploy": "docusaurus deploy",
+    "clear": "docusaurus clear",
+    "serve": "docusaurus serve",
+    "write-translations": "docusaurus write-translations",
+    "write-heading-ids": "docusaurus write-heading-ids",
+    "type-check": "tsc --noEmit",
+    "audit:ci": "audit-ci --config ./audit-ci.json"
+  },
+  "dependencies": {
+    "@docusaurus/core": "^3.9.0",
+    "@docusaurus/preset-classic": "^3.9.0",
+    "@easyops-cn/docusaurus-search-local": "^0.44.5",
+    "@mdx-js/react": "^3.1.1",
+    "clsx": "^2.1.1",
+    "prism-react-renderer": "^2.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@docusaurus/module-type-aliases": "^3.9.0",
+    "@docusaurus/tsconfig": "^3.9.0",
+    "@docusaurus/types": "^3.9.0",
+    "audit-ci": "^7.1.0",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0"
+  },
+  "browserslist": {
+    "production": [">0.5%", "not dead", "not op_mini all"],
+    "development": ["last 3 chrome version", "last 3 firefox version", "last 5 safari version"]
+  }
 }
 ```
-Errors: `400` invalid/missing `vapid_subject` scheme; `409` a `webpush`
-provider row already exists (`{"error": "a Web Push provider is already configured"}`)
-— returned both for the common case (service-layer `COUNT` fast-path finds
-an existing row) and the race case (the `INSERT` loses to a concurrent
-request at the `idx_webpush_singleton` partial unique index; see §3.1
-"Enforcement" and §3.3.4). Both paths produce the identical response body
-— the client has no way to tell them apart and does not need to.
 
-#### 3.4.2 `GET /notifications/providers/webpush/vapid-public-key`
+Notes:
+- `typescript` is pinned to `^5.7.3`, **not** `^6.0.3` like root/frontend — Docusaurus 3.9's toolchain does not yet support TypeScript 6 (root's `charon_dep_update.sh` already carries an explicit `--reject typescript` exclusion for this exact class of problem on `frontend/`; the same constraint applies here and the exclusion list in §4.3 must be extended, not duplicated with a new mechanism).
+- Exact `@docusaurus/*` versions above are current-as-of-this-plan; the implementer should run `create-docusaurus@latest` at implementation time and use whatever it scaffolds, adjusting this table to match — pinning exact versions in a spec written weeks before implementation is guaranteed to drift.
+- React 18 (not 19, matching `frontend/`'s 19.2.3) is what Docusaurus 3.x's classic preset currently supports; this is an intentional, isolated exception — `docs-site/`'s React tree is fully independent of `frontend/`'s (separate `node_modules`, separate bundle, never co-loaded in a browser tab with the app), so there is no version-skew risk to the actual product.
 
-Response `200`: `{"vapid_public_key": "BN..."}`. `404` if no `webpush`
-provider row exists yet (frontend shows a "not yet enabled" state, prompting
-provisioning by an admin) or if `Enabled = false` (subscribing while
-disabled would create dead-on-arrival subscriptions).
+### 3.3 `docs-site/scripts/docs-manifest.json`
 
-#### 3.4.3 `POST /notifications/providers/webpush/subscriptions`
-
-Request (body is the browser's `PushSubscription.toJSON()` shape,
-matching the W3C spec verbatim so the frontend can forward it with no
-reshaping):
 ```json
 {
-  "endpoint": "https://fcm.googleapis.com/fcm/send/...",
-  "keys": { "p256dh": "BN...", "auth": "xy..." },
-  "user_agent": "Mozilla/5.0 ..."
-}
-```
-Response `201` (new) or `200` (idempotent re-registration of an existing
-`endpoint`, refreshing `LastSeenAt`/`UserAgent`/resetting `FailureCount`):
-```json
-{ "id": "uuid", "endpoint": "https://fcm.googleapis.com/fcm/send/..." }
-```
-Validation: `endpoint` required, must parse as an `https://` URL (reject
-`http://` outright — Web Push endpoints are always HTTPS in production;
-this is a basic format check, not a re-run of `security.ValidateExternalURL`,
-since the actual SSRF-safe validation happens at send time via the shared
-`transport.Wrapper`, §2.2); `keys.p256dh`/`keys.auth` required
-non-empty strings. `404` if no `webpush` provider is provisioned.
-`503` (`{"error": "Web Push provider is disabled"}`) if the singleton row's
-`Enabled = false`.
-
-#### 3.4.4 `GET /notifications/providers/webpush/subscriptions`
-
-Response `200`: array of `{id, endpoint, user_agent, created_at, last_seen_at}`
-for the caller's own `UserID` only (never another user's rows — reinforces
-per-user device management without a cross-user admin view in this PR;
-an admin wanting to see *all* subscribers' device counts is a documented
-non-goal/follow-up, §7).
-
-#### 3.4.5 `DELETE /notifications/providers/webpush/subscriptions/:id`
-
-`204` on success. `404` if not found or not owned by the caller.
-
-### 3.5 Dispatch fan-out design
-
-New function in `notification_service.go`, invoked from `SendExternal`'s
-existing per-provider dispatch loop as a new branch parallel to the
-existing `email` special case:
-
-```go
-if strings.ToLower(strings.TrimSpace(provider.Type)) == "email" {
-    go s.dispatchEmailViaNotify(ctx, provider, eventType, title, message)
-    continue
-}
-if strings.ToLower(strings.TrimSpace(provider.Type)) == "webpush" {
-    go s.dispatchWebPushViaNotify(ctx, provider, eventType, title, message, data)
-    continue
+  "files": [
+    "getting-started.md",
+    "features.md",
+    "security.md",
+    "api.md",
+    "migration-guide.md",
+    "database-schema.md",
+    "import-guide.md",
+    "live-logs-guide.md",
+    "acme-staging.md",
+    "cerberus.md",
+    "database-maintenance.md",
+    "crowdsec-auto-start-quickref.md",
+    "migration-guide-crowdsec-auto-start.md",
+    "security-incident-response.md"
+  ],
+  "directories": [
+    "features",
+    "configuration",
+    "guides",
+    "troubleshooting",
+    "api"
+  ]
 }
 ```
 
-`dispatchWebPushViaNotify` (new, `notify_webpush_adapter.go` — new file,
-mirroring the existing per-concern-file split of
-`notify_provider_adapter.go`/`notify_email_adapter.go`/`notify_client_adapter.go`):
+`sync-docs.mjs` reads `files` (copied to `docs-site/docs/<name>`) and
+`directories` (recursively copied to `docs-site/docs/<name>/`) — see §2.2 for
+the copy algorithm. Adding a new user-facing doc later is a one-line manifest
+edit, not a script change.
 
-1. Parse `provider.ServiceConfig` → `vapid_public_key`, `vapid_subject`;
-   `provider.Token` → `vapid_private_key`. Malformed/missing → log and
-   return (matches `dispatchViaNotify`'s existing "log and return" error
-   style, no panics).
-2. `s.DB.Where("provider_id = ?", provider.ID).Find(&subscriptions)`.
-3. For each subscription, construct one `webpush.Client` via
-   `webpush.New(webpush.Config{VAPIDPublicKey: ..., VAPIDPrivateKey: ...,
-   VAPIDSubject: ..., Endpoint: sub.Endpoint, P256dh: sub.P256dh, Auth:
-   sub.Auth, Template: tmpl, CustomTemplate: customTemplate}, s.notifyWrapper)`
-   (reusing `resolveTemplateFields`, unchanged, from
-   `notify_provider_adapter.go`) and call `Send` — **sequentially within
-   the already-async outer goroutine, not one goroutine per subscription**.
-   Rationale: `SendExternal` already backgrounds each *provider* dispatch in
-   its own goroutine (`go s.dispatchWebPushViaNotify(...)`); nesting a
-   second layer of per-subscription goroutines is unbounded fan-out with no
-   cap (a provider with hundreds of stale subscriptions would spawn
-   hundreds of concurrent outbound HTTP requests) — sequential-within-one-
-   goroutine bounds concurrency to 1 outbound push service call at a time
-   per dispatch event, trading a little latency (bounded further by
-   `transport.Wrapper`'s existing 3-attempt/200ms-2s retry policy applying
-   per subscription) for predictable resource usage. This is flagged as a
-   documented, deliberate trade-off in §7, not an oversight — a future
-   worker-pool-bounded-concurrency improvement is a legitimate follow-up if
-   subscription counts grow large in practice, but is out of scope here
-   (no existing precedent in this codebase for bounded worker pools in the
-   notification path to follow).
-4. **Partial-failure handling** (per-subscription, independent — matching
-   the module's own `docs/INTEGRATION.md` example of logging each error
-   independently rather than aborting):
-   - `Send` returns `nil`: update `LastSeenAt = now()`, reset
-     `FailureCount = 0`.
-   - `Send` returns an error: parse the numeric HTTP status out of the
-     error string via a small helper,
-     `extractHTTPStatusFromNotifyError(err error) (status int, ok bool)`,
-     using a regex (`provider returned status (\d+)`) matched against
-     `err.Error()` — **necessary because, per §2.1, `transport.Wrapper`
-     exposes no typed status error.** This is fragile-by-construction
-     (an upstream wording change silently breaks detection) so:
-     - If `ok && (status == 404 || status == 410)`: delete the subscription
-       row immediately (standard Web Push "subscription is gone" signal —
-       RFC 8030 doesn't mandate this status/action pairing itself, but it
-       is the universal convention every push service and every Web Push
-       client library follows).
-     - Otherwise (`!ok`, or any other status, or a non-HTTP transport
-       error): increment `FailureCount`, set `LastFailureAt = now()`; if
-       `FailureCount >= 10` (new const `webpushMaxConsecutiveFailures`),
-       delete the row as presumed-dead (a bound on rows accumulating
-       forever from a subscription failing for non-404/410 reasons, e.g. a
-       push service outage that never resolves before it starts returning
-       410) — chosen instead of never deleting on ambiguous failures, since
-       an unbounded table of permanently-failing rows is its own
-       maintenance problem, and instead of deleting on the very first
-       ambiguous failure, since a single transient failure (network blip,
-       push service 503) must not nuke a live subscription.
-     - Log every failure via the existing `logger.Log().WithError(err)...`
-       convention (`dispatchViaNotify`'s existing style) — never silent.
-5. This function does not return an error to `SendExternal` (matching the
-   fire-and-forget style of every existing `dispatchXxxViaNotify`); it logs
-   per-subscription outcomes only.
+### 3.4 New GitHub Actions Workflow: `.github/workflows/docs-deploy.yml`
 
-### 3.6 Frontend
+Replaces `docs.yml` (deleted in the same commit, §4.4). Structure follows
+`docs.yml`'s existing two-job (`build` / `deploy`) shape and permissions, swapping the build step for a Docusaurus build:
 
-#### 3.6.1 Service worker
+```yaml
+name: Deploy Documentation Site
 
-New file `frontend/public/sw.js` (static asset, served at `/sw.js` — root
-scope required so `PushManager.subscribe` can receive pushes for the whole
-origin, per the W3C Push API's same-scope requirement). Minimal handler:
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs-site/**'
+      - 'docs/**'
+      - '.github/workflows/docs-deploy.yml'
+  workflow_dispatch:
 
-```js
-self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : {};
-  const title = data.title || 'Charon';
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body: data.message || data.body || '',
-      icon: '/favicon.png',
-      data,
-    })
-  );
-});
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  event.waitUntil(clients.openWindow('/'));
-});
+concurrency:
+  group: "pages-${{ github.ref }}"
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24.21.0'
+
+jobs:
+  build:
+    name: Build Documentation Site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: 🔧 Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: docs-site/package-lock.json
+
+      - name: 📦 Install dependencies
+        working-directory: docs-site
+        run: npm ci
+
+      - name: 📝 Build documentation site
+        working-directory: docs-site
+        run: npm run build
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: 'docs-site/build'
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: build
+    steps:
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 ```
 
-The JSON shape (`title`/`message`) matches the `minimal`/`detailed`
-template's existing field names (`render.MinimalTemplate`), so no new
-payload contract is invented — the service worker just needs to
-`JSON.parse` what `dispatchWebPushViaNotify` already renders via the shared
-template engine.
+Differences from `docs.yml` worth calling out to a reviewer:
+- Trigger changes from `workflow_run` (chained after Docker Build) to a direct `push` on `main` filtered to relevant paths, plus manual dispatch. The old chained trigger existed because the marked-based pipeline copied `README.md` verbatim including build-status badges that implicitly depend on a successful Docker build; Docusaurus's build has no such coupling, and gating docs publishing on an unrelated Docker Hub/GHCR pipeline succeeding is not a real dependency — a path-filtered direct push trigger is simpler and more responsive.
+- `npm ci` (not `npm install`) in CI for reproducible, lockfile-exact installs — matches standard CI practice and is implied-but-unstated in `docs.yml` (which had no lockfile to `ci` against since it only did a global `npm install -g marked`).
+- Node's built-in npm cache (`cache: 'npm'` + `cache-dependency-path`) added since a real `package-lock.json` now exists to key off of — this affordance didn't apply to the old pipeline's single global install.
 
-#### 3.6.2 API client — `frontend/src/api/notifications.ts`
+### 3.5 README.md / `docs/index.md` Cross-Linking
 
-- `SUPPORTED_NOTIFICATION_PROVIDER_TYPES` gains `'webpush'`.
-- New typed functions:
-  - `provisionWebPush(data: {name: string; vapid_subject: string}): Promise<NotificationProvider>`
-  - `getWebPushVapidPublicKey(): Promise<{vapid_public_key: string}>`
-  - `subscribeWebPush(subscription: PushSubscriptionJSON & {user_agent?: string}): Promise<{id: string; endpoint: string}>`
-  - `listWebPushSubscriptions(): Promise<WebPushSubscription[]>`
-  - `unsubscribeWebPush(id: string): Promise<void>`
-- New exported type `WebPushSubscription` (id, endpoint, user_agent,
-  created_at, last_seen_at) matching §3.4.4's response shape.
+- `README.md:136` currently reads: `Full setup instructions and documentation are available at [https://wikid82.github.io/Charon/docs/getting-started.html](https://wikid82.github.io/Charon/docs/getting-started.html).` — updated to the Docusaurus route for the same page: `https://wikid82.github.io/Charon/docs/getting-started` (Docusaurus strips `.html` and the `docs/` `routeBasePath` prefix already matches, so only the trailing `.html` is dropped — implementer must verify the exact generated route once `sidebars.ts` autogeneration is scaffolded, since the manifest copies `getting-started.md` to the doc ID `getting-started`, and Docusaurus's default routing is `<routeBasePath>/<docId>` i.e. `docs/getting-started`).
+- `README.md:198` (`[Explore All Features →](https://github.com/Wikid82/Charon/blob/main/docs/features.md)`) is left as a direct GitHub blob link, unchanged — it already works today and isn't part of the Pages pipeline; optionally could be repointed at the new site, but that's a judgment call left to `docs-writer` in the hardening commit (§4.5), not a hard requirement.
+- `docs/index.md` is **not** modified — it remains the nav page for the internal `docs/` tree as browsed directly on GitHub (its links are relative Markdown links that work fine in GitHub's own Markdown renderer regardless of the Pages site's existence).
+- The new Docusaurus landing page (`docs-site/src/pages/index.tsx`) gets a "Start Here" section mirroring `docs/index.md`'s grouping (Getting Started / Features / Import / Security / API / Remote Access), written against the migrated doc IDs.
 
-#### 3.6.3 UI — `frontend/src/pages/Notifications.tsx`
+### 3.6 API Design / Database Schema / Component Design
 
-Following the existing per-type conditional-field pattern
-(`isGotify`/`isTelegram`/.../`isNtfy` constants, lines 147-152): add
-`isWebPush = type === 'webpush'`. When `isWebPush`:
-- If no `webpush` provider row exists yet: render a "Provision Web Push"
-  button (calls `provisionWebPush`) instead of the generic URL/Token
-  fields, consistent with §3.2's dedicated-provisioning-flow decision.
-- If provisioned: render a browser-side "Enable push notifications on this
-  device" toggle that, on enable, does:
-  1. `Notification.requestPermission()` (browser permission prompt).
-  2. `navigator.serviceWorker.register('/sw.js')`.
-  3. `registration.pushManager.subscribe({userVisibleOnly: true,
-     applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)})` (a
-     small base64url→`Uint8Array` helper is required — the browser
-     `PushManager` API needs the raw bytes, not the string Charon stores;
-     this is standard boilerplate for every Web Push frontend integration,
-     not Charon-specific).
-  4. `subscribeWebPush(subscription.toJSON())`.
-  - On disable: `subscription.unsubscribe()` (browser-side) then
-    `unsubscribeWebPush(id)` (backend-side) — both directions, so a
-    revoked browser permission and a deleted backend row stay consistent.
-- The per-event-type `NotifyXxx` checkboxes already rendered generically
-  for every provider type require no changes — they apply to the
-  `NotificationProvider` row exactly as they do for every other type.
+Not applicable — this is a static documentation site with no backend API
+surface, no database interaction, and no `internal/models` or
+`internal/api/routes` changes. No `AutoMigrate` changes. No new Go code.
 
-### 3.7 `go.mod` bump
+### 3.7 Error Handling
 
-```
-github.com/Wikid82/go_notify_yourself v0.2.2 → v0.3.0
-```
-`go get github.com/Wikid82/go_notify_yourself@v0.3.0 && go mod tidy` in
-`backend/`. No other dependency in the module's own `go.mod` changed
-between v0.2.2 and v0.3.0 in a way that adds a new transitive dependency
-Charon doesn't already have (the module's diff between these tags is the
-webpush package plus its supporting stdlib-only `crypto/ecdsa`,
-`crypto/elliptic` usage — no new third-party import) — **verify this
-holds at implementation time** via `go mod why` / diffing `go.sum` before
-and after the bump, since this spec's research window only inspected the
-webpush package's own imports, not a full `go.sum` diff. Flag any
-unexpected new transitive dependency to the `qa-security` agent's
-Trivy/CodeQL pass rather than assuming it's clean.
-
-### 3.8 Error handling summary
-
-| Failure | Handling |
+| Failure mode | Handling |
 |---|---|
-| `webpush.GenerateVAPIDKeyPair()` fails (crypto/rand exhaustion — effectively never) | `500`, logged, provision endpoint returns error, no row created |
-| Second provision attempt while a `webpush` row exists | `409`, no mutation |
-| Two provision requests race concurrently (both pass the `COUNT` fast-path before either's `INSERT` commits) | The `idx_webpush_singleton` partial unique index (§3.3.4) fails the losing `INSERT`; `CreateProvider` catches the constraint-violation error and returns the same `409` as the non-race case (§3.4.1) — never a raw `500` |
-| `PushManager.subscribe` rejected by browser (permission denied) | Frontend-only; no backend call made; UI shows a non-blocking inline message, no `NotificationXxx` internal-notification row created (matches: permission denial isn't a Charon-side error) |
-| `POST .../subscriptions` with malformed `PushSubscription` shape | `400`, validation message, no row created |
-| Send to a subscription returns 404/410 | Row deleted, no admin-facing internal notification generated (silent, expected steady-state cleanup — consistent with no other provider type raising an internal notification on send failure either) |
-| Send to a subscription fails for another reason, `FailureCount < 10` | Logged only, row retained, `FailureCount` incremented |
-| Send to a subscription fails, `FailureCount` reaches 10 | Row deleted, logged at `Warn` (elevated from the default failure `Error` log, to make bulk pruning visible in logs without a dedicated internal-notification row) |
-| VAPID keypair provisioned, but zero subscriptions exist yet | `dispatchWebPushViaNotify` finds zero rows, no-op, no error |
-| `provider.Enabled = false` | Same as every other type: `SendExternal`'s outer `Where("enabled = ?", true)` query already excludes it before `dispatchWebPushViaNotify` is ever called — no separate check needed inside the new function |
+| `sync-docs.mjs` manifest references a path that no longer exists under `docs/` (renamed/deleted upstream) | Script exits non-zero with the missing path named; fails `npm run build` / `npm start` loudly rather than silently publishing a thinner site |
+| Docusaurus build fails (broken internal link, invalid frontmatter, MDX parse error) | `docusaurus build` exits non-zero (Docusaurus's default `onBrokenLinks: 'throw'` config, kept at its default rather than downgraded to `'warn'`) — CI job fails, nothing deploys, previous Pages deployment remains live (GitHub Pages does not roll back on a failed new deployment; the last successful `deploy-pages` run stays serving) |
+| `npm ci` / `audit:ci` finds a high/critical vuln in `docs-site/` deps during `charon_dep_update.sh` | Script hard-fails per existing `set -euo pipefail` behavior (same as any other `NPM_MODULES` entry today) — surfaces in the dependency-update PR/run, not silently swallowed |
+| Two docs-deploy workflow runs race (e.g. two quick merges to `main`) | `concurrency: {group: "pages-${{ github.ref }}", cancel-in-progress: false}` queues rather than cancels, matching `docs.yml`'s existing queuing semantics — last-queued run's content wins, no half-deployed states since each run's `build` job produces a complete artifact |
 
 ---
 
-## 4. Component Design / Data Flow
+## 4. Implementation Plan
 
-```mermaid
-sequenceDiagram
-    participant Browser
-    participant SW as Service Worker
-    participant API as Charon Backend
-    participant DB as SQLite
-    participant Push as Push Service (FCM/Mozilla/etc.)
+### Phase 1: Playwright Tests (Spec Behavior)
 
-    Note over Browser,API: Provisioning (once, by an admin)
-    Browser->>API: POST /notifications/providers/webpush/provision
-    API->>API: webpush.GenerateVAPIDKeyPair()
-    API->>DB: INSERT NotificationProvider(type=webpush)
-    API-->>Browser: 201 provider row
-
-    Note over Browser,API: Subscribing (per device)
-    Browser->>API: GET .../vapid-public-key
-    API-->>Browser: {vapid_public_key}
-    Browser->>SW: navigator.serviceWorker.register('/sw.js')
-    Browser->>Browser: pushManager.subscribe({applicationServerKey})
-    Browser->>API: POST .../subscriptions {endpoint, keys}
-    API->>DB: INSERT WebPushSubscription
-
-    Note over API,Push: Dispatch (on any notifiable event)
-    API->>DB: SendExternal loads enabled providers
-    API->>DB: dispatchWebPushViaNotify loads subscriptions for provider
-    loop each subscription
-        API->>Push: webpush.Client.Send (VAPID JWT + RFC8291 ciphertext)
-        alt 404/410
-            API->>DB: DELETE subscription
-        else success
-            API->>DB: UPDATE last_seen_at
-        else other failure
-            API->>DB: UPDATE failure_count
-        end
-    end
-    Push->>SW: push event
-    SW->>Browser: showNotification()
-```
-
----
-
-## 5. Implementation Plan
-
-### Phase 1: Playwright Tests (spec behavior, `test.fixme`)
-New spec `tests/e2e/notifications-webpush.spec.ts`:
-- Provision Web Push provider from the Notifications page.
-- Subscribe this device (mocking `PushManager`/`Notification.requestPermission`
-  via Playwright's browser context, since real push delivery cannot be
-  exercised in CI).
-- Unsubscribe removes the device from the subscriptions list.
-- Per-event-type toggles persist for a `webpush` provider row identically
-  to an existing type (regression coverage that the generic preference UI
-  still works for the new type).
-All `test.fixme` until Phase 4.
+Not applicable in the traditional sense — `docs-site/` is a static site with
+no Playwright-testable app flows in Charon's existing E2E suite (which targets
+`frontend/`'s running app against a live backend). No `test.fixme` E2E specs
+are added for this feature. Verification instead happens via:
+- `npm run build` succeeding locally and in CI (broken-link detection is Docusaurus's own build-time check, replacing what a Playwright smoke test would otherwise catch).
+- A manual/CI smoke check (`npm run serve` + `curl` the built `docs-site/build/index.html` and a couple of migrated pages) as part of Commit 4's validation gate, in place of a Playwright spec.
 
 ### Phase 2: Backend Implementation
-- `go.mod` bump (§3.7).
-- `models.WebPushSubscription` + migration registration (§3.3).
-- `notify_providers_import.go` blank import.
-- Allowlist wiring: `isSupportedNotificationProviderType`,
-  `isDispatchEnabled` + `FlagWebPushServiceEnabled`,
-  `supportsJSONTemplates` (§2.2).
-- `notify_webpush_adapter.go`: `dispatchWebPushViaNotify`,
-  `extractHTTPStatusFromNotifyError` (§3.5).
-- `WebPushHandler` (new, `internal/api/handlers/webpush_handler.go`):
-  `Provision`, `VAPIDPublicKey`, `Subscribe`, `ListSubscriptions`,
-  `Unsubscribe` (§3.4).
-- `NotificationService` additions: `ProvisionWebPush`,
-  `GetWebPushVAPIDPublicKey`, `RegisterWebPushSubscription`,
-  `ListWebPushSubscriptionsForUser`, `DeleteWebPushSubscription`
-  (singleton-check, validation per §3.2/3.4).
-- Routes wired in `routes.go` under `management` group.
-- Unit tests for every new function; `notification_service_registry_consistency_test.go`
-  gains `"webpush"`.
 
-### Phase 3: Frontend Implementation
-- `frontend/public/sw.js` (§3.6.1).
-- `notifications.ts` additions (§3.6.2).
-- `Notifications.tsx` UI additions (§3.6.3), including the
-  `urlBase64ToUint8Array` helper (new, colocated or in a small
-  `src/utils/webpush.ts`).
-- Vitest unit tests: API client functions, `urlBase64ToUint8Array`,
-  and component tests for the provision/subscribe/unsubscribe UI states
-  (mocking `navigator.serviceWorker`/`PushManager`/`Notification`, none of
-  which exist in jsdom by default — test setup must stub them).
+Not applicable — no `backend/` changes.
+
+### Phase 3 & Foundation: Docs Site Scaffold, Content Sync, Dep-Script Wiring
+
+Covered in Commits 1–3 below (this feature has no meaningful frontend/backend
+split; "frontend" here just means "the docs-site TypeScript project," which
+*is* the deliverable, not a UI layer on top of a Go API).
 
 ### Phase 4: Integration and Testing
-- Un-`fixme` the Phase 1 E2E spec; run `npx playwright test
-  tests/e2e/notifications-webpush.spec.ts --project=firefox`.
-- `./scripts/scan-gorm-security.sh --check` (new model/migration — mandatory
-  per CLAUDE.md §1.5).
-- `scripts/go-test-coverage.sh` / `scripts/frontend-test-coverage.sh` ≥ 85%.
-- `lefthook run pre-commit`, `make lint-fast`.
-- CodeQL Go/JS locally (new feature surface, per CLAUDE.md §3 "run locally
-  when the change adds a new feature").
+
+Covered in Commit 4 (CI workflow) and Commit 5 (cross-links, cleanup) below.
 
 ### Phase 5: Documentation and Deployment
-- `docs/features.md`: add Web Push to the notification-provider list.
-- New `docs/features/notifications-webpush.md` (or a section in the
-  existing notifications doc, whichever `docs-writer` finds already
-  structured): user-facing walkthrough — enabling, per-device subscribe,
-  troubleshooting ("no prompt appeared" → browser permission blocked at
-  the OS/browser level, outside Charon's control).
-- `ARCHITECTURE.md`: update the `go_notify_yourself` technology-stack row
-  to mention Web Push alongside the existing provider list; note the new
-  `WebPushSubscription` table under whatever section lists persistent
-  models, if one exists.
+
+- `docs-writer` updates `ARCHITECTURE.md`'s Directory Structure section to list `docs-site/` (flagged here, not written by this plan — see §1.4).
+- `docs-writer` reviews the migrated content for any Docusaurus-specific formatting improvements (admonitions, tabs) as an optional follow-up, out of scope for this PR's merge bar.
 
 ---
 
-## 6. Acceptance Criteria
+## 5. `.gitignore` Additions
 
-1. `go.mod` pins `go_notify_yourself v0.3.0`; `go build ./...` succeeds.
-2. Admin can provision a Web Push provider with zero manual key entry;
-   a second provision attempt — sequential **or concurrent** (racing the
-   `idx_webpush_singleton` partial unique index, §3.3.4) — is rejected with
-   `409`, never `500`, and never results in two `webpush` provider rows.
-3. An authenticated browser can subscribe and receive a real push
-   notification end-to-end in manual testing (documented in the PR
-   description as a manual verification step, since CI cannot receive a
-   real browser push).
-4. Unsubscribing removes the row and stops further delivery to that
-   device.
-5. A subscription that a push service reports as 404/410 is
-   auto-pruned on next dispatch; a subscription failing for other reasons
-   survives up to 9 consecutive failures before being pruned as presumed-dead.
-6. Every other provider type's tests still pass unmodified (no regression).
-7. `notification_service_registry_consistency_test.go` passes with
-   `"webpush"` included.
-8. Targeted Playwright spec passes on `--project=firefox`.
-9. `./scripts/scan-gorm-security.sh --check` reports zero CRITICAL/HIGH.
-10. Backend and frontend coverage both ≥ 85%.
-11. `make lint-fast` / staticcheck clean; `npm run type-check` clean.
-12. `docs/features.md` and `ARCHITECTURE.md` updated.
+Appended near the existing `node_modules/`/`frontend/dist/` block (after line 37, following the repo's per-package explicit-path style):
+
+```gitignore
+# Docs site (Docusaurus) - generated content and build output
+docs-site/node_modules/
+docs-site/docs/
+docs-site/build/
+docs-site/.docusaurus/
+docs-site/.cache-loader/
+```
+
+`docs-site/docs/` (the sync-script-generated copy, §2.2) is git-ignored
+alongside the standard Docusaurus `build/`/`.docusaurus/` artifacts — this is
+the enforcement mechanism that makes "`docs/` is the only source of truth"
+actually true rather than aspirational (a committed `docs-site/docs/` would
+immediately invite drift).
 
 ---
 
-## 7. Risks and Open Questions
+## 6. Commit Slicing Strategy
 
-| # | Risk | Mitigation / Note |
-|---|---|---|
-| 1 | **No typed status error from `transport.Wrapper.Send`** — 404/410 detection relies on regex-parsing a formatted error string (`"provider returned status %d..."`) that upstream could reword without a major version bump (it's not part of any documented stable contract). | `extractHTTPStatusFromNotifyError` is isolated to one function with its own unit tests asserting the exact current string shape; if it ever stops matching, the failure mode is "subscriptions never auto-prune, `FailureCount` accumulates and prunes at 10" (safe-ish degradation, not silent data loss) rather than a crash. **Suggest filing an upstream issue against `go_notify_yourself` requesting a typed `transport.StatusError` with a `StatusCode` field** — out of scope for this PR but worth raising given Web Push is the first provider where distinguishing status codes actually matters to the caller. |
-| 2 | **VAPID key rotation is unsupported in this PR.** If an admin wants to rotate/regenerate the keypair (e.g. suspected key compromise), there is no endpoint for it — only initial provisioning. Re-running provision is blocked by the 409 singleton check. | Documented non-goal (§1.3). A rotation endpoint would need to also cascade-delete every existing `WebPushSubscription` (per §2.1's confirmed invariant: rotating invalidates every subscriber) and prompt every device to re-subscribe — enough additional surface (confirmation UX, cascade semantics) to warrant its own follow-up spec rather than folding it into this PR. |
-| 3 | **Sequential-per-subscription dispatch (§3.5) has no concurrency cap tuning.** A provider with a very large number of subscriptions serializes all sends behind one goroutine, so total dispatch latency for that event scales linearly with subscription count. | Acceptable for Charon's expected scale (a handful of admin browsers per self-hosted instance, not a multi-tenant SaaS fan-out) — explicitly a self-hosted, novice-admin-focused tool per `ARCHITECTURE.md`'s stated audience. Flagged, not silently assumed away. |
-| 4 | **No admin-wide view of all users' subscriptions** — `GET .../subscriptions` is scoped to the caller only (§3.4.4). An admin cannot see "3 other users have devices subscribed" from the UI. | Deliberate scope cut for this PR (§1.3); a follow-up could add an admin-only `GET .../subscriptions/all` if that visibility is requested. |
-| 5 | **RESOLVED by user decision (no longer open)**: non-admin authenticated users with management access (`RoleUser`, not `RolePassthrough`) may self-service subscribe/list/unsubscribe their own Web Push destination and read the VAPID public key — no admin gate on those four routes. Provisioning stays admin-only. See §3.4.0 for the full decision writeup and how it interacts with the four security-event `NotifyXxx` toggles (closed via existing `Update`-endpoint admin gate, confirmed by reading the handler — no new code required). | Decision made; §3.4/§3.4.0 updated to match. No further action beyond the regression test called out in §3.4.0 (commit 6, §9). |
-| 6 | **`go.sum` transitive-dependency diff unverified** (§3.7) — spec inspected only the webpush package's own imports, not a full `go mod tidy` diff. | Explicit implementation-time verification step called out in §3.7 and Phase 2; not assumed clean. |
-| 7 | **VAPID private key is stored in plaintext at rest** — `NotificationProvider.Token` (§3.2) holds `VAPIDPrivateKey` unencrypted in SQLite, same as all 8 other provider types' bearer tokens/webhook URLs (`grep` across `internal/models` confirms **no** `Token`-shaped field in this codebase is currently encrypted at rest — this is existing practice, not a regression introduced by this PR, so it is **not a blocker** here). It is, however, a materially different class of secret than a bearer token or webhook URL: compromise of the VAPID private key lets an attacker forge and send arbitrary push messages, indefinitely, to every subscriber of that key (every browser that ever ran `PushManager.subscribe` against this instance's public key) — not just abuse one destination the way a leaked Gotify/ntfy token would. Charon already has a stronger pattern available and in production use for exactly this class of problem: `internal/crypto.EncryptionService` (AES-256-GCM), currently used for `DNSProviderCredential.CredentialsEncrypted` (`backend/internal/models/dns_provider_credential.go:22`, `backend/internal/models/dns_provider.go:26`) — this feature does not use it, consistent with (not worse than) every other provider token today. | **Documented, non-blocking for this PR.** Flagging a **future hardening pass across all `NotificationProvider.Token` values** (not scoped to webpush specifically — encrypting only the VAPID key while leaving Gotify/Telegram/Slack/Pushover/ntfy tokens in plaintext would be an inconsistent half-measure and would need its own migration/key-management design either way) as a follow-up, out of scope for this PR. Not scoping encryption into this PR's Commit Slicing Strategy (§9). |
+**Decision: single PR, five ordered commits, one feature (docs-site
+migration) merged only when complete.** No PR is opened until Commit 5 is
+ready; commits are pushed sequentially to the feature branch and reviewed as a
+whole, per `CLAUDE.md`'s "Slice Commits, Not PRs."
+
+### Commit 1 — Scaffold Docusaurus project (foundation, no `docs/` content yet)
+
+- **Commit message prefix**: `chore:` — `docs-site/` is never bundled into the Docker image or served by `internal/server` (see §1.4), so per CLAUDE.md's CI/CD conventions this must not use `feat:`/`fix:`/`perf:`, which would trigger an unwanted Docker build/release for a docs-only change. All five commits in this slice use `chore:`.
+- **Scope**: Create `docs-site/` via the TypeScript classic template, strip template placeholder content (default `docs/intro.md`, `blog/`, tutorial docs), configure `docusaurus.config.ts` / `sidebars.ts` per §3.1, add `docs-site/package.json` per §3.2, add `docs-site/audit-ci.json` (`{"$schema": "https://raw.githubusercontent.com/IBM/audit-ci/main/docs/schema.json", "high": true, "allowlist": []}`), add `docs-site/tsconfig.json`, add a placeholder `docs-site/docs/intro.md` *only* for this commit's local verification (removed once Commit 2 wires real sync) or simply verify against the template's stock content before Commit 2 replaces it.
+- **Files**: `docs-site/package.json`, `docs-site/package-lock.json`, `docs-site/tsconfig.json`, `docs-site/audit-ci.json`, `docs-site/docusaurus.config.ts`, `docs-site/sidebars.ts`, `docs-site/src/**`, `docs-site/static/**`, `docs-site/README.md`, `docs-site/.gitignore` (template default).
+- **Dependencies**: None.
+- **Validation gate**: `cd docs-site && npm install && npm run type-check && npm run build` all succeed; `npm run audit:ci` reports zero high/critical findings.
+
+### Commit 2 — Content sync mechanism + migrated docs wired in
+
+- **Commit message prefix**: `chore:`.
+- **Scope**: Add `docs-site/scripts/sync-docs.mjs` and `docs-site/scripts/docs-manifest.json` per §2.2/§3.3; update `package.json`'s `start`/`build` scripts to run `sync-docs` first; remove the Commit-1 placeholder doc; add the `@easyops-cn/docusaurus-search-local` plugin config for local search.
+- **Files**: `docs-site/scripts/sync-docs.mjs`, `docs-site/scripts/docs-manifest.json`, `docs-site/package.json` (script updates), `docs-site/docusaurus.config.ts` (search plugin), `.gitignore` (add `docs-site/docs/` and friends per §5).
+- **Dependencies**: Commit 1.
+- **Validation gate**: `cd docs-site && npm run build` succeeds and produces a complete `docs-site/build/` with pages for every manifest entry (spot-check: `docs-site/build/docs/getting-started/index.html`, `docs-site/build/docs/features/orthrus/index.html` exist and contain expected content); `git status` shows `docs-site/docs/` is untracked/ignored, not staged.
+
+### Commit 3 — Wire `scripts/charon_dep_update.sh`
+
+- **Commit message prefix**: `chore:`.
+- **Scope**: Add `"$REPO_ROOT/docs-site"` to the `NPM_MODULES` array only. The script's `npx npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y` call runs unconditionally for every entry in the `NPM_MODULES` loop (it is not per-module and there is no separate per-module reject list) — adding `docs-site` to the array automatically gets the same TypeScript-6 rejection for free. No second exclusion-list change is needed or exists to make.
+- **Files**: `scripts/charon_dep_update.sh` (single array-entry addition).
+- **Dependencies**: Commits 1–2 (the module must build/type-check/audit cleanly before the update script exercises it).
+- **Validation gate**: Do not run the full `bash scripts/charon_dep_update.sh npm` for this commit's gate — it bumps dependencies repo-wide (root and `frontend/` too) as a side effect, which is disproportionate for verifying a single array-line change. Instead, directly exercise the `docs-site` block's commands the way the script's loop body would: from `docs-site/`, run `rm -rf node_modules package-lock.json && npm install && npm dedupe && npm run build && npm run type-check && npm run audit:ci` and confirm all succeed, then separately confirm TypeScript in `docs-site/package.json` stays on the `^5.x` line after an `npx --yes npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y` dry pass. Save the full multi-module script run for CI/pre-merge, not this commit's local gate.
+
+### Commit 4 — CI: Pages deploy workflow, retire the old pipeline
+
+- **Commit message prefix**: `chore:`.
+- **Scope**: Add `.github/workflows/docs-deploy.yml` per §3.4; delete `.github/workflows/docs.yml`, `.github/pages/build-docs.sh`, `.github/pages/docs-index.html` (and any other files solely used by the retired pipeline — verify no other workflow references `build-docs.sh` or `docs-index.html` before deleting).
+- **Files**: `.github/workflows/docs-deploy.yml` (new), `.github/workflows/docs.yml` (deleted), `.github/pages/build-docs.sh` (deleted), `.github/pages/docs-index.html` (deleted).
+- **Dependencies**: Commits 1–3 (workflow assumes `docs-site/package-lock.json` exists and `npm run build` is green).
+- **Validation gate**: `actionlint .github/workflows/docs-deploy.yml` (or whatever this repo's lint-workflow tooling is — check `make` targets / `lefthook` config for an existing actionlint invocation and reuse it) passes with no errors; a `workflow_dispatch` manual run against the feature branch (or a fork/test run per `devops` agent's standard verification approach) completes the `build` job successfully and produces a valid Pages artifact. Full end-to-end Pages deploy verification (the `deploy` job) is CI-on-`main`-only per this repo's standard model — cannot be fully validated pre-merge, same constraint the old `docs.yml` had.
+
+### Commit 5 — Cross-links, `.gitignore` finalization, cleanup
+
+- **Commit message prefix**: `chore:`.
+- **Scope**: Update `README.md:136`'s link per §3.5; confirm/finalize the `.gitignore` block from §5 landed correctly (may already be done in Commit 2 — this commit is the final audit pass, ensure no `docs-site` build artifacts got accidentally staged anywhere in Commits 1–4); add `docs-site/README.md` local-dev instructions (how to run `npm start`, how the sync script works, where to add new pages via the manifest) if not already covered in Commit 1's scaffold; flag `ARCHITECTURE.md`'s Directory Structure section for a follow-up `docs-writer` update (do not write the `ARCHITECTURE.md` prose in this commit — per the task's explicit instruction, that's assigned to `docs-writer` in a later pipeline step, not this plan).
+- **Files**: `README.md`, `docs-site/README.md`, `.gitignore` (final check), no `ARCHITECTURE.md` edit in this commit.
+- **Dependencies**: Commits 1–4.
+- **Validation gate**: `npx markdownlint-cli2 'README.md' 'docs-site/README.md'` (repo's existing `lint:md` script, scoped to touched files) passes; manual click-through of the README's updated docs link against the locally-built `docs-site/build/` (via `npm run serve`) confirms the target page exists at the expected path.
+
+### Rollback / Contingency Notes (whole-PR level)
+
+- Because Commit 4 deletes the old `docs.yml` pipeline, a rollback of this PR **after merge** needs to `git revert` the full commit range (not just Commit 4) to restore the working old pipeline — reverting only Commit 4 would leave `docs-site/` orphaned with no deploy path, which is a worse state than either fully-forward or fully-reverted. Document this in the PR description explicitly.
+- If Commit 4's CI validation reveals GitHub Pages `baseUrl`/routing mismatches post-merge (e.g. asset 404s under `/Charon/` subpath), the fix is a `docusaurus.config.ts` `baseUrl`/`url` correction plus a re-run of the `docs-deploy` workflow — no code rollback needed, this is a config-only fix forward.
+- If `docs-site/`'s dependency footprint later proves too heavy for `charon_dep_update.sh`'s runtime (Commit 3's concern), the contingency is to split `NPM_MODULES` handling per-module with independent timeouts rather than reverting the docs-site addition — flag to `devops` if this becomes an issue in practice, not a reason to hold this PR.
+- Nothing in this feature touches `backend/` or `frontend/` build output, so there is no risk to the shipped Docker image / Charon binary from any part of this rollback story — worst case of a bad merge is a broken or stale docs site, never a broken product release.
 
 ---
 
-## 8. Definition of Done Checklist (repeated from CLAUDE.md, for the implementation phase)
+## 7. Acceptance Criteria (Definition of Done for this PR)
 
-- [ ] Targeted Playwright spec, `--project=firefox`, passes.
-- [ ] `./scripts/scan-gorm-security.sh --check` — zero CRITICAL/HIGH.
-- [ ] `bash scripts/local-patch-report.sh` artifacts produced.
-- [ ] CodeQL Go/JS + Trivy run locally (new feature surface).
-- [ ] `lefthook run pre-commit` clean.
-- [ ] `make lint-fast` / staticcheck clean.
-- [ ] Backend + frontend coverage ≥ 85%.
-- [ ] `npm run type-check` clean.
-- [ ] `go build ./...` and `npm run build` succeed.
-- [ ] All existing + new unit tests pass.
-- [ ] No debug prints/dead code left behind.
+- [ ] `docs-site/` builds cleanly (`npm run build`) with zero Docusaurus broken-link errors.
+- [ ] `docs-site/docs/` is git-ignored and never committed; `docs/` is unmodified in layout/content by this PR (diff on `docs/**` is empty except through Commit 2's read-only sync script referencing it).
+- [ ] Every path in `docs-site/scripts/docs-manifest.json` resolves to an existing `docs/` file or directory.
+- [ ] `scripts/charon_dep_update.sh npm` completes successfully for all three `NPM_MODULES` entries including the new `docs-site` entry.
+- [ ] `docs-site/audit-ci.json`-gated `npm run audit:ci` reports zero high/critical findings.
+- [ ] `.github/workflows/docs-deploy.yml` passes actionlint (or repo-equivalent) and a manual `workflow_dispatch` build-job dry run.
+- [ ] `.github/workflows/docs.yml`, `.github/pages/build-docs.sh`, `.github/pages/docs-index.html` are deleted with no remaining references elsewhere in the repo (`grep -rn "build-docs.sh\|docs-index.html" .github/` returns nothing after Commit 4).
+- [ ] `README.md`'s documentation link points at a real, migrated Docusaurus page.
+- [ ] `.gitignore` covers `docs-site/node_modules/`, `docs-site/docs/`, `docs-site/build/`, `docs-site/.docusaurus/`.
+- [ ] `ARCHITECTURE.md` update is explicitly flagged as a follow-up for `docs-writer` in the PR description — not silently skipped, not written by this plan.
+- [ ] Full repo Definition of Done from `CLAUDE.md` §"Task Completion Protocol" applies at PR level: patch coverage preflight, lefthook triage, staticcheck (N/A — no Go changes, but the gate still runs and must pass trivially), type-check (`docs-site` and unaffected `frontend`), build verification for both `backend` (unaffected, must still build) and `frontend` (unaffected, must still build).
 
 ---
 
-## 9. Commit Slicing Strategy
+## 8. Risks & Mitigations Summary
 
-**Decision: single PR, one feature ("Web Push notification provider"),
-delivered as the ordered sequence of logical commits below. No PR
-splitting** (per CLAUDE.md "Commit Slicing & PR Strategy" — backend,
-frontend, and hardening all land in one PR, reviewed together).
-
-| # | Commit | Scope / Files | Depends on | Validation gate |
-|---|---|---|---|---|
-| 1 | `test: add e2e specs for web push subscribe/unsubscribe flow (fixme)` | `tests/e2e/notifications-webpush.spec.ts` (all `test.fixme`) | — | Spec file parses/lints; no assertions run yet |
-| 2 | `chore: bump go_notify_yourself to v0.3.0` | `backend/go.mod`, `backend/go.sum` | — | `go build ./...`, `go mod verify`, `go.sum` diff reviewed for unexpected transitive deps (§7 risk 6) |
-| 3 | `feat: add WebPushSubscription model, migration, and singleton index` | `backend/internal/models/webpush_subscription.go` (+ test), `backend/internal/api/routes/routes.go` (AutoMigrate line **and** the new `idx_webpush_singleton` partial-unique-index `db.Exec`, §3.3.4) | 2 | `go build ./...`; `go test ./internal/models/...`; `./scripts/scan-gorm-security.sh --check`; **new**: concurrency test asserting two simultaneous `INSERT`s racing the index produce exactly one success and one unique-constraint-violation error (§3.3.4) |
-| 4 | `feat: wire webpush into notify provider allowlist` | `notify_providers_import.go`, `notification_service.go` (`isSupportedNotificationProviderType`, `isDispatchEnabled`, `supportsJSONTemplates`), `notification_feature_flags.go` (`FlagWebPushServiceEnabled`), `notification_service_registry_consistency_test.go` | 2 | `go test ./internal/services/... -run Registry` |
-| 5 | `feat: add web push dispatch fan-out and subscription pruning` | `internal/services/notify_webpush_adapter.go` (+ test: fan-out, 404/410 pruning, failure-count threshold, `extractHTTPStatusFromNotifyError`) | 3, 4 | `go test ./internal/services/...`; coverage on new file ≥ 85% |
-| 6 | `feat: add web push provisioning and subscription API endpoints` | `internal/api/handlers/webpush_handler.go` (+ test), `NotificationService` additions (`ProvisionWebPush` — including the constraint-violation → `409` mapping on `CreateProvider`, §3.1/§3.4.1 — plus `GetWebPushVAPIDPublicKey`, `RegisterWebPushSubscription`, `ListWebPushSubscriptionsForUser`, `DeleteWebPushSubscription`), `routes.go` route registration | 3, 4, 5 | `go test ./internal/api/handlers/...`; `go build ./...`; **new**: test asserting a `409` (not `500`) response when `CreateProvider`'s `INSERT` fails on `idx_webpush_singleton`; **new**: regression test asserting `RoleUser` gets `403` from `PUT /notifications/providers/:id` when setting a `NotifySecurityXxx` field on a `Type: "webpush"` row (§3.4.0) |
-| 7 | `feat: add web push service worker and subscribe/unsubscribe UI` | `frontend/public/sw.js`, `frontend/src/api/notifications.ts`, `frontend/src/utils/webpush.ts` (new helper), `frontend/src/pages/Notifications.tsx` (+ Vitest tests) | 6 | `npm run type-check`; `npm test` (Vitest); coverage ≥ 85% |
-| 8 | `test: enable web push e2e specs` | Un-`fixme` `tests/e2e/notifications-webpush.spec.ts` | 6, 7 | `npx playwright test tests/e2e/notifications-webpush.spec.ts --project=firefox` passes |
-| 9 | `docs: document web push notification provider` | `docs/features.md`, `docs/features/notifications-webpush.md` (or existing notifications doc section), `ARCHITECTURE.md` | 8 | Docs review only; no code gate |
-
-Each commit builds and passes its own gate before the next starts, per
-CLAUDE.md's "Per-Commit Requirement." The PR as a whole must pass the full
-Definition of Done (§8) before merge.
-
-### Rollback / contingency (PR-wide)
-
-- **Pre-merge**: any commit's validation gate failing blocks progression to
-  the next commit in the sequence — implementation halts and the failing
-  commit is fixed in place (new commit, never force-amend, per CLAUDE.md
-  git safety rules) before continuing.
-- **Post-merge regression**: revert is safe and self-contained — the new
-  `WebPushSubscription` table and the `webpush` provider-type branch are
-  fully additive; no existing provider type's code path, schema, or
-  dispatch logic is modified by this feature (confirmed throughout §2.2:
-  every existing switch/map gains a new case, none of the existing cases
-  change). A `git revert` of the merge commit removes the feature cleanly;
-  the only residual state is the `WebPushSubscription` table and any
-  provisioned `webpush` `NotificationProvider` row left in the database,
-  which are inert (no code references them post-revert) and can be cleaned
-  up via a follow-up migration if desired, but pose no correctness risk if
-  left in place.
-- **Partial rollback within the PR is not applicable** — per CLAUDE.md, one
-  feature merges as one PR or not at all; there is no supported "merge
-  commits 1-6 but not 7-9" state.
+| Risk | Mitigation |
+|---|---|
+| Docusaurus TS-version ceiling conflicts with repo's TS 6 push elsewhere | `docs-site` pinned to TS 5.x independently, same pattern as the existing `frontend`/typescript exclusion in `charon_dep_update.sh` (§3.2, §4 Commit 3) |
+| Two live Pages pipelines racing | Old pipeline deleted atomically in the same commit that adds the new one (§4 Commit 4) — no coexistence window |
+| Content drift between `docs/` and the public site | Enforced structurally: `docs-site/docs/` is git-ignored and regenerated from an explicit manifest on every build/dev start (§2.2) — there is no editable second copy to drift |
+| Manifest silently omits or wrongly includes a doc | Explicit allowlist (not exclude-list) means new internal `docs/` subdirs are safe-by-default; a broken/renamed path fails the build loudly (§3.7) rather than silently thinning the site |
+| `baseUrl`/routing mismatch vs. old site's URL shape breaks external links (search engines, third-party links to `.../docs/getting-started.html`) | `baseUrl` chosen to match existing `/Charon/` prefix (§3.1); the `.html`-suffix old URLs will 404 under the new site regardless — acceptable one-time breakage for a docs site with low external backlink surface, not mitigated further in this pass (no redirect rules proposed; flag as a possible future `_redirects`-style addition if analytics show meaningful traffic loss) |
