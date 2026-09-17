@@ -1038,7 +1038,7 @@ jobs:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
-          syft-version: v1.51.1
+          syft-version: v1.52.0
 
       - name: Generate SBOM fallback with pinned Syft
         if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true' && always()
