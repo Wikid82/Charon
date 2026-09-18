@@ -478,6 +478,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # CVE-2026-81871: Log gRPC exporter ignores env TLS certs, bypassing mTLS/pinning
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0; \
+        # go.opentelemetry.io/otel/exporters/stdout/stdoutlog is pulled in transitively
+        # (not a CVE pin) but is compiled against the same pre-1.0 otel/log API surface
+        # as the exporters above, so it must be held on the matching v0.21.0 release
+        # train too, or MVS otherwise leaves it on a stale v0.20.0 that no longer
+        # compiles against otel/log v0.21.0 ("undefined: log.Value" etc.).
+        # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/stdout/stdoutlog
+        _retry go get go.opentelemetry.io/otel/exporters/stdout/stdoutlog@v0.21.0; \
         # Kept on the same v1.45.0 release train as otel/sdk above for a coherent,
         # mutually-compatible module set.
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
