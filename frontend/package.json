@@ -105,13 +105,13 @@
   "overrides": {
     "typescript": "^6.0.3",
     "eslint-plugin-react-hooks": {
-      "eslint": "^10.10.0"
+      "eslint": "^10.11.0"
     },
     "eslint-plugin-jsx-a11y": {
-      "eslint": "^10.10.0"
+      "eslint": "^10.11.0"
     },
     "eslint-plugin-promise": {
-      "eslint": "^10.10.0"
+      "eslint": "^10.11.0"
     },
     "@vitejs/plugin-react": {
       "vite": "^8.3.0"
