@@ -93,7 +93,7 @@
     "eslint-plugin-unicorn": "^75.0.0",
     "eslint-plugin-unused-imports": "^4.4.1",
     "jsdom": "30.0.1",
-    "knip": "^6.36.0",
+    "knip": "^6.37.0",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
