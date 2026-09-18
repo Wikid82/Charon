@@ -129,7 +129,7 @@ jobs:
           # which only surfaced on the next main -> development propagation
           # PR's verify-toolchain-pin check (2026-09-08 incident). pull_request
           # keeps the default merge-ref checkout.
-          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
+          ref: ${{ github.event_name == 'schedule' && 'development' || github.event_name != 'pull_request' && github.ref_name || '' }}
 
       - name: Classify trust (same-repo vs fork)
         id: trust
@@ -308,7 +308,7 @@ jobs:
           # Match build-toolchain: on non-PR triggers, check out the same
           # branch that triggered the run, so the CRITICAL/HIGH gate scores
           # the image against that branch's own .trivyignore suppressions.
-          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
+          ref: ${{ github.event_name == 'schedule' && 'development' || github.event_name != 'pull_request' && github.ref_name || '' }}
 
       - name: Determine scan reference
         id: ref
@@ -449,7 +449,7 @@ jobs:
           # Evaluate + bump the triggering branch's Dockerfile pin (this job's
           # PR targets that same branch as `base:`, computed identically
           # below). Never runs on pull_request. Mirrors build-toolchain.
-          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
+          ref: ${{ github.event_name == 'schedule' && 'development' || github.event_name != 'pull_request' && github.ref_name || '' }}
 
       - name: Resolve target branch
         id: target
