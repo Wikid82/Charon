@@ -59,8 +59,12 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
 # golang.org/x/crypto and klauspost/compress are patched above: pinned here so the Caddy
 # and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
 # ahead of upstream releases.
+# NOT 1.84.0: that release carries its own since-disclosed HIGH DoS advisory
+# (malformed RPC requests) with no fix in the 1.84.x line; 1.83.2 still contains
+# the CVE-2026-84304 fix without it. The toolchain-image.yml Trivy gate caught
+# this before publish (2026-09-18) — see docs/security/ for the writeup.
 # renovate: datasource=go depName=google.golang.org/grpc
-ARG GRPC_VERSION=1.84.0
+ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.0.2
 
