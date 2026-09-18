@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-cfc3694c331794ad
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:8def5e8f67ad09b1f802c54441d5337cd375e9820bba90e4225a727a7c5bd897
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-11df81aa7ba60103
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:e18d854ca0c3ef0708b736715a1dff356e8e25479fe2b6ddccbd86f5584a6e2d
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -468,15 +468,29 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
         _retry go get go.opentelemetry.io/otel/sdk@v1.45.0; \
         # CVE-2026-39882: OTel HTTP exporter request smuggling
+        # otlploghttp is pre-1.0 and version-locked to the go.opentelemetry.io/otel/log
+        # API it was built against (same release train as otel/sdk above: v1.45.0 <->
+        # v0.21.0). Must stay in lockstep with otlploggrpc below or MVS resolves
+        # otel/log to a newer minor than this exporter's compiled-in API surface,
+        # breaking the build ("undefined: api.KeyValue" etc.).
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.21.0; \
         # CVE-2026-81871: Log gRPC exporter ignores env TLS certs, bypassing mTLS/pinning
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0; \
+        # go.opentelemetry.io/otel/exporters/stdout/stdoutlog is pulled in transitively
+        # (not a CVE pin) but is compiled against the same pre-1.0 otel/log API surface
+        # as the exporters above, so it must be held on the matching v0.21.0 release
+        # train too, or MVS otherwise leaves it on a stale v0.20.0 that no longer
+        # compiles against otel/log v0.21.0 ("undefined: log.Value" etc.).
+        # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/stdout/stdoutlog
+        _retry go get go.opentelemetry.io/otel/exporters/stdout/stdoutlog@v0.21.0; \
+        # Kept on the same v1.45.0 release train as otel/sdk above for a coherent,
+        # mutually-compatible module set.
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.45.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0; \
         # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
         # Fix available at v1.6.0. Pin here so the Caddy binary is patched immediately;
         # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
