@@ -649,6 +649,16 @@
       ]
     },
     {
+      "description": "Go: block the grpc-go 1.84.x line — 1.84.0 shipped with an unfixed HIGH DoS advisory (malformed RPC requests) and no 1.84.x patch release exists upstream as of 2026-09-18. Re-evaluate once grpc-go cuts a fixed 1.84.x or stable 1.85.x release.",
+      "matchDatasources": [
+        "go"
+      ],
+      "matchPackageNames": [
+        "google.golang.org/grpc"
+      ],
+      "allowedVersions": "!/^1\\.84\\./"
+    },
+    {
       "description": "Go: keep pgx within v4 (CrowdSec requires pgx/v4 module path) - applies to go.mod lookups",
       "matchDatasources": [
         "go"
