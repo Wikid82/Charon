@@ -469,6 +469,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # CVE-2026-39882: OTel HTTP exporter request smuggling
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
+        # CVE-2026-81871: Log gRPC exporter ignores env TLS certs, bypassing mTLS/pinning
+        # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
