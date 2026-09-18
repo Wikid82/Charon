@@ -342,7 +342,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
 # is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:e9bbdf282b51ac8b34c46e5f31d2d56e7bad60366c35f08d2f295b921b13388b AS caddy-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -642,7 +642,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:e9bbdf282b51ac8b34c46e5f31d2d56e7bad60366c35f08d2f295b921b13388b AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
