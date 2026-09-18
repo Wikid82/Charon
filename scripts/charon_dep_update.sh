@@ -110,7 +110,7 @@ update_npm() {
         # eslint@^9 dependency (vs. the types-only @types/eslint@* in 6.10.0),
         # reintroducing GHSA-mh99-v99m-4gvg (brace-expansion DoS). Keep
         # exact-pinned to 6.10.0 until upstream ships a fixed release.
-        npx --yes npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y
+        npx --yes npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y,jsdom
 
         # Also update flat (string-valued) entries in the "overrides" section.
         # npm-check-updates excludes "overrides" from its default --dep list, so
