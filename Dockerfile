@@ -342,7 +342,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
 # is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:e9bbdf282b51ac8b34c46e5f31d2d56e7bad60366c35f08d2f295b921b13388b AS caddy-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -464,11 +464,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v4
         _retry go get github.com/go-jose/go-jose/v4@v4.1.4; \
         # CVE-2026-39883: OTel SDK resource leak
+        # CVE-2026-81870: Exporter config logging may leak endpoint URLs in info logs
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
-        _retry go get go.opentelemetry.io/otel/sdk@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/sdk@v1.45.0; \
         # CVE-2026-39882: OTel HTTP exporter request smuggling
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
+        # CVE-2026-81871: Log gRPC exporter ignores env TLS certs, bypassing mTLS/pinning
+        # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
@@ -638,7 +642,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:e9bbdf282b51ac8b34c46e5f31d2d56e7bad60366c35f08d2f295b921b13388b AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
