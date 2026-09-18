@@ -284,3 +284,30 @@ CVE-2026-75803
 # See also: .grype.yaml for full justification; SECURITY.md "[MEDIUM] CVE-2025-60876".
 # exp: 2026-12-04
 CVE-2025-60876
+
+# CVE-2026-81870 / GHSA-8wmf-6v46-5gfg: OpenTelemetry-Go otlptrace exporter config
+# logging may leak endpoint URLs in info logs
+# Severity: LOW (per GHSA) — Package: go.opentelemetry.io/otel/exporters/otlp/otlptrace
+# and otlptracegrpc/otlptracehttp, embedded transitively in /usr/bin/caddy. Published
+# 2026-09-17; no fixed version yet. Charon's own caddy-builder patch stage pins only the
+# HTTP-family OTel exporters (otlploghttp/otlpmetrichttp/otlptracehttp) and does not
+# configure or invoke OTel tracing by default — these packages are pulled in transitively
+# by Caddy/plugin dependencies, not wired up as an active Charon feature. No operator-
+# facing endpoint URL is logged by Charon's own code paths.
+# Review by: 2026-10-01 (check for a patched release)
+# exp: 2026-10-01
+CVE-2026-81870
+GHSA-8wmf-6v46-5gfg
+
+# CVE-2026-81871 / GHSA-w34q-cm8f-9c5x: OpenTelemetry-Go otlploggrpc exporter ignores
+# env TLS certs, bypassing mTLS/pinning
+# Severity: MODERATE (per GHSA) — Package: go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc,
+# embedded transitively in /usr/bin/caddy. Published 2026-09-17; no fixed version yet.
+# Charon does not configure gRPC-based OTel log export anywhere in its own code or docs
+# (grep for otlploggrpc/OTEL_EXPORTER_OTLP_* across backend/docs returns no hits) — the
+# package is linked only because Caddy/a plugin imports it, not because Charon enables
+# it. The vulnerable mTLS-bypass path is not exercised in a standard deployment.
+# Review by: 2026-10-01 (check for a patched release)
+# exp: 2026-10-01
+CVE-2026-81871
+GHSA-w34q-cm8f-9c5x
