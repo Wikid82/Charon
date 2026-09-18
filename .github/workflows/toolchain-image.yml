@@ -36,15 +36,22 @@ on:
       - 'scripts/verify-toolchain-pin.sh'
       - 'scripts/lib/dockerfile-stage.sh'
       - '.trivyignore'
-  # Direct pushes to development (manual dep bumps outside a Renovate PR, e.g.
-  # a hand-run bump script) never go through sync-pin-on-pr, which only fires
-  # on pull_request. Without this, a push that moves a toolchain-key input
-  # (Dockerfile ARG, toolchain-key.sh, .trivyignore, ...) leaves development's
-  # pin stale until the next 06:00 UTC schedule — exactly the gap that broke
-  # the N5 freshness check after the bare gRPC-version push on 2026-09-17.
+  # Direct pushes to development, main, or nightly (manual dep bumps outside a
+  # Renovate PR, cherry-picks onto main, etc.) never go through sync-pin-on-pr,
+  # which only fires on pull_request. Without this, a push that moves a
+  # toolchain-key input (Dockerfile ARG, toolchain-key.sh, .trivyignore, ...)
+  # leaves that branch's pin stale until the next 06:00 UTC schedule (which
+  # only ever targets development) — exactly the gap that broke the N5
+  # freshness check after the bare gRPC-version push on 2026-09-17, and again
+  # after a same-day OTel .trivyignore fix was cherry-picked onto main without
+  # a corresponding pin rebuild. build-toolchain's checkout and open-bump-pr's
+  # base/branch all key off github.ref_name, so each branch gets its own
+  # correctly-computed key and its own bump PR — see those jobs' comments.
   push:
     branches:
       - development
+      - main
+      - nightly
     paths:
       - 'Dockerfile'
       - '.github/workflows/toolchain-image.yml'
@@ -109,17 +116,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Non-PR entry points (schedule / workflow_dispatch, and the weekly
-          # rebuild's workflow_call — whose github.event_name is the caller's
-          # 'schedule'/'workflow_dispatch') evaluate `development`, not the
-          # default branch (main). `open-bump-pr` opens its digest-bump PR with
-          # `base: development`, and `development` carries its own Dockerfile ARG
-          # bumps (x/net, x/crypto, …) that move the toolchain key independently
-          # of main. Checking out main here made the daily bot blind to
-          # development-side drift, which then only surfaced on the next
-          # main -> development propagation PR's verify-toolchain-pin check.
-          # pull_request keeps the default merge-ref checkout.
-          ref: ${{ github.event_name != 'pull_request' && 'development' || '' }}
+          # Non-PR entry points build/verify whichever branch actually
+          # triggered the run (push to development or main, or a
+          # workflow_dispatch/workflow_call fired against a specific ref) —
+          # `open-bump-pr` below opens its digest-bump PR against that same
+          # branch, so each branch's own Dockerfile ARG bumps (x/net,
+          # x/crypto, alpine, …) get their own correctly-computed key.
+          # `schedule` is the one exception: cron has no branch context of
+          # its own (GitHub always runs it against the default branch), so it
+          # hardcodes `development` — checking out `main` here previously
+          # made the daily freshness bot blind to development-side drift,
+          # which only surfaced on the next main -> development propagation
+          # PR's verify-toolchain-pin check (2026-09-08 incident). pull_request
+          # keeps the default merge-ref checkout.
+          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
 
       - name: Classify trust (same-repo vs fork)
         id: trust
@@ -295,10 +305,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Match build-toolchain: on non-PR triggers, use development's
-          # .trivyignore so the CRITICAL/HIGH gate scores the development-recipe
-          # image against development's suppressions.
-          ref: ${{ github.event_name != 'pull_request' && 'development' || '' }}
+          # Match build-toolchain: on non-PR triggers, check out the same
+          # branch that triggered the run, so the CRITICAL/HIGH gate scores
+          # the image against that branch's own .trivyignore suppressions.
+          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
 
       - name: Determine scan reference
         id: ref
@@ -416,8 +426,10 @@ jobs:
           echo "::notice::Toolchain pin synced to ${KEY} @ ${DIGEST}. Re-run the 'Toolchain pin freshness' check (GITHUB_TOKEN pushes do not auto-retrigger PR checks)."
 
   # Off the PR path only: if the rebuilt digest differs from the Dockerfile pin,
-  # open a bot PR bumping it (modelled on update-geolite2.yml). Keeps base
-  # `development` per spec §3.3/§3.4.
+  # open a bot PR bumping it (modelled on update-geolite2.yml). Targets
+  # whichever branch triggered the run (development, main, nightly, ...) —
+  # see the build-toolchain checkout comment for why `schedule` is pinned to
+  # `development` specifically.
   open-bump-pr:
     name: Open toolchain digest-bump PR
     needs: [build-toolchain, trivy-scan]
@@ -434,10 +446,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # Evaluate + bump development's Dockerfile pin (this job's PR targets
-          # `base: development`). Never runs on pull_request, so this is always
-          # `development`; the expression mirrors build-toolchain for symmetry.
-          ref: ${{ github.event_name != 'pull_request' && 'development' || '' }}
+          # Evaluate + bump the triggering branch's Dockerfile pin (this job's
+          # PR targets that same branch as `base:`, computed identically
+          # below). Never runs on pull_request. Mirrors build-toolchain.
+          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
+
+      - name: Resolve target branch
+        id: target
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            branch="development"
+          else
+            branch="${{ github.ref_name }}"
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "Target branch: $branch"
 
       - name: Decide whether the pin moved
         id: moved
@@ -472,8 +496,8 @@ jobs:
         if: steps.moved.outputs.moved == 'true'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          base: development
-          branch: bot/bump-toolchain-image
+          base: ${{ steps.target.outputs.branch }}
+          branch: bot/bump-toolchain-image-${{ steps.target.outputs.branch }}
           delete-branch: true
           title: "chore(docker): refresh bundled proxy toolchain image"
           labels: |
