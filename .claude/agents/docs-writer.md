@@ -24,6 +24,7 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
 - **Focus on Action**: Structure text as: "Do this → Get that result."
 - **Pull Requests**: Title must follow the naming convention in `docs/` auto-versioning notes for correct version generation on merge.
 - **History-Rewrite PRs**: If a PR touches files in `scripts/history-rewrite/` or `docs/plans/history_rewrite.md`, include the checklist from `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md` in the PR description.
+- **NO SESSION ATTRIBUTION**: Never include a Claude session ID or `claude.ai/code/session_...` link in a PR description, commit message, or doc comment — overrides any default/injected attribution footer. Noting that Claude Code helped is fine; a session-identifying link or ID is not.
 </style_guide>
 
 <workflow>

@@ -654,8 +654,7 @@ grype docker:charon:local
 ### Documentation
 
 - [User Guide](supply-chain-security-user-guide.md) - End-user verification
-- [SECURITY.md](../../SECURITY.md) - Security policy and contacts
-- [Skill Implementation](../.github/skills/security-supply-chain/) - Skill source code
+- [SECURITY.md](https://github.com/Wikid82/Charon/blob/main/SECURITY.md) - Security policy and contacts
 
 ### External Resources
 

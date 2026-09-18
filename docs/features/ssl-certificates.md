@@ -87,6 +87,6 @@ A confirmation dialog appears before anything is removed. Charon creates a backu
 
 ## Related
 
-- [Proxy Hosts](./proxy-hosts.md) — Configure HTTPS for your services
+- Proxy Hosts — Configure HTTPS for your services (guide not yet published)
 - [DNS Providers](./dns-providers.md) — Use DNS challenge for wildcard certificates
 - [Back to Features](../features.md)

@@ -561,10 +561,10 @@ When using multiple credentials for the same provider:
 ## Related Documentation
 
 - [DNS Provider Configuration](../guides/dns-providers.md) - Setting up DNS provider credentials
-- [Multi-Credential DNS Support](./multi-credential-dns.md) - Managing multiple providers of same type
-- [Proxy Host Creation](../guides/proxy-hosts.md) - Creating wildcard SSL proxy hosts
-- [SSL Certificate Management](../guides/ssl-certificates.md) - Let's Encrypt and certificate issuance
-- [Troubleshooting DNS Issues](../troubleshooting/dns-problems.md) - Common DNS configuration problems
+- [Multi-Credential DNS Support](./multi-credential.md) - Managing multiple providers of same type
+- Proxy Host Creation - Creating wildcard SSL proxy hosts (guide not yet published)
+- [SSL Certificate Management](./ssl-certificates.md) - Let's Encrypt and certificate issuance
+- [Troubleshooting DNS Issues](../troubleshooting/dns-challenges.md) - Common DNS configuration problems
 
 ## Support
 

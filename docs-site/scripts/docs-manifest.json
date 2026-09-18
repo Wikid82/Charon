@@ -1,0 +1,25 @@
+{
+  "files": [
+    "getting-started.md",
+    "features.md",
+    "security.md",
+    "api.md",
+    "migration-guide.md",
+    "database-schema.md",
+    "import-guide.md",
+    "live-logs-guide.md",
+    "acme-staging.md",
+    "cerberus.md",
+    "database-maintenance.md",
+    "crowdsec-auto-start-quickref.md",
+    "migration-guide-crowdsec-auto-start.md",
+    "security-incident-response.md"
+  ],
+  "directories": [
+    "features",
+    "configuration",
+    "guides",
+    "troubleshooting",
+    "api"
+  ]
+}

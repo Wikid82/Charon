@@ -133,7 +133,7 @@ http://localhost:8080
 
 ### Getting Started
 
-Full setup instructions and documentation are available at [https://wikid82.github.io/Charon/docs/getting-started.html](https://wikid82.github.io/Charon/docs/getting-started.html).
+Full setup instructions and documentation are available at [https://wikid82.github.io/Charon/docs/getting-started](https://wikid82.github.io/Charon/docs/getting-started).
 
 --- ## ✨ Top 10 Features
 

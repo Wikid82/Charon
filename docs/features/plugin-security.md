@@ -370,5 +370,5 @@ Plugins run **in-process** with Charon and have access to:
 ## See Also
 
 - [Custom Plugins](./custom-plugins.md) — Plugin installation and usage
-- [Security Policy](../../SECURITY.md) — Security reporting and policies
-- [Plugin Development Guide](../development/plugin-development.md) — Building custom plugins
+- [Security Policy](https://github.com/Wikid82/Charon/blob/main/SECURITY.md) — Security reporting and policies
+- Plugin Development Guide (internal document) — Building custom plugins

@@ -30,6 +30,10 @@ vi.mock('../../utils/toast', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { id: 'u1', username: 'tester', role: 'admin' } }),
+}));
+
 describe('Security Notification Settings on Notifications page', () => {
   let queryClient: ReturnType<typeof createTestQueryClient>;
 

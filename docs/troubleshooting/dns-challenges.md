@@ -453,7 +453,7 @@ If you're still experiencing issues:
 1. **Review Documentation:**
    - [DNS Providers Overview](../guides/dns-providers.md)
    - Provider-specific setup guides
-   - [Security best practices](../security/best-practices.md)
+   - [Security overview](../security.md)
 
 2. **Gather Information:**
    - Charon version and log excerpt
@@ -476,4 +476,4 @@ If you're still experiencing issues:
 - [Cloudflare Setup](../guides/dns-providers/cloudflare.md)
 - [AWS Route 53 Setup](../guides/dns-providers/route53.md)
 - [DigitalOcean Setup](../guides/dns-providers/digitalocean.md)
-- [Certificate Management](../guides/certificates.md)
+- Certificate Management (guide not yet published)

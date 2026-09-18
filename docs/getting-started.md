@@ -279,7 +279,7 @@ For continuous integration, store the token in GitHub Secrets:
 4. **Value:** Generate with one of the methods above
 5. Click **"Add secret"**
 
-📖 **Detailed Instructions:** See [GitHub Setup Guide](github-setup.md)
+📖 **Detailed Instructions:** See the GitHub Setup Guide (internal document)
 
 ### Rotation Schedule
 
@@ -376,7 +376,7 @@ If CrowdSec doesn't auto-start:
    curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
    ```
 
-**For detailed troubleshooting:** See [CrowdSec Startup Fix Documentation](implementation/crowdsec_startup_fix_COMPLETE.md)
+**For detailed troubleshooting:** See the CrowdSec troubleshooting steps above, or [CrowdSec Setup Guide](guides/crowdsec-setup.md)
 
 ---
 
@@ -438,7 +438,7 @@ By default (and recommended), Charon adds special headers to requests so your ap
 
 **When to disable:** Only turn this off for legacy applications that don't understand these headers.
 
-**Learn more:** See [Standard Proxy Headers](features.md#-standard-proxy-headers) in the features guide.
+**Learn more:** See [Smart Proxy Headers](features.md#-smart-proxy-headers) in the features guide.
 
 ---
 
@@ -487,7 +487,7 @@ Wait 5-10 minutes for it to update.
 
 ### "Can I change which certificate provider is used?"
 
-Yes! Go to **System Settings** and look for the **SSL Provider** dropdown. The default "Auto" mode works best for most users, but you can choose a specific provider if needed. See [Features](features.md#choose-your-ssl-provider) for details.
+Yes! Go to **System Settings** and look for the **SSL Provider** dropdown. The default "Auto" mode works best for most users, but you can choose a specific provider if needed. See [Automatic HTTPS Certificates](features.md#-automatic-https-certificates) for details.
 
 ### "Can I use this for apps on different computers?"
 
@@ -554,7 +554,7 @@ GET /api/auth/me → 401 Unauthorized
 
 **What to do:** Nothing! This is normal application behavior. Once you log in, these errors stop appearing.
 
-**Learn more:** See [Authentication Flow](README.md#authentication-flow) for details on how Charon validates user sessions.
+**Learn more:** See the [project README](https://github.com/Wikid82/Charon/blob/main/README.md) for details on how Charon validates user sessions.
 
 ### Development Mode Behavior
 
@@ -575,7 +575,7 @@ Now that you have the basics:
 
 - **[See All Features](features.md)** — Discover what else Charon can do
 - **[Import Your Old Config](import-guide.md)** — Bring your existing Caddy setup
-- **[Configure Optional Features](features.md#%EF%B8%8F-optional-features)** — Enable/disable features like security and uptime monitoring
+- **[Configure Optional Features](features.md)** — Enable/disable features like security and uptime monitoring
 - **[Turn On Security](security.md)** — Block attackers (enabled by default, highly recommended)
 
 ---

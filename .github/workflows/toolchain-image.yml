@@ -102,6 +102,17 @@ jobs:
       digest: ${{ steps.digest.outputs.digest }}
       same_repo: ${{ steps.trust.outputs.same_repo }}
     steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6  # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -118,7 +129,7 @@ jobs:
           # which only surfaced on the next main -> development propagation
           # PR's verify-toolchain-pin check (2026-09-08 incident). pull_request
           # keeps the default merge-ref checkout.
-          ref: ${{ github.event_name == 'schedule' && 'development' || github.event_name != 'pull_request' && github.ref_name || '' }}
+          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
 
       - name: Classify trust (same-repo vs fork)
         id: trust
@@ -146,7 +157,7 @@ jobs:
           echo "Toolchain key: $KEY"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GitHub Container Registry
         if: steps.trust.outputs.same_repo == 'true'
@@ -297,7 +308,7 @@ jobs:
           # Match build-toolchain: on non-PR triggers, check out the same
           # branch that triggered the run, so the CRITICAL/HIGH gate scores
           # the image against that branch's own .trivyignore suppressions.
-          ref: ${{ github.event_name == 'schedule' && 'development' || github.event_name != 'pull_request' && github.ref_name || '' }}
+          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
 
       - name: Determine scan reference
         id: ref
@@ -438,7 +449,7 @@ jobs:
           # Evaluate + bump the triggering branch's Dockerfile pin (this job's
           # PR targets that same branch as `base:`, computed identically
           # below). Never runs on pull_request. Mirrors build-toolchain.
-          ref: ${{ github.event_name == 'schedule' && 'development' || github.event_name != 'pull_request' && github.ref_name || '' }}
+          ref: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'schedule' && 'development' || github.ref_name }}
 
       - name: Resolve target branch
         id: target

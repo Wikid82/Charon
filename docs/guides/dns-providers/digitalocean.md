@@ -194,5 +194,5 @@ If you hit limits:
 ## Related Documentation
 
 - [DNS Providers Overview](../dns-providers.md)
-- [Wildcard Certificates Guide](../certificates.md#wildcard-certificates)
+- Wildcard Certificates Guide (guide not yet published)
 - [DNS Challenges Troubleshooting](../../troubleshooting/dns-challenges.md)

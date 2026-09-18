@@ -13,7 +13,7 @@ Want the quick reference? See <https://wikid82.github.io/charon/security>.
 
 > The Caddy and CrowdSec software bundled inside Charon is kept patched
 > automatically. How that works is described in
-> [SECURITY.md → Build Integrity](../SECURITY.md#build-integrity--bundled-caddy--crowdsec-toolchain).
+> [SECURITY.md → Build Integrity](https://github.com/Wikid82/Charon/blob/main/SECURITY.md#build-integrity--bundled-caddy--crowdsec-toolchain).
 
 ---
 
@@ -165,7 +165,7 @@ Expected output:
 
 **Troubleshooting auto-start:**
 
-See [CrowdSec Startup Fix Documentation](implementation/crowdsec_startup_fix_COMPLETE.md) for detailed troubleshooting including:
+See the [CrowdSec Setup Guide](guides/crowdsec-setup.md) for detailed troubleshooting including:
 
 - Permission issues
 - Missing SecurityConfig table
@@ -583,7 +583,7 @@ head -c 32 /dev/urandom | xxd -p -c 64
 6. Verify old token is revoked: Test should return 401 Unauthorized
 7. Document rotation in change log
 
-**See [Emergency Token Rotation Guide](runbooks/emergency-token-rotation.md) for detailed procedures.**
+**See the Emergency Token Rotation Guide (internal runbook) for detailed procedures.**
 
 ### Token Expiration Policy Recommendations
 
@@ -919,10 +919,9 @@ docker logs charon --timestamps | grep "emergency" | sort
 
 ## Additional Resources
 
-- **[Complete Emergency Recovery Runbook](runbooks/emergency-lockout-recovery.md)** — Step-by-step procedures for all 3 tiers
-- **[Emergency Token Rotation Guide](runbooks/emergency-token-rotation.md)** — Token rotation procedures
+- Complete Emergency Recovery Runbook (internal document) — Step-by-step procedures for all 3 tiers
+- Emergency Token Rotation Guide (internal document) — Token rotation procedures
 - **[Configuration Examples](configuration/emergency-setup.md)** — Docker Compose configurations and firewall rules
-- **[Break Glass Protocol Design](plans/break_glass_protocol_redesign.md)** — Detailed architecture and design decisions
 
 ---
 
@@ -1607,7 +1606,7 @@ Charon implements four-layer SSRF protection to prevent attacks against internal
 - CrowdSec hub URL validation
 - GitHub update URL validation
 
-See [SSRF Complete Implementation](implementation/SSRF_COMPLETE.md) for technical details.
+See [SECURITY.md](https://github.com/Wikid82/Charon/blob/main/SECURITY.md) for further technical details on SSRF protection.
 
 ### How It Works
 
@@ -1823,7 +1822,7 @@ Charon maintains comprehensive test coverage to ensure security features work co
 - ✅ DNS rebinding/TOCTOU attack prevention
 - ✅ URL parser differential attack protection
 
-See [PR #450 Implementation Summary](implementation/PR450_TEST_COVERAGE_COMPLETE.md) for detailed test metrics.
+These figures are from the PR #450 security hardening work (internal implementation record).
 
 ### Integration Testing
 
@@ -1857,10 +1856,7 @@ The Cerberus Dashboard has extensive UI testing coverage:
 - Error handling and toast notifications
 - Mobile responsive layout testing (375px → 1920px)
 
-**Test documentation:**
-
-- [Integration Testing Plan](plans/cerberus_integration_testing_plan.md)
-- [UI/UX Testing Plan](plans/cerberus_uiux_testing_plan.md)
+**Test documentation:** Integration and UI/UX testing plans are tracked internally.
 
 ### VS Code Tasks
 

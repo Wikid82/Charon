@@ -283,7 +283,7 @@ Security teardown did not successfully disable ACL before tests ran.
    - Re-run failed workflow
    - Check "Validate Emergency Token Configuration" step passes
 
-📖 **Detailed Instructions:** See [GitHub Setup Guide](../github-setup.md)
+📖 **Detailed Instructions:** See the GitHub Setup Guide (internal document)
 
 ---
 
@@ -457,7 +457,7 @@ Enables all debug output.
 2. Verify batch query is being used (should see `WHERE key IN (...)` in logs)
 3. Ensure you're running latest version with the optimization
 
-📖 **See Also:** [Feature Flags Performance Documentation](../performance/feature-flags-endpoint.md)
+📖 **See Also:** Feature Flags Performance Documentation (internal document)
 
 ### Container Startup Slow
 
@@ -491,7 +491,6 @@ Enables all debug output.
 If you're still stuck after trying these solutions:
 
 1. **Check known issues:**
-   - Review [E2E Triage Report](../reports/e2e_triage_report.md)
    - Search [GitHub Issues](https://github.com/Wikid82/charon/issues)
 
 2. **Collect diagnostic info:**
@@ -526,9 +525,6 @@ If you're still stuck after trying these solutions:
 ## Related Documentation
 
 - [Getting Started Guide](../getting-started.md)
-- [GitHub Setup Guide](../github-setup.md)
-- [Feature Flags Performance Documentation](../performance/feature-flags-endpoint.md)
-- [E2E Triage Report](../reports/e2e_triage_report.md)
 - [Playwright Documentation](https://playwright.dev/docs/intro)
 
 ---

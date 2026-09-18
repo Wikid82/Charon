@@ -17,6 +17,11 @@ import {
   getSecurityNotificationSettings,
   updateSecurityNotificationSettings,
   SUPPORTED_NOTIFICATION_PROVIDER_TYPES,
+  provisionWebPush,
+  getWebPushVapidPublicKey,
+  subscribeWebPush,
+  listWebPushSubscriptions,
+  unsubscribeWebPush,
 } from './notifications'
 
 vi.mock('./client', () => ({
@@ -252,5 +257,64 @@ describe('notifications api', () => {
       url: 'uQiRzpo4DXghDmr9QzzfQu27cmVRsG',
       token: 'new-token',
     })
+  })
+
+  it('webpush is in SUPPORTED_NOTIFICATION_PROVIDER_TYPES', () => {
+    expect(SUPPORTED_NOTIFICATION_PROVIDER_TYPES).toContain('webpush')
+  })
+
+  it('provisions the Web Push provider', async () => {
+    mockedClient.post.mockResolvedValue({ data: { id: 'wp1', name: 'Web Push', type: 'webpush', enabled: true, has_token: true } })
+
+    const provider = await provisionWebPush({ name: 'Web Push', vapid_subject: 'mailto:admin@example.com' })
+
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers/webpush/provision', {
+      name: 'Web Push',
+      vapid_subject: 'mailto:admin@example.com',
+    })
+    expect(provider.id).toBe('wp1')
+  })
+
+  it('fetches the VAPID public key', async () => {
+    mockedClient.get.mockResolvedValue({ data: { vapid_public_key: 'abc123' } })
+
+    const result = await getWebPushVapidPublicKey()
+
+    expect(mockedClient.get).toHaveBeenCalledWith('/notifications/providers/webpush/vapid-public-key')
+    expect(result.vapid_public_key).toBe('abc123')
+  })
+
+  it('subscribes a device for Web Push', async () => {
+    mockedClient.post.mockResolvedValue({ data: { id: 'sub1', endpoint: 'https://push.example.com/abc' } })
+
+    const payload = {
+      endpoint: 'https://push.example.com/abc',
+      keys: { p256dh: 'p256dh-key', auth: 'auth-key' },
+      user_agent: 'test-agent',
+    }
+    const result = await subscribeWebPush(payload)
+
+    expect(mockedClient.post).toHaveBeenCalledWith('/notifications/providers/webpush/subscriptions', payload)
+    expect(result).toEqual({ id: 'sub1', endpoint: 'https://push.example.com/abc' })
+  })
+
+  it('lists the caller\'s Web Push subscriptions', async () => {
+    mockedClient.get.mockResolvedValue({
+      data: [{ id: 'sub1', endpoint: 'https://push.example.com/abc', created_at: '2024-01-01T00:00:00Z', last_seen_at: '2024-01-02T00:00:00Z' }],
+    })
+
+    const result = await listWebPushSubscriptions()
+
+    expect(mockedClient.get).toHaveBeenCalledWith('/notifications/providers/webpush/subscriptions')
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('sub1')
+  })
+
+  it('unsubscribes a Web Push subscription', async () => {
+    mockedClient.delete.mockResolvedValue({})
+
+    await unsubscribeWebPush('sub1')
+
+    expect(mockedClient.delete).toHaveBeenCalledWith('/notifications/providers/webpush/subscriptions/sub1')
   })
 })

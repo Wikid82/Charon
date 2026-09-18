@@ -91,7 +91,7 @@ Each proxy host can have one Access List assigned. Create multiple lists for dif
 
 ## Related
 
-- [Proxy Hosts](./proxy-hosts.md) — Apply access lists to services
+- Proxy Hosts — Apply access lists to services (guide not yet published)
 - [CrowdSec Integration](./crowdsec.md) — Automatic threat-based blocking
 - [Rate Limiting](./rate-limiting.md) — Limit request frequency
 - [Back to Features](../features.md)

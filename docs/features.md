@@ -74,8 +74,6 @@ Control your security modules with a single click. The Security Dashboard provid
 - **Optimistic UI** — Toggle changes reflect instantly with automatic rollback on failure
 - **Performance Optimized** — 60-second cache layer minimizes database queries in middleware
 
-→ [Learn More](features/security-dashboard.md)
-
 ---
 
 ### 🕵️ CrowdSec Integration
@@ -157,8 +155,6 @@ Automated static analysis that detects GORM security issues and common mistakes 
 # Or via lefthook:
 lefthook run pre-commit
 ```
-
-→ [Learn More](implementation/gorm_security_scanner_complete.md)
 
 ---
 
@@ -255,15 +251,11 @@ Migrating from another Caddy setup? Import your existing Caddyfile configuration
 
 Migrating from Nginx Proxy Manager? Import your proxy host configurations directly from NPM export files. Charon parses your domains, upstream servers, SSL settings, and access lists, giving you a preview before committing.
 
-→ [Learn More](features/npm-import.md)
-
 ---
 
 ### 📄 JSON Configuration Import
 
 Import configurations from generic JSON exports or Charon backup files. Supports both Charon's native export format and Nginx Proxy Manager format with automatic detection. Perfect for restoring backups or migrating between Charon instances.
-
-→ [Learn More](features/json-import.md)
 
 ---
 
@@ -311,7 +303,7 @@ See exactly how your sites are performing — right from the home screen. The Da
 
 ### 🔔 Notifications
 
-Get alerted when it matters. Charon sends notifications through Discord, Gotify, Ntfy, Pushover, Slack, Email, and Custom Webhook providers. Choose a built-in JSON template or write your own to control exactly what your alerts look like.
+Get alerted when it matters. Charon sends notifications through Discord, Gotify, Ntfy, Pushover, Slack, Telegram, Email, Custom Webhook, and Web Push providers. Choose a built-in JSON template or write your own to control exactly what your alerts look like, or turn on Web Push for alerts that land right on your phone or computer — no extra app required.
 
 → [Learn More](features/notifications.md)
 
@@ -421,7 +413,7 @@ Enterprise-grade supply chain security for everyone.
 
 One container. No external databases. No extra services. Just pull the image and run. Charon includes everything it needs, making deployment as simple as it gets.
 
-→ [Learn More](../README.md#quick-start)
+→ [Learn More](https://github.com/Wikid82/Charon/blob/main/README.md#quick-start-5-minutes)
 
 ---
 
@@ -435,6 +427,6 @@ No premium tiers. No feature paywalls. No usage limits. Everything you see here 
 
 ## What's Next?
 
-Ready to get started? Check out our [Quick Start Guide](../README.md#quick-start) to have Charon running in minutes.
+Ready to get started? Check out our [Quick Start Guide](https://github.com/Wikid82/Charon/blob/main/README.md#quick-start-5-minutes) to have Charon running in minutes.
 
-Have questions? Visit our [Documentation](index.md) or [open an issue](https://github.com/Wikid82/Charon/issues) on GitHub.
+Have questions? Visit our [Documentation](getting-started.md) or [open an issue](https://github.com/Wikid82/Charon/issues) on GitHub.

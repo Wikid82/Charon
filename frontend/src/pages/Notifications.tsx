@@ -1,13 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
-import { useEffect, useState, type FC } from 'react';
+import { isAxiosError } from 'axios';
+import { Bell, BellRing, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
+import { useEffect, useState, type FC, type FormEvent } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, type NotificationProvider, getExternalTemplates, previewExternalTemplate, type ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, type NotificationTemplate, SUPPORTED_NOTIFICATION_PROVIDER_TYPES, type SupportedNotificationProviderType } from '../api/notifications';
+import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, type NotificationProvider, getExternalTemplates, previewExternalTemplate, type ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, type NotificationTemplate, SUPPORTED_NOTIFICATION_PROVIDER_TYPES, type SupportedNotificationProviderType, provisionWebPush, getWebPushVapidPublicKey, subscribeWebPush, listWebPushSubscriptions, unsubscribeWebPush, type WebPushSubscription } from '../api/notifications';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { useAuth } from '../hooks/useAuth';
 import { toast } from '../utils/toast';
+import { urlBase64ToUint8Array } from '../utils/webpush';
 
 const DISCORD_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
 
@@ -23,7 +26,7 @@ const isSupportedProviderType = (providerType: string | undefined): providerType
 const supportsJSONTemplates = (providerType: string | undefined): boolean => {
   if (!providerType) return false;
   const t = providerType.toLowerCase();
-  return t === 'discord' || t === 'gotify' || t === 'webhook' || t === 'telegram' || t === 'slack' || t === 'pushover' || t === 'ntfy';
+  return t === 'discord' || t === 'gotify' || t === 'webhook' || t === 'telegram' || t === 'slack' || t === 'pushover' || t === 'ntfy' || t === 'webpush';
 };
 
 const isUnsupportedProviderType = (providerType: string | undefined): boolean => !isSupportedProviderType(providerType);
@@ -150,6 +153,7 @@ const ProviderForm: FC<{
   const isSlack = type === 'slack';
   const isPushover = type === 'pushover';
   const isNtfy = type === 'ntfy';
+  const isWebPush = type === 'webpush';
   const isNew = !watch('id');
   useEffect(() => {
     if (type !== 'gotify' && type !== 'telegram' && type !== 'slack' && type !== 'pushover' && type !== 'ntfy') {
@@ -182,7 +186,7 @@ const ProviderForm: FC<{
   };
 
   return (
-    <form onSubmit={handleSubmit((data) => onSubmit(normalizeProviderPayloadForSubmit(data as Partial<NotificationProvider>)))} className="space-y-4">
+    <form onSubmit={handleSubmit((data) => onSubmit(normalizeProviderPayloadForSubmit(data as Partial<NotificationProvider>)))} className="space-y-4" data-testid="provider-form">
       <div>
         <label htmlFor="provider-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')} <span aria-hidden="true">*</span></label>
         <input
@@ -201,6 +205,7 @@ const ProviderForm: FC<{
           id="provider-type"
           {...register('type')}
           data-testid="provider-type"
+          disabled={isWebPush}
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         >
           <option value="discord">Discord</option>
@@ -211,46 +216,58 @@ const ProviderForm: FC<{
           <option value="slack">{t('notificationProviders.slack')}</option>
           <option value="pushover">Pushover</option>
           <option value="ntfy">{t('notificationProviders.ntfy')}</option>
+          {/* Web Push provisioning is a dedicated singleton flow (see the Web
+              Push panel below); this option only ever appears when editing
+              an already-provisioned row, never as a choice for a new one. */}
+          {isWebPush && <option value="webpush">Web Push</option>}
         </select>
       </div>
 
-      <div>
-        <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          {isEmail
-            ? t('notificationProviders.recipients')
-            : isTelegram
-              ? t('notificationProviders.telegramChatId')
-              : isSlack
-                ? t('notificationProviders.slackChannelName')
-                : isPushover
-                  ? t('notificationProviders.pushoverUserKey')
-                  : isNtfy
-                    ? <>{t('notificationProviders.ntfyTopicUrl')} <span aria-hidden="true">*</span></>
-                    : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
-        </label>
-        {isEmail && (
-          <p id="email-recipients-help" className="text-xs text-gray-500 mt-0.5">
-            {t('notificationProviders.recipientsHelp')}
-          </p>
-        )}
-        <input
-          id="provider-url"
-          {...register('url', {
-            required: (isEmail || isSlack) ? false : (t('notificationProviders.urlRequired') as string),
-            validate: (isEmail || isTelegram || isSlack || isPushover) ? undefined : validateUrl,
-          })}
-          data-testid="provider-url"
-          placeholder={isEmail ? 'user@example.com, admin@example.com' : isTelegram ? '987654321' : isSlack ? '#general' : isPushover ? t('notificationProviders.pushoverUserKeyPlaceholder') : type === 'ntfy' ? 'https://ntfy.sh/my-topic' : type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
-          className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm ${errors.url ? 'border-red-500' : ''}`}
-          aria-invalid={errors.url ? 'true' : 'false'}
-          aria-describedby={isEmail ? 'email-recipients-help' : errors.url ? 'provider-url-error' : undefined}
-        />
-        {!isEmail && errors.url && (
-          <span id="provider-url-error" data-testid="provider-url-error" className="text-red-500 text-xs">
-            {errors.url.message as string}
-          </span>
-        )}
-      </div>
+      {!isWebPush && (
+        <div>
+          <label htmlFor="provider-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            {isEmail
+              ? t('notificationProviders.recipients')
+              : isTelegram
+                ? t('notificationProviders.telegramChatId')
+                : isSlack
+                  ? t('notificationProviders.slackChannelName')
+                  : isPushover
+                    ? t('notificationProviders.pushoverUserKey')
+                    : isNtfy
+                      ? <>{t('notificationProviders.ntfyTopicUrl')} <span aria-hidden="true">*</span></>
+                      : <>{t('notificationProviders.urlWebhook')} <span aria-hidden="true">*</span></>}
+          </label>
+          {isEmail && (
+            <p id="email-recipients-help" className="text-xs text-gray-500 mt-0.5">
+              {t('notificationProviders.recipientsHelp')}
+            </p>
+          )}
+          <input
+            id="provider-url"
+            {...register('url', {
+              required: (isEmail || isSlack) ? false : (t('notificationProviders.urlRequired') as string),
+              validate: (isEmail || isTelegram || isSlack || isPushover) ? undefined : validateUrl,
+            })}
+            data-testid="provider-url"
+            placeholder={isEmail ? 'user@example.com, admin@example.com' : isTelegram ? '987654321' : isSlack ? '#general' : isPushover ? t('notificationProviders.pushoverUserKeyPlaceholder') : type === 'ntfy' ? 'https://ntfy.sh/my-topic' : type === 'discord' ? 'https://discord.com/api/webhooks/...' : type === 'gotify' ? 'https://gotify.example.com/message' : 'https://example.com/webhook'}
+            className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm ${errors.url ? 'border-red-500' : ''}`}
+            aria-invalid={errors.url ? 'true' : 'false'}
+            aria-describedby={isEmail ? 'email-recipients-help' : errors.url ? 'provider-url-error' : undefined}
+          />
+          {!isEmail && errors.url && (
+            <span id="provider-url-error" data-testid="provider-url-error" className="text-red-500 text-xs">
+              {errors.url.message as string}
+            </span>
+          )}
+        </div>
+      )}
+
+      {isWebPush && (
+        <p className="text-xs text-gray-500" data-testid="webpush-provider-form-note">
+          Web Push devices are managed from the Web Push panel above — subscribe or unsubscribe a device there. The settings below control which events this provider dispatches.
+        </p>
+      )}
 
       {isEmail && (
         <div role="note" className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3">
@@ -481,8 +498,225 @@ const TemplateForm: FC<{
   );
 };
 
+// supportsWebPushBrowserApi returns true if this browser can register a
+// service worker and subscribe to push notifications at all.
+const supportsWebPushBrowserApi = (): boolean =>
+  typeof navigator !== 'undefined' && 'serviceWorker' in navigator && typeof window !== 'undefined' && 'PushManager' in window;
+
+const WEBPUSH_SW_PATH = '/sw.js';
+
+const WebPushCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
+  const queryClient = useQueryClient();
+  const [provisionName, setProvisionName] = useState('Web Push');
+  const [vapidSubject, setVapidSubject] = useState('');
+  const [subscribeError, setSubscribeError] = useState<string | null>(null);
+
+  const browserSupported = supportsWebPushBrowserApi();
+
+  const vapidQuery = useQuery({
+    queryKey: ['webpushVapidPublicKey'],
+    queryFn: getWebPushVapidPublicKey,
+    enabled: browserSupported,
+    retry: false,
+  });
+
+  const isProvisioned = Boolean(vapidQuery.data?.vapid_public_key);
+  const notProvisioned = vapidQuery.isError && isAxiosError(vapidQuery.error) && vapidQuery.error.response?.status === 404;
+
+  const subscriptionsQuery = useQuery({
+    queryKey: ['webpushSubscriptions'],
+    queryFn: listWebPushSubscriptions,
+    enabled: browserSupported && isProvisioned,
+  });
+
+  const provisionMutation = useMutation({
+    mutationFn: provisionWebPush,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webpushVapidPublicKey'] });
+      queryClient.invalidateQueries({ queryKey: ['notificationProviders'] });
+      toast.success('Web Push provisioned.');
+      setVapidSubject('');
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to provision Web Push.'),
+  });
+
+  const subscribeMutation = useMutation({
+    mutationFn: subscribeWebPush,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webpushSubscriptions'] });
+      toast.success('This device is now subscribed to push notifications.');
+    },
+  });
+
+  const unsubscribeMutation = useMutation({
+    mutationFn: unsubscribeWebPush,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['webpushSubscriptions'] }),
+    onError: (err: Error) => toast.error(err.message || 'Failed to remove subscription.'),
+  });
+
+  const handleProvision = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    provisionMutation.mutate({ name: provisionName.trim() || 'Web Push', vapid_subject: vapidSubject.trim() });
+  };
+
+  const handleSubscribe = async () => {
+    setSubscribeError(null);
+    if (!vapidQuery.data?.vapid_public_key) return;
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        // Permission denial isn't a Charon-side error: show an inline
+        // message only, make no backend call, create no provider-side row.
+        setSubscribeError('Notification permission was not granted for this browser.');
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.register(WEBPUSH_SW_PATH);
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        // Cast needed because TS's DOM lib types PushSubscriptionOptionsInit's
+        // applicationServerKey as BufferSource<ArrayBuffer>, which a generic
+        // Uint8Array<ArrayBufferLike> doesn't structurally satisfy — the
+        // runtime value is a plain Uint8Array, which the Push API accepts.
+        applicationServerKey: urlBase64ToUint8Array(vapidQuery.data.vapid_public_key) as BufferSource,
+      });
+      const json = subscription.toJSON();
+
+      await subscribeMutation.mutateAsync({
+        endpoint: json.endpoint ?? '',
+        keys: { p256dh: json.keys?.p256dh ?? '', auth: json.keys?.auth ?? '' },
+        user_agent: navigator.userAgent,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to subscribe this device.';
+      setSubscribeError(msg);
+      toast.error(msg);
+    }
+  };
+
+  const handleUnsubscribe = async (subscription: WebPushSubscription) => {
+    try {
+      if (browserSupported) {
+        const registration = await navigator.serviceWorker.getRegistration(WEBPUSH_SW_PATH);
+        const activeSubscription = await registration?.pushManager.getSubscription();
+        // Only the device whose active subscription matches this row's
+        // endpoint can be unsubscribed browser-side; rows for other devices
+        // are removed backend-only below.
+        if (activeSubscription && activeSubscription.endpoint === subscription.endpoint) {
+          await activeSubscription.unsubscribe();
+        }
+      }
+    } catch {
+      // Browser-side cleanup is best-effort; the backend row is still removed.
+    } finally {
+      unsubscribeMutation.mutate(subscription.id);
+    }
+  };
+
+  return (
+    <Card className="p-6" data-testid="webpush-card">
+      <h2 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-3">
+        <BellRing className="w-5 h-5" />
+        Web Push
+      </h2>
+
+      {!browserSupported && (
+        <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="webpush-unsupported">
+          This browser does not support Web Push notifications.
+        </p>
+      )}
+
+      {browserSupported && vapidQuery.isLoading && (
+        <p className="text-sm text-gray-500" data-testid="webpush-loading">Loading…</p>
+      )}
+
+      {browserSupported && notProvisioned && (
+        isAdmin ? (
+          <form onSubmit={handleProvision} className="space-y-3" data-testid="webpush-provision-form">
+            <p className="text-sm text-gray-500">Web Push has not been set up yet. Provision it once to enable browser push notifications.</p>
+            <div>
+              <label htmlFor="webpush-provision-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
+              <input
+                id="webpush-provision-name"
+                data-testid="webpush-provision-name"
+                value={provisionName}
+                onChange={(event) => setProvisionName(event.target.value)}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
+              />
+            </div>
+            <div>
+              <label htmlFor="webpush-vapid-subject" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact URI (mailto: or https:)</label>
+              <input
+                id="webpush-vapid-subject"
+                data-testid="webpush-vapid-subject"
+                required
+                value={vapidSubject}
+                onChange={(event) => setVapidSubject(event.target.value)}
+                placeholder="mailto:admin@example.com"
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
+              />
+            </div>
+            <Button type="submit" data-testid="webpush-provision-btn" isLoading={provisionMutation.isPending}>
+              Provision Web Push
+            </Button>
+          </form>
+        ) : (
+          <p className="text-sm text-gray-500" data-testid="webpush-not-provisioned-message">
+            Web Push has not been set up yet. Ask an administrator to provision it.
+          </p>
+        )
+      )}
+
+      {browserSupported && isProvisioned && (
+        <div className="space-y-4">
+          <div>
+            <Button onClick={handleSubscribe} data-testid="webpush-subscribe-btn" isLoading={subscribeMutation.isPending}>
+              Enable push notifications on this device
+            </Button>
+            {subscribeError && (
+              <p className="text-sm text-red-600 mt-2" data-testid="webpush-subscribe-error">{subscribeError}</p>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">Subscribed devices</h3>
+            <div className="grid gap-2" data-testid="webpush-subscriptions-list">
+              {subscriptionsQuery.data?.map((subscription) => (
+                <div
+                  key={subscription.id}
+                  className="flex items-center justify-between p-2 rounded border border-gray-200 dark:border-gray-700"
+                  data-testid={`webpush-subscription-row-${subscription.id}`}
+                >
+                  <span className="text-sm text-gray-700 dark:text-gray-300 truncate max-w-xs">
+                    {subscription.user_agent || subscription.endpoint}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => handleUnsubscribe(subscription)}
+                    aria-label="Remove this device"
+                    data-testid={`webpush-unsubscribe-${subscription.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              ))}
+              {subscriptionsQuery.data?.length === 0 && (
+                <p className="text-sm text-gray-500" data-testid="webpush-no-subscriptions">No devices subscribed yet.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 const Notifications: FC = () => {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -564,6 +798,8 @@ const Notifications: FC = () => {
           {t('notificationProviders.addProvider')}
         </Button>
       </div>
+
+      <WebPushCard isAdmin={isAdmin} />
 
       {/* External Templates Management */}
       <div className="flex justify-between items-center">

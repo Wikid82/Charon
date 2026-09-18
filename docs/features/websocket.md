@@ -73,5 +73,5 @@ If WebSocket connections fail:
 ## Related
 
 - [Real-Time Logs](logs.md)
-- [Proxy Hosts](proxy-hosts.md)
+- Proxy Hosts (guide not yet published)
 - [Back to Features](../features.md)

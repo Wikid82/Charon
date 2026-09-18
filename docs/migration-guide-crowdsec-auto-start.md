@@ -641,7 +641,6 @@ Please report rollback necessity on [GitHub Issues](https://github.com/Wikid82/c
 
 ## Additional Resources
 
-- **Implementation Details:** [CrowdSec Startup Fix Documentation](implementation/crowdsec_startup_fix_COMPLETE.md)
 - **User Guide:** [Getting Started - CrowdSec Setup](getting-started.md#step-15-database-migrations-if-upgrading)
 - **Security Documentation:** [CrowdSec Features](security.md#crowdsec-block-bad-ips)
 - **GitHub Issues:** [Report Problems](https://github.com/Wikid82/charon/issues)

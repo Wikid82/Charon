@@ -79,6 +79,13 @@ on:
         required: false
         default: false
         type: boolean
+  # Full 3-browser matrix on main (nightly already gets it via nightly-build.yml's
+  # workflow_dispatch, which defaults browser to 'all'). PRs only run Firefox
+  # (see the per-job `if:` conditions below) for fast feedback; Chromium/WebKit
+  # coverage lands here instead, catching anything a Firefox-only PR run missed.
+  push:
+    branches:
+      - main
   pull_request:
     # Only run this ~15-job, 20-30 minute E2E matrix for changes that can
     # actually affect it. Everything else (CI-only workflow tweaks in other
@@ -87,6 +94,11 @@ on:
     # are deliberately left unfiltered -- see docker-build.yml/orthrus-build.yml
     # for the same paths-on-pull_request-only convention already used in
     # this repo.
+    #
+    # PRs only run the Firefox jobs (see the per-job `if:` conditions below) --
+    # Chromium/WebKit are skipped here and instead covered by the push-to-main
+    # and nightly triggers, to keep the PR feedback loop from being bottlenecked
+    # on 12+ E2E jobs competing for runners at once (2026-09-18).
     paths:
       - 'backend/**'
       - 'frontend/**'
@@ -210,7 +222,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.resolve-image.outputs.image_source == 'build'
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR (pull prebuilt toolchain image)
         if: steps.resolve-image.outputs.image_source == 'build' && github.event.pull_request.head.repo.full_name == github.repository
@@ -223,7 +235,7 @@ jobs:
       - name: Build Docker image
         id: build-image
         if: steps.resolve-image.outputs.image_source == 'build'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
@@ -261,6 +273,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
+      github.event_name != 'pull_request' &&
       ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
@@ -518,7 +531,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      ((inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
+      (github.event_name == 'pull_request' || (inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
@@ -797,6 +810,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
+      github.event_name != 'pull_request' &&
       ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
@@ -1088,6 +1102,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
+      github.event_name != 'pull_request' &&
       ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
@@ -1103,6 +1118,17 @@ jobs:
         total-shards: [4]
 
     steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6  # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1348,7 +1374,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
-      ((inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
+      (github.event_name == 'pull_request' || (inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
@@ -1363,6 +1389,17 @@ jobs:
         total-shards: [4]
 
     steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6  # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1627,6 +1664,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: |
+      github.event_name != 'pull_request' &&
       ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
@@ -1642,6 +1680,17 @@ jobs:
         total-shards: [4]
 
     steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6  # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+          tool-cache: false
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1956,23 +2005,29 @@ jobs:
         env:
           EFFECTIVE_BROWSER: ${{ inputs.browser || 'all' }}
           EFFECTIVE_CATEGORY: ${{ inputs.test_category || 'all' }}
+          EVENT_NAME: ${{ github.event_name }}
           NEEDS_JSON: ${{ toJson(needs) }}
         with:
           script: |
             const needs = JSON.parse(process.env.NEEDS_JSON || '{}');
             const effectiveBrowser = process.env.EFFECTIVE_BROWSER || 'all';
             const effectiveCategory = process.env.EFFECTIVE_CATEGORY || 'all';
+            const isPullRequest = process.env.EVENT_NAME === 'pull_request';
 
             const shouldRunSecurity = effectiveCategory === 'security' || effectiveCategory === 'all';
             const shouldRunNonSecurity = effectiveCategory === 'non-security' || effectiveCategory === 'all';
 
+            // Mirrors the per-job `if:` conditions above: PRs only run Firefox
+            // (Chromium/WebKit are deliberately skipped there, not a failure),
+            // while non-PR triggers (push to main, nightly's workflow_dispatch)
+            // run whatever the browser input selects (default 'all').
             const shouldRun = {
-              chromiumSecurity: (effectiveBrowser === 'chromium' || effectiveBrowser === 'all') && shouldRunSecurity,
-              firefoxSecurity: (effectiveBrowser === 'firefox' || effectiveBrowser === 'all') && shouldRunSecurity,
-              webkitSecurity: (effectiveBrowser === 'webkit' || effectiveBrowser === 'all') && shouldRunSecurity,
-              chromium: (effectiveBrowser === 'chromium' || effectiveBrowser === 'all') && shouldRunNonSecurity,
-              firefox: (effectiveBrowser === 'firefox' || effectiveBrowser === 'all') && shouldRunNonSecurity,
-              webkit: (effectiveBrowser === 'webkit' || effectiveBrowser === 'all') && shouldRunNonSecurity,
+              chromiumSecurity: !isPullRequest && (effectiveBrowser === 'chromium' || effectiveBrowser === 'all') && shouldRunSecurity,
+              firefoxSecurity: (isPullRequest || effectiveBrowser === 'firefox' || effectiveBrowser === 'all') && shouldRunSecurity,
+              webkitSecurity: !isPullRequest && (effectiveBrowser === 'webkit' || effectiveBrowser === 'all') && shouldRunSecurity,
+              chromium: !isPullRequest && (effectiveBrowser === 'chromium' || effectiveBrowser === 'all') && shouldRunNonSecurity,
+              firefox: (isPullRequest || effectiveBrowser === 'firefox' || effectiveBrowser === 'all') && shouldRunNonSecurity,
+              webkit: !isPullRequest && (effectiveBrowser === 'webkit' || effectiveBrowser === 'all') && shouldRunNonSecurity,
             };
 
             const results = {

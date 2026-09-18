@@ -52,7 +52,7 @@ Charon doesn't run with full administrator rights inside its container — it us
 
 ## Reporting a Security Issue
 
-Found something that looks like a security problem? We want to know. See [SECURITY.md](../SECURITY.md) for how to report it privately and safely.
+Found something that looks like a security problem? We want to know. See [SECURITY.md](https://github.com/Wikid82/Charon/blob/main/SECURITY.md) for how to report it privately and safely.
 
 ## Learn More
 

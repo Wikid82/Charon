@@ -115,5 +115,5 @@ Each host displays a security score from 0-100 based on enabled headers:
 ## Related
 
 - [Proxy Headers](proxy-headers.md) - Backend communication headers
-- [Access Lists](access-lists.md) - IP-based access control
+- [Access Control](access-control.md) - IP-based access control
 - [Back to Features](../features.md)

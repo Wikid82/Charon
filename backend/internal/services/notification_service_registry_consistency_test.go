@@ -32,7 +32,7 @@ func TestSupportedProviderAllowlistIsSubsetOfRegisteredTypes(t *testing.T) {
 	// (notification_service.go) — kept as a literal list here rather than
 	// derived from the function itself, since that switch has no
 	// enumerable form to introspect.
-	supportedTypes := []string{"discord", "email", "gotify", "webhook", "telegram", "slack", "pushover", "ntfy"}
+	supportedTypes := []string{"discord", "email", "gotify", "webhook", "telegram", "slack", "pushover", "ntfy", "webpush"}
 
 	for _, providerType := range supportedTypes {
 		if !isSupportedNotificationProviderType(providerType) {

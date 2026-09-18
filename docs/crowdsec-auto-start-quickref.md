@@ -71,7 +71,6 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 
 ## 📖 Full Documentation
 
-- **Implementation Details:** [crowdsec_startup_fix_COMPLETE.md](implementation/crowdsec_startup_fix_COMPLETE.md)
 - **Migration Guide:** [migration-guide-crowdsec-auto-start.md](migration-guide-crowdsec-auto-start.md)
 - **User Guide:** [getting-started.md](getting-started.md#step-15-database-migrations-if-upgrading)
 

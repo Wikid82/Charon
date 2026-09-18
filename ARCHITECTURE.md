@@ -130,7 +130,7 @@ graph TB
 | **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
-| **Notifications** | github.com/Wikid82/go_notify_yourself | Current | External delivery-engine module (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, and email) consumed via Charon-supplied SSRF/SMTP/template adapters — see Service Layer below |
+| **Notifications** | github.com/Wikid82/go_notify_yourself | Current | External delivery-engine module (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push, and email) consumed via Charon-supplied SSRF/SMTP/template adapters — see Service Layer below |
 | **Docker Client** | Docker SDK | Latest | Container discovery |
 | **Logging** | Logrus + Lumberjack | Latest | Structured logging with rotation |
 | **Backup Archive Encryption** | filippo.io/age | Latest | Passphrase (scrypt) encryption of backup archives; audited, pure Go, streaming AEAD — avoids buffering whole archives in RAM or hand-rolling chunked AES-GCM |
@@ -267,13 +267,19 @@ graph TB
 │   ├── *.spec.ts               # Playwright test files
 │   └── fixtures/               # Test data and helpers
 │
-├── docs/                       # Documentation
+├── docs/                       # Documentation (single source of truth)
 │   ├── features/               # Feature documentation
 │   ├── guides/                 # User guides
 │   ├── api/                    # API documentation
 │   ├── development/            # Developer guides
 │   ├── plans/                  # Implementation plans
 │   └── reports/                # QA and audit reports
+│
+├── docs-site/                  # Docusaurus (TypeScript) docs website — separate from frontend/
+│   ├── docs/                   # GENERATED, gitignored — synced from docs/ on every build
+│   ├── scripts/sync-docs.mjs   # Copies the docs-manifest.json allowlist from docs/ here
+│   ├── scripts/docs-manifest.json  # Explicit list of docs/ files+dirs to publish
+│   └── src/pages/              # Landing page and other static pages
 │
 ├── configs/                    # Runtime configuration
 │   └── crowdsec/               # CrowdSec configurations
@@ -308,6 +314,17 @@ graph TB
 - **`docs/plans/`**: Active planning documents (`current_spec.md`)
 - **`docs/ci/`**: CI/build operator runbooks (`toolchain-image.md`)
 - **`test-results/`**: Test artifacts (gitignored)
+- **`docs-site/`**: A standalone Docusaurus static site that publishes `docs/`
+  as a browsable website at <https://wikid82.github.io/Charon/>, deployed by
+  `.github/workflows/docs-deploy.yml` on push to `main` (or manual dispatch).
+  It is entirely separate from `frontend/` (the app's React SPA) — never
+  bundled into the Docker image and never served by `backend/internal/server`.
+  `docs-site/docs/` is not committed; `docs-site/scripts/sync-docs.mjs`
+  regenerates it on every `npm start`/`npm run build` by copying the
+  allowlist in `docs-site/scripts/docs-manifest.json` from the repo-root
+  `docs/`, which remains the single, untouched source of truth for all
+  documentation. Its npm dependencies are updated alongside root and
+  `frontend/` in `scripts/charon_dep_update.sh`.
 
 **Bundled-toolchain tooling** (see Deployment Architecture → Prebuilt toolchain image):
 `.github/workflows/toolchain-image.yml`, `scripts/toolchain-key.sh`,
@@ -347,7 +364,8 @@ fork/offline fallback.
 - **CertificateService:** ACME certificate provisioning and renewal
 - **DockerService:** Container discovery and monitoring
 - **MailService:** SMTP transport and branded HTML templates for certificate-expiry and other system emails
-- **NotificationService:** GORM CRUD for providers/templates, event-type-to-provider routing, and feature-flag gating (`internal/services/notification_service.go`); outbound dispatch for all seven provider types (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook) plus email is delegated to the external `github.com/Wikid82/go_notify_yourself` module (`v0.2.0+`) through three Charon-supplied adapters — `notify_client_adapter.go` (SSRF-safe HTTP client/URL validation, wired to `internal/network`/`internal/security`), `notify_provider_adapter.go`, and `notify_email_adapter.go` (wraps `MailService` behind the module's `Mailer`/`TemplateRenderer` interfaces). `notify_provider_adapter.go`'s `buildNotifySender` maps a `NotificationProvider` row into a `map[string]any` config (`providerConfigMap`) and constructs the `Sender` by calling the module's self-registering provider factory registry (`notify.New(provider.Type, config)`) rather than a hardcoded per-provider switch/constructor call — `notify_providers_import.go` hand-picks the blank imports (`providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`, `providers/telegram`, `providers/webhook`, `providers/email`) that register those factories at `init()` time, deliberately not importing `providers/all`. Charon's own supported-provider allowlist (`isSupportedNotificationProviderType`, `notification_service.go`) remains independently hardcoded and is not derived from the registry; a unit test asserts it stays a subset of `notify.RegisteredTypes()`. The formerly in-repo delivery engine (`internal/notifications/`) has been removed.
+- **NotificationService:** GORM CRUD for providers/templates, event-type-to-provider routing, and feature-flag gating (`internal/services/notification_service.go`); outbound dispatch for all eight provider types (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push) plus email is delegated to the external `github.com/Wikid82/go_notify_yourself` module (`v0.3.0+`) through three Charon-supplied adapters — `notify_client_adapter.go` (SSRF-safe HTTP client/URL validation, wired to `internal/network`/`internal/security`), `notify_provider_adapter.go`, and `notify_email_adapter.go` (wraps `MailService` behind the module's `Mailer`/`TemplateRenderer` interfaces). `notify_provider_adapter.go`'s `buildNotifySender` maps a `NotificationProvider` row into a `map[string]any` config (`providerConfigMap`) and constructs the `Sender` by calling the module's self-registering provider factory registry (`notify.New(provider.Type, config)`) rather than a hardcoded per-provider switch/constructor call — `notify_providers_import.go` hand-picks the blank imports (`providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`, `providers/telegram`, `providers/webhook`, `providers/webpush`, `providers/email`) that register those factories at `init()` time, deliberately not importing `providers/all`. Charon's own supported-provider allowlist (`isSupportedNotificationProviderType`, `notification_service.go`) remains independently hardcoded and is not derived from the registry; a unit test asserts it stays a subset of `notify.RegisteredTypes()`. The formerly in-repo delivery engine (`internal/notifications/`) has been removed.
+  - **Web Push** is the one provider type that isn't a single destination: one `NotificationProvider` row (`Type = "webpush"`, a DB-enforced singleton) holds the shared VAPID application identity, while each subscribed browser/device is a row in a separate `WebPushSubscription` model (`internal/models/webpush_subscription.go`) — FK'd to that provider row, with its own `notify_webpush_adapter.go` fan-out path that sends to every subscription individually and auto-prunes rows the push service reports as gone.
 - **SettingsService:** Application settings management
 - **BackupService:** Format-v2 archive creation (manifest + SHA-256 checksums), configurable cron scheduling, the safe-restore pipeline (validate → pre-restore safety backup → apply → reconcile), and optional age/scrypt archive encryption — see "Backup & Restore Subsystem" below
 
