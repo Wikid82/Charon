@@ -468,15 +468,22 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
         _retry go get go.opentelemetry.io/otel/sdk@v1.45.0; \
         # CVE-2026-39882: OTel HTTP exporter request smuggling
+        # otlploghttp is pre-1.0 and version-locked to the go.opentelemetry.io/otel/log
+        # API it was built against (same release train as otel/sdk above: v1.45.0 <->
+        # v0.21.0). Must stay in lockstep with otlploggrpc below or MVS resolves
+        # otel/log to a newer minor than this exporter's compiled-in API surface,
+        # breaking the build ("undefined: api.KeyValue" etc.).
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.21.0; \
         # CVE-2026-81871: Log gRPC exporter ignores env TLS certs, bypassing mTLS/pinning
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0; \
+        # Kept on the same v1.45.0 release train as otel/sdk above for a coherent,
+        # mutually-compatible module set.
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.45.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0; \
         # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
         # Fix available at v1.6.0. Pin here so the Caddy binary is patched immediately;
         # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
