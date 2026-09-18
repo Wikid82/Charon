@@ -464,8 +464,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v4
         _retry go get github.com/go-jose/go-jose/v4@v4.1.4; \
         # CVE-2026-39883: OTel SDK resource leak
+        # CVE-2026-81870: Exporter config logging may leak endpoint URLs in info logs
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
-        _retry go get go.opentelemetry.io/otel/sdk@v1.43.0; \
+        _retry go get go.opentelemetry.io/otel/sdk@v1.45.0; \
         # CVE-2026-39882: OTel HTTP exporter request smuggling
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0; \
