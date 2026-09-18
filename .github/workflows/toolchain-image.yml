@@ -36,6 +36,22 @@ on:
       - 'scripts/verify-toolchain-pin.sh'
       - 'scripts/lib/dockerfile-stage.sh'
       - '.trivyignore'
+  # Direct pushes to development (manual dep bumps outside a Renovate PR, e.g.
+  # a hand-run bump script) never go through sync-pin-on-pr, which only fires
+  # on pull_request. Without this, a push that moves a toolchain-key input
+  # (Dockerfile ARG, toolchain-key.sh, .trivyignore, ...) leaves development's
+  # pin stale until the next 06:00 UTC schedule — exactly the gap that broke
+  # the N5 freshness check after the bare gRPC-version push on 2026-09-17.
+  push:
+    branches:
+      - development
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/toolchain-image.yml'
+      - 'scripts/toolchain-key.sh'
+      - 'scripts/verify-toolchain-pin.sh'
+      - 'scripts/lib/dockerfile-stage.sh'
+      - '.trivyignore'
   workflow_call:
     inputs:
       force_rebuild:
@@ -408,7 +424,7 @@ jobs:
     if: >-
       needs.build-toolchain.outputs.same_repo == 'true' &&
       needs.build-toolchain.outputs.digest != '' &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.event_name == 'push')
     runs-on: ubuntu-latest
     permissions:
       contents: write
