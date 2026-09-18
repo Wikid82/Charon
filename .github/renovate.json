@@ -32,7 +32,9 @@
     "github.com/gorilla/websocket",
     "github.com/golang-jwt/jwt/v5",
     "js-yaml",
-    "@types/eslint-plugin-jsx-a11y"
+    "@types/eslint-plugin-jsx-a11y",
+    "jsdom",
+    "google.golang.org/grpc"
   ],
 
   "minimumReleaseAge": null,
