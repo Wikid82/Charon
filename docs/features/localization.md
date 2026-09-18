@@ -68,7 +68,7 @@ Some technical content remains in English for consistency:
 
 Help improve Charon's translations or add new languages:
 
-1. Review the [Contributing Translations Guide](../../CONTRIBUTING_TRANSLATIONS.md)
+1. Review the [Contributing Translations Guide](https://github.com/Wikid82/Charon/blob/main/CONTRIBUTING_TRANSLATIONS.md)
 2. Translation files are in the frontend `locales/` directory
 3. Submit improvements via pull request
 
@@ -80,6 +80,6 @@ We welcome contributions for:
 
 ## Related
 
-- [Contributing Translations](../../CONTRIBUTING_TRANSLATIONS.md)
+- [Contributing Translations](https://github.com/Wikid82/Charon/blob/main/CONTRIBUTING_TRANSLATIONS.md)
 - Settings (guide not yet published)
 - [Back to Features](../features.md)

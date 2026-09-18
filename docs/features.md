@@ -156,8 +156,6 @@ Automated static analysis that detects GORM security issues and common mistakes 
 lefthook run pre-commit
 ```
 
-→ [Learn More](implementation/gorm_security_scanner_complete.md)
-
 ---
 
 ### ⚡ Optimized CI Pipelines
@@ -415,7 +413,7 @@ Enterprise-grade supply chain security for everyone.
 
 One container. No external databases. No extra services. Just pull the image and run. Charon includes everything it needs, making deployment as simple as it gets.
 
-→ [Learn More](../README.md#quick-start)
+→ [Learn More](https://github.com/Wikid82/Charon/blob/main/README.md#quick-start-5-minutes)
 
 ---
 
@@ -429,6 +427,6 @@ No premium tiers. No feature paywalls. No usage limits. Everything you see here 
 
 ## What's Next?
 
-Ready to get started? Check out our [Quick Start Guide](../README.md#quick-start) to have Charon running in minutes.
+Ready to get started? Check out our [Quick Start Guide](https://github.com/Wikid82/Charon/blob/main/README.md#quick-start-5-minutes) to have Charon running in minutes.
 
-Have questions? Visit our [Documentation](index.md) or [open an issue](https://github.com/Wikid82/Charon/issues) on GitHub.
+Have questions? Visit our [Documentation](getting-started.md) or [open an issue](https://github.com/Wikid82/Charon/issues) on GitHub.

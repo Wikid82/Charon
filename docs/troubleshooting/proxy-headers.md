@@ -470,7 +470,7 @@ If you've tried the above solutions and:
 
 ## Additional Resources
 
-- [Features Guide: Standard Proxy Headers](../features.md#-standard-proxy-headers)
-- [Getting Started: Adding Your First Website](../getting-started.md#step-2-add-your-first-website)
+- [Features Guide: Smart Proxy Headers](../features.md#-smart-proxy-headers)
+- [Getting Started: Adding Your First Website](../getting-started.md#step-3-add-your-first-website)
 - [API Documentation: Proxy Hosts](../api.md#proxy-hosts)
 - [RFC 7239: Forwarded HTTP Extension](https://tools.ietf.org/html/rfc7239)

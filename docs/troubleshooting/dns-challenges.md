@@ -453,7 +453,7 @@ If you're still experiencing issues:
 1. **Review Documentation:**
    - [DNS Providers Overview](../guides/dns-providers.md)
    - Provider-specific setup guides
-   - [Security best practices](../security/best-practices.md)
+   - [Security overview](../security.md)
 
 2. **Gather Information:**
    - Charon version and log excerpt

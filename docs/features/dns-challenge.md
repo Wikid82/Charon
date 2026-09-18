@@ -616,7 +616,7 @@ If issues persist:
 - [Getting Started](../getting-started.md) — Initial Charon setup
 - [Security Best Practices](../security.md) — Securing your Charon installation
 - [API Reference](../api.md) — Programmatic certificate management
-- [Troubleshooting Guide](../troubleshooting/) — General troubleshooting
+- [DNS Challenge Troubleshooting](../troubleshooting/dns-challenges.md) — General troubleshooting
 
 ### External Resources
 

@@ -555,6 +555,6 @@ docker exec charon cscli decisions delete --ip 1.2.3.4
 
 ## Need Help?
 
-- 📖 [Full Documentation](../index.md)
+- 📖 [Full Documentation](../getting-started.md)
 - 🐛 [Report an Issue](https://github.com/Wikid82/Charon/issues)
 - 💬 [Community Discussions](https://github.com/Wikid82/Charon/discussions)

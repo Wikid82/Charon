@@ -1530,7 +1530,7 @@ var BuiltInNameservers = map[string]string{
 - **[DNS Provider Configuration](dns-providers.md)** - Setting up and managing DNS provider credentials
 - **[Multi-Credential Management](multi-credential.md)** - Advanced multi-provider and multi-account setups
 - **[API Reference](../api.md)** - Complete Charon API documentation
-- **[Security Best Practices](../security/README.md)** - Security guidelines for Charon deployment
+- **[Security Overview](../security.md)** - Security guidelines for Charon deployment
 
 ---
 

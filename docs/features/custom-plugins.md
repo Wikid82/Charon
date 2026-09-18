@@ -429,6 +429,6 @@ When reporting plugin issues, include:
 ## See Also
 
 - [Plugin Security Guide](./plugin-security.md)
-- [Plugin Development Guide](../development/plugin-development.md)
+- Plugin Development Guide (internal document)
 - [DNS Provider Configuration](./dns-providers.md)
-- [Security Best Practices](../../SECURITY.md)
+- [Security Best Practices](https://github.com/Wikid82/Charon/blob/main/SECURITY.md)

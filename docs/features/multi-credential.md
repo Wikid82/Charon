@@ -1577,26 +1577,9 @@ All API endpoints may return the following error responses:
 
 ### Related Documentation
 
-- **[DNS Provider Setup Guides](../dns-providers/)** - Configure individual DNS providers
-- **[Audit Logging](../security/audit-logging.md)** - View and export audit logs for credential operations
-- **[Security Best Practices](../security/best-practices.md)** - Security guidelines for credential management
-- **[Key Rotation](../security/key-rotation.md)** - Automated credential rotation strategies
-- **[Certificate Management](../certificates/)** - Understanding Let's Encrypt certificate lifecycle
-- **[API Documentation](../api/)** - Complete API reference for automation
-- **[Multi-Tenancy Guide](../deployment/multi-tenancy.md)** - Deploying Charon for multi-tenant scenarios
-- **[Backup and Recovery](../maintenance/backup-recovery.md)** - Backing up credential configuration
-
-### Provider-Specific Guides
-
-- **[Cloudflare Multi-Credential Setup](../dns-providers/cloudflare-multi-credential.md)**
-- **[Route53 IAM Policies for Multi-Credential](../dns-providers/route53-multi-credential.md)**
-- **[DigitalOcean Token Scoping](../dns-providers/digitalocean-multi-credential.md)**
-
-### Tutorials
-
-- **[Tutorial: Setting Up Multi-Credential for an MSP](../tutorials/msp-multi-credential.md)**
-- **[Tutorial: Environment Separation with Multi-Credentials](../tutorials/environment-separation.md)**
-- **[Tutorial: Migrating from Single to Multi-Credential Mode](../tutorials/migration-multi-credential.md)**
+- **[DNS Provider Setup Guides](../guides/dns-providers.md)** - Configure individual DNS providers
+- **[Key Rotation](./key-rotation.md)** - Automated credential rotation strategies
+- **[API Documentation](../api.md)** - Complete API reference for automation
 
 ---
 

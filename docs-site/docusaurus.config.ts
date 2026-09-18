@@ -32,12 +32,13 @@ const config: Config = {
   // pre-existing dead links unrelated to this migration (e.g.
   // features/proxy-hosts.md, guides/certificates.md do not exist anywhere
   // in docs/ today). Those links are correct as authored for GitHub's
-  // renderer but cannot resolve inside the public site by design — 'throw'
-  // would make every build fail permanently, not just until a one-time fix.
-  // 'warn' still surfaces every unresolved link in build output for
-  // `docs-writer` to triage (rewrite as plain text, point at GitHub, or
-  // promote the target file) without blocking every future publish.
-  onBrokenLinks: 'warn',
+  // All known dangling links/anchors have been triaged and fixed (rewritten
+  // as plain text, pointed at GitHub, or corrected to the real target) — see
+  // the docs-writer fix pass referenced in git history. Set to 'throw' so any
+  // future dangling link or anchor fails the build instead of silently
+  // warning.
+  onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
 
   // The synced content in docs/ (see scripts/sync-docs.mjs) is plain,
   // hand-written Markdown intended for GitHub's renderer — it was never

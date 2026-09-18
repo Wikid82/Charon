@@ -738,10 +738,9 @@ kill %1
 
 ## Related Documentation
 
-- [Emergency Lockout Recovery Runbook](../runbooks/emergency-lockout-recovery.md)
-- [Emergency Token Rotation](../runbooks/emergency-token-rotation.md)
+- Emergency Lockout Recovery Runbook (internal document)
+- Emergency Token Rotation (internal document)
 - [Security Documentation](../security.md)
-- [Break Glass Protocol Design](../plans/break_glass_protocol_redesign.md)
 
 ---
 

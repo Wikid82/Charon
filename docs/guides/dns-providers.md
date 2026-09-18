@@ -250,7 +250,7 @@ For other providers, consult the official Caddy libdns module documentation link
 - Certificates Guide (guide not yet published)
 - Proxy Hosts Guide (guide not yet published)
 - [DNS Challenges Troubleshooting](../troubleshooting/dns-challenges.md)
-- [Security Best Practices](../security/best-practices.md)
+- [Security Overview](../security.md)
 
 ## Additional Resources
 
