@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Menu, ChevronDown, ChevronRight, Coffee, Heart } from 'lucide-react'
+import { Menu, ChevronDown, ChevronRight, Coffee, Heart, Share2 } from 'lucide-react'
 import { type ReactNode, useState, useEffect, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router'
@@ -15,6 +15,7 @@ import { getFeatureFlags } from '../api/featureFlags'
 import { checkHealth } from '../api/health'
 import { getSettings } from '../api/settings'
 import { useAuth } from '../hooks/useAuth'
+import { toast } from '../utils/toast'
 
 
 interface LayoutProps {
@@ -63,6 +64,35 @@ export default function Layout({ children }: LayoutProps) {
         ? prev.filter(item => item !== name)
         : [...prev, name]
     )
+  }
+
+  const handleShareProject = async () => {
+    const shareUrl = 'https://github.com/Wikid82/Charon'
+    const shareData = {
+      title: 'Charon',
+      text: 'Charon is a self-hosted reverse proxy manager for securely exposing and managing your services.',
+      url: shareUrl,
+    }
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData)
+        return
+      } catch (err) {
+        // A user cancelling the native share sheet is not an error — no-op silently.
+        if (err instanceof Error && err.name === 'AbortError') {
+          return
+        }
+        // Fall through to the clipboard fallback for any other share failure.
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      toast.success('Link copied to clipboard')
+    } catch {
+      toast.error('Failed to copy link to clipboard')
+    }
   }
 
   const { data: health } = useQuery({
@@ -366,6 +396,14 @@ export default function Layout({ children }: LayoutProps) {
               >
                 <Coffee className="w-4 h-4" />
               </a>
+              <button
+                type="button"
+                onClick={handleShareProject}
+                aria-label="Share Charon"
+                className="hover:text-content-primary transition-colors"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
             </div>
             <div className="text-xs text-content-muted text-center mt-2 mb-2 flex flex-col gap-0.5">
               <span>Version {health?.version || 'dev'}</span>
