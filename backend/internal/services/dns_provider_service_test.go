@@ -3,12 +3,15 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -1815,4 +1818,54 @@ func TestDNSProviderService_AuditLogging_ContextHelpers(t *testing.T) {
 	ctx = context.WithValue(context.Background(), contextKeyUserAgent, "TestAgent/2.0")
 	ua := getUserAgentFromContext(ctx)
 	assert.Equal(t, "TestAgent/2.0", ua)
+}
+
+// TestDNSProviderService_ResolveID covers the numeric-first / UUID-fallback
+// identifier resolution used by callers (e.g. CredentialHandler) that only
+// have a path-param string and need the provider's internal numeric ID.
+func TestDNSProviderService_ResolveID(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Resolve Target",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	t.Run("numeric id resolves for existing provider", func(t *testing.T) {
+		id, err := service.ResolveID(ctx, fmt.Sprintf("%d", created.ID))
+		require.NoError(t, err)
+		assert.Equal(t, created.ID, id)
+	})
+
+	t.Run("numeric id that does not exist returns ErrDNSProviderNotFound", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, "9999")
+		assert.ErrorIs(t, err, ErrDNSProviderNotFound)
+	})
+
+	t.Run("uuid resolves for existing provider", func(t *testing.T) {
+		id, err := service.ResolveID(ctx, created.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, created.ID, id)
+	})
+
+	t.Run("well-formed uuid that does not exist returns ErrDNSProviderNotFound", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, uuid.New().String())
+		assert.ErrorIs(t, err, ErrDNSProviderNotFound)
+	})
+
+	t.Run("malformed value (neither numeric nor uuid) returns a plain error", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, "not-a-valid-id")
+		require.Error(t, err)
+		assert.False(t, errors.Is(err, ErrDNSProviderNotFound))
+	})
+
+	t.Run("empty value returns a plain error", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, "")
+		require.Error(t, err)
+		assert.False(t, errors.Is(err, ErrDNSProviderNotFound))
+	})
 }

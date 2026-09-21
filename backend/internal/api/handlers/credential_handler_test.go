@@ -75,7 +75,8 @@ func setupCredentialHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB, *models.DN
 	require.NoError(t, err)
 
 	credService := services.NewCredentialService(db, encryptor)
-	credHandler := handlers.NewCredentialHandler(credService)
+	dnsProviderService := services.NewDNSProviderService(db, encryptor)
+	credHandler := handlers.NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
 	router.POST("/api/v1/dns-providers/:id/credentials", credHandler.Create)
@@ -133,6 +134,104 @@ func TestCredentialHandler_Create_InvalidProviderID(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCredentialHandler_Create_ByProviderUUID(t *testing.T) {
+	router, _, provider := setupCredentialHandlerTest(t)
+
+	reqBody := map[string]interface{}{
+		"label":       "UUID Resolved Credential",
+		"zone_filter": "example.com",
+		"credentials": map[string]string{
+			"api_token": "test-token-123",
+		},
+	}
+	body, _ := json.Marshal(reqBody)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%s/credentials", provider.UUID)
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var response models.DNSProviderCredential
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "UUID Resolved Credential", response.Label)
+}
+
+func TestCredentialHandler_List_ByProviderUUID(t *testing.T) {
+	router, db, provider := setupCredentialHandlerTest(t)
+
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	credService := services.NewCredentialService(db, encryptor)
+
+	_, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
+		Label:       "Credential A",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%s/credentials", provider.UUID)
+	req, _ := http.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response []models.DNSProviderCredential
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Len(t, response, 1)
+}
+
+func TestCredentialHandler_List_ProviderUUID_NotFound(t *testing.T) {
+	router, _, _ := setupCredentialHandlerTest(t)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%s/credentials", uuid.New().String())
+	req, _ := http.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "DNS provider not found")
+}
+
+func TestCredentialHandler_EnableMultiCredentials_ByProviderUUID(t *testing.T) {
+	router, db, _ := setupCredentialHandlerTest(t)
+
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	creds := map[string]string{"api_token": "test-token"}
+	credsJSON, _ := json.Marshal(creds)
+	encrypted, _ := encryptor.Encrypt(credsJSON)
+
+	provider := &models.DNSProvider{
+		UUID:                 uuid.New().String(),
+		Name:                 "Provider to Enable via UUID",
+		ProviderType:         "cloudflare",
+		Enabled:              true,
+		UseMultiCredentials:  false,
+		CredentialsEncrypted: encrypted,
+		KeyVersion:           1,
+	}
+	require.NoError(t, db.Create(provider).Error)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%s/enable-multi-credentials", provider.UUID)
+	req, _ := http.NewRequest("POST", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var updatedProvider models.DNSProvider
+	err := db.First(&updatedProvider, provider.ID).Error
+	require.NoError(t, err)
+	assert.True(t, updatedProvider.UseMultiCredentials)
 }
 
 func TestCredentialHandler_List(t *testing.T) {

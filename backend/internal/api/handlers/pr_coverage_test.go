@@ -595,7 +595,8 @@ func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *mo
 	db.Create(provider)
 
 	credService := services.NewCredentialService(db, encryptor)
-	credHandler := NewCredentialHandler(credService)
+	dnsProviderService := services.NewDNSProviderService(db, encryptor)
+	credHandler := NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
 	router.POST("/api/v1/dns-providers/:id/credentials", credHandler.Create)
@@ -669,7 +670,8 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 	encryptor, _ := crypto.NewEncryptionService(testKey)
 
 	credService := services.NewCredentialService(db, encryptor)
-	credHandler := NewCredentialHandler(credService)
+	dnsProviderService := services.NewDNSProviderService(db, encryptor)
+	credHandler := NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
 

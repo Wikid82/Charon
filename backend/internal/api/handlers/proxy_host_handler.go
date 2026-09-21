@@ -314,6 +314,44 @@ func (h *ProxyHostHandler) resolveCertificateReference(value any) (*uint, error)
 	return &id, nil
 }
 
+// resolveDNSProviderReference resolves a dns_provider_id reference, accepting
+// either a legacy numeric ID (back-compat) or a UUID string. DNSProviderResponse
+// never exposes the internal numeric ID to clients (see models.DNSProvider.ID,
+// json:"-"), so any client-supplied dns_provider_id is expected to be a UUID;
+// the numeric path only serves already-persisted numeric values encountered
+// during back-compat flows (e.g. import).
+func (h *ProxyHostHandler) resolveDNSProviderReference(value any) (*uint, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	parsedID, parseErr := parseNullableUintField(value, "dns_provider_id")
+	if parseErr == nil {
+		return parsedID, nil
+	}
+
+	uuidValue, isString := value.(string)
+	if !isString {
+		return nil, parseErr
+	}
+
+	trimmed := strings.TrimSpace(uuidValue)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var provider models.DNSProvider
+	if err := h.db.Select("id").Where("uuid = ?", trimmed).First(&provider).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("dns provider not found")
+		}
+		return nil, fmt.Errorf("failed to resolve dns provider")
+	}
+
+	id := provider.ID
+	return &id, nil
+}
+
 func parseForwardPortField(value any) (int, error) {
 	switch v := value.(type) {
 	case float64:
@@ -434,6 +472,15 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 			return
 		}
 		payload["certificate_id"] = resolvedCertID
+	}
+
+	if rawDNSProviderRef, ok := payload["dns_provider_id"]; ok {
+		resolvedDNSProviderID, resolveErr := h.resolveDNSProviderReference(rawDNSProviderRef)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
+			return
+		}
+		payload["dns_provider_id"] = resolvedDNSProviderID
 	}
 
 	payloadBytes, marshalErr := json.Marshal(payload)
@@ -643,12 +690,12 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 
 	if v, ok := payload["dns_provider_id"]; ok {
-		parsedID, parseErr := parseNullableUintField(v, "dns_provider_id")
-		if parseErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": parseErr.Error()})
+		resolvedDNSProviderID, resolveErr := h.resolveDNSProviderReference(v)
+		if resolveErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
 			return
 		}
-		host.DNSProviderID = parsedID
+		host.DNSProviderID = resolvedDNSProviderID
 	}
 
 	if v, ok := payload["use_dns_challenge"].(bool); ok {
