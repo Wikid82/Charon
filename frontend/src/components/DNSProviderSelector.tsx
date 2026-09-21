@@ -12,8 +12,8 @@ import {
 import { useDNSProviders } from '../hooks/useDNSProviders'
 
 interface DNSProviderSelectorProps {
-  value?: number
-  onChange: (providerId?: number) => void
+  value?: string
+  onChange: (providerUuid?: string) => void
   required?: boolean
   disabled?: boolean
   label?: string
@@ -42,7 +42,7 @@ export default function DNSProviderSelector({
     if (value === 'none') {
       onChange()
     } else {
-      onChange(parseInt(value, 10))
+      onChange(value)
     }
   }
 
@@ -55,7 +55,7 @@ export default function DNSProviderSelector({
         </Label>
       )}
       <Select
-        value={value ? value.toString() : 'none'}
+        value={value ?? 'none'}
         onValueChange={handleValueChange}
         disabled={disabled || isLoading}
       >
@@ -79,7 +79,7 @@ export default function DNSProviderSelector({
             </SelectItem>
           )}
           {availableProviders.map((provider) => (
-            <SelectItem key={provider.id} value={provider.id.toString()}>
+            <SelectItem key={provider.uuid} value={provider.uuid}>
               <div className="flex items-center gap-2">
                 {provider.name}
                 {provider.is_default && (

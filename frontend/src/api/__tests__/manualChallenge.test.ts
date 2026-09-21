@@ -37,10 +37,10 @@ describe('manualChallenge API', () => {
 
       vi.mocked(client.get).mockResolvedValueOnce({ data: mockChallenge })
 
-      const result = await getChallenge(1, 'challenge-uuid')
+      const result = await getChallenge('provider-uuid-1', 'challenge-uuid')
 
       expect(client.get).toHaveBeenCalledWith(
-        '/dns-providers/1/manual-challenge/challenge-uuid'
+        '/dns-providers/provider-uuid-1/manual-challenge/challenge-uuid'
       )
       expect(result).toEqual(mockChallenge)
     })
@@ -50,7 +50,7 @@ describe('manualChallenge API', () => {
         response: { status: 404, data: { error: 'Challenge not found' } },
       })
 
-      await expect(getChallenge(1, 'invalid-uuid')).rejects.toMatchObject({
+      await expect(getChallenge('provider-uuid-1', 'invalid-uuid')).rejects.toMatchObject({
         response: { status: 404 },
       })
     })
@@ -71,9 +71,9 @@ describe('manualChallenge API', () => {
 
       vi.mocked(client.post).mockResolvedValueOnce({ data: mockChallenge })
 
-      const result = await createChallenge(1, { domain: 'example.com' })
+      const result = await createChallenge('provider-uuid-1', { domain: 'example.com' })
 
-      expect(client.post).toHaveBeenCalledWith('/dns-providers/1/manual-challenge', {
+      expect(client.post).toHaveBeenCalledWith('/dns-providers/provider-uuid-1/manual-challenge', {
         domain: 'example.com',
       })
       expect(result).toEqual(mockChallenge)
@@ -84,7 +84,7 @@ describe('manualChallenge API', () => {
         response: { status: 404, data: { error: 'Provider not found' } },
       })
 
-      await expect(createChallenge(999, { domain: 'example.com' })).rejects.toMatchObject({
+      await expect(createChallenge('missing-uuid', { domain: 'example.com' })).rejects.toMatchObject({
         response: { status: 404 },
       })
     })
@@ -94,7 +94,7 @@ describe('manualChallenge API', () => {
         response: { status: 409, data: { code: 'CHALLENGE_IN_PROGRESS' } },
       })
 
-      await expect(createChallenge(1, { domain: 'example.com' })).rejects.toMatchObject({
+      await expect(createChallenge('provider-uuid-1', { domain: 'example.com' })).rejects.toMatchObject({
         response: { status: 409 },
       })
     })
@@ -110,10 +110,10 @@ describe('manualChallenge API', () => {
 
       vi.mocked(client.post).mockResolvedValueOnce({ data: mockResult })
 
-      const result = await verifyChallenge(1, 'challenge-uuid')
+      const result = await verifyChallenge('provider-uuid-1', 'challenge-uuid')
 
       expect(client.post).toHaveBeenCalledWith(
-        '/dns-providers/1/manual-challenge/challenge-uuid/verify'
+        '/dns-providers/provider-uuid-1/manual-challenge/challenge-uuid/verify'
       )
       expect(result).toEqual(mockResult)
     })
@@ -127,7 +127,7 @@ describe('manualChallenge API', () => {
 
       vi.mocked(client.post).mockResolvedValueOnce({ data: mockResult })
 
-      const result = await verifyChallenge(1, 'challenge-uuid')
+      const result = await verifyChallenge('provider-uuid-1', 'challenge-uuid')
 
       expect(result.success).toBe(false)
       expect(result.dns_found).toBe(false)
@@ -138,7 +138,7 @@ describe('manualChallenge API', () => {
         response: { status: 410, data: { code: 'CHALLENGE_EXPIRED' } },
       })
 
-      await expect(verifyChallenge(1, 'challenge-uuid')).rejects.toMatchObject({
+      await expect(verifyChallenge('provider-uuid-1', 'challenge-uuid')).rejects.toMatchObject({
         response: { status: 410 },
       })
     })
@@ -155,10 +155,10 @@ describe('manualChallenge API', () => {
 
       vi.mocked(client.get).mockResolvedValueOnce({ data: mockPoll })
 
-      const result = await pollChallenge(1, 'challenge-uuid')
+      const result = await pollChallenge('provider-uuid-1', 'challenge-uuid')
 
       expect(client.get).toHaveBeenCalledWith(
-        '/dns-providers/1/manual-challenge/challenge-uuid/poll'
+        '/dns-providers/provider-uuid-1/manual-challenge/challenge-uuid/poll'
       )
       expect(result).toEqual(mockPoll)
     })
@@ -173,7 +173,7 @@ describe('manualChallenge API', () => {
 
       vi.mocked(client.get).mockResolvedValueOnce({ data: mockPoll })
 
-      const result = await pollChallenge(1, 'challenge-uuid')
+      const result = await pollChallenge('provider-uuid-1', 'challenge-uuid')
 
       expect(result.status).toBe('verified')
       expect(result.dns_propagated).toBe(true)
@@ -190,7 +190,7 @@ describe('manualChallenge API', () => {
 
       vi.mocked(client.get).mockResolvedValueOnce({ data: mockPoll })
 
-      const result = await pollChallenge(1, 'challenge-uuid')
+      const result = await pollChallenge('provider-uuid-1', 'challenge-uuid')
 
       expect(result.status).toBe('failed')
       expect(result.error_message).toBe('ACME validation failed')
@@ -201,10 +201,10 @@ describe('manualChallenge API', () => {
     it('deletes/cancels a challenge', async () => {
       vi.mocked(client.delete).mockResolvedValueOnce({ data: undefined })
 
-      await deleteChallenge(1, 'challenge-uuid')
+      await deleteChallenge('provider-uuid-1', 'challenge-uuid')
 
       expect(client.delete).toHaveBeenCalledWith(
-        '/dns-providers/1/manual-challenge/challenge-uuid'
+        '/dns-providers/provider-uuid-1/manual-challenge/challenge-uuid'
       )
     })
 
@@ -213,7 +213,7 @@ describe('manualChallenge API', () => {
         response: { status: 404, data: { error: 'Challenge not found' } },
       })
 
-      await expect(deleteChallenge(1, 'invalid-uuid')).rejects.toMatchObject({
+      await expect(deleteChallenge('provider-uuid-1', 'invalid-uuid')).rejects.toMatchObject({
         response: { status: 404 },
       })
     })
@@ -223,7 +223,7 @@ describe('manualChallenge API', () => {
         response: { status: 403, data: { error: 'Unauthorized' } },
       })
 
-      await expect(deleteChallenge(1, 'challenge-uuid')).rejects.toMatchObject({
+      await expect(deleteChallenge('provider-uuid-1', 'challenge-uuid')).rejects.toMatchObject({
         response: { status: 403 },
       })
     })

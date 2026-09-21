@@ -31,8 +31,8 @@ import type { DNSProvider } from '../api/dnsProviders'
 interface DNSProviderCardProps {
   provider: DNSProvider
   onEdit: (provider: DNSProvider) => void
-  onDelete: (id: number) => void
-  onTest: (id: number) => void
+  onDelete: (uuid: string) => void
+  onTest: (uuid: string) => void
   isTesting?: boolean
 }
 
@@ -95,7 +95,7 @@ export default function DNSProviderCard({
   }
 
   const handleDeleteConfirm = () => {
-    onDelete(provider.id)
+    onDelete(provider.uuid)
     setShowDeleteDialog(false)
   }
 
@@ -175,7 +175,7 @@ export default function DNSProviderCard({
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => onTest(provider.id)}
+              onClick={() => onTest(provider.uuid)}
               isLoading={isTesting}
               disabled={!provider.has_credentials}
               className="flex-1"

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
@@ -36,6 +37,11 @@ var (
 	ErrEncryptionFailed = errors.New("failed to encrypt credentials")
 	// ErrDecryptionFailed is returned when credential decryption fails.
 	ErrDecryptionFailed = errors.New("failed to decrypt credentials")
+	// ErrInvalidDNSProviderIdentifier is returned by ResolveID when the given
+	// value is neither a valid numeric ID nor a syntactically valid UUID.
+	// Distinct from ErrDNSProviderNotFound (well-formed but nonexistent) so
+	// callers can map the two to different HTTP status codes.
+	ErrInvalidDNSProviderIdentifier = errors.New("invalid id: must be a numeric ID or a UUID")
 )
 
 // Registry-based provider management replaces hardcoded provider types.
@@ -118,6 +124,7 @@ type DNSProviderService interface {
 	List(ctx context.Context) ([]models.DNSProvider, error)
 	Get(ctx context.Context, id uint) (*models.DNSProvider, error)
 	GetByUUID(ctx context.Context, uuid string) (*models.DNSProvider, error)
+	ResolveID(ctx context.Context, idOrUUID string) (uint, error)
 	Create(ctx context.Context, req CreateDNSProviderRequest) (*models.DNSProvider, error)
 	Update(ctx context.Context, id uint, req UpdateDNSProviderRequest) (*models.DNSProvider, error)
 	Delete(ctx context.Context, id uint) error
@@ -184,6 +191,33 @@ func (s *dnsProviderService) GetByUUID(ctx context.Context, providerUUID string)
 		return nil, err
 	}
 	return &provider, nil
+}
+
+// ResolveID resolves either a numeric ID (back-compat) or a UUID string to a
+// DNS provider's internal numeric ID. Numeric values are looked up directly
+// (so a nonexistent numeric ID surfaces as ErrDNSProviderNotFound rather than
+// silently passing through); string values must be syntactically valid
+// UUIDs, and are then looked up by UUID. This lets callers that only have a
+// path-param string (e.g. CredentialHandler) resolve it without duplicating
+// the numeric-vs-UUID branching used by resolveProvider below.
+func (s *dnsProviderService) ResolveID(ctx context.Context, idOrUUID string) (uint, error) {
+	if id, err := strconv.ParseUint(idOrUUID, 10, 32); err == nil {
+		provider, getErr := s.Get(ctx, uint(id))
+		if getErr != nil {
+			return 0, getErr
+		}
+		return provider.ID, nil
+	}
+
+	if _, err := uuid.Parse(idOrUUID); err != nil {
+		return 0, ErrInvalidDNSProviderIdentifier
+	}
+
+	provider, err := s.GetByUUID(ctx, idOrUUID)
+	if err != nil {
+		return 0, err
+	}
+	return provider.ID, nil
 }
 
 // Create creates a new DNS provider with encrypted credentials.

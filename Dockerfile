@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-11df81aa7ba60103
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:e18d854ca0c3ef0708b736715a1dff356e8e25479fe2b6ddccbd86f5584a6e2d
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-ddfba84e11995b5b
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:8b44ed35d46724597e056396b788b898535b50b51d1a1cbf7dfbe33aec123a94
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -34,7 +34,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 ARG GO_VERSION=1.27.1
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.2@sha256:31b6477333eb8257db9e5d7c3a7264fd0467928756f0bbcc27d35bea5d28cdbd
+ARG ALPINE_IMAGE=alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
@@ -82,7 +82,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.4
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.1.64
+ARG CADDY_SECURITY_VERSION=1.2.1
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.1
 # xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so
@@ -162,7 +162,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.21.0-alpine3.24@sha256:4b2d7eef36889f0aec0d58d1b19778321176c67824b7c951352d86c5c7811d44 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.21.0-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -856,7 +856,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=9616e64848d17f13f1ae5426f40b9f4d6022cef0e0a021bd81427cdd0e48abbc
+ARG GEOLITE2_COUNTRY_SHA256=7ca6753b093a69441a5e9185f498ee1e767c24ef6c0915494d1f68090cca032d
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

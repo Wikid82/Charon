@@ -20,7 +20,6 @@ describe('dnsDetection API', () => {
         nameservers: ['ns1.cloudflare.com', 'ns2.cloudflare.com'],
         confidence: 'high',
         suggested_provider: {
-          id: 1,
           uuid: 'test-uuid',
           name: 'Production Cloudflare',
           provider_type: 'cloudflare',

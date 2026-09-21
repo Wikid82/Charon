@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as featureFlagsApi from '../../api/featureFlags'
 import { ThemeProvider } from '../../context/ThemeContext'
 import * as useMediaQueryModule from '../../hooks/useMediaQuery'
+import { toast } from '../../utils/toast'
 import Layout from '../Layout'
 
 const mockLogout = vi.fn()
@@ -57,6 +58,17 @@ vi.mock('../../hooks/useChangelog', () => ({
   useChangelogStatus: vi.fn().mockReturnValue({ data: { show_changelog: false, versions: [] }, isError: false }),
   useChangelogAll: vi.fn().mockReturnValue({ data: undefined, isError: false }),
   useAckChangelog: vi.fn().mockReturnValue({ mutate: vi.fn() }),
+}))
+
+// Layout renders its own toast notifications outside a mounted ToastContainer
+// in these tests — mock the utility so we can assert on calls directly.
+vi.mock('../../utils/toast', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+  },
 }))
 
 const renderWithProviders = (children: ReactNode) => {
@@ -211,6 +223,104 @@ describe('Layout', () => {
     expect(coffeeLink).toHaveAttribute('href', 'https://buymeacoffee.com/Wikid82')
     expect(coffeeLink).toHaveAttribute('target', '_blank')
     expect(coffeeLink).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  describe('share button in the sidebar footer', () => {
+    const shareUrl = 'https://github.com/Wikid82/Charon'
+
+    afterEach(() => {
+      // @ts-expect-error -- restoring jsdom's undefined default between tests
+      delete navigator.share
+      vi.restoreAllMocks()
+    })
+
+    it('uses the Web Share API when available', async () => {
+      const shareMock = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'share', {
+        value: shareMock,
+        configurable: true,
+        writable: true,
+      })
+      const clipboardSpy = vi.spyOn(navigator.clipboard, 'writeText')
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const shareButton = await screen.findByRole('button', { name: 'Share Charon' })
+      await userEvent.click(shareButton)
+
+      expect(shareMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Charon', url: shareUrl })
+      )
+      expect(clipboardSpy).not.toHaveBeenCalled()
+    })
+
+    it('silently no-ops when the user cancels the native share sheet', async () => {
+      const abortError = Object.assign(new Error('cancelled'), { name: 'AbortError' })
+      const shareMock = vi.fn().mockRejectedValue(abortError)
+      Object.defineProperty(navigator, 'share', {
+        value: shareMock,
+        configurable: true,
+        writable: true,
+      })
+      const clipboardSpy = vi.spyOn(navigator.clipboard, 'writeText')
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const shareButton = await screen.findByRole('button', { name: 'Share Charon' })
+      await userEvent.click(shareButton)
+
+      expect(shareMock).toHaveBeenCalled()
+      expect(clipboardSpy).not.toHaveBeenCalled()
+    })
+
+    it('falls back to clipboard copy with a success toast when the Web Share API is unavailable', async () => {
+      // @ts-expect-error -- simulating an environment without the Web Share API
+      delete navigator.share
+      const clipboardSpy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const shareButton = await screen.findByRole('button', { name: 'Share Charon' })
+      await userEvent.click(shareButton)
+
+      await waitFor(() => {
+        expect(clipboardSpy).toHaveBeenCalledWith(shareUrl)
+      })
+      expect(toast.success).toHaveBeenCalledWith('Link copied to clipboard')
+      expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it('shows an error toast when the clipboard fallback fails', async () => {
+      // @ts-expect-error -- simulating an environment without the Web Share API
+      delete navigator.share
+      vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'))
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const shareButton = await screen.findByRole('button', { name: 'Share Charon' })
+      await userEvent.click(shareButton)
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Failed to copy link to clipboard')
+      })
+      expect(toast.success).not.toHaveBeenCalled()
+    })
   })
 
   it('orders the sidebar footer as icon row, then version block, then logout button, with GitHub Sponsors before Buy Me a Coffee', async () => {

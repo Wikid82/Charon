@@ -73,7 +73,6 @@ vi.mock('../../hooks/useDNSProviders', () => ({
   useDNSProviders: vi.fn(() => ({
     data: [
       {
-        id: 1,
         uuid: 'dns-uuid-1',
         name: 'Cloudflare',
         provider_type: 'cloudflare',
@@ -109,9 +108,9 @@ vi.mock('../../hooks/useDNSDetection', () => ({
 
 vi.mock('../DNSDetectionResult', () => ({
   DNSDetectionResult: ({ result, onUseSuggested, onSelectManually }: {
-    result?: { suggested_provider?: { id: number; name: string } }
+    result?: { suggested_provider?: { uuid: string; name: string } }
     isLoading: boolean
-    onUseSuggested: (provider: { id: number; name: string }) => void
+    onUseSuggested: (provider: { uuid: string; name: string }) => void
     onSelectManually: () => void
   }) => (
     <div>
@@ -556,7 +555,7 @@ describe('ProxyHostForm - DNS Provider Integration', () => {
           detected: true,
           nameservers: ['ns1.cloudflare.com'],
           confidence: 'high',
-          suggested_provider: { id: 1, name: 'Cloudflare' },
+          suggested_provider: { uuid: 'dns-uuid-1', name: 'Cloudflare' },
         },
         reset: vi.fn(),
       } as unknown as ReturnType<typeof useDetectDNSProvider>)
@@ -572,7 +571,7 @@ describe('ProxyHostForm - DNS Provider Integration', () => {
 
       await waitFor(() => {
         expect(toast.success).toHaveBeenCalledWith('Auto-selected: Cloudflare')
-        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ dns_provider_id: 1 }))
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ dns_provider_id: 'dns-uuid-1' }))
       })
     })
 
@@ -586,7 +585,7 @@ describe('ProxyHostForm - DNS Provider Integration', () => {
           detected: true,
           nameservers: ['ns1.cloudflare.com'],
           confidence: 'medium',
-          suggested_provider: { id: 1, name: 'Cloudflare' },
+          suggested_provider: { uuid: 'dns-uuid-1', name: 'Cloudflare' },
         },
         reset: vi.fn(),
       } as unknown as ReturnType<typeof useDetectDNSProvider>)

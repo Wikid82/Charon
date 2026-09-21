@@ -113,7 +113,7 @@ const renderComponent = (
     ...render(
       <QueryClientProvider client={queryClient}>
         <ManualDNSChallenge
-          providerId={1}
+          providerId={'provider-uuid-1'}
           challenge={challenge}
           onComplete={onComplete}
           onCancel={onCancel}
@@ -309,7 +309,7 @@ describe('ManualDNSChallenge', () => {
       await user.click(verifyButton)
 
       expect(mockVerifyMutation).toHaveBeenCalledWith({
-        providerId: 1,
+        providerId: 'provider-uuid-1',
         challengeId: 'test-challenge-uuid',
       })
     })
@@ -371,7 +371,7 @@ describe('ManualDNSChallenge', () => {
       await user.click(cancelButton)
 
       expect(mockDeleteMutation).toHaveBeenCalledWith({
-        providerId: 1,
+        providerId: 'provider-uuid-1',
         challengeId: 'test-challenge-uuid',
       })
       expect(onCancel).toHaveBeenCalled()
@@ -493,7 +493,7 @@ describe('ManualDNSChallenge', () => {
       rerender(
         <QueryClientProvider client={queryClient}>
           <ManualDNSChallenge
-            providerId={1}
+            providerId={'provider-uuid-1'}
             challenge={verifiedChallenge}
             onComplete={onComplete}
             onCancel={vi.fn()}
@@ -531,7 +531,7 @@ describe('ManualDNSChallenge', () => {
       rerender(
         <QueryClientProvider client={queryClient}>
           <ManualDNSChallenge
-            providerId={1}
+            providerId={'provider-uuid-1'}
             challenge={expiredChallenge}
             onComplete={onComplete}
             onCancel={vi.fn()}
@@ -600,7 +600,7 @@ describe('ManualDNSChallenge', () => {
     it('enables polling when challenge is pending', () => {
       renderComponent()
 
-      expect(useChallengePoll).toHaveBeenCalledWith(1, 'test-challenge-uuid', true, 10000)
+      expect(useChallengePoll).toHaveBeenCalledWith('provider-uuid-1', 'test-challenge-uuid', true, 10000)
     })
 
     it('disables polling when challenge is in terminal state', () => {
@@ -623,7 +623,7 @@ describe('ManualDNSChallenge', () => {
       renderComponent(verifiedChallenge)
 
       // The component should pass enabled=false for terminal states
-      expect(useChallengePoll).toHaveBeenCalledWith(1, 'test-challenge-uuid', false, 10000)
+      expect(useChallengePoll).toHaveBeenCalledWith('provider-uuid-1', 'test-challenge-uuid', false, 10000)
     })
   })
 

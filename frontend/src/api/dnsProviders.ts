@@ -20,7 +20,6 @@ export type DNSProviderType =
 
 /** Represents a configured DNS provider */
 export interface DNSProvider {
-  id: number
   uuid: string
   name: string
   provider_type: DNSProviderType
@@ -103,12 +102,12 @@ export async function getDNSProviders(): Promise<DNSProvider[]> {
 }
 
 /**
- * Fetches a single DNS provider by ID.
- * @param id - The DNS provider ID
+ * Fetches a single DNS provider by UUID.
+ * @param id - The DNS provider UUID
  * @returns Promise resolving to the DNS provider
  * @throws {AxiosError} If not found or request fails
  */
-export async function getDNSProvider(id: number): Promise<DNSProvider> {
+export async function getDNSProvider(id: string): Promise<DNSProvider> {
   const response = await client.get<DNSProvider>(`/dns-providers/${id}`)
   return response.data
 }
@@ -126,32 +125,32 @@ export async function createDNSProvider(data: DNSProviderRequest): Promise<DNSPr
 
 /**
  * Updates an existing DNS provider.
- * @param id - The DNS provider ID
+ * @param id - The DNS provider UUID
  * @param data - Updated configuration
  * @returns Promise resolving to the updated provider
  * @throws {AxiosError} If not found, validation fails, or request fails
  */
-export async function updateDNSProvider(id: number, data: DNSProviderRequest): Promise<DNSProvider> {
+export async function updateDNSProvider(id: string, data: DNSProviderRequest): Promise<DNSProvider> {
   const response = await client.put<DNSProvider>(`/dns-providers/${id}`, data)
   return response.data
 }
 
 /**
  * Deletes a DNS provider.
- * @param id - The DNS provider ID
+ * @param id - The DNS provider UUID
  * @throws {AxiosError} If not found or in use by proxy hosts
  */
-export async function deleteDNSProvider(id: number): Promise<void> {
+export async function deleteDNSProvider(id: string): Promise<void> {
   await client.delete(`/dns-providers/${id}`)
 }
 
 /**
  * Tests connectivity of a saved DNS provider.
- * @param id - The DNS provider ID
+ * @param id - The DNS provider UUID
  * @returns Promise resolving to test result
  * @throws {AxiosError} If not found or request fails
  */
-export async function testDNSProvider(id: number): Promise<DNSTestResult> {
+export async function testDNSProvider(id: string): Promise<DNSTestResult> {
   const response = await client.post<DNSTestResult>(`/dns-providers/${id}/test`)
   return response.data
 }

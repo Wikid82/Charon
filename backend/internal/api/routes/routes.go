@@ -555,7 +555,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 				// Multi-Credential Management (Phase 3)
 				credentialService := services.NewCredentialService(db, encryptionService)
-				credentialHandler := handlers.NewCredentialHandler(credentialService)
+				credentialHandler := handlers.NewCredentialHandler(credentialService, dnsProviderService)
 				management.GET("/dns-providers/:id/credentials", credentialHandler.List)
 				management.POST("/dns-providers/:id/credentials", adminRole, credentialHandler.Create)
 				management.GET("/dns-providers/:id/credentials/:cred_id", credentialHandler.Get)

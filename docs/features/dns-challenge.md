@@ -167,13 +167,17 @@ Each provider requires specific credentials. See provider-specific sections belo
 
 ### Step 4: Request a Certificate
 
-1. Navigate to **Certificates** → **Request Certificate**
+Charon doesn't have a separate "request a certificate" screen — you request one automatically by creating (or editing) a Proxy Host:
+
+1. Navigate to **Proxy Hosts** and click **"Add Proxy Host"** (or edit an existing one)
 2. Enter your domain name:
-   - For standard certificate: `example.com`
-   - For wildcard certificate: `*.example.com`
-3. Select **"DNS-01"** as the challenge type
-4. Choose your configured DNS provider
-5. Click **"Request Certificate"**
+   - For a standard certificate: `example.com`
+   - For a wildcard certificate: `*.example.com`
+3. Make sure SSL/HTTPS is enabled for the host
+4. Because wildcard domains can't use the normal HTTP validation, Charon shows a DNS provider selector for wildcard domains — choose the DNS provider you configured above
+5. Click **"Save"**
+
+Charon automatically requests the certificate using DNS-01 validation with the provider you selected — there's no extra button to press.
 
 ### Step 5: Monitor Progress
 
@@ -353,10 +357,11 @@ For DNS providers not directly supported by Charon, you can use the **Manual DNS
 
 #### Step 1: Initiate the Challenge
 
-1. Navigate to **Certificates** → **Request Certificate**
+1. Navigate to **Proxy Hosts** and click **"Add Proxy Host"** (or edit an existing one)
 2. Enter your domain name
-3. Select **"DNS-01 (Manual)"** as the challenge type
-4. Click **"Request Certificate"**
+3. Make sure SSL/HTTPS is enabled for the host
+4. In the DNS provider selector for wildcard domains, choose your **Manual** DNS provider
+5. Click **"Save"**
 
 #### Step 2: Create DNS Record
 

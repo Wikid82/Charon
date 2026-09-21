@@ -22,7 +22,7 @@ const queryKeys = {
   lists: () => [...queryKeys.all, 'list'] as const,
   list: () => [...queryKeys.lists()] as const,
   details: () => [...queryKeys.all, 'detail'] as const,
-  detail: (id: number) => [...queryKeys.details(), id] as const,
+  detail: (id: string) => [...queryKeys.details(), id] as const,
   types: () => [...queryKeys.all, 'types'] as const,
 }
 
@@ -39,14 +39,14 @@ export function useDNSProviders() {
 
 /**
  * Hook for fetching a single DNS provider.
- * @param id - DNS provider ID
+ * @param id - DNS provider UUID
  * @returns Query result with provider data
  */
-export function useDNSProvider(id: number) {
+export function useDNSProvider(id: string) {
   return useQuery({
     queryKey: queryKeys.detail(id),
     queryFn: () => getDNSProvider(id),
-    enabled: id > 0,
+    enabled: !!id,
   })
 }
 
@@ -77,7 +77,7 @@ export function useDNSProviderMutations() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: DNSProviderRequest }) =>
+    mutationFn: ({ id, data }: { id: string; data: DNSProviderRequest }) =>
       updateDNSProvider(id, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.list() })
@@ -86,14 +86,14 @@ export function useDNSProviderMutations() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => deleteDNSProvider(id),
+    mutationFn: (id: string) => deleteDNSProvider(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.list() })
     },
   })
 
   const testMutation = useMutation({
-    mutationFn: (id: number) => testDNSProvider(id),
+    mutationFn: (id: string) => testDNSProvider(id),
   })
 
   const testCredentialsMutation = useMutation({

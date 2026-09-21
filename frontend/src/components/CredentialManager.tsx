@@ -41,14 +41,14 @@ export default function CredentialManager({
   providerTypeInfo,
 }: CredentialManagerProps) {
   const { t } = useTranslation()
-  const { data: credentials = [], isLoading, refetch } = useCredentials(provider.id)
+  const { data: credentials = [], isLoading, refetch } = useCredentials(provider.uuid)
   const deleteMutation = useDeleteCredential()
   const testMutation = useTestCredential()
 
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingCredential, setEditingCredential] = useState<DNSProviderCredential | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
-  const [testingId, setTestingId] = useState<number | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [testingId, setTestingId] = useState<string | null>(null)
 
   const handleAddCredential = () => {
     setEditingCredential(null)
@@ -60,13 +60,13 @@ export default function CredentialManager({
     setIsFormOpen(true)
   }
 
-  const handleDeleteClick = (id: number) => {
+  const handleDeleteClick = (id: string) => {
     setDeleteConfirm(id)
   }
 
-  const handleDeleteConfirm = async (id: number) => {
+  const handleDeleteConfirm = async (id: string) => {
     try {
-      await deleteMutation.mutateAsync({ providerId: provider.id, credentialId: id })
+      await deleteMutation.mutateAsync({ providerId: provider.uuid, credentialId: id })
       toast.success(t('credentials.deleteSuccess', 'Credential deleted successfully'))
       setDeleteConfirm(null)
       refetch()
@@ -80,11 +80,11 @@ export default function CredentialManager({
     }
   }
 
-  const handleTestCredential = async (id: number) => {
+  const handleTestCredential = async (id: string) => {
     setTestingId(id)
     try {
       const result = await testMutation.mutateAsync({
-        providerId: provider.id,
+        providerId: provider.uuid,
         credentialId: id,
       })
       if (result.success) {
@@ -178,7 +178,7 @@ export default function CredentialManager({
                 </thead>
                 <tbody className="divide-y">
                   {credentials.map((credential) => (
-                    <tr key={credential.id} className="hover:bg-muted/50">
+                    <tr key={credential.uuid} className="hover:bg-muted/50">
                       <td className="px-4 py-3">
                         <div className="font-medium">{credential.label}</div>
                         {!credential.enabled && (
@@ -222,8 +222,8 @@ export default function CredentialManager({
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleTestCredential(credential.id)}
-                            disabled={testingId === credential.id}
+                            onClick={() => handleTestCredential(credential.uuid)}
+                            disabled={testingId === credential.uuid}
                           >
                             <TestTube className="w-4 h-4" />
                           </Button>
@@ -237,7 +237,7 @@ export default function CredentialManager({
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleDeleteClick(credential.id)}
+                            onClick={() => handleDeleteClick(credential.uuid)}
                             className="text-destructive hover:text-destructive"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -264,7 +264,7 @@ export default function CredentialManager({
         <CredentialForm
           open={isFormOpen}
           onOpenChange={setIsFormOpen}
-          providerId={provider.id}
+          providerId={provider.uuid}
           providerTypeInfo={providerTypeInfo}
           credential={editingCredential}
           onSuccess={handleFormSuccess}
@@ -306,7 +306,7 @@ export default function CredentialManager({
 interface CredentialFormProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  providerId: number
+  providerId: string
   providerTypeInfo?: DNSProviderTypeInfo
   credential: DNSProviderCredential | null
   onSuccess: () => void
@@ -424,7 +424,7 @@ function CredentialForm({
       if (credential) {
         await updateMutation.mutateAsync({
           providerId,
-          credentialId: credential.id,
+          credentialId: credential.uuid,
           data,
         })
       } else {
@@ -450,7 +450,7 @@ function CredentialForm({
     try {
       const result = await testMutation.mutateAsync({
         providerId,
-        credentialId: credential.id,
+        credentialId: credential.uuid,
       })
       if (result.success) {
         toast.success(result.message || t('credentials.testSuccess', 'Test passed'))

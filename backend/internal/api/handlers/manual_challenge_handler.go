@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -25,6 +24,12 @@ type ManualChallengeServiceInterface interface {
 // DNSProviderServiceInterface defines the subset of DNSProviderService needed by ManualChallengeHandler.
 type DNSProviderServiceInterface interface {
 	Get(ctx context.Context, id uint) (*models.DNSProvider, error)
+	// ResolveID resolves the :id path param — accepting either a legacy
+	// numeric ID (back-compat) or the DNS provider's UUID, since
+	// DNSProviderResponse never exposes the internal numeric ID to clients
+	// — to the provider's internal numeric ID. See
+	// services.DNSProviderService.ResolveID for the full contract.
+	ResolveID(ctx context.Context, idOrUUID string) (uint, error)
 }
 
 // ManualChallengeHandler handles manual DNS challenge API requests.
@@ -75,16 +80,48 @@ func newErrorResponse(code, message string, details map[string]interface{}) Erro
 	return resp
 }
 
+// resolveProviderID resolves the :id path param via DNSProviderService.ResolveID
+// (see CredentialHandler.resolveProviderID for the identical numeric-or-UUID
+// rationale — the frontend only ever has a provider's UUID to send). On
+// failure it writes this handler's standard ErrorResponse envelope itself and
+// returns ok=false so the caller can return immediately, using the same
+// 400/404/500 status-code mapping established in CredentialHandler: 400 for a
+// value that is neither a valid numeric ID nor a syntactically valid UUID,
+// 404 for a well-formed but nonexistent one, and 500 for any other (e.g.
+// storage) error.
+func (h *ManualChallengeHandler) resolveProviderID(c *gin.Context) (uint, bool) {
+	providerID, err := h.providerService.ResolveID(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrDNSProviderNotFound):
+			c.JSON(http.StatusNotFound, newErrorResponse(
+				"PROVIDER_NOT_FOUND",
+				"DNS provider not found",
+				nil,
+			))
+		case errors.Is(err, services.ErrInvalidDNSProviderIdentifier):
+			c.JSON(http.StatusBadRequest, newErrorResponse(
+				"INVALID_PROVIDER_ID",
+				"Invalid provider ID",
+				nil,
+			))
+		default:
+			c.JSON(http.StatusInternalServerError, newErrorResponse(
+				"INTERNAL_ERROR",
+				"Failed to retrieve DNS provider",
+				nil,
+			))
+		}
+		return 0, false
+	}
+	return providerID, true
+}
+
 // GetChallenge handles GET /api/v1/dns-providers/:id/manual-challenge/:challengeId
 // Returns the status and details of a manual DNS challenge.
 func (h *ManualChallengeHandler) GetChallenge(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, newErrorResponse(
-			"INVALID_PROVIDER_ID",
-			"Invalid provider ID",
-			nil,
-		))
+	providerID, ok := h.resolveProviderID(c)
+	if !ok {
 		return
 	}
 
@@ -102,7 +139,7 @@ func (h *ManualChallengeHandler) GetChallenge(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 
 	// Verify provider exists and user has access
-	provider, err := h.providerService.Get(c.Request.Context(), uint(providerID))
+	provider, err := h.providerService.Get(c.Request.Context(), providerID)
 	if err != nil {
 		if errors.Is(err, services.ErrDNSProviderNotFound) {
 			c.JSON(http.StatusNotFound, newErrorResponse(
@@ -158,7 +195,7 @@ func (h *ManualChallengeHandler) GetChallenge(c *gin.Context) {
 	}
 
 	// Verify challenge belongs to the specified provider
-	if challenge.ProviderID != uint(providerID) {
+	if challenge.ProviderID != providerID {
 		c.JSON(http.StatusNotFound, newErrorResponse(
 			"CHALLENGE_NOT_FOUND",
 			"Challenge not found for this provider",
@@ -173,13 +210,8 @@ func (h *ManualChallengeHandler) GetChallenge(c *gin.Context) {
 // VerifyChallenge handles POST /api/v1/dns-providers/:id/manual-challenge/:challengeId/verify
 // Triggers DNS verification for a challenge.
 func (h *ManualChallengeHandler) VerifyChallenge(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, newErrorResponse(
-			"INVALID_PROVIDER_ID",
-			"Invalid provider ID",
-			nil,
-		))
+	providerID, ok := h.resolveProviderID(c)
+	if !ok {
 		return
 	}
 
@@ -197,7 +229,7 @@ func (h *ManualChallengeHandler) VerifyChallenge(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 
 	// Verify provider exists and is manual type
-	provider, err := h.providerService.Get(c.Request.Context(), uint(providerID))
+	provider, err := h.providerService.Get(c.Request.Context(), providerID)
 	if err != nil {
 		if errors.Is(err, services.ErrDNSProviderNotFound) {
 			c.JSON(http.StatusNotFound, newErrorResponse(
@@ -251,7 +283,7 @@ func (h *ManualChallengeHandler) VerifyChallenge(c *gin.Context) {
 		return
 	}
 
-	if challenge.ProviderID != uint(providerID) {
+	if challenge.ProviderID != providerID {
 		c.JSON(http.StatusNotFound, newErrorResponse(
 			"CHALLENGE_NOT_FOUND",
 			"Challenge not found for this provider",
@@ -288,13 +320,8 @@ func (h *ManualChallengeHandler) VerifyChallenge(c *gin.Context) {
 // PollChallenge handles GET /api/v1/dns-providers/:id/manual-challenge/:challengeId/poll
 // Returns the current status for polling.
 func (h *ManualChallengeHandler) PollChallenge(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, newErrorResponse(
-			"INVALID_PROVIDER_ID",
-			"Invalid provider ID",
-			nil,
-		))
+	providerID, ok := h.resolveProviderID(c)
+	if !ok {
 		return
 	}
 
@@ -311,7 +338,7 @@ func (h *ManualChallengeHandler) PollChallenge(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 
 	// Verify provider exists
-	provider, err := h.providerService.Get(c.Request.Context(), uint(providerID))
+	provider, err := h.providerService.Get(c.Request.Context(), providerID)
 	if err != nil {
 		if errors.Is(err, services.ErrDNSProviderNotFound) {
 			c.JSON(http.StatusNotFound, newErrorResponse(
@@ -371,20 +398,15 @@ func (h *ManualChallengeHandler) PollChallenge(c *gin.Context) {
 // ListChallenges handles GET /api/v1/dns-providers/:id/manual-challenges
 // Returns all challenges for a provider.
 func (h *ManualChallengeHandler) ListChallenges(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, newErrorResponse(
-			"INVALID_PROVIDER_ID",
-			"Invalid provider ID",
-			nil,
-		))
+	providerID, ok := h.resolveProviderID(c)
+	if !ok {
 		return
 	}
 
 	userID := getUserIDFromContext(c)
 
 	// Verify provider exists and is manual type
-	provider, err := h.providerService.Get(c.Request.Context(), uint(providerID))
+	provider, err := h.providerService.Get(c.Request.Context(), providerID)
 	if err != nil {
 		if errors.Is(err, services.ErrDNSProviderNotFound) {
 			c.JSON(http.StatusNotFound, newErrorResponse(
@@ -411,7 +433,7 @@ func (h *ManualChallengeHandler) ListChallenges(c *gin.Context) {
 		return
 	}
 
-	challenges, err := h.challengeService.ListChallengesForProvider(c.Request.Context(), uint(providerID), userID)
+	challenges, err := h.challengeService.ListChallengesForProvider(c.Request.Context(), providerID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, newErrorResponse(
 			"INTERNAL_ERROR",
@@ -435,13 +457,8 @@ func (h *ManualChallengeHandler) ListChallenges(c *gin.Context) {
 // DeleteChallenge handles DELETE /api/v1/dns-providers/:id/manual-challenge/:challengeId
 // Cancels/deletes a challenge.
 func (h *ManualChallengeHandler) DeleteChallenge(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, newErrorResponse(
-			"INVALID_PROVIDER_ID",
-			"Invalid provider ID",
-			nil,
-		))
+	providerID, ok := h.resolveProviderID(c)
+	if !ok {
 		return
 	}
 
@@ -458,7 +475,7 @@ func (h *ManualChallengeHandler) DeleteChallenge(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 
 	// Verify provider exists
-	provider, err := h.providerService.Get(c.Request.Context(), uint(providerID))
+	provider, err := h.providerService.Get(c.Request.Context(), providerID)
 	if err != nil {
 		if errors.Is(err, services.ErrDNSProviderNotFound) {
 			c.JSON(http.StatusNotFound, newErrorResponse(
@@ -527,13 +544,8 @@ type CreateChallengeRequest struct {
 // CreateChallenge handles POST /api/v1/dns-providers/:id/manual-challenges
 // Creates a new manual DNS challenge.
 func (h *ManualChallengeHandler) CreateChallenge(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, newErrorResponse(
-			"INVALID_PROVIDER_ID",
-			"Invalid provider ID",
-			nil,
-		))
+	providerID, ok := h.resolveProviderID(c)
+	if !ok {
 		return
 	}
 
@@ -550,7 +562,7 @@ func (h *ManualChallengeHandler) CreateChallenge(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 
 	// Verify provider exists and is manual type
-	provider, err := h.providerService.Get(c.Request.Context(), uint(providerID))
+	provider, err := h.providerService.Get(c.Request.Context(), providerID)
 	if err != nil {
 		if errors.Is(err, services.ErrDNSProviderNotFound) {
 			c.JSON(http.StatusNotFound, newErrorResponse(
@@ -578,7 +590,7 @@ func (h *ManualChallengeHandler) CreateChallenge(c *gin.Context) {
 	}
 
 	challenge, err := h.challengeService.CreateChallenge(c.Request.Context(), services.CreateChallengeRequest{
-		ProviderID: uint(providerID),
+		ProviderID: providerID,
 		UserID:     userID,
 		FQDN:       req.FQDN,
 		Token:      req.Token,
