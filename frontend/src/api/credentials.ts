@@ -2,7 +2,6 @@ import client from './client'
 
 /** Represents a zone-specific credential set */
 export interface DNSProviderCredential {
-  id: number
   uuid: string
   dns_provider_id: number
   label: string
@@ -57,15 +56,15 @@ export async function getCredentials(providerId: string): Promise<DNSProviderCre
 }
 
 /**
- * Fetches a single credential by ID.
+ * Fetches a single credential by UUID.
  * @param providerId - The DNS provider UUID
- * @param credentialId - The credential ID
+ * @param credentialId - The credential UUID
  * @returns Promise resolving to the credential
  * @throws {AxiosError} If not found or request fails
  */
 export async function getCredential(
   providerId: string,
-  credentialId: number
+  credentialId: string
 ): Promise<DNSProviderCredential> {
   const response = await client.get<DNSProviderCredential>(
     `/dns-providers/${providerId}/credentials/${credentialId}`
@@ -94,14 +93,14 @@ export async function createCredential(
 /**
  * Updates an existing credential.
  * @param providerId - The DNS provider UUID
- * @param credentialId - The credential ID
+ * @param credentialId - The credential UUID
  * @param data - Updated configuration
  * @returns Promise resolving to the updated credential
  * @throws {AxiosError} If not found, validation fails, or request fails
  */
 export async function updateCredential(
   providerId: string,
-  credentialId: number,
+  credentialId: string,
   data: CredentialRequest
 ): Promise<DNSProviderCredential> {
   const response = await client.put<DNSProviderCredential>(
@@ -114,23 +113,23 @@ export async function updateCredential(
 /**
  * Deletes a credential.
  * @param providerId - The DNS provider UUID
- * @param credentialId - The credential ID
+ * @param credentialId - The credential UUID
  * @throws {AxiosError} If not found or in use
  */
-export async function deleteCredential(providerId: string, credentialId: number): Promise<void> {
+export async function deleteCredential(providerId: string, credentialId: string): Promise<void> {
   await client.delete(`/dns-providers/${providerId}/credentials/${credentialId}`)
 }
 
 /**
  * Tests a credential's connectivity.
  * @param providerId - The DNS provider UUID
- * @param credentialId - The credential ID
+ * @param credentialId - The credential UUID
  * @returns Promise resolving to test result
  * @throws {AxiosError} If not found or request fails
  */
 export async function testCredential(
   providerId: string,
-  credentialId: number
+  credentialId: string
 ): Promise<CredentialTestResult> {
   const response = await client.post<CredentialTestResult>(
     `/dns-providers/${providerId}/credentials/${credentialId}/test`

@@ -70,7 +70,6 @@ const mockProviderTypeInfo: DNSProviderTypeInfo = {
 
 const mockCredentials: DNSProviderCredential[] = [
   {
-    id: 1,
     uuid: 'cred-uuid-1',
     dns_provider_id: 1,
     label: 'Main Zone',
@@ -140,18 +139,18 @@ describe('CredentialManager', () => {
     vi.mocked(useUpdateCredential).mockReturnValue(
       createMutationResult<
         DNSProviderCredential,
-        { providerId: string; credentialId: number; data: CredentialRequest }
+        { providerId: string; credentialId: string; data: CredentialRequest }
       >(mockUpdateMutate)
     )
 
     vi.mocked(useDeleteCredential).mockReturnValue(
-      createMutationResult<void, { providerId: string; credentialId: number }>(
+      createMutationResult<void, { providerId: string; credentialId: string }>(
         mockDeleteMutate
       )
     )
 
     vi.mocked(useTestCredential).mockReturnValue(
-      createMutationResult<CredentialTestResult, { providerId: string; credentialId: number }>(
+      createMutationResult<CredentialTestResult, { providerId: string; credentialId: string }>(
         mockTestMutate
       )
     )
@@ -258,7 +257,7 @@ describe('CredentialManager', () => {
     await waitFor(() => {
         expect(mockUpdateMutate).toHaveBeenCalledWith({
             providerId: 'uuid-1',
-            credentialId: 1,
+            credentialId: 'cred-uuid-1',
             data: expect.objectContaining({
                 label: 'Updated Label',
                 zone_filter: 'example.com'
@@ -296,7 +295,7 @@ describe('CredentialManager', () => {
     await waitFor(() => {
         expect(mockDeleteMutate).toHaveBeenCalledWith({
             providerId: 'uuid-1',
-            credentialId: 1
+            credentialId: 'cred-uuid-1'
         })
     })
   })
@@ -518,7 +517,7 @@ describe('CredentialManager', () => {
     await waitFor(() => {
       expect(mockTestMutate).toHaveBeenCalledWith({
         providerId: 'uuid-1',
-        credentialId: 1,
+        credentialId: 'cred-uuid-1',
       })
       expect(toast.success).toHaveBeenCalled()
     })
@@ -583,7 +582,6 @@ describe('CredentialManager', () => {
     const multipleCreds = [
       ...mockCredentials,
       {
-        id: 2,
         uuid: 'cred-uuid-2',
         dns_provider_id: 1,
         label: 'Staging Zone',
@@ -869,7 +867,7 @@ describe('CredentialManager', () => {
     const user = userEvent.setup()
     const { toast } = await import('../../utils/toast')
 
-    mockCreateMutate.mockResolvedValue({ id: 2, label: 'New Cred' })
+    mockCreateMutate.mockResolvedValue({ uuid: 'cred-uuid-2', label: 'New Cred' })
 
     renderWithClient(
       <CredentialManager
@@ -895,7 +893,7 @@ describe('CredentialManager', () => {
     const user = userEvent.setup()
     const { toast } = await import('../../utils/toast')
 
-    mockUpdateMutate.mockResolvedValue({ id: 1, label: 'Updated' })
+    mockUpdateMutate.mockResolvedValue({ uuid: 'cred-uuid-1', label: 'Updated' })
 
     renderWithClient(
       <CredentialManager
@@ -916,6 +914,69 @@ describe('CredentialManager', () => {
 
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('updated successfully'))
+    })
+  })
+
+  describe('Regression: real API shape (no numeric id field)', () => {
+    it('renders and performs test/delete actions when credentials have only a uuid and no numeric id', async () => {
+      // This mirrors the actual API response shape: DNSProviderCredential never
+      // includes a numeric `id`, only `uuid`. Previously credential.id was used
+      // for the row key, action handlers, and mutation payloads, which would
+      // all evaluate to `undefined` against the real API (GitHub #1361).
+      const user = userEvent.setup()
+      const apiShapedCredential: DNSProviderCredential = {
+        uuid: 'real-api-cred-uuid-1',
+        dns_provider_id: 1,
+        label: 'Main Zone',
+        zone_filter: 'example.com',
+        enabled: true,
+        propagation_timeout: 120,
+        polling_interval: 5,
+        key_version: 1,
+        success_count: 15,
+        failure_count: 0,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      }
+
+      vi.mocked(useCredentials).mockReturnValue(
+        createCredentialsQueryResult({ data: [apiShapedCredential] })
+      )
+      mockTestMutate.mockResolvedValue({ success: true, message: 'Test passed' })
+
+      expect(() =>
+        renderWithClient(
+          <CredentialManager
+            open={true}
+            onOpenChange={mockOnOpenChange}
+            provider={mockProvider}
+            providerTypeInfo={mockProviderTypeInfo}
+          />
+        )
+      ).not.toThrow()
+
+      expect(screen.getByText('Main Zone')).toBeInTheDocument()
+
+      const credRow = screen.getByText('Main Zone').closest('tr')
+      const testBtn = credRow?.querySelectorAll('button')[0]
+      const deleteBtn = credRow?.querySelectorAll('button')[2]
+
+      await user.click(testBtn!)
+      await waitFor(() => {
+        expect(mockTestMutate).toHaveBeenCalledWith({
+          providerId: 'uuid-1',
+          credentialId: 'real-api-cred-uuid-1',
+        })
+      })
+
+      await user.click(deleteBtn!)
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await waitFor(() => {
+        expect(mockDeleteMutate).toHaveBeenCalledWith({
+          providerId: 'uuid-1',
+          credentialId: 'real-api-cred-uuid-1',
+        })
+      })
     })
   })
 })

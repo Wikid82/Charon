@@ -17,7 +17,7 @@ import {
 export const credentialQueryKeys = {
   all: ['credentials'] as const,
   byProvider: (providerId: string) => [...credentialQueryKeys.all, 'provider', providerId] as const,
-  detail: (providerId: string, credentialId: number) =>
+  detail: (providerId: string, credentialId: string) =>
     [...credentialQueryKeys.all, 'provider', providerId, 'detail', credentialId] as const,
 }
 
@@ -37,14 +37,14 @@ export function useCredentials(providerId: string) {
 /**
  * Hook for fetching a single credential.
  * @param providerId - DNS provider UUID
- * @param credentialId - Credential ID
+ * @param credentialId - Credential UUID
  * @returns Query result with credential data
  */
-export function useCredential(providerId: string, credentialId: number) {
+export function useCredential(providerId: string, credentialId: string) {
   return useQuery({
     queryKey: credentialQueryKeys.detail(providerId, credentialId),
     queryFn: () => getCredential(providerId, credentialId),
-    enabled: !!providerId && credentialId > 0,
+    enabled: !!providerId && !!credentialId,
   })
 }
 
@@ -80,7 +80,7 @@ export function useUpdateCredential() {
       data,
     }: {
       providerId: string
-      credentialId: number
+      credentialId: string
       data: CredentialRequest
     }) => updateCredential(providerId, credentialId, data),
     onSuccess: (_, variables) => {
@@ -102,7 +102,7 @@ export function useDeleteCredential() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ providerId, credentialId }: { providerId: string; credentialId: number }) =>
+    mutationFn: ({ providerId, credentialId }: { providerId: string; credentialId: string }) =>
       deleteCredential(providerId, credentialId),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
@@ -118,7 +118,7 @@ export function useDeleteCredential() {
  */
 export function useTestCredential() {
   return useMutation({
-    mutationFn: ({ providerId, credentialId }: { providerId: string; credentialId: number }) =>
+    mutationFn: ({ providerId, credentialId }: { providerId: string; credentialId: string }) =>
       testCredential(providerId, credentialId),
   })
 }
