@@ -47,6 +47,11 @@ func (m *MockDNSProviderService) GetByUUID(ctx context.Context, uuid string) (*m
 	return args.Get(0).(*models.DNSProvider), args.Error(1)
 }
 
+func (m *MockDNSProviderService) ResolveID(ctx context.Context, idOrUUID string) (uint, error) {
+	args := m.Called(ctx, idOrUUID)
+	return args.Get(0).(uint), args.Error(1)
+}
+
 func (m *MockDNSProviderService) Create(ctx context.Context, req services.CreateDNSProviderRequest) (*models.DNSProvider, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {

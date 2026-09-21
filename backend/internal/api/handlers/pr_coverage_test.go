@@ -595,7 +595,8 @@ func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *mo
 	db.Create(provider)
 
 	credService := services.NewCredentialService(db, encryptor)
-	credHandler := NewCredentialHandler(credService)
+	dnsProviderService := services.NewDNSProviderService(db, encryptor)
+	credHandler := NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
 	router.POST("/api/v1/dns-providers/:id/credentials", credHandler.Create)
@@ -669,7 +670,8 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 	encryptor, _ := crypto.NewEncryptionService(testKey)
 
 	credService := services.NewCredentialService(db, encryptor)
-	credHandler := NewCredentialHandler(credService)
+	dnsProviderService := services.NewDNSProviderService(db, encryptor)
+	credHandler := NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
 
@@ -727,9 +729,18 @@ func TestCredentialHandler_Update_NotFoundError(t *testing.T) {
 }
 
 func TestCredentialHandler_Update_MalformedJSON(t *testing.T) {
-	router, _, provider := setupCredentialHandlerTestWithCtx(t)
+	router, db, provider := setupCredentialHandlerTestWithCtx(t)
 
-	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/1", provider.ID)
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	credService := services.NewCredentialService(db, encryptor)
+	created, err := credService.Create(context.Background(), provider.ID, services.CreateCredentialRequest{
+		Label:       "Malformed JSON Target",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%d", provider.ID, created.ID)
 	req, _ := http.NewRequest("PUT", url, strings.NewReader("invalid json"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

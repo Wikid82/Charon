@@ -31,7 +31,6 @@ vi.mock('react-i18next', () => ({
 
 describe('DNSDetectionResult', () => {
   const mockSuggestedProvider: DNSProvider = {
-    id: 1,
     uuid: 'test-uuid',
     name: 'Production Cloudflare',
     provider_type: 'cloudflare',

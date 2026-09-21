@@ -61,7 +61,6 @@ vi.mock('../ui', async () => {
 
 const mockProviders: DNSProvider[] = [
   {
-    id: 1,
     uuid: 'uuid-1',
     name: 'Cloudflare Prod',
     provider_type: 'cloudflare',
@@ -76,7 +75,6 @@ const mockProviders: DNSProvider[] = [
     updated_at: '2025-01-01T00:00:00Z',
   },
   {
-    id: 2,
     uuid: 'uuid-2',
     name: 'Route53 Staging',
     provider_type: 'route53',
@@ -91,7 +89,6 @@ const mockProviders: DNSProvider[] = [
     updated_at: '2025-01-01T00:00:00Z',
   },
   {
-    id: 3,
     uuid: 'uuid-3',
     name: 'Disabled Provider',
     provider_type: 'digitalocean',
@@ -106,7 +103,6 @@ const mockProviders: DNSProvider[] = [
     updated_at: '2025-01-01T00:00:00Z',
   },
   {
-    id: 4,
     uuid: 'uuid-4',
     name: 'No Credentials',
     provider_type: 'googleclouddns',
@@ -225,7 +221,7 @@ describe('DNSProviderSelector', () => {
     it('filters out disabled providers', () => {
       const disabledProvider: DNSProvider = {
         ...mockProviders[0],
-        id: 5,
+        uuid: 'uuid-5',
         enabled: false,
         name: 'Another Disabled',
       }
@@ -247,7 +243,7 @@ describe('DNSProviderSelector', () => {
     it('filters out providers without credentials', () => {
       const noCredProvider: DNSProvider = {
         ...mockProviders[0],
-        id: 6,
+        uuid: 'uuid-6',
         has_credentials: false,
         name: 'Missing Creds',
       }
@@ -331,10 +327,10 @@ describe('DNSProviderSelector', () => {
 
   describe('Selection Behavior', () => {
     it('displays selected provider by ID', () => {
-      renderWithClient(<DNSProviderSelector value={1} onChange={mockOnChange} />)
+      renderWithClient(<DNSProviderSelector value={'uuid-1'} onChange={mockOnChange} />)
 
       // Verify the Select received the correct value
-      expect(capturedSelectValue).toBe('1')
+      expect(capturedSelectValue).toBe('uuid-1')
     })
 
     it('shows none placeholder when value is undefined and not required', () => {
@@ -356,19 +352,19 @@ describe('DNSProviderSelector', () => {
 
     it('stores provider ID in component state', () => {
       const { rerender } = renderWithClient(
-        <DNSProviderSelector value={1} onChange={mockOnChange} />
+        <DNSProviderSelector value={'uuid-1'} onChange={mockOnChange} />
       )
 
-      expect(capturedSelectValue).toBe('1')
+      expect(capturedSelectValue).toBe('uuid-1')
 
       // Change to different provider
       rerender(
         <QueryClientProvider client={new QueryClient()}>
-          <DNSProviderSelector value={2} onChange={mockOnChange} />
+          <DNSProviderSelector value={'uuid-2'} onChange={mockOnChange} />
         </QueryClientProvider>
       )
 
-      expect(capturedSelectValue).toBe('2')
+      expect(capturedSelectValue).toBe('uuid-2')
     })
 
     it('handles undefined selection', () => {
@@ -381,10 +377,10 @@ describe('DNSProviderSelector', () => {
 
   describe('Provider Display', () => {
     it('renders provider names correctly', () => {
-      renderWithClient(<DNSProviderSelector value={1} onChange={mockOnChange} />)
+      renderWithClient(<DNSProviderSelector value={'uuid-1'} onChange={mockOnChange} />)
 
       // Verify selected provider value is passed to Select
-      expect(capturedSelectValue).toBe('1')
+      expect(capturedSelectValue).toBe('uuid-1')
       // Provider names are rendered in SelectItems
       expect(screen.getByText('Cloudflare Prod')).toBeInTheDocument()
     })
@@ -402,7 +398,7 @@ describe('DNSProviderSelector', () => {
     })
 
     it('uses translation keys for provider types', () => {
-      renderWithClient(<DNSProviderSelector value={1} onChange={mockOnChange} />)
+      renderWithClient(<DNSProviderSelector value={'uuid-1'} onChange={mockOnChange} />)
 
       // The component uses t(`dnsProviders.types.${provider.provider_type}`)
       // Our mock translation returns the key if not found
@@ -466,7 +462,7 @@ describe('DNSProviderSelector', () => {
   describe('Value Change Handling', () => {
     it('calls onChange with undefined when "none" is selected', () => {
       renderWithClient(
-        <DNSProviderSelector value={1} onChange={mockOnChange} />
+        <DNSProviderSelector value={'uuid-1'} onChange={mockOnChange} />
       )
 
       // Invoke the captured onValueChange with 'none'
@@ -476,28 +472,64 @@ describe('DNSProviderSelector', () => {
       expect(mockOnChange).toHaveBeenCalledWith()
     })
 
-    it('calls onChange with provider ID when a provider is selected', () => {
+    it('calls onChange with provider UUID when a provider is selected', () => {
       renderWithClient(
         <DNSProviderSelector value={undefined} onChange={mockOnChange} />
       )
 
-      // Invoke the captured onValueChange with provider id '1'
+      // Invoke the captured onValueChange with provider uuid 'uuid-1'
       expect(capturedOnValueChange).toBeDefined()
-      capturedOnValueChange!('1')
+      capturedOnValueChange!('uuid-1')
 
-      expect(mockOnChange).toHaveBeenCalledWith(1)
+      expect(mockOnChange).toHaveBeenCalledWith('uuid-1')
     })
 
-    it('calls onChange with different provider ID when switching providers', () => {
+    it('calls onChange with different provider UUID when switching providers', () => {
       renderWithClient(
-        <DNSProviderSelector value={1} onChange={mockOnChange} />
+        <DNSProviderSelector value={'uuid-1'} onChange={mockOnChange} />
       )
 
-      // Invoke the captured onValueChange with provider id '2'
+      // Invoke the captured onValueChange with provider uuid 'uuid-2'
       expect(capturedOnValueChange).toBeDefined()
-      capturedOnValueChange!('2')
+      capturedOnValueChange!('uuid-2')
 
-      expect(mockOnChange).toHaveBeenCalledWith(2)
+      expect(mockOnChange).toHaveBeenCalledWith('uuid-2')
+    })
+  })
+
+  describe('Regression: real API shape (no numeric id field)', () => {
+    it('renders without throwing when providers have only a uuid and no numeric id', () => {
+      // This mirrors the actual API response shape: DNSProviderResponse never
+      // includes a numeric `id`, only `uuid`. Previously this crashed at
+      // `provider.id.toString()` inside the SelectItem map (GitHub #1361).
+      const apiShapedProviders: DNSProvider[] = [
+        {
+          uuid: 'real-api-uuid-1',
+          name: 'Cloudflare Prod',
+          provider_type: 'cloudflare',
+          enabled: true,
+          is_default: true,
+          has_credentials: true,
+          propagation_timeout: 120,
+          polling_interval: 2,
+          success_count: 10,
+          failure_count: 0,
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ]
+      vi.mocked(useDNSProviders).mockReturnValue({
+        data: apiShapedProviders,
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as ReturnType<typeof useDNSProviders>)
+
+      expect(() =>
+        renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
+      ).not.toThrow()
+
+      expect(screen.getByText('Cloudflare Prod')).toBeInTheDocument()
     })
   })
 })

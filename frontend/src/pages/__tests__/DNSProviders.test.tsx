@@ -77,7 +77,6 @@ vi.mock('../../components/dns-providers', () => ({
 }))
 
 const buildProvider = (overrides: Partial<DNSProvider> = {}): DNSProvider => ({
-  id: 7,
   uuid: 'provider-uuid',
   name: 'Seeded Provider',
   provider_type: 'manual',
@@ -129,7 +128,7 @@ describe('DNSProviders page state behavior', () => {
     await user.click(screen.getByRole('button', { name: 'dnsProvider.manual.title' }))
 
     await waitFor(() => {
-      expect(getChallenge).toHaveBeenCalledWith(7, 'active')
+      expect(getChallenge).toHaveBeenCalledWith('provider-uuid', 'active')
     })
 
     expect(screen.queryByTestId('manual-dns-challenge')).not.toBeInTheDocument()

@@ -40,12 +40,12 @@ export interface CreateChallengeRequest {
 
 /**
  * Fetches a manual challenge by ID.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param challengeId - The challenge UUID
  * @returns Promise resolving to the challenge details
  * @throws {AxiosError} If not found or request fails
  */
-export async function getChallenge(providerId: number, challengeId: string): Promise<ManualChallenge> {
+export async function getChallenge(providerId: string, challengeId: string): Promise<ManualChallenge> {
   const response = await client.get<ManualChallenge>(
     `/dns-providers/${providerId}/manual-challenge/${challengeId}`
   )
@@ -54,13 +54,13 @@ export async function getChallenge(providerId: number, challengeId: string): Pro
 
 /**
  * Creates a new manual DNS challenge.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param data - Challenge creation data
  * @returns Promise resolving to the created challenge
  * @throws {AxiosError} If validation fails or request fails
  */
 export async function createChallenge(
-  providerId: number,
+  providerId: string,
   data: CreateChallengeRequest
 ): Promise<ManualChallenge> {
   const response = await client.post<ManualChallenge>(
@@ -72,13 +72,13 @@ export async function createChallenge(
 
 /**
  * Triggers verification of a manual challenge.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param challengeId - The challenge UUID
  * @returns Promise resolving to verification result
  * @throws {AxiosError} If not found or request fails
  */
 export async function verifyChallenge(
-  providerId: number,
+  providerId: string,
   challengeId: string
 ): Promise<ChallengeVerifyResponse> {
   const response = await client.post<ChallengeVerifyResponse>(
@@ -89,13 +89,13 @@ export async function verifyChallenge(
 
 /**
  * Polls for challenge status updates.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param challengeId - The challenge UUID
  * @returns Promise resolving to poll response
  * @throws {AxiosError} If not found or request fails
  */
 export async function pollChallenge(
-  providerId: number,
+  providerId: string,
   challengeId: string
 ): Promise<ChallengePollResponse> {
   const response = await client.get<ChallengePollResponse>(
@@ -106,10 +106,10 @@ export async function pollChallenge(
 
 /**
  * Deletes/cancels a manual challenge.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param challengeId - The challenge UUID
  * @throws {AxiosError} If not found or request fails
  */
-export async function deleteChallenge(providerId: number, challengeId: string): Promise<void> {
+export async function deleteChallenge(providerId: string, challengeId: string): Promise<void> {
   await client.delete(`/dns-providers/${providerId}/manual-challenge/${challengeId}`)
 }

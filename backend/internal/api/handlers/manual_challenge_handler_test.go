@@ -7,12 +7,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -79,6 +81,25 @@ func (m *mockDNSProviderServiceForChallenge) Get(ctx context.Context, id uint) (
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*models.DNSProvider), args.Error(1)
+}
+
+// ResolveID mirrors services.DNSProviderService.ResolveID's pure
+// identifier-classification logic (numeric first, else syntactically valid
+// UUID) directly, so every existing test in this file that passes a numeric
+// ":id" continues to work with zero mock setup — existence is still verified
+// by the handler's subsequent Get() call, exactly as when this parsing lived
+// inline in the handler via strconv.ParseUint. A syntactically valid UUID
+// falls through to the testify mock so individual tests can control whether
+// it resolves, mirroring credential_handler_test.go's UUID-resolution cases.
+func (m *mockDNSProviderServiceForChallenge) ResolveID(ctx context.Context, idOrUUID string) (uint, error) {
+	if id, err := strconv.ParseUint(idOrUUID, 10, 32); err == nil {
+		return uint(id), nil
+	}
+	if _, err := uuid.Parse(idOrUUID); err != nil {
+		return 0, services.ErrInvalidDNSProviderIdentifier
+	}
+	args := m.Called(ctx, idOrUUID)
+	return args.Get(0).(uint), args.Error(1)
 }
 
 func setupChallengeTestRouter() *gin.Engine {
@@ -468,6 +489,177 @@ func TestManualChallengeHandler_ProviderNotFound(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// ===========================
+// resolveProviderID (numeric-or-UUID) TESTS
+//
+// GH #1361: the frontend only ever has a DNS provider's UUID to send as the
+// ":id" path param (DNSProviderResponse never exposes the internal numeric
+// ID). These mirror the equivalent UUID-resolution cases already covered in
+// credential_handler_test.go for CredentialHandler.resolveProviderID.
+// ===========================
+
+func TestManualChallengeHandler_GetChallenge_ByProviderUUID(t *testing.T) {
+	mockService := new(MockManualChallengeService)
+	mockProviderService := new(mockDNSProviderServiceForChallenge)
+	handler := NewManualChallengeHandler(mockService, mockProviderService)
+
+	router := setupChallengeTestRouter()
+	router.GET("/dns-providers/:id/manual-challenge/:challengeId", func(c *gin.Context) {
+		setUserID(c, 1)
+		handler.GetChallenge(c)
+	})
+
+	providerUUID := uuid.New().String()
+	now := time.Now()
+	challenge := &models.ManualChallenge{
+		ID:         "test-challenge-id",
+		ProviderID: 1,
+		UserID:     1,
+		FQDN:       "_acme-challenge.example.com",
+		Value:      "txtvalue",
+		Status:     models.ChallengeStatusPending,
+		CreatedAt:  now,
+		ExpiresAt:  now.Add(10 * time.Minute),
+	}
+	provider := &models.DNSProvider{ID: 1, UUID: providerUUID, ProviderType: "manual"}
+
+	mockProviderService.On("ResolveID", mock.Anything, providerUUID).Return(uint(1), nil)
+	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
+	mockService.On("GetChallengeForUser", mock.Anything, "test-challenge-id", uint(1)).Return(challenge, nil)
+
+	req, _ := http.NewRequest("GET", "/dns-providers/"+providerUUID+"/manual-challenge/test-challenge-id", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp ManualChallengeResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "test-challenge-id", resp.ID)
+}
+
+func TestManualChallengeHandler_GetChallenge_ProviderUUID_NotFound(t *testing.T) {
+	mockService := new(MockManualChallengeService)
+	mockProviderService := new(mockDNSProviderServiceForChallenge)
+	handler := NewManualChallengeHandler(mockService, mockProviderService)
+
+	router := setupChallengeTestRouter()
+	router.GET("/dns-providers/:id/manual-challenge/:challengeId", func(c *gin.Context) {
+		setUserID(c, 1)
+		handler.GetChallenge(c)
+	})
+
+	providerUUID := uuid.New().String()
+	mockProviderService.On("ResolveID", mock.Anything, providerUUID).Return(uint(0), services.ErrDNSProviderNotFound)
+
+	req, _ := http.NewRequest("GET", "/dns-providers/"+providerUUID+"/manual-challenge/test", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "PROVIDER_NOT_FOUND")
+}
+
+func TestManualChallengeHandler_GetChallenge_InvalidIdentifier(t *testing.T) {
+	mockService := new(MockManualChallengeService)
+	mockProviderService := new(mockDNSProviderServiceForChallenge)
+	handler := NewManualChallengeHandler(mockService, mockProviderService)
+
+	router := setupChallengeTestRouter()
+	router.GET("/dns-providers/:id/manual-challenge/:challengeId", func(c *gin.Context) {
+		setUserID(c, 1)
+		handler.GetChallenge(c)
+	})
+
+	// Neither a valid numeric ID nor a syntactically valid UUID.
+	req, _ := http.NewRequest("GET", "/dns-providers/not-a-real-identifier/manual-challenge/test", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "INVALID_PROVIDER_ID")
+}
+
+func TestManualChallengeHandler_GetChallenge_NumericIDStillWorks(t *testing.T) {
+	// Back-compat: a legacy numeric ":id" must still resolve without any
+	// ResolveID stub, exactly like every pre-existing test in this file.
+	mockService := new(MockManualChallengeService)
+	mockProviderService := new(mockDNSProviderServiceForChallenge)
+	handler := NewManualChallengeHandler(mockService, mockProviderService)
+
+	router := setupChallengeTestRouter()
+	router.GET("/dns-providers/:id/manual-challenge/:challengeId", func(c *gin.Context) {
+		setUserID(c, 1)
+		handler.GetChallenge(c)
+	})
+
+	now := time.Now()
+	challenge := &models.ManualChallenge{
+		ID:         "test-challenge-id",
+		ProviderID: 1,
+		UserID:     1,
+		FQDN:       "_acme-challenge.example.com",
+		Value:      "txtvalue",
+		Status:     models.ChallengeStatusPending,
+		CreatedAt:  now,
+		ExpiresAt:  now.Add(10 * time.Minute),
+	}
+	provider := &models.DNSProvider{ID: 1, ProviderType: "manual"}
+
+	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
+	mockService.On("GetChallengeForUser", mock.Anything, "test-challenge-id", uint(1)).Return(challenge, nil)
+
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-challenge-id", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestManualChallengeHandler_CreateChallenge_ByProviderUUID(t *testing.T) {
+	mockService := new(MockManualChallengeService)
+	mockProviderService := new(mockDNSProviderServiceForChallenge)
+	handler := NewManualChallengeHandler(mockService, mockProviderService)
+
+	router := setupChallengeTestRouter()
+	router.POST("/dns-providers/:id/manual-challenges", func(c *gin.Context) {
+		setUserID(c, 1)
+		handler.CreateChallenge(c)
+	})
+
+	providerUUID := uuid.New().String()
+	now := time.Now()
+	challenge := &models.ManualChallenge{
+		ID:         "new-challenge-id",
+		ProviderID: 1,
+		UserID:     1,
+		FQDN:       "_acme-challenge.example.com",
+		Value:      "txtvalue",
+		Status:     models.ChallengeStatusPending,
+		CreatedAt:  now,
+		ExpiresAt:  now.Add(10 * time.Minute),
+	}
+	provider := &models.DNSProvider{ID: 1, UUID: providerUUID, ProviderType: "manual"}
+
+	mockProviderService.On("ResolveID", mock.Anything, providerUUID).Return(uint(1), nil)
+	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
+	mockService.On("CreateChallenge", mock.Anything, mock.AnythingOfType("services.CreateChallengeRequest")).Return(challenge, nil)
+
+	body := CreateChallengeRequest{
+		FQDN:  "_acme-challenge.example.com",
+		Value: "txtvalue",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req, _ := http.NewRequest("POST", "/dns-providers/"+providerUUID+"/manual-challenges", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
 func TestManualChallengeHandler_RegisterRoutes(t *testing.T) {

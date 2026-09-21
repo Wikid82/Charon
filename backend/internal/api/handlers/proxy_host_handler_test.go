@@ -171,6 +171,140 @@ func TestProxyHostHandler_ResolveSecurityHeaderReference_TargetedBranches(t *tes
 	require.Contains(t, err.Error(), "failed to resolve security header profile")
 }
 
+func TestProxyHostHandler_ResolveDNSProviderReference_TargetedBranches(t *testing.T) {
+	t.Parallel()
+
+	_, db := setupTestRouterWithReferenceTables(t)
+	require.NoError(t, db.AutoMigrate(&models.DNSProvider{}))
+	h := NewProxyHostHandler(db, nil, services.NewNotificationService(db, nil), nil)
+
+	resolved, err := h.resolveDNSProviderReference(true)
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "invalid dns_provider_id")
+
+	resolved, err = h.resolveDNSProviderReference("   ")
+	require.NoError(t, err)
+	require.Nil(t, resolved)
+
+	provider := models.DNSProvider{UUID: uuid.NewString(), Name: "resolve-dns", ProviderType: "cloudflare", Enabled: true}
+	require.NoError(t, db.Create(&provider).Error)
+
+	// UUID resolution
+	resolved, err = h.resolveDNSProviderReference(provider.UUID)
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	require.Equal(t, provider.ID, *resolved)
+
+	// Numeric back-compat
+	resolved, err = h.resolveDNSProviderReference(float64(provider.ID))
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	require.Equal(t, provider.ID, *resolved)
+
+	// Well-formed UUID that does not exist
+	resolved, err = h.resolveDNSProviderReference(uuid.NewString())
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "dns provider not found")
+
+	require.NoError(t, db.Migrator().DropTable(&models.DNSProvider{}))
+	resolved, err = h.resolveDNSProviderReference(uuid.NewString())
+	require.Error(t, err)
+	require.Nil(t, resolved)
+	require.Contains(t, err.Error(), "failed to resolve dns provider")
+}
+
+func TestProxyHostCreate_DNSProviderReference_UUID(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouterWithReferenceTables(t)
+	require.NoError(t, db.AutoMigrate(&models.DNSProvider{}))
+
+	provider := models.DNSProvider{UUID: uuid.NewString(), Name: "create-dns", ProviderType: "cloudflare", Enabled: true}
+	require.NoError(t, db.Create(&provider).Error)
+
+	body := map[string]any{
+		"name":            "Create DNS Ref",
+		"domain_names":    "create-dns-ref.example.com",
+		"forward_scheme":  "http",
+		"forward_host":    "localhost",
+		"forward_port":    8080,
+		"enabled":         true,
+		"dns_provider_id": provider.UUID,
+	}
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var created models.ProxyHost
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &created))
+	require.NotNil(t, created.DNSProviderID)
+	require.Equal(t, provider.ID, *created.DNSProviderID)
+}
+
+func TestProxyHostCreate_DNSProviderReference_NotFound(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouterWithReferenceTables(t)
+	require.NoError(t, db.AutoMigrate(&models.DNSProvider{}))
+
+	body := map[string]any{
+		"name":            "Create DNS Missing",
+		"domain_names":    "create-dns-missing.example.com",
+		"forward_scheme":  "http",
+		"forward_host":    "localhost",
+		"forward_port":    8080,
+		"enabled":         true,
+		"dns_provider_id": uuid.NewString(),
+	}
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+}
+
+func TestProxyHostUpdate_DNSProviderReference_UUID(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouterWithReferenceTables(t)
+	require.NoError(t, db.AutoMigrate(&models.DNSProvider{}))
+
+	provider := models.DNSProvider{UUID: uuid.NewString(), Name: "update-dns", ProviderType: "cloudflare", Enabled: true}
+	require.NoError(t, db.Create(&provider).Error)
+
+	host := &models.ProxyHost{
+		UUID:        "dns-update-uuid",
+		Name:        "DNS Update Host",
+		DomainNames: "dns-update.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	updateBody := map[string]any{"dns_provider_id": provider.UUID}
+	payload, err := json.Marshal(updateBody)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.DNSProviderID)
+	require.Equal(t, provider.ID, *dbHost.DNSProviderID)
+}
+
 func TestProxyHostCreate_ReferenceResolution_TargetedBranches(t *testing.T) {
 	t.Parallel()
 
