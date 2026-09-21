@@ -182,6 +182,10 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 		return err
 	}
 
+	if err := CheckDomainConflict(s.db, host.DomainNames, &models.RedirectionHost{}); err != nil {
+		return err
+	}
+
 	if err := s.validateProxyHost(host); err != nil {
 		return err
 	}
@@ -210,6 +214,10 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 // Update validates and updates an existing proxy host.
 func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 	if err := s.ValidateUniqueDomain(host.DomainNames, host.ID); err != nil {
+		return err
+	}
+
+	if err := CheckDomainConflict(s.db, host.DomainNames, &models.RedirectionHost{}); err != nil {
 		return err
 	}
 
