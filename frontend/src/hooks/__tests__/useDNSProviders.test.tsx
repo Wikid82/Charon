@@ -14,7 +14,6 @@ import {
 vi.mock('../../api/dnsProviders')
 
 const mockProvider: api.DNSProvider = {
-  id: 1,
   uuid: 'test-uuid-1',
   name: 'Cloudflare Production',
   provider_type: 'cloudflare',
@@ -62,7 +61,7 @@ describe('useDNSProviders', () => {
   })
 
   it('returns providers list on mount', async () => {
-    const mockProviders = [mockProvider, { ...mockProvider, id: 2, name: 'Secondary' }]
+    const mockProviders = [mockProvider, { ...mockProvider, uuid: 'test-uuid-2', name: 'Secondary' }]
     vi.mocked(api.getDNSProviders).mockResolvedValue(mockProviders)
 
     const { result } = renderHook(() => useDNSProviders(), { wrapper: createWrapper() })
@@ -129,10 +128,10 @@ describe('useDNSProvider', () => {
     vi.clearAllMocks()
   })
 
-  it('fetches single provider when id > 0', async () => {
+  it('fetches single provider when id is set', async () => {
     vi.mocked(api.getDNSProvider).mockResolvedValue(mockProvider)
 
-    const { result } = renderHook(() => useDNSProvider(1), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useDNSProvider('test-uuid-1'), { wrapper: createWrapper() })
 
     expect(result.current.isLoading).toBe(true)
 
@@ -141,25 +140,15 @@ describe('useDNSProvider', () => {
     })
 
     expect(result.current.data).toEqual(mockProvider)
-    expect(api.getDNSProvider).toHaveBeenCalledWith(1)
+    expect(api.getDNSProvider).toHaveBeenCalledWith('test-uuid-1')
   })
 
-  it('is disabled when id = 0', async () => {
+  it('is disabled when id is empty', async () => {
     vi.mocked(api.getDNSProvider).mockResolvedValue(mockProvider)
 
-    const { result } = renderHook(() => useDNSProvider(0), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useDNSProvider(''), { wrapper: createWrapper() })
 
     // Should not fetch when disabled
-    expect(result.current.isLoading).toBe(false)
-    expect(result.current.data).toBeUndefined()
-    expect(api.getDNSProvider).not.toHaveBeenCalled()
-  })
-
-  it('is disabled when id < 0', async () => {
-    vi.mocked(api.getDNSProvider).mockResolvedValue(mockProvider)
-
-    const { result } = renderHook(() => useDNSProvider(-1), { wrapper: createWrapper() })
-
     expect(result.current.isLoading).toBe(false)
     expect(result.current.data).toBeUndefined()
     expect(api.getDNSProvider).not.toHaveBeenCalled()
@@ -170,7 +159,7 @@ describe('useDNSProvider', () => {
       () => new Promise((resolve) => setTimeout(() => resolve(mockProvider), 100))
     )
 
-    const { result } = renderHook(() => useDNSProvider(1), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useDNSProvider('test-uuid-1'), { wrapper: createWrapper() })
 
     expect(result.current.isLoading).toBe(true)
 
@@ -183,7 +172,7 @@ describe('useDNSProvider', () => {
     const mockError = new Error('Provider not found')
     vi.mocked(api.getDNSProvider).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useDNSProvider(999), { wrapper: createWrapper() })
+    const { result } = renderHook(() => useDNSProvider('missing-uuid'), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.isError).toBe(true)
@@ -265,7 +254,7 @@ describe('useDNSProviderMutations', () => {
 
   describe('createMutation', () => {
     it('creates provider successfully', async () => {
-      const newProvider = { ...mockProvider, id: 3, name: 'New Provider' }
+      const newProvider = { ...mockProvider, uuid: 'test-uuid-3', name: 'New Provider' }
       vi.mocked(api.createDNSProvider).mockResolvedValue(newProvider)
 
       const { result } = renderHook(() => useDNSProviderMutations(), {
@@ -353,13 +342,13 @@ describe('useDNSProviderMutations', () => {
         credentials: { api_token: 'new-token' },
       }
 
-      result.current.updateMutation.mutate({ id: 1, data: updateData })
+      result.current.updateMutation.mutate({ id: 'test-uuid-1', data: updateData })
 
       await waitFor(() => {
         expect(result.current.updateMutation.isSuccess).toBe(true)
       })
 
-      expect(api.updateDNSProvider).toHaveBeenCalledWith(1, updateData)
+      expect(api.updateDNSProvider).toHaveBeenCalledWith('test-uuid-1', updateData)
       expect(result.current.updateMutation.data).toEqual(updatedProvider)
     })
 
@@ -378,7 +367,7 @@ describe('useDNSProviderMutations', () => {
       const { result } = renderHook(() => useDNSProviderMutations(), { wrapper })
 
       result.current.updateMutation.mutate({
-        id: 1,
+        id: 'test-uuid-1',
         data: {
           name: 'Updated',
           provider_type: 'cloudflare',
@@ -403,7 +392,7 @@ describe('useDNSProviderMutations', () => {
       })
 
       result.current.updateMutation.mutate({
-        id: 1,
+        id: 'test-uuid-1',
         data: {
           name: 'Test',
           provider_type: 'cloudflare',
@@ -427,13 +416,13 @@ describe('useDNSProviderMutations', () => {
         wrapper: createWrapper(),
       })
 
-      result.current.deleteMutation.mutate(1)
+      result.current.deleteMutation.mutate('test-uuid-1')
 
       await waitFor(() => {
         expect(result.current.deleteMutation.isSuccess).toBe(true)
       })
 
-      expect(api.deleteDNSProvider).toHaveBeenCalledWith(1)
+      expect(api.deleteDNSProvider).toHaveBeenCalledWith('test-uuid-1')
     })
 
     it('invalidates list query on success', async () => {
@@ -450,7 +439,7 @@ describe('useDNSProviderMutations', () => {
 
       const { result } = renderHook(() => useDNSProviderMutations(), { wrapper })
 
-      result.current.deleteMutation.mutate(1)
+      result.current.deleteMutation.mutate('test-uuid-1')
 
       await waitFor(() => {
         expect(result.current.deleteMutation.isSuccess).toBe(true)
@@ -467,7 +456,7 @@ describe('useDNSProviderMutations', () => {
         wrapper: createWrapper(),
       })
 
-      result.current.deleteMutation.mutate(1)
+      result.current.deleteMutation.mutate('test-uuid-1')
 
       await waitFor(() => {
         expect(result.current.deleteMutation.isError).toBe(true)
@@ -490,13 +479,13 @@ describe('useDNSProviderMutations', () => {
         wrapper: createWrapper(),
       })
 
-      result.current.testMutation.mutate(1)
+      result.current.testMutation.mutate('test-uuid-1')
 
       await waitFor(() => {
         expect(result.current.testMutation.isSuccess).toBe(true)
       })
 
-      expect(api.testDNSProvider).toHaveBeenCalledWith(1)
+      expect(api.testDNSProvider).toHaveBeenCalledWith('test-uuid-1')
       expect(result.current.testMutation.data).toEqual(testResult)
     })
 
@@ -508,7 +497,7 @@ describe('useDNSProviderMutations', () => {
         wrapper: createWrapper(),
       })
 
-      result.current.testMutation.mutate(1)
+      result.current.testMutation.mutate('test-uuid-1')
 
       await waitFor(() => {
         expect(result.current.testMutation.isError).toBe(true)

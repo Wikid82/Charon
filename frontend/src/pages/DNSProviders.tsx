@@ -17,14 +17,14 @@ export default function DNSProviders() {
 
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingProvider, setEditingProvider] = useState<DNSProvider | null>(null)
-  const [testingProviderId, setTestingProviderId] = useState<number | null>(null)
+  const [testingProviderId, setTestingProviderId] = useState<string | null>(null)
   const [manualChallenge, setManualChallenge] = useState<ManualChallenge | null>(null)
-  const [activeManualProviderId, setActiveManualProviderId] = useState<number | null>(null)
+  const [activeManualProviderId, setActiveManualProviderId] = useState<string | null>(null)
   const [isManualChallengeOpen, setIsManualChallengeOpen] = useState(false)
 
-  const manualProviderId = providers.find((provider) => provider.provider_type === 'manual')?.id ?? null
+  const manualProviderId = providers.find((provider) => provider.provider_type === 'manual')?.uuid ?? null
 
-  const loadManualChallenge = useCallback(async (providerId: number): Promise<boolean> => {
+  const loadManualChallenge = useCallback(async (providerId: string): Promise<boolean> => {
     try {
       const challenge = await getChallenge(providerId, 'active')
       setManualChallenge(challenge)
@@ -68,7 +68,7 @@ export default function DNSProviders() {
     setIsFormOpen(true)
   }
 
-  const handleDeleteProvider = async (id: number) => {
+  const handleDeleteProvider = async (id: string) => {
     try {
       await deleteMutation.mutateAsync(id)
       toast.success(t('dnsProviders.deleteSuccess'))
@@ -82,7 +82,7 @@ export default function DNSProviders() {
     }
   }
 
-  const handleTestProvider = async (id: number) => {
+  const handleTestProvider = async (id: string) => {
     setTestingProviderId(id)
     try {
       const result = await testMutation.mutateAsync(id)
@@ -185,12 +185,12 @@ export default function DNSProviders() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {providers.map((provider) => (
             <DNSProviderCard
-              key={provider.id}
+              key={provider.uuid}
               provider={provider}
               onEdit={handleEditProvider}
               onDelete={handleDeleteProvider}
               onTest={handleTestProvider}
-              isTesting={testingProviderId === provider.id}
+              isTesting={testingProviderId === provider.uuid}
             />
           ))}
         </div>

@@ -101,7 +101,7 @@ vi.mock('../../hooks/useDNSDetection', () => ({
 vi.mock('../../hooks/useDNSProviders', () => ({
   useDNSProviders: vi.fn(() => ({
     data: [
-      { id: 1, name: 'Cloudflare', provider_type: 'cloudflare', enabled: true, has_credentials: true }
+      { uuid: 'dns-uuid-1', name: 'Cloudflare', provider_type: 'cloudflare', enabled: true, has_credentials: true }
     ],
     isLoading: false,
     error: null,
@@ -942,7 +942,7 @@ describe('ProxyHostForm', () => {
         expect(screen.getByTestId('dns-provider-section')).toBeInTheDocument()
       })
 
-      // Select a provider using the mocked data: Cloudflare (ID 1)
+      // Select a provider using the mocked data: Cloudflare (uuid: dns-uuid-1)
       const section = screen.getByTestId('dns-provider-section')
 
       // Since Shadcn Select uses Radix, the trigger is a button with role combobox
@@ -962,7 +962,7 @@ describe('ProxyHostForm', () => {
       await waitFor(() => {
         expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
           domain_names: '*.example.com',
-          dns_provider_id: 1
+          dns_provider_id: 'dns-uuid-1'
         }))
       })
     })

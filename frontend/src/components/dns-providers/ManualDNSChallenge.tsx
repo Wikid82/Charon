@@ -20,8 +20,8 @@ import type { ManualChallenge, ChallengeStatus } from '../../api/manualChallenge
 
 
 interface ManualDNSChallengeProps {
-  /** The DNS provider ID */
-  providerId: number
+  /** The DNS provider UUID */
+  providerId: string
   /** Initial challenge data */
   challenge: ManualChallenge
   /** Callback when challenge is completed or cancelled */

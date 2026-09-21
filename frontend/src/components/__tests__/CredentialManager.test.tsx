@@ -33,7 +33,6 @@ vi.mock('../../utils/toast', () => ({
 }))
 
 const mockProvider: DNSProvider = {
-  id: 1,
   uuid: 'uuid-1',
   name: 'Cloudflare Production',
   provider_type: 'cloudflare',
@@ -133,7 +132,7 @@ describe('CredentialManager', () => {
     vi.mocked(useCredentials).mockReturnValue(createCredentialsQueryResult())
 
     vi.mocked(useCreateCredential).mockReturnValue(
-      createMutationResult<DNSProviderCredential, { providerId: number; data: CredentialRequest }>(
+      createMutationResult<DNSProviderCredential, { providerId: string; data: CredentialRequest }>(
         mockCreateMutate
       )
     )
@@ -141,18 +140,18 @@ describe('CredentialManager', () => {
     vi.mocked(useUpdateCredential).mockReturnValue(
       createMutationResult<
         DNSProviderCredential,
-        { providerId: number; credentialId: number; data: CredentialRequest }
+        { providerId: string; credentialId: number; data: CredentialRequest }
       >(mockUpdateMutate)
     )
 
     vi.mocked(useDeleteCredential).mockReturnValue(
-      createMutationResult<void, { providerId: number; credentialId: number }>(
+      createMutationResult<void, { providerId: string; credentialId: number }>(
         mockDeleteMutate
       )
     )
 
     vi.mocked(useTestCredential).mockReturnValue(
-      createMutationResult<CredentialTestResult, { providerId: number; credentialId: number }>(
+      createMutationResult<CredentialTestResult, { providerId: string; credentialId: number }>(
         mockTestMutate
       )
     )
@@ -209,7 +208,7 @@ describe('CredentialManager', () => {
     // Expect Create Mutation
     await waitFor(() => {
         expect(mockCreateMutate).toHaveBeenCalledWith({
-            providerId: 1,
+            providerId: 'uuid-1',
             data: expect.objectContaining({
                 label: 'New Staging',
                 zone_filter: '*.staging.com',
@@ -258,7 +257,7 @@ describe('CredentialManager', () => {
     // Expect Update Mutation
     await waitFor(() => {
         expect(mockUpdateMutate).toHaveBeenCalledWith({
-            providerId: 1,
+            providerId: 'uuid-1',
             credentialId: 1,
             data: expect.objectContaining({
                 label: 'Updated Label',
@@ -296,7 +295,7 @@ describe('CredentialManager', () => {
     // Expect Delete Mutation
     await waitFor(() => {
         expect(mockDeleteMutate).toHaveBeenCalledWith({
-            providerId: 1,
+            providerId: 'uuid-1',
             credentialId: 1
         })
     })
@@ -518,7 +517,7 @@ describe('CredentialManager', () => {
 
     await waitFor(() => {
       expect(mockTestMutate).toHaveBeenCalledWith({
-        providerId: 1,
+        providerId: 'uuid-1',
         credentialId: 1,
       })
       expect(toast.success).toHaveBeenCalled()

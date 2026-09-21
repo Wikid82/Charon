@@ -109,7 +109,6 @@ describe('DNSProviderForm', () => {
 
   it('populates fields when editing', async () => {
     const provider = {
-      id: 1,
       uuid: 'prov-uuid',
       name: 'My Cloudflare',
       provider_type: 'cloudflare' as const,

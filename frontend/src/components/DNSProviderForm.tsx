@@ -44,7 +44,7 @@ export default function DNSProviderForm({
   const { data: providerTypes, isLoading: typesLoading } = useDNSProviderTypes()
   const { createMutation, updateMutation, testCredentialsMutation } = useDNSProviderMutations()
   const enableMultiCredsMutation = useEnableMultiCredentials()
-  const { data: existingCredentials } = useCredentials(provider?.id || 0)
+  const { data: existingCredentials } = useCredentials(provider?.uuid || '')
 
   const [name, setName] = useState('')
   const [providerType, setProviderType] = useState<string>('')
@@ -138,7 +138,7 @@ export default function DNSProviderForm({
     }
 
     try {
-      await (provider ? updateMutation.mutateAsync({ id: provider.id, data }) : createMutation.mutateAsync(data));
+      await (provider ? updateMutation.mutateAsync({ id: provider.uuid, data }) : createMutation.mutateAsync(data));
       onSuccess()
       onOpenChange(false)
       resetForm()
@@ -343,7 +343,7 @@ export default function DNSProviderForm({
                           if (checked && !useMultiCredentials) {
                             // Enabling multi-credential mode
                             try {
-                              await enableMultiCredsMutation.mutateAsync(provider.id)
+                              await enableMultiCredsMutation.mutateAsync(provider.uuid)
                               setUseMultiCredentials(true)
                             } catch (error: unknown) {
                               console.error('Failed to enable multi-credentials:', error)

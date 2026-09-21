@@ -18,7 +18,6 @@ import {
 vi.mock('../client')
 
 const mockProvider: DNSProvider = {
-  id: 1,
   uuid: 'test-uuid-1',
   name: 'Cloudflare Production',
   provider_type: 'cloudflare',
@@ -54,7 +53,7 @@ describe('getDNSProviders', () => {
   })
 
   it('fetches all DNS providers successfully', async () => {
-    const mockProviders = [mockProvider, { ...mockProvider, id: 2, name: 'Secondary' }]
+    const mockProviders = [mockProvider, { ...mockProvider, uuid: 'test-uuid-2', name: 'Secondary' }]
     vi.mocked(client.get).mockResolvedValue({
       data: { providers: mockProviders, total: 2 },
     })
@@ -99,16 +98,16 @@ describe('getDNSProvider', () => {
   it('fetches single provider by valid ID', async () => {
     vi.mocked(client.get).mockResolvedValue({ data: mockProvider })
 
-    const result = await getDNSProvider(1)
+    const result = await getDNSProvider('test-uuid-1')
 
-    expect(client.get).toHaveBeenCalledWith('/dns-providers/1')
+    expect(client.get).toHaveBeenCalledWith('/dns-providers/test-uuid-1')
     expect(result).toEqual(mockProvider)
   })
 
   it('handles not found error for invalid ID', async () => {
     vi.mocked(client.get).mockRejectedValue({ response: { status: 404 } })
 
-    await expect(getDNSProvider(999)).rejects.toMatchObject({
+    await expect(getDNSProvider('missing-uuid')).rejects.toMatchObject({
       response: { status: 404 },
     })
   })
@@ -116,7 +115,7 @@ describe('getDNSProvider', () => {
   it('handles server errors', async () => {
     vi.mocked(client.get).mockRejectedValue({ response: { status: 500 } })
 
-    await expect(getDNSProvider(1)).rejects.toMatchObject({
+    await expect(getDNSProvider('test-uuid-1')).rejects.toMatchObject({
       response: { status: 500 },
     })
   })
@@ -171,15 +170,15 @@ describe('createDNSProvider', () => {
     vi.clearAllMocks()
   })
 
-  it('creates provider successfully and returns with ID', async () => {
-    const createdProvider = { ...mockProvider, id: 5, name: 'New Cloudflare' }
+  it('creates provider successfully and returns with UUID', async () => {
+    const createdProvider = { ...mockProvider, uuid: 'test-uuid-5', name: 'New Cloudflare' }
     vi.mocked(client.post).mockResolvedValue({ data: createdProvider })
 
     const result = await createDNSProvider(validRequest)
 
     expect(client.post).toHaveBeenCalledWith('/dns-providers', validRequest)
     expect(result).toEqual(createdProvider)
-    expect(result.id).toBe(5)
+    expect(result.uuid).toBe('test-uuid-5')
   })
 
   it('handles validation error for missing required fields', async () => {
@@ -240,9 +239,9 @@ describe('updateDNSProvider', () => {
     const updatedProvider = { ...mockProvider, name: 'Updated Name' }
     vi.mocked(client.put).mockResolvedValue({ data: updatedProvider })
 
-    const result = await updateDNSProvider(1, updateRequest)
+    const result = await updateDNSProvider('test-uuid-1', updateRequest)
 
-    expect(client.put).toHaveBeenCalledWith('/dns-providers/1', updateRequest)
+    expect(client.put).toHaveBeenCalledWith('/dns-providers/test-uuid-1', updateRequest)
     expect(result).toEqual(updatedProvider)
     expect(result.name).toBe('Updated Name')
   })
@@ -250,7 +249,7 @@ describe('updateDNSProvider', () => {
   it('handles not found error', async () => {
     vi.mocked(client.put).mockRejectedValue({ response: { status: 404 } })
 
-    await expect(updateDNSProvider(999, updateRequest)).rejects.toMatchObject({
+    await expect(updateDNSProvider('missing-uuid', updateRequest)).rejects.toMatchObject({
       response: { status: 404 },
     })
   })
@@ -260,7 +259,7 @@ describe('updateDNSProvider', () => {
       response: { status: 400, data: { error: 'Invalid credentials' } },
     })
 
-    await expect(updateDNSProvider(1, updateRequest)).rejects.toMatchObject({
+    await expect(updateDNSProvider('test-uuid-1', updateRequest)).rejects.toMatchObject({
       response: { status: 400 },
     })
   })
@@ -268,7 +267,7 @@ describe('updateDNSProvider', () => {
   it('handles server errors', async () => {
     vi.mocked(client.put).mockRejectedValue({ response: { status: 500 } })
 
-    await expect(updateDNSProvider(1, updateRequest)).rejects.toMatchObject({
+    await expect(updateDNSProvider('test-uuid-1', updateRequest)).rejects.toMatchObject({
       response: { status: 500 },
     })
   })
@@ -282,15 +281,15 @@ describe('deleteDNSProvider', () => {
   it('deletes provider successfully', async () => {
     vi.mocked(client.delete).mockResolvedValue({ data: undefined })
 
-    await deleteDNSProvider(1)
+    await deleteDNSProvider('test-uuid-1')
 
-    expect(client.delete).toHaveBeenCalledWith('/dns-providers/1')
+    expect(client.delete).toHaveBeenCalledWith('/dns-providers/test-uuid-1')
   })
 
   it('handles not found error', async () => {
     vi.mocked(client.delete).mockRejectedValue({ response: { status: 404 } })
 
-    await expect(deleteDNSProvider(999)).rejects.toMatchObject({
+    await expect(deleteDNSProvider('missing-uuid')).rejects.toMatchObject({
       response: { status: 404 },
     })
   })
@@ -303,7 +302,7 @@ describe('deleteDNSProvider', () => {
       },
     })
 
-    await expect(deleteDNSProvider(1)).rejects.toMatchObject({
+    await expect(deleteDNSProvider('test-uuid-1')).rejects.toMatchObject({
       response: { status: 409 },
     })
   })
@@ -311,7 +310,7 @@ describe('deleteDNSProvider', () => {
   it('handles server errors', async () => {
     vi.mocked(client.delete).mockRejectedValue({ response: { status: 500 } })
 
-    await expect(deleteDNSProvider(1)).rejects.toMatchObject({
+    await expect(deleteDNSProvider('test-uuid-1')).rejects.toMatchObject({
       response: { status: 500 },
     })
   })
@@ -330,9 +329,9 @@ describe('testDNSProvider', () => {
     }
     vi.mocked(client.post).mockResolvedValue({ data: successResult })
 
-    const result = await testDNSProvider(1)
+    const result = await testDNSProvider('test-uuid-1')
 
-    expect(client.post).toHaveBeenCalledWith('/dns-providers/1/test')
+    expect(client.post).toHaveBeenCalledWith('/dns-providers/test-uuid-1/test')
     expect(result).toEqual(successResult)
     expect(result.success).toBe(true)
     expect(result.propagation_time_ms).toBe(1500)
@@ -346,7 +345,7 @@ describe('testDNSProvider', () => {
     }
     vi.mocked(client.post).mockResolvedValue({ data: failureResult })
 
-    const result = await testDNSProvider(1)
+    const result = await testDNSProvider('test-uuid-1')
 
     expect(result).toEqual(failureResult)
     expect(result.success).toBe(false)
@@ -356,7 +355,7 @@ describe('testDNSProvider', () => {
   it('handles not found error', async () => {
     vi.mocked(client.post).mockRejectedValue({ response: { status: 404 } })
 
-    await expect(testDNSProvider(999)).rejects.toMatchObject({
+    await expect(testDNSProvider('missing-uuid')).rejects.toMatchObject({
       response: { status: 404 },
     })
   })
@@ -364,7 +363,7 @@ describe('testDNSProvider', () => {
   it('handles server errors', async () => {
     vi.mocked(client.post).mockRejectedValue({ response: { status: 500 } })
 
-    await expect(testDNSProvider(1)).rejects.toMatchObject({
+    await expect(testDNSProvider('test-uuid-1')).rejects.toMatchObject({
       response: { status: 500 },
     })
   })

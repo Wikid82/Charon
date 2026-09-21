@@ -41,7 +41,7 @@ export default function CredentialManager({
   providerTypeInfo,
 }: CredentialManagerProps) {
   const { t } = useTranslation()
-  const { data: credentials = [], isLoading, refetch } = useCredentials(provider.id)
+  const { data: credentials = [], isLoading, refetch } = useCredentials(provider.uuid)
   const deleteMutation = useDeleteCredential()
   const testMutation = useTestCredential()
 
@@ -66,7 +66,7 @@ export default function CredentialManager({
 
   const handleDeleteConfirm = async (id: number) => {
     try {
-      await deleteMutation.mutateAsync({ providerId: provider.id, credentialId: id })
+      await deleteMutation.mutateAsync({ providerId: provider.uuid, credentialId: id })
       toast.success(t('credentials.deleteSuccess', 'Credential deleted successfully'))
       setDeleteConfirm(null)
       refetch()
@@ -84,7 +84,7 @@ export default function CredentialManager({
     setTestingId(id)
     try {
       const result = await testMutation.mutateAsync({
-        providerId: provider.id,
+        providerId: provider.uuid,
         credentialId: id,
       })
       if (result.success) {
@@ -264,7 +264,7 @@ export default function CredentialManager({
         <CredentialForm
           open={isFormOpen}
           onOpenChange={setIsFormOpen}
-          providerId={provider.id}
+          providerId={provider.uuid}
           providerTypeInfo={providerTypeInfo}
           credential={editingCredential}
           onSuccess={handleFormSuccess}
@@ -306,7 +306,7 @@ export default function CredentialManager({
 interface CredentialFormProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  providerId: number
+  providerId: string
   providerTypeInfo?: DNSProviderTypeInfo
   credential: DNSProviderCredential | null
   onSuccess: () => void

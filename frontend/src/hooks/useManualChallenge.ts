@@ -15,37 +15,37 @@ import {
 /** Query key factory for manual challenges */
 const queryKeys = {
   all: ['manual-challenges'] as const,
-  detail: (providerId: number, challengeId: string) =>
+  detail: (providerId: string, challengeId: string) =>
     [...queryKeys.all, 'detail', providerId, challengeId] as const,
-  poll: (providerId: number, challengeId: string) =>
+  poll: (providerId: string, challengeId: string) =>
     [...queryKeys.all, 'poll', providerId, challengeId] as const,
 }
 
 /**
  * Hook for fetching a manual challenge by ID.
- * @param providerId - DNS provider ID
+ * @param providerId - DNS provider UUID
  * @param challengeId - Challenge UUID
  * @returns Query result with challenge data
  */
-export function useManualChallenge(providerId: number, challengeId: string) {
+export function useManualChallenge(providerId: string, challengeId: string) {
   return useQuery({
     queryKey: queryKeys.detail(providerId, challengeId),
     queryFn: () => getChallenge(providerId, challengeId),
-    enabled: providerId > 0 && !!challengeId,
+    enabled: !!providerId && !!challengeId,
     staleTime: 1000 * 5, // 5 seconds
   })
 }
 
 /**
  * Hook for polling challenge status with automatic refresh.
- * @param providerId - DNS provider ID
+ * @param providerId - DNS provider UUID
  * @param challengeId - Challenge UUID
  * @param enabled - Whether polling is active
  * @param refetchInterval - Polling interval in ms (default 10s)
  * @returns Query result with poll data
  */
 export function useChallengePoll(
-  providerId: number,
+  providerId: string,
   challengeId: string,
   enabled: boolean = true,
   refetchInterval: number = 10000
@@ -53,7 +53,7 @@ export function useChallengePoll(
   return useQuery({
     queryKey: queryKeys.poll(providerId, challengeId),
     queryFn: () => pollChallenge(providerId, challengeId),
-    enabled: enabled && providerId > 0 && !!challengeId,
+    enabled: enabled && !!providerId && !!challengeId,
     refetchInterval: enabled ? refetchInterval : false,
     refetchIntervalInBackground: false,
   })
@@ -67,12 +67,12 @@ export function useManualChallengeMutations() {
   const queryClient = useQueryClient()
 
   const createMutation = useMutation({
-    mutationFn: ({ providerId, data }: { providerId: number; data: CreateChallengeRequest }) =>
+    mutationFn: ({ providerId, data }: { providerId: string; data: CreateChallengeRequest }) =>
       createChallenge(providerId, data),
   })
 
   const verifyMutation = useMutation({
-    mutationFn: ({ providerId, challengeId }: { providerId: number; challengeId: string }) =>
+    mutationFn: ({ providerId, challengeId }: { providerId: string; challengeId: string }) =>
       verifyChallenge(providerId, challengeId),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
@@ -85,7 +85,7 @@ export function useManualChallengeMutations() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: ({ providerId, challengeId }: { providerId: number; challengeId: string }) =>
+    mutationFn: ({ providerId, challengeId }: { providerId: string; challengeId: string }) =>
       deleteChallenge(providerId, challengeId),
     onSuccess: (_, variables) => {
       queryClient.removeQueries({

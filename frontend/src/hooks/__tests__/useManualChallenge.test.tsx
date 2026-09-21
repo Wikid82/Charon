@@ -40,19 +40,19 @@ describe('useManualChallenge hooks', () => {
       vi.mocked(api.getChallenge).mockResolvedValueOnce(mockChallenge)
 
       const { result } = renderHook(
-        () => useManualChallenge(1, 'test-uuid'),
+        () => useManualChallenge('provider-uuid-1', 'test-uuid'),
         { wrapper: createWrapper() }
       )
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(api.getChallenge).toHaveBeenCalledWith(1, 'test-uuid')
+      expect(api.getChallenge).toHaveBeenCalledWith('provider-uuid-1', 'test-uuid')
       expect(result.current.data).toEqual(mockChallenge)
     })
 
-    it('does not fetch when providerId is 0', async () => {
+    it('does not fetch when providerId is empty', async () => {
       const { result } = renderHook(
-        () => useManualChallenge(0, 'test-uuid'),
+        () => useManualChallenge('', 'test-uuid'),
         { wrapper: createWrapper() }
       )
 
@@ -63,7 +63,7 @@ describe('useManualChallenge hooks', () => {
 
     it('does not fetch when challengeId is empty', async () => {
       const { result } = renderHook(
-        () => useManualChallenge(1, ''),
+        () => useManualChallenge('provider-uuid-1', ''),
         { wrapper: createWrapper() }
       )
 
@@ -85,19 +85,19 @@ describe('useManualChallenge hooks', () => {
       vi.mocked(api.pollChallenge).mockResolvedValue(mockPoll)
 
       const { result } = renderHook(
-        () => useChallengePoll(1, 'test-uuid', true),
+        () => useChallengePoll('provider-uuid-1', 'test-uuid', true),
         { wrapper: createWrapper() }
       )
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
-      expect(api.pollChallenge).toHaveBeenCalledWith(1, 'test-uuid')
+      expect(api.pollChallenge).toHaveBeenCalledWith('provider-uuid-1', 'test-uuid')
       expect(result.current.data).toEqual(mockPoll)
     })
 
     it('does not fetch when disabled', async () => {
       const { result } = renderHook(
-        () => useChallengePoll(1, 'test-uuid', false),
+        () => useChallengePoll('provider-uuid-1', 'test-uuid', false),
         { wrapper: createWrapper() }
       )
 
@@ -117,7 +117,7 @@ describe('useManualChallenge hooks', () => {
       vi.mocked(api.pollChallenge).mockResolvedValue(mockPoll)
 
       const { result } = renderHook(
-        () => useChallengePoll(1, 'test-uuid', true, 5000),
+        () => useChallengePoll('provider-uuid-1', 'test-uuid', true, 5000),
         { wrapper: createWrapper() }
       )
 
@@ -151,13 +151,13 @@ describe('useManualChallenge hooks', () => {
 
         await act(async () => {
           const response = await result.current.createMutation.mutateAsync({
-            providerId: 1,
+            providerId: 'provider-uuid-1',
             data: { domain: 'example.com' },
           })
           expect(response).toEqual(mockChallenge)
         })
 
-        expect(api.createChallenge).toHaveBeenCalledWith(1, { domain: 'example.com' })
+        expect(api.createChallenge).toHaveBeenCalledWith('provider-uuid-1', { domain: 'example.com' })
       })
     })
 
@@ -178,13 +178,13 @@ describe('useManualChallenge hooks', () => {
 
         await act(async () => {
           const response = await result.current.verifyMutation.mutateAsync({
-            providerId: 1,
+            providerId: 'provider-uuid-1',
             challengeId: 'test-uuid',
           })
           expect(response).toEqual(mockResult)
         })
 
-        expect(api.verifyChallenge).toHaveBeenCalledWith(1, 'test-uuid')
+        expect(api.verifyChallenge).toHaveBeenCalledWith('provider-uuid-1', 'test-uuid')
       })
 
       it('handles verification failure', async () => {
@@ -198,7 +198,7 @@ describe('useManualChallenge hooks', () => {
         await expect(
           act(() =>
             result.current.verifyMutation.mutateAsync({
-              providerId: 1,
+              providerId: 'provider-uuid-1',
               challengeId: 'test-uuid',
             })
           )
@@ -217,12 +217,12 @@ describe('useManualChallenge hooks', () => {
 
         await act(async () => {
           await result.current.deleteMutation.mutateAsync({
-            providerId: 1,
+            providerId: 'provider-uuid-1',
             challengeId: 'test-uuid',
           })
         })
 
-        expect(api.deleteChallenge).toHaveBeenCalledWith(1, 'test-uuid')
+        expect(api.deleteChallenge).toHaveBeenCalledWith('provider-uuid-1', 'test-uuid')
       })
 
       it('handles deletion failure', async () => {
@@ -238,7 +238,7 @@ describe('useManualChallenge hooks', () => {
         await expect(
           act(() =>
             result.current.deleteMutation.mutateAsync({
-              providerId: 1,
+              providerId: 'provider-uuid-1',
               challengeId: 'invalid-uuid',
             })
           )

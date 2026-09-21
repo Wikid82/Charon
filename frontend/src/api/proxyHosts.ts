@@ -56,7 +56,13 @@ export interface ProxyHost {
     color: string;
   } | null;
   security_header_profile_id?: number | string | null;
-  dns_provider_id?: number | null;
+  dns_provider_id?: number | string | null;
+  dns_provider?: {
+    uuid: string;
+    name: string;
+    provider_type: string;
+    is_default: boolean;
+  } | null;
   security_header_profile?: {
     id?: number;
     uuid: string;

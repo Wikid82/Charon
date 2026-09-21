@@ -45,11 +45,11 @@ interface ListCredentialsResponse {
 
 /**
  * Fetches all credentials for a DNS provider.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @returns Promise resolving to array of credentials
  * @throws {AxiosError} If the request fails
  */
-export async function getCredentials(providerId: number): Promise<DNSProviderCredential[]> {
+export async function getCredentials(providerId: string): Promise<DNSProviderCredential[]> {
   const response = await client.get<ListCredentialsResponse>(
     `/dns-providers/${providerId}/credentials`
   )
@@ -58,13 +58,13 @@ export async function getCredentials(providerId: number): Promise<DNSProviderCre
 
 /**
  * Fetches a single credential by ID.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param credentialId - The credential ID
  * @returns Promise resolving to the credential
  * @throws {AxiosError} If not found or request fails
  */
 export async function getCredential(
-  providerId: number,
+  providerId: string,
   credentialId: number
 ): Promise<DNSProviderCredential> {
   const response = await client.get<DNSProviderCredential>(
@@ -75,13 +75,13 @@ export async function getCredential(
 
 /**
  * Creates a new credential for a DNS provider.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param data - Credential configuration
  * @returns Promise resolving to the created credential
  * @throws {AxiosError} If validation fails or request fails
  */
 export async function createCredential(
-  providerId: number,
+  providerId: string,
   data: CredentialRequest
 ): Promise<DNSProviderCredential> {
   const response = await client.post<DNSProviderCredential>(
@@ -93,14 +93,14 @@ export async function createCredential(
 
 /**
  * Updates an existing credential.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param credentialId - The credential ID
  * @param data - Updated configuration
  * @returns Promise resolving to the updated credential
  * @throws {AxiosError} If not found, validation fails, or request fails
  */
 export async function updateCredential(
-  providerId: number,
+  providerId: string,
   credentialId: number,
   data: CredentialRequest
 ): Promise<DNSProviderCredential> {
@@ -113,23 +113,23 @@ export async function updateCredential(
 
 /**
  * Deletes a credential.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param credentialId - The credential ID
  * @throws {AxiosError} If not found or in use
  */
-export async function deleteCredential(providerId: number, credentialId: number): Promise<void> {
+export async function deleteCredential(providerId: string, credentialId: number): Promise<void> {
   await client.delete(`/dns-providers/${providerId}/credentials/${credentialId}`)
 }
 
 /**
  * Tests a credential's connectivity.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @param credentialId - The credential ID
  * @returns Promise resolving to test result
  * @throws {AxiosError} If not found or request fails
  */
 export async function testCredential(
-  providerId: number,
+  providerId: string,
   credentialId: number
 ): Promise<CredentialTestResult> {
   const response = await client.post<CredentialTestResult>(
@@ -140,9 +140,9 @@ export async function testCredential(
 
 /**
  * Enables multi-credential mode for a DNS provider.
- * @param providerId - The DNS provider ID
+ * @param providerId - The DNS provider UUID
  * @throws {AxiosError} If provider not found or already enabled
  */
-export async function enableMultiCredentials(providerId: number): Promise<void> {
+export async function enableMultiCredentials(providerId: string): Promise<void> {
   await client.post(`/dns-providers/${providerId}/enable-multi-credentials`)
 }

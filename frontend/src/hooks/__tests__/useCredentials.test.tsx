@@ -41,22 +41,22 @@ describe('useCredentials', () => {
       ] as Awaited<ReturnType<typeof credentialsApi.getCredentials>>
       vi.mocked(credentialsApi.getCredentials).mockResolvedValue(mockCredentials)
 
-      const { result } = renderHook(() => useCredentials(1), { wrapper: createWrapper() })
+      const { result } = renderHook(() => useCredentials('provider-uuid-1'), { wrapper: createWrapper() })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(result.current.data).toEqual(mockCredentials)
-      expect(credentialsApi.getCredentials).toHaveBeenCalledWith(1)
+      expect(credentialsApi.getCredentials).toHaveBeenCalledWith('provider-uuid-1')
     })
 
-    it('does not fetch when provider ID is 0', () => {
-      renderHook(() => useCredentials(0), { wrapper: createWrapper() })
+    it('does not fetch when provider ID is empty', () => {
+      renderHook(() => useCredentials(''), { wrapper: createWrapper() })
       expect(credentialsApi.getCredentials).not.toHaveBeenCalled()
     })
 
     it('handles fetch errors', async () => {
       vi.mocked(credentialsApi.getCredentials).mockRejectedValue(new Error('Network error'))
 
-      const { result } = renderHook(() => useCredentials(1), { wrapper: createWrapper() })
+      const { result } = renderHook(() => useCredentials('provider-uuid-1'), { wrapper: createWrapper() })
 
       await waitFor(() => expect(result.current.isError).toBe(true))
       expect(result.current.error).toBeTruthy()
@@ -68,18 +68,18 @@ describe('useCredentials', () => {
       const mockCredential = { id: 1, label: 'Test', zone_filter: 'example.com' } as Awaited<ReturnType<typeof credentialsApi.getCredential>>
       vi.mocked(credentialsApi.getCredential).mockResolvedValue(mockCredential)
 
-      const { result } = renderHook(() => useCredential(1, 1), { wrapper: createWrapper() })
+      const { result } = renderHook(() => useCredential('provider-uuid-1', 1), { wrapper: createWrapper() })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(result.current.data).toEqual(mockCredential)
-      expect(credentialsApi.getCredential).toHaveBeenCalledWith(1, 1)
+      expect(credentialsApi.getCredential).toHaveBeenCalledWith('provider-uuid-1', 1)
     })
 
-    it('does not fetch when provider or credential ID is 0', () => {
-      renderHook(() => useCredential(0, 1), { wrapper: createWrapper() })
+    it('does not fetch when provider ID is empty or credential ID is 0', () => {
+      renderHook(() => useCredential('', 1), { wrapper: createWrapper() })
       expect(credentialsApi.getCredential).not.toHaveBeenCalled()
 
-      renderHook(() => useCredential(1, 0), { wrapper: createWrapper() })
+      renderHook(() => useCredential('provider-uuid-1', 0), { wrapper: createWrapper() })
       expect(credentialsApi.getCredential).not.toHaveBeenCalled()
     })
   })
@@ -97,9 +97,9 @@ describe('useCredentials', () => {
         credentials: { api_token: 'test' },
       }
 
-      await result.current.mutateAsync({ providerId: 1, data })
+      await result.current.mutateAsync({ providerId: 'provider-uuid-1', data })
 
-      expect(credentialsApi.createCredential).toHaveBeenCalledWith(1, data)
+      expect(credentialsApi.createCredential).toHaveBeenCalledWith('provider-uuid-1', data)
     })
 
     it('handles creation errors', async () => {
@@ -115,7 +115,7 @@ describe('useCredentials', () => {
         credentials: {},
       }
 
-      await expect(result.current.mutateAsync({ providerId: 1, data })).rejects.toThrow(
+      await expect(result.current.mutateAsync({ providerId: 'provider-uuid-1', data })).rejects.toThrow(
         'Validation failed'
       )
     })
@@ -134,9 +134,9 @@ describe('useCredentials', () => {
         credentials: { api_token: 'new_token' },
       }
 
-      await result.current.mutateAsync({ providerId: 1, credentialId: 1, data })
+      await result.current.mutateAsync({ providerId: 'provider-uuid-1', credentialId: 1, data })
 
-      expect(credentialsApi.updateCredential).toHaveBeenCalledWith(1, 1, data)
+      expect(credentialsApi.updateCredential).toHaveBeenCalledWith('provider-uuid-1', 1, data)
     })
 
     it('handles update errors', async () => {
@@ -151,7 +151,7 @@ describe('useCredentials', () => {
       }
 
       await expect(
-        result.current.mutateAsync({ providerId: 1, credentialId: 999, data })
+        result.current.mutateAsync({ providerId: 'provider-uuid-1', credentialId: 999, data })
       ).rejects.toThrow('Not found')
     })
   })
@@ -162,9 +162,9 @@ describe('useCredentials', () => {
 
       const { result } = renderHook(() => useDeleteCredential(), { wrapper: createWrapper() })
 
-      await result.current.mutateAsync({ providerId: 1, credentialId: 1 })
+      await result.current.mutateAsync({ providerId: 'provider-uuid-1', credentialId: 1 })
 
-      expect(credentialsApi.deleteCredential).toHaveBeenCalledWith(1, 1)
+      expect(credentialsApi.deleteCredential).toHaveBeenCalledWith('provider-uuid-1', 1)
     })
 
     it('handles delete errors', async () => {
@@ -175,7 +175,7 @@ describe('useCredentials', () => {
       const { result } = renderHook(() => useDeleteCredential(), { wrapper: createWrapper() })
 
       await expect(
-        result.current.mutateAsync({ providerId: 1, credentialId: 1 })
+        result.current.mutateAsync({ providerId: 'provider-uuid-1', credentialId: 1 })
       ).rejects.toThrow('Credential in use')
     })
   })
@@ -187,9 +187,9 @@ describe('useCredentials', () => {
 
       const { result } = renderHook(() => useTestCredential(), { wrapper: createWrapper() })
 
-      const testResult = await result.current.mutateAsync({ providerId: 1, credentialId: 1 })
+      const testResult = await result.current.mutateAsync({ providerId: 'provider-uuid-1', credentialId: 1 })
 
-      expect(credentialsApi.testCredential).toHaveBeenCalledWith(1, 1)
+      expect(credentialsApi.testCredential).toHaveBeenCalledWith('provider-uuid-1', 1)
       expect(testResult).toEqual(mockResult)
     })
 
@@ -199,7 +199,7 @@ describe('useCredentials', () => {
 
       const { result } = renderHook(() => useTestCredential(), { wrapper: createWrapper() })
 
-      const testResult = await result.current.mutateAsync({ providerId: 1, credentialId: 1 })
+      const testResult = await result.current.mutateAsync({ providerId: 'provider-uuid-1', credentialId: 1 })
 
       expect(testResult.success).toBe(false)
       expect(testResult.error).toBe('Invalid credentials')
@@ -211,7 +211,7 @@ describe('useCredentials', () => {
       const { result } = renderHook(() => useTestCredential(), { wrapper: createWrapper() })
 
       await expect(
-        result.current.mutateAsync({ providerId: 1, credentialId: 1 })
+        result.current.mutateAsync({ providerId: 'provider-uuid-1', credentialId: 1 })
       ).rejects.toThrow('Network timeout')
     })
   })
@@ -224,9 +224,9 @@ describe('useCredentials', () => {
         wrapper: createWrapper(),
       })
 
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('provider-uuid-1')
 
-      expect(credentialsApi.enableMultiCredentials).toHaveBeenCalledWith(1)
+      expect(credentialsApi.enableMultiCredentials).toHaveBeenCalledWith('provider-uuid-1')
     })
 
     it('handles enable errors', async () => {
@@ -238,7 +238,7 @@ describe('useCredentials', () => {
         wrapper: createWrapper(),
       })
 
-      await expect(result.current.mutateAsync(1)).rejects.toThrow('Already enabled')
+      await expect(result.current.mutateAsync('provider-uuid-1')).rejects.toThrow('Already enabled')
     })
   })
 })

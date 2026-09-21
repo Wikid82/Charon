@@ -126,7 +126,7 @@ function buildInitialFormData(host?: ProxyHost): Partial<ProxyHost> & {
     certificate_id: host?.certificate?.uuid ?? host?.certificate_id,
     access_list_id: host?.access_list?.uuid ?? host?.access_list_id,
     security_header_profile_id: host?.security_header_profile?.uuid ?? host?.security_header_profile_id,
-    dns_provider_id: host?.dns_provider_id || null,
+    dns_provider_id: host?.dns_provider?.uuid ?? host?.dns_provider_id ?? null,
   }
 }
 
@@ -333,14 +333,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   // Auto-select suggested provider if confidence is high
   useEffect(() => {
     if (detectionResult?.suggested_provider && detectionResult.confidence === 'high' && !manualProviderSelection && !formData.dns_provider_id) {
-      setFormData(prev => ({ ...prev, dns_provider_id: detectionResult.suggested_provider!.id }))
+      setFormData(prev => ({ ...prev, dns_provider_id: detectionResult.suggested_provider!.uuid }))
       toast.success(`Auto-selected: ${detectionResult.suggested_provider.name}`)
     }
   }, [detectionResult, manualProviderSelection, formData.dns_provider_id])
 
   // Handle using suggested provider
   const handleUseSuggested = useCallback((provider: DNSProvider) => {
-    setFormData(prev => ({ ...prev, dns_provider_id: provider.id }))
+    setFormData(prev => ({ ...prev, dns_provider_id: provider.uuid }))
     setManualProviderSelection(false)
     toast.success(`Selected: ${provider.name}`)
   }, [])
@@ -980,7 +980,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               )}
 
               <DNSProviderSelector
-                value={formData.dns_provider_id ?? undefined}
+                value={typeof formData.dns_provider_id === 'string' ? formData.dns_provider_id : undefined}
                 onChange={(id) => {
                   setFormData(prev => ({ ...prev, dns_provider_id: id ?? null }))
                   if (id) {

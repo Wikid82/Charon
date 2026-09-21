@@ -52,9 +52,9 @@ describe('credentials API', () => {
       data: { credentials: mockData, total: 2 },
     })
 
-    const result = await getCredentials(1)
+    const result = await getCredentials('provider-uuid-1')
 
-    expect(client.get).toHaveBeenCalledWith('/dns-providers/1/credentials')
+    expect(client.get).toHaveBeenCalledWith('/dns-providers/provider-uuid-1/credentials')
     expect(result).toEqual(mockData)
     expect(result).toHaveLength(2)
   })
@@ -62,18 +62,18 @@ describe('credentials API', () => {
   it('should call getCredential with correct endpoint', async () => {
     vi.mocked(client.get).mockResolvedValue({ data: mockCredential })
 
-    const result = await getCredential(1, 1)
+    const result = await getCredential('provider-uuid-1', 1)
 
-    expect(client.get).toHaveBeenCalledWith('/dns-providers/1/credentials/1')
+    expect(client.get).toHaveBeenCalledWith('/dns-providers/provider-uuid-1/credentials/1')
     expect(result).toEqual(mockCredential)
   })
 
   it('should call createCredential with correct endpoint and data', async () => {
     vi.mocked(client.post).mockResolvedValue({ data: mockCredential })
 
-    const result = await createCredential(1, mockCredentialRequest)
+    const result = await createCredential('provider-uuid-1', mockCredentialRequest)
 
-    expect(client.post).toHaveBeenCalledWith('/dns-providers/1/credentials', mockCredentialRequest)
+    expect(client.post).toHaveBeenCalledWith('/dns-providers/provider-uuid-1/credentials', mockCredentialRequest)
     expect(result).toEqual(mockCredential)
   })
 
@@ -81,18 +81,18 @@ describe('credentials API', () => {
     const updatedCredential = { ...mockCredential, label: 'Updated Label' }
     vi.mocked(client.put).mockResolvedValue({ data: updatedCredential })
 
-    const result = await updateCredential(1, 1, mockCredentialRequest)
+    const result = await updateCredential('provider-uuid-1', 1, mockCredentialRequest)
 
-    expect(client.put).toHaveBeenCalledWith('/dns-providers/1/credentials/1', mockCredentialRequest)
+    expect(client.put).toHaveBeenCalledWith('/dns-providers/provider-uuid-1/credentials/1', mockCredentialRequest)
     expect(result).toEqual(updatedCredential)
   })
 
   it('should call deleteCredential with correct endpoint', async () => {
     vi.mocked(client.delete).mockResolvedValue({ data: undefined })
 
-    await deleteCredential(1, 1)
+    await deleteCredential('provider-uuid-1', 1)
 
-    expect(client.delete).toHaveBeenCalledWith('/dns-providers/1/credentials/1')
+    expect(client.delete).toHaveBeenCalledWith('/dns-providers/provider-uuid-1/credentials/1')
   })
 
   it('should call testCredential with correct endpoint', async () => {
@@ -103,9 +103,9 @@ describe('credentials API', () => {
     }
     vi.mocked(client.post).mockResolvedValue({ data: mockTestResult })
 
-    const result = await testCredential(1, 1)
+    const result = await testCredential('provider-uuid-1', 1)
 
-    expect(client.post).toHaveBeenCalledWith('/dns-providers/1/credentials/1/test')
+    expect(client.post).toHaveBeenCalledWith('/dns-providers/provider-uuid-1/credentials/1/test')
     expect(result).toEqual(mockTestResult)
     expect(result.success).toBe(true)
   })
@@ -113,8 +113,8 @@ describe('credentials API', () => {
   it('should call enableMultiCredentials with correct endpoint', async () => {
     vi.mocked(client.post).mockResolvedValue({ data: undefined })
 
-    await enableMultiCredentials(1)
+    await enableMultiCredentials('provider-uuid-1')
 
-    expect(client.post).toHaveBeenCalledWith('/dns-providers/1/enable-multi-credentials')
+    expect(client.post).toHaveBeenCalledWith('/dns-providers/provider-uuid-1/enable-multi-credentials')
   })
 })
