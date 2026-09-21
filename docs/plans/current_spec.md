@@ -1,566 +1,581 @@
-# Technical Spec: Migrate Charon Docs to a Docusaurus Site
-
-**Status:** Draft — pending Supervisor review and user approval
-**Author:** Planning agent
-**Date:** 2026-09-16
-**Related:** `CLAUDE.md` (Commit Slicing & PR Strategy), `ARCHITECTURE.md` (Directory Structure, Deployment Architecture)
-
----
+# Spec: Proxy Host Group Selector + Grouped-View Row Layout Fix (Issue #1367)
 
 ## 1. Introduction
 
 ### 1.1 Overview
 
-Charon's user-facing documentation currently lives as plain Markdown in `docs/` at
-the repo root, alongside a large body of internal, agent/contributor-facing
-working documents (`docs/plans/`, `docs/reports/`, `docs/reviews/`, etc.). The
-only public presentation layer today is `.github/workflows/docs.yml`, which
-runs a hand-rolled `marked`-based Markdown→HTML converter
-(`.github/pages/build-docs.sh`) against `docs/` and deploys the result to
-GitHub Pages at `https://wikid82.github.io/Charon/`.
+GitHub issue #1367 reports two problems on the Proxy Hosts page, both on the
+proxy-host-group UI surface:
 
-This plan replaces that hand-rolled pipeline with a proper static-site
-generator — [Docusaurus](https://docusaurus.io/) (TypeScript template) — living
-in a new top-level `docs-site/` directory, with its own Node project,
-dependency-update coverage, and GitHub Actions deploy workflow. The existing
-`docs/` directory is **not** touched in its layout or purpose: it remains the
-single source of truth for both user-facing and internal-only documentation.
-A repo-root build script copies the subset of `docs/` that is user-facing into
-`docs-site/docs/` at build time — nothing is hand-duplicated or manually kept
-in sync.
+1. **No group selector in the per-host create/edit form.** Groups are fully
+   implemented end-to-end (backend CRUD, bulk group assignment, list-page
+   drag-and-drop between group sections) except in the single-host dialog
+   (`ProxyHostForm.tsx`), which has zero group-related fields. Users cannot
+   see or set a host's group while creating/editing it there — they must
+   leave the dialog and use drag-and-drop or the bulk "Assign to group"
+   flow on the list page.
+2. **Row layout breaks in grouped view.** When the Proxy Hosts list is
+   rendered grouped (one or more proxy groups exist), rows are visually
+   cramped at the right edge — the Actions column (Edit/Delete) sits
+   uncomfortably close to the row edge, with no horizontal scrollbar
+   appearing as a fallback.
+
+Both problems live on the same page (`frontend/src/pages/ProxyHosts.tsx`)
+and the same UI surface (proxy-host group presentation), so per
+`CLAUDE.md`'s "One Feature = One PR" rule, they are fixed together in a
+single PR with commits sliced by concern.
 
 ### 1.2 Objectives
 
-1. Stand up `docs-site/` as an independent Docusaurus (TypeScript) project that builds a browsable, searchable documentation site from a curated subset of `docs/`.
-2. Establish `docs/` → `docs-site/docs/` as a one-directional, scripted copy step (not a second hand-maintained copy) so there is exactly one authored source of truth per file.
-3. Wire `docs-site/` into `scripts/charon_dep_update.sh`'s `NPM_MODULES` array so its dependencies get the same automated update/audit/build/type-check treatment as `frontend/` and the repo root.
-4. Replace the existing ad hoc `docs.yml` GitHub Pages pipeline with a new workflow that builds and deploys `docs-site/` to GitHub Pages on merges to `main`, following this repo's existing CI conventions (pinned actions by SHA, pinned `NODE_VERSION`, `concurrency` groups, emoji step names, etc.).
-5. Cross-link the deployed docs site from `README.md` (replacing the now-stale link) without disturbing the internal `docs/` directory's own navigation (`docs/index.md` stays as-is; it documents the internal tree, not the public site).
-6. Leave `ARCHITECTURE.md` update as a flagged, explicitly-assigned follow-up step (for `docs-writer`), not written by this plan.
+- Add a group selector to `ProxyHostForm.tsx` so a host's group can be set
+  or changed from the create/edit dialog, using the existing
+  `proxy_group_id` field and existing `/proxy-groups` API — no new backend
+  endpoints.
+- Fix the grouped-view row layout so all columns (through Actions) fit
+  comfortably at common desktop viewport widths, with a horizontal-scroll
+  fallback as a secondary safety net at narrow widths, not the primary fix.
+- Ship both with unit tests (Vitest) and Playwright E2E coverage, per the
+  Definition of Done.
 
 ### 1.3 Non-Goals
 
-- No changes to `docs/`'s existing internal-only subdirectories (`plans/`, `reports/`, `reviews/`, `analysis/`, `decisions/`, `issues/`, `superpowers/`, `runbooks/`, `patches/`, `testing/`, `development/`, `ci/`, `actions/`, `maintenance/`, `performance/`, `implementation/`) — these stay exactly where they are and are excluded from the site.
-- No changes to `frontend/` (the Charon web app). `docs-site/` is a separate, independent Node/TypeScript project for documentation publishing — see §1.4 for why this does not violate the "Single Frontend Source" rule.
-- No search backend (Algolia DocSearch, etc.) is configured in this pass — local Docusaurus search (`@easyops-cn/docusaurus-search-local` or the built-in offline search) is sufficient for launch and avoids an external service dependency, consistent with Charon's "no external dependencies" ethos. A follow-up can add hosted search later if desired.
-- No versioned-docs (Docusaurus `docs-versioned` multi-version) setup. Charon ships one current version; a single `current` docs version is sufficient.
-- No i18n/localization of the docs site in this pass (the app itself has i18next; the docs site starts English-only).
-
-### 1.4 Why `docs-site/` Does Not Violate "Single Frontend Source"
-
-`CLAUDE.md`'s rule reads: *"All frontend code MUST reside in `frontend/`. NEVER
-create `backend/frontend/` or any other nested frontend directory."* That rule
-governs Charon's **application** frontend — the React/TypeScript SPA that the
-Go backend serves and that end users interact with when managing their proxy
-(`internal/server`'s `attachFrontend`, built via Vite, mounted into the
-binary). `docs-site/` is not that: it is a separate, static **documentation**
-website, built and deployed independently via GitHub Pages, never bundled into
-the Charon Docker image, never served by `internal/server`, and never linked
-into the `frontend/dist` build output. It has no relationship to the
-single-binary + static-assets deployment model described in
-`ARCHITECTURE.md`'s Overview and Deployment Architecture sections. Treating
-"frontend" in that rule as "any directory containing a package.json and
-TypeScript" would also outlaw tooling directories the repo already accepts
-implicitly (e.g. root `package.json` for Playwright/lint tooling). The rule's
-intent — preventing a second, competing copy of the *app* UI — is preserved:
-there is exactly one `frontend/` and it is unaffected by this change.
-
-`ARCHITECTURE.md`'s Directory Structure section should be updated to list
-`docs-site/` alongside `backend/` and `frontend/` once this lands (see §6,
-Commit 5 — flagged for `docs-writer`, not written here).
-
----
+- No backend/schema changes are anticipated (confirmed during research —
+  see §2.3). If implementation discovers a real gap, it must be called out
+  explicitly and added as its own commit before the frontend commits.
+- No redesign of the drag-and-drop group-assignment UX, the bulk "Assign to
+  group" dialog, or `ManageGroupsDialog.tsx` — those already work and are
+  out of scope.
+- No change to how groups are created/edited/deleted.
 
 ## 2. Research Findings
 
-### 2.1 Existing `docs/` Structure (as of this plan)
+### 2.1 Existing architecture (groups end-to-end)
 
-Top-level files in `docs/` (39 files) and directories, classified below.
-Directories confirmed via `find docs -maxdepth 2`.
+- **Model** — `backend/internal/models/proxy_host.go:61-63`:
+  ```go
+  // Proxy Group assignment
+  ProxyGroupID *uint       `json:"-" gorm:"index"`
+  ProxyGroup   *ProxyGroup `json:"proxy_group,omitempty" gorm:"foreignKey:ProxyGroupID"`
+  ```
+  `backend/internal/models/proxy_group.go:11-19` defines `ProxyGroup{UUID,
+  Name, Description, Color}`.
+- **Handler contract already accepts `proxy_group_id`** —
+  `backend/internal/api/handlers/proxy_host_handler.go`:
+  - `Create` (lines 459-466) resolves `payload["proxy_group_id"]` via
+    `resolveProxyGroupReference` before unmarshalling into the model.
+  - `Update` (lines 683-690) resolves `payload["proxy_group_id"]` the same
+    way and assigns `host.ProxyGroupID` directly (partial-update pattern
+    matching every other nullable FK on this handler).
+  - `resolveProxyGroupReference` (lines 256-283) is **stricter than the
+    other FK resolvers**: it only accepts a UUID string (or `nil`/empty
+    string to clear); unlike `resolveAccessListReference` /
+    `resolveCertificateReference` / `resolveDNSProviderReference`, it does
+    **not** fall back to accepting a legacy numeric ID. Rationale in the
+    inline comment: `ProxyGroup.ID` is `json:"-"`, so the API never exposes
+    the numeric PK to clients — the field is UUID-only by design.
+  - Both routes already exist:
+    `POST /proxy-hosts`, `PUT /proxy-hosts/:uuid` (`RegisterRoutes`, lines
+    410-420).
+  - **Conclusion: no backend change is needed.** The full round trip
+    (accept UUID → resolve to internal ID → persist → return
+    `proxy_group` object in the response) already works; it is simply
+    never exercised because no frontend form sends the field except the
+    bulk endpoint.
+- **Frontend — already wired at the list-page level**:
+  - `frontend/src/api/proxyGroups.ts` — `proxyGroupsApi.list/get/create/update/delete`
+    against `/proxy-groups`.
+  - `frontend/src/hooks/useProxyGroups.ts` — `useProxyGroups()` (React
+    Query, key `['proxy-groups']`) plus create/update/delete mutations.
+  - `frontend/src/api/proxyHosts.ts:22-76` — `ProxyHost` interface already
+    declares `proxy_group_id?: number | string | null` and
+    `proxy_group?: { uuid; name; color } | null` (lines 52-57).
+  - `frontend/src/components/ProxyGroupBadge.tsx` — small read-only
+    `{dot, name}` badge, used in the list's "Group" column
+    (`ProxyHosts.tsx:598-603`) — reused as-is, no changes needed.
+  - `frontend/src/pages/ProxyHosts.tsx` — per-group `DataTable` sections
+    with `GroupDropZone` (drag targets) and `ProxyHostDragHandle`
+    (draggable handle, dnd-kit) for cross-group reassignment; a bulk
+    "Assign to group" modal keyed off `selectedHosts`.
+  - **Gap confirmed**: `frontend/src/components/ProxyHostForm.tsx` (1622
+    lines) has fields for `certificate_id`, `access_list_id`,
+    `security_header_profile_id`, `dns_provider_id` — every other nullable
+    FK — but no `proxy_group_id` field, no import of `useProxyGroups`, and
+    `buildInitialFormData` (lines 105-131) never reads
+    `host?.proxy_group_id` / `host?.proxy_group`.
 
-**User-facing / operator-facing (candidates for migration):**
+### 2.2 Reusable selector pattern
 
-| Path | Notes |
+`frontend/src/components/AccessListSelector.tsx` is the closest existing
+pattern: a small selector component that (a) calls its own data hook
+(`useAccessLists`), (b) renders a `Select`/`SelectTrigger`/`SelectContent`
+from `./ui/Select`, (c) has a `none` sentinel option, and (d) calls a
+`onChange(id)` prop. However, `AccessListSelector` also carries
+~60 lines of numeric-ID/UUID "token" reconciliation
+(`resolveAccessListToken`/`getOptionToken`) because access lists support
+legacy numeric IDs. **Proxy groups do not** (see §2.1) — `ProxyGroup.ID` is
+never serialized, so the new `ProxyGroupSelector` can be materially
+simpler: the value is always `string | null` (a UUID or `null`), no token
+scheme needed.
+
+`ProxyHostForm.tsx` already has all the pieces this selector needs close
+by: `resolveSelectToken`/`resolveTokenToFormValue`/`getEntityToken`
+(lines 191-249) are used for `certificate_id` and
+`security_header_profile_id`, which DO need the numeric/UUID token scheme.
+`proxy_group_id` does not need this machinery — it is simpler to write a
+small dedicated `ProxyGroupSelector` component (mirroring
+`AccessListSelector`'s file-level shape, not its token complexity) than to
+bolt another token variant onto the giant inline `Select` blocks already
+in `ProxyHostForm.tsx`.
+
+### 2.3 Grouped-view row layout (Problem 2) — root cause
+
+Table rendering lives in `frontend/src/components/ui/DataTable.tsx`
+(generic, reused across the app) and is driven by the `columns: Column<ProxyHost>[]`
+array built in `frontend/src/pages/ProxyHosts.tsx:502-649`.
+
+**Column widths today** (`ProxyHosts.tsx`, `width` prop per column):
+
+| Column | width |
 |---|---|
-| `docs/getting-started.md` | Explicitly named in scope by user |
-| `docs/features.md` | Explicitly named in scope |
-| `docs/features/*.md` (30 files: `access-control.md`, `api.md`, `audit-logging.md`, `backup-remote-oauth-setup.md`, `backup-restore.md`, `caddyfile-import.md`, `crowdsec.md`, `custom-plugins.md`, `disaster-recovery.md`, `dns-autodetection.md`, `dns-auto-detection.md`, `dns-challenge.md`, `dns-providers.md`, `docker-integration.md`, `hecate.md`, `key-rotation.md`, `live-reload.md`, `localization.md`, `logs.md`, `multi-credential.md`, `notifications.md`, `orthrus.md`, `plugin-security.md`, `proxy-headers.md`, `rate-limiting.md`, `security-headers.md`, `security.md`, `ssl-certificates.md`, `supply-chain-security.md`, `ui-themes.md`, `uptime-monitoring.md`, `user-accounts.md`, `waf.md`, `websocket.md`, `web-ui.md`) | Per-feature user docs; `docs/index.md` already links two of these (`features/orthrus.md`, `features/hecate.md`) as public pages |
-| `docs/configuration/emergency-setup.md` | Explicitly named in scope (dir) |
-| `docs/guides/*.md` + `docs/guides/dns-providers/*.md` (`crowdsec-setup.md`, `dns-providers.md`, `local-key-management.md`, `manual-dns-provider.md`, `remote-docker-setup.md`, `supply-chain-security-developer-guide.md`, `supply-chain-security-user-guide.md`, plus `dns-providers/{azure-dns,cloudflare,digitalocean,google-cloud-dns,route53}.md`) | Explicitly named in scope (dir) |
-| `docs/security.md` | Explicitly named in scope |
-| `docs/troubleshooting/*.md` (`crowdsec.md`, `dns-challenges.md`, `e2e-tests.md`, `go-gopls.md`, `proxy-headers.md`, `react-production-errors.md`, `websocket.md`) | Explicitly named in scope (dir) — see note below on `e2e-tests.md`/`go-gopls.md` |
-| `docs/api.md` | Explicitly named in scope |
-| `docs/api/DNS_DETECTION_API.md` | Sibling of `api.md`; developer/integration-facing, same audience |
-| `docs/migration-guide.md` | Explicitly named in scope |
-| `docs/database-schema.md` | Explicitly named in scope |
-| `docs/import-guide.md` | Explicitly named in scope |
-| `docs/live-logs-guide.md` | Explicitly named in scope |
-| `docs/acme-staging.md` | Operator-facing ("Testing SSL Certificates", linked from `docs/index.md`) |
-| `docs/cerberus.md` | Operator-facing security suite overview, linked from `docs/index.md`'s spirit (security section) |
-| `docs/database-maintenance.md` | Operator-facing maintenance task |
-| `docs/crowdsec-auto-start-quickref.md` | Operator-facing quick reference |
-| `docs/migration-guide-crowdsec-auto-start.md` | Operator-facing migration doc, same family as `migration-guide.md` |
-| `docs/security-incident-response.md` | Operator-facing ("what do I do if I'm breached") — distinct from the internal `docs/runbooks/` |
+| name | 14% |
+| domain | 18% |
+| forward | 14% |
+| ssl | 7% |
+| features | 9% |
+| **group** | **10%** |
+| status | 7% |
+| actions | 9% |
+| **declared total** | **88%** |
 
-**Judgment calls (bias toward keeping internal, listed for visibility):**
+Plus, from `DataTable.tsx`:
+- checkbox column: always rendered when `selectable` (every call site
+  passes `selectable`), fixed `w-12` (48px), **no `width` accounted for in
+  the 88%**.
+- drag-handle column: rendered only when `renderDragHandle` is passed —
+  which happens **only** in the two per-group-section `DataTable` calls
+  (`ProxyHosts.tsx:838` and `:870`, gated by `showDragHandles`/"Organize"
+  toggle) — fixed `w-10` (40px), also unaccounted for in the 88%.
+- `<table>` has no `min-width` and no `table-layout: fixed`
+  (`DataTable.tsx:117`, just `className="w-full"`); the scroll container
+  is `<div className="overflow-x-auto">` (`DataTable.tsx:116`).
 
-| Path | Decision | Reasoning |
-|---|---|---|
-| `docs/troubleshooting/e2e-tests.md`, `docs/troubleshooting/go-gopls.md` | **Migrate** (dir was explicitly named in scope wholesale; splitting the dir adds sync complexity for two files) | Slightly contributor-leaning content, but low harm being public, and user asked to migrate `troubleshooting/` as a unit |
-| `docs/debugging-local-container.md` | **Stay in `docs/`** | Contributor/dev-environment debugging, not an operator running the shipped binary |
-| `docs/github-setup.md` | **Stay in `docs/`** | Repo/CI setup for contributors, not product docs |
-| `docs/i18n-examples.md` | **Stay in `docs/`** | Translator/contributor pattern examples, not end-user material |
-| `docs/SECURITY_PRACTICES.md` | **Stay in `docs/`** | Internal engineering security practices (parallel to root `SECURITY.md`), distinct from the public `docs/security.md` |
-| `docs/stats_feature_warmup.md` | **Stay in `docs/`** | Reads as an internal implementation note, not user guidance |
-| `docs/security/*.md` (`ghsa-*-options.md`, `vulnerability-analysis-*.md`) | **Stay in `docs/`** | Internal vulnerability-analysis working notes, not the public `security.md` |
-| `docs/maintenance/`, `docs/performance/`, `docs/implementation/` | **Stay in `docs/`** | Not in the user's explicit migrate list; read as internal engineering/ops dirs (diagnostics, implementation notes). Flag for a human/`docs-writer` follow-up pass in case any single file inside warrants promotion later. |
+**Root cause**: because the table has no `min-width` floor and uses the
+browser's default `table-layout: auto`, the declared `width` percentages
+are only *hints* the browser can override once it must fit `width: 100%`.
+When a proxy group exists, the SAME `columns` array (including the
+10%-wide **"Group" column**) is reused for the **per-group section
+tables** (`ProxyHosts.tsx:831-847`, `:863-872`), where it is **entirely
+redundant** — every row inside a named group's `DataTable` already carries
+that exact group's color/name in the section header
+(`ProxyHosts.tsx:796-807`), and inside the "Ungrouped" section it always
+renders `—`. That 10% is dead weight in grouped view specifically (it is
+*not* dead weight in the flat, single-table view used when
+`groups.length === 0`, where "Group" is the only place a host's group
+membership is visible). Toggling "Organize" (`showDragHandles`) adds a
+further fixed 40px drag-handle column on top, with nothing given back.
+With no `min-width` on the table to force real overflow, the browser
+instead compresses the flexible columns — Actions (9%, holding two text
+buttons) is the first to visibly suffer, ending up pinned to the row's
+right edge with too little room, and because the table never actually
+exceeds `100%` of its container, `overflow-x-auto` never triggers a
+scrollbar. This matches the reported symptom exactly: "not all the info in
+the row fits... no scroll bar... right at the edge of the delete column."
 
-**Confirmed internal-only, explicitly named by the user (unchanged, not re-litigated):**
-`docs/plans/`, `docs/reports/`, `docs/reviews/`, `docs/analysis/`, `docs/decisions/`, `docs/issues/`, `docs/superpowers/`, `docs/runbooks/`, `docs/patches/`, `docs/testing/`, `docs/development/`, `docs/ci/`, `docs/actions/`.
+**Fix approach** (real layout fix first, scroll fallback as secondary net):
 
-`docs/index.md` itself **stays in `docs/`** unmigrated — it is the nav page for
-the *internal* tree (mixes links to internal and public docs). The Docusaurus
-site gets its own generated landing page (`docs-site/src/pages/index.tsx`,
-scaffolded by the template) plus an `intro`/overview doc, not a copy of
-`docs/index.md`.
+1. **Drop the redundant "Group" column when rendering inside a group
+   context.** Build two column lists in `ProxyHosts.tsx`: the existing
+   `columns` (used only for the flat `groups.length === 0` table, keeps
+   "Group"), and a derived `groupedColumns` (same array filtered to
+   exclude the `key === 'group'` entry) used by the two per-group-context
+   `DataTable` calls (named-group sections and the "Ungrouped" section).
+   This reclaims 10% of width in exactly the view where the column added
+   no information, with zero loss of information (group membership is
+   already shown by the enclosing section).
+2. **Redistribute the reclaimed width**: bump `domain` from `18%` → `22%`
+   (it holds the widest content — one or more clickable domain links) and
+   `actions` from `9%` → `13%` (it holds two text buttons, "Edit"/"Delete",
+   that must never wrap) in `groupedColumns` only; `flatColumns` (the
+   `groups.length === 0` case) is unchanged. New grouped-view total: name
+   14 + domain 22 + forward 14 + ssl 7 + features 9 + status 7 + actions 13
+   = 86%, plus the fixed 48px checkbox column (and 40px drag-handle column
+   only while "Organize" is active) — comfortably under 100% at common
+   desktop widths (≥1024px) after accounting for those fixed columns.
+3. **Give the Actions column a hard floor** so its two buttons can never
+   be compressed below usable size regardless of viewport: add an optional
+   `minWidth?: string` to the `Column<T>` interface in `DataTable.tsx`,
+   applied via `style={{ width: col.width, minWidth: col.minWidth }}` on
+   both the `<th>` (line 146) and propagate `whitespace-nowrap` on the
+   `<td>` for that column so "Edit"/"Delete" never wrap onto two lines.
+   Set `minWidth: '140px'` on the `actions` column definition (both
+   `flatColumns` and `groupedColumns`).
+4. **Scroll fallback (secondary safety net, not primary fix)**: give the
+   `<table>` element in `DataTable.tsx` a `min-w-[760px]` class alongside
+   its existing `w-full`. This does not change rendering at normal desktop
+   widths (the table is already wider than 760px there), but at narrow
+   viewports it stops the browser from continuing to compress columns
+   past a usable minimum — instead the existing `overflow-x-auto` wrapper
+   (already present, `DataTable.tsx:116`) starts actually scrolling, which
+   today it structurally cannot do because nothing forces the table past
+   `100%` width. This is the "no scrollbar" half of the bug fixed as a
+   fallback, while (1)-(3) are the real fix for the common desktop case
+   the issue describes.
 
-### 2.2 Sync Mechanism Decision: Scripted Copy, `docs/` Remains Source of Truth
+No changes are needed to `GroupDropZone.tsx`, `ProxyHostDragHandle.tsx`, or
+`useProxyGroupDnD.ts` — none of them affect column widths; they only
+affect drag-and-drop behavior and the section wrapper around each
+`DataTable`.
 
-**Decision: `docs/` remains the single source of truth. `docs-site/docs/` is a
-build-time, scripted, git-ignored copy — never hand-edited, never committed.**
+### 2.4 External dependencies
 
-Rationale:
-- A manually-duplicated second copy (both directories committed and hand-kept-in-sync) has the classic two-masters problem: nothing enforces that an editor of one updates the other, and CI has no mechanism to catch drift short of a diff-check gate on every PR. That is extra process for zero benefit here.
-- A copy-and-commit-generated-copy approach (script runs, output committed) still risks a contributor editing `docs-site/docs/*.md` directly and the change silently not round-tripping back to `docs/`.
-- A build-time copy that is **not committed** (git-ignored, regenerated by both the local dev script and CI before every build) has exactly one edit location (`docs/`), and Docusaurus's local dev server (`npm start`) picking up live edits requires only that the copy script also be runnable in watch/pre-dev context (see §3.3).
-- Docusaurus's build pipeline is filesystem-driven (it reads whatever is in the configured `docs` dir at `docusaurus.config.ts`'s `presets[0].docs.path`, default `docs`), so pointing it at a git-ignored, freshly-populated `docs-site/docs/` directory is a supported, idiomatic pattern (equivalent to a generated `dist/` or `build/` directory) — no Docusaurus plugin fork or custom loader is required.
-
-Mechanism:
-- New script `docs-site/scripts/sync-docs.mjs` (Node, no new runtime dependency — uses `node:fs`, `node:path`) that:
-  1. Reads an explicit allowlist of source paths from `docs-site/scripts/docs-manifest.json` (the file/dir list in §2.1's "user-facing" table — an explicit allowlist, not a glob-exclude of the internal dirs, so that a newly-added internal dir under `docs/` is safe-by-default and never leaks into the public site without a deliberate manifest edit).
-  2. Recursively copies each allowlisted path from `docs/<path>` into `docs-site/docs/<path>` (mirroring the relative structure, e.g. `docs/features/orthrus.md` → `docs-site/docs/features/orthrus.md`), stripping nothing — Docusaurus consumes standard Markdown + optional frontmatter directly, and the existing YAML frontmatter style already seen in `docs/index.md` (`title`, `description`) is exactly what Docusaurus's `docs` plugin expects for page metadata, so files migrate with zero content rewriting in the common case.
-  3. Deletes and recreates `docs-site/docs/` on every run (idempotent, no stale-file accumulation when a file is removed from the manifest).
-  4. Exits non-zero with a clear message if a manifest path does not exist under `docs/` (catches typos/renames early rather than silently producing a thinner site).
-- `docs-site/package.json` scripts:
-  - `"presync": "node scripts/sync-docs.mjs"` is **not** used (npm's implicit pre-hooks only fire for a matching script name, not arbitrary scripts); instead `"sync-docs": "node scripts/sync-docs.mjs"` is explicit, and both `"start"` and `"build"` are wrapped: `"start": "npm run sync-docs && docusaurus start"`, `"build": "npm run sync-docs && docusaurus build"`. This guarantees the copy is always fresh before either a local preview or a CI build, with no separate manual step to forget.
-- `docs-site/docs/` (the generated copy) is added to `.gitignore` (see §5) — it must never be committed, exactly like `frontend/dist/`.
-
-### 2.3 Existing GitHub Pages Pipeline (Must Be Retired)
-
-`.github/workflows/docs.yml` currently:
-- Triggers on `workflow_run` completion of "Docker Build, Publish & Test" (on `main`) plus manual `workflow_dispatch`.
-- Uses `NODE_VERSION: '24.21.0'`, pinned `actions/checkout@3d3c42e5...` (v7), pinned `actions/setup-node@820762786026...` (v7).
-- Runs `npm install -g marked` then `bash .github/pages/build-docs.sh`, which hand-renders `README.md` + `docs/**/*.md` (frontmatter-aware) into `_site/`, wraps pages with nav/SEO/OG tags, rewrites paths, emits `sitemap.xml`/`robots.txt`, and copies a hand-authored `.github/pages/docs-index.html` landing page.
-- Uploads via `actions/upload-pages-artifact@fc324d35...` (v5) and deploys via `actions/deploy-pages@368f8252...` (v5.0.1) to the `github-pages` environment, permissions `contents: read`, `pages: write`, `id-token: write`.
-- Deployed site is linked from `README.md:136`: `https://wikid82.github.io/Charon/docs/getting-started.html`.
-
-**This pipeline must be retired, not left running in parallel.** GitHub Pages
-serves one live site per repo from the `github-pages` deployment environment;
-running both `docs.yml` and a new Docusaurus deploy workflow would race to
-deploy on every push to `main`, non-deterministically clobbering each other
-(whichever job's `deploy-pages` step lands last wins), and would leave two
-divergent copies of "the docs" (marked's flat HTML render vs. Docusaurus's
-site) both partially live depending on timing. There is no reasonable
-"transition period" here — GitHub Pages doesn't support two concurrent sites
-from one repo without path-based sharding, which is not worth the complexity
-for a docs site with one obvious owner going forward. `docs.yml`,
-`.github/pages/build-docs.sh`, and `.github/pages/docs-index.html` are deleted
-in the same PR that introduces the new deploy workflow (§4.4, Commit 4) so
-there is never a window with two live deploy paths.
-
-### 2.4 Repo Conventions Confirmed
-
-- **Node version pin**: `NODE_VERSION: '24.21.0'` is the repo-wide convention (`docs.yml`, `docs-to-issues.yml`, `quality-checks.yml`). `docs-site/` follows the same pin, both in its new workflow's `env:` block and (see §3.2) implicitly via `engines` in `package.json` for local-dev clarity.
-- **Action pinning**: All third-party actions pinned by full commit SHA with a trailing `# vX` comment (`actions/checkout@3d3c42e...  # v7`, `actions/setup-node@820762786026...  # v7`, `actions/upload-pages-artifact@fc324d35...  # v5`, `actions/deploy-pages@368f82528645...  # v5.0.1`). The new workflow reuses these exact pins (same major versions already vetted in this repo) rather than introducing new ones.
-- **`audit:ci` pattern**: Both `package.json` (root) and `frontend/package.json` define `"audit:ci": "audit-ci --config ./audit-ci.json"`, each with a sibling `audit-ci.json` (`{"$schema": ..., "high": true, "allowlist": []}`). `charon_dep_update.sh`'s `update_npm()` calls `npm run audit:ci` unconditionally for every `NPM_MODULES` entry (`rm -rf node_modules package-lock.json && npm install && npm dedupe && npm run --if-present build && npm run --if-present type-check && npm run audit:ci`) — note `audit:ci` is **not** `--if-present` gated, so `docs-site/package.json` **must** define it or the update script hard-fails on that module. `docs-site/` gets its own `audit-ci.json` (root's is empty-allowlist `high: true`; docs-site starts the same — no known findings to allowlist yet).
-- **`build`/`type-check` are `--if-present`-gated** in the update script, so they're optional for correctness, but the plan defines both anyway (`docusaurus build`, `tsc --noEmit`) since Docusaurus's TS template ships a `tsconfig.json` and both scripts are cheap, high-value CI/update-time checks.
-- No `.nvmrc` exists at repo root or in `frontend/`; Node version is carried entirely via each workflow's `env.NODE_VERSION` and (for local dev) documented in each project's README/CLAUDE.md — `docs-site/` follows this pattern rather than introducing a new `.nvmrc` convention.
-- `.gitignore` already has a "Docs & Plans" section (lines 7–11) for specific internal working files, and a general `node_modules/` + per-package `frontend/node_modules/`, `backend/node_modules/`, `frontend/dist/` pattern (lines 34–37, 81) — `docs-site/` additions follow the same per-package explicit-path style rather than relying on the blanket `node_modules/` alone (defense in depth, matches existing style).
-
----
+None new. Uses existing `@tanstack/react-query`, existing `./ui/Select`
+primitives, existing Tailwind utility classes.
 
 ## 3. Technical Specifications
 
-### 3.1 Directory Structure for `docs-site/`
+### 3.1 API contract (already available — no changes)
 
-Docusaurus's official TypeScript classic template (`npx create-docusaurus@latest docs-site classic --typescript`), scaffolded then adapted:
+`POST /proxy-hosts` and `PUT /proxy-hosts/:uuid` already accept:
 
-```
-docs-site/
-├── package.json                 # New — see §3.2
-├── package-lock.json            # Generated by npm install (committed, like frontend/)
-├── tsconfig.json                # From template, extends @docusaurus/tsconfig
-├── audit-ci.json                # New — mirrors root/frontend pattern
-├── docusaurus.config.ts         # Site config — see below
-├── sidebars.ts                  # Sidebar structure — see below
-├── .gitignore                   # Docusaurus template default (build/, .docusaurus/, node_modules/) — superseded/reinforced by repo-root .gitignore too
-├── docs/                        # GIT-IGNORED generated copy — populated by scripts/sync-docs.mjs from ../docs/. Never hand-edited.
-├── scripts/
-│   ├── sync-docs.mjs            # New — copy script, see §2.2
-│   └── docs-manifest.json       # New — explicit allowlist of docs/ paths to migrate
-├── src/
-│   ├── css/
-│   │   └── custom.css           # Template default; Charon brand colors applied here
-│   └── pages/
-│       └── index.tsx            # Landing page (template default, customized with Charon branding/links)
-├── static/
-│   └── img/
-│       ├── favicon.ico          # Reuse existing Charon favicon asset (copy from frontend/public/ or root)
-│       └── banner.webp          # Reuse existing OG image already referenced in build-docs.sh (frontend/public/banner.webp)
-└── README.md                    # New — how to run/build docs-site locally, references sync-docs.mjs
-```
-
-Key `docusaurus.config.ts` settings (values, not full file — implementer fills in per Docusaurus TS template conventions):
-
-| Setting | Value | Reasoning |
-|---|---|---|
-| `title` | `"Charon"` | Matches product name |
-| `tagline` | `"Your server, your rules — without the headaches."` | Pulled verbatim from `ARCHITECTURE.md`'s Core Value Proposition |
-| `url` | `"https://wikid82.github.io"` | GitHub Pages org/user domain |
-| `baseUrl` | `"/Charon/"` | Project page path, matches current live URL structure (`https://wikid82.github.io/Charon/...`) so the README link in §3.5 stays a natural extension of the existing pattern |
-| `organizationName` | `"Wikid82"` | GitHub org/user |
-| `projectName` | `"Charon"` | Repo name |
-| `deploymentBranch` | N/A — deploy handled by Actions workflow, not `docusaurus deploy` (see §3.4) | Avoids needing a `gh-pages` branch/token; matches existing Pages Actions-based deploy model already used by `docs.yml` |
-| `presets[0].docs.path` | `"docs"` | Points at the git-ignored, sync-script-populated `docs-site/docs/` |
-| `presets[0].docs.sidebarPath` | `"./sidebars.ts"` | Default |
-| `presets[0].docs.routeBasePath` | `"docs"` (default, or `"/"` if the landing page should *be* the docs home — recommend keeping default `"docs"` since `src/pages/index.tsx` provides a proper marketing-style landing page, matching the current site's separate landing-page-vs-docs split in `docs-index.html`) | Matches existing UX shape |
-| `presets[0].blog` | `false` (disabled) | Charon docs are reference material, not a blog; avoids an empty, confusing "Blog" nav item |
-| `themeConfig.navbar.items` | Links to Getting Started, Features, Guides, API, GitHub repo | Mirrors `docs/index.md`'s "Start Here" grouping |
-| Search | `@easyops-cn/docusaurus-search-local` plugin (offline, no external service) | Consistent with "no external dependencies" ethos (§1.3) |
-
-`sidebars.ts` uses Docusaurus's `autogenerated` sidebar type pointed at the
-synced `docs/` tree (`{type: 'autogenerated', dirName: '.'}`) rather than a
-hand-maintained manual sidebar array — this means the sidebar tracks whatever
-is in `docs-manifest.json` automatically, with per-directory ordering
-controlled by lightweight `_category_.json` files added under
-`docs-site/docs-category-overrides/` that the sync script merges in (or,
-simpler for v1: rely on Docusaurus's default alphabetical + `sidebar_position`
-frontmatter, which the copied files can gain incrementally). **Recommendation
-for v1: autogenerated + alphabetical, no category overrides** — lowest
-implementation cost, revisit if navigation ordering proves confusing after
-launch.
-
-### 3.2 `docs-site/package.json`
-
-```json
+```jsonc
 {
-  "name": "charon-docs-site",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "sync-docs": "node scripts/sync-docs.mjs",
-    "start": "npm run sync-docs && docusaurus start",
-    "build": "npm run sync-docs && docusaurus build",
-    "swizzle": "docusaurus swizzle",
-    "deploy": "docusaurus deploy",
-    "clear": "docusaurus clear",
-    "serve": "docusaurus serve",
-    "write-translations": "docusaurus write-translations",
-    "write-heading-ids": "docusaurus write-heading-ids",
-    "type-check": "tsc --noEmit",
-    "audit:ci": "audit-ci --config ./audit-ci.json"
-  },
-  "dependencies": {
-    "@docusaurus/core": "^3.9.0",
-    "@docusaurus/preset-classic": "^3.9.0",
-    "@easyops-cn/docusaurus-search-local": "^0.44.5",
-    "@mdx-js/react": "^3.1.1",
-    "clsx": "^2.1.1",
-    "prism-react-renderer": "^2.4.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
-    "@docusaurus/module-type-aliases": "^3.9.0",
-    "@docusaurus/tsconfig": "^3.9.0",
-    "@docusaurus/types": "^3.9.0",
-    "audit-ci": "^7.1.0",
-    "typescript": "^5.7.3"
-  },
-  "engines": {
-    "node": ">=20.0"
-  },
-  "browserslist": {
-    "production": [">0.5%", "not dead", "not op_mini all"],
-    "development": ["last 3 chrome version", "last 3 firefox version", "last 5 safari version"]
-  }
+  // ... other fields ...
+  "proxy_group_id": "5c1f7e3a-....-uuid"  // string UUID, or null/"" to clear
 }
 ```
 
-Notes:
-- `typescript` is pinned to `^5.7.3`, **not** `^6.0.3` like root/frontend — Docusaurus 3.9's toolchain does not yet support TypeScript 6 (root's `charon_dep_update.sh` already carries an explicit `--reject typescript` exclusion for this exact class of problem on `frontend/`; the same constraint applies here and the exclusion list in §4.3 must be extended, not duplicated with a new mechanism).
-- Exact `@docusaurus/*` versions above are current-as-of-this-plan; the implementer should run `create-docusaurus@latest` at implementation time and use whatever it scaffolds, adjusting this table to match — pinning exact versions in a spec written weeks before implementation is guaranteed to drift.
-- React 18 (not 19, matching `frontend/`'s 19.2.3) is what Docusaurus 3.x's classic preset currently supports; this is an intentional, isolated exception — `docs-site/`'s React tree is fully independent of `frontend/`'s (separate `node_modules`, separate bundle, never co-loaded in a browser tab with the app), so there is no version-skew risk to the actual product.
+Response body (`ProxyHost` / `ProxyHostResponse`) already includes:
 
-### 3.3 `docs-site/scripts/docs-manifest.json`
-
-```json
+```jsonc
 {
-  "files": [
-    "getting-started.md",
-    "features.md",
-    "security.md",
-    "api.md",
-    "migration-guide.md",
-    "database-schema.md",
-    "import-guide.md",
-    "live-logs-guide.md",
-    "acme-staging.md",
-    "cerberus.md",
-    "database-maintenance.md",
-    "crowdsec-auto-start-quickref.md",
-    "migration-guide-crowdsec-auto-start.md",
-    "security-incident-response.md"
-  ],
-  "directories": [
-    "features",
-    "configuration",
-    "guides",
-    "troubleshooting",
-    "api"
-  ]
+  "proxy_group": { "uuid": "...", "name": "Media", "color": "#6366f1" } // or null
 }
 ```
 
-`sync-docs.mjs` reads `files` (copied to `docs-site/docs/<name>`) and
-`directories` (recursively copied to `docs-site/docs/<name>/`) — see §2.2 for
-the copy algorithm. Adding a new user-facing doc later is a one-line manifest
-edit, not a script change.
+Validation behavior (unchanged, already implemented in
+`resolveProxyGroupReference`):
+- `null` or `""` → clears the group (`ProxyGroupID = nil`).
+- Non-empty string not matching an existing group's `uuid` → `400 {"error": "proxy group not found"}`.
+- Any non-string, non-nil value (e.g. a number) → `400 {"error": "invalid proxy_group_id: must be a UUID string"}`.
 
-### 3.4 New GitHub Actions Workflow: `.github/workflows/docs-deploy.yml`
+### 3.2 Frontend component: `ProxyGroupSelector`
 
-Replaces `docs.yml` (deleted in the same commit, §4.4). Structure follows
-`docs.yml`'s existing two-job (`build` / `deploy`) shape and permissions, swapping the build step for a Docusaurus build:
+New file: `frontend/src/components/ProxyGroupSelector.tsx`
 
-```yaml
-name: Deploy Documentation Site
+```ts
+interface ProxyGroupSelectorProps {
+  value: string | null | undefined
+  onChange: (uuid: string | null) => void
+}
 
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs-site/**'
-      - 'docs/**'
-      - '.github/workflows/docs-deploy.yml'
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages-${{ github.ref }}"
-  cancel-in-progress: false
-
-env:
-  NODE_VERSION: '24.21.0'
-
-jobs:
-  build:
-    name: Build Documentation Site
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: 🔧 Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: docs-site/package-lock.json
-
-      - name: 📦 Install dependencies
-        working-directory: docs-site
-        run: npm ci
-
-      - name: 📝 Build documentation site
-        working-directory: docs-site
-        run: npm run build
-
-      - name: 📤 Upload artifact
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
-        with:
-          path: 'docs-site/build'
-
-  deploy:
-    name: Deploy to GitHub Pages
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: build
-    steps:
-      - name: 🚀 Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+export default function ProxyGroupSelector({ value, onChange }: ProxyGroupSelectorProps) {
+  const { data: groups } = useProxyGroups()
+  // Select / SelectTrigger / SelectContent from ./ui/Select, mirroring
+  // AccessListSelector's structure but WITHOUT the numeric/UUID token
+  // machinery (proxy_group_id is UUID-only, see §2.1/§2.3).
+  // Sentinel "none" option -> onChange(null).
+  // Each group option value === group.uuid; renders a colored dot (like
+  // ProxyGroupBadge) + group.name in the SelectItem.
+  // Optional: link to "Manage groups" mirroring AccessListSelector's
+  // "Manage lists" link, pointing wherever ManageGroupsDialog is triggered
+  // from (informational text only; opening the dialog from inside the
+  // host form is out of scope — see Non-Goals).
+}
 ```
 
-Differences from `docs.yml` worth calling out to a reviewer:
-- Trigger changes from `workflow_run` (chained after Docker Build) to a direct `push` on `main` filtered to relevant paths, plus manual dispatch. The old chained trigger existed because the marked-based pipeline copied `README.md` verbatim including build-status badges that implicitly depend on a successful Docker build; Docusaurus's build has no such coupling, and gating docs publishing on an unrelated Docker Hub/GHCR pipeline succeeding is not a real dependency — a path-filtered direct push trigger is simpler and more responsive.
-- `npm ci` (not `npm install`) in CI for reproducible, lockfile-exact installs — matches standard CI practice and is implied-but-unstated in `docs.yml` (which had no lockfile to `ci` against since it only did a global `npm install -g marked`).
-- Node's built-in npm cache (`cache: 'npm'` + `cache-dependency-path`) added since a real `package-lock.json` now exists to key off of — this affordance didn't apply to the old pipeline's single global install.
+Unit tests: `frontend/src/components/__tests__/ProxyGroupSelector.test.tsx`
+- renders "No Group" (or equivalent sentinel) plus one `SelectItem` per
+  group from `useProxyGroups()`.
+- selecting a group calls `onChange(group.uuid)`.
+- selecting the sentinel calls `onChange(null)`.
+- pre-selects the option matching a passed-in `value`.
+- renders correctly when `useProxyGroups()` returns an empty/loading list
+  (no crash, sentinel-only dropdown).
 
-### 3.5 README.md / `docs/index.md` Cross-Linking
+### 3.3 `ProxyHostForm.tsx` changes
 
-- `README.md:136` currently reads: `Full setup instructions and documentation are available at [https://wikid82.github.io/Charon/docs/getting-started.html](https://wikid82.github.io/Charon/docs/getting-started.html).` — updated to the Docusaurus route for the same page: `https://wikid82.github.io/Charon/docs/getting-started` (Docusaurus strips `.html` and the `docs/` `routeBasePath` prefix already matches, so only the trailing `.html` is dropped — implementer must verify the exact generated route once `sidebars.ts` autogeneration is scaffolded, since the manifest copies `getting-started.md` to the doc ID `getting-started`, and Docusaurus's default routing is `<routeBasePath>/<docId>` i.e. `docs/getting-started`).
-- `README.md:198` (`[Explore All Features →](https://github.com/Wikid82/Charon/blob/main/docs/features.md)`) is left as a direct GitHub blob link, unchanged — it already works today and isn't part of the Pages pipeline; optionally could be repointed at the new site, but that's a judgment call left to `docs-writer` in the hardening commit (§4.5), not a hard requirement.
-- `docs/index.md` is **not** modified — it remains the nav page for the internal `docs/` tree as browsed directly on GitHub (its links are relative Markdown links that work fine in GitHub's own Markdown renderer regardless of the Pages site's existence).
-- The new Docusaurus landing page (`docs-site/src/pages/index.tsx`) gets a "Start Here" section mirroring `docs/index.md`'s grouping (Getting Started / Features / Import / Security / API / Remote Access), written against the migrated doc IDs.
+File: `frontend/src/components/ProxyHostForm.tsx`
 
-### 3.6 API Design / Database Schema / Component Design
+1. Import `useProxyGroups` is not needed directly in the form — the new
+   `ProxyGroupSelector` owns its own data fetching, matching how
+   `AccessListSelector` is used at line 996-999. Add:
+   ```ts
+   import ProxyGroupSelector from './ProxyGroupSelector'
+   ```
+2. `ProxyHostFormState` type (line 252-259): add
+   `proxy_group_id?: string | null` to the `Omit<...>` extension list (it's
+   already `string | null` shaped on `ProxyHost`, no numeric variant, so no
+   `Omit` needed on the base type — just add it to the intersected extra
+   fields, matching how `access_list_id` etc. are typed).
+3. `buildInitialFormData` (lines 105-131): add
+   ```ts
+   proxy_group_id: host?.proxy_group?.uuid ?? (typeof host?.proxy_group_id === 'string' ? host.proxy_group_id : null),
+   ```
+   (mirrors the existing `access_list_id`/`certificate_id` pattern of
+   preferring the nested object's `uuid` over the raw ID field.)
+4. Render the selector in the form body — placed directly after the
+   **Access Control List** block (after line 999, before the **Security
+   Headers Profile** block at line 1001), as both are "optional
+   host-classification" selectors of similar weight:
+   ```tsx
+   {/* Proxy Group */}
+   <div>
+     <label className="block text-sm font-medium text-gray-300 mb-2">
+       Proxy Group
+       <span className="text-gray-500 font-normal ml-2">(Optional)</span>
+     </label>
+     <ProxyGroupSelector
+       value={formData.proxy_group_id ?? null}
+       onChange={(uuid) => setFormData(prev => ({ ...prev, proxy_group_id: uuid }))}
+     />
+     <p className="text-xs text-gray-500 mt-1">
+       Organize this host under a group shown on the Proxy Hosts list.
+     </p>
+   </div>
+   ```
+5. `handleSubmit` (lines 538-598): `proxy_group_id` needs no special
+   normalization function (unlike `access_list_id`/`certificate_id`, which
+   go through `normalizeAccessListReference` because they support the
+   legacy numeric-ID shape) — it is already a plain `string | null` in
+   `formData`, so it passes through `...payloadWithoutUptime` unchanged
+   into `submitPayload`. No new normalizer needed.
 
-Not applicable — this is a static documentation site with no backend API
-surface, no database interaction, and no `internal/models` or
-`internal/api/routes` changes. No `AutoMigrate` changes. No new Go code.
+Unit tests: extend `frontend/src/components/__tests__/ProxyHostForm.test.tsx`
+(and/or a new `ProxyHostForm-group.test.tsx` if the existing file is
+already large/segmented, matching the repo's pattern of splitting
+`ProxyHostForm-*.test.tsx` by concern — see existing
+`ProxyHostForm-dns.test.tsx`, `ProxyHostForm-uptime.test.tsx`):
+- new host: no group preselected by default (`null` / sentinel).
+- editing a host with `proxy_group: {uuid, name, color}`: selector shows
+  that group preselected.
+- selecting a different group and submitting calls `onSubmit` with
+  `proxy_group_id: '<selected-uuid>'`.
+- clearing the group (sentinel) and submitting calls `onSubmit` with
+  `proxy_group_id: null`.
+- submitting a host with no group touched at all does not regress
+  existing fields (snapshot-style assertion on the rest of the payload).
 
-### 3.7 Error Handling
+### 3.4 `ProxyHosts.tsx` + `DataTable.tsx` layout changes
 
-| Failure mode | Handling |
-|---|---|
-| `sync-docs.mjs` manifest references a path that no longer exists under `docs/` (renamed/deleted upstream) | Script exits non-zero with the missing path named; fails `npm run build` / `npm start` loudly rather than silently publishing a thinner site |
-| Docusaurus build fails (broken internal link, invalid frontmatter, MDX parse error) | `docusaurus build` exits non-zero (Docusaurus's default `onBrokenLinks: 'throw'` config, kept at its default rather than downgraded to `'warn'`) — CI job fails, nothing deploys, previous Pages deployment remains live (GitHub Pages does not roll back on a failed new deployment; the last successful `deploy-pages` run stays serving) |
-| `npm ci` / `audit:ci` finds a high/critical vuln in `docs-site/` deps during `charon_dep_update.sh` | Script hard-fails per existing `set -euo pipefail` behavior (same as any other `NPM_MODULES` entry today) — surfaces in the dependency-update PR/run, not silently swallowed |
-| Two docs-deploy workflow runs race (e.g. two quick merges to `main`) | `concurrency: {group: "pages-${{ github.ref }}", cancel-in-progress: false}` queues rather than cancels, matching `docs.yml`'s existing queuing semantics — last-queued run's content wins, no half-deployed states since each run's `build` job produces a complete artifact |
+File: `frontend/src/components/ui/DataTable.tsx`
+- Add `minWidth?: string` to the `Column<T>` interface (next to `width`,
+  line 12).
+- Header `<th>` (line 146): `style={{ width: col.width, minWidth: col.minWidth }}`.
+- Body `<td>` (line 251-256): apply `col.minWidth ? 'whitespace-nowrap' : undefined`
+  to the `className` via `cn(...)`, and the same inline `minWidth` style,
+  so a column that declares a floor never wraps its content.
+- `<table className="w-full">` (line 117) → `<table className="w-full min-w-[760px]">`.
 
----
+Unit tests: extend `frontend/src/components/ui/__tests__/DataTable.test.tsx`
+- a column with `minWidth` renders with the expected inline style and
+  `whitespace-nowrap` class on its cells.
+- table root retains `min-w-[760px]` alongside `w-full` (class-list
+  assertion) — regression guard against the fallback being dropped later.
+
+File: `frontend/src/pages/ProxyHosts.tsx`
+- Rename the existing `columns` to `flatColumns` at the definition site
+  (line 502) — used only where `groups.length === 0` (line 748).
+- Add `groupedColumns = flatColumns.filter(c => c.key !== 'group').map(c => ...)`
+  overriding `domain`'s `width` to `22%`, `actions`'s `width` to `13%` and
+  `minWidth` to `140px`, and setting `minWidth: '140px'` on `flatColumns`'s
+  `actions` entry too (both views get the floor; only grouped view gets
+  the reclaimed-width redistribution). Implementation detail left to
+  `frontend-dev`: either build two independent literal arrays (simplest,
+  most explicit, avoids a generic "column patcher" abstraction for two
+  fields) or derive `groupedColumns` from `flatColumns` with a small
+  `remap` helper — either is acceptable as long as both column sets stay
+  in sync via a single shared `cell` renderer per column key (no
+  duplicated JSX between the two).
+- Use `groupedColumns` at the two per-group-context `DataTable` call sites
+  (currently lines 831-847 "named group" and 863-872 "Ungrouped section"),
+  replacing `columns`.
+- Flat-view `DataTable` (line 748) keeps `flatColumns`.
+
+Unit tests: extend `frontend/src/pages/__tests__/ProxyHosts-groups.test.tsx`
+- when `groups` is non-empty, the "Group" column header is **absent**
+  from each rendered per-group `DataTable` section (query by column
+  header text within `within(section)`).
+- when `groups` is empty (flat view), the "Group" column header **is**
+  present.
+- Actions column ("Edit"/"Delete" buttons) is present and not wrapped
+  (smoke-level: buttons render with accessible names) in both grouped and
+  flat views, at a representative width (jsdom doesn't lay out CSS, so
+  this test asserts markup/class presence — e.g. the `minWidth`-driven
+  `whitespace-nowrap` class — rather than pixel measurements; the
+  Playwright E2E spec is the real layout check, see §4.1).
 
 ## 4. Implementation Plan
 
-### Phase 1: Playwright Tests (Spec Behavior)
+### Phase 1: Playwright E2E specs (written first, `test.fixme` until implemented)
 
-Not applicable in the traditional sense — `docs-site/` is a static site with
-no Playwright-testable app flows in Charon's existing E2E suite (which targets
-`frontend/`'s running app against a live backend). No `test.fixme` E2E specs
-are added for this feature. Verification instead happens via:
-- `npm run build` succeeding locally and in CI (broken-link detection is Docusaurus's own build-time check, replacing what a Playwright smoke test would otherwise catch).
-- A manual/CI smoke check (`npm run serve` + `curl` the built `docs-site/build/index.html` and a couple of migrated pages) as part of Commit 4's validation gate, in place of a Playwright spec.
+New/extended spec: `tests/proxy-groups.spec.ts` (extend existing describe
+blocks) — add:
 
-### Phase 2: Backend Implementation
+```ts
+test.describe('Proxy Host Form — Group Selector', () => {
+  test.fixme('shows a group selector when creating a new host', async ({ page }) => { /* ... */ });
+  test.fixme('preselects the host\'s current group when editing', async ({ page }) => { /* ... */ });
+  test.fixme('assigns a group to a host via the create/edit form', async ({ page }) => { /* ... */ });
+  test.fixme('clears a host\'s group via the create/edit form', async ({ page }) => { /* ... */ });
+});
 
-Not applicable — no `backend/` changes.
-
-### Phase 3 & Foundation: Docs Site Scaffold, Content Sync, Dep-Script Wiring
-
-Covered in Commits 1–3 below (this feature has no meaningful frontend/backend
-split; "frontend" here just means "the docs-site TypeScript project," which
-*is* the deliverable, not a UI layer on top of a Go API).
-
-### Phase 4: Integration and Testing
-
-Covered in Commit 4 (CI workflow) and Commit 5 (cross-links, cleanup) below.
-
-### Phase 5: Documentation and Deployment
-
-- `docs-writer` updates `ARCHITECTURE.md`'s Directory Structure section to list `docs-site/` (flagged here, not written by this plan — see §1.4).
-- `docs-writer` reviews the migrated content for any Docusaurus-specific formatting improvements (admonitions, tabs) as an optional follow-up, out of scope for this PR's merge bar.
-
----
-
-## 5. `.gitignore` Additions
-
-Appended near the existing `node_modules/`/`frontend/dist/` block (after line 37, following the repo's per-package explicit-path style):
-
-```gitignore
-# Docs site (Docusaurus) - generated content and build output
-docs-site/node_modules/
-docs-site/docs/
-docs-site/build/
-docs-site/.docusaurus/
-docs-site/.cache-loader/
+test.describe('Proxy Hosts — Grouped Row Layout', () => {
+  test.fixme('keeps the Actions column fully visible at 1280px width when grouped', async ({ page }) => { /* ... */ });
+  test.fixme('does not render a redundant Group column inside a named group section', async ({ page }) => { /* ... */ });
+});
 ```
 
-`docs-site/docs/` (the sync-script-generated copy, §2.2) is git-ignored
-alongside the standard Docusaurus `build/`/`.docusaurus/` artifacts — this is
-the enforcement mechanism that makes "`docs/` is the only source of truth"
-actually true rather than aspirational (a committed `docs-site/docs/` would
-immediately invite drift).
+Delegate authoring of the real Playwright steps (locators, fixtures,
+assertions) to `playwright-dev` once the plan is approved — per team
+convention (`playwright-dev` writes tests only, does not implement
+product code). Use `tests/fixtures/proxy-hosts.ts` and existing
+`proxy-groups.spec.ts` helpers (`waitForAPIHealth`, `waitForDialog`,
+`waitForAPIResponse`) as the base, consistent with the existing file's
+style (see §2, research read of that file's top).
 
----
+Layout assertions should use `page.setViewportSize({width: 1280, height: 800})`
+(a realistic laptop width) and assert the Edit/Delete buttons'
+bounding boxes are fully inside the table's bounding box (no clipping),
+rather than asserting exact pixel widths (brittle).
 
-## 6. Commit Slicing Strategy
+### Phase 2: Foundation
 
-**Decision: single PR, five ordered commits, one feature (docs-site
-migration) merged only when complete.** No PR is opened until Commit 5 is
-ready; commits are pushed sequentially to the feature branch and reviewed as a
-whole, per `CLAUDE.md`'s "Slice Commits, Not PRs."
+- `DataTable.tsx`: add `minWidth` to `Column<T>`, wire it into `<th>`/`<td>`,
+  add `min-w-[760px]` to `<table>`. No behavior change for existing callers
+  that don't pass `minWidth` (backward compatible — optional field).
+- Add `frontend/src/components/ProxyGroupSelector.tsx` (net-new component,
+  no wiring into `ProxyHostForm` yet in this commit) with its unit tests.
 
-### Commit 1 — Scaffold Docusaurus project (foundation, no `docs/` content yet)
+Validation gate: `cd frontend && npx vitest run src/components/ui/__tests__/DataTable.test.tsx src/components/__tests__/ProxyGroupSelector.test.tsx` passes; `npm run type-check` clean.
 
-- **Commit message prefix**: `chore:` — `docs-site/` is never bundled into the Docker image or served by `internal/server` (see §1.4), so per CLAUDE.md's CI/CD conventions this must not use `feat:`/`fix:`/`perf:`, which would trigger an unwanted Docker build/release for a docs-only change. All five commits in this slice use `chore:`.
-- **Scope**: Create `docs-site/` via the TypeScript classic template, strip template placeholder content (default `docs/intro.md`, `blog/`, tutorial docs), configure `docusaurus.config.ts` / `sidebars.ts` per §3.1, add `docs-site/package.json` per §3.2, add `docs-site/audit-ci.json` (`{"$schema": "https://raw.githubusercontent.com/IBM/audit-ci/main/docs/schema.json", "high": true, "allowlist": []}`), add `docs-site/tsconfig.json`, add a placeholder `docs-site/docs/intro.md` *only* for this commit's local verification (removed once Commit 2 wires real sync) or simply verify against the template's stock content before Commit 2 replaces it.
-- **Files**: `docs-site/package.json`, `docs-site/package-lock.json`, `docs-site/tsconfig.json`, `docs-site/audit-ci.json`, `docs-site/docusaurus.config.ts`, `docs-site/sidebars.ts`, `docs-site/src/**`, `docs-site/static/**`, `docs-site/README.md`, `docs-site/.gitignore` (template default).
-- **Dependencies**: None.
-- **Validation gate**: `cd docs-site && npm install && npm run type-check && npm run build` all succeed; `npm run audit:ci` reports zero high/critical findings.
+### Phase 3: Backend
 
-### Commit 2 — Content sync mechanism + migrated docs wired in
+**Gap found during Commit 6 E2E enablement (contingency triggered).**
+`Create` (`backend/internal/api/handlers/proxy_host_handler.go`, ~lines
+434-524) resolves `proxy_group_id` into a local variable, but then builds
+the model via `json.Marshal(payload)` → `json.Unmarshal(payloadBytes, &host)`.
+Because `ProxyHost.ProxyGroupID` is `json:"-"` (by design — the numeric PK
+is never exposed to clients), that round-trip silently discards the
+resolved value before `h.service.Create(&host)` is called, so a host
+created with a `proxy_group_id` is persisted with no group at all. `Update`
+does not have this bug — it assigns `host.ProxyGroupID = resolvedGroupID`
+directly on the already-loaded struct, bypassing JSON entirely. This
+contradicts this spec's original §2.1 conclusion ("the full round trip
+already works... simply never exercised") — it only works for Update.
 
-- **Commit message prefix**: `chore:`.
-- **Scope**: Add `docs-site/scripts/sync-docs.mjs` and `docs-site/scripts/docs-manifest.json` per §2.2/§3.3; update `package.json`'s `start`/`build` scripts to run `sync-docs` first; remove the Commit-1 placeholder doc; add the `@easyops-cn/docusaurus-search-local` plugin config for local search.
-- **Files**: `docs-site/scripts/sync-docs.mjs`, `docs-site/scripts/docs-manifest.json`, `docs-site/package.json` (script updates), `docs-site/docusaurus.config.ts` (search plugin), `.gitignore` (add `docs-site/docs/` and friends per §5).
-- **Dependencies**: Commit 1.
-- **Validation gate**: `cd docs-site && npm run build` succeeds and produces a complete `docs-site/build/` with pages for every manifest entry (spot-check: `docs-site/build/docs/getting-started/index.html`, `docs-site/build/docs/features/orthrus/index.html` exist and contain expected content); `git status` shows `docs-site/docs/` is untracked/ignored, not staged.
+**Fix (Commit 4.5, inserted between Commit 4 and Commit 6)**: in `Create`,
+after `json.Unmarshal(payloadBytes, &host)`, add
+`host.ProxyGroupID = resolvedGroupID` (mirroring `Update`), keeping the
+resolved `*uint` in scope from the earlier resolution block. Add a Go
+regression test asserting a `POST /proxy-hosts` with `proxy_group_id` set
+actually persists the group (assert via a follow-up `GET`, not just the
+create response body, since the response's own `proxy_group` serialization
+is a separate, non-blocking minor gap noted below). Scope: this is a
+one-line-class fix isolated to the `Create` handler; no model or migration
+change.
 
-### Commit 3 — Wire `scripts/charon_dep_update.sh`
+### Phase 4: Frontend integration
 
-- **Commit message prefix**: `chore:`.
-- **Scope**: Add `"$REPO_ROOT/docs-site"` to the `NPM_MODULES` array only. The script's `npx npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y` call runs unconditionally for every entry in the `NPM_MODULES` loop (it is not per-module and there is no separate per-module reject list) — adding `docs-site` to the array automatically gets the same TypeScript-6 rejection for free. No second exclusion-list change is needed or exists to make.
-- **Files**: `scripts/charon_dep_update.sh` (single array-entry addition).
-- **Dependencies**: Commits 1–2 (the module must build/type-check/audit cleanly before the update script exercises it).
-- **Validation gate**: Do not run the full `bash scripts/charon_dep_update.sh npm` for this commit's gate — it bumps dependencies repo-wide (root and `frontend/` too) as a side effect, which is disproportionate for verifying a single array-line change. Instead, directly exercise the `docs-site` block's commands the way the script's loop body would: from `docs-site/`, run `rm -rf node_modules package-lock.json && npm install && npm dedupe && npm run build && npm run type-check && npm run audit:ci` and confirm all succeed, then separately confirm TypeScript in `docs-site/package.json` stays on the `^5.x` line after an `npx --yes npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y` dry pass. Save the full multi-module script run for CI/pre-merge, not this commit's local gate.
+- Wire `ProxyGroupSelector` into `ProxyHostForm.tsx` per §3.3.
+- Split `columns` into `flatColumns`/`groupedColumns` in `ProxyHosts.tsx`
+  per §3.4, update the three `DataTable` call sites.
+- Extend `ProxyHostForm.test.tsx` (or new `ProxyHostForm-group.test.tsx`)
+  and `ProxyHosts-groups.test.tsx` per §3.3/§3.4.
 
-### Commit 4 — CI: Pages deploy workflow, retire the old pipeline
+Validation gate: `cd frontend && npx vitest run src/components/__tests__/ProxyHostForm.test.tsx src/components/__tests__/ProxyHostForm-group.test.tsx src/pages/__tests__/ProxyHosts-groups.test.tsx` passes; `npm run type-check` clean; `npm run build` clean.
 
-- **Commit message prefix**: `chore:`.
-- **Scope**: Add `.github/workflows/docs-deploy.yml` per §3.4; delete `.github/workflows/docs.yml`, `.github/pages/build-docs.sh`, `.github/pages/docs-index.html` (and any other files solely used by the retired pipeline — verify no other workflow references `build-docs.sh` or `docs-index.html` before deleting).
-- **Files**: `.github/workflows/docs-deploy.yml` (new), `.github/workflows/docs.yml` (deleted), `.github/pages/build-docs.sh` (deleted), `.github/pages/docs-index.html` (deleted).
-- **Dependencies**: Commits 1–3 (workflow assumes `docs-site/package-lock.json` exists and `npm run build` is green).
-- **Validation gate**: `actionlint .github/workflows/docs-deploy.yml` (or whatever this repo's lint-workflow tooling is — check `make` targets / `lefthook` config for an existing actionlint invocation and reuse it) passes with no errors; a `workflow_dispatch` manual run against the feature branch (or a fork/test run per `devops` agent's standard verification approach) completes the `build` job successfully and produces a valid Pages artifact. Full end-to-end Pages deploy verification (the `deploy` job) is CI-on-`main`-only per this repo's standard model — cannot be fully validated pre-merge, same constraint the old `docs.yml` had.
+### Phase 5: Hardening, enable E2E, docs
 
-### Commit 5 — Cross-links, `.gitignore` finalization, cleanup
+- Flip the `test.fixme` specs from Phase 1 to real assertions (or confirm
+  `playwright-dev`'s authored versions pass) and run:
+  `npx playwright test tests/proxy-groups.spec.ts --project=firefox`
+  from repo root (targeted, single browser, per Definition of Done — never
+  the full suite or multiple `--project` flags locally).
+- Update `docs/features.md` if it documents the proxy-host form fields
+  (brief one-line addition noting group assignment is available in the
+  form, not just drag-and-drop/bulk-assign) — delegate to `docs-writer`.
+- Run full Definition of Done: `scripts/local-patch-report.sh`,
+  `scripts/frontend-test-coverage.sh` (≥85%), `lefthook run pre-commit`,
+  `npm run type-check`, `npm run build`. No `backend/internal/models/**`
+  or GORM changes are expected in this feature, so the GORM Security Scan
+  gate (§1.5 of the Definition of Done) does not apply unless Phase 3
+  ends up non-empty.
 
-- **Commit message prefix**: `chore:`.
-- **Scope**: Update `README.md:136`'s link per §3.5; confirm/finalize the `.gitignore` block from §5 landed correctly (may already be done in Commit 2 — this commit is the final audit pass, ensure no `docs-site` build artifacts got accidentally staged anywhere in Commits 1–4); add `docs-site/README.md` local-dev instructions (how to run `npm start`, how the sync script works, where to add new pages via the manifest) if not already covered in Commit 1's scaffold; flag `ARCHITECTURE.md`'s Directory Structure section for a follow-up `docs-writer` update (do not write the `ARCHITECTURE.md` prose in this commit — per the task's explicit instruction, that's assigned to `docs-writer` in a later pipeline step, not this plan).
-- **Files**: `README.md`, `docs-site/README.md`, `.gitignore` (final check), no `ARCHITECTURE.md` edit in this commit.
-- **Dependencies**: Commits 1–4.
-- **Validation gate**: `npx markdownlint-cli2 'README.md' 'docs-site/README.md'` (repo's existing `lint:md` script, scoped to touched files) passes; manual click-through of the README's updated docs link against the locally-built `docs-site/build/` (via `npm run serve`) confirms the target page exists at the expected path.
+## 5. Commit Slicing Strategy
 
-### Rollback / Contingency Notes (whole-PR level)
+**Decision**: Single PR, one feature (proxy-host group UI gap +
+grouped-view row layout), ordered commits within that PR. Both problems
+are fixed together because they are the same UI surface (the
+proxy-host/group presentation) and reviewing them separately would leave
+the PR in a half-fixed state relative to issue #1367, which reports both
+as one user-facing complaint.
 
-- Because Commit 4 deletes the old `docs.yml` pipeline, a rollback of this PR **after merge** needs to `git revert` the full commit range (not just Commit 4) to restore the working old pipeline — reverting only Commit 4 would leave `docs-site/` orphaned with no deploy path, which is a worse state than either fully-forward or fully-reverted. Document this in the PR description explicitly.
-- If Commit 4's CI validation reveals GitHub Pages `baseUrl`/routing mismatches post-merge (e.g. asset 404s under `/Charon/` subpath), the fix is a `docusaurus.config.ts` `baseUrl`/`url` correction plus a re-run of the `docs-deploy` workflow — no code rollback needed, this is a config-only fix forward.
-- If `docs-site/`'s dependency footprint later proves too heavy for `charon_dep_update.sh`'s runtime (Commit 3's concern), the contingency is to split `NPM_MODULES` handling per-module with independent timeouts rather than reverting the docs-site addition — flag to `devops` if this becomes an issue in practice, not a reason to hold this PR.
-- Nothing in this feature touches `backend/` or `frontend/` build output, so there is no risk to the shipped Docker image / Charon binary from any part of this rollback story — worst case of a bad merge is a broken or stale docs site, never a broken product release.
+| # | Commit | Scope / Files | Depends on | Validation gate |
+|---|--------|---------------|------------|------------------|
+| 1 | `test: add E2E specs for proxy host group selector and grouped-view layout (fixme)` | `tests/proxy-groups.spec.ts` (new `test.fixme` blocks only) | — | Spec file parses: `npx playwright test tests/proxy-groups.spec.ts --project=firefox --list` |
+| 2 | `refactor: add column minWidth support to DataTable` | `frontend/src/components/ui/DataTable.tsx`, `frontend/src/components/ui/__tests__/DataTable.test.tsx` | — | `npx vitest run src/components/ui/__tests__/DataTable.test.tsx`; `npm run type-check` |
+| 3 | `feat: add ProxyGroupSelector component` | `frontend/src/components/ProxyGroupSelector.tsx`, `frontend/src/components/__tests__/ProxyGroupSelector.test.tsx` | — | `npx vitest run src/components/__tests__/ProxyGroupSelector.test.tsx`; `npm run type-check` |
+| 4 | `feat: add group selector to proxy host create/edit form` | `frontend/src/components/ProxyHostForm.tsx`, `frontend/src/components/__tests__/ProxyHostForm.test.tsx` (or new `ProxyHostForm-group.test.tsx`) | 3 | `npx vitest run src/components/__tests__/ProxyHostForm*.test.tsx`; `npm run type-check`; `npm run build` |
+| 5 | `fix: correct row layout in grouped Proxy Hosts view` | `frontend/src/pages/ProxyHosts.tsx`, `frontend/src/pages/__tests__/ProxyHosts-groups.test.tsx` | 2 | `npx vitest run src/pages/__tests__/ProxyHosts-groups.test.tsx`; `npm run type-check`; `npm run build` |
+| 6 | `test: enable E2E specs for group selector and grouped-view layout` | flip `test.fixme` → real assertions in `tests/proxy-groups.spec.ts` | 1, 4, 5 | `npx playwright test tests/proxy-groups.spec.ts --project=firefox` |
+| 7 | `docs: note group assignment in proxy host form` | `docs/features.md` (if applicable) | 4 | doc review only; no test gate |
 
----
+Commits 2 and 3 are independent of each other (no shared files) and can be
+authored/reviewed in either order, but both must land before commit 4
+(which depends on 3) and commit 5 (which depends on 2). Commit 1 can be
+authored any time before commit 6 but is listed first per the team's
+suggested sequence (E2E specs as `test.fixme` before implementation).
+Before merge, the full Definition of Done (coverage, lint, build,
+type-check) must pass regardless of per-commit gates above.
 
-## 7. Acceptance Criteria (Definition of Done for this PR)
+### Rollback / contingency
 
-- [ ] `docs-site/` builds cleanly (`npm run build`) with zero Docusaurus broken-link errors.
-- [ ] `docs-site/docs/` is git-ignored and never committed; `docs/` is unmodified in layout/content by this PR (diff on `docs/**` is empty except through Commit 2's read-only sync script referencing it).
-- [ ] Every path in `docs-site/scripts/docs-manifest.json` resolves to an existing `docs/` file or directory.
-- [ ] `scripts/charon_dep_update.sh npm` completes successfully for all three `NPM_MODULES` entries including the new `docs-site` entry.
-- [ ] `docs-site/audit-ci.json`-gated `npm run audit:ci` reports zero high/critical findings.
-- [ ] `.github/workflows/docs-deploy.yml` passes actionlint (or repo-equivalent) and a manual `workflow_dispatch` build-job dry run.
-- [ ] `.github/workflows/docs.yml`, `.github/pages/build-docs.sh`, `.github/pages/docs-index.html` are deleted with no remaining references elsewhere in the repo (`grep -rn "build-docs.sh\|docs-index.html" .github/` returns nothing after Commit 4).
-- [ ] `README.md`'s documentation link points at a real, migrated Docusaurus page.
-- [ ] `.gitignore` covers `docs-site/node_modules/`, `docs-site/docs/`, `docs-site/build/`, `docs-site/.docusaurus/`.
-- [ ] `ARCHITECTURE.md` update is explicitly flagged as a follow-up for `docs-writer` in the PR description — not silently skipped, not written by this plan.
-- [ ] Full repo Definition of Done from `CLAUDE.md` §"Task Completion Protocol" applies at PR level: patch coverage preflight, lefthook triage, staticcheck (N/A — no Go changes, but the gate still runs and must pass trivially), type-check (`docs-site` and unaffected `frontend`), build verification for both `backend` (unaffected, must still build) and `frontend` (unaffected, must still build).
+- The whole PR is one deployable unit; if QA or the user rejects the
+  layout fix (§3.4) post-merge, commits 5 and 6 must be reverted together
+  (commit 6's enabled E2E assertions depend on commit 5's layout fix, so
+  reverting 5 alone would leave those assertions failing). Commits 2-4 —
+  the form selector — are functionally and file-wise independent of 5/6,
+  so a targeted `git revert` of 5+6 does not touch the form feature.
+- If Phase 3 (backend) turns out non-empty after all (see §4, Phase 3
+  contingency), insert it as its own commit between commits 3 and 4, with
+  its own Go tests and, per the Definition of Done, a GORM security scan
+  run (`./scripts/scan-gorm-security.sh --check`) before commit 4 proceeds.
+- No feature flag is introduced — both changes are additive UI (a new
+  optional field, a layout correction) with no migration or data
+  implications, so a flag would add complexity without a corresponding
+  safety benefit. If the layout fix needs to be de-risked further at
+  review time, `groupedColumns`/`flatColumns` are separate arrays by
+  design (§3.4), making a partial revert (keep the form selector, drop
+  the layout change) mechanically trivial even without a flag.
 
----
+## 6. Acceptance Criteria
 
-## 8. Risks & Mitigations Summary
-
-| Risk | Mitigation |
-|---|---|
-| Docusaurus TS-version ceiling conflicts with repo's TS 6 push elsewhere | `docs-site` pinned to TS 5.x independently, same pattern as the existing `frontend`/typescript exclusion in `charon_dep_update.sh` (§3.2, §4 Commit 3) |
-| Two live Pages pipelines racing | Old pipeline deleted atomically in the same commit that adds the new one (§4 Commit 4) — no coexistence window |
-| Content drift between `docs/` and the public site | Enforced structurally: `docs-site/docs/` is git-ignored and regenerated from an explicit manifest on every build/dev start (§2.2) — there is no editable second copy to drift |
-| Manifest silently omits or wrongly includes a doc | Explicit allowlist (not exclude-list) means new internal `docs/` subdirs are safe-by-default; a broken/renamed path fails the build loudly (§3.7) rather than silently thinning the site |
-| `baseUrl`/routing mismatch vs. old site's URL shape breaks external links (search engines, third-party links to `.../docs/getting-started.html`) | `baseUrl` chosen to match existing `/Charon/` prefix (§3.1); the `.html`-suffix old URLs will 404 under the new site regardless — acceptable one-time breakage for a docs site with low external backlink surface, not mitigated further in this pass (no redirect rules proposed; flag as a possible future `_redirects`-style addition if analytics show meaningful traffic loss) |
+- [ ] Creating a new proxy host allows selecting a proxy group (or none);
+      the created host's group matches what was selected (verified via
+      the list page's "Group" column badge or grouped section placement).
+- [ ] Editing an existing host with a group pre-populates that group in
+      the form; changing it and saving updates the host's group; clearing
+      it (selecting "No Group") removes the association.
+- [ ] No backend changes were required, OR any backend change made is
+      documented with its own commit, tests, and rationale in this spec's
+      §4 Phase 3 section before merge.
+- [ ] At a 1280px (and wider) viewport, the grouped Proxy Hosts view shows
+      the Edit and Delete buttons fully visible and unclipped in every
+      row, in every group section, with no text overlapping the row edge.
+- [ ] The "Group" column no longer renders inside per-group (or
+      "Ungrouped") sections; it still renders in the flat/ungrouped-mode
+      table when no groups exist.
+- [ ] At narrow viewports where columns genuinely cannot all fit, the
+      table area shows a horizontal scrollbar instead of visually
+      clipping/overlapping content.
+- [ ] All new/changed code has Vitest unit test coverage; overall frontend
+      coverage remains ≥85% (`scripts/frontend-test-coverage.sh`).
+- [ ] Playwright specs in `tests/proxy-groups.spec.ts` covering both
+      problems pass under `--project=firefox` (targeted run, per
+      Definition of Done).
+- [ ] `npm run type-check` and `npm run build` (frontend) pass with zero
+      errors.
+- [ ] `lefthook run pre-commit` passes with zero errors; `--no-verify` was
+      not used.
+- [ ] Full Definition of Done from `CLAUDE.md` is satisfied before the PR
+      is marked ready for merge.

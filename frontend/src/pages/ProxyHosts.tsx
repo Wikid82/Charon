@@ -499,7 +499,7 @@ export default function ProxyHosts() {
   )
 
   // DataTable columns definition
-  const columns: Column<ProxyHost>[] = [
+  const flatColumns: Column<ProxyHost>[] = [
     {
       key: 'name',
       header: t('proxyHosts.columnName'),
@@ -618,6 +618,7 @@ export default function ProxyHosts() {
       key: 'actions',
       header: t('proxyHosts.columnActions'),
       width: '9%',
+      minWidth: '140px',
       cell: (host) => (
         <div className="flex items-center gap-2">
           <Button
@@ -647,6 +648,17 @@ export default function ProxyHosts() {
       ),
     },
   ]
+
+  // Column set for per-group-section tables (named groups + "Ungrouped"):
+  // the "Group" column is redundant there (the section header already shows
+  // the group), so it's dropped and its reclaimed width goes to domain/actions.
+  const groupedColumns: Column<ProxyHost>[] = flatColumns
+    .filter((col) => col.key !== 'group')
+    .map((col) => {
+      if (col.key === 'domain') return { ...col, width: '22%' }
+      if (col.key === 'actions') return { ...col, width: '13%', minWidth: '140px' }
+      return col
+    })
 
   return (
     <>
@@ -747,7 +759,7 @@ export default function ProxyHosts() {
         ) : groups.length === 0 ? (
           <DataTable
             data={sortedHosts}
-            columns={columns}
+            columns={flatColumns}
             rowKey={(row) => row.uuid}
             selectable
             selectedKeys={selectedHosts}
@@ -830,7 +842,7 @@ export default function ProxyHosts() {
                   </div>
                   <DataTable
                     data={groupHosts}
-                    columns={columns}
+                    columns={groupedColumns}
                     rowKey={(row) => row.uuid}
                     selectable
                     selectedKeys={selectedHosts}
@@ -862,7 +874,7 @@ export default function ProxyHosts() {
                 </div>
                 <DataTable
                   data={groupedHosts.ungrouped}
-                  columns={columns}
+                  columns={groupedColumns}
                   rowKey={(row) => row.uuid}
                   selectable
                   selectedKeys={selectedHosts}

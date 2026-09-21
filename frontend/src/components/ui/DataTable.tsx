@@ -10,6 +10,7 @@ export interface Column<T> {
   cell: (row: T) => React.ReactNode
   sortable?: boolean
   width?: string
+  minWidth?: string
 }
 
 export interface DataTableProps<T> extends Omit<React.HTMLAttributes<HTMLDivElement>, 'children'> {
@@ -114,7 +115,7 @@ export function DataTable<T>({
       {...props}
     >
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full min-w-[760px]">
           <thead
             className={cn(
               'bg-surface-subtle border-b border-border',
@@ -143,7 +144,7 @@ export function DataTable<T>({
                     col.sortable &&
                       'cursor-pointer select-none hover:text-content-primary transition-colors'
                   )}
-                  style={{ width: col.width }}
+                  style={{ width: col.width, minWidth: col.minWidth }}
                   onClick={() => col.sortable && handleSort(col.key)}
                   role={col.sortable ? 'button' : undefined}
                   tabIndex={col.sortable ? 0 : undefined}
@@ -250,7 +251,11 @@ export function DataTable<T>({
                     {columns.map((col) => (
                       <td
                         key={col.key}
-                        className="px-6 py-4 text-sm text-content-primary"
+                        className={cn(
+                          'px-6 py-4 text-sm text-content-primary',
+                          col.minWidth && 'whitespace-nowrap'
+                        )}
+                        style={{ minWidth: col.minWidth }}
                       >
                         {col.cell(row)}
                       </td>

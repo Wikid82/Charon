@@ -21,6 +21,12 @@ Whether you're setting up your first website or managing dozens of services, eve
 
 ---
 
+### 🗂️ Proxy Host Groups
+
+Keep a large list of sites tidy by organizing your proxy hosts into groups. Drag and drop hosts between groups on the Proxy Hosts page, assign a group to several hosts at once, or just pick a group right from a host's create/edit form — whichever is quickest in the moment.
+
+---
+
 ### 🔐 Automatic HTTPS Certificates
 
 Every website deserves the green padlock. Charon automatically obtains free SSL certificates from Let's Encrypt or ZeroSSL, installs them, and renews them before they expire—all without you lifting a finger.

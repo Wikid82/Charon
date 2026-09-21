@@ -456,12 +456,19 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		payload["security_header_profile_id"] = resolvedSecurityHeaderID
 	}
 
+	var resolvedGroupID *uint
 	if rawGroupRef, ok := payload["proxy_group_id"]; ok {
-		resolvedGroupID, resolveErr := h.resolveProxyGroupReference(rawGroupRef)
+		var resolveErr error
+		resolvedGroupID, resolveErr = h.resolveProxyGroupReference(rawGroupRef)
 		if resolveErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": resolveErr.Error()})
 			return
 		}
+		// models.ProxyHost.ProxyGroupID is tagged json:"-" (the numeric PK is
+		// never exposed to API clients), so it cannot survive the
+		// json.Marshal/Unmarshal round-trip below used to build the host
+		// struct from the payload map. Keep the resolved value here and
+		// assign it directly onto the struct after that round-trip.
 		payload["proxy_group_id"] = resolvedGroupID
 	}
 
@@ -494,6 +501,10 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// ProxyGroupID is json:"-" and was dropped by the marshal/unmarshal above;
+	// restore the resolved value directly on the struct (mirrors Update).
+	host.ProxyGroupID = resolvedGroupID
 
 	// Validate and normalize advanced config if present
 	if host.AdvancedConfig != "" {
