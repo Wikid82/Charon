@@ -272,18 +272,11 @@ test.describe('Proxy Host Form — Group Selector', () => {
     });
   });
 
-  // BLOCKED on a confirmed backend bug, kept as `test.fixme` — see the
-  // handback report for full repro details:
-  // `POST /api/v1/proxy-hosts` silently drops `proxy_group_id` from the
-  // request payload (it's present and correct in the request body, but
-  // absent from both the create response AND a subsequent GET/list — the
-  // group is never persisted). By contrast `PUT /api/v1/proxy-hosts/:uuid`
-  // *does* persist it correctly (confirmed via a follow-up GET), which is
-  // why `assignGroupViaEditForm` (used by the other tests in this file) is
-  // safe to rely on. Do not remove `.fixme` here until the Create handler
-  // is fixed to apply the resolved `proxy_group_id` to the model before
-  // insert, matching what `Update` already does.
-  test.fixme('assigns a group to a host via the create/edit form', async ({ page }) => {
+  // Previously blocked on a confirmed backend bug (now fixed in ce730d4d):
+  // `POST /api/v1/proxy-hosts` silently dropped `proxy_group_id` from the
+  // request payload. `Create` now applies the resolved `proxy_group_id` to
+  // the model before insert, matching what `Update` already did.
+  test('assigns a group to a host via the create/edit form', async ({ page }) => {
     const groupName = `E2E Form Group ${Date.now()}`;
     const host = generateProxyHost();
 
