@@ -3,7 +3,6 @@ package handlers
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -44,6 +43,31 @@ func (h *CredentialHandler) resolveProviderID(c *gin.Context) (uint, bool) {
 		return 0, false
 	}
 	return providerID, true
+}
+
+// resolveCredentialID resolves the :cred_id path param — accepting either a
+// legacy numeric ID (back-compat) or the credential's UUID, since
+// DNSProviderCredential never exposes its internal numeric ID to clients —
+// to the credential's internal numeric ID, scoped to providerID. On failure
+// it writes the appropriate error response itself and returns ok=false so
+// the caller can return immediately: 400 for a value that is neither a
+// valid numeric ID nor a syntactically valid UUID, 404 for a well-formed
+// but nonexistent one (including a UUID that belongs to a different
+// provider), and 500 for any other (e.g. storage) error.
+func (h *CredentialHandler) resolveCredentialID(c *gin.Context, providerID uint) (uint, bool) {
+	credentialID, err := h.credentialService.ResolveID(c.Request.Context(), providerID, c.Param("cred_id"))
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrCredentialNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
+		case errors.Is(err, services.ErrInvalidCredentialIdentifier):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid credential ID"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return 0, false
+	}
+	return credentialID, true
 }
 
 // List handles GET /api/v1/dns-providers/:id/credentials
@@ -115,13 +139,12 @@ func (h *CredentialHandler) Get(c *gin.Context) {
 		return
 	}
 
-	credentialID, err := strconv.ParseUint(c.Param("cred_id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid credential ID"})
+	credentialID, ok := h.resolveCredentialID(c, providerID)
+	if !ok {
 		return
 	}
 
-	credential, err := h.credentialService.Get(c.Request.Context(), providerID, uint(credentialID))
+	credential, err := h.credentialService.Get(c.Request.Context(), providerID, credentialID)
 	if err != nil {
 		if err == services.ErrCredentialNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
@@ -141,9 +164,8 @@ func (h *CredentialHandler) Update(c *gin.Context) {
 		return
 	}
 
-	credentialID, err := strconv.ParseUint(c.Param("cred_id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid credential ID"})
+	credentialID, ok := h.resolveCredentialID(c, providerID)
+	if !ok {
 		return
 	}
 
@@ -153,7 +175,7 @@ func (h *CredentialHandler) Update(c *gin.Context) {
 		return
 	}
 
-	credential, err := h.credentialService.Update(c.Request.Context(), providerID, uint(credentialID), req)
+	credential, err := h.credentialService.Update(c.Request.Context(), providerID, credentialID, req)
 	if err != nil {
 		if err == services.ErrCredentialNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
@@ -181,13 +203,12 @@ func (h *CredentialHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	credentialID, err := strconv.ParseUint(c.Param("cred_id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid credential ID"})
+	credentialID, ok := h.resolveCredentialID(c, providerID)
+	if !ok {
 		return
 	}
 
-	if err := h.credentialService.Delete(c.Request.Context(), providerID, uint(credentialID)); err != nil {
+	if err := h.credentialService.Delete(c.Request.Context(), providerID, credentialID); err != nil {
 		if err == services.ErrCredentialNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
 			return
@@ -206,13 +227,12 @@ func (h *CredentialHandler) Test(c *gin.Context) {
 		return
 	}
 
-	credentialID, err := strconv.ParseUint(c.Param("cred_id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid credential ID"})
+	credentialID, ok := h.resolveCredentialID(c, providerID)
+	if !ok {
 		return
 	}
 
-	result, err := h.credentialService.Test(c.Request.Context(), providerID, uint(credentialID))
+	result, err := h.credentialService.Test(c.Request.Context(), providerID, credentialID)
 	if err != nil {
 		if err == services.ErrCredentialNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})

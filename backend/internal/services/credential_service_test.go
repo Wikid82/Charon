@@ -495,3 +495,66 @@ func TestCredentialService_GetCredentialForDomain_IDN(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, idnCred.ID, cred.ID)
 }
+
+// TestCredentialService_ResolveID covers the numeric-first / UUID-fallback
+// identifier resolution used by CredentialHandler, which only has a
+// path-param string (:cred_id) and needs the credential's internal numeric
+// ID, scoped to the resolved provider so a UUID belonging to a different
+// provider is never resolved via this path.
+func TestCredentialService_ResolveID(t *testing.T) {
+	db, encryptor := setupCredentialTestDB(t)
+	service := services.NewCredentialService(db, encryptor)
+	ctx := context.Background()
+
+	provider := createTestProvider(t, db, encryptor, true)
+	otherProvider := createTestProvider(t, db, encryptor, true)
+
+	created, err := service.Create(ctx, provider.ID, services.CreateCredentialRequest{
+		Label:       "Resolve Target",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	otherCred, err := service.Create(ctx, otherProvider.ID, services.CreateCredentialRequest{
+		Label:       "Other Provider Credential",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	t.Run("numeric id resolves for existing credential", func(t *testing.T) {
+		id, err := service.ResolveID(ctx, provider.ID, fmt.Sprintf("%d", created.ID))
+		require.NoError(t, err)
+		assert.Equal(t, created.ID, id)
+	})
+
+	t.Run("numeric id that does not exist returns ErrCredentialNotFound", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, provider.ID, "9999")
+		assert.ErrorIs(t, err, services.ErrCredentialNotFound)
+	})
+
+	t.Run("uuid resolves for existing credential", func(t *testing.T) {
+		id, err := service.ResolveID(ctx, provider.ID, created.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, created.ID, id)
+	})
+
+	t.Run("well-formed uuid that does not exist returns ErrCredentialNotFound", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, provider.ID, uuid.New().String())
+		assert.ErrorIs(t, err, services.ErrCredentialNotFound)
+	})
+
+	t.Run("uuid belonging to a different provider returns ErrCredentialNotFound, not leaked", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, provider.ID, otherCred.UUID)
+		assert.ErrorIs(t, err, services.ErrCredentialNotFound)
+	})
+
+	t.Run("malformed value (neither numeric nor uuid) returns ErrInvalidCredentialIdentifier", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, provider.ID, "not-a-valid-id")
+		assert.ErrorIs(t, err, services.ErrInvalidCredentialIdentifier)
+	})
+
+	t.Run("empty value returns ErrInvalidCredentialIdentifier", func(t *testing.T) {
+		_, err := service.ResolveID(ctx, provider.ID, "")
+		assert.ErrorIs(t, err, services.ErrInvalidCredentialIdentifier)
+	})
+}

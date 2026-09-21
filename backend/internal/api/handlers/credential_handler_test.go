@@ -692,9 +692,18 @@ func TestCredentialHandler_Update_NotFound(t *testing.T) {
 }
 
 func TestCredentialHandler_Update_InvalidJSON(t *testing.T) {
-	router, _, provider := setupCredentialHandlerTest(t)
+	router, db, provider := setupCredentialHandlerTest(t)
 
-	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/1", provider.ID)
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	credService := services.NewCredentialService(db, encryptor)
+	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
+		Label:       "Invalid JSON Target",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%d", provider.ID, created.ID)
 	req, _ := http.NewRequest("PUT", url, bytes.NewBufferString("{invalid json"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -1057,4 +1066,190 @@ func TestCredentialHandler_Test_ProviderNotFound(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// ===========================
+// CREDENTIAL UUID RESOLUTION TESTS (GH #1361, one level deeper)
+// ===========================
+
+// TestCredentialHandler_Get_ByCredentialUUID confirms the numeric-only
+// cred_id bug is fixed one resource level deeper than the provider :id path:
+// GET .../credentials/:cred_id must also accept the credential's UUID.
+func TestCredentialHandler_Get_ByCredentialUUID(t *testing.T) {
+	router, db, provider := setupCredentialHandlerTest(t)
+
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	credService := services.NewCredentialService(db, encryptor)
+
+	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
+		Label:       "UUID Resolved Credential",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, created.UUID)
+	req, _ := http.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response models.DNSProviderCredential
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, created.UUID, response.UUID)
+}
+
+// TestCredentialHandler_Get_CredentialUUID_NotFound covers a well-formed but
+// nonexistent credential UUID -> 404 (not a 400 or 500).
+func TestCredentialHandler_Get_CredentialUUID_NotFound(t *testing.T) {
+	router, _, provider := setupCredentialHandlerTest(t)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, uuid.New().String())
+	req, _ := http.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "Credential not found")
+}
+
+// TestCredentialHandler_Get_CredentialUUID_WrongProvider ensures a
+// credential UUID that belongs to a different provider is never resolved
+// (and never leaked) through another provider's :id — it must 404, not 200.
+func TestCredentialHandler_Get_CredentialUUID_WrongProvider(t *testing.T) {
+	router, db, provider := setupCredentialHandlerTest(t)
+
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	credService := services.NewCredentialService(db, encryptor)
+
+	// A second, unrelated provider with its own credential.
+	creds := map[string]string{"api_token": "test-token"}
+	credsJSON, _ := json.Marshal(creds)
+	encrypted, _ := encryptor.Encrypt(credsJSON)
+	otherProvider := &models.DNSProvider{
+		UUID:                 uuid.New().String(),
+		Name:                 "Other Provider",
+		ProviderType:         "cloudflare",
+		Enabled:              true,
+		UseMultiCredentials:  true,
+		CredentialsEncrypted: encrypted,
+		KeyVersion:           1,
+	}
+	require.NoError(t, db.Create(otherProvider).Error)
+
+	otherCred, err := credService.Create(testContext(), otherProvider.ID, services.CreateCredentialRequest{
+		Label:       "Other Provider Credential",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, otherCred.UUID)
+	req, _ := http.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "Credential not found")
+}
+
+// TestCredentialHandler_Get_InvalidCredentialIdentifier covers a malformed
+// cred_id (neither numeric nor a syntactically valid UUID) -> 400.
+func TestCredentialHandler_Get_InvalidCredentialIdentifier(t *testing.T) {
+	router, _, provider := setupCredentialHandlerTest(t)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/not-a-valid-id", provider.ID)
+	req, _ := http.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid credential ID")
+}
+
+// TestCredentialHandler_Update_ByCredentialUUID confirms PUT also accepts
+// the credential UUID for :cred_id.
+func TestCredentialHandler_Update_ByCredentialUUID(t *testing.T) {
+	router, db, provider := setupCredentialHandlerTest(t)
+
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	credService := services.NewCredentialService(db, encryptor)
+
+	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
+		Label:       "Original",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	updateBody := map[string]interface{}{"label": "Updated via UUID"}
+	body, _ := json.Marshal(updateBody)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, created.UUID)
+	req, _ := http.NewRequest("PUT", url, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response models.DNSProviderCredential
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "Updated via UUID", response.Label)
+}
+
+// TestCredentialHandler_Delete_ByCredentialUUID confirms DELETE also
+// accepts the credential UUID for :cred_id.
+func TestCredentialHandler_Delete_ByCredentialUUID(t *testing.T) {
+	router, db, provider := setupCredentialHandlerTest(t)
+
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	credService := services.NewCredentialService(db, encryptor)
+
+	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
+		Label:       "To Delete via UUID",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, created.UUID)
+	req, _ := http.NewRequest("DELETE", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	_, err = credService.Get(testContext(), provider.ID, created.ID)
+	assert.ErrorIs(t, err, services.ErrCredentialNotFound)
+}
+
+// TestCredentialHandler_Test_ByCredentialUUID confirms the test endpoint
+// also accepts the credential UUID for :cred_id.
+func TestCredentialHandler_Test_ByCredentialUUID(t *testing.T) {
+	router, db, provider := setupCredentialHandlerTest(t)
+
+	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	encryptor, _ := crypto.NewEncryptionService(testKey)
+	credService := services.NewCredentialService(db, encryptor)
+
+	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
+		Label:       "Test via UUID",
+		Credentials: map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s/test", provider.ID, created.UUID)
+	req, _ := http.NewRequest("POST", url, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response services.TestResult
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
 }

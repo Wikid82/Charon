@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,11 @@ var (
 	ErrNoMatchingCredential = errors.New("no matching credential found for domain")
 	// ErrMultiCredentialNotEnabled is returned when trying to use multi-credential features on a provider that doesn't have it enabled.
 	ErrMultiCredentialNotEnabled = errors.New("multi-credential mode not enabled for this provider")
+	// ErrInvalidCredentialIdentifier is returned by ResolveID when the given
+	// value is neither a valid numeric ID nor a syntactically valid UUID.
+	// Distinct from ErrCredentialNotFound (well-formed but nonexistent) so
+	// callers can map the two to different HTTP status codes.
+	ErrInvalidCredentialIdentifier = errors.New("invalid id: must be a numeric ID or a UUID")
 )
 
 // CreateCredentialRequest represents the request to create a new credential.
@@ -49,6 +55,7 @@ type UpdateCredentialRequest struct {
 type CredentialService interface {
 	List(ctx context.Context, providerID uint) ([]models.DNSProviderCredential, error)
 	Get(ctx context.Context, providerID, credentialID uint) (*models.DNSProviderCredential, error)
+	ResolveID(ctx context.Context, providerID uint, idOrUUID string) (uint, error)
 	Create(ctx context.Context, providerID uint, req CreateCredentialRequest) (*models.DNSProviderCredential, error)
 	Update(ctx context.Context, providerID, credentialID uint, req UpdateCredentialRequest) (*models.DNSProviderCredential, error)
 	Delete(ctx context.Context, providerID, credentialID uint) error
@@ -120,6 +127,40 @@ func (s *credentialService) Get(ctx context.Context, providerID, credentialID ui
 	}
 
 	return &credential, nil
+}
+
+// ResolveID resolves either a numeric ID (back-compat) or a UUID string to a
+// credential's internal numeric ID, scoped to the given providerID so a UUID
+// belonging to a different provider is never resolved (and never leaked) via
+// this path. Numeric values are looked up directly via Get (so a nonexistent
+// numeric ID surfaces as ErrCredentialNotFound rather than silently passing
+// through); string values must be syntactically valid UUIDs, and are then
+// looked up by UUID within the provider's scope. Mirrors
+// DNSProviderService.ResolveID's numeric-first-then-UUID logic.
+func (s *credentialService) ResolveID(ctx context.Context, providerID uint, idOrUUID string) (uint, error) {
+	if id, err := strconv.ParseUint(idOrUUID, 10, 32); err == nil {
+		credential, getErr := s.Get(ctx, providerID, uint(id))
+		if getErr != nil {
+			return 0, getErr
+		}
+		return credential.ID, nil
+	}
+
+	if _, err := uuid.Parse(idOrUUID); err != nil {
+		return 0, ErrInvalidCredentialIdentifier
+	}
+
+	var credential models.DNSProviderCredential
+	err := s.db.WithContext(ctx).
+		Where("uuid = ? AND dns_provider_id = ?", idOrUUID, providerID).
+		First(&credential).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, ErrCredentialNotFound
+		}
+		return 0, err
+	}
+	return credential.ID, nil
 }
 
 // Create creates a new credential for a DNS provider.
