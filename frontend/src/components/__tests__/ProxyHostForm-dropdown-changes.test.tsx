@@ -151,6 +151,14 @@ vi.mock('../../hooks/useAccessLists', () => ({
   })),
 }))
 
+vi.mock('../../hooks/useProxyGroups', () => ({
+  useProxyGroups: vi.fn(() => ({
+    data: [],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
 vi.mock('../../hooks/useSecurityHeaders', () => ({
   useSecurityHeaderProfiles: vi.fn(() => ({
     data: mockSecurityProfiles,

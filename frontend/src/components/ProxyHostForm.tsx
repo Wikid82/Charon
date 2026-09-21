@@ -6,6 +6,7 @@ import { parse } from 'tldts'
 import AccessListSelector from './AccessListSelector'
 import { DNSDetectionResult } from './DNSDetectionResult'
 import DNSProviderSelector from './DNSProviderSelector'
+import ProxyGroupSelector from './ProxyGroupSelector'
 import { SecurityScoreDisplay } from './SecurityScoreDisplay'
 import { testProxyHostConnection, type ProxyHost, type ApplicationPreset  } from '../api/proxyHosts'
 import { syncMonitors } from '../api/uptime'
@@ -102,7 +103,8 @@ interface ProxyHostFormProps {
   onCancel: () => void
 }
 
-function buildInitialFormData(host?: ProxyHost): Partial<ProxyHost> & {
+function buildInitialFormData(host?: ProxyHost): Omit<Partial<ProxyHost>, 'proxy_group_id'> & {
+  proxy_group_id?: string | null
   addUptime?: boolean
   uptimeInterval?: number
   uptimeMaxRetries?: number
@@ -127,6 +129,7 @@ function buildInitialFormData(host?: ProxyHost): Partial<ProxyHost> & {
     access_list_id: host?.access_list?.uuid ?? host?.access_list_id,
     security_header_profile_id: host?.security_header_profile?.uuid ?? host?.security_header_profile_id,
     dns_provider_id: host?.dns_provider?.uuid ?? host?.dns_provider_id ?? null,
+    proxy_group_id: host?.proxy_group?.uuid ?? (typeof host?.proxy_group_id === 'string' ? host.proxy_group_id : null),
   }
 }
 
@@ -249,10 +252,11 @@ function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
 }
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
-  type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id' | 'certificate_id'> & {
+  type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id' | 'certificate_id' | 'proxy_group_id'> & {
     access_list_id?: number | string | null
     security_header_profile_id?: number | string | null
     certificate_id?: number | string | null
+    proxy_group_id?: string | null
     addUptime?: boolean
     uptimeInterval?: number
     uptimeMaxRetries?: number
@@ -997,6 +1001,21 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             value={formData.access_list_id ?? null}
             onChange={id => setFormData(prev => ({ ...prev, access_list_id: id }))}
           />
+
+          {/* Proxy Group */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Proxy Group
+              <span className="text-gray-500 font-normal ml-2">(Optional)</span>
+            </label>
+            <ProxyGroupSelector
+              value={formData.proxy_group_id ?? null}
+              onChange={(uuid) => setFormData(prev => ({ ...prev, proxy_group_id: uuid }))}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Organize this host under a group shown on the Proxy Hosts list.
+            </p>
+          </div>
 
           {/* Security Headers Profile */}
           <div>
