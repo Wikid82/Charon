@@ -1,6 +1,12 @@
 # Charon — Claude Code Instructions
 
-Do NOT use worktrees. Make all changes directly on the current working branch.
+Do NOT use worktrees.
+
+## Branching Strategy
+
+- **Chores and small fixes** (dependency bumps, CI tweaks, small bug fixes with no new user-facing behavior): commit directly on `development`.
+- **Medium/large fixes and anything introducing a new `feat`**: create a dedicated branch and open a PR into `development`. Never commit this scale of change directly to `development`.
+- **Hotfixes**: branch and PR directly into `main`.
 
 ## Code Quality Guidelines
 

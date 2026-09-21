@@ -13,6 +13,7 @@ import { useProxyHosts } from '../../hooks/useProxyHosts'
 import ProxyHosts from '../ProxyHosts'
 
 import type { ProxyHost } from '../../api/proxyHosts'
+import type { ProxyGroup } from '../../api/proxyGroups'
 
 vi.mock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn() }))
 vi.mock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn() }))
@@ -321,5 +322,108 @@ describe('ProxyHosts group rendering', () => {
 
     expect(await screen.findByText('Production')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Ungrouped' })).not.toBeInTheDocument()
+  })
+
+  describe('column layout: grouped vs flat view', () => {
+    it('omits the redundant "Group" column header inside each per-group DataTable section when groups exist', async () => {
+      vi.mocked(useProxyGroups).mockReturnValue({
+        data: [makeGroup({ uuid: 'grp-1', name: 'Production' })],
+        isLoading: false,
+        error: null,
+      } as ReturnType<typeof useProxyGroups>)
+      vi.mocked(useProxyHosts).mockReturnValue(
+        createProxyHostsHookValue({
+          hosts: [
+            sampleHost({
+              uuid: 'h1',
+              name: 'GroupedHost',
+              proxy_group: { uuid: 'grp-1', name: 'Production', color: '#6366f1' },
+            }),
+            sampleHost({ uuid: 'h2', name: 'UngroupedVisible' }),
+          ],
+        }),
+      )
+
+      renderWithProviders(<ProxyHosts />)
+
+      const namedGroupSection = await screen.findByRole('region', { name: 'Production' })
+      const ungroupedSection = await screen.findByRole('region', { name: 'Ungrouped' })
+
+      expect(
+        within(namedGroupSection).queryByRole('columnheader', { name: 'Group' }),
+      ).not.toBeInTheDocument()
+      expect(
+        within(ungroupedSection).queryByRole('columnheader', { name: 'Group' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders the "Group" column header in the flat table view when no groups exist', async () => {
+      vi.mocked(useProxyGroups).mockReturnValue({
+        data: [] as ProxyGroup[],
+        isLoading: false,
+        error: null,
+      } as ReturnType<typeof useProxyGroups>)
+      vi.mocked(useProxyHosts).mockReturnValue(
+        createProxyHostsHookValue({
+          hosts: [sampleHost({ uuid: 'h1', name: 'FlatHost' })],
+        }),
+      )
+
+      renderWithProviders(<ProxyHosts />)
+
+      await screen.findByText('FlatHost')
+      expect(screen.getByRole('columnheader', { name: 'Group' })).toBeInTheDocument()
+    })
+
+    it('renders Edit/Delete action buttons with accessible names in each grouped section', async () => {
+      vi.mocked(useProxyGroups).mockReturnValue({
+        data: [makeGroup({ uuid: 'grp-1', name: 'Production' })],
+        isLoading: false,
+        error: null,
+      } as ReturnType<typeof useProxyGroups>)
+      vi.mocked(useProxyHosts).mockReturnValue(
+        createProxyHostsHookValue({
+          hosts: [
+            sampleHost({
+              uuid: 'h1',
+              name: 'GroupedHost',
+              proxy_group: { uuid: 'grp-1', name: 'Production', color: '#6366f1' },
+            }),
+          ],
+        }),
+      )
+
+      renderWithProviders(<ProxyHosts />)
+
+      const namedGroupSection = await screen.findByRole('region', { name: 'Production' })
+      expect(
+        within(namedGroupSection).getByRole('button', { name: /edit proxy host groupedhost/i }),
+      ).toBeInTheDocument()
+      expect(
+        within(namedGroupSection).getByRole('button', { name: /delete proxy host groupedhost/i }),
+      ).toBeInTheDocument()
+    })
+
+    it('renders Edit/Delete action buttons with accessible names in the flat table view', async () => {
+      vi.mocked(useProxyGroups).mockReturnValue({
+        data: [] as ProxyGroup[],
+        isLoading: false,
+        error: null,
+      } as ReturnType<typeof useProxyGroups>)
+      vi.mocked(useProxyHosts).mockReturnValue(
+        createProxyHostsHookValue({
+          hosts: [sampleHost({ uuid: 'h1', name: 'FlatHost' })],
+        }),
+      )
+
+      renderWithProviders(<ProxyHosts />)
+
+      expect(
+        await screen.findByRole('button', { name: /edit proxy host flathost/i }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /delete proxy host flathost/i }),
+      ).toBeInTheDocument()
+    })
   })
 })

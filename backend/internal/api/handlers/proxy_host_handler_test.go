@@ -2929,6 +2929,19 @@ func TestProxyHostCreate_WithProxyGroupReference_ValidUUID_201(t *testing.T) {
 	router.ServeHTTP(resp, req)
 
 	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var created models.ProxyHost
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &created))
+	require.NotEmpty(t, created.UUID)
+
+	// ProxyGroupID is tagged json:"-" (only the UUID is exposed via the
+	// nested proxy_group object to API clients), so the response body can't
+	// be used to confirm persistence here. Read back from the DB directly to
+	// assert the resolved group was actually saved, not silently dropped.
+	var persisted models.ProxyHost
+	require.NoError(t, db.Where("uuid = ?", created.UUID).First(&persisted).Error)
+	require.NotNil(t, persisted.ProxyGroupID, "proxy_group_id must be persisted on create")
+	require.Equal(t, pg.ID, *persisted.ProxyGroupID)
 }
 
 func TestProxyHostUpdate_WithProxyGroupReference_ValidUUID_200(t *testing.T) {
