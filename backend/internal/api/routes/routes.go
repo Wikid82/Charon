@@ -113,6 +113,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.ProxyGroup{}, // must precede ProxyHost (FK dependency)
 		&models.ProxyHost{},
 		&models.Location{},
+		&models.RedirectionHost{}, // Issue #1367: 301/302/307/308 redirect hosts (peer to ProxyHost)
 		&models.CaddyConfig{},
 		&models.RemoteServer{},
 		&models.SSLCertificate{},
