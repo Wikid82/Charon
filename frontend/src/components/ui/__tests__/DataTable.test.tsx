@@ -351,6 +351,67 @@ describe('DataTable', () => {
     expect(nameHeader).toHaveStyle({ width: '200px' })
   })
 
+  describe('column minWidth', () => {
+    it('applies inline minWidth style and whitespace-nowrap class on header and body cells when specified', () => {
+      const columnsWithMinWidth: Column<TestRow>[] = [
+        { key: 'name', header: 'Name', cell: (row) => row.name },
+        {
+          key: 'status',
+          header: 'Status',
+          cell: (row) => row.status,
+          minWidth: '140px',
+        },
+      ]
+
+      render(
+        <DataTable
+          data={mockData}
+          columns={columnsWithMinWidth}
+          rowKey={(row) => row.id}
+        />
+      )
+
+      const statusHeader = screen.getByText('Status').closest('th')
+      expect(statusHeader).toHaveStyle({ minWidth: '140px' })
+
+      const statusCell = screen.getByText('Inactive').closest('td')
+      expect(statusCell).toHaveStyle({ minWidth: '140px' })
+      expect(statusCell).toHaveClass('whitespace-nowrap')
+    })
+
+    it('does not apply minWidth style or whitespace-nowrap class when not specified', () => {
+      render(
+        <DataTable
+          data={mockData}
+          columns={mockColumns}
+          rowKey={(row) => row.id}
+        />
+      )
+
+      const nameHeader = screen.getByText('Name').closest('th')
+      expect(nameHeader).not.toHaveClass('whitespace-nowrap')
+      expect(nameHeader?.style.minWidth).toBe('')
+
+      const nameCell = screen.getByText('Item 1').closest('td')
+      expect(nameCell).not.toHaveClass('whitespace-nowrap')
+      expect(nameCell?.style.minWidth).toBe('')
+    })
+
+    it('retains w-full and min-w-[760px] classes on the table element', () => {
+      render(
+        <DataTable
+          data={mockData}
+          columns={mockColumns}
+          rowKey={(row) => row.id}
+        />
+      )
+
+      const table = document.querySelector('table')
+      expect(table).toHaveClass('w-full')
+      expect(table).toHaveClass('min-w-[760px]')
+    })
+  })
+
   describe('renderDragHandle prop', () => {
     it('does not render drag handle column when prop is not provided', () => {
       render(
