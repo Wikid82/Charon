@@ -1,24 +1,17 @@
-# QA & Security Report — Docusaurus `docs-site/` Migration
+# QA & Security Report — Proxy Host Group Selector + Grouped-View Row Layout Fix (#1367)
 
 - **Feature branch:** `development`
-- **Commits audited:** `ecde1573`, `480355db`, `8b657335`, `29b53e46`, `5158f19d` (range `ecde1573~1..5158f19d`)
+- **Commits audited:** `7a97f589e`, `fd6f83d503`, `8697ac1098`, `45316b636b`, `266c0743`, `ce730d4d`, `01466e421`, `11a65fd980`, `1848de6a1` (9 commits)
 - **Plan:** `docs/plans/current_spec.md`
-- **Prior gate:** Supervisor pass — APPROVED WITH FOLLOW-UPS (non-blocking)
-- **Date:** 2026-09-16
-- **Verdict:** **SAFE TO MERGE.** No blocking issues found. Zero secrets/internal-content leakage. Zero high/critical dependency or CodeQL findings.
+- **Prior gate:** Supervisor pass — approved (diff fidelity, bug-fix correctness, test coverage, E2E status, acceptance criteria, preliminary security read)
+- **Date:** 2026-09-21
+- **Verdict:** **PASS — SAFE TO MERGE.** No blocking issues found. Zero CRITICAL/HIGH security findings. Coverage gates met. All unit, integration, and E2E tests pass with zero failures.
 
 ---
 
 ## 0. Scope confirmation
 
-This is a docs-tooling-only change: a new `docs-site/` Docusaurus (TypeScript) static site, a git-ignored build-time sync of an allowlisted subset of `docs/`, a new `docs-deploy.yml` GitHub Pages workflow replacing a retired `marked`-based pipeline, and one line added to `scripts/charon_dep_update.sh`.
-
-```
-git diff ecde1573~1..5158f19d --stat -- backend/   → empty
-git diff ecde1573~1..5158f19d --stat -- frontend/  → empty
-```
-
-Confirmed: **no Go changes, no `internal/models` changes, no API/route changes, no database changes, no frontend app changes.** This narrows the Definition of Done to the gates that actually apply.
+Confirmed via `git diff HEAD~9 HEAD --stat`: 17 files changed (+1072/-10) — a new frontend component (`ProxyGroupSelector.tsx`), a `ProxyHostForm.tsx` field addition, a `DataTable.tsx` refactor (`minWidth` support), a `ProxyHosts.tsx` layout fix (flat vs. grouped column sets), one backend handler bug fix (`proxy_host_handler.go`, `Create` silently dropping `proxy_group_id`), corresponding unit tests, E2E specs, and a one-line `docs/features.md` addition. No new dependencies (`go.mod`/`go.sum`/`package.json`/`package-lock.json` diffs are empty). No new API endpoints — reuses the existing `/proxy-groups` and `/proxy-hosts` routes.
 
 ---
 
@@ -26,74 +19,141 @@ Confirmed: **no Go changes, no `internal/models` changes, no API/route changes, 
 
 | # | Gate | Result | Notes |
 |---|------|--------|-------|
-| 1 | GORM security scan | **N/A (verified)** | Empty `backend/` diff (see §0). Skipped per instructions — no models/GORM/migrations touched. |
-| 2 | `npm run audit:ci` (docs-site) | **PASS** | 0 critical, 0 high, 0 low, 18 moderate (moderate allowed; `audit-ci.json` gates on `high: true` with empty allowlist — no CVE exceptions hiding real issues). Re-verified clean in this pass. |
-| 3 | CodeQL JS scan, scoped to `docs-site/src/**` | **PASS** | Local `codeql` CLI (v2.26.4) available in this sandbox. Built a scoped database (`--source-root=docs-site`, `--build-mode=none`) and ran `javascript-security-and-quality.qls`. **0 results** across the 4 JS/TS files under `docs-site/src/`. Note: CI's repo-wide `codeql.yml` (`javascript-typescript` matrix job) is *not* restricted to `frontend/` — its `paths-ignore` only excludes `frontend/coverage`, `frontend/dist`, `playwright-report`, `test-results`, `coverage` — so `docs-site/src/**` is already in CI's regular scan scope, not just this one-off local pass. |
-| 4 | `docs-deploy.yml` workflow security review | **PASS** | See §2 for full breakdown: permissions scoped to exactly `contents: read, pages: write, id-token: write`; all 3 actions pinned by full commit SHA with version comments; no `pull_request` trigger (only `push: branches: [main]` and `workflow_dispatch`); deploy job additionally gated `if: github.ref == 'refs/heads/main'`; no secrets referenced. |
-| 5 | Local Patch Coverage Preflight | **RAN, judged not applicable to this scope** | `bash scripts/local-patch-report.sh` executed and produced both artifacts (`test-results/local-patch-report.md`, `.json`). It reports `Backend patch coverage 73.9%` below the 85% gate — but that finding is **entirely attributable to pre-existing, unrelated changes already on `development` from before this migration** (`backend/internal/services/notification_service.go`, `backend/internal/api/routes/routes.go` — the Web Push notification work, commits `ba3ea15e`/`5523d0d4`/`c2a83721` etc., predating `ecde1573`), because the script diffs `origin/main...HEAD` (the whole branch), not just the 5 docs-site commits. The docs-site migration itself changes zero backend/frontend application lines, so there is no application logic in this feature for a line-coverage gate to measure — docs-site's own build/type-check/audit are its correctness gates, per the task's framing. **This warning is out of scope for this audit and must not block this merge**, but it should be flagged separately since it indicates the `notification_service.go`/`routes.go` coverage gap predates and is independent of this work. |
-| 6 | Frontend/backend build+test | **SKIPPED — confirmed out of scope** | Empty diffs under `backend/` and `frontend/` (§0); nothing to validate. |
-| 7 | `docs-site` build (`npm run build`) | **PASS** | Succeeds — `[SUCCESS] Generated static files in "build"`. Produces non-fatal `onBrokenLinks: 'warn'` output (deliberate, documented deviation in `docusaurus.config.ts` — synced Markdown retains GitHub-relative links into intentionally-excluded internal dirs; `'throw'` would permanently break every build). This is a known, already-flagged non-blocking follow-up, not a new finding. |
-| 8 | `docs-site` type-check (`tsc --noEmit`) | **PASS** | Zero errors. Re-verified clean in this pass. |
-| 9 | Staticcheck / Go lint | **N/A — confirmed** | No Go files changed. |
-| 10 | Debug/cleanup scan (`docs-site/src/**`) | **PASS** | `grep -rn "console\.\|debugger\|TODO\|FIXME" docs-site/src/` → no matches. No leftover scaffolding debug code. |
+| 1 | Targeted Playwright E2E (`tests/proxy-groups.spec.ts --project=firefox`) | **PASS** | 14/14 tests passed (30.1s), including all 4 new "Group Selector" tests and both new "Grouped Row Layout" tests. |
+| 1.5 | GORM security scan (`scan-gorm-security.sh --check`) | **PASS** | Triggered by `ce730d4d` touching `proxy_host_handler.go`. 0 CRITICAL/HIGH. 2 pre-existing INFO suggestions in unrelated `user.go` (missing index hints), 1 suppressed. |
+| 2 | Local patch coverage preflight | **PASS** | See §2 below — 100% patch coverage overall/backend/frontend after regenerating fresh coverage inputs. |
+| 3 | Security scans (CodeQL Go/JS, Trivy, Semgrep) — run locally (new feature surface) | **PASS** | See §3 below. |
+| 4 | `lefthook run pre-commit` | **PASS (see note)** | Staged-file gate reported all hooks "skip" (working tree is clean/committed, nothing staged). Ran every underlying scan script directly instead (CodeQL Go/JS, GORM, Semgrep) — more thorough than the staged-file gate, all clean. |
+| 5 | `make lint-staticcheck-only` | **PASS** | 0 issues, backend + agent. |
+| 6 | Coverage (`go-test-coverage.sh`, `frontend-test-coverage.sh`) | **PASS** | Backend: 88.6% line / 92.0% statement (gate 87%). Frontend: 90.99% lines / 89.78% statements (gate 87%). |
+| 7 | `npm run type-check` | **PASS** | Clean. |
+| 8 | Build verification | **PASS** | `go build ./...` clean; `npm run build` clean (3319 modules, no errors). |
+| 9 | Full unit test suites, zero failures | **PASS** | Backend: `go test -race ./...` all pass. Frontend: **3416 passed, 4 skipped, 2 todo, 0 failed** (272/272 test files) — full suite, not just touched files. See §4 for the investigation into two transient failures observed mid-audit. |
+| 10 | Clean-up check | **PASS** | No debug prints, no dead code, no stray `console.log`/`fmt.Println` introduced in any of the 5 touched application files. |
 
 ---
 
-## 2. `docs-deploy.yml` workflow review (detail)
+## 2. Local patch coverage (regenerated)
 
-File: `.github/workflows/docs-deploy.yml`
+An initial `local-patch-report.sh` run early in this audit used **stale** `backend/coverage.txt`/`frontend/coverage/lcov.info` (generated hours before this session) and reported `WARN`: overall 85.7%, backend 81.8%, flagging `proxy_host_handler.go:507-508` (the `Create` fix's `host.ProxyGroupID = resolvedGroupID` line and its preceding comment) as uncovered.
 
-- **Triggers**: `push: branches: [main]` (paths: `docs-site/**`, `docs/**`, the workflow file itself) and `workflow_dispatch`. **No `pull_request` trigger** — correct, since this job holds `pages: write`/`id-token: write` and must never run against untrusted PR input.
-- **Permissions**: top-level block is exactly
-  ```yaml
-  permissions:
-    contents: read
-    pages: write
-    id-token: write
-  ```
-  No broader scope (no `contents: write`, no `actions: write`, etc.). Matches the minimum needed for `actions/deploy-pages`.
-- **Action pinning**: all three actions pinned to full commit SHA with a trailing `# vX` comment for readability — `actions/checkout@3d3c42e...` (v7), `actions/setup-node@820762786...` (v7), `actions/upload-pages-artifact@fc324d3...` (v5), `actions/deploy-pages@368f8252...` (v5.0.1). No floating tags.
-- **`deploy` job**: additionally gated `if: github.ref == 'refs/heads/main'` (belt-and-suspenders on top of the trigger's own branch filter) and uses `needs: build`, so it only ever deploys what `build` just produced from a trusted ref, never a fork's build artifact.
-- **Concurrency**: `group: "pages-${{ github.ref }}"`, `cancel-in-progress: false` — avoids two deploys racing without silently dropping either.
-- **Secrets**: none referenced anywhere in the file.
-- **Timeouts**: `build` 10 min, `deploy` 5 min — bounded, reasonable.
+After regenerating both coverage files fresh via `scripts/go-test-coverage.sh` and `scripts/frontend-test-coverage.sh` (which exercise the new `TestProxyHostCreate_WithProxyGroupReference_ValidUUID_201` regression test that reads back exactly those lines from the DB) and re-running `scripts/local-patch-report.sh`:
 
-No findings. This workflow is correctly scoped and hardened.
+| Scope | Changed Lines | Covered Lines | Patch Coverage | Status |
+|---|---:|---:|---:|---|
+| Overall | 23 | 23 | **100.0%** | pass |
+| Backend | 5 | 5 | **100.0%** | pass |
+| Frontend | 18 | 18 | **100.0%** | pass |
+| Agent | 0 | 0 | 100.0% | pass |
+
+**Conclusion: the earlier WARN was a stale-instrumentation artifact, not a real coverage gap.** The `proxy_host_handler.go:507-508` lines are in fact covered by the new regression test; the stale `coverage.txt` simply predated that test's inclusion in the instrumented run. Artifacts: `test-results/local-patch-report.md`, `test-results/local-patch-report.json`.
 
 ---
 
-## 3. Secrets / internal-content leakage check
+## 3. Security scans
 
-**Method**: cross-referenced `docs-site/scripts/docs-manifest.json`'s allowlist against `docs/`'s full top-level listing, then built the site and grepped both the git-ignored sync target (`docs-site/docs/`) and the built output (`docs-site/build/`) for anything from the explicitly-excluded internal-only directories.
+### 3.1 CodeQL — Go
+`scripts/pre-commit-hooks/codeql-go-scan.sh` (CI-aligned `go-security-and-quality` suite, 263/263 compiled files, extraction parity confirmed against `go list` baseline): **4 results**, all pre-existing and already suppressed via `codeql-suppressions.yml`:
+- `go/cookie-secure-not-set` — `auth_handler.go:198` (documented, unrelated to this feature)
+- `go/log-injection` ×2 — `remote_server_handler.go:148` (documented false positive, unrelated)
+- `go/log-injection` — `uptime_service.go:1551` (documented false positive, unrelated)
 
-- `docs-manifest.json` allowlists 14 individual files and 5 directories (`features`, `configuration`, `guides`, `troubleshooting`, `api`). It does **not** list `security` (dir), `plans`, `reports`, `decisions`, `runbooks`, `implementation`, `reviews`, `patches`, `issues`, `analysis`, `stats_feature_warmup.md`, `SECURITY_PRACTICES.md`, `superpowers`, `testing`, `maintenance`, `performance`, `ci`, `actions`, `development`, `i18n-examples.md`, or `github-setup.md` — all of which exist under repo-root `docs/` and are correctly withheld.
-- `docs-site/docs/` (the synced, git-ignored copy produced by `npm run build`'s `prebuild` hook) was inspected directly: its contents match the manifest exactly — no `security/`, `plans/`, `reports/`, `decisions/`, or `runbooks/` directories present.
-- `docs-site/build/` (the final built static site) was grepped for known-sensitive filenames/strings (`ghsa`, `vulnerability-analysis`, `break_glass_protocol_redesign`, `emergency-token-rotation`, `emergency-lockout-recovery`) — **zero hits**. The only matches for the string `security` in `build/` are the legitimately-allowlisted `docs/features/security.md`, `docs/features/security-headers.md`, `docs/security.md` (the single top-level public security-features doc — distinct from the excluded `docs/security/` *directory* of internal vulnerability analyses), and `docs/configuration/emergency-setup.md` (a public, feature-scoped config doc, also allowlisted). The broken-link warnings in the build log (`§1` item 7) reference excluded paths as literal unresolvable link text/href — this is a UX defect (404 links), not a content leak: the linked files themselves are never copied or embedded.
-- `docs-site/docs/` and `docs-site/build/` are both confirmed git-ignored (`git check-ignore -v` matches `.gitignore:51:docs-site/docs/` and `docs-site/.gitignore:5:/build`), so neither the synced intermediate nor the built output can be accidentally committed.
-- Scanned the allowlisted content itself (`docs/features`, `docs/configuration`, `docs/guides`, `docs/troubleshooting`, `docs/api`) for real-looking secret patterns (GitHub PAT prefixes, AWS access-key prefixes, PEM private-key headers, `gotify://` URLs with embedded tokens). The only hits were AWS's own documented placeholder (`AKIAIOSFODNN7EXAMPLE`, used verbatim in AWS's official examples) and a redacted/templated `-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----` template value in a DNS-provider setup guide — both are intentional, non-functional example values, not real credentials.
+**None touch this PR's diff.** `codeql-check-findings.sh` → 0 blocking.
 
-**No secrets, credentials, or internal-only content leak into the synced or built docs-site output.**
+### 3.2 CodeQL — JavaScript/TypeScript
+`scripts/pre-commit-hooks/codeql-js-scan.sh` (560/560 files): **0 findings.**
+
+### 3.3 Semgrep
+`scripts/pre-commit-hooks/semgrep-scan.sh` (`p/golang`, `p/javascript`, `p/typescript`, `p/react`, `p/secrets`, `p/dockerfile` — 424 rules, 1001 tracked files, ~99.9% parsed):
+
+```
+Findings: 0 (0 blocking)
+Rules run: 424
+Targets scanned: 1001
+```
+
+(Two earlier attempts run concurrently with the heavy backend `-race` test suite and CodeQL databases died silently under memory pressure on this shared dev host — re-run alone with a clean process table completed successfully with a definitive result above.)
+
+### 3.4 Trivy (filesystem scan)
+`security-scan-trivy` (vuln, secret, misconfig scanners across the whole working tree) surfaced findings, but every one was verified independently to be **pre-existing and out of scope for this PR**:
+- `.claude/worktrees/*` — other agents' local worktrees (gitignored: `.claude/worktrees/`)
+- `docs-site/build/*` — gitignored build output (gitignored: `docs-site/.gitignore` → `/build`), containing a documentation example JSON showing GCP service-account key *structure*, not a real credential
+- `backend/internal/api/routes/keys/hecate-ca.key` — a local, gitignored (`*.key`) test CA artifact, not tracked by git
+- `agent/Dockerfile` USER-command finding — pre-existing, untouched by this PR
+
+Confirmed via `git check-ignore -v` and `git diff HEAD~9 HEAD` that none of these paths are part of the 9 audited commits. No new dependencies were introduced by this PR (`go.mod`/`go.sum`/`package.json`/`package-lock.json` diffs are empty), so there is no new supply-chain surface to scan.
 
 ---
 
-## 4. Summary of findings
+## 4. Investigation: transient frontend test failures during audit
 
-**Blocking issues: none.**
+Mid-audit, a full-suite `frontend-test-coverage.sh` run (executed concurrently with the backend `-race` suite, CodeQL Go/JS scans, and a Semgrep scan all competing for the same host's resources) showed 2 failures in `ProxyHostForm.test.tsx` ("submits form with all basic fields", "submits form with certificate selection"). This was investigated rather than dismissed:
 
-**Non-blocking / informational (carried over or newly observed, none require action before merge):**
+1. Re-ran `ProxyHostForm.test.tsx` in isolation (both via `-t` filter and as a full file) — **62/62 passed both times.**
+2. Re-ran the full `frontend-test-coverage.sh` a second time; it stalled and then crashed with `ENOENT ... coverage/.tmp/coverage-*.json` — traced to the standalone isolation reruns in step 1 sharing the same `frontend/coverage/.tmp` directory as the concurrently-running full-suite script, corrupting its v8 coverage temp files.
+3. Cleaned `frontend/coverage/`, ran `frontend-test-coverage.sh` a third time with **nothing else touching the `frontend/` directory concurrently**: **3416/3416 tests passed, 0 failures**, full clean coverage report.
 
-1. `onBrokenLinks: 'warn'` in `docusaurus.config.ts` surfaces a real backlog of dead links pointing at intentionally-excluded internal docs and a few pre-existing dead links unrelated to this migration — already documented in-line by the implementer as a deliberate, scoped deviation from the original plan (§3.7), with the rationale that `'throw'` would permanently break every future build rather than just until a one-time cleanup. Recommend a follow-up docs-writer pass to either rewrite these as plain-text/GitHub-absolute links or promote the referenced files into the public manifest where appropriate — not a merge blocker.
-2. The `local-patch-report.sh` backend patch-coverage warning (73.9% vs 85%) is real but belongs to prior unrelated work already on `development` (Web Push notification service/routes changes), not to this docs-site migration, which touches zero backend lines. Flagging so it isn't lost, but it is out of scope for this audit and does not gate this merge.
-
----
-
-## 5. Environment notes
-
-- CodeQL CLI v2.26.4 was available and used directly in this sandbox (via the `gh-codeql` shim per `CLAUDE.md` troubleshooting notes) — no environment limitation to report for this gate.
-- `npm ci` in `docs-site/` reported two blocked postinstall scripts (`@swc/core`, `core-js`) under npm's `allowScripts` policy — expected/benign for these packages (native binary fetch / polyfill detection respectively), did not affect the build, type-check, or audit results.
+**Conclusion: the observed failures were caused by this audit's own concurrent tooling (shared coverage temp-file collisions), not a regression introduced by the feature.** The `ProxyHostForm.test.tsx` diff in this PR only adds a `useProxyGroups` mock — it does not touch form-submission logic. No code changes were made as a result of this investigation; it is documented here for traceability.
 
 ---
 
-## Verdict
+## 5. Security-specific review (independent of Supervisor's pass)
 
-**PASS — safe to merge.** All applicable Definition of Done gates pass: dependency audit clean (0 high/critical), CodeQL JS scan clean (0 findings) on the new surface, workflow permissions correctly minimally scoped with no PR-trigger exposure and fully SHA-pinned actions, build and type-check succeed, no debug/scaffolding code left behind, and — most importantly for a new public-facing static site — no secrets or internal-only documentation leak into either the synced intermediate (`docs-site/docs/`) or the final built output (`docs-site/build/`). The two informational items above are pre-existing or already-acknowledged and do not block merge.
+### 5.1 Proxy group authorization scoping
+`ProxyGroup` (backend/internal/models/proxy_group.go) has no owner/tenant field, and `ProxyGroupHandler.RegisterRoutes` is mounted on the non-admin `management` route group (`backend/internal/api/routes/routes.go:1025-1026`), not `managementAdmin`. This means any authenticated `user`-role account can create, update, delete, and assign proxy groups — confirmed **intentional and consistent** with `SECURITY.md`'s documented RBAC model ("`user` covers day-to-day proxy-host management"). Proxy groups are a shared/global organizational feature like the rest of proxy-host management, not a per-user resource. **No authorization regression; no new privilege-escalation surface.**
+
+### 5.2 `ProxyGroup.Color` — CSS injection / XSS review
+Traced every consumer of `group.color` across the codebase:
+
+| File | Usage |
+|---|---|
+| `ProxyGroupBadge.tsx:16` | `style={{ backgroundColor: group.color }}` |
+| `ProxyGroupSelector.tsx:46` (new, this PR) | `style={{ backgroundColor: group.color ?? DEFAULT_DOT_COLOR }}` |
+| `ManageGroupsDialog.tsx:57` | `style={{ backgroundColor: group.color }}` |
+| `ProxyHosts.tsx:812` | `style={{ backgroundColor: group.color ?? '#6b7280' }}` |
+
+All four set `backgroundColor` as a React **style object property**, never via `dangerouslySetInnerHTML` or string-concatenated CSS/`<style>` text. React applies this through the DOM CSSOM setter (`element.style.backgroundColor = value`), which the browser itself validates and silently no-ops on any invalid value. This consumption pattern **cannot** be used to break out into arbitrary CSS (no injection point exists — there's no surrounding string to escape from) or to execute script (no HTML/JS sink is ever reached). This holds regardless of what string is stored server-side.
+
+**Gap identified (non-blocking, pre-existing, not introduced by this PR):** `backend/internal/api/handlers/proxy_group_handler.go` `Create`/`Update` and `backend/internal/services/proxy_group_service.go` apply **zero validation** to `Color` — no hex-format regex, no length cap. Given the safe consumption pattern confirmed above, this is a **data-quality gap only**, not an exploitable XSS/CSS-injection vector (LOW severity, not blocking). Recommend a follow-up hardening ticket to add a hex-color format validator (e.g. `^#[0-9a-fA-F]{6}$`) as defense-in-depth. This gap exists on the pre-existing `ProxyGroup` CRUD handler, entirely untouched by this PR's 9 commits — it is out of scope for this feature's merge decision.
+
+### 5.3 Create-handler fix validation ordering (`ce730d4d`)
+Verified directly in the diff: `resolveProxyGroupReference` (which validates the incoming value is either `nil`/empty or a UUID matching an existing group, returning `400` otherwise) executes **before** the `json.Marshal`/`Unmarshal` round-trip that builds the `ProxyHost` struct from the request payload. The fix assigns `host.ProxyGroupID = resolvedGroupID` **after** that round-trip, using the already-resolved-and-validated `*uint` — it does not re-derive or bypass validation. This exactly mirrors `Update`'s existing (correct) pattern. The new regression test (`TestProxyHostCreate_WithProxyGroupReference_ValidUUID_201`) confirms persistence via a DB readback rather than trusting the response body (`ProxyGroupID` is `json:"-"`), which is the right test design given the bug's nature.
+
+### 5.4 Gotify token hygiene
+N/A — this feature touches no Gotify/notification code paths.
+
+---
+
+## 6. Acceptance criteria (from `docs/plans/current_spec.md` §6)
+
+- [x] Creating a new proxy host allows selecting a proxy group (or none); the created host's group matches what was selected — verified by E2E ("assigns a group to a host via the create/edit form") and backend regression test.
+- [x] Editing an existing host with a group pre-populates that group; changing/clearing it updates/removes the association — verified by E2E ("preselects the host's current group when editing", "clears a host's group via the create/edit form").
+- [x] Backend change (Phase 3 contingency) is documented with its own commit (`ce730d4d`), tests, and rationale — present in this spec and in commit history.
+- [x] At 1280px+ viewport, grouped view shows Edit/Delete fully visible and unclipped — verified by E2E ("keeps the Actions column fully visible at 1280px width when grouped") using bounding-box containment assertions.
+- [x] "Group" column omitted in grouped/ungrouped sections, present in flat view — verified by E2E and by `ProxyHosts-groups.test.tsx` unit tests.
+- [x] Horizontal scrollbar fallback at narrow widths — `min-w-[760px]` on `<table>`, verified via `DataTable.test.tsx` class-list assertions.
+- [x] Unit test coverage; overall frontend coverage ≥85% — 90.99% lines.
+- [x] `tests/proxy-groups.spec.ts` passes under `--project=firefox` — 14/14.
+- [x] `npm run type-check` / `npm run build` — clean.
+- [x] `lefthook run pre-commit` passes; `--no-verify` not used — confirmed (underlying scan scripts run directly, all clean; no `--no-verify` used anywhere in this audit).
+- [x] Full Definition of Done satisfied — see §1.
+
+---
+
+## 7. Overall Verdict
+
+**PASS.** No blocking issues. All Definition-of-Done gates satisfied with real, verified (not stale or assumed) results:
+
+- E2E: 14/14
+- Backend unit tests: all pass (`-race`), 88.6% line coverage
+- Frontend unit tests: 3416/3416 pass, 0 failures, 90.99% line coverage
+- Patch coverage: 100% overall/backend/frontend
+- CodeQL Go/JS: 0 blocking findings
+- Semgrep: 0 findings across 424 rules / 1001 files
+- Trivy: all findings pre-existing and out of scope for this PR
+- GORM scan: 0 CRITICAL/HIGH
+- staticcheck: 0 issues
+- Builds and type-check: clean
+- Security review: proxy-group scoping intentional and consistent with documented RBAC; `Color` field confirmed non-exploitable for XSS/CSS-injection given React's safe style-object consumption pattern (one pre-existing, non-blocking hardening recommendation noted in §5.2); Create-handler fix correctly preserves UUID validation ordering.
+
+**Non-blocking follow-up recommended (not required for this merge):** add server-side hex-color format validation to `ProxyGroupHandler.Create`/`Update` as defense-in-depth (§5.2).
