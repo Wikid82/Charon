@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1489,6 +1490,55 @@ func TestRegister_CleansLetsEncryptCertAssignments(t *testing.T) {
 	var reloaded models.ProxyHost
 	require.NoError(t, db.First(&reloaded, host.ID).Error)
 	assert.Nil(t, reloaded.CertificateID, "letsencrypt cert assignment must be cleared")
+}
+
+// TestRegister_CleansLetsEncryptCertAssignments_RedirectionHost is a
+// regression test for the gap where the startup sweep that nulls out
+// certificate_id on hosts manually pinned to an auto-managed Let's Encrypt
+// certificate only covered ProxyHost, leaving RedirectionHost.CertificateID
+// dangling in the equivalent scenario. Mirrors
+// TestRegister_CleansLetsEncryptCertAssignments exactly, substituting
+// RedirectionHost for ProxyHost.
+//
+// Uses a t.Name()-keyed DSN (the pattern already used elsewhere in this
+// codebase, e.g. certificate_service_test.go) rather than this file's
+// "file::memory:?cache=shared&label" convention: SQLite's shared-cache
+// in-memory identity is keyed off the URI path, not trailing query params,
+// so every ":memory:"-path DSN in this file collapses to the SAME
+// process-wide shared database regardless of the label appended after
+// "cache=shared&" — harmless for existing tests only because none of them
+// happen to run alongside a schema/data conflict, but two tests both
+// creating an SSLCertificate row collide on the empty-UUID unique index.
+func TestRegister_CleansLetsEncryptCertAssignments_RedirectionHost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+
+	// Pre-migrate just the two tables needed to seed test data before Register runs.
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.RedirectionHost{}))
+
+	cert := models.SSLCertificate{Provider: "letsencrypt"}
+	require.NoError(t, db.Create(&cert).Error)
+
+	certID := cert.ID
+	redirectHost := models.RedirectionHost{
+		DomainNames:   "redirect.example.com",
+		TargetURL:     "https://newsite.example.com",
+		StatusCode:    301,
+		CertificateID: &certID,
+	}
+	require.NoError(t, db.Create(&redirectHost).Error)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	err = Register(context.Background(), router, db, cfg)
+	require.NoError(t, err)
+
+	var reloaded models.RedirectionHost
+	require.NoError(t, db.First(&reloaded, redirectHost.ID).Error)
+	assert.Nil(t, reloaded.CertificateID, "letsencrypt cert assignment must be cleared for redirection hosts too")
 }
 
 // TestRegister_UptimeSummaryAndHistoryRoutesResolve is the N4 smoke test: the
