@@ -15,5 +15,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm update typescript-eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser @typescript-eslint/utils
+    npm install typescript-eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser @typescript-eslint/utils
 done
