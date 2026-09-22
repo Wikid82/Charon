@@ -5,7 +5,17 @@
 - **Plan:** `docs/plans/current_spec.md`
 - **Prior review:** Supervisor code-review pass already approved diff fidelity, the `GenerateConfig` edit-scope claim, the three inserted fixes, and a preliminary security read. This report is an independent audit, not a rubber stamp — one new bug was found and confirmed by writing and running a reproduction test (not by inspection alone).
 
-## Overall Verdict: **CONDITIONAL PASS**
+> **Post-audit update**: Finding #1 below (`RedirectionHost.Enabled` GORM
+> zero-value bug) was fixed immediately after this audit, in commit
+> `5b96f9724f65fa88a026adcb9b30d9b0cb15886f` (`fix: persist explicit false
+> value for redirection host enabled flag`), documented as commit 7.5 in
+> `docs/plans/current_spec.md` §9. Red→green regression test confirmed;
+> full validation gate re-passed. Finding #2 (patch-coverage strict-gate
+> shortfall) and the certificate-badge UI-consistency gap noted in §5 were
+> accepted as tracked follow-ups rather than expanding this PR further —
+> both are non-blocking per this report's own §6/§7 recommendation.
+
+## Overall Verdict: **CONDITIONAL PASS** → resolved to **PASS** (see update above)
 
 The feature is functionally solid, passes every automated gate that measures whole-codebase health (both coverage floors, both security scanners, full test suites, all builds), and the core security properties claimed for this feature (no server-side fetch of redirect targets, self-redirect guard, cross-table uniqueness, cert-integrity on delete, no new authorization surface) are all independently verified as true. It should **not** be blocked indefinitely, but two items should be fixed (or explicitly accepted in writing by the person who owns this decision) before merge:
 
