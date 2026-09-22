@@ -561,6 +561,27 @@ Format-v2 backup archives, a validated safe-restore pipeline, optional archive e
 4. Handle rollback on configuration errors
 5. Integrate security layers (WAF, ACL, Rate Limiting)
 
+**RedirectionHost (peer resource to ProxyHost):** `internal/models/redirection_host.go`
+is a separate, sibling model (same pattern as `ProxyGroup`) — not a mode flag
+on `ProxyHost` — for domains that should receive an HTTP redirect
+(301/302/307/308) instead of being reverse-proxied to a backend. It has no
+`ForwardHost`/`ForwardPort`/`Locations`/ACL/WAF fields, only a `TargetURL`
+and `StatusCode`. Its own `BuildRedirectRoutes` (`internal/caddy/redirect_routes.go`)
+emits a `static_response` handler (Caddy's underlying mechanism for the
+Caddyfile `redir` directive — there is no dedicated `redir` JSON module) per
+enabled host, appending Caddy's `{http.request.uri}` placeholder to the
+target when "preserve path" is enabled. `GenerateConfig` (`internal/caddy/config.go`)
+takes `[]models.RedirectionHost` via a `GenerateConfigOption` functional
+option (`WithRedirectionHosts`, replacing the function's former
+`...*crypto.EncryptionService` trailing variadic) so redirect-host domains
+are folded into the same `processedDomains` de-dup map and TLS
+automation-policy collection used for `ProxyHost`, preventing a domain from
+being silently claimed by both resource types. Domain-uniqueness is
+enforced cross-table by `internal/services/domain_uniqueness.go`'s
+`CheckDomainConflict`, called additively by both `ProxyHostService` and
+`RedirectionHostService` alongside each service's own unchanged same-table
+check.
+
 #### Security Suite (`internal/cerberus/`)
 
 - **ACL (Access Control Lists):** IP-based allow/deny rules, GeoIP blocking
@@ -583,6 +604,7 @@ Format-v2 backup archives, a validated safe-restore pipeline, optional archive e
 **Schema Overview:**
 
 - **ProxyHost:** Domain, upstream target, SSL config
+- **RedirectionHost:** Peer resource to ProxyHost — domain(s), target URL, redirect status code (301/302/307/308), no upstream/backend
 - **RemoteServer:** Upstream server definitions
 - **CaddyConfig:** Generated Caddy configuration (audit trail)
 - **SSLCertificate:** Certificate metadata and renewal status
