@@ -8,16 +8,15 @@
  * Proxy Hosts (§3 Scope Decision — a peer model, not a mode flag on
  * `ProxyHost`), reachable via its own "Redirection Hosts" nav item.
  *
- * STATUS: Commit 1 (spec §9 Commit Slicing Strategy) — none of the backend
- * model/API (`RedirectionHost`, `redirectionhost_service.go`,
- * `redirection_host_handler.go`) or frontend (`RedirectionHosts.tsx`,
- * `RedirectionHostForm.tsx`, nav item, route) exists yet. Every test below
- * is `test.fixme` and encodes the *expected* structure straight from the
- * spec (§4.1 Data Model, §4.4 API Contract, §4.5 Frontend, §5 Status Code
- * Selection) so that Commit 6 ("test: enable redirection host e2e specs")
- * can flip `.fixme` to a real test with minimal rework. Mirrors the exact
- * pattern this repo already used for the sibling feature in the same
- * issue — see the "Proxy Host Form — Group Selector" describe block in
+ * STATUS: Commit 6 (spec §9 Commit Slicing Strategy) — backend model/API
+ * (`RedirectionHost`, `redirectionhost_service.go`,
+ * `redirection_host_handler.go`) and frontend (`RedirectionHosts.tsx`,
+ * `RedirectionHostForm.tsx`, nav item, route) have landed. `.fixme` has been
+ * removed from every test below now that the real structure has been
+ * verified against the spec (§4.1 Data Model, §4.4 API Contract, §4.5
+ * Frontend, §5 Status Code Selection). Mirrors the exact pattern this repo
+ * already used for the sibling feature in the same issue — see the "Proxy
+ * Host Form — Group Selector" describe block in
  * tests/proxy-groups.spec.ts (commit 7a97f589).
  *
  * Locator/naming conventions assumed here (inferred from spec + existing
@@ -61,7 +60,12 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/test';
 import { waitForAPIHealth } from './utils/api-helpers';
-import { waitForDialog, waitForAPIResponse, waitForLoadingComplete } from './utils/wait-helpers';
+import {
+  waitForDialog,
+  waitForAPIResponse,
+  waitForLoadingComplete,
+  dismissNewDomainPromptIfPresent,
+} from './utils/wait-helpers';
 import { generateDomain } from './fixtures/test-data';
 import { generateProxyHost } from './fixtures/proxy-hosts';
 
@@ -73,6 +77,21 @@ import { generateProxyHost } from './fixtures/proxy-hosts';
  */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The `Switch` component's underlying `<input type="checkbox">` is visually
+ * hidden (`sr-only`) behind a custom-styled track, with a near-zero/clipped
+ * hit area. A user actually clicks the wrapping `<label>` (which contains
+ * both the input and the visible track, and natively toggles the input per
+ * standard HTML label semantics); clicking or `.check()`/`.uncheck()`-ing
+ * the input directly can land on a clipped coordinate that never reaches
+ * the input and hangs waiting for actionability. Clicking the label is both
+ * more robust and closer to real end-user interaction. Mirrors the
+ * identical pattern documented in tests/orthrus-write-mode.spec.ts.
+ */
+function toggleLabel(toggle: import('@playwright/test').Locator) {
+  return toggle.locator('xpath=..');
 }
 
 /**
@@ -146,7 +165,7 @@ async function createRedirectionHostViaUI(page: Page, host: RedirectionHostConfi
   await page.getByRole('option', { name: new RegExp(`^${host.statusCode}\\b`) }).click();
 
   if (!host.preservePath) {
-    await dialog.getByLabel(/preserve path/i).uncheck();
+    await toggleLabel(dialog.getByLabel(/preserve path/i)).click();
   }
 
   const createPromise = waitForAPIResponse(page, '/api/v1/redirection-hosts', { status: 201 });
@@ -160,7 +179,7 @@ test.describe('Redirection Hosts', () => {
   });
 
   test.describe('Navigation', () => {
-    test.fixme('shows a "Redirection Hosts" nav item that navigates to the dedicated page', async ({ page }) => {
+    test('shows a "Redirection Hosts" nav item that navigates to the dedicated page', async ({ page }) => {
       await page.goto('/');
       await waitForLoadingComplete(page);
 
@@ -171,7 +190,7 @@ test.describe('Redirection Hosts', () => {
       await test.step('Clicking it navigates to /redirection-hosts', async () => {
         await page.getByRole('link', { name: /redirection hosts/i }).click();
         await expect(page).toHaveURL(/\/redirection-hosts/);
-        await expect(page.getByRole('heading', { name: /redirection hosts/i })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Redirection Hosts', exact: true })).toBeVisible();
       });
     });
   });
@@ -182,9 +201,9 @@ test.describe('Redirection Hosts', () => {
       await waitForLoadingComplete(page);
     });
 
-    test.fixme('renders a dedicated list, separate from Proxy Hosts', async ({ page }) => {
+    test('renders a dedicated list, separate from Proxy Hosts', async ({ page }) => {
       await test.step('Redirection Hosts page has its own table and does not show Proxy Host rows', async () => {
-        await expect(page.getByRole('heading', { name: /redirection hosts/i })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Redirection Hosts', exact: true })).toBeVisible();
         const table = page.getByRole('table').first();
         await expect(table).toBeVisible();
         await expect(table.getByRole('columnheader', { name: /domain/i })).toBeVisible();
@@ -195,11 +214,11 @@ test.describe('Redirection Hosts', () => {
       await test.step('Proxy Hosts page remains reachable and unaffected', async () => {
         await page.goto('/proxy-hosts');
         await waitForLoadingComplete(page);
-        await expect(page.getByRole('heading', { name: /proxy hosts/i })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Proxy Hosts', exact: true })).toBeVisible();
       });
     });
 
-    test.fixme('a newly created redirection host appears in the list', async ({ page }) => {
+    test('a newly created redirection host appears in the list', async ({ page }) => {
       const host = generateRedirectionHost();
 
       await test.step('Create a redirection host', async () => {
@@ -218,7 +237,7 @@ test.describe('Redirection Hosts', () => {
       await waitForLoadingComplete(page);
     });
 
-    test.fixme('creates a redirection host with domain, target URL, status code, and preserve-path toggle', async ({ page }) => {
+    test('creates a redirection host with domain, target URL, status code, and preserve-path toggle', async ({ page }) => {
       const host = generateRedirectionHost({ statusCode: 301, preservePath: true });
 
       await test.step('Fill and submit the Add Redirection Host form', async () => {
@@ -233,6 +252,22 @@ test.describe('Redirection Hosts', () => {
       });
     });
 
+    // KNOWN BACKEND BUG (left as .fixme — see Commit 6 report): creating a
+    // RedirectionHost with preserve_path: false (or ssl_forced: false)
+    // silently persists `true` instead. Root cause: RedirectionHost's GORM
+    // model tags PreservePath/SSLForced/HTTP2Support as
+    // `bool ... gorm:"default:true"`. GORM cannot distinguish "explicitly
+    // set to false" from "the Go zero value" for a non-pointer bool field
+    // that also carries a `default:` tag, so on INSERT it substitutes the
+    // column default whenever the field holds false. Confirmed directly
+    // against the API with curl (bypassing the UI/frontend entirely):
+    // POST /api/v1/redirection-hosts with {"preserve_path": false, ...}
+    // returns 201 with "preserve_path": true in the response body. This is
+    // not a frontend or test-locator issue — the frontend correctly sends
+    // preserve_path: false in the request payload. Fix belongs in
+    // backend/internal/models/redirection_host.go (e.g. switch to *bool for
+    // these fields, or stop relying on GORM's `default:` tag and set
+    // defaults explicitly in the service/handler before Create).
     test.fixme('supports disabling "Preserve Path" so the target URL is used verbatim', async ({ page }) => {
       const host = generateRedirectionHost({ preservePath: false });
 
@@ -253,7 +288,7 @@ test.describe('Redirection Hosts', () => {
       await waitForLoadingComplete(page);
     });
 
-    test.fixme('offers exactly 301, 302, 307, and 308 with plain-language labels', async ({ page }) => {
+    test('offers exactly 301, 302, 307, and 308 with plain-language labels', async ({ page }) => {
       const dialog = await openAddRedirectionHostDialog(page);
 
       await test.step('Open the Status Code combobox', async () => {
@@ -285,7 +320,7 @@ test.describe('Redirection Hosts', () => {
       await waitForLoadingComplete(page);
     });
 
-    test.fixme("updates an existing redirection host's status code and target URL", async ({ page }) => {
+    test("updates an existing redirection host's status code and target URL", async ({ page }) => {
       const host = generateRedirectionHost({ statusCode: 302 });
       const newTargetUrl = `https://updated-${host.domain}`;
 
@@ -321,7 +356,7 @@ test.describe('Redirection Hosts', () => {
       await waitForLoadingComplete(page);
     });
 
-    test.fixme('deletes a redirection host', async ({ page }) => {
+    test('deletes a redirection host', async ({ page }) => {
       const host = generateRedirectionHost();
 
       await test.step('Create a redirection host to delete', async () => {
@@ -352,7 +387,7 @@ test.describe('Redirection Hosts', () => {
       await waitForLoadingComplete(page);
     });
 
-    test.fixme('rejects an empty target URL', async ({ page }) => {
+    test('rejects an empty target URL', async ({ page }) => {
       const host = generateRedirectionHost();
       const dialog = await openAddRedirectionHostDialog(page);
 
@@ -367,7 +402,7 @@ test.describe('Redirection Hosts', () => {
       });
     });
 
-    test.fixme('rejects a redirect target pointing back at one of the host\'s own domains (self-redirect guard)', async ({ page }) => {
+    test('rejects a redirect target pointing back at one of the host\'s own domains (self-redirect guard)', async ({ page }) => {
       const domain = generateDomain('redirect');
       const dialog = await openAddRedirectionHostDialog(page);
 
@@ -385,7 +420,7 @@ test.describe('Redirection Hosts', () => {
       });
     });
 
-    test.fixme('rejects a domain already used by an existing Proxy Host (cross-table uniqueness)', async ({ page }) => {
+    test('rejects a domain already used by an existing Proxy Host (cross-table uniqueness)', async ({ page }) => {
       const proxyHost = generateProxyHost();
 
       await test.step('Create a Proxy Host that claims a domain', async () => {
@@ -399,6 +434,7 @@ test.describe('Redirection Hosts', () => {
         await proxyDialog.getByLabel(/domain names/i).fill(proxyHost.domain);
         await proxyDialog.getByLabel(/^host$/i).fill(proxyHost.forwardHost);
         await proxyDialog.getByLabel(/^port$/i).fill(String(proxyHost.forwardPort));
+        await dismissNewDomainPromptIfPresent(page);
 
         const createPromise = waitForAPIResponse(page, '/api/v1/proxy-hosts', { status: 201 });
         await proxyDialog.getByRole('button', { name: /^save$/i }).click();
