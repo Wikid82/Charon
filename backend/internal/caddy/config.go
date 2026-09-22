@@ -180,54 +180,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					var issuers []any
 					switch sslProvider {
 					case "letsencrypt":
-						acmeIssuer := map[string]any{
-							"module": "acme",
-							"email":  acmeEmail,
-							"challenges": map[string]any{
-								"dns": map[string]any{
-									"provider":            providerConfig,
-									"propagation_timeout": propagationTimeout * 1_000_000_000,
-								},
-							},
-						}
-						if acmeStaging {
-							acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-						}
-						issuers = append(issuers, acmeIssuer)
+						issuers = append(issuers, buildACMEIssuer(acmeEmail, acmeStaging, providerConfig, propagationTimeout))
 					case "zerossl":
-						issuers = append(issuers, map[string]any{
-							"module": "zerossl",
-							"challenges": map[string]any{
-								"dns": map[string]any{
-									"provider":            providerConfig,
-									"propagation_timeout": propagationTimeout * 1_000_000_000,
-								},
-							},
-						})
+						issuers = append(issuers, buildZeroSSLIssuer(providerConfig, propagationTimeout))
 					default: // "both" or empty
-						acmeIssuer := map[string]any{
-							"module": "acme",
-							"email":  acmeEmail,
-							"challenges": map[string]any{
-								"dns": map[string]any{
-									"provider":            providerConfig,
-									"propagation_timeout": propagationTimeout * 1_000_000_000,
-								},
-							},
-						}
-						if acmeStaging {
-							acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-						}
-						issuers = append(issuers, acmeIssuer)
-						issuers = append(issuers, map[string]any{
-							"module": "zerossl",
-							"challenges": map[string]any{
-								"dns": map[string]any{
-									"provider":            providerConfig,
-									"propagation_timeout": propagationTimeout * 1_000_000_000,
-								},
-							},
-						})
+						issuers = append(issuers, buildACMEIssuer(acmeEmail, acmeStaging, providerConfig, propagationTimeout))
+						issuers = append(issuers, buildZeroSSLIssuer(providerConfig, propagationTimeout))
 					}
 
 					// Create TLS automation policy for this domain with zone-specific credentials
@@ -266,55 +224,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			var issuers []any
 			switch sslProvider {
 			case "letsencrypt":
-				acmeIssuer := map[string]any{
-					"module": "acme",
-					"email":  acmeEmail,
-					"challenges": map[string]any{
-						"dns": map[string]any{
-							"provider":            providerConfig,
-							"propagation_timeout": propagationTimeout * 1_000_000_000, // convert seconds to nanoseconds
-						},
-					},
-				}
-				if acmeStaging {
-					acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-				}
-				issuers = append(issuers, acmeIssuer)
+				issuers = append(issuers, buildACMEIssuer(acmeEmail, acmeStaging, providerConfig, propagationTimeout))
 			case "zerossl":
 				// ZeroSSL with DNS challenge
-				issuers = append(issuers, map[string]any{
-					"module": "zerossl",
-					"challenges": map[string]any{
-						"dns": map[string]any{
-							"provider":            providerConfig,
-							"propagation_timeout": propagationTimeout * 1_000_000_000,
-						},
-					},
-				})
+				issuers = append(issuers, buildZeroSSLIssuer(providerConfig, propagationTimeout))
 			default: // "both" or empty
-				acmeIssuer := map[string]any{
-					"module": "acme",
-					"email":  acmeEmail,
-					"challenges": map[string]any{
-						"dns": map[string]any{
-							"provider":            providerConfig,
-							"propagation_timeout": propagationTimeout * 1_000_000_000,
-						},
-					},
-				}
-				if acmeStaging {
-					acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-				}
-				issuers = append(issuers, acmeIssuer)
-				issuers = append(issuers, map[string]any{
-					"module": "zerossl",
-					"challenges": map[string]any{
-						"dns": map[string]any{
-							"provider":            providerConfig,
-							"propagation_timeout": propagationTimeout * 1_000_000_000,
-						},
-					},
-				})
+				issuers = append(issuers, buildACMEIssuer(acmeEmail, acmeStaging, providerConfig, propagationTimeout))
+				issuers = append(issuers, buildZeroSSLIssuer(providerConfig, propagationTimeout))
 			}
 
 			tlsPolicies = append(tlsPolicies, &AutomationPolicy{
@@ -334,30 +250,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				var issuers []any
 				switch sslProvider {
 				case "letsencrypt":
-					acmeIssuer := map[string]any{
-						"module": "acme",
-						"email":  acmeEmail,
-					}
-					if acmeStaging {
-						acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-					}
-					issuers = append(issuers, acmeIssuer)
+					issuers = append(issuers, buildACMEIssuer(acmeEmail, acmeStaging, nil, 0))
 				case "zerossl":
-					issuers = append(issuers, map[string]any{
-						"module": "zerossl",
-					})
+					issuers = append(issuers, buildZeroSSLIssuer(nil, 0))
 				default: // "both" or empty
-					acmeIssuer := map[string]any{
-						"module": "acme",
-						"email":  acmeEmail,
-					}
-					if acmeStaging {
-						acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-					}
-					issuers = append(issuers, acmeIssuer)
-					issuers = append(issuers, map[string]any{
-						"module": "zerossl",
-					})
+					issuers = append(issuers, buildACMEIssuer(acmeEmail, acmeStaging, nil, 0))
+					issuers = append(issuers, buildZeroSSLIssuer(nil, 0))
 				}
 
 				tlsPolicies = append(tlsPolicies, &AutomationPolicy{
@@ -377,30 +275,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				var issuers []any
 				switch sslProvider {
 				case "letsencrypt":
-					acmeIssuer := map[string]any{
-						"module": "acme",
-						"email":  acmeEmail,
-					}
-					if acmeStaging {
-						acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-					}
-					issuers = append(issuers, acmeIssuer)
+					issuers = append(issuers, buildACMEIssuer(acmeEmail, acmeStaging, nil, 0))
 				case "zerossl":
-					issuers = append(issuers, map[string]any{
-						"module": "zerossl",
-					})
+					issuers = append(issuers, buildZeroSSLIssuer(nil, 0))
 				default: // "both" or empty
-					acmeIssuer := map[string]any{
-						"module": "acme",
-						"email":  acmeEmail,
-					}
-					if acmeStaging {
-						acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
-					}
-					issuers = append(issuers, acmeIssuer)
-					issuers = append(issuers, map[string]any{
-						"module": "zerossl",
-					})
+					issuers = append(issuers, buildACMEIssuer(acmeEmail, acmeStaging, nil, 0))
+					issuers = append(issuers, buildZeroSSLIssuer(nil, 0))
 				}
 
 				tlsPolicies = append(tlsPolicies, &AutomationPolicy{
@@ -1730,6 +1610,48 @@ func getDefaultSecurityHeaderProfile() *models.SecurityHeaderProfile {
 		CrossOriginOpenerPolicy:   "same-origin",
 		CrossOriginResourcePolicy: "same-origin",
 	}
+}
+
+// buildACMEIssuer builds a tls.issuance.acme issuer config. When providerConfig is
+// non-nil, a DNS-01 challenge is configured under challenges.dns (the shape the ACME
+// issuer's Challenges.DNS field expects). Pass a nil providerConfig for the plain
+// HTTP-01 issuer used for non-wildcard/default policies.
+func buildACMEIssuer(acmeEmail string, acmeStaging bool, providerConfig map[string]any, propagationTimeoutSeconds int64) map[string]any {
+	acmeIssuer := map[string]any{
+		"module": "acme",
+		"email":  acmeEmail,
+	}
+	if providerConfig != nil {
+		acmeIssuer["challenges"] = map[string]any{
+			"dns": map[string]any{
+				"provider":            providerConfig,
+				"propagation_timeout": propagationTimeoutSeconds * 1_000_000_000, // seconds to nanoseconds
+			},
+		}
+	}
+	if acmeStaging {
+		acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+	}
+	return acmeIssuer
+}
+
+// buildZeroSSLIssuer builds a tls.issuance.zerossl issuer config. Unlike the ACME
+// issuer, Caddy's ZeroSSLIssuer has no "challenges" field at all -- DNS-01 validation
+// is configured via its cname_validation (*DNSChallengeConfig) field, so provider and
+// propagation_timeout are nested directly under cname_validation, not under a "dns"
+// sub-key. Pass a nil providerConfig for the plain issuer used for non-wildcard/default
+// policies.
+func buildZeroSSLIssuer(providerConfig map[string]any, propagationTimeoutSeconds int64) map[string]any {
+	zeroSSLIssuer := map[string]any{
+		"module": "zerossl",
+	}
+	if providerConfig != nil {
+		zeroSSLIssuer["cname_validation"] = map[string]any{
+			"provider":            providerConfig,
+			"propagation_timeout": propagationTimeoutSeconds * 1_000_000_000, // seconds to nanoseconds
+		}
+	}
+	return zeroSSLIssuer
 }
 
 // hasWildcard checks if any domain in the list is a wildcard domain

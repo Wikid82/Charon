@@ -144,8 +144,11 @@ func TestGenerateConfig_DNSChallenge_ZeroSSL_IssuerShape(t *testing.T) {
 	require.NotNil(t, conf.Apps.TLS)
 	require.NotEmpty(t, conf.Apps.TLS.Automation.Policies)
 
-	// Expect at least one issuer with module zerossl
-	found := false
+	// Expect at least one issuer with module zerossl, and its DNS-01 config must be
+	// nested directly under "cname_validation" (NOT "challenges.dns" -- Caddy's
+	// ZeroSSLIssuer has no "challenges" field; see zerosslissuer.go's
+	// CnameValidation *DNSChallengeConfig field).
+	var foundIssuer map[string]any
 	for _, p := range conf.Apps.TLS.Automation.Policies {
 		if p == nil {
 			continue
@@ -153,12 +156,98 @@ func TestGenerateConfig_DNSChallenge_ZeroSSL_IssuerShape(t *testing.T) {
 		for _, it := range p.IssuersRaw {
 			if m, ok := it.(map[string]any); ok {
 				if m["module"] == "zerossl" {
-					found = true
+					foundIssuer = m
 				}
 			}
 		}
 	}
-	require.True(t, found)
+	require.NotNil(t, foundIssuer)
+	_, hasChallenges := foundIssuer["challenges"]
+	require.False(t, hasChallenges, "zerossl issuer must not have a challenges field")
+
+	cnameValidation, ok := foundIssuer["cname_validation"].(map[string]any)
+	require.True(t, ok, "zerossl issuer must have a cname_validation object")
+	require.NotNil(t, cnameValidation["provider"])
+	// The cloudflare builtin provider's own PropagationTimeout() (120s) is what's
+	// actually used by GenerateConfig here, not the DNSProviderConfig.PropagationTimeout
+	// field passed in above -- see pkg/dnsprovider/builtin/cloudflare.go.
+	require.Equal(t, int64(120)*1_000_000_000, cnameValidation["propagation_timeout"])
+}
+
+// TestGenerateConfig_DNSChallenge_BothProviders_ZeroSSLCnameValidationShape covers
+// the default/"both" ssl_provider path (dual acme+zerossl issuers), which is what
+// wildcard-dns01-certificate-save-regression.spec.ts exercises via a host defaulting
+// to ssl_provider "both". It asserts the acme issuer keeps its challenges.dns shape
+// while the zerossl issuer uses cname_validation instead.
+func TestGenerateConfig_DNSChallenge_BothProviders_ZeroSSLCnameValidationShape(t *testing.T) {
+	providerID := uint(4)
+	host := models.ProxyHost{
+		Enabled:       true,
+		DomainNames:   "*.bothexample.com",
+		DNSProvider:   &models.DNSProvider{ID: providerID, ProviderType: "cloudflare"},
+		DNSProviderID: mustProviderID(providerID),
+	}
+
+	conf, err := GenerateConfig(
+		[]models.ProxyHost{host},
+		t.TempDir(),
+		"acme@example.com",
+		"",
+		"both",
+		false,
+		false, false, false, false,
+		"",
+		nil,
+		nil,
+		nil,
+		&models.SecurityConfig{},
+		[]DNSProviderConfig{{
+			ID:                 providerID,
+			ProviderType:       "cloudflare",
+			PropagationTimeout: 30,
+			Credentials:        map[string]string{"api_token": "tok"},
+		}},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, conf)
+	require.NotNil(t, conf.Apps.TLS)
+	require.NotEmpty(t, conf.Apps.TLS.Automation.Policies)
+
+	var acmeIssuer, zeroSSLIssuer map[string]any
+	for _, p := range conf.Apps.TLS.Automation.Policies {
+		if p == nil {
+			continue
+		}
+		for _, it := range p.IssuersRaw {
+			m, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			switch m["module"] {
+			case "acme":
+				acmeIssuer = m
+			case "zerossl":
+				zeroSSLIssuer = m
+			}
+		}
+	}
+
+	require.NotNil(t, acmeIssuer, "expected an acme issuer for ssl_provider=both")
+	acmeChallenges, ok := acmeIssuer["challenges"].(map[string]any)
+	require.True(t, ok, "acme issuer must keep its challenges.dns shape")
+	acmeDNS, ok := acmeChallenges["dns"].(map[string]any)
+	require.True(t, ok)
+	// As above, the cloudflare builtin provider's own PropagationTimeout() (120s) is
+	// what's actually used, not the DNSProviderConfig.PropagationTimeout field.
+	require.Equal(t, int64(120)*1_000_000_000, acmeDNS["propagation_timeout"])
+
+	require.NotNil(t, zeroSSLIssuer, "expected a zerossl issuer for ssl_provider=both")
+	_, hasChallenges := zeroSSLIssuer["challenges"]
+	require.False(t, hasChallenges, "zerossl issuer must not have a challenges field")
+	zeroSSLCname, ok := zeroSSLIssuer["cname_validation"].(map[string]any)
+	require.True(t, ok, "zerossl issuer must have a cname_validation object")
+	require.NotNil(t, zeroSSLCname["provider"])
+	require.Equal(t, int64(120)*1_000_000_000, zeroSSLCname["propagation_timeout"])
 }
 
 func TestGenerateConfig_DNSChallenge_SkipsPolicyWhenProviderConfigMissing(t *testing.T) {

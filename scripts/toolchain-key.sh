@@ -10,7 +10,9 @@
 #   1. the exact text of the `caddy-inline` Dockerfile stage
 #   2. the exact text of the `crowdsec-inline` Dockerfile stage
 #   3. the resolved default values of every version ARG the two stages consume
-#      (including the two now-pinned xcaddy plugins, B4)
+#      (including the pinned xcaddy plugins, B4 — 2 security/observability
+#      plugins plus the 27 caddy-dns/* DNS-01 provider modules and 2 forced
+#      transitive libdns/* pins, GitHub #1361)
 #   4. the `tonistiigi/xx` pin line and the digest-pinned `golang:*-alpine`
 #      builder-base lines of both inline stages (N4)
 #   5. sha256 of .trivyignore
@@ -26,7 +28,10 @@ set -euo pipefail
 
 # rev-2: added the two xcaddy plugin pins + the digest-pinned golang base lines
 # to the hashed input set.
-SCHEMA_VERSION=2
+# rev-3: added the 27 caddy-dns/* DNS-01 provider module version ARGs plus the
+# 2 forced-transitive libdns/* version ARGs (LIBDNS_NAMEDOTCOM_VERSION,
+# LIBDNS_VERCEL_VERSION) to the hashed input set (GitHub #1361 Commit 2b).
+SCHEMA_VERSION=3
 
 df="${1:-Dockerfile}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,7 +70,7 @@ for pair in "caddy-inline:$caddy_stage" "crowdsec-inline:$crowdsec_stage"; do
 done
 
 # ARG names whose default values feed the key. Keep in sync with spec §2.2 / §3.4.2.
-arg_re='^ARG (GO_VERSION|ALPINE_IMAGE|CROWDSEC_VERSION|EXPR_LANG_VERSION|XNET_VERSION|XCRYPTO_VERSION|KLAUSPOST_COMPRESS_VERSION|GRPC_VERSION|CADDY_VERSION|CADDY_CANDIDATE_VERSION|CADDY_USE_CANDIDATE|CADDY_PATCH_SCENARIO|CADDY_SECURITY_VERSION|CORAZA_CADDY_VERSION|CADDY_GEOIP2_VERSION|CADDY_RATELIMIT_VERSION)='
+arg_re='^ARG (GO_VERSION|ALPINE_IMAGE|CROWDSEC_VERSION|EXPR_LANG_VERSION|XNET_VERSION|XCRYPTO_VERSION|KLAUSPOST_COMPRESS_VERSION|GRPC_VERSION|CADDY_VERSION|CADDY_CANDIDATE_VERSION|CADDY_USE_CANDIDATE|CADDY_PATCH_SCENARIO|CADDY_SECURITY_VERSION|CORAZA_CADDY_VERSION|CADDY_GEOIP2_VERSION|CADDY_RATELIMIT_VERSION|CADDY_DNS_CLOUDFLARE_VERSION|CADDY_DNS_ROUTE53_VERSION|CADDY_DNS_DIGITALOCEAN_VERSION|CADDY_DNS_GOOGLECLOUDDNS_VERSION|CADDY_DNS_AZURE_VERSION|CADDY_DNS_NAMECHEAP_VERSION|CADDY_DNS_GODADDY_VERSION|CADDY_DNS_HETZNER_VERSION|CADDY_DNS_VULTR_VERSION|CADDY_DNS_DNSIMPLE_VERSION|CADDY_DNS_OVH_VERSION|CADDY_DNS_GANDI_VERSION|CADDY_DNS_LINODE_VERSION|CADDY_DNS_PORKBUN_VERSION|CADDY_DNS_NETLIFY_VERSION|CADDY_DNS_DESEC_VERSION|CADDY_DNS_SCALEWAY_VERSION|CADDY_DNS_DUCKDNS_VERSION|CADDY_DNS_DNSMADEEASY_VERSION|CADDY_DNS_NAMEDOTCOM_VERSION|CADDY_DNS_NAMESILO_VERSION|CADDY_DNS_RFC2136_VERSION|CADDY_DNS_POWERDNS_VERSION|CADDY_DNS_INWX_VERSION|CADDY_DNS_LOOPIA_VERSION|CADDY_DNS_BUNNY_VERSION|CADDY_DNS_VERCEL_VERSION|LIBDNS_NAMEDOTCOM_VERSION|LIBDNS_VERCEL_VERSION)='
 
 key="$(
   {

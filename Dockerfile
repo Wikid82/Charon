@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-ddfba84e11995b5b
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:8b44ed35d46724597e056396b788b898535b50b51d1a1cbf7dfbe33aec123a94
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-4d2fb1c1cb62d78a
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:6dca0a45c1a10c9c1ff2b3ef504d0452a3560434dd7714c5238626f15d1b6f41
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -93,6 +93,98 @@ ARG CORAZA_CADDY_VERSION=2.6.1
 ARG CADDY_GEOIP2_VERSION=1.3.0
 # renovate: datasource=go depName=github.com/mholt/caddy-ratelimit
 ARG CADDY_RATELIMIT_VERSION=0.1.0
+# ---- DNS-01 Challenge Provider Modules (github.com/caddy-dns/*) ----
+# Curated set of 27 DNS provider modules compiled into xcaddy so
+# backend/pkg/dnsprovider/builtin/*.go's BuildCaddyConfig() output (module ID
+# "dns.providers.<name>") actually resolves at Caddy admin-API /load time.
+# Fixes GitHub #1361. 10 have full Charon backend/UI support (existing
+# built-in providers); 17 are Caddy-module-only, tracked for backend/UI in
+# GitHub #1374. See docs/plans/current_spec.md §4.1 for the full table,
+# including an upstream import-path gotcha (hetzner /v2 path) and five
+# modules pinned to pseudo-versions (no upstream tags). Three modules from
+# the original 30-module curated set — civo, exoscale, transip — are
+# excluded here: verified via the Docker build validation gate to be
+# currently un-buildable alongside this set (see the "blocked upstream" note
+# further down and docs/plans/current_spec.md §4.1) because MVS forces the
+# shared github.com/libdns/libdns module to v1.1.1 project-wide and none of
+# the three has an upstream release compatible with that floor.
+# renovate: datasource=go depName=github.com/caddy-dns/cloudflare
+ARG CADDY_DNS_CLOUDFLARE_VERSION=0.2.4
+# renovate: datasource=go depName=github.com/caddy-dns/route53
+ARG CADDY_DNS_ROUTE53_VERSION=1.6.2
+# renovate: datasource=go depName=github.com/caddy-dns/digitalocean
+ARG CADDY_DNS_DIGITALOCEAN_VERSION=0.0.0-20250606074528-04bde2867106
+# renovate: datasource=go depName=github.com/caddy-dns/googleclouddns
+ARG CADDY_DNS_GOOGLECLOUDDNS_VERSION=1.1.0
+# renovate: datasource=go depName=github.com/caddy-dns/azure
+ARG CADDY_DNS_AZURE_VERSION=0.6.0
+# renovate: datasource=go depName=github.com/caddy-dns/namecheap
+ARG CADDY_DNS_NAMECHEAP_VERSION=1.0.0
+# renovate: datasource=go depName=github.com/caddy-dns/godaddy
+ARG CADDY_DNS_GODADDY_VERSION=1.2.0
+# renovate: datasource=go depName=github.com/caddy-dns/hetzner/v2
+ARG CADDY_DNS_HETZNER_VERSION=2.0.1
+# renovate: datasource=go depName=github.com/caddy-dns/vultr
+ARG CADDY_DNS_VULTR_VERSION=0.0.0-20250723121531-55bf3e9768be
+# renovate: datasource=go depName=github.com/caddy-dns/dnsimple
+ARG CADDY_DNS_DNSIMPLE_VERSION=0.0.0-20260303131243-0433343c5610
+# renovate: datasource=go depName=github.com/caddy-dns/ovh
+ARG CADDY_DNS_OVH_VERSION=1.1.0
+# renovate: datasource=go depName=github.com/caddy-dns/gandi
+ARG CADDY_DNS_GANDI_VERSION=1.1.0
+# renovate: datasource=go depName=github.com/caddy-dns/linode
+ARG CADDY_DNS_LINODE_VERSION=0.8.0
+# renovate: datasource=go depName=github.com/caddy-dns/porkbun
+ARG CADDY_DNS_PORKBUN_VERSION=0.3.1
+# renovate: datasource=go depName=github.com/caddy-dns/netlify
+ARG CADDY_DNS_NETLIFY_VERSION=1.2.0
+# renovate: datasource=go depName=github.com/caddy-dns/desec
+ARG CADDY_DNS_DESEC_VERSION=1.1.0
+# renovate: datasource=go depName=github.com/caddy-dns/scaleway
+ARG CADDY_DNS_SCALEWAY_VERSION=0.2.2
+# renovate: datasource=go depName=github.com/caddy-dns/duckdns
+ARG CADDY_DNS_DUCKDNS_VERSION=0.5.0
+# renovate: datasource=go depName=github.com/caddy-dns/dnsmadeeasy
+ARG CADDY_DNS_DNSMADEEASY_VERSION=1.2.0
+# renovate: datasource=go depName=github.com/caddy-dns/namedotcom
+ARG CADDY_DNS_NAMEDOTCOM_VERSION=0.1.2
+# renovate: datasource=go depName=github.com/caddy-dns/namesilo
+ARG CADDY_DNS_NAMESILO_VERSION=0.0.0-20260219111433-e646346d8db8
+# renovate: datasource=go depName=github.com/caddy-dns/rfc2136
+ARG CADDY_DNS_RFC2136_VERSION=1.0.0
+# renovate: datasource=go depName=github.com/caddy-dns/powerdns
+ARG CADDY_DNS_POWERDNS_VERSION=1.0.2
+# renovate: datasource=go depName=github.com/caddy-dns/inwx
+ARG CADDY_DNS_INWX_VERSION=0.4.1
+# renovate: datasource=go depName=github.com/caddy-dns/loopia
+ARG CADDY_DNS_LOOPIA_VERSION=1.0.1
+# renovate: datasource=go depName=github.com/caddy-dns/bunny
+ARG CADDY_DNS_BUNNY_VERSION=1.2.0
+# renovate: datasource=go depName=github.com/caddy-dns/vercel
+ARG CADDY_DNS_VERCEL_VERSION=0.0.2
+# NOTE: transip, exoscale, and civo were dropped from this module set (build
+# gate discovery, GitHub #1361 Commit 2) — see docs/plans/current_spec.md
+# §4.1 "blocked upstream" category. All three are currently un-buildable
+# alongside the rest of this set: MVS resolves the shared
+# github.com/libdns/libdns module to v1.1.1 project-wide (the floor required
+# by caddy-dns/route53, linode, netlify, desec, scaleway, dnsmadeeasy,
+# powerdns, inwx, loopia), and none of the three has an upstream release
+# that is both libdns-v1.1.1-compatible and resolvable under its current Go
+# import path. Do not re-add them without re-verifying upstream first.
+# ---- Forced transitive libdns/<provider> bumps (build-gate discovery) ----
+# Same libdns v1.1.1-project-wide-floor issue as above. caddy-dns/namedotcom
+# @v0.1.2 and caddy-dns/vercel@v0.0.2 each pin an old, incompatible
+# libdns/<provider> release in their own go.mod, and neither caddy-dns
+# wrapper repo has a newer tag that bumps it (verified against each repo's
+# tags API). Their underlying libdns/<provider> libraries DO have newer,
+# libdns-v1.1.1-compatible releases upstream, so force xcaddy to pull those
+# instead via extra --with entries (xcaddy runs `go get` for every --with
+# module, whether or not it's a real Caddy plugin) placed immediately after
+# the corresponding caddy-dns/* --with line in the build command below.
+# renovate: datasource=go depName=github.com/libdns/namedotcom
+ARG LIBDNS_NAMEDOTCOM_VERSION=0.9.0
+# renovate: datasource=go depName=github.com/libdns/vercel
+ARG LIBDNS_VERCEL_VERSION=0.1.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -342,7 +434,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
 # is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS caddy-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -353,6 +445,35 @@ ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
 ARG CADDY_GEOIP2_VERSION
 ARG CADDY_RATELIMIT_VERSION
+ARG CADDY_DNS_CLOUDFLARE_VERSION
+ARG CADDY_DNS_ROUTE53_VERSION
+ARG CADDY_DNS_DIGITALOCEAN_VERSION
+ARG CADDY_DNS_GOOGLECLOUDDNS_VERSION
+ARG CADDY_DNS_AZURE_VERSION
+ARG CADDY_DNS_NAMECHEAP_VERSION
+ARG CADDY_DNS_GODADDY_VERSION
+ARG CADDY_DNS_HETZNER_VERSION
+ARG CADDY_DNS_VULTR_VERSION
+ARG CADDY_DNS_DNSIMPLE_VERSION
+ARG CADDY_DNS_OVH_VERSION
+ARG CADDY_DNS_GANDI_VERSION
+ARG CADDY_DNS_LINODE_VERSION
+ARG CADDY_DNS_PORKBUN_VERSION
+ARG CADDY_DNS_NETLIFY_VERSION
+ARG CADDY_DNS_DESEC_VERSION
+ARG CADDY_DNS_SCALEWAY_VERSION
+ARG CADDY_DNS_DUCKDNS_VERSION
+ARG CADDY_DNS_DNSMADEEASY_VERSION
+ARG CADDY_DNS_NAMEDOTCOM_VERSION
+ARG CADDY_DNS_NAMESILO_VERSION
+ARG CADDY_DNS_RFC2136_VERSION
+ARG CADDY_DNS_POWERDNS_VERSION
+ARG CADDY_DNS_INWX_VERSION
+ARG CADDY_DNS_LOOPIA_VERSION
+ARG CADDY_DNS_BUNNY_VERSION
+ARG CADDY_DNS_VERCEL_VERSION
+ARG LIBDNS_NAMEDOTCOM_VERSION
+ARG LIBDNS_VERCEL_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.7
 ARG EXPR_LANG_VERSION
@@ -433,6 +554,35 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1 \
             --with github.com/zhangjiayin/caddy-geoip2@v${CADDY_GEOIP2_VERSION} \
             --with github.com/mholt/caddy-ratelimit@v${CADDY_RATELIMIT_VERSION} \
+            --with github.com/caddy-dns/cloudflare@v${CADDY_DNS_CLOUDFLARE_VERSION} \
+            --with github.com/caddy-dns/route53@v${CADDY_DNS_ROUTE53_VERSION} \
+            --with github.com/caddy-dns/digitalocean@v${CADDY_DNS_DIGITALOCEAN_VERSION} \
+            --with github.com/caddy-dns/googleclouddns@v${CADDY_DNS_GOOGLECLOUDDNS_VERSION} \
+            --with github.com/caddy-dns/azure@v${CADDY_DNS_AZURE_VERSION} \
+            --with github.com/caddy-dns/namecheap@v${CADDY_DNS_NAMECHEAP_VERSION} \
+            --with github.com/caddy-dns/godaddy@v${CADDY_DNS_GODADDY_VERSION} \
+            --with github.com/caddy-dns/hetzner/v2@v${CADDY_DNS_HETZNER_VERSION} \
+            --with github.com/caddy-dns/vultr@v${CADDY_DNS_VULTR_VERSION} \
+            --with github.com/caddy-dns/dnsimple@v${CADDY_DNS_DNSIMPLE_VERSION} \
+            --with github.com/caddy-dns/ovh@v${CADDY_DNS_OVH_VERSION} \
+            --with github.com/caddy-dns/gandi@v${CADDY_DNS_GANDI_VERSION} \
+            --with github.com/caddy-dns/linode@v${CADDY_DNS_LINODE_VERSION} \
+            --with github.com/caddy-dns/porkbun@v${CADDY_DNS_PORKBUN_VERSION} \
+            --with github.com/caddy-dns/netlify@v${CADDY_DNS_NETLIFY_VERSION} \
+            --with github.com/caddy-dns/desec@v${CADDY_DNS_DESEC_VERSION} \
+            --with github.com/caddy-dns/scaleway@v${CADDY_DNS_SCALEWAY_VERSION} \
+            --with github.com/caddy-dns/duckdns@v${CADDY_DNS_DUCKDNS_VERSION} \
+            --with github.com/caddy-dns/dnsmadeeasy@v${CADDY_DNS_DNSMADEEASY_VERSION} \
+            --with github.com/caddy-dns/namedotcom@v${CADDY_DNS_NAMEDOTCOM_VERSION} \
+            --with github.com/libdns/namedotcom@v${LIBDNS_NAMEDOTCOM_VERSION} \
+            --with github.com/caddy-dns/namesilo@v${CADDY_DNS_NAMESILO_VERSION} \
+            --with github.com/caddy-dns/rfc2136@v${CADDY_DNS_RFC2136_VERSION} \
+            --with github.com/caddy-dns/powerdns@v${CADDY_DNS_POWERDNS_VERSION} \
+            --with github.com/caddy-dns/inwx@v${CADDY_DNS_INWX_VERSION} \
+            --with github.com/caddy-dns/loopia@v${CADDY_DNS_LOOPIA_VERSION} \
+            --with github.com/caddy-dns/bunny@v${CADDY_DNS_BUNNY_VERSION} \
+            --with github.com/caddy-dns/vercel@v${CADDY_DNS_VERCEL_VERSION} \
+            --with github.com/libdns/vercel@v${LIBDNS_VERCEL_VERSION} \
             --output /tmp/caddy-initial; \
         # Find the build directory created by xcaddy
         BUILDDIR=$(ls -td /tmp/buildenv_* 2>/dev/null | head -1); \
@@ -656,7 +806,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec

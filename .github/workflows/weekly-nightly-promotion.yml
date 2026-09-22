@@ -1,4 +1,4 @@
-name: Weekly Nightly to Main Promotion
+name: Nightly to Main Promotion
 
 # Creates a PR from nightly → main every Monday for scheduled release promotion.
 # Includes safety checks for workflow status and provides manual trigger option.

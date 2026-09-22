@@ -1230,8 +1230,10 @@ image build. Instead:
   it; no `xcaddy` / CrowdSec compile runs on the app hot path.
 - **Freshness guard:** `scripts/toolchain-key.sh` derives a content-addressed tag
   (`caddy-crowdsec-<hex>`) from the two inline stage bodies + every consumed
-  version ARG (incl. the two pinned xcaddy plugins) + the digest-pinned
-  `golang`/`xx` bases + `.trivyignore`. `scripts/verify-toolchain-pin.sh` runs on
+  version ARG (incl. the pinned xcaddy plugins — 2 security/observability
+  plugins plus the 27 `caddy-dns/*` DNS-01 provider modules and 2 forced
+  transitive `libdns/*` pins, see `docs/plans/current_spec.md` §4.1) + the
+  digest-pinned `golang`/`xx` bases + `.trivyignore`. `scripts/verify-toolchain-pin.sh` runs on
   every PR (required check) and is **failure-closed** on trusted same-repo runs:
   it fails if the Dockerfile's pinned tag/digest is stale for the current
   recipe. When the daily rebuild produces a new digest, a bot opens

@@ -469,6 +469,383 @@
       "depNameTemplate": "github.com/corazawaf/coraza-caddy/v2",
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/cloudflare DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_CLOUDFLARE_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/cloudflare",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/route53 DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_ROUTE53_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/route53",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/digitalocean DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_DIGITALOCEAN_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/digitalocean",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/googleclouddns DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_GOOGLECLOUDDNS_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/googleclouddns",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/azure DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_AZURE_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/azure",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/namecheap DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_NAMECHEAP_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/namecheap",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/godaddy DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_GODADDY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/godaddy",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/hetzner DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_HETZNER_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/hetzner/v2",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/vultr DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_VULTR_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/vultr",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/dnsimple DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_DNSIMPLE_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/dnsimple",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/ovh DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_OVH_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/ovh",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/gandi DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_GANDI_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/gandi",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/linode DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_LINODE_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/linode",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/porkbun DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_PORKBUN_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/porkbun",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/netlify DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_NETLIFY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/netlify",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/desec DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_DESEC_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/desec",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/scaleway DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_SCALEWAY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/scaleway",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/duckdns DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_DUCKDNS_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/duckdns",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/dnsmadeeasy DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_DNSMADEEASY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/dnsmadeeasy",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/namedotcom DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_NAMEDOTCOM_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/namedotcom",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/namesilo DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_NAMESILO_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/namesilo",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/rfc2136 DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_RFC2136_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/rfc2136",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/powerdns DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_POWERDNS_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/powerdns",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/inwx DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_INWX_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/inwx",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/loopia DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_LOOPIA_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/loopia",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/bunny DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_BUNNY_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/bunny",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track caddy-dns/vercel DNS-01 provider module version in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_VERCEL_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/caddy-dns/vercel",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track libdns/namedotcom forced transitive version ARG in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG LIBDNS_NAMEDOTCOM_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/libdns/namedotcom",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track libdns/vercel forced transitive version ARG in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG LIBDNS_VERCEL_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/libdns/vercel",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
     }
   ],
   "github-actions": {

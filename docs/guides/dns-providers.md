@@ -2,114 +2,42 @@
 
 ## Overview
 
-DNS providers enable Charon to obtain SSL/TLS certificates for wildcard domains (e.g., `*.example.com`) using the ACME DNS-01 challenge. This challenge proves domain ownership by creating a temporary TXT record in your DNS zone, which is required for wildcard certificates since HTTP-01 challenges cannot validate wildcards.
+DNS providers let Charon get you a **wildcard certificate** — a single certificate that covers a whole domain and all its subdomains at once, like `*.example.com`. Normal certificates only cover one address at a time; a wildcard certificate means you don't need a new one every time you add a subdomain.
 
-## Why DNS Providers Are Required
+To prove you actually own the domain before issuing a wildcard certificate, Charon has to create a short-lived verification record in your domain's DNS settings (this is called a "DNS-01 challenge"). Doing that automatically requires Charon to be able to talk to your DNS provider's account — that's what the DNS Provider connections below are for.
 
-- **Wildcard Certificates:** ACME providers (like Let's Encrypt) require DNS-01 challenges for wildcard domains
-- **Automated Validation:** Charon automatically creates and removes DNS records during certificate issuance
-- **Secure Storage:** All credentials are encrypted at rest using AES-256-GCM encryption
+## Why You'd Want This
 
-## Supported DNS Providers
+- **One certificate, every subdomain:** Cover `*.example.com` instead of managing a separate certificate for each subdomain.
+- **Fully automatic:** Once connected, Charon creates and removes the verification record for you — nothing to do by hand.
+- **Your credentials stay safe:** Any API key or token you give Charon is encrypted before it's stored.
 
-Charon dynamically discovers available DNS provider types from an internal registry. This registry includes:
+If you don't need wildcard domains, you can skip DNS providers entirely — Charon issues regular certificates automatically without any of this setup.
 
-- **Built-in providers** — Compiled into Charon (Cloudflare, Route 53, etc.)
-- **Custom providers** — Special-purpose providers like `manual` for unsupported DNS services
-- **External plugins** — Third-party `.so` plugin files loaded at runtime
+## Providers You Can Connect Today
 
-### Built-in Providers
+These 10 providers are fully supported — connect one from the **DNS Providers** page in the Charon UI and you're ready to issue wildcard certificates.
 
-| Provider | Type | Setup Guide |
-|----------|------|-------------|
-| Cloudflare | `cloudflare` | [Cloudflare Setup](dns-providers/cloudflare.md) |
-| AWS Route 53 | `route53` | [Route 53 Setup](dns-providers/route53.md) |
-| DigitalOcean | `digitalocean` | [DigitalOcean Setup](dns-providers/digitalocean.md) |
-| Google Cloud DNS | `googleclouddns` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.googleclouddns) |
-| Azure DNS | `azure` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.azure) |
-| Namecheap | `namecheap` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.namecheap) |
-| GoDaddy | `godaddy` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.godaddy) |
-| Hetzner | `hetzner` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.hetzner) |
-| Vultr | `vultr` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.vultr) |
-| DNSimple | `dnsimple` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.dnsimple) |
+| Provider | Setup Guide |
+|----------|-------------|
+| Cloudflare | [Cloudflare Setup](dns-providers/cloudflare.md) |
+| AWS Route 53 | [Route 53 Setup](dns-providers/route53.md) |
+| DigitalOcean | [DigitalOcean Setup](dns-providers/digitalocean.md) |
+| Google Cloud DNS | [Documentation](https://caddyserver.com/docs/modules/dns.providers.googleclouddns) |
+| Azure DNS | [Documentation](https://caddyserver.com/docs/modules/dns.providers.azure) |
+| Namecheap | [Documentation](https://caddyserver.com/docs/modules/dns.providers.namecheap) |
+| GoDaddy | [Documentation](https://caddyserver.com/docs/modules/dns.providers.godaddy) |
+| Hetzner | [Documentation](https://caddyserver.com/docs/modules/dns.providers.hetzner) |
+| Vultr | [Documentation](https://caddyserver.com/docs/modules/dns.providers.vultr) |
+| DNSimple | [Documentation](https://caddyserver.com/docs/modules/dns.providers.dnsimple) |
 
-### Custom Providers
+There's also a **Manual** option for any provider not on this list: Charon shows you the verification record to create yourself, so you're never fully blocked even without direct integration.
 
-| Provider | Type | Description |
-|----------|------|-------------|
-| Manual DNS | `manual` | For DNS providers without API support. Displays TXT record for manual creation. |
+## Other Providers (Coming Soon)
 
-### Discovering Available Provider Types
+Don't see your DNS provider above? It's not supported yet, but more providers are on the roadmap. Track progress or let us know you're interested on [GitHub issue #1374](https://github.com/Wikid82/Charon/issues/1374).
 
-Query available provider types programmatically via the API:
-
-```bash
-curl https://your-charon-instance/api/v1/dns-providers/types \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
-
-**Example Response:**
-
-```json
-{
-  "types": [
-    {
-      "type": "cloudflare",
-      "name": "Cloudflare",
-      "description": "Cloudflare DNS provider",
-      "documentation_url": "https://developers.cloudflare.com/api/",
-      "is_built_in": true,
-      "fields": [...]
-    },
-    {
-      "type": "manual",
-      "name": "Manual DNS",
-      "description": "Manually create DNS TXT records",
-      "documentation_url": "",
-      "is_built_in": false,
-      "fields": []
-    }
-  ]
-}
-```
-
-**Response fields:**
-
-| Field | Description |
-|-------|-------------|
-| `type` | Unique identifier used in API requests |
-| `name` | Human-readable display name |
-| `description` | Brief description of the provider |
-| `documentation_url` | Link to provider's API documentation |
-| `is_built_in` | `true` for compiled providers, `false` for plugins/custom |
-| `fields` | Required credential fields and their specifications |
-
-> **Tip:** Use `is_built_in` to distinguish official providers from external plugins in your automation workflows.
-
-## Adding External Plugins
-
-Extend Charon with third-party DNS provider plugins by placing `.so` files in the plugin directory.
-
-### Installation
-
-1. Set the plugin directory environment variable:
-
-   ```bash
-   export CHARON_PLUGINS_DIR=/etc/charon/plugins
-   ```
-
-2. Copy plugin files:
-
-   ```bash
-   cp powerdns.so /etc/charon/plugins/
-   chmod 755 /etc/charon/plugins/powerdns.so
-   ```
-
-3. Restart Charon — plugins load automatically at startup.
-
-4. Verify the plugin appears in `GET /api/v1/dns-providers/types` with `is_built_in: false`.
-
-For detailed plugin installation and security guidance, see [Custom Plugins](../features/custom-plugins.md).
+In the meantime, the **Manual** provider option lets you complete a wildcard certificate for any domain by copying a verification record into your DNS provider's dashboard yourself.
 
 ## General Setup Workflow
 
@@ -243,8 +171,6 @@ For detailed troubleshooting, see [DNS Challenges Troubleshooting](../troublesho
 - [AWS Route 53 Setup Guide](dns-providers/route53.md)
 - [DigitalOcean Setup Guide](dns-providers/digitalocean.md)
 
-For other providers, consult the official Caddy libdns module documentation linked in the table above.
-
 ## Related Documentation
 
 - Certificates Guide (guide not yet published)
@@ -255,5 +181,4 @@ For other providers, consult the official Caddy libdns module documentation link
 ## Additional Resources
 
 - [Let's Encrypt DNS-01 Challenge Documentation](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge)
-- [Caddy DNS Providers](https://caddyserver.com/docs/modules/)
 - [ACME Protocol Specification](https://datatracker.ietf.org/doc/html/rfc8555)
