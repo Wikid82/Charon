@@ -60,6 +60,17 @@ func TestRedirectionHost_NotNullColumns(t *testing.T) {
 	assert.NotEmpty(t, rh.UUID)
 }
 
+// TestRedirectionHost_DefaultValues documents GORM/DB-level defaults only.
+// PreservePath/SSLForced/HTTP2Support are deliberately NOT
+// gorm:"default:true" (see the doc comment on RedirectionHost.PreservePath):
+// a plain bool set to false is indistinguishable from an unset zero value,
+// so a `default:` tag would silently override an explicit false on INSERT.
+// Their "default true when omitted" behavior is applied one layer up, in
+// RedirectionHostHandler.Create (see
+// TestRedirectionHostHandler_Create_DefaultsBooleansWhenOmitted and
+// TestRedirectionHostHandler_Create_PersistsExplicitFalseBooleans in
+// redirection_host_handler_test.go) — a raw db.Create bypassing that handler,
+// as this test does, correctly persists the Go zero value (false) for them.
 func TestRedirectionHost_DefaultValues(t *testing.T) {
 	db := setupRedirectionHostModelDB(t)
 	rh := &RedirectionHost{
@@ -73,9 +84,9 @@ func TestRedirectionHost_DefaultValues(t *testing.T) {
 	require.NoError(t, db.First(&fetched, rh.ID).Error)
 
 	assert.Equal(t, 301, fetched.StatusCode)
-	assert.True(t, fetched.PreservePath)
-	assert.True(t, fetched.SSLForced)
-	assert.True(t, fetched.HTTP2Support)
+	assert.False(t, fetched.PreservePath, "no gorm default:true on this field anymore — applied by the handler, not GORM")
+	assert.False(t, fetched.SSLForced, "no gorm default:true on this field anymore — applied by the handler, not GORM")
+	assert.False(t, fetched.HTTP2Support, "no gorm default:true on this field anymore — applied by the handler, not GORM")
 	assert.False(t, fetched.HSTSEnabled)
 	assert.False(t, fetched.HSTSSubdomains)
 	assert.True(t, fetched.Enabled)
@@ -126,11 +137,11 @@ func TestRedirectionHost_CRUDRoundTrip(t *testing.T) {
 	require.NotNil(t, fetched.DNSProvider)
 	assert.Equal(t, "test-dns", fetched.DNSProvider.Name)
 
-	// Update — note PreservePath toggling to false here is a plain UPDATE
-	// statement (via Save on an existing primary key), which is unaffected
-	// by the gorm:"default:true" clause (that clause only fires on INSERT
-	// when the field holds its Go zero value, per the well-known GORM
-	// bool-zero-value-vs-default-tag behavior documented above).
+	// Update — PreservePath toggles to false via a plain UPDATE statement
+	// (Save on an existing primary key). This was always safe even before
+	// the fix documented on RedirectionHost.PreservePath: the GORM
+	// bool-zero-value/gorm:"default:true" collision only ever fired on
+	// INSERT when the field held its Go zero value, never on UPDATE.
 	fetched.TargetURL = "https://updated.example.com"
 	fetched.StatusCode = 302
 	fetched.PreservePath = false

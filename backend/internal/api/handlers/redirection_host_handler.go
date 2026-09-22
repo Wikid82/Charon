@@ -151,12 +151,27 @@ func (h *RedirectionHostHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, hosts)
 }
 
+// booleanFieldsDefaultingTrueOnCreate lists RedirectionHost JSON fields that
+// are plain (non-pointer) `bool`s on the model with no `gorm:"default:true"`
+// tag (see models.RedirectionHost.PreservePath's doc comment for why). Since
+// GORM can no longer supply the default, Create applies it here instead —
+// only when the field is truly absent (or explicit JSON null) from the
+// payload — so an explicit `false` survives the round-trip into the model
+// untouched.
+var booleanFieldsDefaultingTrueOnCreate = []string{"preserve_path", "ssl_forced", "http2_support"}
+
 // Create creates a new redirection host.
 func (h *RedirectionHostHandler) Create(c *gin.Context) {
 	var payload map[string]any
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	for _, field := range booleanFieldsDefaultingTrueOnCreate {
+		if v, ok := payload[field]; !ok || v == nil {
+			payload[field] = true
+		}
 	}
 
 	if rawCertRef, ok := payload["certificate_id"]; ok {

@@ -55,10 +55,20 @@ type RedirectionHost struct {
 	// PreservePath: when true, the incoming request's path+query string is
 	// appended to TargetURL via Caddy's {http.request.uri} placeholder.
 	// When false, TargetURL is used verbatim regardless of the incoming path.
-	PreservePath bool `json:"preserve_path" gorm:"default:true"`
+	//
+	// Deliberately NOT tagged gorm:"default:true": a non-pointer bool set to
+	// false is indistinguishable from an unset zero value, so a `default:`
+	// tag silently overrides any explicit false on INSERT (the well-known
+	// GORM bool-zero-value/default-tag collision). The "default true when
+	// omitted" behavior is instead applied at the handler layer
+	// (RedirectionHostHandler.Create), which has access to the raw request
+	// payload and can tell "omitted" apart from "explicitly false" before
+	// the value ever reaches GORM. See redirection_host_handler_test.go's
+	// TestRedirectionHostHandler_Create_PersistsExplicitFalseBooleans.
+	PreservePath bool `json:"preserve_path"`
 
-	SSLForced    bool `json:"ssl_forced" gorm:"default:true"`
-	HTTP2Support bool `json:"http2_support" gorm:"default:true"`
+	SSLForced    bool `json:"ssl_forced"`
+	HTTP2Support bool `json:"http2_support"`
 
 	// HSTS mirrors ProxyHost's fields for consistency — a redirecting
 	// domain still terminates HTTPS and can reasonably advertise HSTS.
