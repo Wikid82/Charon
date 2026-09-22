@@ -17,7 +17,7 @@
     "type-check": "^0.4.0"
   },
   "overrides": {
-    "smol-toml": "^1.8.0",
+    "smol-toml": "^1.9.0",
     "js-yaml": "^4.3.0",
     "markdown-it": "^15.0.2"
   },
