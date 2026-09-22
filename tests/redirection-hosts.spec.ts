@@ -252,23 +252,7 @@ test.describe('Redirection Hosts', () => {
       });
     });
 
-    // KNOWN BACKEND BUG (left as .fixme — see Commit 6 report): creating a
-    // RedirectionHost with preserve_path: false (or ssl_forced: false)
-    // silently persists `true` instead. Root cause: RedirectionHost's GORM
-    // model tags PreservePath/SSLForced/HTTP2Support as
-    // `bool ... gorm:"default:true"`. GORM cannot distinguish "explicitly
-    // set to false" from "the Go zero value" for a non-pointer bool field
-    // that also carries a `default:` tag, so on INSERT it substitutes the
-    // column default whenever the field holds false. Confirmed directly
-    // against the API with curl (bypassing the UI/frontend entirely):
-    // POST /api/v1/redirection-hosts with {"preserve_path": false, ...}
-    // returns 201 with "preserve_path": true in the response body. This is
-    // not a frontend or test-locator issue — the frontend correctly sends
-    // preserve_path: false in the request payload. Fix belongs in
-    // backend/internal/models/redirection_host.go (e.g. switch to *bool for
-    // these fields, or stop relying on GORM's `default:` tag and set
-    // defaults explicitly in the service/handler before Create).
-    test.fixme('supports disabling "Preserve Path" so the target URL is used verbatim', async ({ page }) => {
+    test('supports disabling "Preserve Path" so the target URL is used verbatim', async ({ page }) => {
       const host = generateRedirectionHost({ preservePath: false });
 
       await test.step('Create with Preserve Path unchecked', async () => {
