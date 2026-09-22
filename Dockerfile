@@ -644,6 +644,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
         # Fix available at v1.6.0. Pin here so the Caddy binary is patched immediately;
         # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
+        # renovate: datasource=go depName=github.com/jackc/pgx/v4
+        _retry go get github.com/jackc/pgx/v4@v4.18.3; \
+        # CVE-2026-41889: Improper Neutralization of Special Elements used in an SQL Command 
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
         _retry go get github.com/russellhaering/goxmldsig@v1.6.0; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
