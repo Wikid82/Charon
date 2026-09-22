@@ -59,7 +59,7 @@ export default function DNSProviderSelector({
         onValueChange={handleValueChange}
         disabled={disabled || isLoading}
       >
-        <SelectTrigger error={!!error}>
+        <SelectTrigger error={!!error} aria-label={label ?? t('dnsProviders.title')}>
           <SelectValue placeholder={t('dnsProviders.selectProvider')} />
         </SelectTrigger>
         <SelectContent>

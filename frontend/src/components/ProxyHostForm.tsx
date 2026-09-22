@@ -1,6 +1,7 @@
 import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle, RefreshCw } from 'lucide-react'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
+import { useTranslation } from 'react-i18next'
 import { parse } from 'tldts'
 
 import AccessListSelector from './AccessListSelector'
@@ -252,6 +253,7 @@ function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
 }
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
+  const { t } = useTranslation()
   type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id' | 'certificate_id' | 'proxy_group_id'> & {
     access_list_id?: number | string | null
     security_header_profile_id?: number | string | null
@@ -992,6 +994,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                   }
                 }}
                 required={true}
+                label={t('dnsProviders.title')}
               />
             </div>
           )}
