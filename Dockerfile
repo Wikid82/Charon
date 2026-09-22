@@ -82,7 +82,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.4
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.2.1
+ARG CADDY_SECURITY_VERSION=1.2.2
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.1
 # xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so
