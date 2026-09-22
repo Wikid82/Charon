@@ -137,6 +137,19 @@ jobs:
                   files = originalFiles.map(f => f.toLowerCase());
                 }
 
+                // ahead_by > 0 only means src has commits base lacks — it does NOT
+                // mean the resulting tree differs. A merge commit (e.g. the nightly ->
+                // main weekly promotion) can leave src "ahead" by that merge commit
+                // while its tree is byte-identical to base (the content already
+                // arrived in base via a different path), producing an empty file
+                // diff. Opening a PR for that is pure noise (see PR #1372: 0 files
+                // changed, opened solely because of the promotion merge commit) —
+                // skip it exactly like the ahead_by === 0 case above.
+                if (files.length === 0) {
+                  core.info(`${src} -> ${base} has no file differences (ahead_by=${compare.data.ahead_by} but empty diff). No propagation needed.`);
+                  return;
+                }
+
                 // Load propagation config (list of sensitive paths) from .github/propagate-config.yml when available
                 // NOTE: .github/workflows/ was removed from defaults - workflow updates SHOULD propagate
                 // to ensure downstream branches have correct CI/CD configurations

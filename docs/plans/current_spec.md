@@ -64,7 +64,52 @@ path/query string. This spec adds the equivalent to Charon.
 - **Fixing `ProxyHostService.ValidateUniqueDomain`'s pre-existing
   same-table reordering gap.** Today it compares `domain_names` as a whole
   string (`"a.com,b.com"` vs `"b.com,a.com"` does not collide), so two
-  `ProxyHost` rows with a partial comma-list overlap are silently allowed.
+  `ProxyHost` rows with a partial comma-list overlap are silently allowed.jeremy@srv599055:~/docker$ sudo apt install -y slirp4netns
+[sudo: authenticate] Password:           
+Installing:                     
+  slirp4netns
+
+Installing dependencies:
+  libslirp0
+
+Summary:
+  Upgrading: 0, Installing: 2, Removing: 0, Not Upgrading: 0
+  Download size: 103 kB
+  Space needed: 265 kB / 112 GB available
+
+Get:1 https://mirrors.iu13.net/ubuntu resolute/universe amd64 slirp4netns amd64 1.3.3-1 [35.7 kB]
+Get:2 http://mirror.arizona.edu/ubuntu resolute-updates/main amd64 libslirp0 amd64 4.9.1-1ubuntu1.1 [67.0 kB]
+Fetched 103 kB in 1s (120 kB/s)       
+Selecting previously unselected package libslirp0:amd64.
+(Reading database ... 205380 files and directories currently installed.)
+Preparing to unpack .../libslirp0_4.9.1-1ubuntu1.1_amd64.deb ...
+Unpacking libslirp0:amd64 (4.9.1-1ubuntu1.1) ...
+Selecting previously unselected package slirp4netns.
+Preparing to unpack .../slirp4netns_1.3.3-1_amd64.deb ...
+Unpacking slirp4netns (1.3.3-1) ...
+Setting up libslirp0:amd64 (4.9.1-1ubuntu1.1) ...
+Setting up slirp4netns (1.3.3-1) ...
+Processing triggers for man-db (2.13.1-1build1) ...
+Processing triggers for libc-bin (2.43-2ubuntu2.4) ...
+Scanning processes...                                                                                                                                            
+Scanning candidates...                                                                                                                                           
+Scanning linux images...                                                                                                                                         
+
+Running kernel seems to be up-to-date.
+
+Restarting services...
+
+Service restarts being deferred:
+ /etc/needrestart/restart.d/dbus.service
+ systemctl restart unattended-upgrades.service
+
+No containers need to be restarted.
+
+User sessions running outdated binaries:
+ jeremy @ user service: dbus.service[2279], xdg-document-portal.service[1497816], xdg-permission-store.service[1497794]
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+jeremy@srv599055:~/docker$ 
   This predates this feature, affects `ProxyHost`-vs-`ProxyHost` only, and
   is left completely untouched by this PR (see §4.3) — fixing it is
   recommended as a separate, independently-reviewable follow-up ticket,

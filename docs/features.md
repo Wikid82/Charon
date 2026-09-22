@@ -51,11 +51,10 @@ Need to secure `*.example.com` with a single certificate? Charon now supports DN
 
 **Supported Providers:**
 
-- Cloudflare, AWS Route53, DigitalOcean, Google Cloud DNS
-- Namecheap, GoDaddy, Hetzner, OVH, Linode
-- And 10+ more DNS providers
+- Cloudflare, AWS Route 53, DigitalOcean, Google Cloud DNS, Azure DNS
+- Namecheap, GoDaddy, Hetzner, Vultr, DNSimple
 
-Your credentials are stored securely with encryption and automatic key rotation. A plugin architecture means new providers can be added easily.
+Your credentials are stored securely with encryption and automatic key rotation. More providers are on the roadmap — see the [DNS Providers Guide](guides/dns-providers.md) for details.
 
 → [Learn More](features/dns-challenge.md)
 
