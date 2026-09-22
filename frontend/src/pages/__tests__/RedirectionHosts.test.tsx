@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { toast } from 'react-hot-toast'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import RedirectionHosts from '../RedirectionHosts'
@@ -157,6 +158,65 @@ describe('RedirectionHosts page', () => {
     await waitFor(() => {
       expect(mockDeleteMutateAsync).toHaveBeenCalledWith('rh-1')
     })
+  })
+
+  it('shows an error toast with the server message when deleting fails', async () => {
+    mockUseRedirectionHosts.mockReturnValue({ data: [sampleHost()], isLoading: false })
+    mockDeleteMutateAsync.mockRejectedValueOnce(new Error('host is still referenced by a certificate'))
+    renderWithProviders()
+
+    await userEvent.click(await screen.findByRole('button', { name: /^delete redirection host old blog redirect$/i }))
+    const confirmDialog = await screen.findByRole('dialog', { name: /delete redirection host\?/i })
+    await userEvent.click(within(confirmDialog).getByRole('button', { name: /^delete$/i }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('host is still referenced by a certificate')
+    })
+    // The confirmation dialog stays open because hostToDelete is only cleared on success.
+    expect(screen.getByRole('dialog', { name: /delete redirection host\?/i })).toBeInTheDocument()
+  })
+
+  it('shows a generic error toast when delete rejects with a non-Error value', async () => {
+    mockUseRedirectionHosts.mockReturnValue({ data: [sampleHost()], isLoading: false })
+    mockDeleteMutateAsync.mockRejectedValueOnce('network exploded')
+    renderWithProviders()
+
+    await userEvent.click(await screen.findByRole('button', { name: /^delete redirection host old blog redirect$/i }))
+    const confirmDialog = await screen.findByRole('dialog', { name: /delete redirection host\?/i })
+    await userEvent.click(within(confirmDialog).getByRole('button', { name: /^delete$/i }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Failed to delete')
+    })
+  })
+
+  it('closes the delete confirmation dialog via Cancel without deleting', async () => {
+    mockUseRedirectionHosts.mockReturnValue({ data: [sampleHost()], isLoading: false })
+    renderWithProviders()
+
+    await userEvent.click(await screen.findByRole('button', { name: /^delete redirection host old blog redirect$/i }))
+    const confirmDialog = await screen.findByRole('dialog', { name: /delete redirection host\?/i })
+    await userEvent.click(within(confirmDialog).getByRole('button', { name: /^cancel$/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /delete redirection host\?/i })).not.toBeInTheDocument()
+    })
+    expect(mockDeleteMutateAsync).not.toHaveBeenCalled()
+  })
+
+  it('closes the delete confirmation dialog on Escape without deleting', async () => {
+    mockUseRedirectionHosts.mockReturnValue({ data: [sampleHost()], isLoading: false })
+    renderWithProviders()
+
+    await userEvent.click(await screen.findByRole('button', { name: /^delete redirection host old blog redirect$/i }))
+    expect(await screen.findByRole('dialog', { name: /delete redirection host\?/i })).toBeInTheDocument()
+
+    await userEvent.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /delete redirection host\?/i })).not.toBeInTheDocument()
+    })
+    expect(mockDeleteMutateAsync).not.toHaveBeenCalled()
   })
 
   it('toggles enabled state directly from the table', async () => {

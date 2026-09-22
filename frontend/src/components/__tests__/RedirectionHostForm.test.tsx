@@ -12,6 +12,10 @@ vi.mock('../../hooks/useCertificates', () => ({
   useCertificates: vi.fn(() => ({
     certificates: [
       { id: 1, uuid: 'cert-1', name: 'Cert 1', domains: 'example.com', provider: 'letsencrypt', issuer: 'LE', status: 'valid', has_key: true, in_use: true, expires_at: '2027-01-01' },
+      // No numeric `id` — exercises the uuid-token branch of getEntityToken/resolveSelectToken.
+      { uuid: 'cert-2-uuid', name: 'Cert Two', domains: 'two.example.com', provider: 'manual', issuer: 'ManualCA', status: 'valid', has_key: true, in_use: false, expires_at: '2027-06-01' },
+      // Neither `id` nor a truthy `uuid` — must be silently excluded from the option list.
+      { uuid: '', name: 'Malformed Cert', domains: 'malformed.example.com', provider: 'manual', issuer: 'ManualCA', status: 'valid', has_key: false, in_use: false, expires_at: '2027-06-01' },
     ],
     isLoading: false,
     error: null,
@@ -233,6 +237,103 @@ describe('RedirectionHostForm', () => {
     expect(mockOnCancel).toHaveBeenCalled()
   })
 
+  it('treats dismissing the dialog (e.g. pressing Escape) the same as Cancel', async () => {
+    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+    await userEvent.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(mockOnCancel).toHaveBeenCalled()
+    })
+  })
+
+  it('reflects toggling Force SSL, HTTP/2, HSTS, and HSTS Subdomains in the submitted payload', async () => {
+    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+    await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
+    await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
+
+    // Defaults are ssl_forced/http2_support: true and hsts_enabled/hsts_subdomains: false —
+    // flip every switch so the submitted payload proves each onCheckedChange handler is wired.
+    await userEvent.click(screen.getByLabelText(/force ssl/i))
+    await userEvent.click(screen.getByLabelText(/http\/2 support/i))
+    await userEvent.click(screen.getByLabelText(/^hsts enabled$/i))
+    await userEvent.click(screen.getByLabelText(/hsts subdomains/i))
+
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ssl_forced: false,
+          http2_support: false,
+          hsts_enabled: true,
+          hsts_subdomains: true,
+        })
+      )
+    })
+  })
+
+  it('submits the selected DNS provider id once one is chosen under DNS Challenge', async () => {
+    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+    await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
+    await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
+    await userEvent.click(screen.getByLabelText(/use dns challenge/i))
+
+    // DNSProviderSelector's own combobox exposes no accessible name (mirrors
+    // ProxyHostForm-dns.test.tsx's approach of indexing comboboxes) — it renders
+    // after the Status Code and Certificate selects, so it's always last.
+    const comboboxes = await screen.findAllByRole('combobox')
+    await userEvent.click(comboboxes[comboboxes.length - 1])
+    await userEvent.click(await screen.findByRole('option', { name: /cloudflare/i }))
+
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ use_dns_challenge: true, dns_provider_id: 'dns-1' })
+      )
+    })
+  })
+
+  describe('Certificate token normalization on load', () => {
+    it('pre-selects the certificate by numeric id when certificate_id is a plain number', async () => {
+      const host = sampleHost({ certificate_id: 1 })
+      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/cert 1/i)
+    })
+
+    it('pre-selects auto-manage when certificate_id is a blank string', async () => {
+      const host = sampleHost({ certificate_id: '   ' })
+      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/let's encrypt/i)
+    })
+
+    it('pre-selects the certificate when certificate_id is already an "id:" token', async () => {
+      const host = sampleHost({ certificate_id: 'id:1' })
+      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/cert 1/i)
+    })
+
+    it('pre-selects the certificate when certificate_id is a bare numeric string', async () => {
+      const host = sampleHost({ certificate_id: '1' })
+      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/cert 1/i)
+    })
+
+    it('pre-selects the certificate by uuid when certificate_id is a raw, unprefixed uuid string', async () => {
+      const host = sampleHost({ certificate_id: 'cert-2-uuid' })
+      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/cert two/i)
+    })
+  })
+
   describe('Certificate selector', () => {
     beforeEach(() => {
       mockOnSubmit.mockClear()
@@ -245,6 +346,44 @@ describe('RedirectionHostForm', () => {
 
       expect(await screen.findByRole('option', { name: /let's encrypt/i })).toBeInTheDocument()
       expect(screen.getByRole('option', { name: /cert 1/i })).toBeInTheDocument()
+    })
+
+    it('excludes a certificate with neither id nor uuid from the options list', async () => {
+      await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      await userEvent.click(screen.getByRole('combobox', { name: /certificate/i }))
+
+      expect(await screen.findByRole('option', { name: /cert two/i })).toBeInTheDocument()
+      expect(screen.queryByRole('option', { name: /malformed/i })).not.toBeInTheDocument()
+    })
+
+    it('selecting a certificate identified only by uuid sets certificate_id to that uuid on submit', async () => {
+      await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
+      await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
+
+      await selectComboboxOption(/certificate/i, /cert two/i)
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ certificate_id: 'cert-2-uuid' }))
+      })
+    })
+
+    it('choosing auto-manage after selecting a certificate clears certificate_id on submit', async () => {
+      await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+
+      await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
+      await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
+
+      await selectComboboxOption(/certificate/i, /cert 1/i)
+      await selectComboboxOption(/certificate/i, /let's encrypt/i)
+      await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ certificate_id: null }))
+      })
     })
   })
 })
