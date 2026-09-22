@@ -8,7 +8,7 @@ on:
     reason:
       description: "Why are you running this manually?"
       required: true
-      default: "manual trigger"
+      default: "Ad hoc manual trigger"
     skip_tests:
       description: "Skip test-nightly-image job?"
       required: false

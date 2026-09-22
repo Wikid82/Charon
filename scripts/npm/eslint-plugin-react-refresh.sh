@@ -15,5 +15,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm update eslint-plugin-react-refresh
+    npm install eslint-plugin-react-refresh
 done

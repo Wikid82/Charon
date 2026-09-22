@@ -15,5 +15,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm update dotenv
+    npm install dotenv
 done

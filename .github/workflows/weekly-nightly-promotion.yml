@@ -1,4 +1,4 @@
-name: Weekly Nightly to Main Promotion
+name: Nightly to Main Promotion
 
 # Creates a PR from nightly → main every Monday for scheduled release promotion.
 # Includes safety checks for workflow status and provides manual trigger option.
@@ -367,7 +367,7 @@ jobs:
 
             const triggerReason = process.env.TRIGGER_REASON || 'Scheduled weekly promotion';
 
-            const body = `## 🚀 Weekly Nightly to Main Promotion
+            const body = `## 🚀 Nightly to Main Promotion
 
             **Date:** ${date}
             **Trigger:** ${triggerReason}

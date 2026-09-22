@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-4d2fb1c1cb62d78a
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:6dca0a45c1a10c9c1ff2b3ef504d0452a3560434dd7714c5238626f15d1b6f41
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-3c9d9966520561aa
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:27ffb3c1446c8bc289464e0b94f183db69aa703ff7e1542f560622389f334f5b
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -82,7 +82,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.4
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.2.1
+ARG CADDY_SECURITY_VERSION=1.2.2
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.1
 # xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so

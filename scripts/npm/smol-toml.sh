@@ -15,5 +15,12 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm install lucide-react
+
+    if [ -n "$(npm pkg get overrides.smol-toml)" ]; then
+        LATEST="$(npm view smol-toml version)"
+        npm pkg set "overrides.smol-toml=^${LATEST}"
+        npm install
+    else
+        npm update smol-toml
+    fi
 done

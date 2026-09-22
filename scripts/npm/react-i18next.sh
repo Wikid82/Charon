@@ -15,5 +15,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm update react-i18next
+    npm install react-i18next
 done
