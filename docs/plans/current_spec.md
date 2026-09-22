@@ -3,9 +3,13 @@
 - **Issue:** [#1361 — Couldn't request wildcard DNS-01 certificates from web UI](https://github.com/Wikid82/charon/issues/1361)
 - **Branch:** `fix/dns-provider-caddy-modules` (dedicated branch, already checked out, branched off `development`; PR into `development` — medium/large scope per `CLAUDE.md` branching rules; this is not a hotfix and must not land directly on `development`. This branch already exists — do not create a new one.)
 - **Change class:** `fix` (restores advertised functionality for the 10 existing built-in providers) with a `feat`-shaped addition (20 new Caddy-module-only providers, no backend/UI). One PR, ordered commits — see §6.
-- **Author identity for commit trailer/PR:** jhatfield82@proton.me (no session ID/link per `CLAUDE.md` "NO SESSION ATTRIBUTION").
+- **Author identity for commit trailer/PR:** jhatfield82@proton.me (no session ID/link per `CLAUDE.md` "NO SESSION ATTRIBUTION"). Note: commits landed under the locally-configured git identity (`Wikid82 <jhatfield82@gmail.com>`), not this address — that's the correct behavior (git uses whatever identity is configured, this line was informational for attribution purposes only, not an instruction to override local git config).
 
 ---
+
+**Post-implementation note (supersedes stale counts below):** implementation shipped **27** modules, not 30 — see Gotcha 4 in §2.3 for why `civo`/`exoscale`/`transip` were dropped (a hard upstream `libdns` dependency conflict found by the Commit 2 build gate). Any remaining "30" / "20 additional" / "28" references below this point are pre-Gotcha-4 boilerplate that wasn't fully swept after that decision — treat §2.3 Gotcha 4 and §4.1's table (which is corrected) as authoritative over any inconsistent prose elsewhere in this document.
+
+**Post-implementation note — docs structure deviation (approved):** §4.4 asked for a three-tier `docs/guides/dns-providers.md` rewrite (Fully Supported / Compiled-Not-Yet-Usable / Not Supported). The shipped doc uses two tiers instead ("Providers You Can Connect Today" / "Other Providers (Coming Soon)"), collapsing the middle tier. This is an intentional, approved deviation: from a novice user's perspective, "compiled into the Caddy binary but no Charon UI exists to configure it" and "not compiled at all" are indistinguishable — neither is usable from Charon today, and exposing that internal implementation split (plus naming `civo`/`exoscale`/`transip`/`libdns`) would violate this repo's CLAUDE.md docs guidance ("no jargon, no implementation details," "layman-friendly"). The two-tier doc still links GitHub issue #1374 for anyone who wants the full technical breakdown. No code change follows from this — it's a documentation-scope sign-off only.
 
 ## 1. Introduction
 
