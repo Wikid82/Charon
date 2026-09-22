@@ -631,11 +631,27 @@ func (s *CertificateService) ValidateCertificate(certPEM, keyPEM, chainPEM strin
 	return result, nil
 }
 
-// IsCertificateInUse checks if a certificate is referenced by any proxy host.
+// IsCertificateInUse checks if a certificate is referenced by any proxy host
+// or redirection host.
 func (s *CertificateService) IsCertificateInUse(id uint) (bool, error) {
 	var count int64
 	if err := s.db.Model(&models.ProxyHost{}).Where("certificate_id = ?", id).Count(&count).Error; err != nil {
 		return false, fmt.Errorf("check certificate linkage: %w", err)
+	}
+	if count > 0 {
+		return true, nil
+	}
+
+	// RedirectionHost is a newer peer table with the same CertificateID FK
+	// pattern as ProxyHost. Guard with HasTable — matching the pattern in
+	// domain_uniqueness.go's CheckDomainConflict — so pre-existing test DBs
+	// that only migrate ProxyHost don't hit a "no such table" error; that is
+	// correct behavior for those isolated ProxyHost-only tests anyway, since
+	// there is nothing to check against.
+	if s.db.Migrator().HasTable(&models.RedirectionHost{}) {
+		if err := s.db.Model(&models.RedirectionHost{}).Where("certificate_id = ?", id).Count(&count).Error; err != nil {
+			return false, fmt.Errorf("check redirection host certificate linkage: %w", err)
+		}
 	}
 	return count > 0, nil
 }
