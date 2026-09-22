@@ -59,7 +59,13 @@ test.describe('Wildcard DNS-01 Certificate Save (Regression #1361)', () => {
         providerType: 'cloudflare',
         name: 'Wildcard-Save-Cloudflare',
         credentials: {
-          api_token: 'test-cloudflare-token-placeholder',
+          // Must match caddy-dns/cloudflare's format check (35-50 chars,
+          // [A-Za-z0-9_-]) so Caddy's /load provisions the module instead of
+          // rejecting an obviously-malformed token before this regression
+          // test can even reach the "no rollback" assertion. It's still a
+          // fake credential — no real Cloudflare API call happens in this
+          // flow, only local config provisioning.
+          api_token: 'e2e-test-cloudflare-fake-api-token-1234',
         },
       });
       expect(dnsProvider.id).toBeTruthy();
