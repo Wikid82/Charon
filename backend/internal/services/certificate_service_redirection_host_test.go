@@ -135,3 +135,37 @@ func TestDeleteCertificate_BlockedByRedirectionHost(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, ErrCertInUse, err)
 }
+
+// TestIsCertificateInUse_RedirectionHostQueryError confirms IsCertificateInUse
+// surfaces a wrapped error (rather than silently reporting "not in use") when
+// the RedirectionHost table exists (HasTable is true) but the certificate_id
+// Count query against it fails for some other reason — simulated here by
+// swapping in a redirection_hosts table missing the certificate_id column
+// the query filters on.
+func TestIsCertificateInUse_RedirectionHostQueryError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.RedirectionHost{}))
+
+	cs := newTestCertificateService(tmpDir, db)
+
+	cert := models.SSLCertificate{
+		UUID: "redir-query-error-test", Name: "Redirect Query Error Test", Provider: "custom",
+		Domains: "queryerror.example.com", CommonName: "queryerror.example.com",
+	}
+	require.NoError(t, db.Create(&cert).Error)
+
+	// HasTable must still report true (so the ProxyHost-only guard doesn't
+	// short-circuit before ever reaching the RedirectionHost query), but the
+	// query itself must fail — so the table is swapped for a bare one
+	// lacking the certificate_id column the Count query filters on.
+	require.NoError(t, db.Exec("DROP TABLE redirection_hosts").Error)
+	require.NoError(t, db.Exec("CREATE TABLE redirection_hosts (id INTEGER PRIMARY KEY)").Error)
+	require.True(t, db.Migrator().HasTable(&models.RedirectionHost{}))
+
+	_, err = cs.IsCertificateInUse(cert.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check redirection host certificate linkage")
+}

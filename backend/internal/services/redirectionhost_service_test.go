@@ -392,3 +392,74 @@ func TestRedirectionHostService_DB(t *testing.T) {
 	service := NewRedirectionHostService(db)
 	assert.Equal(t, db, service.DB())
 }
+
+// TestRedirectionHostService_Update_RejectsDuplicateDomain confirms Update's
+// same-table uniqueness check (ValidateUniqueDomain) rejects a rename onto a
+// domain already owned by a different RedirectionHost row — the excludeID
+// argument must only exempt the row being updated, not every other row.
+func TestRedirectionHostService_Update_RejectsDuplicateDomain(t *testing.T) {
+	db := setupRedirectionHostTestDB(t)
+	service := NewRedirectionHostService(db)
+
+	first := validRedirectionHost()
+	first.DomainNames = "taken.example.com"
+	require.NoError(t, service.Create(first))
+
+	second := validRedirectionHost()
+	second.UUID = "rh-second-update"
+	second.DomainNames = "second.example.com"
+	require.NoError(t, service.Create(second))
+
+	second.DomainNames = "taken.example.com"
+	err := service.Update(second)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "domain already exists")
+}
+
+// TestRedirectionHostService_Update_RejectsProxyHostDomainConflict confirms
+// Update's additive cross-table check rejects a rename onto a domain owned
+// by a ProxyHost row.
+func TestRedirectionHostService_Update_RejectsProxyHostDomainConflict(t *testing.T) {
+	db := setupRedirectionHostTestDB(t)
+	service := NewRedirectionHostService(db)
+
+	require.NoError(t, db.Create(&models.ProxyHost{
+		UUID:        "ph-update-conflict",
+		DomainNames: "claimed-by-proxy.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}).Error)
+
+	host := validRedirectionHost()
+	require.NoError(t, service.Create(host))
+
+	host.DomainNames = "claimed-by-proxy.example.com"
+	err := service.Update(host)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "domain already in use by another host")
+}
+
+// TestRedirectionHostService_GetByID_NotFound confirms GetByID surfaces the
+// underlying gorm.ErrRecordNotFound rather than a zero-value host on a miss.
+func TestRedirectionHostService_GetByID_NotFound(t *testing.T) {
+	db := setupRedirectionHostTestDB(t)
+	service := NewRedirectionHostService(db)
+
+	host, err := service.GetByID(999999)
+	assert.Error(t, err)
+	assert.Nil(t, host)
+}
+
+// TestRedirectionHostService_List_DBError confirms List propagates the
+// underlying query error (e.g. dropped/missing table) instead of returning
+// an empty slice with a nil error.
+func TestRedirectionHostService_List_DBError(t *testing.T) {
+	db := setupRedirectionHostTestDB(t)
+	service := NewRedirectionHostService(db)
+
+	require.NoError(t, db.Migrator().DropTable(&models.RedirectionHost{}))
+
+	hosts, err := service.List()
+	assert.Error(t, err)
+	assert.Nil(t, hosts)
+}

@@ -86,3 +86,45 @@ func TestManager_ApplyConfig_FetchesAndAppliesRedirectionHosts(t *testing.T) {
 	require.NoError(t, db.First(&caddyConfig).Error)
 	assert.True(t, caddyConfig.Success)
 }
+
+// TestManager_ApplyConfig_RedirectionHostsFetchError confirms ApplyConfig
+// surfaces a wrapped "fetch redirection hosts" error (rather than silently
+// proceeding with an empty/partial list) when the RedirectionHost table
+// exists but the Preload("DNSProvider") query it runs against a row with a
+// non-nil DNSProviderID fails — simulated here by dropping the DNS provider
+// table out from under an already-inserted row.
+func TestManager_ApplyConfig_RedirectionHostsFetchError(t *testing.T) {
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer caddyServer.Close()
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.RedirectionHost{}, &models.DNSProvider{}))
+
+	provider := models.DNSProvider{UUID: "dns-fetch-err", Name: "Test DNS", ProviderType: "cloudflare"}
+	require.NoError(t, db.Create(&provider).Error)
+
+	require.NoError(t, db.Create(&models.RedirectionHost{
+		DomainNames:   "fetcherr.example.com",
+		TargetURL:     "https://target.example.com",
+		StatusCode:    301,
+		Enabled:       true,
+		DNSProviderID: &provider.ID,
+	}).Error)
+
+	// Drop the DNS provider table AFTER inserting the row so
+	// Preload("DNSProvider") has a non-nil foreign key to look up but no
+	// table left to satisfy the lookup.
+	require.NoError(t, db.Migrator().DropTable(&models.DNSProvider{}))
+
+	tmpDir := t.TempDir()
+	client := newTestClient(t, caddyServer.URL)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
+
+	err = manager.ApplyConfig(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fetch redirection hosts")
+}
