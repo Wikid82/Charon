@@ -1026,6 +1026,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		proxyGroupHandler := handlers.NewProxyGroupHandler(db)
 		proxyGroupHandler.RegisterRoutes(management)
 
+		// Redirection Hosts (Issue #1367): peer resource to ProxyHost, same
+		// management-tier access (globally-scoped, no tenant isolation, per
+		// the security review in docs/plans/current_spec.md §3).
+		redirectionHostHandler := handlers.NewRedirectionHostHandler(db, caddyManager)
+		redirectionHostHandler.RegisterRoutes(management)
+
 		remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 		remoteServerHandler.SetUptimeService(uptimeService) // targeted monitor sync on CRUD (spec §3.1.3)
 		remoteServerHandler.RegisterRoutes(management, managementAdmin)
