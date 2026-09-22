@@ -13,6 +13,7 @@ import { AuthProvider } from './context/AuthContext'
 // Lazy load pages for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
+const RedirectionHosts = lazy(() => import('./pages/RedirectionHosts'))
 const RemoteServers = lazy(() => import('./pages/RemoteServers'))
 const HecateTunnels   = lazy(() => import('./pages/HecateTunnels'))
 const HecateAgent     = lazy(() => import('./pages/HecateAgent'))
@@ -75,6 +76,7 @@ export default function App() {
           }>
               <Route index element={<Dashboard />} />
               <Route path="proxy-hosts" element={<ProxyHosts />} />
+              <Route path="redirection-hosts" element={<RedirectionHosts />} />
               <Route path="domains" element={<Domains />} />
 
               {/* Hecate Routes */}
