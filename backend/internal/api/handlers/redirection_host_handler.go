@@ -158,7 +158,7 @@ func (h *RedirectionHostHandler) List(c *gin.Context) {
 // only when the field is truly absent (or explicit JSON null) from the
 // payload — so an explicit `false` survives the round-trip into the model
 // untouched.
-var booleanFieldsDefaultingTrueOnCreate = []string{"preserve_path", "ssl_forced", "http2_support"}
+var booleanFieldsDefaultingTrueOnCreate = []string{"preserve_path", "ssl_forced", "http2_support", "enabled"}
 
 // Create creates a new redirection host.
 func (h *RedirectionHostHandler) Create(c *gin.Context) {

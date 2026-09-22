@@ -61,7 +61,7 @@ func TestRedirectionHost_NotNullColumns(t *testing.T) {
 }
 
 // TestRedirectionHost_DefaultValues documents GORM/DB-level defaults only.
-// PreservePath/SSLForced/HTTP2Support are deliberately NOT
+// PreservePath/SSLForced/HTTP2Support/Enabled are deliberately NOT
 // gorm:"default:true" (see the doc comment on RedirectionHost.PreservePath):
 // a plain bool set to false is indistinguishable from an unset zero value,
 // so a `default:` tag would silently override an explicit false on INSERT.
@@ -89,7 +89,7 @@ func TestRedirectionHost_DefaultValues(t *testing.T) {
 	assert.False(t, fetched.HTTP2Support, "no gorm default:true on this field anymore — applied by the handler, not GORM")
 	assert.False(t, fetched.HSTSEnabled)
 	assert.False(t, fetched.HSTSSubdomains)
-	assert.True(t, fetched.Enabled)
+	assert.False(t, fetched.Enabled, "no gorm default:true on this field anymore — applied by the handler, not GORM")
 	assert.False(t, fetched.UseDNSChallenge)
 }
 

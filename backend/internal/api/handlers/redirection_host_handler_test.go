@@ -72,11 +72,11 @@ func TestRedirectionHostHandler_Create_Valid(t *testing.T) {
 
 // TestRedirectionHostHandler_Create_PersistsExplicitFalseBooleans is a
 // regression test for the GORM bool-zero-value/`gorm:"default:true"`
-// collision: PreservePath/SSLForced/HTTP2Support are non-pointer bools with
-// a `default:true` tag, so an explicit `false` on the create payload is
-// indistinguishable from an omitted field and was silently overridden to
-// `true` by GORM on INSERT. Confirms both the API response AND the
-// persisted DB row reflect the explicit `false` values.
+// collision: PreservePath/SSLForced/HTTP2Support/Enabled are non-pointer
+// bools with a `default:true` tag, so an explicit `false` on the create
+// payload is indistinguishable from an omitted field and was silently
+// overridden to `true` by GORM on INSERT. Confirms both the API response
+// AND the persisted DB row reflect the explicit `false` values.
 func TestRedirectionHostHandler_Create_PersistsExplicitFalseBooleans(t *testing.T) {
 	router, db := setupRedirectionHostHandlerRouter(t)
 
@@ -84,6 +84,7 @@ func TestRedirectionHostHandler_Create_PersistsExplicitFalseBooleans(t *testing.
 	payload["preserve_path"] = false
 	payload["ssl_forced"] = false
 	payload["http2_support"] = false
+	payload["enabled"] = false
 
 	w := doRequest(router, http.MethodPost, "/redirection-hosts", payload)
 	require.Equal(t, http.StatusCreated, w.Code)
@@ -93,6 +94,7 @@ func TestRedirectionHostHandler_Create_PersistsExplicitFalseBooleans(t *testing.
 	assert.Equal(t, false, result["preserve_path"], "response body must reflect explicit false, not silently defaulted to true")
 	assert.Equal(t, false, result["ssl_forced"], "response body must reflect explicit false, not silently defaulted to true")
 	assert.Equal(t, false, result["http2_support"], "response body must reflect explicit false, not silently defaulted to true")
+	assert.Equal(t, false, result["enabled"], "response body must reflect explicit false, not silently defaulted to true")
 
 	// Read back from the DB directly to rule out an in-memory-only struct
 	// value that never actually made it past GORM's INSERT.
@@ -101,6 +103,7 @@ func TestRedirectionHostHandler_Create_PersistsExplicitFalseBooleans(t *testing.
 	assert.False(t, persisted.PreservePath, "preserve_path=false must be persisted, not overridden by gorm default:true")
 	assert.False(t, persisted.SSLForced, "ssl_forced=false must be persisted, not overridden by gorm default:true")
 	assert.False(t, persisted.HTTP2Support, "http2_support=false must be persisted, not overridden by gorm default:true")
+	assert.False(t, persisted.Enabled, "enabled=false must be persisted, not overridden by gorm default:true")
 }
 
 // TestRedirectionHostHandler_Create_DefaultsBooleansWhenOmitted confirms the
@@ -113,6 +116,7 @@ func TestRedirectionHostHandler_Create_DefaultsBooleansWhenOmitted(t *testing.T)
 	delete(payload, "preserve_path")
 	delete(payload, "ssl_forced")
 	delete(payload, "http2_support")
+	delete(payload, "enabled")
 
 	w := doRequest(router, http.MethodPost, "/redirection-hosts", payload)
 	require.Equal(t, http.StatusCreated, w.Code)
@@ -122,12 +126,14 @@ func TestRedirectionHostHandler_Create_DefaultsBooleansWhenOmitted(t *testing.T)
 	assert.Equal(t, true, result["preserve_path"])
 	assert.Equal(t, true, result["ssl_forced"])
 	assert.Equal(t, true, result["http2_support"])
+	assert.Equal(t, true, result["enabled"])
 
 	var persisted models.RedirectionHost
 	require.NoError(t, db.Where("uuid = ?", result["uuid"]).First(&persisted).Error)
 	assert.True(t, persisted.PreservePath)
 	assert.True(t, persisted.SSLForced)
 	assert.True(t, persisted.HTTP2Support)
+	assert.True(t, persisted.Enabled)
 }
 
 func TestRedirectionHostHandler_Create_InvalidJSON_400(t *testing.T) {

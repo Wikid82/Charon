@@ -75,7 +75,12 @@ type RedirectionHost struct {
 	HSTSEnabled    bool `json:"hsts_enabled" gorm:"default:false"`
 	HSTSSubdomains bool `json:"hsts_subdomains" gorm:"default:false"`
 
-	Enabled bool `json:"enabled" gorm:"default:true;index"`
+	// Enabled: deliberately NOT tagged gorm:"default:true" — same
+	// bool-zero-value/default-tag collision as PreservePath above. The
+	// "default true when omitted" behavior lives in the handler layer
+	// (RedirectionHostHandler.Create) instead. See
+	// TestRedirectionHostHandler_Create_PersistsExplicitFalseBooleans.
+	Enabled bool `json:"enabled" gorm:"index"`
 
 	// Certificate: same FK pattern as ProxyHost.CertificateID/Certificate.
 	CertificateID *uint           `json:"certificate_id" gorm:"index"`
