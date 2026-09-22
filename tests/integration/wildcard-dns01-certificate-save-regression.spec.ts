@@ -51,13 +51,6 @@ test.describe('Wildcard DNS-01 Certificate Save (Regression #1361)', () => {
     adminUser,
     testData,
   }) => {
-    test.fixme(
-      true,
-      'blocked on #1361 — dns.providers.cloudflare Caddy module not compiled into the ' +
-        'toolchain image yet; un-fixme in Commit 4 once Commits 2/2b/3 land (see ' +
-        'docs/plans/current_spec.md §6)'
-    );
-
     await loginUser(page, adminUser);
 
     let dnsProvider: { id: string; name: string };
