@@ -66,7 +66,7 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
 # renovate: datasource=go depName=google.golang.org/grpc
 ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.0.2
+ARG NPM_VERSION=12.1.0
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
