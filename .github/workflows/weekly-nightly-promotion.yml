@@ -367,7 +367,7 @@ jobs:
 
             const triggerReason = process.env.TRIGGER_REASON || 'Scheduled weekly promotion';
 
-            const body = `## 🚀 Weekly Nightly to Main Promotion
+            const body = `## 🚀 Nightly to Main Promotion
 
             **Date:** ${date}
             **Trigger:** ${triggerReason}
