@@ -40,7 +40,7 @@ func TestGenerateConfig_CustomCert_EncryptedKey(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateConfig(hosts, "/data", "admin@test.com", "/dist", "letsencrypt", true, false, false, false, false, "", nil, nil, nil, nil, nil, encSvc)
+	cfg, err := GenerateConfig(hosts, "/data", "admin@test.com", "/dist", "letsencrypt", true, false, false, false, false, "", nil, nil, nil, nil, nil, WithEncryptionService(encSvc))
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.NotNil(t, cfg.Apps.TLS)
@@ -157,7 +157,7 @@ func TestGenerateConfig_CustomCert_DecryptFailure(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateConfig(hosts, "/data", "admin@test.com", "/dist", "letsencrypt", true, false, false, false, false, "", nil, nil, nil, nil, nil, encSvc)
+	cfg, err := GenerateConfig(hosts, "/data", "admin@test.com", "/dist", "letsencrypt", true, false, false, false, false, "", nil, nil, nil, nil, nil, WithEncryptionService(encSvc))
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	if cfg.Apps.TLS != nil && cfg.Apps.TLS.Certificates != nil {

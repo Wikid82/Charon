@@ -119,6 +119,7 @@ export default function Layout({ children }: LayoutProps) {
   const navigation: NavItem[] = [
     { name: t('navigation.dashboard'), path: '/', icon: '📊' },
     { name: t('navigation.proxyHosts'), path: '/proxy-hosts', icon: '🌐' },
+    { name: t('navigation.redirectionHosts'), path: '/redirection-hosts', icon: '↪️' },
     {
       name: t('navigation.hecate'),
       path: '/hecate',

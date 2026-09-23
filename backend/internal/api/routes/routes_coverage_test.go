@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -108,6 +110,41 @@ func TestRegister_UptimeFeatureFlagDefaultErrorIsNonFatal(t *testing.T) {
 
 	err = Register(ctx, router, db, cfg)
 	require.NoError(t, err)
+}
+
+// TestCleanInvalidLetsEncryptCertAssignments_QueryErrorReturnsEarly confirms
+// the generic startup sweep (called for both ProxyHost and RedirectionHost
+// at Register-time, routes.go:201-202) treats a failed lookup query as a
+// no-op rather than panicking or propagating the error — it is a
+// best-effort cleanup, not something that should ever block startup.
+func TestCleanInvalidLetsEncryptCertAssignments_QueryErrorReturnsEarly(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_clean_letsencrypt_query_error"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.SSLCertificate{}))
+
+	require.NoError(t, db.Create(&models.ProxyHost{
+		UUID:        "clean-letsencrypt-query-error",
+		DomainNames: "clean-letsencrypt-query-error.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}).Error)
+
+	// Drop ssl_certificates so the LEFT JOIN in cleanInvalidLetsEncryptCertAssignments
+	// fails outright (no such table), forcing its early-return error branch
+	// instead of the normal zero-rows-matched path.
+	require.NoError(t, db.Migrator().DropTable(&models.SSLCertificate{}))
+
+	require.NotPanics(t, func() {
+		cleanInvalidLetsEncryptCertAssignments(db, "proxy_hosts", func(h models.ProxyHost) string { return h.DomainNames })
+	})
+
+	// The ProxyHost row must be untouched — confirms the function returned
+	// before reaching its update loop.
+	var host models.ProxyHost
+	require.NoError(t, db.Where("uuid = ?", "clean-letsencrypt-query-error").First(&host).Error)
+	assert.Nil(t, host.CertificateID)
 }
 
 func TestRegister_SecurityHeaderPresetInitErrorIsNonFatal(t *testing.T) {

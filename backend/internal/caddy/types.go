@@ -210,6 +210,22 @@ func HeaderHandler(headers map[string][]string) Handler {
 	}
 }
 
+// RedirectHandler creates a static_response handler that issues an HTTP
+// redirect to targetURL with the given status code. targetURL may contain
+// the {http.request.uri} placeholder when the caller wants to preserve the
+// incoming path/query string. Note: unlike HeaderHandler's response.set
+// shape, static_response's "headers" field is a flat map applied directly
+// on the handler — see https://caddyserver.com/docs/json/apps/http/handlers/static_response/.
+func RedirectHandler(targetURL string, statusCode int) Handler {
+	return Handler{
+		"handler":     "static_response",
+		"status_code": statusCode,
+		"headers": map[string]any{
+			"Location": []string{targetURL},
+		},
+	}
+}
+
 // BlockExploitsHandler creates a handler that blocks common exploits.
 // This uses Caddy's request matchers to block malicious patterns.
 func BlockExploitsHandler() Handler {

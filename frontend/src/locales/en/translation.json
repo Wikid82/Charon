@@ -53,6 +53,7 @@
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",
+    "redirectionHosts": "Redirection Hosts",
     "remoteServers": "Remote Servers",
     "domains": "Domains",
     "certificates": "Certificates",
@@ -170,6 +171,22 @@
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
     "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+  },
+  "redirectionHosts": {
+    "title": "Redirection Hosts",
+    "description": "Redirect a domain to another URL with a 301, 302, 307, or 308 status code.",
+    "addHost": "Add Redirection Host",
+    "columnName": "Name",
+    "columnDomain": "Domain",
+    "columnTarget": "Target",
+    "columnStatusCode": "Status Code",
+    "columnStatus": "Enabled",
+    "columnActions": "Actions",
+    "unnamed": "Unnamed",
+    "noHosts": "No redirection hosts",
+    "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
+    "deleteConfirmTitle": "Delete Redirection Host?",
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
   },
   "proxyGroups": {
     "group": "Group",

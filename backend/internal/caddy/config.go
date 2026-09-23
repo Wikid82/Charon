@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
@@ -17,7 +16,10 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig, encSvc ...*crypto.EncryptionService) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig, opts ...GenerateConfigOption) (*Config, error) {
+	resolvedOpts := resolveGenerateConfigOptions(opts)
+	redirectHosts := resolvedOpts.redirectHosts
+
 	// Define log file paths for Caddy access logs.
 	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
 	// location that CrowdSec's acquis.yaml is configured to monitor.
@@ -94,12 +96,17 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	isE2E := os.Getenv("CHARON_ENV") == "e2e"
 
 	if acmeEmail != "" || isE2E {
-		for _, host := range hosts {
-			if !host.Enabled || host.DomainNames == "" {
-				continue
+		// classifyACMEDomains buckets one host's domains into either the
+		// per-DNS-provider wildcard/DNS-01 map or the shared HTTP-01 list.
+		// Shared by both ProxyHost and RedirectionHost so a redirecting
+		// domain gets a TLS cert issued exactly the same way a proxied one
+		// does (docs/plans/current_spec.md §4.2).
+		classifyACMEDomains := func(enabled bool, domainNames string, dnsProviderID *uint, dnsProvider *models.DNSProvider) {
+			if !enabled || domainNames == "" {
+				return
 			}
 
-			rawDomains := strings.Split(host.DomainNames, ",")
+			rawDomains := strings.Split(domainNames, ",")
 			var cleanDomains []string
 			var nonIPDomains []string
 			for _, d := range rawDomains {
@@ -115,13 +122,20 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 
 			// Check if this host has wildcard domains and DNS provider
-			if hasWildcard(cleanDomains) && host.DNSProviderID != nil && host.DNSProvider != nil {
+			if hasWildcard(cleanDomains) && dnsProviderID != nil && dnsProvider != nil {
 				// Use DNS challenge for this host (include all domains including IPs for routing)
-				dnsProviderDomains[*host.DNSProviderID] = append(dnsProviderDomains[*host.DNSProviderID], cleanDomains...)
+				dnsProviderDomains[*dnsProviderID] = append(dnsProviderDomains[*dnsProviderID], cleanDomains...)
 			} else if len(nonIPDomains) > 0 {
 				// Use HTTP challenge for non-IP domains only
 				httpChallengeDomains = append(httpChallengeDomains, nonIPDomains...)
 			}
+		}
+
+		for _, host := range hosts {
+			classifyACMEDomains(host.Enabled, host.DomainNames, host.DNSProviderID, host.DNSProvider)
+		}
+		for _, rh := range redirectHosts {
+			classifyACMEDomains(rh.Enabled, rh.DomainNames, rh.DNSProviderID, rh.DNSProvider)
 		}
 
 		// Create DNS challenge policies for each DNS provider
@@ -307,13 +321,17 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 		}
 	}
+	for _, rh := range redirectHosts {
+		if rh.CertificateID != nil && rh.Certificate != nil {
+			if rh.Certificate.Provider == "custom" {
+				customCerts[*rh.CertificateID] = *rh.Certificate
+			}
+		}
+	}
 
 	if len(customCerts) > 0 {
-		// Resolve encryption service from variadic parameter
-		var certEncSvc *crypto.EncryptionService
-		if len(encSvc) > 0 && encSvc[0] != nil {
-			certEncSvc = encSvc[0]
-		}
+		// Resolve encryption service from GenerateConfigOption(s)
+		certEncSvc := resolvedOpts.encSvc
 
 		var loadPEM []LoadPEMConfig
 		for _, cert := range customCerts {
@@ -365,7 +383,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 	}
 
-	if len(hosts) == 0 && frontendDir == "" {
+	if len(hosts) == 0 && len(redirectHosts) == 0 && frontendDir == "" {
 		return config, nil
 	}
 
@@ -374,8 +392,17 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// Track IP-only hostnames to skip AutoHTTPS/ACME
 	ipSubjects := make([]string, 0)
 
-	// Track processed domains to prevent duplicates (Ghost Host fix)
+	// Track processed domains to prevent duplicates (Ghost Host fix).
+	// RedirectionHost routes are built (and their domains registered here)
+	// before the ProxyHost loop below, so a ProxyHost cannot silently steal
+	// a domain already claimed by a RedirectionHost — whichever resource's
+	// routes are built first wins any residual collision that somehow made
+	// it past the service-layer CheckDomainConflict check (defense in depth,
+	// see docs/plans/current_spec.md §4.2/§4.3).
 	processedDomains := make(map[string]bool)
+	redirectRoutes, redirectIPSubjects := BuildRedirectRoutes(redirectHosts, processedDomains)
+	routes = append(routes, redirectRoutes...)
+	ipSubjects = append(ipSubjects, redirectIPSubjects...)
 
 	// Sort hosts by UpdatedAt desc to prefer newer configs in case of duplicates
 	// Note: This assumes the input slice is already sorted or we don't care about order beyond duplicates
@@ -409,27 +436,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			continue
 		}
 
-		// Parse comma-separated domains
-		rawDomains := strings.Split(host.DomainNames, ",")
-		var uniqueDomains []string
-		isIPOnly := true
-
-		for _, d := range rawDomains {
-			d = strings.TrimSpace(d)
-			d = strings.ToLower(d) // Normalize to lowercase
-			if d == "" {
-				continue
-			}
-			if processedDomains[d] {
-				logger.Log().WithField("domain", d).WithField("host", host.UUID).Warn("Skipping duplicate domain for host (Ghost Host detection)")
-				continue
-			}
-			processedDomains[d] = true
-			uniqueDomains = append(uniqueDomains, d)
-			if net.ParseIP(d) == nil {
-				isIPOnly = false
-			}
-		}
+		// Parse comma-separated domains, dedupe, and track against
+		// already-claimed domains (Ghost Host detection) — shared with
+		// BuildRedirectRoutes via dedupeAndTrackDomains (redirect_routes.go).
+		uniqueDomains, isIPOnly := dedupeAndTrackDomains(host.DomainNames, processedDomains, "proxy_host", host.UUID)
 
 		if len(uniqueDomains) == 0 {
 			continue
