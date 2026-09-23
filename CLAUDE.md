@@ -137,6 +137,7 @@ never affected by this.
 
 - **Architecture**: Update `ARCHITECTURE.md` when making changes to system architecture, technology stack, directory structure, deployment model, security architecture, or integration points.
 - **Features**: Update `docs/features.md` when adding capabilities — keep it brief, link to individual docs.
+- **Source of truth vs. published site**: All documentation — dev and user-facing — is authored under the repo-root `docs/`. The public Docusaurus site (`docs-site/`) is a *published view* of a curated subset of it, not a second source: `docs-site/scripts/sync-docs.mjs` wipes and repopulates the git-ignored `docs-site/docs/` from `docs/` per `docs-site/scripts/docs-manifest.json` on every `npm start`/`npm run build`. **Never hand-edit anything under `docs-site/docs/`** — it will be silently overwritten on the next sync. A new file inside an already-manifested directory (`docs/features/`, `docs/configuration/`, `docs/guides/`, `docs/troubleshooting/`, `docs/api/`) publishes automatically; a new *standalone* top-level file (like `docs/getting-started.md`) must also be added to the `"files"` array in `docs-site/scripts/docs-manifest.json` or it stays contributor-only.
 
 ## CI/CD & Commit Conventions
 
