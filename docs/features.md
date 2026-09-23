@@ -27,6 +27,14 @@ Keep a large list of sites tidy by organizing your proxy hosts into groups. Drag
 
 ---
 
+### ↪️ Redirection Hosts
+
+Moved your site to a new domain, or retired an old one? Set up a Redirection Host to send visitors from an old address straight to the new one, with a proper HTTP redirect — no backend server, no dead links. Pick a status code (301, 302, 307, or 308), decide whether the original page/path should carry over, and Charon handles the SSL certificate for the old domain just like it would for a Proxy Host.
+
+→ [Learn More](features/redirection-hosts.md)
+
+---
+
 ### 🔐 Automatic HTTPS Certificates
 
 Every website deserves the green padlock. Charon automatically obtains free SSL certificates from Let's Encrypt or ZeroSSL, installs them, and renews them before they expire—all without you lifting a finger.

@@ -68,6 +68,28 @@ func migrateViewerToPassthrough(db *gorm.DB) {
 	}
 }
 
+// cleanInvalidLetsEncryptCertAssignments nulls out certificate_id on any row
+// of table T that has been manually pinned to a Let's Encrypt-provisioned
+// certificate — those certs are auto-managed by Caddy and must never be
+// assigned via certificate_id. ProxyHost and RedirectionHost share the exact
+// same CertificateID FK shape (see docs/plans/current_spec.md §7), so this
+// sweep is written once and applied to both tables instead of duplicating
+// the query/update per model.
+func cleanInvalidLetsEncryptCertAssignments[T any](db *gorm.DB, tableName string, domainNamesOf func(T) string) {
+	var rows []T
+	joinClause := fmt.Sprintf("LEFT JOIN ssl_certificates ON %s.certificate_id = ssl_certificates.id", tableName)
+	if err := db.Joins(joinClause).
+		Where("ssl_certificates.provider = ?", "letsencrypt").
+		Find(&rows).Error; err != nil {
+		return
+	}
+	for i := range rows {
+		row := rows[i]
+		logger.Log().WithField("domain", domainNamesOf(row)).Info("Removing invalid Let's Encrypt cert assignment")
+		db.Model(&row).Update("certificate_id", nil)
+	}
+}
+
 // Register wires up API routes and performs automatic migrations.
 func Register(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Caddy Manager - created early so it can be used by settings handlers for config reload
@@ -113,6 +135,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.ProxyGroup{}, // must precede ProxyHost (FK dependency)
 		&models.ProxyHost{},
 		&models.Location{},
+		&models.RedirectionHost{}, // Issue #1367: 301/302/307/308 redirect hosts (peer to ProxyHost)
 		&models.CaddyConfig{},
 		&models.RemoteServer{},
 		&models.SSLCertificate{},
@@ -175,17 +198,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
 	logger.Log().Info("Cleaning up invalid Let's Encrypt certificate associations...")
-	var hostsWithInvalidCerts []models.ProxyHost
-	if err := db.Joins("LEFT JOIN ssl_certificates ON proxy_hosts.certificate_id = ssl_certificates.id").
-		Where("ssl_certificates.provider = ?", "letsencrypt").
-		Find(&hostsWithInvalidCerts).Error; err == nil {
-		if len(hostsWithInvalidCerts) > 0 {
-			for _, host := range hostsWithInvalidCerts {
-				logger.Log().WithField("domain", host.DomainNames).Info("Removing invalid Let's Encrypt cert assignment")
-				db.Model(&host).Update("certificate_id", nil)
-			}
-		}
-	}
+	cleanInvalidLetsEncryptCertAssignments(db, "proxy_hosts", func(h models.ProxyHost) string { return h.DomainNames })
+	cleanInvalidLetsEncryptCertAssignments(db, "redirection_hosts", func(h models.RedirectionHost) string { return h.DomainNames })
 
 	if caddyManager == nil {
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
@@ -1024,6 +1038,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		proxyGroupHandler := handlers.NewProxyGroupHandler(db)
 		proxyGroupHandler.RegisterRoutes(management)
+
+		// Redirection Hosts (Issue #1367): peer resource to ProxyHost, same
+		// management-tier access (globally-scoped, no tenant isolation, per
+		// the security review in docs/plans/current_spec.md §3).
+		redirectionHostHandler := handlers.NewRedirectionHostHandler(db, caddyManager)
+		redirectionHostHandler.RegisterRoutes(management)
 
 		remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 		remoteServerHandler.SetUptimeService(uptimeService) // targeted monitor sync on CRUD (spec §3.1.3)

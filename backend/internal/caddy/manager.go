@@ -111,6 +111,17 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
 	}
 
+	// Fetch all redirection hosts from database (peer resource to ProxyHost,
+	// see docs/plans/current_spec.md §3/§4.2). A missing table (e.g. a test
+	// DB that only migrates ProxyHost) is tolerated — redirectHosts is left
+	// empty and GenerateConfig behaves exactly as it did before this feature.
+	var redirectHosts []models.RedirectionHost
+	if m.db.Migrator().HasTable(&models.RedirectionHost{}) {
+		if err := m.db.Preload("Certificate").Preload("DNSProvider").Find(&redirectHosts).Error; err != nil {
+			return fmt.Errorf("fetch redirection hosts: %w", err)
+		}
+	}
+
 	// Fetch all DNS providers for DNS challenge configuration
 	var dnsProviders []models.DNSProvider
 	if err := m.db.Where("enabled = ?", true).Find(&dnsProviders).Error; err != nil {
@@ -436,7 +447,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 
 	hosts = resolveOrthrusHosts(hosts, m.orthrusSvc)
 
-	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, m.encSvc)
+	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, WithEncryptionService(m.encSvc), WithRedirectionHosts(redirectHosts))
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

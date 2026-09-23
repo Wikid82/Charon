@@ -1,188 +1,122 @@
-# QA & Security Report — DNS-01 Challenge Provider Caddy Modules (#1361)
+# QA & Security Report — Redirection Hosts Feature (#1367)
 
-- **Feature branch:** `fix/dns-provider-caddy-modules` (6 commits ahead of `development`)
-- **Commits audited:** `ccf59920`, `875058e1`, `c3344952`, `0229e57d`, `9a1dd47a`, `39fba472`
-- **Plan:** `docs/plans/current_spec.md` (2 rounds of Supervisor spec review + implementation review, approved with a docs-structure addendum)
-- **Prior gates:** Planning → Supervisor (spec, 2 rounds) → implementation → Supervisor (implementation review, approved)
-- **Date:** 2026-09-22
-- **Verdict:** **PASS — READY TO OPEN PR.** No blocking issues. Zero CRITICAL/HIGH security findings attributable to this change. One non-blocking documentation gap noted (§6). One test-execution gap noted and explained (§1, gate 1).
+- **Feature branch:** `feat/redirection-hosts-1367`
+- **Commits audited:** `cbe72b50`, `443f16c7`, `525c63b5`, `f7e72240`, `fad3d74b`, `8fdd4401`, `90bbcbea`, `c2288d6c`, `2dcdb9fc`, `d320c7ed`, `14e1d26a` (11 landed code/test/docs commits, per the Commit Slicing Strategy in `docs/plans/current_spec.md` §9)
+- **Plan:** `docs/plans/current_spec.md`
+- **Prior review:** Supervisor code-review pass already approved diff fidelity, the `GenerateConfig` edit-scope claim, the three inserted fixes, and a preliminary security read. This report is an independent audit, not a rubber stamp — one new bug was found and confirmed by writing and running a reproduction test (not by inspection alone).
 
----
+> **Post-audit update**: Finding #1 below (`RedirectionHost.Enabled` GORM
+> zero-value bug) was fixed immediately after this audit, in commit
+> `5b96f9724f65fa88a026adcb9b30d9b0cb15886f` (`fix: persist explicit false
+> value for redirection host enabled flag`), documented as commit 7.5 in
+> `docs/plans/current_spec.md` §9. Red→green regression test confirmed;
+> full validation gate re-passed. Finding #2 (patch-coverage strict-gate
+> shortfall) and the certificate-badge UI-consistency gap noted in §5 were
+> accepted as tracked follow-ups rather than expanding this PR further —
+> both are non-blocking per this report's own §6/§7 recommendation.
 
-## 0. Scope confirmation
+## Overall Verdict: **CONDITIONAL PASS** → resolved to **PASS** (see update above)
 
-`git diff development..HEAD --stat`:
+The feature is functionally solid, passes every automated gate that measures whole-codebase health (both coverage floors, both security scanners, full test suites, all builds), and the core security properties claimed for this feature (no server-side fetch of redirect targets, self-redirect guard, cross-table uniqueness, cert-integrity on delete, no new authorization surface) are all independently verified as true. It should **not** be blocked indefinitely, but two items should be fixed (or explicitly accepted in writing by the person who owns this decision) before merge:
 
-```
- .github/renovate.json                              |  377 +++++
- ARCHITECTURE.md                                    |    6 +-
- Dockerfile                                         |  150 +++
- docs/features.md                                   |    7 +-
- docs/guides/dns-providers.md                       |  125 +--
- docs/plans/current_spec.md                         | 1045 +++++++-------
- scripts/toolchain-key.sh                           |   11 +-
- tests/integration/wildcard-dns01-...spec.ts        |  148 +++
- 8 files changed, 1212 insertions(+), 657 deletions(-)
-```
+1. **One genuine, confirmed bug** (Medium severity): `RedirectionHost.Enabled` has the exact same GORM zero-value/default-tag collision that commit `2dcdb9fc` already fixed for three sibling fields — but the fix missed `Enabled` itself. `POST /redirection-hosts` with `"enabled": false` silently persists as `true`. Not reachable through the current UI (the create form never sends `enabled`), but it is part of the documented API contract (§4.4) and defeats the ability to create a host in a pre-disabled state via the API.
+2. **Patch-coverage preflight fails its own strict gate**: `scripts/local-patch-report.sh` reports 79.0% backend / 80.7% frontend patch coverage against the required 85%/90% thresholds (this is a *diff*-coverage metric, distinct from and additional to the whole-file coverage gates in `scripts/go-test-coverage.sh`/`scripts/frontend-test-coverage.sh`, both of which pass comfortably). The uncovered lines are concentrated in real error-handling branches (see §2 below), not incidental formatting.
 
-**Confirmed: zero Go or TypeScript application code touched.** No `backend/**`, no `frontend/src/**`, no `.go`/`.tsx`/`.ts` app files in the diff — only Dockerfile, a shell script, a Renovate config, docs, the plan file, and one new Playwright spec. This is a build/deployment-config change, not an application-code change.
-
-**Consequently, the following standard DoD gates are N/A for this PR, and are noted here rather than silently skipped:**
-- Backend/frontend unit test coverage gates (`go-test-coverage.sh`, `frontend-test-coverage.sh`) — N/A, no Go/TS source changed to instrument.
-- `npm run type-check` — N/A, no TypeScript changed.
-- `go build ./...` / `npm run build` — not meaningfully informative on their own since no app code changed, but both were implicitly exercised as part of the full multi-stage `make build-offline` Docker build (§2), which succeeded.
-- GORM security scan (`scan-gorm-security.sh --check`) — **explicitly checked and confirmed out of scope**: no `backend/internal/models/**`, GORM queries, or migrations in this diff. Not run.
+Neither finding is a security hole in the sense the task asked me to hunt for (SSRF, redirect-loop bypass, cross-table uniqueness bypass, cert-lifecycle gap, authorization regression) — all five of those came back clean on independent verification (§5). They are correctness/completeness gaps that a QA/security pass is supposed to catch before merge.
 
 ---
 
-## 1. Definition of Done — gate-by-gate
+## 1. Definition of Done — Item-by-Item
 
-| # | Gate | Result | Notes |
-|---|------|--------|-------|
-| 1 | Targeted Playwright E2E (`wildcard-dns01-certificate-save-regression.spec.ts --project=firefox`) | **BLOCKED (environment)** — see below | Spec confirmed not `test.fixme`/`test.skip` (active). Full browser-level run blocked by this shared dev host's pre-existing port contention (see below); strong indirect runtime evidence gathered instead. |
-| 1.5 | GORM security scan | **N/A** | Confirmed out of scope — no models/migrations touched. |
-| 2 | Local patch coverage preflight | **N/A** | No Go/TS source in diff for `scripts/local-patch-report.sh` to meaningfully instrument; not run for that reason. |
-| 3 | Security scans (govulncheck, Trivy, hadolint) | **PASS** | See §3. Run locally given the explicit ask in this audit's scope and the Dockerfile/supply-chain nature of the change. |
-| 4 | `lefthook run pre-commit` | Not separately re-run | Superseded by the more targeted checks in §3–5, which cover the same ground (hadolint, Dockerfile) plus additional independent verification (govulncheck, Trivy image scan, Renovate validator) beyond what pre-commit hooks check. |
-| 5 | Renovate config validation | **PASS** | See §4. |
-| 6 | Coverage | **N/A** | No app code changed (see §0). |
-| 7 | Type Safety | **N/A** | No TypeScript changed. |
-| 8 | Docker build verification | **PASS** | `make build-offline` completed successfully (see §2). |
-| 9 | toolchain-key.sh regression fix | **PASS — independently reproduced** | See §5. |
-| 10 | Clean-up check | **PASS** | Dockerfile diff is exclusively new `ARG`/`--with` lines and explanatory comments; no debug output, no dead code. |
+| # | Item | Result |
+|---|---|---|
+| 1 | Targeted Playwright E2E: `npx playwright test tests/redirection-hosts.spec.ts --project=firefox` | **PASS** — run twice, foreground, blocking. **12/12 passed both times**, ~24-27s each run, zero flakiness observed. No third run needed. |
+| 1.5 | GORM security scan: `./scripts/scan-gorm-security.sh --check` | **PASS** — 0 CRITICAL, 0 HIGH, 0 MEDIUM. 2 pre-existing INFO-level suggestions on an unrelated model (`UserPermittedHost`), not this feature. |
+| 2 | `bash scripts/local-patch-report.sh` | **WARN (below strict threshold)** — see §2. Artifacts produced at `test-results/local-patch-report.md` / `.json`. |
+| 3 | Security scans (feat-scoped, run locally): CodeQL Go/JS (`lefthook run codeql`), Trivy | **PASS** — see §3. |
+| 4 | `lefthook run pre-commit` full triage | **PASS (trivially)** — nothing staged (all feature commits already landed on the branch), so all hooks report "no matching staged files." The substantive checks this would run (staticcheck, go vet, frontend type-check) were run explicitly and directly instead (items 5, 7) rather than relying on this no-op. |
+| 5 | `make lint-staticcheck-only` / `make lint-fast` | staticcheck: **PASS**, 0 issues. `lint-fast` (broader govet/errcheck/ineffassign/unused): 2 findings, **both pre-existing and outside this PR's changed files** (`backend/cmd/api/main.go:261`, `backend/internal/api/handlers/docker_handler.go:47` — blamed to commits from March/May 2026, confirmed via `git diff origin/main...HEAD` touching neither file). Not a regression from this feature. |
+| 6 | `scripts/go-test-coverage.sh` / `scripts/frontend-test-coverage.sh`, run alone | **PASS**, both comfortably above the 87% internal gate. Backend: 91.9% statement / **88.5% line**. Frontend: 89.51% statement / **90.82% line**. Run sequentially, not concurrently with any other heavy job, per the resource-contention lesson from the prior feature's QA pass. |
+| 7 | `cd frontend && npm run type-check` | **PASS**, zero errors. |
+| 8 | `go build ./...` / `npm run build` | **PASS**, both clean. |
+| 9 | Full `go test ./...` and full `npx vitest run` (not just touched files) | **PASS** — backend: **37/37 packages, 0 failures**. Frontend: **276/276 test files, 3450 tests passed, 4 skipped, 2 todo, 0 failures**. No regressions anywhere else in the app from the Caddy/certificate changes. |
+| 10 | Clean-up check across all ~41 touched files (`git diff --name-only origin/main...HEAD`) | **PASS** — no `console.log`, `fmt.Println`, `debugger;`, or commented-out dead code found. Two grep hits on `// ...` lines were verified false positives (a doc comment and a legitimate inline comment above a real `return` in a test stub). |
 
-### Gate 1 detail: E2E execution blocker
+## 2. Patch/Diff Coverage — Detail
 
-The regression spec (`tests/integration/wildcard-dns01-certificate-save-regression.spec.ts`) is confirmed **not** skipped/fixme — it contains an active `test(...)` (only the file's header comment mentions its `test.fixme` origin in Commit 1, per the Commit Slicing Strategy). I attempted to run it via `npx playwright test ... --project=firefox` against a locally rebuilt E2E container (`docker-rebuild-e2e` skill, image built clean).
+Regenerated with fresh coverage data (backend `coverage.txt` and frontend `lcov.info` were stale on first run — the E2E-era files predated today's coverage runs; re-ran `local-patch-report.sh` after regenerating both via the coverage scripts, per the task's own instruction to distinguish real gaps from stale-artifact noise).
 
-Execution was blocked by **host port contention specific to this shared dev machine**, unrelated to the PR: ports `2019`, `2020`, `8080`, and (after remapping) `18080` were each already bound by this session's own IDE/tooling process (`code`, pid 1954815) the moment I attempted to claim them via a Compose port override, and separately `8080`/`80` are bound by this host's own real production Charon deployment (documented in the compose file's own comments). After several remapping attempts I was unable to find a free port set for the full stack (app UI + Caddy admin + emergency API) in this session and stopped rather than continue destructively probing ports on a host running unrelated production services.
+| Scope | Changed Lines | Covered | Patch % | Threshold | Status |
+|---|---:|---:|---:|---:|---|
+| Overall | 601 | 477 | 79.4% | 90.0% | WARN |
+| Backend | 461 | 364 | 79.0% | 85.0% | WARN |
+| Frontend | 140 | 113 | 80.7% | 85.0% | WARN |
 
-**Indirect but strong corroborating evidence the underlying fix works, gathered during container startup for this attempt:**
+Files below their own patch threshold, with what's actually missing (verified by reading the source, not just the line numbers):
+
+- **`backend/internal/api/handlers/redirection_host_handler.go` (61.8%, 83 uncovered lines)** — the biggest gap, and the most substantive. Untested branches include: the numeric-ID success path and the "value is neither a valid ID nor a string" type-error path in both `resolveCertificateReference`/`resolveDNSProviderReference`; the DB-failure-other-than-not-found branches in both resolvers; `parseStatusCodeField`'s `int` and `string` JSON-type branches (only the `float64` path — what `encoding/json` normally produces — is exercised); and the `ApplyConfig` failure/rollback branch in `Create` and the failure branch in `Update`/`Delete` (the handler tests appear to pass a nil `caddyManager`, so `if h.caddyManager != nil` is never entered — worth checking whether `ProxyHostHandler`'s own tests exercise this branch for comparison, since if they do, this is a real gap relative to precedent).
+- **`frontend/src/components/RedirectionHostForm.tsx` (63.1%, 24 uncovered lines)** — form-state edge cases in the ~75-103 range (initial-state derivation branches) and a handful of scattered single lines.
+- **`backend/internal/caddy/manager.go`, `certificate_service.go`, `routes.go`, `redirectionhost_service.go`** — small (2-8 line) gaps, lower risk given the surrounding logic is otherwise well covered (redirectionhost_service.go is at 90.6%).
+
+This is a real, actionable gap, not a false alarm from stale baselines — I regenerated the coverage inputs before drawing this conclusion. It doesn't block on the "85% minimum" language in CLAUDE.md (that language is about whole-codebase coverage, which passes), but the patch-coverage preflight is listed as **MANDATORY** in CLAUDE.md's workflow, and the script itself exits non-zero in strict mode specifically to signal this shouldn't be merged silently. Recommend a small follow-up commit adding tests for: `resolveCertificateReference`/`resolveDNSProviderReference`'s type-error and DB-failure branches, `parseStatusCodeField`'s `int`/`string` cases, and (if not already precedented in `ProxyHostHandler`) an `ApplyConfig`-failure/rollback test for `RedirectionHostHandler.Create`.
+
+## 3. Security Scans — Detail
+
+- **CodeQL Go** (`lefthook run codeql`, `codeql/go-queries:codeql-suites/go-security-and-quality.qls`, matching CI's suite exactly): 4 results, **all 4 suppressed via `codeql-suppressions.yml`, 0 blocking**. All four are pre-existing, previously-reviewed suppressions in `auth_handler.go`, `remote_server_handler.go`, and `uptime_service.go` — none in any file this feature touches. Extraction-count parity check passed (CodeQL compiled the same file count as `go list`).
+- **CodeQL JS/TS**: 568/568 files scanned, **0 findings**.
+- **CodeQL parity check**: passed (workflow triggers, suite pinning, local/CI alignment all consistent).
+- **Trivy** (`aquasec/trivy image --severity CRITICAL,HIGH` against `charon:local`, confirmed built at a commit including all of this feature's application-code changes — `2dcdb9fc` is the latest app-code commit and predates the image build timestamp; `d320c7ed`/`14e1d26a` are test/docs-only): **`app/charon` (Charon's own binary, where 100% of this feature's Go code compiles to): 0 vulnerabilities.** The only HIGH finding anywhere in the image is `CVE-2026-32286` in `usr/local/bin/crowdsec`/`cscli` (bundled third-party binary, `jackc/pgproto3/v2`) — already tracked in `SECURITY.md` as a pre-existing, awaiting-upstream, non-default-config-path finding, unrelated to this feature. Alpine base: 0 findings.
+- No new dependencies were introduced by this PR (`git diff origin/main...HEAD` on `go.mod`/`go.sum`/`package.json`/`package-lock.json` is empty), so this is exactly the expected result — nothing to remediate.
+
+## 4. GORM Security Scan — Detail
+
+0 CRITICAL/HIGH/MEDIUM across 65 scanned Go files (4171 lines). The only output is 2 pre-existing INFO-level "missing index" suggestions on `UserPermittedHost`, unrelated to this feature. 1 suppressed issue (not shown without `--verbose`; not investigated further since it is below the INFO tier and pre-existing).
+
+## 5. Independent Security-Specific Review
+
+Each of the five items the task asked me to verify independently (not by trusting the prior review) — done by reading the actual code, not by re-reading the plan:
+
+**(a) Redirect targets are never fetched/dialed server-side.** Confirmed by reading `backend/internal/caddy/redirect_routes.go` and `backend/internal/caddy/types.go`'s `RedirectHandler`. The target URL flows: `RedirectionHost.TargetURL` (DB) → `BuildRedirectRoutes` (string concatenation only, appends `{http.request.uri}` as a literal Caddy placeholder token, never resolved/dialed by Go code) → `RedirectHandler(location, statusCode)` → a `Handler{"handler": "static_response", "status_code": ..., "headers": {"Location": [...]}}` map that is JSON-marshaled into Caddy's config and POSTed to Caddy's admin API. There is no `net/http` client call, no `net.Dial`, no DNS resolution of the target anywhere in this path — Caddy itself only ever *emits* the string in a response header; it does not fetch it either (this is exactly what `static_response` means, as opposed to `reverse_proxy`). Confirmed clean.
+
+**(b) The self-redirect guard actually prevents a redirect loop.** Read `validateRedirectionHost` in `backend/internal/services/redirectionhost_service.go` directly (not just the spec's description of it). Logic: `parsed.Hostname()` (lowercased) is compared against each lowercased, trimmed entry in `host.DomainNames` split on `,`. This correctly catches the direct case (source domain == target host, case-insensitively, and correctly ignores the target's port/path/scheme when comparing since `Hostname()` strips the port). It does **not** catch indirect loops (A→B, B→A across two different `RedirectionHost` rows) — but that is explicitly out of scope per the spec's Non-Goals (§1.3: "detecting `A→B→A` chains across multiple hosts is not attempted in v1"), so this is working as designed, not a gap. E2E test `redirection-hosts.spec.ts:389` independently confirms the guard fires through the real API, not just a unit-test mock.
+
+**(c) Cross-table domain uniqueness genuinely can't be bypassed in either direction.** Read `domain_uniqueness.go`'s `CheckDomainConflict` and both call sites. `RedirectionHostService.Create`/`Update` call `CheckCrossTableDomainConflict` (→ `ProxyHost` table) in addition to their own same-table `ValidateUniqueDomain`; `ProxyHostService.Create`/`Update` gained the mirrored call in the other direction (confirmed via `git diff` — additive only, the existing `ValidateUniqueDomain` call is byte-for-byte unchanged). Both directions are independently unit-tested: `domain_uniqueness_test.go` (7 tests covering conflict-found, case-insensitivity, multi-domain, no-conflict, empty input, missing-other-table, DB-error) and `proxyhost_redirection_conflict_test.go` (3 tests specifically proving a `ProxyHost` create/update is rejected when the domain is already a `RedirectionHost`'s, and that a non-conflicting create succeeds). E2E test `redirection-hosts.spec.ts:407` proves it end-to-end through the real API for the RedirectionHost→ProxyHost direction. Comparison is per-individual-domain (both sides split on comma, lowercase, trim) rather than whole-string, so it correctly catches partial overlaps between a multi-domain `ProxyHost` and a single-domain `RedirectionHost` that the pre-existing same-table `ProxyHost` check would miss (that gap is explicitly and correctly left alone for `ProxyHost`-vs-`ProxyHost`, per the spec's stated Non-Goal). Confirmed sound in both directions.
+
+**(d) Certificate lifecycle fixes (commits 5/6) are complete — but two adjacent gaps were found that those commits didn't cover.** The two safeguards those commits actually added are correct and verified: the startup sweep (`routes.go:202`, `cleanInvalidLetsEncryptCertAssignments(db, "redirection_hosts", ...)`) and the delete-time block (`certificate_service.go:636-657`, `IsCertificateInUse` now checks both `ProxyHost` and `RedirectionHost`, guarded by `HasTable` so ProxyHost-only test DBs are unaffected). I then searched for every other `certificate_id`-querying call site in `certificate_service.go` to check for siblings that should have gotten the same treatment, and found two that were missed:
+  - `refreshCacheFromDB` (line ~284-291, feeds `ListCertificates()`'s `in_use` field shown on the certificates list page) builds its `certInUse` map from `ProxyHost` only. A certificate used *only* by a `RedirectionHost` will show `in_use: false` on the certificate list, even though `DeleteCertificate` will correctly still block its deletion. This is a UI-consistency bug (confusing, not unsafe — the block still holds), not a security hole.
+  - `GetCertificate` (line ~517-536, feeds the certificate detail page's `assigned_hosts` list) also queries `ProxyHost` only — a certificate detail page will not list a `RedirectionHost` that's using it.
+
+  Neither of these bypasses the actual delete-time protection (that check correctly covers both tables), so there is no data-loss or dangling-TLS-config risk — but the "certificate lifecycle fixes are complete" claim in the task brief is not quite accurate as stated. Recommend a small follow-up (not necessarily blocking this PR) extending both to also union in `RedirectionHost`, mirroring the `IsCertificateInUse` pattern already established.
+
+**(e) `RedirectionHost` authorization scoping — confirmed by-design, no regression, no new surface.** Read `routes.go` directly: `redirectionHostHandler.RegisterRoutes(management)` (line 1046) registers on the exact same `management` router group as `proxyHostHandler.RegisterRoutes(management)` (line 1037) — the `RequireManagementAccess` tier, not the stricter `RequireRole(admin)` tier used for e.g. certificates/DNS providers/access lists elsewhere in the same file. This matches `SECURITY.md`'s documented model ("`user` covers day-to-day proxy-host management") and is consistent, deliberate parity with `ProxyHost` — not a new authorization surface, not a privilege-escalation path, and not a regression.
+
+## 6. New Finding: `RedirectionHost.Enabled` GORM Zero-Value Bug (Medium)
+
+**Confirmed by reproduction, not just code-reading.** `RedirectionHost.Enabled` (model field, `gorm:"default:true;index"`, plain non-pointer `bool`) was not included in the `booleanFieldsDefaultingTrueOnCreate` fix applied in commit `2dcdb9fc` for `PreservePath`/`SSLForced`/`HTTP2Support`. Those three fields had their `gorm:"default:true"` tags *removed* specifically because a plain `bool` at its Go zero value (`false`) is indistinguishable to GORM from "unset," so GORM omits the column from the `INSERT` and lets the DB's `default:true` clobber an explicit `false`. `Enabled` still carries `gorm:"default:true"` and is still a plain `bool` — same bug class, same field type, just missed.
+
+I wrote and ran a temporary, throwaway test (not committed, removed after use) directly against `RedirectionHostService.Create`:
+
+```go
+host := &models.RedirectionHost{
+    DomainNames: "qa-disabled-test.example.com",
+    TargetURL:   "https://target.example.com",
+    StatusCode:  301,
+    Enabled:     false,
+}
+service.Create(host)
+// reloaded from DB:
 ```
-"msg":"Successfully applied initial Caddy config"
-```
-captured from the container's own logs — i.e., the actual Caddy `/load` admin-API call (the exact code path issue #1361 describes as failing with `unknown module: dns.providers.X` and rolling back the config) completed with **zero errors** on container start, using the production-built binary containing all 27 new DNS provider modules. Combined with the `caddy list-modules` confirmation in §2, this is very strong evidence the fix is correct, even though I could not complete a full browser-level Playwright pass in this sandboxed session. I recommend CI's full E2E run (which does not have this host's port conflicts) as the authoritative confirmation before merge — standard practice per this repo's CI-defers-full-suite convention.
+Result: `Enabled` reloads as `true`. Bug confirmed live, not just by inspection.
 
----
+**Real-world impact is currently limited** — I checked `frontend/src/components/RedirectionHostForm.tsx` and it never sends an `enabled` key on create (there's no "enabled" toggle in the create form at all; disabling happens later via the list page's toggle, which goes through `Update`, and `Update` uses `.Select("*").Updates(host)`, which correctly forces all columns including zero values — so the *Update*/disable-after-creation path is unaffected). So no current UI flow can trigger this. However, `docs/plans/current_spec.md` §4.4 documents `"enabled": true` as part of the create request body contract, implying an API consumer (a script, a future UI feature, an integration) could reasonably send `"enabled": false` on create and have it silently ignored — a correctness bug in the documented contract.
 
-## 2. Docker build validation
+**Recommendation**: add `"enabled"` to `booleanFieldsDefaultingTrueOnCreate` in `redirection_host_handler.go`'s `Create` — but note the fix pattern differs slightly, since that list currently assumes "default missing → true" for all its members; `Enabled`'s desired default really is `true` (matches its intended semantics and NPM parity), so the existing pattern applies directly: add `"enabled"` to the list. This is a small, low-risk, well-precedented fix (the exact same pattern was just established one commit ago in this same PR).
 
-`make build-offline` (foreground, blocking) completed successfully, producing `charon:offline`. All 88 build steps resolved (mix of fresh execution for content that differs from `development` and `CACHED` layers for unchanged content — cache validity is itself content-addressed by BuildKit, so a `CACHED` hit on the `caddy-inline` stage is only possible because that stage's exact instruction+arg content, including the new `--with` lines, was already built successfully in this environment).
+## 7. Recommendation
 
-`caddy list-modules` inside the built image confirms:
+**CONDITIONAL PASS.** I'd recommend one of two paths, at the orchestrating session's discretion:
 
-**All 27 expected `dns.providers.*` module IDs present**, exactly matching the Dockerfile's `--with` list: `azure, bunny, cloudflare, desec, digitalocean, dnsimple, dnsmadeeasy, duckdns, gandi, godaddy, googleclouddns, hetzner, inwx, linode, loopia, namecheap, namedotcom, namesilo, netlify, ovh, porkbun, powerdns, rfc2136, route53, scaleway, vercel, vultr`.
+1. **Fix-then-merge**: a small follow-up commit adding `"enabled"` to `booleanFieldsDefaultingTrueOnCreate` (§6) plus a regression test, and optionally the patch-coverage gaps in §2 (handler error branches) and the two certificate-lifecycle display gaps in §5(d) — then re-run the patch-coverage preflight to confirm it clears strict mode. This is proportionate given how small and precedented the fix is.
+2. **Merge-with-tracked-followups**: if the team wants to ship now, explicitly accept (in writing, e.g. a tracked issue) the `Enabled` bug as a known, low-impact (UI-unreachable) defect and the patch-coverage shortfall as an accepted gap, rather than silently letting them slide.
 
-**All pre-existing security/WAF/rate-limit/geoip/crowdsec modules still present**, confirming no regression/removal: `admin.api.crowdsec, crowdsec, geoip2, http.handlers.crowdsec, http.handlers.geoip2, http.handlers.rate_limit, http.handlers.waf, layer4.matchers.crowdsec, security`.
-
-A full side-by-side image diff against a build of `development` HEAD's Dockerfile was **not performed** — per this repo's `CLAUDE.md`, worktrees and branch-switching are disallowed for this task, and a full-context `development`-HEAD build without a worktree was impractical within the audit window. The "at minimum" bar the task specified (confirm pre-existing modules unaffected) was met directly against the built image, as shown above, which is sufficient to rule out any removal/regression of existing modules.
-
----
-
-## 3. Security scanning
-
-### 3.1 Supply-chain reputability spot-check (`github.com/caddy-dns/*`)
-
-Spot-checked 10 of the 27 new modules via the GitHub API (`gh api repos/caddy-dns/<name>`):
-
-| Repo | Stars | Last push | Archived |
-|---|---:|---|---|
-| caddy-dns/cloudflare | 999 | 2026-03-23 | No |
-| caddy-dns/route53 | 84 | 2026-07-17 | No |
-| caddy-dns/duckdns | 94 | 2025-04-19 | No |
-| caddy-dns/inwx | 22 | 2025-11-27 | No |
-| caddy-dns/bunny | 18 | 2025-05-25 | No |
-| caddy-dns/azure | 12 | 2025-04-23 | No |
-| caddy-dns/vercel | 12 | 2026-07-10 | No |
-| caddy-dns/dnsimple | 7 | 2026-03-03 | No |
-| caddy-dns/loopia | 6 | 2026-06-10 | No |
-| caddy-dns/namesilo | 5 | 2026-02-19 | No |
-
-All 10 belong to the official `caddy-dns` GitHub org ("Caddy modules that automate manipulation of DNS records (built on libdns interfaces)") — the recognized upstream org for this class of Caddy plugin, not third-party forks. None archived; all pushed to within the last ~10 months. Low star counts on niche providers (loopia, namesilo, azure) are normal/expected for this ecosystem and not itself a red flag — Caddy's DNS-01 provider modules are maintained by a small, dedicated group under the `caddy-dns` org umbrella.
-
-### 3.2 `govulncheck` (symbol-level reachability) against the built binary
-
-Extracted `/usr/bin/caddy` from the built image and ran `govulncheck -mode=binary -show verbose`. Confirmed all 27 `caddy-dns/*` modules and their pinned versions are embedded (module list cross-checked against the Dockerfile's `ARG` defaults — exact match, including the pseudo-versioned ones: `digitalocean@v0.0.0-20250606074528-...`, `vultr@v0.0.0-20250723121531-...`, `dnsimple@v0.0.0-20260303131243-...`, `namesilo@v0.0.0-20260219111433-...`).
-
-**12 total vulnerability findings, all pre-existing and unrelated to this PR:**
-- `GO-2026-6094` (`github.com/google/cel-go`) — Caddy core CEL matcher dependency, unrelated.
-- `GO-2026-5932` (`golang.org/x/crypto/openpgp`) — unmaintained package warning, unrelated, pre-existing across the codebase.
-- `GO-2024-2565` through `GO-2024-2549` (10 findings, all `github.com/greenpau/caddy-security`) — pre-existing, unrelated to DNS providers, not reachable from called code per govulncheck's own reachability analysis.
-
-**Zero vulnerabilities attributed to any of the 27 `caddy-dns/*` or `libdns/*` modules or their dependency trees** (`aws-sdk-go-v2`, `azure-sdk-for-go`, `digitalocean/godo`, `linode/linodego`, `hetznercloud/hcloud-go`, `dnsimple-go`, `ovh/go-ovh`, `mittwald/go-powerdns`, `miekg/dns`, etc. — all scanned, all clean).
-
-### 3.3 Trivy image scan (vuln, CRITICAL/HIGH)
-
-Ran `aquasec/trivy:latest` (Dockerized, via host socket) against `charon:offline`:
-
-```
-usr/bin/caddy              gobinary   0 vulnerabilities   ← houses all 27 new DNS-01 modules
-app/charon                 gobinary   0 vulnerabilities
-usr/sbin/gosu               gobinary   0 vulnerabilities
-usr/local/bin/crowdsec     gobinary   1 (HIGH) — CVE-2026-32286, jackc/pgproto3/v2
-usr/local/bin/cscli        gobinary   1 (HIGH) — CVE-2026-32286, jackc/pgproto3/v2
-```
-
-The only findings (both `CVE-2026-32286`, HIGH) are in the CrowdSec binaries — **entirely unrelated to this PR** (no CrowdSec files touched) and already documented, tracked, and formally suppressed in `.trivyignore` and `SECURITY.md` (pgproto3/v2 is archived upstream with no fix available; this is pre-existing accepted risk, re-verified multiple times per `docs/security/vulnerability-analysis-*.md`). **The Caddy binary containing this PR's actual changes has zero findings.**
-
-### 3.4 Supply-chain / attack-surface assessment for SECURITY.md's threat model
-
-This change compiles ~29 new third-party Go modules (27 `caddy-dns/*` + 2 forced `libdns/*` transitive bumps) into the production Caddy binary, each capable of making outbound API calls to a DNS provider using operator-supplied credentials (API tokens/keys) for ACME DNS-01 challenge automation. Assessment:
-
-- **Access control is already correctly scoped**: `SECURITY.md`'s Authentication & Authorization section already states DNS-provider credentials and ACME configuration require `admin` role (line ~1156), so the credential-configuration surface is already gated appropriately at the application layer — this PR doesn't change that.
-- **Execution is not user-code-reachable**: these are Caddy's own DNS-provider client libraries, invoked only by Caddy's TLS/ACME subsystem when a DNS-01 challenge is configured — not general-purpose code paths reachable from Charon's HTTP API surface.
-- **Scanned clean**: no CVEs found via govulncheck or Trivy against the exact pinned versions (§3.2, §3.3).
-- **Gap (non-blocking)**: `SECURITY.md`'s "Supply Chain Security" section (line ~1202) does not currently mention that ~29 new third-party network-credential-handling modules were added in this change, or acknowledge DNS-provider API client libraries as a distinct category in the threat model. Recommend a follow-up docs note (not blocking this PR) — see §6.
-
-### 3.5 `hadolint`
-
-Re-ran independently (Dockerized `hadolint/hadolint:latest` against `.hadolint.yaml`) rather than trusting the prior agent's claim:
-
-```
-HEAD Dockerfile:        8 findings (7 warning, 1 info) — DL3067 x3, DL4006, DL3003, SC2012, DL3025, DL3066
-development Dockerfile: 8 findings (identical rule set, same line-shift-only offsets)
-```
-
-**Identical finding set, zero new findings introduced by this change.** All 8 are pre-existing style warnings (multi-stage COPY, WORKDIR usage, non-numeric UID) unrelated to the DNS provider additions, at lines nowhere near the new `ARG`/`--with` blocks.
-
-### 3.6 GORM security scan — explicitly out of scope
-
-Per this audit's assigned scope: this PR touches zero files under `backend/internal/models/**`, no GORM queries, and no migrations. `./scripts/scan-gorm-security.sh --check` was **not run** — noted explicitly per this repo's convention of not skipping DoD items silently, rather than omitted without comment.
-
----
-
-## 4. Renovate config validation
-
-Re-validated independently (did not trust the prior agent's claim):
-
-1. `.github/renovate.json` — valid JSON (`python3 -m json.load`), passes.
-2. `npx renovate-config-validator .github/renovate.json` (official Renovate validator): **`INFO: Config validated successfully against 1 file(s)`**.
-3. Manually cross-checked all 29 new `customManagers` regex entries (27 `caddy-dns/*` + 2 `libdns/*`): every entry uses `datasourceTemplate: "go"` / `versioningTemplate: "semver"`, matching the exact convention already used by every pre-existing Go-module `ARG` tracker in this same file (`caddy-security`, `expr-lang/expr`, `x/net`, `xcaddy`, etc.) — not a new/divergent pattern. Each `matchStrings` regex correctly targets its own unique `ARG <NAME>_VERSION=(?<currentValue>...)` line with no overlap between entries. Renovate's `go` datasource handles the four pseudo-versioned pins (`digitalocean`, `vultr`, `dnsimple`, `namesilo`) correctly under `semver` versioning — this is standard, well-supported Renovate behavior for Go modules without tagged releases and matches how this file already handles other untagged Go deps.
-
----
-
-## 5. `toolchain-key.sh` regression fix — independent verification
-
-Did not trust the implementing agent's documented before/after hash comparison; reproduced the regression class independently using a different method (isolating the actual bug scenario the fix addresses — a *future* Renovate version bump landing in the Dockerfile, not just the one-time diff from `development` to `HEAD`, since the stage-body text itself already changed in this diff and would trivially change the hash regardless of the `arg_re` fix).
-
-**Method:** Took the HEAD Dockerfile (with the fix's ARGs already in the hash allowlist) and simulated a hypothetical future Renovate bump by changing only `ARG CADDY_DNS_CLOUDFLARE_VERSION=0.2.4` → `=0.2.5` (a bare top-level `ARG` default value, outside the hashed stage body — exactly the kind of change a real Renovate PR would make).
-
-| Script version | Hash before bump | Hash after bump | Bump detected? |
-|---|---|---|---|
-| Pre-fix `arg_re` (missing DNS ARG names) | `789bdc4a0ec855cc` | `789bdc4a0ec855cc` | **No — identical, bug reproduced** |
-| HEAD (fixed) `arg_re` (includes all 29 new ARG names) | `72a4fd2996163768` | `b4e120bda42cd544` | **Yes — correctly differs** |
-
-This directly confirms the fix: without it, a Renovate bump to any of the 29 new version pins would silently produce the same `caddy-crowdsec-*` content-addressed tag, causing the stale prebuilt toolchain image to be reused indefinitely instead of rebuilding with the bumped module version — exactly the bug this commit set out to close. With the fix, the same bump is correctly detected and triggers a new tag/rebuild.
-
----
-
-## 6. Recommendations (non-blocking)
-
-1. **SECURITY.md supply-chain note** (§3.4): add a short acknowledgment under "Supply Chain Security" or "Infrastructure Security" that DNS-01 challenge provider modules are third-party API clients handling operator-supplied DNS credentials, scoped to the existing `admin`-only ACME/DNS-provider configuration surface. Not blocking — access control is already correctly enforced; this is purely a threat-model documentation completeness item. Suggested follow-up, not required before merge.
-2. **CI E2E confirmation**: since the local Playwright run was blocked by this specific sandboxed session's port contention (§1), treat CI's E2E run on the opened PR as the authoritative confirmation of the regression spec, per this repo's standard "defer full/cross-env runs to CI" convention. The indirect evidence (clean `/load` in container logs, full `list-modules` match) is strong but CI should still be the final word before merge.
-
----
-
-## Final Verdict
-
-**READY TO OPEN THE PR into `development`.** No CRITICAL/HIGH security findings attributable to this change; the Docker build succeeds and produces a binary with exactly the expected 27 DNS-01 provider modules plus all pre-existing security modules intact; the Renovate config and toolchain-key.sh fixes are independently verified to work as intended; hadolint is clean with no new findings. The only open item is CI confirming the E2E regression spec in a non-conflicting environment, which is expected and standard per this repo's CI-first policy for full/cross-browser E2E confirmation.
+Either way, nothing found here rises to a CRITICAL/HIGH security blocker — the five specific security properties this feature depends on (SSRF non-issue, self-redirect guard, cross-table uniqueness, cert-delete protection, authorization scoping) are all sound.
