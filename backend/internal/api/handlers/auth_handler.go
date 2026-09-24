@@ -3,7 +3,6 @@ package handlers
 import (
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -27,12 +26,6 @@ func NewAuthHandler(authService *services.AuthService, trustedProxies []string) 
 // NewAuthHandlerWithDB creates an AuthHandler with database access for forward auth.
 func NewAuthHandlerWithDB(authService *services.AuthService, db *gorm.DB, trustedProxies []string) *AuthHandler {
 	return &AuthHandler{authService: authService, db: db, trustedProxies: trustedProxies}
-}
-
-// isProduction checks if we're running in production mode
-func isProduction() bool {
-	env := os.Getenv("CHARON_ENV")
-	return env == "production" || env == "prod"
 }
 
 // isTrustedPeer reports whether the request's actual TCP peer (its raw

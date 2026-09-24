@@ -550,17 +550,6 @@ func TestIsLocalRequest_OriginHeaderIgnored(t *testing.T) {
 	assert.False(t, isLocalRequest(ctx, nil))
 }
 
-func TestIsProduction(t *testing.T) {
-	t.Setenv("CHARON_ENV", "production")
-	assert.True(t, isProduction())
-
-	t.Setenv("CHARON_ENV", "prod")
-	assert.True(t, isProduction())
-
-	t.Setenv("CHARON_ENV", "development")
-	assert.False(t, isProduction())
-}
-
 func TestRequestScheme(t *testing.T) {
 
 	t.Run("forwarded proto first value wins", func(t *testing.T) {
