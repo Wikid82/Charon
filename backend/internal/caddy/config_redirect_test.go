@@ -12,7 +12,8 @@ import (
 // TestGenerateConfig_RedirectHostsOnly confirms a deployment with only
 // RedirectionHosts (no ProxyHost rows at all) still produces a server with
 // routes — regression guard for the len(hosts)==0 early-return that used to
-// ignore redirectHosts entirely (docs/plans/current_spec.md §4.2).
+// ignore redirectHosts entirely
+// (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2).
 func TestGenerateConfig_RedirectHostsOnly(t *testing.T) {
 	redirectHosts := []models.RedirectionHost{
 		{
@@ -36,7 +37,7 @@ func TestGenerateConfig_RedirectHostsOnly(t *testing.T) {
 
 // TestGenerateConfig_RedirectHostsPrecedeProxyHostRoutes confirms
 // BuildRedirectRoutes' routes are appended before the ProxyHost loop's
-// routes, per docs/plans/current_spec.md §4.2.
+// routes, per docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2.
 func TestGenerateConfig_RedirectHostsPrecedeProxyHostRoutes(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
@@ -104,7 +105,7 @@ func TestGenerateConfig_CrossResourceGhostHost_RedirectionWinsOverProxyHost(t *t
 // TestGenerateConfig_RedirectHostDomains_GetTLSAutomationPolicy confirms a
 // RedirectionHost's domain is included in the TLS automation policy's
 // subjects, so it gets a certificate issued exactly like a ProxyHost domain
-// does (docs/plans/current_spec.md §4.2).
+// does (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2).
 func TestGenerateConfig_RedirectHostDomains_GetTLSAutomationPolicy(t *testing.T) {
 	redirectHosts := []models.RedirectionHost{
 		{

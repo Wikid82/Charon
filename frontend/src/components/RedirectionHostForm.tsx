@@ -71,7 +71,7 @@ function buildInitialFormData(host?: RedirectionHost): RedirectionHostFormState 
 // helpers. Duplicated locally rather than extracted to a shared util so this
 // commit doesn't touch ProxyHostForm.tsx mid-feature (same reasoning the
 // spec applies to the DomainNamesInput extraction candidate — see
-// docs/plans/current_spec.md §4.5).
+// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.5).
 function resolveSelectToken(value: number | string | null | undefined): string {
   if (value === null || value === undefined) return 'none'
   if (typeof value === 'number') return `id:${value}`

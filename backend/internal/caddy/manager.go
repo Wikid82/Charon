@@ -112,9 +112,10 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 
 	// Fetch all redirection hosts from database (peer resource to ProxyHost,
-	// see docs/plans/current_spec.md §3/§4.2). A missing table (e.g. a test
-	// DB that only migrates ProxyHost) is tolerated — redirectHosts is left
-	// empty and GenerateConfig behaves exactly as it did before this feature.
+	// see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §3/§4.2).
+	// A missing table (e.g. a test DB that only migrates ProxyHost) is
+	// tolerated — redirectHosts is left empty and GenerateConfig behaves
+	// exactly as it did before this feature.
 	var redirectHosts []models.RedirectionHost
 	if m.db.Migrator().HasTable(&models.RedirectionHost{}) {
 		if err := m.db.Preload("Certificate").Preload("DNSProvider").Find(&redirectHosts).Error; err != nil {

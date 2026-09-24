@@ -72,9 +72,10 @@ func migrateViewerToPassthrough(db *gorm.DB) {
 // of table T that has been manually pinned to a Let's Encrypt-provisioned
 // certificate — those certs are auto-managed by Caddy and must never be
 // assigned via certificate_id. ProxyHost and RedirectionHost share the exact
-// same CertificateID FK shape (see docs/plans/current_spec.md §7), so this
-// sweep is written once and applied to both tables instead of duplicating
-// the query/update per model.
+// same CertificateID FK shape (see
+// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §7),
+// so this sweep is written once and applied to both tables instead of
+// duplicating the query/update per model.
 func cleanInvalidLetsEncryptCertAssignments[T any](db *gorm.DB, tableName string, domainNamesOf func(T) string) {
 	var rows []T
 	joinClause := fmt.Sprintf("LEFT JOIN ssl_certificates ON %s.certificate_id = ssl_certificates.id", tableName)
@@ -1041,7 +1042,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Redirection Hosts (Issue #1367): peer resource to ProxyHost, same
 		// management-tier access (globally-scoped, no tenant isolation, per
-		// the security review in docs/plans/current_spec.md §3).
+		// the security review in
+		// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §3).
 		redirectionHostHandler := handlers.NewRedirectionHostHandler(db, caddyManager)
 		redirectionHostHandler.RegisterRoutes(management)
 
