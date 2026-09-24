@@ -27,6 +27,7 @@ import { test as base } from './test';
 import { request as playwrightRequest } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
 import { TestDataManager } from '../utils/TestDataManager';
+import { sendLoginHonoringThrottle } from '../utils/login-throttle';
 import { STORAGE_STATE } from '../constants';
 
 /**
@@ -444,6 +445,11 @@ export const test = base.extend<AuthFixtures>({
  * masking real auth bugs, since any other status code (or a 401 that
  * persists past the final attempt) is still returned as-is for the caller
  * to handle.
+ *
+ * A 429 (sign-in throttled) is handled separately by
+ * `sendLoginHonoringThrottle`: Retry-After is honored once (capped at 10 s),
+ * and a second 429 throws `LOGIN_THROTTLED_ERROR` so an exhausted budget
+ * fails loudly instead of flaking downstream.
  */
 async function postLoginWithRetry(
   requestContext: import('@playwright/test').APIRequestContext,
@@ -455,7 +461,9 @@ async function postLoginWithRetry(
 
   let response!: import('@playwright/test').APIResponse;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    response = await requestContext.post('/api/v1/auth/login', { data: payload });
+    response = await sendLoginHonoringThrottle(() =>
+      requestContext.post('/api/v1/auth/login', { data: payload })
+    );
     if (response.status() !== 401 || attempt === maxAttempts) {
       return response;
     }
