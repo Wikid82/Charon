@@ -26,7 +26,7 @@
 import { test as base } from './test';
 import { request as playwrightRequest } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
-import { TestDataManager } from '../utils/TestDataManager';
+import { TestDataManager, type UserRole } from '../utils/TestDataManager';
 import { sendLoginHonoringThrottle } from '../utils/login-throttle';
 import { STORAGE_STATE } from '../constants';
 
@@ -41,7 +41,7 @@ export interface TestUser {
   /** Authentication token for API calls */
   token: string;
   /** User's role */
-  role: 'admin' | 'user' | 'guest';
+  role: UserRole;
 }
 
 /**

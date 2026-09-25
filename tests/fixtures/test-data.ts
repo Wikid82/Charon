@@ -16,6 +16,7 @@
  */
 
 import * as crypto from 'crypto';
+import type { UserRole } from '../utils/TestDataManager';
 
 /**
  * Generate a unique identifier with optional prefix
@@ -411,7 +412,7 @@ export function generateWildcardCertificateData(baseDomain?: string): Certificat
 export interface UserTestData {
   email: string;
   password: string;
-  role: 'admin' | 'user' | 'guest';
+  role: UserRole;
   name?: string;
 }
 
@@ -438,15 +439,6 @@ export function generateUserData(overrides: Partial<UserTestData> = {}): UserTes
  */
 export function generateAdminUserData(overrides: Partial<UserTestData> = {}): UserTestData {
   return generateUserData({ ...overrides, role: 'admin' });
-}
-
-/**
- * Generate guest user test data
- * @param overrides - Optional overrides
- * @returns UserTestData object
- */
-export function generateGuestUserData(overrides: Partial<UserTestData> = {}): UserTestData {
-  return generateUserData({ ...overrides, role: 'guest' });
 }
 
 /**

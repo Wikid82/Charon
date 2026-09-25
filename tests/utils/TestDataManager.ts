@@ -138,13 +138,18 @@ export interface DNSProviderData {
 }
 
 /**
+ * Roles accepted by the backend (models.UserRole): admin, user, passthrough.
+ */
+export type UserRole = 'admin' | 'user' | 'passthrough';
+
+/**
  * Data required to create a user
  */
 export interface UserData {
   name: string;
   email: string;
   password: string;
-  role: 'admin' | 'user' | 'guest';
+  role: UserRole;
 }
 
 /**

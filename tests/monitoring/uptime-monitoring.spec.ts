@@ -429,7 +429,7 @@ test.describe('Uptime Monitoring Page', () => {
     test('should create new HTTP monitor', async ({ page }) => {
       await stubSession(page);
 
-      let createPayload: Partial<UptimeMonitor> | null = null;
+      let createPayload = null as Partial<UptimeMonitor> | null;
 
       await page.route('**/api/v1/uptime/monitors', async (route) => {
         if (route.request().method() === 'POST') {
@@ -488,7 +488,7 @@ test.describe('Uptime Monitoring Page', () => {
     test('should create new TCP monitor', async ({ page }) => {
       await stubSession(page);
 
-      let createPayload: Partial<UptimeMonitor> | null = null;
+      let createPayload = null as Partial<UptimeMonitor> | null;
 
       await page.route('**/api/v1/uptime/monitors', async (route) => {
         if (route.request().method() === 'POST') {
@@ -543,7 +543,7 @@ test.describe('Uptime Monitoring Page', () => {
       await stubSession(page);
       await setupMonitorsWithHistory(page);
 
-      let updatePayload: Partial<UptimeMonitor> | null = null;
+      let updatePayload = null as Partial<UptimeMonitor> | null;
 
       await page.route('**/api/v1/uptime/monitors/1', async (route) => {
         if (route.request().method() === 'PUT') {
