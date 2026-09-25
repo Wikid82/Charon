@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWarnBudget_CapsAndCountsSuppressed(t *testing.T) {
@@ -76,4 +79,31 @@ func TestWarnBudget_Concurrent(t *testing.T) {
 	}
 	wg.Wait()
 	assert.Equal(t, 10, allowed)
+}
+
+func TestWarnBudget_LogDenial(t *testing.T) {
+	clk := newFakeClock()
+	w := NewWarnBudget(1, time.Minute, clk.Now)
+	base, hook := logtest.NewNullLogger()
+	base.SetLevel(logrus.DebugLevel)
+	entry := logrus.NewEntry(base)
+	first := Decision{RetryAfter: 60 * time.Second, FirstDenial: true}
+
+	w.LogDenial(entry, first, "denied")
+	w.LogDenial(entry, Decision{RetryAfter: time.Second}, "denied") // repeat denial
+	w.LogDenial(entry, first, "denied")                             // new episode, over the cap
+
+	entries := hook.AllEntries()
+	require.Len(t, entries, 3)
+	assert.Equal(t, logrus.WarnLevel, entries[0].Level)
+	assert.Equal(t, uint64(0), entries[0].Data["suppressed"])
+	assert.Equal(t, 60, entries[0].Data["retry_after_seconds"])
+	assert.Equal(t, logrus.DebugLevel, entries[1].Level)
+	assert.Equal(t, logrus.DebugLevel, entries[2].Level)
+
+	clk.Advance(time.Minute)
+	w.LogDenial(entry, first, "denied")
+	last := hook.LastEntry()
+	assert.Equal(t, logrus.WarnLevel, last.Level)
+	assert.Equal(t, uint64(1), last.Data["suppressed"])
 }

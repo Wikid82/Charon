@@ -141,15 +141,8 @@ func (c *Cerberus) RateLimitMiddleware() gin.HandlerFunc {
 // client key and route template is logged.
 func (c *Cerberus) logRateLimitDenial(ctx *gin.Context, key string, d ratelimit.Decision) {
 	entry := middleware.GetRequestLogger(ctx).WithFields(map[string]any{
-		"client":              key,
-		"route":               ctx.FullPath(),
-		"retry_after_seconds": ratelimit.RetryAfterSeconds(d.RetryAfter),
+		"client": key,
+		"route":  ctx.FullPath(),
 	})
-	if d.FirstDenial {
-		if ok, suppressed := c.rateLimitWarn.Take(); ok {
-			entry.WithField("suppressed", suppressed).Warn("API rate limit exceeded")
-			return
-		}
-	}
-	entry.Debug("API rate limit exceeded")
+	c.rateLimitWarn.LogDenial(entry, d, "API rate limit exceeded")
 }

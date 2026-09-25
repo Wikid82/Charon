@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
 
@@ -43,4 +44,18 @@ func (w *WarnBudget) Take() (bool, uint64) {
 	suppressed := w.suppressed
 	w.suppressed = 0
 	return true, suppressed
+}
+
+// LogDenial logs a throttle denial on entry, adding retry_after_seconds. The
+// first denial of an episode is logged at WARN while the budget allows (with a
+// suppressed count); every other denial is logged at DEBUG.
+func (w *WarnBudget) LogDenial(entry *logrus.Entry, d Decision, msg string) {
+	entry = entry.WithField("retry_after_seconds", RetryAfterSeconds(d.RetryAfter))
+	if d.FirstDenial {
+		if ok, suppressed := w.Take(); ok {
+			entry.WithField("suppressed", suppressed).Warn(msg)
+			return
+		}
+	}
+	entry.Debug(msg)
 }
