@@ -64,7 +64,7 @@ type SecurityConfig struct {
 	// trusts nothing — forwarded headers are ignored entirely and every
 	// trust decision falls back to the raw TCP peer address
 	// (c.Request.RemoteAddr), matching Gin's own SetTrustedProxies(nil)
-	// default. See docs/plans/current_spec.md §13.
+	// default. See docs/configuration/trusted-proxies.md.
 	TrustedProxies []string
 	// AuthRateLimit configures the always-on per-client sign-in throttle.
 	AuthRateLimit AuthRateLimitConfig

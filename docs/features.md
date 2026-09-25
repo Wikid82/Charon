@@ -66,9 +66,17 @@ Enterprise-grade protection that "just works." Cerberus bundles multiple securit
 
 ### 🔒 How Charon Keeps You Safe
 
-Curious what's actually protecting your server, and why? From automatic HTTPS and encrypted secrets to CrowdSec's neighborhood-watch threat detection and the forward-auth login gateway, this page walks through Charon's security philosophy in plain language — no jargon required.
+Curious what's actually protecting your server, and why? From automatic HTTPS and encrypted secrets to CrowdSec's neighborhood-watch threat detection and login protection that slows down password guessing, this page walks through Charon's security philosophy in plain language — no jargon required.
 
 → [Learn More](features/security.md)
+
+---
+
+### 🚦 Login Protection
+
+Charon slows down repeated sign-in attempts automatically, so password guessing gets nowhere. It's on by default with nothing to set up, and administrators can check its status on the Security page.
+
+→ [Learn More](features/login-protection.md) · [Trusted Proxies](configuration/trusted-proxies.md)
 
 ---
 

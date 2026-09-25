@@ -22,9 +22,9 @@ Passwords, API keys, and other sensitive settings you store in Charon — like c
 
 CrowdSec is like a neighborhood watch for the internet. It recognizes the tell-tale signs of an attacker — someone guessing passwords, scanning for weaknesses, and so on — and automatically blocks them. Because it shares threat information with a global community of other CrowdSec users, Charon often blocks an attacker before they've even tried anything against *your* server.
 
-### 🚪 A Bouncer at Your Apps' Door (Forward Auth Gateway)
+### 🚪 A Bouncer at Charon's Own Door (Login Protection)
 
-Some of the apps you run behind Charon don't have their own login screen. Turn on **Require Login** for one of those apps, and Charon stands in front of it like a bouncer — checking that a visitor is signed in before letting them through. Your app doesn't need to know anything changed; Charon handles the checking for it.
+Charon slows down anyone who tries to sign in too many times, too fast, so guessing passwords gets nowhere. It is on by default, and emergency recovery access is never slowed down. If you reach Charon through another proxy, tell Charon which one to trust so it can see your visitors' real addresses. [Learn more](login-protection.md).
 
 ### 🧱 A Guard That Reads Every Request (Web Application Firewall)
 

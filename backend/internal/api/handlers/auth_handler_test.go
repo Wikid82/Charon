@@ -323,10 +323,9 @@ func TestSetSecureCookie_HTTP_TailscaleCGNAT_Insecure(t *testing.T) {
 }
 
 // TestIsTrustedPeer table-drives isTrustedPeer's peer/allowlist matching,
-// including the fail-safe behavior of security.IsIPInCIDRList when the
-// configured list contains a malformed entry (docs/plans/current_spec.md
-// §13.6, test #1 — the malformed-CIDR sub-cases were a Supervisor review
-// correction folded in before implementation).
+// including the fail-safe behavior when the configured list contains a
+// malformed entry. Proxy-trust semantics are documented in
+// docs/configuration/trusted-proxies.md (design history: commit 3b1cd2bb).
 func TestIsTrustedPeer(t *testing.T) {
 	t.Parallel()
 
