@@ -12,8 +12,6 @@
   },
   "dependencies": {
     "@typescript/analyze-trace": "^0.11.1",
-    "@vitest/coverage-istanbul": "^5.0.2",
-    "@vitest/ui": "^5.0.2",
     "eslint": "^10.11.0",
     "tldts": "^7.4.15",
     "type-check": "^0.4.0"
@@ -29,6 +27,9 @@
     "@playwright/test": "^1.63.0",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",
     "@types/node": "^26.6.2",
+    "@vitest/coverage-istanbul": "^5.0.2",
+    "@vitest/coverage-v8": "^5.0.2",
+    "@vitest/ui": "^5.0.2",
     "audit-ci": "^7.1.0",
     "dotenv": "^18.0.3",
     "lefthook": "^2.1.14",
