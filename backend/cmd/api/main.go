@@ -259,8 +259,8 @@ func main() {
 		pluginDir = "/app/plugins"
 	}
 	pluginLoader := services.NewPluginLoaderService(db, pluginDir, parsePluginSignatures())
-	if err := pluginLoader.LoadAllPlugins(); err != nil {
-		logger.Log().WithError(err).Warn("Failed to load external DNS provider plugins")
+	if pluginErr := pluginLoader.LoadAllPlugins(); pluginErr != nil {
+		logger.Log().WithError(pluginErr).Warn("Failed to load external DNS provider plugins")
 	}
 	logger.Log().Info("Plugin system initialized")
 

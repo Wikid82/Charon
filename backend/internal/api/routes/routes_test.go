@@ -1470,7 +1470,7 @@ func TestRegister_CleansLetsEncryptCertAssignments(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_lecleaner"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Pre-migrate just the two tables needed to seed test data before Register runs.
@@ -1500,8 +1500,7 @@ func TestRegister_CleansLetsEncryptCertAssignments(t *testing.T) {
 // TestRegister_CleansLetsEncryptCertAssignments exactly, substituting
 // RedirectionHost for ProxyHost.
 //
-// Uses a t.Name()-keyed DSN (the pattern already used elsewhere in this
-// codebase, e.g. certificate_service_test.go) rather than this file's
+// Uses isolatedMemoryDSN (unique per invocation) rather than this file's
 // "file::memory:?cache=shared&label" convention: SQLite's shared-cache
 // in-memory identity is keyed off the URI path, not trailing query params,
 // so every ":memory:"-path DSN in this file collapses to the SAME
@@ -1513,8 +1512,7 @@ func TestRegister_CleansLetsEncryptCertAssignments_RedirectionHost(t *testing.T)
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Pre-migrate just the two tables needed to seed test data before Register runs.
@@ -1606,7 +1604,7 @@ func TestRegister_CrowdsecAdminRoutesRequireAdminRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_crowdsec_admin_authz"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1921,4 +1919,14 @@ func TestManagementGroup_RouteInventoryNoDuplicates(t *testing.T) {
 	for key, n := range seen {
 		assert.Equalf(t, 1, n, "route %s is registered %d times (expected exactly once)", key, n)
 	}
+}
+
+// isolatedMemoryDSN returns a private in-memory SQLite DSN unique to this
+// test invocation.
+// SQLite keys shared-cache in-memory databases by URI path, so trailing
+// "&label" params do not isolate anything, and a fixed name (even t.Name())
+// survives across -count=N runs while any pooled connection stays open.
+func isolatedMemoryDSN(t *testing.T) string {
+	t.Helper()
+	return fmt.Sprintf("file:%s?mode=memory&cache=shared", uuid.NewString())
 }
