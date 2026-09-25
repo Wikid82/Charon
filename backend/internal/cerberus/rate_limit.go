@@ -12,6 +12,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/ratelimit"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // Built-in API limiter budget, used unless config or settings override it.
@@ -141,8 +142,8 @@ func (c *Cerberus) RateLimitMiddleware() gin.HandlerFunc {
 // client key and route template is logged.
 func (c *Cerberus) logRateLimitDenial(ctx *gin.Context, key string, d ratelimit.Decision) {
 	entry := middleware.GetRequestLogger(ctx).WithFields(map[string]any{
-		"client": key,
-		"route":  ctx.FullPath(),
+		"client": util.SanitizeForLog(key),
+		"route":  util.SanitizeForLog(ctx.FullPath()),
 	})
 	c.rateLimitWarn.LogDenial(entry, d, "API rate limit exceeded")
 }

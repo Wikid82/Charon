@@ -15,6 +15,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/ratelimit"
 	"github.com/Wikid82/charon/backend/internal/security"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // AuthRateLimitClass selects which per-client budget a route draws on.
@@ -203,8 +204,8 @@ func (a *AuthRateLimiter) allow(c *gin.Context, class AuthRateLimitClass) bool {
 	metrics.IncAuthRateLimited(string(class))
 	entry := GetRequestLogger(c).WithFields(map[string]any{
 		"class":  string(class),
-		"client": key,
-		"route":  c.FullPath(),
+		"client": util.SanitizeForLog(key),
+		"route":  util.SanitizeForLog(c.FullPath()),
 	})
 	a.warn.LogDenial(entry, decision, "Sign-in throttle limited a client")
 	ratelimit.Reject(c, decision)
