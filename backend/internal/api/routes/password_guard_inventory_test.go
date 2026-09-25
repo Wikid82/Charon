@@ -38,17 +38,21 @@ func funcDeclName(fn *ast.FuncDecl) string {
 	return fn.Name.Name
 }
 
+// passwordCheckSite records every CheckPassword selector and every throttle
+// guard call found in one function body.
 type passwordCheckSite struct {
-	file      string
-	checkPos  token.Pos
-	guardPos  token.Pos
-	checkLine int
+	file       string
+	checkPos   []token.Pos
+	checkLines []int
+	guardPos   []token.Pos
 }
 
 // TestPasswordVerificationCallSitesAreGuarded fails when a new account-password
-// check appears outside the allowlist, or when an allowlisted handler stops
-// calling the sign-in throttle guard before (by source position) the check.
-// Route tests cover the runtime behavior.
+// check appears outside the allowlist, or when an allowlisted handler that
+// needs the sign-in throttle guard has a CheckPassword call that is not
+// preceded (by source position) by its own guard call: the i-th check needs at
+// least i guard calls before it, so a second unguarded check is caught even
+// when the first one is guarded. Route tests cover the runtime behavior.
 func TestPasswordVerificationCallSitesAreGuarded(t *testing.T) {
 	backendRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	require.NoError(t, err)
@@ -76,21 +80,21 @@ func TestPasswordVerificationCallSitesAreGuarded(t *testing.T) {
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
 					switch x := n.(type) {
 					case *ast.SelectorExpr:
-						if x.Sel.Name == "CheckPassword" && site.checkPos == token.NoPos {
-							site.checkPos = x.Pos()
-							site.checkLine = fset.Position(x.Pos()).Line
-						}
-						if x.Sel.Name == "AllowPasswordAttempt" && site.guardPos == token.NoPos {
-							site.guardPos = x.Pos()
+						switch x.Sel.Name {
+						case "CheckPassword":
+							site.checkPos = append(site.checkPos, x.Pos())
+							site.checkLines = append(site.checkLines, fset.Position(x.Pos()).Line)
+						case "AllowPasswordAttempt":
+							site.guardPos = append(site.guardPos, x.Pos())
 						}
 					case *ast.CallExpr:
-						if ident, ok := x.Fun.(*ast.Ident); ok && ident.Name == "allowPasswordAttempt" && site.guardPos == token.NoPos {
-							site.guardPos = x.Pos()
+						if ident, ok := x.Fun.(*ast.Ident); ok && ident.Name == "allowPasswordAttempt" {
+							site.guardPos = append(site.guardPos, x.Pos())
 						}
 					}
 					return true
 				})
-				if site.checkPos != token.NoPos {
+				if len(site.checkPos) > 0 {
 					name := funcDeclName(fn)
 					sites[name] = append(sites[name], site)
 				}
@@ -103,13 +107,22 @@ func TestPasswordVerificationCallSitesAreGuarded(t *testing.T) {
 	for name, found := range sites {
 		needsGuard, allowed := passwordCheckAllowlist[name]
 		if !assert.True(t, allowed, "%s verifies an account password (%s:%d); guard it with the sign-in throttle and add it to passwordCheckAllowlist",
-			name, found[0].file, found[0].checkLine) {
+			name, found[0].file, found[0].checkLines[0]) {
 			continue
 		}
-		if needsGuard {
-			for _, s := range found {
-				assert.True(t, s.guardPos != token.NoPos && s.guardPos < s.checkPos,
-					"%s must call the password attempt guard before CheckPassword (%s:%d)", name, s.file, s.checkLine)
+		if !needsGuard {
+			continue
+		}
+		for _, s := range found {
+			for i, checkPos := range s.checkPos {
+				guards := 0
+				for _, g := range s.guardPos {
+					if g < checkPos {
+						guards++
+					}
+				}
+				assert.GreaterOrEqual(t, guards, i+1,
+					"%s in %s must call the password attempt guard before CheckPassword (line %d)", name, s.file, s.checkLines[i])
 			}
 		}
 	}
