@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -114,6 +116,7 @@ func TestRegister_AuthRoutesHaveExplicitRateLimitClass(t *testing.T) {
 
 func TestRegister_LoginThrottledBeforeHandler(t *testing.T) {
 	app := newThrottledApp(t, config.Config{}) // production defaults: 10 per 600s
+	start := time.Now()
 	for i := 0; i < 10; i++ {
 		w := app.login(fmt.Sprintf("probe-%d@example.com", i), "wrong")
 		require.Equal(t, http.StatusUnauthorized, w.Code, "attempt %d", i+1)
@@ -122,7 +125,7 @@ func TestRegister_LoginThrottledBeforeHandler(t *testing.T) {
 	victim, _ := app.createUser(models.RoleUser)
 	w := app.login(victim.Email, "wrong")
 	assertGeneric429(t, w)
-	assertRetryAfterNear(t, w, 60)
+	assertRetryAfterNear(t, w, 60, start)
 	assert.NotContains(t, w.Body.String(), victim.Email)
 
 	var stored models.User
@@ -139,12 +142,13 @@ func TestRegister_RefreshThrottledAsSession(t *testing.T) {
 
 func TestRegister_SessionBudget(t *testing.T) {
 	app := newThrottledApp(t, withAuthBudget(100, 3))
+	start := time.Now()
 	for i := 0; i < 3; i++ {
 		assert.NotEqual(t, http.StatusTooManyRequests, app.do(http.MethodGet, "/api/v1/auth/status", "", "", nil).Code)
 	}
 	w := app.do(http.MethodGet, "/api/v1/auth/status", "", "", nil)
 	assertGeneric429(t, w)
-	assertRetryAfterNear(t, w, 20)
+	assertRetryAfterNear(t, w, 20, start)
 	assert.Equal(t, http.StatusUnauthorized, app.login("nobody@example.com", "x").Code, "the login budget is separate")
 }
 
@@ -288,13 +292,17 @@ func TestRegister_LoginProtectionEchoesTrustedForwardedFor(t *testing.T) {
 	assert.Equal(t, float64(1), body["trusted_proxy_count"])
 }
 
-// assertRetryAfterNear tolerates the wall-clock refill that elapses between
-// the throttled request and the rejection (bcrypt and -race make this slow):
-// the header may read up to a few seconds below the nominal wait, never above.
-func assertRetryAfterNear(t *testing.T, w *httptest.ResponseRecorder, nominal int) {
+// assertRetryAfterNear checks Retry-After against the nominal wait, allowing
+// for the token refill that happens in real time between the start of the
+// burst and the rejection. The allowance is the measured elapsed time (rounded
+// up, plus one second for header rounding), so a stalled runner widens the
+// window in exactly the direction the clock moved, while a header off by more
+// than the measured elapsed time still fails. The header never exceeds nominal.
+func assertRetryAfterNear(t *testing.T, w *httptest.ResponseRecorder, nominal int, start time.Time) {
 	t.Helper()
+	elapsed := int(math.Ceil(time.Since(start).Seconds()))
 	got, err := strconv.Atoi(w.Header().Get("Retry-After"))
 	require.NoError(t, err)
 	assert.LessOrEqual(t, got, nominal)
-	assert.GreaterOrEqual(t, got, nominal-5)
+	assert.GreaterOrEqual(t, got, nominal-elapsed-1)
 }
