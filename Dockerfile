@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-8254b9bdafdb6eb2
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:96b494f986a3240ef836f5e93417ae7461a1fd3201a73b1a429b6c6ba2fbf116
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-f47268faed60d6c2
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:5a093666fa1e83c3999a1d3d44fd614ed3dc2a0d054477f38cffefe40e8ba3bd
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -54,7 +54,7 @@ ARG XCRYPTO_VERSION=0.57.0
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
 # renovate: datasource=go depName=github.com/klauspost/compress
-ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
+ARG KLAUSPOST_COMPRESS_VERSION=1.20.1
 # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS fix (CVE-2026-84304), matching how
 # golang.org/x/crypto and klauspost/compress are patched above: pinned here so the Caddy
 # and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
