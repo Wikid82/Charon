@@ -313,7 +313,7 @@ test.describe('Authentication rate limiting', () => {
         await expect(card).toContainText('CHARON_TRUSTED_PROXIES');
         await expect(card.getByRole('link', { name: /docs|documentation|learn more/i })).toHaveAttribute(
           'href',
-          /wikid82\.github\.io\/Charon\/docs/
+          /^https?:\/\/wikid82\.github\.io\/Charon\/docs(?:\/|$)/
         );
       });
     });
