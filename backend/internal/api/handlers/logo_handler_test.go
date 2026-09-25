@@ -104,7 +104,7 @@ func TestLogoHandler_UploadLogo_ValidPNG(t *testing.T) {
 	dataDir := t.TempDir()
 	r := buildLogoRouter(db, dataDir, "admin")
 
-	req := buildUploadRequest(t,"mylogo.png", minimalPNG, "")
+	req := buildUploadRequest(t, "mylogo.png", minimalPNG, "")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -135,7 +135,7 @@ func TestLogoHandler_UploadLogo_FileTooLarge(t *testing.T) {
 	large := make([]byte, maxLogoSize+1024)
 	copy(large, minimalPNG)
 
-	req := buildUploadRequest(t,"big.png", large, "")
+	req := buildUploadRequest(t, "big.png", large, "")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -149,7 +149,7 @@ func TestLogoHandler_UploadLogo_NonImageMIME(t *testing.T) {
 	r := buildLogoRouter(db, dataDir, "admin")
 
 	htmlBytes := []byte("<!DOCTYPE html><html><body>not an image</body></html>")
-	req := buildUploadRequest(t,"evil.html", htmlBytes, "")
+	req := buildUploadRequest(t, "evil.html", htmlBytes, "")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -162,7 +162,7 @@ func TestLogoHandler_UploadLogo_SVGRejected(t *testing.T) {
 	dataDir := t.TempDir()
 	r := buildLogoRouter(db, dataDir, "admin")
 
-	req := buildUploadRequest(t,"logo.svg", minimalSVG, "")
+	req := buildUploadRequest(t, "logo.svg", minimalSVG, "")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -176,7 +176,7 @@ func TestLogoHandler_UploadLogo_SpoofedContentType(t *testing.T) {
 	r := buildLogoRouter(db, dataDir, "admin")
 
 	// SVG bytes but declared as image/png
-	req := buildUploadRequest(t,"totally-a-png.png", minimalSVG, "image/png")
+	req := buildUploadRequest(t, "totally-a-png.png", minimalSVG, "image/png")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -191,7 +191,7 @@ func TestLogoHandler_UploadLogo_NoContentTypePNGBytes(t *testing.T) {
 	r := buildLogoRouter(db, dataDir, "admin")
 
 	// Use CreateFormFile (no explicit Content-Type on the part)
-	req := buildUploadRequest(t,"logo.png", minimalPNG, "")
+	req := buildUploadRequest(t, "logo.png", minimalPNG, "")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -205,7 +205,7 @@ func TestLogoHandler_DeleteLogo(t *testing.T) {
 	r := buildLogoRouter(db, dataDir, "admin")
 
 	// First upload
-	req := buildUploadRequest(t,"logo.png", minimalPNG, "")
+	req := buildUploadRequest(t, "logo.png", minimalPNG, "")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -237,7 +237,7 @@ func TestLogoHandler_UploadLogo_Unauthenticated(t *testing.T) {
 	// No role set (empty string = no context values)
 	r := buildLogoRouter(db, dataDir, "")
 
-	req := buildUploadRequest(t,"logo.png", minimalPNG, "")
+	req := buildUploadRequest(t, "logo.png", minimalPNG, "")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -250,7 +250,7 @@ func TestLogoHandler_UploadLogo_NonAdmin(t *testing.T) {
 	dataDir := t.TempDir()
 	r := buildLogoRouter(db, dataDir, "user")
 
-	req := buildUploadRequest(t,"logo.png", minimalPNG, "")
+	req := buildUploadRequest(t, "logo.png", minimalPNG, "")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

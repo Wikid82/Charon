@@ -270,9 +270,9 @@ func TestBannerHandler_UploadBanner_ValidJPEG(t *testing.T) {
 	// Minimal JPEG magic bytes: SOI marker (FF D8) + APP0 marker (FF E0)
 	minimalJPEG := []byte{
 		0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, // SOI + APP0 marker + length
-		0x4A, 0x46, 0x49, 0x46, 0x00,       // "JFIF\0"
-		0x01, 0x01, 0x00, 0x00, 0x01,       // version, aspect ratio units, X density
-		0x00, 0x01, 0x00, 0x00,             // Y density, thumbnail dimensions
+		0x4A, 0x46, 0x49, 0x46, 0x00, // "JFIF\0"
+		0x01, 0x01, 0x00, 0x00, 0x01, // version, aspect ratio units, X density
+		0x00, 0x01, 0x00, 0x00, // Y density, thumbnail dimensions
 	}
 
 	req := buildBannerUploadRequest(t, "banner.jpg", minimalJPEG, "")
