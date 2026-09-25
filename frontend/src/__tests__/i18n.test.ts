@@ -58,3 +58,56 @@ describe('i18n configuration', () => {
     expect(i18n.t('dashboard.activeHosts', { count: 5 })).toBe('5 active')
   })
 })
+
+describe('locale parity', () => {
+  const LOCALES = ['en', 'de', 'es', 'fr', 'zh'] as const
+
+  const flatten = (value: unknown, prefix = ''): string[] => {
+    if (typeof value !== 'object' || value === null) return [prefix]
+    return Object.entries(value).flatMap(([key, child]) =>
+      flatten(child, prefix ? `${prefix}.${key}` : key)
+    )
+  }
+
+  const keysFor = (locale: string, root: string): string[] =>
+    flatten(i18n.getResourceBundle(locale, 'translation')[root], root).sort()
+
+  // Sign-in throttle strings are added in every locale in the same change
+  it.each(['errors', 'auth.rateLimitAdminHint', 'auth.rateLimitAdminHintLink', 'security.loginProtection'])(
+    'has the same %s keys in every locale',
+    (root) => {
+      const read = (locale: string) =>
+        root.includes('.')
+          ? flatten(
+              root.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)[part], i18n.getResourceBundle(locale, 'translation')),
+              root
+            ).sort()
+          : keysFor(locale, root)
+      const expected = read('en')
+      expect(expected.length).toBeGreaterThan(0)
+      for (const locale of LOCALES) {
+        expect(read(locale)).toEqual(expected)
+      }
+    }
+  )
+
+  it.each([
+    'errors.tooManyRequestsSeconds',
+    'errors.tooManyRequestsMinutes',
+    'security.loginProtection.untrustedPrivate',
+    'security.loginProtection.untrustedPublic',
+  ])('carries %s as bare key plus _one/_other in every locale', (key) => {
+    for (const locale of LOCALES) {
+      for (const suffix of ['', '_one', '_other']) {
+        expect(i18n.exists(`${key}${suffix}`, { lng: locale, fallbackLng: false })).toBe(true)
+      }
+    }
+  })
+
+  it('pluralizes the wait message per locale', async () => {
+    await i18n.changeLanguage('en')
+    expect(i18n.t('errors.tooManyRequestsSeconds', { count: 1 })).toContain('1 second and')
+    expect(i18n.t('errors.tooManyRequestsSeconds', { count: 30 })).toContain('30 seconds')
+    expect(i18n.t('errors.tooManyRequestsMinutes', { count: 2 })).toContain('2 minutes')
+  })
+})

@@ -250,7 +250,9 @@
     "loginSuccess": "Sesión iniciada exitosamente",
     "loginFailed": "Error al iniciar sesión",
     "resetPasswordTitle": "Para restablecer tu contraseña:",
-    "resetPasswordInstructions": "Ejecuta este comando en tu servidor:"
+    "resetPasswordInstructions": "Ejecuta este comando en tu servidor:",
+    "rateLimitAdminHint": "¿Eres el administrador? Si todos ven este mensaje, es posible que Charon no esté viendo las direcciones reales de tus visitantes.",
+    "rateLimitAdminHintLink": "Cómo funciona la protección de inicio de sesión detrás de un proxy"
   },
   "errors": {
     "required": "Este campo es obligatorio",
@@ -260,7 +262,14 @@
     "networkError": "Error de red. Por favor, verifica tu conexión.",
     "unauthorized": "No autorizado. Por favor, inicia sesión de nuevo.",
     "notFound": "Recurso no encontrado",
-    "serverError": "Error del servidor. Por favor, inténtalo más tarde."
+    "serverError": "Error del servidor. Por favor, inténtalo más tarde.",
+    "tooManyRequests": "Demasiados intentos. Espera un momento e inténtalo de nuevo.",
+    "tooManyRequestsSeconds_one": "Demasiados intentos. Espera {{count}} segundo e inténtalo de nuevo.",
+    "tooManyRequestsSeconds_other": "Demasiados intentos. Espera {{count}} segundos e inténtalo de nuevo.",
+    "tooManyRequestsSeconds": "Demasiados intentos. Espera {{count}} segundos e inténtalo de nuevo.",
+    "tooManyRequestsMinutes_one": "Demasiados intentos. Espera {{count}} minuto e inténtalo de nuevo.",
+    "tooManyRequestsMinutes_other": "Demasiados intentos. Espera {{count}} minutos e inténtalo de nuevo.",
+    "tooManyRequestsMinutes": "Demasiados intentos. Espera {{count}} minutos e inténtalo de nuevo."
   },
   "notifications": {
     "saveSuccess": "Cambios guardados exitosamente",
@@ -409,7 +418,30 @@
     "guardianRests": "El guardián descansa...",
     "crowdsecStopping": "CrowdSec está deteniéndose",
     "strengtheningGuard": "Fortaleciendo la guardia...",
-    "wardsActivating": "Protecciones activándose"
+    "wardsActivating": "Protecciones activándose",
+    "loginProtection": {
+      "title": "Protección de inicio de sesión",
+      "statusOn": "Activada",
+      "statusOff": "Desactivada",
+      "disabledMessage": "La protección de inicio de sesión está desactivada (CHARON_AUTH_RATELIMIT_ENABLED=false).",
+      "budgetLogin": "Intentos de inicio de sesión: {{requests}} por {{window}}",
+      "budgetSession": "Comprobaciones de sesión: {{requests}} por {{window}}",
+      "callerAddress": "Charon ve tu navegador como {{address}} ({{scope}}).",
+      "runtimeNatHint": "Si esa no es la dirección de tu dispositivo, un proxy o el entorno de ejecución de tus contenedores puede estar ocultando las direcciones de los visitantes.",
+      "untrustedPrivate_one": "Se están ignorando las direcciones de cliente reenviadas desde {{peer}} ({{count}} vez, la última {{when}}). Si {{peer}} es tu proxy inverso, añade {{suggestion}} a CHARON_TRUSTED_PROXIES.",
+      "untrustedPrivate_other": "Se están ignorando las direcciones de cliente reenviadas desde {{peer}} ({{count}} veces, la última {{when}}). Si {{peer}} es tu proxy inverso, añade {{suggestion}} a CHARON_TRUSTED_PROXIES.",
+      "untrustedPrivate": "Se están ignorando las direcciones de cliente reenviadas desde {{peer}} ({{count}} veces, la última {{when}}). Si {{peer}} es tu proxy inverso, añade {{suggestion}} a CHARON_TRUSTED_PROXIES.",
+      "untrustedPublic_one": "Charon ignoró encabezados de dirección de cliente reenviados desde una dirección pública ({{peer}}, {{count}} vez, la última {{when}}). Normalmente alguien envía encabezados falsificados; no se requiere ninguna acción.",
+      "untrustedPublic_other": "Charon ignoró encabezados de dirección de cliente reenviados desde una dirección pública ({{peer}}, {{count}} veces, la última {{when}}). Normalmente alguien envía encabezados falsificados; no se requiere ninguna acción.",
+      "untrustedPublic": "Charon ignoró encabezados de dirección de cliente reenviados desde una dirección pública ({{peer}}, {{count}} veces, la última {{when}}). Normalmente alguien envía encabezados falsificados; no se requiere ninguna acción.",
+      "scope": {
+        "loopback": "loopback",
+        "private": "red privada",
+        "public": "dirección pública"
+      },
+      "docsLink": "Más información en la documentación",
+      "loadError": "No se pudo cargar el estado de la protección de inicio de sesión."
+    }
   },
   "accessLists": {
     "title": "Listas de Acceso",

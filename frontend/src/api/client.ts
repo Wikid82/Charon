@@ -1,4 +1,7 @@
 import axios from 'axios';
+import i18n from 'i18next';
+
+import { rateLimitMessage } from '../utils/rateLimit';
 
 /**
  * Pre-configured Axios instance for API communication.
@@ -50,6 +53,13 @@ client.interceptors.response.use(
       } else if (data.message) {
         error.message = data.message;
       }
+    }
+
+    // Uses the global i18next instance initialised by src/i18n.ts at app startup
+    // Replace the generic throttle body with a localized wait message (any 429, app-wide)
+    const throttleMessage = rateLimitMessage(i18n.t, error);
+    if (throttleMessage) {
+      error.message = throttleMessage;
     }
 
     // Handle 401 authentication errors - triggers auth error callback for session expiry

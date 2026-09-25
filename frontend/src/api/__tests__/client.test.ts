@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 
+// Initialises the global i18next instance the interceptor translates with
+import '../../i18n'
 import { setAuthErrorHandler, setAuthToken } from '../client'
 
 type ResponseHandler = (value: unknown) => unknown
@@ -9,6 +11,7 @@ type ErrorHandler = (error: ResponseError) => Promise<never>
 type ResponseError = {
   response?: {
     status?: number
+    headers?: Record<string, string>
     data?: Record<string, unknown>
   }
   config?: {
@@ -224,5 +227,44 @@ describe('api client', () => {
     expect(fulfilled).toBeDefined()
     const result = fulfilled ? fulfilled(responsePayload) : undefined
     expect(result).toBe(responsePayload)
+  })
+
+  describe('429 throttling', () => {
+    const throttled = (headers: Record<string, string>): ResponseError => ({
+      response: {
+        status: 429,
+        headers,
+        data: { error: 'Too many requests. Please wait before trying again.' },
+      } as ResponseError['response'],
+      config: { url: '/auth/login' },
+      message: 'Request failed with status code 429',
+    })
+
+    it('replaces the message with a localized wait in seconds', async () => {
+      const error = throttled({ 'retry-after': '42' })
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(error.message).toBe('Too many attempts. Please wait 42 seconds and try again.')
+    })
+
+    it('uses minutes for waits of a minute or more', async () => {
+      const error = throttled({ 'retry-after': '90' })
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(error.message).toBe('Too many attempts. Please wait 2 minutes and try again.')
+    })
+
+    it('uses the generic message without Retry-After', async () => {
+      const error = throttled({})
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(error.message).toBe('Too many attempts. Please wait a moment and try again.')
+    })
+
+    it('does not trigger the session-expiry handler', async () => {
+      const onAuthError = vi.fn()
+      setAuthErrorHandler(onAuthError)
+      const error = throttled({ 'retry-after': '5' })
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(onAuthError).not.toHaveBeenCalled()
+      setAuthErrorHandler(null)
+    })
   })
 })

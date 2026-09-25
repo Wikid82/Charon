@@ -19,6 +19,9 @@ import type * as ReactRouterDom from 'react-router'
 
 const mockNavigate = vi.hoisted(() => vi.fn())
 
+// Sign-in throttle status is admin-only; these suites cover the page for a non-admin session
+vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'user' } }) }))
+
 vi.mock('react-router', async () => {
   const actual = await vi.importActual<typeof ReactRouterDom>('react-router')
   return {
@@ -118,10 +121,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: { pid?: number }) => {
       // Handle interpolation for runningPid
-      if (key === 'security.runningPid' && options?.pid !== undefined) {
-        return `Running (pid ${options.pid})`
-      }
-      return securityTranslations[key] || key
+      return key === 'security.runningPid' && options?.pid !== undefined ? `Running (pid ${options.pid})` : securityTranslations[key] || key;
     },
   }),
 }))
