@@ -57,7 +57,11 @@ func IncCrowdSecBlocked() { crowdsecBlockedTotal.Inc() }
 // IncAuthRateLimited increments the sign-in throttle rejection counter for class.
 func IncAuthRateLimited(class string) { authRateLimitedTotal.WithLabelValues(class).Inc() }
 
-// AuthRateLimitedCounter returns the rejection counter for class (for delta assertions in tests).
+// AuthRateLimitedCounter returns the rejection counter for class.
+//
+// It exists only so tests, including those in other packages (a _test.go
+// helper is not importable across packages), can assert counter deltas.
+// Production code must use IncAuthRateLimited.
 func AuthRateLimitedCounter(class string) prometheus.Counter {
 	return authRateLimitedTotal.WithLabelValues(class)
 }
