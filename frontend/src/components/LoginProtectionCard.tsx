@@ -53,9 +53,10 @@ function formatRelative(iso: string, nowMs: number, language: string): string {
 export function LoginProtectionCard() {
   const { t, i18n } = useTranslation()
   const headingId = useId()
-  const { data, isLoading, isError } = useLoginProtectionStatus({ enabled: true })
+  const { data, dataUpdatedAt, isLoading, isError } = useLoginProtectionStatus({ enabled: true })
   const language = i18n.language
-  const nowMs = Date.now()
+  // Time of the last successful fetch: keeps render pure and the 24h window anchored to the data shown.
+  const nowMs = dataUpdatedAt
 
   const scopeLabel = (scope: AddrScope) => t(`security.loginProtection.scope.${scope}`)
   const budgetLine = (label: string, budget: LoginProtectionBudget) =>
