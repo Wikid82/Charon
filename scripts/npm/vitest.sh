@@ -14,5 +14,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm install vitest @vitest/ui
+    npm install vitest @vitest/ui @vitest/coverage-istanbul
 done
