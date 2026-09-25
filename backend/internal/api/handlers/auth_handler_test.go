@@ -383,6 +383,26 @@ func TestIsTrustedPeer(t *testing.T) {
 			trustedProxies: []string{"not-a-cidr", "10.0.0.0/8"},
 			want:           false,
 		},
+		{
+			// Proxy trust uses the same netip matcher as Gin and the sign-in
+			// throttle: IPv4 and IPv6 loopback are not interchangeable.
+			name:           "IPv6 loopback entry does not trust IPv4 loopback peer",
+			remoteAddr:     "127.0.0.1:5555",
+			trustedProxies: []string{"::1/128"},
+			want:           false,
+		},
+		{
+			name:           "IPv4 loopback entry does not trust IPv6 loopback peer",
+			remoteAddr:     "[::1]:5555",
+			trustedProxies: []string{"127.0.0.1/32"},
+			want:           false,
+		},
+		{
+			name:           "IPv6 loopback entry trusts IPv6 loopback peer",
+			remoteAddr:     "[::1]:5555",
+			trustedProxies: []string{"::1"},
+			want:           true,
+		},
 	}
 
 	for _, tt := range tests {

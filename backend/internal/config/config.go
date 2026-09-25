@@ -124,6 +124,10 @@ func Load() (Config, error) {
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
 	}
 
+	trustedProxies, proxyWarnings := ValidateTrustedProxies(cfg.Security.TrustedProxies)
+	cfg.Security.TrustedProxies = trustedProxies
+	cfg.StartupWarnings = append(cfg.StartupWarnings, proxyWarnings...)
+
 	rawAuthRateLimit, authWarnings := loadAuthRateLimitConfig()
 	authRateLimit, authNormWarnings := rawAuthRateLimit.Normalize()
 	cfg.Security.AuthRateLimit = authRateLimit

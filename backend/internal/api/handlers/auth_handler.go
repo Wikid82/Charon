@@ -37,11 +37,7 @@ func isTrustedPeer(c *gin.Context, trustedProxies []string) bool {
 	if len(trustedProxies) == 0 || c.Request == nil {
 		return false
 	}
-	peerIP := normalizeHost(c.Request.RemoteAddr)
-	if peerIP == "" {
-		return false
-	}
-	return security.IsIPInCIDRList(peerIP, strings.Join(trustedProxies, ","))
+	return security.NewTrustedProxyMatcher(trustedProxies).ContainsIP(normalizeHost(c.Request.RemoteAddr))
 }
 
 func requestScheme(c *gin.Context, trustedProxies []string) string {

@@ -82,6 +82,21 @@ services:
       # backend/internal/changelog/data/changelog.json before the image is built (see
       # tests/settings/whats-new-changelog.spec.ts header comment for the full mechanism).
       - CHARON_CHANGELOG_VERSION=1.2.0
+      # --- E2E-only auth throttle settings (issue #1317) -----------------------------------------
+      # All Playwright workers share one source address and fixtures log in far more often than a
+      # human, so this TEST stack relaxes the budgets. Production defaults are unchanged and pinned by
+      # Go unit tests.
+      - CHARON_AUTH_RATELIMIT_LOGIN_REQUESTS=300
+      - CHARON_AUTH_RATELIMIT_LOGIN_WINDOW=60
+      - CHARON_AUTH_RATELIMIT_SESSION_REQUESTS=600
+      - CHARON_AUTH_RATELIMIT_SESSION_WINDOW=60
+      # Trust the runner's peer (Docker bridge, rootless port driver, loopback, Tailscale, IPv6 ULA)
+      # so tests/core/auth-rate-limit.spec.ts can give each test its own client identity via
+      # X-Forwarded-For. Requirements: PLAYWRIGHT_BASE_URL must be an IP literal or localhost
+      # (for trusted peers, session-cookie decisions read the Host header), and no spec may send
+      # X-Forwarded-For/X-Real-IP/X-Forwarded-Proto/X-Forwarded-Host except auth-rate-limit.spec.ts.
+      # NEVER trust whole private ranges in production.
+      - CHARON_TRUSTED_PROXIES=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
       # SMTP for notification tests (connects to MailHog when profile enabled)
       - CHARON_SMTP_HOST=mailhog
       - CHARON_SMTP_PORT=1025

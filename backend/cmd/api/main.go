@@ -28,6 +28,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/version"
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Register built-in DNS providers
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -266,6 +267,7 @@ func main() {
 	router := server.NewRouter(cfg.FrontendDir, filepath.Dir(cfg.DatabasePath), cfg.Security.TrustedProxies)
 	// Initialize structured logger with same writer as stdlib log so both capture logs
 	logger.Init(cfg.Debug, mw)
+	logStartupWarnings(logger.Log(), cfg.StartupWarnings)
 	// Request ID middleware must run before recovery so the recover logs include the request id
 	router.Use(middleware.RequestID())
 	// Log requests with request-scoped logger
@@ -353,4 +355,12 @@ func main() {
 	}
 
 	logger.Log().Info("Server shutdown complete")
+}
+
+// logStartupWarnings logs every configuration warning collected by
+// config.Load, once, after the structured logger is initialized.
+func logStartupWarnings(entry *logrus.Entry, warnings []string) {
+	for _, w := range warnings {
+		entry.WithField("component", "config").Warn(w)
+	}
 }

@@ -31,6 +31,53 @@ export const getSecurityStatus = async (): Promise<SecurityStatus> => {
   return response.data
 }
 
+/** Address scope reported by the login-protection status. */
+export type AddrScope = 'loopback' | 'private' | 'public'
+
+/** One sign-in throttle budget: `requests` per `window_seconds`, per client. */
+export interface LoginProtectionBudget {
+  requests: number
+  window_seconds: number
+}
+
+/**
+ * Forwarded client-address headers received from peers that are not trusted proxies.
+ * While `count` is 0, `last_seen` is null and `last_peer`/`last_peer_scope` are empty.
+ */
+export interface ForwardedHeaderObservation {
+  count: number
+  last_seen: string | null
+  last_peer: string
+  /** `loopback`/`private` for the local record, `public` for the public record. */
+  last_peer_scope: AddrScope | ''
+}
+
+/** Admin-only login-protection (sign-in throttle) status. */
+export interface LoginProtectionStatus {
+  enabled: boolean
+  login: LoginProtectionBudget
+  session: LoginProtectionBudget
+  /** Number of effective CHARON_TRUSTED_PROXIES entries. */
+  trusted_proxy_count: number
+  /** The throttle key Charon derives for the calling browser (IPv4, IPv6 /64, or `unknown`). */
+  caller_client_key: string
+  caller_client_scope: AddrScope
+  untrusted_forwarded_headers: {
+    local: ForwardedHeaderObservation
+    public: ForwardedHeaderObservation
+  }
+}
+
+/**
+ * Gets the login-protection status (admin only).
+ * @returns Promise resolving to LoginProtectionStatus
+ * @throws {AxiosError} If the request fails (403 for non-admins)
+ */
+export const getLoginProtectionStatus = async (): Promise<LoginProtectionStatus> => {
+  const response = await client.get<LoginProtectionStatus>('/security/login-protection')
+  return response.data
+}
+
 /** Security configuration payload. */
 export interface SecurityConfigPayload {
   name?: string
