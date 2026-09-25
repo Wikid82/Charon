@@ -17,7 +17,7 @@ import (
 func TestEndpointInventory_FrontendCanonicalSaveImportContractsExistInBackend(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_endpoint_inventory"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(routes.IsolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	router := gin.New()
@@ -30,7 +30,7 @@ func TestEndpointInventory_FrontendCanonicalSaveImportContractsExistInBackend(t 
 func TestEndpointInventory_FrontendParityMatchesCurrentContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_endpoint_inventory_frontend_parity"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(routes.IsolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	router := gin.New()
@@ -43,7 +43,7 @@ func TestEndpointInventory_FrontendParityMatchesCurrentContract(t *testing.T) {
 func TestEndpointInventory_FrontendParityDetectsActualMismatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_endpoint_inventory_frontend_parity_mismatch"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(routes.IsolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	router := gin.New()

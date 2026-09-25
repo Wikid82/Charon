@@ -29,7 +29,7 @@ func setupBackupRoutingTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, string) 
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dsn := routes.IsolatedMemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 

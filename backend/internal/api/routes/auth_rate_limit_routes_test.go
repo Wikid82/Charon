@@ -38,7 +38,7 @@ func newThrottledApp(t *testing.T, cfg config.Config) *throttledApp {
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = "test-secret"
 	}
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:throttle_%s?mode=memory&cache=shared", uuid.NewString())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	router := gin.New()
 	require.NoError(t, router.SetTrustedProxies(nil))
