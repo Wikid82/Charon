@@ -15,7 +15,7 @@ import (
 // trimmed original strings are returned unchanged. Any invalid entry yields an
 // empty list (trust nothing) plus a warning. A list that trusts every address
 // is kept, because it is the operator's explicit choice, but also warns.
-func ValidateTrustedProxies(entries []string) (effective []string, warnings []string) {
+func ValidateTrustedProxies(entries []string) (effective, warnings []string) {
 	trustAll := false
 	for _, raw := range entries {
 		entry := strings.TrimSpace(raw)

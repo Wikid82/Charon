@@ -314,7 +314,7 @@ func TestCerberusRateLimitMiddleware_DecodedRawPathForAdmin(t *testing.T) {
 }
 
 // authServiceWithUsers returns an AuthService plus valid tokens for an admin and a regular user.
-func authServiceWithUsers(t *testing.T) (*services.AuthService, string, string) {
+func authServiceWithUsers(t *testing.T) (authSvc *services.AuthService, adminTok, userTok string) {
 	t.Helper()
 	dsn := fmt.Sprintf("file:rate_limit_auth_%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -412,14 +412,15 @@ func TestCerberusRateLimitMiddleware_PerEpisodeWarnCapped(t *testing.T) {
 	serve(r, http.MethodGet, "/", "10.2.0.1:1234", nil)
 	warns := 0
 	for _, e := range hook.AllEntries() {
-		if e.Level == logrus.WarnLevel {
-			warns++
-			assert.Equal(t, uint64(30-(rateLimitWarnBurst-1)), e.Data["suppressed"])
-			assert.Equal(t, "10.2.0.1", e.Data["client"])
-			assert.Equal(t, 60, e.Data["retry_after_seconds"])
-			for _, v := range e.Data {
-				assert.NotContains(t, fmt.Sprint(v), "Bearer")
-			}
+		if e.Level != logrus.WarnLevel {
+			continue
+		}
+		warns++
+		assert.Equal(t, uint64(30-(rateLimitWarnBurst-1)), e.Data["suppressed"])
+		assert.Equal(t, "10.2.0.1", e.Data["client"])
+		assert.Equal(t, 60, e.Data["retry_after_seconds"])
+		for _, v := range e.Data {
+			assert.NotContains(t, fmt.Sprint(v), "Bearer")
 		}
 	}
 	assert.Equal(t, 1, warns)

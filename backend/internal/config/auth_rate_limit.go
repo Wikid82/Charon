@@ -41,7 +41,7 @@ type AuthRateLimitConfig struct {
 
 // normalizeBudgetField resolves one budget field: 0 means "use the default"
 // silently; anything else outside [minVal, maxVal] falls back with a warning.
-func normalizeBudgetField(val, def, minVal, maxVal int, envVar string) (int, string) {
+func normalizeBudgetField(val, def, minVal, maxVal int, envVar string) (value int, warning string) {
 	switch {
 	case val == 0:
 		return def, ""
@@ -57,7 +57,7 @@ func normalizeBudgetField(val, def, minVal, maxVal int, envVar string) (int, str
 // Normalize returns the effective configuration (defaults applied, bounds
 // enforced) plus one warning per field that fell back to its default. It is
 // pure and idempotent.
-func (c AuthRateLimitConfig) Normalize() (AuthRateLimitConfig, []string) {
+func (c AuthRateLimitConfig) Normalize() (effective AuthRateLimitConfig, warnings []string) {
 	fields := []struct {
 		val      *int
 		def      int
@@ -69,7 +69,6 @@ func (c AuthRateLimitConfig) Normalize() (AuthRateLimitConfig, []string) {
 		{&c.SessionRequests, DefaultAuthSessionRequests, MinAuthRateLimitRequests, MaxAuthRateLimitRequests, EnvAuthRateLimitSessionRequests},
 		{&c.SessionWindowSec, DefaultAuthSessionWindowSec, MinAuthRateLimitWindowSec, MaxAuthRateLimitWindowSec, EnvAuthRateLimitSessionWindow},
 	}
-	var warnings []string
 	for _, f := range fields {
 		var warning string
 		*f.val, warning = normalizeBudgetField(*f.val, f.def, f.min, f.max, f.env)
@@ -83,9 +82,8 @@ func (c AuthRateLimitConfig) Normalize() (AuthRateLimitConfig, []string) {
 // loadAuthRateLimitConfig reads the raw (un-normalized) throttle settings.
 // Only a literal "false" (any case) disables the throttle; any other non-empty
 // value other than "true" keeps it on and produces a warning.
-func loadAuthRateLimitConfig() (AuthRateLimitConfig, []string) {
-	var warnings []string
-	cfg := AuthRateLimitConfig{
+func loadAuthRateLimitConfig() (cfg AuthRateLimitConfig, warnings []string) {
+	cfg = AuthRateLimitConfig{
 		LoginRequests:    getEnvIntStrictAny(EnvAuthRateLimitLoginRequests),
 		LoginWindowSec:   getEnvIntStrictAny(EnvAuthRateLimitLoginWindow),
 		SessionRequests:  getEnvIntStrictAny(EnvAuthRateLimitSessionRequests),

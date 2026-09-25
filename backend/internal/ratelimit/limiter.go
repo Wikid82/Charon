@@ -192,6 +192,6 @@ func (k *KeyedLimiter) Len() int {
 
 // PerWindow converts "requests per window" into a token-bucket rate and burst.
 // A non-positive window yields an infinite rate, which NewKeyedLimiter rejects.
-func PerWindow(requests int, window time.Duration) (rate.Limit, int) {
+func PerWindow(requests int, window time.Duration) (limit rate.Limit, burst int) {
 	return rate.Limit(float64(requests) / window.Seconds()), requests
 }

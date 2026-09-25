@@ -54,7 +54,7 @@ func withAuthBudget(login, session int) config.Config {
 	}}}
 }
 
-func (a *throttledApp) createUser(role models.UserRole) (*models.User, string) {
+func (a *throttledApp) createUser(role models.UserRole) (user *models.User, token string) {
 	a.t.Helper()
 	u := &models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: uuid.NewString() + "@example.com", Role: role, Enabled: true}
 	require.NoError(a.t, u.SetPassword("correct-password"))

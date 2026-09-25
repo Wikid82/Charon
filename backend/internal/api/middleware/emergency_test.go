@@ -313,7 +313,7 @@ func TestEmergencyBypass_SetsExportedContextKey(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, token)
 	req.RemoteAddr = "127.0.0.1:12345"
 	w := httptest.NewRecorder()

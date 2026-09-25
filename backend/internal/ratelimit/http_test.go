@@ -21,7 +21,7 @@ func TestReject_SetsRetryAfterAndGenericBody(t *testing.T) {
 	}, func(_ *gin.Context) { nextCalled = true })
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/login?user=probe-secret", nil)
+	req := httptest.NewRequest(http.MethodPost, "/login?user=probe-secret", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusTooManyRequests, w.Code)

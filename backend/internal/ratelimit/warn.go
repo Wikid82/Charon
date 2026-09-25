@@ -34,14 +34,14 @@ func NewWarnBudget(n int, interval time.Duration, now func() time.Time) *WarnBud
 
 // Take reports whether a WARN may be emitted now. When it may, it also returns
 // the number of events suppressed since the last emitted WARN and resets it.
-func (w *WarnBudget) Take() (bool, uint64) {
+func (w *WarnBudget) Take() (ok bool, suppressed uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if !w.lim.AllowN(w.now(), 1) {
 		w.suppressed++
 		return false, 0
 	}
-	suppressed := w.suppressed
+	suppressed = w.suppressed
 	w.suppressed = 0
 	return true, suppressed
 }
