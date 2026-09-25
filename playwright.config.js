@@ -284,6 +284,19 @@ export default defineConfig({
       use: {
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
+        launchOptions: {
+          firefoxUserPrefs: {
+            // The app sends `Cross-Origin-Opener-Policy: same-origin`. On the first navigation
+            // of a fresh page Firefox swaps browsing-context groups for that header, and the
+            // Playwright/Juggler protocol intermittently loses the resulting `load` event, so
+            // page.goto() hangs until the test timeout even though the page finished loading
+            // (readyState === 'complete', no pending requests). Measured against the E2E
+            // container: ~8% of fresh-page navigations hang, 0% with this pref, and a plain
+            // page hangs only when it carries the COOP header. Browser-side workaround only;
+            // the app's headers are still asserted by the security-header specs.
+            'browser.tabs.remote.useCrossOriginOpenerPolicy': false,
+          },
+        },
       },
       dependencies: browserDependencies,
       testMatch: /.*\.spec\.(ts|js)$/,
