@@ -24,6 +24,7 @@
 import { APIRequestContext, APIResponse, expect, request as playwrightRequest, type Page } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { STORAGE_STATE } from '../constants';
+import type { UserRole } from './TestDataManager';
 
 /**
  * Read auth token from storage state and return Authorization headers.
@@ -384,7 +385,7 @@ export async function getAuthTokenFromPage(
  */
 export async function createUserViaApi(
   page: Page,
-  user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
+  user: { email: string; name: string; password: string; role: UserRole }
 ): Promise<{ id: string | number; email: string }> {
   const token = await getAuthTokenFromPage(page);
 

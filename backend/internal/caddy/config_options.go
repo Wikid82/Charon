@@ -9,7 +9,7 @@ import (
 // don't belong in its long positional parameter list. Introduced by the
 // Redirection Hosts feature specifically so adding RedirectionHost input
 // does not require a breaking positional-parameter insertion — see
-// docs/plans/current_spec.md §4.2.
+// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2.
 //
 // This replaces GenerateConfig's previous trailing variadic
 // (encSvc ...*crypto.EncryptionService). Every call site that omitted that

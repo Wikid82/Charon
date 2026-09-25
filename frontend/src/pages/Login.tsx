@@ -6,10 +6,13 @@ import { useNavigate } from 'react-router'
 import client from '../api/client'
 import { getSetupStatus } from '../api/setup'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { Alert } from '../components/ui/Alert'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
+import { TRUSTED_PROXIES_DOCS_URL } from '../constants/docs'
 import { useAuth } from '../hooks/useAuth'
+import { rateLimitMessage } from '../utils/rateLimit'
 import { toast } from '../utils/toast'
 
 export default function Login() {
@@ -20,6 +23,7 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [showResetInfo, setShowResetInfo] = useState(false)
+  const [throttleNotice, setThrottleNotice] = useState<string | null>(null)
   const { login } = useAuth()
 
   // Guards against a "state update after unmount" race: if the component
@@ -48,6 +52,7 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setThrottleNotice(null)
 
     try {
       const res = await client.post('/auth/login', { email, password })
@@ -57,6 +62,12 @@ export default function Login() {
       toast.success(t('auth.loginSuccess'))
       navigate('/')
     } catch (err) {
+      const throttled = rateLimitMessage(t, err)
+      if (throttled) {
+        // Too many attempts: explain the wait inline instead of a transient toast
+        if (isMountedRef.current) setThrottleNotice(throttled)
+        return
+      }
       const error = err as Error & { response?: { data?: { error?: string } } }
       // The axios interceptor extracts error.response.data.error to error.message
       const message = error.response?.data?.error || error.message || t('auth.loginFailed')
@@ -140,6 +151,23 @@ export default function Login() {
             <Button type="submit" className="w-full" isLoading={loading}>
               {t('auth.signIn')}
             </Button>
+
+            {throttleNotice && (
+              <Alert variant="warning" data-testid="login-rate-limit-notice">
+                <span className="block">{throttleNotice}</span>
+                <span className="mt-2 block">
+                  {t('auth.rateLimitAdminHint')}{' '}
+                  <a
+                    href={TRUSTED_PROXIES_DOCS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-blue-400 hover:text-blue-300"
+                  >
+                    {t('auth.rateLimitAdminHintLink')}
+                  </a>
+                </span>
+              </Alert>
+            )}
           </form>
         </Card>
         </div>

@@ -20,7 +20,7 @@ func TestEmergencyBypass_NoToken(t *testing.T) {
 	router.Use(EmergencyBypass(managementCIDRs, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		_, exists := c.Get("emergency_bypass")
+		_, exists := c.Get(EmergencyBypassContextKey)
 		assert.False(t, exists, "Emergency bypass flag should not be set")
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
@@ -43,7 +43,7 @@ func TestEmergencyBypass_InvalidClientIP(t *testing.T) {
 	router.Use(EmergencyBypass(managementCIDRs, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		_, exists := c.Get("emergency_bypass")
+		_, exists := c.Get(EmergencyBypassContextKey)
 		assert.False(t, exists, "Emergency bypass flag should not be set for invalid client IP")
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
@@ -68,7 +68,7 @@ func TestEmergencyBypass_ValidToken(t *testing.T) {
 	router.Use(EmergencyBypass(managementCIDRs, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		bypass, exists := c.Get("emergency_bypass")
+		bypass, exists := c.Get(EmergencyBypassContextKey)
 		assert.True(t, exists, "Emergency bypass flag should be set")
 		assert.True(t, bypass.(bool), "Emergency bypass flag should be true")
 		c.JSON(http.StatusOK, gin.H{"message": "bypass active"})
@@ -98,7 +98,7 @@ func TestEmergencyBypass_ValidToken_IPv6Localhost(t *testing.T) {
 	router.Use(EmergencyBypass(managementCIDRs, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		bypass, exists := c.Get("emergency_bypass")
+		bypass, exists := c.Get(EmergencyBypassContextKey)
 		assert.True(t, exists, "Emergency bypass flag should be set")
 		assert.True(t, bypass.(bool), "Emergency bypass flag should be true")
 		c.JSON(http.StatusOK, gin.H{"message": "bypass active"})
@@ -124,7 +124,7 @@ func TestEmergencyBypass_InvalidToken(t *testing.T) {
 	router.Use(EmergencyBypass(managementCIDRs, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		_, exists := c.Get("emergency_bypass")
+		_, exists := c.Get(EmergencyBypassContextKey)
 		assert.False(t, exists, "Emergency bypass flag should not be set")
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
@@ -149,7 +149,7 @@ func TestEmergencyBypass_UnauthorizedIP(t *testing.T) {
 	router.Use(EmergencyBypass(managementCIDRs, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		_, exists := c.Get("emergency_bypass")
+		_, exists := c.Get(EmergencyBypassContextKey)
 		assert.False(t, exists, "Emergency bypass flag should not be set")
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
@@ -200,7 +200,7 @@ func TestEmergencyBypass_MinimumLength(t *testing.T) {
 	router.Use(EmergencyBypass(managementCIDRs, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		_, exists := c.Get("emergency_bypass")
+		_, exists := c.Get(EmergencyBypassContextKey)
 		assert.False(t, exists, "Emergency bypass flag should not be set with short token")
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
@@ -226,7 +226,7 @@ func TestEmergencyBypass_NoTokenConfigured(t *testing.T) {
 	router.Use(EmergencyBypass(managementCIDRs, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		_, exists := c.Get("emergency_bypass")
+		_, exists := c.Get(EmergencyBypassContextKey)
 		assert.False(t, exists, "Emergency bypass flag should not be set")
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
@@ -251,7 +251,7 @@ func TestEmergencyBypass_DefaultCIDRs(t *testing.T) {
 	router.Use(EmergencyBypass([]string{}, nil))
 
 	router.GET("/test", func(c *gin.Context) {
-		bypass, exists := c.Get("emergency_bypass")
+		bypass, exists := c.Get(EmergencyBypassContextKey)
 		assert.True(t, exists, "Emergency bypass flag should be set")
 		assert.True(t, bypass.(bool), "Emergency bypass flag should be true")
 		c.JSON(http.StatusOK, gin.H{"message": "bypass active"})
@@ -274,4 +274,68 @@ func TestEmergencyBypass_DefaultCIDRs(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code, "Should accept IP: %s", remoteAddr)
 	}
+}
+
+func TestIsEmergencyBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cases := []struct {
+		name  string
+		value any
+		set   bool
+		want  bool
+	}{
+		{name: "unset", set: false, want: false},
+		{name: "true", value: true, set: true, want: true},
+		{name: "false", value: false, set: true, want: false},
+		{name: "non-bool does not panic", value: "true", set: true, want: false},
+		{name: "nil", value: nil, set: true, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			if tc.set {
+				c.Set(EmergencyBypassContextKey, tc.value)
+			}
+			assert.Equal(t, tc.want, IsEmergencyBypass(c))
+		})
+	}
+}
+
+func TestEmergencyBypass_SetsExportedContextKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	token := "test-token-that-meets-minimum-length-requirement-32-chars"
+	t.Setenv("CHARON_EMERGENCY_TOKEN", token)
+
+	router := gin.New()
+	router.Use(EmergencyBypass([]string{"127.0.0.0/8"}, nil))
+	router.GET("/test", func(c *gin.Context) {
+		assert.True(t, IsEmergencyBypass(c))
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req.Header.Set(EmergencyTokenHeader, token)
+	req.RemoteAddr = "127.0.0.1:12345"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAuthMiddleware_NonBoolEmergencyBypassIsIgnored(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(EmergencyBypassContextKey, "true")
+		c.Next()
+	})
+	r.Use(AuthMiddleware(nil))
+	r.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

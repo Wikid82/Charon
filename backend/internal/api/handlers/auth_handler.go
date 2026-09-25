@@ -3,7 +3,6 @@ package handlers
 import (
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -17,41 +16,31 @@ import (
 type AuthHandler struct {
 	authService    *services.AuthService
 	db             *gorm.DB
-	trustedProxies []string
+	trustedProxies security.TrustedProxyMatcher
 }
 
 func NewAuthHandler(authService *services.AuthService, trustedProxies []string) *AuthHandler {
-	return &AuthHandler{authService: authService, trustedProxies: trustedProxies}
+	return &AuthHandler{authService: authService, trustedProxies: security.NewTrustedProxyMatcher(trustedProxies)}
 }
 
 // NewAuthHandlerWithDB creates an AuthHandler with database access for forward auth.
 func NewAuthHandlerWithDB(authService *services.AuthService, db *gorm.DB, trustedProxies []string) *AuthHandler {
-	return &AuthHandler{authService: authService, db: db, trustedProxies: trustedProxies}
-}
-
-// isProduction checks if we're running in production mode
-func isProduction() bool {
-	env := os.Getenv("CHARON_ENV")
-	return env == "production" || env == "prod"
+	return &AuthHandler{authService: authService, db: db, trustedProxies: security.NewTrustedProxyMatcher(trustedProxies)}
 }
 
 // isTrustedPeer reports whether the request's actual TCP peer (its raw
 // RemoteAddr — never a header) is in the configured trusted-proxy set. Only
 // a trusted peer's X-Forwarded-Proto/X-Forwarded-Host are honored by
-// requestScheme/isLocalRequest below. Empty trustedProxies => always false
+// requestScheme/isLocalRequest below. An empty matcher => always false
 // (trust nobody), matching Gin's SetTrustedProxies(nil) default.
-func isTrustedPeer(c *gin.Context, trustedProxies []string) bool {
-	if len(trustedProxies) == 0 || c.Request == nil {
+func isTrustedPeer(c *gin.Context, trustedProxies security.TrustedProxyMatcher) bool {
+	if trustedProxies.Len() == 0 || c.Request == nil {
 		return false
 	}
-	peerIP := normalizeHost(c.Request.RemoteAddr)
-	if peerIP == "" {
-		return false
-	}
-	return security.IsIPInCIDRList(peerIP, strings.Join(trustedProxies, ","))
+	return trustedProxies.ContainsIP(normalizeHost(c.Request.RemoteAddr))
 }
 
-func requestScheme(c *gin.Context, trustedProxies []string) string {
+func requestScheme(c *gin.Context, trustedProxies security.TrustedProxyMatcher) string {
 	if isTrustedPeer(c, trustedProxies) {
 		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
 			// Honor first entry in a comma-separated header
@@ -121,7 +110,7 @@ func isLocalOrPrivateHost(host string) bool {
 	return tailscaleCGNAT.Contains(ip)
 }
 
-func isLocalRequest(c *gin.Context, trustedProxies []string) bool {
+func isLocalRequest(c *gin.Context, trustedProxies security.TrustedProxyMatcher) bool {
 	if c.Request == nil {
 		return false
 	}
@@ -169,7 +158,7 @@ func isLocalRequest(c *gin.Context, trustedProxies []string) bool {
 //     termination.
 //   - SameSite: Lax for any local/private-network request (regardless of scheme),
 //     Strict otherwise (public HTTPS only)
-func setSecureCookie(c *gin.Context, name, value string, maxAge int, trustedProxies []string) {
+func setSecureCookie(c *gin.Context, name, value string, maxAge int, trustedProxies security.TrustedProxyMatcher) {
 	scheme := requestScheme(c, trustedProxies)
 	secure := true
 	sameSite := http.SameSiteStrictMode
@@ -207,7 +196,7 @@ func setSecureCookie(c *gin.Context, name, value string, maxAge int, trustedProx
 }
 
 // clearSecureCookie removes a cookie with the same security settings
-func clearSecureCookie(c *gin.Context, name string, trustedProxies []string) {
+func clearSecureCookie(c *gin.Context, name string, trustedProxies security.TrustedProxyMatcher) {
 	setSecureCookie(c, name, "", -1, trustedProxies)
 }
 

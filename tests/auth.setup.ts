@@ -1,4 +1,5 @@
 import { test as setup } from './fixtures/test';
+import type { APIRequestContext } from '@playwright/test';
 import { request as playwrightRequest } from '@playwright/test';
 import { STORAGE_STATE } from './constants';
 import { readFileSync, writeFileSync, existsSync } from 'fs';

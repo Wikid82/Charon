@@ -42,6 +42,7 @@ Charon bridges the gap between simple solutions (like Nginx Proxy Manager) and c
 - **DNS Challenge Support:** 15+ DNS providers for wildcard certificates
 - **Docker Auto-Discovery:** One-click proxy setup for Docker containers
 - **Cerberus Security Suite:** WAF, ACL, CrowdSec, Rate Limiting
+- **Login Protection:** Always-on per-client throttle for sign-in and password-verifying routes
 - **Real-Time Monitoring:** Live logs, uptime tracking, and notifications
 - **Configuration Import:** Migrate from Caddyfile or Nginx Proxy Manager
 - **Supply Chain Security:** Cryptographic signatures, SLSA provenance, SBOM
@@ -199,7 +200,8 @@ graph TB
 │   │   │   ├── acl.go          # Access Control Lists
 │   │   │   ├── waf.go          # Web Application Firewall
 │   │   │   ├── crowdsec.go     # CrowdSec integration
-│   │   │   └── ratelimit.go    # Rate limiting
+│   │   │   └── rate_limit.go   # Opt-in per-client API rate limiting
+│   │   ├── ratelimit/          # Shared keyed token-bucket limiter (client keying, 429 responses, capped WARN budgets)
 │   │   ├── models/             # GORM database models
 │   │   ├── database/           # DB initialization and migrations
 │   │   │   └── pending_restore.go      # Boot-time pending-restore swap consumer
@@ -587,7 +589,8 @@ check.
 - **ACL (Access Control Lists):** IP-based allow/deny rules, GeoIP blocking
 - **WAF (Web Application Firewall):** Coraza engine with OWASP CRS
 - **CrowdSec:** Behavior-based threat detection with global intelligence
-- **Rate Limiter:** Per-IP request throttling
+- **Rate Limiter:** Opt-in per-client API throttling (shared `internal/ratelimit` component)
+- **Login Protection:** Always-on per-client throttle in front of `/api/v1/auth/*` and every password-verifying route, independent of Cerberus settings
 
 **Integration Points:**
 
@@ -822,10 +825,14 @@ graph LR
 
 **Implementation:**
 
-- Per-IP request counters with sliding window
-- Configurable thresholds (e.g., 100 req/min, 1000 req/hour)
-- HTTP 429 response when limit exceeded
-- Admin whitelist for monitoring tools
+- Opt-in per-client token bucket in the Go layer (`internal/cerberus/rate_limit.go`), built on the shared `internal/ratelimit` component (`golang.org/x/time/rate`)
+- Defaults: 100 requests per 60 s, burst 20; overridable through settings or `CHARON_SECURITY_RATELIMIT_{REQUESTS,WINDOW}`
+- Bounded memory (default 10,000 tracked clients) and no background goroutines
+- HTTP 429 with a `Retry-After` header when the limit is exceeded
+- Validated administrator requests to the security, settings and config control-plane paths are exempt (identity established by `OptionalAuth`, never by a raw `Authorization` header)
+- Valid emergency bypass requests are never limited
+
+Sign-in protection is a separate, always-on limiter described under "Management API Authentication & Authorization".
 
 ### Layer 2: CrowdSec Integration
 
@@ -910,12 +917,25 @@ pin (the stage already carries ~40 such pins).
 - **SQL Injection Prevention:** Parameterized queries with GORM
 - **XSS Prevention:** React's built-in escaping + Content Security Policy
 - **Credential Encryption:** AES-GCM with key rotation for stored credentials
-- **Password Hashing:** bcrypt with cost factor 12
+- **Password Hashing:** bcrypt at the library's default cost (`bcrypt.DefaultCost`)
 
 ### Management API Authentication & Authorization
 
 **Roles** (`backend/internal/models/user.go`): `admin`, `user`, `passthrough`.
 `passthrough` is a forward-auth identity only and has no management access.
+
+**Login protection.** `/api/v1/auth` is an explicit route group with an always-on per-client throttle (`middleware.AuthRateLimiter`), independent of all Cerberus settings, running after Cerberus and before `AuthMiddleware`:
+
+- **Classes:** `login` (default 10 requests per 600 s: sign-in and change-password) and `session` (default 60 per 60 s: refresh and status). `verify`, `me`, `logout`, `accessible-hosts` and `check-host` are exempt. Any future `/auth` route defaults to `session`.
+- **Other password checks:** `POST /api/v1/user/profile` (email change) and `POST /api/v1/certificates/:uuid/export` (`include_key`) call the same `login` bucket through a `PasswordAttemptGuard` just before the password branch, so all password verifications from one client draw on one budget.
+- **Keying:** Gin's resolved client IP (IPv4 per address, IPv6 per /64; empty or unparsable maps to one shared key). Behind a trusted proxy the key is the rightmost untrusted `X-Forwarded-For` hop.
+- **Trust:** `CHARON_TRUSTED_PROXIES` is validated once at startup (`config.ValidateTrustedProxies`). One invalid entry yields an empty list plus a WARN. Gin, the session-cookie logic, the throttle and the status endpoint share that list; peers are matched as parsed prefixes, so `127.0.0.1` and `::1` must each be listed. See `docs/configuration/trusted-proxies.md`.
+- **Detector:** forwarded headers arriving from an untrusted peer are recorded per scope (local or public) with capped WARNs (at most one per 15 minutes per scope).
+- **Response:** `429`, `Retry-After` (integer seconds, at least 1) and `{"error":"Too many requests. Please wait before trying again."}`. Metric: `charon_auth_rate_limited_total{class}`.
+- **Never throttled:** validated emergency bypass requests, `/api/v1/emergency/*` and the Tier-2 server.
+- **Configuration:** environment variables only (table below). `AuthRateLimitConfig`'s zero value is the secure default.
+- **Admin status:** `GET /api/v1/security/login-protection` (admin only) returns the effective budgets, the effective trusted-proxy count, the key Charon derives for the caller, and the forwarded-header observations. The Security dashboard renders it as a card.
+- Buckets are in memory and reset on restart. Details: `docs/features/login-protection.md`.
 
 **Route-group boundary** (`backend/internal/api/routes/routes.go`):
 
@@ -983,12 +1003,12 @@ Charon operates with **two distinct traffic flows** on separate ports, each with
 - **Backend:** REST API at `/api/v1/*`
 - **Middleware:** Standard HTTP middleware (CORS, GZIP, auth, logging, metrics, panic recovery)
 - **Security:** JWT authentication, CSRF protection, input validation
-- **NO Cerberus Middleware:** Rate limiting, ACL, WAF, and CrowdSec are NOT applied to management interface
+- **Cerberus Middleware (API only):** The `/api/v1` group runs `OptionalAuth`, then the opt-in Cerberus rate limiter and the Cerberus middleware (ACL, CrowdSec tracking). WAF and the Caddy-level CrowdSec bouncer apply to proxy traffic, not to this interface. Sign-in routes additionally sit behind always-on login protection
 - **Testing:** Playwright E2E tests verify UI/UX functionality on this port
 
-**Why No Middleware?**
+**Why Limited Middleware?**
 
-- Management interface must remain accessible even when security modules are misconfigured
+- Management interface must remain accessible even when security modules are misconfigured; valid emergency requests bypass the throttles
 - Emergency endpoints (`/api/v1/emergency/*`) require unrestricted access for system recovery
 - Separation of concerns: management access control is handled by JWT authentication plus role-based route guards (see [Management API Authentication & Authorization](#management-api-authentication--authorization)), not proxy-level security
 
@@ -1016,7 +1036,7 @@ Charon operates with **two distinct traffic flows** on separate ports, each with
 │  ┌─────────────────────┐       ┌──────────────────────┐   │
 │  │ React UI            │       │ Caddy Proxy          │   │
 │  │ REST API            │       │ + Cerberus           │   │
-│  │ NO middleware       │       │   - Rate Limiting    │   │
+│  │ Auth + login limits │       │   - Rate Limiting    │   │
 │  │                     │       │   - CrowdSec         │   │
 │  │ Used by:            │       │   - ACL              │   │
 │  │ - Admins            │       │   - WAF              │   │
@@ -1291,6 +1311,12 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | `CHARON_ENV` | Environment (production/development) | `production` | No |
 | `CHARON_ENCRYPTION_KEY` | 32-byte base64 key for credential encryption | Auto-generated | No |
 | `CHARON_EMERGENCY_TOKEN` | 64-char hex for break-glass access | None | Optional |
+| `CHARON_TRUSTED_PROXIES` | Comma-separated IPs/CIDRs of reverse proxies whose forwarded headers are honored (see `docs/configuration/trusted-proxies.md`) | Empty (trust none) | No |
+| `CHARON_AUTH_RATELIMIT_ENABLED` | `false` disables login protection; any other value keeps it on | `true` | No |
+| `CHARON_AUTH_RATELIMIT_LOGIN_REQUESTS` | Login-class burst size (1-10,000) | `10` | No |
+| `CHARON_AUTH_RATELIMIT_LOGIN_WINDOW` | Login-class window in seconds (1-86,400) | `600` | No |
+| `CHARON_AUTH_RATELIMIT_SESSION_REQUESTS` | Session-class burst size (1-10,000) | `60` | No |
+| `CHARON_AUTH_RATELIMIT_SESSION_WINDOW` | Session-class window in seconds (1-86,400) | `60` | No |
 | `CHARON_CADDY_CONFIG_ROOT` | Caddy autosave config root | `/config` | No |
 | `CHARON_CADDY_LOG_DIR` | Caddy log directory | `/var/log/caddy` | No |
 | `CHARON_CROWDSEC_LOG_DIR` | CrowdSec log directory | `/var/log/crowdsec` | No |

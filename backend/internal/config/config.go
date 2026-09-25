@@ -36,6 +36,9 @@ type Config struct {
 	CertExpiryWarningDays int
 	Security              SecurityConfig
 	Emergency             EmergencyConfig
+	// StartupWarnings collects configuration problems found by Load. They are
+	// logged at WARN once the logger is initialized.
+	StartupWarnings []string
 }
 
 // SecurityConfig holds configuration for optional security services.
@@ -61,8 +64,10 @@ type SecurityConfig struct {
 	// trusts nothing — forwarded headers are ignored entirely and every
 	// trust decision falls back to the raw TCP peer address
 	// (c.Request.RemoteAddr), matching Gin's own SetTrustedProxies(nil)
-	// default. See docs/plans/current_spec.md §13.
+	// default. See docs/configuration/trusted-proxies.md.
 	TrustedProxies []string
+	// AuthRateLimit configures the always-on per-client sign-in throttle.
+	AuthRateLimit AuthRateLimitConfig
 }
 
 // EmergencyConfig configures the emergency break glass server (Tier 2)
@@ -118,6 +123,16 @@ func Load() (Config, error) {
 		Emergency:       loadEmergencyConfig(),
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
 	}
+
+	trustedProxies, proxyWarnings := ValidateTrustedProxies(cfg.Security.TrustedProxies)
+	cfg.Security.TrustedProxies = trustedProxies
+	cfg.StartupWarnings = append(cfg.StartupWarnings, proxyWarnings...)
+
+	rawAuthRateLimit, authWarnings := loadAuthRateLimitConfig()
+	authRateLimit, authNormWarnings := rawAuthRateLimit.Normalize()
+	cfg.Security.AuthRateLimit = authRateLimit
+	cfg.StartupWarnings = append(cfg.StartupWarnings, authWarnings...)
+	cfg.StartupWarnings = append(cfg.StartupWarnings, authNormWarnings...)
 
 	cfg.CertExpiryWarningDays = 30
 	if days := getEnvAny("", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {

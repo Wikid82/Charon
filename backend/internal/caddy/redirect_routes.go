@@ -45,7 +45,7 @@ func dedupeAndTrackDomains(domainNames string, processedDomains map[string]bool,
 // Mirrors the domain-parsing/dedup conventions in GenerateConfig but emits a
 // single static_response handler per host instead of a reverse_proxy chain,
 // since a redirect has no backend to proxy to. See
-// docs/plans/current_spec.md §4.2.
+// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2.
 func BuildRedirectRoutes(redirectHosts []models.RedirectionHost, processedDomains map[string]bool) ([]*Route, []string) {
 	routes := make([]*Route, 0, len(redirectHosts))
 	ipSubjects := make([]string, 0)

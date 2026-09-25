@@ -9,7 +9,8 @@ import (
 
 // RedirectStatusCode enumerates the HTTP redirect status codes Charon
 // supports for Redirection Hosts. Only 301/302/307/308 are exposed —
-// see docs/plans/current_spec.md §5 for why 300/303/304 are excluded.
+// see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §5
+// for why 300/303/304 are excluded.
 type RedirectStatusCode int
 
 const (
@@ -30,7 +31,8 @@ var ValidRedirectStatusCodes = map[int]bool{
 // RedirectionHost represents a domain (or set of domains) that Charon
 // terminates TLS for and immediately redirects to a target URL, instead
 // of reverse-proxying to a backend. Peer resource to ProxyHost — see
-// docs/plans/current_spec.md §3 for why this is a separate model.
+// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §3
+// for why this is a separate model.
 type RedirectionHost struct {
 	ID   uint   `json:"-" gorm:"primaryKey"`
 	UUID string `json:"uuid" gorm:"uniqueIndex;not null"`

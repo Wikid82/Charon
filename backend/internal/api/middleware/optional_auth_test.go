@@ -40,7 +40,7 @@ func TestOptionalAuth_EmergencyBypassPassThrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("emergency_bypass", true)
+		c.Set(EmergencyBypassContextKey, true)
 		c.Next()
 	})
 	r.Use(OptionalAuth(authService))

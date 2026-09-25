@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -84,4 +85,33 @@ func TestMetrics_Increment(t *testing.T) {
 		IncCrowdSecRequest()
 		IncCrowdSecBlocked()
 	})
+}
+
+func TestMetrics_AuthRateLimitedCounter(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	Register(reg)
+
+	beforeLogin := testutil.ToFloat64(AuthRateLimitedCounter("login"))
+	beforeSession := testutil.ToFloat64(AuthRateLimitedCounter("session"))
+	IncAuthRateLimited("login")
+	IncAuthRateLimited("login")
+	IncAuthRateLimited("session")
+	assert.InDelta(t, beforeLogin+2, testutil.ToFloat64(AuthRateLimitedCounter("login")), 0)
+	assert.InDelta(t, beforeSession+1, testutil.ToFloat64(AuthRateLimitedCounter("session")), 0)
+
+	families, err := reg.Gather()
+	assert.NoError(t, err)
+	found := false
+	for _, f := range families {
+		if f.GetName() == "charon_auth_rate_limited_total" {
+			found = true
+			for _, m := range f.GetMetric() {
+				for _, l := range m.GetLabel() {
+					assert.Equal(t, "class", l.GetName(), "no per-client labels on an unauthenticated endpoint")
+				}
+			}
+		}
+	}
+	assert.True(t, found)
 }

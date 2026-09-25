@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +36,7 @@ func TestRegister(t *testing.T) {
 	router := gin.New()
 
 	// Use in-memory DB
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{
@@ -65,7 +64,7 @@ func TestRegister_WithDevelopmentEnvironment(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dev_env"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{
@@ -81,7 +80,7 @@ func TestRegister_WithProductionEnvironment(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_prod_env"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{
@@ -98,7 +97,7 @@ func TestRegister_AutoMigrateFailure(t *testing.T) {
 	router := gin.New()
 
 	// Open a valid connection then close it to simulate migration failure
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_migrate_fail"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Close underlying SQL connection to force migration failure
@@ -126,15 +125,9 @@ func TestRegister_WebPushSingletonIndexFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	// A dedicated on-disk file (rather than the "file::memory:?cache=shared"
-	// pattern this file's other tests use) is required here: SQLite's
-	// shared-cache mode keys purely off the path before "?", so every
-	// "file::memory:?cache=shared&..." URI in this process collapses onto
-	// the same underlying in-memory database regardless of query string —
-	// harmless for those tests, but it means an earlier test's successful
-	// `CREATE UNIQUE INDEX ... idx_webpush_singleton` would already exist by
-	// the time this test's conflicting `CREATE TABLE idx_webpush_singleton`
-	// runs, making the pre-creation step (and thus this test) order-dependent.
+	// A dedicated on-disk file is required here: the test pre-creates a
+	// conflicting `CREATE TABLE idx_webpush_singleton` and needs a database
+	// that no other connection or test has touched.
 	dsn := filepath.Join(t.TempDir(), "webpush-index-fail.db")
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
@@ -153,7 +146,7 @@ func TestRegisterImportHandler(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_import"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// RegisterImportHandler should not panic
@@ -176,7 +169,7 @@ func TestRegister_RoutesRegistration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{
@@ -211,7 +204,7 @@ func TestRegister_ProxyHostsRequireAuth(t *testing.T) {
 	router := gin.New()
 
 	// Use in-memory DB
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_proxyhosts_auth"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -230,7 +223,7 @@ func TestRegister_StateChangingRoutesDenyByDefaultWithExplicitAllowlist(t *testi
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_mutation_auth_guard"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -293,7 +286,7 @@ func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyMissing(t *testing.
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_missing"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: ""}
@@ -308,7 +301,7 @@ func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyInvalid(t *testing.
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_invalid"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: "not-base64"}
@@ -323,7 +316,7 @@ func TestRegister_DNSProviders_RegisteredWhenEncryptionKeyValid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_valid"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// 32-byte all-zero key in base64
@@ -343,7 +336,7 @@ func TestRegister_AllRoutesRegistered(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_all_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{
@@ -523,7 +516,7 @@ func TestRegister_MiddlewareApplied(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_middleware"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -552,7 +545,7 @@ func TestRegister_AuthenticatedRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_auth_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -588,7 +581,7 @@ func TestRegister_StateChangingRoutesRequireAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_mutating_auth_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -624,7 +617,7 @@ func TestRegister_AdminRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_admin_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{
@@ -652,7 +645,7 @@ func TestRegister_PublicRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_public_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -684,7 +677,7 @@ func TestRegister_HealthEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_health_endpoint"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -702,7 +695,7 @@ func TestRegister_MetricsEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_metrics_endpoint"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -721,7 +714,7 @@ func TestRegister_DBHealthEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_db_health"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -739,7 +732,7 @@ func TestRegister_LoginEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_login"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -760,7 +753,7 @@ func TestRegister_SetupEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_setup"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -779,7 +772,7 @@ func TestRegister_WithEncryptionRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_encryption_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Set valid encryption key env var (32-byte key base64 encoded)
@@ -807,7 +800,7 @@ func TestRegister_UptimeCheckEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_uptime_check"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -826,7 +819,7 @@ func TestRegister_CrowdSecRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_crowdsec_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -852,7 +845,7 @@ func TestRegister_SecurityRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_security_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -879,7 +872,7 @@ func TestRegister_AccessListRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_acl_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -902,7 +895,7 @@ func TestRegister_CertificateRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_cert_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -925,7 +918,7 @@ func TestRegister_NilHandlers(t *testing.T) {
 	router := gin.New()
 
 	// Create a minimal DB connection that will work
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_nil_handlers"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Config with minimal settings - no encryption key, no special features
@@ -958,7 +951,7 @@ func TestRegister_MiddlewareOrder(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_middleware_order"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{
@@ -987,7 +980,7 @@ func TestRegister_GzipCompression(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_gzip"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1008,7 +1001,7 @@ func TestRegister_CerberusMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_cerberus_mw"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{
@@ -1035,7 +1028,7 @@ func TestRegister_FeatureFlagsEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_feature_flags"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1054,7 +1047,7 @@ func TestRegister_WebSocketRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_ws_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1078,7 +1071,7 @@ func TestRegister_NotificationRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_notification_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1106,7 +1099,7 @@ func TestRegister_DomainRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_domain_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1128,7 +1121,7 @@ func TestRegister_VerifyAuthEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_verify_auth"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1148,7 +1141,7 @@ func TestRegister_SMTPRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_smtp_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1175,7 +1168,7 @@ func TestRegisterImportHandler_RoutesExist(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_import_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	RegisterImportHandler(router, db, cfg, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount")
@@ -1196,7 +1189,7 @@ func TestRegister_EncryptionRoutesWithValidKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_encryption_routes_valid"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Set the env var needed for rotation service
@@ -1230,7 +1223,7 @@ func TestRegister_WAFExclusionRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_waf_exclusion_routes"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1252,7 +1245,7 @@ func TestRegister_BreakGlassRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_breakglass_route"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1273,7 +1266,7 @@ func TestRegister_RateLimitPresetsRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_ratelimit_presets"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1295,7 +1288,7 @@ func TestEmergencyEndpoint_BypassACL(t *testing.T) {
 	router := gin.New()
 
 	// Setup test database with ACL enabled
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_emergency_bypass_acl"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Set emergency token in env
@@ -1341,7 +1334,7 @@ func TestEmergencyBypass_MiddlewareOrder(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_emergency_mw_order"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
@@ -1371,7 +1364,7 @@ func TestEmergencyBypass_InvalidToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_emergency_invalid_token"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
@@ -1401,7 +1394,7 @@ func TestEmergencyBypass_UnauthorizedIP(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_emergency_unauthorized_ip"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	t.Setenv("CHARON_EMERGENCY_TOKEN", "test-token-that-meets-minimum-length-requirement-32-chars")
@@ -1431,7 +1424,7 @@ func TestRegister_CreatesAccessLogFileForLogWatcher(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_access_log_create"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	logFilePath := filepath.Join(t.TempDir(), "logs", "access.log")
@@ -1470,7 +1463,7 @@ func TestRegister_CleansLetsEncryptCertAssignments(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_lecleaner"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Pre-migrate just the two tables needed to seed test data before Register runs.
@@ -1499,22 +1492,11 @@ func TestRegister_CleansLetsEncryptCertAssignments(t *testing.T) {
 // dangling in the equivalent scenario. Mirrors
 // TestRegister_CleansLetsEncryptCertAssignments exactly, substituting
 // RedirectionHost for ProxyHost.
-//
-// Uses a t.Name()-keyed DSN (the pattern already used elsewhere in this
-// codebase, e.g. certificate_service_test.go) rather than this file's
-// "file::memory:?cache=shared&label" convention: SQLite's shared-cache
-// in-memory identity is keyed off the URI path, not trailing query params,
-// so every ":memory:"-path DSN in this file collapses to the SAME
-// process-wide shared database regardless of the label appended after
-// "cache=shared&" — harmless for existing tests only because none of them
-// happen to run alongside a schema/data conflict, but two tests both
-// creating an SSLCertificate row collide on the empty-UUID unique index.
 func TestRegister_CleansLetsEncryptCertAssignments_RedirectionHost(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Pre-migrate just the two tables needed to seed test data before Register runs.
@@ -1549,7 +1531,7 @@ func TestRegister_UptimeSummaryAndHistoryRoutesResolve(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_uptime_n4"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1606,7 +1588,7 @@ func TestRegister_CrowdsecAdminRoutesRequireAdminRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_crowdsec_admin_authz"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	cfg := config.Config{JWTSecret: "test-secret"}
@@ -1739,9 +1721,9 @@ var userOKMutationAllowlist = map[string]string{
 	"POST /api/v1/proxy-groups":                            "core role=user capability",
 	"PUT /api/v1/proxy-groups/:uuid":                       "core role=user capability",
 	"DELETE /api/v1/proxy-groups/:uuid":                    "core role=user capability",
-	"POST /api/v1/redirection-hosts":                       "core role=user capability — peer resource to ProxyHost, same globally-scoped access (docs/plans/current_spec.md §3/§4.4)",
-	"PUT /api/v1/redirection-hosts/:uuid":                  "core role=user capability — peer resource to ProxyHost, same globally-scoped access (docs/plans/current_spec.md §3/§4.4)",
-	"DELETE /api/v1/redirection-hosts/:uuid":               "core role=user capability — peer resource to ProxyHost, same globally-scoped access (docs/plans/current_spec.md §3/§4.4)",
+	"POST /api/v1/redirection-hosts":                       "core role=user capability — peer resource to ProxyHost, same globally-scoped access (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §3/§4.4)",
+	"PUT /api/v1/redirection-hosts/:uuid":                  "core role=user capability — peer resource to ProxyHost, same globally-scoped access (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §3/§4.4)",
+	"DELETE /api/v1/redirection-hosts/:uuid":               "core role=user capability — peer resource to ProxyHost, same globally-scoped access (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §3/§4.4)",
 	"POST /api/v1/themes":                                  "named themes are available to all management users by design",
 	"PUT /api/v1/themes/:id":                               "named themes are available to all management users by design",
 	"DELETE /api/v1/themes/:id":                            "named themes are available to all management users by design",

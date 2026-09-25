@@ -14,7 +14,7 @@ import { test, expect, request, APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
 
 test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
-  const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN;
+  const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN ?? '';
   const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
   let apiContext: APIRequestContext;
 

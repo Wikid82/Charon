@@ -22,7 +22,7 @@ import (
 // RedirectionHostHandler handles CRUD operations for redirection hosts,
 // following ProxyHostHandler's conventions (structured gin.H{"error": ...}
 // errors, server-generated UUIDs, partial-update-via-map[string]any on
-// Update) — see docs/plans/current_spec.md §4.4.
+// Update) — see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.4.
 type RedirectionHostHandler struct {
 	service      *services.RedirectionHostService
 	caddyManager *caddy.Manager

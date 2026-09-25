@@ -124,7 +124,7 @@ test.describe('Real-Time Logs Viewer', () => {
       await navigateToLiveLogs(page);
 
       // Verify the viewer is displayed
-      await expect(page.locator('h3, h2, h1').filter({ hasText: /log/i })).toBeVisible();
+      await expect(page.getByRole('heading', { name: /security access logs|live security logs/i })).toBeVisible();
 
       // Connection status should be visible
       await expect(page.locator(SELECTORS.connectionStatus)).toBeVisible();

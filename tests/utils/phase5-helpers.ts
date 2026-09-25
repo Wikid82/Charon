@@ -312,7 +312,7 @@ export async function completeRestoreFlow(page: Page, filename?: string): Promis
 
   // Confirm restore
   await page.locator('[role="dialog"] button:has-text("Restore")').click();
-  await waitForAPIResponse(page, `/api/v1/backups/${targetFilename}/restore`, 200);
+  await waitForAPIResponse(page, `/api/v1/backups/${targetFilename}/restore`, { status: 200 });
 }
 
 // ============================================================================
@@ -621,7 +621,7 @@ export async function setupLogFiles(page: Page, files?: LogFile[]): Promise<void
  */
 export async function selectLogFile(page: Page, filename: string): Promise<void> {
   await page.click(`button:has-text("${filename}")`);
-  await waitForAPIResponse(page, `/api/v1/logs/${filename}`, 200);
+  await waitForAPIResponse(page, `/api/v1/logs/${filename}`, { status: 200 });
 }
 
 /**
@@ -736,7 +736,7 @@ export async function uploadCaddyfile(page: Page, content: string): Promise<void
     buffer: Buffer.from(content),
   });
 
-  await waitForAPIResponse(page, '/api/v1/import/upload', 200);
+  await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
 }
 
 /**
@@ -767,7 +767,7 @@ export async function setupImportReview(page: Page, hostCount: number): Promise<
   if (await pasteArea.isVisible()) {
     await pasteArea.fill('# mock content');
     await page.click('button:has-text("Upload")');
-    await waitForAPIResponse(page, '/api/v1/import/upload', 200);
+    await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
   }
 }
 

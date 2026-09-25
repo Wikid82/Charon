@@ -15,7 +15,7 @@ import (
 
 const (
 	maxImageSize   = 2 * 1024 * 1024 // 2MB
-	maxLogoSize    = maxImageSize     // backward-compat alias used by logo_handler_test.go
+	maxLogoSize    = maxImageSize    // backward-compat alias used by logo_handler_test.go
 	mimeSniffBytes = 512
 	logoFilePerm   = 0o644
 	uploadsDirPerm = 0o755

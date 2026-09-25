@@ -267,7 +267,7 @@ test.describe('Multi-Component Security Workflows', () => {
     await test.step('Verify user subject to rate limiting', async () => {
       const origin = new URL(page.url()).origin;
 
-      const responses = [];
+      const responses: number[] = [];
       for (let i = 0; i < 5; i++) {
         const response = await page.request.get(
           `${origin}/api/v1/health?request=${i}`,
@@ -363,7 +363,7 @@ test.describe('Multi-Component Security Workflows', () => {
       // and `/api/v1/proxy-hosts` access) working.
       const origin = new URL(page.url()).origin;
 
-      const responses = [];
+      const responses: number[] = [];
       await expect.poll(async () => {
         responses.length = 0;
         for (let i = 0; i < 30; i++) {

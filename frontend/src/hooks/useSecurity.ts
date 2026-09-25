@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import {
   getSecurityStatus,
   getSecurityConfig,
+  getLoginProtectionStatus,
   updateSecurityConfig,
   generateBreakGlassToken,
   enableCerberus,
@@ -20,6 +21,16 @@ import {
 
 export function useSecurityStatus() {
   return useQuery({ queryKey: ['securityStatus'], queryFn: getSecurityStatus })
+}
+
+/** Admin-only sign-in throttle status; pass `enabled: false` for non-admins so no request is made. */
+export function useLoginProtectionStatus({ enabled }: { enabled: boolean }) {
+  return useQuery({
+    queryKey: ['loginProtectionStatus'],
+    queryFn: getLoginProtectionStatus,
+    enabled,
+    retry: false,
+  })
 }
 
 export function useSecurityConfig() {

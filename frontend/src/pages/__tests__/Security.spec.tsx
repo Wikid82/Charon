@@ -16,6 +16,9 @@ import type * as ReactRouterDom from 'react-router'
 
 const mockNavigate = vi.fn()
 
+// Sign-in throttle status is admin-only; these suites cover the page for a non-admin session
+vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'user' } }) }))
+
 vi.mock('react-router', async () => {
   const actual = await vi.importActual<typeof ReactRouterDom>('react-router')
   return { ...actual, useNavigate: () => mockNavigate }

@@ -206,8 +206,9 @@ Before marking an implementation task as complete, perform the following in orde
    - Backend: `cd backend && go build ./...`
    - Frontend: `cd frontend && npm run build`
 
-9. **Fixed and New Code Testing**:
-   - Ensure all existing and new unit tests pass with zero failures
+9. **Fixed and New Code Testing** (no scope exemptions):
+   - Ensure all existing and new tests pass with zero failures. CI must be green before merge, so a failing test is a blocker for the task even when the failure is pre-existing, unrelated to the change, or in a file you did not touch.
+   - **Never defer a failing test, type error, or lint error as "out of scope" or "pre-existing."** Fix it in the same PR (as its own `fix:`/`test:`/`chore:` commit) — the point of tests is to catch bugs and prevent regressions, and deferring only moves the cost. If a fix is genuinely too large for the PR, stop and ask the user before deferring; never skip, `.skip`, or delete a test to get green.
    - Deep-dive into root causes when failures occur — all issues must be addressed
 
 10. **Clean Up**: Remove debug print statements, commented-out blocks, `console.log`, `fmt.Println`, unused imports.

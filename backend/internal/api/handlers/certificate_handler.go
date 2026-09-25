@@ -36,6 +36,8 @@ type CertificateHandler struct {
 	// Rate limiting for notifications
 	notificationMu       sync.Mutex
 	lastNotificationTime map[string]time.Time
+	// passwordGuard throttles private-key export re-authentication; nil allows.
+	passwordGuard PasswordAttemptGuard
 }
 
 func NewCertificateHandler(service *services.CertificateService, backupService BackupServiceInterface, ns *services.NotificationService) *CertificateHandler {
@@ -50,6 +52,11 @@ func NewCertificateHandler(service *services.CertificateService, backupService B
 // SetDB sets the database connection for user lookups (export re-auth).
 func (h *CertificateHandler) SetDB(db *gorm.DB) {
 	h.db = db
+}
+
+// SetPasswordAttemptGuard charges private-key export password checks to the sign-in budget.
+func (h *CertificateHandler) SetPasswordAttemptGuard(g PasswordAttemptGuard) {
+	h.passwordGuard = g
 }
 
 // maxFileSize is 1MB for certificate file uploads.
@@ -334,6 +341,9 @@ func (h *CertificateHandler) Export(c *gin.Context) {
 
 	// Re-authenticate when requesting private key
 	if req.IncludeKey {
+		if !allowPasswordAttempt(h.passwordGuard, c) {
+			return
+		}
 		if req.Password == "" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "password required to export private key"})
 			return

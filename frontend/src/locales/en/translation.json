@@ -344,7 +344,9 @@
     "loginSuccess": "Logged in successfully",
     "loginFailed": "Login failed",
     "resetPasswordTitle": "To reset your password:",
-    "resetPasswordInstructions": "Run this command on your server:"
+    "resetPasswordInstructions": "Run this command on your server:",
+    "rateLimitAdminHint": "Are you the administrator? If everyone sees this message, Charon may not be seeing your visitors' real addresses.",
+    "rateLimitAdminHintLink": "How login protection works behind a proxy"
   },
   "errors": {
     "required": "This field is required",
@@ -354,7 +356,14 @@
     "networkError": "Network error. Please check your connection.",
     "unauthorized": "Unauthorized. Please login again.",
     "notFound": "Resource not found",
-    "serverError": "Server error. Please try again later."
+    "serverError": "Server error. Please try again later.",
+    "tooManyRequests": "Too many attempts. Please wait a moment and try again.",
+    "tooManyRequestsSeconds_one": "Too many attempts. Please wait {{count}} second and try again.",
+    "tooManyRequestsSeconds_other": "Too many attempts. Please wait {{count}} seconds and try again.",
+    "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
+    "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
+    "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -539,7 +548,30 @@
     "rateLimitDescription": "Request volume control",
     "rateLimitProtects": "Protects against: DDoS attacks, credential stuffing, API abuse",
     "toggleRateLimit": "Toggle Rate Limiting",
-    "failedToLoadConfiguration": "Failed to load security configuration"
+    "failedToLoadConfiguration": "Failed to load security configuration",
+    "loginProtection": {
+      "title": "Login protection",
+      "statusOn": "On",
+      "statusOff": "Off",
+      "disabledMessage": "Login protection is turned off (CHARON_AUTH_RATELIMIT_ENABLED=false).",
+      "budgetLogin": "Sign-in attempts: {{requests}} per {{window}}",
+      "budgetSession": "Session checks: {{requests}} per {{window}}",
+      "callerAddress": "Charon sees your browser as {{address}} ({{scope}}).",
+      "runtimeNatHint": "If that isn't your device's address, a proxy or your container runtime may be hiding visitor addresses.",
+      "untrustedPrivate_one": "Forwarded client addresses from {{peer}} are being ignored ({{count}} time, last {{when}}). If {{peer}} is your reverse proxy, add {{suggestion}} to CHARON_TRUSTED_PROXIES. It could also be a proxy on a visitor's side of the network, so only add it if you recognize it.",
+      "untrustedPrivate_other": "Forwarded client addresses from {{peer}} are being ignored ({{count}} times, last {{when}}). If {{peer}} is your reverse proxy, add {{suggestion}} to CHARON_TRUSTED_PROXIES. It could also be a proxy on a visitor's side of the network, so only add it if you recognize it.",
+      "untrustedPrivate": "Forwarded client addresses from {{peer}} are being ignored ({{count}} times, last {{when}}). If {{peer}} is your reverse proxy, add {{suggestion}} to CHARON_TRUSTED_PROXIES. It could also be a proxy on a visitor's side of the network, so only add it if you recognize it.",
+      "untrustedPublic_one": "Charon ignored forwarded client-address headers from a public address ({{peer}}, {{count}} time, last {{when}}). This is usually someone sending forged headers; no action is needed.",
+      "untrustedPublic_other": "Charon ignored forwarded client-address headers from a public address ({{peer}}, {{count}} times, last {{when}}). This is usually someone sending forged headers; no action is needed.",
+      "untrustedPublic": "Charon ignored forwarded client-address headers from a public address ({{peer}}, {{count}} times, last {{when}}). This is usually someone sending forged headers; no action is needed.",
+      "scope": {
+        "loopback": "loopback",
+        "private": "private network",
+        "public": "public address"
+      },
+      "docsLink": "Learn more in the documentation",
+      "loadError": "Login protection status could not be loaded."
+    }
   },
   "accessLists": {
     "title": "Access Lists",

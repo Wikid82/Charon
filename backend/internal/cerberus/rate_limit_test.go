@@ -1,25 +1,54 @@
 package cerberus
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/time/rate"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/ratelimit"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func init() {
 	gin.SetMode(gin.TestMode)
+}
+
+type testClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newTestClock() *testClock {
+	return &testClock{now: time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)}
+}
+
+func (tc *testClock) Now() time.Time {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	return tc.now
+}
+
+func (tc *testClock) Advance(d time.Duration) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.now = tc.now.Add(d)
 }
 
 func setupRateLimitTestDB(t *testing.T) *gorm.DB {
@@ -31,534 +60,393 @@ func setupRateLimitTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestRateLimitMiddleware(t *testing.T) {
-	t.Run("Blocks excessive requests", func(t *testing.T) {
-		// Limit to 5 requests per second, with burst of 5
-		mw := NewRateLimitMiddleware(5, 1, 5)
-
-		r := gin.New()
-		r.Use(mw)
-		r.GET("/", func(c *gin.Context) {
-			c.Status(http.StatusOK)
-		})
-
-		// Make 5 allowed requests
-		for i := 0; i < 5; i++ {
-			req, _ := http.NewRequest("GET", "/", nil)
-			req.RemoteAddr = "192.168.1.1:1234"
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-			assert.Equal(t, http.StatusOK, w.Code)
-		}
-
-		// Make 6th request (should fail)
-		req, _ := http.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "192.168.1.1:1234"
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusTooManyRequests, w.Code)
-	})
-
-	t.Run("Different IPs have separate limits", func(t *testing.T) {
-		mw := NewRateLimitMiddleware(1, 1, 1)
-
-		r := gin.New()
-		r.Use(mw)
-		r.GET("/", func(c *gin.Context) {
-			c.Status(http.StatusOK)
-		})
-
-		// 1st User
-		req1, _ := http.NewRequest("GET", "/", nil)
-		req1.RemoteAddr = "10.0.0.1:1234"
-		w1 := httptest.NewRecorder()
-		r.ServeHTTP(w1, req1)
-		assert.Equal(t, http.StatusOK, w1.Code)
-
-		// 2nd User (should pass)
-		req2, _ := http.NewRequest("GET", "/", nil)
-		req2.RemoteAddr = "10.0.0.2:1234"
-		w2 := httptest.NewRecorder()
-		r.ServeHTTP(w2, req2)
-		assert.Equal(t, http.StatusOK, w2.Code)
-	})
-
-	t.Run("Replenishes tokens over time", func(t *testing.T) {
-		// 1 request per second (burst 1)
-		mw := NewRateLimitMiddleware(1, 1, 1)
-		// Manually override the burst/limit for predictable testing isn't easy with wrapper
-		// So we rely on the implementation using x/time/rate
-		// Test:
-		// 1. Consume 1
-		// 2. Consume 2 (Fail)
-		// 3. Wait until refill
-		// 4. Consume 3 (Pass)
-
-		r := gin.New()
-		r.Use(mw)
-		r.GET("/", func(c *gin.Context) {
-			c.Status(http.StatusOK)
-		})
-
-		req, _ := http.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "1.2.3.4:1234"
-
-		// 1. Consume
-		w1 := httptest.NewRecorder()
-		r.ServeHTTP(w1, req)
-		assert.Equal(t, http.StatusOK, w1.Code)
-
-		// 2. Consume Fail
-		w2 := httptest.NewRecorder()
-		r.ServeHTTP(w2, req)
-		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
-
-		// 3. Wait until refill
-		require.Eventually(t, func() bool {
-			w3 := httptest.NewRecorder()
-			r.ServeHTTP(w3, req)
-			return w3.Code == http.StatusOK
-		}, 1500*time.Millisecond, 25*time.Millisecond)
-	})
-}
-
-func TestRateLimitManager_ReconfiguresLimiter(t *testing.T) {
-	mgr := &rateLimitManager{
-		limiters: make(map[string]*rate.Limiter),
-		lastSeen: make(map[string]time.Time),
+func enabledLimitConfig(requests, windowSec, burst int) config.SecurityConfig {
+	return config.SecurityConfig{
+		RateLimitMode:      "enabled",
+		RateLimitRequests:  requests,
+		RateLimitWindowSec: windowSec,
+		RateLimitBurst:     burst,
 	}
-
-	limiter := mgr.getLimiter("10.0.0.1", rate.Limit(1), 1)
-	assert.Equal(t, rate.Limit(1), limiter.Limit())
-	assert.Equal(t, 1, limiter.Burst())
-
-	limiter = mgr.getLimiter("10.0.0.1", rate.Limit(2), 2)
-	assert.Equal(t, rate.Limit(2), limiter.Limit())
-	assert.Equal(t, 2, limiter.Burst())
 }
 
-func TestRateLimitManager_CleanupRemovesStaleEntries(t *testing.T) {
-	mgr := &rateLimitManager{
-		limiters: map[string]*rate.Limiter{
-			"10.0.0.1": rate.NewLimiter(rate.Limit(1), 1),
-		},
-		lastSeen: map[string]time.Time{
-			"10.0.0.1": time.Now().Add(-11 * time.Minute),
-		},
-	}
-
-	mgr.cleanup()
-	assert.Empty(t, mgr.limiters)
-	assert.Empty(t, mgr.lastSeen)
-}
-
-func TestRateLimitMiddleware_EmergencyBypass(t *testing.T) {
-	mw := NewRateLimitMiddleware(1, 1, 1)
-
+// newLimitedRouter builds a router with optional pre-middleware (e.g. auth context) and the
+// Cerberus limiter, serving 200 on every given path for GET and POST.
+func newLimitedRouter(cerb *Cerberus, pre []gin.HandlerFunc, paths ...string) *gin.Engine {
 	r := gin.New()
-	r.Use(func(c *gin.Context) {
-		c.Set("emergency_bypass", true)
-		c.Next()
-	})
-	r.Use(mw)
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
+	r.Use(pre...)
+	r.Use(cerb.RateLimitMiddleware())
+	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
+	for _, p := range paths {
+		r.GET(p, ok)
+		r.POST(p, ok)
+	}
+	return r
+}
 
-	for i := 0; i < 2; i++ {
-		req, _ := http.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "10.0.0.1:1234"
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
+func serve(r *gin.Engine, method, path, remoteAddr string, headers map[string]string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, http.NoBody)
+	req.RemoteAddr = remoteAddr
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func setRole(role string, userID uint) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set("role", role)
+		c.Set("userID", userID)
+		c.Next()
 	}
 }
 
 func TestCerberusRateLimitMiddleware_DisabledAllowsTraffic(t *testing.T) {
 	cerb := New(config.SecurityConfig{RateLimitMode: "disabled"}, nil)
-
-	r := gin.New()
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
+	r := newLimitedRouter(cerb, nil, "/")
 	for i := 0; i < 3; i++ {
-		req, _ := http.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "10.0.0.1:1234"
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
 	}
 }
 
-func TestCerberusRateLimitMiddleware_EnabledByConfig(t *testing.T) {
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  1,
-		RateLimitWindowSec: 1,
-		RateLimitBurst:     1,
-	}
-	cerb := New(cfg, nil)
+func TestCerberusRateLimitMiddleware_EnabledByConfigSetsRetryAfter(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, nil, "/")
 
-	r := gin.New()
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	w := serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil)
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.Equal(t, "60", w.Header().Get("Retry-After"))
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, ratelimit.TooManyRequestsMessage, body["error"])
+}
 
-	req, _ := http.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "10.0.0.1:1234"
-	for i := 0; i < 2; i++ {
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		if i == 0 {
-			assert.Equal(t, http.StatusOK, w.Code)
-		} else {
-			assert.Equal(t, http.StatusTooManyRequests, w.Code)
-		}
-	}
+func TestCerberusRateLimitMiddleware_RefillsWithInjectedClock(t *testing.T) {
+	clk := newTestClock()
+	cerb := New(enabledLimitConfig(1, 10, 1), nil)
+	cerb.now = clk.Now
+	r := newLimitedRouter(cerb, nil, "/")
+
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	clk.Advance(10 * time.Second)
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+}
+
+func TestCerberusRateLimitMiddleware_DifferentClientsIndependent(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, nil, "/")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.2:1234", nil).Code)
+}
+
+func TestCerberusRateLimitMiddleware_IPv6SlashSixtyFourShared(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, nil, "/")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "[2001:db8:1:2::1]:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/", "[2001:db8:1:2::ffff]:1234", nil).Code)
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "[2001:db8:1:3::1]:1234", nil).Code)
 }
 
 func TestCerberusRateLimitMiddleware_EmergencyBypass(t *testing.T) {
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  1,
-		RateLimitWindowSec: 1,
-		RateLimitBurst:     1,
-	}
-	cerb := New(cfg, nil)
-
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
-		c.Set("emergency_bypass", true)
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	bypass := func(c *gin.Context) {
+		c.Set(middleware.EmergencyBypassContextKey, true)
 		c.Next()
-	})
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	for i := 0; i < 2; i++ {
-		req, _ := http.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "10.0.0.1:1234"
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
 	}
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{bypass}, "/")
+	for i := 0; i < 3; i++ {
+		assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	}
+}
+
+func TestCerberusRateLimitMiddleware_NonBoolBypassDoesNotPanic(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	bogus := func(c *gin.Context) {
+		c.Set(middleware.EmergencyBypassContextKey, "yes")
+		c.Next()
+	}
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{bogus}, "/")
+	assert.NotPanics(t, func() {
+		assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+		assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	})
 }
 
 func TestCerberusRateLimitMiddleware_EnabledBySetting(t *testing.T) {
 	db := setupRateLimitTestDB(t)
-	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.enabled", Value: "true"}).Error)
-	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.requests", Value: "1"}).Error)
-	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.window", Value: "1"}).Error)
-	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.burst", Value: "1"}).Error)
-
+	for k, v := range map[string]string{
+		"security.rate_limit.enabled":  "true",
+		"security.rate_limit.requests": "1",
+		"security.rate_limit.window":   "1",
+		"security.rate_limit.burst":    "1",
+	} {
+		require.NoError(t, db.Create(&models.Setting{Key: k, Value: v}).Error)
+	}
 	cerb := New(config.SecurityConfig{RateLimitMode: "disabled"}, db)
-
-	r := gin.New()
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "10.0.0.1:1234"
-
-	w1 := httptest.NewRecorder()
-	r.ServeHTTP(w1, req)
-	assert.Equal(t, http.StatusOK, w1.Code)
-
-	w2 := httptest.NewRecorder()
-	r.ServeHTTP(w2, req)
-	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	r := newLimitedRouter(cerb, nil, "/")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
 }
 
 func TestCerberusRateLimitMiddleware_OverridesConfigWithSettings(t *testing.T) {
 	db := setupRateLimitTestDB(t)
-	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.enabled", Value: "true"}).Error)
-	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.requests", Value: "1"}).Error)
-	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.window", Value: "1"}).Error)
-	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.burst", Value: "1"}).Error)
-
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  10,
-		RateLimitWindowSec: 10,
-		RateLimitBurst:     10,
+	for k, v := range map[string]string{
+		"security.rate_limit.enabled":  "true",
+		"security.rate_limit.requests": "1",
+		"security.rate_limit.window":   "1",
+		"security.rate_limit.burst":    "1",
+	} {
+		require.NoError(t, db.Create(&models.Setting{Key: k, Value: v}).Error)
 	}
-	cerb := New(cfg, db)
+	cerb := New(enabledLimitConfig(10, 10, 10), db)
+	r := newLimitedRouter(cerb, nil, "/")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+}
 
-	r := gin.New()
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "10.0.0.1:1234"
-
-	w1 := httptest.NewRecorder()
-	r.ServeHTTP(w1, req)
-	assert.Equal(t, http.StatusOK, w1.Code)
-
-	w2 := httptest.NewRecorder()
-	r.ServeHTTP(w2, req)
-	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+func TestCerberusRateLimitMiddleware_InvalidSettingsIgnored(t *testing.T) {
+	db := setupRateLimitTestDB(t)
+	for k, v := range map[string]string{
+		"security.rate_limit.requests": "abc",
+		"security.rate_limit.window":   "-5",
+		"security.rate_limit.burst":    "0",
+	} {
+		require.NoError(t, db.Create(&models.Setting{Key: k, Value: v}).Error)
+	}
+	cerb := New(enabledLimitConfig(2, 60, 2), db)
+	requests, window, burst := cerb.effectiveRateLimit()
+	assert.Equal(t, []int{2, 60, 2}, []int{requests, window, burst})
 }
 
 func TestCerberusRateLimitMiddleware_SettingsDisableOverride(t *testing.T) {
 	db := setupRateLimitTestDB(t)
 	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.enabled", Value: "false"}).Error)
-
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  1,
-		RateLimitWindowSec: 60,
-		RateLimitBurst:     1,
-	}
-	cerb := New(cfg, db)
-
-	r := gin.New()
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "10.0.0.1:1234"
-
+	cerb := New(enabledLimitConfig(1, 60, 1), db)
+	r := newLimitedRouter(cerb, nil, "/")
 	for i := 0; i < 3; i++ {
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
 	}
+}
+
+func TestCerberusRateLimitMiddleware_DefaultsWhenUnset(t *testing.T) {
+	cerb := New(config.SecurityConfig{RateLimitMode: "enabled"}, nil)
+	requests, window, burst := cerb.effectiveRateLimit()
+	assert.Equal(t, []int{100, 60, 20}, []int{requests, window, burst})
 }
 
 func TestCerberusRateLimitMiddleware_WindowFallback(t *testing.T) {
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  1,
-		RateLimitWindowSec: 0,
-		RateLimitBurst:     1,
-	}
-	cerb := New(cfg, nil)
-
-	r := gin.New()
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "10.0.0.1:1234"
-
-	w1 := httptest.NewRecorder()
-	r.ServeHTTP(w1, req)
-	assert.Equal(t, http.StatusOK, w1.Code)
-
-	w2 := httptest.NewRecorder()
-	r.ServeHTTP(w2, req)
-	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	cerb := New(enabledLimitConfig(1, 0, 1), nil)
+	_, window, _ := cerb.effectiveRateLimit()
+	assert.Equal(t, 60, window)
+	r := newLimitedRouter(cerb, nil, "/")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
 }
 
-func TestCerberusRateLimitMiddleware_AdminSecurityControlPlaneBypass(t *testing.T) {
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  1,
-		RateLimitWindowSec: 60,
-		RateLimitBurst:     1,
-	}
-	cerb := New(cfg, nil)
+func TestCerberusRateLimitMiddleware_SettingsReconfigureResetsBuckets(t *testing.T) {
+	db := setupRateLimitTestDB(t)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.rate_limit.burst", Value: "1"}).Error)
+	cerb := New(enabledLimitConfig(1, 60, 1), db)
+	r := newLimitedRouter(cerb, nil, "/")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
 
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
-		c.Set("role", "admin")
-		c.Set("userID", uint(1))
-		c.Next()
-	})
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/api/v1/security/status", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
+	require.NoError(t, db.Model(&models.Setting{}).Where("key = ?", "security.rate_limit.burst").Update("value", "3").Error)
+	cerb.InvalidateCache()
 	for i := 0; i < 3; i++ {
-		req, _ := http.NewRequest("GET", "/api/v1/security/status", nil)
-		req.RemoteAddr = "10.0.0.1:1234"
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code, "request %d", i)
+	}
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil).Code)
+}
+
+func TestCerberusRateLimitMiddleware_ValidatedAdminExempt(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{setRole("admin", 1)},
+		"/api/v1/security/status", "/api/v1/settings", "/api/v1/config", "/api/v1/config/x")
+	for _, p := range []string{"/api/v1/security/status", "/api/v1/settings", "/api/v1/config", "/api/v1/config/x"} {
+		for i := 0; i < 3; i++ {
+			assert.Equal(t, http.StatusOK, serve(r, http.MethodPost, p, "10.0.0.1:1234", nil).Code, p)
+		}
 	}
 }
 
-func TestIsAdminSecurityControlPlaneRequest(t *testing.T) {
-	t.Parallel()
-
-	gin.SetMode(gin.TestMode)
-
-	t.Run("admin role bypasses control plane", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		ctx, _ := gin.CreateTestContext(rec)
-		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/security/rules", http.NoBody)
-		ctx.Set("role", "admin")
-		assert.True(t, isAdminSecurityControlPlaneRequest(ctx))
-	})
-
-	t.Run("bearer token bypasses control plane", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		ctx, _ := gin.CreateTestContext(rec)
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", http.NoBody)
-		req.Header.Set("Authorization", "Bearer token")
-		ctx.Request = req
-		assert.True(t, isAdminSecurityControlPlaneRequest(ctx))
-	})
-
-	t.Run("non control plane path is not bypassed", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		ctx, _ := gin.CreateTestContext(rec)
-		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", http.NoBody)
-		ctx.Set("role", "admin")
-		assert.False(t, isAdminSecurityControlPlaneRequest(ctx))
-	})
+func TestCerberusRateLimitMiddleware_AdminNonControlPlanePathStillLimited(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{setRole("admin", 1)}, "/api/v1/users")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/api/v1/users", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/api/v1/users", "10.0.0.1:1234", nil).Code)
 }
 
-func TestCerberusRateLimitMiddleware_AdminSettingsBypass(t *testing.T) {
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  1,
-		RateLimitWindowSec: 60,
-		RateLimitBurst:     1,
-	}
-	cerb := New(cfg, nil)
+func TestCerberusRateLimitMiddleware_AdminWithoutUserIDIsLimited(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{setRole("admin", 0)}, "/api/v1/settings")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/api/v1/settings", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/api/v1/settings", "10.0.0.1:1234", nil).Code)
+}
 
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
-		c.Set("role", "admin")
-		c.Set("userID", uint(1))
-		c.Next()
-	})
-	r.Use(cerb.RateLimitMiddleware())
-	r.POST("/api/v1/settings", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	for i := 0; i < 3; i++ {
-		req, _ := http.NewRequest("POST", "/api/v1/settings", nil)
-		req.RemoteAddr = "10.0.0.1:1234"
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
+func TestCerberusRateLimitMiddleware_SegmentAwarePrefix(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{setRole("admin", 1)}, "/api/v1/settingsx", "/api/v1/configuration")
+	for _, p := range []string{"/api/v1/settingsx", "/api/v1/configuration"} {
+		addr := "10.0.0." + fmt.Sprint(len(p)) + ":1234"
+		assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, p, addr, nil).Code, p)
+		assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, p, addr, nil).Code, p)
 	}
 }
 
-func TestCerberusRateLimitMiddleware_ControlPlaneBypassWithBearerWithoutRoleContext(t *testing.T) {
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  1,
-		RateLimitWindowSec: 60,
-		RateLimitBurst:     1,
-	}
-	cerb := New(cfg, nil)
-
-	r := gin.New()
-	r.Use(cerb.RateLimitMiddleware())
-	r.POST("/api/v1/settings", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	for i := 0; i < 3; i++ {
-		req, _ := http.NewRequest("POST", "/api/v1/settings", nil)
-		req.RemoteAddr = "10.0.0.1:1234"
-		req.Header.Set("Authorization", "Bearer test-token")
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
-	}
-}
-
-func TestCerberusRateLimitMiddleware_AdminNonSecurityPathStillLimited(t *testing.T) {
-	cfg := config.SecurityConfig{
-		RateLimitMode:      "enabled",
-		RateLimitRequests:  1,
-		RateLimitWindowSec: 60,
-		RateLimitBurst:     1,
-	}
-	cerb := New(cfg, nil)
-
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
-		c.Set("role", "admin")
-		c.Set("userID", uint(1))
-		c.Next()
-	})
-	r.Use(cerb.RateLimitMiddleware())
-	r.GET("/api/v1/users", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest("GET", "/api/v1/users", nil)
-	req.RemoteAddr = "10.0.0.1:1234"
-
-	w1 := httptest.NewRecorder()
-	r.ServeHTTP(w1, req)
-	assert.Equal(t, http.StatusOK, w1.Code)
-
-	w2 := httptest.NewRecorder()
-	r.ServeHTTP(w2, req)
-	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
-}
-
-func TestIsAdminSecurityControlPlaneRequest_UsesDecodedRawPath(t *testing.T) {
-	t.Parallel()
-
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
+func TestCerberusRateLimitMiddleware_DecodedRawPathForAdmin(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/security%2Frules", http.NoBody)
 	req.URL.Path = "/api/v1/security%2Frules"
 	req.URL.RawPath = "/api/v1/security%2Frules"
-	req.Header.Set("Authorization", "Bearer token")
 	ctx.Request = req
+	ctx.Set("role", "admin")
+	ctx.Set("userID", uint(1))
+	assert.True(t, cerb.isAdminSecurityControlPlaneRequest(ctx))
 
-	assert.True(t, isAdminSecurityControlPlaneRequest(ctx))
+	ctx.Request.URL.RawPath = "/api/v1/security%zz"
+	ctx.Request.URL.Path = "/api/v1/security/rules"
+	assert.True(t, cerb.isAdminSecurityControlPlaneRequest(ctx), "undecodable raw path falls back to Path")
 }
 
-func TestNewRateLimitMiddleware_UsesWindowFallbackWhenNonPositive(t *testing.T) {
-	mw := NewRateLimitMiddleware(1, 0, 1)
+// authServiceWithUsers returns an AuthService plus valid tokens for an admin and a regular user.
+func authServiceWithUsers(t *testing.T) (authSvc *services.AuthService, adminTok, userTok string) {
+	t.Helper()
+	dsn := fmt.Sprintf("file:rate_limit_auth_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.User{}))
+	svc := services.NewAuthService(db, config.Config{JWTSecret: "test-secret"})
 
-	r := gin.New()
-	r.Use(mw)
-	r.GET("/", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req, _ := http.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "10.10.10.10:1234"
-
-	w1 := httptest.NewRecorder()
-	r.ServeHTTP(w1, req)
-	assert.Equal(t, http.StatusOK, w1.Code)
-
-	w2 := httptest.NewRecorder()
-	r.ServeHTTP(w2, req)
-	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	admin := models.User{UUID: "admin-uuid", APIKey: "admin-key", Email: "admin@example.com", Role: models.RoleAdmin, Enabled: true}
+	user := models.User{UUID: "user-uuid", APIKey: "user-key", Email: "user@example.com", Role: models.RoleUser, Enabled: true}
+	require.NoError(t, db.Create(&admin).Error)
+	require.NoError(t, db.Create(&user).Error)
+	adminToken, err := svc.GenerateToken(&admin)
+	require.NoError(t, err)
+	userToken, err := svc.GenerateToken(&user)
+	require.NoError(t, err)
+	return svc, adminToken, userToken
 }
 
-func TestNewRateLimitMiddleware_BypassesControlPlaneBearerRequests(t *testing.T) {
-	mw := NewRateLimitMiddleware(1, 1, 1)
+func TestCerberusRateLimitMiddleware_UnvalidatedBearerIsLimited(t *testing.T) {
+	svc, _, _ := authServiceWithUsers(t)
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{middleware.OptionalAuth(svc)}, "/api/v1/settings")
+	h := map[string]string{"Authorization": "Bearer not-a-valid-token"}
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodPost, "/api/v1/settings", "10.0.0.1:1234", h).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodPost, "/api/v1/settings", "10.0.0.1:1234", h).Code)
+}
 
-	r := gin.New()
-	r.Use(mw)
-	r.GET("/api/v1/settings", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
+func TestCerberusRateLimitMiddleware_ValidNonAdminBearerIsLimited(t *testing.T) {
+	svc, _, userToken := authServiceWithUsers(t)
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{middleware.OptionalAuth(svc)}, "/api/v1/security/status")
+	h := map[string]string{"Authorization": "Bearer " + userToken}
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/api/v1/security/status", "10.0.0.1:1234", h).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/api/v1/security/status", "10.0.0.1:1234", h).Code)
+}
 
+func TestCerberusRateLimitMiddleware_ValidatedAdminBearerExempt(t *testing.T) {
+	svc, adminToken, _ := authServiceWithUsers(t)
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{middleware.OptionalAuth(svc)}, "/api/v1/security/status")
+	h := map[string]string{"Authorization": "Bearer " + adminToken}
 	for i := 0; i < 3; i++ {
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/settings", nil)
-		req.RemoteAddr = "10.10.10.11:1234"
-		req.Header.Set("Authorization", "Bearer admin-token")
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/api/v1/security/status", "10.0.0.1:1234", h).Code)
 	}
+}
+
+// captureLogger injects a request-scoped logger backed by a test hook.
+func captureLogger() (gin.HandlerFunc, *logtest.Hook) {
+	base, hook := logtest.NewNullLogger()
+	base.SetLevel(logrus.DebugLevel)
+	return func(c *gin.Context) {
+		c.Set("logger", logrus.NewEntry(base))
+		c.Next()
+	}, hook
+}
+
+func countLevel(hook *logtest.Hook, level logrus.Level) int {
+	n := 0
+	for _, e := range hook.AllEntries() {
+		if e.Level == level {
+			n++
+		}
+	}
+	return n
+}
+
+func TestCerberusRateLimitMiddleware_PerEpisodeWarnCapped(t *testing.T) {
+	clk := newTestClock()
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	cerb.now = clk.Now
+	capture, hook := captureLogger()
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{capture}, "/")
+
+	// One client, many denials: one WARN for the episode, the rest DEBUG.
+	serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil)
+	for i := 0; i < 5; i++ {
+		serve(r, http.MethodGet, "/", "10.0.0.1:1234", nil)
+	}
+	assert.Equal(t, 1, countLevel(hook, logrus.WarnLevel))
+	assert.Equal(t, 4, countLevel(hook, logrus.DebugLevel))
+
+	// 30 distinct clients each start an episode: the global cap limits WARNs to its burst.
+	hook.Reset()
+	for i := 0; i < 30; i++ {
+		addr := fmt.Sprintf("10.1.0.%d:1234", i)
+		serve(r, http.MethodGet, "/", addr, nil)
+		serve(r, http.MethodGet, "/", addr, nil)
+	}
+	assert.Equal(t, rateLimitWarnBurst-1, countLevel(hook, logrus.WarnLevel))
+
+	// After the cap refills, the next WARN reports how many episodes were suppressed.
+	hook.Reset()
+	clk.Advance(time.Minute)
+	serve(r, http.MethodGet, "/", "10.2.0.1:1234", nil)
+	serve(r, http.MethodGet, "/", "10.2.0.1:1234", nil)
+	warns := 0
+	for _, e := range hook.AllEntries() {
+		if e.Level != logrus.WarnLevel {
+			continue
+		}
+		warns++
+		assert.Equal(t, uint64(30-(rateLimitWarnBurst-1)), e.Data["suppressed"])
+		assert.Equal(t, "10.2.0.1", e.Data["client"])
+		assert.Equal(t, 60, e.Data["retry_after_seconds"])
+		for _, v := range e.Data {
+			assert.NotContains(t, fmt.Sprint(v), "Bearer")
+		}
+	}
+	assert.Equal(t, 1, warns)
+}
+
+func TestCerberusRateLimitMiddleware_NoGoroutineLeak(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	before := runtime.NumGoroutine()
+	for i := 0; i < 50; i++ {
+		_ = cerb.RateLimitMiddleware()
+	}
+	assert.LessOrEqual(t, runtime.NumGoroutine(), before, "limiters must not start goroutines")
+}
+
+func TestCerberusRateLimitMiddleware_NoRequestDataInBody(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, nil, "/")
+	serve(r, http.MethodGet, "/?user=probe-marker", "10.0.0.1:1234", nil)
+	w := serve(r, http.MethodGet, "/?user=probe-marker", "10.0.0.1:1234", nil)
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.False(t, strings.Contains(w.Body.String(), "probe-marker"))
+}
+
+func TestCerberusRateLimitMiddleware_NonAdminRoleOnControlPlaneIsLimited(t *testing.T) {
+	cerb := New(enabledLimitConfig(1, 60, 1), nil)
+	r := newLimitedRouter(cerb, []gin.HandlerFunc{setRole("user", 5)}, "/api/v1/settings")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/api/v1/settings", "10.0.0.1:1234", nil).Code)
+	assert.Equal(t, http.StatusTooManyRequests, serve(r, http.MethodGet, "/api/v1/settings", "10.0.0.1:1234", nil).Code)
 }

@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -86,8 +87,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	startTime := time.Now()
 
 	// Check if request has been pre-validated by EmergencyBypass middleware
-	bypassActive, exists := c.Get("emergency_bypass")
-	if exists && bypassActive.(bool) {
+	if middleware.IsEmergencyBypass(c) {
 		// Request already validated by middleware - proceed directly to reset
 		log.WithFields(log.Fields{
 			"ip":     util.SanitizeForLog(clientIP),

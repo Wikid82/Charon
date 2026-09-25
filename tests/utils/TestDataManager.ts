@@ -30,6 +30,7 @@
 
 import { APIRequestContext, type APIResponse, request as playwrightRequest } from '@playwright/test';
 import * as crypto from 'crypto';
+import { sendLoginHonoringThrottle } from './login-throttle';
 
 const SQLITE_FULL_PATTERN = {
   fullText: 'database or disk is full',
@@ -137,13 +138,18 @@ export interface DNSProviderData {
 }
 
 /**
+ * Roles accepted by the backend (models.UserRole): admin, user, passthrough.
+ */
+export type UserRole = 'admin' | 'user' | 'passthrough';
+
+/**
  * Data required to create a user
  */
 export interface UserData {
   name: string;
   email: string;
   password: string;
-  role: 'admin' | 'user' | 'guest';
+  role: UserRole;
 }
 
 /**
@@ -625,18 +631,24 @@ export class TestDataManager {
       // the changelog-suppression ack below (token stays ''), which lets the
       // blocking "What's New" modal appear unexpectedly for what call sites
       // assume is a fully-suppressed fixture user.
-      let loginResponse = await loginContext.post('/api/v1/auth/login', {
-        data: { email: namespacedEmail, password: data.password },
-      });
+      //
+      // A 429 (sign-in throttled) is waited out once via Retry-After; if it
+      // persists, sendLoginHonoringThrottle throws so an exhausted budget
+      // fails loudly rather than returning an empty token.
+      const postLogin = () =>
+        sendLoginHonoringThrottle(() =>
+          loginContext.post('/api/v1/auth/login', {
+            data: { email: namespacedEmail, password: data.password },
+          })
+        );
+      let loginResponse = await postLogin();
       for (let attempt = 1; loginResponse.status() === 401 && attempt < 4; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, Math.round(250 * Math.pow(2, attempt - 1))));
-        loginResponse = await loginContext.post('/api/v1/auth/login', {
-          data: { email: namespacedEmail, password: data.password },
-        });
+        loginResponse = await postLogin();
       }
 
       if (!loginResponse.ok()) {
-        // User created but login failed - still return user info
+        // User created but login failed (other than a persistent 429) - still return user info
         console.warn(`User created but login failed: ${await loginResponse.text()}`);
         return { id: result.id, email: namespacedEmail, token: '' };
       }

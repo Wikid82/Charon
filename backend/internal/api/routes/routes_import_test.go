@@ -18,7 +18,7 @@ import (
 )
 
 func setupTestImportDB(t *testing.T) *gorm.DB {
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dsn := routes.IsolatedMemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to connect to test database: %v", err)
