@@ -170,7 +170,7 @@ test.describe('Authentication rate limiting', () => {
       await requireIsolatableStack(baseURL!);
     });
 
-    test.fixme('throttles a client that exhausts its sign-in budget', async ({ baseURL }) => {
+    test('throttles a client that exhausts its sign-in budget', async ({ baseURL }) => {
       const ipA = isolatedClientIp();
       const ctx = await anonymousContext(baseURL!, ipA);
       try {
@@ -197,7 +197,7 @@ test.describe('Authentication rate limiting', () => {
       }
     });
 
-    test.fixme('keys the throttle on the real client behind a trusted proxy', async ({ baseURL }) => {
+    test('keys the throttle on the real client behind a trusted proxy', async ({ baseURL }) => {
       const ipA = isolatedClientIp();
       const ipB = isolatedClientIp();
       const ctxA = await anonymousContext(baseURL!, ipA);
@@ -222,7 +222,7 @@ test.describe('Authentication rate limiting', () => {
       }
     });
 
-    test.fixme('keeps session reads available while sign-in is throttled', async ({ baseURL }) => {
+    test('keeps session reads available while sign-in is throttled', async ({ baseURL }) => {
       const ipA = isolatedClientIp();
       const anonymous = await anonymousContext(baseURL!, ipA);
       const admin = await adminContext(baseURL!, ipA);
@@ -245,7 +245,7 @@ test.describe('Authentication rate limiting', () => {
   test.describe('Login page notice', () => {
     test.use({ storageState: { cookies: [], origins: [] } });
 
-    test.fixme('login page explains the wait and points administrators to the docs', async ({ page }) => {
+    test('login page explains the wait and points administrators to the docs', async ({ page }) => {
       await test.step('Stub a throttled sign-in response', async () => {
         await page.route(`**${LOGIN_PATH}`, (route) =>
           route.fulfill({
@@ -287,7 +287,7 @@ test.describe('Authentication rate limiting', () => {
     const loginProtectionCard = (page: import('@playwright/test').Page) =>
       page.getByRole('region', { name: /login protection/i });
 
-    test.fixme('admin card suggests trusting a private proxy that sends forwarded headers', async ({ page }) => {
+    test('admin card suggests trusting a private proxy that sends forwarded headers', async ({ page }) => {
       await test.step('Stub a recent forwarded-header observation from a private peer', async () => {
         const body = loginProtectionStub({
           local: {
@@ -318,7 +318,7 @@ test.describe('Authentication rate limiting', () => {
       });
     });
 
-    test.fixme('admin card never suggests trusting a public peer', async ({ page }) => {
+    test('admin card never suggests trusting a public peer', async ({ page }) => {
       await test.step('Stub a recent forwarded-header observation from a public peer', async () => {
         const body = loginProtectionStub({
           public: {
