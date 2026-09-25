@@ -16,4 +16,7 @@
 //
 // Lifecycle: the package starts no goroutines, tickers or timers, so a limiter
 // needs no shutdown and can be created freely in tests.
+//
+// WarnBudget applies the same token-bucket idea to log volume, so throttles can
+// cap attacker-driven WARN lines while still reporting how many were suppressed.
 package ratelimit

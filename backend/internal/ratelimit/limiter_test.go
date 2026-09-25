@@ -193,7 +193,7 @@ func TestKeyedLimiter_StartsNoGoroutines(t *testing.T) {
 		k := MustNewKeyedLimiter(Config{Rate: 1, Burst: 1})
 		k.Allow("a")
 	}
-	assert.Equal(t, before, runtime.NumGoroutine())
+	assert.LessOrEqual(t, runtime.NumGoroutine(), before, "limiters must not start goroutines")
 }
 
 func TestKeyedLimiter_ConcurrentSameKeyExactBurst(t *testing.T) {
