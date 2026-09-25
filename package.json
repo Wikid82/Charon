@@ -31,7 +31,7 @@
     "@vitest/coverage-v8": "^5.0.2",
     "@vitest/ui": "^5.0.2",
     "audit-ci": "^7.1.0",
-    "dotenv": "^18.0.3",
+    "dotenv": "^18.0.4",
     "lefthook": "^2.1.14",
     "markdownlint-cli2": "^0.23.3",
     "prettier": "^3.9.9",
