@@ -80,10 +80,11 @@ func SecurityHeaders(cfg SecurityHeadersConfig) gin.HandlerFunc {
 func buildCSP(cfg SecurityHeadersConfig) string {
 	// Base CSP directives for a secure single-page application
 	// The sha256 hash permits the anti-FOUC inline script in index.html without 'unsafe-inline'.
-	// If the inline script content changes, recompute: printf '<script_content>' | openssl dgst -sha256 -binary | base64
+	// If the inline script changes, TestBuildCSP_CoversInlineScriptsInIndexHTML fails; recompute the hash from the
+	// bytes between <script> and </script> (whitespace included): printf '%s' '<script_content>' | openssl dgst -sha256 -binary | base64
 	directives := map[string]string{
 		"default-src": "'self'",
-		"script-src":  "'self' 'sha256-unLfZd2QbjLZq1VPhNlvrPL3YNusHSjpLCNZLKEgc0A='",
+		"script-src":  "'self' 'sha256-UGIfflj1/iFSLHnH0Y0HUfcVer1bKxwhACXRzhl6y6E='",
 		"style-src":   "'self' 'unsafe-inline'", // unsafe-inline needed for many CSS-in-JS solutions
 		"img-src":     "'self' data: https:",    // Allow HTTPS images and data URIs
 		"font-src":    "'self' data:",           // Allow self-hosted fonts and data URIs
