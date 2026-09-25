@@ -16,6 +16,7 @@ type ResponseError = {
   }
   config?: {
     url?: string
+    authEpoch?: number
   }
   message?: string
 }
@@ -24,6 +25,7 @@ type ResponseError = {
 const capturedHandlers = vi.hoisted(() => ({
   onFulfilled: undefined as ResponseHandler | undefined,
   onRejected: undefined as ErrorHandler | undefined,
+  onRequest: undefined as ((config: { authEpoch?: number }) => { authEpoch?: number }) | undefined,
 }))
 
 vi.mock('axios', () => {
@@ -34,6 +36,12 @@ vi.mock('axios', () => {
       },
     },
     interceptors: {
+      request: {
+        use: vi.fn((onRequest: (config: { authEpoch?: number }) => { authEpoch?: number }) => {
+          capturedHandlers.onRequest = onRequest
+          return vi.fn()
+        }),
+      },
       response: {
         use: vi.fn((onFulfilled?: ResponseHandler, onRejected?: ErrorHandler) => {
           capturedHandlers.onFulfilled = onFulfilled
@@ -227,6 +235,53 @@ describe('api client', () => {
     expect(fulfilled).toBeDefined()
     const result = fulfilled ? fulfilled(responsePayload) : undefined
     expect(result).toBe(responsePayload)
+  })
+
+  describe('stale 401 protection', () => {
+    const unauthorized = (authEpoch: number): ResponseError => ({
+      response: { status: 401, data: { error: 'Unauthorized' } },
+      config: { url: '/themes', authEpoch },
+      message: 'Request failed with status code 401',
+    })
+    const stamp = () => capturedHandlers.onRequest?.({})?.authEpoch as number
+
+    it('ignores a 401 for a request issued before the current sign-in', async () => {
+      const onAuthError = vi.fn()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      setAuthErrorHandler(onAuthError)
+      setAuthToken(null)
+      const anonymousEpoch = stamp()
+
+      setAuthToken('fresh-login-token')
+
+      const error = unauthorized(anonymousEpoch)
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(onAuthError).not.toHaveBeenCalled()
+
+      setAuthErrorHandler(null)
+      warnSpy.mockRestore()
+    })
+
+    it('still expires the session for a 401 made with the current token', async () => {
+      const onAuthError = vi.fn()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      setAuthErrorHandler(onAuthError)
+      setAuthToken('current-token')
+
+      const error = unauthorized(stamp())
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(onAuthError).toHaveBeenCalledTimes(1)
+
+      setAuthErrorHandler(null)
+      warnSpy.mockRestore()
+    })
+
+    it('does not advance the epoch when the token is unchanged', () => {
+      setAuthToken('same-token')
+      const before = stamp()
+      setAuthToken('same-token')
+      expect(stamp()).toBe(before)
+    })
   })
 
   describe('429 throttling', () => {

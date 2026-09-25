@@ -6,10 +6,13 @@ import {
   deleteUserTheme,
   parseUserThemeDTO,
 } from '../api/themes'
+import { useAuth } from './useAuth'
 import type { UserTheme, CustomThemeColors } from '../context/ThemeContextValue'
 
 export function useUserThemes() {
   const queryClient = useQueryClient()
+  // /themes is behind auth; never fire it for an anonymous visitor (e.g. the login page)
+  const { isAuthenticated } = useAuth()
 
   const { data: userThemes = [], isLoading, error } = useQuery({
     queryKey: ['user-themes'],
@@ -18,6 +21,7 @@ export function useUserThemes() {
       return dtos.map(parseUserThemeDTO)
     },
     staleTime: 1000 * 60 * 5,  // 5 minutes
+    enabled: isAuthenticated,
   })
 
   const createMutation = useMutation({
