@@ -293,7 +293,7 @@ export default defineConfig({
             // (readyState === 'complete', no pending requests). Measured against the E2E
             // container: ~8% of fresh-page navigations hang, 0% with this pref, and a plain
             // page hangs only when it carries the COOP header. Browser-side workaround only;
-            // the app's headers are still asserted by the security-header specs.
+            // the header itself is asserted only by the Go middleware unit tests (security_test.go), not by any E2E spec.
             'browser.tabs.remote.useCrossOriginOpenerPolicy': false,
           },
         },
