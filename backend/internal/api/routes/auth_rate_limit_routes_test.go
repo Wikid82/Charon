@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -121,7 +122,7 @@ func TestRegister_LoginThrottledBeforeHandler(t *testing.T) {
 	victim, _ := app.createUser(models.RoleUser)
 	w := app.login(victim.Email, "wrong")
 	assertGeneric429(t, w)
-	assert.Equal(t, "60", w.Header().Get("Retry-After"))
+	assertRetryAfterNear(t, w, 60)
 	assert.NotContains(t, w.Body.String(), victim.Email)
 
 	var stored models.User
@@ -143,7 +144,7 @@ func TestRegister_SessionBudget(t *testing.T) {
 	}
 	w := app.do(http.MethodGet, "/api/v1/auth/status", "", "", nil)
 	assertGeneric429(t, w)
-	assert.Equal(t, "20", w.Header().Get("Retry-After"))
+	assertRetryAfterNear(t, w, 20)
 	assert.Equal(t, http.StatusUnauthorized, app.login("nobody@example.com", "x").Code, "the login budget is separate")
 }
 
@@ -285,4 +286,15 @@ func TestRegister_LoginProtectionEchoesTrustedForwardedFor(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "198.18.7.7", body["caller_client_key"])
 	assert.Equal(t, float64(1), body["trusted_proxy_count"])
+}
+
+// assertRetryAfterNear tolerates the wall-clock refill that elapses between
+// the throttled request and the rejection (bcrypt and -race make this slow):
+// the header may read up to a few seconds below the nominal wait, never above.
+func assertRetryAfterNear(t *testing.T, w *httptest.ResponseRecorder, nominal int) {
+	t.Helper()
+	got, err := strconv.Atoi(w.Header().Get("Retry-After"))
+	require.NoError(t, err)
+	assert.LessOrEqual(t, got, nominal)
+	assert.GreaterOrEqual(t, got, nominal-5)
 }
