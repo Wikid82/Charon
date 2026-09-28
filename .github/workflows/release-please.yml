@@ -9,7 +9,42 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Guards against the release-please date-ordering stranding bug (see
+  # docs/troubleshooting/release-please-skips.md): if this push were allowed
+  # to cut a release now, and `nightly` still has release-worthy commits
+  # dated older than this boundary waiting to be promoted, those commits
+  # would be silently dropped from every future release-please run once the
+  # promotion merge finally lands. Deferring here is self-healing — the next
+  # push to `main` (another interim commit, or the promotion merge itself)
+  # re-runs this check, and once nightly's backlog is caught up the range is
+  # empty and release-please resumes normally.
+  guard-nightly-sequencing:
+    name: Guard Nightly Promotion Sequencing
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      defer: ${{ steps.check.outputs.defer }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Fetch nightly
+        run: git fetch origin nightly:refs/remotes/origin/nightly || true
+
+      - name: Check nightly sequencing
+        id: check
+        env:
+          TARGET_REF: ${{ github.sha }}
+          SOURCE_REF: origin/nightly
+        run: bash scripts/ci/check-nightly-sequencing.sh
+
   release-please:
+    name: Release Please
+    needs: guard-nightly-sequencing
+    if: needs.guard-nightly-sequencing.outputs.defer != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
@@ -17,3 +52,24 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           target-branch: main
+
+  deferred:
+    name: Release Deferred (Pending Nightly Promotion)
+    needs: guard-nightly-sequencing
+    if: needs.guard-nightly-sequencing.outputs.defer == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log defer reason
+        env:
+          REASON: ${{ needs.guard-nightly-sequencing.outputs.reason }}
+        run: |
+          {
+            echo "## release-please deferred"
+            echo ""
+            echo "This run was skipped to avoid landing a release boundary ahead of"
+            echo "a pending nightly promotion. It will run automatically on the next"
+            echo "push to \`main\` — typically this week's nightly promotion merge."
+            echo ""
+            echo "**Reason:** ${REASON}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=release-please deferred::${REASON}"
