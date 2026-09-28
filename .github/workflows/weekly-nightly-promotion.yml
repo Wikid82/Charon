@@ -5,9 +5,13 @@ name: Nightly to Main Promotion
 
 on:
   schedule:
-    # Every Monday at 12:00 UTC (7:00am EST / 8:00am EDT)
-    # Offset from nightly sync (09:00 UTC) to avoid schedule race and allow validation completion.
-    - cron: '0 09 * * 1'
+    # Every Monday at 09:30 UTC - offset 30 minutes after nightly-build.yml's
+    # daily sync cron (0 9 * * *) so its branch sync + dispatch jobs have finished
+    # before we resolve nightly HEAD here. GH Actions scheduler jitter has been
+    # observed to delay cron firing by 15+ minutes (e.g. 2026-09-28: nightly-build's
+    # dispatch landed ~19 minutes after its nominal 09:00 UTC slot), so a flat
+    # "same minute" offset isn't enough margin; 30 minutes comfortably covers that.
+    - cron: '30 09 * * 1'
   workflow_dispatch:
     inputs:
       reason:
@@ -75,7 +79,7 @@ jobs:
               repo: context.repo.repo,
               branch: 'nightly',
             });
-            const nightlyHeadSha = nightlyBranch.commit.sha;
+            let nightlyHeadSha = nightlyBranch.commit.sha;
             core.info(`Current nightly HEAD: ${nightlyHeadSha}`);
 
             // Check critical workflows on the current nightly HEAD only.
@@ -130,6 +134,35 @@ jobs:
             let iteration = 0;
             for (;;) {
               iteration += 1;
+
+              // Re-resolve nightly HEAD on every iteration. If it has advanced since
+              // we started (or since the last iteration), nightly moved forward mid-poll
+              // - e.g. nightly-build.yml's daily cron synced a new commit while we were
+              // still tracking the old one. In that case the old sha's in-flight run(s)
+              // may get cancelled purely because they were superseded (concurrency
+              // groups keyed on branch ref, not sha), not because anything is actually
+              // broken. Follow the new HEAD instead of letting that cancellation count
+              // as a failure.
+              const { data: currentNightlyBranch } = await github.rest.repos.getBranch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: 'nightly',
+              });
+              const currentHeadSha = currentNightlyBranch.commit.sha;
+
+              if (currentHeadSha !== nightlyHeadSha) {
+                core.info(
+                  `Nightly HEAD advanced from ${nightlyHeadSha} to ${currentHeadSha} mid-poll ` +
+                    `(iteration ${iteration}); resetting tracking to follow the new HEAD instead of ` +
+                    'treating the superseded sha\'s in-flight/cancelled runs as a failure.',
+                );
+                nightlyHeadSha = currentHeadSha;
+                resolutions.clear();
+                for (const workflow of criticalWorkflows) {
+                  resolutions.set(workflow.workflowFile, { resolved: false, everFound: false });
+                }
+                dispatched.clear();
+              }
 
               const { data: allRuns } = await github.rest.actions.listWorkflowRunsForRepo({
                 owner: context.repo.owner,
