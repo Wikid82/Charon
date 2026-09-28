@@ -109,6 +109,25 @@ jobs:
       - name: bats
         run: bats scripts/tests/toolchain-key.bats scripts/tests/verify-toolchain-pin.bats
 
+  nightly-sequencing-guard-tests:
+    name: release-please nightly sequencing guard (bats)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install bats + shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck
+
+      - name: shellcheck (shell severity=error)
+        run: |
+          shellcheck --severity=error scripts/ci/check-nightly-sequencing.sh
+
+      - name: bats
+        run: bats scripts/tests/check-nightly-sequencing.bats
+
   verify-toolchain-pin:
     name: Toolchain pin freshness (verify-toolchain-pin)
     runs-on: ubuntu-latest
