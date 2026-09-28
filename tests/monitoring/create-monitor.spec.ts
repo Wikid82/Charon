@@ -155,7 +155,7 @@ test.describe('Create Monitor Modal — TCP UX', () => {
   });
 
   test('TCP monitor created successfully with bare host:port', async ({ page }) => {
-    let capturedPayload: Record<string, unknown> | null = null;
+    let capturedPayload = null as Record<string, unknown> | null;
 
     const createdMonitor: UptimeMonitor = {
       id: 'm-test',

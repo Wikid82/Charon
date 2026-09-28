@@ -250,7 +250,9 @@
     "loginSuccess": "Connexion réussie",
     "loginFailed": "Échec de la connexion",
     "resetPasswordTitle": "Pour réinitialiser votre mot de passe:",
-    "resetPasswordInstructions": "Exécutez cette commande sur votre serveur:"
+    "resetPasswordInstructions": "Exécutez cette commande sur votre serveur:",
+    "rateLimitAdminHint": "Êtes-vous l'administrateur ? Si tout le monde voit ce message, Charon ne voit peut-être pas les vraies adresses de vos visiteurs.",
+    "rateLimitAdminHintLink": "Comment fonctionne la protection de connexion derrière un proxy"
   },
   "errors": {
     "required": "Ce champ est obligatoire",
@@ -260,7 +262,14 @@
     "networkError": "Erreur réseau. Veuillez vérifier votre connexion.",
     "unauthorized": "Non autorisé. Veuillez vous reconnecter.",
     "notFound": "Ressource non trouvée",
-    "serverError": "Erreur serveur. Veuillez réessayer plus tard."
+    "serverError": "Erreur serveur. Veuillez réessayer plus tard.",
+    "tooManyRequests": "Trop de tentatives. Veuillez patienter un instant puis réessayer.",
+    "tooManyRequestsSeconds_one": "Trop de tentatives. Veuillez patienter {{count}} seconde puis réessayer.",
+    "tooManyRequestsSeconds_other": "Trop de tentatives. Veuillez patienter {{count}} secondes puis réessayer.",
+    "tooManyRequestsSeconds": "Trop de tentatives. Veuillez patienter {{count}} secondes puis réessayer.",
+    "tooManyRequestsMinutes_one": "Trop de tentatives. Veuillez patienter {{count}} minute puis réessayer.",
+    "tooManyRequestsMinutes_other": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer.",
+    "tooManyRequestsMinutes": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer."
   },
   "notifications": {
     "saveSuccess": "Modifications enregistrées avec succès",
@@ -409,7 +418,30 @@
     "guardianRests": "Le gardien se repose...",
     "crowdsecStopping": "CrowdSec s'arrête",
     "strengtheningGuard": "Renforcement de la garde...",
-    "wardsActivating": "Protections en cours d'activation"
+    "wardsActivating": "Protections en cours d'activation",
+    "loginProtection": {
+      "title": "Protection de connexion",
+      "statusOn": "Activée",
+      "statusOff": "Désactivée",
+      "disabledMessage": "La protection de connexion est désactivée (CHARON_AUTH_RATELIMIT_ENABLED=false).",
+      "budgetLogin": "Tentatives de connexion : {{requests}} par {{window}}",
+      "budgetSession": "Vérifications de session : {{requests}} par {{window}}",
+      "callerAddress": "Charon voit votre navigateur comme {{address}} ({{scope}}).",
+      "runtimeNatHint": "Si ce n'est pas l'adresse de votre appareil, un proxy ou votre environnement d'exécution de conteneurs masque peut-être les adresses des visiteurs.",
+      "untrustedPrivate_one": "Les adresses client transmises par {{peer}} sont ignorées ({{count}} fois, dernière {{when}}). Si {{peer}} est votre proxy inverse, ajoutez {{suggestion}} à CHARON_TRUSTED_PROXIES. Il peut aussi s'agir d'un proxy du côté d'un visiteur : ne l'ajoutez que si vous le reconnaissez.",
+      "untrustedPrivate_other": "Les adresses client transmises par {{peer}} sont ignorées ({{count}} fois, dernière {{when}}). Si {{peer}} est votre proxy inverse, ajoutez {{suggestion}} à CHARON_TRUSTED_PROXIES. Il peut aussi s'agir d'un proxy du côté d'un visiteur : ne l'ajoutez que si vous le reconnaissez.",
+      "untrustedPrivate": "Les adresses client transmises par {{peer}} sont ignorées ({{count}} fois, dernière {{when}}). Si {{peer}} est votre proxy inverse, ajoutez {{suggestion}} à CHARON_TRUSTED_PROXIES. Il peut aussi s'agir d'un proxy du côté d'un visiteur : ne l'ajoutez que si vous le reconnaissez.",
+      "untrustedPublic_one": "Charon a ignoré des en-têtes d'adresse client transmis depuis une adresse publique ({{peer}}, {{count}} fois, dernière {{when}}). Il s'agit généralement de quelqu'un qui envoie des en-têtes falsifiés ; aucune action n'est nécessaire.",
+      "untrustedPublic_other": "Charon a ignoré des en-têtes d'adresse client transmis depuis une adresse publique ({{peer}}, {{count}} fois, dernière {{when}}). Il s'agit généralement de quelqu'un qui envoie des en-têtes falsifiés ; aucune action n'est nécessaire.",
+      "untrustedPublic": "Charon a ignoré des en-têtes d'adresse client transmis depuis une adresse publique ({{peer}}, {{count}} fois, dernière {{when}}). Il s'agit généralement de quelqu'un qui envoie des en-têtes falsifiés ; aucune action n'est nécessaire.",
+      "scope": {
+        "loopback": "boucle locale",
+        "private": "réseau privé",
+        "public": "adresse publique"
+      },
+      "docsLink": "En savoir plus dans la documentation",
+      "loadError": "Impossible de charger l'état de la protection de connexion."
+    }
   },
   "accessLists": {
     "title": "Listes d'Accès",

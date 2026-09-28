@@ -47,7 +47,7 @@ func TestManager_ApplyConfig_NoRedirectionHostTable(t *testing.T) {
 // TestManager_ApplyConfig_FetchesAndAppliesRedirectionHosts confirms
 // ApplyConfig fetches RedirectionHost rows and passes them through to
 // GenerateConfig, ending up in the applied Caddy config as a
-// static_response route (docs/plans/current_spec.md §4.2/§6).
+// static_response route (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2/§6).
 func TestManager_ApplyConfig_FetchesAndAppliesRedirectionHosts(t *testing.T) {
 	var capturedConfig Config
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1338,7 +1338,7 @@ func TestWithKeepAlive_StillBlocksLinkLocalAndMetadata(t *testing.T) {
 
 	for _, target := range []string{
 		"http://169.254.169.254/latest/meta-data/", // cloud metadata
-		"http://169.254.0.1/",                       // link-local
+		"http://169.254.0.1/",                      // link-local
 	} {
 		resp, err := client.Get(target)
 		if resp != nil {

@@ -250,7 +250,9 @@
     "loginSuccess": "Erfolgreich angemeldet",
     "loginFailed": "Anmeldung fehlgeschlagen",
     "resetPasswordTitle": "Um Ihr Passwort zurückzusetzen:",
-    "resetPasswordInstructions": "Führen Sie diesen Befehl auf Ihrem Server aus:"
+    "resetPasswordInstructions": "Führen Sie diesen Befehl auf Ihrem Server aus:",
+    "rateLimitAdminHint": "Sind Sie der Administrator? Wenn alle diese Meldung sehen, erkennt Charon möglicherweise die echten Adressen Ihrer Besucher nicht.",
+    "rateLimitAdminHintLink": "So funktioniert der Anmeldeschutz hinter einem Proxy"
   },
   "errors": {
     "required": "Dieses Feld ist erforderlich",
@@ -260,7 +262,14 @@
     "networkError": "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
     "unauthorized": "Nicht autorisiert. Bitte melden Sie sich erneut an.",
     "notFound": "Ressource nicht gefunden",
-    "serverError": "Serverfehler. Bitte versuchen Sie es später erneut."
+    "serverError": "Serverfehler. Bitte versuchen Sie es später erneut.",
+    "tooManyRequests": "Zu viele Versuche. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
+    "tooManyRequestsSeconds_one": "Zu viele Versuche. Bitte warten Sie {{count}} Sekunde und versuchen Sie es erneut.",
+    "tooManyRequestsSeconds_other": "Zu viele Versuche. Bitte warten Sie {{count}} Sekunden und versuchen Sie es erneut.",
+    "tooManyRequestsSeconds": "Zu viele Versuche. Bitte warten Sie {{count}} Sekunden und versuchen Sie es erneut.",
+    "tooManyRequestsMinutes_one": "Zu viele Versuche. Bitte warten Sie {{count}} Minute und versuchen Sie es erneut.",
+    "tooManyRequestsMinutes_other": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut.",
+    "tooManyRequestsMinutes": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut."
   },
   "notifications": {
     "saveSuccess": "Änderungen erfolgreich gespeichert",
@@ -409,7 +418,30 @@
     "guardianRests": "Der Wächter ruht...",
     "crowdsecStopping": "CrowdSec stoppt",
     "strengtheningGuard": "Wache wird verstärkt...",
-    "wardsActivating": "Schutzzauber werden aktiviert"
+    "wardsActivating": "Schutzzauber werden aktiviert",
+    "loginProtection": {
+      "title": "Anmeldeschutz",
+      "statusOn": "Ein",
+      "statusOff": "Aus",
+      "disabledMessage": "Der Anmeldeschutz ist ausgeschaltet (CHARON_AUTH_RATELIMIT_ENABLED=false).",
+      "budgetLogin": "Anmeldeversuche: {{requests}} pro {{window}}",
+      "budgetSession": "Sitzungsprüfungen: {{requests}} pro {{window}}",
+      "callerAddress": "Charon sieht Ihren Browser als {{address}} ({{scope}}).",
+      "runtimeNatHint": "Wenn das nicht die Adresse Ihres Geräts ist, verbergen ein Proxy oder Ihre Container-Laufzeit möglicherweise die Besucheradressen.",
+      "untrustedPrivate_one": "Weitergeleitete Client-Adressen von {{peer}} werden ignoriert ({{count}} Mal, zuletzt {{when}}). Wenn {{peer}} Ihr Reverse-Proxy ist, fügen Sie {{suggestion}} zu CHARON_TRUSTED_PROXIES hinzu. Es könnte auch ein Proxy auf der Seite eines Besuchers sein – fügen Sie ihn nur hinzu, wenn Sie ihn kennen.",
+      "untrustedPrivate_other": "Weitergeleitete Client-Adressen von {{peer}} werden ignoriert ({{count}} Mal, zuletzt {{when}}). Wenn {{peer}} Ihr Reverse-Proxy ist, fügen Sie {{suggestion}} zu CHARON_TRUSTED_PROXIES hinzu. Es könnte auch ein Proxy auf der Seite eines Besuchers sein – fügen Sie ihn nur hinzu, wenn Sie ihn kennen.",
+      "untrustedPrivate": "Weitergeleitete Client-Adressen von {{peer}} werden ignoriert ({{count}} Mal, zuletzt {{when}}). Wenn {{peer}} Ihr Reverse-Proxy ist, fügen Sie {{suggestion}} zu CHARON_TRUSTED_PROXIES hinzu. Es könnte auch ein Proxy auf der Seite eines Besuchers sein – fügen Sie ihn nur hinzu, wenn Sie ihn kennen.",
+      "untrustedPublic_one": "Charon hat weitergeleitete Client-Adress-Header von einer öffentlichen Adresse ignoriert ({{peer}}, {{count}} Mal, zuletzt {{when}}). Meist sendet jemand gefälschte Header; es ist keine Maßnahme nötig.",
+      "untrustedPublic_other": "Charon hat weitergeleitete Client-Adress-Header von einer öffentlichen Adresse ignoriert ({{peer}}, {{count}} Mal, zuletzt {{when}}). Meist sendet jemand gefälschte Header; es ist keine Maßnahme nötig.",
+      "untrustedPublic": "Charon hat weitergeleitete Client-Adress-Header von einer öffentlichen Adresse ignoriert ({{peer}}, {{count}} Mal, zuletzt {{when}}). Meist sendet jemand gefälschte Header; es ist keine Maßnahme nötig.",
+      "scope": {
+        "loopback": "Loopback",
+        "private": "privates Netzwerk",
+        "public": "öffentliche Adresse"
+      },
+      "docsLink": "Mehr dazu in der Dokumentation",
+      "loadError": "Der Status des Anmeldeschutzes konnte nicht geladen werden."
+    }
   },
   "accessLists": {
     "title": "Zugriffslisten",

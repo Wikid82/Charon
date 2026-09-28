@@ -264,6 +264,31 @@ app.set('trust proxy', trustedProxies);
 
 ---
 
+## Problem: Everyone Sees "Please Wait ... Seconds" on the Login Page
+
+### Symptoms
+
+- Several people, or every device, see "Too many attempts. Please wait ... seconds" after only a few tries.
+- The Security page (administrators only) shows a warning about forwarded addresses being ignored, or shows an address for your browser that isn't your device's.
+
+### Why It Happens
+
+[Login Protection](../features/login-protection.md) gives each visitor address its own allowance. If Charon sees the same address for everyone, they all share one.
+
+### Cause 1: A proxy in front of Charon isn't trusted
+
+**Fix:** add the proxy's exact address to `CHARON_TRUSTED_PROXIES` and restart Charon. Your proxy must also pass the visitor address along in `X-Forwarded-For`. Steps and examples: [Trusted Proxies](../configuration/trusted-proxies.md).
+
+### Cause 2: Your container setup hides visitor addresses
+
+Some setups (rootless Docker or Podman, some desktop container apps, some load balancers) replace every visitor's address with an internal one and add no header, so trusting a proxy can't help.
+
+**Fix:** switch to a mode that keeps visitor addresses, or put a proxy on the host in front of Charon. See [Login Protection](../features/login-protection.md#situation-2-your-container-setup-hides-visitor-addresses). As a last resort you can turn login protection off with `CHARON_AUTH_RATELIMIT_ENABLED=false`.
+
+Restarting Charon clears the waiting counters while you fix the cause.
+
+---
+
 ## Problem: Wrong IP in Rate Limiting
 
 ### Symptoms

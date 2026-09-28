@@ -50,22 +50,21 @@ HTTP 403 Forbidden
 
 ```text
 HTTP 429 Too Many Requests
-{"error": "Rate limit exceeded"}
+Retry-After: 60
+{"error": "Too many requests. Please wait before trying again."}
 ```
 
-**Cause:** Too many requests from your IP in a short time period.
+**Cause:** Login protection or the API rate limiter is slowing your address. Valid emergency requests (Tier 1) and the Tier-2 server are never throttled.
+
+**Recovery:**
+
+1. Wait for the number of seconds in `Retry-After` (at most 60 for sign-in), then retry.
+2. If everyone is affected, Charon may be seeing one shared address for all visitors. See [Trusted Proxies](../configuration/trusted-proxies.md) and [Login Protection](../features/login-protection.md).
+3. Restarting Charon clears the in-memory counters.
 
 ---
 
 ## Test Environment Configuration
-
-### Rate Limiting in Test Environments
-
-For test and development environments (`CHARON_ENV=test|e2e|development`), the emergency rate limiter is set to **50 attempts per minute** to facilitate testing and debugging.
-
-**Production environments** maintain strict rate limiting: **5 attempts per 5 minutes**.
-
-⚠️ **Security Warning:** Always set `CHARON_ENV=production` (or omit the variable) in production deployments to enforce proper rate limiting.
 
 ### Testing Both Tiers
 

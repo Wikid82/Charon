@@ -11,10 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/ratelimit"
 	securitypkg "github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -33,11 +35,16 @@ type Cerberus struct {
 	settingsCacheMu   sync.RWMutex
 	settingsCacheTime time.Time
 	settingsCacheTTL  time.Duration
+
+	// now is the clock used by the API limiter (injectable for tests).
+	now func() time.Time
+	// rateLimitWarn caps per-episode WARN lines from the API limiter.
+	rateLimitWarn *ratelimit.WarnBudget
 }
 
 // New creates a new Cerberus instance
 func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
-	return &Cerberus{
+	c := &Cerberus{
 		cfg:               cfg,
 		db:                db,
 		accessSvc:         services.NewAccessListService(db),
@@ -45,7 +52,10 @@ func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 		enhancedNotifySvc: services.NewEnhancedSecurityNotificationService(db),
 		settingsCache:     make(map[string]string),
 		settingsCacheTTL:  60 * time.Second,
+		now:               time.Now,
 	}
+	c.rateLimitWarn = ratelimit.NewWarnBudget(rateLimitWarnBurst, rateLimitWarnInterval, func() time.Time { return c.now() })
+	return c
 }
 
 // getSetting retrieves a setting with in-memory caching.
@@ -152,7 +162,7 @@ func (c *Cerberus) IsEnabled() bool {
 func (c *Cerberus) Middleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		// Check for emergency bypass flag (set by EmergencyBypass middleware)
-		if bypass, exists := ctx.Get("emergency_bypass"); exists && bypass.(bool) {
+		if middleware.IsEmergencyBypass(ctx) {
 			logger.Log().WithField("path", util.SanitizeForLog(ctx.Request.URL.Path)).Debug("Cerberus: Skipping security checks (emergency bypass)")
 			ctx.Next()
 			return

@@ -8,6 +8,9 @@ import * as themesApi from '../../api/themes'
 import type { UserThemeDTO } from '../../api/themes'
 import type { CustomThemeColors } from '../../context/ThemeContextValue'
 
+const authState = vi.hoisted(() => ({ isAuthenticated: true }))
+vi.mock('../useAuth', () => ({ useAuth: () => authState }))
+
 vi.mock('../../api/themes', () => ({
   listUserThemes: vi.fn(),
   createUserTheme: vi.fn(),
@@ -55,6 +58,16 @@ function createWrapper() {
 describe('useUserThemes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    authState.isAuthenticated = true
+  })
+
+  it('does not fetch themes for an unauthenticated visitor', async () => {
+    authState.isAuthenticated = false
+
+    const { result } = renderHook(() => useUserThemes(), { wrapper: createWrapper() })
+
+    expect(result.current.userThemes).toEqual([])
+    expect(themesApi.listUserThemes).not.toHaveBeenCalled()
   })
 
   it('fetches themes and parses them via parseUserThemeDTO', async () => {

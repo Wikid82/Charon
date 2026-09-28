@@ -1,4 +1,7 @@
 import axios from 'axios';
+import i18n from 'i18next';
+
+import { rateLimitMessage } from '../utils/rateLimit';
 
 /**
  * Pre-configured Axios instance for API communication.
@@ -11,10 +14,34 @@ const client = axios.create({
 });
 
 /**
+ * Auth epoch: bumped whenever the effective bearer token changes (login, logout,
+ * expiry). Each request is stamped with the epoch it was issued under so a late
+ * 401 for a request made before the current sign-in cannot clear the new session.
+ */
+let authEpoch = 0;
+let currentToken: string | null = null;
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /** Auth epoch at the time the request was issued (set by the request interceptor). */
+    authEpoch?: number;
+  }
+}
+
+client.interceptors.request.use((config) => {
+  config.authEpoch = authEpoch;
+  return config;
+});
+
+/**
  * Sets or clears the Authorization header for API requests.
  * @param token - JWT token to set, or null to clear authentication
  */
 export const setAuthToken = (token: string | null) => {
+  if (token !== currentToken) {
+    currentToken = token;
+    authEpoch += 1;
+  }
   if (token) {
     client.defaults.headers.common.Authorization = `Bearer ${token}`;
   } else {
@@ -52,6 +79,13 @@ client.interceptors.response.use(
       }
     }
 
+    // Uses the global i18next instance initialised by src/i18n.ts at app startup
+    // Replace the generic throttle body with a localized wait message (any 429, app-wide)
+    const throttleMessage = rateLimitMessage(i18n.t, error);
+    if (throttleMessage) {
+      error.message = throttleMessage;
+    }
+
     // Handle 401 authentication errors - triggers auth error callback for session expiry
     if (error.response?.status === 401) {
       console.warn('Authentication failed:', error.config?.url);
@@ -62,7 +96,10 @@ client.interceptors.response.use(
         url.includes('/auth/me') ||
         url.includes('/auth/logout') ||
         url.includes('/auth/refresh');
-      if (onAuthError && !isAuthEndpoint) {
+      // A 401 for a request issued under an earlier token (e.g. an anonymous call
+      // that resolves after a fresh login) says nothing about the current session.
+      const isStale = error.config?.authEpoch !== undefined && error.config.authEpoch !== authEpoch;
+      if (onAuthError && !isAuthEndpoint && !isStale) {
         onAuthError();
       }
     }

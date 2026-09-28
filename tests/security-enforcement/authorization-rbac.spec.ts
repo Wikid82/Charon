@@ -255,7 +255,8 @@ test.describe('Cerberus ACL Role-Based Access Control', () => {
 
   test.describe('Session-Based Access Control', () => {
     test('expired session should return 401', async () => {
-      const expiredToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDAwMDAwMDB9.invalidSignature';
+      const b64url = (obj: object) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+      const expiredToken = `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url({ exp: 1600000000 })}.invalidSignature`;
       const response = await userContext.get('/api/v1/proxy-hosts', {
         headers: { Authorization: `Bearer ${expiredToken}` },
       });

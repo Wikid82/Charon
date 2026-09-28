@@ -19,7 +19,7 @@ func TestRegister_NotifyOnlyProviderMigrationErrorReturns(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_migration_errors"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestRegister_LegacyMigrationErrorIsNonFatal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_legacy_migration_warn"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestRegister_UptimeFeatureFlagDefaultErrorIsNonFatal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_uptime_flag_warn"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestRegister_UptimeFeatureFlagDefaultErrorIsNonFatal(t *testing.T) {
 // no-op rather than panicking or propagating the error — it is a
 // best-effort cleanup, not something that should ever block startup.
 func TestCleanInvalidLetsEncryptCertAssignments_QueryErrorReturnsEarly(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_clean_letsencrypt_query_error"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestRegister_SecurityHeaderPresetInitErrorIsNonFatal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_sec_header_presets_warn"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)

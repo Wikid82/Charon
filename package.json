@@ -11,9 +11,10 @@
     "lint:md:fix": "markdownlint-cli2 --fix '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.104.0",
     "@typescript/analyze-trace": "^0.11.1",
     "eslint": "^10.11.0",
-    "tldts": "^7.4.14",
+    "tldts": "^7.4.16",
     "type-check": "^0.4.0"
   },
   "overrides": {
@@ -26,16 +27,19 @@
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.63.0",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.3",
+    "@vitest/coverage-istanbul": "^5.0.2",
+    "@vitest/coverage-v8": "^5.0.2",
+    "@vitest/ui": "^5.0.2",
     "audit-ci": "^7.1.0",
-    "dotenv": "^18.0.3",
+    "dotenv": "^18.0.4",
     "lefthook": "^2.1.14",
     "markdownlint-cli2": "^0.23.3",
     "prettier": "^3.9.9",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tar": "^7.5.22",
     "typescript": "^6.0.3",
-    "vite": "^8.3.0",
-    "vitest": "^5.0.1"
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
   }
 }

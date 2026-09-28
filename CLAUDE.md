@@ -137,6 +137,7 @@ never affected by this.
 
 - **Architecture**: Update `ARCHITECTURE.md` when making changes to system architecture, technology stack, directory structure, deployment model, security architecture, or integration points.
 - **Features**: Update `docs/features.md` when adding capabilities — keep it brief, link to individual docs.
+- **Source of truth vs. published site**: All documentation — dev and user-facing — is authored under the repo-root `docs/`. The public Docusaurus site (`docs-site/`) is a *published view* of a curated subset of it, not a second source: `docs-site/scripts/sync-docs.mjs` wipes and repopulates the git-ignored `docs-site/docs/` from `docs/` per `docs-site/scripts/docs-manifest.json` on every `npm start`/`npm run build`. **Never hand-edit anything under `docs-site/docs/`** — it will be silently overwritten on the next sync. A new file inside an already-manifested directory (`docs/features/`, `docs/configuration/`, `docs/guides/`, `docs/troubleshooting/`, `docs/api/`) publishes automatically; a new *standalone* top-level file (like `docs/getting-started.md`) must also be added to the `"files"` array in `docs-site/scripts/docs-manifest.json` or it stays contributor-only.
 
 ## CI/CD & Commit Conventions
 
@@ -205,8 +206,9 @@ Before marking an implementation task as complete, perform the following in orde
    - Backend: `cd backend && go build ./...`
    - Frontend: `cd frontend && npm run build`
 
-9. **Fixed and New Code Testing**:
-   - Ensure all existing and new unit tests pass with zero failures
+9. **Fixed and New Code Testing** (no scope exemptions):
+   - Ensure all existing and new tests pass with zero failures. CI must be green before merge, so a failing test is a blocker for the task even when the failure is pre-existing, unrelated to the change, or in a file you did not touch.
+   - **Never defer a failing test, type error, or lint error as "out of scope" or "pre-existing."** Fix it in the same PR (as its own `fix:`/`test:`/`chore:` commit) — the point of tests is to catch bugs and prevent regressions, and deferring only moves the cost. If a fix is genuinely too large for the PR, stop and ask the user before deferring; never skip, `.skip`, or delete a test to get green.
    - Deep-dive into root causes when failures occur — all issues must be addressed
 
 10. **Clean Up**: Remove debug print statements, commented-out blocks, `console.log`, `fmt.Println`, unused imports.

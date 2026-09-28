@@ -174,16 +174,20 @@ test.describe('SSL Certificates - CRUD Operations', () => {
       });
     });
 
-    test('should show staging badge for Let\'s Encrypt staging certificates', { retries: 1 }, async ({ page }) => {
-      await test.step('Check for staging badges', async () => {
-        const stagingBadge = page.locator('span').filter({ hasText: /staging/i });
-        const badgeCount = await stagingBadge.count();
+    // Playwright has no per-test retries option; scope the retry to this test via a describe.
+    test.describe('Staging badge (retried)', () => {
+      test.describe.configure({ retries: 1 });
+      test('should show staging badge for Let\'s Encrypt staging certificates', async ({ page }) => {
+        await test.step('Check for staging badges', async () => {
+          const stagingBadge = page.locator('span').filter({ hasText: /staging/i });
+          const badgeCount = await stagingBadge.count();
 
-        // Verify styling if staging badge exists
-        if (badgeCount > 0) {
-          const firstBadge = stagingBadge.first();
-          await expect(firstBadge).toBeVisible();
-        }
+          // Verify styling if staging badge exists
+          if (badgeCount > 0) {
+            const firstBadge = stagingBadge.first();
+            await expect(firstBadge).toBeVisible();
+          }
+        });
       });
     });
 

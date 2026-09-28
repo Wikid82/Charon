@@ -11,13 +11,11 @@ import (
 
 func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if bypass, exists := c.Get("emergency_bypass"); exists {
-			if bypassActive, ok := bypass.(bool); ok && bypassActive {
-				c.Set("role", "admin")
-				c.Set("userID", uint(0))
-				c.Next()
-				return
-			}
+		if IsEmergencyBypass(c) {
+			c.Set("role", "admin")
+			c.Set("userID", uint(0))
+			c.Next()
+			return
 		}
 
 		if authService == nil {

@@ -18,7 +18,21 @@ const (
 	EmergencyTokenEnvVar = "CHARON_EMERGENCY_TOKEN"
 	// MinTokenLength is the minimum required length for emergency tokens
 	MinTokenLength = 32
+	// EmergencyBypassContextKey is the gin context key EmergencyBypass sets (to true) on
+	// requests that carry a validated emergency token from a management network.
+	EmergencyBypassContextKey = "emergency_bypass"
 )
+
+// IsEmergencyBypass reports whether EmergencyBypass validated this request. Any value
+// other than a boolean true is treated as no bypass.
+func IsEmergencyBypass(c *gin.Context) bool {
+	v, ok := c.Get(EmergencyBypassContextKey)
+	if !ok {
+		return false
+	}
+	active, ok := v.(bool)
+	return ok && active
+}
 
 // EmergencyBypass creates middleware that bypasses all security checks
 // when a valid emergency token is present from an authorized source.
@@ -109,7 +123,7 @@ func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
 		}).Warn("EMERGENCY BYPASS ACTIVE: Request bypassing all security checks")
 
 		// Set flag for downstream handlers to know this is an emergency request
-		c.Set("emergency_bypass", true)
+		c.Set(EmergencyBypassContextKey, true)
 
 		// Strip emergency token header to prevent it from reaching application
 		// This is critical for security - prevents token exposure in logs

@@ -83,7 +83,7 @@ type HostCheckResult struct {
 // sender on the results channel and closes it during teardown (spec §3.1.4).
 type UptimeIngester struct {
 	db           *gorm.DB
-	results      chan any // CheckResult | HostCheckResult
+	results      chan any  // CheckResult | HostCheckResult
 	closeOnce    sync.Once // guards the single close of results (S4: pool is sole closer)
 	droppedCount atomic.Int64
 	lastDropLog  atomic.Int64 // unix-nanos of the last emitted drop warning

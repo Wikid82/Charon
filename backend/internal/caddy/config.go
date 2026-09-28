@@ -100,7 +100,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// per-DNS-provider wildcard/DNS-01 map or the shared HTTP-01 list.
 		// Shared by both ProxyHost and RedirectionHost so a redirecting
 		// domain gets a TLS cert issued exactly the same way a proxied one
-		// does (docs/plans/current_spec.md §4.2).
+		// does (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2).
 		classifyACMEDomains := func(enabled bool, domainNames string, dnsProviderID *uint, dnsProvider *models.DNSProvider) {
 			if !enabled || domainNames == "" {
 				return
@@ -398,7 +398,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// a domain already claimed by a RedirectionHost — whichever resource's
 	// routes are built first wins any residual collision that somehow made
 	// it past the service-layer CheckDomainConflict check (defense in depth,
-	// see docs/plans/current_spec.md §4.2/§4.3).
+	// see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2/§4.3).
 	processedDomains := make(map[string]bool)
 	redirectRoutes, redirectIPSubjects := BuildRedirectRoutes(redirectHosts, processedDomains)
 	routes = append(routes, redirectRoutes...)

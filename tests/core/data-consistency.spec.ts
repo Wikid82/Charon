@@ -1,4 +1,5 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import type { UserRole } from '../utils/TestDataManager';
 import { waitForDialog, waitForLoadingComplete } from '../utils/wait-helpers';
 import { suppressChangelogModal } from '../utils/api-helpers';
 
@@ -29,7 +30,7 @@ function buildAuthHeaders(token: string): Record<string, string> | undefined {
 
 async function createUserViaApi(
   page: import('@playwright/test').Page,
-  user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
+  user: { email: string; name: string; password: string; role: UserRole }
 ): Promise<{ id: string | number; email: string }> {
   const token = await getAuthToken(page);
   const response = await page.request.post('/api/v1/users', {

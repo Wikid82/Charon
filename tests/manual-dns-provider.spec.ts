@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/test';
 import { waitForAPIHealth } from './utils/api-helpers';
 import { waitForDialog, waitForLoadingComplete } from './utils/wait-helpers';
@@ -33,7 +34,7 @@ const mockManualProvidersResponse = {
 };
 
 async function gotoWithRetry(
-  page: Parameters<typeof test>[0]['page'],
+  page: Page,
   url: string,
   attempts = 2
 ): Promise<void> {
@@ -59,7 +60,7 @@ async function gotoWithRetry(
 }
 
 async function addManualChallengeRoute(
-  page: Parameters<typeof test>[0]['page'],
+  page: Page,
   challengePayload: Record<string, unknown>
 ): Promise<() => Promise<void>> {
   const routeHandler = async (route: { fulfill: (options: { status: number; contentType: string; body: string }) => Promise<void> }) => {
@@ -78,7 +79,7 @@ async function addManualChallengeRoute(
 }
 
 async function addDNSProvidersRoute(
-  page: Parameters<typeof test>[0]['page']
+  page: Page
 ): Promise<() => Promise<void>> {
   const routeHandler = async (route: { fulfill: (options: { status: number; contentType: string; body: string }) => Promise<void> }) => {
     await route.fulfill({
@@ -96,7 +97,7 @@ async function addDNSProvidersRoute(
 }
 
 async function openManualChallengePanel(
-  page: Parameters<typeof test>[0]['page']
+  page: Page
 ): Promise<void> {
   const manualChallengeButton = page.getByRole('button', { name: /manual dns challenge/i }).first();
   // WebKit under CI load can take longer than the default 5s expect timeout
@@ -111,7 +112,7 @@ async function openManualChallengePanel(
 }
 
 async function addManualVerifyRoute(
-  page: Parameters<typeof test>[0]['page'],
+  page: Page,
   status: number,
   responsePayload: Record<string, unknown>
 ): Promise<() => Promise<void>> {

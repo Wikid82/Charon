@@ -124,7 +124,7 @@ func TestAuthMiddleware_Cookie(t *testing.T) {
 	})
 
 	req, _ := http.NewRequest("GET", "/test", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, HttpOnly: true, Secure: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -173,7 +173,7 @@ func TestAuthMiddleware_PrefersCookieOverAuthorizationHeader(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+headerToken)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: cookieToken})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: cookieToken, HttpOnly: true, Secure: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -199,7 +199,7 @@ func TestAuthMiddleware_UsesCookieWhenAuthorizationHeaderIsInvalid(t *testing.T)
 	req, err := http.NewRequest("GET", "/test", http.NoBody)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer invalid-token")
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, HttpOnly: true, Secure: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -224,8 +224,8 @@ func TestAuthMiddleware_UsesLastNonEmptyCookieWhenDuplicateCookiesExist(t *testi
 
 	req, err := http.NewRequest("GET", "/test", http.NoBody)
 	require.NoError(t, err)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: ""})
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "", HttpOnly: true, Secure: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, HttpOnly: true, Secure: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -319,7 +319,7 @@ func TestAuthMiddleware_PrefersCookieOverQueryParam(t *testing.T) {
 	// Both cookie and query param provided - cookie should win
 	req, err := http.NewRequest("GET", "/test?token="+queryToken, http.NoBody)
 	require.NoError(t, err)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: cookieToken})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: cookieToken, HttpOnly: true, Secure: true})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -421,7 +421,7 @@ func TestExtractAuthCookieToken_IgnoresNonAuthCookies(t *testing.T) {
 
 	req, err := http.NewRequest("GET", "/", http.NoBody)
 	require.NoError(t, err)
-	req.AddCookie(&http.Cookie{Name: "session", Value: "abc"})
+	req.AddCookie(&http.Cookie{Name: "session", Value: "abc", HttpOnly: true, Secure: true})
 	ctx.Request = req
 
 	token := extractAuthCookieToken(ctx)

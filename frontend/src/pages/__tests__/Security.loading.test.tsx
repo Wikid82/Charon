@@ -18,6 +18,9 @@ import Security from '../Security'
 
 import type * as useSecurity from '../../hooks/useSecurity'
 
+// Sign-in throttle status is admin-only; these suites cover the page for a non-admin session
+vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'user' } }) }))
+
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
 vi.mock('../../api/settings')

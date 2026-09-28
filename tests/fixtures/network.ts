@@ -59,7 +59,7 @@ export class NetworkInterceptor {
         url,
         method,
         startTime: Date.now(),
-        requestSize: this.estimateSize(request.postDataBuffer()),
+        requestSize: this.estimateSize(request.postDataBuffer() ?? undefined),
         responseSize: 0,
         duration: 0,
         redirectChain: [],

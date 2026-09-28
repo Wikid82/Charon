@@ -11,6 +11,7 @@ import { CrowdSecKeyWarning } from '../components/CrowdSecKeyWarning'
 import { PageShell } from '../components/layout/PageShell'
 import { LiveLogViewer } from '../components/LiveLogViewer'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { LoginProtectionCard } from '../components/LoginProtectionCard'
 import {
   Card,
   CardHeader,
@@ -28,6 +29,7 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '../components/ui'
+import { useAuth } from '../hooks/useAuth'
 import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
 import { toast } from '../utils/toast'
 
@@ -79,6 +81,7 @@ function SecurityPageSkeleton({ t }: { t: (key: string) => string }) {
 export default function Security() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { data: status, isLoading } = useQuery({
     queryKey: ['security-status'],
     queryFn: getSecurityStatus,
@@ -413,6 +416,9 @@ export default function Security() {
             </CardContent>
           </Card>
         )}
+
+        {/* Sign-in throttling is always on, so this sits outside the Cerberus-enabled sections */}
+        {user?.role === 'admin' && <LoginProtectionCard />}
 
         <Outlet />
 

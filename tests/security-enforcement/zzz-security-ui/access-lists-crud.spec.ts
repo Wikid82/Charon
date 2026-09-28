@@ -208,7 +208,7 @@ test.describe('Access Lists - CRUD Operations', () => {
       });
 
       await test.step('Verify form opens', async () => {
-        await waitForModal(page); // Wait for form modal to open
+        await waitForModal(page, /create|access.*list/i); // Wait for form modal to open
 
         // The form should be visible (Card component with heading)
         const formTitle = page.getByRole('heading', { name: /create.*access.*list/i });
@@ -223,7 +223,7 @@ test.describe('Access Lists - CRUD Operations', () => {
     test('should validate required name field', async ({ page }) => {
       await test.step('Open create form', async () => {
         await getCreateButton(page).click();
-        await waitForModal(page); // Wait for form modal to open
+        await waitForModal(page, /create|access.*list/i); // Wait for form modal to open
       });
 
       await test.step('Try to submit with empty name', async () => {

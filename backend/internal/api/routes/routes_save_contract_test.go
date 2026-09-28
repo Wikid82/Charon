@@ -16,7 +16,7 @@ import (
 func TestRegister_StrictSaveRouteMatrixUsedByImportWorkflows(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_save_contract_matrix"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(routes.IsolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	router := gin.New()

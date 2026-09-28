@@ -12,7 +12,8 @@ import (
 
 // RedirectionHostService encapsulates business logic for redirection host
 // management — full CRUD plus validation (§4.1/§4.3/§4.4 of
-// docs/plans/current_spec.md), mirroring ProxyHostService's conventions.
+// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md),
+// mirroring ProxyHostService's conventions.
 type RedirectionHostService struct {
 	db *gorm.DB
 }
@@ -56,7 +57,7 @@ func (s *RedirectionHostService) CheckCrossTableDomainConflict(domainNames strin
 // validateRedirectionHost validates and normalizes a RedirectionHost's
 // fields before persistence: required fields, target_url scheme/host
 // validation, status-code enum membership, and the self-redirect guard
-// (docs/plans/current_spec.md §4.1/§4.3/§4.4/§7).
+// (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.1/§4.3/§4.4/§7).
 func (s *RedirectionHostService) validateRedirectionHost(host *models.RedirectionHost) error {
 	host.DomainNames = strings.TrimSpace(host.DomainNames)
 	host.TargetURL = strings.TrimSpace(host.TargetURL)

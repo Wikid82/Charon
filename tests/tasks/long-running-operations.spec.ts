@@ -72,6 +72,7 @@ test.describe('Long-Running Operations', () => {
       email: `longops-${uniqueSuffix}@test.local`,
       name: `Long Ops User ${uniqueSuffix}`,
       password: 'LongOpsPass123!',
+      role: 'user' as const,
     };
 
     await loginUser(page, adminUser);

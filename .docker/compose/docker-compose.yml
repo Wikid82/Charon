@@ -9,13 +9,17 @@ services:
       - "80:80"        # HTTP (Caddy proxy)
       - "443:443"      # HTTPS (Caddy proxy)
       - "443:443/udp"  # HTTP/3 (Caddy proxy)
-      - "8080:8080"    # Management UI (Charon)
+      - "8080:8080"    # Management UI (Charon). Behind a reverse proxy? See CHARON_TRUSTED_PROXIES below
       # Emergency server port - ONLY expose via SSH tunnel or VPN for security
       # Uncomment ONLY if you need localhost access on host machine:
       # - "127.0.0.1:2020:2020"  # Emergency server Tier-2 (localhost-only, avoids Caddy's 2019)
     environment:
       - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
       - TZ=UTC # Set timezone (e.g., America/New_York)
+      # Reaching Charon through another reverse proxy? List that proxy's exact address so Charon
+      # sees your visitors' real addresses (login protection counts visitors separately).
+      # See docs/configuration/trusted-proxies.md
+      # - CHARON_TRUSTED_PROXIES=<your proxy's IP>/32
       # Generate with: openssl rand -base64 32
       - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
       # Emergency break glass configuration (Tier 1 & Tier 2)

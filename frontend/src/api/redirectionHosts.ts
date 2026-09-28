@@ -43,7 +43,8 @@ export interface RedirectionHost {
 /**
  * Plain-language status code options for the Status Code selector (spec §5,
  * §4.5). Only the four codes Charon supports are offered — see
- * docs/plans/current_spec.md §5 for why 300/303/304 are excluded.
+ * docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §5
+ * for why 300/303/304 are excluded.
  */
 export const REDIRECT_STATUS_CODES: { value: RedirectStatusCode; label: string }[] = [
   { value: 301, label: '301 - Permanent' },

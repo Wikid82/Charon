@@ -31,7 +31,7 @@ These failures appeared identically across Chromium, Firefox, and WebKit:
 certificates.spec.ts (16 failures total):
 
 ```
-Line 104: "should display empty state when no certificates exist"  
+Line 104: "should display empty state when no certificates exist"
     expect(hasEmptyMessage || hasTable).toBeTruthy()   received false
 
 Line 120: "should show loading spinner while fetching data"  expect(hasTable || hasEmpty).toBeTruthy() received   false
@@ -40,8 +40,8 @@ Line 120: "should show loading spinner while fetching data"  expect(hasTable || 
 proxy-hosts.spec.ts (16 failures total):
 
 ```
-Lines 158, 176, 202, 221: Multiple "waitForModal" errors  
-    waitForModal: Could not find modal dialog or slide-out panel matching "undefined"  at 
+Lines 158, 176, 202, 221: Multiple "waitForModal" errors
+    waitForModal: Could not find modal dialog or slide-out panel matching "undefined"  at
     utils/wait-helpers.ts:413
 
 ```

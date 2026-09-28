@@ -8,7 +8,6 @@ import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
 import { SetupGuard } from './components/SetupGuard'
 import { ToastContainer } from './components/Toast'
-import { AuthProvider } from './context/AuthContext'
 
 // Lazy load pages for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -52,138 +51,136 @@ const AppearanceSettings = lazy(() => import('./pages/AppearanceSettings'))
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><Login /></Suspense>} />
-          <Route path="/setup" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><Setup /></Suspense>} />
-          <Route path="/accept-invite" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><AcceptInvite /></Suspense>} />
-          <Route path="/passthrough" element={
+    <Router>
+      <Routes>
+        <Route path="/login" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><Login /></Suspense>} />
+        <Route path="/setup" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><Setup /></Suspense>} />
+        <Route path="/accept-invite" element={<Suspense fallback={<LoadingOverlay message="Loading..." />}><AcceptInvite /></Suspense>} />
+        <Route path="/passthrough" element={
+          <RequireAuth>
+            <Suspense fallback={<LoadingOverlay message="Loading..." />}>
+              <PassthroughLanding />
+            </Suspense>
+          </RequireAuth>
+        } />
+        <Route path="/" element={
+          <SetupGuard>
             <RequireAuth>
-              <Suspense fallback={<LoadingOverlay message="Loading..." />}>
-                <PassthroughLanding />
-              </Suspense>
+              <Layout>
+                <Outlet />
+              </Layout>
             </RequireAuth>
-          } />
-          <Route path="/" element={
-            <SetupGuard>
-              <RequireAuth>
-                <Layout>
-                  <Outlet />
-                </Layout>
-              </RequireAuth>
-            </SetupGuard>
-          }>
-              <Route index element={<Dashboard />} />
-              <Route path="proxy-hosts" element={<ProxyHosts />} />
-              <Route path="redirection-hosts" element={<RedirectionHosts />} />
-              <Route path="domains" element={<Domains />} />
+          </SetupGuard>
+        }>
+            <Route index element={<Dashboard />} />
+            <Route path="proxy-hosts" element={<ProxyHosts />} />
+            <Route path="redirection-hosts" element={<RedirectionHosts />} />
+            <Route path="domains" element={<Domains />} />
 
-              {/* Hecate Routes */}
-              <Route path="hecate">
-                <Route index element={<Navigate to="/hecate/tunnels" replace />} />
-                <Route path="tunnels"        element={<HecateTunnels />} />
-                <Route path="remote-servers" element={<RemoteServers />} />
-                <Route path="providers"      element={<HecateProviders />} />
-                <Route path="agent"          element={<RequireRole allowed={['admin']}><HecateAgent /></RequireRole>} />
-              </Route>
-
-              {/* Legacy redirect for old Remote Servers bookmarks */}
-              <Route path="remote-servers" element={<Navigate to="/hecate/remote-servers" replace />} />
-              <Route path="certificates" element={<Certificates />} />
-
-              {/* DNS Routes */}
-              <Route path="dns" element={<DNS />}>
-                <Route index element={<Navigate to="/dns/providers" replace />} />
-                <Route path="providers" element={<DNSProviders />} />
-                <Route path="plugins" element={<Plugins />} />
-              </Route>
-
-              {/* Legacy redirect for old bookmarks */}
-              <Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
-
-              <Route path="security" element={<Security />} />
-              <Route path="security/audit-logs" element={<RequireRole allowed={['admin']}><AuditLogs /></RequireRole>} />
-              <Route path="security/access-lists" element={<AccessLists />} />
-              <Route path="security/crowdsec" element={<RequireRole allowed={['admin']}><CrowdSecConfig /></RequireRole>} />
-              <Route path="security/rate-limiting" element={<RateLimiting />} />
-              <Route path="security/waf" element={<WafConfig />} />
-              <Route path="security/headers" element={<SecurityHeaders />} />
-              <Route path="security/encryption" element={<RequireRole allowed={['admin']}><EncryptionManagement /></RequireRole>} />
-              <Route path="access-lists" element={<AccessLists />} />
-              <Route path="uptime" element={<Uptime />} />
-
-              {/* Legacy redirects for old user management paths */}
-              <Route path="users" element={<Navigate to="/settings/users" replace />} />
-              <Route path="admin/plugins" element={<Navigate to="/dns/plugins" replace />} />
-              <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
-
-              {/* Settings Routes */}
-              <Route path="settings" element={<RequireRole allowed={['admin', 'user']}><Settings /></RequireRole>}>
-                <Route index element={<SystemSettings />} />
-                <Route path="system" element={<SystemSettings />} />
-                <Route path="notifications" element={<Notifications />} />
-                <Route path="smtp" element={<SMTPSettings />} />
-                <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
-                <Route path="users" element={<RequireRole allowed={['admin']}><UsersPage /></RequireRole>} />
-                <Route path="appearance" element={<AppearanceSettings />} />
-                {/* Legacy redirects */}
-                <Route path="account" element={<Navigate to="/settings/users" replace />} />
-                <Route path="account-management" element={<Navigate to="/settings/users" replace />} />
-              </Route>
-
-              {/* Tasks Routes */}
-              <Route path="tasks" element={<Tasks />}>
-                <Route index element={<Backups />} />
-                <Route path="backups" element={<Backups />} />
-                <Route path="logs" element={<Logs />} />
-                <Route path="import">
-                  <Route path="caddyfile" element={<ImportCaddy />} />
-                  <Route path="crowdsec" element={<ImportCrowdSec />} />
-                  <Route path="npm" element={<ImportNPM />} />
-                  <Route path="json" element={<ImportJSON />} />
-                </Route>
-              </Route>
-
+            {/* Hecate Routes */}
+            <Route path="hecate">
+              <Route index element={<Navigate to="/hecate/tunnels" replace />} />
+              <Route path="tunnels"        element={<HecateTunnels />} />
+              <Route path="remote-servers" element={<RemoteServers />} />
+              <Route path="providers"      element={<HecateProviders />} />
+              <Route path="agent"          element={<RequireRole allowed={['admin']}><HecateAgent /></RequireRole>} />
             </Route>
-          </Routes>
-        {/*
-          Radix Dialog marks every other document.body-level sibling
-          aria-hidden while a modal is open (via the `aria-hidden` package's
-          hideOthers, called once per dialog mount). That helper exempts
-          anything matching `[aria-live]` from being hidden, but only nodes
-          that already exist in the DOM at the moment a dialog mounts and
-          takes its snapshot — it never re-scans for elements added later.
-          Both toast containers below render an empty wrapper up front and
-          only attach `aria-live` to individual toast messages once one is
-          shown, so a toast fired while a modal dialog is open — or opened
-          after a dialog already is — mounts inside a wrapper the snapshot
-          missed and stays permanently aria-hidden (invisible to
-          accessibility tools and to accessibility-tree-based test queries)
-          for as long as that dialog stays open. Giving this outer wrapper a
-          static aria-live means it's always present for the snapshot to
-          find, so toasts stay announced/visible regardless of dialog state.
-          `display: contents` keeps it a no-op for layout — both children
-          are already position: fixed.
-        */}
-        <div className="contents" aria-live="polite" aria-atomic="false">
-          <ToastContainer />
-          <Toaster
-            position="bottom-right"
-            toastOptions={{
-              duration: 5000,
-              success: {
-                style: { background: '#16a34a', color: 'white' },
-                ariaProps: { role: 'status', 'aria-live': 'polite' },
-              },
-              error: {
-                style: { background: '#dc2626', color: 'white' },
-                ariaProps: { role: 'alert', 'aria-live': 'assertive' },
-              },
-            }}
-          />
-        </div>
-      </Router>
-    </AuthProvider>
+
+            {/* Legacy redirect for old Remote Servers bookmarks */}
+            <Route path="remote-servers" element={<Navigate to="/hecate/remote-servers" replace />} />
+            <Route path="certificates" element={<Certificates />} />
+
+            {/* DNS Routes */}
+            <Route path="dns" element={<DNS />}>
+              <Route index element={<Navigate to="/dns/providers" replace />} />
+              <Route path="providers" element={<DNSProviders />} />
+              <Route path="plugins" element={<Plugins />} />
+            </Route>
+
+            {/* Legacy redirect for old bookmarks */}
+            <Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
+
+            <Route path="security" element={<Security />} />
+            <Route path="security/audit-logs" element={<RequireRole allowed={['admin']}><AuditLogs /></RequireRole>} />
+            <Route path="security/access-lists" element={<AccessLists />} />
+            <Route path="security/crowdsec" element={<RequireRole allowed={['admin']}><CrowdSecConfig /></RequireRole>} />
+            <Route path="security/rate-limiting" element={<RateLimiting />} />
+            <Route path="security/waf" element={<WafConfig />} />
+            <Route path="security/headers" element={<SecurityHeaders />} />
+            <Route path="security/encryption" element={<RequireRole allowed={['admin']}><EncryptionManagement /></RequireRole>} />
+            <Route path="access-lists" element={<AccessLists />} />
+            <Route path="uptime" element={<Uptime />} />
+
+            {/* Legacy redirects for old user management paths */}
+            <Route path="users" element={<Navigate to="/settings/users" replace />} />
+            <Route path="admin/plugins" element={<Navigate to="/dns/plugins" replace />} />
+            <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
+
+            {/* Settings Routes */}
+            <Route path="settings" element={<RequireRole allowed={['admin', 'user']}><Settings /></RequireRole>}>
+              <Route index element={<SystemSettings />} />
+              <Route path="system" element={<SystemSettings />} />
+              <Route path="notifications" element={<Notifications />} />
+              <Route path="smtp" element={<SMTPSettings />} />
+              <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
+              <Route path="users" element={<RequireRole allowed={['admin']}><UsersPage /></RequireRole>} />
+              <Route path="appearance" element={<AppearanceSettings />} />
+              {/* Legacy redirects */}
+              <Route path="account" element={<Navigate to="/settings/users" replace />} />
+              <Route path="account-management" element={<Navigate to="/settings/users" replace />} />
+            </Route>
+
+            {/* Tasks Routes */}
+            <Route path="tasks" element={<Tasks />}>
+              <Route index element={<Backups />} />
+              <Route path="backups" element={<Backups />} />
+              <Route path="logs" element={<Logs />} />
+              <Route path="import">
+                <Route path="caddyfile" element={<ImportCaddy />} />
+                <Route path="crowdsec" element={<ImportCrowdSec />} />
+                <Route path="npm" element={<ImportNPM />} />
+                <Route path="json" element={<ImportJSON />} />
+              </Route>
+            </Route>
+
+          </Route>
+        </Routes>
+      {/*
+        Radix Dialog marks every other document.body-level sibling
+        aria-hidden while a modal is open (via the `aria-hidden` package's
+        hideOthers, called once per dialog mount). That helper exempts
+        anything matching `[aria-live]` from being hidden, but only nodes
+        that already exist in the DOM at the moment a dialog mounts and
+        takes its snapshot — it never re-scans for elements added later.
+        Both toast containers below render an empty wrapper up front and
+        only attach `aria-live` to individual toast messages once one is
+        shown, so a toast fired while a modal dialog is open — or opened
+        after a dialog already is — mounts inside a wrapper the snapshot
+        missed and stays permanently aria-hidden (invisible to
+        accessibility tools and to accessibility-tree-based test queries)
+        for as long as that dialog stays open. Giving this outer wrapper a
+        static aria-live means it's always present for the snapshot to
+        find, so toasts stay announced/visible regardless of dialog state.
+        `display: contents` keeps it a no-op for layout — both children
+        are already position: fixed.
+      */}
+      <div className="contents" aria-live="polite" aria-atomic="false">
+        <ToastContainer />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            duration: 5000,
+            success: {
+              style: { background: '#16a34a', color: 'white' },
+              ariaProps: { role: 'status', 'aria-live': 'polite' },
+            },
+            error: {
+              style: { background: '#dc2626', color: 'white' },
+              ariaProps: { role: 'alert', 'aria-live': 'assertive' },
+            },
+          }}
+        />
+      </div>
+    </Router>
   )
 }

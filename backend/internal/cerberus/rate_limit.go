@@ -1,21 +1,44 @@
 package cerberus
 
 import (
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/ratelimit"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
 
-func isAdminSecurityControlPlaneRequest(ctx *gin.Context) bool {
+// Built-in API limiter budget, used unless config or settings override it.
+const (
+	defaultRateLimitRequests  = 100
+	defaultRateLimitWindowSec = 60
+	defaultRateLimitBurst     = 20
+)
+
+// Cap on per-episode WARN lines emitted by the Cerberus limiter.
+const (
+	rateLimitWarnBurst    = 10
+	rateLimitWarnInterval = time.Minute
+)
+
+// controlPlanePrefixes are the admin configuration paths exempt from the API
+// limiter for validated admins, so an admin can always manage security settings.
+var controlPlanePrefixes = []string{"/api/v1/security", "/api/v1/settings", "/api/v1/config"}
+
+// isAdminSecurityControlPlaneRequest reports whether the request comes from an
+// admin validated by OptionalAuth and targets a control-plane path (segment-aware).
+func (c *Cerberus) isAdminSecurityControlPlaneRequest(ctx *gin.Context) bool {
+	if !c.isAuthenticatedAdmin(ctx) {
+		return false
+	}
+
 	parsedPath := ctx.Request.URL.Path
 	if rawPath := ctx.Request.URL.RawPath; rawPath != "" {
 		if decoded, err := url.PathUnescape(rawPath); err == nil {
@@ -23,190 +46,104 @@ func isAdminSecurityControlPlaneRequest(ctx *gin.Context) bool {
 		}
 	}
 
-	isControlPlanePath := strings.HasPrefix(parsedPath, "/api/v1/security/") ||
-		strings.HasPrefix(parsedPath, "/api/v1/settings") ||
-		strings.HasPrefix(parsedPath, "/api/v1/config")
-
-	if !isControlPlanePath {
-		return false
-	}
-
-	role, exists := ctx.Get("role")
-	if exists {
-		if roleStr, ok := role.(string); ok && strings.EqualFold(roleStr, "admin") {
+	for _, prefix := range controlPlanePrefixes {
+		if parsedPath == prefix || strings.HasPrefix(parsedPath, prefix+"/") {
 			return true
 		}
 	}
-
-	authHeader := strings.TrimSpace(ctx.GetHeader("Authorization"))
-	return strings.HasPrefix(strings.ToLower(authHeader), "bearer ")
+	return false
 }
 
-// rateLimitManager manages per-IP rate limiters.
-type rateLimitManager struct {
-	mu       sync.Mutex
-	limiters map[string]*rate.Limiter
-	lastSeen map[string]time.Time
+// rateLimitEnabled applies the static mode, then lets the runtime setting
+// override it in either direction.
+func (c *Cerberus) rateLimitEnabled() bool {
+	enabled := c.cfg.RateLimitMode == "enabled"
+	if v, ok := c.getSetting("security.rate_limit.enabled"); ok {
+		enabled = strings.EqualFold(v, "true")
+	}
+	return enabled
 }
 
-func newRateLimitManager() *rateLimitManager {
-	rl := &rateLimitManager{
-		limiters: make(map[string]*rate.Limiter),
-		lastSeen: make(map[string]time.Time),
+// positiveSetting returns the setting as a positive int, if present and valid.
+func (c *Cerberus) positiveSetting(key string) (int, bool) {
+	val, ok := c.getSetting(key)
+	if !ok {
+		return 0, false
 	}
-	// Start cleanup goroutine
-	go rl.cleanupLoop()
-	return rl
+	v, err := strconv.Atoi(val)
+	if err != nil || v <= 0 {
+		return 0, false
+	}
+	return v, true
 }
 
-func (rl *rateLimitManager) cleanupLoop() {
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		rl.cleanup()
+// effectiveRateLimit resolves the budget: built-in defaults, then positive
+// static config values, then positive runtime settings.
+func (c *Cerberus) effectiveRateLimit() (requests, windowSec, burst int) {
+	requests, windowSec, burst = defaultRateLimitRequests, defaultRateLimitWindowSec, defaultRateLimitBurst
+
+	if c.cfg.RateLimitRequests > 0 {
+		requests = c.cfg.RateLimitRequests
 	}
+	if c.cfg.RateLimitWindowSec > 0 {
+		windowSec = c.cfg.RateLimitWindowSec
+	}
+	if c.cfg.RateLimitBurst > 0 {
+		burst = c.cfg.RateLimitBurst
+	}
+
+	if v, ok := c.positiveSetting("security.rate_limit.requests"); ok {
+		requests = v
+	}
+	if v, ok := c.positiveSetting("security.rate_limit.window"); ok {
+		windowSec = v
+	}
+	if v, ok := c.positiveSetting("security.rate_limit.burst"); ok {
+		burst = v
+	}
+	return requests, windowSec, burst
 }
 
-func (rl *rateLimitManager) cleanup() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	cutoff := time.Now().Add(-10 * time.Minute)
-	for ip, seen := range rl.lastSeen {
-		if seen.Before(cutoff) {
-			delete(rl.limiters, ip)
-			delete(rl.lastSeen, ip)
-		}
-	}
-}
-
-func (rl *rateLimitManager) getLimiter(ip string, r rate.Limit, b int) *rate.Limiter {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	lim, exists := rl.limiters[ip]
-	if !exists {
-		lim = rate.NewLimiter(r, b)
-		rl.limiters[ip] = lim
-	}
-	rl.lastSeen[ip] = time.Now()
-
-	// Check if limit changed (re-config)
-	if lim.Limit() != r || lim.Burst() != b {
-		lim = rate.NewLimiter(r, b)
-		rl.limiters[ip] = lim
-	}
-
-	return lim
-}
-
-// NewRateLimitMiddleware creates a new rate limit middleware with fixed parameters.
-// Useful for testing or when Cerberus context is not available.
-func NewRateLimitMiddleware(requests int, windowSec int, burst int) gin.HandlerFunc {
-	mgr := newRateLimitManager()
-
-	if windowSec <= 0 {
-		windowSec = 1
-	}
-	limit := rate.Limit(float64(requests) / float64(windowSec))
-
-	return func(ctx *gin.Context) {
-		// Check for emergency bypass flag
-		if bypass, exists := ctx.Get("emergency_bypass"); exists && bypass.(bool) {
-			ctx.Next()
-			return
-		}
-
-		if isAdminSecurityControlPlaneRequest(ctx) {
-			ctx.Next()
-			return
-		}
-
-		clientIP := util.CanonicalizeIPForSecurity(ctx.ClientIP())
-		limiter := mgr.getLimiter(clientIP, limit, burst)
-
-		if !limiter.Allow() {
-			logger.Log().WithField("ip", util.SanitizeForLog(clientIP)).Warn("Rate limit exceeded (Go middleware)")
-			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests"})
-			return
-		}
-
-		ctx.Next()
-	}
-}
-
-// RateLimitMiddleware enforces rate limiting based on security config.
+// RateLimitMiddleware enforces the opt-in per-client API limit configured by
+// security config and settings. Each call returns an independent limiter.
 func (c *Cerberus) RateLimitMiddleware() gin.HandlerFunc {
-	mgr := newRateLimitManager()
+	clock := func() time.Time { return c.now() }
+	r, b := ratelimit.PerWindow(defaultRateLimitRequests, defaultRateLimitWindowSec*time.Second)
+	limiter := ratelimit.MustNewKeyedLimiter(ratelimit.Config{Rate: r, Burst: b, Now: clock})
 
 	return func(ctx *gin.Context) {
-		// Check for emergency bypass flag
-		if bypass, exists := ctx.Get("emergency_bypass"); exists && bypass.(bool) {
+		if middleware.IsEmergencyBypass(ctx) || c.isAdminSecurityControlPlaneRequest(ctx) || !c.rateLimitEnabled() {
 			ctx.Next()
 			return
 		}
 
-		if isAdminSecurityControlPlaneRequest(ctx) {
+		requests, windowSec, burst := c.effectiveRateLimit()
+		// float64 division: requests and windowSec are ints.
+		if err := limiter.Reconfigure(rate.Limit(float64(requests)/float64(windowSec)), burst); err != nil {
+			logger.Log().WithError(err).Error("Cerberus rate limiter: invalid budget; request not limited")
 			ctx.Next()
 			return
 		}
 
-		// Check config enabled status, then let dynamic setting override both true and false.
-		enabled := c.cfg.RateLimitMode == "enabled"
-		if v, ok := c.getSetting("security.rate_limit.enabled"); ok {
-			enabled = strings.EqualFold(v, "true")
-		}
-
-		if !enabled {
+		key := ratelimit.ClientKey(ctx.ClientIP())
+		decision := limiter.Allow(key)
+		if decision.Allowed {
 			ctx.Next()
 			return
 		}
 
-		// Determine limits
-		requests := 100 // per window
-		window := 60    // seconds
-		burst := 20
-
-		if c.cfg.RateLimitRequests > 0 {
-			requests = c.cfg.RateLimitRequests
-		}
-		if c.cfg.RateLimitWindowSec > 0 {
-			window = c.cfg.RateLimitWindowSec
-		}
-		if c.cfg.RateLimitBurst > 0 {
-			burst = c.cfg.RateLimitBurst
-		}
-
-		// Check for dynamic overrides from settings (Issue #3 fix)
-		if val, ok := c.getSetting("security.rate_limit.requests"); ok {
-			if v, err := strconv.Atoi(val); err == nil && v > 0 {
-				requests = v
-			}
-		}
-		if val, ok := c.getSetting("security.rate_limit.window"); ok {
-			if v, err := strconv.Atoi(val); err == nil && v > 0 {
-				window = v
-			}
-		}
-		if val, ok := c.getSetting("security.rate_limit.burst"); ok {
-			if v, err := strconv.Atoi(val); err == nil && v > 0 {
-				burst = v
-			}
-		}
-
-		if window == 0 {
-			window = 60
-		}
-		limit := rate.Limit(float64(requests) / float64(window))
-
-		clientIP := util.CanonicalizeIPForSecurity(ctx.ClientIP())
-		limiter := mgr.getLimiter(clientIP, limit, burst)
-
-		if !limiter.Allow() {
-			logger.Log().WithField("ip", util.SanitizeForLog(clientIP)).Warn("Rate limit exceeded (Go middleware)")
-			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests"})
-			return
-		}
-
-		ctx.Next()
+		c.logRateLimitDenial(ctx, key, decision)
+		ratelimit.Reject(ctx, decision)
 	}
+}
+
+// logRateLimitDenial logs the first denial of an episode at WARN (globally
+// capped) and everything else at DEBUG. No request data beyond the sanitized
+// client key and route template is logged.
+func (c *Cerberus) logRateLimitDenial(ctx *gin.Context, key string, d ratelimit.Decision) {
+	entry := middleware.GetRequestLogger(ctx).WithFields(map[string]any{
+		"client": util.SanitizeForLog(key),
+		"route":  util.SanitizeForLog(ctx.FullPath()),
+	})
+	c.rateLimitWarn.LogDenial(entry, d, "API rate limit exceeded")
 }

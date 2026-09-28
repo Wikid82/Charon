@@ -45,6 +45,8 @@ type UserHandler struct {
 	AuthService *services.AuthService
 	MailService *services.MailService
 	securitySvc *services.SecurityService
+	// passwordGuard throttles password verification; nil allows every attempt.
+	passwordGuard PasswordAttemptGuard
 }
 
 func NewUserHandler(db *gorm.DB, authService *services.AuthService) *UserHandler {
@@ -54,6 +56,11 @@ func NewUserHandler(db *gorm.DB, authService *services.AuthService) *UserHandler
 		MailService: services.NewMailService(db),
 		securitySvc: services.NewSecurityService(db),
 	}
+}
+
+// SetPasswordAttemptGuard charges email-change password checks to the sign-in budget.
+func (h *UserHandler) SetPasswordAttemptGuard(g PasswordAttemptGuard) {
+	h.passwordGuard = g
 }
 
 func (h *UserHandler) actorFromContext(c *gin.Context) string {
@@ -327,6 +334,9 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	if req.Email != user.Email {
 		if req.CurrentPassword == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Current password is required to change email"})
+			return
+		}
+		if !allowPasswordAttempt(h.passwordGuard, c) {
 			return
 		}
 		if !user.CheckPassword(req.CurrentPassword) {

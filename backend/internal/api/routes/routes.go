@@ -72,9 +72,10 @@ func migrateViewerToPassthrough(db *gorm.DB) {
 // of table T that has been manually pinned to a Let's Encrypt-provisioned
 // certificate — those certs are auto-managed by Caddy and must never be
 // assigned via certificate_id. ProxyHost and RedirectionHost share the exact
-// same CertificateID FK shape (see docs/plans/current_spec.md §7), so this
-// sweep is written once and applied to both tables instead of duplicating
-// the query/update per model.
+// same CertificateID FK shape (see
+// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §7),
+// so this sweep is written once and applied to both tables instead of
+// duplicating the query/update per model.
 func cleanInvalidLetsEncryptCertAssignments[T any](db *gorm.DB, tableName string, domainNamesOf func(T) string) {
 	var rows []T
 	joinClause := fmt.Sprintf("LEFT JOIN ssl_certificates ON %s.certificate_id = ssl_certificates.id", tableName)
@@ -316,11 +317,31 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		cfg.Security.ManagementCIDRs,
 	)
 
-	api.POST("/auth/login", authHandler.Login)
+	// Always-on per-client sign-in throttle (issue #1317). It runs after the
+	// Cerberus ACL (an ACL deny consumes no budget) and before AuthMiddleware, so
+	// unauthenticated floods are counted per client. auth.Use must run before
+	// auth.Group: Gin copies the parent's handler chain into a child group.
+	authRateLimiter, throttleErr := middleware.NewAuthRateLimiter(cfg.Security.AuthRateLimit, cfg.Security.TrustedProxies)
+	if throttleErr != nil {
+		return uptimeShutdown, fmt.Errorf("create sign-in throttle: %w", throttleErr)
+	}
+	logAuthThrottlePolicy(authRateLimiter.Status())
 
+	auth := api.Group("/auth")
+	auth.Use(authRateLimiter.Middleware())
+	auth.POST("/login", authHandler.Login)
 	// Forward auth endpoint for Caddy (public, validates session internally)
-	api.GET("/auth/verify", authHandler.Verify)
-	api.GET("/auth/status", authHandler.VerifyStatus)
+	auth.GET("/verify", authHandler.Verify)
+	auth.GET("/status", authHandler.VerifyStatus)
+
+	// Self-service session routes — accessible to all authenticated users including passthrough
+	authSession := auth.Group("", authMiddleware)
+	authSession.POST("/logout", authHandler.Logout)
+	authSession.POST("/refresh", authHandler.Refresh)
+	authSession.GET("/me", authHandler.Me)
+	authSession.POST("/change-password", authHandler.ChangePassword)
+	authSession.GET("/accessible-hosts", authHandler.GetAccessibleHosts)
+	authSession.GET("/check-host/:hostId", authHandler.CheckHostAccess)
 
 	// Runtime security event intake endpoint for Cerberus/Caddy bouncer
 	// This endpoint receives security events (WAF blocks, CrowdSec decisions, etc.) from Caddy middleware
@@ -330,6 +351,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// User handler (public endpoints)
 	userHandler := handlers.NewUserHandler(db, authService)
+	userHandler.SetPasswordAttemptGuard(authRateLimiter)
 	api.GET("/setup", userHandler.GetSetupStatus)
 	api.POST("/setup", userHandler.Setup)
 	api.GET("/invite/validate", userHandler.ValidateInvite)
@@ -368,12 +390,6 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	protected.Use(authMiddleware)
 	{
 		// Self-service routes — accessible to all authenticated users including passthrough
-		protected.POST("/auth/logout", authHandler.Logout)
-		protected.POST("/auth/refresh", authHandler.Refresh)
-		protected.GET("/auth/me", authHandler.Me)
-		protected.POST("/auth/change-password", authHandler.ChangePassword)
-		protected.GET("/auth/accessible-hosts", authHandler.GetAccessibleHosts)
-		protected.GET("/auth/check-host/:hostId", authHandler.CheckHostAccess)
 		protected.GET("/user/profile", userHandler.GetProfile)
 		protected.POST("/user/profile", userHandler.UpdateProfile)
 		protected.POST("/user/api-key", userHandler.RegenerateAPIKey)
@@ -857,6 +873,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		securityAdmin := management.Group("/security")
 		securityAdmin.Use(middleware.RequireRole(models.RoleAdmin))
+		securityAdmin.GET("/login-protection", handlers.NewLoginProtectionHandler(authRateLimiter).Get)
 		securityAdmin.POST("/config", securityHandler.UpdateConfig)
 		securityAdmin.POST("/enable", securityHandler.Enable)
 		securityAdmin.POST("/disable", securityHandler.Disable)
@@ -1004,6 +1021,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		certService := services.NewCertificateService(caddyDataDir, db, certEncSvc)
 		certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
 		certHandler.SetDB(db)
+		certHandler.SetPasswordAttemptGuard(authRateLimiter)
 
 		// Migrate unencrypted private keys
 		if err := certService.MigratePrivateKeys(); err != nil {
@@ -1041,7 +1059,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Redirection Hosts (Issue #1367): peer resource to ProxyHost, same
 		// management-tier access (globally-scoped, no tenant isolation, per
-		// the security review in docs/plans/current_spec.md §3).
+		// the security review in
+		// docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §3).
 		redirectionHostHandler := handlers.NewRedirectionHostHandler(db, caddyManager)
 		redirectionHostHandler.RegisterRoutes(management)
 
@@ -1105,4 +1124,15 @@ func RegisterImportHandler(router *gin.Engine, db *gorm.DB, cfg config.Config, c
 	// JSON Import Handler - supports both Charon and NPM export formats
 	jsonImportHandler := handlers.NewJSONImportHandler(db)
 	jsonImportHandler.RegisterRoutes(authenticatedAdmin)
+}
+
+// logAuthThrottlePolicy logs the effective sign-in throttle policy once at
+// startup, and a WARN when the throttle is turned off.
+func logAuthThrottlePolicy(st middleware.AuthRateLimitStatus) {
+	logger.Log().Infof("auth throttle: login %d/%ds, session %d/%ds per client; trusted proxies: %d",
+		st.Login.Requests, st.Login.WindowSeconds, st.Session.Requests, st.Session.WindowSeconds, st.TrustedProxyCount)
+	if !st.Enabled {
+		logger.Log().Warnf("auth throttle: disabled by %s=false; sign-in attempts are not limited per client",
+			config.EnvAuthRateLimitEnabled)
+	}
 }

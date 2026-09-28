@@ -221,33 +221,37 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
     });
 
-    test('should support row selection for bulk operations', { retries: 1 }, async ({ page }) => {
-      const hostConfig = generateProxyHost();
+    // Playwright has no per-test retries option; scope the retry to this test via a describe.
+    test.describe('Bulk row selection (retried)', () => {
+      test.describe.configure({ retries: 1 });
+      test('should support row selection for bulk operations', async ({ page }) => {
+        const hostConfig = generateProxyHost();
 
-      await test.step('Seed a proxy host so a real row exists to select', async () => {
-        // The select-all checkbox in <thead> renders even when the table is
-        // empty, so checking for its presence alone doesn't guarantee row
-        // data exists. Seed a host directly via the API for deterministic
-        // setup instead of relying on other tests leaving hosts behind.
-        await seedProxyHostViaAPI(page, {
-          domain: hostConfig.domain,
-          forwardHost: hostConfig.forwardHost,
-          forwardPort: hostConfig.forwardPort,
+        await test.step('Seed a proxy host so a real row exists to select', async () => {
+          // The select-all checkbox in <thead> renders even when the table is
+          // empty, so checking for its presence alone doesn't guarantee row
+          // data exists. Seed a host directly via the API for deterministic
+          // setup instead of relying on other tests leaving hosts behind.
+          await seedProxyHostViaAPI(page, {
+            domain: hostConfig.domain,
+            forwardHost: hostConfig.forwardHost,
+            forwardPort: hostConfig.forwardPort,
+          });
+
+          await page.reload();
+          await waitForLoadingComplete(page);
         });
 
-        await page.reload();
-        await waitForLoadingComplete(page);
-      });
+        await test.step('Select all rows and verify bulk action bar appears', async () => {
+          const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
+          await expect(selectAllCheckbox).toBeVisible();
 
-      await test.step('Select all rows and verify bulk action bar appears', async () => {
-        const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
-        await expect(selectAllCheckbox).toBeVisible();
+          await selectAllCheckbox.click();
 
-        await selectAllCheckbox.click();
-
-        // Should show bulk action bar
-        const bulkBar = page.getByText(/selected/i);
-        await expect(bulkBar).toBeVisible();
+          // Should show bulk action bar
+          const bulkBar = page.getByText(/selected/i);
+          await expect(bulkBar).toBeVisible();
+        });
       });
     });
   });

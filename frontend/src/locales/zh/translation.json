@@ -250,7 +250,9 @@
     "loginSuccess": "登录成功",
     "loginFailed": "登录失败",
     "resetPasswordTitle": "重置密码：",
-    "resetPasswordInstructions": "在服务器上运行此命令："
+    "resetPasswordInstructions": "在服务器上运行此命令：",
+    "rateLimitAdminHint": "您是管理员吗？如果所有人都看到此消息，Charon 可能无法获取访问者的真实地址。",
+    "rateLimitAdminHintLink": "代理后的登录保护如何工作"
   },
   "errors": {
     "required": "此字段为必填项",
@@ -260,7 +262,14 @@
     "networkError": "网络错误。请检查您的连接。",
     "unauthorized": "未授权。请重新登录。",
     "notFound": "未找到资源",
-    "serverError": "服务器错误。请稍后再试。"
+    "serverError": "服务器错误。请稍后再试。",
+    "tooManyRequests": "尝试次数过多。请稍候后重试。",
+    "tooManyRequestsSeconds_one": "尝试次数过多。请等待 {{count}} 秒后重试。",
+    "tooManyRequestsSeconds_other": "尝试次数过多。请等待 {{count}} 秒后重试。",
+    "tooManyRequestsSeconds": "尝试次数过多。请等待 {{count}} 秒后重试。",
+    "tooManyRequestsMinutes_one": "尝试次数过多。请等待 {{count}} 分钟后重试。",
+    "tooManyRequestsMinutes_other": "尝试次数过多。请等待 {{count}} 分钟后重试。",
+    "tooManyRequestsMinutes": "尝试次数过多。请等待 {{count}} 分钟后重试。"
   },
   "notifications": {
     "saveSuccess": "更改已成功保存",
@@ -409,7 +418,30 @@
     "guardianRests": "守护者休息...",
     "crowdsecStopping": "CrowdSec 正在停止",
     "strengtheningGuard": "加强守卫...",
-    "wardsActivating": "保护结界激活中"
+    "wardsActivating": "保护结界激活中",
+    "loginProtection": {
+      "title": "登录保护",
+      "statusOn": "已开启",
+      "statusOff": "已关闭",
+      "disabledMessage": "登录保护已关闭（CHARON_AUTH_RATELIMIT_ENABLED=false）。",
+      "budgetLogin": "登录尝试：每{{window}} {{requests}} 次",
+      "budgetSession": "会话检查：每{{window}} {{requests}} 次",
+      "callerAddress": "Charon 将您的浏览器识别为 {{address}}（{{scope}}）。",
+      "runtimeNatHint": "如果这不是您设备的地址，可能是代理或容器运行环境隐藏了访问者地址。",
+      "untrustedPrivate_one": "来自 {{peer}} 的转发客户端地址被忽略（{{count}} 次，最近一次：{{when}}）。如果 {{peer}} 是您的反向代理，请将 {{suggestion}} 添加到 CHARON_TRUSTED_PROXIES。也可能是访问者一侧网络中的代理，因此只有在您认识该地址时才添加。",
+      "untrustedPrivate_other": "来自 {{peer}} 的转发客户端地址被忽略（{{count}} 次，最近一次：{{when}}）。如果 {{peer}} 是您的反向代理，请将 {{suggestion}} 添加到 CHARON_TRUSTED_PROXIES。也可能是访问者一侧网络中的代理，因此只有在您认识该地址时才添加。",
+      "untrustedPrivate": "来自 {{peer}} 的转发客户端地址被忽略（{{count}} 次，最近一次：{{when}}）。如果 {{peer}} 是您的反向代理，请将 {{suggestion}} 添加到 CHARON_TRUSTED_PROXIES。也可能是访问者一侧网络中的代理，因此只有在您认识该地址时才添加。",
+      "untrustedPublic_one": "Charon 忽略了来自公网地址（{{peer}}，{{count}} 次，最近一次：{{when}}）的转发客户端地址标头。这通常是有人发送了伪造的标头，无需采取任何操作。",
+      "untrustedPublic_other": "Charon 忽略了来自公网地址（{{peer}}，{{count}} 次，最近一次：{{when}}）的转发客户端地址标头。这通常是有人发送了伪造的标头，无需采取任何操作。",
+      "untrustedPublic": "Charon 忽略了来自公网地址（{{peer}}，{{count}} 次，最近一次：{{when}}）的转发客户端地址标头。这通常是有人发送了伪造的标头，无需采取任何操作。",
+      "scope": {
+        "loopback": "回环地址",
+        "private": "私有网络",
+        "public": "公网地址"
+      },
+      "docsLink": "在文档中了解更多",
+      "loadError": "无法加载登录保护状态。"
+    }
   },
   "accessLists": {
     "title": "访问列表",

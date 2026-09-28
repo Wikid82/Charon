@@ -5,6 +5,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { ThemeProvider } from '../../context/ThemeContext'
 import { useTheme } from '../useTheme'
 
+vi.mock('../useAuth', () => ({ useAuth: () => ({ isAuthenticated: true }) }))
+
 // Mock the themes API so ThemeProvider's useUserThemes doesn't fail
 vi.mock('../../api/themes', () => ({
   listUserThemes: vi.fn().mockResolvedValue([]),

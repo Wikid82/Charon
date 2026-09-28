@@ -362,6 +362,22 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 
 ---
 
+## Login Protection
+
+Charon slows down repeated sign-in attempts from the same client. It is on by default.
+
+- **What is covered:** signing in, refreshing a session, and every place that asks for your account password (changing your password, changing your email, exporting a certificate key). All password checks from one client share one allowance.
+- **Default allowance:** 10 password attempts, then about one more per minute. Session refreshes allow 60 per minute.
+- **What clients see:** HTTP 429 with a `Retry-After` header, and a "please wait" message on the login page.
+- **Clients:** IPv4 addresses are counted individually. IPv6 addresses are counted per /64 network.
+- **Works with account lockout:** 5 wrong passwords still lock an account for 15 minutes.
+- **Emergency access:** valid break-glass requests, the emergency endpoints and the Tier-2 server are never throttled.
+- **Restarts:** counters live in memory and reset when Charon restarts.
+
+Behind a reverse proxy, list the proxy in `CHARON_TRUSTED_PROXIES` so Charon counts real visitors instead of the proxy. See [Trusted Proxies](configuration/trusted-proxies.md). Settings and troubleshooting are in [Login Protection](features/login-protection.md). Administrators can see the effective settings on the Security page.
+
+---
+
 ## Certificate Management Security
 
 **What it protects:** Certificate deletion is a destructive operation that requires proper authorization.
@@ -490,10 +506,10 @@ Use when all application-level recovery methods fail, or you need to perform sys
 
 - ✅ **Double authentication**: Emergency token + source IP verification (management CIDR)
 - ✅ **Timing-safe comparison**: Prevents timing attacks on token validation
-- ✅ **Rate limiting**: 5 attempts per minute per IP
+- ✅ **Never throttled**: Login protection and the API rate limiter skip valid emergency requests, so break-glass access always works. The token and source-IP checks are the protection
 - ✅ **Audit logging**: All emergency token usage is logged
 - ⚠️ **Token in headers**: Use HTTPS only to protect token in transit
-- ⚠️ **ClientIP spoofing**: Configure trusted proxies correctly
+- ⚠️ **ClientIP spoofing**: Configure trusted proxies correctly. See [Trusted Proxies](configuration/trusted-proxies.md)
 
 **Tier 2 Security:**
 

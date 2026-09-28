@@ -15,13 +15,13 @@ http://localhost:8080/api/v1
 
 ## Authentication
 
-🚧 Authentication is not yet implemented. All endpoints are currently public.
-
-Future authentication will use JWT tokens:
+Sign in with `POST /api/v1/auth/login`. Charon sets an `auth_token` session cookie. API clients may instead send the token as a bearer header:
 
 ```http
 Authorization: Bearer <token>
 ```
+
+Public routes: `POST /auth/login`, `GET /auth/verify`, `GET /auth/status`, the setup and invite routes. Every other route requires a valid session. Some routes additionally require the `admin` role.
 
 ## Response Format
 
@@ -1760,12 +1760,61 @@ DELETE /import/cancel?session_uuid=770e8400-e29b-41d4-a716-446655440000
 
 ## Rate Limiting
 
-🚧 Rate limiting is not yet implemented.
+Two independent limiters can answer `429 Too Many Requests`. Both use the same response:
 
-Future rate limits:
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+Content-Type: application/json; charset=utf-8
 
-- 100 requests per minute per IP
-- 1000 requests per hour per IP
+{"error":"Too many requests. Please wait before trying again."}
+```
+
+`Retry-After` is an integer number of seconds (at least 1). The body never echoes request data.
+
+### Login protection (always on)
+
+A per-client token bucket in front of `/api/v1/auth/*` and every route that verifies an account password.
+
+| Class     | Routes                                                                                                                                             | Default budget                                       |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `login`   | `POST /auth/login`, `POST /auth/change-password`, `POST /user/profile` (email change only), `POST /certificates/:uuid/export` (with `include_key`) | 10 requests per 600 s (burst 10, one token per 60 s) |
+| `session` | `POST /auth/refresh`, `GET /auth/status`, any future `/auth` route                                                                                 | 60 requests per 60 s                                 |
+
+All password verifications from one client share the `login` bucket. `GET /auth/verify`, `GET /auth/me`, `POST /auth/logout`, `GET /auth/accessible-hosts` and `GET /auth/check-host/:hostId` are not throttled. Valid emergency bypass requests, `/api/v1/emergency/*` and the Tier-2 server are never throttled.
+
+Clients are identified by the resolved client address (IPv4 per address, IPv6 per /64). Behind a reverse proxy, configure `CHARON_TRUSTED_PROXIES` so the real client is used; see [Trusted Proxies](configuration/trusted-proxies.md). Budgets are configurable through the `CHARON_AUTH_RATELIMIT_*` environment variables; see [Login Protection](features/login-protection.md). State is in memory and resets on restart.
+
+### API rate limiter (opt-in)
+
+The Cerberus rate limiter, off by default, defaults to 100 requests per 60 s with a burst of 20 per client when enabled. Validated administrator requests to `/api/v1/security`, `/api/v1/settings` and `/api/v1/config` are exempt.
+
+### Login protection status
+
+```http
+GET /security/login-protection
+```
+
+Admin only. Returns the effective settings and how Charon sees the caller.
+
+```json
+{
+  "enabled": true,
+  "login":   { "requests": 10, "window_seconds": 600 },
+  "session": { "requests": 60, "window_seconds": 60 },
+  "trusted_proxy_count": 1,
+  "caller_client_key": "203.0.113.7",
+  "caller_client_scope": "public",
+  "untrusted_forwarded_headers": {
+    "local":  { "count": 3, "last_seen": "2026-09-24T10:11:12Z", "last_peer": "172.18.0.5", "last_peer_scope": "private" },
+    "public": { "count": 0, "last_seen": null, "last_peer": "", "last_peer_scope": "" }
+  }
+}
+```
+
+- `trusted_proxy_count` is the number of entries in the effective (validated) trusted-proxy list.
+- `caller_client_key` and `caller_client_scope` (`loopback`, `private` or `public`) show the client identity Charon uses for the current request.
+- `untrusted_forwarded_headers` counts requests that carried `X-Forwarded-For` or `X-Real-IP` from a peer that is not a trusted proxy, kept separately for local (loopback or private) and public peers. `last_seen` is `null` while `count` is 0.
 
 ## Pagination
 

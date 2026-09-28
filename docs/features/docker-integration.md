@@ -187,4 +187,5 @@ With this setup, Charon talks to the proxy instead of the raw Docker socket. The
 
 - [Web UI](web-ui.md) - Point & click management
 - [SSL Certificates](ssl-certificates.md) - Automatic HTTPS for proxied containers
+- [Using Charon with Podman](../guides/podman-usage.md) - Connect discovery to a Podman socket instead of Docker's
 - [Back to Features](../features.md)

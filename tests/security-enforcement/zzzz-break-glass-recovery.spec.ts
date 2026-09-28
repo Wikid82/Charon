@@ -175,7 +175,7 @@ test.describe.serial('Break Glass Recovery - Test-Runner Whitelist', () => {
       console.log(`   ACL:      ${body.acl?.enabled ? '✅ ENABLED' : '❌ DISABLED'}`);
       console.log(`   WAF:      ${body.waf?.enabled ? '✅ ENABLED' : '❌ DISABLED'}`);
       console.log(`   Rate Lim: ${body.rate_limit?.enabled ? '✅ ENABLED' : '❌ DISABLED'}`);
-      console.log(`   CrowdSec: ${body.crowdsec?.running ? '✅ RUNNING' : '⚠️  Not Available'}`);
+      console.log(`   CrowdSec: ${body.crowdsec?.enabled ? '✅ ENABLED' : '⚠️  Not Available'}`);
     });
 
     await test.step('Verify admin whitelist is set to test-runner CIDRs', async () => {

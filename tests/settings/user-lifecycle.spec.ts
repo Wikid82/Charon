@@ -1,4 +1,5 @@
 import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import type { UserRole } from '../utils/TestDataManager';
 import { waitForLoadingComplete, gotoTolerant, reloadTolerant } from '../utils/wait-helpers';
 import { suppressChangelogModal } from '../utils/api-helpers';
 
@@ -164,7 +165,7 @@ function findLifecycleEntry(
 
 async function createUserViaApi(
   page: import('@playwright/test').Page,
-  user: { email: string; name: string; password: string; role: 'admin' | 'user' | 'guest' }
+  user: { email: string; name: string; password: string; role: UserRole }
 ): Promise<{ id: string | number; email: string }> {
   const token = await getAuthToken(page);
   const response = await page.request.post('/api/v1/users', {
@@ -399,7 +400,7 @@ test.describe('Admin-User E2E Workflow', () => {
 
     await test.step('STEP 5: User sees restricted dashboard', async () => {
       const dashboard = page.getByRole('main').first();
-      await expect(dashboard).toBeVisible();
+      await expect(dashboard).toBeVisible({ timeout: 15000 });
 
       // User role should see limited menu items
       const userMenu = page.locator('nav, [role="navigation"]').first();
@@ -772,7 +773,7 @@ test.describe('PR-3: Passthrough User Access Restriction (F4)', () => {
       email: `passthrough-${suffix}@test.local`,
       name: `Passthrough User ${suffix}`,
       password: 'PassthroughPass123!',
-      role: 'passthrough' as 'admin' | 'user' | 'passthrough',
+      role: 'passthrough',
     };
     let ptUserId: string | number | undefined;
 
@@ -802,9 +803,13 @@ test.describe('PR-3: Passthrough User Access Restriction (F4)', () => {
     });
 
     await test.step('Passthrough user navigating to management route is redirected to /passthrough', async () => {
-      await page.goto('/settings/users', { waitUntil: 'domcontentloaded' }).catch(() => {});
-      await page.waitForURL(/\/passthrough/, { timeout: 15000 });
-      await expect(page).toHaveURL(/\/passthrough/);
+      // Retry the navigation as a unit: Firefox can drop the navigation-commit
+      // event for a goto() fired while the post-login navigation is still
+      // settling, leaving page.url() empty (see gotoTolerant's doc comment).
+      await expect(async () => {
+        await gotoTolerant(page, '/settings/users', { timeout: 10000 });
+        await expect(page).toHaveURL(/\/passthrough/, { timeout: 5000 });
+      }).toPass({ timeout: 60000 });
     });
 
     await test.step('PassthroughLanding displays welcome heading and no-access message', async () => {
@@ -821,7 +826,7 @@ test.describe('PR-3: Passthrough User Access Restriction (F4)', () => {
     await test.step('Cleanup: admin logs back in and deletes passthrough user', async () => {
       // Logout passthrough user
       await page.getByRole('button', { name: /logout/i }).click();
-      await page.waitForURL(/login/, { timeout: 10000 });
+      await expect(page).toHaveURL(/login/, { timeout: 10000 });
 
       // Login as admin
       await loginWithCredentials(page, adminEmail, TEST_PASSWORD);
@@ -857,7 +862,7 @@ test.describe('PR-3: Regular User Has No Admin Navigation Items (F9)', () => {
       email: `navtest-user-${suffix}@test.local`,
       name: `Nav Test User ${suffix}`,
       password: 'NavTestPass123!',
-      role: 'user' as 'admin' | 'user' | 'passthrough',
+      role: 'user',
     };
     let regularUserId: string | number | undefined;
 

@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -1362,10 +1363,8 @@ func (h *SecurityHandler) ensureSecurityConfigEnabled() error {
 }
 
 func (h *SecurityHandler) allowACLEnable(c *gin.Context) bool {
-	if bypass, exists := c.Get("emergency_bypass"); exists {
-		if bypassActive, ok := bypass.(bool); ok && bypassActive {
-			return true
-		}
+	if middleware.IsEmergencyBypass(c) {
+		return true
 	}
 
 	cfg, err := h.svc.Get()

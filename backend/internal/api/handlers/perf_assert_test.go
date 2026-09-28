@@ -32,8 +32,17 @@ func setupPerfDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// thresholdFromEnv loads threshold from environment var as milliseconds
-// thresholdFromEnv removed — tests use inline environment parsing for clarity.
+// perfThresholdMs returns the P95 limit in ms: the env override (a Go duration,
+// used verbatim) if set and valid, else defaultMs scaled by raceOverheadFactor so
+// the race detector's instrumentation overhead does not cause false failures.
+func perfThresholdMs(envName string, defaultMs float64) float64 {
+	if env := os.Getenv(envName); env != "" {
+		if parsed, err := time.ParseDuration(env); err == nil {
+			return ms(parsed)
+		}
+	}
+	return defaultMs * raceOverheadFactor
+}
 
 // gatherStats runs the request counts times and returns durations ms
 func gatherStats(t *testing.T, req *http.Request, router http.Handler, counts int) []float64 {
@@ -103,13 +112,7 @@ func TestPerf_GetStatus_AssertThreshold(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 	samples := gatherStats(t, req, router, counts)
 	avg, _, p95, _, maxVal := computePercentiles(samples)
-	// default thresholds ms
-	thresholdP95 := 2.0 // 2ms per request
-	if env := os.Getenv("PERF_MAX_MS_GETSTATUS_P95"); env != "" {
-		if parsed, err := time.ParseDuration(env); err == nil {
-			thresholdP95 = ms(parsed)
-		}
-	}
+	thresholdP95 := perfThresholdMs("PERF_MAX_MS_GETSTATUS_P95", 2.0)
 	// fail if p95 exceeds threshold
 	t.Logf("GetStatus avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, maxVal)
 	if p95 > thresholdP95 {
@@ -149,12 +152,7 @@ func TestPerf_GetStatus_Parallel_AssertThreshold(t *testing.T) {
 		collected = append(collected, <-samples)
 	}
 	avg, _, p95, _, maxVal := computePercentiles(collected)
-	thresholdP95 := 5.0 // 5ms default
-	if env := os.Getenv("PERF_MAX_MS_GETSTATUS_P95_PARALLEL"); env != "" {
-		if parsed, err := time.ParseDuration(env); err == nil {
-			thresholdP95 = ms(parsed)
-		}
-	}
+	thresholdP95 := perfThresholdMs("PERF_MAX_MS_GETSTATUS_P95_PARALLEL", 5.0)
 	t.Logf("GetStatus Parallel avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, maxVal)
 	if p95 > thresholdP95 {
 		t.Fatalf("GetStatus Parallel P95 (%.3fms) exceeds threshold %.3fms", p95, thresholdP95)
@@ -179,12 +177,7 @@ func TestPerf_ListDecisions_AssertThreshold(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/security/decisions?limit=50", http.NoBody)
 	samples := gatherStats(t, req, router, counts)
 	avg, _, p95, _, maxVal := computePercentiles(samples)
-	thresholdP95 := 30.0 // 30ms default
-	if env := os.Getenv("PERF_MAX_MS_LISTDECISIONS_P95"); env != "" {
-		if parsed, err := time.ParseDuration(env); err == nil {
-			thresholdP95 = ms(parsed)
-		}
-	}
+	thresholdP95 := perfThresholdMs("PERF_MAX_MS_LISTDECISIONS_P95", 30.0)
 	t.Logf("ListDecisions avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, maxVal)
 	if p95 > thresholdP95 {
 		t.Fatalf("ListDecisions P95 (%.3fms) exceeds threshold %.3fms", p95, thresholdP95)

@@ -13,11 +13,9 @@ func OptionalAuth(authService *services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		if bypass, exists := c.Get("emergency_bypass"); exists {
-			if bypassActive, ok := bypass.(bool); ok && bypassActive {
-				c.Next()
-				return
-			}
+		if IsEmergencyBypass(c) {
+			c.Next()
+			return
 		}
 
 		if _, exists := c.Get("role"); exists {

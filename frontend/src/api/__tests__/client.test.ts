@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 
+// Initialises the global i18next instance the interceptor translates with
+import '../../i18n'
 import { setAuthErrorHandler, setAuthToken } from '../client'
 
 type ResponseHandler = (value: unknown) => unknown
@@ -9,10 +11,12 @@ type ErrorHandler = (error: ResponseError) => Promise<never>
 type ResponseError = {
   response?: {
     status?: number
+    headers?: Record<string, string>
     data?: Record<string, unknown>
   }
   config?: {
     url?: string
+    authEpoch?: number
   }
   message?: string
 }
@@ -21,6 +25,7 @@ type ResponseError = {
 const capturedHandlers = vi.hoisted(() => ({
   onFulfilled: undefined as ResponseHandler | undefined,
   onRejected: undefined as ErrorHandler | undefined,
+  onRequest: undefined as ((config: { authEpoch?: number }) => { authEpoch?: number }) | undefined,
 }))
 
 vi.mock('axios', () => {
@@ -31,6 +36,12 @@ vi.mock('axios', () => {
       },
     },
     interceptors: {
+      request: {
+        use: vi.fn((onRequest: (config: { authEpoch?: number }) => { authEpoch?: number }) => {
+          capturedHandlers.onRequest = onRequest
+          return vi.fn()
+        }),
+      },
       response: {
         use: vi.fn((onFulfilled?: ResponseHandler, onRejected?: ErrorHandler) => {
           capturedHandlers.onFulfilled = onFulfilled
@@ -224,5 +235,91 @@ describe('api client', () => {
     expect(fulfilled).toBeDefined()
     const result = fulfilled ? fulfilled(responsePayload) : undefined
     expect(result).toBe(responsePayload)
+  })
+
+  describe('stale 401 protection', () => {
+    const unauthorized = (authEpoch: number): ResponseError => ({
+      response: { status: 401, data: { error: 'Unauthorized' } },
+      config: { url: '/themes', authEpoch },
+      message: 'Request failed with status code 401',
+    })
+    const stamp = () => capturedHandlers.onRequest?.({})?.authEpoch as number
+
+    it('ignores a 401 for a request issued before the current sign-in', async () => {
+      const onAuthError = vi.fn()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      setAuthErrorHandler(onAuthError)
+      setAuthToken(null)
+      const anonymousEpoch = stamp()
+
+      setAuthToken('fresh-login-token')
+
+      const error = unauthorized(anonymousEpoch)
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(onAuthError).not.toHaveBeenCalled()
+
+      setAuthErrorHandler(null)
+      warnSpy.mockRestore()
+    })
+
+    it('still expires the session for a 401 made with the current token', async () => {
+      const onAuthError = vi.fn()
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      setAuthErrorHandler(onAuthError)
+      setAuthToken('current-token')
+
+      const error = unauthorized(stamp())
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(onAuthError).toHaveBeenCalledTimes(1)
+
+      setAuthErrorHandler(null)
+      warnSpy.mockRestore()
+    })
+
+    it('does not advance the epoch when the token is unchanged', () => {
+      setAuthToken('same-token')
+      const before = stamp()
+      setAuthToken('same-token')
+      expect(stamp()).toBe(before)
+    })
+  })
+
+  describe('429 throttling', () => {
+    const throttled = (headers: Record<string, string>): ResponseError => ({
+      response: {
+        status: 429,
+        headers,
+        data: { error: 'Too many requests. Please wait before trying again.' },
+      } as ResponseError['response'],
+      config: { url: '/auth/login' },
+      message: 'Request failed with status code 429',
+    })
+
+    it('replaces the message with a localized wait in seconds', async () => {
+      const error = throttled({ 'retry-after': '42' })
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(error.message).toBe('Too many attempts. Please wait 42 seconds and try again.')
+    })
+
+    it('uses minutes for waits of a minute or more', async () => {
+      const error = throttled({ 'retry-after': '90' })
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(error.message).toBe('Too many attempts. Please wait 2 minutes and try again.')
+    })
+
+    it('uses the generic message without Retry-After', async () => {
+      const error = throttled({})
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(error.message).toBe('Too many attempts. Please wait a moment and try again.')
+    })
+
+    it('does not trigger the session-expiry handler', async () => {
+      const onAuthError = vi.fn()
+      setAuthErrorHandler(onAuthError)
+      const error = throttled({ 'retry-after': '5' })
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(onAuthError).not.toHaveBeenCalled()
+      setAuthErrorHandler(null)
+    })
   })
 })

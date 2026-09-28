@@ -13,7 +13,7 @@ import (
 // dataDir is the application data directory (e.g. filepath.Dir(cfg.DatabasePath)).
 // When non-empty, /uploads is served from dataDir/uploads for custom logo files.
 // trustedProxies lists IPs/CIDRs of reverse proxies whose forwarded headers
-// Gin's own ClientIP() should honor (see docs/plans/current_spec.md §13).
+// Gin's own ClientIP() should honor (see docs/configuration/trusted-proxies.md).
 // Empty/nil trusts nothing, matching Gin's SetTrustedProxies(nil) default.
 func NewRouter(frontendDir string, dataDir string, trustedProxies []string) *gin.Engine {
 	router := gin.Default()
