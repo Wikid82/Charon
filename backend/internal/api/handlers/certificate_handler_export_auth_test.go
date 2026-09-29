@@ -64,7 +64,7 @@ func newExportHarness(t *testing.T, guard PasswordAttemptGuard, preMiddleware ..
 	return &exportHarness{t: t, db: db, auth: authSvc, handler: h, router: r, certUUID: info.UUID}
 }
 
-func (e *exportHarness) createUser(role models.UserRole) (*models.User, string) {
+func (e *exportHarness) createUser(role models.UserRole) (user *models.User, token string) {
 	e.t.Helper()
 	u := &models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: uuid.NewString() + "@example.com", Role: role, Enabled: true}
 	require.NoError(e.t, u.SetPassword(exportTestPassword))
