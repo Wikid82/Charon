@@ -49,7 +49,7 @@ type RealCommandExecutor struct{}
 
 // Execute runs a command and returns its combined output (stdout/stderr)
 func (r *RealCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: executor interface; all callers pass the literal "cscli"
 	return cmd.CombinedOutput()
 }
 
@@ -846,13 +846,17 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		if info.IsDir() {
 			return nil
 		}
+		// Never follow symlinks: filepath.Walk reports them via Lstat, so skip them here.
+		if info.Mode()&os.ModeSymlink != 0 {
+			logger.Log().Warnf("skipping symlink %s during export", util.SanitizeForLog(path))
+			return nil
+		}
 		rel, err := filepath.Rel(h.DataDir, path)
 		if err != nil {
 			return err
 		}
 		// Open file
-		// #nosec G304 -- path is validated via filepath.Walk within CrowdSecDataDir
-		f, err := os.Open(path)
+		f, err := os.Open(path) //nolint:gosec // G122,G304: symlinks skipped above; DataDir is Charon-owned
 		if err != nil {
 			return err
 		}

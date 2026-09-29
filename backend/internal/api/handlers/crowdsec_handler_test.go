@@ -339,6 +339,44 @@ func TestExportConfigStreamsArchive(t *testing.T) {
 	require.True(t, found, "expected exported archive to contain config file")
 }
 
+func TestExportConfigSkipsSymlinks(t *testing.T) {
+	t.Parallel()
+	db := setupCrowdDB(t)
+	dataDir := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o600)) // #nosec G306 -- test fixture
+	secret := filepath.Join(outside, "secret.txt")
+	require.NoError(t, os.WriteFile(secret, []byte("secret"), 0o600)) // #nosec G306 -- test fixture
+	require.NoError(t, os.Symlink(secret, filepath.Join(dataDir, "file-link")))
+	require.NoError(t, os.Symlink(outside, filepath.Join(dataDir, "dir-link")))
+
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	gr, err := gzip.NewReader(bytes.NewReader(w.Body.Bytes()))
+	require.NoError(t, err)
+	tr := tar.NewReader(gr)
+	var names []string
+	for {
+		hdr, nextErr := tr.Next()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		require.NoError(t, nextErr)
+		names = append(names, hdr.Name)
+	}
+	require.Equal(t, []string{"config.yaml"}, names)
+}
+
 func TestWriteFileCreatesBackup(t *testing.T) {
 	t.Parallel()
 	db := setupCrowdDB(t)
