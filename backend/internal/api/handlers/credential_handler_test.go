@@ -38,6 +38,13 @@ func setupCredentialHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB, *models.DN
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 
+	// Shared-cache SQLite reports table-level lock conflicts as SQLITE_LOCKED, which
+	// ignores busy_timeout. The audit worker writes on a second pooled connection
+	// while handlers save, so serialize everything onto one connection.
+	sqlDBConn, err := db.DB()
+	require.NoError(t, err)
+	sqlDBConn.SetMaxOpenConns(1)
+
 	// Close database connection when test completes
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
