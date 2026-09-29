@@ -389,7 +389,7 @@ func (u *dropboxUploader) Test(ctx context.Context) error {
 
 // apiPost issues a JSON-body POST against the Dropbox api (not content)
 // host, decoding the JSON response into out (if non-nil).
-func (u *dropboxUploader) apiPost(ctx context.Context, endpoint string, body any, out any) error {
+func (u *dropboxUploader) apiPost(ctx context.Context, endpoint string, body, out any) error {
 	bodyJSON, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("dropbox: encode request body: %w", err)

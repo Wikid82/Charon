@@ -649,7 +649,7 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 	// TCP pre-check entirely — individual checkMonitor calls determine status.
 	hasDialable := false
 	for _, m := range monitors {
-		if strings.ToLower(m.Type) != "orthrus" {
+		if !strings.EqualFold(m.Type, "orthrus") {
 			hasDialable = true
 			break
 		}
@@ -686,7 +686,7 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 
 	for _, monitor := range monitors {
 		// Orthrus liveness is checked per-monitor via session state, not TCP pre-check.
-		if strings.ToLower(monitor.Type) == "orthrus" {
+		if strings.EqualFold(monitor.Type, "orthrus") {
 			continue
 		}
 

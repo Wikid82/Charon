@@ -221,7 +221,7 @@ func (s *BackupRemoteService) Create(name, targetType string, enabled bool, conf
 		return nil, fmt.Errorf("marshal remote target config: %w", err)
 	}
 
-	secretsJSON, err := json.Marshal(secrets)
+	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
 	if err != nil {
 		return nil, fmt.Errorf("marshal remote target secrets: %w", err)
 	}
@@ -297,7 +297,7 @@ func (s *BackupRemoteService) Update(uuidStr string, name *string, enabled *bool
 		if s.encryption == nil {
 			return nil, ErrEncryptionKeyMissing
 		}
-		secretsJSON, err := json.Marshal(*secrets)
+		secretsJSON, err := json.Marshal(*secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
 		if err != nil {
 			return nil, fmt.Errorf("marshal remote target secrets: %w", err)
 		}
@@ -387,7 +387,7 @@ func (t *remoteTargetTokenSaver) SaveToken(_ context.Context, accessToken, refre
 	secrets.OAuthRefreshToken = refreshToken
 	secrets.OAuthExpiresAt = expiresAt.UTC().Format(time.RFC3339)
 
-	secretsJSON, err := json.Marshal(secrets)
+	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
 	if err != nil {
 		return fmt.Errorf("marshal refreshed oauth secrets: %w", err)
 	}
@@ -764,7 +764,7 @@ func (s *BackupRemoteService) CompleteOAuth(ctx context.Context, targetUUID, pro
 	secrets.OAuthRefreshToken = tok.RefreshToken
 	secrets.OAuthExpiresAt = tok.Expiry.UTC().Format(time.RFC3339)
 
-	secretsJSON, err := json.Marshal(secrets)
+	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
 	if err != nil {
 		return fmt.Errorf("marshal oauth secrets: %w", err)
 	}
@@ -809,7 +809,7 @@ func (s *BackupRemoteService) DisconnectOAuth(uuidStr string) (*models.RemoteSto
 		secrets.OAuthRefreshToken = ""
 		secrets.OAuthExpiresAt = ""
 
-		secretsJSON, err := json.Marshal(secrets)
+		secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
 		if err != nil {
 			return nil, fmt.Errorf("marshal oauth secrets: %w", err)
 		}

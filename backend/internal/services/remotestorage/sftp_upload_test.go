@@ -31,7 +31,7 @@ const (
 // Upload/Delete/List/Test be exercised end-to-end over a genuine SFTP
 // session instead of a hand-rolled stub, closing the coverage gap QA
 // identified in remotestorage/sftp.go's request/response handling.
-func startFullFakeSFTPServer(t *testing.T) (addr string, hostKeyFingerprint string) {
+func startFullFakeSFTPServer(t *testing.T) (addr, hostKeyFingerprint string) {
 	t.Helper()
 
 	hostKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -210,8 +210,8 @@ func TestSFTPUploader_Upload_MkdirFailure(t *testing.T) {
 	remoteRoot := t.TempDir()
 	uploader := newTestSFTPUploader(t, addr, fingerprint, remoteRoot)
 
-	require.NoError(t, os.Chmod(remoteRoot, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(remoteRoot, 0o700) })
+	require.NoError(t, os.Chmod(remoteRoot, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+	t.Cleanup(func() { _ = os.Chmod(remoteRoot, 0o700) }) //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
 
 	localFile := filepath.Join(t.TempDir(), "backup.zip")
 	require.NoError(t, os.WriteFile(localFile, []byte("data"), 0o600))
@@ -274,8 +274,8 @@ func TestSFTPUploader_List_DefaultsToCurrentDirWhenPathEmpty(t *testing.T) {
 func TestSFTPUploader_Test_MkdirFailure(t *testing.T) {
 	addr, fingerprint := startFullFakeSFTPServer(t)
 	parent := t.TempDir()
-	require.NoError(t, os.Chmod(parent, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+	require.NoError(t, os.Chmod(parent, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) }) //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
 
 	uploader := newTestSFTPUploader(t, addr, fingerprint, filepath.Join(parent, "sub"))
 

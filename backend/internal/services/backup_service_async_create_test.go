@@ -193,8 +193,8 @@ func TestStartCreateBackupJob_SecurityAuditRowWrittenOnPermissionError(t *testin
 	}
 	svc.SetSecurityService(securitySvc)
 
-	require.NoError(t, os.Chmod(restrictedParent, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(restrictedParent, 0o750) })
+	require.NoError(t, os.Chmod(restrictedParent, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+	t.Cleanup(func() { _ = os.Chmod(restrictedParent, 0o750) }) //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
 
 	audit := RequestAuditInfo{Actor: "42", IPAddress: "10.0.0.5", UserAgent: "test-agent"}
 	job, err := svc.StartCreateBackupJob(BackupOptions{Type: "manual"}, audit)

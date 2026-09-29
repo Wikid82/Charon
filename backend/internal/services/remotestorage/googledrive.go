@@ -399,7 +399,7 @@ func (u *googleDriveUploader) apiGet(ctx context.Context, path string, out any) 
 	return nil
 }
 
-func (u *googleDriveUploader) apiPostJSON(ctx context.Context, fullURL string, body any, out any) error {
+func (u *googleDriveUploader) apiPostJSON(ctx context.Context, fullURL string, body, out any) error {
 	bodyJSON, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("google_drive: encode request body: %w", err)

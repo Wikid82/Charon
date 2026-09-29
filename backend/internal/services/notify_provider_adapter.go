@@ -63,7 +63,7 @@ const legacyDetailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON
 // documented on legacyDetailedTemplate above. "minimal" and "custom" (and
 // any other/empty selector, which the module's own render.SelectTemplate
 // treats as "custom") pass through unchanged.
-func resolveTemplateFields(provider models.NotificationProvider) (template string, customTemplate string) {
+func resolveTemplateFields(provider models.NotificationProvider) (template, customTemplate string) {
 	if strings.EqualFold(strings.TrimSpace(provider.Template), "detailed") {
 		return "custom", legacyDetailedTemplate
 	}

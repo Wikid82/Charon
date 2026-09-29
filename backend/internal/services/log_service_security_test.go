@@ -14,11 +14,11 @@ import (
 
 // securityFixtureService creates a log dir containing real.log and returns
 // the service plus the log dir path.
-func securityFixtureService(t *testing.T) (*LogService, string) {
+func securityFixtureService(t *testing.T) (svc *LogService, logsDir string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	logsDir := filepath.Join(dataDir, "logs")
+	logsDir = filepath.Join(dataDir, "logs")
 	require.NoError(t, os.MkdirAll(logsDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(logsDir, "real.log"), []byte("line\n"), 0o600)) // #nosec G306 -- test fixture
 
