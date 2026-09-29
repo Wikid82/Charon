@@ -33,7 +33,7 @@
     "@vitest/ui": "^5.0.2",
     "audit-ci": "^7.1.0",
     "dotenv": "^18.0.4",
-    "lefthook": "^2.1.14",
+    "lefthook": "^2.1.15",
     "markdownlint-cli2": "^0.23.3",
     "prettier": "^3.9.9",
     "prettier-plugin-tailwindcss": "^0.8.1",
