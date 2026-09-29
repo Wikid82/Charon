@@ -27,10 +27,11 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-// mockAuthMiddleware adds a mock user to the context for testing
+// mockAuthMiddleware adds an admin session (real context key shapes) to the context for testing
 func mockAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Set("user", map[string]any{"id": 1, "username": "testuser"})
+		c.Set("role", string(models.RoleAdmin))
+		c.Set("userID", uint(1))
 		c.Next()
 	}
 }

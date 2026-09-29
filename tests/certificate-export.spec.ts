@@ -17,7 +17,7 @@
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
-import { test, expect, loginUser } from './fixtures/auth-fixtures';
+import { test, expect, loginUser, TEST_PASSWORD } from './fixtures/auth-fixtures';
 import { request as playwrightRequest } from '@playwright/test';
 import {
   waitForLoadingComplete,
@@ -495,6 +495,47 @@ test.describe('Certificate Export', () => {
 
       // Dialog should still be visible (HTML5 validation prevents submission)
       await expect(dialog).toBeVisible();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Scenario 10b: Export with include key and the correct password succeeds
+  // Regression for GH #1390 (private key export always returned 403).
+  // ---------------------------------------------------------------------------
+  test('should download PEM with private key when correct password is entered', async ({ page }) => {
+    let certName: string;
+
+    await test.step('Seed a custom certificate with key via API', async () => {
+      const result = await createCustomCertViaAPI(baseURL);
+      createdCertIds.push(result.id);
+      certName = result.certName;
+    });
+
+    await test.step('Navigate and open export dialog', async () => {
+      await navigateToCertificates(page);
+      const certRow = page.getByRole('row').filter({ hasText: certName });
+      await expect(certRow).toBeVisible({ timeout: 10000 });
+      await certRow.getByRole('button', { name: /export/i }).click();
+      await waitForDialog(page);
+    });
+
+    await test.step('Include private key and enter the session user password', async () => {
+      const dialog = page.getByRole('dialog');
+      await dialog.locator('#include-key').check();
+      await dialog.locator('#export-password').fill(TEST_PASSWORD);
+    });
+
+    await test.step('Submit and verify a PEM download is triggered', async () => {
+      const dialog = page.getByRole('dialog');
+      const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
+      await dialog.locator('[data-testid="export-certificate-submit"]').click();
+
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toMatch(/\.pem$/);
+    });
+
+    await test.step('Verify dialog closed after successful export', async () => {
+      await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 5000 });
     });
   });
 

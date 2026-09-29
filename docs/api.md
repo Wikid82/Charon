@@ -873,6 +873,35 @@ DELETE /certificates/:id
 
 **Note:** A backup is automatically created before deletion. The certificate files are removed from disk along with the database record.
 
+#### Export Certificate
+
+Download a certificate, optionally with its private key, as a file.
+
+```http
+POST /certificates/:uuid/export
+```
+
+**Parameters:**
+
+- `uuid` (path) - Certificate UUID
+
+**Request Body:**
+
+- `format` - Export file format
+- `include_key` (boolean) - Include the private key in the export
+- `pfx_password` - Password to protect the exported PFX file (PFX format only)
+- `password` - Your own account password (required when `include_key` is `true`)
+
+**Response 200:** The certificate file as a download.
+
+**Response 403:** Returned when `include_key` is `true` and the password is missing or wrong, or the caller is not an admin.
+
+**Notes:**
+
+- Exporting a private key (`include_key: true`) requires an admin account and that admin's own account password.
+- A wrong or missing password is rejected with 403. Each password check counts against the `login` [rate limit](#rate-limiting), and once that limit is reached the endpoint returns 429.
+- Emergency-bypass sessions cannot export private keys, but they can still export certificates without the key.
+
 ---
 
 ### Proxy Hosts
