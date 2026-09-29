@@ -37,12 +37,8 @@
     "@docusaurus/types": "3.10.2",
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
-    "@typescript-eslint/eslint-plugin": "^8.71.0",
-    "@typescript-eslint/parser": "^8.71.0",
-    "@typescript-eslint/utils": "^8.71.0",
     "audit-ci": "^7.1.0",
-    "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.0"
+    "typescript": "~6.0.3"
   },
   "overrides": {
     "serialize-javascript": "^7.1.2"
