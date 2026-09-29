@@ -15,7 +15,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-func setupLogsTest(t *testing.T) (*gin.Engine, string) {
+func setupLogsTest(t *testing.T) (engine *gin.Engine, tmpDir string) {
 	t.Helper()
 
 	// Create temp directories

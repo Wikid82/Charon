@@ -376,14 +376,14 @@ func (h *SystemPermissionsHandler) logAudit(c *gin.Context, action, result, code
 	})
 }
 
-func normalizePath(rawPath string) (string, string) {
+func normalizePath(rawPath string) (clean, code string) {
 	if rawPath == "" {
 		return "", "permissions_invalid_path"
 	}
 	if !filepath.IsAbs(rawPath) {
 		return "", "permissions_invalid_path"
 	}
-	clean := filepath.Clean(rawPath)
+	clean = filepath.Clean(rawPath)
 	if clean == "." || clean == ".." {
 		return "", "permissions_invalid_path"
 	}

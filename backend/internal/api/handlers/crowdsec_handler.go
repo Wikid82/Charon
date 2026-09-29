@@ -1763,26 +1763,26 @@ func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string)
 			logger.Log().WithError(err).Debug("Failed to connect to LAPI for key validation")
 			return false
 		}
-		defer func() {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
-			}
-		}()
+		// Only the status is needed; close the body now so it is released per attempt.
+		statusCode := resp.StatusCode
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
+		}
 
 		// Check response status
-		if resp.StatusCode == http.StatusOK {
+		if statusCode == http.StatusOK {
 			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
 			return true
 		}
 
 		// 403 Forbidden = bad key, fail fast (no retries)
-		if resp.StatusCode == http.StatusForbidden {
-			logger.Log().WithField("status", resp.StatusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
+		if statusCode == http.StatusForbidden {
+			logger.Log().WithField("status", statusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
 			return false
 		}
 
 		// Other non-OK status codes
-		logger.Log().WithField("status", resp.StatusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
+		logger.Log().WithField("status", statusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
 		return false
 	}
 }
@@ -2055,20 +2055,20 @@ func readKeyFromFile(path string) string {
 
 // saveKeyToFile saves the bouncer key to a file with secure permissions.
 // Uses atomic write pattern (temp file → rename) to prevent corruption.
-func saveKeyToFile(path string, key string) error {
+func saveKeyToFile(path, key string) error {
 	if key == "" {
 		return fmt.Errorf("cannot save empty key")
 	}
 
 	// Ensure directory exists with proper permissions
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create key directory: %w", err)
 	}
 
 	// Atomic write: temp file → rename
 	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(key+"\n"), 0600); err != nil {
+	if err := os.WriteFile(tmpPath, []byte(key+"\n"), 0o600); err != nil {
 		return fmt.Errorf("failed to write key file: %w", err)
 	}
 
@@ -2586,7 +2586,7 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 		"errors":        []string{},
 	}
 
-	errors := []string{}
+	validationErrs := []string{}
 
 	// Check config.yaml - try config subdirectory first, then root
 	configPath := filepath.Join(h.DataDir, "config", "config.yaml")
@@ -2628,10 +2628,10 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 			validation["config_valid"] = true
 		} else {
 			validation["config_valid"] = false
-			errors = append(errors, fmt.Sprintf("config.yaml validation failed: %s", strings.TrimSpace(string(out))))
+			validationErrs = append(validationErrs, fmt.Sprintf("config.yaml validation failed: %s", strings.TrimSpace(string(out))))
 		}
 	} else {
-		errors = append(errors, "config.yaml not found")
+		validationErrs = append(validationErrs, "config.yaml not found")
 	}
 
 	// Check acquis.yaml - try config subdirectory first, then root
@@ -2660,14 +2660,14 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 				validation["acquis_valid"] = true
 			} else {
 				validation["acquis_valid"] = false
-				errors = append(errors, "acquis.yaml missing datasource configuration (expected 'source:' and 'filenames:' or 'filename:')")
+				validationErrs = append(validationErrs, "acquis.yaml missing datasource configuration (expected 'source:' and 'filenames:' or 'filename:')")
 			}
 		}
 	} else {
-		errors = append(errors, "acquis.yaml not found")
+		validationErrs = append(validationErrs, "acquis.yaml not found")
 	}
 
-	validation["errors"] = errors
+	validation["errors"] = validationErrs
 
 	c.JSON(http.StatusOK, validation)
 }

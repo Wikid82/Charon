@@ -67,7 +67,7 @@ func TestCustomThemeHandler_ListThemes_EmptyArray(t *testing.T) {
 	db := setupCustomThemeHandlerDB(t)
 	r := buildThemeRouter(db, true)
 
-	req, _ := http.NewRequest(http.MethodGet, "/themes", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/themes", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -269,7 +269,7 @@ func TestCustomThemeHandler_DeleteTheme_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createW.Body.Bytes(), &created))
 
 	// Delete
-	delReq, _ := http.NewRequest(http.MethodDelete, "/themes/"+created.ID, nil)
+	delReq, _ := http.NewRequest(http.MethodDelete, "/themes/"+created.ID, http.NoBody)
 	delW := httptest.NewRecorder()
 	r.ServeHTTP(delW, delReq)
 
@@ -286,7 +286,7 @@ func TestCustomThemeHandler_DeleteTheme_NotFound(t *testing.T) {
 	db := setupCustomThemeHandlerDB(t)
 	r := buildThemeRouter(db, true)
 
-	req, _ := http.NewRequest(http.MethodDelete, "/themes/nonexistent-uuid", nil)
+	req, _ := http.NewRequest(http.MethodDelete, "/themes/nonexistent-uuid", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -309,7 +309,7 @@ func TestCustomThemeHandler_Unauthenticated(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		req, _ := http.NewRequest(tt.method, tt.path, nil)
+		req, _ := http.NewRequest(tt.method, tt.path, http.NoBody)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "expected 401 for %s %s", tt.method, tt.path)
@@ -325,7 +325,7 @@ func TestCustomThemeHandler_ListThemes_DBError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	req, _ := http.NewRequest(http.MethodGet, "/themes", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/themes", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -507,7 +507,7 @@ func TestCustomThemeHandler_DeleteTheme_DBError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	req, _ := http.NewRequest(http.MethodDelete, "/themes/some-uuid", nil)
+	req, _ := http.NewRequest(http.MethodDelete, "/themes/some-uuid", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -527,7 +527,7 @@ func TestCustomThemeHandler_ListThemes_AfterCreate(t *testing.T) {
 	r.ServeHTTP(createW, createReq)
 	require.Equal(t, http.StatusCreated, createW.Code)
 
-	listReq, _ := http.NewRequest(http.MethodGet, "/themes", nil)
+	listReq, _ := http.NewRequest(http.MethodGet, "/themes", http.NoBody)
 	listW := httptest.NewRecorder()
 	r.ServeHTTP(listW, listReq)
 

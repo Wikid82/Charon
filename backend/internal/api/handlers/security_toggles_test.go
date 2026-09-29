@@ -85,7 +85,7 @@ func TestSecurityToggles(t *testing.T) {
 				req, _ = http.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 				req.Header.Set("Content-Type", "application/json")
 			} else {
-				req, _ = http.NewRequest(tc.method, tc.path, nil)
+				req, _ = http.NewRequest(tc.method, tc.path, http.NoBody)
 			}
 
 			c, _ := gin.CreateTestContext(w)
@@ -118,7 +118,7 @@ func TestSecurityToggles_Forbidden(t *testing.T) {
 
 	// Just test one endpoint to verify role check
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/security/acl/enable", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/security/acl/enable", http.NoBody)
 	c, _ := gin.CreateTestContext(w)
 	c.Request = req
 	// No role set
@@ -184,7 +184,7 @@ func TestACLForbiddenIfIPNotWhitelisted(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/security/acl/enable", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/security/acl/enable", http.NoBody)
 	c, _ := gin.CreateTestContext(w)
 	c.Request = req
 	c.Set("role", "admin")
@@ -203,7 +203,7 @@ func TestACLEnabledIfIPWhitelisted(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/security/acl/enable", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/security/acl/enable", http.NoBody)
 	req.Header.Set("X-Forwarded-For", "1.2.3.4") // Trusted proxy simulation needed or direct RemoteAddr
 	c, _ := gin.CreateTestContext(w)
 	c.Request = req

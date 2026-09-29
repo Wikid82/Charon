@@ -94,7 +94,7 @@ func respondSanitizedProviderError(c *gin.Context, status int, code, category, m
 
 var providerStatusCodePattern = regexp.MustCompile(`provider returned status\s+(\d{3})(?::\s*(.+))?`)
 
-func classifyProviderTestFailure(err error) (code string, category string, message string) {
+func classifyProviderTestFailure(err error) (code, category, message string) {
 	if err == nil {
 		return "PROVIDER_TEST_FAILED", "dispatch", "Provider test failed"
 	}

@@ -138,7 +138,7 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	require.NoError(t, db.Create(&secConfig).Error)
 
 	// Make request with valid token
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, validToken)
 	w := httptest.NewRecorder()
 
@@ -203,7 +203,7 @@ func TestEmergencySecurityReset_InvalidToken(t *testing.T) {
 	defer func() { _ = os.Unsetenv(EmergencyTokenEnvVar) }()
 
 	// Make request with invalid token
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "wrong-token")
 	w := httptest.NewRecorder()
 
@@ -234,7 +234,7 @@ func TestEmergencySecurityReset_MissingToken(t *testing.T) {
 	defer func() { _ = os.Unsetenv(EmergencyTokenEnvVar) }()
 
 	// Make request without token header
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -263,7 +263,7 @@ func TestEmergencySecurityReset_NotConfigured(t *testing.T) {
 	_ = os.Unsetenv(EmergencyTokenEnvVar)
 
 	// Make request
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "any-token")
 	w := httptest.NewRecorder()
 
@@ -295,7 +295,7 @@ func TestEmergencySecurityReset_TokenTooShort(t *testing.T) {
 	defer func() { require.NoError(t, os.Unsetenv(EmergencyTokenEnvVar)) }()
 
 	// Make request
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, shortToken)
 	w := httptest.NewRecorder()
 
@@ -327,7 +327,7 @@ func TestEmergencySecurityReset_NoRateLimit(t *testing.T) {
 
 	// Make rapid requests with invalid token; all should be unauthorized
 	for i := 0; i < 10; i++ {
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 		req.Header.Set(EmergencyTokenHeader, wrongToken)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -355,7 +355,7 @@ func TestEmergencySecurityReset_TriggersReloadAndCacheInvalidate(t *testing.T) {
 	defer func() { require.NoError(t, os.Unsetenv(EmergencyTokenEnvVar)) }()
 
 	// Make request with valid token
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, validToken)
 	w := httptest.NewRecorder()
 
@@ -379,7 +379,7 @@ func TestEmergencySecurityReset_ClearsBlockDecisions(t *testing.T) {
 	require.NoError(t, db.Create(&models.SecurityDecision{UUID: "dec-1", Source: "manual", Action: "block", IP: "127.0.0.1", CreatedAt: time.Now()}).Error)
 	require.NoError(t, db.Create(&models.SecurityDecision{UUID: "dec-2", Source: "manual", Action: "allow", IP: "127.0.0.2", CreatedAt: time.Now()}).Error)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, validToken)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -403,7 +403,7 @@ func TestEmergencySecurityReset_MiddlewarePrevalidatedBypass(t *testing.T) {
 		handler.SecurityReset(c)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -425,7 +425,7 @@ func TestEmergencySecurityReset_MiddlewareBypass_ResetFailure(t *testing.T) {
 		handler.SecurityReset(c)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -569,7 +569,7 @@ func TestGetTokenStatus_Success(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/emergency/token/status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/emergency/token/status", http.NoBody)
 
 	router.ServeHTTP(w, req)
 
@@ -592,7 +592,7 @@ func TestGetTokenStatus_AdminRequired(t *testing.T) {
 	router.GET("/api/v1/emergency/token/status", handler.GetTokenStatus)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/emergency/token/status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/emergency/token/status", http.NoBody)
 
 	router.ServeHTTP(w, req)
 
@@ -615,7 +615,7 @@ func TestRevokeToken_Success(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/emergency/token", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/emergency/token", http.NoBody)
 
 	router.ServeHTTP(w, req)
 
@@ -633,7 +633,7 @@ func TestRevokeToken_AdminRequired(t *testing.T) {
 	router.DELETE("/api/v1/emergency/token", handler.RevokeToken)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/emergency/token", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/emergency/token", http.NoBody)
 
 	router.ServeHTTP(w, req)
 

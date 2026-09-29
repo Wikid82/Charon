@@ -153,7 +153,7 @@ func TestManualChallengeHandler_GetChallenge(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test-challenge-id", uint(1)).Return(challenge, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-challenge-id", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-challenge-id", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -185,7 +185,7 @@ func TestManualChallengeHandler_GetChallenge_NotFound(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "nonexistent", uint(1)).Return(nil, services.ErrChallengeNotFound)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/nonexistent", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/nonexistent", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -210,7 +210,7 @@ func TestManualChallengeHandler_GetChallenge_InvalidProviderType(t *testing.T) {
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -330,7 +330,7 @@ func TestManualChallengeHandler_VerifyChallenge(t *testing.T) {
 	mockService.On("GetChallengeForUser", mock.Anything, "test-challenge", uint(1)).Return(challenge, nil)
 	mockService.On("VerifyChallenge", mock.Anything, "test-challenge", uint(1)).Return(result, nil)
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test-challenge/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test-challenge/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -365,7 +365,7 @@ func TestManualChallengeHandler_PollChallenge(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("PollChallengeStatus", mock.Anything, "test-challenge", uint(1)).Return(status, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-challenge/poll", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-challenge/poll", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -415,7 +415,7 @@ func TestManualChallengeHandler_ListChallenges(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("ListChallengesForProvider", mock.Anything, uint(1), uint(1)).Return(challenges, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -446,7 +446,7 @@ func TestManualChallengeHandler_DeleteChallenge(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("DeleteChallenge", mock.Anything, "test-challenge", uint(1)).Return(nil)
 
-	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test-challenge", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test-challenge", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -464,7 +464,7 @@ func TestManualChallengeHandler_InvalidProviderID(t *testing.T) {
 		handler.GetChallenge(c)
 	})
 
-	req, _ := http.NewRequest("GET", "/dns-providers/invalid/manual-challenge/test", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/invalid/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -484,7 +484,7 @@ func TestManualChallengeHandler_ProviderNotFound(t *testing.T) {
 
 	mockProviderService.On("Get", mock.Anything, uint(999)).Return(nil, services.ErrDNSProviderNotFound)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/999/manual-challenge/test", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/999/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -529,7 +529,7 @@ func TestManualChallengeHandler_GetChallenge_ByProviderUUID(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test-challenge-id", uint(1)).Return(challenge, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/"+providerUUID+"/manual-challenge/test-challenge-id", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/"+providerUUID+"/manual-challenge/test-challenge-id", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -555,7 +555,7 @@ func TestManualChallengeHandler_GetChallenge_ProviderUUID_NotFound(t *testing.T)
 	providerUUID := uuid.New().String()
 	mockProviderService.On("ResolveID", mock.Anything, providerUUID).Return(uint(0), services.ErrDNSProviderNotFound)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/"+providerUUID+"/manual-challenge/test", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/"+providerUUID+"/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -575,7 +575,7 @@ func TestManualChallengeHandler_GetChallenge_InvalidIdentifier(t *testing.T) {
 	})
 
 	// Neither a valid numeric ID nor a syntactically valid UUID.
-	req, _ := http.NewRequest("GET", "/dns-providers/not-a-real-identifier/manual-challenge/test", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/not-a-real-identifier/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -612,7 +612,7 @@ func TestManualChallengeHandler_GetChallenge_NumericIDStillWorks(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test-challenge-id", uint(1)).Return(challenge, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-challenge-id", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-challenge-id", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -762,7 +762,7 @@ func TestManualChallengeHandler_GetChallenge_EmptyChallengeID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "1"}, {Key: "challengeId", Value: ""}}
-	c.Request = httptest.NewRequest("GET", "/dns-providers/1/manual-challenge/", nil)
+	c.Request = httptest.NewRequest("GET", "/dns-providers/1/manual-challenge/", http.NoBody)
 	setUserID(c, 1)
 
 	provider := &models.DNSProvider{ID: 1, ProviderType: "manual"}
@@ -788,7 +788,7 @@ func TestManualChallengeHandler_GetChallenge_ProviderInternalError(t *testing.T)
 	// Return an internal error (not ErrDNSProviderNotFound)
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, errors.New("database error"))
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-id", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-id", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -811,7 +811,7 @@ func TestManualChallengeHandler_GetChallenge_Unauthorized(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test-id", uint(1)).Return(nil, services.ErrUnauthorized)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-id", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-id", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -834,7 +834,7 @@ func TestManualChallengeHandler_GetChallenge_InternalError(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test-id", uint(1)).Return(nil, errors.New("db error"))
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-id", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-id", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -866,7 +866,7 @@ func TestManualChallengeHandler_GetChallenge_ProviderMismatch(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test-id", uint(1)).Return(challenge, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-id", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test-id", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -885,7 +885,7 @@ func TestManualChallengeHandler_VerifyChallenge_InvalidProviderID(t *testing.T) 
 		handler.VerifyChallenge(c)
 	})
 
-	req, _ := http.NewRequest("POST", "/dns-providers/invalid/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/invalid/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -901,7 +901,7 @@ func TestManualChallengeHandler_VerifyChallenge_EmptyChallengeID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "1"}, {Key: "challengeId", Value: ""}}
-	c.Request = httptest.NewRequest("POST", "/dns-providers/1/manual-challenge//verify", nil)
+	c.Request = httptest.NewRequest("POST", "/dns-providers/1/manual-challenge//verify", http.NoBody)
 	setUserID(c, 1)
 
 	handler.VerifyChallenge(c)
@@ -923,7 +923,7 @@ func TestManualChallengeHandler_VerifyChallenge_ProviderNotFound(t *testing.T) {
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, services.ErrDNSProviderNotFound)
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -944,7 +944,7 @@ func TestManualChallengeHandler_VerifyChallenge_ProviderInternalError(t *testing
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, errors.New("db error"))
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -966,7 +966,7 @@ func TestManualChallengeHandler_VerifyChallenge_InvalidProviderType(t *testing.T
 	provider := &models.DNSProvider{ID: 1, ProviderType: "cloudflare"}
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -989,7 +989,7 @@ func TestManualChallengeHandler_VerifyChallenge_ChallengeNotFound(t *testing.T) 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test", uint(1)).Return(nil, services.ErrChallengeNotFound)
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1012,7 +1012,7 @@ func TestManualChallengeHandler_VerifyChallenge_Unauthorized(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test", uint(1)).Return(nil, services.ErrUnauthorized)
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1035,7 +1035,7 @@ func TestManualChallengeHandler_VerifyChallenge_GetChallengeInternalError(t *tes
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test", uint(1)).Return(nil, errors.New("db error"))
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1066,7 +1066,7 @@ func TestManualChallengeHandler_VerifyChallenge_ProviderMismatch(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("GetChallengeForUser", mock.Anything, "test", uint(1)).Return(challenge, nil)
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1098,7 +1098,7 @@ func TestManualChallengeHandler_VerifyChallenge_ChallengeExpired(t *testing.T) {
 	mockService.On("GetChallengeForUser", mock.Anything, "test", uint(1)).Return(challenge, nil)
 	mockService.On("VerifyChallenge", mock.Anything, "test", uint(1)).Return(nil, services.ErrChallengeExpired)
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1130,7 +1130,7 @@ func TestManualChallengeHandler_VerifyChallenge_VerifyInternalError(t *testing.T
 	mockService.On("GetChallengeForUser", mock.Anything, "test", uint(1)).Return(challenge, nil)
 	mockService.On("VerifyChallenge", mock.Anything, "test", uint(1)).Return(nil, errors.New("dns lookup failed"))
 
-	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/manual-challenge/test/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1149,7 +1149,7 @@ func TestManualChallengeHandler_PollChallenge_InvalidProviderID(t *testing.T) {
 		handler.PollChallenge(c)
 	})
 
-	req, _ := http.NewRequest("GET", "/dns-providers/invalid/manual-challenge/test/poll", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/invalid/manual-challenge/test/poll", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1165,7 +1165,7 @@ func TestManualChallengeHandler_PollChallenge_EmptyChallengeID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "1"}, {Key: "challengeId", Value: ""}}
-	c.Request = httptest.NewRequest("GET", "/dns-providers/1/manual-challenge//poll", nil)
+	c.Request = httptest.NewRequest("GET", "/dns-providers/1/manual-challenge//poll", http.NoBody)
 	setUserID(c, 1)
 
 	handler.PollChallenge(c)
@@ -1187,7 +1187,7 @@ func TestManualChallengeHandler_PollChallenge_ProviderNotFound(t *testing.T) {
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, services.ErrDNSProviderNotFound)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1208,7 +1208,7 @@ func TestManualChallengeHandler_PollChallenge_ProviderInternalError(t *testing.T
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, errors.New("db error"))
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1230,7 +1230,7 @@ func TestManualChallengeHandler_PollChallenge_InvalidProviderType(t *testing.T) 
 	provider := &models.DNSProvider{ID: 1, ProviderType: "cloudflare"}
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1253,7 +1253,7 @@ func TestManualChallengeHandler_PollChallenge_ChallengeNotFound(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("PollChallengeStatus", mock.Anything, "test", uint(1)).Return(nil, services.ErrChallengeNotFound)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1276,7 +1276,7 @@ func TestManualChallengeHandler_PollChallenge_Unauthorized(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("PollChallengeStatus", mock.Anything, "test", uint(1)).Return(nil, services.ErrUnauthorized)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1299,7 +1299,7 @@ func TestManualChallengeHandler_PollChallenge_InternalError(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("PollChallengeStatus", mock.Anything, "test", uint(1)).Return(nil, errors.New("db error"))
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenge/test/poll", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1318,7 +1318,7 @@ func TestManualChallengeHandler_ListChallenges_InvalidProviderID(t *testing.T) {
 		handler.ListChallenges(c)
 	})
 
-	req, _ := http.NewRequest("GET", "/dns-providers/invalid/manual-challenges", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/invalid/manual-challenges", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1339,7 +1339,7 @@ func TestManualChallengeHandler_ListChallenges_ProviderNotFound(t *testing.T) {
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, services.ErrDNSProviderNotFound)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1360,7 +1360,7 @@ func TestManualChallengeHandler_ListChallenges_ProviderInternalError(t *testing.
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, errors.New("db error"))
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1382,7 +1382,7 @@ func TestManualChallengeHandler_ListChallenges_InvalidProviderType(t *testing.T)
 	provider := &models.DNSProvider{ID: 1, ProviderType: "cloudflare"}
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1405,7 +1405,7 @@ func TestManualChallengeHandler_ListChallenges_InternalError(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("ListChallengesForProvider", mock.Anything, uint(1), uint(1)).Return(nil, errors.New("db error"))
 
-	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1/manual-challenges", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1424,7 +1424,7 @@ func TestManualChallengeHandler_DeleteChallenge_InvalidProviderID(t *testing.T) 
 		handler.DeleteChallenge(c)
 	})
 
-	req, _ := http.NewRequest("DELETE", "/dns-providers/invalid/manual-challenge/test", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/invalid/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1440,7 +1440,7 @@ func TestManualChallengeHandler_DeleteChallenge_EmptyChallengeID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "1"}, {Key: "challengeId", Value: ""}}
-	c.Request = httptest.NewRequest("DELETE", "/dns-providers/1/manual-challenge/", nil)
+	c.Request = httptest.NewRequest("DELETE", "/dns-providers/1/manual-challenge/", http.NoBody)
 	setUserID(c, 1)
 
 	handler.DeleteChallenge(c)
@@ -1462,7 +1462,7 @@ func TestManualChallengeHandler_DeleteChallenge_ProviderNotFound(t *testing.T) {
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, services.ErrDNSProviderNotFound)
 
-	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1483,7 +1483,7 @@ func TestManualChallengeHandler_DeleteChallenge_ProviderInternalError(t *testing
 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(nil, errors.New("db error"))
 
-	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1505,7 +1505,7 @@ func TestManualChallengeHandler_DeleteChallenge_InvalidProviderType(t *testing.T
 	provider := &models.DNSProvider{ID: 1, ProviderType: "cloudflare"}
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 
-	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1528,7 +1528,7 @@ func TestManualChallengeHandler_DeleteChallenge_ChallengeNotFound(t *testing.T) 
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("DeleteChallenge", mock.Anything, "test", uint(1)).Return(services.ErrChallengeNotFound)
 
-	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1551,7 +1551,7 @@ func TestManualChallengeHandler_DeleteChallenge_Unauthorized(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("DeleteChallenge", mock.Anything, "test", uint(1)).Return(services.ErrUnauthorized)
 
-	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1574,7 +1574,7 @@ func TestManualChallengeHandler_DeleteChallenge_InternalError(t *testing.T) {
 	mockProviderService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 	mockService.On("DeleteChallenge", mock.Anything, "test", uint(1)).Return(errors.New("db error"))
 
-	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1/manual-challenge/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1593,7 +1593,7 @@ func TestManualChallengeHandler_CreateChallenge_InvalidProviderID(t *testing.T) 
 		handler.CreateChallenge(c)
 	})
 
-	req, _ := http.NewRequest("POST", "/dns-providers/invalid/manual-challenges", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/invalid/manual-challenges", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

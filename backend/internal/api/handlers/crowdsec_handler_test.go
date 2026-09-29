@@ -73,7 +73,7 @@ func (f *fastCmdExec) Execute(ctx context.Context, name string, args ...string) 
 // newTestCrowdsecHandler creates a CrowdsecHandler and registers cleanup to prevent goroutine leaks
 //
 //nolint:unparam // binPath kept for future test variants
-func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor, binPath string, dataDir string) *CrowdsecHandler {
+func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
 	h := NewCrowdsecHandler(db, executor, binPath, dataDir)
 	// Override CmdExec to avoid 60s LAPI wait timeout during Start
 	h.CmdExec = &fastCmdExec{}
@@ -3807,7 +3807,7 @@ func TestSaveKeyToFile_SecurePermissions(t *testing.T) {
 	// Verify file permissions are 0600
 	info, err := os.Stat(keyFile)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0600), info.Mode().Perm(), "File must have 0600 permissions for security")
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "File must have 0600 permissions for security")
 
 	// Verify content is correct
 	// #nosec G304 -- keyFile is in test temp directory created by t.TempDir()
@@ -4097,7 +4097,7 @@ func TestSaveKeyToFile_AtomicWrite(t *testing.T) {
 	// Verify permissions
 	info, err := os.Stat(keyPath)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 
 	// Verify no temp file left behind
 	tmpPath := keyPath + ".tmp"
@@ -4107,7 +4107,7 @@ func TestSaveKeyToFile_AtomicWrite(t *testing.T) {
 	// Verify directory permissions
 	dirInfo, err := os.Stat(filepath.Dir(keyPath))
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0700), dirInfo.Mode().Perm())
+	require.Equal(t, os.FileMode(0o700), dirInfo.Mode().Perm())
 }
 
 // TestReadKeyFromFile_Trimming verifies that key file content is properly trimmed.
@@ -4141,7 +4141,7 @@ func TestReadKeyFromFile_Trimming(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			keyPath := filepath.Join(tmpDir, strings.ReplaceAll(tt.name, " ", "_"))
-			err := os.WriteFile(keyPath, []byte(tt.content), 0600)
+			err := os.WriteFile(keyPath, []byte(tt.content), 0o600)
 			require.NoError(t, err)
 
 			result := readKeyFromFile(keyPath)
@@ -4484,7 +4484,7 @@ func TestGetBouncerInfo_FromEnvVar(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer", http.NoBody)
 
 	h.GetBouncerInfo(c)
 
@@ -4511,7 +4511,7 @@ func TestGetBouncerInfo_NotRegistered(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer", http.NoBody)
 
 	h.GetBouncerInfo(c)
 
@@ -4530,7 +4530,7 @@ func TestGetBouncerKey_FromEnvVar(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer/key", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer/key", http.NoBody)
 
 	h.GetBouncerKey(c)
 
@@ -4549,7 +4549,7 @@ func TestGetKeyStatus_EnvKeyValid(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/key-status", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/key-status", http.NoBody)
 
 	h.GetKeyStatus(c)
 
@@ -4571,7 +4571,7 @@ func TestGetKeyStatus_EnvKeyRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/key-status", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/key-status", http.NoBody)
 
 	h.GetKeyStatus(c)
 

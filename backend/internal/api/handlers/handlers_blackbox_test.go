@@ -989,11 +989,11 @@ func TestImportHandler_Commit_CreateFailure(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
 	// Should have errors due to duplicate domain
-	errors, ok := resp["errors"].([]interface{})
+	errList, ok := resp["errors"].([]interface{})
 	assert.True(t, ok)
-	assert.Greater(t, len(errors), 0)
+	assert.Greater(t, len(errList), 0)
 	// Verify the error mentions the duplicate
-	assert.Contains(t, errors[0].(string), "duplicate.com")
+	assert.Contains(t, errList[0].(string), "duplicate.com")
 }
 
 // TestUpload_NormalizationSuccess tests the success path where NormalizeCaddyfile succeeds (line 271)
@@ -1550,7 +1550,7 @@ func TestImportHandler_Commit_SessionSaveWarning(t *testing.T) {
 }
 
 // newTestImportHandler creates an ImportHandler with proper cleanup for tests
-func newTestImportHandler(t *testing.T, db *gorm.DB, importDir string, mountPath string) *handlers.ImportHandler {
+func newTestImportHandler(t *testing.T, db *gorm.DB, importDir, mountPath string) *handlers.ImportHandler {
 	handler := handlers.NewImportHandler(db, "caddy", importDir, mountPath)
 	t.Cleanup(func() {
 		// Cleanup resources if needed
@@ -1572,7 +1572,7 @@ func TestGetStatus_DatabaseError(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Set("role", "admin")
 	c.Set("userID", uint(1))
-	c.Request = httptest.NewRequest("GET", "/api/v1/import/status", nil)
+	c.Request = httptest.NewRequest("GET", "/api/v1/import/status", http.NoBody)
 
 	handler.GetStatus(c)
 
@@ -1605,7 +1605,7 @@ func TestGetPreview_MountAlreadyCommitted(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Set("role", "admin")
 	c.Set("userID", uint(1))
-	c.Request = httptest.NewRequest("GET", "/api/v1/import/preview", nil)
+	c.Request = httptest.NewRequest("GET", "/api/v1/import/preview", http.NoBody)
 
 	handler.GetPreview(c)
 

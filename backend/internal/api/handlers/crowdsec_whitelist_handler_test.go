@@ -49,7 +49,7 @@ func TestListWhitelists_Empty(t *testing.T) {
 	_, r, _ := setupWhitelistHandler(t)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/whitelist", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/whitelist", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -123,7 +123,7 @@ func TestDeleteWhitelist_Existing(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/"+entry.UUID, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/"+entry.UUID, http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
@@ -135,7 +135,7 @@ func TestDeleteWhitelist_NotFound(t *testing.T) {
 	_, r, _ := setupWhitelistHandler(t)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/00000000-0000-0000-0000-000000000000", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/00000000-0000-0000-0000-000000000000", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -149,7 +149,7 @@ func TestListWhitelists_AfterAdd(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/whitelist", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/whitelist", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -183,7 +183,7 @@ func TestListWhitelists_DBError(t *testing.T) {
 	_ = sqlDB.Close()
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/whitelist", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/whitelist", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -239,7 +239,7 @@ func TestDeleteWhitelist_DBError(t *testing.T) {
 	_ = sqlDB.Close()
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/"+entry.UUID, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/"+entry.UUID, http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -259,7 +259,7 @@ func TestDeleteWhitelist_ReloadFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/"+entry.UUID, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/"+entry.UUID, http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
@@ -272,7 +272,7 @@ func TestDeleteWhitelist_EmptyUUID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/", nil)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/whitelist/", http.NoBody)
 	c.Params = gin.Params{{Key: "uuid", Value: ""}}
 
 	h.DeleteWhitelist(c)

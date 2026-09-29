@@ -68,7 +68,7 @@ func TestOAuthStart_PublicURLNotConfigured_Returns400(t *testing.T) {
 		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
 		map[string]any{"oauth_client_secret": "app-secret"})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -86,7 +86,7 @@ func TestOAuthStart_Success_ReturnsAuthorizeURL(t *testing.T) {
 		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
 		map[string]any{"oauth_client_secret": "app-secret"})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -100,7 +100,7 @@ func TestOAuthCallback_InvalidState_Returns400(t *testing.T) {
 	router, db := setupBackupRemoteHandlerTest(t, newOAuthHandlerTestEncryption(t))
 	setPublicURL(t, db)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets/oauth/dropbox/callback?state=never-issued&code=abc", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets/oauth/dropbox/callback?state=never-issued&code=abc", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -118,7 +118,7 @@ func TestOAuthCallback_ProviderDenied_RedirectsWithErrorMessage(t *testing.T) {
 		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
 		map[string]any{"oauth_client_secret": "app-secret"})
 
-	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", nil)
+	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", http.NoBody)
 	startRec := httptest.NewRecorder()
 	router.ServeHTTP(startRec, startReq)
 	require.Equal(t, http.StatusOK, startRec.Code)
@@ -130,7 +130,7 @@ func TestOAuthCallback_ProviderDenied_RedirectsWithErrorMessage(t *testing.T) {
 	state := parsed.Query().Get("state")
 	require.NotEmpty(t, state)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&error=access_denied", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&error=access_denied", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -149,7 +149,7 @@ func TestOAuthCallback_State_IsSingleUse(t *testing.T) {
 		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
 		map[string]any{"oauth_client_secret": "app-secret"})
 
-	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", nil)
+	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", http.NoBody)
 	startRec := httptest.NewRecorder()
 	router.ServeHTTP(startRec, startReq)
 	var startResp map[string]any
@@ -161,13 +161,13 @@ func TestOAuthCallback_State_IsSingleUse(t *testing.T) {
 
 	// First use: provider-denied path, doesn't require a real token
 	// exchange, but does consume the state.
-	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&error=access_denied", nil)
+	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&error=access_denied", http.NoBody)
 	rec1 := httptest.NewRecorder()
 	router.ServeHTTP(rec1, req1)
 	require.Equal(t, http.StatusFound, rec1.Code)
 
 	// Replay: the same state must now be rejected outright.
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&code=abc", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&code=abc", http.NoBody)
 	rec2 := httptest.NewRecorder()
 	router.ServeHTTP(rec2, req2)
 	require.Equal(t, http.StatusBadRequest, rec2.Code)
@@ -206,7 +206,7 @@ func TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawEr
 		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
 		map[string]any{"oauth_client_secret": "app-secret"})
 
-	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", nil)
+	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", http.NoBody)
 	startRec := httptest.NewRecorder()
 	router.ServeHTTP(startRec, startReq)
 	require.Equal(t, http.StatusOK, startRec.Code)
@@ -221,7 +221,7 @@ func TestOAuthCallback_TokenExchangeFailure_RedirectsWithSentinelMessage_NoRawEr
 	req := httptest.NewRequest(
 		http.MethodGet,
 		"/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&code=bogus-authorization-code-value",
-		nil,
+		http.NoBody,
 	)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -262,7 +262,7 @@ func TestOAuthCallback_Success_RedirectsToTasksBackupsPath(t *testing.T) {
 		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
 		map[string]any{"oauth_client_secret": "app-secret"})
 
-	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", nil)
+	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/start", http.NoBody)
 	startRec := httptest.NewRecorder()
 	router.ServeHTTP(startRec, startReq)
 	require.Equal(t, http.StatusOK, startRec.Code)
@@ -277,7 +277,7 @@ func TestOAuthCallback_Success_RedirectsToTasksBackupsPath(t *testing.T) {
 	req := httptest.NewRequest(
 		http.MethodGet,
 		"/api/v1/backups/remote-targets/oauth/dropbox/callback?state="+url.QueryEscape(state)+"&code=valid-authorization-code",
-		nil,
+		http.NoBody,
 	)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -300,7 +300,7 @@ func TestOAuthDisconnect_Success(t *testing.T) {
 		map[string]any{"dropbox": map[string]any{"app_key": "app-key"}},
 		map[string]any{"oauth_client_secret": "app-secret"})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/disconnect", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/disconnect", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -317,7 +317,7 @@ func TestOAuthDisconnect_UnsupportedType_ReturnsError(t *testing.T) {
 		map[string]any{"host": "203.0.113.5"},
 		map[string]any{"password": "x"})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/disconnect", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/remote-targets/"+uuid+"/oauth/disconnect", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -332,7 +332,7 @@ func TestListRemoteTargets_IncludesOAuthStatusField(t *testing.T) {
 		map[string]any{"google_drive": map[string]any{"client_id": "client-id"}},
 		map[string]any{"oauth_client_secret": "client-secret"})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/remote-targets", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
