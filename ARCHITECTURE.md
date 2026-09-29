@@ -1844,6 +1844,12 @@ user-facing walkthrough; summarized here:
    semver-tagged Orthrus agent images — the one workflow with a real,
    live dependency on the tag release-please creates.
 
+Outside of release tags, the Orthrus image is only rebuilt when `agent/**`
+(code, `go.mod`/`go.sum`, `Dockerfile`) changes: `orthrus-build.yml` path-filters
+its branch pushes and PRs, and the nightly Orthrus job is gated on an
+`agent_changed` diff of `agent/` between `nightly` and `development`
+(manual dispatches always rebuild).
+
 **Automated Docker Image Build (GitHub Actions, `docker-build.yml`):**
 
 Triggered independently by every push to `main`/`development` (branch

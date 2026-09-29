@@ -32,6 +32,7 @@ jobs:
       contents: write
     outputs:
       has_changes: ${{ steps.sync.outputs.has_changes }}
+      agent_changed: ${{ steps.sync.outputs.agent_changed }}
 
     steps:
       - name: Checkout nightly branch
@@ -63,7 +64,15 @@ jobs:
           if git diff --quiet origin/nightly origin/development; then
             echo "No changes to sync from development to nightly"
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "agent_changed=false" >> "$GITHUB_OUTPUT"
           else
+            # The Orthrus image is built solely from agent/ (source, go.mod/go.sum,
+            # Dockerfile), so only rebuild it when that tree differs.
+            if git diff --quiet origin/nightly origin/development -- agent; then
+              echo "agent_changed=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "agent_changed=true" >> "$GITHUB_OUTPUT"
+            fi
             echo "Syncing changes from development to nightly"
             # Fast-forward merge development into nightly
             git merge origin/development --ff-only -m "chore: sync from development branch [skip ci]" || {
@@ -399,7 +408,9 @@ jobs:
 
   build-and-push-nightly-orthrus:
     needs: sync-development-to-nightly
-    if: needs.sync-development-to-nightly.outputs.has_changes == 'true' || github.event_name == 'workflow_dispatch'
+    # Scheduled runs only rebuild Orthrus when agent/ changed; a manual
+    # dispatch always rebuilds.
+    if: needs.sync-development-to-nightly.outputs.agent_changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       ORTHRUS_IMAGE_NAME: wikid82/orthrus
