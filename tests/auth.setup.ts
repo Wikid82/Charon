@@ -1,7 +1,7 @@
 import { test as setup } from './fixtures/test';
 import type { APIRequestContext } from '@playwright/test';
 import { request as playwrightRequest } from '@playwright/test';
-import { STORAGE_STATE } from './constants';
+import { STORAGE_STATE, TEST_PASSWORD } from './constants';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { dirname } from 'path';
 import { TestDataManager } from './utils/TestDataManager';
@@ -21,7 +21,6 @@ import { TestDataManager } from './utils/TestDataManager';
  */
 
 const TEST_EMAIL = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
-const TEST_PASSWORD = process.env.E2E_TEST_PASSWORD || 'TestPassword123!';
 const TEST_NAME = process.env.E2E_TEST_NAME || 'E2E Test User';
 
 const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN;
