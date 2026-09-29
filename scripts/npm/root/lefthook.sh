@@ -13,5 +13,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm install lefthook
+    npm install lefthook --save-dev
 done
