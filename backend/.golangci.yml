@@ -55,3 +55,9 @@ linters:
         - (*database/sql.Rows).Close
         - (gorm.io/gorm.Migrator).DropTable
         - (*net/http.Response.Body).Close
+
+# Report every finding: the default caps (50 per linter, 3 identical messages)
+# would hide the real backlog from the blocking CI gate.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

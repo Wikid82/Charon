@@ -101,8 +101,9 @@ func TestWsNetConn_ReadWrite(t *testing.T) {
 	defer srv.Close()
 
 	dialer := websocket.Dialer{}
-	wsConn, _, err := dialer.Dial("ws"+srv.URL[4:], nil)
+	wsConn, resp, err := dialer.Dial("ws"+srv.URL[4:], nil)
 	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
 	defer func() { _ = wsConn.Close() }()
 
 	netConn := leash.NewWSNetConn(wsConn)
@@ -246,7 +247,7 @@ func TestLeash_Connect_PortForwardStreamDialsTarget(t *testing.T) {
 
 		addr := targetLn.Addr().String()
 		require.LessOrEqual(t, len(addr), 255, "target address must fit handlePortForward's 1-byte length encoding")
-		lenBuf := []byte{byte(len(addr) >> 8), byte(len(addr))}
+		lenBuf := []byte{byte((len(addr) >> 8) & 0xff), byte(len(addr) & 0xff)}
 
 		payload := append([]byte{streamTypePortForward}, lenBuf...)
 		payload = append(payload, []byte(addr)...)

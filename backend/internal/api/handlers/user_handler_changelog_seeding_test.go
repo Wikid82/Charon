@@ -161,7 +161,7 @@ func TestUserHandler_AcceptInvite_SkipsSeedingOnDevBuild(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	user := &models.User{
+	user := &models.User{ //nolint:gosec // G101: dummy invite token fixture
 		UUID:          uuid.NewString(),
 		Email:         "accept-devbuild@example.com",
 		Name:          "Accept User",
@@ -174,7 +174,7 @@ func TestUserHandler_AcceptInvite_SkipsSeedingOnDevBuild(t *testing.T) {
 	r := gin.New()
 	r.POST("/invite/accept", handler.AcceptInvite)
 
-	body := map[string]string{"token": "accept-dev-token", "password": "newpassword123", "name": "Accepted User"}
+	body := map[string]string{"token": "accept-dev-token", "password": "newpassword123", "name": "Accepted User"} //nolint:gosec // G101: dummy invite token and password fixture
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/invite/accept", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")

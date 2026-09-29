@@ -996,21 +996,25 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 			return fmt.Errorf("unsafe path %s", hdr.Name)
 		}
 		destPath := filepath.Join(targetDir, cleanName)
-		if !strings.HasPrefix(destPath, filepath.Clean(targetDir)) {
+		// Defense in depth: confirm the joined path is still contained in targetDir.
+		rel, relErr := filepath.Rel(filepath.Clean(targetDir), destPath)
+		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 			return fmt.Errorf("path escapes target: %s", hdr.Name)
 		}
+		// Perm() strips setuid/setgid/sticky bits from archive-supplied modes.
+		mode := hdr.FileInfo().Mode().Perm()
 
 		if hdr.FileInfo().IsDir() {
-			if mkdirErr := os.MkdirAll(destPath, hdr.FileInfo().Mode()); mkdirErr != nil {
+			if mkdirErr := os.MkdirAll(destPath, mode); mkdirErr != nil { //nolint:gosec // G703: destPath contained under targetDir by the filepath.Rel check above
 				return fmt.Errorf("mkdir %s: %w", destPath, mkdirErr)
 			}
 			continue
 		}
 
-		if mkdirErr := os.MkdirAll(filepath.Dir(destPath), 0o700); mkdirErr != nil {
+		if mkdirErr := os.MkdirAll(filepath.Dir(destPath), 0o700); mkdirErr != nil { //nolint:gosec // G703: destPath contained under targetDir by the filepath.Rel check above
 			return fmt.Errorf("mkdir parent: %w", mkdirErr)
 		}
-		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, hdr.FileInfo().Mode()) // #nosec G304 -- Dest path from tar archive extraction // #nosec G304 -- Dest path from tar archive extraction
+		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode) //nolint:gosec // G304,G703: destPath contained under targetDir by the filepath.Rel check above
 		if err != nil {
 			return fmt.Errorf("open %s: %w", destPath, err)
 		}

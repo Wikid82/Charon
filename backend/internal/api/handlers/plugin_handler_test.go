@@ -55,7 +55,7 @@ func TestPluginHandler_ListPlugins(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins", handler.ListPlugins)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -88,7 +88,7 @@ func TestPluginHandler_GetPlugin_InvalidID(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins/invalid", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -104,7 +104,7 @@ func TestPluginHandler_GetPlugin_NotFound(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins/99999", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins/99999", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -134,7 +134,7 @@ func TestPluginHandler_GetPlugin_Success(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -155,7 +155,7 @@ func TestPluginHandler_EnablePlugin_InvalidID(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/abc/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/abc/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -170,7 +170,7 @@ func TestPluginHandler_EnablePlugin_NotFound(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/99999/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/99999/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -196,7 +196,7 @@ func TestPluginHandler_EnablePlugin_AlreadyEnabled(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -223,7 +223,7 @@ func TestPluginHandler_EnablePlugin_Success(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -244,7 +244,7 @@ func TestPluginHandler_DisablePlugin_InvalidID(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/xyz/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/xyz/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -259,7 +259,7 @@ func TestPluginHandler_DisablePlugin_NotFound(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/99999/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/99999/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -284,7 +284,7 @@ func TestPluginHandler_DisablePlugin_AlreadyDisabled(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -324,7 +324,7 @@ func TestPluginHandler_DisablePlugin_InUse(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -351,7 +351,7 @@ func TestPluginHandler_DisablePlugin_Success(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -372,7 +372,7 @@ func TestPluginHandler_ReloadPlugins_Success(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/reload", handler.ReloadPlugins)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/reload", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/reload", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -394,7 +394,7 @@ func TestPluginHandler_ListPlugins_WithBuiltInProviders(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins", handler.ListPlugins)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -524,7 +524,7 @@ func TestPluginHandler_ListPlugins_ExternalLoadedPlugin(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins", handler.ListPlugins)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -587,7 +587,7 @@ func TestPluginHandler_GetPlugin_WithProvider(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -621,7 +621,7 @@ func TestPluginHandler_EnablePlugin_WithLoadError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -664,7 +664,7 @@ func TestPluginHandler_DisablePlugin_WithUnloadError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -708,7 +708,7 @@ func TestPluginHandler_DisablePlugin_MultipleProviders(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -733,7 +733,7 @@ func TestPluginHandler_ReloadPlugins_WithErrors(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/reload", handler.ReloadPlugins)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/reload", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/reload", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -764,7 +764,7 @@ func TestPluginHandler_ListPlugins_FailedPluginWithLoadedAt(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins", handler.ListPlugins)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -813,7 +813,7 @@ func TestPluginHandler_GetPlugin_WithLoadedAt(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -867,7 +867,7 @@ func TestPluginHandler_EnablePlugin_DBUpdateError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -899,7 +899,7 @@ func TestPluginHandler_DisablePlugin_DBUpdateError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -931,7 +931,7 @@ func TestPluginHandler_GetPlugin_DBInternalError(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -964,7 +964,7 @@ func TestPluginHandler_EnablePlugin_FirstDBLookupError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -997,7 +997,7 @@ func TestPluginHandler_DisablePlugin_FirstDBLookupError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

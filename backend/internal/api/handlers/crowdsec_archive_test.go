@@ -316,7 +316,7 @@ func TestConfigArchiveValidator_Validate(t *testing.T) {
 	// Test unsupported format
 	unsupportedPath := filepath.Join(tmpDir, "test.rar")
 	// #nosec G306 -- Test file permissions, not security-critical
-	if writeErr := os.WriteFile(unsupportedPath, []byte("dummy"), 0644); writeErr != nil {
+	if writeErr := os.WriteFile(unsupportedPath, []byte("dummy"), 0o644); writeErr != nil {
 		t.Fatalf("Failed to create dummy file: %v", writeErr)
 	}
 	err = validator.Validate(unsupportedPath)
@@ -344,7 +344,7 @@ func createTestTarGz(t *testing.T, path string, files []struct {
 	for _, file := range files {
 		hdr := &tar.Header{
 			Name:     file.name,
-			Mode:     0644,
+			Mode:     0o644,
 			Size:     int64(len(file.content)),
 			Typeflag: tar.TypeReg,
 		}

@@ -122,7 +122,7 @@ func TestBlocker1_NotifySecurityEventMethod(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	ctx.Request, _ = http.NewRequest("POST", "/test", nil)
+	ctx.Request, _ = http.NewRequest("POST", "/test", http.NoBody)
 
 	event := models.SecurityEvent{
 		EventType: "waf_block",
@@ -290,7 +290,7 @@ func TestNotifySecurityEvent_Disabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	ctx.Request, _ = http.NewRequest("POST", "/test", nil)
+	ctx.Request, _ = http.NewRequest("POST", "/test", http.NoBody)
 
 	event := models.SecurityEvent{
 		EventType: "waf_block",

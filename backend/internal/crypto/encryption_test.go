@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"bytes"
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
@@ -492,7 +493,7 @@ func TestEncryptionService_ConcurrentAccess(t *testing.T) {
 				}
 
 				// Verify
-				if string(decrypted) != string(plaintext) {
+				if !bytes.Equal(decrypted, plaintext) {
 					errChan <- assert.AnError
 				}
 			}

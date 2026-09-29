@@ -177,8 +177,8 @@ func TestStartRestoreJob_SecurityAuditRowWrittenOnPermissionError(t *testing.T) 
 	// S1's pre-restore safety backup has already been created, exercising
 	// a failure deeper in the pipeline than StartRestoreJob's own
 	// synchronous pre-checks.
-	require.NoError(t, os.Chmod(svc.DataDir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(svc.DataDir, 0o750) })
+	require.NoError(t, os.Chmod(svc.DataDir, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+	t.Cleanup(func() { _ = os.Chmod(svc.DataDir, 0o750) }) //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
 
 	audit := RequestAuditInfo{Actor: "99", IPAddress: "10.1.1.1", UserAgent: "restore-test-agent"}
 	job, err := svc.StartRestoreJob(record.Filename, "", audit)

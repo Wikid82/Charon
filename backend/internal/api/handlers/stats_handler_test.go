@@ -41,7 +41,7 @@ func TestGetStatsSummary_Returns200WithCorrectShape(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/summary", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/summary", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -59,7 +59,7 @@ func TestGetTopHosts_ValidPeriod_Returns200(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -71,7 +71,7 @@ func TestGetTopHosts_InvalidPeriod_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=invalid", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=invalid", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -87,7 +87,7 @@ func TestGetStatusDistribution_InvalidPeriod_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/status-distribution?period=bad", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/status-distribution?period=bad", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -99,7 +99,7 @@ func TestGetTrafficVolume_InvalidBucket_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/traffic-volume?bucket=1w", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/traffic-volume?bucket=1w", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -111,7 +111,7 @@ func TestGetCertExpiry_WithinDaysZero_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=0", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=0", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -123,7 +123,7 @@ func TestGetCertExpiry_WithinDays366_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=366", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=366", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -140,7 +140,7 @@ func TestGetStatsHealth_Returns200WithDroppedCount(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/health", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/health", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -156,7 +156,7 @@ func TestGetRequests_ValidBucket_Returns200(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/requests?bucket=1h", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/requests?bucket=1h", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -168,7 +168,7 @@ func TestGetRequests_InvalidBucket_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/requests?bucket=bad", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/requests?bucket=bad", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -180,7 +180,7 @@ func TestGetTopHosts_LimitCap_SilentlyCapAt50(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h&limit=100", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h&limit=100", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// Should not return 400 — limit is silently capped
@@ -193,7 +193,7 @@ func TestGetCertExpiry_ValidWithinDays_Returns200(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=30", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=30", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -219,7 +219,7 @@ func TestGetStatsSummary_DBError_Returns500(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/summary", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/summary", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -231,7 +231,7 @@ func TestGetTopHosts_DBError_Returns500(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -243,7 +243,7 @@ func TestGetStatusDistribution_DBError_Returns500(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/status-distribution?period=24h", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/status-distribution?period=24h", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -255,7 +255,7 @@ func TestGetTrafficVolume_DBError_Returns500(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/traffic-volume?bucket=1h", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/traffic-volume?bucket=1h", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -267,7 +267,7 @@ func TestGetCertExpiry_NonIntegerWithinDays_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=abc", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=abc", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -282,7 +282,7 @@ func TestGetCertExpiry_DBError_Returns500(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=30", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=30", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -294,7 +294,7 @@ func TestGetRequests_DBError_Returns500(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/requests?bucket=1h", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/requests?bucket=1h", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -307,7 +307,7 @@ func TestGetTopHosts_InvalidLimitIgnored_Returns200(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	// Non-integer limit is silently ignored, defaulting to 10.
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h&limit=abc", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h&limit=abc", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

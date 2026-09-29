@@ -49,7 +49,7 @@ func TestPluginHandler_EnablePlugin_DatabaseUpdateError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -80,7 +80,7 @@ func TestPluginHandler_DisablePlugin_DatabaseUpdateError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -110,7 +110,7 @@ func TestPluginHandler_GetPlugin_DatabaseError(t *testing.T) {
 	router := gin.New()
 	router.GET("/plugins/:id", handler.GetPlugin)
 
-	req := httptest.NewRequest(http.MethodGet, "/plugins/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/plugins/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -131,7 +131,7 @@ func TestPluginHandler_EnablePlugin_DatabaseFirstError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/enable", handler.EnablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -152,7 +152,7 @@ func TestPluginHandler_DisablePlugin_DatabaseFirstError(t *testing.T) {
 	router := gin.New()
 	router.POST("/plugins/:id/disable", handler.DisablePlugin)
 
-	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -179,7 +179,7 @@ func TestEncryptionHandler_Validate_NonAdminAccess(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, false)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
@@ -201,14 +201,14 @@ func TestEncryptionHandler_GetHistory_PaginationBoundary(t *testing.T) {
 
 	// Test invalid page number (negative)
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history?page=-1&limit=10", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history?page=-1&limit=10", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Test limit exceeding max (should clamp)
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/api/v1/admin/encryption/history?page=1&limit=200", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/admin/encryption/history?page=1&limit=200", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -236,7 +236,7 @@ func TestEncryptionHandler_GetStatus_VersionInfo(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -408,7 +408,7 @@ func TestAuditLogHandler_List_PaginationEdgeCases(t *testing.T) {
 
 	// Test with pagination
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/audit?page=2&limit=3", nil)
+	req, _ := http.NewRequest("GET", "/audit?page=2&limit=3", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -445,7 +445,7 @@ func TestAuditLogHandler_List_CategoryFilter(t *testing.T) {
 
 	// Test with category filter
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/audit?category=encryption", nil)
+	req, _ := http.NewRequest("GET", "/audit?category=encryption", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -471,7 +471,7 @@ func TestAuditLogHandler_ListByProvider_DatabaseError(t *testing.T) {
 	router.GET("/audit/provider/:id", handler.ListByProvider)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/audit/provider/1", nil)
+	req, _ := http.NewRequest("GET", "/audit/provider/1", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -493,7 +493,7 @@ func TestAuditLogHandler_ListByProvider_InvalidProviderID(t *testing.T) {
 	router.GET("/audit/provider/:id", handler.ListByProvider)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/audit/provider/invalid", nil)
+	req, _ := http.NewRequest("GET", "/audit/provider/invalid", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -517,7 +517,7 @@ func TestGetActorFromGinContext_InvalidUserIDType(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should fall back to "system" for invalid type
@@ -544,7 +544,7 @@ func TestIsAdmin_NonAdminRole(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
@@ -679,7 +679,7 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 	sqlDB, _ := db.DB()
 	_ = sqlDB.Close()
 
-	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/1/credentials", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/1/credentials", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -766,7 +766,7 @@ func TestCredentialHandler_Delete_NotFoundError(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/9999", provider.ID)
-	req, _ := http.NewRequest("DELETE", url, nil)
+	req, _ := http.NewRequest("DELETE", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -777,7 +777,7 @@ func TestCredentialHandler_Delete_BadCredentialID(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/invalid", provider.ID)
-	req, _ := http.NewRequest("DELETE", url, nil)
+	req, _ := http.NewRequest("DELETE", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -788,7 +788,7 @@ func TestCredentialHandler_Test_BadCredentialID(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTestWithCtx(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/invalid/test", provider.ID)
-	req, _ := http.NewRequest("POST", url, nil)
+	req, _ := http.NewRequest("POST", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -798,7 +798,7 @@ func TestCredentialHandler_Test_BadCredentialID(t *testing.T) {
 func TestCredentialHandler_EnableMultiCredentials_BadProviderID(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTestWithCtx(t)
 
-	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/invalid/enable-multi-credentials", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/invalid/enable-multi-credentials", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -824,7 +824,7 @@ func TestEncryptionHandler_Validate_AdminSuccess(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

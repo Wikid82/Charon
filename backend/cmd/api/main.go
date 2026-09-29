@@ -175,7 +175,7 @@ func main() {
 
 		case "reset-password":
 			if len(os.Args) != 4 {
-				log.Fatalf("Usage: %s reset-password <email> <new-password>", os.Args[0])
+				log.Fatal("Usage: charon reset-password <email> <new-password>")
 			}
 			email := os.Args[2]
 			newPassword := os.Args[3]

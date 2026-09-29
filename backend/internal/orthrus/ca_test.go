@@ -104,7 +104,7 @@ func TestNewInternalCA_CorruptKeyFile(t *testing.T) {
 	require.NoError(t, os.MkdirAll(keyDir, 0o700))
 
 	require.NoError(t, os.WriteFile(filepath.Join(keyDir, "hecate-ca.key"), []byte("not-valid-pem"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(keyDir, "hecate-ca.crt"), []byte("cert-placeholder"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(keyDir, "hecate-ca.crt"), []byte("cert-placeholder"), 0o600))
 
 	_, err := NewInternalCA(dir)
 	assert.Error(t, err)
@@ -117,7 +117,7 @@ func TestNewInternalCA_CorruptCertFile(t *testing.T) {
 	require.NoError(t, err)
 
 	certPath := filepath.Join(dir, "keys", "hecate-ca.crt")
-	require.NoError(t, os.WriteFile(certPath, []byte("not-valid-pem"), 0o644))
+	require.NoError(t, os.WriteFile(certPath, []byte("not-valid-pem"), 0o600))
 
 	_, err = NewInternalCA(dir)
 	assert.Error(t, err)
@@ -131,7 +131,7 @@ func TestNewInternalCA_UnreadableKeyFile(t *testing.T) {
 	keyPath := filepath.Join(keyDir, "hecate-ca.key")
 	certPath := filepath.Join(keyDir, "hecate-ca.crt")
 	require.NoError(t, os.WriteFile(keyPath, []byte("key-content"), 0o000))
-	require.NoError(t, os.WriteFile(certPath, []byte("cert-content"), 0o644))
+	require.NoError(t, os.WriteFile(certPath, []byte("cert-content"), 0o600))
 
 	_, err := NewInternalCA(dir)
 	assert.Error(t, err)
@@ -152,8 +152,7 @@ func TestNewInternalCA_UnreadableCertFile(t *testing.T) {
 
 func TestNewInternalCA_ReadOnlyDataRoot(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.Chmod(dir, 0o555))
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	makeDirReadOnly(t, dir, 0o500)
 
 	_, err := NewInternalCA(dir)
 	assert.Error(t, err)
@@ -162,8 +161,8 @@ func TestNewInternalCA_ReadOnlyDataRoot(t *testing.T) {
 func TestNewInternalCA_ReadOnlyKeysDir(t *testing.T) {
 	dir := t.TempDir()
 	keysDir := filepath.Join(dir, "keys")
-	require.NoError(t, os.MkdirAll(keysDir, 0o555))
-	t.Cleanup(func() { _ = os.Chmod(keysDir, 0o700) })
+	require.NoError(t, os.MkdirAll(keysDir, 0o700))
+	makeDirReadOnly(t, keysDir, 0o500)
 
 	_, err := NewInternalCA(dir)
 	assert.Error(t, err)
@@ -179,4 +178,18 @@ func TestNewInternalCA_ReadOnlyCertPath(t *testing.T) {
 
 	_, err := NewInternalCA(dir)
 	assert.Error(t, err)
+}
+
+// chmodDir changes a directory's mode. Directories need the owner execute bit
+// to be searchable, so the file-mode ceiling gosec applies (0600) cannot apply.
+func chmodDir(dir string, mode os.FileMode) error {
+	return os.Chmod(dir, mode) //nolint:gosec // G302: directory permission bits, execute (search) bit is required
+}
+
+// makeDirReadOnly applies mode to dir and restores owner rwx on test cleanup so
+// t.TempDir can remove it.
+func makeDirReadOnly(t *testing.T, dir string, mode os.FileMode) {
+	t.Helper()
+	require.NoError(t, chmodDir(dir, mode))
+	t.Cleanup(func() { _ = chmodDir(dir, 0o700) })
 }

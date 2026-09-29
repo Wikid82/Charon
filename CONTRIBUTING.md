@@ -50,7 +50,7 @@ go install github.com/evilmartians/lefthook@latest
 brew install golangci-lint
 
 # Option 2: Go install (any platform)
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 
 # Option 3: Binary installation (see https://golangci-lint.run/usage/install/)
 curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
@@ -66,8 +66,10 @@ Verify installation:
 
 ```bash
 golangci-lint --version
-# Should output: golangci-lint has version 1.xx.x ...
+# Should output: golangci-lint has version 2.14.x ...
 ```
+
+The CI-pinned version (currently v2.14.0, see `.github/workflows/quality-checks.yml`) is authoritative; `make lint-backend` and `make lint-agent` run that exact version via Docker with the full `backend/.golangci.yml` config.
 
 **Note:** Lefthook pre-commit-phase hooks will **BLOCK commits** if golangci-lint finds issues. This is intentional - fix the issues before committing.
 
@@ -121,7 +123,7 @@ Don't worry! The lefthook pre-commit hook will detect the version mismatch and a
 
 ```
 ⚠️  golangci-lint Go version mismatch:
-   golangci-lint: 1.25.6
+   golangci-lint: 2.13.0
    system Go:     1.26.0
 
 🔧 Rebuilding golangci-lint with current Go version...

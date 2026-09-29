@@ -15,7 +15,7 @@ import (
 // trustedProxies lists IPs/CIDRs of reverse proxies whose forwarded headers
 // Gin's own ClientIP() should honor (see docs/configuration/trusted-proxies.md).
 // Empty/nil trusts nothing, matching Gin's SetTrustedProxies(nil) default.
-func NewRouter(frontendDir string, dataDir string, trustedProxies []string) *gin.Engine {
+func NewRouter(frontendDir, dataDir string, trustedProxies []string) *gin.Engine {
 	router := gin.Default()
 	// Gin trusts all proxies by default. In v1.11.x, SetTrustedProxies(nil) disables
 	// trusting forwarded headers entirely, making Context.ClientIP() use the remote

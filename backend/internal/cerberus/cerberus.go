@@ -301,7 +301,7 @@ func (c *Cerberus) isAuthenticatedAdmin(ctx *gin.Context) bool {
 	}
 }
 
-func (c *Cerberus) adminWhitelistStatus(clientIP string) (bool, bool) {
+func (c *Cerberus) adminWhitelistStatus(clientIP string) (configured, allowed bool) {
 	if c.db == nil {
 		return false, false
 	}

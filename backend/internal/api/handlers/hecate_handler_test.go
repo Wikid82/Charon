@@ -1224,7 +1224,7 @@ func TestHecateWSHandler_StreamLogs_SubClose(t *testing.T) {
 
 	// Wait for the WS connection to be terminated by the handler.
 	waitFor(t, func() bool {
-		conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond)) //nolint:errcheck
+		_ = conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 		_, _, readErr := conn.ReadMessage()
 		return readErr != nil
 	})

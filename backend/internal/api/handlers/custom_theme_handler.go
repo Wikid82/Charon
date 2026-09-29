@@ -102,7 +102,7 @@ func (h *CustomThemeHandler) UpdateTheme(c *gin.Context) {
 	}
 
 	if req.Name != nil {
-		if len(*req.Name) == 0 || len(*req.Name) > 100 {
+		if *req.Name == "" || len(*req.Name) > 100 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "name cannot be empty"})
 			return
 		}

@@ -329,7 +329,7 @@ func TestDiscordOnly_DeleteAllowsDeprecated(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest("DELETE", "/api/v1/notifications/providers/test-deprecated", nil)
+	c.Request, _ = http.NewRequest("DELETE", "/api/v1/notifications/providers/test-deprecated", http.NoBody)
 	c.Params = []gin.Param{{Key: "id", Value: "test-deprecated"}}
 	c.Set("role", "admin")
 	c.Set("userID", uint(1))

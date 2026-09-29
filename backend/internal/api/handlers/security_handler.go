@@ -1327,9 +1327,9 @@ func (h *SecurityHandler) restoreSettings(snapshots map[string]settingSnapshot) 
 	return nil
 }
 
-func (h *SecurityHandler) snapshotDefaultSecurityConfigState() (bool, bool, error) {
+func (h *SecurityHandler) snapshotDefaultSecurityConfigState() (exists, enabled bool, err error) {
 	var cfg models.SecurityConfig
-	err := h.db.Where("name = ?", "default").First(&cfg).Error
+	err = h.db.Where("name = ?", "default").First(&cfg).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, false, nil
 	}
@@ -1340,7 +1340,7 @@ func (h *SecurityHandler) snapshotDefaultSecurityConfigState() (bool, bool, erro
 	return true, cfg.Enabled, nil
 }
 
-func (h *SecurityHandler) restoreDefaultSecurityConfigState(exists bool, enabled bool) error {
+func (h *SecurityHandler) restoreDefaultSecurityConfigState(exists, enabled bool) error {
 	if exists {
 		return h.db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("enabled", enabled).Error
 	}

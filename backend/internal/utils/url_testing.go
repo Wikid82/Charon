@@ -414,7 +414,7 @@ func testURLConnectivity(rawURL string, opts ...urlConnectivityOption) (reachabl
 // - a hard redirect limit
 // - per-hop URL validation (scheme, userinfo, host, DNS, private/reserved IPs)
 // - scheme-change policy (deny by default; optionally allow http->https upgrade)
-func validateRedirectTargetStrict(req *http.Request, via []*http.Request, maxRedirects int, allowHTTPSUpgrade bool, allowLocalhost bool) error {
+func validateRedirectTargetStrict(req *http.Request, via []*http.Request, maxRedirects int, allowHTTPSUpgrade, allowLocalhost bool) error {
 	if len(via) >= maxRedirects {
 		return fmt.Errorf("too many redirects (max %d)", maxRedirects)
 	}

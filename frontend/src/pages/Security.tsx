@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink, Bell } from 'lucide-react'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, Outlet } from 'react-router'
 
@@ -30,6 +30,7 @@ import {
   TooltipProvider,
 } from '../components/ui'
 import { useAuth } from '../hooks/useAuth'
+import { CROWDSEC_STATUS_QUERY_KEY, useCrowdsecStatus } from '../hooks/useCrowdsecStatus'
 import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
 import { toast } from '../utils/toast'
 
@@ -87,16 +88,13 @@ export default function Security() {
     queryFn: getSecurityStatus,
   })
   const { data: securityConfig } = useSecurityConfig()
-  const [adminWhitelist, setAdminWhitelist] = useState<string>('')
-  useEffect(() => {
-    if (securityConfig && securityConfig.config) {
-      setAdminWhitelist(securityConfig.config.admin_whitelist || '')
-    }
-  }, [securityConfig])
+  // Draft is null until the user edits; the displayed value falls back to the server value.
+  const [adminWhitelistDraft, setAdminWhitelistDraft] = useState<string | null>(null)
+  const adminWhitelist = adminWhitelistDraft ?? securityConfig?.config?.admin_whitelist ?? ''
   const updateSecurityConfigMutation = useUpdateSecurityConfig()
   const generateBreakGlassMutation = useGenerateBreakGlassToken()
   const queryClient = useQueryClient()
-  const [crowdsecStatus, setCrowdsecStatus] = useState<{ running: boolean; pid?: number } | null>(null)
+  const { data: crowdsecStatus } = useCrowdsecStatus()
   // Stable reference to prevent WebSocket reconnection loops in LiveLogViewer
   const emptySecurityFilters = useMemo(() => ({}), [])
   // Generic toggle mutation for per-service settings
@@ -155,19 +153,7 @@ export default function Security() {
     },
   })
 
-  const fetchCrowdsecStatus = async () => {
-
-    try {
-      const s = await statusCrowdsec()
-      setCrowdsecStatus(s)
-    } catch {
-      setCrowdsecStatus(null)
-    }
-  }
-
-  useEffect(() => { fetchCrowdsecStatus() }, [])
-
-
+  const refreshCrowdsecStatus = () => queryClient.invalidateQueries({ queryKey: CROWDSEC_STATUS_QUERY_KEY })
 
   const crowdsecPowerMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -214,7 +200,7 @@ export default function Security() {
       toast.error(enabled ? `Failed to start CrowdSec: ${msg}` : `Failed to stop CrowdSec: ${msg}`)
       // Force refresh status from backend to ensure UI matches reality
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
-      fetchCrowdsecStatus()
+      refreshCrowdsecStatus()
     },
     onSuccess: async (result: { lapi_ready?: boolean; enabled?: boolean } | boolean) => {
       queryClient.setQueryData(['crowdsec-starting'], { isStarting: false })
@@ -222,7 +208,7 @@ export default function Security() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['security-status'] }),
         queryClient.invalidateQueries({ queryKey: ['settings'] }),
-        fetchCrowdsecStatus(),
+        refreshCrowdsecStatus(),
       ])
 
       if (typeof result === 'object' && result.lapi_ready === true) {
@@ -388,13 +374,24 @@ export default function Security() {
                 <input
                   className="flex-1 px-3 py-2 rounded-md border border-border bg-surface-elevated text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                   value={adminWhitelist}
-                  onChange={(e) => setAdminWhitelist(e.target.value)}
+                  onChange={(e) => setAdminWhitelistDraft(e.target.value)}
                   placeholder="192.168.1.0/24, 10.0.0.1"
                 />
                 <Button
                   size="sm"
                   variant="primary"
-                  onClick={() => updateSecurityConfigMutation.mutate({ name: 'default', admin_whitelist: adminWhitelist })}
+                  onClick={() =>
+                    updateSecurityConfigMutation.mutate(
+                      { name: 'default', admin_whitelist: adminWhitelist },
+                      {
+                        // Drop the draft only after the refetch lands so the stale server value never flashes.
+                        onSuccess: async () => {
+                          await queryClient.invalidateQueries({ queryKey: ['securityConfig'] })
+                          setAdminWhitelistDraft(null)
+                        },
+                      },
+                    )
+                  }
                 >
                   {t('common.save')}
                 </Button>

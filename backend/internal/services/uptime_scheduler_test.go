@@ -146,15 +146,15 @@ func TestUptimeScheduler_Hydrate_JitteredBackfillSpreadsPastDueMonitors(t *testi
 	require.Len(t, offsets, n)
 
 	buckets := make([]int, 6) // 6 x 10s buckets across the 60s window
-	var min, max time.Duration = time.Hour, 0
+	var minOff, maxOff time.Duration = time.Hour, 0
 	for _, o := range offsets {
 		assert.GreaterOrEqual(t, o, time.Duration(0))
 		assert.Less(t, o, 60*time.Second)
-		if o < min {
-			min = o
+		if o < minOff {
+			minOff = o
 		}
-		if o > max {
-			max = o
+		if o > maxOff {
+			maxOff = o
 		}
 		b := int(o / (10 * time.Second))
 		if b > 5 {
@@ -170,7 +170,7 @@ func TestUptimeScheduler_Hydrate_JitteredBackfillSpreadsPastDueMonitors(t *testi
 		}
 	}
 	assert.GreaterOrEqual(t, populated, 4, "backfill should spread across most of the window, got buckets %v", buckets)
-	assert.Greater(t, max-min, 20*time.Second, "spread between earliest and latest due should be wide")
+	assert.Greater(t, maxOff-minOff, 20*time.Second, "spread between earliest and latest due should be wide")
 }
 
 // --- host pass before monitor pass ---

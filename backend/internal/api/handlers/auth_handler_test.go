@@ -951,7 +951,7 @@ func TestAuthHandler_Verify_InvalidToken(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid-token", Secure: true, HttpOnly: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid-token", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -980,7 +980,7 @@ func TestAuthHandler_Verify_ValidToken(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1038,7 +1038,7 @@ func TestAuthHandler_Verify_DisabledUser(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1077,7 +1077,7 @@ func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	req.Header.Set("X-Forwarded-Host", "app.example.com")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -1108,7 +1108,7 @@ func TestAuthHandler_VerifyStatus_InvalidToken(t *testing.T) {
 	r.GET("/status", handler.VerifyStatus)
 
 	req := httptest.NewRequest("GET", "/status", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid", Secure: true, HttpOnly: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1138,7 +1138,7 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 	r.GET("/status", handler.VerifyStatus)
 
 	req := httptest.NewRequest("GET", "/status", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1171,7 +1171,7 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 	r.GET("/status", handler.VerifyStatus)
 
 	req := httptest.NewRequest("GET", "/status", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1707,7 +1707,7 @@ func TestAuthHandler_Verify_UsesOriginalHostFallback(t *testing.T) {
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest(http.MethodGet, "/verify", http.NoBody)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true})
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	req.Header.Set("X-Original-Host", "original-host.example.com")
 	res := httptest.NewRecorder()
 	r.ServeHTTP(res, req)

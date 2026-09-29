@@ -37,12 +37,49 @@ import (
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"
 )
 
+// caddyBootstrapper is the subset of *caddy.Manager needed for the initial config sync.
+type caddyBootstrapper interface {
+	Ping(ctx context.Context) error
+	ApplyConfig(ctx context.Context) error
+}
+
+// applyInitialCaddyConfig waits for Caddy to respond (up to timeout), then applies the
+// stored configuration. It returns early, without applying, if ctx is cancelled.
+func applyInitialCaddyConfig(ctx context.Context, mgr caddyBootstrapper, timeout, interval time.Duration) {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline:
+			logger.Log().Warn("Timeout waiting for Caddy to be ready")
+			return
+		case <-ticker.C:
+			if err := mgr.Ping(ctx); err != nil {
+				continue
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			if err := mgr.ApplyConfig(ctx); err != nil {
+				logger.Log().WithError(err).Error("Failed to apply initial Caddy config")
+			} else {
+				logger.Log().Info("Successfully applied initial Caddy config")
+			}
+			return
+		}
+	}
+}
+
 type uptimeBootstrapService interface {
 	CleanupStaleFailureCounts() error
 	SyncMonitors() error
 }
 
-func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapService, logWarn func(error, string), logError func(error, string)) {
+func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapService, logWarn, logError func(error, string)) {
 	if !enabled {
 		return
 	}
@@ -842,7 +879,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		}
 
 		var geoipSvc *services.GeoIPService
-		if _, err := os.Stat(geoipPath); err == nil {
+		if _, err := os.Stat(geoipPath); err == nil { //nolint:gosec // G703: operator-configured path from CHARON_GEOIP_DB_PATH, read-only stat
 			var geoErr error
 			geoipSvc, geoErr = services.NewGeoIPService(geoipPath)
 			if geoErr != nil {
@@ -927,12 +964,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Ensure log directory and file exist for LogWatcher
 		// This prevents failures after container restart when log file doesn't exist yet
-		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0o750); err != nil {
+		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0o750); err != nil { //nolint:gosec // G703: operator-configured path from CHARON_CADDY_ACCESS_LOG
 			logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log directory for LogWatcher")
 		}
-		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
-			// #nosec G304 -- Creating access log file, path is application-controlled
-			if f, err := os.Create(accessLogPath); err == nil {
+		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) { //nolint:gosec // G703: operator-configured path from CHARON_CADDY_ACCESS_LOG, read-only stat
+			if f, err := os.Create(accessLogPath); err == nil { //nolint:gosec // G703: operator-configured path from CHARON_CADDY_ACCESS_LOG
 				if closeErr := f.Close(); closeErr != nil {
 					logger.Log().WithError(closeErr).Warn("Failed to close log file")
 				}
@@ -1072,37 +1108,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// Caddy Manager already created above
 
 	// Initial Caddy Config Sync
-	go func() {
-		// Wait for Caddy to be ready (max 30 seconds)
-		ctx := context.Background()
-		timeout := time.After(30 * time.Second)
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-
-		ready := false
-		for {
-			select {
-			case <-timeout:
-				logger.Log().Warn("Timeout waiting for Caddy to be ready")
-				return
-			case <-ticker.C:
-				if err := caddyManager.Ping(ctx); err == nil {
-					ready = true
-					goto Apply
-				}
-			}
-		}
-
-	Apply:
-		if ready {
-			// Apply config
-			if err := caddyManager.ApplyConfig(ctx); err != nil {
-				logger.Log().WithError(err).Error("Failed to apply initial Caddy config")
-			} else {
-				logger.Log().Info("Successfully applied initial Caddy config")
-			}
-		}
-	}()
+	go applyInitialCaddyConfig(ctx, caddyManager, 30*time.Second, time.Second)
 
 	return uptimeShutdown, nil
 }

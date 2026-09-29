@@ -258,7 +258,7 @@ func TestGetPatterns(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/dns-providers/detection-patterns", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/dns-providers/detection-patterns", http.NoBody)
 
 	handler.GetPatterns(c)
 

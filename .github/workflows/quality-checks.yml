@@ -304,15 +304,6 @@ jobs:
       # Codecov upload moved to `codecov-upload.yml` (pull_request + workflow_dispatch).
 
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.14.0
-          working-directory: backend
-          args: --timeout=5m
-        continue-on-error: true
-
       - name: GORM Security Scanner
         id: gorm-scan
         run: |
@@ -364,6 +355,18 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$PERF_STATUS"
 
+      # Last step so a lint failure never skips the GORM scan / perf asserts;
+      # !cancelled() so a failing test step never skips lint. Blocking: no
+      # continue-on-error.
+      - name: Run golangci-lint
+        if: ${{ !cancelled() }}
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          # renovate: datasource=github-releases depName=golangci/golangci-lint
+          version: v2.14.0
+          working-directory: backend
+          args: --timeout=5m
+
   agent-quality:
     name: Agent (Go)
     runs-on: ubuntu-latest
@@ -389,14 +392,6 @@ jobs:
       - name: go vet
         working-directory: agent
         run: go vet ./...
-
-      - name: Run golangci-lint (fast config, root-shared)
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-        with:
-          # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.14.0
-          working-directory: agent
-          args: --config ../.golangci-fast.yml --timeout=5m
 
       - name: Run Go tests with coverage gate
         id: go-tests
@@ -433,6 +428,18 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Codecov upload handled separately in codecov-upload.yml (agent-codecov job).
+
+      # Last step so lint never hides test results; !cancelled() so a failing
+      # test step never skips lint. The agent module shares the full config that
+      # lives in backend/ (not duplicated); blocking, no continue-on-error.
+      - name: Run golangci-lint (full config)
+        if: ${{ !cancelled() }}
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          # renovate: datasource=github-releases depName=golangci/golangci-lint
+          version: v2.14.0
+          working-directory: agent
+          args: --config ../backend/.golangci.yml --timeout=5m
 
   frontend-quality:
     name: Frontend (React)

@@ -28,7 +28,7 @@ func TestCrowdsecWave6_GetBouncerInfo_NoneSource(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/bouncer", http.NoBody)
 
 	h.GetBouncerInfo(c)
 
@@ -50,7 +50,7 @@ func TestCrowdsecWave6_GetKeyStatus_NoKeyConfiguredMessage(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/key-status", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/key-status", http.NoBody)
 
 	h.GetKeyStatus(c)
 

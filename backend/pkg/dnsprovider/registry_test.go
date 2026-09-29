@@ -1,6 +1,7 @@
 package dnsprovider
 
 import (
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -446,7 +447,7 @@ func TestConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			provider := &mockProvider{providerType: "concurrent-" + string(rune('a'+n))}
+			provider := &mockProvider{providerType: "concurrent-" + strconv.Itoa(n)}
 			_ = r.Register(provider)
 		}(i)
 	}

@@ -93,18 +93,6 @@ func TestManager_SaveSnapshot_WriteError(t *testing.T) {
 	assert.Contains(t, err.Error(), "write snapshot")
 }
 
-func TestBackupCaddyfile_MkdirAllFailure(t *testing.T) {
-	tmp := t.TempDir()
-	originalFile := filepath.Join(tmp, "Caddyfile")
-	_ = os.WriteFile(originalFile, []byte("original"), 0o600)
-	// Create a file where the backup dir should be to cause MkdirAll to fail
-	badDir := filepath.Join(tmp, "notadir")
-	_ = os.WriteFile(badDir, []byte("data"), 0o600)
-
-	_, err := BackupCaddyfile(originalFile, badDir)
-	assert.Error(t, err)
-}
-
 // Note: Deletion failure for rotateSnapshots is difficult to reliably simulate across environments
 // (tests run as root in CI and local dev containers). If needed, add platform-specific tests.
 

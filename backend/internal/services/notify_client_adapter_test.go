@@ -91,7 +91,10 @@ func TestNotifyClientFactoryBlocksLocalhostWhenAllowHTTPFalse(t *testing.T) {
 	defer server.Close()
 
 	client := notifyClientFactory(false, 0)
-	_, err := client.Get(server.URL)
+	resp, err := client.Get(server.URL)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err == nil {
 		t.Fatal("expected localhost request to fail with allowHTTP=false")
 	}

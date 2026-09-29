@@ -67,7 +67,7 @@ func TestNewRouter_WithDataDir(t *testing.T) {
 
 	dataDir := t.TempDir()
 	uploadsDir := filepath.Join(dataDir, "uploads")
-	assert.NoError(t, os.MkdirAll(uploadsDir, 0o755))
+	assert.NoError(t, os.MkdirAll(uploadsDir, 0o750))
 	// #nosec G306 -- Test fixture needs to be world-readable for HTTP serving test
 	assert.NoError(t, os.WriteFile(filepath.Join(uploadsDir, "logo.png"), []byte("fake-png"), 0o644))
 

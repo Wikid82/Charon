@@ -52,12 +52,10 @@ func setupEncryptionTestRouter(handler *EncryptionHandler, isAdmin bool) *gin.En
 	})
 
 	api := router.Group("/api/v1/admin/encryption")
-	{
-		api.GET("/status", handler.GetStatus)
-		api.POST("/rotate", handler.Rotate)
-		api.GET("/history", handler.GetHistory)
-		api.POST("/validate", handler.Validate)
-	}
+	api.GET("/status", handler.GetStatus)
+	api.POST("/rotate", handler.Rotate)
+	api.GET("/history", handler.GetHistory)
+	api.POST("/validate", handler.Validate)
 
 	return router
 }
@@ -83,7 +81,7 @@ func TestEncryptionHandler_GetStatus(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -101,7 +99,7 @@ func TestEncryptionHandler_GetStatus(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, false)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusForbidden, w.Code)
@@ -120,7 +118,7 @@ func TestEncryptionHandler_GetStatus(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -145,7 +143,7 @@ func TestEncryptionHandler_GetStatus(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -197,7 +195,7 @@ func TestEncryptionHandler_Rotate(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		// Flush async audit logging
@@ -225,7 +223,7 @@ func TestEncryptionHandler_Rotate(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, false)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusForbidden, w.Code)
@@ -242,7 +240,7 @@ func TestEncryptionHandler_Rotate(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -284,7 +282,7 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -303,7 +301,7 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, false)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusForbidden, w.Code)
@@ -313,7 +311,7 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history?page=1&limit=2", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history?page=1&limit=2", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -355,7 +353,7 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -385,7 +383,7 @@ func TestEncryptionHandler_Validate(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		// Flush async audit logging
@@ -410,7 +408,7 @@ func TestEncryptionHandler_Validate(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, false)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusForbidden, w.Code)
@@ -433,7 +431,7 @@ func TestEncryptionHandler_Validate(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+		req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		securityService.Flush()
@@ -494,13 +492,13 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 		router := setupEncryptionTestRouter(handler, true)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", http.NoBody)
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Step 2: Validate current configuration
 		w = httptest.NewRecorder()
-		req, _ = http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+		req, _ = http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 		router.ServeHTTP(w, req)
 		securityService.Flush()
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -519,7 +517,7 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 
 		// Step 4: Trigger rotation
 		w = httptest.NewRecorder()
-		req, _ = http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+		req, _ = http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 		router.ServeHTTP(w, req)
 		securityService.Flush()
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -532,13 +530,13 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 
 		// Step 6: Check updated status
 		w = httptest.NewRecorder()
-		req, _ = http.NewRequest("GET", "/api/v1/admin/encryption/status", nil)
+		req, _ = http.NewRequest("GET", "/api/v1/admin/encryption/status", http.NoBody)
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Step 7: Verify history contains rotation events
 		w = httptest.NewRecorder()
-		req, _ = http.NewRequest("GET", "/api/v1/admin/encryption/history", nil)
+		req, _ = http.NewRequest("GET", "/api/v1/admin/encryption/history", http.NoBody)
 		router.ServeHTTP(w, req)
 		securityService.Flush()
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -573,7 +571,7 @@ func TestEncryptionHandler_HelperFunctions(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", nil)
+		req, _ := http.NewRequest("GET", "/test", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusForbidden, w.Code)
@@ -592,7 +590,7 @@ func TestEncryptionHandler_HelperFunctions(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", nil)
+		req, _ := http.NewRequest("GET", "/test", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, "user-string-123", capturedActor)
@@ -611,7 +609,7 @@ func TestEncryptionHandler_HelperFunctions(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", nil)
+		req, _ := http.NewRequest("GET", "/test", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, "42", capturedActor)
@@ -626,7 +624,7 @@ func TestEncryptionHandler_HelperFunctions(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", nil)
+		req, _ := http.NewRequest("GET", "/test", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, "system", capturedActor)
@@ -678,7 +676,7 @@ func TestEncryptionHandler_RefreshKey_RotatesCredentials(t *testing.T) {
 
 	// Trigger rotation
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 	securityService.Flush()
 
@@ -713,7 +711,7 @@ func TestEncryptionHandler_RefreshKey_FailsWithoutProvider(t *testing.T) {
 
 	// Attempt rotation without next key configured
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -768,7 +766,7 @@ func TestEncryptionHandler_RefreshKey_InvalidOldKey(t *testing.T) {
 
 	// Attempt rotation with wrong key
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 	securityService.Flush()
 
@@ -798,7 +796,7 @@ func TestEncryptionHandler_GetActorFromGinContext_InvalidType(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Invalid type should return "system" as fallback
@@ -859,7 +857,7 @@ func TestEncryptionHandler_RotateWithPartialFailures(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 	securityService.Flush()
 
@@ -893,7 +891,7 @@ func TestEncryptionHandler_isAdmin_NoRoleSet(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
@@ -916,7 +914,7 @@ func TestEncryptionHandler_isAdmin_NonAdminRole(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
@@ -971,7 +969,7 @@ func TestEncryptionHandler_Rotate_AuditStartFailure(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should still return error (rotation will fail due to closed DB)
@@ -1007,7 +1005,7 @@ func TestEncryptionHandler_Rotate_AuditFailureFailure(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should return error (no next key + DB closed)
@@ -1067,7 +1065,7 @@ func TestEncryptionHandler_Rotate_AuditCompletionFailure(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Rotation should succeed despite audit failure
@@ -1109,7 +1107,7 @@ func TestEncryptionHandler_Validate_AuditFailureOnError(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should return validation error
@@ -1148,7 +1146,7 @@ func TestEncryptionHandler_Validate_AuditFailureOnSuccess(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should return success despite audit failure
@@ -1209,7 +1207,7 @@ func TestEncryptionHandler_Rotate_AuditStartLogFailure(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Rotation should succeed despite audit start failure
@@ -1271,7 +1269,7 @@ func TestEncryptionHandler_Rotate_AuditCompletionLogFailure(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Rotation should succeed despite audit completion failure
@@ -1312,7 +1310,7 @@ func TestEncryptionHandler_Rotate_AuditRotationFailureLogFailure(t *testing.T) {
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Rotation should fail (no next key)
@@ -1347,7 +1345,7 @@ func TestEncryptionHandler_Validate_AuditValidationSuccessLogFailure(t *testing.
 	router := setupEncryptionTestRouter(handler, true)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Validation should succeed despite audit failure
@@ -1421,7 +1419,7 @@ func TestEncryptionHandler_Rotate_AuditChannelFull(t *testing.T) {
 
 	// Send the request - rotation should succeed regardless of audit logging state
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", http.NoBody)
 	router.ServeHTTP(w, req)
 	securityService.Flush()
 

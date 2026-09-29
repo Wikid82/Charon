@@ -894,12 +894,12 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 	}
 
 	updated := 0
-	errors := []map[string]string{}
+	failures := []map[string]string{}
 
 	for _, hostUUID := range req.HostUUIDs {
 		host, err := h.service.GetByUUID(hostUUID)
 		if err != nil {
-			errors = append(errors, map[string]string{
+			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": "proxy host not found",
 			})
@@ -908,7 +908,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 
 		host.AccessListID = req.AccessListID
 		if err := h.service.Update(host); err != nil {
-			errors = append(errors, map[string]string{
+			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),
 			})
@@ -924,7 +924,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to apply configuration: " + err.Error(),
 				"updated": updated,
-				"errors":  errors,
+				"errors":  failures,
 			})
 			return
 		}
@@ -932,7 +932,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"updated": updated,
-		"errors":  errors,
+		"errors":  failures,
 	})
 }
 
@@ -963,12 +963,12 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 	}
 
 	updated := 0
-	errors := []map[string]string{}
+	failures := []map[string]string{}
 
 	for _, hostUUID := range req.HostUUIDs {
 		host, err := h.service.GetByUUID(hostUUID)
 		if err != nil {
-			errors = append(errors, map[string]string{
+			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": "proxy host not found",
 			})
@@ -976,7 +976,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 		}
 		host.ProxyGroupID = resolvedGroupID
 		if err := h.service.Update(host); err != nil {
-			errors = append(errors, map[string]string{
+			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),
 			})
@@ -990,7 +990,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to apply configuration: " + err.Error(),
 				"updated": updated,
-				"errors":  errors,
+				"errors":  failures,
 			})
 			return
 		}
@@ -998,7 +998,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"updated": updated,
-		"errors":  errors,
+		"errors":  failures,
 	})
 }
 
@@ -1044,12 +1044,12 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 	}()
 
 	updated := 0
-	errors := []map[string]string{}
+	failures := []map[string]string{}
 
 	for _, hostUUID := range req.HostUUIDs {
 		var host models.ProxyHost
 		if err := tx.Where("uuid = ?", hostUUID).First(&host).Error; err != nil {
-			errors = append(errors, map[string]string{
+			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": "proxy host not found",
 			})
@@ -1059,7 +1059,7 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 		// Update security header profile ID
 		host.SecurityHeaderProfileID = req.SecurityHeaderProfileID
 		if err := tx.Model(&host).Where("id = ?", host.ID).Select("SecurityHeaderProfileID").Updates(&host).Error; err != nil {
-			errors = append(errors, map[string]string{
+			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),
 			})
@@ -1070,12 +1070,12 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 	}
 
 	// Commit transaction only if all updates succeeded
-	if len(errors) > 0 && updated == 0 {
+	if len(failures) > 0 && updated == 0 {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "All updates failed",
 			"updated": updated,
-			"errors":  errors,
+			"errors":  failures,
 		})
 		return
 	}
@@ -1091,7 +1091,7 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to apply configuration: " + err.Error(),
 				"updated": updated,
-				"errors":  errors,
+				"errors":  failures,
 			})
 			return
 		}
@@ -1099,6 +1099,6 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"updated": updated,
-		"errors":  errors,
+		"errors":  failures,
 	})
 }

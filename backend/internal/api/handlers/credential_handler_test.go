@@ -177,7 +177,7 @@ func TestCredentialHandler_List_ByProviderUUID(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%s/credentials", provider.UUID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -193,7 +193,7 @@ func TestCredentialHandler_List_ProviderUUID_NotFound(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%s/credentials", uuid.New().String())
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -222,7 +222,7 @@ func TestCredentialHandler_EnableMultiCredentials_ByProviderUUID(t *testing.T) {
 	require.NoError(t, db.Create(provider).Error)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%s/enable-multi-credentials", provider.UUID)
-	req, _ := http.NewRequest("POST", url, nil)
+	req, _ := http.NewRequest("POST", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -257,7 +257,7 @@ func TestCredentialHandler_List(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials", provider.ID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -287,7 +287,7 @@ func TestCredentialHandler_Get(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%d", provider.ID, created.ID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -304,7 +304,7 @@ func TestCredentialHandler_Get_NotFound(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/9999", provider.ID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -366,7 +366,7 @@ func TestCredentialHandler_Delete(t *testing.T) {
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%d", provider.ID, created.ID)
-	req, _ := http.NewRequest("DELETE", url, nil)
+	req, _ := http.NewRequest("DELETE", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -392,7 +392,7 @@ func TestCredentialHandler_Test(t *testing.T) {
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%d/test", provider.ID, created.ID)
-	req, _ := http.NewRequest("POST", url, nil)
+	req, _ := http.NewRequest("POST", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -426,7 +426,7 @@ func TestCredentialHandler_EnableMultiCredentials(t *testing.T) {
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/enable-multi-credentials", provider.ID)
-	req, _ := http.NewRequest("POST", url, nil)
+	req, _ := http.NewRequest("POST", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -451,7 +451,7 @@ func testContext() *gin.Context {
 func TestCredentialHandler_List_InvalidProviderID(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/invalid/credentials", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/invalid/credentials", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -462,7 +462,7 @@ func TestCredentialHandler_List_InvalidProviderID(t *testing.T) {
 func TestCredentialHandler_List_ProviderNotFound(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/9999/credentials", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/9999/credentials", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -492,7 +492,7 @@ func TestCredentialHandler_List_MultiCredentialNotEnabled(t *testing.T) {
 	require.NoError(t, db.Create(provider).Error)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials", provider.ID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -624,7 +624,7 @@ func TestCredentialHandler_Create_InvalidProviderType(t *testing.T) {
 func TestCredentialHandler_Get_InvalidProviderID(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/invalid/credentials/1", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/dns-providers/invalid/credentials/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -636,7 +636,7 @@ func TestCredentialHandler_Get_InvalidCredentialID(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/invalid", provider.ID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -715,7 +715,7 @@ func TestCredentialHandler_Update_InvalidJSON(t *testing.T) {
 func TestCredentialHandler_Delete_InvalidProviderID(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("DELETE", "/api/v1/dns-providers/invalid/credentials/1", nil)
+	req, _ := http.NewRequest("DELETE", "/api/v1/dns-providers/invalid/credentials/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -727,7 +727,7 @@ func TestCredentialHandler_Delete_InvalidCredentialID(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/invalid", provider.ID)
-	req, _ := http.NewRequest("DELETE", url, nil)
+	req, _ := http.NewRequest("DELETE", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -739,7 +739,7 @@ func TestCredentialHandler_Delete_NotFound(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/9999", provider.ID)
-	req, _ := http.NewRequest("DELETE", url, nil)
+	req, _ := http.NewRequest("DELETE", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -750,7 +750,7 @@ func TestCredentialHandler_Delete_NotFound(t *testing.T) {
 func TestCredentialHandler_Test_InvalidProviderID(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/invalid/credentials/1/test", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/invalid/credentials/1/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -762,7 +762,7 @@ func TestCredentialHandler_Test_InvalidCredentialID(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/invalid/test", provider.ID)
-	req, _ := http.NewRequest("POST", url, nil)
+	req, _ := http.NewRequest("POST", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -774,7 +774,7 @@ func TestCredentialHandler_Test_NotFound(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/9999/test", provider.ID)
-	req, _ := http.NewRequest("POST", url, nil)
+	req, _ := http.NewRequest("POST", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -785,7 +785,7 @@ func TestCredentialHandler_Test_NotFound(t *testing.T) {
 func TestCredentialHandler_EnableMultiCredentials_InvalidProviderID(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/invalid/enable-multi-credentials", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/invalid/enable-multi-credentials", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -796,7 +796,7 @@ func TestCredentialHandler_EnableMultiCredentials_InvalidProviderID(t *testing.T
 func TestCredentialHandler_EnableMultiCredentials_ProviderNotFound(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/9999/enable-multi-credentials", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/9999/enable-multi-credentials", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1048,7 +1048,7 @@ func TestCredentialHandler_Update_WithZoneFilter(t *testing.T) {
 func TestCredentialHandler_Delete_ProviderNotFound(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("DELETE", "/api/v1/dns-providers/9999/credentials/1", nil)
+	req, _ := http.NewRequest("DELETE", "/api/v1/dns-providers/9999/credentials/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1061,7 +1061,7 @@ func TestCredentialHandler_Delete_ProviderNotFound(t *testing.T) {
 func TestCredentialHandler_Test_ProviderNotFound(t *testing.T) {
 	router, _, _ := setupCredentialHandlerTest(t)
 
-	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/9999/credentials/1/test", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/dns-providers/9999/credentials/1/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1089,7 +1089,7 @@ func TestCredentialHandler_Get_ByCredentialUUID(t *testing.T) {
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, created.UUID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1107,7 +1107,7 @@ func TestCredentialHandler_Get_CredentialUUID_NotFound(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, uuid.New().String())
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1147,7 +1147,7 @@ func TestCredentialHandler_Get_CredentialUUID_WrongProvider(t *testing.T) {
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, otherCred.UUID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1161,7 +1161,7 @@ func TestCredentialHandler_Get_InvalidCredentialIdentifier(t *testing.T) {
 	router, _, provider := setupCredentialHandlerTest(t)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/not-a-valid-id", provider.ID)
-	req, _ := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1217,7 +1217,7 @@ func TestCredentialHandler_Delete_ByCredentialUUID(t *testing.T) {
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s", provider.ID, created.UUID)
-	req, _ := http.NewRequest("DELETE", url, nil)
+	req, _ := http.NewRequest("DELETE", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -1243,7 +1243,7 @@ func TestCredentialHandler_Test_ByCredentialUUID(t *testing.T) {
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("/api/v1/dns-providers/%d/credentials/%s/test", provider.ID, created.UUID)
-	req, _ := http.NewRequest("POST", url, nil)
+	req, _ := http.NewRequest("POST", url, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

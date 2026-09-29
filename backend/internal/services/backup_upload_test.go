@@ -145,8 +145,8 @@ func TestWrapRawDatabaseAsBackup_ArchiveCreateFails(t *testing.T) {
 		DatabaseName: "charon.db",
 	}
 
-	require.NoError(t, os.Chmod(backupDir, 0o500)) // read+execute only, no write
-	t.Cleanup(func() { _ = os.Chmod(backupDir, 0o700) })
+	require.NoError(t, os.Chmod(backupDir, 0o500))       //nolint:gosec // G302: read+execute only (no write) dir fixture
+	t.Cleanup(func() { _ = os.Chmod(backupDir, 0o700) }) //nolint:gosec // G302: directory needs the exec bit; restore perms
 
 	filename, err := s.WrapRawDatabaseAsBackup(rawSQLiteBytes(), "2026-07-10_12-00-00")
 	require.Error(t, err)
