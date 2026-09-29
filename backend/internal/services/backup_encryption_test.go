@@ -24,12 +24,12 @@ func TestEncryptDecryptArchiveWithPassphrase_RoundTrip(t *testing.T) {
 	require.NoError(t, encryptArchiveWithPassphrase(srcPath, encPath, "correct horse battery staple"))
 	require.FileExists(t, encPath)
 
-	encBytes, err := os.ReadFile(encPath) //nolint:gosec // G304: path is under t.TempDir()
+	encBytes, err := os.ReadFile(filepath.Clean(encPath))
 	require.NoError(t, err)
 	assert.NotEqual(t, plaintext, encBytes, "encrypted output must not equal the plaintext")
 
 	require.NoError(t, decryptArchiveWithPassphrase(encPath, decPath, "correct horse battery staple"))
-	decBytes, err := os.ReadFile(decPath) //nolint:gosec // G304: path is under t.TempDir()
+	decBytes, err := os.ReadFile(filepath.Clean(decPath))
 	require.NoError(t, err)
 	assert.Equal(t, plaintext, decBytes)
 }
@@ -157,7 +157,7 @@ func TestDecryptArchiveWithPassphrase_CorruptCiphertext(t *testing.T) {
 	require.NoError(t, encryptArchiveWithPassphrase(srcPath, encPath, "correct-passphrase"))
 
 	// Corrupt the ciphertext after the fact.
-	encBytes, err := os.ReadFile(encPath) //nolint:gosec // G304: path is under t.TempDir()
+	encBytes, err := os.ReadFile(filepath.Clean(encPath))
 	require.NoError(t, err)
 	require.NotEmpty(t, encBytes)
 	encBytes[len(encBytes)-1] ^= 0xFF

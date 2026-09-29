@@ -968,7 +968,6 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log directory for LogWatcher")
 		}
 		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) { //nolint:gosec // G703: operator-configured path from CHARON_CADDY_ACCESS_LOG, read-only stat
-			// #nosec G304 -- Creating access log file, path is application-controlled
 			if f, err := os.Create(accessLogPath); err == nil { //nolint:gosec // G703: operator-configured path from CHARON_CADDY_ACCESS_LOG
 				if closeErr := f.Close(); closeErr != nil {
 					logger.Log().WithError(closeErr).Warn("Failed to close log file")

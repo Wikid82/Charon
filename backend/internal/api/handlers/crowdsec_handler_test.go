@@ -303,7 +303,7 @@ func TestExportConfigStreamsArchive(t *testing.T) {
 	t.Parallel()
 	db := setupCrowdDB(t)
 	dataDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o600)) // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o600))
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 
@@ -344,9 +344,9 @@ func TestExportConfigSkipsSymlinks(t *testing.T) {
 	db := setupCrowdDB(t)
 	dataDir := t.TempDir()
 	outside := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o600)) // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("hello"), 0o600))
 	secret := filepath.Join(outside, "secret.txt")
-	require.NoError(t, os.WriteFile(secret, []byte("secret"), 0o600)) // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(secret, []byte("secret"), 0o600))
 	require.NoError(t, os.Symlink(secret, filepath.Join(dataDir, "file-link")))
 	require.NoError(t, os.Symlink(outside, filepath.Join(dataDir, "dir-link")))
 
