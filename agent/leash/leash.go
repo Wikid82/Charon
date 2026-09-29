@@ -131,6 +131,10 @@ func (l *Leash) connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("leash: websocket dial: %w", err)
 	}
+	writeEnabled := resp != nil && resp.Header.Get("X-Orthrus-Write-Enabled") == "true"
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 
 	// X-Orthrus-Write-Enabled is delivered atomically in the 101 Switching
 	// Protocols response that completes the handshake (server.go sets it via
@@ -138,8 +142,6 @@ func (l *Leash) connect(ctx context.Context) error {
 	// any value other than the literal string "true" is treated as false —
 	// fail closed, matching this package's existing "unknown stream type,
 	// closing" posture elsewhere in this file.
-	writeEnabled := resp != nil && resp.Header.Get("X-Orthrus-Write-Enabled") == "true"
-
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
 

@@ -59,10 +59,10 @@ func (w *closableWriter) String() string {
 	return w.buf.String()
 }
 
-func startUnixHTTPServer(t *testing.T, handler func(net.Conn)) (string, func()) {
+func startUnixHTTPServer(t *testing.T, handler func(net.Conn)) (sockPath string, cleanup func()) {
 	t.Helper()
 
-	sockPath := filepath.Join(t.TempDir(), "docker.sock")
+	sockPath = filepath.Join(t.TempDir(), "docker.sock")
 	ln, err := net.Listen("unix", sockPath)
 	require.NoError(t, err)
 
@@ -76,7 +76,7 @@ func startUnixHTTPServer(t *testing.T, handler func(net.Conn)) (string, func()) 
 		handler(conn)
 	}()
 
-	cleanup := func() {
+	cleanup = func() {
 		_ = ln.Close()
 		select {
 		case <-done:
@@ -363,7 +363,7 @@ func TestServeProxy_CompletesAfterDockerResponse(t *testing.T) {
 			return
 		}
 
-		_, err = io.WriteString(conn, fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(body), body))
+		_, err = fmt.Fprintf(conn, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(body), body)
 		if err != nil {
 			serverErr <- err
 		}
