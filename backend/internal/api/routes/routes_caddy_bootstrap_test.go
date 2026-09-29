@@ -1,12 +1,15 @@
 package routes
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 type testCaddyBootstrapper struct {
@@ -33,9 +36,15 @@ func TestApplyInitialCaddyConfig_AppliesWhenReady(t *testing.T) {
 }
 
 func TestApplyInitialCaddyConfig_ApplyErrorIsLogged(t *testing.T) {
+	var out bytes.Buffer
+	logger.Init(false, &out)
+	t.Cleanup(func() { logger.Init(false, nil) })
+
 	c := &testCaddyBootstrapper{applyErr: errors.New("boom")}
 	applyInitialCaddyConfig(context.Background(), c, time.Second, time.Millisecond)
 	assert.Equal(t, 1, c.applyCalls)
+	assert.Contains(t, out.String(), "Failed to apply initial Caddy config")
+	assert.Contains(t, out.String(), "boom")
 }
 
 func TestApplyInitialCaddyConfig_TimeoutSkipsApply(t *testing.T) {
