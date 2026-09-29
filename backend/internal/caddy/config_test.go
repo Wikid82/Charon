@@ -3,7 +3,6 @@ package caddy
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -587,7 +586,7 @@ func TestGetAccessLogPath_Development(t *testing.T) {
 	path := getAccessLogPath(storageDir, false)
 
 	// Should construct path: /home/user/charon/data/logs/access.log
-	expectedPath := filepath.Join("/home/user/charon/data/logs", "access.log")
+	expectedPath := "/home/user/charon/data/logs/access.log"
 	require.Equal(t, expectedPath, path)
 }
 

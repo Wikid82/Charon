@@ -248,7 +248,7 @@ func assertFileExists(path, label string) error {
 }
 
 func gitDiff(repoRoot, baseline string) (string, error) {
-	cmd := exec.Command("git", "-C", repoRoot, "diff", "--unified=0", baseline)
+	cmd := exec.Command("git", "-C", repoRoot, "diff", "--unified=0", baseline) //nolint:gosec // G204: local developer tool; inputs come from the operator's own CLI flags
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git diff %s failed: %w (%s)", baseline, err, strings.TrimSpace(string(output)))

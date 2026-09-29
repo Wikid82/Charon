@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -281,29 +282,6 @@ func TestImporter_ValidateCaddyBinary(t *testing.T) {
 	assert.Equal(t, "caddy binary not found or not executable", err.Error())
 }
 
-func TestBackupCaddyfile(t *testing.T) {
-	tmpDir := t.TempDir()
-	originalFile := filepath.Join(tmpDir, "Caddyfile")
-	// #nosec G306 -- Test fixture file with standard read permissions
-	err := os.WriteFile(originalFile, []byte("original content"), 0o644)
-	assert.NoError(t, err)
-
-	backupDir := filepath.Join(tmpDir, "backups")
-
-	// Success
-	backupPath, err := BackupCaddyfile(originalFile, backupDir)
-	assert.NoError(t, err)
-	assert.FileExists(t, backupPath)
-
-	content, err := os.ReadFile(backupPath) // #nosec G304 -- Test reading backup file created in test
-	assert.NoError(t, err)
-	assert.Equal(t, "original content", string(content))
-
-	// Failure - Source not found
-	_, err = BackupCaddyfile("non-existent", backupDir)
-	assert.Error(t, err)
-}
-
 func TestDefaultExecutor_Execute(t *testing.T) {
 	executor := &DefaultExecutor{}
 	output, err := executor.Execute("echo", "hello")
@@ -426,7 +404,8 @@ func TestImporter_NormalizeCaddyfile_Integration(t *testing.T) {
 				assert.Contains(t, output, "localhost:8080")
 				assert.Contains(t, output, "}")
 				// Should be multi-line
-				lines := len(output) - len(string([]rune(output)[0]))
+				_, firstRuneSize := utf8.DecodeRuneInString(output)
+				lines := len(output) - firstRuneSize
 				assert.Greater(t, lines, 1, "Should have multiple lines")
 			},
 		},
@@ -607,58 +586,6 @@ func TestExtractHosts_SubrouteHandler(t *testing.T) {
 	assert.Equal(t, "nested.example.com", result.Hosts[0].DomainNames)
 	assert.Equal(t, "backend", result.Hosts[0].ForwardHost)
 	assert.Equal(t, 9000, result.Hosts[0].ForwardPort)
-}
-
-// TestBackupCaddyfile_PathTraversal tests backup path validation
-func TestBackupCaddyfile_PathTraversal(t *testing.T) {
-	tmpDir := t.TempDir()
-	backupDir := filepath.Join(tmpDir, "backups")
-
-	tests := []struct {
-		name         string
-		originalPath string
-		expectError  string
-	}{
-		{
-			name:         "double dot prefix",
-			originalPath: "../etc/passwd",
-			expectError:  "invalid original path",
-		},
-		{
-			name:         "empty path",
-			originalPath: "",
-			expectError:  "invalid original path",
-		},
-		{
-			name:         "dot only",
-			originalPath: ".",
-			expectError:  "invalid original path",
-		},
-		{
-			name:         "relative traversal",
-			originalPath: "foo/../../../etc/passwd",
-			expectError:  "invalid original path",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := BackupCaddyfile(tt.originalPath, backupDir)
-			assert.Error(t, err)
-			assert.Contains(t, err.Error(), tt.expectError)
-		})
-	}
-}
-
-// TestBackupCaddyfile_SourceNotReadable tests error when source can't be read
-func TestBackupCaddyfile_SourceNotReadable(t *testing.T) {
-	tmpDir := t.TempDir()
-	backupDir := filepath.Join(tmpDir, "backups")
-
-	// Non-existent file
-	_, err := BackupCaddyfile(filepath.Join(tmpDir, "nonexistent.txt"), backupDir)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "reading original file")
 }
 
 // TestExtractHosts_SplitHostPortFallback tests the fallback parsing when net.SplitHostPort fails

@@ -117,6 +117,36 @@ func writeAuditDetails(fields map[string]string) string {
 	return string(b)
 }
 
+// Muzzle is an http.Handler wrapper around the Docker socket proxy.
+// Read-only sessions (writeEnabled false) are restricted to a curated
+// allowlist of read-only, non-destructive GET endpoints. Write-enabled
+// sessions get the full, unrestricted Docker Engine API: every request is
+// forwarded as-is (rate-limited and audited), with no per-endpoint or
+// per-field restriction.
+//
+// This is a deliberate operator trust model, not an oversight: write mode
+// is opt-in per agent (OrthrusAgent.WriteEnabled), gated behind an explicit
+// typed-confirmation UI step that documents this is equivalent to giving
+// the connected tool full control of the Docker host — see
+// AgentWriteModeDialog on the frontend. Every write-mode request is still
+// audited (auditAllowed/auditRateLimited), so an operator who enables write
+// mode retains a full trace of what was done, even though nothing about
+// the request content itself is inspected or restricted.
+type Muzzle struct {
+	next http.Handler
+	// writeEnabled is fixed at construction time (one Muzzle per AgentSession,
+	// per external-proxy start) — never re-read from the DB per-request. See
+	// NewMuzzle doc comment for why.
+	writeEnabled bool
+	// writeLimiter bounds write-request throughput; nil unless writeEnabled.
+	writeLimiter *rate.Limiter
+	// auditLogger records every write attempt; nil is tolerated (no-op) so
+	// tests and read-only sessions don't need one.
+	auditLogger AuditLogger
+	// agentUUID identifies the session this Muzzle guards, for audit entries.
+	agentUUID string
+}
+
 // logAudit is a nil-safe wrapper around m.auditLogger.LogAudit. auditLogger
 // is nil for read-only sessions and in most tests — a no-op in that case,
 // not an error, since read-only traffic was never audited before this
@@ -153,36 +183,6 @@ func (m *Muzzle) auditRateLimited(r *http.Request) {
 		"method": r.Method,
 		"path":   sanitizePath(r.URL.Path),
 	}))
-}
-
-// Muzzle is an http.Handler wrapper around the Docker socket proxy.
-// Read-only sessions (writeEnabled false) are restricted to a curated
-// allowlist of read-only, non-destructive GET endpoints. Write-enabled
-// sessions get the full, unrestricted Docker Engine API: every request is
-// forwarded as-is (rate-limited and audited), with no per-endpoint or
-// per-field restriction.
-//
-// This is a deliberate operator trust model, not an oversight: write mode
-// is opt-in per agent (OrthrusAgent.WriteEnabled), gated behind an explicit
-// typed-confirmation UI step that documents this is equivalent to giving
-// the connected tool full control of the Docker host — see
-// AgentWriteModeDialog on the frontend. Every write-mode request is still
-// audited (auditAllowed/auditRateLimited), so an operator who enables write
-// mode retains a full trace of what was done, even though nothing about
-// the request content itself is inspected or restricted.
-type Muzzle struct {
-	next http.Handler
-	// writeEnabled is fixed at construction time (one Muzzle per AgentSession,
-	// per external-proxy start) — never re-read from the DB per-request. See
-	// NewMuzzle doc comment for why.
-	writeEnabled bool
-	// writeLimiter bounds write-request throughput; nil unless writeEnabled.
-	writeLimiter *rate.Limiter
-	// auditLogger records every write attempt; nil is tolerated (no-op) so
-	// tests and read-only sessions don't need one.
-	auditLogger AuditLogger
-	// agentUUID identifies the session this Muzzle guards, for audit entries.
-	agentUUID string
 }
 
 // NewMuzzle wraps handler with the Docker socket proxy filter.

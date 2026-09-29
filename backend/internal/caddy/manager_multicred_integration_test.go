@@ -412,9 +412,9 @@ type MockClient struct {
 	GetConfigError   error
 }
 
-func (m *MockClient) Load(ctx context.Context, config *Config) error {
+func (m *MockClient) Load(ctx context.Context, cfg *Config) error {
 	m.LoadCalled = true
-	m.LastLoadedConfig = config
+	m.LastLoadedConfig = cfg
 	return m.LoadError
 }
 

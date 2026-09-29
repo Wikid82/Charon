@@ -124,7 +124,7 @@ func TestEmergencyServer_SecurityReset(t *testing.T) {
 	client := &http.Client{}
 
 	// Make emergency reset request
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), nil)
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), http.NoBody)
 	require.NoError(t, err, "Should create request")
 	req.Header.Set("X-Emergency-Token", emergencyToken)
 
@@ -169,7 +169,7 @@ func TestEmergencyServer_BasicAuth(t *testing.T) {
 
 	t.Run("WithoutAuth", func(t *testing.T) {
 		// Try without Basic Auth - should fail
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), nil)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), http.NoBody)
 		require.NoError(t, err, "Should create request")
 		req.Header.Set("X-Emergency-Token", emergencyToken)
 
@@ -183,7 +183,7 @@ func TestEmergencyServer_BasicAuth(t *testing.T) {
 
 	t.Run("WithInvalidAuth", func(t *testing.T) {
 		// Try with wrong credentials
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), nil)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), http.NoBody)
 		require.NoError(t, err, "Should create request")
 		req.Header.Set("X-Emergency-Token", emergencyToken)
 		req.SetBasicAuth("admin", "wrongpassword")
@@ -198,7 +198,7 @@ func TestEmergencyServer_BasicAuth(t *testing.T) {
 
 	t.Run("WithValidAuth", func(t *testing.T) {
 		// Try with correct credentials
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), nil)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), http.NoBody)
 		require.NoError(t, err, "Should create request")
 		req.Header.Set("X-Emergency-Token", emergencyToken)
 		req.SetBasicAuth("admin", "testpass")
@@ -321,7 +321,7 @@ func TestEmergencyServer_MultipleEndpoints(t *testing.T) {
 	})
 
 	t.Run("EmergencyResetEndpoint", func(t *testing.T) {
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), nil)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", addr), http.NoBody)
 		require.NoError(t, err)
 		req.Header.Set("X-Emergency-Token", emergencyToken)
 

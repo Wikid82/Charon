@@ -1,6 +1,7 @@
 package custom
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -365,7 +366,7 @@ func TestRFC2136Provider_ValidateCredentials(t *testing.T) {
 					t.Error("ValidateCredentials() expected error but got nil")
 					return
 				}
-				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
 					t.Errorf("ValidateCredentials() error = %q, want to contain %q", err.Error(), tt.errMsg)
 				}
 			} else if err != nil {
@@ -700,18 +701,4 @@ func TestRFC2136Provider_ImplementsInterface(t *testing.T) {
 
 	// Compile-time interface check
 	var _ dnsprovider.ProviderPlugin = provider
-}
-
-// Helper function to check if string contains substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
