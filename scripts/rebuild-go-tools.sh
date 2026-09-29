@@ -10,7 +10,7 @@ echo ""
 
 # Core development tools (ordered by priority)
 declare -A TOOLS=(
-    ["golangci-lint"]="github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+    ["golangci-lint"]="github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
     ["gopls"]="golang.org/x/tools/gopls@latest"
     ["govulncheck"]="golang.org/x/vuln/cmd/govulncheck@latest"
     ["dlv"]="github.com/go-delve/delve/cmd/dlv@latest"
