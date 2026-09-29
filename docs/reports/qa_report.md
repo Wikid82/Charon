@@ -1,57 +1,62 @@
-# QA / Security Report: chore/lint-full-config-1391
+# QA and Security Report: certificate private key export re-authentication (GH #1390)
 
-Branch HEAD 0b923ef9, 10 commits on a51d9eb4 (107 files, +860/-830). Date 2026-09-29. Scope: chore(lint), no new feature surface.
+Branch: `fix/cert-export-private-key-403-1390` (5 commits over `origin/development`)
+Date: 2026-09-29
 
-## Verdict: PASS (one non-blocking note)
+## Verdict: PASS after fixes (the 2 hygiene blockers found in the first audit pass, B1 and B2, are resolved in commits 218df2dc and 9f42400f; no security defects found in the change)
 
-| Check | Result |
-|---|---|
-| Backend `go test ./... -count=1` | 38 packages ok, 0 fail (about 9,079 passing test events) |
-| Race: `routes -run ApplyInitialCaddyConfig -race -count=3` | ok |
-| Backend coverage gate (`go-test-coverage.sh`) | statements 92.2%, line 88.8% (gate 87%): met |
-| Agent `build` / `vet` / `test` | clean; cert, leash, muzzle, protocol ok |
-| golangci-lint full config v2.14.0, backend | 0 issues |
-| golangci-lint full config v2.14.0, agent | 0 issues |
-| `make lint-fast` | 0 issues (backend + agent) |
-| `lefthook run pre-commit --all-files` | all hooks pass (incl. semgrep: 0 findings, 367 rules, 1735 files) |
-| GORM scan `--check` | PASSED, 0 issues (1 suppressed informational) |
-| Frontend type-check / build | pass / pass |
-| Frontend Vitest with coverage (all files) | 282 files passed; 3530 passed, 4 skipped, 2 todo; includes Security page + useSecurity tests |
-| Frontend coverage | statements 90.05%, branches 83.38%, functions 87.9%, lines 91.21% |
+## Gate results
 
-## Patch coverage (`scripts/local-patch-report.sh`, baseline origin/development)
+| # | Gate | Result | Detail |
+|---|------|--------|--------|
+| 1 | `go build ./...` + `go test ./...` | PASS | Build clean. Full `go test ./...` reported no failures (non-race). |
+| 1b | Same package under `-race` (as the coverage script runs it) | FAIL, pre-existing flake | `TestCredentialHandler_Update_ByCredentialUUID` failed in the full `-race` handlers run (twice). See B2. |
+| 2 | `scan-gorm-security.sh --check` | PASS | 0 critical, 0 high, 0 medium, 2 info, 1 suppressed. |
+| 3a | `make lint-fast` | PASS | backend 0 issues, agent 0 issues. |
+| 3b | `make lint-backend` (full golangci-lint) | FAIL | 1 issue introduced by this change. See B1. |
+| 4 | `local-patch-report.sh` | PASS | Backend patch coverage 39/39 changed lines = 100.0% (overall 100.0%). Artifacts present: `test-results/local-patch-report.md` and `.json`. |
+| 5 | `scripts/go-test-coverage.sh` | Coverage PASS, run FAIL | Statement coverage 92.2%, line coverage 88.9%, gate 87%: met. Script's `go test` exited non-zero solely due to the flake in B2. |
+| 6 | `lefthook run pre-commit --all-files` | PASS | All 16 hooks passed, including semgrep (367 rules, 0 findings), golangci-lint-fast, go-vet, actionlint, shellcheck, frontend lint and type-check. (Plain `lefthook run pre-commit` skips everything because nothing is staged.) |
+| 7 | E2E `tests/certificate-export.spec.ts`, firefox only | PASS | 15/15 passed (45.6s) against an E2E container rebuilt from this branch. |
+| 8 | CodeQL Go (local CLI 2.26.4, working) | PASS | 4 results, all in files outside this diff (`auth_handler.go`, `remote_server_handler.go` x2, `uptime_service.go`), all covered by documented entries in `codeql-suppressions.yml`. 0 blocking. JS scan 0 results. |
+| 9 | Trivy (`security-scan-trivy` skill; there is no `make trivy` target) | Not attributable to this change | The filesystem scan reports only items under `.claude/worktrees/*` and the git-ignored `docs-site/build/` output (a docs example service-account snippet). No finding in tracked backend, frontend or agent manifests touched by this branch. The skill exits non-zero because of these stale local directories. CI runs the authoritative scan. |
 
-Artifacts exist: `test-results/local-patch-report.md` and `.json`.
+## Blocking issues
 
-- Overall 89.8% (114/127): below the local strict 90.0% threshold by 0.2 points (warn; script exit 1 in strict mode). This is non-blocking: backend 88.5% (100/113) and frontend 100% (14/14) both pass their 85% thresholds; agent has 0 changed instrumented lines.
-- Uncovered changed lines, all in error or log branches:
-  - `backend/cmd/api/main.go` 178
-  - `proxy_host_handler.go` 911, 927, 1062, 1094
-  - `crowdsec_handler.go` 1773-1774 (testKeyAgainstLAPI body-close error log), 2635, 2667 (renamed `validationErrs` appends)
-  - `backup_restore_safe.go` 556-557 (`readManifestEntry` open-error return)
-  - `routes.go` 65-66 (the "Failed to apply initial Caddy config" error log in `applyInitialCaddyConfig`)
-- hub_sync.go, leash.go and the ExportConfig symlink skip have no uncovered changed lines.
-- Optional follow-up: add tests for `readManifestEntry` open error and the `ApplyConfig` error path to reach 90%.
+### B1. RESOLVED: golangci-lint (`make lint-backend`) failure introduced by this change
+`backend/internal/api/handlers/certificate_handler_export_auth_test.go:67`: `gocritic unnamedResult: consider giving a name to these results` on
+`func (e *exportHarness) createUser(role models.UserRole) (*models.User, string)`.
+It is the only issue in the full run (250 raw, 1 after filtering). `lint-backend` is blocking per CLAUDE.md. Fix: name the results, for example `(user *models.User, token string)`. This is a one-line test-only change.
 
-## Security review of `git diff a51d9eb4..HEAD -- backend agent`
+### B2. RESOLVED: Flaky test: `TestCredentialHandler_Update_ByCredentialUUID` (pre-existing, not caused by this change)
+- Symptom: PUT returns 500 instead of 200. Log line: `credential_service.go:354 database table is locked` (SQLite shared-cache table lock).
+- Frequency: failed in the full `go test -race -v ./internal/api/handlers` run (twice). In isolation with `-race -run TestCredentialHandler_ -count=100` it failed 3 to 4 times in each 100-run sample.
+- Proof it is not from this diff: the same 100-run `-race` reproduction on a clean `git archive` of `origin/development` failed 4 times in 100. The test, `credential_handler_test.go`, and `credential_service.go` are not in this branch's diff. Plain `-count=10` without `-race` passed.
+- Cause: `setupCredentialHandlerTest` opens `file:<TestName>?mode=memory&cache=shared&_journal_mode=WAL`. Shared-cache mode raises `SQLITE_LOCKED` (table locked) when two connections touch the same table, and no busy timeout helps. Under the race detector the timing exposes it.
+- Per CLAUDE.md a failing test must not be deferred. Recommended fix (backend-dev): give the test DB a single connection (`sqlDB.SetMaxOpenConns(1)`) or drop `cache=shared` for a temp-file or per-connection DB. This needs a separate `test:` or `fix:` commit. `TestPerf_GetStatus_AssertThreshold` did not fail in any run.
 
-- hub_sync `extractTarGz`: the prefix check is replaced by `filepath.Rel` containment (rejects `..` and `../`), and `Perm()` strips setuid/setgid/sticky bits from archive modes. This is stricter than before and fixes the old sibling-prefix bypass. No regression found.
-- ExportConfig: symlinks are skipped (with a sanitized log) before `os.Open`. This closes symlink-escape reads. No regression.
-- routes `applyInitialCaddyConfig`: now honors the passed ctx (returns on cancel, re-checks ctx before ApplyConfig), and the 30s/1s timing is unchanged. This is better than the prior `context.Background()` goroutine, and the race tests are clean.
-- leash.go: the 101 response body is closed after reading the `X-Orthrus-Write-Enabled` header, and the fail-closed semantics are preserved.
-- backup_restore_safe: extracted `readManifestEntry`, which fixes a defer-in-loop; behavior is the same.
-- LAPI key validation: the body is closed per attempt, and logs still use `maskAPIKey`. No secrets are logged.
-- Suppressions: 56 `nolint` additions in the diff (plus one removed `#nosec` pair converted). Non-test ones are 15: G204 on fixed or operator-configured binaries ("cscli", caddy path, git in a dev tool), G703/G304 on operator-configured env paths or paths contained by the Rel check, G117 for secrets encrypted before persisting, and G115 with a guarded bound. Each has an accurate justification. The remaining ones are test fixtures (dummy tokens, G101). No suppression masks a real vulnerability.
-- Secrets: the grep of added lines shows only test fixtures and the masked-key logging. No credentials added.
-- Commit messages: no `(security)` scope, and no session IDs or claude.ai/code links (grep empty).
+## Security review of `git diff origin/development...HEAD`
 
-## Not run (by instruction or per CLAUDE.md)
+Verdict: no defects found. The change restores the re-authentication safeguard correctly.
 
-- E2E / Playwright and `docker-rebuild-e2e`: the user has not approved touching Docker on this host (live containers, dual daemons). Left to CI.
-- CodeQL and Trivy: deferred to CI, because this is a chore(lint) change with no new feature surface (CLAUDE.md DoD step 3). CI runs both on every PR.
-- No live-infrastructure access, no branch switch, no push and no commit; this report is left untracked.
+- Ordering in `reauthenticateForKeyExport` (only runs when `include_key` is true): admin role check, then user ID from the session, then emergency-bypass rejection, then DB availability, then empty-password rejection, then sign-in budget charge, then user lookup, then password check. The route also has `RequireRole(models.RoleAdmin)`, so admin is enforced twice.
+- Emergency bypass: a session with `userID == 0` and `IsEmergencyBypass` true (strict boolean check) gets 403 for key export. Certificate-only export (`include_key=false`) stays available. Route-level test `EmergencyBypassRejected` covers both.
+- Rate limiting: empty password returns 403 before charging the budget, so a missing-password request cannot burn budget (tested with a 1-attempt budget). Every real password check is charged before verification, whether or not it turns out correct. A nil guard allows, matching the existing helper contract. The `password_guard_inventory_test` allowlist now points at `CertificateHandler.reauthenticateForKeyExport` and still requires the guard call.
+- Logging and error leaks: the password is never logged. Server-side errors are wrapped with `%w` and logged without request data. Client responses are generic (`incorrect password`, `user not found`, `internal error`, `password required to export private key`). The lookup now uses `errors.Is(gorm.ErrRecordNotFound)`, so a DB failure returns 500 instead of a misleading 403. The `user not found` response for a deleted account is not an enumeration risk because the caller already holds a valid admin session.
+- User ID parsing: now via the shared `requireUserID` helper instead of the old untyped `map[string]any` lookup (`h.db.First(&user, "id = ?", userID)`), which removes the earlier type-assertion failure path.
+- Other private-key release paths:
+  - `CertificateHandler.Get` and `List` return only `HasKey`, never key material.
+  - `CertificateService.GetDecryptedPrivateKey` is called only from `ExportCertificate`, and `ExportCertificate` has a single caller (the gated handler).
+  - Charon-generated exports are the only route that decrypts stored keys; no other handler references it.
 
-## Notes
+## Non-blocking notes
+- Coverage headroom is comfortable: 92.2% statements, 88.9% lines against the 87% gate.
+- CodeQL suppression entries in `codeql-suppressions.yml` have review dates of 2026-11-04 and 2026-11-27; none relate to this change.
 
-- The npm `pretype-check` and `pretest:coverage` hooks run `npm ci`, which touches only node_modules. `git status` was clean at the last check.
-- `scripts/frontend-test-coverage.sh` hit my 590s cap at the wrapper level (its output is sparse). I completed the same `vitest run --coverage` (the same command it invokes) as a blocking job with polling; exit 0.
+## Working tree
+`git status --short` is empty on branch `fix/cert-export-private-key-403-1390`, apart from this report. Generated artifacts (`test-results/local-patch-report.*`, `backend/coverage.txt`, `codeql-results-*.sarif`, `playwright/.auth/`) are git-ignored, so there are no stray tracked or untracked files. Nothing was committed, no branches were switched, and no application code was modified.
+
+## Re-verification after fixes
+- B1: results named in the test helper (218df2dc). `make lint-backend` and `make lint-fast`: 0 issues.
+- B2: root cause was the audit-writer goroutine and the handler writing on two pooled connections to a shared-cache in-memory SQLite database (`SQLITE_LOCKED` ignores `busy_timeout`). The test helpers now use a single connection (9f42400f). Before: 3 failures in 100 `-race` runs. After: 0 in 300, and 0 in 50 on re-verification. The full `-race` handlers package run passed.
+- `go build ./...` and `go test ./internal/api/handlers/... ./internal/api/middleware/... ./internal/api/routes/...`: pass.
