@@ -77,6 +77,10 @@ If a certificate is still attached to a proxy host, the delete button is disable
 
 A confirmation dialog appears before anything is removed. Charon creates a backup before deleting, so you have a safety net.
 
+## Exporting a Certificate
+
+You can download a certificate from the Certificates list. If you also want to download its private key (the secret half that must never be shared), Charon asks for your password again first. Only admins can do this, and the emergency access token cannot be used for it.
+
 ## Troubleshooting
 
 | Issue | Solution |

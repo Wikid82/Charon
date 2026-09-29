@@ -17,7 +17,7 @@
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
-import { test, expect, loginUser } from './fixtures/auth-fixtures';
+import { test, expect, loginUser, TEST_PASSWORD } from './fixtures/auth-fixtures';
 import { request as playwrightRequest } from '@playwright/test';
 import {
   waitForLoadingComplete,
@@ -25,7 +25,7 @@ import {
   waitForAPIResponse,
 } from './utils/wait-helpers';
 import { generateUniqueId } from './fixtures/test-data';
-import { STORAGE_STATE, TEST_PASSWORD as E2E_ADMIN_PASSWORD } from './constants';
+import { STORAGE_STATE } from './constants';
 import { getStorageStateAuthHeaders } from './utils/api-helpers';
 import { getTestCertificatePair } from './utils/test-certificate';
 
@@ -502,7 +502,7 @@ test.describe('Certificate Export', () => {
   // Scenario 10b: Export with include key and the correct password succeeds
   // Regression for GH #1390 (private key export always returned 403).
   // ---------------------------------------------------------------------------
-  test.fixme('should download PEM with private key when correct password is entered', async ({ page }) => {
+  test('should download PEM with private key when correct password is entered', async ({ page }) => {
     let certName: string;
 
     await test.step('Seed a custom certificate with key via API', async () => {
@@ -519,10 +519,10 @@ test.describe('Certificate Export', () => {
       await waitForDialog(page);
     });
 
-    await test.step('Include private key and enter the account password', async () => {
+    await test.step('Include private key and enter the session user password', async () => {
       const dialog = page.getByRole('dialog');
       await dialog.locator('#include-key').check();
-      await dialog.locator('#export-password').fill(E2E_ADMIN_PASSWORD);
+      await dialog.locator('#export-password').fill(TEST_PASSWORD);
     });
 
     await test.step('Submit and verify a PEM download is triggered', async () => {
