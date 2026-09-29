@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -326,6 +328,52 @@ type exportCertificateRequest struct {
 	Password    string `json:"password"`
 }
 
+// reauthenticateForKeyExport verifies the signed-in admin's own password before
+// private key material is released. It writes the error response itself and
+// returns false when the caller must stop. Emergency-bypass sessions have no
+// user row to re-verify against, so they are refused outright.
+func (h *CertificateHandler) reauthenticateForKeyExport(c *gin.Context, password string) bool {
+	if !requireAdmin(c) {
+		return false
+	}
+	userID, ok := requireUserID(c)
+	if !ok {
+		return false
+	}
+	if userID == 0 && middleware.IsEmergencyBypass(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "private key export requires an authenticated user session"})
+		return false
+	}
+	if h.db == nil {
+		logger.Log().Error("certificate export re-authentication unavailable: database not configured")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return false
+	}
+	if password == "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "password required to export private key"})
+		return false
+	}
+	if !allowPasswordAttempt(h.passwordGuard, c) {
+		return false
+	}
+
+	var user models.User
+	if err := h.db.First(&user, "id = ?", userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "user not found"})
+			return false
+		}
+		logger.Log().WithError(fmt.Errorf("certificate export user lookup: %w", err)).Error("failed to load user for re-authentication")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return false
+	}
+	if !user.CheckPassword(password) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "incorrect password"})
+		return false
+	}
+	return true
+}
+
 func (h *CertificateHandler) Export(c *gin.Context) {
 	certUUID := c.Param("uuid")
 	if certUUID == "" {
@@ -340,43 +388,8 @@ func (h *CertificateHandler) Export(c *gin.Context) {
 	}
 
 	// Re-authenticate when requesting private key
-	if req.IncludeKey {
-		if !allowPasswordAttempt(h.passwordGuard, c) {
-			return
-		}
-		if req.Password == "" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "password required to export private key"})
-			return
-		}
-
-		userVal, exists := c.Get("user")
-		if !exists || h.db == nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "authentication required"})
-			return
-		}
-
-		userMap, ok := userVal.(map[string]any)
-		if !ok {
-			c.JSON(http.StatusForbidden, gin.H{"error": "invalid session"})
-			return
-		}
-
-		userID, ok := userMap["id"]
-		if !ok {
-			c.JSON(http.StatusForbidden, gin.H{"error": "invalid session"})
-			return
-		}
-
-		var user models.User
-		if err := h.db.First(&user, userID).Error; err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "user not found"})
-			return
-		}
-
-		if !user.CheckPassword(req.Password) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "incorrect password"})
-			return
-		}
+	if req.IncludeKey && !h.reauthenticateForKeyExport(c, req.Password) {
+		return
 	}
 
 	data, filename, err := h.service.ExportCertificate(certUUID, req.Format, req.IncludeKey, req.PFXPassword)

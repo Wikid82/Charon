@@ -106,11 +106,19 @@ func exportRouter(t *testing.T, guard PasswordAttemptGuard) *gin.Engine {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
 	h := NewCertificateHandler(services.NewCertificateService(t.TempDir(), db, nil), nil, nil)
+	user := models.User{UUID: uuid.NewString(), APIKey: uuid.NewString(), Email: "export-guard.com", Role: models.RoleAdmin, Enabled: true}
+	require.NoError(t, user.SetPassword("correct-password"))
+	require.NoError(t, db.Create(&user).Error)
 	h.SetDB(db)
 	if guard != nil {
 		h.SetPasswordAttemptGuard(guard)
 	}
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", string(user.Role))
+		c.Set("userID", user.ID)
+		c.Next()
+	})
 	r.POST("/api/certificates/:uuid/export", h.Export)
 	return r
 }
@@ -134,6 +142,7 @@ func TestCertificateHandler_Export_PasswordGuardAllowsThenReauthenticates(t *tes
 
 	w := postJSON(r, "/api/certificates/abc/export", map[string]any{"format": "pem", "include_key": true, "password": "x"})
 	assert.Equal(t, http.StatusForbidden, w.Code, "the existing re-authentication checks still run")
+	assert.Contains(t, w.Body.String(), "incorrect password")
 	assert.Equal(t, 1, guard.calls)
 }
 

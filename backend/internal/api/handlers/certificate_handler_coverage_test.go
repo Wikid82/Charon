@@ -495,6 +495,7 @@ func TestCertificateHandler_Export_IncludeKeyNoPassword(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
+	h.SetDB(db)
 	r.POST("/api/certificates/:uuid/export", h.Export)
 
 	body, _ := json.Marshal(map[string]any{"format": "pem", "include_key": true})
@@ -525,8 +526,8 @@ func TestCertificateHandler_Export_IncludeKeyNoDBSet(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Contains(t, w.Body.String(), "authentication required")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "internal error")
 }
 
 // --- Delete via UUID path tests ---

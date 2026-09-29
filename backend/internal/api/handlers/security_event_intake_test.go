@@ -319,7 +319,6 @@ func TestSecurityEventIntakeR6Intact(t *testing.T) {
 	// Add auth middleware that sets user context
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", adminUser.ID)
-		c.Set("user", adminUser)
 		c.Set("role", "admin")
 		c.Next()
 	})
