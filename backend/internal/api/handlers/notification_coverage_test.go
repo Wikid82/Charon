@@ -488,7 +488,7 @@ func TestNotificationProviderHandler_Test_RejectsSlackTokenInTestRequest(t *test
 	svc := services.NewNotificationService(db, nil)
 	h := NewNotificationProviderHandler(svc)
 
-	payload := map[string]any{
+	payload := map[string]any{ //nolint:gosec // G101: dummy token used to assert secret handling
 		"type":  "slack",
 		"url":   "#alerts",
 		"token": "https://hooks.slack.com/services/T00/B00/secret",

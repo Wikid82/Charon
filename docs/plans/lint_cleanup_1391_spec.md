@@ -230,3 +230,39 @@ All commands foreground and blocking with generous timeouts, per CLAUDE.md.
 | Blocking lint slows future feature PRs | Intended; fast config already gates commits, keeping the full config clean is cheap |
 | Renovate bump of golangci-lint turns bump PR red | Expected; fixes ride with the bump; Makefile and workflow pins move together via the extended regex |
 | Concurrent work on the #1317 branch touching same files (handlers, routes) | Rebase before Commit 2/6; keep changes mechanical to minimize conflicts |
+
+## Revision 3: uncapped baseline
+
+golangci-lint's default caps (50 issues per linter, 3 identical messages) hid most findings, so the counts in Sections 3 and 8 understate the real backlog. From this revision on, **every gate and measurement uses the uncapped flags** with the pinned v2.14.0 binary:
+
+```
+cd backend && golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...
+```
+
+Uncapped baseline (backend): about 490 findings at v2.14.0 before Commit 2, 173 after Commit 2, 108 after Commit 3. The per-commit "remaining" numbers in the Section 8 table are superseded by the table below. Commit 3 (as implemented) covers every `_test.go` finding under `internal/api/{routes,middleware,tests,handlers}` and `cmd/api`, not only the four files originally listed (it fixed 65 findings: httpNoBody, G124 cookie SameSite, G101/G302/G301/G704 scoped nolints, G306 mode, G115 rune conversions via `strconv.FormatUint`, G104 hecate, unnamedResult).
+
+Uncapped inventory after Commit 3 (108 total), with owning commit:
+
+| Package | Findings | Owner |
+| --- | --- | --- |
+| internal/api/handlers (crowdsec_handler.go G204, G122) | 2 | Commit 4 |
+| internal/crowdsec (hub_sync 3, registration 1, console_enroll 1) | 5 | Commit 4 |
+| internal/services (non-test and tests) | 36 | Commit 5 |
+| internal/services/remotestorage | 8 | Commit 5 |
+| internal/utils | 1 | Commit 5 |
+| internal/api/routes (routes.go: paramTypeCombine, G703 x4, G118) | 6 | Commit 6 |
+| internal/caddy | 7 | Commit 6 |
+| internal/cerberus | 4 | Commit 6 |
+| internal/crypto | 5 | Commit 6 |
+| internal/database | 7 | Commit 6 |
+| internal/models | 1 | Commit 6 |
+| internal/network | 2 | Commit 6 |
+| internal/orthrus | 8 | Commit 6 |
+| internal/patchreport | 2 | Commit 6 |
+| internal/server | 8 | Commit 6 |
+| cmd/api, cmd/localpatchreport | 2 | Commit 6 |
+| pkg/dnsprovider, pkg/dnsprovider/custom | 4 | Commit 6 |
+
+Revised uncapped gates (remaining backend findings after each commit): Commit 3 = 108 (done); Commit 4 = 101; Commit 5 = 56; Commit 6 = 0. New findings surfaced by the uncapped run that the spec's original tables do not list (e.g. `routes.go` G703, `cerberus`, `internal/patchreport`, extra `services` and `orthrus` test rows, `crowdsec_handler.go:52` G204) are resolved in the owning commit using the same resolution rules as Sections 3.3 and 3.4. Commit 7 (agent) must re-measure the agent module uncapped before starting and record its own baseline.
+
+Commit 9 scope addition: set `max-issues-per-linter: 0` and `max-same-issues: 0` in the `issues:` block of `backend/.golangci.yml` (golangci-lint v2 syntax) so CI reports the honest count and the blocking gate cannot be hidden by the default caps. This is the only config edit permitted by this plan, and it belongs to Commit 9 (Commit 3 does not touch the config).

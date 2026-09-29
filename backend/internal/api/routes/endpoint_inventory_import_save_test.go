@@ -86,9 +86,9 @@ func routeKey(method, path string) string {
 	return method + " " + path
 }
 
-func buildRouteLookup(routes []gin.RouteInfo) (map[string]gin.RouteInfo, map[string]map[string]struct{}) {
-	byMethodAndPath := make(map[string]gin.RouteInfo, len(routes))
-	methodsByPath := make(map[string]map[string]struct{})
+func buildRouteLookup(routes []gin.RouteInfo) (byMethodAndPath map[string]gin.RouteInfo, methodsByPath map[string]map[string]struct{}) {
+	byMethodAndPath = make(map[string]gin.RouteInfo, len(routes))
+	methodsByPath = make(map[string]map[string]struct{})
 	for _, route := range routes {
 		key := routeKey(route.Method, route.Path)
 		byMethodAndPath[key] = route

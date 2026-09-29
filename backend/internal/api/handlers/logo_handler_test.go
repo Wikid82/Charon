@@ -281,7 +281,7 @@ func TestLogoHandler_UploadLogo_MkdirAllFailure(t *testing.T) {
 
 	// Block directory creation: write a regular file at the "uploads" path
 	uploadsPath := filepath.Join(dataDir, "uploads")
-	require.NoError(t, os.WriteFile(uploadsPath, []byte("block"), 0o644))
+	require.NoError(t, os.WriteFile(uploadsPath, []byte("block"), 0o600))
 
 	r := buildLogoRouter(db, dataDir, "admin")
 	req := buildUploadRequest(t, "logo.png", minimalPNG, "")
@@ -300,8 +300,8 @@ func TestLogoHandler_UploadLogo_WriteFileFailure(t *testing.T) {
 
 	// Create uploads dir but make it non-writable
 	uploadsDir := filepath.Join(dataDir, "uploads")
-	require.NoError(t, os.MkdirAll(uploadsDir, 0o555))
-	t.Cleanup(func() { _ = os.Chmod(uploadsDir, 0o755) })
+	require.NoError(t, os.MkdirAll(uploadsDir, 0o555))    //nolint:gosec // G301: dir must be read-only but traversable for this test
+	t.Cleanup(func() { _ = os.Chmod(uploadsDir, 0o755) }) //nolint:gosec // G302: restore traversable dir mode for cleanup
 
 	r := buildLogoRouter(db, dataDir, "admin")
 	req := buildUploadRequest(t, "logo.png", minimalPNG, "")

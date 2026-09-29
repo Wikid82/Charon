@@ -431,7 +431,7 @@ func waitForTCPReady(address string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond) //nolint:gosec // G704: address is a local httptest listener
 		if err == nil {
 			_ = conn.Close()
 			return nil
