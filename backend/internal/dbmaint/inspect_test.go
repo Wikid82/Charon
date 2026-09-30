@@ -39,7 +39,7 @@ func TestInspect(t *testing.T) {
 
 func TestInspect_MissingWALIsZero(t *testing.T) {
 	db, path := newScratchDB(t, scratchOpts{rows: 10})
-	checkpointTruncate(t, db)
+	mustCheckpoint(t, db)
 	require.NoError(t, os.Remove(path+"-wal"))
 
 	s, err := Inspect(context.Background(), db, path)

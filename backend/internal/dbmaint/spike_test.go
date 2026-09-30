@@ -58,7 +58,7 @@ func TestSpike_VacuumOnPinnedConnConvertsAndKeepsWAL(t *testing.T) {
 	require.NoError(t, err)
 	mustExec(t, conn, "PRAGMA auto_vacuum=2")
 	mustExec(t, conn, "VACUUM")
-	busy := checkpointTruncate(t, conn)
+	busy := mustCheckpoint(t, conn)
 	require.NoError(t, conn.Close())
 
 	assert.Zero(t, busy)
@@ -104,10 +104,10 @@ func TestSpike_BeginExclusiveDetectsWritersOnly(t *testing.T) {
 	})
 }
 
-// drainStep issues PRAGMA incremental_vacuum(n) via QueryContext, iterating
+// queryDrainStep issues PRAGMA incremental_vacuum(n) via QueryContext, iterating
 // every row and closing the rows before returning (the only form that frees n
 // pages per call).
-func drainStep(t *testing.T, q Querier, n int) {
+func queryDrainStep(t *testing.T, q Querier, n int) {
 	t.Helper()
 	rows, err := q.QueryContext(context.Background(), fmt.Sprintf("PRAGMA incremental_vacuum(%d)", n))
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestSpike_IncrementalVacuumQueryFreesNPagesPerCall(t *testing.T) {
 	steps := int((free + step - 1) / step)
 	for i := 0; i < steps; i++ {
 		before := pragmaInt(t, db, "freelist_count")
-		drainStep(t, db, step)
+		queryDrainStep(t, db, step)
 		drop := before - pragmaInt(t, db, "freelist_count")
 		want := int64(step)
 		if before < want {
@@ -138,7 +138,7 @@ func TestSpike_IncrementalVacuumQueryFreesNPagesPerCall(t *testing.T) {
 	}
 	assert.Zero(t, pragmaInt(t, db, "freelist_count"))
 
-	checkpointTruncate(t, db)
+	mustCheckpoint(t, db)
 	assert.Less(t, fileSize(t, path), sizeBefore/2, "the file must shrink after the checkpoint (by size)")
 	integrityOK(t, db)
 }
@@ -218,7 +218,7 @@ func TestSpike_CheckpointBusyIsAColumnNotAnError(t *testing.T) {
 	assert.EqualValues(t, 1, busy)
 
 	require.NoError(t, tx.Rollback())
-	busy = checkpointTruncate(t, db)
+	busy = mustCheckpoint(t, db)
 	assert.Zero(t, busy)
 }
 
@@ -252,7 +252,7 @@ func TestSpike_PreparedStatementsSurviveVacuum(t *testing.T) {
 
 // buildCancelDB returns a database whose VACUUM takes long enough to cancel:
 // about 60 MB of which two thirds are free.
-func buildCancelDB(t *testing.T) (*sql.DB, string) {
+func buildCancelDB(t *testing.T) (db *sql.DB, path string) {
 	t.Helper()
 	return newScratchDB(t, scratchOpts{rows: 30000, keepEvery: 3})
 }
@@ -283,7 +283,7 @@ func openTempFDs(t *testing.T) []string {
 	require.NoError(t, err)
 	var out []string
 	for _, e := range entries {
-		link, err := os.Readlink(filepath.Join("/proc/self/fd", e.Name()))
+		link, err := os.Readlink("/proc/self/fd/" + e.Name())
 		if err == nil && strings.Contains(link, "etilqs_") {
 			out = append(out, link)
 		}
@@ -383,7 +383,7 @@ func TestHelperTmpdirSpike(t *testing.T) {
 func runTmpdirSpike(t *testing.T, mode string) (tmpDir string, seen []string) {
 	t.Helper()
 	tmpDir = t.TempDir()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperTmpdirSpike$", "-test.v")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperTmpdirSpike$", "-test.v") //nolint:gosec // re-executes this test binary
 	var env []string
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "SQLITE_TMPDIR=") {

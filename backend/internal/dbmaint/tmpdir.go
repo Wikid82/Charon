@@ -102,7 +102,7 @@ func EffectiveTempDir() (string, error) {
 }
 
 func writableDir(dir string) bool {
-	info, err := os.Stat(dir)
+	info, err := os.Stat(dir) //nolint:gosec // operator-configured directory; only stat'ed and access-checked
 	if err != nil || !info.IsDir() {
 		return false
 	}

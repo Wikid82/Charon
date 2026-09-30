@@ -197,7 +197,7 @@ func Load() (Config, error) {
 
 // loadDBCompactOnStart parses CHARON_DB_COMPACT_ON_START (auto|off). Any other
 // value, including the removed "force", falls back to auto with a warning.
-func loadDBCompactOnStart() (string, []string) {
+func loadDBCompactOnStart() (mode string, warnings []string) {
 	raw := strings.ToLower(strings.TrimSpace(getEnvAny(DBCompactAuto, "CHARON_DB_COMPACT_ON_START")))
 	switch raw {
 	case DBCompactAuto, DBCompactOff:

@@ -86,7 +86,7 @@ func TestRunQuickCheck_ReportsCorruption(t *testing.T) {
 	require.NoError(t, sqlDB.Close())
 
 	// Smash a page in the middle of the file.
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	f, err := os.OpenFile(path, os.O_RDWR, 0) //nolint:gosec // path is under t.TempDir()
 	require.NoError(t, err)
 	_, err = f.WriteAt(make([]byte, 4096), 4096*2)
 	require.NoError(t, err)

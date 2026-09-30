@@ -24,10 +24,10 @@ type scratchOpts struct {
 
 // newScratchDB builds a WAL database with a single-connection pool, the way
 // database.Connect does, and closes it on cleanup.
-func newScratchDB(t *testing.T, opts scratchOpts) (*sql.DB, string) {
+func newScratchDB(t *testing.T, opts scratchOpts) (db *sql.DB, path string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "scratch.db")
-	db := openScratch(t, path, opts.autoVacuum)
+	path = filepath.Join(t.TempDir(), "scratch.db")
+	db = openScratch(t, path, opts.autoVacuum)
 	if opts.rows > 0 {
 		fillScratch(t, db, opts.rows, opts.keepEvery)
 	}
@@ -58,7 +58,7 @@ func fillScratch(t *testing.T, db *sql.DB, rows, keepEvery int) {
 	if keepEvery > 0 {
 		mustExec(t, db, fmt.Sprintf("DELETE FROM t WHERE id %% %d <> 0", keepEvery))
 	}
-	checkpointTruncate(t, db)
+	mustCheckpoint(t, db)
 }
 
 func mustExec(t *testing.T, q interface {
@@ -76,7 +76,7 @@ func pragmaInt(t *testing.T, q Querier, pragma string) int64 {
 	return v
 }
 
-func checkpointTruncate(t *testing.T, q Querier) (busy int64) {
+func mustCheckpoint(t *testing.T, q Querier) (busy int64) {
 	t.Helper()
 	var logFrames, checkpointed int64
 	require.NoError(t, q.QueryRowContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)").

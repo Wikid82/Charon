@@ -26,7 +26,7 @@ func TestPrepareTempDir_CreatesPrivateDirectory(t *testing.T) {
 func TestPrepareTempDir_ExistingDirIsTightened(t *testing.T) {
 	data := t.TempDir()
 	dir := filepath.Join(data, ".tmp")
-	require.NoError(t, os.Mkdir(dir, 0o755))
+	require.NoError(t, os.Mkdir(dir, 0o750))
 
 	_, err := PrepareTempDir(data)
 	require.NoError(t, err)
