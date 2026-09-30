@@ -75,6 +75,8 @@ type UptimePruner struct {
 	beforeChunkHook func(iteration int)
 	// walRowThreshold overrides walCheckpointRowThreshold when > 0 (test seam).
 	walRowThreshold int64
+	// chunkPause overrides the inter-chunk pause when > 0 (test seam).
+	chunkPause time.Duration
 }
 
 // NewUptimePruner builds a pruner over the worker pool's DB handle and shared
@@ -168,9 +170,12 @@ func (p *UptimePruner) pruneOnce(ctx context.Context) (int64, error) {
 	days := p.cfg.RetentionDays()
 	cutoff := p.now().Add(-time.Duration(days) * 24 * time.Hour)
 
-	pause := pruneChunkPause
-	if !p.firstPassDone.Load() {
-		pause = firstPassChunkPause
+	pause := p.chunkPause
+	if pause <= 0 {
+		pause = pruneChunkPause
+		if !p.firstPassDone.Load() {
+			pause = firstPassChunkPause
+		}
 	}
 
 	var total int64
@@ -182,17 +187,7 @@ func (p *UptimePruner) pruneOnce(ctx context.Context) (int64, error) {
 			return total, err
 		}
 
-		// Subquery form (not DELETE ... LIMIT, which modernc.org/sqlite does not
-		// compile in). ORDER BY id deletes the oldest rows first and keeps the
-		// plan on the primary key. Fully parameterised on cutoff + LIMIT.
-		res := p.db.WithContext(ctx).Exec(
-			`DELETE FROM uptime_heartbeats
-			 WHERE id IN (
-			     SELECT id FROM uptime_heartbeats
-			     WHERE created_at < ?
-			     ORDER BY id
-			     LIMIT ?
-			 )`, cutoff, pruneChunkSize)
+		res := p.db.WithContext(ctx).Exec(pruneChunkDeleteSQL, cutoff, pruneChunkSize)
 		if res.Error != nil {
 			return total, fmt.Errorf("uptime prune chunk: %w", res.Error)
 		}
@@ -200,7 +195,9 @@ func (p *UptimePruner) pruneOnce(ctx context.Context) (int64, error) {
 		if res.RowsAffected < pruneChunkSize {
 			break // fewer than a full chunk deleted => caught up
 		}
-		time.Sleep(pause)
+		if err := sleepCtx(ctx, pause); err != nil {
+			return total, err
+		}
 	}
 
 	threshold := p.walRowThreshold
@@ -256,4 +253,31 @@ func (p *UptimePruner) dropRedundantIndex(ctx context.Context) error {
 	}
 	p.redundantIndexDropped.Store(true)
 	return nil
+}
+
+// pruneChunkDeleteSQL deletes one chunk of expired heartbeats. Subquery form
+// because modernc.org/sqlite does not compile DELETE ... LIMIT. ORDER BY
+// created_at, id lets the planner walk idx_uptime_heartbeats_created_at in index
+// order (its entries are (created_at, rowid)) and stop at the cutoff, so the
+// final caught-up chunk of a pass no longer scans the whole table. No INDEXED BY:
+// that would error if the index were ever missing. Parameters: cutoff, limit.
+const pruneChunkDeleteSQL = `DELETE FROM uptime_heartbeats
+	 WHERE id IN (
+	     SELECT id FROM uptime_heartbeats
+	     WHERE created_at < ?
+	     ORDER BY created_at, id
+	     LIMIT ?
+	 )`
+
+// sleepCtx waits for d or until ctx is cancelled, returning ctx's error in the
+// latter case so shutdown is never held up by an inter-chunk pause.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

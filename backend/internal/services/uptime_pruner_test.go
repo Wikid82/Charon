@@ -525,3 +525,95 @@ func TestUptimeHeartbeatQueryPlans_WithoutRedundantIndex(t *testing.T) {
 		require.Regexp(t, monitorIDPrefix, plan)
 	})
 }
+
+func TestUptimePruner_ChunkDeletePlanUsesCreatedAtIndex(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -100), 2000)
+	seedHeartbeats(t, db, "m2", now.AddDate(0, 0, -1), 2000)
+	assertPlan := func() {
+		t.Helper()
+		// The exact statement pruneOnce runs.
+		plan := explainPlan(t, db, pruneChunkDeleteSQL, now.AddDate(0, 0, -30), pruneChunkSize)
+		require.Contains(t, plan, "idx_uptime_heartbeats_created_at")
+		require.NotContains(t, plan, "TEMP B-TREE")
+		require.NotContains(t, plan, "SCAN uptime_heartbeats", "must not fall back to a rowid scan: %s", plan)
+	}
+
+	assertPlan() // no statistics
+	require.NoError(t, db.Exec("ANALYZE").Error)
+	assertPlan() // with sqlite_stat1
+}
+
+func TestUptimePruner_DeletesOldestFirstAcrossChunks(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+
+	// Insert the newer stale rows first so id order and age order disagree.
+	seedHeartbeats(t, db, "newer", now.AddDate(0, 0, -100), 3000)
+	seedHeartbeats(t, db, "oldest", now.AddDate(0, 0, -200), 3000)
+	seedHeartbeats(t, db, "fresh", now.AddDate(0, 0, -1), 500)
+
+	// Stop after the first chunk (5000 rows).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.beforeChunkHook = func(iteration int) {
+		if iteration == 2 {
+			cancel()
+		}
+	}
+	total, err := p.pruneOnce(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, int64(pruneChunkSize), total)
+
+	count := func(monitor string) int64 {
+		var n int64
+		require.NoError(t, db.Model(&models.UptimeHeartbeat{}).Where("monitor_id = ?", monitor).Count(&n).Error)
+		return n
+	}
+	require.Zero(t, count("oldest"), "oldest rows go first")
+	require.Equal(t, int64(1000), count("newer"))
+	require.Equal(t, int64(500), count("fresh"))
+
+	// A further uninterrupted pass terminates and removes the rest of the stale rows.
+	p.beforeChunkHook = nil
+	total, err = p.pruneOnce(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(1000), total)
+	require.Equal(t, int64(500), countHeartbeats(t, db))
+}
+
+func TestUptimePruner_InterChunkPauseHonoursContext(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+	p.chunkPause = time.Hour
+
+	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -100), pruneChunkSize+1000)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		total int64
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		total, err := p.pruneOnce(ctx)
+		done <- result{total, err}
+	}()
+
+	// Wait until chunk 1 has landed (the pruner is then inside the pause).
+	require.Eventually(t, func() bool { return countHeartbeats(t, db) == 1000 },
+		5*time.Second, 5*time.Millisecond)
+	cancel()
+
+	select {
+	case r := <-done:
+		require.ErrorIs(t, r.err, context.Canceled)
+		require.Equal(t, int64(pruneChunkSize), r.total)
+	case <-time.After(2 * time.Second):
+		t.Fatal("pruneOnce did not return promptly when cancelled during the inter-chunk pause")
+	}
+}
