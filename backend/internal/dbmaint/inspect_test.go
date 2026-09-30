@@ -21,7 +21,7 @@ func TestStats_Helpers(t *testing.T) {
 }
 
 func TestInspect(t *testing.T) {
-	db, path := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 4000, keepEvery: 4})
+	db, path := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 40, rowBytes: 50000, keepEvery: 4})
 	// Leave WAL frames behind so the WAL size is non-zero.
 	mustExec(t, db, "INSERT INTO t(pad) VALUES (randomblob(100))")
 

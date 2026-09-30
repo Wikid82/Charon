@@ -160,7 +160,7 @@ func TestEstimateDiskNeed(t *testing.T) {
 }
 
 func TestPlan_RealDatabase(t *testing.T) {
-	db, path := newScratchDB(t, scratchOpts{rows: 20000, keepEvery: 10})
+	db, path := newScratchDB(t, scratchOpts{rows: 400, rowBytes: 100000, keepEvery: 10})
 
 	res, err := Plan(context.Background(), db, PlanConfig{DBPath: path, EnvMode: config.DBCompactAuto})
 	require.NoError(t, err)

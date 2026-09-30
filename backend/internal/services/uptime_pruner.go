@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
 
@@ -31,15 +32,27 @@ const (
 	// issues PRAGMA wal_checkpoint(TRUNCATE) to reclaim WAL file growth.
 	walCheckpointRowThreshold = 50_000
 	// optimizeEveryPasses runs PRAGMA optimize on a ~daily sub-cadence (every
-	// Nth clean pass at the hourly interval). VACUUM is deliberately not used
-	// here; automatic compaction is tracked in GH #1422.
+	// Nth clean pass at the hourly interval). Returning freed pages to the OS is
+	// not done here: after each clean pass the SpaceReclaimer drains the free list
+	// of an incremental-mode database in small steps (GH #1422).
 	optimizeEveryPasses = 24
 )
 
+// SpaceReclaimer returns space freed by a prune pass to the operating system.
+// The concrete implementation lives in internal/dbmaint; the pruner depends only
+// on this interface.
+type SpaceReclaimer interface {
+	// AfterPrune is called after a clean pass that deleted the given number of
+	// rows. It must not fail the pass: problems are the implementation's to log.
+	AfterPrune(ctx context.Context, deleted int64)
+}
+
 // UptimePruner hard-deletes uptime_heartbeats rows older than
 // uptime.heartbeat_retention_days on an hourly cadence, in paused chunks so the
-// single SQLite write connection stays available (spec §3.4). It also owns the
-// deferred idx_heartbeat_monitor_created index (spec §3.5.6): rather than a
+// single SQLite write connection stays available (spec §3.4). After each clean
+// pass it hands over to an optional SpaceReclaimer so the freed pages are
+// returned to the OS (GH #1422). It also owns the deferred
+// idx_heartbeat_monitor_created index (spec §3.5.6): rather than a
 // struct tag / AutoMigrate build over a potentially huge table at boot, the
 // pruner issues CREATE INDEX IF NOT EXISTS at the end of every clean, caught-up
 // pass — idempotent, and retried hourly until it lands, so a transient early
@@ -48,6 +61,9 @@ type UptimePruner struct {
 	db  *gorm.DB
 	cfg *uptimeConfig
 	now func() time.Time
+
+	// reclaimer, when set, returns freed pages to the OS after a clean pass.
+	reclaimer SpaceReclaimer
 
 	// firstPassDone widens the inter-chunk pause until the first clean pass
 	// completes. atomic because a future restore hook may flip it off-loop.
@@ -84,6 +100,12 @@ type UptimePruner struct {
 // NewUptimeScheduler). Run is started by routes.go on the shared request ctx.
 func NewUptimePruner(pool *UptimeWorkerPool) *UptimePruner {
 	return newUptimePruner(pool.db, pool.cfg)
+}
+
+// SetSpaceReclaimer installs the hook that runs after every clean prune pass.
+// Call it before Run; a nil reclaimer (the default) disables the hook.
+func (p *UptimePruner) SetSpaceReclaimer(r SpaceReclaimer) {
+	p.reclaimer = r
 }
 
 func newUptimePruner(db *gorm.DB, cfg *uptimeConfig) *UptimePruner {
@@ -157,6 +179,12 @@ func (p *UptimePruner) tick(ctx context.Context) {
 		}
 	}
 
+	// Hand the freed pages back to the OS once the index work is done (an index
+	// drop frees pages too).
+	if p.reclaimer != nil {
+		p.reclaimer.AfterPrune(ctx, deleted)
+	}
+
 	if n := p.passCount.Add(1); n%optimizeEveryPasses == 0 {
 		// Best-effort maintenance hint; a failure here is not actionable.
 		p.db.WithContext(ctx).Exec(`PRAGMA optimize`)
@@ -195,7 +223,7 @@ func (p *UptimePruner) pruneOnce(ctx context.Context) (int64, error) {
 		if res.RowsAffected < pruneChunkSize {
 			break // fewer than a full chunk deleted => caught up
 		}
-		if err := sleepCtx(ctx, pause); err != nil {
+		if err := util.SleepContext(ctx, pause); err != nil {
 			return total, err
 		}
 	}
@@ -268,16 +296,3 @@ const pruneChunkDeleteSQL = `DELETE FROM uptime_heartbeats
 	     ORDER BY created_at, id
 	     LIMIT ?
 	 )`
-
-// sleepCtx waits for d or until ctx is cancelled, returning ctx's error in the
-// latter case so shutdown is never held up by an inter-chunk pause.
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}

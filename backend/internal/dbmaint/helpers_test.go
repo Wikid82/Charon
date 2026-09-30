@@ -16,8 +16,10 @@ import (
 type scratchOpts struct {
 	// autoVacuum is the mode issued before journal_mode=WAL (0 = leave default).
 	autoVacuum int
-	// rows inserted (about two 2000-byte rows per 4 KiB page).
-	rows int
+	// rows inserted, each a zeroblob of rowBytes (default 2000). Few large rows
+	// build far faster than many small ones, which matters under -race.
+	rows     int
+	rowBytes int
 	// keepEvery keeps one row in N and deletes the rest (0 = delete nothing).
 	keepEvery int
 }
@@ -29,7 +31,7 @@ func newScratchDB(t *testing.T, opts scratchOpts) (db *sql.DB, path string) {
 	path = filepath.Join(t.TempDir(), "scratch.db")
 	db = openScratch(t, path, opts.autoVacuum)
 	if opts.rows > 0 {
-		fillScratch(t, db, opts.rows, opts.keepEvery)
+		fillScratch(t, db, opts.rows, opts.rowBytes, opts.keepEvery)
 	}
 	return db, path
 }
@@ -49,12 +51,15 @@ func openScratch(t *testing.T, path string, autoVacuum int) *sql.DB {
 	return db
 }
 
-func fillScratch(t *testing.T, db *sql.DB, rows, keepEvery int) {
+func fillScratch(t *testing.T, db *sql.DB, rows, rowBytes, keepEvery int) {
 	t.Helper()
+	if rowBytes <= 0 {
+		rowBytes = 2000
+	}
 	mustExec(t, db, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, pad BLOB)")
 	mustExec(t, db, fmt.Sprintf(
 		"WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x<%d) "+
-			"INSERT INTO t(pad) SELECT randomblob(2000) FROM c", rows))
+			"INSERT INTO t(pad) SELECT zeroblob(%d) FROM c", rows, rowBytes))
 	if keepEvery > 0 {
 		mustExec(t, db, fmt.Sprintf("DELETE FROM t WHERE id %% %d <> 0", keepEvery))
 	}

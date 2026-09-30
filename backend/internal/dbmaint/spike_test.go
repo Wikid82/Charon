@@ -50,7 +50,7 @@ func TestSpike_AutoVacuumPragmaOrder(t *testing.T) {
 }
 
 func TestSpike_VacuumOnPinnedConnConvertsAndKeepsWAL(t *testing.T) {
-	db, path := newScratchDB(t, scratchOpts{rows: 6000, keepEvery: 10})
+	db, path := newScratchDB(t, scratchOpts{rows: 120, rowBytes: 100000, keepEvery: 10})
 	before := fileSize(t, path)
 	require.EqualValues(t, 0, pragmaInt(t, db, "auto_vacuum"))
 
@@ -119,7 +119,7 @@ func queryDrainStep(t *testing.T, q Querier, n int) {
 }
 
 func TestSpike_IncrementalVacuumQueryFreesNPagesPerCall(t *testing.T) {
-	db, path := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 30000, keepEvery: 10})
+	db, path := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 600, rowBytes: 100000, keepEvery: 10})
 	free := pragmaInt(t, db, "freelist_count")
 	require.Greater(t, free, int64(10000), "scratch database must have >= 10k free pages")
 	sizeBefore := fileSize(t, path)
@@ -148,7 +148,7 @@ func TestSpike_IncrementalVacuumQueryFreesNPagesPerCall(t *testing.T) {
 // fixes this the test fails and Drain can be simplified; a regression of Drain
 // to Exec is caught by the Drain tests.
 func TestSpike_IncrementalVacuumExecFreesOnePage(t *testing.T) {
-	db, _ := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 20000, keepEvery: 10})
+	db, _ := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 400, rowBytes: 100000, keepEvery: 10})
 	before := pragmaInt(t, db, "freelist_count")
 	require.Greater(t, before, int64(2000))
 
@@ -176,7 +176,7 @@ func TestSpike_VacuumIntoKeepsIncrementalMode(t *testing.T) {
 // TestSpike_OpenRowsBlockThePool: with MaxOpenConns(1) any other pool query
 // waits until the open rows are closed, so Drain must close them first.
 func TestSpike_OpenRowsBlockThePool(t *testing.T) {
-	db, _ := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 4000, keepEvery: 10})
+	db, _ := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 100, rowBytes: 50000, keepEvery: 10})
 
 	rows, err := db.QueryContext(context.Background(), "PRAGMA incremental_vacuum(10)")
 	require.NoError(t, err)
@@ -254,7 +254,7 @@ func TestSpike_PreparedStatementsSurviveVacuum(t *testing.T) {
 // about 60 MB of which two thirds are free.
 func buildCancelDB(t *testing.T) (db *sql.DB, path string) {
 	t.Helper()
-	return newScratchDB(t, scratchOpts{rows: 30000, keepEvery: 3})
+	return newScratchDB(t, scratchOpts{rows: 600, rowBytes: 100000, keepEvery: 3})
 }
 
 // vacuumWithCancel runs VACUUM on a pinned conn, cancelling after delay, and
@@ -355,7 +355,7 @@ func TestHelperTmpdirSpike(t *testing.T) {
 	}
 
 	db := openScratch(t, dbPath, 0)
-	fillScratch(t, db, 30000, 3)
+	fillScratch(t, db, 600, 100000, 3)
 
 	done := make(chan error, 1)
 	go func() {

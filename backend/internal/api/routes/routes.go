@@ -21,6 +21,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/changelog"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/dbmaint"
 	"github.com/Wikid82/charon/backend/internal/hecate"
 	cfprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/cloudflare"
 	nbprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/netbird"
@@ -820,6 +821,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		uptimeScheduler := services.NewUptimeScheduler(uptimeService.Pool)
 		uptimeSyncLoop := services.NewUptimeSyncLoop(uptimeService)
 		uptimePruner := services.NewUptimePruner(uptimeService.Pool)
+		if sqlDB, sqlErr := db.DB(); sqlErr != nil {
+			logger.Log().WithError(sqlErr).Warn("Database space maintenance disabled: could not access the SQL handle")
+		} else {
+			uptimePruner.SetSpaceReclaimer(dbmaint.NewReclaimer(sqlDB, cfg.DatabasePath, cfg.DBCompactOnStart, &dbmaint.Advisor{}))
+		}
 
 		// Boot-time reconcile: CleanupStaleFailureCounts + one SyncMonitors,
 		// after a short delay so Caddy/DB settle. No initial CheckAll.
