@@ -1894,6 +1894,7 @@ func TestSettingsHandler_UpdateSetting_UptimeBounds(t *testing.T) {
 		{"pool_below_min", "uptime.worker_pool_size", "0", false},
 		{"pool_above_max", "uptime.worker_pool_size", "201", false},
 		{"retention_in_bounds", "uptime.heartbeat_retention_days", "90", true},
+		{"retention_default", "uptime.heartbeat_retention_days", "30", true},
 		{"retention_min_edge", "uptime.heartbeat_retention_days", "1", true},
 		{"retention_max_edge", "uptime.heartbeat_retention_days", "3650", true},
 		{"retention_below_min", "uptime.heartbeat_retention_days", "0", false},
@@ -1932,6 +1933,200 @@ func TestSettingsHandler_UpdateSetting_UptimeBounds(t *testing.T) {
 			var count int64
 			db.Model(&models.Setting{}).Where("key = ?", tc.key).Count(&count)
 			assert.Equal(t, int64(0), count, "a rejected uptime.* write must not persist")
+		})
+	}
+}
+
+func patchConfigUptime(t *testing.T, db *gorm.DB, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.PATCH("/config", handler.PatchConfig)
+
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	return w
+}
+
+func TestSettingsHandler_PatchConfig_UptimeRetentionValidation(t *testing.T) {
+	cases := []struct {
+		name   string
+		value  any
+		wantOK bool
+	}{
+		{"zero", "0", false},
+		{"negative", "-1", false},
+		{"above_max", "3651", false},
+		{"non_integer", "abc", false},
+		{"numeric_zero", 0, false},
+		{"default", "30", true},
+		{"min_edge", "1", true},
+		{"max_edge", "3650", true},
+		{"numeric_valid", 45, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupSettingsTestDB(t)
+			require.NoError(t, db.Create(&models.Setting{
+				Key: "uptime.heartbeat_retention_days", Value: "60", Type: "int", Category: "uptime",
+			}).Error)
+
+			w := patchConfigUptime(t, db, map[string]any{
+				"uptime": map[string]any{"heartbeat_retention_days": tc.value},
+			})
+
+			var s models.Setting
+			require.NoError(t, db.Where("key = ?", "uptime.heartbeat_retention_days").First(&s).Error)
+			if tc.wantOK {
+				assert.Equal(t, http.StatusOK, w.Code)
+				assert.Equal(t, fmt.Sprintf("%v", tc.value), s.Value)
+				return
+			}
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, "invalid_uptime_setting", resp["error_code"])
+			assert.Equal(t, "60", s.Value, "stored value must be unchanged")
+		})
+	}
+}
+
+func TestSettingsHandler_PatchConfig_UptimeBadKeyWritesNothing(t *testing.T) {
+	db := setupSettingsTestDB(t)
+
+	w := patchConfigUptime(t, db, map[string]any{
+		"general": map[string]any{"note": "keep-me-out"},
+		"uptime": map[string]any{
+			"worker_pool_size":         "10",
+			"heartbeat_retention_days": "0",
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var n int64
+	require.NoError(t, db.Model(&models.Setting{}).Count(&n).Error)
+	assert.Zero(t, n, "a batch with one invalid uptime key must write nothing")
+}
+
+func TestSettingsHandler_PatchConfig_UptimeUnknownKeyRejected(t *testing.T) {
+	db := setupSettingsTestDB(t)
+	w := patchConfigUptime(t, db, map[string]any{"uptime": map[string]any{"bogus": "5"}})
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+const reservedMarkerKey = "migration.uptime_retention_default_30"
+
+func seedMarkerRow(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Create(&models.Setting{
+		Key: reservedMarkerKey, Value: "done", Type: "string", Category: "migration",
+	}).Error)
+}
+
+func countMigrationRows(t *testing.T, db *gorm.DB) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, db.Model(&models.Setting{}).Where("key LIKE ?", "%igration.%").Count(&n).Error)
+	return n
+}
+
+func TestSettingsHandler_GetSettings_HidesInternalMigrationRows(t *testing.T) {
+	db := setupSettingsTestDB(t)
+	seedMarkerRow(t, db)
+	require.NoError(t, db.Create(&models.Setting{Key: "app.name", Value: "Charon", Category: "general"}).Error)
+	// Prefix match must not depend on the Category label.
+	require.NoError(t, db.Create(&models.Setting{Key: "migration.other", Value: "x", Category: "general"}).Error)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.GET("/settings", handler.GetSettings)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/settings", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "Charon", resp["app.name"])
+	assert.NotContains(t, resp, reservedMarkerKey)
+	assert.NotContains(t, resp, "migration.other")
+}
+
+func TestSettingsHandler_PatchConfig_ResponseHidesInternalMigrationRows(t *testing.T) {
+	db := setupSettingsTestDB(t)
+	seedMarkerRow(t, db)
+
+	w := patchConfigUptime(t, db, map[string]any{"general": map[string]any{"note": "hello"}})
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "hello", resp["general.note"])
+	assert.NotContains(t, resp, reservedMarkerKey)
+}
+
+func TestSettingsHandler_UpdateSetting_RejectsReservedKeys(t *testing.T) {
+	keys := []string{
+		reservedMarkerKey,
+		"migration.anything",
+		"Migration.anything",
+		"  migration.anything",
+		"MIGRATION.ANYTHING",
+	}
+	for _, key := range keys {
+		for _, category := range []string{"", "general", "migration"} {
+			t.Run(fmt.Sprintf("%q/%q", key, category), func(t *testing.T) {
+				db := setupSettingsTestDB(t)
+				handler := handlers.NewSettingsHandler(db)
+				router := newAdminRouter()
+				router.POST("/settings", handler.UpdateSetting)
+
+				body, _ := json.Marshal(map[string]string{"key": key, "value": "x", "category": category})
+				w := httptest.NewRecorder()
+				req, _ := http.NewRequest(http.MethodPost, "/settings", bytes.NewBuffer(body))
+				req.Header.Set("Content-Type", "application/json")
+				router.ServeHTTP(w, req)
+
+				assert.Equal(t, http.StatusBadRequest, w.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+				assert.Equal(t, "reserved_setting_key", resp["error_code"])
+				var n int64
+				require.NoError(t, db.Model(&models.Setting{}).Count(&n).Error)
+				assert.Zero(t, n, "nothing must be written")
+			})
+		}
+	}
+}
+
+func TestSettingsHandler_PatchConfig_RejectsReservedKeys(t *testing.T) {
+	payloads := map[string]map[string]any{
+		"nested":     {"migration": map[string]any{"x": "1"}},
+		"nested_mix": {"migration": map[string]any{"uptime_retention_default_30": "1"}},
+		"mixed_batch": {
+			"general":   map[string]any{"note": "should-not-persist"},
+			"migration": map[string]any{"x": "1"},
+		},
+		"mixed_case": {"Migration": map[string]any{"x": "1"}},
+	}
+	for name, payload := range payloads {
+		t.Run(name, func(t *testing.T) {
+			db := setupSettingsTestDB(t)
+			w := patchConfigUptime(t, db, payload)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, "reserved_setting_key", resp["error_code"])
+			var n int64
+			require.NoError(t, db.Model(&models.Setting{}).Count(&n).Error)
+			assert.Zero(t, n, "nothing must be written")
+			assert.Zero(t, countMigrationRows(t, db))
 		})
 	}
 }

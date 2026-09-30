@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"errors"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,8 +70,8 @@ func TestUptimePruner_DeletesOnlyRowsBeforeCutoff(t *testing.T) {
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	p := newTestPruner(t, db, func() time.Time { return now })
 
-	seedHeartbeats(t, db, "m-old", now.AddDate(0, 0, -100), 40) // older than 90d -> delete
-	seedHeartbeats(t, db, "m-new", now.AddDate(0, 0, -10), 25)  // within 90d -> keep
+	seedHeartbeats(t, db, "m-old", now.AddDate(0, 0, -100), 40) // older than 30d -> delete
+	seedHeartbeats(t, db, "m-new", now.AddDate(0, 0, -10), 25)  // within 30d -> keep
 
 	deleted, err := p.pruneOnce(context.Background())
 	require.NoError(t, err)
@@ -102,11 +105,11 @@ func TestUptimePruner_HonorsHotRetentionChange(t *testing.T) {
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	p := newTestPruner(t, db, func() time.Time { return now })
 
-	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -100), 10) // > 90d
-	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -30), 10)  // 30d old
+	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -100), 10) // > 30d
+	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -20), 10)  // 20d old
 	seedHeartbeats(t, db, "m1", now.Add(-1*time.Hour), 5)    // fresh
 
-	// Pass 1: default 90-day retention -> only the -100d rows go.
+	// Pass 1: default 30-day retention -> only the -100d rows go.
 	deleted, err := p.pruneOnce(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(10), deleted)
@@ -118,7 +121,7 @@ func TestUptimePruner_HonorsHotRetentionChange(t *testing.T) {
 	}).Error)
 	p.cfg.forceRefresh()
 
-	// Pass 2: the 30-day-old rows are now stale; the fresh rows survive.
+	// Pass 2: the 20-day-old rows are now stale; the fresh rows survive.
 	deleted, err = p.pruneOnce(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(10), deleted)
@@ -389,4 +392,247 @@ func TestNewUptimePruner_WiresPoolDBAndConfig(t *testing.T) {
 	require.Equal(t, prunerInterval, p.interval)
 	require.Equal(t, prunerFirstRunDelay, p.firstRunDelay)
 	require.NotNil(t, p.now)
+}
+
+const legacyMonitorIDIndex = "idx_uptime_heartbeats_monitor_id"
+
+func hasLegacyMonitorIDIndex(t *testing.T, db *gorm.DB) bool {
+	t.Helper()
+	for _, n := range heartbeatIndexNames(t, db) {
+		if n == legacyMonitorIDIndex {
+			return true
+		}
+	}
+	return false
+}
+
+func createLegacyMonitorIDIndex(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Exec(
+		"CREATE INDEX IF NOT EXISTS "+legacyMonitorIDIndex+" ON uptime_heartbeats (monitor_id)").Error)
+	require.True(t, hasLegacyMonitorIDIndex(t, db))
+}
+
+func TestUptimePruner_FreshDatabaseHasNoRedundantIndex(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+}
+
+func TestUptimePruner_DropsRedundantIndexAfterEnsureIndex(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+	createLegacyMonitorIDIndex(t, db)
+
+	p.tick(context.Background())
+
+	require.True(t, hasDeferredIndex(t, db))
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+	require.True(t, p.redundantIndexDropped.Load())
+
+	// Idempotent: a further pass is a no-op.
+	p.tick(context.Background())
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+}
+
+func TestUptimePruner_KeepsRedundantIndexWhileCompositeBuildFails(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+	createLegacyMonitorIDIndex(t, db)
+
+	// A table squatting on the composite's name makes CREATE INDEX fail.
+	require.NoError(t, db.Exec("CREATE TABLE idx_heartbeat_monitor_created (x integer)").Error)
+
+	p.tick(context.Background())
+	require.True(t, hasLegacyMonitorIDIndex(t, db), "must not drop before the composite exists")
+	require.False(t, p.redundantIndexDropped.Load())
+
+	// Once the composite can be built the single-column index goes, via the
+	// dedicated retry flag rather than the one-time ensureIndex success path.
+	require.NoError(t, db.Exec("DROP TABLE idx_heartbeat_monitor_created").Error)
+	p.tick(context.Background())
+	require.True(t, hasDeferredIndex(t, db))
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+}
+
+func TestUptimePruner_RedundantIndexDropRetriedAfterFailure(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	p := newTestPruner(t, db, time.Now)
+	createLegacyMonitorIDIndex(t, db)
+	// The composite is already latched as built, so only the drop can fail.
+	p.indexCreated.Store(true)
+
+	// A busy/failed DROP (simulated with an aborted ctx) leaves the retry flag unset.
+	aborted, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := p.dropRedundantIndex(aborted)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), legacyMonitorIDIndex)
+	require.False(t, p.redundantIndexDropped.Load())
+	require.True(t, hasLegacyMonitorIDIndex(t, db))
+
+	// The next pass retries even though ensureIndex is already latched.
+	p.tick(context.Background())
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+	require.True(t, p.redundantIndexDropped.Load())
+}
+
+type queryPlanRow struct {
+	ID      int
+	Parent  int
+	Notused int
+	Detail  string
+}
+
+func explainPlan(t *testing.T, db *gorm.DB, query string, args ...any) string {
+	t.Helper()
+	var rows []queryPlanRow
+	require.NoError(t, db.Raw("EXPLAIN QUERY PLAN "+query, args...).Scan(&rows).Error)
+	details := make([]string, 0, len(rows))
+	for _, r := range rows {
+		details = append(details, r.Detail)
+	}
+	return strings.Join(details, " | ")
+}
+
+// TestUptimeHeartbeatQueryPlans_WithoutRedundantIndex pins that dropping the
+// single-column index leaves every monitor_id query on a composite index.
+func TestUptimeHeartbeatQueryPlans_WithoutRedundantIndex(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	p := newTestPruner(t, db, time.Now)
+	require.NoError(t, p.ensureIndex(context.Background()))
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+	seedHeartbeats(t, db, "m1", time.Now().Add(-time.Hour), 50)
+
+	monitorIDPrefix := regexp.MustCompile(`USING (COVERING )?INDEX idx_\w+ \(monitor_id=`)
+
+	t.Run("monitor history uses the ordered composite", func(t *testing.T) {
+		plan := explainPlan(t, db,
+			"SELECT * FROM uptime_heartbeats WHERE monitor_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT 60",
+			"m1", time.Now())
+		require.Contains(t, plan, "idx_heartbeat_monitor_created")
+		require.NotContains(t, plan, "TEMP B-TREE")
+	})
+
+	t.Run("delete by monitor uses a monitor_id-leading index", func(t *testing.T) {
+		plan := explainPlan(t, db, "DELETE FROM uptime_heartbeats WHERE monitor_id = ?", "m1")
+		require.Regexp(t, monitorIDPrefix, plan)
+	})
+
+	t.Run("exists check uses a monitor_id-leading index", func(t *testing.T) {
+		plan := explainPlan(t, db,
+			"SELECT id FROM uptime_monitors WHERE EXISTS (SELECT 1 FROM uptime_heartbeats WHERE uptime_heartbeats.monitor_id = uptime_monitors.id)")
+		require.Regexp(t, monitorIDPrefix, plan)
+	})
+}
+
+func TestUptimePruner_ChunkDeletePlanUsesCreatedAtIndex(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -100), 2000)
+	seedHeartbeats(t, db, "m2", now.AddDate(0, 0, -1), 2000)
+	assertPlan := func() {
+		t.Helper()
+		// The exact statement pruneOnce runs.
+		plan := explainPlan(t, db, pruneChunkDeleteSQL, now.AddDate(0, 0, -30), pruneChunkSize)
+		require.Contains(t, plan, "idx_uptime_heartbeats_created_at")
+		require.NotContains(t, plan, "TEMP B-TREE")
+		require.NotContains(t, plan, "SCAN uptime_heartbeats", "must not fall back to a rowid scan: %s", plan)
+	}
+
+	assertPlan() // no statistics
+	require.NoError(t, db.Exec("ANALYZE").Error)
+	assertPlan() // with sqlite_stat1
+}
+
+func TestUptimePruner_DeletesOldestFirstAcrossChunks(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+
+	// Insert the newer stale rows first so id order and age order disagree.
+	seedHeartbeats(t, db, "newer", now.AddDate(0, 0, -100), 3000)
+	seedHeartbeats(t, db, "oldest", now.AddDate(0, 0, -200), 3000)
+	seedHeartbeats(t, db, "fresh", now.AddDate(0, 0, -1), 500)
+
+	// Stop after the first chunk (5000 rows).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.beforeChunkHook = func(iteration int) {
+		if iteration == 2 {
+			cancel()
+		}
+	}
+	total, err := p.pruneOnce(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, int64(pruneChunkSize), total)
+
+	count := func(monitor string) int64 {
+		var n int64
+		require.NoError(t, db.Model(&models.UptimeHeartbeat{}).Where("monitor_id = ?", monitor).Count(&n).Error)
+		return n
+	}
+	require.Zero(t, count("oldest"), "oldest rows go first")
+	require.Equal(t, int64(1000), count("newer"))
+	require.Equal(t, int64(500), count("fresh"))
+
+	// A further uninterrupted pass terminates and removes the rest of the stale rows.
+	p.beforeChunkHook = nil
+	total, err = p.pruneOnce(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(1000), total)
+	require.Equal(t, int64(500), countHeartbeats(t, db))
+}
+
+func TestUptimePruner_InterChunkPauseHonoursContext(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+	p.chunkPause = time.Hour
+
+	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -100), pruneChunkSize+1000)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		total int64
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		total, err := p.pruneOnce(ctx)
+		done <- result{total, err}
+	}()
+
+	// Wait until chunk 1 has landed (the pruner is then inside the pause).
+	require.Eventually(t, func() bool { return countHeartbeats(t, db) == 1000 },
+		5*time.Second, 5*time.Millisecond)
+	cancel()
+
+	select {
+	case r := <-done:
+		require.ErrorIs(t, r.err, context.Canceled)
+		require.Equal(t, int64(pruneChunkSize), r.total)
+	case <-time.After(2 * time.Second):
+		t.Fatal("pruneOnce did not return promptly when cancelled during the inter-chunk pause")
+	}
+}
+
+func TestUptimePruner_TickLogsAndRetriesFailedRedundantIndexDrop(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	p := newTestPruner(t, db, time.Now)
+	createLegacyMonitorIDIndex(t, db)
+
+	require.NoError(t, db.Callback().Raw().Before("gorm:raw").Register("test:fail_drop", func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "DROP INDEX") {
+			_ = tx.AddError(errors.New("database is locked"))
+		}
+	}))
+
+	p.tick(context.Background())
+
+	require.True(t, hasDeferredIndex(t, db), "composite still built")
+	require.True(t, hasLegacyMonitorIDIndex(t, db))
+	require.False(t, p.redundantIndexDropped.Load(), "a failed drop leaves the retry flag unset")
 }

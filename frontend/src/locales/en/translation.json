@@ -1377,7 +1377,7 @@
       "workerPoolSize": "Worker pool size",
       "workerPoolSizeHelper": "Number of concurrent checks. Takes effect after a restart.",
       "retentionDays": "Heartbeat retention (days)",
-      "retentionDaysHelper": "Older heartbeats are permanently deleted. Applies within ~1 minute, no restart.",
+      "retentionDaysHelper": "Heartbeats older than this are permanently deleted, checked hourly. Default 30 days (range 1-3650). Longer history uses more disk space: approximately 15 MB per monitor per 30 days at 60-second checks. Lowering this frees space inside the database, but the file may not shrink until the database is compacted.",
       "intervalError": "Enter a whole number between 30 and 86400.",
       "intervalFloorError": "Interval must be at least 30 seconds.",
       "workerPoolError": "Enter a whole number between 1 and 200.",

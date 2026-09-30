@@ -30,6 +30,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
+	"gorm.io/gorm"
 )
 
 // parsePluginSignatures reads the CHARON_PLUGIN_SIGNATURES environment variable
@@ -169,6 +170,11 @@ func main() {
 			).Error; err != nil {
 				log.Fatalf("migration failed: create idx_heartbeat_monitor_created: %v", err)
 			}
+
+			// The bare monitor_id index is a strict prefix of both composites; drop
+			// it only now that the ordered composite exists. The drop is only
+			// an optimisation, so a failure warns instead of aborting the migration.
+			dropRedundantMonitorIndex(db)
 
 			logger.Log().Info("Migration completed successfully")
 			return
@@ -355,6 +361,14 @@ func main() {
 	}
 
 	logger.Log().Info("Server shutdown complete")
+}
+
+// dropRedundantMonitorIndex removes the legacy single-column monitor_id index.
+// It is purely an optimisation, so a failure is logged and never fatal.
+func dropRedundantMonitorIndex(db *gorm.DB) {
+	if err := db.Exec(services.DropRedundantMonitorIndexSQL).Error; err != nil {
+		logger.Log().WithError(err).Warn("migration: could not drop redundant idx_uptime_heartbeats_monitor_id; continuing")
+	}
 }
 
 // logStartupWarnings logs every configuration warning collected by
