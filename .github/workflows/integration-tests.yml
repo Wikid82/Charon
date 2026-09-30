@@ -9,6 +9,7 @@ name: Integration Tests
 #   cerberus-integration.yml   -> job `cerberus`   (was "Cerberus Security Stack Integration")
 #   waf-integration.yml        -> job `waf`        (was "Coraza WAF Integration")
 #   rate-limit-integration.yml -> job `rate-limit` (was "Rate Limiting Integration")
+#   (no standalone predecessor) -> job `security-headers` (security header profile handling)
 #   crowdsec-integration.yml   -> job `crowdsec`   (was "CrowdSec Bouncer Integration")
 on:
   workflow_dispatch:
@@ -332,6 +333,89 @@ jobs:
           docker rm -f ratelimit-backend || true
           docker volume rm charon_ratelimit_data caddy_ratelimit_data caddy_ratelimit_config 2>/dev/null || true
           docker network rm containers_default || true
+
+  security-headers:
+    name: Security Headers Integration
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # test-only work; image is built upstream in `build`.
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download Charon image artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: charon-integration-image
+          path: /tmp
+      - name: Load Charon image
+        run: docker load -i /tmp/charon-image.tar
+
+      - name: Run security headers integration tests
+        id: secheaders-test
+        run: |
+          chmod +x scripts/security_headers_integration.sh
+          scripts/security_headers_integration.sh 2>&1 | tee secheaders-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          {
+            echo "## 🔍 Debug Information"
+            echo ""
+
+            echo "### Container Status"
+            echo '```'
+            docker ps -a --filter "name=secheaders" 2>&1 || true
+            echo '```'
+            echo ""
+
+            echo "### Caddy Admin Config (headers handlers)"
+            echo '```json'
+            curl -s http://localhost:2121/config/ 2>/dev/null | grep -A 20 '"handler":"headers"' | head -60 || echo "Could not retrieve Caddy config"
+            echo '```'
+            echo ""
+
+            echo "### Charon Container Logs (last 100 lines)"
+            echo '```'
+            docker logs secheaders-charon 2>&1 | tail -100 || echo "No container logs available"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Security Headers Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## 🛡️ Security Headers Integration Test Results"
+            if [ "${{ steps.secheaders-test.outcome }}" == "success" ]; then
+              echo "✅ **All security header tests passed**"
+              echo ""
+              echo "### Test Results:"
+              echo '```'
+              grep -E "✓|=== ALL" secheaders-test-output.txt | head -40 || echo "See logs for details"
+              echo '```'
+              echo ""
+              echo "### Verified Behaviors:"
+              echo "- Profile headers are emitted exactly once, replacing upstream values"
+              echo "- Headers outside the profile pass through"
+              echo "- Hosts without a profile are left untouched"
+              echo "- Streaming responses stay incremental"
+            else
+              echo "❌ **Security header tests failed**"
+              echo ""
+              echo "### Failure Details:"
+              echo '```'
+              grep -E "✗|FAIL|Error|failed|expected" secheaders-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f secheaders-charon secheaders-upstream || true
+          docker network rm secheaders-net 2>/dev/null || true
+          docker volume rm secheaders_data secheaders_caddy_data secheaders_caddy_config 2>/dev/null || true
 
   crowdsec:
     name: CrowdSec Bouncer Integration

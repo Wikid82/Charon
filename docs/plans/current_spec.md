@@ -1,151 +1,119 @@
-# Fix Plan: Certificate export with private key always returns 403 (GH #1390)
+# Plan: Proxy host security header profile must replace upstream headers (GH #1402)
 
-Branch: `fix/cert-export-private-key-403-1390` (single PR into `development`)
-Scope: backend-only fix + tests + docs. No model/schema change.
+Branch: `fix/security-headers-duplicated-1402` (single PR into `development`).
+Type: small backend fix (`fix(security):`), no schema/API/frontend change.
+Status: IMPLEMENTED (commits 1 and 2 landed on the branch; commit 3 is this docs update). Follow-ups filed: #1416 (gorm `default:true` bools cannot be set false), #1417 (optional stripping of disabled headers).
 
-## 1. Root cause (entry -> transformation -> persistence -> exit)
+## 1. Problem and root cause
 
-**Entry.** `POST /api/v1/certificates/:uuid/export` is registered at `backend/internal/api/routes/routes.go:1074`:
-`management.POST("/certificates/:uuid/export", middleware.RequireRole(models.RoleAdmin), certHandler.Export)`.
-`management` = `protected.Group("/")` + `RequireManagementAccess()` (routes.go:426-451); `protected` uses `authMiddleware` (`AuthMiddleware`).
+Issue: on a proxy host whose upstream already sends security headers (e.g. Charon's own UI), the response carries duplicates, including `Cross-Origin-Resource-Policy: cross-origin` + `same-origin` (invalid, browsers drop it).
 
-**Transformation.** `AuthMiddleware` (`backend/internal/api/middleware/auth.go:12-40`) sets exactly two context keys:
-`c.Set("userID", user.ID)` (type `uint`) and `c.Set("role", string(user.Role))`. The emergency-bypass branch sets `role="admin"`, `userID=uint(0)`.
-**Nothing in production code ever calls `c.Set("user", ...)`** (verified by grep across `backend/internal`; the only `Set("user", ...)` hits are in `_test.go` files).
+### Correction to the issue's premise
 
-**Handler bug.** `CertificateHandler.Export` (`backend/internal/api/handlers/certificate_handler.go:352-378`) does:
-`c.Get("user")` -> `!exists` -> `403 "authentication required"`. Because the key is never set, `exists` is always false, so
-**every** `include_key:true` request that gets past the missing-password check returns 403 "authentication required".
-(`h.db == nil` is not the cause: `SetDB` is wired at routes.go:1059.) Even if `"user"` existed it must be a `map[string]any` with `"id"` (lines 357-366), a shape nothing produces.
+The issue says the profile headers are "added on top" (append). The generated config already uses `set`, not `add`. Verified in `backend/internal/caddy/config.go` `buildSecurityHeadersHandler` (~L1449-1547), which returns:
 
-**Persistence/exit.** Would have been `h.db.First(&user, userID)` + `user.CheckPassword`; never reached in production.
+```
+{"handler":"headers","response":{"set": {...}}}
+```
 
-**Why tests missed it.** All export tests hand-inject `c.Set("user", map[string]any{"id": ...})` via ad-hoc middleware, so they exercise a contract the real middleware never provides.
+The real cause is ordering, not `set` vs `add`:
 
-## 2. Answers to the investigation questions
+Flow (entry -> exit):
+1. Entry: `ProxyHost.SecurityHeaderProfile` (or `SecurityHeadersEnabled` with `getDefaultSecurityHeaderProfile()`, ~L1609; profile CORP default `same-origin`).
+2. Transformation: `GenerateConfig` (config.go ~L535) appends the headers handler to `handlers` *before* the `reverse_proxy` handler (main route and per-location routes both reuse `handlers`).
+3. Persistence: none (config is regenerated and loaded into Caddy via the admin API).
+4. Exit (Caddy runtime, `modules/caddyhttp/headers`, Caddy 2.11.4 per `Dockerfile` `CADDY_VERSION`): a non-deferred `response.set` is applied to the response header map immediately, when the handler runs, i.e. before the upstream is contacted. `reverse_proxy` then copies the upstream response headers into that same map using `Header.Add` semantics, so any header the upstream also sends ends up with two values (profile value first, upstream value second). `"deferred": true` (or `require`) makes Caddy wrap the ResponseWriter and apply the ops in `WriteHeader`, after reverse_proxy has copied upstream headers, so `set` actually replaces.
 
-1. **Shared helper.** Other handlers read `c.Get("userID")` (uint) / `c.GetString("role")`. Existing helpers in `backend/internal/api/handlers/auth_helpers.go`: `requireUserID(c) (uint, bool)` (writes 401 itself) and in `permission_helpers.go`: `isAdmin`, `requireAdmin`, `requireAuthenticatedAdmin`. Reuse `requireUserID` for ID resolution (returns 401 Unauthorized on missing/bad-typed ID). Password verification pattern to mirror: `user_handler.go:330-347` (`allowPasswordAttempt` then `user.CheckPassword`).
-2. **Route group / role gating.** Export is in `management` and additionally wrapped in `RequireRole(models.RoleAdmin)` (routes.go:1074). `RequireRole` passes only when role == admin (admin is always allowed, others must equal the required role); `user` and `passthrough` roles get 403 "Forbidden", passthrough is also rejected earlier by `RequireManagementAccess`. **Criterion "non-admin rejected" already holds at the route level** and needs no new code; it only needs a real-middleware test. Defense in depth: do not add an in-handler `isAdmin` check unless cheap; recommended: add `requireAdmin(c)` only inside the `IncludeKey` branch (one line) so the handler is safe if the route wrapper is ever removed. Decision: include it (cheap, DRY helper exists).
-3. **Emergency bypass (userID 0).** Bypass sets role admin and skips the rate limiter (`auth_rate_limit.go:188-190`), but there is no user row and no password to re-verify. **Recommendation (stricter): reject private-key export under emergency bypass** with `403 {"error": "private key export requires an authenticated user session"}` (do not fall back to any password). Bypass is a break-glass control-plane token; it must not become a way to exfiltrate private keys without re-auth. Non-key exports (`include_key:false`) remain allowed under bypass (unchanged). Detect by checking `userID == 0` AND `middleware.IsEmergencyBypass(c)` together.
-4. **Other users of the broken pattern.** Production: **only** `certificate_handler.go:352`. Tests hand-injecting `"user"`:
-   - `handlers/certificate_handler_upload_export_test.go:139,170,218,244,270`
-   - `handlers/certificate_handler_patch_coverage_test.go:400,422,444,471`
-   - `handlers/certificate_handler_test.go:33` (`mockAuthMiddleware`, used for Delete tests; the injected key is irrelevant to Delete, replace with real-shape `userID`/`role` or remove the `"user"` key)
-   - `handlers/security_event_intake_test.go:322` sets `"user"` (plus `user_id`, `role`) but the handler does not read `"user"`; clean the dead `Set("user", adminUser)` line (CLAUDE.md "delete dead code").
-5. **Password-attempt guard.** Current order: `allowPasswordAttempt` (charges one token from the login budget) -> missing-password check -> identity lookup -> `CheckPassword`. Problems: (a) empty-password and no-session requests burn login budget without any password verification; (b) the ordering is not itself the 403 cause. Fix ordering: resolve caller identity (admin + `userID` + bypass reject) first, then reject empty password (keep 403 to preserve the existing contract/tests, message unchanged), then `allowPasswordAttempt`, then `db.First` + `CheckPassword`. Guard charges once per real verification attempt, wrong or right (same as `user_handler.go`); no separate "record failure" API exists on `PasswordAttemptGuard` (interface has only `AllowPasswordAttempt`), so nothing else to record. 429 is written by the guard itself.
-6. **Frontend.** `frontend/src/api/certificates.ts:94-107` posts `{format, include_key, password, pfx_password}`; `CertificateExportDialog.tsx:59-86` sends `password` only when `includeKey`, and `required` on the input. Field names match the backend struct (`exportCertificateRequest`). On error it toasts `error.message`. Because the request uses `responseType: 'blob'`, axios error bodies are Blobs, so users see the generic "Request failed with status code 403" rather than "incorrect password". **No change required for this fix.** Optional follow-up (not in this PR): decode the Blob error body to surface the server message; tracked under Follow-ups (section 11).
-7. **Tests to rewrite/add**: see section 5.
-8. **Docs/CHANGELOG/scope**: see section 6.
+Confirmed empirically by the integration script (section 7): on the unfixed build the profile host returned two `Cross-Origin-Resource-Policy` values (`same-origin` and `cross-origin`); on the fixed build it returns one.
 
-## 3. Proposed change (no implementation code here)
+### Second layer: Charon's own middleware
 
-In `certificate_handler.go` `Export`, replace the `if req.IncludeKey { ... }` block with the following order (extract into a private method, e.g. `func (h *CertificateHandler) reauthenticateForKeyExport(c *gin.Context, password string) bool`, returning false after writing the response, to keep `Export` short):
+`backend/internal/api/middleware/security.go` L46-69 (`SecurityHeaders`, mounted globally at `routes.go:169`) sets X-Frame-Options DENY, nosniff, X-XSS-Protection, Referrer-Policy, Permissions-Policy, COOP (non-dev), CORP `same-origin` on every Charon response. That is why Charon's UI is a header-emitting upstream. This is correct for direct access to Charon and is NOT the bug; it is just the "upstream" that triggers it. Any other upstream (nginx, apps) would trigger the same duplication.
 
-1. `requireAdmin(c)` (defense in depth; 403 `admin privileges required`).
-2. `requireUserID(c)` (401 if absent / wrong type).
-3. If `userID == 0` or `middleware.IsEmergencyBypass(c)`: 403 "private key export requires an authenticated user session".
-4. `h.db == nil` -> 500 `{"error": "internal error"}` (misconfiguration, not an auth failure; currently masked as 403).
-5. `password == ""` -> 403 "password required to export private key" (unchanged contract).
-6. `allowPasswordAttempt(h.passwordGuard, c)` (429 on exhaustion).
-7. `h.db.First(&user, "id = ?", userID)` (typed uint): not found -> 403 "user not found" (unchanged); other DB error -> 500.
-8. `!user.CheckPassword(password)` -> 403 "incorrect password" (unchanged).
+### Other emit sites (grep of `"headers"` handlers, `HeaderHandler(`)
 
-Remove the `c.Get("user")` / `map[string]any` handling entirely. Response bodies for existing failure cases keep their current strings so the frontend/E2E stay compatible. The 401 in step 2 is new but only reachable when the middleware did not run (never in production route).
+| Site | Upstream involved? | Action |
+|---|---|---|
+| `buildSecurityHeadersHandler` (config.go) | yes (reverse_proxy) | emit non-deferred + deferred `set` pair (the fix) |
+| Legacy host HSTS via `HeaderHandler` (config.go ~L545) | yes (same route) | emit the same pair; skipped entirely when the profile already sets Strict-Transport-Security |
+| `redirect_routes.go` L78 `HeaderHandler` HSTS | no (static redirect, no upstream) | single handler, unchanged |
+| `types.go` `ReverseProxyHandler` request `set` | request side | unaffected |
+| `AdvancedConfig` user handler | user-controlled | do not touch |
+| Orthrus/remote-server paths | still go through same `GenerateConfig` route assembly (no separate header emitters found) | none |
 
-Import `middleware` in the handler only if not already imported by the package (handlers already import it elsewhere; verify no cycle -- middleware must not import handlers).
+Note `normalizeHeaderOps` (config.go ~L749-785) only normalizes `set` value types inside `response`/`request`; it leaves sibling keys such as `deferred` untouched, so no change is required there (add a regression assertion in a test).
 
-## 4. Files to touch
+## 2. Decision: "keep the middleware's values as default when no profile applies"
 
-| File | Change |
-|---|---|
-| `backend/internal/api/handlers/certificate_handler.go` | New re-auth helper, reorder checks, drop `"user"` lookup; use `h.db.First(&user, "id = ?", userID)` with a typed `uint` (not a raw interface arg) |
-| `handlers/certificate_handler_upload_export_test.go` | Rewrite `Export_*` tests (lines 117-290) to the real-middleware harness; add new cases |
-| `handlers/certificate_handler_patch_coverage_test.go` | Rewrite/delete the four hand-injected export tests (~400-471) |
-| `handlers/certificate_handler_test.go` | `mockAuthMiddleware` (line 33): set `role="admin"` and `userID` (uint) instead of `"user"`; re-run the Delete tests and every other user of the helper to confirm they still pass |
-| `handlers/certificate_handler_coverage_test.go` | `Export_IncludeKeyNoPassword` (489-508): uses `mockAuthMiddleware` (no role today, would get "admin privileges required"); passes once the mock sets role=admin, assertion "password required" unchanged. `Export_IncludeKeyNoDBSet` (510-530): currently expects 403 "authentication required"; plan returns 500, so change the assertion to 500 |
-| `handlers/password_guard_test.go` | `exportRouter` (103-117) has no auth middleware, so `Export_PasswordGuardDeniesKeyExport` and `Export_PasswordGuardAllowsThenReauthenticates` (119-137) would now get 403 from `requireAdmin`. Give `exportRouter` a real-shape context (`role="admin"`, `userID` uint of a seeded user) and adjust: the deny test keeps expecting 429 with a non-empty password; the allow test expects 403 "incorrect password" (seeded user, wrong password) with `guard.calls == 1` |
-| `handlers/security_event_intake_test.go` | Remove dead `c.Set("user", adminUser)` (line 322) |
-| `backend/internal/api/routes/auth_rate_limit_routes_test.go` | **Mandatory** route-level tests (section 5) using `newThrottledApp` (full `Register()`) and `createUser(role)`; confirm existing `TestRegister_CertificateKeyExportSharesLoginBudget` (line 181) still passes under the new order (it sends password `"x"`, so the guard is still charged and the second call still 429s) |
-| `tests/certificate-export.spec.ts` | Add key-export success scenario (`test.fixme` first) |
-| `tests/constants.ts` (or the spec) | Export the E2E admin password (see section 5) |
-| `docs/api.md`, `docs/features/ssl-certificates.md` | Short export endpoint note; one sentence |
+No code change. When a host has no profile and `SecurityHeadersEnabled == false`, `buildSecurityHeadersHandler` returns nil, no handler is emitted, and upstream headers (including the Charon middleware's, when Charon is the upstream) pass through untouched. When `SecurityHeadersEnabled == true` with no profile, the built-in default profile is authoritative and replaces upstream values. The middleware's values are already the pass-through default. Only document this.
 
-No frontend, model, migration, or route changes.
+## 3. Exact fix (as built)
 
-## 5. Test plan
+A single deferred handler was tried first and rejected: it fixed the duplicate values but dropped the headers from Caddy-generated error responses (502), because the deferred wrapper never runs when reverse_proxy fails before writing a response. The integration test caught this. The final design emits TWO `set` handlers back to back with identical values:
 
-**Route-level tests (mandatory, primary)** in `routes/auth_rate_limit_routes_test.go`, via `newThrottledApp(t, cfg)` (full `Register()`, real `AuthMiddleware` + `RequireRole` + `allowPasswordAttempt` with the real limiter; use a generous budget such as `withAuthBudget(50, 60)` so the budget is not the variable) and `app.createUser(role)` (password is `correct-password`; tokens via real `AuthService`). Seed a cert with a key via the certificate upload API or service on `app.db`:
-- admin + correct password + `include_key:true` -> 200 with key material in the body (regression for #1390).
-- admin + wrong password -> 403.
-- non-admin (`RoleUser`, and `RolePassthrough`) + correct password -> 403.
-- emergency bypass + `include_key:true` -> 403 (use the same bypass mechanism existing route tests use; if none exists, add a tiny pre-middleware setting `middleware.EmergencyBypassContextKey` true on a router wrapping `Register`, or reuse the emergency-token flow).
-- Also: missing password -> 403 and does not consume budget (assert the next attempt is not 429 under a budget of 1); no token -> 401.
-- Existing `TestRegister_CertificateKeyExportSharesLoginBudget` must remain green.
+1. `backend/internal/caddy/types.go`: `HeaderHandlers([]Handler)` returns a non-deferred `set` handler immediately followed by a `set` handler with `"deferred": true`, same values in both.
+   - Non-deferred: applies before the upstream is contacted, so Caddy-generated error responses (502) carry the profile headers.
+   - Deferred: applies at WriteHeader after reverse_proxy has copied upstream headers, so `set` replaces the upstream value and exactly one value (the profile's) is emitted.
+2. `backend/internal/caddy/config.go` `buildSecurityHeaderHandlers` builds the profile pair via `HeaderHandlers`; `GenerateConfig` uses it for the main route and per-location routes.
+3. The legacy per-host HSTS pair is skipped when the profile already sets Strict-Transport-Security, so the profile wins on both the deferred and non-deferred paths.
+4. No `add`/`delete`/`replace` ops. `normalizeHeaderOps` leaves the `deferred` key untouched (asserted by a test).
 
-**Handler-level harness (supplement)**, in the handlers package: in-memory SQLite, `services.NewAuthService(db, config.Config{JWTSecret: "test-secret"})` (as in `middleware/auth_test.go:22-29`), real `middleware.AuthMiddleware` + `middleware.RequireRole(models.RoleAdmin)`, real JWTs. No `c.Set("user"...)` and no hand-set `userID`/`role` in the harness (the `mockAuthMiddleware` / `exportRouter` context stubs remain only in tests that are not about auth, and use the real key shapes). Cases: correct/wrong/missing password, non-admin, no token 401, bypass with and without key, user deleted after token issuance (401 via middleware), unknown-user handler branch (403 "user not found", real key shapes), `include_key:false` no password -> 200, `h.db == nil` -> 500, and guard call counts with a fake `PasswordAttemptGuard` (missing password: 0 calls; wrong/correct: 1 call each; guard false -> 429 and `CheckPassword` not reached; bypass/non-admin: 0 calls).
+### Behavior and edge cases
 
-Legacy tests asserting `"not-a-map"` / missing `id` branches are deleted since those branches no longer exist.
+- Headers the profile sets: one value, the profile's.
+- Unset/disabled headers are omitted from `set`, so an upstream value survives. A profile that disables a header does NOT strip an upstream value (Q4); tracked in #1417.
+- No profile and `SecurityHeadersEnabled == false`: no handler emitted, upstream headers pass through untouched. With `SecurityHeadersEnabled == true` and no profile, the built-in default profile applies.
+- CSP vs CSP-Report-Only: a profile emits one or the other. A report-only profile does not remove an upstream enforcing CSP; both reach the browser (Q2).
+- Legacy HSTS plus profile HSTS: profile wins (Q3).
+- Caddy-generated error responses (502) carry the profile headers (asserted, passing).
+- Streaming/WebSocket: verified by the integration script.
+- Related, out of scope: `default:true` bool fields cannot currently be set false (#1416).
 
-**E2E** (`tests/certificate-export.spec.ts`, firefox only locally):
-- Verified fixture facts: `createCustomCertViaAPI` (line 41) uploads both `certificate_file` and `key_file` (`REAL_TEST_KEY`), so the seeded cert has a key. The admin password is **not** currently exposed to this spec: `tests/auth.setup.ts:24` defines `TEST_PASSWORD = process.env.E2E_TEST_PASSWORD || 'TestPassword123!'` as a non-exported const, and `tests/fixtures/auth-fixtures.ts:75` exports a *different* `TEST_PASSWORD` (`'TestPass123!'`) for created users -- do not use that one. Task: export the auth.setup value from `tests/constants.ts` (single definition, have `auth.setup.ts` import it) and use it in the new scenario.
-- Add "should download PEM with private key when correct password is entered" (`test.fixme` in commit 1, enabled in commit 3): check include-key, fill `#export-password`, submit, expect a download event `.pem`.
-- **Drop the wrong-password E2E scenario.** It burns the shared 10 per 600 s login budget and is fully covered by the route-level test.
-- Run list (firefox, foreground): `npx playwright test tests/certificate-export.spec.ts tests/security-enforcement/authorization-rbac.spec.ts --project=firefox`. `authorization-rbac.spec.ts:321` posts `{}` to the export route (400 on missing `format`) so it is unaffected, but belongs in the run.
+## 4. Tests
 
-## 6. Docs, changelog, commit scope
+Unit tests (`backend/internal/caddy/`): existing security-header, `HeaderHandler`, redirect-route and `config_test.go` expectations updated for the handler pair; new tests cover the pair shape (non-deferred then deferred, identical values, no `add`/`delete`/`replace`), main and location routes, omission of unset headers, no handler when no profile and headers disabled, `normalizeHeaderOps` preserving `deferred`, and legacy HSTS being skipped when the profile sets HSTS. `backend/internal/api/middleware/security_test.go` is unchanged.
 
-- Do not hand-edit `CHANGELOG.md` (release-please driven).
-- **Scope: `fix(security):`** (user decision, 2026-09-29). The subject must stay vague per CLAUDE.md: `fix(security): restore re-authentication safeguard on sensitive exports`. Do not name the vulnerability class or the code path in the subject or body of any commit.
-- Docs: `docs/api.md` short note on the export endpoint (admin only; `include_key` requires the caller's account password; **not available to emergency-bypass sessions**; login-class rate limit already documented at line 1781) and one sentence in `docs/features/ssl-certificates.md`. Both are in manifested directories, no manifest change. The bypass behavior change must be called out in the docs and the PR body.
+## 5. Integration test
 
-## 7. Risks / edge cases
+Real Caddy is required, so the repo's bash-script-plus-build-tagged-Go-wrapper pattern is used:
 
-- Behavior change: emergency-bypass sessions can no longer export keys (intentional; PR body + docs). Bypass detection checks `userID == 0` and `middleware.IsEmergencyBypass(c)` together.
-- The fix cannot widen access beyond admin + own password.
-- Rate limiter: guard charged once per verified attempt; route-level tests use an explicit large budget except the shared-budget test.
-- Changing `First(&user, userID)` to `First(&user, "id = ?", userID)` with a typed uint avoids inline-condition ambiguity; the GORM scan is run for this reason.
-- Missing password stays 403 (existing contract).
+- `scripts/security_headers_integration.sh`, `backend/integration/security_headers_integration_test.go` (tag `integration`), `.github/skills/integration-test-security-headers.SKILL.md` + `-scripts/run.sh`, registered in `scripts/integration-test-all.sh`, plus a `security-headers:` job in `.github/workflows/integration-tests.yml`.
+- Upstream sends `X-Content-Type-Options`, `Cross-Origin-Resource-Policy: cross-origin` and a custom `X-Upstream-Only: keep`.
+- Asserts (HEAD and GET): profile headers appear exactly once with the profile's values; the custom header passes through; a host with no profile passes upstream CORP through once; the loaded config contains the deferred handler.
+- 502 assertion (real, passing): with the upstream stopped, the profile host returns 502 carrying each profile header exactly once.
+- Streaming assertion: 200 through the profile host with profile headers once and incremental chunks.
 
-## 8. Commit Slicing Strategy (ONE PR into `development`)
+## 6. Docs impact
 
-No skipped tests and no red commits. Red-then-green evidence goes in the PR body: before committing, run the new Go tests locally against the unmodified handler, capture the failing output (403 "authentication required"), then apply the fix.
+- `docs/features/security-headers.md`: new plain-language section on how profiles interact with an app's own headers.
+- `CHANGELOG.md` (hand-maintained): one line under Unreleased > Fixed.
+- No changes to `docs/features.md` or `ARCHITECTURE.md`; no `docs-site` edits; GORM scan not required.
 
-1. **`test: add certificate key export E2E scenario (fixme)`**
-   Files: `tests/certificate-export.spec.ts` (`test.fixme` scenario), `tests/constants.ts` + `tests/auth.setup.ts` (shared admin password constant), optionally no-behavior-change harness helpers. Gate: `npx playwright test tests/certificate-export.spec.ts --project=firefox` (fixme reports as skipped, rest green); `cd backend && go build ./...`.
-2. **`fix(security): restore re-authentication safeguard on sensitive exports`**
-   Handler change (section 3) together with ALL Go tests, new and rewritten (every file in section 4 under `backend/`). Green at HEAD. Gate: `cd backend && go build ./... && go test ./internal/api/handlers/... ./internal/api/middleware/... ./internal/api/routes/...`; `./scripts/scan-gorm-security.sh --check`; `make lint-fast`.
-3. **`test: enable certificate key export E2E scenario` + docs** (may be two commits: `test:` then `docs: document private key export re-authentication`)
-   Flip `test.fixme` -> `test`; docs edits. Gate: rebuild E2E container (`.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`), then the section 5 Playwright run list.
+## 7. Commit Slicing Strategy (one PR)
 
-Rollback: revert the PR; no schema or data impact. Contingency: if bypass-reject proves too strict, relax only step 3 of section 3.
+Decision: single PR, ordered commits. EVERY commit builds and passes its validation gate (no red commits). The `fix(security):` subject must stay vague: no header names, "duplicate", "CORP", or "upstream". Never include a session ID or link.
 
-## 9. Definition of Done (run all foreground/blocking)
+| # | Subject | Scope / files | Depends | Validation gate |
+|---|---|---|---|---|
+| 1 | `fix(security): harden response header handling in the proxy layer` | `backend/internal/caddy/types.go` (`HeaderHandlers`), `backend/internal/caddy/config.go` (`buildSecurityHeaderHandlers`, legacy HSTS skip), plus unit tests | none | `cd backend && go test ./internal/caddy/... ./internal/api/...`; `make lint-fast`; coverage >= 85%; `bash scripts/local-patch-report.sh`; `lefthook run pre-commit` |
+| 2 | `test: add integration coverage for response header handling` | Integration script, Go wrapper, skill, `integration-test-all.sh`, workflow job (section 5) | 1 | Script passes locally against the fixed build; `go vet -tags integration ./integration/...`; CI integration job green |
+| 3 | `docs: document security header profile behavior` | `docs/features/security-headers.md`, `CHANGELOG.md`, this plan | 1 | markdown lint via lefthook |
 
-1. `cd /projects/Charon && npx playwright test tests/certificate-export.spec.ts tests/security-enforcement/authorization-rbac.spec.ts --project=firefox`
-2. `cd backend && go test ./internal/api/handlers/... ./internal/api/middleware/... ./internal/api/routes/...`
-3. `./scripts/scan-gorm-security.sh --check` (zero CRITICAL/HIGH; run because the `First(&user, ...)` argument changes)
-4. `bash scripts/local-patch-report.sh`
-5. `lefthook run pre-commit`; `make lint-fast`; `make lint-backend` before PR
-6. `scripts/go-test-coverage.sh` (>= 85%)
-7. `cd backend && go build ./...`
-8. Frontend untouched: type-check/coverage not required. CodeQL/Trivy local scans deferred to CI (`fix(security):` scope but no new feature surface; CI runs both on every PR).
-9. No debug prints/commented code; PR body has no session ID/link and includes the red-then-green evidence and the bypass behavior-change note.
+### Unfixed-vs-fixed proof (captured)
 
-## 10. Acceptance criteria mapping
+The integration script was run against the unfixed build first: the profile host returned two `Cross-Origin-Resource-Policy` values (`same-origin` and `cross-origin`). After the fix it returns one, and the 502 response carries the profile headers. Both captures go in the PR body.
 
-- (1) Admin + correct password exports with key: route-level test through full `Register()` + E2E download.
-- (2) Wrong/missing password and non-admin rejected: route-level tests (non-admin already blocked by `RequireRole` at routes.go:1074, plus handler-level `requireAdmin`).
-- (3) Tests exercise the real `AuthMiddleware` with real JWTs from `AuthService`; no hand-injected context values in auth-relevant tests.
+Rollback: revert commit 1; commits 2 and 3 do not affect runtime behavior.
 
-## 11. Follow-ups (not in this PR)
+## 8. Acceptance criteria
 
-1. Low priority: `CertificateExportDialog` shows a generic axios message because the blob `responseType` makes error bodies Blobs; decode the Blob error body to show the server message. Tracked in #1414.
+- Generated Caddy config: profile emits a non-deferred `set` handler followed by a deferred `set` handler with identical values (main and location routes); legacy HSTS is skipped when the profile sets HSTS.
+- Integration: upstream sending nosniff + `CORP: cross-origin` yields exactly one of each header, with the profile's values, through a profile-assigned proxy host; unset headers (custom upstream header) pass through; no-profile host unchanged; 502 responses carry the profile headers.
+- All existing unit tests pass; backend coverage >= 85%; patch report generated; lefthook and staticcheck clean.
 
-## 12. Open questions (resolved recommendations)
+## 9. Decisions on former open questions (resolved)
 
-- Commit scope: `fix(security):` with the vague subject above (user decision). Bypass rejection for private-key export: approved by the user.
-- Emergency bypass + `include_key:true`: reject with 403 (stricter); `include_key:false` still allowed.
-- Missing password: stays 403.
-- Commit 1 red-commit concern: resolved, no skipped tests; fix and all Go tests land together in commit 2, evidence in the PR body.
-- Route-level test: mandatory.
-- Follow-up issues: listed in section 11; to be filed by the user/orchestrator, not by the planner.
+1. Empirical confirmation of Caddy 2.11.4 behavior: done via the integration script (unfixed two values, fixed one). It also showed a deferred-only handler drops headers from 502 responses, hence the handler pair.
+2. CSP-Report-Only profile plus upstream enforcing CSP: both reach the browser; documented.
+3. Legacy HSTS vs profile HSTS: profile wins (legacy pair skipped); unit tested; release note added.
+4. A profile that disables a header does NOT strip an upstream value: documented; follow-up #1417.

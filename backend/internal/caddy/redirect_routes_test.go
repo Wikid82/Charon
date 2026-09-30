@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -152,12 +153,10 @@ func TestBuildRedirectRoutes_HSTSHeaderPresent(t *testing.T) {
 	}
 	routes, _ := BuildRedirectRoutes(hosts, make(map[string]bool))
 	require.Len(t, routes, 1)
-	require.Len(t, routes[0].Handle, 2)
-	assert.Equal(t, "headers", routes[0].Handle[0]["handler"])
-	response := routes[0].Handle[0]["response"].(map[string]any)
-	setHeaders := response["set"].(map[string][]string)
+	require.Len(t, routes[0].Handle, 3)
+	setHeaders := assertHeaderPair(t, routes[0].Handle[:2])
 	assert.Equal(t, []string{"max-age=31536000; includeSubDomains"}, setHeaders["Strict-Transport-Security"])
-	assert.Equal(t, "static_response", routes[0].Handle[1]["handler"])
+	assert.Equal(t, "static_response", routes[0].Handle[2]["handler"])
 }
 
 func TestBuildRedirectRoutes_HSTSHeaderAbsentByDefault(t *testing.T) {
@@ -191,4 +190,33 @@ func TestBuildRedirectRoutes_MultiDomainHost(t *testing.T) {
 	routes, _ := BuildRedirectRoutes(hosts, make(map[string]bool))
 	require.Len(t, routes, 1)
 	assert.Equal(t, []string{"a.example.com", "b.example.com"}, routes[0].Match[0].Host)
+}
+
+func TestRedirectRoute_HeaderHandlersJSONRoundTrip(t *testing.T) {
+	hosts := []models.RedirectionHost{
+		{UUID: "rh-1", DomainNames: "old.example.com", TargetURL: "https://new.example.com", StatusCode: 301, Enabled: true, HSTSEnabled: true},
+	}
+	routes, _ := BuildRedirectRoutes(hosts, make(map[string]bool))
+	require.Len(t, routes, 1)
+
+	// HSTS pair (non-deferred, deferred) then the redirect.
+	require.Len(t, routes[0].Handle, 3)
+	assert.Equal(t, "static_response", routes[0].Handle[2]["handler"])
+
+	for i, wantDeferred := range []bool{false, true} {
+		raw, err := json.Marshal(routes[0].Handle[i])
+		require.NoError(t, err)
+
+		var decoded map[string]any
+		require.NoError(t, json.Unmarshal(raw, &decoded))
+		assert.Equal(t, "headers", decoded["handler"])
+		response := decoded["response"].(map[string]any)
+		deferred, hasDeferred := response["deferred"]
+		assert.Equal(t, wantDeferred, hasDeferred)
+		if wantDeferred {
+			assert.Equal(t, true, deferred)
+		}
+		set := response["set"].(map[string]any)
+		assert.Equal(t, []any{"max-age=31536000"}, set["Strict-Transport-Security"])
+	}
 }

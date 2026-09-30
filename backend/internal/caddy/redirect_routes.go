@@ -71,13 +71,9 @@ func BuildRedirectRoutes(redirectHosts []models.RedirectionHost, processedDomain
 
 		handlers := []Handler{}
 		if rh.HSTSEnabled {
-			hstsValue := "max-age=31536000"
-			if rh.HSTSSubdomains {
-				hstsValue += "; includeSubDomains"
-			}
-			handlers = append(handlers, HeaderHandler(map[string][]string{
-				"Strict-Transport-Security": {hstsValue},
-			}))
+			handlers = append(handlers, HeaderHandlers(map[string][]string{
+				hstsHeader: {legacyHSTSValue(rh.HSTSSubdomains)},
+			})...)
 		}
 		handlers = append(handlers, RedirectHandler(location, rh.StatusCode))
 

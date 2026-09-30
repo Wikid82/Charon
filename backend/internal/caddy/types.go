@@ -200,12 +200,31 @@ func ReverseProxyHandler(dial string, enableWS bool, application string, enableS
 	return h
 }
 
-// HeaderHandler creates a handler that sets HTTP response headers.
-func HeaderHandler(headers map[string][]string) Handler {
-	return Handler{
-		"handler": "headers",
-		"response": map[string]any{
-			"set": headers,
+// HeaderHandlers creates the handlers that set HTTP response headers: a
+// non-deferred "set" immediately followed by a deferred "set" with the same
+// values. Both are required:
+//   - Deferred ops run at WriteHeader time, after reverse_proxy has copied the
+//     upstream response headers, so "set" replaces (rather than sits beside)
+//     an upstream copy, giving exactly one value on proxied responses. A
+//     non-deferred set alone runs first and reverse_proxy then appends the
+//     upstream value, yielding duplicates.
+//   - Caddy-generated error responses (e.g. 502 when the upstream is down) are
+//     written via the original ResponseWriter, so deferred ops never run for
+//     them. The non-deferred set covers that path.
+//
+// Headers absent from the map are untouched and pass through.
+func HeaderHandlers(headers map[string][]string) []Handler {
+	return []Handler{
+		{
+			"handler":  "headers",
+			"response": map[string]any{"set": headers},
+		},
+		{
+			"handler": "headers",
+			"response": map[string]any{
+				"set":      headers,
+				"deferred": true,
+			},
 		},
 	}
 }
@@ -213,7 +232,7 @@ func HeaderHandler(headers map[string][]string) Handler {
 // RedirectHandler creates a static_response handler that issues an HTTP
 // redirect to targetURL with the given status code. targetURL may contain
 // the {http.request.uri} placeholder when the caller wants to preserve the
-// incoming path/query string. Note: unlike HeaderHandler's response.set
+// incoming path/query string. Note: unlike HeaderHandlers' response.set
 // shape, static_response's "headers" field is a flat map applied directly
 // on the handler — see https://caddyserver.com/docs/json/apps/http/handlers/static_response/.
 func RedirectHandler(targetURL string, statusCode int) Handler {

@@ -165,6 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Security Headers: One Value Per Header**: A security header profile now always sends a single value for each header it sets, even if the app behind it sends its own. Charon's error pages (such as 502) now carry the profile headers too, and the profile's Strict-Transport-Security now takes precedence over the older per-host HSTS setting
 - **Proxy Groups: Dead Code Removal**: Removed unreachable code block in `resolveProxyGroupReference` — proxy host handler now has no dead branches
 - **Proxy Groups: Test Coverage**: Added backend tests for proxy host create/update with valid group UUID, bulk update service error, and bulk update Caddy apply error; added frontend tests for `bulkUpdateGroup` API, `useProxyHosts` bulk mutation hook, `GroupDropZone`, `ProxyHostDragHandle`, and `DataTable` renderDragHandle prop — raises PR #1018 patch coverage from 84% to ≥90%
 

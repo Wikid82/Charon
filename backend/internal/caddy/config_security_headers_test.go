@@ -5,6 +5,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildSecurityHeadersHandler_AllEnabled(t *testing.T) {
@@ -31,11 +32,12 @@ func TestBuildSecurityHeadersHandler_AllEnabled(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := deferredSecurityHeaders(t, host)
 	assert.NotNil(t, handler)
 	assert.Equal(t, "headers", handler["handler"])
 
 	response := handler["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
 	headers := response["set"].(map[string][]string)
 
 	assert.Contains(t, headers["Strict-Transport-Security"][0], "max-age=31536000")
@@ -68,10 +70,11 @@ func TestBuildSecurityHeadersHandler_HSTSOnly(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := deferredSecurityHeaders(t, host)
 	assert.NotNil(t, handler)
 
 	response := handler["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
 	headers := response["set"].(map[string][]string)
 
 	assert.Contains(t, headers["Strict-Transport-Security"][0], "max-age=31536000")
@@ -97,10 +100,11 @@ func TestBuildSecurityHeadersHandler_CSPOnly(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := deferredSecurityHeaders(t, host)
 	assert.NotNil(t, handler)
 
 	response := handler["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
 	headers := response["set"].(map[string][]string)
 
 	assert.NotContains(t, headers, "Strict-Transport-Security")
@@ -122,10 +126,11 @@ func TestBuildSecurityHeadersHandler_CSPReportOnly(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := deferredSecurityHeaders(t, host)
 	assert.NotNil(t, handler)
 
 	response := handler["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
 	headers := response["set"].(map[string][]string)
 
 	assert.NotContains(t, headers, "Content-Security-Policy")
@@ -138,11 +143,12 @@ func TestBuildSecurityHeadersHandler_NoProfile(t *testing.T) {
 		SecurityHeadersEnabled: true,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := deferredSecurityHeaders(t, host)
 	assert.NotNil(t, handler)
 
 	// Should use defaults
 	response := handler["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
 	headers := response["set"].(map[string][]string)
 
 	assert.Contains(t, headers, "Strict-Transport-Security")
@@ -156,12 +162,12 @@ func TestBuildSecurityHeadersHandler_Disabled(t *testing.T) {
 		SecurityHeadersEnabled: false,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := buildSecurityHeaderHandlers(host)
 	assert.Nil(t, handler)
 }
 
 func TestBuildSecurityHeadersHandler_NilHost(t *testing.T) {
-	handler := buildSecurityHeadersHandler(nil)
+	handler := buildSecurityHeaderHandlers(nil)
 	assert.Nil(t, handler)
 }
 
@@ -303,10 +309,11 @@ func TestBuildSecurityHeadersHandler_PermissionsPolicy(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := deferredSecurityHeaders(t, host)
 	assert.NotNil(t, handler)
 
 	response := handler["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
 	headers := response["set"].(map[string][]string)
 
 	assert.Contains(t, headers, "Permissions-Policy")
@@ -328,11 +335,12 @@ func TestBuildSecurityHeadersHandler_InvalidCSPJSON(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := deferredSecurityHeaders(t, host)
 	assert.NotNil(t, handler)
 
 	// Should skip CSP if invalid JSON
 	response := handler["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
 	headers := response["set"].(map[string][]string)
 	assert.NotContains(t, headers, "Content-Security-Policy")
 	// But should include the other header
@@ -348,7 +356,7 @@ func TestBuildSecurityHeadersHandler_InvalidPermissionsJSON(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := buildSecurityHeaderHandlers(host)
 
 	// Should skip invalid permissions policy but continue with other headers
 	// If profile had no other headers, handler would be nil
@@ -379,11 +387,12 @@ func TestBuildSecurityHeadersHandler_APIFriendlyPreset(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	handler := buildSecurityHeadersHandler(host)
+	handler := deferredSecurityHeaders(t, host)
 	assert.NotNil(t, handler)
 	assert.Equal(t, "headers", handler["handler"])
 
 	response := handler["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
 	headers := response["set"].(map[string][]string)
 
 	// Verify HSTS is present
@@ -426,4 +435,224 @@ func TestBuildSecurityHeadersHandler_APIFriendlyPreset(t *testing.T) {
 
 	// Verify Cache-Control is NOT present (CacheControlNoStore = false)
 	assert.NotContains(t, headers, "Cache-Control")
+}
+
+// headersHandlers returns every "headers" handler in a route, in order.
+func headersHandlers(route *Route) []Handler {
+	var out []Handler
+	for _, h := range route.Handle {
+		if h["handler"] == "headers" {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// assertHeaderPair asserts hs is the non-deferred/deferred "set" pair emitted
+// by HeaderHandlers, in that order, carrying identical values, and returns the
+// shared set map.
+func assertHeaderPair(t *testing.T, hs []Handler) map[string][]string {
+	t.Helper()
+	require.Len(t, hs, 2)
+	immediate, ok := hs[0]["response"].(map[string]any)
+	require.True(t, ok, "response must be a map")
+	assert.Equal(t, "headers", hs[0]["handler"])
+	assert.NotContains(t, immediate, "deferred", "first handler must be non-deferred")
+	assert.Contains(t, immediate, "set")
+	for _, op := range []string{"add", "delete", "replace"} {
+		assert.NotContains(t, immediate, op)
+	}
+	assert.Equal(t, "headers", hs[1]["handler"])
+	assertDeferredSet(t, hs[1])
+	deferred := hs[1]["response"].(map[string]any)
+	assert.Equal(t, immediate["set"], deferred["set"], "both handlers must carry identical values")
+	return deferred["set"].(map[string][]string)
+}
+
+// deferredSecurityHeaders builds the profile headers for host, asserts the
+// non-deferred/deferred pair, and returns the deferred handler.
+func deferredSecurityHeaders(t *testing.T, host *models.ProxyHost) Handler {
+	t.Helper()
+	hs := buildSecurityHeaderHandlers(host)
+	assertHeaderPair(t, hs)
+	return hs[1]
+}
+
+func assertDeferredSet(t *testing.T, h Handler) {
+	t.Helper()
+	response, ok := h["response"].(map[string]any)
+	require.True(t, ok, "response must be a map")
+	assert.Equal(t, true, response["deferred"], "response.deferred must be true")
+	assert.Contains(t, response, "set")
+	for _, op := range []string{"add", "delete", "replace"} {
+		assert.NotContains(t, response, op)
+	}
+}
+
+func TestBuildSecurityHeadersHandler_UsesDeferredSet(t *testing.T) {
+	complete := &models.ProxyHost{SecurityHeaderProfile: &models.SecurityHeaderProfile{
+		HSTSEnabled:               true,
+		HSTSMaxAge:                31536000,
+		XFrameOptions:             "DENY",
+		XContentTypeOptions:       true,
+		CrossOriginResourcePolicy: "same-origin",
+	}}
+	def := &models.ProxyHost{SecurityHeadersEnabled: true}
+
+	for name, host := range map[string]*models.ProxyHost{"complete": complete, "default": def} {
+		t.Run(name, func(t *testing.T) {
+			h := deferredSecurityHeaders(t, host)
+			require.NotNil(t, h)
+			assertDeferredSet(t, h)
+		})
+	}
+}
+
+func TestBuildSecurityHeadersHandler_OmitsUnsetHeaders(t *testing.T) {
+	host := &models.ProxyHost{SecurityHeaderProfile: &models.SecurityHeaderProfile{
+		XContentTypeOptions:       false,
+		CrossOriginEmbedderPolicy: "",
+		ReferrerPolicy:            "no-referrer",
+	}}
+	h := deferredSecurityHeaders(t, host)
+	require.NotNil(t, h)
+	set := h["response"].(map[string]any)["set"].(map[string][]string)
+	assert.Equal(t, []string{"no-referrer"}, set["Referrer-Policy"])
+	assert.NotContains(t, set, "X-Content-Type-Options")
+	assert.NotContains(t, set, "Cross-Origin-Embedder-Policy")
+	assert.NotContains(t, set, "Cross-Origin-Resource-Policy")
+}
+
+func TestHeaderHandlers_NonDeferredThenDeferredPair(t *testing.T) {
+	hs := HeaderHandlers(map[string][]string{"X-Test": {"v"}})
+	set := assertHeaderPair(t, hs)
+	assert.Equal(t, []string{"v"}, set["X-Test"])
+}
+
+func TestNormalizeHandlerHeaders_PreservesDeferred(t *testing.T) {
+	h := map[string]any{
+		"handler": "headers",
+		"response": map[string]any{
+			"set":      map[string]any{"X-Test": "v"},
+			"deferred": true,
+		},
+	}
+	normalizeHandlerHeaders(h)
+	response := h["response"].(map[string]any)
+	assert.Equal(t, true, response["deferred"])
+	assert.Equal(t, []string{"v"}, response["set"].(map[string]any)["X-Test"])
+}
+
+func profileHostForGenerate() models.ProxyHost {
+	return models.ProxyHost{
+		UUID:          "sec-hdr-uuid",
+		Name:          "SecHdr",
+		DomainNames:   "sec.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "upstream",
+		ForwardPort:   8080,
+		Enabled:       true,
+		SecurityHeaderProfile: &models.SecurityHeaderProfile{
+			XContentTypeOptions:       true,
+			CrossOriginResourcePolicy: "same-origin",
+		},
+		Locations: []models.Location{{Path: "/api", ForwardHost: "api", ForwardPort: 9000}},
+	}
+}
+
+func generateForTest(t *testing.T, hosts []models.ProxyHost) *Server {
+	t.Helper()
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	server := config.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+	return server
+}
+
+func TestGenerateConfig_SecurityHeadersHandlerPrecedesReverseProxy_Deferred(t *testing.T) {
+	server := generateForTest(t, []models.ProxyHost{profileHostForGenerate()})
+
+	var found int
+	for _, route := range server.Routes {
+		hs := headersHandlers(route)
+		if len(hs) == 0 {
+			continue
+		}
+		found++
+		headersIdx, proxyIdx := -1, -1
+		for i, h := range route.Handle {
+			switch h["handler"] {
+			case "headers":
+				if headersIdx == -1 {
+					headersIdx = i
+				}
+			case "reverse_proxy":
+				proxyIdx = i
+			}
+		}
+		assert.Less(t, headersIdx, proxyIdx)
+		assertHeaderPair(t, hs)
+		// The pair must be contiguous and precede reverse_proxy.
+		assert.Less(t, headersIdx+1, proxyIdx)
+	}
+	assert.Equal(t, 3, found, "location, emergency and main routes must carry the headers pair")
+}
+
+func TestGenerateConfig_LocationRouteHeadersHandlerDeferred(t *testing.T) {
+	server := generateForTest(t, []models.ProxyHost{profileHostForGenerate()})
+
+	var locRoute *Route
+	for _, route := range server.Routes {
+		if len(route.Match) > 0 && len(route.Match[0].Path) > 0 && route.Match[0].Path[0] == "/api" {
+			locRoute = route
+		}
+	}
+	require.NotNil(t, locRoute)
+	hs := headersHandlers(locRoute)
+	assertHeaderPair(t, hs)
+}
+
+func TestGenerateConfig_NoHeadersHandlerWhenNoProfileAndDisabled(t *testing.T) {
+	host := profileHostForGenerate()
+	host.SecurityHeaderProfile = nil
+	host.SecurityHeadersEnabled = false
+	server := generateForTest(t, []models.ProxyHost{host})
+
+	for _, route := range server.Routes {
+		assert.Empty(t, headersHandlers(route))
+	}
+}
+
+func TestGenerateConfig_LegacyHSTSAndProfileHSTS_ProfileWins(t *testing.T) {
+	host := profileHostForGenerate()
+	host.Locations = nil
+	host.HSTSEnabled = true
+	host.SecurityHeaderProfile = &models.SecurityHeaderProfile{
+		HSTSEnabled: true,
+		HSTSMaxAge:  63072000,
+	}
+	server := generateForTest(t, []models.ProxyHost{host})
+
+	// The main route is appended last (after the emergency route).
+	hs := headersHandlers(server.Routes[len(server.Routes)-1])
+	// The profile's HSTS wins outright: the legacy pair is not emitted, since
+	// the non-deferred and deferred passes apply handlers in opposite orders.
+	profile := assertHeaderPair(t, hs)
+	assert.Equal(t, []string{"max-age=63072000"}, profile["Strict-Transport-Security"])
+}
+
+func TestGenerateConfig_LegacyHSTSPairWhenProfileLacksHSTS(t *testing.T) {
+	host := profileHostForGenerate()
+	host.Locations = nil
+	host.HSTSEnabled = true
+	host.HSTSSubdomains = true
+	server := generateForTest(t, []models.ProxyHost{host})
+
+	// Profile pair (no HSTS) followed by the legacy HSTS pair.
+	hs := headersHandlers(server.Routes[len(server.Routes)-1])
+	require.Len(t, hs, 4)
+	profile := assertHeaderPair(t, hs[:2])
+	legacy := assertHeaderPair(t, hs[2:])
+	assert.NotContains(t, profile, "Strict-Transport-Security")
+	assert.Equal(t, []string{"max-age=31536000; includeSubDomains"}, legacy["Strict-Transport-Security"])
 }
