@@ -3,7 +3,7 @@
 Branch: `fix/uptime-heartbeat-retention-default` (single PR into `development`).
 Type: `fix:` (not `(security)`). Issue: "charon db is huge (4.8 GB) due to uptime_heartbeats".
 Status: IMPLEMENTED (commits 1-7 on the branch; pending PR/CI).
-Companion: `docs/plans/db_maintenance_spec.md` (follow-up feature PR that owns all compaction / VACUUM work).
+Companion: GH #1422 (automatic database maintenance; follow-up feature PR that owns all compaction / VACUUM work).
 
 ## 1. Introduction
 
@@ -31,7 +31,7 @@ New facts from the reporter (issue thread):
 1. Default retention goes from 90 to 30 days.
 2. Retention stays user-adjustable in the UI (range 1-3650). No "0 = keep forever".
 3. An Info log line plus a release-note mention is enough for the one-time migration. No UI notice.
-4. No online "compact" button in this PR. **All compaction / VACUUM work is out of this PR** and lives in the follow-up spec (`docs/plans/db_maintenance_spec.md`).
+4. No online "compact" button in this PR. **All compaction / VACUUM work is out of this PR** and lives in the follow-up PR tracked in GH #1422.
 5. **The strict migration ships** (Section 3.2). Not "no automatic migration".
 6. **The bounded-scan pruner fix ships in this PR, unconditionally** (Section 3.6 / commit 5), not gated on a benchmark.
 7. **The manual `sqlite3 VACUUM` workaround is documented**, marked advanced (Section 4, Phase 5).
@@ -90,7 +90,7 @@ Lowering retention (or the migration) frees pages inside the SQLite file but nev
 
 - `idx_uptime_heartbeats_monitor_id` (bare GORM `index` tag on `MonitorID`) is a strict prefix of **both** composites, `idx_heartbeat_monitor_created (monitor_id, created_at)` and `idx_heartbeat_lookup (monitor_id, status, created_at)`; no query needs it. Dropping it saves about 139 MB per 3.3 M rows with no query-plan loss.
 - **What each composite actually serves.** Delete-by-monitor (`WHERE monitor_id=?`) and the `EXISTS (... monitor_id = uptime_monitors.id)` check only need a `monitor_id` prefix, so **either** composite serves them (`idx_heartbeat_lookup` has `monitor_id` as its first column too). Only the ordered history query (`WHERE monitor_id=? ... ORDER BY created_at DESC LIMIT`) needs `idx_heartbeat_monitor_created`: in `idx_heartbeat_lookup` the `status` column sits between `monitor_id` and `created_at`, so it cannot deliver `created_at` order for a `monitor_id`-only filter.
-- `idx_heartbeat_lookup` (256 MB) is a removal candidate, but it is deferred to the follow-up spec as a separate audited item (its own `perf:`/`fix:` PR). Note: dropping it later makes `idx_heartbeat_monitor_created` the **only** `monitor_id`-prefix index, so it becomes load-bearing for delete-by-monitor and EXISTS as well as history; that coupling is carried into the follow-up (`db_maintenance_spec.md` 2.6).
+- `idx_heartbeat_lookup` (256 MB) is a removal candidate, but it is deferred to the follow-up PR (GH #1422) as a separate audited item (its own `perf:`/`fix:` PR). Note: dropping it later makes `idx_heartbeat_monitor_created` the **only** `monitor_id`-prefix index, so it becomes load-bearing for delete-by-monitor and EXISTS as well as history; that coupling is carried into the follow-up (GH #1422).
 
 ### 2.4 Index creation surfaces (must stay consistent)
 
@@ -201,12 +201,12 @@ The shipped helper (commit 6) also includes the approximate size ("approximately
 
 - `models/uptime.go:45`: `MonitorID string json:"monitor_id" gorm:"index:idx_heartbeat_lookup,priority:1"` (bare `index` removed).
 - Existing installs: `DROP INDEX IF EXISTS idx_uptime_heartbeats_monitor_id`, executed only **after** `idx_heartbeat_monitor_created` exists. Place it in the pruner's `ensureIndex` success branch (new small `dropRedundantIndex`, in-memory short-circuit like `indexCreated`) and in the `migrate` CLI after the composite create. Both idempotent. Dropping is fast and frees pages (no file shrink, see the tradeoff above).
-- **Rationale (corrected).** The guard is *not* because delete-by-monitor or EXISTS would table-scan: both only need a `monitor_id` prefix, which `idx_heartbeat_lookup` also provides. The guard exists because the **ordered monitor-history query** needs `idx_heartbeat_monitor_created (monitor_id, created_at)`; without it that query would filter by `monitor_id` on `idx_heartbeat_lookup` and sort. Keeping the drop-after-`ensureIndex` guard is harmless and keeps the reasoning simple (never drop the single-column index until the ordered composite exists). The same coupling note is carried into the `idx_heartbeat_lookup` follow-up (Section 2.3, and `db_maintenance_spec.md` 2.6).
+- **Rationale (corrected).** The guard is *not* because delete-by-monitor or EXISTS would table-scan: both only need a `monitor_id` prefix, which `idx_heartbeat_lookup` also provides. The guard exists because the **ordered monitor-history query** needs `idx_heartbeat_monitor_created (monitor_id, created_at)`; without it that query would filter by `monitor_id` on `idx_heartbeat_lookup` and sort. Keeping the drop-after-`ensureIndex` guard is harmless and keeps the reasoning simple (never drop the single-column index until the ordered composite exists). The same coupling note is carried into the `idx_heartbeat_lookup` follow-up (Section 2.3, and GH #1422).
 - GORM security scan applies because `backend/internal/models/**` changes.
 
 ### 3.5 Compaction: NOT in this PR
 
-`charon compact`, `database/compact.go`, `VACUUM`, `auto_vacuum`, `incremental_vacuum`, and the in-app compact button are removed from this plan and moved entirely to `docs/plans/db_maintenance_spec.md`. The pruner comment "VACUUM is deliberately not used" is updated to point at the follow-up spec ("space is reclaimed by the database maintenance feature"), nothing more.
+`charon compact`, `database/compact.go`, `VACUUM`, `auto_vacuum`, `incremental_vacuum`, and the in-app compact button are removed from this plan and moved entirely to the follow-up PR tracked in GH #1422. The pruner comment "VACUUM is deliberately not used" is updated to point at the follow-up work ("space is reclaimed by the database maintenance feature"), nothing more.
 
 ### 3.6 Pruner: bounded index scan (unconditional fix in this PR)
 

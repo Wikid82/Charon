@@ -147,13 +147,33 @@ file is very large and you are comfortable with the command line.
    `sqlite3 charon.db ".backup charon-backup.db"`.
 3. Make sure you have free disk space of about **twice your actual data** (not
    twice the file size).
-4. Run a one-off container against your data folder. The Charon image already
-   includes `sqlite3`. Run it as the same user Charon uses, or run
-   `chown` on the files afterwards; otherwise a root-run `sqlite3` can leave
-   `charon.db-wal` / `charon.db-shm` files that Charon cannot open.
-5. Inside it, run `VACUUM;` on `charon.db`. Optionally run
-   `PRAGMA auto_vacuum=INCREMENTAL;` right before `VACUUM;` in the same session.
-6. Start Charon again. If it cannot open the database, check file ownership.
+4. **Find out who owns your database file.** In your data folder, run
+   `ls -ln charon.db`. The two numbers after the permissions (usually
+   `1000 1000`) are the user and group Charon runs as. Use those numbers
+   below in place of `1000:1000` if yours are different.
+5. **Run a one-off container** that opens the database directly (it skips the
+   normal Charon startup, which is why `--entrypoint sqlite3` is needed).
+   Replace `/path/to/your/charon/data` with your data folder, and use the same
+   image you normally run:
+
+   ```bash
+   docker run --rm -it --user 1000:1000 --entrypoint sqlite3 \
+     -v /path/to/your/charon/data:/app/data \
+     wikid82/charon:latest /app/data/charon.db
+   ```
+
+   At the `sqlite>` prompt, type these lines one at a time:
+
+   ```sql
+   PRAGMA auto_vacuum=INCREMENTAL;
+   VACUUM;
+   .quit
+   ```
+
+   The `PRAGMA` line is optional; it lets the file shrink more easily in the
+   future. `VACUUM;` can take a while on a big file, so wait for the prompt to
+   come back.
+6. Start Charon again and check that the dashboard opens. If it cannot open the database, check file ownership.
 
 ## Enabling Uptime Monitoring
 
