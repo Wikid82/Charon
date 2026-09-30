@@ -1,370 +1,595 @@
-# Plan: Lower default heartbeat retention to 30 days and make the retention control clear (GH #1419)
+# Plan: Automatic database maintenance (keep the SQLite file small, reclaim space safely) - GH #1422
 
-Branch: `fix/uptime-heartbeat-retention-default` (single PR into `development`).
-Type: `fix:` (not `(security)`). Issue: "charon db is huge (4.8 GB) due to uptime_heartbeats".
-Status: IMPLEMENTED (commits 1-7 on the branch; pending PR/CI).
-Companion: GH #1422 (automatic database maintenance; follow-up feature PR that owns all compaction / VACUUM work).
+Type: `feat:` (new user-facing behavior; local CodeQL + Trivy apply). Single feature PR into `development`, ordered commits.
+Branch: `feat/db-maintenance-1422` (already checked out; cut from `development` at `3437ab88`, which contains the merged #1419 fix (#1423) and the version fix (#1424)).
+Status: PLAN ONLY, revision 7 (supersedes revision 6; the old `db_maintenance_spec.md` revision 3 was already migrated here and is gone; it was never tracked). The #1419 spec is archived at `docs/plans/archive/2026-09-30_uptime-retention-1419_spec.md`.
+Supervisor history: round 1 found M1-M16, round 2 found 2 HIGH + 2 MEDIUM (quick_check wait inside `planned` with `PlannedMaxWait` relationship; status endpoint answered by the gate in EVERY phase; Plan/Decide split with steps 5 and 7 in the runner; commit 4 production Plan idle until commit 6). All are kept. Round 3 (CHANGES REQUIRED) found H1 (`incremental_vacuum` via `Exec` frees one page per call), M1-M6 and L1-L12; all are folded into revision 5 (drain via `Query` with full row iteration, temp-dir decision, SIGTERM accounting, acquire timeouts, accurate static-route/gate description, `Plan` recover, compose `start_period`). Round 4 (CHANGES REQUIRED, verified by measurements; no blockers) found H2 (`VACUUM` is NOT interruptible throughout: its final copy-back runs to completion), M-a..M-d and L-a..L-f; all are folded into revision 6. Round 5 review of revision 6 (CHANGES REQUIRED) found H1 (`stop_grace_period` cannot help because the runner wait is a fixed 4 s and the process exits about 5 s after SIGTERM regardless of the container grace), M1 (post-steps order after a nil `VACUUM` with a cancelled ctx), M2 (commit 4 persisted-row store) and L1-L3; all are folded into revision 7 (see the traceability table at the end of section 10). Revision 4 re-verified every reference against the merged code, removes what #1423 already delivered, and adds the upgrade-order decision (3.3a).
 
 ## 1. Introduction
 
 ### Problem
 
-A reporter's Charon database reached 4.8 GB, almost all of it `uptime_heartbeats`. A read-only look at a comparable live instance (28 monitors at 60 s) showed:
+SQLite never returns freed pages to the OS unless `auto_vacuum` is on or a `VACUUM` runs. Charon ships with `auto_vacuum=0` and never vacuums (`uptime_pruner.go:32-34` still says "VACUUM is deliberately not used here; automatic compaction is tracked in GH #1422"), so any large delete (retention pruning, dropping an index, removing many hosts) leaves a permanently large file.
 
-- The v0.39.0 retention pruner works. It runs hourly, deletes in chunks, and reads `uptime.heartbeat_retention_days`.
-- Steady state at the 90-day default is about 3.3 M rows, which is a 2.05 GB file. The table itself is about 280 MB; its four secondary indexes are about 770 MB:
-  - `idx_heartbeat_lookup (monitor_id, status, created_at)`: 256 MB
-  - `idx_heartbeat_monitor_created (monitor_id, created_at)`: 239 MB (built by the pruner's `ensureIndex`)
-  - `idx_uptime_heartbeats_monitor_id (monitor_id)`: 139 MB (strict prefix of both composites, redundant)
-  - `idx_uptime_heartbeats_created_at (created_at)`: 139 MB
-- `auto_vacuum=0` and nothing ever runs `VACUUM` (the pruner comment says this is deliberate). About 35% of the file (about 690 MB) was free pages that never return to the OS.
-- Seeding writes the default only when the row is missing, so existing installs keep 90 unless migrated.
+Evidence from the running test container `charon` (read-only `sqlite3 -readonly`, 2026-09-30): `auto_vacuum=0`, `page_count=501508`, `freelist_count=176396`, `page_size=4096` = **35.2% free, about 722 MB reclaimable** of a 2.05 GB file. That is a real legacy database that this feature must convert. The GH #1419 reporter (60 monitors, about 19 M heartbeat rows, 4.8 GB) is the extreme case.
 
-New facts from the reporter (issue thread):
+### Division of labour with the merged #1419 fix (#1423, already in this branch)
 
-- They run **v0.43.0 (build f9d36f9)** with **about 60 monitors**, all settings at defaults.
-- They report **no old container logs are available**, so no `UptimePruner` log evidence can be obtained. The pruner investigation (Section 6) is code-review driven only; the concrete finding is the query plan.
-- They had **about 19 M heartbeat rows**. At 60 monitors x 1440 checks/day = 86 400 rows/day, the 90-day steady state is about **7.8 M** rows; 19 M is about 2.4x that (about 220 days of data). Either the pruner is not keeping up at this scale, or they upgraded recently from a pre-v0.39.0 build and the backlog was still draining. Section 6 records the review; the scan finding is fixed, the 19 M cause itself is not assumed.
+| Concern | Status |
+| --- | --- |
+| Prevention: default retention 30 days (`models/uptime.go`, `routes.go:797` seed), one-time provable-seed migration `services.MigrateUptimeRetentionDefault` (`uptime_retention_migration.go`, called at `routes.go:805`), clamp, `migration.` reserved-key guard in the settings API, redundant `monitor_id` index drop (`dropRedundantIndex`, `DropRedundantMonitorIndexSQL`, also in the `migrate` CLI), index-bounded prune query (`pruneChunkDeleteSQL`, `ORDER BY created_at, id`), `sleepCtx` | **Done - do not redo** |
+| Keeping the DB small permanently and reclaiming space on existing files | **This feature** |
 
-### Decisions fixed by the user (not re-litigated here)
+Removed from the draft because #1423 delivered it: the planned `internalSettingPrefixes`/`isInternalSettingKey`/`filterInternalSettings` helpers (they exist, see 3.7), the "#1419 PR" references, the `ensureIndex`-sequencing caveats for the redundant index, and the manual-VACUUM helper text (which this PR replaces in docs, see 4).
 
-1. Default retention goes from 90 to 30 days.
-2. Retention stays user-adjustable in the UI (range 1-3650). No "0 = keep forever".
-3. An Info log line plus a release-note mention is enough for the one-time migration. No UI notice.
-4. No online "compact" button in this PR. **All compaction / VACUUM work is out of this PR** and lives in the follow-up PR tracked in GH #1422.
-5. **The strict migration ships** (Section 3.2). Not "no automatic migration".
-6. **The bounded-scan pruner fix ships in this PR, unconditionally** (Section 3.6 / commit 5), not gated on a benchmark.
-7. **The manual `sqlite3 VACUUM` workaround is documented**, marked advanced (Section 4, Phase 5).
-8. A separate GH issue for localizing `systemSettings.uptime` into de/es/fr/zh has been filed (#1421). Not part of this PR.
+### User direction
 
-### Objectives
+An automatic, novice-friendly system: **one mechanism, not two**, no knobs needed, nothing visible unless action is needed. Shipped together with #1423, a reporter-type install must end up small with no user action beyond the restart they already perform when upgrading.
 
-1. Default becomes 30 everywhere it is defined.
-2. Existing installs still on the untouched seeded 90 move to 30, without overriding a deliberate user choice.
-3. The UI retention control explains units, range, and the disk tradeoff, and shows useful validation errors.
-4. Drop the redundant index (immediate about 13% saving of table plus index bytes).
-5. A corrupt stored retention value can never wipe history, on either write path (validation in both settings endpoints) or on read (clamp).
-6. The hourly pruner scan uses the `created_at` index instead of scanning the whole table.
+### The one mechanism
 
-### Explicit tradeoff of removing compaction from this PR
+"The database keeps itself small" = **`auto_vacuum=INCREMENTAL` plus small `incremental_vacuum` steps after prune passes**. That is the only steady-state mechanism, for new and old databases alike.
 
-Lowering retention (or the migration) frees pages inside the SQLite file but never returns them to the OS: `auto_vacuum=0`, and nothing runs `VACUUM`. **Reporter-type installs will not see the file shrink until the follow-up ships.** The database stops growing (the free pages are reused for new heartbeats), but the 4.8 GB file stays 4.8 GB. Therefore the helper text and docs must say "the file may not shrink until the database is compacted", and the docs give an honest advanced manual workaround (Section 4, Phase 5). This is accepted by design, not a bug.
+Existing databases are not a second feature; they are a one-time **conversion into that same mode**, done by a full `VACUUM` at boot (the only way SQLite can switch `auto_vacuum` on a populated file). After conversion (or on any database already in mode 2) reclaiming space never needs a full `VACUUM` again. There is exactly one drain path: the uptime pruner's incremental steps (3.2). The boot path never drains; on a mode-2 database the "Reclaim space" button only clears its own flag. Users see a single concept ("Charon optimizes its database"), one status object, one conversion trigger (boot), one flag.
 
-## 2. Research Findings (verified against the code)
+### Decisions fixed by the user (earlier revisions, unchanged)
 
-### 2.1 Every place the 90 default (or a 90-assuming value) lives
+1. **Thresholds:** 20% free pages plus the 100 MB reclaimable floor, **plus an OR trigger**: also run when reclaimable bytes >= 1 GiB even if below 20% free (the 100 MB floor still applies).
+2. **First conversion runs automatically at boot** (no notify-only first run).
+3. **Brief loss of break-glass (emergency server) access during a conversion is acceptable**, given the fast 503 and the clear log line (3.4, 3.6).
+4. **`idx_heartbeat_lookup` drop stays a separate audited PR**, not part of this feature.
+5. **Localization is a separate, already-filed issue (#1421)**; this PR ships English only.
+6. **Env override is `CHARON_DB_COMPACT_ON_START=auto|off` only** (`force` dropped; the UI flag is the manual path).
 
-| Location | What | Action |
+### Goals
+
+1. New databases are created with `auto_vacuum=INCREMENTAL`.
+2. The pruner returns free pages to the OS in small steps with no long lock.
+3. Existing databases are converted once, only when worthwhile and safe, at boot, without delaying proxying and without ever blocking startup on failure.
+4. While a boot-time conversion runs, the management UI shows a friendly "Optimizing the database" state.
+5. A novice sees nothing normally; a quiet note appears in System Settings, and a warning only when action is needed.
+
+### Non-goals
+
+- No online full `VACUUM` while serving (a write stall on the single connection for minutes).
+- No runtime (non-boot) conversion trigger and no self-restart (decision 3.3a).
+- No `charon compact` CLI (an operator can still run `sqlite3 ... VACUUM` manually; documented as a fallback).
+- No change to retention semantics.
+
+## 2. Research Findings (verified against the code on this branch)
+
+### 2.1 Startup ordering - CRITICAL (references re-verified after #1423)
+
+| Step | File and line | What happens |
 | --- | --- | --- |
-| `backend/internal/services/uptime_config.go:19` | `defaultUptimeRetentionDays = 90` (fallback when row missing or unparseable) | Change to 30 (exported, see 3.1) |
-| `backend/internal/api/routes/routes.go:797` | Seed `{Key: "uptime.heartbeat_retention_days", Value: "90"}` via `FirstOrCreate` with `Attrs` (writes only when missing) | Change to `"30"` |
-| `backend/internal/api/handlers/settings_handler.go:444-448` | `uptimeSettingBounds` `{1, 3650}` for retention | Reference the shared exported constants (range unchanged) |
-| `backend/internal/services/uptime_config_test.go:26,87` | Asserts `90` for default retention (lines 60/65 are the unrelated *interval* value 90) | Update to 30 |
-| `backend/internal/services/uptime_pruner_test.go:70-71,105,109` | Comments and scenario assume "90d default" with rows seeded at -100d and -10d | Update comments; verify the "pass 1 default retention" case still deletes only the -100d rows |
-| `backend/internal/api/handlers/settings_handler_test.go:1896` | `retention_in_bounds` uses `"90"`, just an in-range sample | Leave |
-| `frontend/src/pages/__tests__/SystemSettings.test.tsx:754,771` | Mock settings value `'90'`, asserts field shows 90 | Fixture is a mocked stored value; update to `'30'` |
-| `tests/monitoring/uptime-monitoring-scale.spec.ts:190,329-355` | Fixture stored `'90'`, then fills `30` and asserts `30` | Change fixture to a non-default (e.g. `'45'`) so the round-trip still proves a change |
-| `ARCHITECTURE.md:465, 504, 790` | "default 90" (x3) | Update to 30 |
-| `docs/features/uptime-monitoring.md:113, 124, 422` | "default 90" (x3) | Update to 30 |
-| `docs/features/audit-logging.md` | 90 days is *audit-log* retention (`AUDIT_LOG_RETENTION_DAYS`) | Unrelated, do NOT touch |
-| `docs/reports/supervisor_review.md:344` | Historic review | Historic record, do not edit |
-| `frontend/src/pages/SystemSettings.tsx` | No default hard-coded; field is populated from `settings` (`?? ''`) | Add `placeholder="30"` only |
+| 1 | `.docker/docker-entrypoint.sh:384-386` | Caddy is started first with an explicitly empty config `{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}`. |
+| 2 | `.docker/docker-entrypoint.sh:389-398` | Waits up to 30 s for the Caddy admin API. |
+| 3 | `.docker/docker-entrypoint.sh:445` (`run_as_charon "$bin_path" &`; debug variants at 425/434/437/442) | Only then Charon starts; `APP_PID` is supervised by a `wait` loop that exits the whole container when either process dies (`:464-470`). |
+| 4 | `backend/cmd/api/main.go:234-238` | `ApplyPendingRestore`, then `database.Connect(cfg.DatabasePath)` (pragmas, WAL, background `quick_check`). |
+| 5 | `main.go:273-282`, `:294` -> `routes.go:153` `RegisterWithDeps` | `server.NewRouter`, `RequestID`/`RequestLogger`/`Recovery` middleware (`:278-282`), then AutoMigrate (`routes.go:172`), backup service + `backupService.Start()` cron (`routes.go:304-308`), seeds (`routes.go:785-807`), uptime pipeline construction (`routes.go:822-823`) and `go` statements (bootstrap `:826`, ingester `:847`, pool `:851`, scheduler `:852`, sync loop `:853`, pruner `:857`). |
+| 6 | `routes.go:1115` (function at `:46-79`, definition at `:48`) | `go applyInitialCaddyConfig(...)`: pings Caddy (up to 30 s), then `caddyManager.ApplyConfig`, which **reads the proxy hosts from the DB** and pushes them to Caddy. Runs in a goroutine, so `RegisterWithDeps` returns while it is pending. It returns silently on ctx cancel, on timeout, and on `ApplyConfig` error - there is no completion signal today. |
+| 7 | `main.go:294-323` | **After** `RegisterWithDeps` returns: `RegisterImportHandler`, `handlers.CheckMountedImport` (DB, `:304`), `emergencyServer.Start()` (DB, `:309-312`), and only then `go router.Run(addr)` (`:323`). |
 
-### 2.2 Retention read path and the clamp hazard
+Finding: the `applyInitialCaddyConfig` callback can fire (Caddy is normally up, about 1 s) **before** `main.go` finishes its own DB calls and **before** the listener is bound. A conversion started from that callback could pin the single pool connection while `main.go` still calls the DB, and could begin before the maintenance page can be served. Caddy is up before the DB is opened, but it serves nothing until step 6 succeeds. Consequently:
 
-`uptimeConfig.snapshot()` (60 s TTL cache) -> `loadInt("uptime.heartbeat_retention_days", default)` -> `RetentionDays()` -> `UptimePruner.pruneOnce`, which computes `cutoff = now - days*24h` and deletes chunks (5000 rows) where `created_at < cutoff`. The write path is `POST /api/v1/settings` validated by `validateUptimeSetting` (integer, 1-3650).
+- Any compaction placed before step 6 adds its full duration to the proxy outage. **Rejected.**
+- After step 6 succeeded, the data plane runs from Caddy's in-memory config plus its own file storage; `grep forward_auth` over `backend/internal/caddy/*.go` finds no Charon callback, so proxying does not need the SQLite file. Commit 6 proves it with an integration test (proxied request succeeds while the DB connection is pinned **after** `ApplyConfig`).
+- The management plane (API, UI, login, emergency server, uptime pipeline) needs the DB and is what a conversion pauses.
 
-`loadInt` returns whatever integer is stored, unbounded (verified in `uptime_config.go`; it only falls back on a missing row or a non-integer). A stored `0` or negative value makes `cutoff = now` and the next pass deletes the whole table.
+Hard rules:
 
-**This is reachable through the API today, not only by bypassing it.** `PATCH /api/v1/config` (`SettingsHandler.PatchConfig`, `settings_handler.go:275`) flattens nested JSON into `key -> value` pairs and writes them in a transaction; it never calls `validateUptimeSetting` (only `UpdateSetting`, the single-row `POST/PATCH /api/v1/settings` handler, does, at `:162`). So `{"uptime":{"heartbeat_retention_days":"0"}}` stores `0` today, and the next pruner pass would delete the entire heartbeat table. This is a real existing bug, fixed in this PR (Section 3.1) in addition to the read-side clamp.
+1. **Two-condition start.** Maintenance starts only after BOTH (a) the initial Caddy config was **applied successfully** and (b) the **main HTTP listener is bound** and `main.go`'s own DB work is finished. (b) is implemented by binding explicitly in `main.go` (`net.Listen("tcp", addr)` after `emergencyServer.Start()`, `gate.MarkListenerBound()`, then `go router.RunListener(ln)`). `gin.Engine.RunListener` exists in the pinned gin (verified: `gin.go:645`, `Engine.RunListener(listener net.Listener)`); commit 2 keeps a compile-level regression test.
+2. If Caddy never became ready or `ApplyConfig` failed, compaction is **skipped this boot** (Warn log); the operator needs the UI to fix Caddy, and we must not lock it. Signalled on **every** exit path of `applyInitialCaddyConfig` (3.4).
+3. Proxying is never delayed by compaction.
 
-### 2.3 Index usage (what needs which index)
+### 2.2 Healthcheck impact (`/api/v1/health` is NOT DB-free on its own)
 
-| Query | File | Served by |
-| --- | --- | --- |
-| Monitor history: `WHERE monitor_id=? [AND created_at<?] ORDER BY created_at DESC LIMIT` | `uptime_service.go:1298-1303` | `idx_heartbeat_monitor_created (monitor_id, created_at)` |
-| Delete by monitor: `WHERE monitor_id=?` | `uptime_service.go:1348,1426` | Prefix of `idx_heartbeat_monitor_created` |
-| `EXISTS (... monitor_id = uptime_monitors.id)` | `uptime_service.go:1680` | Prefix of `idx_heartbeat_monitor_created` |
-| Summary: window `created_at >= ?`, `ROW_NUMBER() PARTITION BY monitor_id ORDER BY created_at DESC` | `uptime_summary_service.go:171-215` | `idx_uptime_heartbeats_created_at`; composite helps the window |
-| Pruner: `created_at < ? ORDER BY id LIMIT` | `uptime_pruner.go:~190` | Currently a rowid scan, not the created_at index; fixed in Section 3.6 (`ORDER BY created_at, id` uses `idx_uptime_heartbeats_created_at`) |
+`Dockerfile:1190`: `HEALTHCHECK --interval=30s --timeout=10s --start-period=4m --retries=3`, probing `http://localhost:8080/api/v1/health`. **The shipped `.docker/compose/docker-compose.yml:58-63` overrides this with `start_period: 40s`**, so the 4-minute image default does not apply to compose installs and cannot be relied on to cover a conversion. `HealthHandler` (`handlers/health_handler.go:29`) is static, **but its route is not**: `routes.go:258` `router.GET("/api/v1/health", cerb.RateLimitMiddleware(), handlers.HealthHandler)`; `RateLimitMiddleware` reads `security.rate_limit.enabled` through the DB whenever its cache is cold or expired; `router.Use(middleware.EmergencyBypass(cfg.Security.ManagementCIDRs, db))` (`routes.go:159`) also takes the `db` handle; `routes.go:318` `router.GET("/api/v1/health/db", dbHealthHandler.Check)` queries the DB.
 
-- `idx_uptime_heartbeats_monitor_id` (bare GORM `index` tag on `MonitorID`) is a strict prefix of **both** composites, `idx_heartbeat_monitor_created (monitor_id, created_at)` and `idx_heartbeat_lookup (monitor_id, status, created_at)`; no query needs it. Dropping it saves about 139 MB per 3.3 M rows with no query-plan loss.
-- **What each composite actually serves.** Delete-by-monitor (`WHERE monitor_id=?`) and the `EXISTS (... monitor_id = uptime_monitors.id)` check only need a `monitor_id` prefix, so **either** composite serves them (`idx_heartbeat_lookup` has `monitor_id` as its first column too). Only the ordered history query (`WHERE monitor_id=? ... ORDER BY created_at DESC LIMIT`) needs `idx_heartbeat_monitor_created`: in `idx_heartbeat_lookup` the `status` column sits between `monitor_id` and `created_at`, so it cannot deliver `created_at` order for a `monitor_id`-only filter.
-- `idx_heartbeat_lookup` (256 MB) is a removal candidate, but it is deferred to the follow-up PR (GH #1422) as a separate audited item (its own `perf:`/`fix:` PR). Note: dropping it later makes `idx_heartbeat_monitor_created` the **only** `monitor_id`-prefix index, so it becomes load-bearing for delete-by-monitor and EXISTS as well as history; that coupling is carried into the follow-up (GH #1422).
+With the single pool connection pinned, these would block and the container could be marked unhealthy and restarted mid-`VACUUM`. **The gate answers `GET`/`HEAD /api/v1/health` and `GET /api/v1/maintenance/status` itself with a static body and `Abort`s (never `Next`)**, sits before `EmergencyBypass` and `RateLimit`, and treats `/api/v1/health/db` as a blocked API path (503, fast). Because the gate's static health answer is returned as soon as the phase is `checking`/`converting`, the start period (40 s in compose, 4 min in the image) is moot during a conversion: no `start_period` change is needed. Residual window: a probe that entered `/api/v1/health` (via `RateLimit`/DB) just **before** the `planned` -> `checking` flip can block on the pinned pool for the whole conversion and time out at 10 s; that is at most one failed probe, covered by `--retries=3` because the next probe (30 s later) is answered by the gate. The gate also keeps `HEAD /api/v1/health` consistent with `GET` in every phase (L8, 3.6).
 
-### 2.4 Index creation surfaces (must stay consistent)
+Required test (commit 4): pin the pool's only connection (`sqlDB.Conn(ctx)` held), force the rate-limit cache to be expired, request `/api/v1/health` and `/api/v1/maintenance/status` through the full router with a 1 s client timeout; both return 200 with the static body; `/api/v1/health/db` returns 503 fast.
 
-- Model tags: `backend/internal/models/uptime.go:45` (`MonitorID string gorm:"index;index:idx_heartbeat_lookup,priority:1"`) and `:49` (`CreatedAt ... gorm:"index;index:idx_heartbeat_lookup,priority:3"`).
-- AutoMigrate lists: `routes.go:191` (`&models.UptimeHeartbeat{}`; the earlier draft said 172, which is wrong), the `migrate` CLI in `cmd/api/main.go` (~L120-172), and the handlers test DB (`testdb.go:53,147`).
-- `idx_heartbeat_monitor_created` is created out-of-band (pruner `ensureIndex`, and unconditionally by the `migrate` CLI), deliberately not via tags.
+### 2.3 Database open and the single-connection pool
 
-GORM `AutoMigrate` never drops an index removed from a tag, but it WILL re-create `idx_uptime_heartbeats_monitor_id` on every boot if the bare `index` tag stays. Dropping it therefore needs BOTH the tag change (remove the bare `index` at `models/uptime.go:45`, keep `index:idx_heartbeat_lookup,priority:1`) AND an explicit `DROP INDEX IF EXISTS idx_uptime_heartbeats_monitor_id`.
+- `database.Connect` (`internal/database/database.go:51-107`): `gorm.Open(sqlite.Open(path))` on `github.com/glebarez/sqlite v1.11.0` over **`github.com/glebarez/go-sqlite v1.23.0`** (a fork of the modernc translation; `modernc.org/sqlite` is only indirect). All driver spikes target the glebarez driver. `configurePool` (`:141`, `SetMaxOpenConns(1)` at `:144`), then the pragma loop at `:~81-90` in this order: `journal_mode=WAL` (`:82`), `busy_timeout=5000`, `synchronous=NORMAL`, `cache_size=-64000`; `PrepareStmt: true`; then `launchQuickCheck(dbPath)` (`:104`; package var declared at `:19`, `SyncIntegrityCheckForTesting` at `:45`, `runQuickCheck` at `:113`).
+- One pool connection: while compaction holds it, every other goroutine using the shared `*gorm.DB` waits in the Go pool queue (not `SQLITE_BUSY`). `busy_timeout` only matters against other connections (quick-check goroutine, `VACUUM INTO` backups, an operator's `sqlite3`).
+- **Boot `quick_check`** runs on a separate connection and can take over a minute on multi-GB files. In WAL mode a reader does not block a writer or `BEGIN EXCLUSIVE` (verified, 2.4); the real effect is that a long reader **pins the WAL**, so `wal_checkpoint(TRUNCATE)` returns busy and the file does not shrink until the reader ends. The answer is coordination and bounded retry (3.5).
+- **Pool users that queue** behind a conversion (accepted): certificate expiry checker (`routes.go:~1083`), uptime sync loops, CrowdSec reconcile, stats ingester (`routes.go:991-992`), request handlers not answered by the gate. Scheduled **backups are deferred while the gate is deferring** (3.5).
+- Backups: `backup_service.go:311` uses `VACUUM INTO ?` on a dedicated connection (competes for disk with a conversion); `RehydrateLiveDatabase` (`:1384`) copies rows via `ATTACH`/`INSERT ... SELECT`, so a live restore keeps the live file's own mode; `database.ApplyPendingRestore` (`pending_restore.go:39`) swaps a whole file in **before** `Connect`, so a restored file arrives in whatever mode the backup had. The boot evaluation runs every boot. The scheduled-backup entry point is `BackupService.RunScheduledBackup` (`:464`), started by `backupService.Start()` (`routes.go:308`).
+- Free-space helper: `BackupService.GetAvailableSpace` (`backup_service.go:1870`, `syscall.Statfs`), used at `:1120`. Extract into `internal/dbmaint/diskspace.go` (DRY), have the backup service call it; behavior unchanged (existing tests at `backup_service_test.go:1145/1156/1500`, `backup_service_disk_test.go:11` must still pass).
 
-### 2.5 i18n facts (verified)
+### 2.4 SQLite behavior (verified by the Supervisor on the real driver; commit 2 keeps each as a regression test)
 
-- `systemSettings.uptime.*` exists **only** in `frontend/src/locales/en/translation.json` (block at ~L1373-1395; `retentionDaysHelper` at L1380). `de`, `es`, `fr`, `zh` have a `systemSettings` block but no `uptime` sub-block; those locales already fall back to English (`frontend/src/i18n.ts:24`, `fallbackLng: 'en'`).
-- `frontend/src/__tests__/i18n.test.ts` (the earlier draft's `locales/__tests__` path does not exist) checks only that all five bundles load, a few common keys, and interpolation. **No key-parity enforcement** exists there, and no CI script or test compares locale key sets (grep for `translation.json` consumers found none that do).
-- Decision: **English-only helper text**, matching current behaviour. Do not add roughly 20 uptime keys to the four other locales in this PR. Localizing the whole `systemSettings.uptime` block is a separate translation task (file a GH issue at PR time).
+- `PRAGMA auto_vacuum=2` must be issued **before** `PRAGMA journal_mode=WAL` on a new file (WAL first then `auto_vacuum=2` then `CREATE TABLE` left mode 0; the reverse gave 2). `Connect` currently runs `journal_mode=WAL` first, so the new pragma goes before it and only on an empty database.
+- In-place `VACUUM` on a pinned `sqlDB.Conn` works in WAL mode, converts the file to mode 2 and **keeps `journal_mode=wal`**.
+- `BEGIN EXCLUSIVE` **succeeds** with a concurrent WAL reader and **fails with `SQLITE_BUSY`** with a concurrent writer: the lock probe detects writers only.
+- **`PRAGMA incremental_vacuum(N)` via `Exec` frees exactly ONE page per call on this driver** (no error: the driver steps the statement once). Measured by the Supervisor (100k-row DB, 9,160 free pages): 201 calls of `Exec("PRAGMA incremental_vacuum(2000)")` moved `freelist_count` 9160 -> 8959. Re-confirmed in this revision on a scratch DB (10,023 free pages): 5 `Exec(2000)` calls -> 10,018; 2 `QueryContext(2000)` calls with **every row iterated** -> 6,018 (2,000 per call). Using `Query` (or gorm `Raw().Rows()`) and iterating ALL rows frees N pages per call (5 steps to 0; file 47.0 MB -> 9.4 MB after `wal_checkpoint(TRUNCATE)`). **Therefore `Drain` MUST use `QueryContext` and loop `rows.Next()` to exhaustion, then `rows.Close()` and check `rows.Err()`; `Exec` is forbidden for this pragma** (it would silently free about 1,200 pages, about 5 MB, per hourly pass). Consequence for verification: the file must be shrunk and `freelist_count` must fall by about N per step, never "it ran without error".
+- `VACUUM INTO` carries mode 2 into the snapshot. `PRAGMA auto_vacuum=2` on a populated database is silently a no-op until `VACUUM`: guard every incremental call on `PRAGMA auto_vacuum` == 2.
+- `VACUUM` row ids: `VACUUM` may renumber implicit rowids, but no Go code in the repo uses `rowid`, and `uptime_heartbeats.id` is an `INTEGER PRIMARY KEY` (an alias of the rowid, preserved by `VACUUM`).
+- In WAL mode the main file only shrinks at a `wal_checkpoint(TRUNCATE)`; **verify shrinkage by file size (`os.Stat`), not by a PRAGMA return value.**
+- **Context-cancel interrupt: PARTIAL (H2, measured; supersedes the earlier "instant" claim).** Only the `INSERT ... SELECT` **rebuild phase** of `VACUUM` is interruptible (driver `interruptOnDone(ctx, ...)`, `github.com/glebarez/go-sqlite@v1.23.0/sqlite.go:504, :590`). The final **copy-back of the rebuilt temp database into the main DB and WAL is not interruptible** and runs to completion; it scales with live data size. Measured on a 430 MB DB with 2/3 free (tmpfs, warm cache): cancel at 500 ms -> `interrupted (9)` after about 22 ms; cancel at 2000 ms (total 6.2 s) -> `VACUUM` returned **nil** about 4.2 s later; cancel at 4000 ms -> nil about 2.9 s later; cancel at 1000 ms (warm, total 1.6 s) -> nil about 0.6 s later. (An earlier spike on a small DB saw an almost immediate interrupt; it only exercised the rebuild phase.) On real disks with multi-GB files the uninterruptible tail is seconds to tens of seconds. Both outcomes leave the database intact (`integrity_check` ok), the mode either unchanged (interrupted) or 2 (completed), and no leftover temp file. Consequences: `Run` must treat "ctx cancelled but `VACUUM` returned nil" as **`converted`** (3.5), the shutdown wait must be placed and capped carefully (3.4 step 9), and a stop that lands inside the tail can still end in SIGKILL (3.5). Commit 2 keeps regression tests: cancel early in the rebuild on a scratch DB -> interrupt error, DB intact, mode unchanged, no temp file; cancel late on a larger scratch DB -> either an interrupt error or nil, with the DB intact and the mode consistent with the outcome (the test asserts outcomes, never timing).
+- **`SQLITE_TMPDIR` set at runtime, after the driver has initialised, is IGNORED** (the temp file went to `/var/tmp`); set **before the first `sql.Open`** it is honoured. `PRAGMA temp_store_directory='<dir>'` worked at runtime (deprecated and process-global, so it is not chosen, 3.5). Commit 2 keeps both observations as regression tests (env set before first open honoured; env set late ignored; documents why `main` sets it first).
+- **Open rows block the single pool connection (M-c, measured deadlock).** With `MaxOpenConns(1)`, a `freelist_count` query issued while the `incremental_vacuum` `rows` were still open blocked until its context expired. `Drain` therefore calls `rows.Close()` (and checks `rows.Err()`) **before** any other pool query, or runs every step on one pinned `sqlDB.Conn`. Commit 2 keeps a regression test (a follow-up `QueryRow` issued after `rows.Close()` returns immediately; the same query with rows left open times out).
+- **`wal_checkpoint(TRUNCATE)` reports busy through a result column, not an error (M-c).** The pragma returns one row `(busy, log, checkpointed)`; when a reader blocks it `err` is nil and `busy=1`. Every caller (`Drain`, `Convert`, retry loop) reads the row with `QueryRow(...).Scan(&busy, &log, &checkpointed)` and treats `busy != 0` (or `checkpointed < log`) as "not truncated", never relying on the error. Commit 2 test: hold a reader, assert `busy=1` with nil error.
+- **Still to confirm in commit 2:** `RunListener` compile-level test.
 
-### 2.6 Settings API write and echo surface (verified; corrects revision 2)
+### 2.5 Strategies for the conversion (evaluated)
 
-Three handlers matter, and they behave differently:
+| Strategy | Verdict |
+| --- | --- |
+| A. In-place `VACUUM` on a pinned pool connection after Caddy has its config | **Chosen**: atomic (crash leaves the old DB via WAL recovery), no handle/pool replacement, smallest code; needs about 2x live data disk; management plane paused |
+| B. `VACUUM INTO tmp` then swap files | Rejected: needs pool closed and every `*gorm.DB` re-pointed or a process restart, writes lost unless frozen anyway, symlink/rename hazards; only feasible before `Connect`, which delays proxying |
+| C. Full online `VACUUM` via a button / runtime trigger | Rejected: multi-minute write stall while serving, races ingester/pruner/backup (user decision) |
+| D. `auto_vacuum` for new DBs only | Insufficient alone |
 
-| Handler | Route | Reads/echoes | Validates `uptime.*` | Notes |
-| --- | --- | --- | --- | --- |
-| `GetSettings` (`settings_handler.go:70-90`) | `GET /api/v1/settings` | Unfiltered `h.DB.Find(&settings)`: every row, as a flat map | n/a | Would expose any `migration.*` marker row. |
-| `UpdateSetting` (`:127`) | `POST/PATCH /api/v1/settings` | **Echoes only the single row it just wrote** (not a full map) | Yes, `validateUptimeSetting` at `:162` | Accepts a client-supplied `Category` (`:182`), so a `migration.*` key could be written with any category label. |
-| `PatchConfig` (`:275`; full-map response at `:383-400`) | `PATCH /api/v1/config` | Unfiltered `h.DB.Find(&settings)` and returns **every row** as a `map[string]string` | **No** (Section 2.2) | Flattens nested JSON via `flattenConfig`, so `{"migration":{"uptime_retention_default_30":"x"}}` becomes the key `migration.uptime_retention_default_30` and reaches the table. |
+### 2.6 `idx_heartbeat_lookup` (256 MB) - separate audited item (unchanged decision)
 
-Revision 2 wrongly attributed the full-map response to `UpdateSettings`. The correct picture: the **marker leak** is via `GetSettings` and the `PatchConfig` response; the **marker write** is possible through **both** `UpdateSetting` and `PatchConfig`; the **missing bounds validation** is in `PatchConfig` only. Other `Setting` readers (`feature_flags_handler.go:66`, `mail_service.go:216`, `cerberus.go:88`, `backup_settings.go:118`) filter by key/category and are unaffected.
+`idx_heartbeat_lookup (monitor_id, status, created_at)` has no Go query filtering on `status` with `monitor_id`. Not part of this feature. Track as its own `perf:`/`fix:` PR: audit raw SQL with `EXPLAIN QUERY PLAN` on a populated scratch DB (`uptime_summary_service.go` window function, dashboard queries); note that after #1423, dropping it makes `idx_heartbeat_monitor_created` the only `monitor_id`-prefix index; the drop must be sequenced after the pruner's `ensureIndex` succeeded (same latch pattern as `redundantIndexDropped`); plan-pin tests assert an index whose leading column is `monitor_id`, not one specific composite. With this feature the freed space is returned automatically.
 
 ## 3. Technical Specifications
 
-### 3.1 Default change, single clamp rule (retention only)
+### 3.1 Package layout
 
-- `services/uptime_config.go`: replace `defaultUptimeRetentionDays = 90` with **exported** constants used by both the service and the handler (DRY, one source of truth):
-  - `UptimeRetentionDefaultDays = 30`
-  - `UptimeRetentionMinDays = 1`
-  - `UptimeRetentionMaxDays = 3650`
-- `settings_handler.go`: `uptimeSettingBounds["uptime.heartbeat_retention_days"] = {services.UptimeRetentionMinDays, services.UptimeRetentionMaxDays}`.
-- **One clamp rule**, applied to retention only, inside `snapshot()` after `loadInt` (helper `normalizeRetentionDays(n int) int`):
-  - unparseable (already handled by `loadInt` -> fallback) or `< UptimeRetentionMinDays` (0, negatives) -> `UptimeRetentionDefaultDays` (30);
-  - `> UptimeRetentionMaxDays` -> capped at 3650.
-  - There is no "floor of 1" anywhere (the earlier draft's contradictory wording is removed). A corrupt low value falls back to the default rather than deleting everything or silently becoming 1 day.
-- `routes.go`: seed value `"30"`. Update the comment in `uptime_config.go` ("match the seeds written in routes.go").
-- **Same 1-3650 validation in `PatchConfig`.** Add a shared helper (e.g. `validateUptimeUpdates(updates map[string]string) error`, wrapping `validateUptimeSetting`) and call it in `PatchConfig` after `flattenConfig` and before the transaction, for every flattened key with the `uptime.` prefix. On failure return 400 `{"error": ..., "error_code": "invalid_uptime_setting"}` (same shape as `UpdateSetting`) and write nothing (validate the whole batch before opening the transaction so a bad key cannot leave a partial write). This is an existing bug fix (Section 2.2) delivered together with the read-side clamp, which stays as defence in depth against rows written by other means.
-- No API contract change for valid input; `GET/POST /api/v1/settings` shapes are unchanged. `PATCH /api/v1/config` now returns 400 for out-of-range `uptime.*` values that it previously accepted. The interval and worker-pool values are not clamped by this change (their bounds are validated on both paths).
+New package `backend/internal/dbmaint` (keeps `database` thin). **Dependency direction (L12):** `internal/database` has no `dbmaint` import (it only exposes the quick_check registry and `Connect`); `internal/services` (pruner, backup service) depend on `dbmaint` only through small interfaces they declare (drain/advise function seams, a `Deferring() bool` hook), never on concrete `dbmaint` types; `dbmaint` may import `database` for the quick_check accessor. `routes`/`main` wire the concrete types.
 
-### 3.2 Existing installs: one-time migration of the untouched default
+| File | Responsibility |
+| --- | --- |
+| `dbmaint/constants.go` | All thresholds and settings keys (below) |
+| `dbmaint/inspect.go` | `Inspect(ctx, conn) (Stats, error)`: `page_size`, `page_count`, `freelist_count`, `auto_vacuum`, main and WAL file sizes |
+| `dbmaint/plan.go` | `Plan(ctx, db, cfg) PlanResult` (I/O: env, flag, attempts, `Inspect`, disk report) and `Decide(inputs) Decision` (pure, table-tested; steps 1-4 and 6 of 3.3). Steps 5 and 7 are evaluated by the runner |
+| `dbmaint/advise.go` | `Advise(ctx, db, cfg) Advice`: the post-prune re-evaluation of 3.3a (Inspect + `Decide` dry run; no writes) |
+| `dbmaint/convert.go` | `Convert(ctx, db, path, gate, progress)`: writer-lock probe, `PRAGMA auto_vacuum=2`, `VACUUM`, checkpoint with bounded retry, file-size verification |
+| `dbmaint/drain.go` | `Drain(ctx, db, budget)`: bounded `incremental_vacuum` steps issued with `QueryContext`, **all rows iterated, then `rows.Close()` before any other pool query** (never `Exec`, 2.4) + checkpoint whose result is read from the `busy` column (pruner only; the boot path never drains) |
+| `dbmaint/gate.go` | `Gate`: state machine, readiness signals, `WaitIdle`, `Deferring`, HTTP middleware |
+| `dbmaint/runner.go` | `Run(ctx, deps) Outcome`: the testable maintenance goroutine body |
+| `dbmaint/diskspace.go` | Free-space and same-filesystem helpers (shared with backup service) |
+| `dbmaint/tmpdir.go` | Temp-directory preparation (`Lstat`/symlink refusal, `0700`, ownership) and the path the free-space check uses (3.5) |
+| `internal/api/handlers/database_maintenance_handler.go` | Status and flag endpoints |
+
+Constants (named, in `constants.go`, unit-tested through `Decide`):
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `MinFreeRatio` | `0.20` | Convert only when at least 20% of pages are free |
+| `MinReclaimableBytes` | `100 << 20` | Hard floor |
+| `ReclaimableTriggerBytes` | `1 << 30` | ... OR at least 1 GiB reclaimable even below 20% free (floor still applies) |
+| `DiskSafetyMultiplier` / `DiskSlackBytes` | `1.15` / `64 << 20` | Headroom |
+| `DrainPagesPerStep` | `2000` | Pages per `incremental_vacuum(N)` (about 8 MB at 4 KB) |
+| `DrainStepPause` | `50 ms` | Yield between steps |
+| `DrainBudgetPerPass` | `60 s` | Max wall time per pruner pass |
+| `KeepFreeBytes` | `32 << 20` | Free-list floor left in place |
+| `MaxConvertAttempts` | `3` | Consecutive **failed** attempts (cancel-driven interruptions excluded) before backing off until the flag is set |
+| `PlannedMaxWait` | `3 min` | Longest the gate stays `planned` waiting for the two readiness signals (excludes the `quick_check` wait) |
+| `QuickCheckMaxWait` | `15 min` | Longest the runner waits, still in `planned`, for the boot `quick_check` once both signals arrived. Worst case in `planned` = `PlannedMaxWait + QuickCheckMaxWait` |
+| `ConnAcquireTimeout` | `45 s` | Max wait for `sqlDB.Conn(ctx)` in `checking` (and for the conversion connection); on expiry skip as `database_busy` and go back to `idle`/`skipped` (3.4, 3.5) |
+| `ShutdownRunnerWait` | `4 s` | Bounded wait for the runner in the shutdown path, placed FIRST (before the uptime drain); sized against the 10 s Docker default stop grace (3.4 step 9) |
+| `MarkerWriteTimeout` | `3 s` | Detached context timeout for the final marker writes at shutdown (3.5) |
+| `CheckpointRetries` / `CheckpointBackoff` | `6` / `2 s` doubling, cap `30 s` | Bounded retry of `wal_checkpoint(TRUNCATE)` while a reader pins the WAL |
+
+### 3.2 New databases and the pruner (steady state)
+
+1. In `database.Connect` (`database.go`), before the pragma loop (`:~81`) and before `journal_mode=WAL` (`:82`): if the database is empty (`SELECT count(*) FROM sqlite_master` == 0 **and** `PRAGMA page_count` == 0), execute `PRAGMA auto_vacuum=2`. Populated databases are untouched. The `migrate` CLI (`main.go:115`) and `reset-password` (`:194`) go through `Connect`, so a fresh file they create is also mode 2 (intended).
+2. `UptimePruner.tick` (`uptime_pruner.go:~118-147`): after a clean `pruneOnce` and the existing `ensureIndex`/`dropRedundantIndex` block, **when `PRAGMA auto_vacuum` == 2** and (`deleted > 0` or `freelist_count * page_size > KeepFreeBytes`): call `dbmaint.Drain` (each step is `db.WithContext(ctx).Raw("PRAGMA incremental_vacuum(2000)").Rows()` (or `QueryContext`) with **every row iterated to exhaustion**, then `rows.Close()` and `rows.Err()` checked **before the next pool query (M-c: with `MaxOpenConns(1)` an open `rows` blocks any other query until its context expires; alternatively run the whole pass on one pinned `sqlDB.Conn`)**, because the driver frees only ONE page per call when the statement is run through `Exec` (2.4); `DrainStepPause` between steps using the existing `sleepCtx`; stop at `DrainBudgetPerPass` or when free bytes <= `KeepFreeBytes`; abort on ctx; after each step (and after `rows.Close()`) measure the pages freed by the **`page_count` delta** and log a Warn (and continue) if a step freed fewer than `DrainPagesPerStep/2` pages while more than that remained, so a driver regression cannot silently turn the pass into a no-op; the `freelist_count` delta is deliberately NOT used for this check, because the stats ingester's concurrent inserts reuse free pages and would false-trigger it (L-b); the check is warn-and-continue only: it never stops the pass and is never an error), then `PRAGMA wal_checkpoint(TRUNCATE)` read via `QueryRow(...).Scan(&busy, &log, &checkpointed)` (best-effort, only if pages were freed; `busy=1` is logged at Debug and left to the next pass, it is not an error and `err` is nil in that case (2.4); `pruneOnce` already issues its own checkpoint for passes that delete >= `walCheckpointRowThreshold` rows at `:~199`, which stays). Each step is a short write transaction of about `DrainPagesPerStep` pages: no long lock. This is the only drain path.
+3. If `auto_vacuum` != 2 the pruner does not drain; instead it calls `Advise` (3.3a).
+4. Update the stale comment at `uptime_pruner.go:32-34` ("VACUUM is deliberately not used here; automatic compaction is tracked in GH #1422") to describe the new behavior, and the `UptimePruner` doc comment.
+5. The `UptimePruner` gets two small test seams mirroring the existing ones (`walRowThreshold`, `chunkPause`): an injectable drain/advise function so `tick` tests do not need a real vacuum.
+
+### 3.3 Existing databases: boot-time decision (`Plan`, `Decide`, and the runner's two late checks)
+
+- **`Plan` (synchronous, early, does I/O, never blocks or fails startup)**: called from `RegisterWithDeps` (3.4 step 1) through a wrapper `dbmaint.SafePlan` that has its own `defer recover()`: a panic or an error from `Plan` means **`idle` plus one Warn log** (the runner goroutine's `recover` does not cover this synchronous call). Persisted state read by `Plan` (attempts, in-progress marker, last result) is validated against the current database file (L5, below). Gathers env mode, the persisted flag and attempt counter (settings reads, validated), `Inspect` (a handful of PRAGMAs plus `os.Stat` on main and WAL) and the disk report, then calls the pure `Decide(inputs) Decision` (no I/O, no clock), which evaluates **steps 1-4 and 6**.
+- **Runner (`dbmaint.Run`, after readiness)**: evaluates **step 5** (boot `quick_check` result) and **step 7** (writer-lock probe, needs the pool's only connection).
+
+`Plan` answers "is a conversion **likely**"; a `planned` gate can still end `skipped` (`integrity_check_failed`, `database_busy`, `caddy_not_ready`, `startup_timeout`). Output of `Decide`: `run | skip(reason)`. One kind of work: `convert` (mode 0 -> mode 2). No boot drain.
+
+Order of evaluation (`Plan`/`Decide` = 1-4 and 6, runner = 5 and 7):
+
+1. `CHARON_DB_COMPACT_ON_START=off` -> skip (`disabled_by_env`).
+2. Already `auto_vacuum=2` -> skip (`already_optimized`); a set flag is cleared (the button on a mode-2 database only ever means "let the pruner drain", which it does by itself).
+3. Flag `maintenance.compact_requested` set (mode 0) -> proceed even when the ratio triggers of step 4 are not met, but the `MinReclaimableBytes` floor still applies: below 100 MB reclaimable -> `nothing_to_reclaim`, flag cleared.
+
+   **Flag lifecycle (L2).** The flag is cleared only when it was **consumed** (a conversion was attempted and reached a terminal outcome of `converted`/`converted_pending_checkpoint`/failed-and-counted) or when there is **nothing left to optimize** (`already_optimized`, `nothing_to_reclaim`). A run that is merely **skipped** for a transient reason (`insufficient_disk`, `database_busy`, `caddy_not_ready`, `startup_timeout`, `integrity_check_failed`, `disabled_by_env`) leaves the flag set, so the request is retried at the next start instead of being silently lost. The UI does not offer the button when it could not do anything (3.7).
+4. Otherwise (`auto`, mode 0): proceed only if `reclaimableBytes >= MinReclaimableBytes` **and** (`freeRatio >= MinFreeRatio` **or** `reclaimableBytes >= ReclaimableTriggerBytes`), `reclaimableBytes = freelist_count * page_size`. Back-off: attempt counter >= `MaxConvertAttempts` and no flag -> skip (`too_many_failures`).
+5. **(runner)** Boot `quick_check` reported corruption -> skip (`integrity_check_failed`).
+6. Free-disk check (3.5) -> skip (`insufficient_disk`) with the numbers.
+7. **(runner)** Writer-lock check (3.5) -> skip (`database_busy`).
+
+**Persisted state vs replaced files (L5, revised by M-b).** `maintenance.attempts`, `maintenance.in_progress` and `maintenance.last_result` are ordinary rows inside the database, so a whole-file swap can carry stale state (an `in_progress` marker or `attempts=3` from another file's history). Each of the three values therefore stores a `file_id` and, for the marker, the boot's process start time. `file_id` is the **inode number only** (`st_ino` of the main database file from `os.Stat`), because `st_dev` is not stable on some setups (overlayfs, btrfs subvolumes, NFS, LVM device minors can change between boots): comparing it would silently delete the state on every boot, so a crash loop (for example an OOM kill mid-`VACUUM`) would never reach `MaxConvertAttempts`. For legacy or unknown stored values that include a device number, if only the device differs (same inode), the result is **"unknown": keep the state**. Only an inode mismatch discards (and deletes) the rows; a leftover `in_progress` marker counts as a failed attempt only when the inode matches.
+
+What is and is NOT detected (measured/verified in this round):
+
+| Event | New inode? | State discarded? |
+| --- | --- | --- |
+| In-place `VACUUM` + `wal_checkpoint(TRUNCATE)` (the conversion itself) | no (dev:ino preserved, measured) | no, legitimate state survives |
+| `ApplyPendingRestore` (`os.Remove` + `os.Rename`, `pending_restore.go:62-67`) | yes | **yes**, detected |
+| `docker cp` of a file onto the path, or any replaced file (new file renamed in) | yes | **yes**, detected |
+| `RehydrateLiveDatabase` (row copy into the live file) | no | **no, not detected**: rows from the restored backup overwrite the live `maintenance.*` rows |
+| `cp` over the file in place (same inode) | no | **no, not detected** |
+| A backup of the same file restored by row copy | n/a (same `file_id` inside the copy) | **no, not detected** |
+
+Only restores that replace the file are detected. In-place row restores can bring back a stale `attempts`/`in_progress`; the recovery is the UI button ("Reclaim space on next restart"), which sets the flag and **resets the counter** (3.5). The consequence is bounded (at worst a skipped or one extra counted attempt) and is documented in `docs/database-maintenance.md`. Bind-mount note (L-f): on Docker Desktop (Windows/macOS) bind mounts go through a file-sharing layer (gRPC FUSE, virtiofs, 9p), where inode numbers may be synthesized and not stable across restarts or remounts; the same rule covers it (inode-only comparison; an unstable inode only causes state to be discarded, i.e. the counter resets, never a false block; on such hosts the crash-loop back-off is therefore best-effort and the env `off` switch remains the control). Test: seed the rows, replace the file via rename (new inode) and assert `Plan` ignores them; assert an in-place `VACUUM` keeps them; assert a dev-only mismatch keeps them.
+
+`Decide` is table-tested at every edge (19.99% vs 20%, 99 MB vs 100 MB, 1 GiB - 1 vs 1 GiB at 5% free, env `off` beating the flag, mode 2 with the flag, flag with counter at max). The runner's steps 5 and 7 are tested through `Run` with fakes. A skipped or failed compaction never blocks startup: one goroutine (`dbmaint.Run`) with `recover()`, a context tied to `appCtx`, and `defer gate.Release()`; a skip writes the reason to the status object and the log (Warn for `insufficient_disk`, Info otherwise).
+
+### 3.3a Upgrade order: how a reporter-type install actually gets compacted (NEW, decision)
+
+The problem. On the first boot after upgrading, `MigrateUptimeRetentionDefault` lowers 90 to 30 and the pruner's first pass runs about 30 s later (`prunerFirstRunDelay`, `uptime_pruner.go:19`). For a reporter-type install (19 M rows) that pass drains about 12 M rows in 5000-row chunks with 250 ms pauses (`firstPassChunkPause`), i.e. tens of minutes. At boot the file is still mode 0 with a small freelist, so `Decide` (correctly) says no; the freed pages appear only afterwards.
 
 Options considered:
 
-| Option | Outcome |
+| Option | Verdict |
 | --- | --- |
-| A. Do nothing; only new installs get 30 | Reporter-type installs keep 90 forever. Rejected. |
-| B. Blindly rewrite every stored `90` to `30` | Overrides deliberate choices. Rejected. |
-| C. Rewrite `90` -> `30` only when the row is provably the untouched seed, once, guarded by a marker | **Recommended (assumed).** Fixes the common case, preserves deliberate choices when uncertain. |
+| Convert at boot #1 regardless, before the prune | Rejected: `VACUUM` would rebuild 4.8 GB of mostly-doomed rows (10+ minutes), and the thresholds say "not worthwhile" at that moment |
+| Hold boot #1 until the prune finishes, then convert | Rejected: monitoring and the management plane paused for the whole drain (tens of minutes) |
+| Runtime (post-prune) conversion trigger | Rejected: needs a live quiesce of scheduler, worker pool, ingester and sync loop (all DB-touching, `routes.go:826-857`), a second trigger path beside boot, and an unannounced multi-minute UI stall at an arbitrary time. This is exactly the surprise to avoid |
+| Post-prune self-restart by exiting with a special code | Rejected: Docker restart policy cannot be detected from inside; with `restart: no`/`on-failure` Charon would simply stay down. An entrypoint-level relaunch loop is possible but is a separate, riskier change (see open question, section 10) |
+| **Post-prune re-evaluation that advises, no flag, conversion at the next boot (chosen)** | See below |
 
-**Why not the earlier "within 5 s of at least one sibling" rule** (Supervisor finding, confirmed): `models.Setting` has only `UpdatedAt`. A user who moves retention 60 -> 90 in the same save as a worker-pool change gets near-identical `UpdatedAt` on both rows, so the "at least one sibling" rule wrongly lowers a deliberate 90 and permanently deletes history. Conversely, a user who later edits both siblings would look "touched" everywhere. The default assumption is therefore the **stricter** rule below.
+Decision. Conversion stays boot-only (single trigger, nothing running yet, pipeline deferral is trivial). The upgrade gap is closed by making the next start do the work with **no flag and no user action**:
 
-**Real-data evidence (user's live day-1 instance, read-only):** the three `uptime.*` rows are IDs **28, 29, 30**, `UpdatedAt` within about **11 ms** of each other, values **60 / 30 / 90** (seeded 2026-08-27). The strict rule below qualifies it (contiguous IDs, within 5 s, siblings at seed values), so the rule works on a real untouched install.
+1. The freed pages are **persistent state of the file**: after the pruner drains the backlog they sit on the freelist of the mode-0 file and are reused 1:1 by new inserts while the pruner deletes 1:1 (steady state), so the freelist stays large until a conversion runs. The next boot's `Plan` therefore sees, from the file alone, exactly the situation it needs (reporter: roughly 60-70% free, multiple GB) and `Decide` returns `run`. No `compact_requested` row is written by the machine: that flag stays "the user asked" (it bypasses only the ratio, never the floor). One flag meaning, no machine-written settings, nothing to get stale or to clear.
+2. **`dbmaint.Advise` runs after every clean pruner pass on a mode-0 database** (cheap: a few PRAGMAs and two `os.Stat`). It is a no-op (no advice, no log, no in-memory state) while `conversionEnabled` is false (commits 3-5, L3), so nothing promises behaviour before the conversion exists (commit 6). It runs `Decide` (dry run, flag ignored) and suppresses the pending line when the **persisted last result for the current `file_id` is a terminal skip** such as `integrity_check_failed` or `too_many_failures` (L4: do not promise a conversion the next boot will refuse). Otherwise, on the false -> true transition per process, logs one Info line: `database optimization pending: about X GB of the database file is reusable space; it will be returned automatically the next time Charon starts (for example after an update)`. It also updates an in-memory `Advice` (read by the status handler together with its own fresh `Inspect`, 3.7). This is what "re-evaluation after the prune" means: the notice and log become correct as soon as the backlog is drained instead of waiting for a restart, and there is no dependence on the stale boot snapshot.
+3. The conversion happens at the next start, which is a moment the operator already chose (upgrade, host reboot, `docker compose up -d`) and already implies a short UI gap. Charon ships frequently, so for a typical install that is the next update. Nothing is ever converted at an arbitrary time.
+4. **Order independence.** If an install already has >= 20% free pages at boot #1 while a prune backlog is still pending (the test container: 35% free and a 90 -> 30 migration), it converts at boot #1 (rebuilding rows that are about to be pruned - only a longer one-time `VACUUM`); the pruner then deletes the backlog and, because the file is now mode 2, **drains it incrementally in the same boot**. The result is identical to the reporter path, reached one restart sooner. Correctness never depends on the order.
+5. The reporter after the next start: live data about 30 days x 86 400 rows/day (about 2.6 M rows, well under 1 GB), so the one-time `VACUUM` is on the order of a minute or two, and the file drops from 4.8 GB to roughly 1 GB.
 
-**Contiguity depends on an uninterrupted seed loop.** The three rows get consecutive IDs only if the seed loop in `routes.go` created them in one uninterrupted run on a fresh DB. If the loop was interrupted (crash between rows) and finished on a later boot, or a row was deleted and re-seeded, the IDs are not contiguous and the migration **fails safe: it leaves 90**. That is the intended direction (see "Consequences").
+What the user sees and when:
 
-**Strict rule** (`MigrateUptimeRetentionDefault(db *gorm.DB)`, in new `backend/internal/services/uptime_retention_migration.go`, called from `routes.go` right after the seed loop):
+| When | Normal user | Notes |
+| --- | --- | --- |
+| Boot #1 after upgrade (reporter-type) | Nothing. UI, proxies and monitoring behave normally | Prune drains in the background. Log: retention lowered to 30 days (existing) |
+| Pruner's first clean pass completes (tens of minutes later for 19 M rows; about 30 s for small installs) | Nothing unless they open **System Settings -> Database**: a quiet info line "Charon will shrink the database by about X GB the next time it starts (for example after an update). Nothing to do." | No page-top banner, no warning color, no button needed. Log line once (Advise) |
+| Next start (update/restart/reboot) | Management UI shows "Optimizing the database... your proxies are still running" for about 1-5 minutes (only while the pool is actually held), then returns. Proxies and the healthcheck are unaffected | Monitoring has a heartbeat gap for that period (documented) |
+| Any later start | Nothing (mode 2; pruner keeps it small) | |
+| Not enough disk | **System Settings -> Database** warning banner with the number ("free up about X GB, then restart") | Also retried automatically each start |
+| Three failed attempts | Warning banner with plain instructions | Button resets the counter |
+| Flag was set earlier, then `CHARON_DB_COMPACT_ON_START=off` was configured | Info line "Optimization is turned off by the server configuration"; button disabled with the reason | The flag stays set and is honoured again when the env is removed (3.7) |
 
-1. If marker `migration.uptime_retention_default_30` exists -> return.
-2. Read the retention row. If missing, or value != `"90"` -> write marker, return.
-3. Load the two sibling seed rows (`uptime.default_interval_seconds`, `uptime.worker_pool_size`). If **either is missing** -> leave the value (indeterminate), write marker, return.
-4. The retention row is "untouched seed" only if **all** of these hold:
-   - its `UpdatedAt` is within 5 s of the `UpdatedAt` of **each** sibling (ALL present siblings, not "at least one");
-   - its row `ID` is adjacent to theirs: the three IDs form a contiguous run (`max(ID) - min(ID) == 2`), matching the seed loop order in `routes.go:794-800` (rows are created consecutively);
-   - the siblings still hold their seed values (`"60"` and `"30"`). This third guard is an added cheap check: it means a save that rewrote the siblings to non-default values can never be confused with the untouched seed.
-5. If untouched: `UPDATE settings SET value='30' WHERE key='uptime.heartbeat_retention_days' AND value='90'` (single statement, race-safe), log at Info: `uptime heartbeat retention default lowered from 90 to 30 days; adjust under System Settings -> Uptime Monitoring`. Otherwise leave the value at 90 **and log one Info line** so an operator can tell why: `uptime heartbeat retention left at 90 days: value not provably the untouched default (it may have been set deliberately); adjust under System Settings -> Uptime Monitoring`. Logged once (the marker is written in the same pass), and only on the "value is 90 but not provably untouched" path (not for a missing row, a non-90 value, or a present marker).
-6. Write the marker in every path (best-effort; failures logged Warn and retried next boot since the function is idempotent).
+If the operator wants it sooner they just restart Charon. The "Reclaim space on next restart" button remains for the below-threshold case (floor 100 MB still applies) and is hidden or disabled when it could not do anything (3.7).
 
-Consequences (documented, accepted):
+### 3.4 Wiring and ordering (revision 3 design, references updated)
 
-- **Fail-safe direction.** Any ambiguity leaves 90. Users who edited the interval or pool at any point (siblings' `UpdatedAt` moved) are *not* migrated; they stay on 90 and rely on the release note and helper text. This is the deliberate cost of the strict rule.
-- **The same-save 60 -> 90 case** (retention and pool changed together, interval untouched): the interval sibling still carries the seed time, so the row is not within 5 s of ALL siblings -> left alone. Covered by a table test.
-- **Residual bulk-write risk:** if one write updated all three rows together (API client posting all three keys, or a UI save with all three fields dirty) to values that leave the siblings at `60`/`30` and retention at `90`, timestamps and IDs would look like an untouched seed and retention would be lowered. This cannot be distinguished without a schema change (`created_at` / `source` column), which is disproportionate here. Probability is very low; the outcome is that history older than 30 days is removed. Documented in the risk table and release note.
-- **Restored backups.** `RehydrateLiveDatabase` copies rows with `INSERT ... SELECT *`, so `UpdatedAt` and IDs are preserved and the heuristic evaluates the same way after a restore. A backup taken *before* this upgrade has no marker row, so the migration simply re-runs on the next boot (it runs at boot only, not at rehydrate) and gives the same answer for the same row; a deliberate 90 saved after the upgrade lives only in newer backups that also contain the marker. Restoring a pre-upgrade backup discards post-upgrade settings by definition. Idempotent; no special handling beyond a test that a missing marker plus a non-untouched row is a no-op.
-- After the migration, the first pruner pass deletes the 30-90-day-old rows (about two-thirds of the table). It uses the existing chunked, yielding code path; no new mechanism.
+**Which phases return 503 (single source of truth).**
 
-**Marker storage (recommendation):** keep the marker as a settings row (`Key: "migration.uptime_retention_default_30"`, `Type: "string"`, `Category: "migration"`). A `migration.` key must be protected in **both** settings handlers, using **one shared helper set** in `settings_handler.go` (DRY; the follow-up extends the prefix list with `maintenance.`):
+| Phase | Meaning | UI/API | Pool |
+| --- | --- | --- | --- |
+| `idle` | Nothing planned, or finished with nothing to do | served normally | free |
+| `planned` | A conversion is likely; waiting for readiness signals and the boot `quick_check` | **served normally, no 503**; only the uptime pipeline and scheduled backups are deferred | free |
+| `checking` | Runner is acquiring (and has acquired) the pool connection for the writer-lock probe; **bounded by `ConnAcquireTimeout`** | **503** | held/being acquired |
+| `converting` | `VACUUM` running | **503** | held |
+| `done` / `skipped` / `failed` | Terminal outcome for this boot; waiters released | served normally | free |
 
-- `isInternalSettingKey(key string) bool` - true when the normalized key has any prefix in `internalSettingPrefixes = []string{"migration."}`. **Keyed strictly on the key prefix, never on the client-supplied `Category`** (`UpdateSetting` accepts `Category`, so a category check could be bypassed by sending a different label). Normalize before matching (`strings.TrimSpace`, lower-case) so `" Migration.x"` cannot slip through.
-- `filterInternalSettings(settings []models.Setting) []models.Setting` - drops internal rows; used by `GetSettings` **and** by the `PatchConfig` full-map response (`:383-400`). `UpdateSetting` echoes only the row it wrote, so it needs the write rejection, not response filtering.
-- Write rejection: `UpdateSetting` returns 400 (`error_code: "reserved_setting_key"`) when `isInternalSettingKey(req.Key)`. `PatchConfig` checks every flattened key (after `flattenConfig`, so `{"migration":{"x":1}}` is caught) and rejects the whole batch with 400 before the transaction.
+Only `checking` and `converting` are `active` (503). No `draining` phase exists. **Bounds (M3):** `planned` is bounded by `PlannedMaxWait + QuickCheckMaxWait`; `checking` is bounded by `ConnAcquireTimeout` (45 s, step 6); `converting` has **no total wall-clock cap, deliberately** (3.5): it ends only by completion, error or ctx cancel.
 
-Alternative considered: a dedicated `data_migrations` table/model. It is cleaner and reusable, but adds a model to three AutoMigrate lists plus the GORM security scan surface for a single flag. Recommended: settings row plus filter; revisit a table if a second data migration appears.
+Design:
 
-### 3.3 UI retention control (English only)
+1. **Plan synchronously, early.** `RegisterWithDeps` calls `dbmaint.Plan(ctx, db, cfg)` **right after AutoMigrate succeeds (`routes.go:172`) and before the backup service is built/started (`routes.go:304-308`) and before any pipeline goroutine**. The call goes through `SafePlan` (3.3): a panic or error means idle with a Warn, never a blocked or failed startup. The gate is set to `planned` only when `Decide` says `run`. The seed loop and `MigrateUptimeRetentionDefault` (`routes.go:785-807`) run later inside the conditional block and are irrelevant to `Plan`. An unaffected install pays milliseconds.
+2. **Readiness = two signals.** The gate holds `configApplied` and `listenerBound`. `main.go` creates the gate before `RegisterWithDeps` and installs `router.Use(gate.Middleware())` first (next to `RequestID`/`RequestLogger`/`Recovery`, `main.go:278-282`, so it precedes `EmergencyBypass`/`RateLimit` at `routes.go:159`). After `emergencyServer.Start()` (`main.go:309-312`): `ln, err := net.Listen("tcp", addr)` (fatal on error as today), `gate.MarkListenerBound()`, `go router.RunListener(ln)` (replacing `router.Run(addr)` at `:323`).
+3. **`applyInitialCaddyConfig` reports on all exit paths.** New signature `applyInitialCaddyConfig(ctx, mgr, timeout, interval, onDone func(applied bool))` (definition `routes.go:48`, call `routes.go:1115`), invoked exactly once on every return: success (`true`); `ctx.Done()`, Caddy timeout, `ApplyConfig` error (`false`). Tests cover each path with a fake `caddyBootstrapper`.
+4. **State transitions and bounded waits (two timers, both inside `planned`).**
+   1. `planned` starts a readiness timer of `PlannedMaxWait`. `configApplied=false` -> `skipped` (`caddy_not_ready`). Timer fires with signals missing -> `skipped` (`startup_timeout`, Warn), waiters released.
+   2. When both signals arrive the timer is stopped and replaced by the `quick_check` wait: the runner waits on the boot `quick_check` done channel for at most `QuickCheckMaxWait`, still in `planned` (UI normal, pipeline deferred). Corruption -> `skipped` (`integrity_check_failed`). On timeout it proceeds anyway (the checkpoint retry covers a still-running reader) and logs Info. `PlannedMaxWait` therefore never expires while the runner legitimately waits on a long `quick_check`.
+   3. Worst case in `planned` is `PlannedMaxWait + QuickCheckMaxWait` (18 min); both bounded, so `WaitIdle` always terminates.
+   4. Only when the runner is about to take the pool connection does the gate flip to `checking` (503). `Release()` is idempotent and also deferred by the runner.
+5. **Pipeline deferral.** The goroutines at `routes.go:826` (boot bootstrap), `:847` (ingester), `:851` (pool), `:852` (scheduler), `:853` (sync loop) and `:857` (pruner) call `gate.WaitIdle(ctx)` before starting. `WaitIdle` returns immediately when `idle` (the overwhelmingly common case) and otherwise blocks until the gate leaves `planned`/`checking`/`converting` or ctx is cancelled. Monitoring is paused for the duration (documented heartbeat gap). `uptimeShutdown`'s `uptimeIngesterDone` must still close when ctx is cancelled during the wait (test).
+6. **Flipping to 503, with an acquire timeout (M3).** The runner sets `checking` first, then acquires the pool connection with `sqlDB.Conn(acquireCtx)` where `acquireCtx` is `context.WithTimeout(ctx, ConnAcquireTimeout)` (45 s): `sqlDB.Conn(ctx)` itself has no timeout, so a leaked pool connection (a forgotten `Rows`/`Conn`) would otherwise leave the management plane at 503 forever. On expiry the runner releases (gate -> `skipped`, reason `database_busy`, Warn naming a possibly leaked connection, pipeline released) and does not count it as a failed attempt. The 503 window in `checking` is therefore at most `ConnAcquireTimeout` plus the instant probe. Test: hold the only connection, assert `skipped(database_busy)` after the (injected, short) timeout and that the gate is released and pool users proceed.
+7. **Emergency server.** During `checking`/`converting` the wrapper answers a fast 503 (3.6). `CheckMountedImport` and `emergencyServer.Start()` run before `Listen`, hence before any conversion.
+8. **Testable body.** `dbmaint.Run(ctx, deps) Outcome` (deps: db, path, cfg, gate, clock, disk reporter, quick-check status, injectable `convert`). `main.go`/`routes.go` only start it. Unit tests drive every branch with fakes.
+9. **Shutdown accounting and budget (M2, revised by H2/M-a/M-d/L-d).** Today `main.go` (about `:333-370`) calls `appCancel()` (`:333`), then drains the uptime pipeline (`uptimeShutdown` with a 25 s context, `:346-347`), stops the emergency server (10 s context, `:355`) and returns; `main.go` never closes the database handle, so there is no database-close point to hook: the runner wait is simply placed in the shutdown sequence before the process returns. A cancel-driven stop therefore never got to write a result or clear `maintenance.in_progress`. Commit 4 adds a `runnerDone` channel (closed when `dbmaint.Run` returns).
+   - **Placement: FIRST.** Immediately after `appCancel()` and **before** the uptime drain, `main` waits on `runnerDone` for at most `ShutdownRunnerWait` (**4 s**). The uptime drain returns instantly while the pipeline is deferred behind the gate, so placing the runner wait after it would not help or hurt the budget, but placing it first guarantees the marker writes get the time before anything else can consume the grace period.
+   - **Budget (re-checked).** Docker's default stop grace is 10 s, and the entrypoint's `trap 'shutdown' TERM INT` (`.docker/docker-entrypoint.sh:461`) only runs after the current `sleep 1` of the wait loop returns (`:469-471`), costing up to about 1 s before `kill -TERM "$APP_PID"` (`:451`). During an active conversion: about 1 s (entrypoint) + up to 4 s (runner wait) + about 0 s (uptime drain, deferred) + a fast emergency-server stop (the wrapper returns 503 without the pool) stays under 10 s. Outside a conversion the wait returns immediately (`runnerDone` is already closed or the runner is in `planned`/idle). The pre-existing worst cases (25 s uptime drain, 10 s emergency stop) already exceed the 10 s default independently of this feature and are unchanged.
+   - **What `Run` does on ctx cancel.** (a) While `VACUUM` is in its rebuild phase the driver interrupts it quickly (`interrupted (9)`); while it is in the **uninterruptible copy-back tail** (2.4, H2) it runs to completion and returns **nil**. (b) `Run` therefore decides by the **`Convert` result, not by `ctx.Err()`**: error that is an interrupt -> `interrupted` (uncounted); `nil` (even though ctx is cancelled) -> **`converted`**, with the post-steps run with the detached context below **in this order (M1): write `last_result` and clear the `in_progress` marker FIRST, then make a SINGLE `wal_checkpoint(TRUNCATE)` attempt with no backoff (or skip it; the next pruner pass finishes the shrink, and the result is `converted_pending_checkpoint` if the file has not shrunk)**, because `CheckpointRetries=6` with a doubling 2 s backoff can run about a minute and the 4 s runner wait would expire first, losing the marker clear; any other error -> failed and counted. (c) The final `maintenance.last_result` write and the `maintenance.in_progress` clear use a **detached** context, `context.WithTimeout(context.WithoutCancel(ctx), MarkerWriteTimeout)`, because the cancelled `ctx` cannot carry them. (d) **The pinned connection is closed BEFORE these writes** (M-d): with `MaxOpenConns(1)` a marker write issued while `Run` still holds the pool's only connection blocks until the 3 s timeout and is lost.
+   - **The unavoidable case (H1).** `main` stops waiting for the runner after `ShutdownRunnerWait` (4 s) and returns, so the process exits about 5 s after SIGTERM regardless of the container's stop grace; a longer `stop_grace_period` therefore cannot let a multi-second copy-back tail finish, and no such recommendation is made and no new configuration knob is added. A stop that lands in the copy-back tail can always cost one counted attempt: the process exits mid-copy, the marker is left, the database is still safe (`VACUUM` is atomic, the next boot recovers from the WAL, it is either the old or the fully converted file) and the next boot counts one attempt (3.5) and retries, up to `MaxConvertAttempts` = 3.
+   - **Tests.** (1) `Run` with a fake convert that blocks until cancel and returns an interrupt error: marker cleared, result `interrupted`, attempts unchanged, `Run` returns. (2) `Run` with a fake convert that **ignores cancel** and returns nil after a delay: result is `converted` (not `interrupted`), post-steps run with the detached context, marker cleared, attempts unchanged, `Run` returns; assertions are on outcomes, not on timing. (2b, M1) Same fake, with a fake checkpoint that blocks or returns busy: `last_result` is written and the marker cleared BEFORE the single checkpoint attempt (assert the write order, and that the marker is cleared even when the checkpoint never returns within the wait; no checkpoint retry/backoff runs on the cancelled path). (3) With `MaxOpenConns(1)`, the marker writes succeed because the pinned conn is closed first (fails if the order is reversed). (4) `main`-level helper test that the shutdown wait is bounded at `ShutdownRunnerWait` when the runner never returns, and that it runs before the uptime drain.
+10. **Signature and caller changes** (all in commit 4). `routes.RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb)` (`routes.go:153`) gains a `gate *dbmaint.Gate` parameter (nil-safe: a nil gate behaves as permanently `idle`, no runner). Callers: `cmd/api/main.go:294` (real gate) and `routes.Register` (`routes.go:132`, passes nil, so the test call sites of `Register` stay unchanged). `server.NewEmergencyServerWithDeps(db, cfg, caddyManager, cerberus)` (`emergency_server.go:54`) likewise gains a gate parameter (nil-safe); callers: `main.go:309` (real gate) and `server.NewEmergencyServer` (`emergency_server.go:49`, nil); emergency-server tests updated to also cover the gated 503. `BackupService` gets a nil-safe deferral hook consulted by `RunScheduledBackup` (`backup_service.go:464`), declared as a small interface in `services` (L12) and satisfied by `*dbmaint.Gate`: `Deferring() bool` and `WaitReleased(ctx) bool`. The `WaitReleased` waiter goroutine (3.5) is started with the **application context** (`appCtx`), not a request or job context, so it exits on shutdown instead of leaking; test: cancel `appCtx` while deferred and assert the waiter returns without running the backup.
 
-Current (`SystemSettings.tsx` ~L781-800): number input, `min=1 max=3650 step=1`, label "Heartbeat retention (days)", helper "Older heartbeats are permanently deleted. Applies within ~1 minute, no restart.", error "Enter a whole number between 1 and 3650." Server rejections surface per-field via the existing `clearUptimeServerError`/`uptimeFieldError` plumbing.
+### 3.5 Safety checks before converting
 
-Findings: the helper says "Applies within ~1 minute" although the pruner runs hourly (the 60 s TTL only refreshes the cached value); it omits the default, range, disk tradeoff, and the fact that the file may not shrink.
+Disk (from `Inspect`; `live = (page_count - freelist_count) * page_size`):
 
-Changes (no new components, no new API):
+- In-place `VACUUM` in WAL mode builds the rebuilt database in a temp file of about `live`, then copies it back through the WAL (WAL grows about `live` before the checkpoint): roughly **2x live** when temp and data share a filesystem.
+- Required: `need_tmp = live * DiskSafetyMultiplier + DiskSlackBytes` on the temp dir's filesystem; `need_data = live * DiskSafetyMultiplier + DiskSlackBytes + current_wal_size` on the DB directory's filesystem. Same filesystem (compare `Stat_t.Dev`) -> **sum**. Use `Bavail`, not `Bfree`. Verify the DB directory is writable; `filepath.Clean` every path.
+- Short -> skip `insufficient_disk`, recording `required_bytes` and `available_bytes`.
 
-1. `systemSettings.uptime.retentionDaysHelper` (English, the only string that changes): "Heartbeats older than this are permanently deleted, checked hourly. Default 30 days (range 1-3650). Longer history uses more disk space. Lowering this frees space inside the database, but the file may not shrink until the database is compacted."
-2. `SystemSettings.tsx`: add `placeholder="30"` to the retention input. No logic change.
-3. Label and error strings unchanged, so existing label-based queries keep passing.
-4. Do **not** touch `de/es/fr/zh` (Section 2.5).
-5. Verify how a server 400 for `uptime.heartbeat_retention_days` renders (`uptimeFieldError`) and add a unit test that it shows the field error rather than only a toast.
+Temp directory:
 
-The shipped helper (commit 6) also includes the approximate size ("approximately 15 MB per monitor per 30 days", labelled approximate); the docs carry the per-row derivation: about 320 bytes per row including indexes, 1440 rows per monitor per day.
+- SQLite temp location depends on `SQLITE_TMPDIR`/`temp_store_directory`, else `/var/tmp`, `/usr/tmp`, `/tmp` (possibly a small RAM-backed `/tmp` in Docker).
+- **Decision (M1, spike-backed 2.4):** `SQLITE_TMPDIR` set at runtime after the driver initialised is ignored, so it is set **in `main` before the first `sql.Open` of any kind** (before `ApplyPendingRestore` if that opens a handle, and before `database.Connect`; the `migrate` and `reset-password` subcommands go through the same early helper): `dbmaint.PrepareTempDir(dataDir)` creates/validates `<data>/.tmp` (below) and then `os.Setenv("SQLITE_TMPDIR", <data>/.tmp)`. **An operator-set `SQLITE_TMPDIR` is honoured and left untouched** (no directory is created or chased, it is only validated as an existing writable directory for the free-space check). `PRAGMA temp_store_directory` is rejected: deprecated, process-global and can only be applied per connection after the fact. If preparing `<data>/.tmp` fails (symlink, wrong owner, not creatable), the env var is **not** set, SQLite keeps its default search order, and a Warn is logged.
+- **The free-space check runs against the directory actually used:** `dbmaint.EffectiveTempDir()` = the `SQLITE_TMPDIR` value in the environment if set, else the first existing writable directory of `/var/tmp`, `/usr/tmp`, `/tmp` (SQLite's own order). `need_tmp` is checked on that directory's filesystem, never on a path the process does not use. Test: with `SQLITE_TMPDIR` pointing at a small tmpfs fake, the check uses it; unset, it uses the default chain.
+- For the directory we create, `<data>/.tmp` (`<data>` = `filepath.Dir` of the cleaned database path): `os.Lstat` and **refuse a symlink** (`temp_dir_unsafe`), create `0700` owned by the `charon` user (the entrypoint runs as root then drops privileges; verify ownership rather than trusting an existing directory), never derive from request input. SQLite unlinks its temp files as soon as they are opened, so there is **nothing to clean at boot** (no cleanup step is specified); a leftover would only appear after a hard kill and is harmless and bounded by the next `VACUUM`'s own cleanup.
 
-**0 / "disable pruning" stays out of scope** (would need a sentinel through the pruner, summary, API, and UI, and re-opens the unbounded-growth failure).
+Writer lock probe (readers are not a blocker): acquire the pool's only connection (`sqlDB.Conn(ctx)`); on it `PRAGMA busy_timeout=0`; `BEGIN EXCLUSIVE`; `ROLLBACK`. `SQLITE_BUSY` means another **writer** holds the DB -> release, restore `busy_timeout=5000` (in a `defer`), skip `database_busy`, up to 3 retries 20 s apart within this boot. The pool connection is acquired with the `ConnAcquireTimeout` of 3.4 step 6; the whole `checking` phase is therefore bounded.
 
-### 3.4 Redundant index drop
+Boot `quick_check` and the WAL pin:
 
-- `models/uptime.go:45`: `MonitorID string json:"monitor_id" gorm:"index:idx_heartbeat_lookup,priority:1"` (bare `index` removed).
-- Existing installs: `DROP INDEX IF EXISTS idx_uptime_heartbeats_monitor_id`, executed only **after** `idx_heartbeat_monitor_created` exists. Place it in the pruner's `ensureIndex` success branch (new small `dropRedundantIndex`, in-memory short-circuit like `indexCreated`) and in the `migrate` CLI after the composite create. Both idempotent. Dropping is fast and frees pages (no file shrink, see the tradeoff above).
-- **Rationale (corrected).** The guard is *not* because delete-by-monitor or EXISTS would table-scan: both only need a `monitor_id` prefix, which `idx_heartbeat_lookup` also provides. The guard exists because the **ordered monitor-history query** needs `idx_heartbeat_monitor_created (monitor_id, created_at)`; without it that query would filter by `monitor_id` on `idx_heartbeat_lookup` and sort. Keeping the drop-after-`ensureIndex` guard is harmless and keeps the reasoning simple (never drop the single-column index until the ordered composite exists). The same coupling note is carried into the `idx_heartbeat_lookup` follow-up (Section 2.3, and GH #1422).
-- GORM security scan applies because `backend/internal/models/**` changes.
+- `database.Connect` exposes completion **without changing the `launchQuickCheck` seam** (`var launchQuickCheck = func(dbPath string) { go runQuickCheck(dbPath) }`, `database.go:19`, overridden by `database_test.go` and `SyncIntegrityCheckForTesting` (`:45`), whose assigned `runQuickCheck` must keep `func(dbPath string)`). Design: `Connect` registers a per-path status entry (`sync.Map` keyed by the cleaned path: `done chan struct{}`, `sync.Once`, result string) **before** `launchQuickCheck(dbPath)` (`:104`); `runQuickCheck` (`:113`) completes it in a `defer` on every exit path. Accessor `database.QuickCheckStatus(dbPath) (done <-chan struct{}, result func() string)`. A regression test asserts that both the default async launcher and `SyncIntegrityCheckForTesting` close `done`.
+- **Total conversion cap: intentionally absent (M3).** `converting` is not wall-clock capped: a cap would interrupt a legitimate multi-minute `VACUUM` on a multi-GB file, waste all the work and make the next boot fail identically (a retry loop that never converts). `VACUUM` is atomic, and its rebuild phase is interruptible (ctx cancel stops it within milliseconds there; the final copy-back tail is not, see 2.4 and below), so the operator's controls are sufficient: `elapsed_seconds` on the status page, SIGTERM/`docker stop` (a stop during the rebuild ends `interrupted` with no counted attempt; a stop during the tail lets the conversion complete if it finishes within the 4 s runner wait, otherwise the process exits mid-copy and it ends as one counted attempt), `CHARON_DB_COMPACT_ON_START=off`. The disk pre-check and acquire timeout remove the realistic hang causes; only a hung disk would stall it, and that would stall anything else too.
+- After `VACUUM` on the normal (non-cancelled) path, `wal_checkpoint(TRUNCATE)` runs with bounded retry (`CheckpointRetries`, doubling from `CheckpointBackoff`, cap 30 s) because any reader makes it return busy (**read the `busy` column via `QueryRow`, not the error, which is nil, 2.4**); the gate stays active during retries. **On the cancelled path (nil `VACUUM` with a cancelled ctx, M1) there is no retry or backoff:** `last_result` and the marker clear are written first, then one checkpoint attempt (or none); the next pruner pass finishes the shrink.
+- **`Run` ordering (M-d).** `Run` closes the pinned connection (`conn.Close()`) **before** any settings write (marker, attempts, last result, flag clear): with `MaxOpenConns(1)` a write issued while the conversion connection is still held blocks until the 3 s timeout and is lost. Together with the H2 rule (a nil `VACUUM` with a cancelled ctx is `converted`) and the M1 ordering (result and marker first, then a single checkpoint attempt), tests with a fake convert that ignores cancel cover all three (3.4 step 9).
+- **Post-`VACUUM` prepared statements (L-c).** `Connect` opens gorm with `PrepareStmt: true`; `VACUUM` bumps the schema cookie. The `Convert` test runs gorm queries (prepared-statement cache warmed before the conversion) after `VACUUM` on the same `*gorm.DB` and asserts they succeed.
+- `PRAGMA journal_size_limit` (for example `64 << 20`) so the WAL is truncated on the next reset; evaluated in commit 2 (apply only around the conversion if it causes churn).
+- **Verify by file size**: record `bytes_before = size(main) + size(wal)` and after the checkpoint `bytes_after` via `os.Stat`; success needs `size(main)` to drop by at least the expected reclaimable amount minus tolerance. If the checkpoint never completed, report `converted_pending_checkpoint` (durable; the pruner's later checkpoint finishes the shrink).
+- Post-conditions: `PRAGMA auto_vacuum` == 2 and `freelist_count` near 0. No post-`VACUUM` `quick_check` (VACUUM is atomic); if ever wanted, after gate release, background, warn-only.
 
-### 3.5 Compaction: NOT in this PR
+Attempts and interruption:
 
-`charon compact`, `database/compact.go`, `VACUUM`, `auto_vacuum`, `incremental_vacuum`, and the in-app compact button are removed from this plan and moved entirely to the follow-up PR tracked in GH #1422. The pruner comment "VACUUM is deliberately not used" is updated to point at the follow-up work ("space is reclaimed by the database maintenance feature"), nothing more.
+- The attempt counter increments only when an attempt **fails** (non-cancellation error) or a leftover `maintenance.in_progress` marker (valid for this file's inode, 3.3) from a previous boot shows a kill mid-run. The outcomes of a cancel-driven stop (SIGTERM/SIGINT via `appCtx`) depend on **where** `VACUUM` is (H2, measured, 2.4):
+  - **Rebuild phase:** the driver interrupts `VACUUM` within milliseconds, SQLite rolls back cleanly, `Run` records `interrupted`, clears the marker (through the bounded shutdown wait and detached context of 3.4 step 9) and the counter is **not** incremented.
+  - **Copy-back tail (uninterruptible, seconds to tens of seconds on real disks for multi-GB files):** `VACUUM` keeps running after the cancel and returns **nil**. `Run` records `converted` (by the `Convert` result, not by `ctx.Err()`) and runs the post-steps with the detached context in the M1 order (result and marker first, then a single checkpoint attempt); the counter is not incremented. If the tail outlasts the 4 s shutdown wait, see the next bullet.
+  - **Stop during the tail, process exits mid-copy (H1):** the process exits about 5 s after SIGTERM whatever the container's stop grace, so this can always happen for a long tail. It is safe and atomic (SQLite recovers from the WAL; the database is the old one or the converted one, never a mix), the marker remains and counts as **one attempt** at the next boot, which retries (up to `MaxConvertAttempts` = 3). No `stop_grace_period` recommendation and no new knob: a longer grace cannot help because the runner wait is fixed at 4 s. Stated plainly in the docs.
+- `too_many_failures` (counter >= 3): plain instructions ("Automatic optimization stopped after 3 failed attempts. Make sure there is enough free disk space and that Charon is not being killed during startup, then press Reclaim space on next restart."). Pressing the button sets the flag, which resets the counter.
+- A crash or SIGKILL mid-`VACUUM`, including during the copy-back tail, is safe (SQLite recovers from the WAL).
 
-### 3.6 Pruner: bounded index scan (unconditional fix in this PR)
+Backups during maintenance: while the gate phase is `planned`, `checking` or `converting`, **scheduled backups are deferred, not dropped (L6)**: `RunScheduledBackup` logs Info and, when `gate.Deferring()`, starts at most one waiter goroutine (guarded by an atomic flag) that calls `gate.WaitReleased(ctx)` (returns when the gate leaves the active/planned phases, including every terminal outcome, or ctx is cancelled) and then runs the backup once, so a daily cron tick falling inside a conversion is not lost for a day. Bounded because the gate is bounded; test both the deferral and the run-after-release; a manual backup API call is served normally in `planned` and gets the gate's 503 in `checking`/`converting`. `VACUUM INTO` needs another about `live` bytes and a second connection while the conversion already needs about 2x.
 
-Defect (verified on a scratch DB, see Section 6): `SELECT id FROM uptime_heartbeats WHERE created_at < ? ORDER BY id LIMIT 5000` plans as `SCAN uptime_heartbeats` (rowid scan). The final, caught-up chunk of every pass (including the steady-state hourly pass) scans the whole table looking for more matches.
+Startup log for break-glass: at conversion start one Warn line: `database optimization started; the management UI, API and emergency server return 503 until it finishes; set CHARON_DB_COMPACT_ON_START=off and restart to skip optimization and regain break-glass access`.
 
-Fix: keep the `DELETE ... WHERE id IN (subquery)` shape (the driver does not compile `DELETE ... LIMIT`), but change the subquery to `ORDER BY created_at, id`:
+### 3.6 Maintenance mode (gate, page, status)
 
+`Gate` states: `idle | planned | checking | converting | done | skipped | failed`; fields `phase`, `started_at`, `elapsed_seconds`, `bytes_before`, `bytes_after`, `message`, `attempt`. In-memory; the status endpoint reads it with **no DB access**.
+
+- **`GET`/`HEAD /api/v1/maintenance/status` is answered by the gate in EVERY phase** (`idle`, `planned`, `checking`, `converting`, `done`, `skipped`, `failed`): `200`, static JSON from gate state, then `c.Abort()`. It must never fall through to the router or the SPA fallback (which would return `index.html` with 200 in `idle`/`done`/`skipped`, breaking the maintenance page's final poll and the E2E spec). Exact-match string comparison; free in the common case. (A registered route cannot be used: the gate must answer before `EmergencyBypass`/`RateLimit`.)
+- **While `checking`/`converting` only**, everything below applies; in all other phases every other request passes with `c.Next()`:
+  - **Answered by the gate itself then `c.Abort()`:** `GET`/`HEAD /api/v1/health` -> 200, static body identical in shape to `HealthHandler`'s. **HEAD consistency (L8):** gin does not route `HEAD` to a `GET` route, so in `idle` a `HEAD /api/v1/health` would fall to NoRoute/SPA while the gate answers it 200 in active phases; commit 4 therefore also registers `router.HEAD("/api/v1/health", cerb.RateLimitMiddleware(), handlers.HealthHandler)` next to `routes.go:258`, and a test asserts `HEAD` returns the same status in idle and in every active phase. Exact-match on method and path; no prefix matching; no static asset allow-list (the maintenance page is self-contained).
+  - **Explicitly blocked:** `/api/v1/health/db` gets the same 503 as every other API path.
+  - All other `/api/*` (and the emergency-server wrapper) -> `503` JSON `{"error":"Database optimization in progress","maintenance":true,"retry_after_seconds":15}` with `Retry-After: 15`.
+  - **Unmatched paths (`NoRoute`, e.g. SPA deep links such as `/settings/system`) -> a small self-contained embedded HTML page, `503`**: "Optimizing the database. This can take a few minutes. Your proxies are still running." It polls `/api/v1/maintenance/status` every 5 s and reloads when `active` becomes false.
+  - Content negotiation: JSON when `Accept: application/json` or path under `/api/`, HTML otherwise; `HEAD` gets the same status and headers without a body.
+- **What the gate does NOT front (M4, corrected).** `server.NewRouter` (`backend/internal/server/server.go:18`) registers the static routes (`/`, `/assets`, `/uploads`, `/logo.*`, ...) **before** `main.go` calls `router.Use(gate.Middleware())`, and gin applies `Use` middleware only to routes registered afterwards (plus `NoRoute`/`NoMethod` handlers). So during `checking`/`converting`: navigating to `/` returns the SPA `index.html` with **200**, not the 503 page; only unmatched deep links get the HTML 503 page. This still works because the SPA's own API calls (first the auth/session check) get the gate's `503 {"maintenance":true}` and the Axios interceptor switches to the maintenance view; a 503 does not take the 401 logout path (frontend test, 3.7). **The interceptor plus `/` flow is therefore the primary tested path; the embedded HTML page is the secondary path for deep links and non-SPA clients.**
+- **Decision: static routes stay ungated.** Gating them (passing the gate into `NewRouter` or registering it first) would be possible, but the assets are public, contain no secrets and need no DB; an already-loaded SPA tab needs its assets to keep polling and to render the maintenance view; and a 503 on `/` would turn a cached/loaded SPA into a blank failure instead of the in-app view. Keeping them open costs nothing and keeps one rendering path. Tests: with the gate active, `GET /` returns 200 `text/html` (SPA index), `GET /settings/system` (deep link) returns the 503 HTML page with the security headers, and `GET /api/v1/auth/me` returns the 503 JSON; the E2E spec drives the `/` -> API 503 -> maintenance view flow.
+- **Response headers.** The gate precedes `SecurityHeaders`, so its responses set their own: `Content-Security-Policy` (`default-src 'none'; script-src 'sha256-<hash>'; style-src 'sha256-<hash>'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`; hashes computed from the embedded page's inline script/style at package init and asserted by a test), `Cache-Control: no-store`, `Retry-After`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`. Applies to the HTML page, the 503 JSON and the status JSON in every phase.
+- **Rate limiter note.** The status endpoint bypasses rate limiting (answered before the limiter): accepted, static in-memory data, no DB or disk I/O, 5 s polling.
+- Proxied traffic through Caddy is untouched (2.1).
+- Emergency server: during `checking`/`converting` the wrapper returns a fast 503 `{"error":"Database optimization in progress","maintenance":true}` with `Retry-After`, never touching the pool (accepted loss of break-glass for the duration; the Warn line tells the operator how to regain it). The wrapper's own DB-free `/health` keeps returning **200** in every phase (L7; a test asserts it while the pool is pinned), so anything probing the emergency port sees a live process.
+- Progress is honest and indeterminate (`elapsed_seconds`, `phase`); no fake percentages. The unauthenticated status returns only `{active, phase, elapsed_seconds}`.
+
+### 3.7 API and UI contract
+
+**Flag storage.** Settings row `maintenance.compact_requested` (`"true"` or absent), Type `bool`, Category `maintenance`; `Plan` reads it synchronously; cleared transactionally at consumption. Persisted attempt counter, in-progress marker and last result: `maintenance.attempts`, `maintenance.in_progress`, `maintenance.last_result` (JSON `{at, outcome, reason, bytes_before, bytes_after}`).
+
+**Reserved-key protection (extends, does not duplicate, the #1423 guard).** `settings_handler.go:98` is `var internalSettingPrefixes = []string{"migration."}`. Change the single list to `{"migration.", "maintenance."}`; `isInternalSettingKey` (`:102`, normalizes with `ToLower(TrimSpace)`, prefix-keyed, never Category-keyed) and `filterInternalSettings` (`:113`) are unchanged. Already wired at: `GetSettings` filter (`:76`), `UpdateSetting` guard (`:174`), `PatchConfig` flattened-key guard (`:334`) and `PatchConfig` response filter (`:450`); `respondReservedSettingKey` returns 400. No new code paths. Tests: extend the existing table-driven reserved-key tests in `settings_handler_test.go` (added by #1423) with `maintenance.compact_requested` (and case/whitespace variants, nested `{"maintenance":{"compact_requested":"true"}}` for `PatchConfig`) rather than writing a second set. The flag is only settable through the dedicated endpoints. Update the comment on `internalSettingPrefixes` to name both uses.
+
+Endpoints (authenticated admin only, same middleware as other system settings; snake_case keys), registered next to `routes.go:508-509` (`/system/permissions`) inside the management group with `middleware.RequireRole(models.RoleAdmin)`:
+
+| Method and path | Purpose | Response |
+| --- | --- | --- |
+| `GET /api/v1/maintenance/status` (unauthenticated, gate, every phase) | Liveness for the maintenance page | `{"active":bool,"phase":"idle\|planned\|checking\|converting\|done\|skipped\|failed","elapsed_seconds":int}` |
+| `GET /api/v1/system/database` | Card data and conditional notice | see below |
+| `POST /api/v1/system/database/optimize-on-restart` | Set the flag (idempotent: a repeated POST while the flag is already set returns `200 {"requested":true}`, never 409) | `{"requested":true}` |
+| `DELETE /api/v1/system/database/optimize-on-restart` | Clear the flag | `{"requested":false}` |
+
+`GET /api/v1/system/database`:
+
+```json
+{
+  "size_bytes": 4800000000,
+  "wal_bytes": 4194304,
+  "reclaimable_bytes": 1700000000,
+  "auto_vacuum": "none",
+  "env_mode": "auto",
+  "compact_requested": false,
+  "can_request_optimize": true,
+  "disk_free_bytes": 52000000000,
+  "last_result": {"at": "2026-10-02T04:11:00Z", "outcome": "converted", "reason": "", "bytes_before": 4800000000, "bytes_after": 2900000000},
+  "notice": null
+}
 ```
-DELETE FROM uptime_heartbeats
-WHERE id IN (
-    SELECT id FROM uptime_heartbeats
-    WHERE created_at < ?
-    ORDER BY created_at, id
-    LIMIT ?
-)
-```
 
-- `idx_uptime_heartbeats_created_at (created_at)` stores entries as `(created_at, rowid)`, so `ORDER BY created_at, id` is satisfied by index order with no sort, and the scan stops at the cutoff.
-- **Do not use `INDEXED BY`.** It makes the statement error if the index is missing (a fresh DB before AutoMigrate, a restored file, a future index drop), and combined with `ORDER BY id` it forces a `USE TEMP B-TREE FOR ORDER BY` sort per chunk. The planner picks the index on its own for the `created_at, id` ordering.
-- Test (in `uptime_pruner_test.go`): run `EXPLAIN QUERY PLAN` on the exact subquery text (export the SQL as a package constant so the test and the code cannot drift) against a populated in-memory DB and assert the plan detail contains `idx_uptime_heartbeats_created_at` and does **not** contain `TEMP B-TREE`. Also assert behaviour: rows older than the cutoff are deleted oldest-first, newer rows untouched, multi-chunk passes terminate.
-- Make the inter-chunk pause context-aware (`select` on `ctx.Done()` and `time.After(pause)` instead of `time.Sleep`) so shutdown is not delayed by up to 250 ms per chunk. Unit test: cancel during the pause returns promptly with the partial total and `ctx.Err()`.
-- Explicitly **not** included: a 5 M-row benchmark gate (dropped; the fix is unconditional and pinned by the plan test) and any "retry a failed chunk inside the pass" logic (dropped; a failed chunk still returns and the next hourly tick retries).
+`can_request_optimize` (L2) is computed server-side: `false` when `auto_vacuum` is already incremental or `reclaimable_bytes < MinReclaimableBytes` (100 MB), or `env_mode` is `off`. The UI **hides** the "Reclaim space on next restart" button when `auto_vacuum` is incremental or reclaimable is below 100 MB, and shows it **disabled with the reason** when only the env is `off`. `POST .../optimize-on-restart` returns a `409` with a **distinct body per cause** (L-a), so the UI and operators are never told the wrong thing: mode 2 or reclaimable below the floor -> `409 {"error":"the database is already optimized or has too little reclaimable space","code":"nothing_to_optimize"}`; env `off` -> `409 {"error":"database optimization is disabled by CHARON_DB_COMPACT_ON_START=off","code":"disabled_by_env"}`. If the flag is **already set**, a repeated POST returns `200 {"requested":true}` before any of these checks (idempotent, even when the env was switched to `off` afterwards). DELETE stays idempotent. The flag can therefore never be newly set when it could only be cleared again; a skipped run does not clear a set flag (3.3).
+
+**The notice is computed fresh on every call** (`dbmaint.Inspect` + `Decide` dry run per request), not from a boot snapshot: the pruner's first pass runs about 30 s after boot and frees pages without a restart. `Inspect` is a few PRAGMAs plus `os.Stat`; admin-only; React Query `staleTime` 30 s. `Advise` (3.3a) uses the same `Decide`, so the log line and the notice can never disagree.
+
+`notice` is `null` unless something is worth saying; otherwise `{"code":"restart_to_optimize"|"insufficient_disk"|"disabled_by_env"|"too_many_failures"|"database_busy","severity":"info"|"warning","reclaimable_bytes":int,"required_bytes":int?,"available_bytes":int?}`:
+
+- `restart_to_optimize` (**severity `info`**; **emitted only while `conversionEnabled` is true, i.e. from commit 6 on (L3), so commit 5 never promises behaviour that does not exist yet**; also suppressed when the persisted last result for this `file_id` is a terminal skip such as `integrity_check_failed`, L4): legacy mode-0 database, the automatic condition of 3.3 step 4 holds, and the boot path has not yet acted. Rendered as a quiet line in the Database card, never as a page-top banner: "Charon will shrink the database by about X GB the next time it starts (for example after an update). Nothing to do."
+- `insufficient_disk` (**warning**, page-top banner in System Settings): "free up about X GB, then restart".
+- `too_many_failures` (**warning**): the plain instructions from 3.5.
+- `database_busy` (**info**, card): "Optimization was postponed because the database was in use; it will be retried on the next start."
+- `disabled_by_env` (**info**, card): the flag is set (the user pressed the button earlier) **and** the env is `off` now. It can only occur that way: while the env is `off` POST returns 409 and the UI disables the button, so the flag cannot be newly set. No new code path: the notice is derived from `compact_requested && env_mode == off`, and the set flag stays in place and is honoured again when the env is removed (3.3 flag lifecycle).
+- Nothing is shown when the database is healthy, small, or already converted.
+
+UI (English strings only; locales are #1421; add strings under the existing `systemSettings` namespace of `frontend/src/locales/en/translation.json` only):
+
+- `frontend/src/api/databaseMaintenance.ts` (typed client wrapping `client.ts`; `system.ts` is unrelated update/notification code), `frontend/src/hooks/useDatabaseMaintenance.ts` (React Query, `invalidateQueries` on mutation).
+- A small **"Database" card in System Settings** (`frontend/src/pages/SystemSettings.tsx`, alongside the Uptime card that #1423 touched): current size, "X GB could be reclaimed" when applicable, the `info` notice line, and the button **"Reclaim space on next restart"** (POST, then "Scheduled - the space is reclaimed the next time Charon starts." with an undo link, DELETE). `warning` notices render as a banner at the top of System Settings; not on the dashboard.
+- Maintenance view (primary path, M4): an axios interceptor in `client.ts` (or a `MaintenanceGate` component): on a `503` with `maintenance:true` from any API call, including the very first session/auth check after `/` returned the SPA, show the lightweight "Optimizing the database" view that polls the status endpoint and returns when `active` is false. The interceptor must treat this 503 as **not** a logout (the 401 path is untouched; Vitest asserts no token clearing or redirect to login) and must not retry-storm (React Query retries are paused while the view is shown).
+
+### 3.8 Env override
+
+`CHARON_DB_COMPACT_ON_START=auto|off` (default `auto`), parsed in `internal/config/config.go` in `Load()` (`:104`) next to the other `CHARON_*` variables via `getEnvAny` (`:256`); a new `Config.DBCompactOnStart` string field. An invalid value, including the removed `force`, falls back to `auto` and appends a `StartupWarnings` entry (logged by `logStartupWarnings`, `main.go`). Precedence: `off` > flag > `auto` thresholds. `off` never runs at boot (also the documented way to regain break-glass access).
+
+Defaults to `off` in the **E2E/CI compose files** so test databases are never converted mid-suite: `.docker/compose/docker-compose.playwright-ci.yml` (environment block at `:45-47`), `.docker/compose/docker-compose.playwright-local.yml` (`:33-34`), `.docker/compose/docker-compose.test.yml` (`:17-18`); `docker-compose.e2e.cerberus-disabled.override.yml` inherits the playwright-ci base (verify in commit 6; add only if it redefines `environment`). Production/dev/local compose files (`docker-compose.yml`, `.dev.yml`, `.local.yml`, `.remote.yml`) do **not** set it (auto is the point). `.env.example` gets a commented `# CHARON_DB_COMPACT_ON_START=auto` entry next to `CHARON_DB_PATH` (`:46`). The many `scripts/*_integration.sh` start fresh tiny databases (never meet the 100 MB floor), so they need no change. Documented in `docs/database-maintenance.md` (4, Phase 5).
+
+### 3.9 Data model
+
+No new tables or model fields. Settings rows only (3.7); AutoMigrate lists unchanged; `models` unchanged (no `json` tag work). The GORM security scan still runs when the settings-row queries are added (commit 3/5/6 gates).
 
 ## 4. Implementation Plan
 
-### Phase 1 - Playwright tests (spec behavior)
+### Phase 1 - Playwright tests (spec behavior, `test.fixme` first)
 
-Update `tests/monitoring/uptime-monitoring-scale.spec.ts` Scenario 3:
+`tests/settings/database-maintenance.spec.ts` (new; existing settings specs live in `tests/settings/`). All `test.fixme` in commit 1. Mocked `GET /api/v1/system/database` routes (no real conversion in E2E):
 
-- Change the fixture stored value from `'90'` to a non-default `'45'`; keep the "set to 30 and save" round-trip.
-- Add a test: with the mocked settings API returning `'30'`, the field shows `30`, the placeholder is `30`, and the helper text mentions "permanently deleted" and "compacted"; entering `0` and `3651` shows the range error and blocks Save.
-- New tests are `test.fixme` in commit 1 and un-fixme'd in commit 6.
+- Card shows size and hides every notice when `notice` is null.
+- `restart_to_optimize` (`info`) renders as a quiet line in the card, not a banner; `insufficient_disk` and `too_many_failures` (`warning`) render as a top banner with the plain instructions.
+- Button POSTs, shows "Scheduled", undo DELETEs.
+- Button disabled with the reason when `env_mode` is `off`.
+- A `503 {maintenance:true}` from an API call shows the "Optimizing the database" view and returns to the app when the mocked status route reports `active:false`; the mocked status returns JSON in every phase, including after completion.
 
-### Phase 2 - Backend
+### Phase 2 - Foundation (no behavior change)
 
-- `services/uptime_config.go`: exported constants, default 30, `normalizeRetentionDays` clamp.
-- `services/uptime_retention_migration.go` (new): strict migration (Section 3.2) plus marker constant.
-- `settings_handler.go`: shared bounds; `isInternalSettingKey` / `filterInternalSettings` used by `GetSettings` **and the `PatchConfig` response**; reject `migration.` writes in **both** `UpdateSetting` and `PatchConfig`; add the 1-3650 uptime validation to `PatchConfig` (Section 3.1).
-- `routes.go`: seed `"30"`; call the migration after the seed loop.
-- `models/uptime.go`: remove bare `index` from `MonitorID`.
-- `services/uptime_pruner.go`: `dropRedundantIndex` after a successful `ensureIndex`; comment update; the bounded-scan query and context-aware pause (Section 3.6, unconditional).
-- `cmd/api/main.go`: `migrate` CLI drops the redundant index after creating the composite.
+- `dbmaint` skeleton: `Inspect`, `Decide` (including the OR trigger), constants, `diskspace` extracted from `backup_service.GetAvailableSpace` (behavior unchanged). Confirm in `codecov.yml` (`ignore:` list covers tests, docs, `.github`, `scripts`, `*.yml`/`*.json`, frontend artifacts) that `backend/internal/dbmaint/**` is **counted**; confirm no `.gitignore`/`.dockerignore` entry hides it.
+- `internal/config`: `CHARON_DB_COMPACT_ON_START` parsing.
+- Spike regression tests on glebarez/go-sqlite (2.4): pragma order on a new file; `VACUUM` on a pinned `sqlDB.Conn` converts a WAL database and keeps WAL; `BEGIN EXCLUSIVE` vs reader/writer; **`incremental_vacuum` regression tests (H1)**: (1) via `QueryContext` with all rows iterated, `freelist_count` drops by about N per call (assert `before - after >= N - slack`, not merely that a small file shrank), reaching 0 in `ceil(free/N)` steps, and the **file** shrinks after `wal_checkpoint(TRUNCATE)` (by `os.Stat`); (2) an explicit **trap test** that `Exec("PRAGMA incremental_vacuum(N)")` frees exactly one page per call on this driver (so a driver upgrade that fixes it flags the test and lets us simplify, and a regression to `Exec` in `Drain` is caught); (3) a `Drain` test on a >= 10k-free-page scratch DB asserting `freelist_count` falls by about `DrainPagesPerStep` per step. Also: `VACUUM INTO` preserves mode 2; context-cancel of a running `VACUUM`: early cancel returns an interrupt error (DB intact, mode unchanged, no temp file left), late cancel during the copy-back tail returns nil or an interrupt error with the DB intact and the mode consistent with the outcome (H2; the test asserts outcomes, not timing); `Drain`/`Query` follow-up query after `rows.Close()` returns immediately while open rows block it (M-c); `wal_checkpoint(TRUNCATE)` busy column is readable via `QueryRow` and is 1 with nil error when a reader blocks (M-c); a post-`VACUUM` gorm `PrepareStmt: true` query on the same `*gorm.DB` succeeds (L-c); `SQLITE_TMPDIR` set before the first open is honoured and set late is ignored (M1); checkpoint busy flag readable; `RunListener` compiles in the pinned gin.
+- `internal/database`: expose the boot `quick_check` completion channel/result through the per-path registry, keeping the `launchQuickCheck` seam and `func(dbPath string)` signature intact.
+- Extend `internalSettingPrefixes` with `maintenance.` (one-line change to the existing list; tests extended in place).
 
-### Phase 3 - Frontend
+### Phase 3 - Backend (gate before conversion)
 
-- `en/translation.json`: `retentionDaysHelper` text only. `SystemSettings.tsx`: `placeholder="30"`.
+- `Connect`: `auto_vacuum=2` for empty databases before WAL; `Drain`, `Advise`, pruner integration.
+- **Gate first** (commit 4): `Gate` state machine, readiness signals, `WaitIdle`/`Deferring`, middleware (status in every phase; health self-answered; `health/db` blocked in 503 phases; headers, HEAD/JSON negotiation), embedded page, emergency-server fast 503, `applyInitialCaddyConfig` `onDone(applied)` on all paths, explicit `net.Listen` + `MarkListenerBound`, synchronous `Plan`, pipeline-start deferral at the six goroutines of 3.4 step 5, both bounded waits, backup-scheduler deferral (run-after-release), shutdown wait and detached marker writes (3.4 step 9), `SafePlan`, `Conn` acquire timeout, `HEAD /api/v1/health` route, signature/caller changes (3.4 step 10), `dbmaint.Run` with a **fake convert function**. `Advise` and the `restart_to_optimize` notice are gated on the same `conversionEnabled` switch (false until commit 6). **Production behaviour in commit 4 is unchanged: the production `Plan` returns `idle` unconditionally** (a `conversionEnabled` switch false until commit 6), so no real install enters `planned`, defers the pipeline or pins the pool before a real `Convert` exists. Tests inject a `Plan` result and a fake convert.
+- Then API (commit 5), then **conversion** (commit 6): `Convert` with checks, `Run` wired to it, last-result/attempt/in-progress persistence, `conversionEnabled` flipped on.
+- Unit tests (Go): `Decide` truth table (every threshold edge, OR trigger, env precedence, flag, back-off); `Advise` (transition logging once per process, mode 2 no-op, dry-run ignores the flag, agrees with `Decide`); pruner `tick` drain wiring (mode 2 drains and checkpoints, mode 0 advises and never drains, ctx abort, budget); disk math incl. same-filesystem summing; writer-lock probe (a second connection holding a write lock fails it, a reader does NOT); conversion on a scratch DB with data integrity and index presence and **file-size** assertion; interruption via cancelled context leaves the DB intact and does not bump the counter; checkpoint retry against a held reader; gate middleware allow-list/blocked/503 shapes/headers/HEAD/JSON; **`/api/v1/maintenance/status` returns the same static JSON (not SPA HTML) in every phase, in particular `done`, `skipped`, and `idle` with no plan**; `planned` serves the UI normally while the `quick_check` wait is pending and only `checking`/`converting` return 503; the readiness timer stops when both signals arrive and the `quick_check` wait then runs to `QuickCheckMaxWait`; `Plan` steps 1-4/6 versus runner steps 5/7 (a planned run ending `skipped` releases the pipeline and backups; `SafePlan` turns a panic or error into idle plus a Warn; `Conn` acquire timeout ends `skipped(database_busy)` and releases; cancel-driven stop with a fake convert that blocks until cancel writes `interrupted`, clears the marker via the detached context, leaves attempts unchanged and `Run` returns; a fake convert that **ignores cancel** and returns nil yields `converted` (not `interrupted`) with post-steps on the detached context (H2/M-d); marker writes succeed with `MaxOpenConns(1)` because the pinned conn is closed first (M-d); the shutdown wait is bounded by `ShutdownRunnerWait` and runs before the uptime drain; persisted state with a different inode is ignored, a dev-only mismatch keeps it, an in-place `VACUUM` keeps it (M-b); `Drain` measures freed pages by `page_count` delta and does not false-trigger when concurrent inserts reuse free pages (L-b), issues no other pool query while rows are open (M-c) and reads the checkpoint `busy` column; POST is 200 when the flag is already set, and 409 bodies differ for env-off versus nothing to optimize (L-a); the `WaitReleased` waiter exits on `appCtx` cancel; a skipped run leaves the flag set while `already_optimized`/`nothing_to_reclaim` clear it; `Advise` silent while `conversionEnabled` is false and when the last result is a terminal skip; scheduled backup deferred then run after release; `/` returns the SPA (200), a deep link returns the 503 page, API returns 503 JSON while active; `HEAD /api/v1/health` identical in idle and active; emergency `/health` 200 while pinned; `Drain` uses `Query` (H1 regression above); mode-2 with flag records `already_optimized`, never converts or drains at boot; pinned-connection + expired rate-limit-cache health test (2.2); every `onDone` path; `PlannedMaxWait` expiry; handlers (auth, idempotent POST/DELETE, fresh notice per call, severity mapping); `maintenance.` reserved-key cases in both settings handlers; maintenance failures never propagate to startup (panic recovered); nil-gate behaves as idle in `RegisterWithDeps` and `NewEmergencyServerWithDeps`; `config` parsing (valid, invalid, `force`); `Connect` mode 2 on a new file and untouched on a populated file.
+- **Integration test (Go, `internal/api/routes` or `internal/dbmaint`, scratch DB + httptest upstream + stub Caddy manager)**: after `ApplyConfig` the proxy path keeps serving while the pool's only connection is pinned (no SQLite access on the data plane). This is the evidence for the 2.1 claim and gates commit 6.
 
-### Phase 4 - Integration and testing
+### Phase 4 - Frontend
 
-Go unit tests (new/updated):
+API client, hook, System Settings Database card, warning banner, info line, maintenance view, Vitest: notice mapping for every `code` and `severity` (info in card, warning as banner), button states (hidden when `auto_vacuum` is incremental or reclaimable < 100 MB, disabled by env, scheduled, pending, 409 handling), 503 `maintenance:true` handling (maintenance view shown, no logout, no retry storm), undo. `npm run type-check`, coverage >= 85%.
 
-- `uptime_config_test.go`: default 30 for missing row and non-integer; clamp table: `0`, `-5` -> 30; `1`, `30`, `3650` unchanged; `3651`, `9999` -> 3650; update existing 90 assertions.
-- `uptime_retention_migration_test.go` (table-driven; also asserts the "left at 90, not provably untouched" Info line is logged exactly once on that path and not on others):
-  1. untouched seed (90, all three within 5 s, contiguous IDs, sibling values `60`/`30`) -> 30, marker written;
-  2. 90 whose `UpdatedAt` is hours after siblings (deliberate save) -> stays 90;
-  3. **same-save 60 -> 90 with a worker-pool change** (retention and pool `UpdatedAt` within 5 s of each other, interval sibling at the seed time) -> stays 90 (the case that breaks the old "at least one sibling" rule);
-  4. both siblings edited later, retention untouched -> stays 90 (documented miss, fail-safe);
-  5. all three rows written together with siblings still at `60`/`30` -> lowered (documents the residual bulk-write risk explicitly, with a comment);
-  6. siblings edited to non-default values in the same save -> stays 90;
-  7. non-contiguous IDs (a sibling deleted and re-seeded) -> stays 90;
-  8. a sibling row missing -> stays 90;
-  9. value 45 -> unchanged; fresh install (row 30) -> marker only;
-  10. marker present -> no-op even for an untouched-looking 90;
-  11. idempotent on second call; "restored pre-upgrade backup" simulation (marker absent, untouched row) -> same result as first run.
-- `settings_handler_test.go`, **both handlers**:
-  - `GetSettings` and the `PatchConfig` response never contain a `migration.*` row (seed one directly in the DB, assert absence in both bodies).
-  - `UpdateSetting`: `migration.x` rejected with 400 regardless of the client-supplied `Category` (including `Category: "general"`, and key case/whitespace variants); nothing written.
-  - `PatchConfig`: `{"migration":{"x":"1"}}` rejected with 400 and nothing written (proves flatten-path coverage); a batch mixing a valid key and a `migration.` key writes nothing.
-  - `PatchConfig` uptime validation: `{"uptime":{"heartbeat_retention_days":"0"}}`, `"-1"`, `"3651"`, `"abc"` -> 400 `invalid_uptime_setting` and the stored value unchanged; `"30"`, `"1"`, `"3650"` accepted; a batch with one bad `uptime.*` key writes nothing.
-  - Bounds reference the shared constants; value `30` accepted via `UpdateSetting`.
-- `uptime_pruner_test.go`: `EXPLAIN QUERY PLAN` pin for the chunk subquery (uses `idx_uptime_heartbeats_created_at`, no `TEMP B-TREE`, Section 3.6); context-aware pause test; redundant index dropped only after `ensureIndex` succeeds, not dropped if the composite build fails, idempotent; `EXPLAIN QUERY PLAN` asserts monitor-history, delete-by-monitor, and EXISTS queries use `idx_heartbeat_monitor_created`; scenarios updated for the 30-day default.
-- Models: fresh in-memory AutoMigrate does NOT create `idx_uptime_heartbeats_monitor_id` but does create `idx_heartbeat_lookup` and `idx_uptime_heartbeats_created_at`.
+### Phase 5 - Integration, hardening, docs
 
-Vitest (`SystemSettings.test.tsx`): fixture `'30'`; assert the new helper copy and placeholder; client error for `0` and `3651`; server 400 for the retention key shows the field error. No locale-parity test is added (none exists to extend).
-
-Coverage gates: backend >= 85% (`scripts/go-test-coverage.sh`), frontend >= 85% (`scripts/frontend-test-coverage.sh`); `bash scripts/local-patch-report.sh` must produce `test-results/local-patch-report.{md,json}`.
-
-### Phase 5 - Documentation and deployment
-
-- `docs/features/uptime-monitoring.md`: default 30 (three places); "History Retention" section states the default, range, and that lowering retention frees space inside the database but **the file may not shrink until it is compacted (automatic compaction is planned)**. Add an **"Advanced: manually shrinking the database file (at your own risk)"** section for reporter-type installs who cannot wait for the automatic feature (documented workaround only; nothing shipped):
-  1. The Charon image ships the `sqlite3` CLI (`Dockerfile` ~L989, runtime stage package list).
-  2. **Charon must be stopped** first; never `VACUUM` a live database from a second process.
-  3. Run it in a one-off container against the data volume (entrypoint overridden), not on the host.
-  4. **File ownership warning.** Charon runs as the unprivileged `charon` user (the entrypoint drops privileges). A root-run `sqlite3` can leave `charon.db-wal` / `charon.db-shm` owned by root, which the `charon` user then cannot open. Run the one-off container as the same uid/gid, or `chown` the files afterwards.
-  5. **Back up first, including `-wal` and `-shm`.** Copying only `charon.db` while a WAL exists loses committed data. Copy all three files while Charon is stopped, or use `sqlite3 charon.db ".backup <dest>"`.
-  6. Free space required: roughly **2x the live data** (not 2x the file size; free pages are not rebuilt).
-  7. Optional: run `PRAGMA auto_vacuum=INCREMENTAL;` immediately before `VACUUM;` in the same session, so the later automatic-maintenance feature finds an already-converted database.
-  8. Start Charon again; if it cannot open the database, check file ownership. Upgrade note: on the first start, if retention was still at the old default and never edited, it is lowered to 30 and older history is removed; anyone who wants longer history can raise it in System Settings.
-- `ARCHITECTURE.md`: three "default 90" mentions; note the dropped index under data lifecycle. `docs/features.md`: check only.
-- No `docs-site/docs/` edits (git-ignored, synced).
-- Release note (commit body): "Default uptime heartbeat retention lowered from 90 to 30 days; installs that never changed the setting are migrated once." Keep the migration commit subject neutral (no wording that hints at data-loss mechanics).
+- Container-level check on a scratch/CI container only (never a live host): a mode-0 scratch database above the thresholds; proxied request keeps succeeding throughout, `/api/v1/health` stays 200, `/` serves the SPA which then shows the maintenance view from its 503 API calls (and a deep link serves the 503 page), database converted (file size drops), uptime resumes, `SIGTERM` mid-conversion (H1/H2: the test accepts every legitimate outcome and asserts safety plus eventual conversion, never instant interruption or a specific outcome). Use a scratch DB whose conversion is either clearly within the rebuild phase (large enough that the stop lands mid-rebuild) or clearly short (completes almost immediately), so the run is deterministic in what it checks; a stop during the copy-back tail is timing-dependent and is covered by the third outcome. After `docker stop` (default grace is fine; a longer `-t` changes nothing because the process exits about 5 s after SIGTERM) the database passes `integrity_check` and ends in exactly one of: (a) mode 0 with last result `interrupted`, marker cleared, attempts unchanged; (b) mode 2 with last result `converted`, marker cleared, attempts unchanged; (c) the marker left with exactly one counted attempt and an intact, recoverable DB. In every case the following boot is healthy and eventually completes the conversion (mode 2, marker cleared, file size down) within `MaxConvertAttempts`. A variant with `docker stop -t 1` (SIGKILL during a larger conversion) asserts only (c) plus the same next-boot completion; a second run on a mode-2 scratch DB shows the pruner draining with `freelist_count` falling. Do not run against `charon` (the dev test container is read-only evidence only).
+- Docs (all authored under repo-root `docs/`; never `docs-site/docs/`):
+  - `docs/features/uptime-monitoring.md`: in **Reclaiming disk space** (`:~110-175`), replace the "the database file may not get smaller by itself" bullet and the long **"Advanced: shrinking the file by hand"** procedure with a short "Charon now shrinks the database file by itself" description (new databases stay small; existing ones are optimized once automatically at the next start when worthwhile; brief "Optimizing" screen; proxies unaffected; heartbeat gap) linking to `docs/database-maintenance.md`. **Keep the manual recipe as a fallback**, moved to `docs/database-maintenance.md` under a new "Advanced: shrinking by hand (fallback)" heading (stop Charon, back up, about 2x data disk, find ownership, one-off `--entrypoint sqlite3` container, `PRAGMA auto_vacuum=INCREMENTAL; VACUUM;`), framed as only needed if automatic optimization is disabled or keeps skipping.
+  - `docs/database-maintenance.md` (existing, already in `docs-site/scripts/docs-manifest.json` `files`; extend rather than creating a duplicate `docs/features/database-maintenance.md`): new sections "Automatic optimization" (plain language: what happens at the next start, why the UI briefly shows "Optimizing", how much free disk is needed, expected duration, what monitoring does), "Configuration" (`CHARON_DB_COMPACT_ON_START=auto|off`, how to regain break-glass with `off`; stopping Charon mid-conversion is always safe; in plain words: stopping the container during the optimisation is safe and will simply retry on the next start (the early rebuild stops quickly; if the stop lands in the final copy-back step the database is still recovered intact and that start counts as one of up to three attempts); do NOT recommend `stop_grace_period` (it cannot help, the process exits about 5 s after the stop signal); and also explain that an in-place row restore (as opposed to replacing the file) can resurrect stale attempt state, fixed by the "Reclaim space on next restart" button, which resets the counter), and Troubleshooting entries ("stuck on Optimizing", "not enough disk space", "stopped after 3 attempts"). Also fix the existing "WAL File Is Very Large" entry (`:270`) if it mentions manual checkpointing that is now automatic.
+  - `docs/features.md`: extend the **Uptime Monitoring** blurb (`:293-297`) or add one line under a data-management heading: the database keeps itself small automatically; link to `docs/database-maintenance.md`. Keep brief.
+  - `ARCHITECTURE.md`: replace `:801-802` ("Deleted rows free pages inside the SQLite file but do not shrink it; there is no automatic compaction today") with the new data lifecycle; add startup-ordering notes (listener and config-applied readiness, maintenance gate, `RunListener`), the pruner's incremental vacuum and `Advise`, and the `internal/dbmaint` package in the directory/component sections; the stale `no VACUUM` remark near `:467` if it concerns the pruner.
+  - `.env.example` and the compose comment for `CHARON_DB_COMPACT_ON_START` (3.8); `docs/plans/archive/` already holds the #1419 spec.
+  - New standalone files are not created, so `docs-manifest.json` needs no edit.
 
 ## 5. Commit Slicing Strategy
 
-Decision: one PR (`fix/uptime-heartbeat-retention-default` into `development`), ordered logical commits. Prefixes `fix:`/`test:`/`docs:`; no `(security)` scope. Commit subjects stay factual and avoid wording about deleting or purging data.
+Decision: one feature = one PR (`feat/db-maintenance-1422` into `development`), merged only when complete. Ordered commits, each building and passing its gate. **Ordering rule: conversion wiring never lands before the gate, the status endpoint, the 503 page and the emergency-server 503**, so no intermediate commit can pin the pool without protection.
 
 | # | Commit | Scope and files | Depends on | Validation gate |
 | --- | --- | --- | --- | --- |
-| 1 | `test: add e2e specs for retention default and control` | `tests/monitoring/uptime-monitoring-scale.spec.ts` (new tests as `test.fixme`; fixture stays valid) | none | `npx playwright test tests/monitoring/uptime-monitoring-scale.spec.ts --project=firefox` passes (fixme skipped) |
-| 2 | `fix: set default heartbeat retention to 30 days` | `uptime_config.go` (exported constants, default, clamp), `routes.go` seed, `settings_handler.go` (shared bounds), updated tests in `uptime_config_test.go`, `uptime_pruner_test.go`, `settings_handler_test.go` | 1 | `cd backend && go build ./... && go test ./internal/services/... ./internal/api/handlers/...` |
-| 3 | `fix: apply the new retention default to existing installs` | `uptime_retention_migration.go` (+ table test), `routes.go` call site, `settings_handler.go` `isInternalSettingKey`/`filterInternalSettings` (GetSettings + PatchConfig response) and `migration.` write rejection in `UpdateSetting` and `PatchConfig` (+ tests for both handlers) | 2 | `go test ./internal/services/... ./internal/api/... ` with all Section 4 migration and marker-leak cases green |
-| 4 | `fix: remove redundant heartbeat monitor index` | `models/uptime.go` tag, `uptime_pruner.go` drop step, `cmd/api/main.go` migrate CLI, pruner/model tests | 2 | `go test ./...` (services, models, cmd); `./scripts/scan-gorm-security.sh --check` zero CRITICAL/HIGH; `make lint-fast` |
-| 5 | `fix: keep the hourly heartbeat maintenance scan bounded` | `uptime_pruner.go` (subquery `ORDER BY created_at, id`, shared SQL constant, context-aware pause), `uptime_pruner_test.go` (EXPLAIN QUERY PLAN pin, ordering/termination, cancel-during-pause). **Unconditional.** | 2 | `go test ./internal/services/...`; plan test asserts `idx_uptime_heartbeats_created_at` and no `TEMP B-TREE` |
-| 6 | `fix: clarify heartbeat retention control and enable e2e` | `SystemSettings.tsx` (placeholder), `en/translation.json` helper only, `SystemSettings.test.tsx`, un-fixme E2E | 2 | `cd frontend && npm run type-check && npx vitest run src/pages/__tests__/SystemSettings.test.tsx`; targeted firefox Playwright on the spec above |
-| 7 | `docs: document 30-day retention default and disk usage` | `docs/features/uptime-monitoring.md` (incl. advanced manual VACUUM section), `ARCHITECTURE.md` | 2-6 | Manual review; markdown links valid |
+| 0 | `docs: archive uptime retention spec and add plan for #1422` | `docs/plans/archive/2026-09-30_uptime-retention-1419_spec.md`, `docs/plans/current_spec.md` (this file); (nothing is removed: `db_maintenance_spec.md` is already gone and was never tracked) | none | Links valid; no second live spec |
+| 1 | `test: add e2e specs for database maintenance` | `tests/settings/database-maintenance.spec.ts` (all `test.fixme`) | 0 | `cd /projects/Charon && npx playwright test tests/settings/database-maintenance.spec.ts --project=firefox` (fixme skipped) |
+| 2 | `refactor: add database maintenance package foundation` | `internal/dbmaint/{constants,inspect,plan,diskspace}.go` + tests, shared disk helper extracted from `backup_service.go`, `internal/config` env parsing + tests, `database` quick_check completion registry (seam unchanged), spike regression tests on the glebarez driver (incl. the `incremental_vacuum` `Exec` trap and `Query` drain tests, cancel-interrupt, `SQLITE_TMPDIR` before/after first open), `dbmaint/tmpdir.go`, `internalSettingPrefixes` gains `maintenance.` with extended tests, codecov check | 1 | `go build ./... && go test ./internal/dbmaint/... ./internal/services/... ./internal/database/... ./internal/config/... ./internal/api/handlers/...`; spike results (incremental_vacuum Exec-vs-Query, cancel-interrupt, tmpdir, `RunListener`) recorded in the PR description |
+| 3 | `feat: create new databases in incremental vacuum mode` | `database.Connect` pragma ordering, `drain.go` (**`QueryContext` with full row iteration**, freed-pages sanity check), `advise.go` (**no-op while `conversionEnabled` is false**), pruner integration via `services`-side interfaces (+ stale comment update) and tests, `freelist_count`-drop assertions | 2 | `go test ./internal/database/... ./internal/services/... ./internal/dbmaint/...`; `./scripts/scan-gorm-security.sh --check`; `make lint-fast` |
+| 4 | `feat: show a maintenance page while the database is optimized` | `gate.go`, middleware, embedded page + CSP hashes, status answered in every phase, emergency-server fast 503, `applyInitialCaddyConfig` `onDone`, explicit listener bind, synchronous `Plan` (**production `Plan` idle until commit 6**), pipeline deferral at the six goroutines, both bounded waits, `Conn` acquire timeout, `SafePlan`, shutdown wait (first, 4 s) with detached marker writes and pinned-conn-closed-first ordering (`main.go`), `HEAD /api/v1/health`, backup-scheduler deferral with run-after-release, `RegisterWithDeps`/`NewEmergencyServerWithDeps` gate parameters with callers (`cmd/api/main.go`, `routes.Register`, `server.NewEmergencyServer`) and tests updated, `dbmaint.Run` with an injected fake convert and a minimal persisted-row store (M2: `maintenance.flag`, `attempts`, `in_progress` and `last_result` read/write helpers over the settings table, inode-validated, introduced here so the `Run` tests exercise real rows; commit 6 adds only the real `Convert`, flag consumption and the production wiring that uses them). **No real conversion and no production `planned` phase yet** | 3 | Gate/middleware/pinned-connection health/`onDone`/timeout/status-after-completion tests; a test that the unmodified production `Plan` leaves the gate `idle` and does not defer the pipeline; `go test ./internal/dbmaint/... ./internal/api/... ./internal/server/... ./cmd/...`; manual scratch-container check with a forced test phase |
+| 5 | `feat: add database maintenance status and restart flag api` | `database_maintenance_handler.go`, routes (admin group near `routes.go:508`), tests (auth, idempotency, distinct 409 bodies for nothing-to-optimize versus env-off, 200 on repeated POST, `can_request_optimize`, fresh notice per call, severity, `restart_to_optimize` withheld while `conversionEnabled` is false, reserved-key cases) | 3 | `go test ./internal/api/...`; GORM scan |
+| 6 | `feat: optimize existing databases on startup` | `convert.go`, real `Convert` wired into `Run`, `conversionEnabled` on, checkpoint retry, file-size verification, temp-dir handling, flag consumption and production use of the settings rows (the store itself lands in commit 4), start-of-conversion Warn line, E2E/CI compose files default `CHARON_DB_COMPACT_ON_START=off`, `.env.example` `PrepareTempDir` called from `main` before the first open; inode-validated persisted state (`file_id` = `st_ino`, M-b); tests for every skip path | 4, 5 | `go test` for touched packages; scratch-DB conversion test; proxy-stays-up-while-pool-pinned integration test; SIGTERM test; GORM scan |
+| 7 | `feat: add database maintenance card and notice` | Frontend api/hook/card/banner/info line/maintenance view, en strings, Vitest, un-fixme E2E | 4, 5 | `cd frontend && npm run type-check`; `npx vitest run <touched>`; targeted firefox Playwright for the new spec |
+| 8 | `docs: document automatic database maintenance` | Docs listed in Phase 5 (`docs/database-maintenance.md`, `docs/features/uptime-monitoring.md`, `docs/features.md`, `ARCHITECTURE.md`) | 2-7 | Review; links valid; docs-site sync not hand-edited |
 
-Commit 2 also carries the `PatchConfig` uptime validation (same "retention can never be corrupt" theme, shares the bounds constants) with its handler tests. Commit 3's handler work covers **both** `UpdateSetting` and `PatchConfig`. Keep subjects for the migration and validation commits neutral: no words like "purge", "wipe", "delete history", or "data loss".
+Full Definition of Done before merge (per `CLAUDE.md`), all foreground/blocking:
 
-Full-PR Definition of Done (per `CLAUDE.md`, before merge): targeted Playwright (firefox, the spec above, single project), GORM security scan (models change in commit 4; the settings handler changes in commits 2-3 touch GORM writes too), `bash scripts/local-patch-report.sh`, `lefthook run pre-commit`, **`make lint-backend` (full golangci-lint, manual stage, before PR)**, backend coverage `scripts/go-test-coverage.sh` >= 85%, frontend coverage `scripts/frontend-test-coverage.sh` >= 85%, `npm run type-check`, `go build ./...` and `npm run build`. **CodeQL/Trivy: this PR has no `feat:` commit and no new network surface, so local runs are skipped and CI covers them** (run locally only if a `feat:` commit is added). All commands run foreground/blocking.
+1. Targeted Playwright only: `npx playwright test tests/settings/database-maintenance.spec.ts --project=firefox` (never the full suite or multiple projects locally; CI covers cross-browser).
+2. `./scripts/scan-gorm-security.sh --check` (settings-row queries added; zero CRITICAL/HIGH).
+3. `bash scripts/local-patch-report.sh` (artifacts `test-results/local-patch-report.md/.json`).
+4. **Because this PR adds `feat:` commits**: local CodeQL Go and JS via `lefthook run codeql` (manual stage; or the `security-scan-codeql` skill) and Trivy via `make security-scan-full` (or the `security-scan-trivy` skill; there is no `make trivy` target), zero high/critical.
+5. `lefthook run pre-commit` (fast linters, staticcheck); `make lint-fast`; **`make lint-backend`** (full golangci-lint) before PR.
+6. Coverage: `scripts/go-test-coverage.sh` >= 85% and `scripts/frontend-test-coverage.sh` >= 85%; `dbmaint` counted, patch coverage of new lines high (gate.go, plan.go, convert.go are all unit-testable with fakes).
+7. `cd frontend && npm run type-check`; `cd backend && go build ./...`; `cd frontend && npm run build`.
+8. Any failing test, type or lint error is fixed in the PR (own `fix:`/`test:`/`chore:` commit), never deferred.
 
-## 6. Pruner review: can it keep up at 60 monitors? (concrete finding plus unverified notes)
+Commit subjects contain no `(security)` scope unless the security review finds a genuine security fix, and stay vague about mechanics if they do. No session IDs or links in commits or the PR description. Merge as a normal merge commit into `development`, like every feature PR (each subject appears in the public changelog).
 
-Status: the concrete finding (query plan) is fixed unconditionally in commit 5 (Section 3.6). The reporter's 19 M rows (2.4x the 90-day steady state) may also come from an upgrade off a pre-v0.39.0 build; **the reporter has no old container logs, so this cannot be confirmed from evidence** and is not requested. Everything below other than the plan finding is code review, not proof.
+Rollback and contingency (whole PR): revert the PR. Databases already converted to `auto_vacuum=2` stay valid for old code (readers ignore the mode; old code never runs incremental vacuum, so the file simply stops shrinking). `maintenance.*` settings rows are ignored by old code. If conversion misbehaves in the field, `CHARON_DB_COMPACT_ON_START=off` disables it without a rebuild. Commit 6 is the only commit that can pin the pool for a long time; commits 3, 4-5 and 7 can be reverted independently, but 6 must not be kept without 4.
 
-Code review of `pruneOnce` (`uptime_pruner.go:157-210`) and `Run`/`tick` (`:96-150`):
+## 6. Security and OWASP Notes
 
-| Area | Finding |
-| --- | --- |
-| **Query plan (verified on a scratch DB, sqlite3 CLI) - the concrete finding** | `SELECT id FROM uptime_heartbeats WHERE created_at < ? ORDER BY id LIMIT 5000` plans as **`SCAN uptime_heartbeats`** (rowid scan) with and without `sqlite_stat1`; the `created_at` index is not used. While old rows sit at low ids each full chunk stops after 5000 hits, which is cheap. But the **final, caught-up chunk (fewer than 5000 matches, including the steady-state hourly pass) scans the entire table**: about 8 M rows / roughly 1 GB read per pass at 60 monitors, holding the single connection. Fixed by `ORDER BY created_at, id` (Section 3.6). Not proof of the 19 M cause. |
-| `ORDER BY id` and correctness | `ORDER BY id` was **never a correctness dependency**: the `WHERE created_at < ?` predicate alone decides which rows are eligible, and every eligible row is eventually deleted regardless of scan order. The ordering only chose the (bad) access path and made deletion oldest-by-id first. Revision 2's wording "correct only while ids are monotonic" overstated this and is withdrawn. |
-| Throughput on the first pass | 5000-row chunks with a 250 ms pause (`firstPassChunkPause`): ceiling about 20 000 rows/s before delete cost; with four secondary indexes each chunk delete is real work; draining 11 M excess rows is on the order of tens of minutes, not a starvation problem by itself. |
-| Error handling | A failed chunk returns immediately, `tick` logs Warn and the next attempt is a full hour later. Kept as is (in-pass retry deliberately dropped). |
-| Single write connection | Pool capped at 1 (`database.configurePool`); ingester flushes and API writes interleave between chunks. `wal_checkpoint(TRUNCATE)` (only after `total >= 50 000`) is best-effort and can return busy. |
-| Sleep | `time.Sleep(pause)` is not context-aware; fixed in Section 3.6. |
-
-**Unverified hypotheses (kept as notes, not acted on):**
-
-- `created_at` text formats or timezone offsets: SQLite compares `created_at < ?` as text when the column holds strings; if some rows were written with a different time format or UTC offset than the bound cutoff parameter, comparisons could misorder relative to real time and leave old rows. Unverified: check how the driver serialises `time.Time` on write versus the cutoff bind, and whether any historical writer used another format. No evidence either way.
-- A pre-v0.39.0 upgrade with a large un-pruned backlog (needs no code; would drain over hours).
+- **A01 Broken access control:** status endpoint unauthenticated but minimal (`active`, `phase`, `elapsed_seconds`), answered by the gate with static data; sizes, paths, error data and both flag endpoints require admin. The gate must not become an auth bypass: exact-match allow-list on method and path, no prefix matching, no static-asset allow-list, `/api/v1/health/db` explicitly blocked. `maintenance.*` keys cannot be written or read through the generic settings endpoints (prefix-keyed via the shared `isInternalSettingKey`, not Category-keyed).
+- **A03 Injection:** all pragmas are constant strings or integers from constants; `incremental_vacuum(N)` uses an integer constant; the env value is validated against the closed set `auto|off`.
+- **A04/A05 Insecure design and misconfiguration:** a failed or skipped compaction can never block startup (recover, contexts, `defer Release`, `PlannedMaxWait`); the attempt counter prevents restart loops from repeatedly stalling the management plane; env `off` is the operator kill-switch; gate responses carry hash-based CSP, `no-store`, `nosniff` and frame denial because they precede `SecurityHeaders`.
+- **Path handling:** every path (DB, WAL, temp dir) goes through `filepath.Clean`; a temp dir under the data volume is `os.Lstat`-checked and refused if a symlink, created `0700`, owned by `charon`, never derived from request input. No file swap (in-place `VACUUM`), so no rename/symlink race on the database file.
+- **A08 Integrity:** `auto_vacuum` assertion, file-size verification and boot `quick_check` gating; `VACUUM` is atomic so the original stays authoritative on any failure.
+- **A09 Logging:** Info/Warn lines for decision, advice, skip reason, start (with the break-glass instruction) and completion (sizes); no secrets, no paths beyond the configured DB path.
+- **Availability:** maintenance mode is a managed, time-boxed denial of the management plane; healthcheck stays green (self-answered); proxying unaffected (2.1); emergency server answers a fast 503.
+- **Information disclosure via disk numbers:** authenticated only.
 
 ## 7. Risks, Rollback, and Contingency
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| First pruner pass after the migration deletes about two-thirds of the table on a big instance | Temporary write contention; WAL growth | Existing chunked/yielding pruner and WAL truncate; Info log; release note; users who want longer history change the setting (migration is one-shot) |
-| Heuristic wrongly lowers a deliberate 90 (bulk write of all three rows with siblings at 60/30, adjacent ids) | History older than 30 days removed against user intent | Strict rule (all siblings, adjacent ids, seed values) plus tests; residual risk documented; open question 1 offers "no automatic migration" |
-| Heuristic misses users who edited a sibling | They stay on 90 and keep the large table | Deliberate fail-safe direction; helper text and docs tell them to lower it |
-| Users who deliberately want 90+ see no change | None | Preserved by design |
-| `PatchConfig` newly rejects out-of-range `uptime.*` values | An API client that relied on writing them gets 400 | Values were unsafe (0 wipes history); same error shape as `UpdateSetting`; release note |
-| Reporter-type installs do not see the file shrink | Confusion ("I lowered it and nothing happened") | Helper text and docs say the file may not shrink until compacted; manual `sqlite3 VACUUM` workaround documented; follow-up spec delivers automatic compaction |
-| Dropping `idx_uptime_heartbeats_monitor_id` before the composite exists | Slow deletes/lookups until built | Drop only after `ensureIndex` succeeds; guard tested |
-| AutoMigrate re-creating the dropped index | Wasted space returns | Tag removal plus a fresh-DB AutoMigrate test |
-| Marker leaks through the settings API | Internal key visible/editable | `migration.` prefix filter in `GetSettings` and the `PatchConfig` response plus write rejection in `UpdateSetting` and `PatchConfig` (key-prefix based, not Category), tested for both handlers |
-| Rollback | - | Revert the PR. The setting stays at 30 or the user's value; old code accepts 1-3650. AutoMigrate on the reverted code re-creates the dropped index automatically (`charon migrate` does it eagerly). Commits 5 and 6 are independently revertible. |
+| Conversion on a multi-GB file takes minutes; management plane and monitoring paused | "Optimizing" screen; heartbeat gap | Only when worthwhile (thresholds); only after proxy is live and listener bound; UI normal until the pool is actually taken; honest indeterminate progress; docs set expectations; `off` switch; at the next start after #1423 the file is already small (reporter: about 1-2 minutes) |
+| Reporter-type install is not compacted until its next start | File stays large (not growing) until then | By design (3.3a): never convert at an arbitrary time; `Advise` makes the in-app note and log accurate right after the prune; typical installs restart on every update; the single open question (section 10) covers a user-initiated no-restart follow-up |
+| Conversion at boot #1 rebuilds rows about to be pruned (>= 20% free plus pending backlog) | One-time longer `VACUUM` | Bounded by the same thresholds; the pruner then drains incrementally in the same boot (3.3a item 4) |
+| Health probe hangs on the DB and the container is restarted mid-`VACUUM` | Wasted conversion, restart loop | Gate self-answers health/status and aborts; `health/db` blocked; pinned-connection + expired-cache test |
+| Callback fires before listener bound / `main.go` DB calls | Startup deadlock or no maintenance page | Two-signal readiness, explicit `net.Listen` |
+| Gate stuck in `planned` | Uptime pipeline never starts | `onDone(applied)` on all exit paths; `PlannedMaxWait`, then `QuickCheckMaxWait`; worst case 18 min, both bounded; ctx cancel releases |
+| Conversion wiring lands before its safeguards | Unprotected pool pin in an intermediate commit | Commit order 4, 5, then 6; production `Plan` idle until 6 |
+| Boot `quick_check` (or any long reader) pins the WAL | Checkpoint busy; file does not shrink | Wait for `quick_check`, bounded checkpoint retry, `journal_size_limit`, verify by file size, `converted_pending_checkpoint` |
+| Disk exhaustion mid-run | Failed `VACUUM` (safe) but disk pressure | Pre-check 2x-live rule (same filesystem summed), `Bavail`, slack; skip and report; backups deferred |
+| Driver differences (temp dir, interrupt, pragma result sets) | Design assumption wrong | Spikes are resolved and recorded as commit 2 regression tests (cancel interrupts only the `VACUUM` rebuild phase, runtime `SQLITE_TMPDIR` does not work, `Exec` frees one page); SQLite default temp dir as fallback; uncounted in-progress marker logic |
+| Docker stop during a conversion | Rebuild phase: wasted work, cleanly rolled back. Copy-back tail (uninterruptible, seconds to tens of seconds on multi-GB files): completes, or is killed mid-copy | `VACUUM` is atomic; ctx-cancel interrupts only the rebuild phase (2.4, H2). `Run` decides by the `Convert` result (nil with a cancelled ctx = `converted`); runner wait placed first in the shutdown path and capped at 4 s within Docker's 10 s default (3.4 step 9); detached `last_result` and marker writes after closing the pinned conn, before a single checkpoint attempt (M1). A stop or kill inside the tail is still safe and atomic but leaves the marker (one counted attempt); a stop during the tail can always cost one counted attempt (the process exits about 5 s after SIGTERM, so `stop_grace_period` cannot help and is not recommended); the next boot recovers and retries, up to 3 |
+| Leaked pool connection or hung `Conn` acquire | Management plane 503 forever | `ConnAcquireTimeout` (45 s) then `skipped(database_busy)` and release; no total conversion cap by design (3.5) |
+| `Drain` via `Exec` silently frees one page per call | Hourly drain does nothing, file never shrinks | `Query` with full row iteration; `rows.Close()` before any other pool query (M-c); freed-pages sanity check by `page_count` delta (L-b); Exec-trap and per-step `freelist_count` tests (2.4) |
+| `Plan` panics or errors synchronously in `RegisterWithDeps` | Startup blocked | `SafePlan` recover: idle plus Warn |
+| Replaced file or row restore carries stale `maintenance.*` rows | False back-off or false in-progress | `file_id` = inode only; file replacement (`ApplyPendingRestore`, `docker cp`) is detected and rows deleted; `st_dev` mismatch alone keeps state (so a crash loop still reaches `MaxConvertAttempts`); in-place row restores and `cp` over the file are NOT detected, the UI button resets the counter (3.3) |
+| Temp dir on small tmpfs, or `<data>/.tmp` symlink/wrong owner | Spurious failure or redirected write | `SQLITE_TMPDIR` set in `main` before the first open (late set is ignored); free-space check on the directory actually used; `Lstat` refusal, `0700`, ownership; fall back to SQLite defaults with a Warn if unsafe |
+| Loss of break-glass during a conversion | Operator cannot use tier-2 | Accepted; fast 503 with `maintenance:true`; Warn line naming `CHARON_DB_COMPACT_ON_START=off` |
+| Pool queue starvation of periodic workers | Timeouts elsewhere | Pipeline start deferred; API/emergency 503 before touching the pool; cert checker, stats ingester, CrowdSec reconcile documented as queuing and verified tolerant in commit 6 |
+| Restore of a pre-conversion backup | Mode reverts to 0 | Boot evaluation every start; info note if thresholds are met |
+| `incremental_vacuum` fragmentation or thrash | Slight read slowdown; extra writes | `KeepFreeBytes` floor, bounded steps and budget, checkpoint after drain |
+| Dropping `idx_heartbeat_lookup` later | Plan regressions | Separate audited PR (2.6) |
 
 ## 8. Acceptance Criteria
 
-1. A fresh install seeds `uptime.heartbeat_retention_days = 30`; missing/non-integer/`< 1` values fall back to 30; `> 3650` is capped at 3650; a corrupt stored value can never cause a full-table purge; `PATCH /api/v1/config` rejects out-of-range `uptime.*` values with 400 and writes nothing.
-2. An existing install whose retention row is the untouched seed 90 (all sibling seed rows within 5 s, contiguous ids, seed sibling values) becomes 30 exactly once; a deliberately saved 90, the same-save 60 -> 90 case, and any ambiguous case are never modified; the migration is idempotent and re-runs harmlessly after a pre-upgrade backup restore.
-3. `migration.*` rows never appear in `GET /api/v1/settings` or the `PATCH /api/v1/config` response and cannot be written via `POST/PATCH /api/v1/settings` or `PATCH /api/v1/config` (including nested JSON and any client-supplied Category).
-4. The System Settings retention control shows the default (placeholder), range, permanent-deletion warning, and "may not shrink until compacted" in English; invalid values show a readable per-field error; 0/disable is not offered; other locales are unchanged.
-5. `idx_uptime_heartbeats_monitor_id` is not created on fresh databases and is dropped from existing ones after the composite index exists; monitor history, deletion, and summary endpoints behave identically.
-6. No compaction / VACUUM code is added in this PR.
-7. The pruner chunk query plans on `idx_uptime_heartbeats_created_at` with no `TEMP B-TREE` (pinned by test); the inter-chunk pause honours context cancellation.
-8. All tests, coverage gates, GORM scan, `make lint-backend`, and type-check pass; docs (including the advanced manual VACUUM section) updated as listed.
+1. A fresh install's database reports `PRAGMA auto_vacuum` = 2 (pragma issued before WAL on an empty file); a populated file is untouched by `Connect`.
+2. On a mode-2 database, after a prune pass that deleted rows, free pages above `KeepFreeBytes` are returned in bounded steps (each step drops `freelist_count` by about `DrainPagesPerStep`, issued with `Query` and all rows iterated, never `Exec`) with no long lock and the main **file size** shrinks after the checkpoint; on a mode-0 database the pruner never drains and only advises.
+3. On boot, a mode-0 database is converted to mode 2 with data and indexes intact when reclaimable >= 100 MB **and** (free >= 20% **or** reclaimable >= 1 GiB); below that nothing runs unless the flag is set (the floor still applies); thresholds are named constants covered by table tests.
+4. **Reporter path (3.3a):** a mode-0 database whose freelist became large because the pruner drained a backlog (no flag set, no machine-written settings) is converted automatically at the next start, shrinking the file; `Advise` logs the pending optimization once per process and the notice appears without a restart; an install that already meets the thresholds at boot #1 converts then and the pruner drains the remaining backlog incrementally in that same boot.
+5. Compaction starts only after BOTH the initial Caddy config was applied and the HTTP listener is bound; if Caddy is not ready the boot is skipped with a reason; the uptime pipeline, pruner and scheduled backups are released on every outcome (readiness timeout, `quick_check` wait timeout, apply error, cancel, a `planned` run that ends `skipped`); the UI is served normally (no 503) during `planned`; proxied requests succeed throughout a conversion (integration test with the pool pinned).
+6. `/api/v1/health` and `/api/v1/maintenance/status` return 200 from the gate with the pool connection pinned and the rate-limit cache expired; `/api/v1/health/db` returns 503 immediately; `/api/v1/maintenance/status` returns the same static JSON in **every** phase including `idle`, `done`, `skipped` (never the SPA HTML).
+7. Insufficient disk (including the same-filesystem 2x case), a held writer lock, disabled env, boot integrity failure, or repeated failures each skip cleanly with a reported reason; startup is never blocked and no error escapes to `main`; a cancel-driven stop does not count toward `MaxConvertAttempts`: the shutdown path waits first, at most 4 s, for the runner; a stop in the interruptible rebuild phase records `interrupted`, a stop that lands in the uninterruptible copy-back tail lets `VACUUM` finish and records `converted` (nil result with a cancelled ctx), and both clear `maintenance.in_progress` with a detached context after the pinned connection is closed; the `last_result` write and marker clear happen before a single, non-retrying checkpoint attempt; a stop that lands in the tail can always leave the marker (still atomic, recovered from the WAL, one counted attempt, retried on the next boot up to 3; `stop_grace_period` does not help because the process exits about 5 s after SIGTERM); the acceptance checks accept all three outcomes (`interrupted` mode 0, `converted` mode 2, or marker left with one counted attempt and an intact DB) and assert eventual conversion on the next boot, never instant interruption or one specific outcome; a stuck pool acquire ends `skipped(database_busy)` after `ConnAcquireTimeout`; `Plan` panics/errors mean idle; persisted `maintenance.*` state from a replaced database file (different inode) is ignored, while an `st_dev`-only difference keeps it.
+8. While converting, the SPA (served at `/` with 200, since static routes are not gated) shows the maintenance view because its API calls receive `503` with `maintenance:true` and the interceptor does not log the user out; unmatched deep links and non-SPA clients get the 503 HTML page (CSP/`no-store`/`Retry-After`/`nosniff`/frame denial), JSON on `Accept: application/json`, HEAD handled identically in idle and active phases; the emergency server answers a fast 503; scheduled backups are deferred from `planned` on; afterwards the app is fully usable and the uptime pipeline resumes.
+9. A novice sees no page-top banner in normal operation, and no button that looks usable but cannot do anything (hidden on a mode-2 database or below 100 MB reclaimable, shown disabled with its reason when only the env is `off`; `restart_to_optimize` and `Advise` stay silent before conversion exists): `info` notices render as a quiet line in the Database card only; `warning` notices (insufficient disk, too many failures) render as a banner; the notice is computed fresh per request; the button only sets a flag consumed at the next boot and can be undone.
+10. `maintenance.*` and `migration.*` settings never appear in `GET /api/v1/settings` or the `PATCH /api/v1/config` response and cannot be written through `UpdateSetting` or `PatchConfig`, using the single shared `internalSettingPrefixes` list.
+11. `CHARON_DB_COMPACT_ON_START` accepts only `auto|off` (invalid values warn and fall back to `auto`); the E2E/CI compose files default it to `off`; production compose files do not set it.
+12. Docs: the automatic behavior replaces the old "may not shrink" caveat in `docs/features/uptime-monitoring.md`, the manual recipe survives as a documented fallback, and `docs/database-maintenance.md`, `docs/features.md`, `ARCHITECTURE.md`, `.env.example` are updated.
+13. All tests, coverage gates (>= 85%), GORM scan, `make lint-backend`, local CodeQL and Trivy (zero high/critical), type-check and builds pass; the targeted firefox spec passes.
 
-## 9. Decisions and Open Questions
+## 9. Industry precedent (from memory - UNVERIFIED, confirm before citing in docs)
 
-Decided by the user (no longer open): strict migration ships; bounded-scan fix rides in this PR unconditionally; manual VACUUM workaround documented (advanced); localization is a separate, already-filed issue (#1421).
+- Home Assistant's recorder has `auto_purge` and `auto_repack` (a `VACUUM` after the purge) plus a manual `recorder.purge` with a `repack` option - the same "prune then reclaim" pairing.
+- Sonarr/Radarr run scheduled housekeeping that includes a database `VACUUM`.
 
-Genuinely open: none blocking. Only the GH number of the localization issue needs filling in when known.
+Both support automatic, no-knob reclamation; neither is evidence about glebarez/modernc/WAL specifics, which this plan verifies locally.
+
+## 10. Decisions and Open Questions
+
+Decided by the user earlier: thresholds (20% + 100 MB floor, plus the 1 GiB OR trigger); automatic first conversion at boot; brief break-glass loss acceptable; `idx_heartbeat_lookup` drop is a separate audited PR; localization is #1421; env override is `auto|off` only.
+
+Decided in this revision: upgrade order is solved by post-prune advice plus conversion at the next start, with no runtime trigger, no machine-written flag and no self-restart (3.3a); `info` notices are a quiet card line, only `warning` notices are banners; docs extend the existing `docs/database-maintenance.md`.
+
+Decided in revision 5 (Supervisor round 3): drain uses `Query` with full iteration (H1); `SQLITE_TMPDIR` is set in `main` before the first open, honouring an operator value (M1); the shutdown path waits for the runner and writes final markers with a detached context (M2, superseded by H2 in revision 6: the wait is 4 s and placed first, see below); `Conn` acquire timeout and no total conversion cap (M3); static routes stay ungated and the interceptor is the primary maintenance path (M4); `Plan` is wrapped so it can never block startup (M5). The runtime `SQLITE_TMPDIR` spike is closed (it does not work at runtime); the context-cancel spike is corrected in revision 6.
+
+Decided in revision 7 (Supervisor round 5): the `stop_grace_period` recommendation is dropped everywhere because the runner wait is a fixed 4 s and the process exits about 5 s after SIGTERM whatever the container grace (H1, option ii; no new knob); a stop in the copy-back tail can always cost one counted attempt and is retried on the next boot; after a nil `VACUUM` with a cancelled ctx, `last_result` and the marker clear are written first, then a single non-retrying checkpoint attempt (M1); commit 4 introduces the persisted-row store (M2); Drain's freed-pages check is warn-and-continue only (L1).
+
+Decided in revision 6 (Supervisor round 4, measured): `VACUUM` is interruptible only in its rebuild phase, so a cancel during the copy-back tail yields a nil result that `Run` records as `converted`; the runner wait is placed FIRST in the shutdown path and capped at `ShutdownRunnerWait` = 4 s inside Docker's 10 s default, with the entrypoint `sleep 1` trap latency and the existing 25 s/10 s drains re-checked (3.4 step 9); a stop or kill inside the tail stays safe and atomic with one counted attempt (superseded in revision 7: no `stop_grace_period` recommendation); `file_id` is the inode only (dev mismatch keeps state); in-place row restores are not detected and the UI button resets the counter; `Drain` closes its rows before any other pool query and reads the checkpoint `busy` column; `Run` closes the pinned conn before marker writes; the unsolicited relaunch variant stays rejected (one more reason: the uninterruptible tail makes an unannounced stop/relaunch riskier).
+
+Genuinely open (the only one):
+
+1. **Should a follow-up issue be filed for a no-restart path?** Reframed: a **user-initiated** "Restart Charon now to optimize" action (an entrypoint-supervised relaunch of the Charon process only, Caddy kept up), offered in the Database card when the notice is `restart_to_optimize`. Low priority; act on it only if field reports show installs that never restart. An **unsolicited** relaunch is rejected for the same reason the runtime trigger is: it causes an unannounced management-plane stall, changes the `APP_PID` wait-loop contract in `.docker/docker-entrypoint.sh` (which today exits the container when either process dies), and can mask crash loops. Recommendation (Supervisor agrees): file a low-priority follow-up issue, do not build it in this PR; needs the owner's yes/no on filing the issue.
+
+### Review findings traceability (rounds 1-5)
+
+| Finding | Resolved in |
+| --- | --- |
+| Round 1 M1-M16, round 2 (2 HIGH + 2 MEDIUM) | Kept unchanged: 2.1, 2.2, 3.3, 3.4, 3.6 |
+| H1 (`incremental_vacuum` via `Exec` frees one page) | 2.4 (spike, trap test), 3.1 `drain.go`, 3.2 step 2, Phase 2 tests, AC2 |
+| H2 (`VACUUM` not instantly interruptible) | 2.4, 3.4 step 9, 3.5 (total cap, attempts and interruption), 4 Phase 2/3/5 tests, 7 risk row, AC7, 10; `stop_grace_period` recommendation removed in revision 7 (H1) |
+| M1 (`SQLITE_TMPDIR` before first open) | 2.4, 3.5 Temp directory |
+| M2 (shutdown accounting) | 3.4 step 9 (revised by H2), 3.5 |
+| M3 (`Conn` acquire timeout, no total cap) | 3.4 step 6, 3.5 |
+| M4 (static routes ungated, accurate gate description) | 3.6 |
+| M5 (`SafePlan`) | 3.3, 3.4 step 1 |
+| M6 (compose `start_period`) | 2.2 |
+| Round 5 H1 (`stop_grace_period` cannot help, fixed 4 s wait) | 3.4 step 9 (unavoidable case), 3.5 (attempts and interruption), Phase 5 SIGTERM test (three outcomes), Phase 5 docs bullet, commit 6 row, 7 risk row, AC7, 10 |
+| Round 5 M1 (result and marker first, single checkpoint attempt after nil VACUUM on cancel) | 3.4 step 9(b) and test 2b, 3.5 checkpoint and attempts bullets, 7 risk row |
+| Round 5 M2 (commit 4 persisted-row store) | 5 commit 4 and 6 rows |
+| Round 5 L1-L3 (Drain warn-and-continue only; legacy device-number wording; millisecond claims scoped to rebuild) | 3.2, 3.3 persisted state, 2.4/3.5 |
+| M-a (`ShutdownRunnerWait` value and placement) | 3.1 constants, 3.4 step 9 |
+| M-b (`file_id` inode only, detected vs undetected restores) | 3.3 "Persisted state vs replaced files", 7 risk row, AC7 |
+| M-c (`rows.Close()` before other queries; checkpoint `busy` column) | 2.4, 3.1 `drain.go`, 3.2 step 2, 3.5, Phase 2/3 tests |
+| M-d (close pinned conn before marker writes; nil + cancelled ctx is `converted`) | 3.4 step 9, 3.5 "`Run` ordering", Phase 3 tests |
+| L1 (drain row-iteration and close detail) | 3.2 step 2, 3.1 `drain.go` |
+| L2 (flag lifecycle, `can_request_optimize`) | 3.3 flag lifecycle, 3.7 |
+| L3 (`conversionEnabled` switch) | 3.3a item 2, 3.4/Phase 3 commit 4, 3.7 |
+| L4 (no promise of a conversion the next boot refuses) | 3.3a item 2, 3.7 |
+| L5 (persisted state validated against the file) | 3.3 (revised by M-b) |
+| L6 (deferred, not dropped, scheduled backups) | 3.4 step 10, 3.5 "Backups during maintenance" |
+| L7 (emergency `/health` stays 200) | 3.6 |
+| L8 (`HEAD /api/v1/health`) | 3.6 |
+| L9 (`Plan` recover wrapper) | 3.3, 3.4 step 1 |
+| L10 (`Conn` acquire bounded in `checking`) | 3.4 step 6, 3.1 constants |
+| L11 (accurate static-route and gate description) | 2.1/2.2, 3.6 |
+| L12 (package dependency direction) | 3.1 |
+| L-a (`disabled_by_env` wording, distinct env-off body, idempotent POST) | 3.3a table, 3.7 (endpoint table, `can_request_optimize`, notice list) |
+| L-b (`page_count` delta for freed pages) | 3.2 step 2, Phase 3 tests, 7 risk row |
+| L-c (post-`VACUUM` `PrepareStmt` test) | 3.5 "Post-`VACUUM` prepared statements", Phase 2 tests |
+| L-d (no DB close in `main.go`) | 3.4 step 9 |
+| L-e (AC9 wording) | AC9 |
+| L-f (bind-mount inode stability; `WaitReleased` uses `appCtx`) | 3.3 (bind-mount note), 3.4 step 10 |
