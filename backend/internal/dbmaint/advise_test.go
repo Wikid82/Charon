@@ -2,6 +2,7 @@ package dbmaint
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,4 +107,56 @@ func TestAdvisor_PlanErrorKeepsPreviousAdvice(t *testing.T) {
 
 	assert.Equal(t, prev, got)
 	assert.Contains(t, logs.String(), "could not evaluate")
+}
+
+func TestAdvisor_TerminalSkipOfTheLastResultSilencesThePendingLine(t *testing.T) {
+	enableConversion(t)
+	logs := captureLogs(t)
+	s := statsWith(128000, 64000)
+	res := PlanResult{Stats: s, Decision: Decide(Inputs{EnvMode: config.DBCompactAuto, Stats: s})}
+
+	for _, reason := range []Reason{ReasonIntegrityCheckFailed, ReasonTooManyFailures} {
+		a := NewAdvisor(func(context.Context) *LastResult { return &LastResult{Outcome: ResultSkipped, Reason: reason} })
+		got := a.adviseFrom(context.Background(), res)
+		assert.False(t, got.Pending, reason)
+		assert.Equal(t, reason, got.Reason)
+	}
+	assert.NotContains(t, logs.String(), "optimization pending")
+}
+
+func TestAdvisor_TransientLastResultDoesNotSilenceIt(t *testing.T) {
+	enableConversion(t)
+	logs := captureLogs(t)
+	s := statsWith(128000, 64000)
+	res := PlanResult{Stats: s, Decision: Decide(Inputs{EnvMode: config.DBCompactAuto, Stats: s})}
+	a := NewAdvisor(func(context.Context) *LastResult {
+		return &LastResult{Outcome: ResultSkipped, Reason: ReasonDatabaseBusy}
+	})
+
+	got := a.adviseFrom(context.Background(), res)
+
+	assert.True(t, got.Pending)
+	assert.Contains(t, logs.String(), "optimization pending")
+}
+
+func TestStoreHistory_ReadsTheLastResultOfTheCurrentFile(t *testing.T) {
+	db, path := newSettingsDB(t)
+	id, err := FileID(path)
+	require.NoError(t, err)
+	s := NewStore(db)
+	ctx := context.Background()
+	history := StoreHistory(s, path)
+
+	assert.Nil(t, history(ctx), "no row yet")
+	require.NoError(t, s.WriteLastResult(ctx, LastResult{Outcome: ResultSkipped, Reason: ReasonIntegrityCheckFailed, FileID: id}))
+	got := history(ctx)
+	require.NotNil(t, got)
+	assert.Equal(t, ReasonIntegrityCheckFailed, got.Reason)
+
+	require.NoError(t, s.WriteLastResult(ctx, LastResult{Outcome: ResultSkipped, Reason: ReasonIntegrityCheckFailed, FileID: "1"}))
+	assert.Nil(t, history(ctx), "a result of another file does not apply")
+
+	require.NoError(t, db.Close())
+	assert.Nil(t, history(ctx), "an unreadable store means no history, never a failure")
+	assert.Nil(t, StoreHistory(s, filepath.Join(t.TempDir(), "missing"))(ctx), "an unknown file id means no history")
 }

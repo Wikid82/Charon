@@ -242,15 +242,25 @@ func (s *Store) loadAttempts(ctx context.Context, fileID string) (int, error) {
 
 // storedAttempts returns the counter of the file; another file's is deleted.
 func (s *Store) storedAttempts(ctx context.Context, fileID string) (int, error) {
+	count, stale, err := s.readAttempts(ctx, fileID)
+	if err != nil || !stale {
+		return count, err
+	}
+	return 0, s.remove(ctx, keyAttempts)
+}
+
+// readAttempts returns the counter of the file without modifying anything;
+// stale reports a counter that belongs to another file.
+func (s *Store) readAttempts(ctx context.Context, fileID string) (count int, stale bool, err error) {
 	var rec attemptsRecord
 	found, err := s.getJSON(ctx, keyAttempts, &rec)
 	if err != nil || !found {
-		return 0, err
+		return 0, false, err
 	}
 	if !sameFile(rec.FileID, fileID) {
-		return 0, s.remove(ctx, keyAttempts)
+		return 0, true, nil
 	}
-	return rec.Count, nil
+	return rec.Count, false, nil
 }
 
 // consumeMarker removes a leftover in-progress marker. One of this file counts
@@ -272,13 +282,55 @@ func (s *Store) consumeMarker(ctx context.Context, fileID string, count int) (in
 
 // loadLastResult returns the last result of the file; another file's is deleted.
 func (s *Store) loadLastResult(ctx context.Context, fileID string) (*LastResult, error) {
-	var last LastResult
-	found, err := s.getJSON(ctx, keyLastResult, &last)
+	last, stale, err := s.readLastResult(ctx, fileID)
+	if err != nil || !stale {
+		return last, err
+	}
+	return nil, s.remove(ctx, keyLastResult)
+}
+
+// readLastResult returns the last result of the file without modifying
+// anything; stale reports a result that belongs to another file.
+func (s *Store) readLastResult(ctx context.Context, fileID string) (last *LastResult, stale bool, err error) {
+	var rec LastResult
+	found, err := s.getJSON(ctx, keyLastResult, &rec)
 	if err != nil || !found {
-		return nil, err
+		return nil, false, err
 	}
-	if !sameFile(last.FileID, fileID) {
-		return nil, s.remove(ctx, keyLastResult)
+	if !sameFile(rec.FileID, fileID) {
+		return nil, true, nil
 	}
-	return &last, nil
+	return &rec, false, nil
+}
+
+// Peek is the read-only counterpart of Load for the status endpoint: it never
+// consumes the in-progress marker and never deletes another file's rows, so a
+// request cannot change what the boot path will see.
+func (s *Store) Peek(ctx context.Context, fileID string) (State, error) {
+	flag, err := s.FlagRequested(ctx)
+	if err != nil {
+		return State{}, err
+	}
+	attempts, _, err := s.readAttempts(ctx, fileID)
+	if err != nil {
+		return State{}, err
+	}
+	last, _, err := s.readLastResult(ctx, fileID)
+	if err != nil {
+		return State{}, err
+	}
+	return State{FlagRequested: flag, Attempts: attempts, LastResult: last}, nil
+}
+
+// ResetAttempts clears the failure counter. It is idempotent.
+func (s *Store) ResetAttempts(ctx context.Context) error { return s.remove(ctx, keyAttempts) }
+
+// SuppressesPending reports whether the persisted last result is a terminal
+// skip the next boot would repeat, so promising a conversion would be wrong
+// (integrity check failed, too many failed attempts).
+func SuppressesPending(last *LastResult) bool {
+	if last == nil || last.Outcome != ResultSkipped {
+		return false
+	}
+	return last.Reason == ReasonIntegrityCheckFailed || last.Reason == ReasonTooManyFailures
 }

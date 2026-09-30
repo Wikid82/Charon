@@ -548,6 +548,17 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.GET("/system/permissions", systemPermissionsHandler.GetPermissions)
 		management.POST("/system/permissions/repair", middleware.RequireRole(models.RoleAdmin), systemPermissionsHandler.RepairPermissions)
 
+		// Database maintenance card and the "reclaim space on next restart"
+		// request (GH #1422). Admin-only: it exposes sizes and sets a flag.
+		if sqlDB, sqlErr := db.DB(); sqlErr != nil {
+			logger.Log().WithError(sqlErr).Warn("Database maintenance API disabled: could not access the SQL handle")
+		} else {
+			dbMaintHandler := handlers.NewDatabaseMaintenanceHandler(sqlDB, cfg.DatabasePath, cfg.DBCompactOnStart)
+			managementAdmin.GET("/system/database", dbMaintHandler.GetStatus)
+			managementAdmin.POST("/system/database/optimize-on-restart", dbMaintHandler.RequestOptimize)
+			managementAdmin.DELETE("/system/database/optimize-on-restart", dbMaintHandler.CancelOptimize)
+		}
+
 		// Audit Logs
 		auditLogHandler := handlers.NewAuditLogHandler(securityService)
 		// Audit records expose other users' emails, source IPs and
@@ -863,7 +874,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		if sqlDB, sqlErr := db.DB(); sqlErr != nil {
 			logger.Log().WithError(sqlErr).Warn("Database space maintenance disabled: could not access the SQL handle")
 		} else {
-			uptimePruner.SetSpaceReclaimer(dbmaint.NewReclaimer(sqlDB, cfg.DatabasePath, cfg.DBCompactOnStart, &dbmaint.Advisor{}))
+			uptimePruner.SetSpaceReclaimer(dbmaint.NewReclaimer(sqlDB, cfg.DatabasePath, cfg.DBCompactOnStart,
+				dbmaint.NewAdvisor(dbmaint.StoreHistory(dbmaint.NewStore(sqlDB), cfg.DatabasePath))))
 		}
 
 		// Boot-time reconcile: CleanupStaleFailureCounts + one SyncMonitors,

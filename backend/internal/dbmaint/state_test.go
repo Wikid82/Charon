@@ -236,3 +236,75 @@ func TestStore_SettingsHandlerCannotSeeTheRows(t *testing.T) {
 		assert.Regexp(t, `^maintenance\.`, key)
 	}
 }
+
+func TestStore_PeekReadsWithoutConsumingOrDeleting(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	require.NoError(t, s.SetFlag(ctx))
+	require.NoError(t, s.RecordFailure(ctx, "100"))
+	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+	require.NoError(t, s.WriteLastResult(ctx, LastResult{At: time.Now(), Outcome: ResultSkipped, Reason: ReasonDatabaseBusy, FileID: "100"}))
+
+	st, err := s.Peek(ctx, "100")
+	require.NoError(t, err)
+	assert.True(t, st.FlagRequested)
+	assert.Equal(t, 1, st.Attempts, "a leftover marker is not folded in by a read")
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, ReasonDatabaseBusy, st.LastResult.Reason)
+	assert.True(t, settingFound(t, db, keyInProgress), "the marker is left for the boot path")
+
+	other, err := s.Peek(ctx, "999")
+	require.NoError(t, err)
+	assert.Zero(t, other.Attempts, "another file's counter does not apply")
+	assert.Nil(t, other.LastResult)
+	assert.True(t, settingFound(t, db, keyAttempts), "a read never deletes rows of another file")
+	assert.True(t, settingFound(t, db, keyLastResult))
+}
+
+func TestStore_PeekErrorsSurfaceFromAClosedDatabase(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	require.NoError(t, db.Close())
+	_, err := NewStore(db).Peek(context.Background(), "100")
+	assert.Error(t, err)
+}
+
+func TestStore_ResetAttemptsClearsTheCounterAndIsIdempotent(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	require.NoError(t, s.RecordFailure(ctx, "100"))
+	require.NoError(t, s.RecordFailure(ctx, "100"))
+
+	require.NoError(t, s.ResetAttempts(ctx))
+	require.NoError(t, s.ResetAttempts(ctx))
+
+	st, err := s.Peek(ctx, "100")
+	require.NoError(t, err)
+	assert.Zero(t, st.Attempts)
+}
+
+func TestSuppressesPending(t *testing.T) {
+	cases := []struct {
+		name string
+		last *LastResult
+		want bool
+	}{
+		{"no result", nil, false},
+		{"integrity check failed", &LastResult{Outcome: ResultSkipped, Reason: ReasonIntegrityCheckFailed}, true},
+		{"too many failures", &LastResult{Outcome: ResultSkipped, Reason: ReasonTooManyFailures}, true},
+		{"busy is transient", &LastResult{Outcome: ResultSkipped, Reason: ReasonDatabaseBusy}, false},
+		{"insufficient disk is shown as its own notice", &LastResult{Outcome: ResultSkipped, Reason: ReasonInsufficientDisk}, false},
+		{"converted", &LastResult{Outcome: ResultConverted}, false},
+		{"same reason but not a skip", &LastResult{Outcome: ResultFailed, Reason: ReasonIntegrityCheckFailed}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) { assert.Equal(t, tc.want, SuppressesPending(tc.last)) })
+	}
+}
+
+func TestConversionEnabledReflectsTheSwitch(t *testing.T) {
+	assert.False(t, ConversionEnabled(), "conversion does not exist yet")
+	enableConversion(t)
+	assert.True(t, ConversionEnabled())
+}
