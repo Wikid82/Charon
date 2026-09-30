@@ -2,7 +2,7 @@
 
 Branch: `fix/uptime-heartbeat-retention-default` (single PR into `development`).
 Type: `fix:` (not `(security)`). Issue: "charon db is huge (4.8 GB) due to uptime_heartbeats".
-Status: PLAN, revision 3. The user approved the direction with the Supervisor's recommendations as defaults; the Supervisor's round-2 findings (F1-F8, each re-verified against the code) are applied below. Awaiting final Supervisor pass and user go-ahead to implement.
+Status: IMPLEMENTED (commits 1-7 on the branch; pending PR/CI).
 Companion: `docs/plans/db_maintenance_spec.md` (follow-up feature PR that owns all compaction / VACUUM work).
 
 ## 1. Introduction
@@ -48,7 +48,7 @@ New facts from the reporter (issue thread):
 
 ### Explicit tradeoff of removing compaction from this PR
 
-Lowering retention (or the migration) frees pages inside the SQLite file but never returns them to the OS: `auto_vacuum=0`, and nothing runs `VACUUM`. **Reporter-type installs will not see the file shrink until the follow-up ships.** The database stops growing (the free pages are reused for new heartbeats), but the 4.8 GB file stays 4.8 GB. Therefore the helper text and docs must say "the file may not shrink until the database is compacted", and the docs give an honest advanced manual workaround (Section 5, Phase 5). This is accepted by design, not a bug.
+Lowering retention (or the migration) frees pages inside the SQLite file but never returns them to the OS: `auto_vacuum=0`, and nothing runs `VACUUM`. **Reporter-type installs will not see the file shrink until the follow-up ships.** The database stops growing (the free pages are reused for new heartbeats), but the 4.8 GB file stays 4.8 GB. Therefore the helper text and docs must say "the file may not shrink until the database is compacted", and the docs give an honest advanced manual workaround (Section 4, Phase 5). This is accepted by design, not a bug.
 
 ## 2. Research Findings (verified against the code)
 
@@ -193,7 +193,7 @@ Changes (no new components, no new API):
 4. Do **not** touch `de/es/fr/zh` (Section 2.5).
 5. Verify how a server 400 for `uptime.heartbeat_retention_days` renders (`uptimeFieldError`) and add a unit test that it shows the field error rather than only a toast.
 
-Approximate-size statement is deliberately omitted from the helper (kept for the docs only, labelled approximate: about 320 bytes per row including indexes, 1440 rows per monitor per day).
+The shipped helper (commit 6) also includes the approximate size ("approximately 15 MB per monitor per 30 days", labelled approximate); the docs carry the per-row derivation: about 320 bytes per row including indexes, 1440 rows per monitor per day.
 
 **0 / "disable pruning" stays out of scope** (would need a sentinel through the pruner, summary, API, and UI, and re-opens the unbounded-growth failure).
 
@@ -238,7 +238,7 @@ Update `tests/monitoring/uptime-monitoring-scale.spec.ts` Scenario 3:
 
 - Change the fixture stored value from `'90'` to a non-default `'45'`; keep the "set to 30 and save" round-trip.
 - Add a test: with the mocked settings API returning `'30'`, the field shows `30`, the placeholder is `30`, and the helper text mentions "permanently deleted" and "compacted"; entering `0` and `3651` shows the range error and blocks Save.
-- New tests are `test.fixme` in commit 1 and un-fixme'd in commit 5.
+- New tests are `test.fixme` in commit 1 and un-fixme'd in commit 6.
 
 ### Phase 2 - Backend
 

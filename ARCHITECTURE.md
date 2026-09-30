@@ -462,7 +462,7 @@ ticker.
 - **`UptimePruner`** (`internal/services/uptime_pruner.go`): hourly, chunked
   `DELETE` (5 000 rows per chunk via `WHERE id IN (SELECT ... LIMIT n)`; 50 ms
   inter-chunk pause steady-state, 250 ms on the first cold pass) of
-  `uptime_heartbeats` older than `uptime.heartbeat_retention_days` (default 90).
+  `uptime_heartbeats` older than `uptime.heartbeat_retention_days` (default 30).
   `PRAGMA wal_checkpoint(TRUNCATE)` after a large prune; `PRAGMA optimize` daily;
   no downsampling and no `VACUUM`. Also owns lazy creation of
   `idx_heartbeat_monitor_created (monitor_id, created_at)` — issued as
@@ -501,7 +501,7 @@ ticker.
 |-----|---------|--------|-----------|
 | `uptime.default_interval_seconds` | 60 | 30 – 86400 | Yes (~60 s TTL) |
 | `uptime.worker_pool_size` | 30 | 1 – 200 | No — restart to apply |
-| `uptime.heartbeat_retention_days` | 90 | 1 – 3650 | Yes (read each pruner pass) |
+| `uptime.heartbeat_retention_days` | 30 | 1 – 3650 | Yes (read each pruner pass) |
 
 **API Endpoints** (JWT auth, mounted in the `management` group):
 
@@ -787,7 +787,7 @@ This pattern is **intentional and valid**:
 **Data lifecycle:**
 
 - `uptime_heartbeats` rows are hard-deleted on a rolling window
-  (`uptime.heartbeat_retention_days`, default 90) by a background hourly pruner —
+  (`uptime.heartbeat_retention_days`, default 30) by a background hourly pruner —
   the only automatic data deletion in Charon.
 - The `idx_heartbeat_monitor_created` index is created lazily by that pruner
   (`CREATE INDEX IF NOT EXISTS`, retried until it lands), not by AutoMigrate, so
@@ -795,6 +795,11 @@ This pattern is **intentional and valid**:
   existing table the first background build is still a bounded multi-minute,
   write-contending operation; `charon migrate` builds it eagerly, with a warning
   log, for an out-of-band maintenance window.
+- The former redundant single-column `monitor_id` index on `uptime_heartbeats` was
+  dropped (it was a strict prefix of the composite index). The pruner's age query
+  is index-bounded, so each hourly pass scans only the rows it deletes.
+- Deleted rows free pages inside the SQLite file but do not shrink it; there is no
+  automatic compaction today.
 
 ---
 
