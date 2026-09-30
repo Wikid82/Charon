@@ -1,17 +1,20 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 func TestMain(m *testing.M) {
@@ -452,4 +455,31 @@ func waitForTCPReady(address string, timeout time.Duration) error {
 	}
 
 	return fmt.Errorf("timed out waiting for TCP readiness at %s", address)
+}
+
+func TestDropRedundantMonitorIndex_FailureIsNonFatal(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o750); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+	db, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	})
+
+	// Simulate the drop failing: reject any DROP INDEX statement.
+	if err = db.Callback().Raw().Before("gorm:raw").Register("test:fail_drop_index", func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "DROP INDEX") {
+			_ = tx.AddError(errors.New("simulated drop failure"))
+		}
+	}); err != nil {
+		t.Fatalf("register callback: %v", err)
+	}
+
+	// Must return (warn and continue) rather than terminating the process.
+	dropRedundantMonitorIndex(db)
 }

@@ -31,8 +31,8 @@ const (
 	// issues PRAGMA wal_checkpoint(TRUNCATE) to reclaim WAL file growth.
 	walCheckpointRowThreshold = 50_000
 	// optimizeEveryPasses runs PRAGMA optimize on a ~daily sub-cadence (every
-	// Nth clean pass at the hourly interval). Space is reclaimed by the
-	// database maintenance feature (see docs/plans/db_maintenance_spec.md).
+	// Nth clean pass at the hourly interval). VACUUM is deliberately not used
+	// here; automatic compaction is tracked in GH #1422.
 	optimizeEveryPasses = 24
 )
 
