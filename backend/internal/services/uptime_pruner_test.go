@@ -67,8 +67,8 @@ func TestUptimePruner_DeletesOnlyRowsBeforeCutoff(t *testing.T) {
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	p := newTestPruner(t, db, func() time.Time { return now })
 
-	seedHeartbeats(t, db, "m-old", now.AddDate(0, 0, -100), 40) // older than 90d -> delete
-	seedHeartbeats(t, db, "m-new", now.AddDate(0, 0, -10), 25)  // within 90d -> keep
+	seedHeartbeats(t, db, "m-old", now.AddDate(0, 0, -100), 40) // older than 30d -> delete
+	seedHeartbeats(t, db, "m-new", now.AddDate(0, 0, -10), 25)  // within 30d -> keep
 
 	deleted, err := p.pruneOnce(context.Background())
 	require.NoError(t, err)
@@ -102,11 +102,11 @@ func TestUptimePruner_HonorsHotRetentionChange(t *testing.T) {
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	p := newTestPruner(t, db, func() time.Time { return now })
 
-	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -100), 10) // > 90d
-	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -30), 10)  // 30d old
+	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -100), 10) // > 30d
+	seedHeartbeats(t, db, "m1", now.AddDate(0, 0, -20), 10)  // 20d old
 	seedHeartbeats(t, db, "m1", now.Add(-1*time.Hour), 5)    // fresh
 
-	// Pass 1: default 90-day retention -> only the -100d rows go.
+	// Pass 1: default 30-day retention -> only the -100d rows go.
 	deleted, err := p.pruneOnce(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(10), deleted)
@@ -118,7 +118,7 @@ func TestUptimePruner_HonorsHotRetentionChange(t *testing.T) {
 	}).Error)
 	p.cfg.forceRefresh()
 
-	// Pass 2: the 30-day-old rows are now stale; the fresh rows survive.
+	// Pass 2: the 20-day-old rows are now stale; the fresh rows survive.
 	deleted, err = p.pruneOnce(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(10), deleted)

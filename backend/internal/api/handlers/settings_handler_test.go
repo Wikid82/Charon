@@ -1894,6 +1894,7 @@ func TestSettingsHandler_UpdateSetting_UptimeBounds(t *testing.T) {
 		{"pool_below_min", "uptime.worker_pool_size", "0", false},
 		{"pool_above_max", "uptime.worker_pool_size", "201", false},
 		{"retention_in_bounds", "uptime.heartbeat_retention_days", "90", true},
+		{"retention_default", "uptime.heartbeat_retention_days", "30", true},
 		{"retention_min_edge", "uptime.heartbeat_retention_days", "1", true},
 		{"retention_max_edge", "uptime.heartbeat_retention_days", "3650", true},
 		{"retention_below_min", "uptime.heartbeat_retention_days", "0", false},
@@ -1934,4 +1935,85 @@ func TestSettingsHandler_UpdateSetting_UptimeBounds(t *testing.T) {
 			assert.Equal(t, int64(0), count, "a rejected uptime.* write must not persist")
 		})
 	}
+}
+
+func patchConfigUptime(t *testing.T, db *gorm.DB, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.PATCH("/config", handler.PatchConfig)
+
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, "/config", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	return w
+}
+
+func TestSettingsHandler_PatchConfig_UptimeRetentionValidation(t *testing.T) {
+	cases := []struct {
+		name   string
+		value  any
+		wantOK bool
+	}{
+		{"zero", "0", false},
+		{"negative", "-1", false},
+		{"above_max", "3651", false},
+		{"non_integer", "abc", false},
+		{"numeric_zero", 0, false},
+		{"default", "30", true},
+		{"min_edge", "1", true},
+		{"max_edge", "3650", true},
+		{"numeric_valid", 45, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupSettingsTestDB(t)
+			require.NoError(t, db.Create(&models.Setting{
+				Key: "uptime.heartbeat_retention_days", Value: "60", Type: "int", Category: "uptime",
+			}).Error)
+
+			w := patchConfigUptime(t, db, map[string]any{
+				"uptime": map[string]any{"heartbeat_retention_days": tc.value},
+			})
+
+			var s models.Setting
+			require.NoError(t, db.Where("key = ?", "uptime.heartbeat_retention_days").First(&s).Error)
+			if tc.wantOK {
+				assert.Equal(t, http.StatusOK, w.Code)
+				assert.Equal(t, fmt.Sprintf("%v", tc.value), s.Value)
+				return
+			}
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, "invalid_uptime_setting", resp["error_code"])
+			assert.Equal(t, "60", s.Value, "stored value must be unchanged")
+		})
+	}
+}
+
+func TestSettingsHandler_PatchConfig_UptimeBadKeyWritesNothing(t *testing.T) {
+	db := setupSettingsTestDB(t)
+
+	w := patchConfigUptime(t, db, map[string]any{
+		"general": map[string]any{"note": "keep-me-out"},
+		"uptime": map[string]any{
+			"worker_pool_size":         "10",
+			"heartbeat_retention_days": "0",
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var n int64
+	require.NoError(t, db.Model(&models.Setting{}).Count(&n).Error)
+	assert.Zero(t, n, "a batch with one invalid uptime key must write nothing")
+}
+
+func TestSettingsHandler_PatchConfig_UptimeUnknownKeyRejected(t *testing.T) {
+	db := setupSettingsTestDB(t)
+	w := patchConfigUptime(t, db, map[string]any{"uptime": map[string]any{"bogus": "5"}})
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

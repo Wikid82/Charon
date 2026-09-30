@@ -297,6 +297,16 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		updates["feature.cerberus.enabled"] = "true"
 	}
 
+	// Validate the whole batch before opening the transaction so an invalid
+	// uptime.* value can never produce a partial write.
+	if err := validateUptimeUpdates(updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":      err.Error(),
+			"error_code": "invalid_uptime_setting",
+		})
+		return
+	}
+
 	if err := h.DB.Transaction(func(tx *gorm.DB) error {
 		for key, value := range updates {
 			if key == "security.admin_whitelist" {
@@ -444,7 +454,7 @@ func flattenConfig(config map[string]interface{}, prefix string, result map[stri
 var uptimeSettingBounds = map[string][2]int{
 	"uptime.default_interval_seconds": {30, 86400},
 	"uptime.worker_pool_size":         {1, 200},
-	"uptime.heartbeat_retention_days": {1, 3650},
+	"uptime.heartbeat_retention_days": {services.UptimeRetentionMinDays, services.UptimeRetentionMaxDays},
 }
 
 // validateUptimeSetting enforces the integer bounds for a uptime.* key.
@@ -460,6 +470,20 @@ func validateUptimeSetting(key, value string) error {
 	}
 	if n < bounds[0] || n > bounds[1] {
 		return fmt.Errorf("%s must be between %d and %d", key, bounds[0], bounds[1])
+	}
+	return nil
+}
+
+// validateUptimeUpdates enforces validateUptimeSetting on every uptime.* key of
+// a flattened batch update.
+func validateUptimeUpdates(updates map[string]string) error {
+	for key, value := range updates {
+		if !strings.HasPrefix(key, "uptime.") {
+			continue
+		}
+		if err := validateUptimeSetting(key, value); err != nil {
+			return err
+		}
 	}
 	return nil
 }

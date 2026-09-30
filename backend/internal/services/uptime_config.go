@@ -18,13 +18,20 @@ import (
 const (
 	defaultUptimeIntervalSeconds = 60
 	defaultUptimeWorkerPoolSize  = 30
-	defaultUptimeRetentionDays   = 90
 
 	// minUptimeIntervalSeconds is the hard floor for any monitor check
 	// interval — no monitor may be checked more often than this.
 	minUptimeIntervalSeconds = 30
 
 	uptimeConfigTTL = 60 * time.Second
+)
+
+// Heartbeat retention bounds, shared by the config clamp and the settings
+// handlers so the accepted range has a single source of truth.
+const (
+	UptimeRetentionDefaultDays = 30
+	UptimeRetentionMinDays     = 1
+	UptimeRetentionMaxDays     = 3650
 )
 
 // cachedUptimeCfg is an immutable snapshot of the three uptime.* settings.
@@ -84,10 +91,24 @@ func (c *uptimeConfig) snapshot() cachedUptimeCfg {
 	c.val = cachedUptimeCfg{
 		defaultIntervalSeconds: c.loadInt("uptime.default_interval_seconds", defaultUptimeIntervalSeconds),
 		workerPoolSize:         c.loadInt("uptime.worker_pool_size", defaultUptimeWorkerPoolSize),
-		retentionDays:          c.loadInt("uptime.heartbeat_retention_days", defaultUptimeRetentionDays),
+		retentionDays:          normalizeRetentionDays(c.loadInt("uptime.heartbeat_retention_days", UptimeRetentionDefaultDays)),
 	}
 	c.exp = c.now().Add(c.ttl)
 	return c.val
+}
+
+// normalizeRetentionDays applies the single retention clamp rule: a value below
+// the minimum (0, negatives) falls back to the default rather than letting the
+// pruner compute a cutoff of "now", and a value above the maximum is capped.
+func normalizeRetentionDays(n int) int {
+	switch {
+	case n < UptimeRetentionMinDays:
+		return UptimeRetentionDefaultDays
+	case n > UptimeRetentionMaxDays:
+		return UptimeRetentionMaxDays
+	default:
+		return n
+	}
 }
 
 // loadInt reads a single integer setting, falling back to fallback on any
