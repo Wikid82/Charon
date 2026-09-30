@@ -42,3 +42,33 @@ const (
 	AutoVacuumNone        = 0
 	AutoVacuumIncremental = 2
 )
+
+// Bounds of the boot-time maintenance run (3.1 of the plan).
+const (
+	// PlannedMaxWait is the longest the gate stays planned waiting for the two
+	// readiness signals. It excludes the quick_check wait.
+	PlannedMaxWait = 3 * time.Minute
+	// QuickCheckMaxWait is the longest the runner waits, still in planned, for
+	// the boot quick_check once both signals arrived.
+	QuickCheckMaxWait = 15 * time.Minute
+	// ConnAcquireTimeout bounds the wait for the pool's only connection; on
+	// expiry the run is skipped as database_busy instead of leaving the
+	// management plane at 503 forever behind a leaked connection.
+	ConnAcquireTimeout = 45 * time.Second
+	// ShutdownRunnerWait is how long the shutdown path waits for the runner. It
+	// is sized against Docker's 10 s default stop grace.
+	ShutdownRunnerWait = 4 * time.Second
+	// MarkerWriteTimeout bounds the detached final settings writes at shutdown.
+	MarkerWriteTimeout = 3 * time.Second
+
+	// ProbeRetries and ProbeRetryGap govern the writer-lock probe retries.
+	ProbeRetries  = 3
+	ProbeRetryGap = 20 * time.Second
+
+	// CheckpointRetries, CheckpointBackoff and CheckpointBackoffCap bound the
+	// retry of wal_checkpoint(TRUNCATE) while a reader pins the WAL.
+	CheckpointRetries    = 6
+	CheckpointBackoff    = 2 * time.Second
+	CheckpointBackoffCap = 30 * time.Second
+	busyTimeoutMillis    = 5000 // database.Connect's busy_timeout
+)

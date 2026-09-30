@@ -61,19 +61,39 @@ func Inspect(ctx context.Context, q Querier, dbPath string) (Stats, error) {
 		}
 	}
 
+	var err error
+	s.MainBytes, s.WALBytes, err = fileSizes(dbPath)
+	if err != nil {
+		return Stats{}, err
+	}
+	return s, nil
+}
+
+// fileSizes returns the sizes of the main database file and its WAL. A missing
+// WAL file counts as zero bytes.
+func fileSizes(dbPath string) (mainBytes, walBytes int64, err error) {
 	clean := filepath.Clean(dbPath)
 	info, err := os.Stat(clean)
 	if err != nil {
-		return Stats{}, fmt.Errorf("stat database file: %w", err)
+		return 0, 0, fmt.Errorf("stat database file: %w", err)
 	}
-	s.MainBytes = info.Size()
 
 	walInfo, err := os.Stat(clean + "-wal")
 	switch {
 	case err == nil:
-		s.WALBytes = walInfo.Size()
+		walBytes = walInfo.Size()
 	case !errors.Is(err, os.ErrNotExist):
-		return Stats{}, fmt.Errorf("stat wal file: %w", err)
+		return 0, 0, fmt.Errorf("stat wal file: %w", err)
 	}
-	return s, nil
+	return info.Size(), walBytes, nil
+}
+
+// sizeOnDisk is the combined size of the main file and the WAL; unreadable
+// files count as zero because it only feeds reporting.
+func sizeOnDisk(dbPath string) int64 {
+	mainBytes, walBytes, err := fileSizes(dbPath)
+	if err != nil {
+		return 0
+	}
+	return mainBytes + walBytes
 }

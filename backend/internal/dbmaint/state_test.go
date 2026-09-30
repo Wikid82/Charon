@@ -1,0 +1,238 @@
+package dbmaint
+
+import (
+	"context"
+	"database/sql"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
+	"github.com/Wikid82/charon/backend/internal/models"
+)
+
+// newSettingsDB builds a scratch database whose settings table is created by
+// the real model, so the store is tested against the production schema.
+func newSettingsDB(t *testing.T) (db *sql.DB, path string) {
+	t.Helper()
+	db, path = newScratchDB(t, scratchOpts{})
+	gdb, err := gorm.Open(sqlite.Dialector{Conn: db}, &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, gdb.AutoMigrate(&models.Setting{}))
+	return db, path
+}
+
+func settingFound(t *testing.T, db *sql.DB, key string) bool {
+	t.Helper()
+	var value string
+	err := db.QueryRow(`SELECT value FROM settings WHERE "key" = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false
+	}
+	require.NoError(t, err)
+	return true
+}
+
+func TestFileID_IsTheInodeAndSurvivesRewrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f.db")
+	require.NoError(t, os.WriteFile(path, []byte("a"), 0o600))
+	id1, err := FileID(path)
+	require.NoError(t, err)
+	assert.Regexp(t, `^\d+$`, id1)
+
+	require.NoError(t, os.WriteFile(path, []byte("bbbb"), 0o600))
+	id2, err := FileID(path)
+	require.NoError(t, err)
+	assert.Equal(t, id1, id2, "rewriting in place keeps the inode")
+
+	replacement := path + ".new"
+	require.NoError(t, os.WriteFile(replacement, []byte("c"), 0o600))
+	require.NoError(t, os.Rename(replacement, path))
+	id3, err := FileID(path)
+	require.NoError(t, err)
+	assert.NotEqual(t, id1, id3, "a file renamed into place gets a new inode")
+
+	_, err = FileID(filepath.Join(t.TempDir(), "missing"))
+	assert.Error(t, err)
+}
+
+func TestStore_FlagRoundTripAndSettingsShape(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	on, err := s.FlagRequested(ctx)
+	require.NoError(t, err)
+	assert.False(t, on)
+
+	require.NoError(t, s.SetFlag(ctx))
+	require.NoError(t, s.SetFlag(ctx), "setting twice is idempotent")
+	on, err = s.FlagRequested(ctx)
+	require.NoError(t, err)
+	assert.True(t, on)
+
+	var row models.Setting
+	require.NoError(t, db.QueryRow(`SELECT "key", value, type, category FROM settings WHERE "key" = ?`, SettingKeyFlag).
+		Scan(&row.Key, &row.Value, &row.Type, &row.Category))
+	assert.Equal(t, "true", row.Value)
+	assert.Equal(t, "bool", row.Type)
+	assert.Equal(t, "maintenance", row.Category)
+
+	require.NoError(t, s.ClearFlag(ctx))
+	require.NoError(t, s.ClearFlag(ctx), "clearing twice is idempotent")
+	on, err = s.FlagRequested(ctx)
+	require.NoError(t, err)
+	assert.False(t, on)
+}
+
+func TestStore_FlagIsFalseForAnyValueButTrue(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	_, err := db.Exec(`INSERT INTO settings ("key", value, type, category) VALUES (?, 'nope', 'bool', 'maintenance')`, SettingKeyFlag)
+	require.NoError(t, err)
+	on, err := NewStore(db).FlagRequested(context.Background())
+	require.NoError(t, err)
+	assert.False(t, on)
+}
+
+func TestStore_RecordFailureCountsPerFile(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	for want := 1; want <= 3; want++ {
+		require.NoError(t, s.RecordFailure(ctx, "100"))
+		st, err := s.Load(ctx, "100")
+		require.NoError(t, err)
+		assert.Equal(t, want, st.Attempts)
+	}
+}
+
+func TestStore_LoadIgnoresAndDeletesStateOfAReplacedFile(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	require.NoError(t, s.RecordFailure(ctx, "100"))
+	require.NoError(t, s.RecordFailure(ctx, "100"))
+	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+	require.NoError(t, s.WriteLastResult(ctx, LastResult{At: time.Now(), Outcome: ResultFailed, FileID: "100"}))
+
+	st, err := s.Load(ctx, "999") // the file was replaced: new inode
+	require.NoError(t, err)
+	assert.Equal(t, 0, st.Attempts)
+	assert.Nil(t, st.LastResult)
+	for _, key := range []string{keyAttempts, keyInProgress, keyLastResult} {
+		found := settingFound(t, db, key)
+		assert.False(t, found, "%s of the old file is deleted", key)
+	}
+}
+
+func TestStore_LoadKeepsStateWhenOnlyTheDeviceDiffers(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	ctx := context.Background()
+	_, err := db.Exec(`INSERT INTO settings ("key", value, type, category) VALUES
+		(?, '{"count":2,"file_id":"77:100"}', 'json', 'maintenance'),
+		(?, '{"at":"2026-10-01T00:00:00Z","outcome":"failed","file_id":"77:100"}', 'json', 'maintenance')`,
+		keyAttempts, keyLastResult)
+	require.NoError(t, err)
+
+	st, err := NewStore(db).Load(ctx, "100")
+	require.NoError(t, err)
+	assert.Equal(t, 2, st.Attempts, "a legacy dev:ino id with the same inode keeps the state")
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, ResultFailed, st.LastResult.Outcome)
+}
+
+func TestStore_LeftoverMarkerForTheSameFileCountsAsAFailedAttempt(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	require.NoError(t, s.RecordFailure(ctx, "100"))
+	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+
+	st, err := s.Load(ctx, "100")
+	require.NoError(t, err)
+	assert.Equal(t, 2, st.Attempts)
+	found := settingFound(t, db, keyInProgress)
+	assert.False(t, found, "the marker is consumed")
+
+	st, err = s.Load(ctx, "100")
+	require.NoError(t, err)
+	assert.Equal(t, 2, st.Attempts, "a second load does not count it again")
+}
+
+func TestStore_ClearInProgressIsIdempotent(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	require.NoError(t, s.SetInProgress(ctx, "1", time.Now()))
+	require.NoError(t, s.ClearInProgress(ctx))
+	require.NoError(t, s.ClearInProgress(ctx))
+}
+
+func TestStore_LastResultRoundTrip(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	at := time.Date(2026, 10, 2, 4, 11, 0, 0, time.UTC)
+	want := LastResult{At: at, Outcome: ResultConverted, Reason: "", BytesBefore: 4800, BytesAfter: 2900, FileID: "100"}
+	require.NoError(t, s.WriteLastResult(ctx, want))
+	require.NoError(t, s.WriteLastResult(ctx, want), "a rewrite replaces the row")
+
+	st, err := s.Load(ctx, "100")
+	require.NoError(t, err)
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, want.Outcome, st.LastResult.Outcome)
+	assert.True(t, at.Equal(st.LastResult.At))
+	assert.Equal(t, int64(4800), st.LastResult.BytesBefore)
+	assert.Equal(t, int64(2900), st.LastResult.BytesAfter)
+}
+
+func TestStore_LoadWithCorruptRowsDropsThem(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	_, err := db.Exec(`INSERT INTO settings ("key", value, type, category) VALUES
+		(?, 'not json', 'json', 'maintenance'), (?, '{', 'json', 'maintenance'), (?, '[]x', 'json', 'maintenance')`,
+		keyAttempts, keyInProgress, keyLastResult)
+	require.NoError(t, err)
+
+	st, err := NewStore(db).Load(context.Background(), "100")
+	require.NoError(t, err)
+	assert.Zero(t, st.Attempts)
+	assert.Nil(t, st.LastResult)
+	for _, key := range []string{keyAttempts, keyInProgress, keyLastResult} {
+		found := settingFound(t, db, key)
+		assert.False(t, found, key)
+	}
+}
+
+func TestStore_ErrorsSurfaceFromAClosedDatabase(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	require.NoError(t, db.Close())
+	ctx := context.Background()
+
+	assert.Error(t, s.SetFlag(ctx))
+	assert.Error(t, s.ClearFlag(ctx))
+	_, err := s.FlagRequested(ctx)
+	assert.Error(t, err)
+	assert.Error(t, s.RecordFailure(ctx, "1"))
+	assert.Error(t, s.SetInProgress(ctx, "1", time.Now()))
+	assert.Error(t, s.ClearInProgress(ctx))
+	assert.Error(t, s.WriteLastResult(ctx, LastResult{}))
+	_, err = s.Load(ctx, "1")
+	assert.Error(t, err)
+}
+
+func TestStore_SettingsHandlerCannotSeeTheRows(t *testing.T) {
+	// The rows use the reserved "maintenance." prefix; this guards the naming
+	// contract the settings handler filters on.
+	for _, key := range []string{SettingKeyFlag, keyAttempts, keyInProgress, keyLastResult} {
+		assert.Regexp(t, `^maintenance\.`, key)
+	}
+}

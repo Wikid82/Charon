@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -285,6 +286,9 @@ func main() {
 	logger.Log().Info("Plugin system initialized")
 
 	router := server.NewRouter(cfg.FrontendDir, filepath.Dir(cfg.DatabasePath), cfg.Security.TrustedProxies)
+	// The database maintenance gate answers the healthcheck and the status
+	// endpoint itself and returns 503 while a conversion holds the pool (GH #1422).
+	gate := dbmaint.NewGate()
 	// Initialize structured logger with same writer as stdlib log so both capture logs
 	logger.Init(cfg.Debug, mw)
 	logStartupWarnings(logger.Log(), cfg.StartupWarnings)
@@ -294,6 +298,9 @@ func main() {
 	router.Use(middleware.RequestLogger())
 	// Attach a recovery middleware that logs stack traces when debug is enabled
 	router.Use(middleware.Recovery(cfg.Debug))
+	// The gate goes before everything that touches the database (EmergencyBypass,
+	// RateLimit), which RegisterWithDeps installs afterwards.
+	router.Use(gate.Middleware(handlers.HealthHandler))
 
 	// Shared Caddy manager and Cerberus instance for API + emergency server
 	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
@@ -305,7 +312,7 @@ func main() {
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	uptimeShutdown, err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb)
+	uptimeShutdown, err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb, gate)
 	if err != nil {
 		appCancel()
 		log.Fatalf("register routes: %v", err) //nolint:gocritic // exitAfterDefer: appCancel called explicitly above
@@ -320,7 +327,7 @@ func main() {
 	}
 
 	// Initialize emergency server (Tier 2 break glass)
-	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb)
+	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb, gate)
 	if err := emergencyServer.Start(); err != nil {
 		logger.Log().WithError(err).Fatal("Failed to start emergency server")
 	}
@@ -329,12 +336,21 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	// Bind the main listener explicitly, after every startup step that uses the
+	// database, so the maintenance gate can tell "listener bound" (the second of
+	// its two readiness signals) from "about to bind".
+	addr := fmt.Sprintf(":%s", cfg.HTTPPort)
+	listener, listenErr := net.Listen("tcp", addr)
+	if listenErr != nil {
+		logger.Log().WithError(listenErr).Fatal("failed to listen")
+	}
+	gate.MarkListenerBound()
+
 	// Start main HTTP server in goroutine
 	go func() {
-		addr := fmt.Sprintf(":%s", cfg.HTTPPort)
 		logger.Log().Infof("starting %s backend on %s", version.Name, addr)
 
-		if err := router.Run(addr); err != nil {
+		if err := router.RunListener(listener); err != nil {
 			logger.Log().WithError(err).Fatal("server error")
 		}
 	}()
@@ -346,9 +362,10 @@ func main() {
 	// Cancel the app-wide context to stop background goroutines (e.g. cert expiry checker)
 	appCancel()
 
-	// Wait out the ordered uptime teardown (scheduler stops enqueuing → worker
-	// pool drains in-flight checks → ingester final flush) so an in-flight
-	// check's heartbeat is not lost on shutdown (spec §3.1.4 / S4).
+	// The maintenance runner is waited on first (bounded), then the ordered
+	// uptime teardown (scheduler stops enqueuing → worker pool drains in-flight
+	// checks → ingester final flush) so an in-flight check's heartbeat is not
+	// lost on shutdown (spec §3.1.4 / S4).
 	//
 	// Grace is hardCap (20s) + margin. A worker that reaches shutdown mid-check
 	// could in theory add the C1 notification dispatch's notifyTimeout (10s) on
@@ -357,13 +374,16 @@ func main() {
 	// dispatch ctx are born already-done and unwind immediately. The only real
 	// bound left is the HTTP client's own 20s timeout on a socket already
 	// reading a slow body, which fits inside 25s.
-	if uptimeShutdown != nil {
+	shutdownDrain(gate, dbmaint.ShutdownRunnerWait, func() {
+		if uptimeShutdown == nil {
+			return
+		}
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer drainCancel()
 		if drainErr := uptimeShutdown(drainCtx); drainErr != nil {
 			logger.Log().WithError(drainErr).Warn("uptime pipeline did not drain within grace period")
 		}
-		drainCancel()
-	}
+	})
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

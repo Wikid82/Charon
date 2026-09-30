@@ -3,7 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -413,8 +415,31 @@ func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	t.Setenv("CHARON_FRONTEND_DIR", filepath.Join(tmp, "frontend", "dist"))
 	os.Args = []string{"charon"}
 
+	// The gate is installed in main: the healthcheck and the maintenance status
+	// must be answered by the running server before it is stopped.
+	type probe struct {
+		path   string
+		status int
+		body   string
+		err    error
+	}
+	probes := make(chan []probe, 1)
 	go func() {
 		_ = waitForTCPReady("127.0.0.1:"+httpPort, 10*time.Second)
+		var results []probe
+		for _, path := range []string{"/api/v1/health", "/api/v1/maintenance/status"} {
+			p := probe{path: path}
+			resp, err := http.Get("http://127.0.0.1:" + httpPort + path) //nolint:noctx,gosec // local test server on a free port
+			if err != nil {
+				p.err = err
+			} else {
+				raw, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				p.status, p.body = resp.StatusCode, string(raw)
+			}
+			results = append(results, p)
+		}
+		probes <- results
 		process, err := os.FindProcess(os.Getpid())
 		if err == nil {
 			_ = process.Signal(syscall.SIGTERM)
@@ -422,6 +447,15 @@ func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	}()
 
 	main()
+
+	for _, p := range <-probes {
+		if p.err != nil || p.status != http.StatusOK {
+			t.Errorf("GET %s: status=%d err=%v", p.path, p.status, p.err)
+		}
+		if p.path == "/api/v1/maintenance/status" && !strings.Contains(p.body, `"phase":"idle"`) {
+			t.Errorf("status body = %q, want the idle phase", p.body)
+		}
+	}
 }
 
 func findFreeTCPPort() (string, error) {

@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
@@ -165,6 +166,14 @@ type BackupService struct {
 
 	// mu serializes create/restore operations (spec §3.10 concurrency guard).
 	mu sync.Mutex
+
+	// maintenance defers scheduled backups while the database is being
+	// optimized (GH #1422). maintenanceCtx is the application context so the
+	// run-after-release waiter exits on shutdown; deferredPending guards the
+	// single waiter.
+	maintenance     MaintenanceDeferrer
+	maintenanceCtx  context.Context
+	deferredPending atomic.Bool
 
 	// uploadCtx/uploadCancel/uploadWG track remote-upload goroutines so
 	// Stop() can cancel in-flight uploads and wait for them rather than
@@ -461,6 +470,9 @@ func (s *BackupService) Reschedule(cronSpec string) error {
 }
 
 func (s *BackupService) RunScheduledBackup() {
+	if s.deferForMaintenance() {
+		return
+	}
 	logger.Log().Info("Starting scheduled backup")
 	createBackupOpts := s.CreateBackupWithOptions
 	if s.createBackupOpts != nil {
@@ -490,6 +502,45 @@ func (s *BackupService) RunScheduledBackup() {
 			logger.Log().WithField("deleted_count", deleted).Info("Cleaned up old backups")
 		}
 	}
+}
+
+// MaintenanceDeferrer is the small view of the database maintenance gate the
+// backup service needs; *dbmaint.Gate satisfies it.
+type MaintenanceDeferrer interface {
+	// Deferring reports whether background work must wait for maintenance.
+	Deferring() bool
+	// WaitReleased blocks until maintenance released its hold and returns true,
+	// or returns false when ctx ends first.
+	WaitReleased(ctx context.Context) bool
+}
+
+// SetMaintenanceDeferrer makes scheduled backups wait while d defers. ctx is
+// the application context that bounds the run-after-release waiter. Call it
+// before Start.
+func (s *BackupService) SetMaintenanceDeferrer(ctx context.Context, d MaintenanceDeferrer) {
+	s.maintenance, s.maintenanceCtx = d, ctx
+}
+
+// deferForMaintenance postpones a scheduled backup that falls inside a
+// maintenance window. The backup is deferred, not dropped: one waiter (however
+// many cron ticks arrive) runs it after the gate is released. It reports
+// whether the backup was deferred.
+func (s *BackupService) deferForMaintenance() bool {
+	if s.maintenance == nil || !s.maintenance.Deferring() {
+		return false
+	}
+	if !s.deferredPending.CompareAndSwap(false, true) {
+		logger.Log().Info("Scheduled backup deferred: database optimization is pending; a deferred backup is already waiting")
+		return true
+	}
+	logger.Log().Info("Scheduled backup deferred until the database optimization has finished")
+	go func() {
+		defer s.deferredPending.Store(false)
+		if s.maintenance.WaitReleased(s.maintenanceCtx) {
+			s.RunScheduledBackup()
+		}
+	}()
+	return true
 }
 
 // CleanupOldBackups removes backups exceeding the retention count.

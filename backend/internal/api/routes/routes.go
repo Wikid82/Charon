@@ -46,7 +46,19 @@ type caddyBootstrapper interface {
 
 // applyInitialCaddyConfig waits for Caddy to respond (up to timeout), then applies the
 // stored configuration. It returns early, without applying, if ctx is cancelled.
-func applyInitialCaddyConfig(ctx context.Context, mgr caddyBootstrapper, timeout, interval time.Duration) {
+//
+// onDone (may be nil) is called exactly once on every exit path: true when the
+// configuration was applied, false on timeout, cancellation or an apply error.
+// The database maintenance gate uses it as its "config applied" readiness
+// signal, so it must never be skipped.
+func applyInitialCaddyConfig(ctx context.Context, mgr caddyBootstrapper, timeout, interval time.Duration, onDone func(applied bool)) {
+	applied := false
+	defer func() {
+		if onDone != nil {
+			onDone(applied)
+		}
+	}()
+
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -68,6 +80,7 @@ func applyInitialCaddyConfig(ctx context.Context, mgr caddyBootstrapper, timeout
 			if err := mgr.ApplyConfig(ctx); err != nil {
 				logger.Log().WithError(err).Error("Failed to apply initial Caddy config")
 			} else {
+				applied = true
 				logger.Log().Info("Successfully applied initial Caddy config")
 			}
 			return
@@ -138,7 +151,7 @@ func Register(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.C
 	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
 	cerb := cerberus.New(cfg.Security, db)
 
-	_, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb)
+	_, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, nil)
 	return err
 }
 
@@ -148,10 +161,22 @@ func Register(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.C
 // It is a no-op when the pipeline was never started.
 type UptimeShutdownFunc func(graceCtx context.Context) error
 
+// runWhenIdle runs fn once the database maintenance gate no longer defers
+// background work, and not at all if ctx ends first. A nil gate is idle.
+func runWhenIdle(ctx context.Context, gate *dbmaint.Gate, fn func(context.Context)) {
+	if gate.WaitIdle(ctx) {
+		fn(ctx)
+	}
+}
+
 // RegisterWithDeps wires up API routes and performs automatic migrations with
 // prebuilt dependencies. It returns an UptimeShutdownFunc the caller invokes
 // (after cancelling ctx) to wait out the ordered uptime teardown.
-func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus) (UptimeShutdownFunc, error) {
+//
+// gate is the database maintenance gate (GH #1422); nil behaves as a gate that
+// is permanently idle. The caller installs gate.Middleware itself so it runs
+// before every middleware registered here.
+func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus, gate *dbmaint.Gate) (UptimeShutdownFunc, error) {
 	uptimeShutdown := UptimeShutdownFunc(func(context.Context) error { return nil })
 	// Emergency bypass must be registered FIRST.
 	// When a valid X-Emergency-Token is present from an authorized source,
@@ -217,6 +242,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		return uptimeShutdown, fmt.Errorf("auto migrate: %w", err)
 	}
 
+	// Decide synchronously, before the backup scheduler and every pipeline
+	// goroutine exist, whether a database optimization is likely. Planning can
+	// never block or fail startup (SafePlan); an unaffected install pays
+	// milliseconds and the gate stays idle.
+	startDatabaseMaintenance(ctx, gate, db, cfg)
+
 	// Enforce the Web Push provider singleton invariant at the database
 	// level — a service-layer COUNT-then-INSERT check alone is not atomic
 	// under concurrent requests (see docs/plans/current_spec.md §3.1).
@@ -257,6 +288,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	}
 
 	router.GET("/api/v1/health", cerb.RateLimitMiddleware(), handlers.HealthHandler)
+	// gin does not route HEAD to a GET route, so HEAD is registered explicitly:
+	// it must answer like GET whether or not the maintenance gate is installed.
+	router.HEAD("/api/v1/health", cerb.RateLimitMiddleware(), handlers.HealthHandler)
 
 	// Metrics endpoint (Prometheus)
 	reg := prometheus.NewRegistry()
@@ -306,7 +340,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	backupService.SetCaddyReloader(caddyManager) // spec §3.5 R1 post-restore reload
 	backupRemoteService := services.NewBackupRemoteService(db, backupEncryptionService, backupService.BackupDir)
 	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload) // spec §3.7
-	backupService.Start()                                                // Start cron scheduler for scheduled backups
+	if gate != nil {
+		// Scheduled backups wait (not dropped) while an optimization is pending.
+		// Set before Start() so no cron tick can miss it.
+		backupService.SetMaintenanceDeferrer(ctx, gate)
+	}
+	backupService.Start() // Start cron scheduler for scheduled backups
 	securityService := services.NewSecurityService(db)
 	backupService.SetSecurityService(securityService) // Async Backup/Restore Jobs §3.3.1: security-audit logging from inside the job goroutine
 	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
@@ -830,6 +869,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// Boot-time reconcile: CleanupStaleFailureCounts + one SyncMonitors,
 		// after a short delay so Caddy/DB settle. No initial CheckAll.
 		go func() {
+			if !gate.WaitIdle(ctx) {
+				return
+			}
 			time.Sleep(30 * time.Second)
 			enabled := true
 			var s models.Setting
@@ -850,17 +892,22 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// the ingester does a final flush before Run returns. uptimeShutdown
 		// blocks until that final flush completes (or a grace deadline).
 		uptimeIngesterDone := make(chan struct{})
+
+		// Every goroutine below waits for the database maintenance gate first, so
+		// a pending optimization never competes with monitoring for the pool's
+		// only connection. The wait ends on ctx, so the ingester-done channel
+		// still closes at shutdown.
 		go func() {
-			uptimeService.Ingester.Run(ctx)
+			runWhenIdle(ctx, gate, uptimeService.Ingester.Run)
 			close(uptimeIngesterDone)
 		}()
-		go uptimeService.Pool.Run(ctx)
-		go uptimeScheduler.Run(ctx)
-		go uptimeSyncLoop.Run(ctx)
+		go runWhenIdle(ctx, gate, uptimeService.Pool.Run)
+		go runWhenIdle(ctx, gate, uptimeScheduler.Run)
+		go runWhenIdle(ctx, gate, uptimeSyncLoop.Run)
 		// The retention pruner (spec §3.4) is an independent goroutine: it aborts
 		// on the same ctx between chunks and is safe to cut at any chunk boundary,
 		// so it is deliberately NOT part of the ordered ingester-drain chain above.
-		go uptimePruner.Run(ctx)
+		go runWhenIdle(ctx, gate, uptimePruner.Run)
 
 		uptimeShutdown = func(waitCtx context.Context) error {
 			select {
@@ -1118,9 +1165,33 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// Caddy Manager already created above
 
 	// Initial Caddy Config Sync
-	go applyInitialCaddyConfig(ctx, caddyManager, 30*time.Second, time.Second)
+	// gate.ConfigDone is the maintenance gate's "config applied" signal (a nil
+	// gate ignores it).
+	go applyInitialCaddyConfig(ctx, caddyManager, 30*time.Second, time.Second, gate.ConfigDone)
 
 	return uptimeShutdown, nil
+}
+
+// startDatabaseMaintenance plans a database optimization and, when one is
+// likely, marks the gate planned and starts the runner. A nil gate or an
+// unreachable SQL handle means no maintenance.
+func startDatabaseMaintenance(ctx context.Context, gate *dbmaint.Gate, db *gorm.DB, cfg config.Config) {
+	if gate == nil {
+		return
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		logger.Log().WithError(err).Warn("Database optimization disabled: could not access the SQL handle")
+		return
+	}
+	dbmaint.Start(ctx, dbmaint.StartParams{
+		Gate:    gate,
+		DB:      sqlDB,
+		DBPath:  cfg.DatabasePath,
+		EnvMode: cfg.DBCompactOnStart,
+		// Convert stays unset until the conversion lands; the production planner
+		// never plans a run before then.
+	})
 }
 
 // RegisterImportHandler wires up import routes with config dependencies.

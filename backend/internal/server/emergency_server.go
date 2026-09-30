@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/dbmaint"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
@@ -43,20 +44,24 @@ type EmergencyServer struct {
 	cfg      config.EmergencyConfig
 	cerberus handlers.CacheInvalidator
 	caddy    handlers.CaddyConfigManager
+	gate     *dbmaint.Gate
 }
 
 // NewEmergencyServer creates a new emergency server instance
 func NewEmergencyServer(db *gorm.DB, cfg config.EmergencyConfig) *EmergencyServer {
-	return NewEmergencyServerWithDeps(db, cfg, nil, nil)
+	return NewEmergencyServerWithDeps(db, cfg, nil, nil, nil)
 }
 
 // NewEmergencyServerWithDeps creates a new emergency server instance with optional dependencies.
-func NewEmergencyServerWithDeps(db *gorm.DB, cfg config.EmergencyConfig, caddyManager handlers.CaddyConfigManager, cerberus handlers.CacheInvalidator) *EmergencyServer {
+// gate may be nil; otherwise every route except /health answers a fast 503
+// while a database optimization holds the pool (GH #1422).
+func NewEmergencyServerWithDeps(db *gorm.DB, cfg config.EmergencyConfig, caddyManager handlers.CaddyConfigManager, cerberus handlers.CacheInvalidator, gate *dbmaint.Gate) *EmergencyServer {
 	return &EmergencyServer{
 		db:       db,
 		cfg:      cfg,
 		caddy:    caddyManager,
 		cerberus: cerberus,
+		gate:     gate,
 	}
 }
 
@@ -131,7 +136,12 @@ func (s *EmergencyServer) Start() error {
 		})
 	})
 
-	// Middleware 3: Basic Auth (if configured)
+	// Middleware 3: maintenance gate. Registered after /health so the DB-free
+	// health check keeps answering 200; everything below answers a fast 503
+	// without touching the (possibly pinned) database pool.
+	router.Use(s.gate.EmergencyMiddleware())
+
+	// Middleware 4: Basic Auth (if configured)
 	// Applied AFTER /health endpoint so health checks don't require auth
 	if s.cfg.BasicAuthUsername != "" && s.cfg.BasicAuthPassword != "" {
 		accounts := gin.Accounts{
