@@ -308,3 +308,29 @@ func TestConversionEnabledReflectsTheSwitch(t *testing.T) {
 	enableConversion(t)
 	assert.True(t, ConversionEnabled())
 }
+
+// failNthRead makes the nth read of a Store fail by sending an invalid
+// statement in its place.
+type failNthRead struct {
+	SQLExecer
+	n, calls int
+}
+
+func (f *failNthRead) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	f.calls++
+	if f.calls == f.n {
+		query = "SELECT value FROM no_such_table WHERE 1 = ?"
+		args = []any{1}
+	}
+	return f.SQLExecer.QueryRowContext(ctx, query, args...)
+}
+
+func TestStore_PeekSurfacesEachReadFailure(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	for nth, what := range map[int]string{1: "flag", 2: "attempts", 3: "last result"} {
+		t.Run(what, func(t *testing.T) {
+			_, err := NewStore(&failNthRead{SQLExecer: db, n: nth}).Peek(context.Background(), "100")
+			assert.Error(t, err)
+		})
+	}
+}
