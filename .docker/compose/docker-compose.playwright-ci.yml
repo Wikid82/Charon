@@ -47,6 +47,9 @@ services:
       - CHARON_ENV=test
       - CHARON_DEBUG=0
       - TZ=UTC
+      # Test databases are never optimized at startup: a conversion mid-suite would
+      # answer the management UI and API with 503 (GH #1422)
+      - CHARON_DB_COMPACT_ON_START=off
       # E2E testing encryption key - 32 bytes base64 encoded (not for production!)
       # Encryption key - MUST be provided via environment variable
       # Generate with: export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)

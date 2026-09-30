@@ -7,15 +7,6 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
-// conversionEnabled gates everything that promises a boot-time conversion. It
-// stays false until the conversion itself exists, so Advise stays silent and
-// nothing tells the user about behavior that is not there yet.
-var conversionEnabled = false
-
-// ConversionEnabled reports whether the boot-time conversion exists. Callers
-// that would otherwise promise it (the status endpoint's notice) check it.
-func ConversionEnabled() bool { return conversionEnabled }
-
 // Advice is the latest answer to "would the next start convert this database?".
 type Advice struct {
 	// Pending is true when a conversion at the next start is likely.
@@ -68,12 +59,9 @@ func (a *Advisor) Current() Advice {
 
 // Advise runs the boot decision as a dry run (the persisted request and the
 // attempt counter are ignored, nothing is written) and records the outcome. It
-// is a no-op while conversionEnabled is false. On an error the previous advice
-// is kept.
+// is skipped when the last run for this file ended in a terminal skip. On an
+// error the previous advice is kept.
 func (a *Advisor) Advise(ctx context.Context, q Querier, cfg PlanConfig) Advice {
-	if !conversionEnabled {
-		return Advice{}
-	}
 	cfg.FlagRequested, cfg.Attempts = false, 0
 	res, err := Plan(ctx, q, cfg)
 	if err != nil {

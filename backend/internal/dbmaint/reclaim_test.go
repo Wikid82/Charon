@@ -43,7 +43,6 @@ func TestReclaimer_LargeFreelistDrainsEvenWithoutDeletes(t *testing.T) {
 }
 
 func TestReclaimer_LegacyDatabaseIsNeverDrainedAndIsAdvisedInstead(t *testing.T) {
-	enableConversion(t)
 	captureLogs(t)
 	db, path := newScratchDB(t, scratchOpts{rows: 400, rowBytes: 100000, keepEvery: 10})
 	before := pragmaInt(t, db, "freelist_count")

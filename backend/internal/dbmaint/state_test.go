@@ -20,7 +20,13 @@ import (
 // the real model, so the store is tested against the production schema.
 func newSettingsDB(t *testing.T) (db *sql.DB, path string) {
 	t.Helper()
-	db, path = newScratchDB(t, scratchOpts{})
+	return newSettingsDBWith(t, scratchOpts{})
+}
+
+// newSettingsDBWith is newSettingsDB over a scratch database shaped by opts.
+func newSettingsDBWith(t *testing.T, opts scratchOpts) (db *sql.DB, path string) {
+	t.Helper()
+	db, path = newScratchDB(t, opts)
 	gdb, err := gorm.Open(sqlite.Dialector{Conn: db}, &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, gdb.AutoMigrate(&models.Setting{}))
@@ -301,12 +307,6 @@ func TestSuppressesPending(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) { assert.Equal(t, tc.want, SuppressesPending(tc.last)) })
 	}
-}
-
-func TestConversionEnabledReflectsTheSwitch(t *testing.T) {
-	assert.False(t, ConversionEnabled(), "conversion does not exist yet")
-	enableConversion(t)
-	assert.True(t, ConversionEnabled())
 }
 
 // failNthRead makes the nth read of a Store fail by sending an invalid

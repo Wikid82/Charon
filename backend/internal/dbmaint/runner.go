@@ -135,6 +135,9 @@ type runner struct {
 	d      Deps
 	fileID string
 	store  *Store
+	// before is the database statistics read on the pinned connection just
+	// ahead of the conversion; the file-size verification compares against it.
+	before Stats
 }
 
 // Run is the maintenance goroutine body: it waits for the two readiness
@@ -280,14 +283,18 @@ func (r *runner) convert(ctx context.Context, conn *sql.Conn) Outcome {
 		return r.settle(ctx, out)
 	}
 
+	stats, err := Inspect(ctx, conn, r.d.DBPath)
+	if err != nil {
+		return r.abortBeforeConversion(ctx, conn, out, fmt.Errorf("inspect before conversion: %w", err))
+	}
+	r.before = stats
+
 	logger.Log().Warn("database optimization started; the management UI, API and emergency server return 503 until it finishes; " +
 		"set CHARON_DB_COMPACT_ON_START=off and restart to skip optimization and regain break-glass access")
 
 	// The marker is written through the pinned connection: the pool has no other.
 	if err := NewStore(conn).SetInProgress(ctx, r.fileID, r.d.BootTime); err != nil {
-		_ = conn.Close()
-		out.Result, out.Reason, out.Err = ResultFailed, ReasonConversionFailed, err
-		return r.settle(ctx, out)
+		return r.abortBeforeConversion(ctx, conn, out, err)
 	}
 
 	convErr := r.d.Convert(ctx, conn)
@@ -309,6 +316,18 @@ func (r *runner) convert(ctx context.Context, conn *sql.Conn) Outcome {
 	}
 }
 
+// abortBeforeConversion ends a run that failed before VACUUM started. A failure
+// while the application is shutting down is a stop, not a failed attempt.
+func (r *runner) abortBeforeConversion(ctx context.Context, conn *sql.Conn, out Outcome, err error) Outcome {
+	_ = conn.Close()
+	if ctx.Err() != nil {
+		out.Result, out.Reason = ResultCancelled, ReasonShuttingDown
+	} else {
+		out.Result, out.Reason, out.Err = ResultFailed, ReasonConversionFailed, err
+	}
+	return r.settle(ctx, out)
+}
+
 // settleConverted finishes a normal conversion: a bounded checkpoint retry
 // first (the gate stays active meanwhile), then the settings.
 func (r *runner) settleConverted(ctx context.Context, out Outcome) Outcome {
@@ -316,8 +335,7 @@ func (r *runner) settleConverted(ctx context.Context, out Outcome) Outcome {
 	if !r.checkpointWithRetry(ctx) {
 		out.Result = ResultConvertedPendingCheckpoint
 	}
-	out.BytesAfter = sizeOnDisk(r.d.DBPath)
-	return r.settle(ctx, out)
+	return r.settle(ctx, r.verifyShrink(out))
 }
 
 // settleConvertedAfterCancel finishes a conversion that completed after the
@@ -335,8 +353,39 @@ func (r *runner) settleConvertedAfterCancel(ctx context.Context, out Outcome) Ou
 	if err != nil || busy {
 		out.Result = ResultConvertedPendingCheckpoint
 	}
+	return r.settle(ctx, r.verifyShrink(out))
+}
+
+// verifyShrink fills BytesAfter and checks the result by FILE SIZE, not by a
+// pragma: in WAL mode the main file only shrinks at a completed checkpoint. A
+// conversion whose file did not shrink as far as the free pages predicted is
+// durable but not reported as converted; the pruner's later checkpoint finishes
+// the shrink.
+func (r *runner) verifyShrink(out Outcome) Outcome {
 	out.BytesAfter = sizeOnDisk(r.d.DBPath)
-	return r.settle(ctx, out)
+	if out.Result != ResultConverted {
+		return out
+	}
+	mainBytes, _, err := fileSizes(r.d.DBPath)
+	if err != nil {
+		logger.Log().WithError(err).Warn("database optimization finished but the file size could not be verified")
+		out.Result = ResultConvertedPendingCheckpoint
+		return out
+	}
+	if limit := r.maxMainBytesAfter(); mainBytes > limit {
+		logger.Log().WithField("main_bytes", mainBytes).WithField("expected_at_most", limit).
+			Warn("database optimization finished but the file has not shrunk as far as expected; " +
+				"the next checkpoint will finish the shrink")
+		out.Result = ResultConvertedPendingCheckpoint
+	}
+	return out
+}
+
+// maxMainBytesAfter is the largest main-file size that still counts as shrunk:
+// the live data plus the part of the reclaimable space the conversion failed to
+// return, tolerated up to 1-MinShrinkFraction of it.
+func (r *runner) maxMainBytesAfter() int64 {
+	return r.before.LiveBytes() + int64(float64(r.before.ReclaimableBytes())*(1-MinShrinkFraction))
 }
 
 // checkpointWithRetry truncates the WAL, retrying with a doubling backoff while
@@ -392,6 +441,13 @@ func (r *runner) persist(ctx context.Context, out Outcome) {
 		}),
 		r.store.ClearInProgress(wctx),
 	)
+	if out.Result.Converted() {
+		// A success ends the streak of failures.
+		errs = errors.Join(errs, r.store.ResetAttempts(wctx))
+	}
+	if out.consumesFlag() {
+		errs = errors.Join(errs, r.store.ClearFlag(wctx))
+	}
 	if errs != nil {
 		logger.Log().WithError(errs).Warn("database maintenance: could not record the result")
 	}
@@ -405,12 +461,18 @@ func (r *runner) settle(ctx context.Context, out Outcome) Outcome {
 	return out
 }
 
+// consumesFlag reports whether the user's "reclaim on next restart" request is
+// used up: a conversion reached a terminal outcome (it worked, or it failed and
+// was counted). A run that merely skipped or was interrupted leaves the request
+// set so the next start retries it.
+func (o Outcome) consumesFlag() bool { return o.Result.Converted() || o.countFailure }
+
 func gateOutcome(out Outcome) FinishInfo {
 	info := FinishInfo{Reason: out.Reason, BytesAfter: out.BytesAfter}
-	switch out.Result {
-	case ResultConverted, ResultConvertedPendingCheckpoint:
+	switch {
+	case out.Result.Converted():
 		info.Phase = PhaseDone
-	case ResultFailed:
+	case out.Result == ResultFailed:
 		info.Phase = PhaseFailed
 	default:
 		info.Phase = PhaseSkipped
@@ -423,13 +485,13 @@ func logOutcome(out Outcome) {
 	if out.Reason != "" {
 		entry = entry.WithField("reason", string(out.Reason))
 	}
-	switch out.Result {
-	case ResultConverted, ResultConvertedPendingCheckpoint:
+	switch {
+	case out.Result.Converted():
 		entry.WithField("bytes_before", out.BytesBefore).WithField("bytes_after", out.BytesAfter).
 			Info("database optimization finished")
-	case ResultFailed:
+	case out.Result == ResultFailed:
 		entry.WithError(out.Err).Error("database optimization failed; it will be retried on the next start")
-	case ResultCancelled, ResultInterrupted:
+	case out.Result == ResultCancelled || out.Result == ResultInterrupted:
 		entry.Info("database optimization stopped by shutdown")
 	default:
 		entry.Warn("database optimization skipped")

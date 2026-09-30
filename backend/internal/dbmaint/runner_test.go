@@ -666,3 +666,159 @@ func TestProbeWriterLock(t *testing.T) {
 		require.Error(t, ProbeWriterLock(context.Background(), conn))
 	})
 }
+
+// flagHarness returns a harness whose database has the user's request set.
+func flagHarness(t *testing.T) *harness {
+	t.Helper()
+	h := newHarness(t)
+	require.NoError(t, NewStore(h.db).SetFlag(context.Background()))
+	return h
+}
+
+func (h *harness) flagSet() bool {
+	h.t.Helper()
+	on, err := NewStore(h.db).FlagRequested(context.Background())
+	require.NoError(h.t, err)
+	return on
+}
+
+// L2: the flag is consumed by a conversion that reached a terminal outcome and
+// survives every run that merely skipped or was interrupted.
+func TestRun_FlagIsConsumedByAConversionAndByACountedFailure(t *testing.T) {
+	t.Run("converted", func(t *testing.T) {
+		h := flagHarness(t)
+		assert.Equal(t, ResultConverted, h.run(context.Background()).Result)
+		assert.False(t, h.flagSet())
+	})
+	t.Run("converted but the checkpoint stays busy", func(t *testing.T) {
+		h := flagHarness(t)
+		h.deps.Checkpoint = func(context.Context, Querier) (bool, error) { return true, nil }
+		assert.Equal(t, ResultConvertedPendingCheckpoint, h.run(context.Background()).Result)
+		assert.False(t, h.flagSet())
+	})
+	t.Run("failed and counted", func(t *testing.T) {
+		h := flagHarness(t)
+		h.deps.Convert = func(context.Context, *sql.Conn) error { return errors.New("disk full") }
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+		assert.False(t, h.flagSet(), "a counted failure consumed the request; the counter now governs retries")
+		assert.Equal(t, 1, h.attempts())
+	})
+}
+
+func TestRun_FlagSurvivesEverySkipAndInterruption(t *testing.T) {
+	t.Run("database busy", func(t *testing.T) {
+		h := flagHarness(t)
+		h.deps.Probe = func(context.Context, *sql.Conn) error { return ErrWriterBusy }
+		out := h.run(context.Background())
+		assert.Equal(t, ReasonDatabaseBusy, out.Reason)
+		assert.True(t, h.flagSet())
+	})
+	t.Run("caddy not ready", func(t *testing.T) {
+		h := flagHarness(t)
+		h.gate.ConfigDone(false)
+		assert.Equal(t, ReasonCaddyNotReady, h.run(context.Background()).Reason)
+		assert.True(t, h.flagSet())
+	})
+	t.Run("integrity check failed", func(t *testing.T) {
+		h := flagHarness(t)
+		h.deps.QuickCheck = func() (<-chan struct{}, func() string) {
+			done := make(chan struct{})
+			close(done)
+			return done, func() string { return "row 1 missing from index" }
+		}
+		assert.Equal(t, ReasonIntegrityCheckFailed, h.run(context.Background()).Reason)
+		assert.True(t, h.flagSet())
+	})
+	t.Run("interrupted by shutdown", func(t *testing.T) {
+		h := flagHarness(t)
+		started := make(chan struct{})
+		h.deps.Convert = func(ctx context.Context, _ *sql.Conn) error {
+			close(started)
+			<-ctx.Done()
+			return errors.New("interrupted (9)")
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan Outcome, 1)
+		go func() { done <- h.run(ctx) }()
+		<-started
+		cancel()
+		assert.Equal(t, ResultInterrupted, (<-done).Result)
+		assert.True(t, h.flagSet(), "an interrupted run did not consume the request")
+	})
+}
+
+// A successful conversion ends the streak of failures.
+func TestRun_SuccessResetsTheAttemptCounter(t *testing.T) {
+	h := newHarness(t)
+	require.NoError(t, NewStore(h.db).RecordFailure(context.Background(), h.fileID))
+	require.NoError(t, NewStore(h.db).RecordFailure(context.Background(), h.fileID))
+
+	assert.Equal(t, ResultConverted, h.run(context.Background()).Result)
+	assert.Zero(t, h.attempts())
+}
+
+// File-size verification: a conversion whose file did not shrink is durable
+// but is not reported as converted.
+func TestRun_FileThatDidNotShrinkIsConvertedPendingCheckpoint(t *testing.T) {
+	h := newHarness(t)
+	fillScratch(t, h.db, 600, 100000, 3)                                   // two thirds of a 60 MB file are free
+	h.deps.Convert = func(context.Context, *sql.Conn) error { return nil } // "converts" without shrinking
+
+	out := h.run(context.Background())
+
+	assert.Equal(t, ResultConvertedPendingCheckpoint, out.Result)
+	assert.Equal(t, PhaseDone, h.gate.Snapshot().Phase)
+	assert.Equal(t, ResultConvertedPendingCheckpoint, h.lastResult().Outcome)
+	assert.False(t, h.markerPresent())
+}
+
+func TestRun_RealConvertShrinksTheFileAndIsVerifiedBySize(t *testing.T) {
+	h := newHarness(t)
+	fillScratch(t, h.db, 600, 100000, 3)
+	h.deps.Convert = Convert
+	h.deps.Checkpoint = nil // the real wal_checkpoint(TRUNCATE)
+	before := fileSize(t, h.path)
+
+	out := h.run(context.Background())
+
+	require.Equal(t, ResultConverted, out.Result, "err: %v", out.Err)
+	assert.Less(t, fileSize(t, h.path), before/2)
+	assert.Greater(t, out.BytesBefore, out.BytesAfter)
+	assert.EqualValues(t, AutoVacuumIncremental, pragmaInt(t, h.db, "auto_vacuum"))
+	integrityOK(t, h.db)
+	assert.Zero(t, h.attempts())
+	assert.False(t, h.markerPresent())
+}
+
+func TestRun_UninspectableDatabaseFailsWithoutConvertingOrCounting(t *testing.T) {
+	h := newHarness(t)
+	h.deps.DBPath = h.path + ".missing" // Inspect stats the file
+
+	out := h.run(context.Background())
+
+	assert.Equal(t, ResultFailed, out.Result)
+	assert.Zero(t, h.convertCalls.Load())
+	assert.Equal(t, PhaseFailed, h.gate.Snapshot().Phase)
+}
+
+// A shutdown that lands just as the conversion starts (before the marker is
+// written) is a stop, not a failure: nothing was converted and nothing counts.
+func TestRun_CancelJustBeforeTheConversionStartsIsNotAFailure(t *testing.T) {
+	h := flagHarness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.deps.DBPath = h.path + ".missing" // the statistics read fails, as a cancelled statement would
+	h.deps.Probe = func(context.Context, *sql.Conn) error {
+		cancel()
+		return nil
+	}
+
+	out := h.run(ctx)
+
+	assert.Equal(t, ResultCancelled, out.Result)
+	assert.Equal(t, ReasonShuttingDown, out.Reason)
+	assert.Zero(t, h.convertCalls.Load())
+	assert.Zero(t, h.attempts())
+	assert.False(t, h.markerPresent())
+	assert.True(t, h.flagSet())
+	assert.True(t, h.gate.WaitIdle(context.Background()))
+}

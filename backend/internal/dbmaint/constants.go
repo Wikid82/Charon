@@ -32,6 +32,11 @@ const (
 	// KeepFreeBytes is the free-list floor a drain leaves in place.
 	KeepFreeBytes int64 = 32 << 20
 
+	// MinShrinkFraction is the share of the reclaimable space a finished
+	// conversion must have removed from the main file (checked by file size)
+	// before it is reported as converted rather than pending a checkpoint.
+	MinShrinkFraction = 0.5
+
 	// MaxConvertAttempts is the number of consecutive failed conversions after
 	// which the boot path backs off until the user requests it again.
 	MaxConvertAttempts = 3

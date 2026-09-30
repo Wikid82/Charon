@@ -34,26 +34,16 @@ func TestSafePlan(t *testing.T) {
 	})
 }
 
-func TestStartupPlan_IsIdleWhileConversionIsDisabled(t *testing.T) {
-	require.False(t, conversionEnabled, "the production Plan stays idle until the conversion exists")
+func TestStartupPlan_SmallDatabaseIsBelowThreshold(t *testing.T) {
 	db, path := newSettingsDB(t)
-	require.NoError(t, db.Close(), "nothing may be read while disabled")
 
 	res, err := StartupPlan(context.Background(), db, path, config.DBCompactAuto)
 	require.NoError(t, err)
 	assert.False(t, res.Decision.Run)
-	assert.Empty(t, res.Decision.Reason)
-}
-
-func withConversionEnabled(t *testing.T) {
-	t.Helper()
-	prev := conversionEnabled
-	conversionEnabled = true
-	t.Cleanup(func() { conversionEnabled = prev })
+	assert.Equal(t, ReasonBelowThreshold, res.Decision.Reason)
 }
 
 func TestStartupPlan_ReadsThePersistedState(t *testing.T) {
-	withConversionEnabled(t)
 	db, path := newSettingsDB(t)
 	ctx := context.Background()
 	require.NoError(t, NewStore(db).SetFlag(ctx))
@@ -66,7 +56,6 @@ func TestStartupPlan_ReadsThePersistedState(t *testing.T) {
 }
 
 func TestStartupPlan_ErrorsSurface(t *testing.T) {
-	withConversionEnabled(t)
 
 	t.Run("state cannot be loaded", func(t *testing.T) {
 		db, path := newSettingsDB(t)
@@ -87,7 +76,7 @@ func TestStart(t *testing.T) {
 		assert.False(t, Start(context.Background(), StartParams{}))
 	})
 
-	t.Run("the unmodified production plan leaves the gate idle and defers nothing", func(t *testing.T) {
+	t.Run("the production plan leaves a database below the thresholds idle and defers nothing", func(t *testing.T) {
 		db, path := newSettingsDB(t)
 		gate := NewGate()
 
@@ -156,4 +145,75 @@ func TestStart(t *testing.T) {
 		require.True(t, gate.WaitRunner(5*time.Second))
 		assert.Equal(t, PhaseDone, gate.Snapshot().Phase)
 	})
+}
+
+func TestStart_ACleanableSkipClearsTheFlagAndAnyOtherSkipKeepsIt(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name     string
+		decision Decision
+		wantFlag bool
+	}{
+		{"nothing to reclaim", Decision{Reason: ReasonNothingToReclaim, ClearFlag: true}, false},
+		{"already optimized", Decision{Reason: ReasonAlreadyOptimized, ClearFlag: true}, false},
+		{"insufficient disk keeps the request", Decision{Reason: ReasonInsufficientDisk, RequiredBytes: 2, AvailableBytes: 1}, true},
+		{"disabled by env keeps the request", Decision{Reason: ReasonDisabledByEnv}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, path := newSettingsDB(t)
+			require.NoError(t, NewStore(db).SetFlag(ctx))
+
+			planned := Start(ctx, StartParams{
+				Gate: NewGate(), DB: db, DBPath: path,
+				Plan: func(context.Context) (PlanResult, error) { return PlanResult{Decision: tc.decision}, nil },
+			})
+
+			assert.False(t, planned)
+			on, err := NewStore(db).FlagRequested(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantFlag, on)
+		})
+	}
+}
+
+// A terminal plan-time skip is remembered so Advise does not promise a
+// conversion the next boot will refuse again.
+func TestStart_TooManyFailuresIsRecordedAsTheLastResult(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDB(t)
+
+	Start(ctx, StartParams{
+		Gate: NewGate(), DB: db, DBPath: path,
+		Plan: func(context.Context) (PlanResult, error) {
+			return PlanResult{Decision: Decision{Reason: ReasonTooManyFailures}}, nil
+		},
+	})
+
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	st, err := NewStore(db).Peek(ctx, fileID)
+	require.NoError(t, err)
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, ResultSkipped, st.LastResult.Outcome)
+	assert.Equal(t, ReasonTooManyFailures, st.LastResult.Reason)
+	assert.True(t, SuppressesPending(st.LastResult))
+}
+
+func TestStart_OtherSkipsDoNotOverwriteTheLastResult(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDB(t)
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	require.NoError(t, NewStore(db).WriteLastResult(ctx, LastResult{Outcome: ResultConverted, FileID: fileID}))
+
+	Start(ctx, StartParams{
+		Gate: NewGate(), DB: db, DBPath: path,
+		Plan: func(context.Context) (PlanResult, error) {
+			return PlanResult{Decision: Decision{Reason: ReasonBelowThreshold}}, nil
+		},
+	})
+
+	st, err := NewStore(db).Peek(ctx, fileID)
+	require.NoError(t, err)
+	assert.Equal(t, ResultConverted, st.LastResult.Outcome)
 }

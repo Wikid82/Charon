@@ -11,33 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func enableConversion(t *testing.T) {
-	t.Helper()
-	orig := conversionEnabled
-	conversionEnabled = true
-	t.Cleanup(func() { conversionEnabled = orig })
-}
-
 // worthwhile is a PlanResult that Decide would convert.
 func worthwhile() PlanResult {
 	s := statsWith(128000, 64000)
 	return PlanResult{Stats: s, Decision: Decide(Inputs{EnvMode: config.DBCompactAuto, Stats: s})}
 }
 
-func TestAdvisor_ConversionDisabledIsANoOp(t *testing.T) {
-	logs := captureLogs(t)
-	db, path := newScratchDB(t, scratchOpts{rows: 40, rowBytes: 50000, keepEvery: 10})
-	a := &Advisor{}
-
-	got := a.Advise(context.Background(), db, PlanConfig{DBPath: path, EnvMode: config.DBCompactAuto})
-
-	assert.Equal(t, Advice{}, got)
-	assert.Equal(t, Advice{}, a.Current())
-	assert.NotContains(t, logs.String(), "optimization pending")
-}
-
 func TestAdvisor_RecordLogsTheTransitionOnce(t *testing.T) {
-	enableConversion(t)
 	logs := captureLogs(t)
 	a := &Advisor{}
 
@@ -53,7 +33,6 @@ func TestAdvisor_RecordLogsTheTransitionOnce(t *testing.T) {
 }
 
 func TestAdvisor_RecordClearsPendingWhenNoLongerWorthwhile(t *testing.T) {
-	enableConversion(t)
 	captureLogs(t)
 	a := &Advisor{}
 	a.record(worthwhile())
@@ -66,7 +45,6 @@ func TestAdvisor_RecordClearsPendingWhenNoLongerWorthwhile(t *testing.T) {
 }
 
 func TestAdvisor_Mode2NeverPending(t *testing.T) {
-	enableConversion(t)
 	logs := captureLogs(t)
 	db, path := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 40, rowBytes: 50000, keepEvery: 10})
 	a := &Advisor{}
@@ -79,7 +57,6 @@ func TestAdvisor_Mode2NeverPending(t *testing.T) {
 }
 
 func TestAdvisor_DryRunIgnoresTheFlagAndAgreesWithDecide(t *testing.T) {
-	enableConversion(t)
 	captureLogs(t)
 	db, path := newScratchDB(t, scratchOpts{rows: 40, rowBytes: 50000, keepEvery: 10})
 	a := &Advisor{}
@@ -95,7 +72,6 @@ func TestAdvisor_DryRunIgnoresTheFlagAndAgreesWithDecide(t *testing.T) {
 }
 
 func TestAdvisor_PlanErrorKeepsPreviousAdvice(t *testing.T) {
-	enableConversion(t)
 	logs := captureLogs(t)
 	db, path := newScratchDB(t, scratchOpts{rows: 10})
 	a := &Advisor{}
@@ -110,7 +86,6 @@ func TestAdvisor_PlanErrorKeepsPreviousAdvice(t *testing.T) {
 }
 
 func TestAdvisor_TerminalSkipOfTheLastResultSilencesThePendingLine(t *testing.T) {
-	enableConversion(t)
 	logs := captureLogs(t)
 	s := statsWith(128000, 64000)
 	res := PlanResult{Stats: s, Decision: Decide(Inputs{EnvMode: config.DBCompactAuto, Stats: s})}
@@ -125,7 +100,6 @@ func TestAdvisor_TerminalSkipOfTheLastResultSilencesThePendingLine(t *testing.T)
 }
 
 func TestAdvisor_TransientLastResultDoesNotSilenceIt(t *testing.T) {
-	enableConversion(t)
 	logs := captureLogs(t)
 	s := statsWith(128000, 64000)
 	res := PlanResult{Stats: s, Decision: Decide(Inputs{EnvMode: config.DBCompactAuto, Stats: s})}

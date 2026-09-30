@@ -43,6 +43,11 @@ const (
 	ResultCancelled Result = "cancelled"
 )
 
+// Converted reports whether the database ended up in incremental mode.
+func (r Result) Converted() bool {
+	return r == ResultConverted || r == ResultConvertedPendingCheckpoint
+}
+
 // LastResult is the persisted outcome of the latest run for one database file.
 type LastResult struct {
 	At          time.Time `json:"at"`

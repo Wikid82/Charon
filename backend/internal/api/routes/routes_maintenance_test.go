@@ -219,8 +219,9 @@ func TestHeadHealthMatchesGetHealthInIdleAndActivePhases(t *testing.T) {
 	}
 }
 
-// Commit 4 ships no conversion: the production planner must leave the gate
-// idle so nothing is deferred and no pool is pinned.
+// The production planner reads the database file; an install it cannot inspect
+// (here an in-memory database) or one that needs no work leaves the gate idle
+// so nothing is deferred and no pool is pinned.
 func TestRegisterWithDeps_ProductionPlanLeavesTheGateIdleAndDefersNothing(t *testing.T) {
 	gate := dbmaint.NewGate()
 	rig := newMaintenanceRig(t, gate)

@@ -3,6 +3,7 @@ package dbmaint
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -32,13 +33,9 @@ func SafePlan(ctx context.Context, plan PlanFunc) (res PlanResult) {
 	return planned
 }
 
-// StartupPlan is the production planner. While conversionEnabled is false it
-// returns an idle result without reading anything, so no install can enter
-// planned, defer the pipeline or pin the pool before a conversion exists.
+// StartupPlan is the production planner: it reads the persisted request and
+// failure state of the current file and evaluates the boot decision.
 func StartupPlan(ctx context.Context, db *sql.DB, dbPath, envMode string) (PlanResult, error) {
-	if !conversionEnabled {
-		return PlanResult{}, nil
-	}
 	fileID, err := FileID(dbPath)
 	if err != nil {
 		return PlanResult{}, err
@@ -55,8 +52,8 @@ func StartupPlan(ctx context.Context, db *sql.DB, dbPath, envMode string) (PlanR
 	})
 }
 
-// StartParams configures Start. Plan and Convert are seams; nil Plan selects
-// StartupPlan.
+// StartParams configures Start. Plan and Convert are seams; nil selects
+// StartupPlan and Convert.
 type StartParams struct {
 	Gate    *Gate
 	DB      *sql.DB
@@ -85,7 +82,13 @@ func Start(ctx context.Context, p StartParams) bool {
 	res := SafePlan(ctx, plan)
 	if !res.Decision.Run {
 		logPlanSkip(res.Decision)
+		settlePlanSkip(ctx, p, res)
 		return false
+	}
+
+	convert := p.Convert
+	if convert == nil {
+		convert = Convert
 	}
 
 	p.Gate.MarkPlanned()
@@ -93,7 +96,7 @@ func Start(ctx context.Context, p StartParams) bool {
 		DB:      p.DB,
 		DBPath:  p.DBPath,
 		Gate:    p.Gate,
-		Convert: p.Convert,
+		Convert: convert,
 		QuickCheck: func() (<-chan struct{}, func() string) {
 			return database.QuickCheckStatus(p.DBPath)
 		},
@@ -112,5 +115,37 @@ func logPlanSkip(d Decision) {
 			Warn("database optimization skipped: not enough free disk space")
 	default:
 		logger.Log().WithField("reason", string(d.Reason)).Info("database optimization not needed at this start")
+	}
+}
+
+// settlePlanSkip persists what a plan-time skip implies. The user's request is
+// cleared only when there is nothing left to optimize (any other skip keeps it
+// for the next start), and a refusal that will repeat every boot is remembered
+// so Advise does not promise a conversion the next start will refuse.
+func settlePlanSkip(ctx context.Context, p StartParams, res PlanResult) {
+	d := res.Decision
+	if p.DB == nil || (!d.ClearFlag && d.Reason != ReasonTooManyFailures) {
+		return
+	}
+	store := NewStore(p.DB)
+	var errs error
+	if d.ClearFlag {
+		errs = errors.Join(errs, store.ClearFlag(ctx))
+	}
+	if d.Reason == ReasonTooManyFailures {
+		fileID, err := FileID(p.DBPath)
+		if err == nil {
+			err = store.WriteLastResult(ctx, LastResult{
+				At:          time.Now().UTC(),
+				Outcome:     ResultSkipped,
+				Reason:      d.Reason,
+				BytesBefore: res.Stats.MainBytes + res.Stats.WALBytes,
+				FileID:      fileID,
+			})
+		}
+		errs = errors.Join(errs, err)
+	}
+	if errs != nil {
+		logger.Log().WithError(errs).Warn("database maintenance: could not record the skipped optimization")
 	}
 }

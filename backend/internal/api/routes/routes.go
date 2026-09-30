@@ -1217,8 +1217,6 @@ func startDatabaseMaintenance(ctx context.Context, gate *dbmaint.Gate, db *gorm.
 		DB:      sqlDB,
 		DBPath:  cfg.DatabasePath,
 		EnvMode: cfg.DBCompactOnStart,
-		// Convert stays unset until the conversion lands; the production planner
-		// never plans a run before then.
 	})
 }
 

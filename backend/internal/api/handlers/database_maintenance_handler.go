@@ -40,9 +40,8 @@ type DatabaseMaintenanceHandler struct {
 	envMode string
 
 	// Seams: the defaults read the real database file and disk.
-	inspect           func(ctx context.Context) (dbmaint.Stats, error)
-	diskReport        func(stats dbmaint.Stats) (dbmaint.DiskReport, error)
-	conversionEnabled func() bool
+	inspect    func(ctx context.Context) (dbmaint.Stats, error)
+	diskReport func(stats dbmaint.Stats) (dbmaint.DiskReport, error)
 }
 
 // NewDatabaseMaintenanceHandler builds the handler for the database at dbPath.
@@ -60,7 +59,6 @@ func NewDatabaseMaintenanceHandler(db *sql.DB, dbPath, envMode string) *Database
 		diskReport: func(stats dbmaint.Stats) (dbmaint.DiskReport, error) {
 			return dbmaint.BuildDiskReport(stats, filepath.Dir(dbPath))
 		},
-		conversionEnabled: dbmaint.ConversionEnabled,
 	}
 }
 
@@ -209,10 +207,10 @@ func (h *DatabaseMaintenanceHandler) notice(stats dbmaint.Stats, disk dbmaint.Di
 
 	// The automatic condition, judged without the user's request or the failure
 	// counter (the same dry run Advise uses). It promises a conversion, so it
-	// waits for the conversion to exist and stays silent when the next boot
-	// would refuse (terminal skip of the last result).
+	// stays silent when the next boot would refuse (terminal skip of the last
+	// result).
 	in.FlagRequested, in.Attempts = false, 0
-	if h.conversionEnabled() && dbmaint.Decide(in).Run && !dbmaint.SuppressesPending(state.LastResult) {
+	if dbmaint.Decide(in).Run && !dbmaint.SuppressesPending(state.LastResult) {
 		return n(noticeRestartToOptimize, severityInfo)
 	}
 	return nil

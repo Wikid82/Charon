@@ -53,7 +53,6 @@ func newMaintRig(t *testing.T, envMode string) *maintRig {
 	r.stats = maintStats(200000, 122070, dbmaint.AutoVacuumNone)
 	r.h.inspect = func(context.Context) (dbmaint.Stats, error) { return r.stats, nil }
 	r.h.diskReport = func(dbmaint.Stats) (dbmaint.DiskReport, error) { return r.disk, nil }
-	r.h.conversionEnabled = func() bool { return true }
 	r.disk = dbmaint.DiskReport{DataAvailable: 50 << 30, TmpAvailable: 50 << 30, SameFS: true}
 
 	r.router = gin.New()
@@ -274,22 +273,6 @@ func TestDatabaseMaintenance_NoNoticeWhenThereIsNothingToSay(t *testing.T) {
 			assert.Nil(t, noticeOf(t, r.status(t)))
 		})
 	}
-}
-
-func TestDatabaseMaintenance_RestartToOptimizeIsWithheldWhileConversionIsDisabled(t *testing.T) {
-	r := newMaintRig(t, config.DBCompactAuto)
-	r.h.conversionEnabled = func() bool { return false }
-
-	assert.Nil(t, noticeOf(t, r.status(t)), "no promise of a conversion that does not exist yet")
-
-	r.h.conversionEnabled = func() bool { return true }
-	assert.Equal(t, "restart_to_optimize", noticeOf(t, r.status(t))["code"])
-}
-
-func TestDatabaseMaintenance_ProductionSwitchIsWiredToTheDbmaintFlag(t *testing.T) {
-	r := newMaintRig(t, config.DBCompactAuto)
-	fresh := NewDatabaseMaintenanceHandler(r.db, r.path, config.DBCompactAuto)
-	assert.Equal(t, dbmaint.ConversionEnabled(), fresh.conversionEnabled())
 }
 
 func TestDatabaseMaintenance_TerminalSkipSilencesThePendingLine(t *testing.T) {
