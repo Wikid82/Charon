@@ -2046,7 +2046,7 @@ func TestSettingsHandler_GetSettings_HidesInternalMigrationRows(t *testing.T) {
 	router.GET("/settings", handler.GetSettings)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/settings", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/settings", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
