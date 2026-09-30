@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -213,4 +214,68 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// seedUntouchedRetentionRows creates the three untouched seed rows.
+func seedUntouchedRetentionRows(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	at := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
+	seedRow(t, db, keyInterval, "60", at)
+	seedRow(t, db, keyPool, "30", at.Add(time.Millisecond))
+	seedRow(t, db, keyRetention, "90", at.Add(2*time.Millisecond))
+}
+
+func TestMigrateUptimeRetentionDefault_QueryErrorsSurface(t *testing.T) {
+	// Queries in order: 1 marker count, 2 retention row, 3 interval sibling, 4 pool sibling.
+	for n, want := range map[int]string{
+		2: "load retention setting",
+		3: "load sibling uptime setting",
+		4: "load sibling uptime setting",
+	} {
+		t.Run(want, func(t *testing.T) {
+			db := setupUptimeTestDB(t)
+			seedUntouchedRetentionRows(t, db)
+
+			calls := 0
+			require.NoError(t, db.Callback().Query().Before("gorm:query").Register("test:fail_nth", func(tx *gorm.DB) {
+				calls++
+				if calls == n {
+					_ = tx.AddError(errors.New("injected query failure"))
+				}
+			}))
+
+			err := MigrateUptimeRetentionDefault(db)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), want)
+			assert.Equal(t, "90", settingValueOrEmpty(db, keyRetention))
+			assert.False(t, markerExists(t, db))
+		})
+	}
+}
+
+func TestMigrateUptimeRetentionDefault_UpdateAndMarkerWriteErrorsSurface(t *testing.T) {
+	t.Run("update failure", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		seedUntouchedRetentionRows(t, db)
+		require.NoError(t, db.Callback().Update().Before("gorm:update").Register("test:fail_update", func(tx *gorm.DB) {
+			_ = tx.AddError(errors.New("injected update failure"))
+		}))
+
+		err := MigrateUptimeRetentionDefault(db)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "lower retention default")
+		assert.False(t, markerExists(t, db), "marker must not be written so the next boot retries")
+	})
+
+	t.Run("marker write failure", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		seedUntouchedRetentionRows(t, db)
+		require.NoError(t, db.Callback().Create().Before("gorm:create").Register("test:fail_create", func(tx *gorm.DB) {
+			_ = tx.AddError(errors.New("injected create failure"))
+		}))
+
+		err := MigrateUptimeRetentionDefault(db)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "write retention migration marker")
+	})
 }

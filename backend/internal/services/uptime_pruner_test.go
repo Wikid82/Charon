@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -616,4 +617,22 @@ func TestUptimePruner_InterChunkPauseHonoursContext(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("pruneOnce did not return promptly when cancelled during the inter-chunk pause")
 	}
+}
+
+func TestUptimePruner_TickLogsAndRetriesFailedRedundantIndexDrop(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	p := newTestPruner(t, db, time.Now)
+	createLegacyMonitorIDIndex(t, db)
+
+	require.NoError(t, db.Callback().Raw().Before("gorm:raw").Register("test:fail_drop", func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "DROP INDEX") {
+			_ = tx.AddError(errors.New("database is locked"))
+		}
+	}))
+
+	p.tick(context.Background())
+
+	require.True(t, hasDeferredIndex(t, db), "composite still built")
+	require.True(t, hasLegacyMonitorIDIndex(t, db))
+	require.False(t, p.redundantIndexDropped.Load(), "a failed drop leaves the retry flag unset")
 }
