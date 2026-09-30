@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -389,4 +391,137 @@ func TestNewUptimePruner_WiresPoolDBAndConfig(t *testing.T) {
 	require.Equal(t, prunerInterval, p.interval)
 	require.Equal(t, prunerFirstRunDelay, p.firstRunDelay)
 	require.NotNil(t, p.now)
+}
+
+const legacyMonitorIDIndex = "idx_uptime_heartbeats_monitor_id"
+
+func hasLegacyMonitorIDIndex(t *testing.T, db *gorm.DB) bool {
+	t.Helper()
+	for _, n := range heartbeatIndexNames(t, db) {
+		if n == legacyMonitorIDIndex {
+			return true
+		}
+	}
+	return false
+}
+
+func createLegacyMonitorIDIndex(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Exec(
+		"CREATE INDEX IF NOT EXISTS "+legacyMonitorIDIndex+" ON uptime_heartbeats (monitor_id)").Error)
+	require.True(t, hasLegacyMonitorIDIndex(t, db))
+}
+
+func TestUptimePruner_FreshDatabaseHasNoRedundantIndex(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+}
+
+func TestUptimePruner_DropsRedundantIndexAfterEnsureIndex(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+	createLegacyMonitorIDIndex(t, db)
+
+	p.tick(context.Background())
+
+	require.True(t, hasDeferredIndex(t, db))
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+	require.True(t, p.redundantIndexDropped.Load())
+
+	// Idempotent: a further pass is a no-op.
+	p.tick(context.Background())
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+}
+
+func TestUptimePruner_KeepsRedundantIndexWhileCompositeBuildFails(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+	createLegacyMonitorIDIndex(t, db)
+
+	// A table squatting on the composite's name makes CREATE INDEX fail.
+	require.NoError(t, db.Exec("CREATE TABLE idx_heartbeat_monitor_created (x integer)").Error)
+
+	p.tick(context.Background())
+	require.True(t, hasLegacyMonitorIDIndex(t, db), "must not drop before the composite exists")
+	require.False(t, p.redundantIndexDropped.Load())
+
+	// Once the composite can be built the single-column index goes, via the
+	// dedicated retry flag rather than the one-time ensureIndex success path.
+	require.NoError(t, db.Exec("DROP TABLE idx_heartbeat_monitor_created").Error)
+	p.tick(context.Background())
+	require.True(t, hasDeferredIndex(t, db))
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+}
+
+func TestUptimePruner_RedundantIndexDropRetriedAfterFailure(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	p := newTestPruner(t, db, time.Now)
+	createLegacyMonitorIDIndex(t, db)
+	// The composite is already latched as built, so only the drop can fail.
+	p.indexCreated.Store(true)
+
+	// A busy/failed DROP (simulated with an aborted ctx) leaves the retry flag unset.
+	aborted, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := p.dropRedundantIndex(aborted)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), legacyMonitorIDIndex)
+	require.False(t, p.redundantIndexDropped.Load())
+	require.True(t, hasLegacyMonitorIDIndex(t, db))
+
+	// The next pass retries even though ensureIndex is already latched.
+	p.tick(context.Background())
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+	require.True(t, p.redundantIndexDropped.Load())
+}
+
+type queryPlanRow struct {
+	ID      int
+	Parent  int
+	Notused int
+	Detail  string
+}
+
+func explainPlan(t *testing.T, db *gorm.DB, query string, args ...any) string {
+	t.Helper()
+	var rows []queryPlanRow
+	require.NoError(t, db.Raw("EXPLAIN QUERY PLAN "+query, args...).Scan(&rows).Error)
+	details := make([]string, 0, len(rows))
+	for _, r := range rows {
+		details = append(details, r.Detail)
+	}
+	return strings.Join(details, " | ")
+}
+
+// TestUptimeHeartbeatQueryPlans_WithoutRedundantIndex pins that dropping the
+// single-column index leaves every monitor_id query on a composite index.
+func TestUptimeHeartbeatQueryPlans_WithoutRedundantIndex(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	p := newTestPruner(t, db, time.Now)
+	require.NoError(t, p.ensureIndex(context.Background()))
+	require.False(t, hasLegacyMonitorIDIndex(t, db))
+	seedHeartbeats(t, db, "m1", time.Now().Add(-time.Hour), 50)
+
+	monitorIDPrefix := regexp.MustCompile(`USING (COVERING )?INDEX idx_\w+ \(monitor_id=`)
+
+	t.Run("monitor history uses the ordered composite", func(t *testing.T) {
+		plan := explainPlan(t, db,
+			"SELECT * FROM uptime_heartbeats WHERE monitor_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT 60",
+			"m1", time.Now())
+		require.Contains(t, plan, "idx_heartbeat_monitor_created")
+		require.NotContains(t, plan, "TEMP B-TREE")
+	})
+
+	t.Run("delete by monitor uses a monitor_id-leading index", func(t *testing.T) {
+		plan := explainPlan(t, db, "DELETE FROM uptime_heartbeats WHERE monitor_id = ?", "m1")
+		require.Regexp(t, monitorIDPrefix, plan)
+	})
+
+	t.Run("exists check uses a monitor_id-leading index", func(t *testing.T) {
+		plan := explainPlan(t, db,
+			"SELECT id FROM uptime_monitors WHERE EXISTS (SELECT 1 FROM uptime_heartbeats WHERE uptime_heartbeats.monitor_id = uptime_monitors.id)")
+		require.Regexp(t, monitorIDPrefix, plan)
+	})
 }

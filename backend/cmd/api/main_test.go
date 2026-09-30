@@ -104,8 +104,12 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 		_ = sqlDB.Close()
 	})
 	// Only migrate User table to simulate old database
-	if err = db.AutoMigrate(&models.User{}); err != nil {
+	if err = db.AutoMigrate(&models.User{}, &models.UptimeHeartbeat{}); err != nil {
 		t.Fatalf("automigrate user: %v", err)
+	}
+	// Legacy databases carry the redundant single-column monitor index.
+	if err = db.Exec("CREATE INDEX IF NOT EXISTS idx_uptime_heartbeats_monitor_id ON uptime_heartbeats (monitor_id)").Error; err != nil {
+		t.Fatalf("create legacy index: %v", err)
 	}
 
 	// Verify security tables don't exist
@@ -150,6 +154,13 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 		if !db2.Migrator().HasTable(model) {
 			t.Errorf("Table for %T was not created by migrate command", model)
 		}
+	}
+
+	if !db2.Migrator().HasIndex(&models.UptimeHeartbeat{}, "idx_heartbeat_monitor_created") {
+		t.Error("migrate must build idx_heartbeat_monitor_created")
+	}
+	if db2.Migrator().HasIndex(&models.UptimeHeartbeat{}, "idx_uptime_heartbeats_monitor_id") {
+		t.Error("migrate must drop the redundant idx_uptime_heartbeats_monitor_id")
 	}
 }
 

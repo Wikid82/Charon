@@ -31,7 +31,8 @@ const (
 	// issues PRAGMA wal_checkpoint(TRUNCATE) to reclaim WAL file growth.
 	walCheckpointRowThreshold = 50_000
 	// optimizeEveryPasses runs PRAGMA optimize on a ~daily sub-cadence (every
-	// Nth clean pass at the hourly interval). VACUUM is deliberately not used.
+	// Nth clean pass at the hourly interval). Space is reclaimed by the
+	// database maintenance feature (see docs/plans/db_maintenance_spec.md).
 	optimizeEveryPasses = 24
 )
 
@@ -56,6 +57,10 @@ type UptimePruner struct {
 	// idempotency is the real guarantee, so a stale false simply costs one
 	// extra no-op DDL on the next pass.
 	indexCreated atomic.Bool
+	// redundantIndexDropped latches once DROP INDEX for the redundant single-column
+	// monitor_id index has succeeded. It is separate from indexCreated so a failed
+	// or busy drop is retried on the next pass instead of being skipped for good.
+	redundantIndexDropped atomic.Bool
 	// passCount counts clean prune passes, for the PRAGMA optimize sub-cadence.
 	passCount atomic.Int64
 
@@ -143,7 +148,12 @@ func (p *UptimePruner) tick(ctx context.Context) {
 
 	// Deferred index (§3.5.6): idempotent CREATE INDEX IF NOT EXISTS at the end
 	// of every clean, caught-up pass, retried hourly until it lands.
-	_ = p.ensureIndex(ctx)
+	if err := p.ensureIndex(ctx); err == nil {
+		// Only drop the single-column index once the ordered composite exists.
+		if dropErr := p.dropRedundantIndex(ctx); dropErr != nil {
+			logger.Log().WithError(dropErr).Warn("UptimePruner: redundant index not dropped; will retry next pass")
+		}
+	}
 
 	if n := p.passCount.Add(1); n%optimizeEveryPasses == 0 {
 		// Best-effort maintenance hint; a failure here is not actionable.
@@ -224,5 +234,26 @@ func (p *UptimePruner) ensureIndex(ctx context.Context) error {
 	if !p.indexCreated.Swap(true) {
 		logger.Log().Info("UptimePruner: idx_heartbeat_monitor_created is present")
 	}
+	return nil
+}
+
+// DropRedundantMonitorIndexSQL removes the legacy single-column monitor_id
+// index. It is a strict prefix of idx_heartbeat_lookup and
+// idx_heartbeat_monitor_created, so no query loses an access path. GORM never
+// drops an index removed from a tag, hence the explicit statement (also run by
+// the migrate CLI).
+const DropRedundantMonitorIndexSQL = `DROP INDEX IF EXISTS idx_uptime_heartbeats_monitor_id`
+
+// dropRedundantIndex drops the legacy single-column index. Callers must have
+// confirmed idx_heartbeat_monitor_created exists first. The latch is set only on
+// success, so a busy or failed DROP is retried on the next pass.
+func (p *UptimePruner) dropRedundantIndex(ctx context.Context) error {
+	if p.redundantIndexDropped.Load() {
+		return nil
+	}
+	if err := p.db.WithContext(ctx).Exec(DropRedundantMonitorIndexSQL).Error; err != nil {
+		return fmt.Errorf("drop idx_uptime_heartbeats_monitor_id: %w", err)
+	}
+	p.redundantIndexDropped.Store(true)
 	return nil
 }

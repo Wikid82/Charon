@@ -170,6 +170,12 @@ func main() {
 				log.Fatalf("migration failed: create idx_heartbeat_monitor_created: %v", err)
 			}
 
+			// The bare monitor_id index is a strict prefix of both composites; drop
+			// it only now that the ordered composite exists.
+			if err := db.Exec(services.DropRedundantMonitorIndexSQL).Error; err != nil {
+				log.Fatalf("migration failed: drop redundant monitor_id index: %v", err)
+			}
+
 			logger.Log().Info("Migration completed successfully")
 			return
 
