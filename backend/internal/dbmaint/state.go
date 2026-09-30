@@ -263,8 +263,8 @@ func (s *Store) consumeMarker(ctx context.Context, fileID string, count int) (in
 	}
 	if sameFile(marker.FileID, fileID) {
 		count++
-		if err = s.putJSON(ctx, keyAttempts, attemptsRecord{Count: count, FileID: fileID}); err != nil {
-			return 0, err
+		if putErr := s.putJSON(ctx, keyAttempts, attemptsRecord{Count: count, FileID: fileID}); putErr != nil {
+			return 0, putErr
 		}
 	}
 	return count, s.ClearInProgress(ctx)
