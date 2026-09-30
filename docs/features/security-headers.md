@@ -91,6 +91,16 @@ The CSP Builder provides a visual interface for constructing Content-Security-Po
 3. Preview the generated policy
 4. Test against your site before applying
 
+## How Profiles Work With Your App's Own Headers
+
+Some apps send their own security headers. Here is what happens when a profile is applied:
+
+- **The profile wins.** For every header your profile sets, your browser gets exactly one value: the profile's. Your app's own value for that header is replaced, not doubled up.
+- **Headers your profile doesn't set are left alone.** They pass through exactly as your app sent them. This includes headers your profile turns off: Charon does not remove your app's own copy.
+- **Report-only CSP keeps your app's own policy.** If your profile uses a "report only" Content-Security-Policy and your app sends its own enforcing one, both reach the browser. Your app's policy keeps working.
+- **HSTS: the profile beats the older per-host setting.** If both are set, the profile's Strict-Transport-Security is the one that is used.
+- **Error pages are covered too.** When Charon shows its own error page (for example a 502 when your app is down), the profile's security headers are included.
+
 ## Security Score Calculator
 
 Each host displays a security score from 0-100 based on enabled headers:
