@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandlers(t *testing.T) {
@@ -21,9 +22,13 @@ func TestHandlers(t *testing.T) {
 	h = ReverseProxyHandler("localhost:8080", true, "plex", true)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
-	// Test HeaderHandler
-	h = HeaderHandler(map[string][]string{"X-Test": {"Value"}})
-	assert.Equal(t, "headers", h["handler"])
+	// Test HeaderHandlers
+	hs := HeaderHandlers(map[string][]string{"X-Test": {"Value"}})
+	require.Len(t, hs, 2)
+	assert.Equal(t, "headers", hs[0]["handler"])
+	assert.NotContains(t, hs[0]["response"], "deferred")
+	assert.Equal(t, "headers", hs[1]["handler"])
+	assert.Equal(t, true, hs[1]["response"].(map[string]any)["deferred"])
 
 	// Test BlockExploitsHandler
 	h = BlockExploitsHandler()
@@ -193,25 +198,17 @@ func TestReverseProxyHandler_NoHeaders(t *testing.T) {
 	assert.False(t, hasHeaders, "Should not have headers config when nothing is enabled")
 }
 
-func TestHeaderHandler_EmptyHeaders(t *testing.T) {
-	h := HeaderHandler(map[string][]string{})
-	assert.Equal(t, "headers", h["handler"])
-
-	response := h["response"].(map[string]any)
-	setHeaders := response["set"].(map[string][]string)
+func TestHeaderHandlers_EmptyHeaders(t *testing.T) {
+	setHeaders := assertHeaderPair(t, HeaderHandlers(map[string][]string{}))
 	assert.Empty(t, setHeaders)
 }
 
-func TestHeaderHandler_MultipleHeaders(t *testing.T) {
-	h := HeaderHandler(map[string][]string{
+func TestHeaderHandlers_MultipleHeaders(t *testing.T) {
+	setHeaders := assertHeaderPair(t, HeaderHandlers(map[string][]string{
 		"X-Frame-Options":        {"DENY"},
 		"X-Content-Type-Options": {"nosniff"},
 		"X-XSS-Protection":       {"1", "mode=block"},
-	})
-	assert.Equal(t, "headers", h["handler"])
-
-	response := h["response"].(map[string]any)
-	setHeaders := response["set"].(map[string][]string)
+	}))
 	assert.Equal(t, []string{"DENY"}, setHeaders["X-Frame-Options"])
 	assert.Equal(t, []string{"nosniff"}, setHeaders["X-Content-Type-Options"])
 	assert.Equal(t, []string{"1", "mode=block"}, setHeaders["X-XSS-Protection"])

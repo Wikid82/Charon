@@ -532,19 +532,17 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 
 		// Add Security Headers handler
-		if secHeadersHandler := buildSecurityHeadersHandler(&host); secHeadersHandler != nil {
-			handlers = append(handlers, secHeadersHandler)
-		}
+		secHeaderHandlers := buildSecurityHeaderHandlers(&host)
+		handlers = append(handlers, secHeaderHandlers...)
 
-		// Add HSTS header if enabled (legacy - deprecated in favor of SecurityHeaderProfile)
-		if host.HSTSEnabled {
-			hstsValue := "max-age=31536000"
-			if host.HSTSSubdomains {
-				hstsValue += "; includeSubDomains"
-			}
-			handlers = append(handlers, HeaderHandler(map[string][]string{
-				"Strict-Transport-Security": {hstsValue},
-			}))
+		// Add HSTS header if enabled (legacy - deprecated in favor of SecurityHeaderProfile).
+		// A profile that already sets HSTS wins outright: the non-deferred and
+		// deferred passes apply handlers in opposite orders, so emitting both
+		// would make the winner depend on the response path.
+		if host.HSTSEnabled && !setsResponseHeader(secHeaderHandlers, hstsHeader) {
+			handlers = append(handlers, HeaderHandlers(map[string][]string{
+				hstsHeader: {legacyHSTSValue(host.HSTSSubdomains)},
+			})...)
 		}
 
 		// Add exploit blocking if enabled
@@ -1444,9 +1442,37 @@ func parseBypassCIDRs(bypassList string) []string {
 	return validCIDRs
 }
 
-// buildSecurityHeadersHandler creates a headers handler for security headers
-// based on the profile configuration or host-level settings
-func buildSecurityHeadersHandler(host *models.ProxyHost) Handler {
+// hstsHeader is the HSTS response header name.
+const hstsHeader = "Strict-Transport-Security"
+
+// legacyHSTSValue is the HSTS value for the legacy per-host/redirect toggles.
+func legacyHSTSValue(includeSubdomains bool) string {
+	if includeSubdomains {
+		return "max-age=31536000; includeSubDomains"
+	}
+	return "max-age=31536000"
+}
+
+// setsResponseHeader reports whether any handler in hs sets the named response header.
+func setsResponseHeader(hs []Handler, name string) bool {
+	for _, h := range hs {
+		response, ok := h["response"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if set, ok := response["set"].(map[string][]string); ok {
+			if _, found := set[name]; found {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// buildSecurityHeaderHandlers creates the headers handlers for security headers
+// based on the profile configuration or host-level settings. It returns nil
+// when no headers apply, otherwise the pair produced by HeaderHandlers.
+func buildSecurityHeaderHandlers(host *models.ProxyHost) []Handler {
 	if host == nil {
 		return nil
 	}
@@ -1538,12 +1564,7 @@ func buildSecurityHeadersHandler(host *models.ProxyHost) Handler {
 		return nil
 	}
 
-	return Handler{
-		"handler": "headers",
-		"response": map[string]any{
-			"set": responseHeaders,
-		},
-	}
+	return HeaderHandlers(responseHeaders)
 }
 
 // buildCSPString converts JSON CSP directives to a CSP string
