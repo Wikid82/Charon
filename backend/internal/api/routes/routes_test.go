@@ -1904,3 +1904,20 @@ func TestManagementGroup_RouteInventoryNoDuplicates(t *testing.T) {
 		assert.Equalf(t, 1, n, "route %s is registered %d times (expected exactly once)", key, n)
 	}
 }
+
+func TestRegister_SeedsRetentionDefaultAndRecordsMigrationMarker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
+	require.NoError(t, err)
+
+	require.NoError(t, Register(context.Background(), gin.New(), db, config.Config{JWTSecret: "test-secret"}))
+
+	var retention models.Setting
+	require.NoError(t, db.Where("key = ?", "uptime.heartbeat_retention_days").First(&retention).Error)
+	assert.Equal(t, "30", retention.Value)
+
+	var markers int64
+	require.NoError(t, db.Model(&models.Setting{}).
+		Where("key = ?", services.UptimeRetentionMigrationMarker).Count(&markers).Error)
+	assert.Equal(t, int64(1), markers)
+}

@@ -73,6 +73,7 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch settings"})
 		return
 	}
+	settings = filterInternalSettings(settings)
 
 	// Convert to map for easier frontend consumption
 	settingsMap := make(map[string]any)
@@ -89,6 +90,41 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, settingsMap)
+}
+
+// internalSettingPrefixes lists key prefixes reserved for server-managed rows
+// (for example one-time migration markers). They are never returned by the
+// settings API and can never be written through it.
+var internalSettingPrefixes = []string{"migration."}
+
+// isInternalSettingKey reports whether key is reserved. It matches on the
+// normalized key prefix only, never on the client-supplied Category.
+func isInternalSettingKey(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	for _, prefix := range internalSettingPrefixes {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterInternalSettings drops reserved rows from a settings listing.
+func filterInternalSettings(settings []models.Setting) []models.Setting {
+	visible := make([]models.Setting, 0, len(settings))
+	for _, s := range settings {
+		if !isInternalSettingKey(s.Key) {
+			visible = append(visible, s)
+		}
+	}
+	return visible
+}
+
+func respondReservedSettingKey(c *gin.Context) {
+	c.JSON(http.StatusBadRequest, gin.H{
+		"error":      "setting key is reserved",
+		"error_code": "reserved_setting_key",
+	})
 }
 
 func isSensitiveSettingKey(key string) bool {
@@ -132,6 +168,11 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	var req UpdateSettingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if isInternalSettingKey(req.Key) {
+		respondReservedSettingKey(c)
 		return
 	}
 
@@ -289,6 +330,13 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	updates := make(map[string]string)
 	flattenConfig(configUpdates, "", updates)
 
+	for key := range updates {
+		if isInternalSettingKey(key) {
+			respondReservedSettingKey(c)
+			return
+		}
+	}
+
 	adminWhitelist, hasAdminWhitelist := updates["security.admin_whitelist"]
 
 	aclEnabled := false
@@ -399,6 +447,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated config"})
 		return
 	}
+	settings = filterInternalSettings(settings)
 
 	// Convert to map for response
 	settingsMap := make(map[string]string)

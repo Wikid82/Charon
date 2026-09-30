@@ -802,6 +802,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			}
 		}
 
+		if err := services.MigrateUptimeRetentionDefault(db); err != nil {
+			logger.Log().WithError(err).Warn("Failed to apply uptime retention default migration; will retry next boot")
+		}
+
 		// Ensure security header presets exist
 		secHeadersSvc := services.NewSecurityHeadersService(db)
 		if err := secHeadersSvc.EnsurePresetsExist(); err != nil {

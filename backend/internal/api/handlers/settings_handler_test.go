@@ -2017,3 +2017,116 @@ func TestSettingsHandler_PatchConfig_UptimeUnknownKeyRejected(t *testing.T) {
 	w := patchConfigUptime(t, db, map[string]any{"uptime": map[string]any{"bogus": "5"}})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+const reservedMarkerKey = "migration.uptime_retention_default_30"
+
+func seedMarkerRow(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	require.NoError(t, db.Create(&models.Setting{
+		Key: reservedMarkerKey, Value: "done", Type: "string", Category: "migration",
+	}).Error)
+}
+
+func countMigrationRows(t *testing.T, db *gorm.DB) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, db.Model(&models.Setting{}).Where("key LIKE ?", "%igration.%").Count(&n).Error)
+	return n
+}
+
+func TestSettingsHandler_GetSettings_HidesInternalMigrationRows(t *testing.T) {
+	db := setupSettingsTestDB(t)
+	seedMarkerRow(t, db)
+	require.NoError(t, db.Create(&models.Setting{Key: "app.name", Value: "Charon", Category: "general"}).Error)
+	// Prefix match must not depend on the Category label.
+	require.NoError(t, db.Create(&models.Setting{Key: "migration.other", Value: "x", Category: "general"}).Error)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := newAdminRouter()
+	router.GET("/settings", handler.GetSettings)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/settings", nil)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "Charon", resp["app.name"])
+	assert.NotContains(t, resp, reservedMarkerKey)
+	assert.NotContains(t, resp, "migration.other")
+}
+
+func TestSettingsHandler_PatchConfig_ResponseHidesInternalMigrationRows(t *testing.T) {
+	db := setupSettingsTestDB(t)
+	seedMarkerRow(t, db)
+
+	w := patchConfigUptime(t, db, map[string]any{"general": map[string]any{"note": "hello"}})
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "hello", resp["general.note"])
+	assert.NotContains(t, resp, reservedMarkerKey)
+}
+
+func TestSettingsHandler_UpdateSetting_RejectsReservedKeys(t *testing.T) {
+	keys := []string{
+		reservedMarkerKey,
+		"migration.anything",
+		"Migration.anything",
+		"  migration.anything",
+		"MIGRATION.ANYTHING",
+	}
+	for _, key := range keys {
+		for _, category := range []string{"", "general", "migration"} {
+			t.Run(fmt.Sprintf("%q/%q", key, category), func(t *testing.T) {
+				db := setupSettingsTestDB(t)
+				handler := handlers.NewSettingsHandler(db)
+				router := newAdminRouter()
+				router.POST("/settings", handler.UpdateSetting)
+
+				body, _ := json.Marshal(map[string]string{"key": key, "value": "x", "category": category})
+				w := httptest.NewRecorder()
+				req, _ := http.NewRequest(http.MethodPost, "/settings", bytes.NewBuffer(body))
+				req.Header.Set("Content-Type", "application/json")
+				router.ServeHTTP(w, req)
+
+				assert.Equal(t, http.StatusBadRequest, w.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+				assert.Equal(t, "reserved_setting_key", resp["error_code"])
+				var n int64
+				require.NoError(t, db.Model(&models.Setting{}).Count(&n).Error)
+				assert.Zero(t, n, "nothing must be written")
+			})
+		}
+	}
+}
+
+func TestSettingsHandler_PatchConfig_RejectsReservedKeys(t *testing.T) {
+	payloads := map[string]map[string]any{
+		"nested":     {"migration": map[string]any{"x": "1"}},
+		"nested_mix": {"migration": map[string]any{"uptime_retention_default_30": "1"}},
+		"mixed_batch": {
+			"general":   map[string]any{"note": "should-not-persist"},
+			"migration": map[string]any{"x": "1"},
+		},
+		"mixed_case": {"Migration": map[string]any{"x": "1"}},
+	}
+	for name, payload := range payloads {
+		t.Run(name, func(t *testing.T) {
+			db := setupSettingsTestDB(t)
+			w := patchConfigUptime(t, db, payload)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			assert.Equal(t, "reserved_setting_key", resp["error_code"])
+			var n int64
+			require.NoError(t, db.Model(&models.Setting{}).Count(&n).Error)
+			assert.Zero(t, n, "nothing must be written")
+			assert.Zero(t, countMigrationRows(t, db))
+		})
+	}
+}
