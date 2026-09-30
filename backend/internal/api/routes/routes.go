@@ -169,6 +169,31 @@ func runWhenIdle(ctx context.Context, gate *dbmaint.Gate, fn func(context.Contex
 	}
 }
 
+// uptimeStarters are the entry points of the six goroutines of the uptime
+// pipeline.
+type uptimeStarters struct {
+	Bootstrap, Ingester, Pool, Scheduler, SyncLoop, Pruner func(context.Context)
+}
+
+// startUptimePipeline starts the six uptime goroutines. Each waits for the
+// database maintenance gate first, so a pending optimization never competes
+// with monitoring for the pool's only connection; the wait ends on ctx, so the
+// returned channel (closed when the ingester returns or never ran) still closes
+// at shutdown.
+func startUptimePipeline(ctx context.Context, gate *dbmaint.Gate, s uptimeStarters) (ingesterDone <-chan struct{}) {
+	done := make(chan struct{})
+	go func() {
+		runWhenIdle(ctx, gate, s.Ingester)
+		close(done)
+	}()
+	go runWhenIdle(ctx, gate, s.Bootstrap)
+	go runWhenIdle(ctx, gate, s.Pool)
+	go runWhenIdle(ctx, gate, s.Scheduler)
+	go runWhenIdle(ctx, gate, s.SyncLoop)
+	go runWhenIdle(ctx, gate, s.Pruner)
+	return done
+}
+
 // RegisterWithDeps wires up API routes and performs automatic migrations with
 // prebuilt dependencies. It returns an UptimeShutdownFunc the caller invokes
 // (after cancelling ctx) to wait out the ordered uptime teardown.
@@ -880,10 +905,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Boot-time reconcile: CleanupStaleFailureCounts + one SyncMonitors,
 		// after a short delay so Caddy/DB settle. No initial CheckAll.
-		go func() {
-			if !gate.WaitIdle(ctx) {
-				return
-			}
+		bootstrapUptime := func(context.Context) {
 			time.Sleep(30 * time.Second)
 			enabled := true
 			var s models.Setting
@@ -896,30 +918,24 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 				func(err error, msg string) { logger.Log().WithError(err).Warn(msg) },
 				func(err error, msg string) { logger.Log().WithError(err).Error(msg) },
 			)
-		}()
+		}
 
 		// Ordered teardown chain (S4 / spec §3.1.4): on ctx cancel the
 		// scheduler stops enqueuing first, the pool then drains its workers and
 		// closes the ingester's results channel (it is the sole sender), and
 		// the ingester does a final flush before Run returns. uptimeShutdown
 		// blocks until that final flush completes (or a grace deadline).
-		uptimeIngesterDone := make(chan struct{})
-
-		// Every goroutine below waits for the database maintenance gate first, so
-		// a pending optimization never competes with monitoring for the pool's
-		// only connection. The wait ends on ctx, so the ingester-done channel
-		// still closes at shutdown.
-		go func() {
-			runWhenIdle(ctx, gate, uptimeService.Ingester.Run)
-			close(uptimeIngesterDone)
-		}()
-		go runWhenIdle(ctx, gate, uptimeService.Pool.Run)
-		go runWhenIdle(ctx, gate, uptimeScheduler.Run)
-		go runWhenIdle(ctx, gate, uptimeSyncLoop.Run)
 		// The retention pruner (spec §3.4) is an independent goroutine: it aborts
 		// on the same ctx between chunks and is safe to cut at any chunk boundary,
 		// so it is deliberately NOT part of the ordered ingester-drain chain above.
-		go runWhenIdle(ctx, gate, uptimePruner.Run)
+		uptimeIngesterDone := startUptimePipeline(ctx, gate, uptimeStarters{
+			Bootstrap: bootstrapUptime,
+			Ingester:  uptimeService.Ingester.Run,
+			Pool:      uptimeService.Pool.Run,
+			Scheduler: uptimeScheduler.Run,
+			SyncLoop:  uptimeSyncLoop.Run,
+			Pruner:    uptimePruner.Run,
+		})
 
 		uptimeShutdown = func(waitCtx context.Context) error {
 			select {
