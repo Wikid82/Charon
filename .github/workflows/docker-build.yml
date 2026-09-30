@@ -105,7 +105,8 @@ jobs:
       image_ref: ${{ steps.pr_image_ref_output.outputs.image_ref }}
       tags: ${{ steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
-      version: ${{ steps.meta.outputs.version }}
+      # Build-time VERSION baked into the binary (see "Resolve build version" step).
+      version: ${{ steps.build_version.outputs.version }}
       created: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
     steps:
       - name: Checkout repository
@@ -365,6 +366,21 @@ jobs:
             io.charon.pr.number=${{ env.TRIGGER_PR_NUMBER }}
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
+
+      - name: Resolve build version
+        id: build_version
+        env:
+          META_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          # On main the metadata-action primary tag is "latest", which is not a
+          # version. Use the release-please manifest version instead. Every other
+          # ref keeps the metadata-action value (dev, semver from tags, PR/branch tags).
+          VERSION="${META_VERSION}"
+          if [[ "${TRIGGER_REF}" == "refs/heads/main" ]]; then
+            VERSION=$(jq -er '.["."]' .release-please-manifest.json)
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved build VERSION: ${VERSION}"
 
       - name: Assert PR output contract
         if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
