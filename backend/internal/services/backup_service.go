@@ -11,18 +11,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/database"
+	"github.com/Wikid82/charon/backend/internal/dbmaint"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -1868,33 +1867,5 @@ func (s *BackupService) extractZip(src, dest string, skipEntries map[string]stru
 
 // GetAvailableSpace returns the available disk space in bytes for the backup directory
 func (s *BackupService) GetAvailableSpace() (int64, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(s.BackupDir, &stat); err != nil {
-		return 0, fmt.Errorf("failed to get disk space: %w", err)
-	}
-
-	// Safe conversion with overflow protection (gosec G115)
-	bsize := stat.Bsize
-	bavail := stat.Bavail
-
-	// Check for invalid filesystem (negative block size)
-	if bsize < 0 {
-		return 0, fmt.Errorf("invalid block size: %d", bsize)
-	}
-
-	// Check if bavail exceeds max int64 before conversion
-	if bavail > uint64(math.MaxInt64) {
-		return math.MaxInt64, nil
-	}
-
-	// Safe to convert now
-	availBlocks := int64(bavail)
-	blockSize := int64(bsize)
-
-	// Check for multiplication overflow
-	if availBlocks > 0 && blockSize > math.MaxInt64/availBlocks {
-		return math.MaxInt64, nil
-	}
-
-	return availBlocks * blockSize, nil
+	return dbmaint.AvailableBytes(s.BackupDir)
 }

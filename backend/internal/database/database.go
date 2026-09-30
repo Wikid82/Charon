@@ -101,6 +101,7 @@ func Connect(dbPath string) (*gorm.DB, error) {
 	// Run quick integrity check on startup in the background (warn-only), on
 	// its own connection. The main pool is capped at one connection, so
 	// sharing it here would still serialize migrations behind the check.
+	registerQuickCheck(dbPath)
 	launchQuickCheck(dbPath)
 
 	return db, nil
@@ -111,6 +112,9 @@ func Connect(dbPath string) (*gorm.DB, error) {
 // pool, which is capped at one) so the scan - which can take well over a
 // minute on larger databases - never blocks startup or migrations.
 func runQuickCheck(dbPath string) {
+	verdict := ""
+	defer func() { completeQuickCheck(dbPath, verdict) }()
+
 	checkDB, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to open SQLite connection for integrity check")
@@ -125,7 +129,10 @@ func runQuickCheck(dbPath string) {
 	var quickCheckResult string
 	if err := checkDB.QueryRow("PRAGMA quick_check").Scan(&quickCheckResult); err != nil {
 		logger.Log().WithError(err).Warn("Failed to run SQLite integrity check on startup")
-	} else if quickCheckResult == "ok" {
+		return
+	}
+	verdict = quickCheckResult
+	if quickCheckResult == QuickCheckOK {
 		logger.Log().Info("SQLite database integrity check passed")
 	} else {
 		// Database has corruption - log error but don't fail startup

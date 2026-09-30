@@ -21,6 +21,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/database"
+	"github.com/Wikid82/charon/backend/internal/dbmaint"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/server"
@@ -70,6 +71,19 @@ func parsePluginSignatures() map[string]string {
 	return signatures
 }
 
+// loadConfigForDatabase loads the configuration and points SQLite's temp
+// directory at the data volume. SQLite only reads SQLITE_TMPDIR before the
+// process's first sql.Open, so every entry point calls this before it opens a
+// database (GH #1422). An operator-set SQLITE_TMPDIR is left untouched.
+func loadConfigForDatabase() (config.Config, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return config.Config{}, err
+	}
+	dbmaint.ApplyTempDir(filepath.Dir(filepath.Clean(cfg.DatabasePath)))
+	return cfg, nil
+}
+
 func main() {
 	// Setup logging with rotation
 	logDir := "/app/data/logs"
@@ -107,7 +121,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "migrate":
-			cfg, err := config.Load()
+			cfg, err := loadConfigForDatabase()
 			if err != nil {
 				log.Fatalf("load config: %v", err)
 			}
@@ -186,7 +200,7 @@ func main() {
 			email := os.Args[2]
 			newPassword := os.Args[3]
 
-			cfg, err := config.Load()
+			cfg, err := loadConfigForDatabase()
 			if err != nil {
 				log.Fatalf("load config: %v", err)
 			}
@@ -220,7 +234,7 @@ func main() {
 
 	logger.Log().Infof("starting %s backend on version %s", version.Name, version.Full())
 
-	cfg, err := config.Load()
+	cfg, err := loadConfigForDatabase()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
