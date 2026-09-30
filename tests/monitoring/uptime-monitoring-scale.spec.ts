@@ -361,9 +361,8 @@ test.describe('Uptime at scale: admin Uptime settings card', () => {
     });
   });
 
-  // GH #1419: enabled in commit 6 (`fix: clarify heartbeat retention control and
-  // enable e2e`) once the 30-day default, placeholder and helper copy ship.
-  test.fixme('retention control shows the 30-day default, helper copy and placeholder', async ({
+  // GH #1419: 30-day default, placeholder and helper copy.
+  test('retention control shows the 30-day default, helper copy and placeholder', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -387,9 +386,9 @@ test.describe('Uptime at scale: admin Uptime settings card', () => {
     });
   });
 
-  // GH #1419: enabled in commit 6 alongside the test above.
+  // GH #1419: retention range validation.
   for (const invalid of ['0', '3651']) {
-    test.fixme(`retention value ${invalid} shows the range error and blocks Save`, async ({
+    test(`retention value ${invalid} shows the range error and blocks Save`, async ({
       page,
     }) => {
       await stubAuthenticatedSession(page);

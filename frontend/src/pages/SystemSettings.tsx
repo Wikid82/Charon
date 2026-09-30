@@ -786,6 +786,7 @@ export default function SystemSettings() {
                 min={1}
                 max={3650}
                 step={1}
+                placeholder="30"
                 value={uptimeRetention}
                 disabled={!uptimeFeatureEnabled}
                 onChange={(e) => {

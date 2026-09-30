@@ -751,7 +751,7 @@ describe('SystemSettings', () => {
         'ui.domain_link_behavior': 'new_tab',
         'uptime.default_interval_seconds': '60',
         'uptime.worker_pool_size': '30',
-        'uptime.heartbeat_retention_days': '90',
+        'uptime.heartbeat_retention_days': '30',
         ...overrides,
       })
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
@@ -768,7 +768,62 @@ describe('SystemSettings', () => {
       const interval = await screen.findByLabelText('Default check interval (seconds)')
       expect(interval).toHaveValue(60)
       expect(screen.getByLabelText('Worker pool size')).toHaveValue(30)
-      expect(screen.getByLabelText('Heartbeat retention (days)')).toHaveValue(90)
+      expect(screen.getByLabelText('Heartbeat retention (days)')).toHaveValue(30)
+    })
+
+    it('shows the retention placeholder and helper copy', async () => {
+      seedUptime()
+      renderWithProviders(<SystemSettings />)
+
+      const retention = await screen.findByLabelText('Heartbeat retention (days)')
+      expect(retention).toHaveAttribute('placeholder', '30')
+      expect(screen.getByText(/permanently deleted, checked hourly/i)).toBeInTheDocument()
+      expect(screen.getByText(/Default 30 days \(range 1-3650\)/)).toBeInTheDocument()
+      expect(screen.getByText(/approximately 15 MB per monitor per 30 days/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/file may not shrink until the database is compacted/i),
+      ).toBeInTheDocument()
+    })
+
+    it.each(['0', '3651'])('rejects retention %s and disables Save', async (value) => {
+      seedUptime()
+      renderWithProviders(<SystemSettings />)
+
+      const retention = await screen.findByLabelText('Heartbeat retention (days)')
+      const user = userEvent.setup()
+      await user.clear(retention)
+      await user.type(retention, value)
+      await user.tab()
+
+      await waitFor(() => {
+        expect(screen.getByText('Enter a whole number between 1 and 3650.')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'Save Uptime Settings' })).toBeDisabled()
+      expect(settingsApi.updateSetting).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a server 400 for retention as a per-field error', async () => {
+      seedUptime()
+      vi.mocked(settingsApi.updateSetting).mockRejectedValue(
+        new Error('uptime.heartbeat_retention_days must be between 1 and 3650'),
+      )
+      renderWithProviders(<SystemSettings />)
+
+      const retention = await screen.findByLabelText('Heartbeat retention (days)')
+      const user = userEvent.setup()
+      await user.clear(retention)
+      await user.type(retention, '120')
+
+      const save = screen.getByRole('button', { name: 'Save Uptime Settings' })
+      await waitFor(() => expect(save).toBeEnabled())
+      await user.click(save)
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('uptime.heartbeat_retention_days must be between 1 and 3650'),
+        ).toBeInTheDocument()
+      })
+      expect(retention).toHaveAttribute('aria-invalid', 'true')
     })
 
     it('disables Save and shows an inline error for an out-of-bounds value', async () => {
