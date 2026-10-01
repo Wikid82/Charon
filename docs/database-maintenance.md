@@ -89,6 +89,11 @@ the cupboard is still the same size. Charon takes care of this for you.
 - The emergency (break-glass) access is briefly unavailable during this time too.
 - If you stop the container while it is optimizing, it is **safe**. Your data is
   not harmed, and Charon simply tries again at the next start, up to 3 tries.
+  - The very last step (copying the optimized data back) cannot be interrupted
+    instantly. If the container stops during that step, it can use up one of the
+    3 tries.
+  - Your database is intact either way, because the operation is all-or-nothing.
+    The next start simply tries again.
 
 ### The Database Card
 
@@ -110,6 +115,15 @@ size and how much space could be reclaimed.
     being killed during startup, then press **Reclaim space on next restart**.
   - A note that optimization was postponed because the database was busy. It is
     retried at the next start.
+
+### Restoring a Backup
+
+Replacing the database file with a backup file is detected automatically, and
+Charon starts with a clean slate. But if you restore by copying rows from a
+backup into your existing database, you can also bring back an old "tries so
+far" counter or an old "in progress" marker from that backup. If optimization
+seems stuck or stopped after a restore, press **Reclaim space on next restart**
+in **System Settings**. That resets the counter.
 
 ### Turning It Off
 
@@ -395,6 +409,30 @@ sqlite3 /path/to/charon.db "PRAGMA wal_checkpoint(TRUNCATE);"
 Your proxies keep working meanwhile. If you cannot wait, stopping the container is
 safe and Charon retries at the next start. To skip it, set
 `CHARON_DB_COMPACT_ON_START=off`.
+
+### Not enough disk space to optimize the database
+
+**Cause:** The Database card in **System Settings** shows this warning when the
+disk is too full to optimize safely. Charon needs free space of roughly **twice
+your actual data** while it works.
+
+**Fix:**
+
+1. Free up the amount the warning asks for (delete old backups or other files on
+   the same disk).
+2. Restart Charon. It tries again at every start, so nothing else is needed.
+
+### Database optimization stopped after 3 attempts
+
+**Cause:** Charon gave up after 3 failed tries. Usually there was not enough free
+disk space, or the container was killed during startup.
+
+**Fix:**
+
+1. Free up disk space (see the entry above).
+2. Make sure nothing is killing the container while it starts.
+3. In **System Settings**, press **Reclaim space on next restart**, then restart
+   Charon.
 
 ### Lost Data After Recovery
 
