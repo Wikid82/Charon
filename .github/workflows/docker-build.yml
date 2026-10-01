@@ -989,7 +989,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.74.0'
+          version: 'v0.75.0'
           trivyignores: '.trivyignore'
         continue-on-error: true
 
@@ -1002,7 +1002,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          version: 'v0.74.0'
+          version: 'v0.75.0'
           trivyignores: '.trivyignore'
         continue-on-error: true
 
@@ -1275,7 +1275,7 @@ jobs:
           trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.74.0'
+          version: 'v0.75.0'
 
       - name: Run Trivy scan on PR image (SARIF - blocking)
         id: trivy-scan
@@ -1290,7 +1290,7 @@ jobs:
           # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
           # at the end so SARIF upload and summaries still run.
           exit-code: '1'
-          version: 'v0.74.0'
+          version: 'v0.75.0'
         continue-on-error: true
 
       - name: Check Trivy PR SARIF exists

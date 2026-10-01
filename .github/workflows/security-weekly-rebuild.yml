@@ -82,7 +82,7 @@ jobs:
           format: 'json'
           output: 'trivy-toolchain-weekly.json'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-          version: 'v0.74.0'
+          version: 'v0.75.0'
 
       - name: Upload Trivy JSON results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
