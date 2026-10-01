@@ -31,6 +31,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const Backups = lazy(() => import('./pages/Backups'))
 const Tasks = lazy(() => import('./pages/Tasks'))
 const Logs = lazy(() => import('./pages/Logs'))
+const DatabaseMaintenance = lazy(() => import('./pages/DatabaseMaintenance'))
 const Domains = lazy(() => import('./pages/Domains'))
 const Security = lazy(() => import('./pages/Security'))
 const AccessLists = lazy(() => import('./pages/AccessLists'))
@@ -135,6 +136,7 @@ export default function App() {
               <Route index element={<Backups />} />
               <Route path="backups" element={<Backups />} />
               <Route path="logs" element={<Logs />} />
+              <Route path="database" element={<RequireRole allowed={['admin']}><DatabaseMaintenance /></RequireRole>} />
               <Route path="import">
                 <Route path="caddyfile" element={<ImportCaddy />} />
                 <Route path="crowdsec" element={<ImportCrowdSec />} />
