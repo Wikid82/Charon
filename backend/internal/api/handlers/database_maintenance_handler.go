@@ -31,7 +31,7 @@ const (
 	codeDisabledByEnv     = "disabled_by_env"
 )
 
-// DatabaseMaintenanceHandler serves the admin-only database card: file size,
+// DatabaseMaintenanceHandler serves the admin-only database page: file size,
 // what could be reclaimed, the notice that applies right now and the
 // "reclaim space on next restart" request.
 type DatabaseMaintenanceHandler struct {

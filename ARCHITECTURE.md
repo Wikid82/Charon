@@ -806,7 +806,10 @@ This pattern is **intentional and valid**:
   the `internal/dbmaint` package when the free space is worth it (>= 20% free
   pages AND >= 100 MB reclaimable, or >= 1 GiB reclaimable; the 100 MB floor
   always applies). `CHARON_DB_COMPACT_ON_START` (`auto` default, `off`) controls
-  the boot conversion.
+  the boot conversion. The admin UI is the Tasks -> Database page (`/tasks/database`,
+  admin only), backed by `GET/POST/DELETE /system/database...`; it is passive
+  information plus an optional "reclaim on next restart" request, and nothing
+  outside that page signals database state.
 - **Maintenance gate and startup ordering.** Caddy starts first with an empty
   config; Charon then pushes the proxy hosts to it. The conversion (a `VACUUM` on
   the pool's single pinned connection) starts only after the initial config has

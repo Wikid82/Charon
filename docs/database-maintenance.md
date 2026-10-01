@@ -95,26 +95,53 @@ the cupboard is still the same size. Charon takes care of this for you.
   - Your database is intact either way, because the operation is all-or-nothing.
     The next start simply tries again.
 
-### The Database Card
+### The Database Page
 
-In **System Settings** there is a quiet **Database** card that shows the database
-size and how much space could be reclaimed.
+Open **Tasks -> Database** (administrators only) to see how your database is
+doing. The page is just information. Charon never pushes anything at you: there
+is no badge, banner or warning anywhere else in the app, and nothing on this page
+is required.
 
-- A short note appears when Charon plans to shrink the database at the next
-  start. Nothing to do.
-- Press **Reclaim space on next restart** if you want it done at your next
-  restart. Changed your mind? Press **Undo**.
-- A warning appears only if something needs your attention:
-  - **Not enough free disk space to optimize the database.** The optimization
-    needs free disk space of roughly **twice your actual data** while it works.
-    The warning tells you how much to free up. Free up that space (delete old
-    backups or other files on the same disk), then restart Charon. It tries
-    again at every start.
-  - **Database optimization stopped.** After 3 failed tries Charon stops trying.
-    Make sure there is enough free disk space and that the container is not
-    being killed during startup, then press **Reclaim space on next restart**.
-  - A note that optimization was postponed because the database was busy. It is
-    retried at the next start.
+**What it shows**
+
+- **Database size:** how big the database file is.
+- **Write-ahead log:** extra files next to the database that it folds back in on
+  its own.
+- **Free disk space:** how much room is left on the disk.
+- **Space that could be reclaimed:** unused space inside the file that could be
+  given back to your disk.
+- **Optimization mode:** in plain words, either "Manual" (freed space stays
+  inside the file until the database is optimized) or "Automatic" (freed space
+  goes back to your disk by itself).
+- **Last optimization:** when it last happened and how much space it saved, or a
+  short note that none has been needed so far.
+
+**What Charon already does by itself** (listed on the page too)
+
+- It checks the database every time it starts.
+- It converts an older database once, during a start, when that is worthwhile.
+- It hands freed space back to your disk after each hourly cleanup of old data.
+
+**The optional button.** If you would rather not wait, press **Reclaim space on
+next restart** (under "Reclaim space now (optional)"). It does not restart
+anything. It only tells Charon to do the work the next time it starts, for
+example after an update. Changed your mind? Press **Undo**. The button is always
+visible. When it does not apply, it is greyed out and the page tells you why
+(the database already returns space on its own, only a small part of the file
+(under about 100 MB) is unused, or optimization is turned off on this server).
+
+**Calm notices.** Two notices can appear on this page, and only here:
+
+- **Automatic cleanup could not run.** The disk is nearly full. The cleanup needs
+  free disk space of roughly **twice your actual data** while it works, and the
+  notice tells you how much. Free up that space (delete old backups or other
+  files on the same disk) and Charon tries again by itself.
+- **Automatic cleanup has stopped.** After several failed attempts Charon stopped
+  trying. Your proxies are not affected. Check the logs, make sure there is
+  enough free disk space, and restart Charon to let it try again.
+
+You may also see a short line saying the optimization was postponed because the
+database was busy. It is retried at the next start.
 
 ### Restoring a Backup
 
@@ -123,7 +150,7 @@ Charon starts with a clean slate. But if you restore by copying rows from a
 backup into your existing database, you can also bring back an old "tries so
 far" counter or an old "in progress" marker from that backup. If optimization
 seems stuck or stopped after a restore, press **Reclaim space on next restart**
-in **System Settings**. That resets the counter.
+in **Tasks -> Database**. That resets the counter.
 
 ### Turning It Off
 
@@ -139,7 +166,7 @@ environment:
 | `auto` (default) | Optimize at start when worthwhile |
 | `off` | Never optimize at start. Emergency access stays available during startup |
 
-While it is `off`, the Database card shows that the setting is disabled, and any
+While it is `off`, the Database page shows that the setting is disabled, and any
 earlier request you made is kept and applies again once you remove the setting.
 
 ---
@@ -412,8 +439,8 @@ safe and Charon retries at the next start. To skip it, set
 
 ### Not enough disk space to optimize the database
 
-**Cause:** The Database card in **System Settings** shows this warning when the
-disk is too full to optimize safely. Charon needs free space of roughly **twice
+**Cause:** The **Automatic cleanup could not run** notice on **Tasks -> Database**
+appears when the disk is too full to optimize safely. Charon needs free space of roughly **twice
 your actual data** while it works.
 
 **Fix:**
@@ -422,7 +449,7 @@ your actual data** while it works.
    the same disk).
 2. Restart Charon. It tries again at every start, so nothing else is needed.
 
-### Database optimization stopped after 3 attempts
+### Automatic cleanup has stopped (after 3 attempts)
 
 **Cause:** Charon gave up after 3 failed tries. Usually there was not enough free
 disk space, or the container was killed during startup.
@@ -431,7 +458,7 @@ disk space, or the container was killed during startup.
 
 1. Free up disk space (see the entry above).
 2. Make sure nothing is killing the container while it starts.
-3. In **System Settings**, press **Reclaim space on next restart**, then restart
+3. In **Tasks -> Database**, press **Reclaim space on next restart**, then restart
    Charon.
 
 ### Lost Data After Recovery
