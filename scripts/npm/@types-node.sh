@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 NPM_MODULES=(
         "$REPO_ROOT"
@@ -15,5 +15,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm install @types/node -save-dev
+    npm install @types/node --save-dev
 done
