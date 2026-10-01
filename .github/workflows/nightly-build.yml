@@ -296,7 +296,7 @@ jobs:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: spdx-json
           output-file: sbom-nightly.json
-          syft-version: v1.52.0
+          syft-version: v1.54.0
 
       - name: Generate SBOM fallback with pinned Syft
         if: always()
