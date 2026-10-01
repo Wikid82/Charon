@@ -464,7 +464,9 @@ ticker.
   inter-chunk pause steady-state, 250 ms on the first cold pass) of
   `uptime_heartbeats` older than `uptime.heartbeat_retention_days` (default 30).
   `PRAGMA wal_checkpoint(TRUNCATE)` after a large prune; `PRAGMA optimize` daily;
-  no downsampling and no `VACUUM`. Also owns lazy creation of
+  no downsampling and no `VACUUM`. On a database in incremental auto-vacuum mode,
+  each clean pass also returns free pages to the OS in small bounded steps
+  (`dbmaint.Drain`). Also owns lazy creation of
   `idx_heartbeat_monitor_created (monitor_id, created_at)` — issued as
   `CREATE INDEX IF NOT EXISTS` at the end of every clean, caught-up pass and
   retried until it lands, so a huge existing table is trimmed before the build.
@@ -798,8 +800,25 @@ This pattern is **intentional and valid**:
 - The former redundant single-column `monitor_id` index on `uptime_heartbeats` was
   dropped (it was a strict prefix of the composite index). The pruner's age query
   is index-bounded, so each hourly pass scans only the rows it deletes.
-- Deleted rows free pages inside the SQLite file but do not shrink it; there is no
-  automatic compaction today.
+- Deleted rows free pages inside the SQLite file. New databases are created in
+  incremental auto-vacuum mode and the pruner returns free pages to the OS in
+  small steps. Existing databases (auto-vacuum off) are converted once at boot by
+  the `internal/dbmaint` package when the free space is worth it (>= 20% free
+  pages AND >= 100 MB reclaimable, or >= 1 GiB reclaimable; the 100 MB floor
+  always applies). `CHARON_DB_COMPACT_ON_START` (`auto` default, `off`) controls
+  the boot conversion.
+- **Maintenance gate and startup ordering.** Caddy starts first with an empty
+  config; Charon then pushes the proxy hosts to it. The conversion (a `VACUUM` on
+  the pool's single pinned connection) starts only after the initial config has
+  been applied AND the HTTP listener is bound, so proxying never depends on the
+  SQLite file. While it runs, the gate (installed in `cmd/api/main.go` before the
+  routes) answers health and `/api/v1/maintenance/status` itself, serves a
+  short "Optimizing the database" page and 503s the rest of the management API
+  and the emergency server; the uptime pipeline and scheduled backups wait for
+  release. A stop mid-run is safe (`VACUUM` is atomic); an unfinished run is
+  retried at the next boot, up to 3 attempts. Details: `docs/database-maintenance.md`.
+- The E2E/CI compose files (`playwright-ci`, `playwright-local`) default
+  `CHARON_DB_COMPACT_ON_START=off` so test databases are never converted mid-suite.
 
 ---
 
