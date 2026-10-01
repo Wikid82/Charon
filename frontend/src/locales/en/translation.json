@@ -78,6 +78,7 @@
     "importJSON": "Import JSON",
     "backups": "Backups",
     "logs": "Logs",
+    "database": "Database",
     "securityHeaders": "Security Headers",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
@@ -1377,7 +1378,7 @@
       "workerPoolSize": "Worker pool size",
       "workerPoolSizeHelper": "Number of concurrent checks. Takes effect after a restart.",
       "retentionDays": "Heartbeat retention (days)",
-      "retentionDaysHelper": "Heartbeats older than this are permanently deleted, checked hourly. Default 30 days (range 1-3650). Longer history uses more disk space: approximately 15 MB per monitor per 30 days at 60-second checks. Lowering this frees space inside the database, but the file may not shrink until the database is compacted.",
+      "retentionDaysHelper": "Heartbeats older than this are permanently deleted, checked hourly. Default 30 days (range 1-3650). Longer history uses more disk space: approximately 15 MB per monitor per 30 days at 60-second checks. Lowering this frees space, and Charon returns it to your disk automatically.",
       "intervalError": "Enter a whole number between 30 and 86400.",
       "intervalFloorError": "Interval must be at least 30 seconds.",
       "workerPoolError": "Enter a whole number between 1 and 200.",
@@ -1389,7 +1390,89 @@
       "heartbeatsDropped": "Heartbeats dropped",
       "checksEnqueueDropped": "Checks not queued",
       "queueDepth": "Queue depth",
-      "activeWorkers": "Active workers"
+      "activeWorkers": "Active workers",
+      "databaseLink": "Database size and cleanup: Tasks → Database"
+    },
+    "maintenance": {
+      "title": "Optimizing the database",
+      "body": "This can take a few minutes. Your proxies are still running.",
+      "elapsed": "Running for {{seconds}} seconds"
+    }
+  },
+  "databaseMaintenance": {
+    "title": "Database",
+    "description": "Charon looks after its database by itself, so there is nothing you need to do here. This page just shows how things stand.",
+    "automatic": {
+      "start": "Checked at every start: Charon looks at the database each time it starts.",
+      "convert": "Converted once when worthwhile: if the file holds a lot of unused space, Charon converts it one time, during a start, so it can give that space back.",
+      "drain": "Handed back after each hourly cleanup: after the hourly clean-up of old data, Charon returns the freed space to your disk."
+    },
+    "loading": "Loading database information...",
+    "loadError": "Could not load database information",
+    "loadErrorLabel": "Database information unavailable",
+    "retry": "Retry",
+    "fields": {
+      "size": "Database size",
+      "wal": "Write-ahead log",
+      "walHint": "Extra files next to the database that SQLite folds back in on its own.",
+      "diskFree": "Free disk space",
+      "reclaimable": "Space that could be reclaimed",
+      "mode": "Optimization mode"
+    },
+    "mode": {
+      "none": "Not automatic yet: freed space stays inside the file until Charon next optimizes the database (checked at every start)",
+      "incremental": "Automatic: freed space goes back to your disk on its own",
+      "full": "Automatic: freed space goes back to your disk immediately"
+    },
+    "last": {
+      "title": "Last optimization",
+      "none": "No optimization has been needed so far.",
+      "notYet": "Not optimized yet.",
+      "on": " on {{date}}",
+      "converted": "Optimized{{when}}: {{before}} → {{after}} (saved {{saved}}).",
+      "convertedPending": "Optimized{{when}}: {{before}} → {{after}} (saved {{saved}}). The last cleanup step finishes in the background.",
+      "skipped": "Skipped{{when}}: {{reason}}.",
+      "failed": "The last optimization{{when}} did not finish. Charon will try again by itself.",
+      "interrupted": "The last optimization{{when}} was interrupted. Charon will try again by itself.",
+      "cancelled": "The last optimization{{when}} was cancelled.",
+      "unknown": "The database was last looked at{{when}}."
+    },
+    "reason": {
+      "integrity_check_failed": "the database did not pass its safety check",
+      "database_busy": "the database was in use",
+      "caddy_not_ready": "the proxy engine was not ready yet",
+      "startup_timeout": "starting up took too long",
+      "shutting_down": "Charon was shutting down",
+      "conversion_failed": "the conversion did not complete",
+      "internal_error": "an unexpected internal problem came up",
+      "insufficient_disk": "there was not enough free disk space",
+      "too_many_failures": "earlier attempts failed several times",
+      "disabled_by_env": "it is turned off by the server configuration",
+      "already_optimized": "the database was already set up to return unused space on its own",
+      "nothing_to_reclaim": "there was no unused space worth reclaiming",
+      "below_threshold": "too little space could have been reclaimed to be worth it",
+      "unknown": "no reason was recorded"
+    },
+    "reclaimTitle": "Reclaim space now (optional)",
+    "reclaimOptional": "Charon already does this automatically. This only schedules it for the next start.",
+    "reclaimButton": "Reclaim space on next restart",
+    "reclaimHelper": "{{size}} could be reclaimed. Charon restarts only when you restart it (for example after an update).",
+    "reasonIncremental": "Nothing to do: the database already returns unused space automatically.",
+    "reasonTooSmall": "Not worth reclaiming: only a small part of the file (under about 100 MB) is unused.",
+    "reasonUnavailable": "Not available right now.",
+    "scheduled": "Scheduled - the space is reclaimed the next time Charon starts.",
+    "undo": "Undo",
+    "disabledReason": "Disabled by CHARON_DB_COMPACT_ON_START=off on this server.",
+    "requestFailed": "Could not schedule the optimization: {{error}}",
+    "undoFailed": "Could not undo the request: {{error}}",
+    "notice": {
+      "restartToOptimize": "Charon will reclaim about {{size}} automatically the next time it starts; nothing is needed from you.",
+      "databaseBusy": "Optimization was postponed because the database was in use; it will be retried on the next start.",
+      "disabledByEnv": "Optimization is turned off by the server configuration (CHARON_DB_COMPACT_ON_START=off). Your earlier request is kept and applies again once that setting is removed.",
+      "insufficientDiskTitle": "Automatic cleanup could not run",
+      "insufficientDisk": "Charon could not run its automatic database cleanup because the disk is nearly full. Free some disk space and Charon will try again by itself. It needs {{required}} free and {{available}} is available.",
+      "tooManyFailuresTitle": "Automatic cleanup has stopped",
+      "tooManyFailures": "Charon stopped trying its automatic database cleanup after several failed attempts. Your proxies are not affected. Check the logs and make sure there is enough free disk space. To let Charon try again, use the optional button below to schedule it, then restart Charon."
     }
   },
   "crowdsecConfig": {

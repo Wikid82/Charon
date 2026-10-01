@@ -378,11 +378,17 @@ test.describe('Uptime at scale: admin Uptime settings card', () => {
       await expect(retention).toHaveAttribute('placeholder', '30');
     });
 
-    await test.step('helper text warns about permanent deletion and compaction', async () => {
+    await test.step('helper text warns about permanent deletion and says freed space is returned automatically', async () => {
       await expect(page.getByText(/permanently deleted/i)).toBeVisible();
       await expect(
-        page.getByText(/file may not shrink until the database is compacted/i),
+        page.getByText(/Charon returns it to your disk automatically/i),
       ).toBeVisible();
+    });
+
+    await test.step('admins get a link to the Database page', async () => {
+      await expect(
+        page.getByRole('main').getByRole('link', { name: /database size and cleanup/i }),
+      ).toHaveAttribute('href', '/tasks/database');
     });
   });
 

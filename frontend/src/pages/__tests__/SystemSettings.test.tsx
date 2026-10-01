@@ -20,6 +20,13 @@ vi.mock('../../api/settings', () => ({
   testPublicURL: vi.fn(),
 }))
 
+// Mutable auth state so tests can exercise the admin-only Database link.
+let mockUser: { role: string } | undefined
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: mockUser }),
+}))
+
 vi.mock('../../api/featureFlags', () => ({
   getFeatureFlags: vi.fn(),
   updateFeatureFlags: vi.fn(),
@@ -54,6 +61,7 @@ const renderWithProviders = (ui: React.ReactNode) => {
 describe('SystemSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUser = { role: 'admin' }
 
     // Default mock responses
     vi.mocked(settingsApi.getSettings).mockResolvedValue({
@@ -781,7 +789,7 @@ describe('SystemSettings', () => {
       expect(screen.getByText(/Default 30 days \(range 1-3650\)/)).toBeInTheDocument()
       expect(screen.getByText(/approximately 15 MB per monitor per 30 days/i)).toBeInTheDocument()
       expect(
-        screen.getByText(/file may not shrink until the database is compacted/i),
+        screen.getByText(/Charon returns it to your disk automatically/i),
       ).toBeInTheDocument()
     })
 
@@ -901,6 +909,46 @@ describe('SystemSettings', () => {
       await waitFor(() => {
         expect(screen.getByText('interval must be at least 30 seconds')).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Database page pointer', () => {
+    it('no longer renders a Database card, banner or status request', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      await screen.findByLabelText('Heartbeat retention (days)')
+      expect(screen.queryByRole('region', { name: 'Database' })).toBeNull()
+      expect(screen.queryByRole('button', { name: /reclaim space/i })).toBeNull()
+      expect(vi.mocked(client.get).mock.calls.some(([url]) => String(url).includes('/system/database'))).toBe(false)
+    })
+
+    it('shows an admin the link to Tasks -> Database below the retention field', async () => {
+      mockUser = { role: 'admin' }
+      renderWithProviders(<SystemSettings />)
+
+      const link = await screen.findByRole('link', { name: /database size and cleanup/i })
+      expect(link).toHaveAttribute('href', '/tasks/database')
+    })
+
+    it('hides the link from non-admin users and when no user is loaded', async () => {
+      mockUser = { role: 'user' }
+      const { unmount } = renderWithProviders(<SystemSettings />)
+      await screen.findByLabelText('Heartbeat retention (days)')
+      expect(screen.queryByRole('link', { name: /database size and cleanup/i })).toBeNull()
+      unmount()
+
+      mockUser = undefined
+      renderWithProviders(<SystemSettings />)
+      await screen.findByLabelText('Heartbeat retention (days)')
+      expect(screen.queryByRole('link', { name: /database size and cleanup/i })).toBeNull()
+    })
+
+    it('describes the retention helper without the old compaction claim', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      await screen.findByLabelText('Heartbeat retention (days)')
+      expect(screen.getByText(/Charon returns it to your disk automatically/)).toBeInTheDocument()
+      expect(screen.queryByText(/until the database is compacted/i)).toBeNull()
     })
   })
 })

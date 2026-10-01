@@ -2018,19 +2018,26 @@ func TestSettingsHandler_PatchConfig_UptimeUnknownKeyRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-const reservedMarkerKey = "migration.uptime_retention_default_30"
+const (
+	reservedMarkerKey = "migration.uptime_retention_default_30"
+	// reservedMaintenanceKey is the database-maintenance flag row (GH #1422).
+	reservedMaintenanceKey = "maintenance.compact_requested"
+)
 
 func seedMarkerRow(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	require.NoError(t, db.Create(&models.Setting{
 		Key: reservedMarkerKey, Value: "done", Type: "string", Category: "migration",
 	}).Error)
+	require.NoError(t, db.Create(&models.Setting{
+		Key: reservedMaintenanceKey, Value: "true", Type: "bool", Category: "maintenance",
+	}).Error)
 }
 
-func countMigrationRows(t *testing.T, db *gorm.DB) int64 {
+func countReservedRows(t *testing.T, db *gorm.DB) int64 {
 	t.Helper()
 	var n int64
-	require.NoError(t, db.Model(&models.Setting{}).Where("key LIKE ?", "%igration.%").Count(&n).Error)
+	require.NoError(t, db.Model(&models.Setting{}).Where("key LIKE ? OR key LIKE ?", "%igration.%", "%aintenance.%").Count(&n).Error)
 	return n
 }
 
@@ -2055,6 +2062,7 @@ func TestSettingsHandler_GetSettings_HidesInternalMigrationRows(t *testing.T) {
 	assert.Equal(t, "Charon", resp["app.name"])
 	assert.NotContains(t, resp, reservedMarkerKey)
 	assert.NotContains(t, resp, "migration.other")
+	assert.NotContains(t, resp, reservedMaintenanceKey)
 }
 
 func TestSettingsHandler_PatchConfig_ResponseHidesInternalMigrationRows(t *testing.T) {
@@ -2068,6 +2076,7 @@ func TestSettingsHandler_PatchConfig_ResponseHidesInternalMigrationRows(t *testi
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "hello", resp["general.note"])
 	assert.NotContains(t, resp, reservedMarkerKey)
+	assert.NotContains(t, resp, reservedMaintenanceKey)
 }
 
 func TestSettingsHandler_UpdateSetting_RejectsReservedKeys(t *testing.T) {
@@ -2077,6 +2086,10 @@ func TestSettingsHandler_UpdateSetting_RejectsReservedKeys(t *testing.T) {
 		"Migration.anything",
 		"  migration.anything",
 		"MIGRATION.ANYTHING",
+		reservedMaintenanceKey,
+		"Maintenance.compact_requested",
+		"  maintenance.attempts",
+		"MAINTENANCE.LAST_RESULT",
 	}
 	for _, key := range keys {
 		for _, category := range []string{"", "general", "migration"} {
@@ -2112,7 +2125,13 @@ func TestSettingsHandler_PatchConfig_RejectsReservedKeys(t *testing.T) {
 			"general":   map[string]any{"note": "should-not-persist"},
 			"migration": map[string]any{"x": "1"},
 		},
-		"mixed_case": {"Migration": map[string]any{"x": "1"}},
+		"mixed_case":             {"Migration": map[string]any{"x": "1"}},
+		"maintenance_nested":     {"maintenance": map[string]any{"compact_requested": "true"}},
+		"maintenance_mixed_case": {"Maintenance": map[string]any{"compact_requested": "true"}},
+		"maintenance_mixed_batch": {
+			"general":     map[string]any{"note": "should-not-persist"},
+			"maintenance": map[string]any{"attempts": "0"},
+		},
 	}
 	for name, payload := range payloads {
 		t.Run(name, func(t *testing.T) {
@@ -2126,7 +2145,7 @@ func TestSettingsHandler_PatchConfig_RejectsReservedKeys(t *testing.T) {
 			var n int64
 			require.NoError(t, db.Model(&models.Setting{}).Count(&n).Error)
 			assert.Zero(t, n, "nothing must be written")
-			assert.Zero(t, countMigrationRows(t, db))
+			assert.Zero(t, countReservedRows(t, db))
 		})
 	}
 }

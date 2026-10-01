@@ -3,12 +3,17 @@ package services
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/dbmaint"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -635,4 +640,97 @@ func TestUptimePruner_TickLogsAndRetriesFailedRedundantIndexDrop(t *testing.T) {
 	require.True(t, hasDeferredIndex(t, db), "composite still built")
 	require.True(t, hasLegacyMonitorIDIndex(t, db))
 	require.False(t, p.redundantIndexDropped.Load(), "a failed drop leaves the retry flag unset")
+}
+
+// fakeReclaimer records the row counts the pruner reports after clean passes.
+type fakeReclaimer struct {
+	deleted []int64
+}
+
+func (f *fakeReclaimer) AfterPrune(_ context.Context, deleted int64) {
+	f.deleted = append(f.deleted, deleted)
+}
+
+func TestUptimePruner_TickHandsTheDeletedCountToTheSpaceReclaimer(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+	rec := &fakeReclaimer{}
+	p.SetSpaceReclaimer(rec)
+	seedHeartbeats(t, db, "m-old", now.AddDate(0, 0, -100), 40)
+
+	p.tick(context.Background())
+	p.tick(context.Background())
+
+	require.Equal(t, []int64{40, 0}, rec.deleted, "called after every clean pass, with the rows that pass deleted")
+}
+
+func TestUptimePruner_TickSkipsTheSpaceReclaimerAfterAFailedPass(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	p := newTestPruner(t, db, time.Now)
+	rec := &fakeReclaimer{}
+	p.SetSpaceReclaimer(rec)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	p.tick(ctx)
+
+	require.Empty(t, rec.deleted)
+}
+
+func TestUptimePruner_TickWithoutSpaceReclaimerStillPrunes(t *testing.T) {
+	db := newPinnedUptimeDB(t)
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	p := newTestPruner(t, db, func() time.Time { return now })
+	seedHeartbeats(t, db, "m-old", now.AddDate(0, 0, -100), 10)
+
+	p.tick(context.Background())
+
+	require.Zero(t, countHeartbeats(t, db))
+}
+
+// TestUptimePruner_TickReturnsFreedPagesToTheOS wires the real dbmaint
+// reclaimer into a pruner over a file-backed incremental-mode database: after
+// the old rows are pruned the file must shrink (verified by size).
+func TestUptimePruner_TickReturnsFreedPagesToTheOS(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pruner.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	_, err = sqlDB.Exec("PRAGMA auto_vacuum=2")
+	require.NoError(t, err)
+	_, err = sqlDB.Exec("PRAGMA journal_mode=WAL")
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.UptimeHeartbeat{}, &models.Setting{}))
+
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	// 2000 rows of a 40 kB message: large rows build far faster than many small
+	// ones, which matters under -race.
+	require.NoError(t, db.Exec(
+		"WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x<2000) "+
+			"INSERT INTO uptime_heartbeats(monitor_id, status, message, created_at) "+
+			"SELECT 'm', 'up', replace(hex(zeroblob(40000)), '00', 'x'), ? FROM c",
+		now.AddDate(0, 0, -100)).Error)
+	_, err = sqlDB.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+	require.NoError(t, err)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	sizeBefore := info.Size()
+	require.Greater(t, sizeBefore, int64(70<<20))
+
+	p := newTestPruner(t, db, func() time.Time { return now })
+	p.chunkPause = time.Microsecond
+	p.SetSpaceReclaimer(dbmaint.NewReclaimer(sqlDB, path, config.DBCompactAuto, &dbmaint.Advisor{}))
+
+	p.tick(context.Background())
+
+	info, err = os.Stat(path)
+	require.NoError(t, err)
+	require.Less(t, info.Size(), sizeBefore*3/4, "the pruner must hand freed pages back to the OS")
+	var free int64
+	require.NoError(t, sqlDB.QueryRow("PRAGMA freelist_count").Scan(&free))
+	require.LessOrEqual(t, free*4096, dbmaint.KeepFreeBytes)
 }

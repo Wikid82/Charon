@@ -5,6 +5,7 @@ import { type ReactNode } from 'react'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+import client from '../../api/client'
 import * as featureFlagsApi from '../../api/featureFlags'
 import { ThemeProvider } from '../../context/ThemeContext'
 import * as useMediaQueryModule from '../../hooks/useMediaQuery'
@@ -784,6 +785,60 @@ describe('Layout', () => {
       // ...but the Encryption link is gone.
       const links = screen.queryAllByRole('link', { name: 'Encryption' })
       expect(links.some((l) => l.getAttribute('href') === '/security/encryption')).toBe(false)
+    })
+
+    describe('Tasks -> Database nav child', () => {
+      const expandTasks = async () => {
+        const user = userEvent.setup()
+        await user.click(await screen.findByRole('button', { name: /tasks/i }))
+      }
+
+      it('shows the Database nav child for an admin, as a plain link', async () => {
+        mockUser = { role: 'admin' }
+        renderWithProviders(
+          <Layout>
+            <div>Test Content</div>
+          </Layout>
+        )
+
+        await expandTasks()
+
+        const links = await screen.findAllByRole('link', { name: 'Database' })
+        expect(links.some((l) => l.getAttribute('href') === '/tasks/database')).toBe(true)
+      })
+
+      it('hides the Database nav child for a non-admin user', async () => {
+        mockUser = { role: 'user' }
+        renderWithProviders(
+          <Layout>
+            <div>Test Content</div>
+          </Layout>
+        )
+
+        await expandTasks()
+
+        // Sibling Tasks items still render for a non-admin...
+        expect(await screen.findByRole('link', { name: 'Backups' })).toBeInTheDocument()
+        // ...but the Database link is gone.
+        const links = screen.queryAllByRole('link', { name: 'Database' })
+        expect(links.some((l) => l.getAttribute('href') === '/tasks/database')).toBe(false)
+      })
+
+      it('never requests the database status itself', async () => {
+        mockUser = { role: 'admin' }
+        const getSpy = vi.spyOn(client, 'get')
+        renderWithProviders(
+          <Layout>
+            <div>Test Content</div>
+          </Layout>
+        )
+
+        await expandTasks()
+        await screen.findAllByRole('link', { name: 'Database' })
+
+        expect(getSpy.mock.calls.some(([url]) => String(url).includes('/system/database'))).toBe(false)
+        getSpy.mockRestore()
+      })
     })
   })
 })

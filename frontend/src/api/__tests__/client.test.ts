@@ -3,6 +3,7 @@ import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 
 // Initialises the global i18next instance the interceptor translates with
 import '../../i18n'
+import { isMaintenanceActive, leaveMaintenance } from '../../utils/maintenanceMode'
 import { setAuthErrorHandler, setAuthToken } from '../client'
 
 type ResponseHandler = (value: unknown) => unknown
@@ -320,6 +321,43 @@ describe('api client', () => {
       await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
       expect(onAuthError).not.toHaveBeenCalled()
       setAuthErrorHandler(null)
+    })
+  })
+
+  describe('maintenance 503', () => {
+    const maintenance503 = (): ResponseError => ({
+      response: {
+        status: 503,
+        data: { error: 'Database optimization in progress', maintenance: true, retry_after_seconds: 15 },
+      },
+      config: { url: '/auth/me' },
+      message: 'Original',
+    })
+
+    afterEach(() => {
+      leaveMaintenance()
+      setAuthErrorHandler(null)
+    })
+
+    it('enters maintenance mode and rejects the original error exactly once (no retry)', async () => {
+      const error = maintenance503()
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(isMaintenanceActive()).toBe(true)
+    })
+
+    it('never takes the 401 logout path, even for a non-auth endpoint', async () => {
+      const onAuthError = vi.fn()
+      setAuthErrorHandler(onAuthError)
+      const error = maintenance503()
+      error.config = { url: '/proxy-hosts' }
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(onAuthError).not.toHaveBeenCalled()
+    })
+
+    it('ignores a plain 503 without the maintenance flag', async () => {
+      const error: ResponseError = { response: { status: 503, data: { error: 'down' } }, config: { url: '/x' } }
+      await expect(capturedHandlers.onRejected?.(error)).rejects.toBe(error)
+      expect(isMaintenanceActive()).toBe(false)
     })
   })
 })

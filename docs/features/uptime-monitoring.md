@@ -130,50 +130,15 @@ Every check adds a small record, so history takes up room. As a rough guide,
 expect about 15 MB per monitor per 30 days at 60-second checks.
 
 - Records older than **Heartbeat retention** are deleted automatically every hour.
-- If you lower the setting, the database file **may not get smaller by itself**.
-  Charon keeps the freed space and reuses it for new records, so the file simply
-  stops growing.
+- If you lower the setting, the freed space is returned to your disk
+  **automatically**: Charon trims the database file in the background, and on
+  an older database with a lot of free space it optimizes the file once at the
+  next start. See [Database Maintenance](../database-maintenance.md) for what to
+  expect, how to turn it off, and a manual fallback.
 - **Upgrading:** the first time Charon starts after this change, installs whose
   retention was still the untouched old default (90 days) are moved once to 30
   days, and older history is then trimmed hourly. If you want longer history,
   raise the setting in **System Settings**.
-
-**Advanced: shrinking the file by hand (at your own risk).** Only do this if the
-file is very large and you are comfortable with the command line.
-
-1. **Stop Charon first.** Never do this while it is running.
-2. **Back up the database.** Copy `charon.db` together with `charon.db-wal` and
-   `charon.db-shm` (if they exist) while Charon is stopped, or run
-   `sqlite3 charon.db ".backup charon-backup.db"`.
-3. Make sure you have free disk space of about **twice your actual data** (not
-   twice the file size).
-4. **Find out who owns your database file.** In your data folder, run
-   `ls -ln charon.db`. The two numbers after the permissions (usually
-   `1000 1000`) are the user and group Charon runs as. Use those numbers
-   below in place of `1000:1000` if yours are different.
-5. **Run a one-off container** that opens the database directly (it skips the
-   normal Charon startup, which is why `--entrypoint sqlite3` is needed).
-   Replace `/path/to/your/charon/data` with your data folder, and use the same
-   image you normally run:
-
-   ```bash
-   docker run --rm -it --user 1000:1000 --entrypoint sqlite3 \
-     -v /path/to/your/charon/data:/app/data \
-     wikid82/charon:latest /app/data/charon.db
-   ```
-
-   At the `sqlite>` prompt, type these lines one at a time:
-
-   ```sql
-   PRAGMA auto_vacuum=INCREMENTAL;
-   VACUUM;
-   .quit
-   ```
-
-   The `PRAGMA` line is optional; it lets the file shrink more easily in the
-   future. `VACUUM;` can take a while on a big file, so wait for the prompt to
-   come back.
-6. Start Charon again and check that the dashboard opens. If it cannot open the database, check file ownership.
 
 ## Enabling Uptime Monitoring
 

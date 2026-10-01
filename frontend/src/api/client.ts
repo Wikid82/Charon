@@ -1,6 +1,7 @@
 import axios from 'axios';
 import i18n from 'i18next';
 
+import { enterMaintenance, isMaintenanceError } from '../utils/maintenanceMode';
 import { rateLimitMessage } from '../utils/rateLimit';
 
 /**
@@ -84,6 +85,14 @@ client.interceptors.response.use(
     const throttleMessage = rateLimitMessage(i18n.t, error);
     if (throttleMessage) {
       error.message = throttleMessage;
+    }
+
+    // The server is optimizing its database (503 {"maintenance": true}): switch to
+    // the maintenance view. This is deliberately NOT an auth failure (no logout,
+    // no token clearing) and the request is not retried here.
+    if (isMaintenanceError(error)) {
+      enterMaintenance();
+      return Promise.reject(error);
     }
 
     // Handle 401 authentication errors - triggers auth error callback for session expiry

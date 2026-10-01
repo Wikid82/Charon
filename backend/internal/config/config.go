@@ -13,6 +13,12 @@ import (
 	"github.com/Wikid82/charon/backend/internal/security"
 )
 
+// Accepted values of CHARON_DB_COMPACT_ON_START.
+const (
+	DBCompactAuto = "auto"
+	DBCompactOff  = "off"
+)
+
 // Config captures runtime configuration sourced from environment variables.
 type Config struct {
 	Environment           string
@@ -34,8 +40,11 @@ type Config struct {
 	CrowdSecLogDir        string
 	Debug                 bool
 	CertExpiryWarningDays int
-	Security              SecurityConfig
-	Emergency             EmergencyConfig
+	// DBCompactOnStart is CHARON_DB_COMPACT_ON_START: DBCompactAuto (default) or
+	// DBCompactOff, which disables boot-time database optimization (GH #1422).
+	DBCompactOnStart string
+	Security         SecurityConfig
+	Emergency        EmergencyConfig
 	// StartupWarnings collects configuration problems found by Load. They are
 	// logged at WARN once the logger is initialized.
 	StartupWarnings []string
@@ -134,6 +143,10 @@ func Load() (Config, error) {
 	cfg.StartupWarnings = append(cfg.StartupWarnings, authWarnings...)
 	cfg.StartupWarnings = append(cfg.StartupWarnings, authNormWarnings...)
 
+	dbCompact, dbCompactWarnings := loadDBCompactOnStart()
+	cfg.DBCompactOnStart = dbCompact
+	cfg.StartupWarnings = append(cfg.StartupWarnings, dbCompactWarnings...)
+
 	cfg.CertExpiryWarningDays = 30
 	if days := getEnvAny("", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {
 		if n, err := strconv.Atoi(days); err == nil && n > 0 {
@@ -180,6 +193,19 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// loadDBCompactOnStart parses CHARON_DB_COMPACT_ON_START (auto|off). Any other
+// value, including the removed "force", falls back to auto with a warning.
+func loadDBCompactOnStart() (mode string, warnings []string) {
+	raw := strings.ToLower(strings.TrimSpace(getEnvAny(DBCompactAuto, "CHARON_DB_COMPACT_ON_START")))
+	switch raw {
+	case DBCompactAuto, DBCompactOff:
+		return raw, nil
+	default:
+		return DBCompactAuto, []string{fmt.Sprintf(
+			"CHARON_DB_COMPACT_ON_START=%q is not valid (expected auto or off); using auto", raw)}
+	}
 }
 
 // loadSecurityConfig loads the security configuration with proper parsing of array fields

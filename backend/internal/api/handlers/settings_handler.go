@@ -92,10 +92,12 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, settingsMap)
 }
 
-// internalSettingPrefixes lists key prefixes reserved for server-managed rows
-// (for example one-time migration markers). They are never returned by the
-// settings API and can never be written through it.
-var internalSettingPrefixes = []string{"migration."}
+// internalSettingPrefixes lists key prefixes reserved for server-managed rows:
+// one-time migration markers ("migration.") and the database maintenance flag
+// and state ("maintenance.", GH #1422). They are never returned by the settings
+// API and can never be written through it; the maintenance flag is only
+// settable through its dedicated endpoints.
+var internalSettingPrefixes = []string{"migration.", "maintenance."}
 
 // isInternalSettingKey reports whether key is reserved. It matches on the
 // normalized key prefix only, never on the client-supplied Category.
