@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
 import client from '../../api/client'
-import * as databaseApi from '../../api/databaseMaintenance'
 import * as featureFlagsApi from '../../api/featureFlags'
 import * as settingsApi from '../../api/settings'
 import { LanguageProvider } from '../../context/LanguageContext'
@@ -21,21 +20,11 @@ vi.mock('../../api/settings', () => ({
   testPublicURL: vi.fn(),
 }))
 
-vi.mock('../../api/databaseMaintenance', () => ({
-  getDatabaseStatus: vi.fn().mockResolvedValue({
-    size_bytes: 120_000_000,
-    wal_bytes: 0,
-    reclaimable_bytes: 0,
-    auto_vacuum: 'incremental',
-    env_mode: 'auto',
-    compact_requested: false,
-    can_request_optimize: false,
-    disk_free_bytes: 1_000_000_000,
-    last_result: null,
-    notice: null,
-  }),
-  requestOptimizeOnRestart: vi.fn(),
-  cancelOptimizeOnRestart: vi.fn(),
+// Mutable auth state so tests can exercise the admin-only Database link.
+let mockUser: { role: string } | undefined
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: mockUser }),
 }))
 
 vi.mock('../../api/featureFlags', () => ({
@@ -72,6 +61,7 @@ const renderWithProviders = (ui: React.ReactNode) => {
 describe('SystemSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUser = { role: 'admin' }
 
     // Default mock responses
     vi.mocked(settingsApi.getSettings).mockResolvedValue({
@@ -799,7 +789,7 @@ describe('SystemSettings', () => {
       expect(screen.getByText(/Default 30 days \(range 1-3650\)/)).toBeInTheDocument()
       expect(screen.getByText(/approximately 15 MB per monitor per 30 days/i)).toBeInTheDocument()
       expect(
-        screen.getByText(/file may not shrink until the database is compacted/i),
+        screen.getByText(/Charon returns it to your disk automatically/i),
       ).toBeInTheDocument()
     })
 
@@ -922,40 +912,43 @@ describe('SystemSettings', () => {
     })
   })
 
-  describe('Database maintenance', () => {
-    it('renders the quiet Database card with no banner or button', async () => {
+  describe('Database page pointer', () => {
+    it('no longer renders a Database card, banner or status request', async () => {
       renderWithProviders(<SystemSettings />)
 
-      const card = await screen.findByRole('region', { name: 'Database' })
-      expect(card).toHaveTextContent('120.0 MB')
-      expect(screen.queryByText(/free up about|stopped after 3 failed/i)).toBeNull()
+      await screen.findByLabelText('Heartbeat retention (days)')
+      expect(screen.queryByRole('region', { name: 'Database' })).toBeNull()
       expect(screen.queryByRole('button', { name: /reclaim space/i })).toBeNull()
+      expect(vi.mocked(client.get).mock.calls.some(([url]) => String(url).includes('/system/database'))).toBe(false)
     })
 
-    it('puts a warning notice in a banner above the Database card', async () => {
-      vi.mocked(databaseApi.getDatabaseStatus).mockResolvedValueOnce({
-        size_bytes: 4_800_000_000,
-        wal_bytes: 0,
-        reclaimable_bytes: 1_700_000_000,
-        auto_vacuum: 'none',
-        env_mode: 'auto',
-        compact_requested: false,
-        can_request_optimize: true,
-        disk_free_bytes: 2_000_000_000,
-        last_result: null,
-        notice: {
-          code: 'insufficient_disk',
-          severity: 'warning',
-          reclaimable_bytes: 1_700_000_000,
-          required_bytes: 9_600_000_000,
-          available_bytes: 2_000_000_000,
-        },
-      })
+    it('shows an admin the link to Tasks -> Database below the retention field', async () => {
+      mockUser = { role: 'admin' }
       renderWithProviders(<SystemSettings />)
 
-      const banner = await screen.findByText(/free up about 7\.6 GB/i)
-      const card = screen.getByRole('region', { name: 'Database' })
-      expect(banner.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      const link = await screen.findByRole('link', { name: /database size and cleanup/i })
+      expect(link).toHaveAttribute('href', '/tasks/database')
+    })
+
+    it('hides the link from non-admin users and when no user is loaded', async () => {
+      mockUser = { role: 'user' }
+      const { unmount } = renderWithProviders(<SystemSettings />)
+      await screen.findByLabelText('Heartbeat retention (days)')
+      expect(screen.queryByRole('link', { name: /database size and cleanup/i })).toBeNull()
+      unmount()
+
+      mockUser = undefined
+      renderWithProviders(<SystemSettings />)
+      await screen.findByLabelText('Heartbeat retention (days)')
+      expect(screen.queryByRole('link', { name: /database size and cleanup/i })).toBeNull()
+    })
+
+    it('describes the retention helper without the old compaction claim', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      await screen.findByLabelText('Heartbeat retention (days)')
+      expect(screen.getByText(/Charon returns it to your disk automatically/)).toBeInTheDocument()
+      expect(screen.queryByText(/until the database is compacted/i)).toBeNull()
     })
   })
 })

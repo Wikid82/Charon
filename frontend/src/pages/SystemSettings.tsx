@@ -2,12 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Server, RefreshCw, Save, Activity, Info, ExternalLink, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router'
 
 import client from '../api/client'
 import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import { getSettings, updateSetting, testPublicURL } from '../api/settings'
 import { LanguageSelector } from '../components/LanguageSelector'
-import { DatabaseMaintenanceBanner, DatabaseMaintenanceCard } from '../components/DatabaseMaintenance'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Alert, AlertDescription } from '../components/ui/Alert'
 import { Badge } from '../components/ui/Badge'
@@ -20,6 +20,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { Switch } from '../components/ui/Switch'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip'
 import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
+import { useAuth } from '../hooks/useAuth'
 import { useUptimeHealth } from '../hooks/useUptimeSummary'
 import { cn } from '../utils/cn'
 import { toast } from '../utils/toast'
@@ -59,6 +60,8 @@ const UPTIME_BOUNDS: Record<string, { min: number; max: number }> = {
 
 export default function SystemSettings() {
   const { t } = useTranslation()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const queryClient = useQueryClient()
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
   const [sslProvider, setSslProvider] = useState('auto')
@@ -385,8 +388,6 @@ export default function SystemSettings() {
           </div>
           <h1 className="text-2xl font-bold text-content-primary">{t('systemSettings.title')}</h1>
         </div>
-
-        <DatabaseMaintenanceBanner />
 
         {/* Features */}
         <Card>
@@ -801,6 +802,14 @@ export default function SystemSettings() {
                 helperText={t('systemSettings.uptime.retentionDaysHelper')}
                 aria-invalid={uptimeFieldError(UPTIME_SETTING_KEYS.retention) ? 'true' : 'false'}
               />
+              {/* The Database page is admin-only; other roles would only be redirected. */}
+              {isAdmin && (
+                <p className="text-sm text-content-muted">
+                  <Link to="/tasks/database" className="underline hover:text-content-primary">
+                    {t('systemSettings.uptime.databaseLink')}
+                  </Link>
+                </p>
+              )}
             </div>
 
             {uptimeHealth && (
@@ -826,8 +835,6 @@ export default function SystemSettings() {
             </Button>
           </CardFooter>
         </Card>
-
-        <DatabaseMaintenanceCard />
 
         {/* WebSocket Connection Status */}
         <WebSocketStatusCard showDetails={true} />

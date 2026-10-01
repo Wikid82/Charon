@@ -14,7 +14,7 @@ export const MAINTENANCE_STATUS_QUERY_KEY = ['maintenance-status']
 export const MAINTENANCE_POLL_MS = 5000
 
 /**
- * Database card data. The notice is computed fresh server-side on every call,
+ * Data for the Tasks -> Database page. The notice is computed fresh server-side on every call,
  * so a 30 s staleTime is enough. No retry: a 403 for non-admin users is final.
  */
 export function useDatabaseStatus() {
@@ -26,7 +26,7 @@ export function useDatabaseStatus() {
   })
 }
 
-/** Sets the "reclaim space on next restart" request, then refreshes the card. */
+/** Sets the "reclaim space on next restart" request, then refreshes the page data. */
 export function useRequestOptimize() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -36,7 +36,7 @@ export function useRequestOptimize() {
   })
 }
 
-/** Withdraws the request (undo), then refreshes the card. */
+/** Withdraws the request (undo), then refreshes the page data. */
 export function useCancelOptimize() {
   const queryClient = useQueryClient()
   return useMutation({

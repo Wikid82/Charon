@@ -59,7 +59,7 @@ export interface MaintenanceStatus {
 }
 
 /**
- * Fetches the database card data and the notice that currently applies.
+ * Fetches the data for the Tasks -> Database page and the notice that currently applies.
  * @throws {AxiosError} If the request fails (403 for non-admin users)
  */
 export const getDatabaseStatus = async (): Promise<DatabaseStatus> => {
