@@ -78,7 +78,7 @@ ARG NPM_VERSION=12.2.0
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
 ARG CADDY_VERSION=2.11.6
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_CANDIDATE_VERSION=2.11.4
+ARG CADDY_CANDIDATE_VERSION=2.11.6
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
