@@ -115,3 +115,14 @@ func TestConvert_ReportsAModeThatDidNotChange(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "auto_vacuum")
 }
+
+func TestVerifyIncremental_ReadFailureIsReported(t *testing.T) {
+	db, _ := newScratchDB(t, scratchOpts{rows: 10, keepEvery: 2})
+	conn, err := db.Conn(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+
+	err = verifyIncremental(context.Background(), conn)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sql.ErrConnDone)
+}

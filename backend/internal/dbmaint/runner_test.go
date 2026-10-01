@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -821,4 +822,18 @@ func TestRun_CancelJustBeforeTheConversionStartsIsNotAFailure(t *testing.T) {
 	assert.False(t, h.markerPresent())
 	assert.True(t, h.flagSet())
 	assert.True(t, h.gate.WaitIdle(context.Background()))
+}
+
+// A file that cannot be measured after the conversion cannot be verified, so
+// the result is reported as pending, never as converted.
+func TestRun_UnverifiableFileSizeIsConvertedPendingCheckpoint(t *testing.T) {
+	h := newHarness(t)
+	h.deps.Convert = func(context.Context, *sql.Conn) error {
+		return os.Remove(h.path) // the open connection keeps the data; the path is gone
+	}
+
+	out := h.run(context.Background())
+
+	assert.Equal(t, ResultConvertedPendingCheckpoint, out.Result)
+	assert.Equal(t, PhaseDone, h.gate.Snapshot().Phase)
 }

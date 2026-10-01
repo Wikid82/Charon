@@ -217,3 +217,19 @@ func TestStart_OtherSkipsDoNotOverwriteTheLastResult(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ResultConverted, st.LastResult.Outcome)
 }
+
+func TestStart_PlanSkipThatCannotBeRecordedStillLeavesTheGateIdle(t *testing.T) {
+	db, path := newSettingsDB(t)
+	require.NoError(t, db.Close())
+	gate := NewGate()
+
+	planned := Start(context.Background(), StartParams{
+		Gate: gate, DB: db, DBPath: path,
+		Plan: func(context.Context) (PlanResult, error) {
+			return PlanResult{Decision: Decision{Reason: ReasonTooManyFailures, ClearFlag: true}}, nil
+		},
+	})
+
+	assert.False(t, planned)
+	assert.Equal(t, PhaseIdle, gate.Snapshot().Phase)
+}
