@@ -694,7 +694,7 @@ the Caddy core version after plugin updates" pattern:
    is held fixed, and `go mod tidy` then keeps `require … grpc v1.83.1` (> the v1.83.0-dev
    otel wants).
 2. A **post-build assertion**: `go version -m /usr/bin/caddy` must embed grpc
-   `v${GRPC_VERSION}` or the build fails — same guard style as the existing cel-go v0.29.x
+   `v${GRPC_VERSION}` or the build fails — same guard style as the existing cel.dev/cel-go >= v0.29
    assertion.
 
 The `no-cache-filters: caddy-builder,crowdsec-builder` change to `supply-chain-pr.yml` /
