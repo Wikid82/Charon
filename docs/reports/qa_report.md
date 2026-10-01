@@ -1,62 +1,55 @@
-# QA and Security Report: certificate private key export re-authentication (GH #1390)
+# QA and Security Report - GH #1422 automatic database maintenance
 
-Branch: `fix/cert-export-private-key-403-1390` (5 commits over `origin/development`)
-Date: 2026-09-29
+Branch `feat/db-maintenance-1422`, HEAD e937a7dc, range `3437ab88..HEAD`. Spec: docs/plans/current_spec.md rev 7.
 
-## Verdict: PASS after fixes (the 2 hygiene blockers found in the first audit pass, B1 and B2, are resolved in commits 218df2dc and 9f42400f; no security defects found in the change)
+## Verdict: PASS (no blocking findings)
 
-## Gate results
+## Gates
 
-| # | Gate | Result | Detail |
-|---|------|--------|--------|
-| 1 | `go build ./...` + `go test ./...` | PASS | Build clean. Full `go test ./...` reported no failures (non-race). |
-| 1b | Same package under `-race` (as the coverage script runs it) | FAIL, pre-existing flake | `TestCredentialHandler_Update_ByCredentialUUID` failed in the full `-race` handlers run (twice). See B2. |
-| 2 | `scan-gorm-security.sh --check` | PASS | 0 critical, 0 high, 0 medium, 2 info, 1 suppressed. |
-| 3a | `make lint-fast` | PASS | backend 0 issues, agent 0 issues. |
-| 3b | `make lint-backend` (full golangci-lint) | FAIL | 1 issue introduced by this change. See B1. |
-| 4 | `local-patch-report.sh` | PASS | Backend patch coverage 39/39 changed lines = 100.0% (overall 100.0%). Artifacts present: `test-results/local-patch-report.md` and `.json`. |
-| 5 | `scripts/go-test-coverage.sh` | Coverage PASS, run FAIL | Statement coverage 92.2%, line coverage 88.9%, gate 87%: met. Script's `go test` exited non-zero solely due to the flake in B2. |
-| 6 | `lefthook run pre-commit --all-files` | PASS | All 16 hooks passed, including semgrep (367 rules, 0 findings), golangci-lint-fast, go-vet, actionlint, shellcheck, frontend lint and type-check. (Plain `lefthook run pre-commit` skips everything because nothing is staged.) |
-| 7 | E2E `tests/certificate-export.spec.ts`, firefox only | PASS | 15/15 passed (45.6s) against an E2E container rebuilt from this branch. |
-| 8 | CodeQL Go (local CLI 2.26.4, working) | PASS | 4 results, all in files outside this diff (`auth_handler.go`, `remote_server_handler.go` x2, `uptime_service.go`), all covered by documented entries in `codeql-suppressions.yml`. 0 blocking. JS scan 0 results. |
-| 9 | Trivy (`security-scan-trivy` skill; there is no `make trivy` target) | Not attributable to this change | The filesystem scan reports only items under `.claude/worktrees/*` and the git-ignored `docs-site/build/` output (a docs example service-account snippet). No finding in tracked backend, frontend or agent manifests touched by this branch. The skill exits non-zero because of these stale local directories. CI runs the authoritative scan. |
+| Gate | Command | Result |
+|---|---|---|
+| Playwright | `npx playwright test tests/settings/database-maintenance.spec.ts --project=firefox` (after docker-rebuild-e2e) | 14/14 passed |
+| GORM scan | `./scripts/scan-gorm-security.sh --check` | 0 CRITICAL, 0 HIGH, 0 MEDIUM |
+| Patch coverage | `bash scripts/local-patch-report.sh` | artifacts present; overall 94.8%, backend 94.4%, frontend 100% (uncovered lines are error branches) |
+| CodeQL Go+JS | `lefthook run codeql --all-files` (CodeQL 2.26.4) | Go 4 results, all pre-existing and suppressed in codeql-suppressions.yml (none in files of this branch); JS 0; 0 blocking |
+| Trivy | `docker build -t charon:local .` + `aquasec/trivy image --severity CRITICAL,HIGH charon:local` | OS 0, app/charon 0, caddy 0; 1 HIGH in each of crowdsec and cscli binaries (CVE-2026-32286, pgproto3, no fixed version), third-party, already tracked in .trivyignore/.grype.yaml/SECURITY.md. No CRITICAL. |
+| Pre-commit | `lefthook run pre-commit --all-files` | all 16 hooks passed (incl. semgrep) |
+| Lint | `make lint-fast`, `make lint-backend` | 0 issues both |
+| Backend coverage | `scripts/go-test-coverage.sh` | statements 92.1%, lines 89.1% (gate 87%) PASS |
+| Frontend coverage | `scripts/frontend-test-coverage.sh` | 289 files / 3586 tests passed (4 skipped, 2 todo pre-existing), lines 91.31% (gate 87%) PASS |
+| Types / builds | `npm run type-check`, `go build ./...`, `npm run build` | all OK |
+| Backend suite | `go test ./...` | all packages ok, 0 failures |
+| Race | `go test -race ./internal/dbmaint/... ./cmd/... ./internal/api/routes/... ./internal/services/... ./internal/database/...` | all ok |
 
-## Blocking issues
+Note: the Trivy container was pointed at the rootless docker socket (/run/user/1001/docker.sock) instead of the stale /var/run/docker.sock hard-coded in `make security-scan-full`.
 
-### B1. RESOLVED: golangci-lint (`make lint-backend`) failure introduced by this change
-`backend/internal/api/handlers/certificate_handler_export_auth_test.go:67`: `gocritic unnamedResult: consider giving a name to these results` on
-`func (e *exportHarness) createUser(role models.UserRole) (*models.User, string)`.
-It is the only issue in the full run (250 raw, 1 after filtering). `lint-backend` is blocking per CLAUDE.md. Fix: name the results, for example `(user *models.User, token string)`. This is a one-line test-only change.
+## Synthetic real-data run (scratch DB, removed afterwards)
 
-### B2. RESOLVED: Flaky test: `TestCredentialHandler_Update_ByCredentialUUID` (pre-existing, not caused by this change)
-- Symptom: PUT returns 500 instead of 200. Log line: `credential_service.go:354 database table is locked` (SQLite shared-cache table lock).
-- Frequency: failed in the full `go test -race -v ./internal/api/handlers` run (twice). In isolation with `-race -run TestCredentialHandler_ -count=100` it failed 3 to 4 times in each 100-run sample.
-- Proof it is not from this diff: the same 100-run `-race` reproduction on a clean `git archive` of `origin/development` failed 4 times in 100. The test, `credential_handler_test.go`, and `credential_service.go` are not in this branch's diff. Plain `-count=10` without `-race` passed.
-- Cause: `setupCredentialHandlerTest` opens `file:<TestName>?mode=memory&cache=shared&_journal_mode=WAL`. Shared-cache mode raises `SQLITE_LOCKED` (table locked) when two connections touch the same table, and no busy timeout helps. Under the race detector the timing exposes it.
-- Per CLAUDE.md a failing test must not be deferred. Recommended fix (backend-dev): give the test DB a single connection (`sqlDB.SetMaxOpenConns(1)`) or drop `cache=shared` for a temp-file or per-connection DB. This needs a separate `test:` or `fix:` commit. `TestPerf_GetStatus_AssertThreshold` did not fail in any run.
+Live schema via AutoMigrate, 60 monitors, 3,000,000 heartbeats, oldest 1.23M deleted, WAL, auto_vacuum=0, real StartupPlan/Start/Run path:
 
-## Security review of `git diff origin/development...HEAD`
+- Before: 569,270,272 B main, 138,982 pages, 56,645 free (40.8%), reclaimable 232 MB; Decide = Run.
+- Advisor (Reclaimer.AfterPrune on a legacy DB): Pending=true, 232 MB.
+- GET /api/v1/system/database before: notice `restart_to_optimize` (info), can_request_optimize true.
+- Conversion wall time 5.7 s; during it GET /, /api/v1/system/database and /api/v1/health/db returned 503 and /api/v1/maintenance/status returned 200 `{"active":true,"phase":"converting",...}`.
+- After: 318,664,704 B (-44%), integrity_check ok, auto_vacuum=2, journal_mode=wal, 1,770,000 rows intact, last_result converted, notice null, `.tmp` empty and mode 0700.
+- Steady state: after pruning 770k more rows, Reclaimer drained 25,291 pages in 13 steps (318.7 MB to 215.1 MB), advice no longer pending.
 
-Verdict: no defects found. The change restores the re-authentication safeguard correctly.
+## Security audit
 
-- Ordering in `reauthenticateForKeyExport` (only runs when `include_key` is true): admin role check, then user ID from the session, then emergency-bypass rejection, then DB availability, then empty-password rejection, then sign-in budget charge, then user lookup, then password check. The route also has `RequireRole(models.RoleAdmin)`, so admin is enforced twice.
-- Emergency bypass: a session with `userID == 0` and `IsEmergencyBypass` true (strict boolean check) gets 403 for key export. Certificate-only export (`include_key=false`) stays available. Route-level test `EmergencyBypassRejected` covers both.
-- Rate limiting: empty password returns 403 before charging the budget, so a missing-password request cannot burn budget (tested with a 1-attempt budget). Every real password check is charged before verification, whether or not it turns out correct. A nil guard allows, matching the existing helper contract. The `password_guard_inventory_test` allowlist now points at `CertificateHandler.reauthenticateForKeyExport` and still requires the guard call.
-- Logging and error leaks: the password is never logged. Server-side errors are wrapped with `%w` and logged without request data. Client responses are generic (`incorrect password`, `user not found`, `internal error`, `password required to export private key`). The lookup now uses `errors.Is(gorm.ErrRecordNotFound)`, so a DB failure returns 500 instead of a misleading 403. The `user not found` response for a deleted account is not an enumeration risk because the caller already holds a valid admin session.
-- User ID parsing: now via the shared `requireUserID` helper instead of the old untyped `map[string]any` lookup (`h.db.First(&user, "id = ?", userID)`), which removes the earlier type-assertion failure path.
-- Other private-key release paths:
-  - `CertificateHandler.Get` and `List` return only `HasKey`, never key material.
-  - `CertificateService.GetDecryptedPrivateKey` is called only from `ExportCertificate`, and `ExportCertificate` has a single caller (the gated handler).
-  - Charon-generated exports are the only route that decrypts stored keys; no other handler references it.
+- SQL: every statement in dbmaint, database and the pruner is a constant or parameterised (`?`); the only formatted ones take integer constants/ints (`incremental_vacuum(%d)`, `busy_timeout=%d`); `"PRAGMA "+name` callers pass literals only. No user input reaches DDL/PRAGMA.
+- Gate: answers only GET/HEAD on the exact paths /api/v1/health and /api/v1/maintenance/status; /api/v1/health/db, trailing-slash and sub-paths are blocked (503 JSON or HTML) while active and pass through otherwise; the gate sits before all DB-touching middleware; status/health do no DB access. CSP is hash-based (default-src 'none', script/style sha256 computed from the embedded page, verified by test), plus no-store, nosniff, X-Frame-Options DENY. Remote users cannot trigger the gate: phases change only from the boot-time runner.
+- Endpoints: GET /system/database and POST/DELETE /system/database/optimize-on-restart are on managementAdmin; tests assert 401 (no token), 403 (role=user). Cookie auth is SameSite Strict/Lax like every other mutating endpoint; no new CSRF surface. POST is idempotent (200 {requested:true}); error bodies are generic or name only the env var.
+- Reserved prefix guard (`migration.`, `maintenance.`): normalised (lowercase+trim) prefix check on UpdateSetting and on every flattened PatchConfig key (nested JSON, mixed case, whitespace, empty-segment cases covered); GetSettings and PatchConfig responses filter reserved rows; Category is ignored. Other settings writers use fixed keys.
+- Temp dir: `<data>/.tmp` via Lstat (symlink and non-dir refused), owner == euid, forced 0700, filepath.Clean; operator-set SQLITE_TMPDIR honoured untouched; failure falls back with a warning.
+- State/file_id: inode-only id, state of another file is ignored/deleted, in-progress marker counts as a failed attempt, 3-attempt back-off, a fresh admin request resets it. The flag cannot force a conversion below the 100 MB floor nor skip the integrity, disk or writer-lock checks. Corrupt state rows are deleted, not trusted.
+- Writer exclusion: BEGIN EXCLUSIVE probe with busy_timeout=0 on the pinned single pool connection, retries then skip as database_busy (tested with a real second writer).
+- Logs: sizes, counts and reason codes only; no secrets, no paths beyond config.
+- DoS: status endpoint is a mutex read plus fmt (no DB, no allocation proportional to input).
+- Provenance: no session IDs, claude.ai links, Co-Authored-By or "generated with" in any commit message or diff; all 14 commit subjects use conventional prefixes; none uses a `(security)` scope. Added `nolint` comments are all justified test or gosec-G115 notes.
 
-## Non-blocking notes
-- Coverage headroom is comfortable: 92.2% statements, 88.9% lines against the 87% gate.
-- CodeQL suppression entries in `codeql-suppressions.yml` have review dates of 2026-11-04 and 2026-11-27; none relate to this change.
+## Findings (all non-blocking, informational)
 
-## Working tree
-`git status --short` is empty on branch `fix/cert-export-private-key-403-1390`, apart from this report. Generated artifacts (`test-results/local-patch-report.*`, `backend/coverage.txt`, `codeql-results-*.sarif`, `playwright/.auth/`) are git-ignored, so there are no stray tracked or untracked files. Nothing was committed, no branches were switched, and no application code was modified.
-
-## Re-verification after fixes
-- B1: results named in the test helper (218df2dc). `make lint-backend` and `make lint-fast`: 0 issues.
-- B2: root cause was the audit-writer goroutine and the handler writing on two pooled connections to a shared-cache in-memory SQLite database (`SQLITE_LOCKED` ignores `busy_timeout`). The test helpers now use a single connection (9f42400f). Before: 3 failures in 100 `-race` runs. After: 0 in 300, and 0 in 50 on re-verification. The full `-race` handlers package run passed.
-- `go build ./...` and `go test ./internal/api/handlers/... ./internal/api/middleware/... ./internal/api/routes/...`: pass.
+1. LOW/INFO - The Makefile target `security-scan-full` mounts /var/run/docker.sock, which on this dev host is a stale root daemon; the scan needs the rootless socket. Pre-existing tooling issue, not part of this PR.
+2. INFO - FileID is inode-only; a replaced database file that happens to reuse the old inode would inherit stale attempts/last_result. Consequence is bounded (back-off counter or a notice), and Load clears state on mismatch. No action needed.
+3. INFO - /api/v1/health (GET/HEAD) is now answered by the gate and so no longer passes cerberus.RateLimitMiddleware; the handler is DB-free and cheap, so this is acceptable.
+4. INFO - Trivy HIGH CVE-2026-32286 in bundled crowdsec/cscli binaries has no fixed version and is already tracked.
