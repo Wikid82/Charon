@@ -110,9 +110,10 @@ is required.
 - **Free disk space:** how much room is left on the disk.
 - **Space that could be reclaimed:** unused space inside the file that could be
   given back to your disk.
-- **Optimization mode:** in plain words, either "Manual" (freed space stays
-  inside the file until the database is optimized) or "Automatic" (freed space
-  goes back to your disk by itself).
+- **Optimization mode:** in plain words, either "Not automatic yet" (freed space
+  stays inside the file until Charon next optimizes the database, which it
+  checks at every start) or "Automatic" (freed space goes back to your disk by
+  itself).
 - **Last optimization:** when it last happened and how much space it saved, or a
   short note that none has been needed so far.
 
@@ -137,8 +138,10 @@ visible. When it does not apply, it is greyed out and the page tells you why
   notice tells you how much. Free up that space (delete old backups or other
   files on the same disk) and Charon tries again by itself.
 - **Automatic cleanup has stopped.** After several failed attempts Charon stopped
-  trying. Your proxies are not affected. Check the logs, make sure there is
-  enough free disk space, and restart Charon to let it try again.
+  trying. Your proxies are not affected. Check the logs and make sure there is
+  enough free disk space. To let Charon try again, press **Reclaim space on next
+  restart** (under "Reclaim space now (optional)"), then restart Charon. A plain
+  restart does not retry on its own.
 
 You may also see a short line saying the optimization was postponed because the
 database was busy. It is retried at the next start.
@@ -440,8 +443,8 @@ safe and Charon retries at the next start. To skip it, set
 ### Not enough disk space to optimize the database
 
 **Cause:** The **Automatic cleanup could not run** notice on **Tasks -> Database**
-appears when the disk is too full to optimize safely. Charon needs free space of roughly **twice
-your actual data** while it works.
+appears when the disk is too full to optimize safely. Charon needs free space
+of roughly **twice your actual data** while it works.
 
 **Fix:**
 

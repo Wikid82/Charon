@@ -104,6 +104,8 @@ describe('DatabaseNotice', () => {
     const status = screen.getByRole('status')
     expect(status).toHaveTextContent('Automatic cleanup has stopped')
     expect(status).toHaveTextContent(/stopped trying its automatic database cleanup.*proxies are not affected/i)
+    expect(status).toHaveTextContent(/optional button below to schedule it, then restart Charon/i)
+    expect(status).not.toHaveTextContent(/restart charon to let it try again/i)
     expect(screen.queryByRole('alert')).toBeNull()
   })
 })
@@ -115,7 +117,7 @@ describe('DatabaseStatusList', () => {
     expect(screen.getByText('Write-ahead log').nextSibling).toHaveTextContent('4.2 MB')
     expect(screen.getByText('Free disk space').nextSibling).toHaveTextContent('52.0 GB')
     expect(screen.getByText('Space that could be reclaimed').nextSibling).toHaveTextContent('1.7 GB')
-    expect(screen.getByText(/manual: freed space stays inside the file/i)).toBeInTheDocument()
+    expect(screen.getByText(/not automatic yet: freed space stays inside the file until charon next optimizes the database/i)).toBeInTheDocument()
   })
 
   it.each([
@@ -155,6 +157,7 @@ describe('LastOptimization', () => {
   it.each([
     ['can_request_optimize', { can_request_optimize: true }],
     ['compact_requested', { can_request_optimize: false, compact_requested: true }],
+    ['optimization is off but plenty is reclaimable', { can_request_optimize: false, env_mode: 'off' }],
   ] as const)('says "Not optimized yet" (no "nothing to do") when %s', (_name, over) => {
     render(<LastOptimization db={makeStatus(over)} />)
     expect(screen.getByText('Not optimized yet.')).toBeInTheDocument()

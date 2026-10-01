@@ -1420,7 +1420,7 @@
       "mode": "Optimization mode"
     },
     "mode": {
-      "none": "Manual: freed space stays inside the file until the database is optimized",
+      "none": "Not automatic yet: freed space stays inside the file until Charon next optimizes the database (checked at every start)",
       "incremental": "Automatic: freed space goes back to your disk on its own",
       "full": "Automatic: freed space goes back to your disk immediately"
     },
@@ -1472,7 +1472,7 @@
       "insufficientDiskTitle": "Automatic cleanup could not run",
       "insufficientDisk": "Charon could not run its automatic database cleanup because the disk is nearly full. Free some disk space and Charon will try again by itself. It needs {{required}} free and {{available}} is available.",
       "tooManyFailuresTitle": "Automatic cleanup has stopped",
-      "tooManyFailures": "Charon stopped trying its automatic database cleanup after several failed attempts. Your proxies are not affected. Check the logs, and restart Charon to let it try again."
+      "tooManyFailures": "Charon stopped trying its automatic database cleanup after several failed attempts. Your proxies are not affected. Check the logs and make sure there is enough free disk space. To let Charon try again, use the optional button below to schedule it, then restart Charon."
     }
   },
   "crowdsecConfig": {

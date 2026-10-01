@@ -323,6 +323,24 @@ test.describe('Database page: never empty', () => {
     await expect(region).toContainText(/1\.7 GB could be reclaimed/i);
   });
 
+  test('last_result null with optimization switched off but plenty reclaimable still shows "Not optimized yet"', async ({
+    page,
+  }) => {
+    await stubAuthenticatedSession(page);
+    await setupDatabaseApi(
+      page,
+      makeLegacyDatabaseInfo({ env_mode: 'off', can_request_optimize: false }),
+    );
+
+    await gotoDatabasePage(page);
+    const region = databaseRegion(page);
+
+    await expect(region).toContainText(/not optimized yet/i);
+    await expect(region).not.toContainText(/no optimization has been needed so far/i);
+    await expect(reclaimButton(page)).toBeDisabled();
+    await expect(page.getByText(/nothing to do/i)).toHaveCount(0);
+  });
+
   test('last_result null with compact_requested shows "Not optimized yet", the scheduled state and Undo', async ({
     page,
   }) => {
@@ -498,6 +516,8 @@ test.describe('Database page: passive notices', () => {
     const notice = noticeWithText(page, /stopped trying its automatic database cleanup/i);
     await expect(notice).toBeVisible();
     await expect(notice).toContainText(/your proxies are not affected/i);
+    await expect(notice).toContainText(/optional button below to schedule it, then restart charon/i);
+    await expect(reclaimButton(page)).toBeEnabled();
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 

@@ -122,11 +122,14 @@ export function LastOptimization({ db }: { db: DatabaseStatus }) {
 
   let text: string
   if (!last) {
-    // A legacy database that can still be reclaimed has not been optimized yet.
+    // A legacy database that can still be reclaimed has not been optimized yet,
+    // even when the button is disabled only because the server switched it off.
+    const reclaimableLater =
+      db.auto_vacuum !== 'incremental' && db.reclaimable_bytes >= MIN_RECLAIMABLE_BYTES
     text =
-      !db.can_request_optimize && !db.compact_requested
-        ? t('databaseMaintenance.last.none')
-        : t('databaseMaintenance.last.notYet')
+      db.can_request_optimize || db.compact_requested || reclaimableLater
+        ? t('databaseMaintenance.last.notYet')
+        : t('databaseMaintenance.last.none')
   } else {
     const date = formatDate(last.at, i18n.language)
     const when = date ? t('databaseMaintenance.last.on', { date }) : ''
