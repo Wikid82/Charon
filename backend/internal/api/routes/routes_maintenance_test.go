@@ -22,6 +22,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/dbmaint"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/server"
 )
 
@@ -30,6 +31,7 @@ import (
 // pool, the way cmd/api/main.go builds it.
 type maintenanceRig struct {
 	router   *gin.Engine
+	db       *gorm.DB
 	pin      func() func() // pins the pool's only connection; returns the release
 	cerb     *cerberus.Cerberus
 	shutdown UptimeShutdownFunc
@@ -60,7 +62,7 @@ func newMaintenanceRig(t *testing.T, gate *dbmaint.Gate) *maintenanceRig {
 	require.NoError(t, err)
 	t.Cleanup(cancel)
 
-	rig := &maintenanceRig{router: router, cerb: cerb, shutdown: shutdown, cancel: cancel}
+	rig := &maintenanceRig{router: router, db: db, cerb: cerb, shutdown: shutdown, cancel: cancel}
 	rig.pin = func() func() {
 		conn, err := sqlDB.Conn(context.Background())
 		require.NoError(t, err)
@@ -131,16 +133,81 @@ func TestGate_PinnedPoolHealthAndStatusStillAnswer(t *testing.T) {
 	assert.Equal(t, "15", dbHealth.Header().Get("Retry-After"))
 }
 
-func TestGate_PinnedPoolIdleGateStillAnswersHealthAndStatus(t *testing.T) {
+// The status page is the gate's own answer in every phase, so it survives a
+// pinned pool even when the gate is idle.
+func TestGate_PinnedPoolIdleGateStillAnswersStatus(t *testing.T) {
 	rig := newMaintenanceRig(t, dbmaint.NewGate())
 	release := rig.pin()
 	t.Cleanup(release)
 	rig.cerb.InvalidateCache()
 
-	assert.Equal(t, http.StatusOK, rig.get(t, http.MethodGet, "/api/v1/health").Code)
 	phase, active := statusPhase(t, rig.get(t, http.MethodGet, "/api/v1/maintenance/status"))
 	assert.Equal(t, "idle", phase)
 	assert.False(t, active)
+}
+
+// setStrictRateLimit enables the API limiter with a one-request budget.
+func (r *maintenanceRig) setStrictRateLimit(t *testing.T) {
+	t.Helper()
+	for k, v := range map[string]string{
+		"security.rate_limit.enabled":  "true",
+		"security.rate_limit.requests": "1",
+		"security.rate_limit.window":   "60",
+		"security.rate_limit.burst":    "1",
+	} {
+		require.NoError(t, r.db.Where(models.Setting{Key: k}).Assign(models.Setting{Value: v}).FirstOrCreate(&models.Setting{}).Error)
+	}
+	r.cerb.InvalidateCache()
+}
+
+// Outside maintenance the gate must not answer health itself: it stays behind
+// the normal chain, so the API rate limiter applies to it.
+func TestGate_IdleHealthIsSubjectToTheRateLimiter(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			rig := newMaintenanceRig(t, dbmaint.NewGate())
+			assert.Equal(t, http.StatusOK, rig.get(t, method, "/api/v1/health").Code, "normal traffic is answered")
+
+			rig.setStrictRateLimit(t)
+			var limited int
+			for range 30 {
+				if rig.get(t, method, "/api/v1/health?rapid=1").Code == http.StatusTooManyRequests {
+					limited++
+				}
+			}
+			assert.Positive(t, limited, "a burst of health checks must hit the limiter")
+		})
+	}
+}
+
+func TestGate_InactivePhasesLeaveHealthToTheRateLimiter(t *testing.T) {
+	for _, phase := range []dbmaint.Phase{dbmaint.PhasePlanned, dbmaint.PhaseDone, dbmaint.PhaseSkipped, dbmaint.PhaseFailed} {
+		t.Run(string(phase), func(t *testing.T) {
+			gate := dbmaint.NewGate()
+			gate.MarkPlanned()
+			if phase != dbmaint.PhasePlanned {
+				gate.Finish(dbmaint.FinishInfo{Phase: phase})
+			}
+			rig := newMaintenanceRig(t, gate)
+			rig.setStrictRateLimit(t)
+
+			codes := map[int]int{}
+			for range 10 {
+				codes[rig.get(t, http.MethodGet, "/api/v1/health").Code]++
+			}
+			assert.Positive(t, codes[http.StatusTooManyRequests])
+		})
+	}
+}
+
+// While the gate is active the DB-free answer replaces the normal chain, so
+// the limiter does not apply and the pinned pool cannot block it.
+func TestGate_ActiveHealthBypassesTheRateLimiter(t *testing.T) {
+	rig := newMaintenanceRig(t, activeTestGate(t))
+	rig.setStrictRateLimit(t)
+	for range 10 {
+		assert.Equal(t, http.StatusOK, rig.get(t, http.MethodGet, "/api/v1/health").Code)
+	}
 }
 
 func TestGate_StatusIsJSONAfterCompletion(t *testing.T) {

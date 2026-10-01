@@ -12,7 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Paths the gate answers itself, by exact match, in every phase.
+// Paths the gate answers itself, by exact match. StatusPath is answered in
+// every phase; HealthPath only while the gate is active.
 const (
 	StatusPath = "/api/v1/maintenance/status"
 	HealthPath = "/api/v1/health"
@@ -95,13 +96,15 @@ func wantsJSON(c *gin.Context) bool {
 // Middleware returns the gate middleware; install it before every other
 // middleware that touches the database (EmergencyBypass, RateLimit).
 //
-// In EVERY phase it answers GET/HEAD status and GET/HEAD health itself with a
-// static body and aborts: nothing behind it, which may wait on the pinned pool
-// connection, can make the healthcheck or the maintenance page hang. health is
-// the DB-free health handler. While the gate is active (checking or
-// converting) every other request gets a 503: JSON for API paths and clients
-// that ask for it, the embedded page otherwise. In all other phases requests
-// pass through. A nil gate is a pass-through.
+// In EVERY phase it answers GET/HEAD status itself with a static body and
+// aborts. While the gate is active (checking or converting) it also answers
+// GET/HEAD health itself, because nothing behind it, which may wait on the
+// pinned pool connection, can be allowed to make the healthcheck hang; health
+// is the DB-free health handler. Every other active-phase request gets a 503:
+// JSON for API paths and clients that ask for it, the embedded page otherwise.
+// In all other phases requests, health included, pass through to the normal
+// chain so rate limiting and the other middleware keep applying. A nil gate is
+// a pass-through.
 func (g *Gate) Middleware(health gin.HandlerFunc) gin.HandlerFunc {
 	if g == nil {
 		return func(c *gin.Context) { c.Next() }
@@ -114,10 +117,12 @@ func (g *Gate) Middleware(health gin.HandlerFunc) gin.HandlerFunc {
 				g.writeStatus(c)
 				return
 			case HealthPath:
-				setGateHeaders(c)
-				health(c)
-				c.Abort()
-				return
+				if g.Active() {
+					setGateHeaders(c)
+					health(c)
+					c.Abort()
+					return
+				}
 			}
 		}
 

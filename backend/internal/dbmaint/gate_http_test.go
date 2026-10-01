@@ -32,8 +32,11 @@ func gateInPhase(phase Phase) *Gate {
 // normal route, a health route and a NoRoute handler that stands for the SPA.
 func newGatedRouter(g *Gate) *gin.Engine {
 	r := gin.New()
+	r.RedirectTrailingSlash = false // the downstream health route must not turn "/health/" into a redirect
 	r.NoRoute(func(c *gin.Context) { c.String(http.StatusOK, "spa-index") })
 	r.Use(g.Middleware(testHealth))
+	r.GET(HealthPath, func(c *gin.Context) { c.String(http.StatusOK, downstreamHealthBody) })
+	r.HEAD(HealthPath, func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.GET("/api/v1/auth/me", func(c *gin.Context) { c.String(http.StatusOK, "me") })
 	r.GET("/api/v1/health/db", func(c *gin.Context) { c.String(http.StatusOK, "db") })
 	return r
@@ -89,12 +92,30 @@ func TestMiddleware_StatusKeysAreExactlyTheUnauthenticatedMinimum(t *testing.T) 
 	}
 }
 
-func TestMiddleware_HealthIsAnsweredByTheGateInEveryPhase(t *testing.T) {
-	for _, phase := range allPhases {
+// downstreamHealthBody marks a response that came from the normal chain
+// (standing for the rate-limited router health route), not from the gate.
+const downstreamHealthBody = "downstream-health"
+
+func TestMiddleware_HealthPassesThroughWhenInactive(t *testing.T) {
+	for _, phase := range []Phase{PhaseIdle, PhasePlanned, PhaseDone, PhaseSkipped, PhaseFailed} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			t.Run(string(phase)+"_"+method, func(t *testing.T) {
-				// No /api/v1/health route exists behind the gate: a 200 can only
-				// come from the gate itself.
+				w := do(newGatedRouter(gateInPhase(phase)), method, HealthPath)
+				require.Equal(t, http.StatusOK, w.Code)
+				assert.Empty(t, w.Header().Get("Content-Security-Policy"), "the gate must not write the response")
+				assert.Empty(t, w.Header().Get("Cache-Control"))
+				if method == http.MethodGet {
+					assert.Equal(t, downstreamHealthBody, w.Body.String())
+				}
+			})
+		}
+	}
+}
+
+func TestMiddleware_HealthIsAnsweredByTheGateWhileActive(t *testing.T) {
+	for _, phase := range []Phase{PhaseChecking, PhaseConverting} {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			t.Run(string(phase)+"_"+method, func(t *testing.T) {
 				w := do(newGatedRouter(gateInPhase(phase)), method, HealthPath)
 				require.Equal(t, http.StatusOK, w.Code)
 				assertCommonHeaders(t, w)

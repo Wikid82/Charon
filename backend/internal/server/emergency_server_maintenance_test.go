@@ -83,3 +83,18 @@ func TestEmergencyServer_NilGateServesNormally(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.NotEqual(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
+
+// The emergency server's /health is DB-free and registered before the gate, so
+// it answers 200 in every phase.
+func TestEmergencyServer_HealthIs200InEveryPhase(t *testing.T) {
+	gates := map[string]*dbmaint.Gate{"idle": dbmaint.NewGate(), "active": activeGate(t)}
+	for name, gate := range gates {
+		t.Run(name, func(t *testing.T) {
+			addr, _ := startGatedEmergencyServer(t, gate)
+			resp, err := http.Get(fmt.Sprintf("http://%s/health", addr))
+			require.NoError(t, err)
+			_ = resp.Body.Close()
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		})
+	}
+}
