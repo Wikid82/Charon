@@ -539,23 +539,31 @@ func readBackupManifest(archivePath string) (manifest *BackupManifest, legacyFor
 		if filepath.Clean(f.Name) != "manifest.json" {
 			continue
 		}
-
-		rc, openErr := f.Open()
-		if openErr != nil {
-			return nil, false, fmt.Errorf("open manifest entry: %w", openErr)
+		parsed, readErr := readManifestEntry(f)
+		if readErr != nil {
+			return nil, false, readErr
 		}
-		defer func() {
-			_ = rc.Close()
-		}()
-
-		var parsed BackupManifest
-		if decodeErr := json.NewDecoder(rc).Decode(&parsed); decodeErr != nil {
-			return nil, false, fmt.Errorf("parse manifest.json: %w", decodeErr)
-		}
-		return &parsed, false, nil
+		return parsed, false, nil
 	}
 
 	return nil, true, nil
+}
+
+// readManifestEntry opens and decodes a single manifest.json zip entry.
+func readManifestEntry(f *zip.File) (*BackupManifest, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open manifest entry: %w", err)
+	}
+	defer func() {
+		_ = rc.Close()
+	}()
+
+	var parsed BackupManifest
+	if err := json.NewDecoder(rc).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("parse manifest.json: %w", err)
+	}
+	return &parsed, nil
 }
 
 // verifyManifestChecksums streams every manifest-declared entry from the

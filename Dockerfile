@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-f47268faed60d6c2
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:5a093666fa1e83c3999a1d3d44fd614ed3dc2a0d054477f38cffefe40e8ba3bd
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-beb3f8b2799af607
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:3c9e76d2b34601fd01bfb241636610c0a1d0454bbbf42a29764f00752709bb2e
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -66,7 +66,7 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.1
 # renovate: datasource=go depName=google.golang.org/grpc
 ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.1.0
+ARG NPM_VERSION=12.2.0
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -74,15 +74,15 @@ ARG NPM_VERSION=12.1.0
 # avoid accidentally pulling a v3 major release. Renovate can still update
 # this ARG to a specific v2.x tag when desired.
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
-## If the requested tag isn't available, fall back to a known-good v2.11.4 build.
+## If the requested tag isn't available, fall back to a known-good v2.11.6 build.
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_VERSION=2.11.4
+ARG CADDY_VERSION=2.11.6
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_CANDIDATE_VERSION=2.11.4
+ARG CADDY_CANDIDATE_VERSION=2.11.6
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.2.2
+ARG CADDY_SECURITY_VERSION=1.3.0
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.1
 # xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so
@@ -538,10 +538,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
             CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
         fi; \
-        # NOTE: the cel-go v0.29 celmatcher.go patch is NOT applied to the shared
-        # module cache (that raced the other arch's xcaddy Stage 1 — see Stage 3).
-        # It is applied to a local copy + a go.mod `replace`, so nothing here needs
-        # to reverse an in-cache forward-patch.
         echo "Using Caddy target version: v${CADDY_TARGET_VERSION}"; \
         echo "Using Caddy patch scenario: ${CADDY_PATCH_SCENARIO}"; \
         export XCADDY_SKIP_CLEANUP=1; \
@@ -657,16 +653,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
         # renovate: datasource=go depName=github.com/buger/jsonparser
         _retry go get github.com/buger/jsonparser@v1.2.0; \
-        # GHSA-gcjh-h69q-9w9g (MEDIUM, /usr/bin/caddy): cel-go is pinned to the fixed
-        # v0.29.2 here, AND Caddy v2.11.4's modules/caddyhttp/celmatcher.go is source-patched
-        # on a local copy of the Caddy module + a go.mod `replace` (Stage 3 below) with the
-        # matching 2-line []interpreter.Interpretable -> []interpreter.InterpretableV2 change.
-        # Together this replicates upstream Caddy commit b2693fb / PR #7872 ("bump cel-go from
-        # v0.28.1 to v0.29.2"), which is not yet in any tagged Caddy release. Remove this pin
-        # and the Stage 3 celmatcher.go source patch (local copy + replace) once
-        # CADDY_VERSION >= 2.11.5, the first release expected to contain b2693fb.
-        # renovate: datasource=go depName=github.com/google/cel-go
-        _retry go get github.com/google/cel-go@v0.29.2; \
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
         # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
@@ -750,38 +736,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Remove any temporary binaries from initial xcaddy run
         rm -f /tmp/caddy-initial; \
         echo "Stage 3: Build final Caddy binary with patched dependencies..."; \
-        # GHSA-gcjh-h69q-9w9g: with cel-go now resolved to v0.29.2 (pinned above),
-        # forward-patch Caddy v2.11.4's celmatcher.go to the v0.29 interpreter.NewCall
-        # signature ([]interpreter.InterpretableV2) — the exact 2-line change from upstream
-        # Caddy commit b2693fb / PR #7872. reqAttr's concrete type already satisfies
-        # interpreter.InterpretableV2 in cel-go v0.29.2.
-        #
-        # The patch is applied to a LOCAL COPY of the Caddy module + a go.mod `replace`,
-        # never to the shared BuildKit module cache (${_GOMC}). BuildKit builds
-        # linux/amd64 and linux/arm64 concurrently over a shared
-        # `--mount=type=cache,target=/go/pkg/mod`; an in-cache `sed -i` here raced the
-        # other arch's xcaddy Stage 1 (still compiling Caddy against its native cel-go
-        # v0.28.1) and broke it with `undefined: interpreter.InterpretableV2`. This is the
-        # same local-copy + `go mod edit -replace` pattern used for caddy-crowdsec-bouncer
-        # / go-cs-bouncer above: order-independent and arch-isolated (/tmp is per-arch,
-        # the module cache is read-only).
-        _retry go mod download github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
-        CADDY_CACHE="${_GOMC}/github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}"; \
-        CADDY_LOCAL="/tmp/caddy-patched"; \
-        rm -rf "${CADDY_LOCAL}"; \
-        cp -r "${CADDY_CACHE}/." "${CADDY_LOCAL}/"; \
-        chmod -R +w "${CADDY_LOCAL}"; \
-        CELM="${CADDY_LOCAL}/modules/caddyhttp/celmatcher.go"; \
-        if [ ! -f "$CELM" ]; then \
-            echo "ERROR: celmatcher.go not found at $CELM"; exit 1; \
-        fi; \
-        sed -i "s#\[\]interpreter\.Interpretable{reqAttr}#[]interpreter.InterpretableV2{reqAttr}#g" "$CELM"; \
-        grep -qF "InterpretableV2{reqAttr}" "$CELM" || { echo "ERROR: celmatcher.go cel-go v0.29 patch did not apply"; exit 1; }; \
-        if grep -qF "[]interpreter.Interpretable{reqAttr}" "$CELM"; then \
-            echo "ERROR: celmatcher.go still contains the pre-patch cel-go v0.28 form"; exit 1; \
-        fi; \
-        go mod edit -replace "github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}=${CADDY_LOCAL}"; \
-        echo "Patched Caddy celmatcher.go for cel-go v0.29 InterpretableV2 API (local replace -> ${CADDY_LOCAL})"; \
         # Build the final binary from scratch with the fully patched go.mod
         # This ensures no vulnerable metadata is embedded
         GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /usr/bin/caddy \
@@ -790,9 +744,12 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Verify the binary exists and is executable (no execution to avoid hang)
         test -x /usr/bin/caddy || exit 1; \
         echo "Caddy binary verified"; \
-        # Assert the shipped binary embeds the fixed cel-go (GHSA-gcjh-h69q-9w9g).
-        go version -m /usr/bin/caddy | grep -E "github.com/google/cel-go[[:space:]]+v0\.29\." || { echo "ERROR: /usr/bin/caddy did not embed cel-go v0.29.x"; exit 1; }; \
-        echo "Verified /usr/bin/caddy embeds cel-go v0.29.x"; \
+        # Assert the shipped binary embeds cel.dev/cel-go >= v0.29 (GHSA-gcjh-h69q-9w9g).
+        # Caddy >= v2.11.5 moved from github.com/google/cel-go to cel.dev/cel-go and
+        # natively uses the v0.29+ interpreter API, so no source patch or pin is needed;
+        # this guards against a regression to a vulnerable (< v0.29) cel-go.
+        go version -m /usr/bin/caddy | grep -E "cel\.dev/cel-go[[:space:]]+v0\.(29|[3-9][0-9])\.|cel\.dev/cel-go[[:space:]]+v[1-9][0-9]*\." || { echo "ERROR: /usr/bin/caddy did not embed cel.dev/cel-go >= v0.29"; go version -m /usr/bin/caddy | grep "cel-go" || true; exit 1; }; \
+        echo "Verified /usr/bin/caddy embeds cel.dev/cel-go >= v0.29"; \
         # Assert the shipped binary embeds the fixed grpc-go (CVE-2026-84304). The
         # OpenTelemetry downgrade block is prone to dragging grpc back to v1.83.0; fail
         # the build loudly rather than ship a silently-regressed binary.

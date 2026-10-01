@@ -3,7 +3,6 @@ package caddy
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -222,19 +221,12 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 	require.Equal(t, []string{"advanced.example.com"}, mainRoute.Match[0].Host)
 
 	// Check HSTS and BlockExploits handlers in main route
-	// Handlers are: [HSTS, BlockExploits, ReverseProxy]
-	// But wait, BlockExploitsHandler implementation details?
-	// Let's just check count for now or inspect types if possible.
-	// Based on code:
-	// handlers = append(handlers, HeaderHandler(...)) // HSTS
-	// handlers = append(handlers, BlockExploitsHandler()) // BlockExploits
-	// mainHandlers = append(handlers, ReverseProxyHandler(...))
+	// Handlers are: [HSTS (non-deferred), HSTS (deferred), BlockExploits, ReverseProxy]
+	require.Len(t, mainRoute.Handle, 4)
 
-	require.Len(t, mainRoute.Handle, 3)
-
-	// Check HSTS
-	hstsHandler := mainRoute.Handle[0]
-	require.Equal(t, "headers", hstsHandler["handler"])
+	// Check HSTS pair
+	require.Equal(t, "headers", mainRoute.Handle[0]["handler"])
+	require.Equal(t, "headers", mainRoute.Handle[1]["handler"])
 }
 
 func TestGenerateConfig_ACMEStaging(t *testing.T) {
@@ -587,7 +579,7 @@ func TestGetAccessLogPath_Development(t *testing.T) {
 	path := getAccessLogPath(storageDir, false)
 
 	// Should construct path: /home/user/charon/data/logs/access.log
-	expectedPath := filepath.Join("/home/user/charon/data/logs", "access.log")
+	expectedPath := "/home/user/charon/data/logs/access.log"
 	require.Equal(t, expectedPath, path)
 }
 
@@ -674,13 +666,14 @@ func TestBuildSecurityHeadersHandler_CompleteProfile(t *testing.T) {
 		SecurityHeaderProfile: profile,
 	}
 
-	h := buildSecurityHeadersHandler(host)
+	h := deferredSecurityHeaders(t, host)
 	require.NotNil(t, h)
 	require.Equal(t, "headers", h["handler"])
 
 	// Check response headers
 	response := h["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
+	require.Equal(t, true, response["deferred"])
 
 	// Verify HSTS
 	require.Equal(t, []string{"max-age=63072000; includeSubDomains; preload"}, headers["Strict-Transport-Security"])
@@ -1650,11 +1643,12 @@ func TestBuildSecurityHeadersHandler_DefaultProfile(t *testing.T) {
 		SecurityHeaderProfile:  nil, // Use default
 	}
 
-	h := buildSecurityHeadersHandler(host)
+	h := deferredSecurityHeaders(t, host)
 	require.NotNil(t, h)
 
 	response := h["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
+	require.Equal(t, true, response["deferred"])
 
 	// Should have default HSTS
 	require.Contains(t, headers, "Strict-Transport-Security")

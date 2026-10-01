@@ -79,7 +79,7 @@ func ResolveThreshold(envName string, defaultValue float64, lookup func(string) 
 	return ThresholdResolution{Value: value, Source: "env"}
 }
 
-func ParseUnifiedDiffChangedLines(diffContent string) (FileLineSet, FileLineSet, FileLineSet, error) {
+func ParseUnifiedDiffChangedLines(diffContent string) (backend, frontend, agent FileLineSet, err error) {
 	backendChanged := make(FileLineSet)
 	frontendChanged := make(FileLineSet)
 	agentChanged := make(FileLineSet)
@@ -446,7 +446,7 @@ func SortedWarnings(warnings []string) []string {
 	return filtered
 }
 
-func parseCoverageRange(rangePart string) (string, int, int, error) {
+func parseCoverageRange(rangePart string) (path string, start, end int, err error) {
 	pathAndRange := strings.SplitN(rangePart, ":", 2)
 	if len(pathAndRange) != 2 {
 		return "", 0, 0, fmt.Errorf("invalid range format")

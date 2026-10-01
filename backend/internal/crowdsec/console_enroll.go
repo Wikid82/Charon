@@ -48,7 +48,7 @@ type SecureCommandExecutor struct{}
 
 // ExecuteWithEnv runs the command with provided env merged onto the current environment.
 func (r *SecureCommandExecutor) ExecuteWithEnv(ctx context.Context, name string, args []string, env map[string]string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: executor interface; all callers pass the literal "cscli" (verified)
 	cmd.Env = append(os.Environ(), formatEnv(env)...)
 	return cmd.CombinedOutput()
 }

@@ -524,7 +524,7 @@ func TestRegister_MiddlewareApplied(t *testing.T) {
 
 	// Test that security headers middleware is applied
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Security headers should be present
@@ -533,7 +533,7 @@ func TestRegister_MiddlewareApplied(t *testing.T) {
 
 	// Response should be compressed (gzip middleware applied)
 	// Note: Only compressed if Accept-Encoding is set
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody)
 	req2.Header.Set("Accept-Encoding", "gzip")
 	w2 := httptest.NewRecorder()
 	router.ServeHTTP(w2, req2)
@@ -570,7 +570,7 @@ func TestRegister_AuthenticatedRoutes(t *testing.T) {
 	for _, tc := range protectedPaths {
 		t.Run(tc.method+"_"+tc.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
 			router.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusUnauthorized, w.Code, "Route %s %s should require auth", tc.method, tc.path)
 		})
@@ -606,7 +606,7 @@ func TestRegister_StateChangingRoutesRequireAuthentication(t *testing.T) {
 	for _, tc := range stateChangingPaths {
 		t.Run(tc.method+"_"+tc.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
 			router.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusUnauthorized, w.Code, "State-changing route %s %s should require auth", tc.method, tc.path)
 		})
@@ -634,7 +634,7 @@ func TestRegister_AdminRoutes(t *testing.T) {
 
 	for _, path := range adminPaths {
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
 		router.ServeHTTP(w, req)
 		// Should require auth (401) not be missing (404)
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "Admin route %s should exist and require auth", path)
@@ -665,7 +665,7 @@ func TestRegister_PublicRoutes(t *testing.T) {
 	for _, tc := range publicPaths {
 		t.Run(tc.method+"_"+tc.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
 			router.ServeHTTP(w, req)
 			// Should not be 404 (route exists)
 			assert.NotEqual(t, http.StatusNotFound, w.Code, "Public route %s %s should exist", tc.method, tc.path)
@@ -684,7 +684,7 @@ func TestRegister_HealthEndpoint(t *testing.T) {
 	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -702,7 +702,7 @@ func TestRegister_MetricsEndpoint(t *testing.T) {
 	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -721,7 +721,7 @@ func TestRegister_DBHealthEndpoint(t *testing.T) {
 	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/health/db", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health/db", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should return OK or service unavailable, but not 404
@@ -761,7 +761,7 @@ func TestRegister_SetupEndpoint(t *testing.T) {
 
 	// GET /setup should return setup status
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -808,7 +808,7 @@ func TestRegister_UptimeCheckEndpoint(t *testing.T) {
 
 	// Uptime check route should exist and require auth
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/uptime/check", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/uptime/check", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should require auth
@@ -964,7 +964,7 @@ func TestRegister_MiddlewareOrder(t *testing.T) {
 
 	// Test that security headers are applied (they should come first)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Security headers should be present regardless of response
@@ -988,7 +988,7 @@ func TestRegister_GzipCompression(t *testing.T) {
 
 	// Request with Accept-Encoding: gzip
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody)
 	req.Header.Set("Accept-Encoding", "gzip")
 	router.ServeHTTP(w, req)
 
@@ -1016,7 +1016,7 @@ func TestRegister_CerberusMiddleware(t *testing.T) {
 
 	// API routes should have Cerberus middleware applied
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should still work (Cerberus allows normal requests)
@@ -1036,7 +1036,7 @@ func TestRegister_FeatureFlagsEndpoint(t *testing.T) {
 
 	// Feature flags should require auth
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -1129,7 +1129,7 @@ func TestRegister_VerifyAuthEndpoint(t *testing.T) {
 
 	// Verify endpoint is public (for Caddy forward auth)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should not be 404 (route exists) - will return 401 without valid session
@@ -1309,7 +1309,7 @@ func TestEmergencyEndpoint_BypassACL(t *testing.T) {
 
 	// Test 1: Verify emergency endpoint exists
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.RemoteAddr = "127.0.0.1:12345"
 	router.ServeHTTP(w, req)
 
@@ -1318,7 +1318,7 @@ func TestEmergencyEndpoint_BypassACL(t *testing.T) {
 
 	// Test 2: Emergency request with valid token should work
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set("X-Emergency-Token", "test-token-that-meets-minimum-length-requirement-32-chars")
 	req.RemoteAddr = "127.0.0.1:12345"
 	router.ServeHTTP(w, req)
@@ -1350,7 +1350,7 @@ func TestEmergencyBypass_MiddlewareOrder(t *testing.T) {
 
 	// Request with emergency token should set bypass flag
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody)
 	req.Header.Set("X-Emergency-Token", "test-token-that-meets-minimum-length-requirement-32-chars")
 	req.RemoteAddr = "127.0.0.1:12345"
 	router.ServeHTTP(w, req)
@@ -1379,7 +1379,7 @@ func TestEmergencyBypass_InvalidToken(t *testing.T) {
 
 	// Request with WRONG emergency token
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set("X-Emergency-Token", "wrong-token")
 	req.RemoteAddr = "127.0.0.1:12345"
 	router.ServeHTTP(w, req)
@@ -1411,7 +1411,7 @@ func TestEmergencyBypass_UnauthorizedIP(t *testing.T) {
 
 	// Request from public IP (not in management network)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
 	req.Header.Set("X-Emergency-Token", "test-token-that-meets-minimum-length-requirement-32-chars")
 	req.RemoteAddr = "203.0.113.1:12345" // Public IP
 	router.ServeHTTP(w, req)
@@ -1570,7 +1570,7 @@ func TestRegister_UptimeSummaryAndHistoryRoutesResolve(t *testing.T) {
 		"/api/v1/uptime/monitors/summary",
 		"/api/v1/uptime/monitors/abc123/history",
 	} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		assert.NotEqualf(t, http.StatusNotFound, w.Code, "%s must resolve to a handler", path)
@@ -1903,4 +1903,21 @@ func TestManagementGroup_RouteInventoryNoDuplicates(t *testing.T) {
 	for key, n := range seen {
 		assert.Equalf(t, 1, n, "route %s is registered %d times (expected exactly once)", key, n)
 	}
+}
+
+func TestRegister_SeedsRetentionDefaultAndRecordsMigrationMarker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
+	require.NoError(t, err)
+
+	require.NoError(t, Register(context.Background(), gin.New(), db, config.Config{JWTSecret: "test-secret"}))
+
+	var retention models.Setting
+	require.NoError(t, db.Where("key = ?", "uptime.heartbeat_retention_days").First(&retention).Error)
+	assert.Equal(t, "30", retention.Value)
+
+	var markers int64
+	require.NoError(t, db.Model(&models.Setting{}).
+		Where("key = ?", services.UptimeRetentionMigrationMarker).Count(&markers).Error)
+	assert.Equal(t, int64(1), markers)
 }

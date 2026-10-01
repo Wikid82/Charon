@@ -31,7 +31,7 @@ func TestRemoteStorageTarget_BeforeCreate_GeneratesUUID(t *testing.T) {
 // in a JSON-encoded response, only a "secrets_set"-style boolean computed by the
 // handler layer from whether SecretsEncrypted is populated.
 func TestRemoteStorageTarget_SecretsNeverSerialized(t *testing.T) {
-	target := models.RemoteStorageTarget{
+	target := models.RemoteStorageTarget{ //nolint:gosec // G101: dummy credential fixture
 		ID:               1,
 		UUID:             "target-uuid",
 		Name:             "Home NAS",

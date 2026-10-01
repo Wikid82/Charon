@@ -109,7 +109,7 @@ func (b *driveFakeBackend) server(t *testing.T) *httptest.Server {
 					_, _ = w.Write([]byte(`{"files":[]}`))
 					return
 				}
-				_, _ = fmt.Fprintf(w, `{"files":[{"id":%q,"name":%q}]}`, id, name)
+				_ = json.NewEncoder(w).Encode(map[string]any{"files": []map[string]string{{"id": id, "name": name}}})
 				return
 			}
 

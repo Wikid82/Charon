@@ -187,7 +187,7 @@ async function setupSettings(
     values: {
       'uptime.default_interval_seconds': '60',
       'uptime.worker_pool_size': '30',
-      'uptime.heartbeat_retention_days': '90',
+      'uptime.heartbeat_retention_days': '30',
       ...seed,
     },
     posts: 0,
@@ -326,7 +326,7 @@ test.describe('Uptime at scale: admin Uptime settings card', () => {
   }) => {
     await stubAuthenticatedSession(page);
 
-    const settings = await setupSettings(page, { 'uptime.heartbeat_retention_days': '90' });
+    const settings = await setupSettings(page, { 'uptime.heartbeat_retention_days': '45' });
     await page.route(HEALTH_ROUTE, (route) =>
       fulfillJSON(route, makeHealthFixture({ heartbeats_dropped: 0 })),
     );
@@ -335,7 +335,7 @@ test.describe('Uptime at scale: admin Uptime settings card', () => {
     await waitForLoadingComplete(page);
 
     const retention = page.getByLabel(/heartbeat retention/i);
-    await expect(retention).toHaveValue('90');
+    await expect(retention).toHaveValue('45');
 
     await test.step('set retention to 30 and save', async () => {
       await retention.fill('30');
@@ -360,6 +360,60 @@ test.describe('Uptime at scale: admin Uptime settings card', () => {
       await expect(page.getByText(/heartbeats?\s+dropped/i)).toBeVisible();
     });
   });
+
+  // GH #1419: 30-day default, placeholder and helper copy.
+  test('retention control shows the 30-day default, helper copy and placeholder', async ({
+    page,
+  }) => {
+    await stubAuthenticatedSession(page);
+    await setupSettings(page, { 'uptime.heartbeat_retention_days': '30' });
+
+    await page.goto('/settings/system');
+    await waitForLoadingComplete(page);
+
+    const retention = page.getByLabel(/heartbeat retention/i);
+
+    await test.step('default value and placeholder are 30', async () => {
+      await expect(retention).toHaveValue('30');
+      await expect(retention).toHaveAttribute('placeholder', '30');
+    });
+
+    await test.step('helper text warns about permanent deletion and says freed space is returned automatically', async () => {
+      await expect(page.getByText(/permanently deleted/i)).toBeVisible();
+      await expect(
+        page.getByText(/Charon returns it to your disk automatically/i),
+      ).toBeVisible();
+    });
+
+    await test.step('admins get a link to the Database page', async () => {
+      await expect(
+        page.getByRole('main').getByRole('link', { name: /database size and cleanup/i }),
+      ).toHaveAttribute('href', '/tasks/database');
+    });
+  });
+
+  // GH #1419: retention range validation.
+  for (const invalid of ['0', '3651']) {
+    test(`retention value ${invalid} shows the range error and blocks Save`, async ({
+      page,
+    }) => {
+      await stubAuthenticatedSession(page);
+      const settings = await setupSettings(page, { 'uptime.heartbeat_retention_days': '30' });
+
+      await page.goto('/settings/system');
+      await waitForLoadingComplete(page);
+
+      const retention = page.getByLabel(/heartbeat retention/i);
+      await retention.fill(invalid);
+      await retention.blur();
+
+      await expect(page.getByText('Enter a whole number between 1 and 3650.')).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: /save uptime settings/i }),
+      ).toBeDisabled();
+      expect(settings.posts).toBe(0);
+    });
+  }
 
   test('rejects out-of-bounds worker pool size / default interval client-side', async ({
     page,

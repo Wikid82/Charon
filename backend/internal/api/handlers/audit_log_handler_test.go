@@ -264,7 +264,7 @@ func TestAuditLogHandler_ListByProvider(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			c.Params = gin.Params{gin.Param{Key: "id", Value: tt.providerID}}
-			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/dns-providers/"+tt.providerID+"/audit-logs", nil)
+			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/dns-providers/"+tt.providerID+"/audit-logs", http.NoBody)
 
 			handler.ListByProvider(c)
 
@@ -349,7 +349,7 @@ func TestAuditLogHandler_ListWithDateFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs"+tt.queryParams, nil)
+			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs"+tt.queryParams, http.NoBody)
 
 			handler.List(c)
 
@@ -380,7 +380,7 @@ func TestAuditLogHandler_ServiceErrors(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs", nil)
+		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs", http.NoBody)
 
 		handler.List(c)
 
@@ -393,7 +393,7 @@ func TestAuditLogHandler_ServiceErrors(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Params = gin.Params{gin.Param{Key: "id", Value: "123"}}
-		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/dns-providers/123/audit-logs", nil)
+		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/dns-providers/123/audit-logs", http.NoBody)
 
 		handler.ListByProvider(c)
 
@@ -406,7 +406,7 @@ func TestAuditLogHandler_ServiceErrors(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Params = gin.Params{gin.Param{Key: "uuid", Value: "some-uuid"}}
-		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs/some-uuid", nil)
+		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs/some-uuid", http.NoBody)
 
 		handler.Get(c)
 
@@ -488,7 +488,7 @@ func TestAuditLogHandler_List_PaginationBoundaryEdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs"+tt.queryParams, nil)
+			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs"+tt.queryParams, http.NoBody)
 
 			handler.List(c)
 
@@ -557,7 +557,7 @@ func TestAuditLogHandler_ListByProvider_PaginationBoundaryEdgeCases(t *testing.T
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			c.Params = gin.Params{gin.Param{Key: "id", Value: "999"}}
-			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/dns-providers/999/audit-logs"+tt.queryParams, nil)
+			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/dns-providers/999/audit-logs"+tt.queryParams, http.NoBody)
 
 			handler.ListByProvider(c)
 
@@ -604,7 +604,7 @@ func TestAuditLogHandler_List_InvalidDateFormats(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs"+tt.queryParams, nil)
+			c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs"+tt.queryParams, http.NoBody)
 
 			handler.List(c)
 
@@ -633,7 +633,7 @@ func TestAuditLogHandler_Get_InternalError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{gin.Param{Key: "uuid", Value: "test-uuid"}}
-	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs/test-uuid", nil)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs/test-uuid", http.NoBody)
 
 	handler.Get(c)
 

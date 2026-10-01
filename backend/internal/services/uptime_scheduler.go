@@ -181,7 +181,7 @@ type schedHostRow struct {
 // loadHostSchedules computes each host's effective interval (min of its enabled
 // child monitor intervals, clamped) and a jittered first due-time. Host
 // due-times are in-memory only — no uptime_hosts column, no write-back.
-func (s *UptimeScheduler) loadHostSchedules(ctx context.Context, now time.Time) (map[string]int, map[string]time.Time) {
+func (s *UptimeScheduler) loadHostSchedules(ctx context.Context, now time.Time) (intervals map[string]int, due map[string]time.Time) {
 	var hrows []schedHostRow
 	if err := s.db.WithContext(ctx).Model(&models.UptimeMonitor{}).
 		Select("uptime_host_id AS id, MIN(interval) AS min_interval").
@@ -476,7 +476,7 @@ func jitterDuration(maxD time.Duration) time.Duration {
 	if _, err := crand.Read(b[:]); err != nil {
 		return maxD / 2 // deterministic fallback; scheduling jitter is non-critical
 	}
-	return time.Duration(binary.BigEndian.Uint64(b[:]) % uint64(maxD))
+	return time.Duration(binary.BigEndian.Uint64(b[:]) % uint64(maxD)) //nolint:gosec // G115: value < maxD (int64), maxD > 0 guarded
 }
 
 func minDuration(a, b time.Duration) time.Duration {

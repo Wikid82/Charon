@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -753,7 +754,7 @@ func TestNewSafeHTTPClient_TooManyRedirects(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		redirectCount++
 		// Keep redirecting to itself
-		http.Redirect(w, r, "/redirect"+string(rune('0'+redirectCount)), http.StatusFound)
+		http.Redirect(w, r, "/redirect"+strconv.Itoa(redirectCount), http.StatusFound)
 	}))
 	defer server.Close()
 
@@ -1189,7 +1190,7 @@ func newCountingHTTPServer(t *testing.T, h http.Handler) (*httptest.Server, *cou
 	cl := &countingListener{Listener: ln}
 	srv := &httptest.Server{
 		Listener: cl,
-		Config:   &http.Server{Handler: h},
+		Config:   &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second},
 	}
 	srv.Start()
 	return srv, cl

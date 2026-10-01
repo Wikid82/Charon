@@ -1,17 +1,22 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 func TestMain(m *testing.M) {
@@ -104,8 +109,12 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 		_ = sqlDB.Close()
 	})
 	// Only migrate User table to simulate old database
-	if err = db.AutoMigrate(&models.User{}); err != nil {
+	if err = db.AutoMigrate(&models.User{}, &models.UptimeHeartbeat{}); err != nil {
 		t.Fatalf("automigrate user: %v", err)
+	}
+	// Legacy databases carry the redundant single-column monitor index.
+	if err = db.Exec("CREATE INDEX IF NOT EXISTS idx_uptime_heartbeats_monitor_id ON uptime_heartbeats (monitor_id)").Error; err != nil {
+		t.Fatalf("create legacy index: %v", err)
 	}
 
 	// Verify security tables don't exist
@@ -150,6 +159,13 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 		if !db2.Migrator().HasTable(model) {
 			t.Errorf("Table for %T was not created by migrate command", model)
 		}
+	}
+
+	if !db2.Migrator().HasIndex(&models.UptimeHeartbeat{}, "idx_heartbeat_monitor_created") {
+		t.Error("migrate must build idx_heartbeat_monitor_created")
+	}
+	if db2.Migrator().HasIndex(&models.UptimeHeartbeat{}, "idx_uptime_heartbeats_monitor_id") {
+		t.Error("migrate must drop the redundant idx_uptime_heartbeats_monitor_id")
 	}
 }
 
@@ -399,8 +415,31 @@ func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	t.Setenv("CHARON_FRONTEND_DIR", filepath.Join(tmp, "frontend", "dist"))
 	os.Args = []string{"charon"}
 
+	// The gate is installed in main: the healthcheck and the maintenance status
+	// must be answered by the running server before it is stopped.
+	type probe struct {
+		path   string
+		status int
+		body   string
+		err    error
+	}
+	probes := make(chan []probe, 1)
 	go func() {
 		_ = waitForTCPReady("127.0.0.1:"+httpPort, 10*time.Second)
+		var results []probe
+		for _, path := range []string{"/api/v1/health", "/api/v1/maintenance/status"} {
+			p := probe{path: path}
+			resp, err := http.Get("http://127.0.0.1:" + httpPort + path) //nolint:noctx,gosec // local test server on a free port
+			if err != nil {
+				p.err = err
+			} else {
+				raw, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				p.status, p.body = resp.StatusCode, string(raw)
+			}
+			results = append(results, p)
+		}
+		probes <- results
 		process, err := os.FindProcess(os.Getpid())
 		if err == nil {
 			_ = process.Signal(syscall.SIGTERM)
@@ -408,6 +447,15 @@ func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	}()
 
 	main()
+
+	for _, p := range <-probes {
+		if p.err != nil || p.status != http.StatusOK {
+			t.Errorf("GET %s: status=%d err=%v", p.path, p.status, p.err)
+		}
+		if p.path == "/api/v1/maintenance/status" && !strings.Contains(p.body, `"phase":"idle"`) {
+			t.Errorf("status body = %q, want the idle phase", p.body)
+		}
+	}
 }
 
 func findFreeTCPPort() (string, error) {
@@ -431,7 +479,7 @@ func waitForTCPReady(address string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond) //nolint:gosec // G704: address is a local httptest listener
 		if err == nil {
 			_ = conn.Close()
 			return nil
@@ -441,4 +489,31 @@ func waitForTCPReady(address string, timeout time.Duration) error {
 	}
 
 	return fmt.Errorf("timed out waiting for TCP readiness at %s", address)
+}
+
+func TestDropRedundantMonitorIndex_FailureIsNonFatal(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o750); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+	db, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	t.Cleanup(func() {
+		sqlDB, _ := db.DB()
+		_ = sqlDB.Close()
+	})
+
+	// Simulate the drop failing: reject any DROP INDEX statement.
+	if err = db.Callback().Raw().Before("gorm:raw").Register("test:fail_drop_index", func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "DROP INDEX") {
+			_ = tx.AddError(errors.New("simulated drop failure"))
+		}
+	}); err != nil {
+		t.Fatalf("register callback: %v", err)
+	}
+
+	// Must return (warn and continue) rather than terminating the process.
+	dropRedundantMonitorIndex(db)
 }

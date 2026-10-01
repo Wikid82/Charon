@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -404,6 +405,43 @@ func TestSplitAndTrim(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := splitAndTrim(tt.input, tt.sep)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestLoad_DBCompactOnStart(t *testing.T) {
+	tests := []struct {
+		name         string
+		env          string
+		want         string
+		wantWarnings bool
+	}{
+		{name: "unset defaults to auto", env: "", want: DBCompactAuto},
+		{name: "auto", env: "auto", want: DBCompactAuto},
+		{name: "off", env: "off", want: DBCompactOff},
+		{name: "case and whitespace normalized", env: "  OFF ", want: DBCompactOff},
+		{name: "force is no longer accepted", env: "force", want: DBCompactAuto, wantWarnings: true},
+		{name: "garbage falls back to auto", env: "sometimes", want: DBCompactAuto, wantWarnings: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+			t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+			t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+			t.Setenv("CHARON_DB_COMPACT_ON_START", tt.env)
+
+			cfg, err := Load()
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, cfg.DBCompactOnStart)
+			var found bool
+			for _, w := range cfg.StartupWarnings {
+				if strings.Contains(w, "CHARON_DB_COMPACT_ON_START") {
+					found = true
+				}
+			}
+			assert.Equal(t, tt.wantWarnings, found, "warnings: %v", cfg.StartupWarnings)
 		})
 	}
 }

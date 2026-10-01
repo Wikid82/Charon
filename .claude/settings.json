@@ -15,5 +15,12 @@
      "sessionUrl": false,
      "commit": "",
      "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(gh issue view:*)",
+      "Bash(grep:*)"
+    ]
   }
 }

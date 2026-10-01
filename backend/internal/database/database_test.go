@@ -1,10 +1,12 @@
 package database
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -351,4 +353,81 @@ func corruptDB(t *testing.T, dbPath string) {
 		_, err = f.WriteAt([]byte("CORRUPT"), 0)
 		require.NoError(t, err)
 	}
+}
+
+func autoVacuumMode(t *testing.T, path string) int {
+	t.Helper()
+	db, err := Connect(path)
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	var mode int
+	require.NoError(t, sqlDB.QueryRow("PRAGMA auto_vacuum").Scan(&mode))
+	return mode
+}
+
+func TestConnect_NewDatabaseIsIncrementalAndWAL(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "new.db")
+
+	db, err := Connect(path)
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	var mode int
+	require.NoError(t, sqlDB.QueryRow("PRAGMA auto_vacuum").Scan(&mode))
+	assert.Equal(t, 2, mode)
+	var journal string
+	require.NoError(t, sqlDB.QueryRow("PRAGMA journal_mode").Scan(&journal))
+	assert.Equal(t, "wal", journal)
+
+	// The mode must stick once tables exist.
+	require.NoError(t, db.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY)").Error)
+	require.NoError(t, sqlDB.QueryRow("PRAGMA auto_vacuum").Scan(&mode))
+	assert.Equal(t, 2, mode)
+}
+
+func TestConnect_ZeroByteFileIsTreatedAsNew(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "zero.db")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+
+	assert.Equal(t, 2, autoVacuumMode(t, path))
+}
+
+func TestConnect_PopulatedDatabaseIsUntouched(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "legacy.db")
+
+	// Build a legacy (mode 0) database the way older versions did.
+	legacy, err := sql.Open(sqlite.DriverName, path)
+	require.NoError(t, err)
+	_, err = legacy.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+	require.NoError(t, err)
+	require.NoError(t, legacy.Close())
+
+	assert.Equal(t, 0, autoVacuumMode(t, path), "Connect must not change a populated database")
+}
+
+func TestConnect_ReopenKeepsIncrementalMode(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "reopen.db")
+	require.Equal(t, 2, autoVacuumMode(t, path))
+
+	assert.Equal(t, 2, autoVacuumMode(t, path))
+}
+
+func TestEnableIncrementalVacuumIfEmpty_ClosedDatabaseFails(t *testing.T) {
+	t.Parallel()
+	sqlDB, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "closed.db"))
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	err = enableIncrementalVacuumIfEmpty(sqlDB)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "page_count")
 }

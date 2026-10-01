@@ -116,16 +116,14 @@ func setupDNSProviderTestRouter() (*gin.Engine, *MockDNSProviderService) {
 	handler := NewDNSProviderHandler(mockService)
 
 	api := router.Group("/api/v1")
-	{
-		api.GET("/dns-providers", handler.List)
-		api.GET("/dns-providers/:id", handler.Get)
-		api.POST("/dns-providers", handler.Create)
-		api.PUT("/dns-providers/:id", handler.Update)
-		api.DELETE("/dns-providers/:id", handler.Delete)
-		api.POST("/dns-providers/:id/test", handler.Test)
-		api.POST("/dns-providers/test", handler.TestCredentials)
-		api.GET("/dns-providers/types", handler.GetTypes)
-	}
+	api.GET("/dns-providers", handler.List)
+	api.GET("/dns-providers/:id", handler.Get)
+	api.POST("/dns-providers", handler.Create)
+	api.PUT("/dns-providers/:id", handler.Update)
+	api.DELETE("/dns-providers/:id", handler.Delete)
+	api.POST("/dns-providers/:id/test", handler.Test)
+	api.POST("/dns-providers/test", handler.TestCredentials)
+	api.GET("/dns-providers/types", handler.GetTypes)
 
 	return router, mockService
 }
@@ -158,7 +156,7 @@ func TestDNSProviderHandler_List(t *testing.T) {
 		mockService.On("List", mock.Anything).Return(providers, nil)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/dns-providers", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -188,7 +186,7 @@ func TestDNSProviderHandler_List(t *testing.T) {
 		mockService.On("List", mock.Anything).Return([]models.DNSProvider{}, errors.New("database error"))
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/dns-providers", nil)
+		req, _ := http.NewRequest("GET", "/dns-providers", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -212,7 +210,7 @@ func TestDNSProviderHandler_Get(t *testing.T) {
 		mockService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/1", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/1", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -237,7 +235,7 @@ func TestDNSProviderHandler_Get(t *testing.T) {
 		mockService.On("Get", mock.Anything, uint(999)).Return(nil, services.ErrDNSProviderNotFound)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/dns-providers/999", nil)
+		req, _ := http.NewRequest("GET", "/dns-providers/999", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
@@ -254,7 +252,7 @@ func TestDNSProviderHandler_Get(t *testing.T) {
 		mockService.On("GetByUUID", mock.Anything, "invalid").Return(nil, services.ErrDNSProviderNotFound)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/dns-providers/invalid", nil)
+		req, _ := http.NewRequest("GET", "/dns-providers/invalid", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
@@ -467,7 +465,7 @@ func TestDNSProviderHandler_Delete(t *testing.T) {
 		mockService.On("Delete", mock.Anything, uint(1)).Return(nil)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/dns-providers/1", nil)
+		req, _ := http.NewRequest("DELETE", "/dns-providers/1", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -491,7 +489,7 @@ func TestDNSProviderHandler_Delete(t *testing.T) {
 		mockService.On("Get", mock.Anything, uint(999)).Return(nil, services.ErrDNSProviderNotFound)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/dns-providers/999", nil)
+		req, _ := http.NewRequest("DELETE", "/dns-providers/999", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
@@ -524,7 +522,7 @@ func TestDNSProviderHandler_Test(t *testing.T) {
 		mockService.On("Test", mock.Anything, uint(1)).Return(testResult, nil)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/dns-providers/1/test", nil)
+		req, _ := http.NewRequest("POST", "/dns-providers/1/test", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -549,7 +547,7 @@ func TestDNSProviderHandler_Test(t *testing.T) {
 		mockService.On("Get", mock.Anything, uint(999)).Return(nil, services.ErrDNSProviderNotFound)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/dns-providers/999/test", nil)
+		req, _ := http.NewRequest("POST", "/dns-providers/999/test", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
@@ -612,7 +610,7 @@ func TestDNSProviderHandler_GetTypes(t *testing.T) {
 
 	t.Run("returns registry-driven types", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -675,7 +673,7 @@ func TestDNSProviderHandler_GetTypes(t *testing.T) {
 
 	t.Run("includes all expected built-in providers", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -709,7 +707,7 @@ func TestDNSProviderHandler_GetTypes(t *testing.T) {
 
 	t.Run("fields include required flag", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -751,7 +749,7 @@ func TestDNSProviderHandler_GetTypes(t *testing.T) {
 
 	t.Run("optional field attributes are included when present", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/types", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -796,7 +794,7 @@ func TestDNSProviderHandler_CredentialsNeverExposed(t *testing.T) {
 		mockService.On("Get", mock.Anything, uint(1)).Return(provider, nil)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/1", nil)
+		req, _ := http.NewRequest("GET", "/api/v1/dns-providers/1", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -815,7 +813,7 @@ func TestDNSProviderHandler_CredentialsNeverExposed(t *testing.T) {
 		mockService.On("List", mock.Anything).Return(providers, nil)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/dns-providers", nil)
+		req, _ := http.NewRequest("GET", "/dns-providers", http.NoBody)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -856,7 +854,7 @@ func TestDNSProviderHandler_DeleteInvalidID(t *testing.T) {
 	mockService.On("GetByUUID", mock.Anything, "invalid").Return(nil, services.ErrDNSProviderNotFound)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/dns-providers/invalid", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/invalid", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -873,7 +871,7 @@ func TestDNSProviderHandler_TestInvalidID(t *testing.T) {
 	mockService.On("GetByUUID", mock.Anything, "invalid").Return(nil, services.ErrDNSProviderNotFound)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/dns-providers/invalid/test", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/invalid/test", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -943,7 +941,7 @@ func TestDNSProviderHandler_GetServiceError(t *testing.T) {
 	mockService.On("Get", mock.Anything, uint(1)).Return(nil, errors.New("database error"))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/dns-providers/1", nil)
+	req, _ := http.NewRequest("GET", "/dns-providers/1", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -968,7 +966,7 @@ func TestDNSProviderHandler_DeleteServiceError(t *testing.T) {
 	mockService.On("Delete", mock.Anything, uint(1)).Return(errors.New("database error"))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/dns-providers/1", nil)
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -993,7 +991,7 @@ func TestDNSProviderHandler_TestServiceError(t *testing.T) {
 	mockService.On("Test", mock.Anything, uint(1)).Return(nil, errors.New("service error"))
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/dns-providers/1/test", nil)
+	req, _ := http.NewRequest("POST", "/dns-providers/1/test", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)

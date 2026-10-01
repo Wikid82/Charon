@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -149,11 +150,11 @@ func TestValidate_MultipleHostsWithEmergencyPattern(t *testing.T) {
 	hostCounts := []int{5, 10, 18}
 
 	for _, count := range hostCounts {
-		t.Run("RouteCount_"+string(rune(count+'0')), func(t *testing.T) {
+		t.Run("RouteCount_"+strconv.Itoa(count), func(t *testing.T) {
 			routes := make([]*Route, 0, count*2) // 2 routes per host
 
 			for i := 0; i < count; i++ {
-				hostname := "host" + string(rune(i+'0')) + ".example.com"
+				hostname := "host" + strconv.Itoa(i) + ".example.com"
 
 				// Emergency route
 				routes = append(routes, &Route{

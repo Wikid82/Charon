@@ -1,1475 +1,783 @@
-# Spec: Per-Client Throttling for `/api/v1/auth/*` (Issue #1317)
+# Plan: Automatic database maintenance (keep the SQLite file small, reclaim space safely) - GH #1422
 
-| Field | Value |
-| --- | --- |
-| Issue | #1317 — "Add per-IP rate-limit / throttle middleware for /api/v1/auth/*" (labels: `critical`, `security`) |
-| Follow-up to | #1316 / GHSA-3gc6-295r-xm5m (merge `8168732a`) |
-| Branch / PR | `feat/auth-rate-limit-1317` → one PR into `development` |
-| Status | Approved (maintainer 2026-09-24). Revision 3; see §10 |
-| Date | 2026-09-24 |
-| Previous spec | Redirection Hosts (#1367), archived verbatim at `docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md` |
-
-## Table of Contents
-
-1. [Introduction](#1-introduction)
-2. [Research Findings](#2-research-findings)
-3. [Technical Specifications](#3-technical-specifications)
-4. [Implementation Plan](#4-implementation-plan)
-5. [Acceptance Criteria](#5-acceptance-criteria)
-6. [Commit Slicing Strategy](#6-commit-slicing-strategy)
-7. [Risks & Mitigations](#7-risks--mitigations)
-8. [Open Questions & Maintainer Decisions](#8-open-questions--maintainer-decisions)
-9. [Follow-ups (Out of Scope)](#9-follow-ups-out-of-scope)
-10. [Revision History](#10-revision-history)
-
----
+Type: `feat:` (new user-facing behavior; local CodeQL + Trivy apply). Single feature PR into `development`, ordered commits.
+Branch: `feat/db-maintenance-1422` (already checked out; cut from `development` at `3437ab88`, which contains the merged #1419 fix (#1423) and the version fix (#1424)).
+Status: IMPLEMENTED (commits 0-8 on the branch; pending PR/CI). **Revision 10 follow-up IMPLEMENTED (commits 9-13): the UI moved from System Settings to Tasks -> Database, see "Addendum A" at the end of this file (it supersedes the System Settings wording below).** Plan revision 7 (supersedes revision 6; the old `db_maintenance_spec.md` revision 3 was already migrated here and is gone; it was never tracked). The #1419 spec is archived at `docs/plans/archive/2026-09-30_uptime-retention-1419_spec.md`.
+Supervisor history: round 1 found M1-M16, round 2 found 2 HIGH + 2 MEDIUM (quick_check wait inside `planned` with `PlannedMaxWait` relationship; status endpoint answered by the gate in EVERY phase; Plan/Decide split with steps 5 and 7 in the runner; commit 4 production Plan idle until commit 6). All are kept. Round 3 (CHANGES REQUIRED) found H1 (`incremental_vacuum` via `Exec` frees one page per call), M1-M6 and L1-L12; all are folded into revision 5 (drain via `Query` with full row iteration, temp-dir decision, SIGTERM accounting, acquire timeouts, accurate static-route/gate description, `Plan` recover, compose `start_period`). Round 4 (CHANGES REQUIRED, verified by measurements; no blockers) found H2 (`VACUUM` is NOT interruptible throughout: its final copy-back runs to completion), M-a..M-d and L-a..L-f; all are folded into revision 6. Round 5 review of revision 6 (CHANGES REQUIRED) found H1 (`stop_grace_period` cannot help because the runner wait is a fixed 4 s and the process exits about 5 s after SIGTERM regardless of the container grace), M1 (post-steps order after a nil `VACUUM` with a cancelled ctx), M2 (commit 4 persisted-row store) and L1-L3; all are folded into revision 7 (see the traceability table at the end of section 10). Revision 4 re-verified every reference against the merged code, removes what #1423 already delivered, and adds the upgrade-order decision (3.3a).
 
 ## 1. Introduction
 
-### 1.1 Overview
+### Problem
 
-The public issue states the gap. `POST /api/v1/auth/login` is protected by a
-per-account lockout, but one client can spread attempts across many usernames, or
-hammer other `/api/v1/auth/*` routes, without hitting any IP-level ceiling. Every
-password check is deliberately expensive (bcrypt).
+SQLite never returns freed pages to the OS unless `auto_vacuum` is on or a `VACUUM` runs. Charon ships with `auto_vacuum=0` and never vacuums (`uptime_pruner.go:32-34` still says "VACUUM is deliberately not used here; automatic compaction is tracked in GH #1422"), so any large delete (retention pruning, dropping an index, removing many hosts) leaves a permanently large file.
 
-A Go-layer per-IP limiter already exists (`backend/internal/cerberus/rate_limit.go`),
-but it doesn't close this gap:
+Evidence from the running test container `charon` (read-only `sqlite3 -readonly`, 2026-09-30): `auto_vacuum=0`, `page_count=501508`, `freelist_count=176396`, `page_size=4096` = **35.2% free, about 722 MB reclaimable** of a 2.05 GB file. That is a real legacy database that this feature must convert. The GH #1419 reporter (60 monitors, about 19 M heartbeat rows, 4.8 GB) is the extreme case.
 
-- It is **opt-in** (off by default).
-- It is sized for general API traffic (100 req/60 s, burst 20).
-- It has three weaknesses of its own, all fixed here (§2.3).
+### Division of labour with the merged #1419 fix (#1423, already in this branch)
 
-This spec makes four changes:
+| Concern | Status |
+| --- | --- |
+| Prevention: default retention 30 days (`models/uptime.go`, `routes.go:797` seed), one-time provable-seed migration `services.MigrateUptimeRetentionDefault` (`uptime_retention_migration.go`, called at `routes.go:805`), clamp, `migration.` reserved-key guard in the settings API, redundant `monitor_id` index drop (`dropRedundantIndex`, `DropRedundantMonitorIndexSQL`, also in the `migrate` CLI), index-bounded prune query (`pruneChunkDeleteSQL`, `ORDER BY created_at, id`), `sleepCtx` | **Done - do not redo** |
+| Keeping the DB small permanently and reclaiming space on existing files | **This feature** |
 
-1. **Always-on per-client throttle.** It sits in front of an explicit `/api/v1/auth`
-   route group, and in front of every other place that verifies an account password.
-   The per-account lockout stays as the second layer.
-2. **One shared limiter component** (`backend/internal/ratelimit`). It has bounded
-   memory and starts no goroutines. The Cerberus limiter migrates to it.
-3. **One effective proxy-trust list.** It is validated once at startup and used by
-   every consumer. The throttle keys on the *true* client resolved from it.
-4. **Visibility for shared-address failure modes.** A detector, an admin-only status
-   endpoint, a Security-dashboard card, and documentation cover the case where
-   many clients collapse into one address.
+Removed from the draft because #1423 delivered it: the planned `internalSettingPrefixes`/`isInternalSettingKey`/`filterInternalSettings` helpers (they exist, see 3.7), the "#1419 PR" references, the `ensureIndex`-sequencing caveats for the redundant index, and the manual-VACUUM helper text (which this PR replaces in docs, see 4).
 
-### 1.2 Objectives
+### User direction
 
-1. **Secure by default.** Throttling is on with zero configuration. The zero value of
-   every config struct is the secure default and never fails open.
-2. **Right-sized per route.** Every route that verifies an account password draws on one
-   strict per-client budget. Token/status routes get a loose budget. UX-critical session
-   reads and break-glass paths are never throttled.
-3. **True-client keying, one trust decision.** The key is Gin's resolved client IP (IPv6
-   aggregated to /64). Gin, the cookie logic, the throttle, and the status endpoint all
-   read the same validated `CHARON_TRUSTED_PROXIES` list, and the cookie logic and the
-   detector match peers with the same `netip` prefix matcher.
-4. **One limiter component.** It has bounded memory, no background goroutines, and an
-   injectable clock. The Cerberus limiter reuses it (DRY/CLEAN).
-5. **Clear contract and friendly UX.** A `429` carries `Retry-After` and a generic body.
-   The login page shows a localized wait message plus a pointer for administrators.
-6. **Admin visibility.** An admin-only endpoint and a Security-dashboard card show:
-   - the effective budgets;
-   - how Charon sees the admin's own address;
-   - forwarded-header observations, with scope-aware guidance.
-7. **Bounded operator signals.** A startup policy log, capped WARNs, and a Prometheus counter.
-8. **Non-flaky E2E.** No production default changes. E2E relaxations are explicit and test-only.
+An automatic, novice-friendly system: **one mechanism, not two**, no knobs needed, nothing visible unless action is needed. Shipped together with #1423, a reporter-type install must end up small with no user action beyond the restart they already perform when upgrading.
 
-### 1.3 Non-Goals
+### The one mechanism
 
-- **Shared or persisted limiter state.** No distributed state (Redis) and no persistence
-  across restarts. Charon is single-instance, and buckets are in-memory by design.
-- **Other anti-automation controls.** No CAPTCHA, proof-of-work, progressive delays or IP bans.
-- **Other login-flow changes.** The per-account lockout and other login-flow behavior
-  are unchanged. Additional login-flow hardening items are tracked privately.
-- **Routes not throttled.** This PR doesn't throttle:
-  - `POST /setup`, `GET|POST /invite/*`, `POST /security/events`;
-  - the OAuth callback;
-  - `/api/v1/emergency/*` or the Tier-2 emergency server (§3.10).
-- **No tuning UI.** No UI for editing budgets, and no admin "unblock client" action.
-  The card is read-only.
-- **No throttle notifications.** Security notifications for throttle events are deferred (§9).
-- **No forward-auth implementation.** This PR only corrects the docs that advertise it (§4.5).
-- **No default trust of loopback in the container image.** See maintainer decision M1 (§8).
-- **No spec-reference sweep.** The remaining `docs/plans/current_spec.md` comment
-  references are left for a separate sweep (§9).
+"The database keeps itself small" = **`auto_vacuum=INCREMENTAL` plus small `incremental_vacuum` steps after prune passes**. That is the only steady-state mechanism, for new and old databases alike.
 
-### 1.4 Requirements (EARS)
+Existing databases are not a second feature; they are a one-time **conversion into that same mode**, done by a full `VACUUM` at boot (the only way SQLite can switch `auto_vacuum` on a populated file). After conversion (or on any database already in mode 2) reclaiming space never needs a full `VACUUM` again. There is exactly one drain path: the uptime pruner's incremental steps (3.2). The boot path never drains; on a mode-2 database the "Reclaim space" button only clears its own flag. Users see a single concept ("Charon optimizes its database"), one status object, one conversion trigger (boot), one flag.
 
-| ID | Type | Requirement |
+### Decisions fixed by the user (earlier revisions, unchanged)
+
+1. **Thresholds:** 20% free pages plus the 100 MB reclaimable floor, **plus an OR trigger**: also run when reclaimable bytes >= 1 GiB even if below 20% free (the 100 MB floor still applies).
+2. **First conversion runs automatically at boot** (no notify-only first run).
+3. **Brief loss of break-glass (emergency server) access during a conversion is acceptable**, given the fast 503 and the clear log line (3.4, 3.6).
+4. **`idx_heartbeat_lookup` drop stays a separate audited PR**, not part of this feature.
+5. **Localization is a separate, already-filed issue (#1421)**; this PR ships English only.
+6. **Env override is `CHARON_DB_COMPACT_ON_START=auto|off` only** (`force` dropped; the UI flag is the manual path).
+
+### Goals
+
+1. New databases are created with `auto_vacuum=INCREMENTAL`.
+2. The pruner returns free pages to the OS in small steps with no long lock.
+3. Existing databases are converted once, only when worthwhile and safe, at boot, without delaying proxying and without ever blocking startup on failure.
+4. While a boot-time conversion runs, the management UI shows a friendly "Optimizing the database" state.
+5. A novice sees nothing normally; a quiet note appears in System Settings, and a warning only when action is needed.
+
+### Non-goals
+
+- No online full `VACUUM` while serving (a write stall on the single connection for minutes).
+- No runtime (non-boot) conversion trigger and no self-restart (decision 3.3a).
+- No `charon compact` CLI (an operator can still run `sqlite3 ... VACUUM` manually; documented as a fallback).
+- No change to retention semantics.
+
+## 2. Research Findings (verified against the code on this branch)
+
+### 2.1 Startup ordering - CRITICAL (references re-verified after #1423)
+
+| Step | File and line | What happens |
 | --- | --- | --- |
-| R1 | Ubiquitous | Whenever the auth throttle is enabled, the system shall apply a per-client token-bucket throttle, independent of all Cerberus settings, to: every `/api/v1/auth/*` route classified `login` or `session` (§3.2), and the start of every account-password verification outside that group (§3.2.1). |
-| R2 | Event | When a client's `login` budget is exhausted, the system shall respond `429` before any password verification or account bookkeeping runs. |
-| R3 | Event | When any throttle in the process rejects a request, the system shall respond `429` with `Retry-After: <integer seconds ≥ 1>` and body `{"error":"Too many requests. Please wait before trying again."}`. The response shall echo no request data. |
-| R4 | State | While a client's `login` budget is exhausted, that client's requests to exempt routes, and every other client's requests, shall be unaffected. |
-| R5 | Unwanted | If the TCP peer is not in the effective trusted-proxy list, then `X-Forwarded-For`/`X-Real-IP` shall not influence the key. If such a header is present, the system shall record the observation (count, last-seen time, peer address, peer scope) and emit a rate-limited WARN. The guidance shall never suggest trusting a public address. |
-| R6 | Event | When the TCP peer is a trusted proxy, the key shall be the rightmost untrusted address in `X-Forwarded-For` (Gin semantics). |
-| R7 | Ubiquitous | IPv4 clients shall be keyed per address, IPv6 clients per /64. An empty or unparsable client IP (including zoned IPv6 peers) shall map to one shared fail-closed key. |
-| R8 | Unwanted | If a request carries a validated emergency bypass, then no throttle shall consume or reject it. `/api/v1/emergency/*` and the Tier-2 server shall never be throttled. |
-| R9 | Ubiquitous | Each limiter instance shall track at most `MaxKeys` clients (default 10,000) and shall start no goroutines or timers. |
-| R10 | Unwanted | If a throttle setting is malformed or out of bounds, then the secure default shall be used and a startup WARN logged. Only `CHARON_AUTH_RATELIMIT_ENABLED=false` (any case) disables the throttle; any other non-empty value other than `true` keeps it on and logs a WARN. |
-| R11 | Event | When the frontend receives a `429`, it shall show a localized wait message derived from `Retry-After`. On the login page it shall also show a pointer for administrators, linking to the trusted-proxy documentation. |
-| R12 | Ubiquitous | Throttle logs shall contain no usernames, emails, passwords, tokens or bodies. Client identifiers shall be sanitized. Throttle WARN volume shall be globally capped, with a suppressed-count summary. |
-| R13 | Unwanted | If a request lacks an `OptionalAuth`-validated admin identity, then the Cerberus limiter shall not exempt it, whatever `Authorization` header it carries. |
-| R14 | Ubiquitous | Peer addresses and forwarded-header observations shall be exposed only through an admin-only endpoint, and shown only to admins, on a Security-dashboard card. |
-| R15 | Ubiquitous | `CHARON_TRUSTED_PROXIES` shall be validated once at startup with Gin's parsing rules. Any invalid entry shall yield an empty effective list plus a WARN. Gin, the cookie logic, the throttle and the status endpoint shall all use that one effective list, and the cookie logic and the detector shall match peers with the same `netip` prefix matcher (no IPv4/IPv6 loopback equivalence). |
+| 1 | `.docker/docker-entrypoint.sh:384-386` | Caddy is started first with an explicitly empty config `{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}`. |
+| 2 | `.docker/docker-entrypoint.sh:389-398` | Waits up to 30 s for the Caddy admin API. |
+| 3 | `.docker/docker-entrypoint.sh:445` (`run_as_charon "$bin_path" &`; debug variants at 425/434/437/442) | Only then Charon starts; `APP_PID` is supervised by a `wait` loop that exits the whole container when either process dies (`:464-470`). |
+| 4 | `backend/cmd/api/main.go:234-238` | `ApplyPendingRestore`, then `database.Connect(cfg.DatabasePath)` (pragmas, WAL, background `quick_check`). |
+| 5 | `main.go:273-282`, `:294` -> `routes.go:153` `RegisterWithDeps` | `server.NewRouter`, `RequestID`/`RequestLogger`/`Recovery` middleware (`:278-282`), then AutoMigrate (`routes.go:172`), backup service + `backupService.Start()` cron (`routes.go:304-308`), seeds (`routes.go:785-807`), uptime pipeline construction (`routes.go:822-823`) and `go` statements (bootstrap `:826`, ingester `:847`, pool `:851`, scheduler `:852`, sync loop `:853`, pruner `:857`). |
+| 6 | `routes.go:1115` (function at `:46-79`, definition at `:48`) | `go applyInitialCaddyConfig(...)`: pings Caddy (up to 30 s), then `caddyManager.ApplyConfig`, which **reads the proxy hosts from the DB** and pushes them to Caddy. Runs in a goroutine, so `RegisterWithDeps` returns while it is pending. It returns silently on ctx cancel, on timeout, and on `ApplyConfig` error - there is no completion signal today. |
+| 7 | `main.go:294-323` | **After** `RegisterWithDeps` returns: `RegisterImportHandler`, `handlers.CheckMountedImport` (DB, `:304`), `emergencyServer.Start()` (DB, `:309-312`), and only then `go router.Run(addr)` (`:323`). |
 
----
+Finding: the `applyInitialCaddyConfig` callback can fire (Caddy is normally up, about 1 s) **before** `main.go` finishes its own DB calls and **before** the listener is bound. A conversion started from that callback could pin the single pool connection while `main.go` still calls the DB, and could begin before the maintenance page can be served. Caddy is up before the DB is opened, but it serves nothing until step 6 succeeds. Consequently:
 
-## 2. Research Findings
+- Any compaction placed before step 6 adds its full duration to the proxy outage. **Rejected.**
+- After step 6 succeeded, the data plane runs from Caddy's in-memory config plus its own file storage; `grep forward_auth` over `backend/internal/caddy/*.go` finds no Charon callback, so proxying does not need the SQLite file. Commit 6 proves it with an integration test (proxied request succeeds while the DB connection is pinned **after** `ApplyConfig`).
+- The management plane (API, UI, login, emergency server, uptime pipeline) needs the DB and is what a conversion pauses.
 
-### 2.1 `/auth/*` route inventory and real callers (verified)
+Hard rules:
 
-Today the routes are registered individually, not as a group. The public routes are at
-`backend/internal/api/routes/routes.go:319-323`. The protected routes are on the
-`protected` group at `routes.go:367-376`.
+1. **Two-condition start.** Maintenance starts only after BOTH (a) the initial Caddy config was **applied successfully** and (b) the **main HTTP listener is bound** and `main.go`'s own DB work is finished. (b) is implemented by binding explicitly in `main.go` (`net.Listen("tcp", addr)` after `emergencyServer.Start()`, `gate.MarkListenerBound()`, then `go router.RunListener(ln)`). `gin.Engine.RunListener` exists in the pinned gin (verified: `gin.go:645`, `Engine.RunListener(listener net.Listener)`); commit 2 keeps a compile-level regression test.
+2. If Caddy never became ready or `ApplyConfig` failed, compaction is **skipped this boot** (Warn log); the operator needs the UI to fix Caddy, and we must not lock it. Signalled on **every** exit path of `applyInitialCaddyConfig` (3.4).
+3. Proxying is never delayed by compaction.
 
-| Route | Auth | Handler work | Real callers | Frequency |
-| --- | --- | --- | --- | --- |
-| `POST /auth/login` | public | bind JSON → password verification (bcrypt) → per-account lockout bookkeeping → JWT (`auth_handler.go:219-236`) | `pages/Login.tsx:53`; `pages/Setup.tsx:63` (post-setup auto-login); E2E fixtures (`auth.setup.ts`, `auth-fixtures.ts`, `TestDataManager.createUser`) | human: per submit; E2E: every fixture user logs in, plus 362 `loginUser(` call sites |
-| `POST /auth/change-password` | protected | verifies the current password (bcrypt), then hashes the new one (`auth_service.go:121-136`) | `AuthContext.changePassword` ← `UsersPage.tsx:575/636` | rare |
-| `POST /auth/refresh` | protected | DB read + JWT sign + Set-Cookie | no frontend caller (only listed in `client.ts:61-64`); E2E `refreshTokenIfNeeded` | rare |
-| `GET /auth/status` | public | JWT validation + DB lookup; returns user info | no frontend caller; E2E `tests/utils/health-check.ts:324`, `tests/fixtures/token-refresh-validation.spec.ts:90` | ~1 per E2E run |
-| `GET /auth/verify` | public | JWT validation; optional per-host permission check | nothing emits Caddy `forward_auth` (no reference in `backend/internal/caddy/`; `forward_auth_enabled` is only a TS field, `api/proxyHosts.ts:36`); E2E `security-enforcement/emergency-reset.spec.ts:232` | none today; per proxied request if forward-auth were ever wired |
-| `GET /auth/me` | protected | DB read | `AuthContext.tsx`: every full page load (`checkAuth`, :42-60), **immediately after login** (`login()`, :79-99), `refetchUser` | every page load |
-| `POST /auth/logout` | protected | invalidates sessions (DB write) + clears cookie | `AuthContext.logout` (manual and 15-min idle auto-logout) | rare |
-| `GET /auth/accessible-hosts` | protected | DB reads | none found | none |
-| `GET /auth/check-host/:hostId` | protected | DB reads | none found | none |
+### 2.2 Healthcheck impact (`/api/v1/health` is NOT DB-free on its own)
 
-Key consequences:
+`Dockerfile:1190`: `HEALTHCHECK --interval=30s --timeout=10s --start-period=4m --retries=3`, probing `http://localhost:8080/api/v1/health`. **The shipped `.docker/compose/docker-compose.yml:58-63` overrides this with `start_period: 40s`**, so the 4-minute image default does not apply to compose installs and cannot be relied on to cover a conversion. `HealthHandler` (`handlers/health_handler.go:29`) is static, **but its route is not**: `routes.go:258` `router.GET("/api/v1/health", cerb.RateLimitMiddleware(), handlers.HealthHandler)`; `RateLimitMiddleware` reads `security.rate_limit.enabled` through the DB whenever its cache is cold or expired; `router.Use(middleware.EmergencyBypass(cfg.Security.ManagementCIDRs, db))` (`routes.go:159`) also takes the `db` handle; `routes.go:318` `router.GET("/api/v1/health/db", dbHealthHandler.Check)` queries the DB.
 
-- **Don't throttle `/auth/me`.** `AuthContext.login()` calls it right after a successful
-  login and treats any error as failure (`AuthContext.tsx:91-99`), so a 429 there would
-  turn a successful login into a failed one.
-- **Don't throttle `/auth/logout`.** A throttled logout would leave the session valid.
-- **The docs advertise a feature that doesn't exist.** `docs/features/security.md:25-27`
-  and `docs/features.md:69` describe a "Require Login" gateway that is not currently
-  available. C10 corrects the docs.
+With the single pool connection pinned, these would block and the container could be marked unhealthy and restarted mid-`VACUUM`. **While the gate is active (`checking`/`converting`) it answers `GET`/`HEAD /api/v1/health` itself with a static body and `Abort`s (never `Next`); `GET`/`HEAD /api/v1/maintenance/status` is answered by the gate in every phase**. The gate sits before `EmergencyBypass` and `RateLimit`, and treats `/api/v1/health/db` as a blocked API path (503, fast). In every non-active phase (`idle`, `planned`, `done`, `skipped`, `failed`) `/api/v1/health` passes through to the normal chain with `c.Next()`, so it stays under `RateLimitMiddleware` and the other middleware exactly as before the feature (answering it in every phase had silently exempted it from the API rate limiter, which broke the security-enforcement E2E). Because the gate's static health answer is returned as soon as the phase is `checking`/`converting`, the start period (40 s in compose, 4 min in the image) is moot during a conversion: no `start_period` change is needed. Residual window: a probe that entered `/api/v1/health` (via `RateLimit`/DB) just **before** the `planned` -> `checking` flip can block on the pinned pool for the whole conversion and time out at 10 s; that is at most one failed probe, covered by `--retries=3` because the next probe (30 s later) is answered by the gate. The explicit `HEAD /api/v1/health` route keeps `HEAD` consistent with `GET` in the non-active phases and the gate does so while active (L8, 3.6).
 
-### 2.2 Middleware chain today (for `/api/v1/auth/login`)
+Required test (commit 4): pin the pool's only connection (`sqlDB.Conn(ctx)` held), force the rate-limit cache to be expired, request `/api/v1/health` and `/api/v1/maintenance/status` through the full router while the gate is `converting`; both return 200 with the static body; `/api/v1/health/db` returns 503 fast. A second test asserts that in `idle` and the other non-active phases `/api/v1/health` is subject to `RateLimitMiddleware` (strict settings yield a 429) and still answers 200 normally. As shipped, this pinned-pool health test uses in-process `httptest` recorders rather than a real 1 s client (the emergency-server test does use a real client).
 
-1. `gin.Default()` Logger + Recovery — `internal/server/server.go:19`.
-2. `RequestID`, `RequestLogger`, `Recovery(debug)` — `cmd/api/main.go:270-274`.
-3. `EmergencyBypass` (sets `emergency_bypass`), `gzip`, `SecurityHeaders` — `routes.go:121-131`.
-4. `api` group: `OptionalAuth` → `cerb.RateLimitMiddleware()` (opt-in) → `cerb.Middleware()`
-   (ACL, WAF metrics, CrowdSec tracking) — `routes.go:248-255`.
-5. Protected routes only: `AuthMiddleware` — `routes.go:367-368`.
-6. Handler.
+### 2.3 Database open and the single-connection pool
 
-`/api/v1/emergency/*` is registered on `router`, outside the `api` group
-(`routes.go:229-241`), so no limiter reaches it. `/api/v1/health` gets its own
-`cerb.RateLimitMiddleware()` instance (`routes.go:220`).
+- `database.Connect` (`internal/database/database.go:51-107`): `gorm.Open(sqlite.Open(path))` on `github.com/glebarez/sqlite v1.11.0` over **`github.com/glebarez/go-sqlite v1.23.0`** (a fork of the modernc translation; `modernc.org/sqlite` is only indirect). All driver spikes target the glebarez driver. `configurePool` (`:141`, `SetMaxOpenConns(1)` at `:144`), then the pragma loop at `:~81-90` in this order: `journal_mode=WAL` (`:82`), `busy_timeout=5000`, `synchronous=NORMAL`, `cache_size=-64000`; `PrepareStmt: true`; then `launchQuickCheck(dbPath)` (`:104`; package var declared at `:19`, `SyncIntegrityCheckForTesting` at `:45`, `runQuickCheck` at `:113`).
+- One pool connection: while compaction holds it, every other goroutine using the shared `*gorm.DB` waits in the Go pool queue (not `SQLITE_BUSY`). `busy_timeout` only matters against other connections (quick-check goroutine, `VACUUM INTO` backups, an operator's `sqlite3`).
+- **Boot `quick_check`** runs on a separate connection and can take over a minute on multi-GB files. In WAL mode a reader does not block a writer or `BEGIN EXCLUSIVE` (verified, 2.4); the real effect is that a long reader **pins the WAL**, so `wal_checkpoint(TRUNCATE)` returns busy and the file does not shrink until the reader ends. The answer is coordination and bounded retry (3.5).
+- **Pool users that queue** behind a conversion (accepted): certificate expiry checker (`routes.go:~1083`), uptime sync loops, CrowdSec reconcile, stats ingester (`routes.go:991-992`), request handlers not answered by the gate. Scheduled **backups are deferred while the gate is deferring** (3.5).
+- Backups: `backup_service.go:311` uses `VACUUM INTO ?` on a dedicated connection (competes for disk with a conversion); `RehydrateLiveDatabase` (`:1384`) copies rows via `ATTACH`/`INSERT ... SELECT`, so a live restore keeps the live file's own mode; `database.ApplyPendingRestore` (`pending_restore.go:39`) swaps a whole file in **before** `Connect`, so a restored file arrives in whatever mode the backup had. The boot evaluation runs every boot. The scheduled-backup entry point is `BackupService.RunScheduledBackup` (`:464`), started by `backupService.Start()` (`routes.go:308`).
+- Free-space helper: `BackupService.GetAvailableSpace` (`backup_service.go:1870`, `syscall.Statfs`), used at `:1120`. Extract into `internal/dbmaint/diskspace.go` (DRY), have the backup service call it; behavior unchanged (existing tests at `backup_service_test.go:1145/1156/1500`, `backup_service_disk_test.go:11` must still pass).
 
-### 2.3 Cerberus limiter weaknesses (verified; all fixed in C5)
+### 2.4 SQLite behavior (verified by the Supervisor on the real driver; commit 2 keeps each as a regression test)
 
-| ID | Weakness | Evidence | Impact |
-| --- | --- | --- | --- |
-| 3a | The per-IP map is unbounded between 10-minute sweeps; each sweep is O(n) under the single mutex | `cerberus/rate_limit.go:46-80` | Memory grows under key rotation (each IPv6 address in one /64 is a distinct key) |
-| 3b | `newRateLimitManager` starts `cleanupLoop` with no stop | `rate_limit.go:52-68` | Leaks goroutines: 2 per `RegisterWithDeps` (health + api), 1 per `NewRateLimitMiddleware`. `routes_test.go` builds 56 routers. Conflicts with "Long-running work must respect `server.Run(ctx)`" |
-| 3c | `isAdminSecurityControlPlaneRequest` exempts **any** request on `/api/v1/security/`, `/api/v1/settings*` or `/api/v1/config*` that carries an `Authorization: Bearer …` header, whatever the token's validity or role. `OptionalAuth` validates tokens from the header, the `auth_token` cookie, or the deprecated `?token=` query (`middleware/auth.go:46-76`), and sets `role` only on success. The bearer-prefix fallback therefore adds exemptions only for invalid tokens and for valid **non-admin** tokens. The prefix match is not segment-aware. Added by `bd1a1a53`; encoded in tests `rate_limit_test.go:455`, `:547` | `rate_limit.go:18-43` | Unvalidated or non-admin callers bypass the (opt-in) API limiter on those prefixes |
-| 3d | A `429` carries no `Retry-After`, and a WARN is logged per denied request | `rate_limit.go:127-131, 204-208` | Poor client UX; attacker-driven log volume |
-| 3e | IPv6 is keyed per full address | `rate_limit.go:124, 201` | Rotation within a /64 bypasses the limit |
-| 3f | `NewRateLimitMiddleware` is exported but has no production caller | repo-wide grep | Dead code |
-| 3g | Unchecked `bypass.(bool)` type assertions | `rate_limit.go:114, 143`; `cerberus.go:155` | Would panic if the flag were ever set to a non-bool |
+- `PRAGMA auto_vacuum=2` must be issued **before** `PRAGMA journal_mode=WAL` on a new file (WAL first then `auto_vacuum=2` then `CREATE TABLE` left mode 0; the reverse gave 2). `Connect` currently runs `journal_mode=WAL` first, so the new pragma goes before it and only on an empty database.
+- In-place `VACUUM` on a pinned `sqlDB.Conn` works in WAL mode, converts the file to mode 2 and **keeps `journal_mode=wal`**.
+- `BEGIN EXCLUSIVE` **succeeds** with a concurrent WAL reader and **fails with `SQLITE_BUSY`** with a concurrent writer: the lock probe detects writers only.
+- **`PRAGMA incremental_vacuum(N)` via `Exec` frees exactly ONE page per call on this driver** (no error: the driver steps the statement once). Measured by the Supervisor (100k-row DB, 9,160 free pages): 201 calls of `Exec("PRAGMA incremental_vacuum(2000)")` moved `freelist_count` 9160 -> 8959. Re-confirmed in this revision on a scratch DB (10,023 free pages): 5 `Exec(2000)` calls -> 10,018; 2 `QueryContext(2000)` calls with **every row iterated** -> 6,018 (2,000 per call). Using `Query` (or gorm `Raw().Rows()`) and iterating ALL rows frees N pages per call (5 steps to 0; file 47.0 MB -> 9.4 MB after `wal_checkpoint(TRUNCATE)`). **Therefore `Drain` MUST use `QueryContext` and loop `rows.Next()` to exhaustion, then `rows.Close()` and check `rows.Err()`; `Exec` is forbidden for this pragma** (it would silently free about 1,200 pages, about 5 MB, per hourly pass). Consequence for verification: the file must be shrunk and `freelist_count` must fall by about N per step, never "it ran without error".
+- `VACUUM INTO` carries mode 2 into the snapshot. `PRAGMA auto_vacuum=2` on a populated database is silently a no-op until `VACUUM`: guard every incremental call on `PRAGMA auto_vacuum` == 2.
+- `VACUUM` row ids: `VACUUM` may renumber implicit rowids, but no Go code in the repo uses `rowid`, and `uptime_heartbeats.id` is an `INTEGER PRIMARY KEY` (an alias of the rowid, preserved by `VACUUM`).
+- In WAL mode the main file only shrinks at a `wal_checkpoint(TRUNCATE)`; **verify shrinkage by file size (`os.Stat`), not by a PRAGMA return value.**
+- **Context-cancel interrupt: PARTIAL (H2, measured; supersedes the earlier "instant" claim).** Only the `INSERT ... SELECT` **rebuild phase** of `VACUUM` is interruptible (driver `interruptOnDone(ctx, ...)`, `github.com/glebarez/go-sqlite@v1.23.0/sqlite.go:504, :590`). The final **copy-back of the rebuilt temp database into the main DB and WAL is not interruptible** and runs to completion; it scales with live data size. Measured on a 430 MB DB with 2/3 free (tmpfs, warm cache): cancel at 500 ms -> `interrupted (9)` after about 22 ms; cancel at 2000 ms (total 6.2 s) -> `VACUUM` returned **nil** about 4.2 s later; cancel at 4000 ms -> nil about 2.9 s later; cancel at 1000 ms (warm, total 1.6 s) -> nil about 0.6 s later. (An earlier spike on a small DB saw an almost immediate interrupt; it only exercised the rebuild phase.) On real disks with multi-GB files the uninterruptible tail is seconds to tens of seconds. Both outcomes leave the database intact (`integrity_check` ok), the mode either unchanged (interrupted) or 2 (completed), and no leftover temp file. Consequences: `Run` must treat "ctx cancelled but `VACUUM` returned nil" as **`converted`** (3.5), the shutdown wait must be placed and capped carefully (3.4 step 9), and a stop that lands inside the tail can still end in SIGKILL (3.5). Commit 2 keeps regression tests: cancel early in the rebuild on a scratch DB -> interrupt error, DB intact, mode unchanged, no temp file; cancel late on a larger scratch DB -> either an interrupt error or nil, with the DB intact and the mode consistent with the outcome (the test asserts outcomes, never timing).
+- **`SQLITE_TMPDIR` set at runtime, after the driver has initialised, is IGNORED** (the temp file went to `/var/tmp`); set **before the first `sql.Open`** it is honoured. `PRAGMA temp_store_directory='<dir>'` worked at runtime (deprecated and process-global, so it is not chosen, 3.5). Commit 2 keeps both observations as regression tests (env set before first open honoured; env set late ignored; documents why `main` sets it first).
+- **Open rows block the single pool connection (M-c, measured deadlock).** With `MaxOpenConns(1)`, a `freelist_count` query issued while the `incremental_vacuum` `rows` were still open blocked until its context expired. `Drain` therefore calls `rows.Close()` (and checks `rows.Err()`) **before** any other pool query, or runs every step on one pinned `sqlDB.Conn`. Commit 2 keeps a regression test (a follow-up `QueryRow` issued after `rows.Close()` returns immediately; the same query with rows left open times out).
+- **`wal_checkpoint(TRUNCATE)` reports busy through a result column, not an error (M-c).** The pragma returns one row `(busy, log, checkpointed)`; when a reader blocks it `err` is nil and `busy=1`. Every caller (`Drain`, `Convert`, retry loop) reads the row with `QueryRow(...).Scan(&busy, &log, &checkpointed)` and treats `busy != 0` (or `checkpointed < log`) as "not truncated", never relying on the error. Commit 2 test: hold a reader, assert `busy=1` with nil error.
+- **Still to confirm in commit 2:** `RunListener` compile-level test.
 
-The Cerberus limiter is off by default, for two reasons:
+### 2.5 Strategies for the conversion (evaluated)
 
-- `RateLimitMode` defaults to `"disabled"` (`config.go:178`).
-- Its runtime override is the `security.rate_limit.enabled` setting (`rate_limit.go:153-157`).
-  That setting is absent on fresh installs, and the emergency reset writes it as `false`
-  (`emergency_handler.go:229`).
+| Strategy | Verdict |
+| --- | --- |
+| A. In-place `VACUUM` on a pinned pool connection after Caddy has its config | **Chosen**: atomic (crash leaves the old DB via WAL recovery), no handle/pool replacement, smallest code; needs about 2x live data disk; management plane paused |
+| B. `VACUUM INTO tmp` then swap files | Rejected: needs pool closed and every `*gorm.DB` re-pointed or a process restart, writes lost unless frozen anyway, symlink/rename hazards; only feasible before `Connect`, which delays proxying |
+| C. Full online `VACUUM` via a button / runtime trigger | Rejected: multi-minute write stall while serving, races ingester/pruner/backup (user decision) |
+| D. `auto_vacuum` for new DBs only | Insufficient alone |
 
-**Net effect: login has no per-client throttle by default.**
+### 2.6 `idx_heartbeat_lookup` (256 MB) - separate audited item (unchanged decision)
 
-### 2.4 Client-IP resolution, proxy trust, and deployment topology (verified)
-
-#### 2.4.1 Gin (`gin@v1.12.0`)
-
-- `server.NewRouter` (`internal/server/server.go:18-32`) calls
-  `SetTrustedProxies(cfg.Security.TrustedProxies)`, sourced from `CHARON_TRUSTED_PROXIES`
-  (`config.go:198-207`). If the list is empty, or Gin rejects it, it calls
-  `SetTrustedProxies(nil)` and trusts nothing.
-- `Context.ClientIP()` (`gin/context.go:975-1024`) resolves the client per peer:
-  - **Untrusted peer:** returns the `RemoteAddr` host. `X-Forwarded-For`/`X-Real-IP` are ignored.
-  - **Trusted peer:** `validateHeader` (`gin/gin.go:482-501`) walks `X-Forwarded-For`
-    right-to-left and returns the first untrusted address, then falls back to `X-Real-IP`.
-    A malformed entry stops that walk; Gin then tries `X-Real-IP`, and only then falls back
-    to the peer address.
-  - **Unparsable `RemoteAddr`:** returns `""`. This includes zoned IPv6 peers, since
-    `net.ParseIP` rejects zones.
-- `Forwarded` (RFC 7239) is never consulted.
-- Gin's own trust-all check (`isUnsafeTrustedProxies`, `gin.go:456-459`) flags any list
-  whose CIDRs contain `0.0.0.0` or `::`.
-
-#### 2.4.2 Inconsistent trust today (fixed by R15, §3.7)
-
-- Gin's `prepareTrustedCIDRs` (`gin.go:414-441`) stops at the first invalid entry: it keeps
-  the partial list parsed so far and returns an error. `server.go:23-32` is what resets
-  the list to trust nothing when that error is returned.
-- The cookie logic (`isTrustedPeer` → `security.IsIPInCIDRList`, `security/whitelist.go:12`)
-  skips only the invalid entry. That behavior is locked in by `TestIsTrustedPeer`
-  (`auth_handler_test.go:325-372`).
-- `security.IsIPInCIDRList` also treats IPv4 and IPv6 loopback as interchangeable
-  (`whitelist.go:17, 30-37, 53-57`); Gin does not. §3.7 removes this difference for proxy trust.
-- One malformed entry therefore makes the two disagree.
-
-#### 2.4.3 Other resolution facts
-
-- `util.CanonicalizeIPForSecurity` (`internal/util/sanitize.go:29-58`) maps IPv4-mapped
-  addresses to IPv4 and IPv6 loopback to `127.0.0.1`. It does no prefix aggregation.
-- No user-facing doc explains `CHARON_TRUSTED_PROXIES` for the management port;
-  `docs/security.md:496` only says "Configure trusted proxies correctly". Its design
-  lived in a §13 addendum of the Async Backup/Restore spec (commits `3b1cd2bb`,
-  `031c1416`), which was never archived.
-
-#### 2.4.4 Deployment topology
-
-What the management API sees as the TCP peer:
-
-- **Charon's own Caddy does not front the admin UI by default.** Its catch-all route
-  rewrites unmatched requests to `/unknown.html` (`internal/caddy/config.go:683-693`).
-- **Self-proxy exists only if a user adds a proxy host whose upstream is Charon itself.**
-  - A `localhost:8080` upstream arrives from `127.0.0.1`.
-  - A `charon:8080` (container-name) upstream arrives from the container's own bridge address.
-- **External nginx.** The documented external nginx example proxies to `charon:8080` and
-  arrives from its Docker-network address. It appends to `X-Forwarded-For` via
-  `$proxy_add_x_forwarded_for` (`docs/troubleshooting/websocket.md:46-54`).
-- **Runtime NAT.** Some container runtimes and load balancers hide client addresses
-  *without* adding any forwarded header, so every client arrives from one internal
-  address. The runtime specifics below come from upstream docs read on 2026-09-24 and are
-  **unverified for this spec** (versions and defaults change). C10 must link the upstream
-  pages with version caveats, and docs-writer must re-verify them before publishing.
-  - **Rootless Docker:** "Port forwarding with `docker run -p` does not propagate source IP
-    addresses by default." Fixes (Docker "Rootless mode → Troubleshooting"):
-    - With RootlessKit ≥ v3.0, set `"userland-proxy": false` in
-      `~/.config/docker/daemon.json` and load `br_netfilter`.
-    - On older versions, use the `slirp4netns` port driver, or `pasta` with the `implicit` port driver.
-  - **RootlessKit port drivers:** `builtin` propagates the source address "for TCP (since v3.0)".
-    `slirp4netns` and `implicit` (pasta) propagate it. `gvisor-tap-vsock` does not
-    (rootlesskit `docs/port.md`).
-  - **Rootless Podman:**
-    - The pasta network mode, and slirp4netns with `port_handler=slirp4netns`, preserve the source address.
-    - `port_handler=rootlesskit` and the default `rootlessport` forwarder of rootless bridge
-      networks do not (Podman networking docs).
-  - **Other cases:** VM-based desktop runtimes and source-NAT load balancers can behave the
-    same way, depending on version and configuration.
-
-### 2.5 Account lockout (the second layer; unchanged)
-
-- A per-account lockout (5 failed attempts lock the account for 15 minutes,
-  `auth_service.go:70-102`) remains the second layer, behind the new per-client budget.
-- Additional login-flow hardening items are tracked privately.
-
-### 2.6 Break-glass precedent
-
-- Commit `89644a45` removed the emergency endpoint's own limiter. `routes.go:232` says:
-  "Emergency endpoints must stay responsive and should not be rate limited."
-- The Tier-2 server (`internal/server/emergency_server.go:96`) is a separate `gin.New()`
-  with no limiter and no `/auth` routes.
-- Two docs still claim Tier-1 rate limiting and are stale:
-  - `docs/security.md:491`;
-  - `docs/runbooks/emergency-lockout-recovery.md:49-68`.
-
-### 2.7 E2E environment facts
-
-- **Project routing.** The `chromium`/`firefox`/`webkit` projects `testIgnore`
-  `**/security-enforcement/**` and `**/tests/security/**` (`playwright.config.js:283-298`).
-  Specs there are collected only by the serial, Chromium-based `security-tests` project.
-  **The new spec therefore lives in `tests/core/`.**
-- **PR E2E jobs.** Two jobs run on PRs:
-  - "E2E Firefox Security" (`--project=security-tests`, `e2e-tests-split.yml:529-535`);
-  - the "E2E Firefox" non-security shards (`:1372-1378`), over `tests/a11y`, `tests/core`,
-    `tests/integration`, `tests/monitoring`, `tests/settings`, `tests/tasks` and three DNS specs.
-- **Workers and peer address.** CI uses `workers: 1` per shard; local runs use default workers
-  (parallel). All runner traffic reaches the container from one peer address:
-  - the Docker bridge gateway;
-  - the rootless port-driver address;
-  - or, for the Tailscale remote-runner flow (`playwright.config.js:177-178`), a
-    `100.64.0.0/10` address.
-- **Login volume.** Every `adminUser` / `regularUser` / `authenticatedUser` fixture creates
-  and logs in a user (`auth-fixtures.ts:358-430` → `TestDataManager.createUser`). Many
-  tests call `loginUser` again. That is far beyond any human-sized budget.
-- **Silent login failures.** `TestDataManager.createUser` swallows login failures: on a
-  non-OK login it returns `token: ''` (`tests/utils/TestDataManager.ts:638-642`). A drained
-  bucket would therefore surface as unrelated downstream flakes. §4.1 makes fixtures
-  fail loudly on a persistent 429.
-- **Existing coverage.**
-  - No existing spec triggers a real management-API `429`; the precedent specs only verify configuration.
-  - The security project already runs near the Cerberus limiter's margin
-    (`multi-component-security-workflows.spec.ts:223-235`).
-- **No forwarded headers in existing specs.** No spec sends `X-Forwarded-For`, `X-Real-IP`,
-  `X-Forwarded-Proto` or `X-Forwarded-Host` to the management API.
-  `tests/fixtures/proxy-hosts.ts:130-131` are proxy-host configuration values, not request headers.
-- **`CHARON_ENV=e2e`.** The local compose file (`docker-compose.playwright-local.yml:34`)
-  claims it enables "lenient rate limiting (50 attempts/min)", which is stale. Its
-  e2e-specific effect is `internal/caddy/config.go:96` (ACME/TLS policies without an ACME
-  email). Like any non-production value, it also enables the `CHARON_CHANGELOG_VERSION`
-  override (`routes.go:385`).
-- **Integration tests.**
-  - `scripts/*_integration.sh` (run on PRs) each log in once.
-  - `backend/integration` (build tag `integration`, not run by any workflow) logs in 8×
-    per container lifetime, which is under the default burst of 10.
-
-### 2.8 Frontend facts
-
-- No `429`/`Retry-After` handling exists anywhere in `frontend/src`.
-- The Axios interceptor (`api/client.ts:42-71`) copies `data.error` into `error.message`.
-  `Login.tsx:62` toasts `response.data.error || error.message`.
-- Toasts are plain text (`utils/toast.ts`), so they can't carry links. They render
-  `data-testid="toast-error"` (`components/Toast.tsx:32`). The app doesn't use `<Trans>` anywhere.
-- **Docs links** are hardcoded and inconsistent: `FeedbackWidget.tsx:11` uses
-  `https://wikid82.github.io/Charon/`, while others use `…/charon/security`. The docs site
-  publishes at `url` `https://wikid82.github.io` + `baseUrl` `/Charon/` + `routeBasePath`
-  `docs` (`docs-site/docusaurus.config.*:18-67`).
-- **Security page gating.** The page shows the Cerberus header card for everyone, and hides
-  module cards unless Cerberus is enabled (`pages/Security.tsx:331-376`).
-- **Admin checks** use `user?.role === 'admin'` (e.g. `components/Layout.tsx:131-158`).
-- **i18n.** `react-i18next` with 5 locales (en, de, es, fr, zh); es informal, de formal,
-  fr *Veuillez*. Plural keys carry `_one`, `_other` **and** a bare fallback key in every
-  locale, including zh (`zh/translation.json:174-176`).
-
-### 2.9 Documentation and comment drift found
-
-| Location | Drift | Action in this PR |
-| --- | --- | --- |
-| `ARCHITECTURE.md:986` | "NO Cerberus Middleware … on management interface", but `routes.go:252-255` applies both Cerberus middlewares to `/api/v1` | Correct (C10) |
-| `ARCHITECTURE.md:819-828` | Layer 1 "sliding window, 100 req/min, 1000 req/hour, admin whitelist" | Correct (C10) |
-| `ARCHITECTURE.md:913` | bcrypt "cost factor 12" (the code uses `bcrypt.DefaultCost`, `models/user.go:78`) | Correct (C10) |
-| `docs/security.md:491`, runbook `:49-68` | Tier-1 "rate limiting" (removed in `89644a45`) | Correct (C10) |
-| `docs/api.md:16-24`, `:1761-1768` | "Authentication not yet implemented", "Rate limiting not yet implemented" | Correct (C10) |
-| `docs/features/security.md:25-27`, `docs/features.md:69` | Advertise a "Require Login" gateway that is not currently available | Correct (C10) |
-| `docker-compose.playwright-local.yml:34` | Stale lenient-rate-limit comment | Correct (C7) |
-| `config.go:57-65`, `server.go:15-17`, `auth_handler_test.go:325-329` | Cite `current_spec.md §13` (never archived) | Repoint to `docs/configuration/trusted-proxies.md` (C10) |
-| 21 comments citing the Redirection Hosts spec (list in C1) | Broken by **this PR's** archive step | Repoint to the archive path (C1) |
-| `docs/plans/current_spec.md` references across code/tests | 156 today; 132 remain after C1 and C10 | §9 sweep, plus a new convention: cite issue numbers, durable docs, or archive paths |
-| `internal/metrics/security_metrics.go` | Registers via `promauto` on the default registry, while `/metrics` serves a custom registry (`routes.go:223-227`) | §9 |
-
-### 2.10 Library evaluation (Decision C)
-
-Versions and dates come from `proxy.golang.org/<module>/@latest`. Licenses and `go.mod`
-files come from the upstream repos or the module cache.
-
-| Option | Version (date) | License | New modules | Algorithm | Hard memory cap | Background goroutine | Injectable clock | Verdict |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `golang.org/x/time/rate` | v0.16.0 (2026-08-19), **already a direct dep** | BSD-3 | 0 | token bucket | n/a (keyed store is ours) | none | **yes**: `AllowN(t,n)`, `TokensAt(t)` | ✅ algorithm |
-| `hashicorp/golang-lru/v2` → `simplelru` | v2.0.7 (2023-09-21); in `go.sum`, not in today's build graph | MPL-2.0 (already shipped via `hashicorp/yamux` v0.1.2) | 1 (zero requires of its own) | fixed-size LRU, not thread-safe (we hold the lock) | **yes** | none | n/a | ✅ store |
-| `golang-lru/v2` → `expirable` | v2.0.7 | MPL-2.0 | 1 | LRU+TTL | yes | **yes, never exits** (its source: "done channel is never closed, so deleteExpired() goroutine will never exit") | no | ❌ repeats 3b |
-| `go-chi/httprate` | v0.16.0 (2026-06-29) | MIT | `zeebo/xxh3`, `klauspost/cpuid/v2` | sliding-window counter | no (unbounded within a window) | none | no (`time.Now()` in `limiter.go`) | ❌ (borrow its IPv6 /64 rationale) |
-| `sethvargo/go-limiter` | v1.2.0 (2026-07-17) | Apache-2.0 | 0 | token bucket | no (`sync.Map`, swept) | sweeper, stoppable via `Close(ctx)` | no (internal `fasttime`) | ❌ |
-| `ulule/limiter/v3` | v3.11.2 (2023-05-24) | MIT | redis, fasthttp, gin 1.9.0, … | fixed window | cleanup interval | yes | no | ❌ stale, heavy |
-| `throttled/throttled/v2` | v2.15.0 (2025-08-23) | BSD | go-redis ×2, redigo, golang-lru v0.5.4 | GCRA | LRU | — | partial | ❌ heavy |
-
-**Decision: `x/time/rate` (algorithm) + `golang-lru/v2/simplelru` (bounded store) in a
-small `internal/ratelimit` package.**
-
-- The design relies on two facts from `x/time@v0.16.0`:
-  - `AllowN` consumes tokens only on success.
-  - `Reservation.CancelAt` cannot refund a reservation whose act-time has passed
-    (`rate.go:169-181`).
-- `backend/.golangci.yml` and `.golangci-fast.yml` have no `depguard`/`gomodguard` rules
-  that could block the new module (verified).
-- Fallback if a new module is rejected: `container/list` plus a map (~50 lines). See Q2.
-
-### 2.11 Precedent for budgets
-
-Vaultwarden's shipped `.env.template` defaults are `LOGIN_RATELIMIT_SECONDS=60` and
-`LOGIN_RATELIMIT_MAX_BURST=10`. That is a per-IP GCRA, and its budget is shared by login
-and 2FA. The login budget below matches it exactly.
-
-### 2.12 Password-verifying routes outside `/auth`
-
-There are exactly four production call sites of `models.User.CheckPassword` (repo-wide
-grep):
-
-| Call site | Route | When it verifies |
-| --- | --- | --- |
-| `AuthService.Login` (`auth_service.go:85`) | `POST /api/v1/auth/login` | always |
-| `AuthService.ChangePassword` (`auth_service.go:127`) | `POST /api/v1/auth/change-password` | always |
-| `UserHandler.UpdateProfile` (`user_handler.go:332`) | `POST /api/v1/user/profile` (`routes.go:378`, any authenticated user) | only when the email changes (`user_handler.go:326-336`) |
-| `CertificateHandler.Export` (`certificate_handler.go:366`) | `POST /api/v1/certificates/:uuid/export` (`routes.go:1020`, admin-only) | only when `include_key` is true (`certificate_handler.go:336-369`) |
-
-Private-key export currently answers `403` before reaching verification: the handler reads
-a context value that the auth middleware never sets (`certificate_handler.go:342`). That
-is a separate functional bug, listed in §9.
-
----
+`idx_heartbeat_lookup (monitor_id, status, created_at)` has no Go query filtering on `status` with `monitor_id`. Not part of this feature. Track as its own `perf:`/`fix:` PR: audit raw SQL with `EXPLAIN QUERY PLAN` on a populated scratch DB (`uptime_summary_service.go` window function, dashboard queries); note that after #1423, dropping it makes `idx_heartbeat_monitor_created` the only `monitor_id`-prefix index; the drop must be sequenced after the pruner's `ensureIndex` succeeded (same latch pattern as `redundantIndexDropped`); plan-pin tests assert an index whose leading column is `monitor_id`, not one specific composite. With this feature the freed space is returned automatically.
 
 ## 3. Technical Specifications
 
-### 3.1 Decision summary
+### 3.1 Package layout
 
-| # | Decision | Summary |
-| --- | --- | --- |
-| A | Route coverage | Explicit `api.Group("/auth")` with one group middleware and one classification table. **`login` class** (one shared bucket per client): login, change-password, and the password branches of profile update and key export (in-handler guard). **`session` class**: refresh and status. **Exempt**: verify, me, logout, accessible-hosts, check-host. Future `/auth` routes default to `session`; a two-way inventory test and a password-check tripwire fail until new routes are classified. §3.2 |
-| B | Relationship to Cerberus | One shared `ratelimit.KeyedLimiter`. The Cerberus limiter migrates to it, and every weakness in §2.3 is fixed in one hardening commit (C5). The auth throttle is always on, independent of Cerberus. Both run in sequence (§3.9) |
-| C | Algorithm/library | Token bucket via `x/time/rate` + `simplelru`. This deliberately deviates from the issue's "sliding window" wording; §3.3 gives the equivalence |
-| D | Keying | `ratelimit.ClientKey(c.ClientIP())`: IPv4 per address, IPv6 /64, otherwise a fail-closed `unknown`. Gin semantics apply to trusted and untrusted peers. §3.4 |
-| E | Shared-address failure modes | Two cases: **untrusted proxy** (detectable) and **runtime NAT** (undetectable from headers). The severity is stated plainly. Mitigations: detector, admin card with self-check, docs, kill switch, short `Retry-After`. Device cookies are the first follow-up (M2). §3.5 |
-| F | Configuration | Env vars only, via `internal/config`. The struct's zero value is secure. Values are bounded, invalid values fall back to the default with a WARN, and an unrecognized `ENABLED` value logs a WARN. E2E stacks set explicit test-only values, and the spec self-guards with an effectiveness probe. §3.6 |
-| G | Contract/observability | `429` + `Retry-After` + one generic message for both limiters. **No** `RateLimit-*` headers. Capped per-episode WARNs, and `charon_auth_rate_limited_total{class}`. No audit rows. Notifications deferred. §3.8 |
-| H | Ordering | … → `OptionalAuth` → Cerberus limiter → `cerb.Middleware()` (ACL) → **auth throttle** → `AuthMiddleware` → handler. Emergency bypass skips it, via a shared exported helper. §3.9 |
-| I | Other credential-bearing routes | `/setup` and `/invite/*` are out of scope (§3.10). Password-verifying routes outside `/auth` are **in** scope (A) |
-| J | Tests | §4.4 matrix: fake-clock units, `-race`, memory cap, route inventory, group-ordering guard, password tripwire, trusted-proxy tests, metric deltas, Vitest, Playwright (`fixme` first). Coverage gate is ≥ 87% |
-| K | Docs | Two new durable docs, a compose hint, the forward-auth docs correction, runtime-NAT guidance, and a process note on disclosure (§4.5) |
-| L | Admin visibility | Admin-only `GET /api/v1/security/login-protection` plus a Security-dashboard **card** (recommended placement; M8). Peer addresses appear only there. Guidance is scope-aware and never suggests trusting a public peer. §3.12, §3.13 |
-| M | Effective proxy trust | `CHARON_TRUSTED_PROXIES` is validated once in `config.Load` with Gin's rules. Any invalid entry yields an empty list plus a WARN, so all consumers agree. A trust-all WARN mirrors Gin's check. §3.7 |
+New package `backend/internal/dbmaint` (keeps `database` thin). **Dependency direction (L12):** `internal/database` has no `dbmaint` import (it only exposes the quick_check registry and `Connect`); `internal/services` (pruner, backup service) depend on `dbmaint` only through small interfaces they declare (drain/advise function seams, a `Deferring() bool` hook), never on concrete `dbmaint` types; `dbmaint` may import `database` for the quick_check accessor. `routes`/`main` wire the concrete types.
 
-### 3.2 Route coverage and budgets (Decision A)
-
-**Restructure.** Replace the individual registrations at `routes.go:319-323` and
-`routes.go:371-376` with one explicit group:
-
-- `auth := api.Group("/auth")` with `auth.Use(authRateLimiter.Middleware())`.
-- Public: `POST /login`, `GET /verify`, `GET /status`.
-- `authSession := auth.Group("", authMiddleware)` for logout, refresh, me,
-  change-password, accessible-hosts and check-host.
-- **Ordering matters.** Gin copies the parent's handler chain when a child group is
-  created, so `auth.Use(...)` must run **before** `auth.Group(...)`. A route test proves
-  `/auth/refresh` is throttled as `session` (§4.4).
-- Each moved route's chain is otherwise unchanged. The old `protected` group carried only `authMiddleware`.
-
-| Route | Class | Rationale |
-| --- | --- | --- |
-| `POST /api/v1/auth/login` | `login` | Credential guessing; expensive password verification |
-| `POST /api/v1/auth/change-password` | `login` (same bucket) | Verifies the account password. One bucket means every password verification from a client draws on one budget, so alternating routes doesn't raise the guess rate (Vaultwarden shares login+2FA the same way) |
-| `POST /api/v1/user/profile` (email change only) | `login` (same bucket, in-handler guard) | Verifies the account password (§2.12) |
-| `POST /api/v1/certificates/:uuid/export` (`include_key` only) | `login` (same bucket, in-handler guard) | Verifies the account password (§2.12) |
-| `POST /api/v1/auth/refresh` | `session` | Mints tokens. The issue calls out token/refresh endpoints; this bounds token-minting floods |
-| `GET /api/v1/auth/status` | `session` | Public token oracle returning user info; no UI caller |
-| `GET /api/v1/auth/verify` | exempt | Designed as a forward-auth subrequest target. Per-IP limits would key every proxied request on the proxy's address. Verifies HS256 JWTs only |
-| `GET /api/v1/auth/me` | exempt | SPA bootstrap and post-login fetch (§2.1) |
-| `POST /api/v1/auth/logout` | exempt | Security-positive |
-| `GET /api/v1/auth/accessible-hosts` | exempt | Authenticated read; no secret verified |
-| `GET /api/v1/auth/check-host/:hostId` | exempt | Authenticated read |
-| any future `/api/v1/auth/*` route | `session` (fail-safe) | The inventory test fails until it is explicitly classified |
-
-| Class | Default budget | Token-bucket form | Max `Retry-After` | Long-run ceiling per client |
-| --- | --- | --- | --- | --- |
-| `login` | 10 requests per 600 s | burst 10, +1 token every 60 s | 60 s | ≤ 1,450/day |
-| `session` | 60 requests per 60 s | burst 60, +1 token every 1 s | 1 s | 1/s sustained |
-
-**Interplay with lockout.** The per-client `login` budget (10) is above the per-account
-lockout threshold (5), so a single-account sequence still hits the lockout first, with
-unchanged UX. Spreading attempts across accounts from one client is capped at 10, then
-one per minute.
-
-#### 3.2.1 Guarding password verification outside `/auth`
-
-These routes verify a password only on some requests, so a per-route middleware would
-charge unrelated requests (such as a name-only profile edit) against the login budget.
-The guard therefore sits **just before each password branch**.
-
-- **New interface** in the handlers package:
-  `type PasswordAttemptGuard interface { AllowPasswordAttempt(c *gin.Context) bool }`.
-  It returns `false` after writing the standard `429`.
-- **Setters:** `(*UserHandler).SetPasswordAttemptGuard(g)` and
-  `(*CertificateHandler).SetPasswordAttemptGuard(g)`. A nil guard allows everything, which
-  keeps existing unit tests working. `routes.go` wires `authRateLimiter` into both.
-- **Guard placement:**
-  - `UpdateProfile`: inside `if req.Email != user.Email`, after the empty-password check and
-    before `CheckPassword`.
-  - `Export`: first statement inside `if req.IncludeKey`. It therefore runs before (and
-    independently of) the unrelated context-key bug in §2.12.
-- **Implementation:** `(*AuthRateLimiter).AllowPasswordAttempt` uses the same `login`
-  limiter, key, emergency-bypass skip, disabled pass-through, logging and metric as the middleware.
-
-### 3.3 Shared limiter component (Decisions B and C)
-
-New leaf package `backend/internal/ratelimit/`. It imports `util`, `gin`,
-`x/time/rate`, `golang-lru/v2/simplelru` and `net/netip`.
-
-| File | Contents |
+| File | Responsibility |
 | --- | --- |
-| `doc.go` | Package doc: algorithm, memory bound, no-goroutine guarantee, "sliding window" equivalence |
-| `limiter.go` | `Config`, `Decision`, `KeyedLimiter`, `NewKeyedLimiter`, `MustNewKeyedLimiter`, `Allow`, `Reconfigure`, `Len`, `PerWindow` |
-| `key.go` | `ClientKey`, `UnknownClientKey`, `AddrScope`, `ClassifyAddr` |
-| `http.go` | `TooManyRequestsMessage`, `RetryAfterSeconds`, `Reject` |
-| `*_test.go` | See §4.4 |
-
-```go
-const DefaultMaxKeys = 10_000
-const UnknownClientKey = "unknown"
-const TooManyRequestsMessage = "Too many requests. Please wait before trying again."
-
-type Config struct {
-    Rate    rate.Limit       // tokens/second; must be > 0 and finite
-    Burst   int              // bucket capacity; must be >= 1
-    MaxKeys int              // hard cap on tracked keys; 0 => DefaultMaxKeys; < 0 invalid
-    Now     func() time.Time // clock; nil => time.Now (tests inject a fake)
-}
-
-type Decision struct {
-    Allowed     bool
-    RetryAfter  time.Duration // > 0 iff !Allowed
-    FirstDenial bool          // first denial since this key was last allowed ("episode start")
-}
-
-func NewKeyedLimiter(cfg Config) (*KeyedLimiter, error)
-// MustNewKeyedLimiter exists only because (*Cerberus).RateLimitMiddleware() (production) builds its
-// limiter from compile-time constants and has no error return; every other caller uses NewKeyedLimiter.
-func MustNewKeyedLimiter(cfg Config) *KeyedLimiter
-func (k *KeyedLimiter) Allow(key string) Decision
-func (k *KeyedLimiter) Reconfigure(r rate.Limit, burst int) error // no-op if unchanged; else resets all buckets
-func (k *KeyedLimiter) Len() int
-func PerWindow(requests int, window time.Duration) (rate.Limit, int) // (float64(N)/W.Seconds() per s, burst N)
-
-type AddrScope string // "loopback" | "private" | "public"
-func ClassifyAddr(a netip.Addr) AddrScope // private: RFC 1918, ULA fc00::/7, CGNAT 100.64.0.0/10, link-local
-func ClientKey(clientIP string) string
-func RetryAfterSeconds(d time.Duration) int // round to ms, ceil to s, min 1
-func Reject(c *gin.Context, d Decision)     // Retry-After + AbortWithStatusJSON(429, gin.H{"error": TooManyRequestsMessage})
-```
-
-`Decision.Remaining` from revision 1 is removed: no production code would read it.
-
-Behavior (normative):
-
-1. **`Allow(key)` runs under one mutex.**
-   1. Run the amortized sweep (step 4).
-   2. `lru.Get(key)`, or create `rate.NewLimiter(Rate, Burst)` and `lru.Add` it.
-      `Add` evicts the least-recently-used key when full.
-   3. Set `entry.lastSeen = now`.
-   4. Call `lim.AllowN(now, 1)`.
-2. **Denials don't consume.** A denied request consumes nothing, so a client that retries
-   early never pushes its own wait further out.
-3. **`RetryAfter`** is `(1 − lim.TokensAt(now)) / Rate`. `RetryAfterSeconds` rounds it to
-   milliseconds before taking the ceiling, so 10 per 600 s yields exactly `60`. The minimum is 1.
-4. **Sweep.** At most once per `min(idleTTL, 1m)`, walk from the LRU tail and remove entries
-   idle ≥ `idleTTL = Burst / Rate` (the full-refill time).
-   - A fully refilled bucket is indistinguishable from a new one, so the sweep is lossless.
-   - Invariant: LRU order equals `lastSeen` order.
-5. **`FirstDenial`.** Each entry carries a `denied` flag. A denial sets it; the next allowed request clears it.
-6. **No goroutines, tickers or timers.** Nothing needs shutting down.
-7. **Memory** is about 250 B per tracked client:
-   - ≤ ~2.5 MB per limiter at `DefaultMaxKeys`;
-   - ≤ ~10 MB for the four instances together (auth login, auth session, Cerberus API,
-     Cerberus health) under a large distributed flood.
-8. **Eviction.** An attacker would need more than 10,000 distinct IPv4 addresses or IPv6 /64s
-   to evict its own depleted bucket. At that scale it already has a fresh bucket per address,
-   so eviction adds no capability.
-
-**Why a token bucket instead of "sliding window."** With burst N and refill N/W, any
-interval of length T admits at most `N + T·N/W` requests, so there is no fixed-window
-boundary doubling. Beyond that, the token bucket:
-
-- keeps constant state per client;
-- gives an exact `Retry-After`;
-- is already used by the codebase and by Vaultwarden.
-
-### 3.4 Keying and client-IP resolution (Decision D)
-
-`ClientKey(ip)` works as follows:
-
-1. Canonicalize with `util.CanonicalizeIPForSecurity`.
-2. Parse with `netip.ParseAddr`, then `Unmap()`.
-3. For IPv4, return the address string.
-4. For IPv6, return `netip.PrefixFrom(addr.WithZone(""), 64).Masked().String()`.
-5. For empty or unparsable input, return `UnknownClientKey`.
-
-Note that Gin's `ClientIP()` already returns `""` for zoned IPv6 peers (§2.4), so such peers
-share `unknown`. Link-local peers are only possible on the same L2 segment; this is documented.
-
-- **IPv6 /64.** httprate v0.16.0's docs give the rationale: an IPv6 client typically controls
-  a whole /64. The prefix is not configurable (§9).
-- **IPv4** is keyed per address.
-- **Trust semantics** follow §2.4:
-  - untrusted peers' forwarded headers never affect the key;
-  - behind a trusted proxy, the key is the rightmost untrusted XFF hop.
-
-### 3.5 Shared-address failure modes (Decision E)
-
-A per-client budget is only as good as the client address. There are two ways many
-clients can collapse into one key.
-
-#### 3.5.1 Untrusted proxy in front of the UI (detectable)
-
-**Problem.** The UI is reached through a reverse proxy (an external nginx/Traefik/load
-balancer, or a user-created self-proxy host, §2.4), but `CHARON_TRUSTED_PROXIES` doesn't
-list it. Every client then resolves to the proxy's address.
-
-**Detector.** In the auth middleware, and in `AllowPasswordAttempt`, for every request
-(including exempt routes, since `/auth/me` fires on each page load):
-
-- **Condition:** `X-Forwarded-For` or `X-Real-IP` is present **and** the peer is **not**
-  contained in the effective trusted prefixes.
-  - The peer is `netip.ParseAddr(c.RemoteIP())`, zone stripped, `Unmap()`.
-  - The effective prefixes are the same validated list Gin uses (§3.7). Comparisons use
-    parsed `netip` values, never strings.
-- **Trusted peer, malformed header.** A trusted peer that sends a malformed forwarded
-  header is **not** counted; it is logged at DEBUG. (Gin tries `X-Real-IP` next and only
-  then falls back to the peer address, per §2.4.1.)
-- **Recorded state, per scope** (mutex-protected, process lifetime). Observations are
-  classified with `ratelimit.ClassifyAddr` into two independent records: **local**
-  (loopback or private peers) and **public**. Each record keeps its own:
-  - `count` (uint64);
-  - `last_seen` (time);
-  - `last_peer` (address; for local, also whether it was loopback or private);
-  - WARN limiter.
-
-  Public noise therefore never overwrites or masks the local record that signals a
-  misconfigured proxy.
-- **WARN** at most once per 15 minutes **per scope** (a `rate.Limiter` with burst 1 on the
-  injected clock). The text is **scope-aware**:
-  - **loopback/private peer:** "Sign-in requests carry forwarded client-address headers
-    from `<peer>`, which is not a trusted proxy, so every visitor behind it shares one sign-in
-    budget. If `<peer>` is your reverse proxy, add `<peer>/32` (IPv4) or `<peer>/128` (IPv6)
-    to `CHARON_TRUSTED_PROXIES`. See docs/configuration/trusted-proxies.md."
-  - **public peer:** "Ignored forwarded client-address headers sent from a public address
-    that is not a trusted proxy. This is usually a client sending forged headers and needs
-    no action. See docs/configuration/trusted-proxies.md."
-  - For a public peer, the text **never** suggests trusting the address, because anyone can
-    trigger it by sending the header directly.
-
-#### 3.5.2 Runtime NAT (not detectable from headers)
-
-**Problem.** Some runtimes and load balancers hide the client's source address *without*
-adding a forwarded header (§2.4). Every client arrives from one internal address, for example:
-
-- rootless Docker without source-IP propagation;
-- rootless Podman's `rootlesskit`/`rootlessport` forwarders;
-- some VM-based desktop runtimes;
-- source-NAT load balancers.
-
-In these setups:
-
-- the detector sees nothing;
-- `CHARON_TRUSTED_PROXIES` cannot help, because there is no header to trust;
-- the `login` budget becomes one global bucket.
-
-**Remedies** (documented in `login-protection.md` and the troubleshooting entry):
-
-1. Switch the runtime to a mode that preserves client addresses:
-   - rootless Docker with RootlessKit ≥ v3.0: `"userland-proxy": false` plus `br_netfilter`;
-   - older rootless Docker: the `slirp4netns` port driver, or `pasta` with `implicit`;
-   - Podman: pasta mode, or `port_handler=slirp4netns`.
-2. Put a host-level reverse proxy in front of the UI. It sees real client addresses and
-   appends them to `X-Forwarded-For`. Then list that proxy in `CHARON_TRUSTED_PROXIES`.
-3. As a last resort, set `CHARON_AUTH_RATELIMIT_ENABLED=false` (logged as a WARN).
-
-**Self-check.** The admin card (§3.13.3) shows "Charon sees your browser as `<address>`
-(`<scope>`)". If that isn't the device's real address, the deployment is in this mode or
-behind an untrusted proxy.
-
-#### 3.5.3 Severity (stated plainly)
-
-When all clients share one key, one client can keep sign-in closed for **every** account at
-once. It needs no account name, and about one request per minute (after an initial burst of
-10) sustains the lockout. That makes the failure mode **strictly broader** than any
-per-account control. The risk table rates it High (§7, RK1 and RK2).
-
-#### 3.5.4 Mitigations adopted
-
-1. The detector (§3.5.1), with admin-only visibility (§3.12, §3.13.3) and capped WARNs.
-2. A human-scale budget with a short refill (`Retry-After` ≤ 60 s): innocent users recover
-   within a minute once the traffic stops.
-3. Documentation:
-   - a new `docs/configuration/trusted-proxies.md`;
-   - runtime-NAT guidance in `docs/features/login-protection.md`;
-   - a troubleshooting entry covering both cases;
-   - a commented `CHARON_TRUSTED_PROXIES` hint in the user-facing compose file.
-4. The login-page 429 notice includes a generic pointer for administrators (§3.13.2).
-5. Escape hatches:
-   - fix the proxy trust list or the runtime mode (the root cause);
-   - restart, which clears the in-memory buckets;
-   - the Tier-1 emergency token and Tier-2 server, which are never throttled;
-   - the kill switch.
-6. The first follow-up (M2): per-browser device cookies alongside per-IP buckets. This
-   directly addresses shared-address setups.
-
-#### 3.5.5 Rejected alternatives
-
-- **Count only failed attempts.** `x/time/rate` cannot refund an acted reservation
-  (§2.10). A peek-then-consume design lets concurrent requests pass one token's check.
-  It also doesn't remove the shared-key effect, because the pre-verification gate still
-  blocks everyone behind the key.
-- **An IP+username dimension.** It doesn't reduce the per-IP lever. It requires reading and
-  restoring the JSON body in middleware. The per-account lockout already covers the
-  per-username dimension.
-
-### 3.6 Configuration (Decision F)
-
-**Env vars only (no DB setting, no UI editing), for these reasons:**
-
-1. Secure-by-default with zero config.
-2. Login-protection parameters are infrastructure policy; changing them should require host
-   access, not only an admin session.
-3. No per-request settings read on the auth path.
-4. It stays coupled to `CHARON_TRUSTED_PROXIES`, which is also env-only.
-5. Scope.
-
-| Env var | Default | Bounds | Invalid value → |
-| --- | --- | --- | --- |
-| `CHARON_AUTH_RATELIMIT_ENABLED` | `true` | `true` / `false` (case-insensitive) | any other non-empty value: **stays enabled** + startup WARN ("unrecognized value") |
-| `CHARON_AUTH_RATELIMIT_LOGIN_REQUESTS` | `10` | 1–10,000 | default + startup WARN |
-| `CHARON_AUTH_RATELIMIT_LOGIN_WINDOW` | `600` (seconds) | 1–86,400 | default + startup WARN |
-| `CHARON_AUTH_RATELIMIT_SESSION_REQUESTS` | `60` | 1–10,000 | default + startup WARN |
-| `CHARON_AUTH_RATELIMIT_SESSION_WINDOW` | `60` (seconds) | 1–86,400 | default + startup WARN |
-
-Naming follows `CHARON_SECURITY_RATELIMIT_{REQUESTS,WINDOW}` (one-word `RATELIMIT`, window
-in integer seconds). There are no `CERBERUS_*` or `CPM_*` aliases.
-
-```go
-// AuthRateLimitConfig configures the always-on throttle. Its zero value is the secure
-// default (enabled, default budgets), so any hand-built config.Config is protected.
-type AuthRateLimitConfig struct {
-    Disabled         bool // set only by CHARON_AUTH_RATELIMIT_ENABLED=false
-    LoginRequests    int  // 0 = default; -1 = malformed or non-positive env value
-    LoginWindowSec   int
-    SessionRequests  int
-    SessionWindowSec int
-}
-
-func (c AuthRateLimitConfig) Normalize() (AuthRateLimitConfig, []string) // pure: defaults + warnings
-// SecurityConfig gains: AuthRateLimit AuthRateLimitConfig
-// Config gains:         StartupWarnings []string
-// New helper: getEnvIntStrictAny(keys ...string) int — unset => 0, valid positive int => value,
-// set-but-non-integer or <= 0 => -1 (so Normalize warns instead of silently defaulting).
-```
-
-- **Constants.** Defaults `10/600/60/60`, plus the bounds above, are exported. `Normalize`
-  maps `0` to the default silently, and `-1` or out-of-bounds values to the default with a
-  warning that names the variable.
-- **Why `Disabled`.** `routes_test.go` builds `config.Config{JWTSecret: "test-secret"}` 56
-  times. An `Enabled bool` field would zero-value to off and fail open.
-- **Startup warnings.** `config.Load` appends every configuration warning to
-  `Config.StartupWarnings`:
-  - auth-throttle normalization;
-  - an unrecognized `ENABLED` value;
-  - trusted-proxy validation and trust-all (§3.7).
-
-  `cmd/api/main.go` logs each at WARN right after `logger.Init`. `RegisterWithDeps` logs one
-  INFO line with the effective policy, e.g.
-  `auth throttle: login 10/600s, session 60/60s per client; trusted proxies: 0`,
-  and a WARN when the throttle is disabled. `middleware.NewAuthRateLimiter` also normalizes
-  (idempotently) for hand-built configs.
-
-**E2E stacks.** Add the same block to both `.docker/compose/docker-compose.playwright-ci.yml`
-and `docker-compose.playwright-local.yml`:
-
-```yaml
-      # --- E2E-only auth throttle settings (issue #1317) -----------------------------------------
-      # All Playwright workers share one source address and fixtures log in far more often than a
-      # human, so this TEST stack relaxes the budgets. Production defaults are unchanged and pinned by
-      # Go unit tests.
-      - CHARON_AUTH_RATELIMIT_LOGIN_REQUESTS=300
-      - CHARON_AUTH_RATELIMIT_LOGIN_WINDOW=60
-      - CHARON_AUTH_RATELIMIT_SESSION_REQUESTS=600
-      - CHARON_AUTH_RATELIMIT_SESSION_WINDOW=60
-      # Trust the runner's peer (Docker bridge, rootless port driver, loopback, Tailscale, IPv6 ULA)
-      # so tests/core/auth-rate-limit.spec.ts can give each test its own client identity via
-      # X-Forwarded-For. Requirements: PLAYWRIGHT_BASE_URL must be an IP literal or localhost
-      # (for trusted peers, session-cookie decisions read the Host header), and no spec may send
-      # X-Forwarded-For/X-Real-IP/X-Forwarded-Proto/X-Forwarded-Host except auth-rate-limit.spec.ts.
-      # NEVER trust whole private ranges in production.
-      - CHARON_TRUSTED_PROXIES=127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7
-```
-
-- There is no `CHARON_ENV`-based relaxation anywhere.
-- The stale comment at `playwright-local.yml:34` is corrected to the real effects listed in §2.7.
-- The spec self-guards with an effectiveness probe (§4.1).
-
-### 3.7 Effective proxy trust (Decision M; R15)
-
-- **New pure helper** in `internal/config`:
-  `ValidateTrustedProxies(entries []string) (effective []string, warnings []string)`.
-  It mirrors `gin.Engine.prepareTrustedCIDRs` (`gin.go:414-441`):
-  - trim each entry;
-  - a bare IP becomes `/32` (IPv4) or `/128` (IPv6);
-  - otherwise use `net.ParseCIDR`.
-- **All entries valid → the trimmed original strings are kept unchanged** in
-  `cfg.Security.TrustedProxies` (bare IPs are *not* rewritten to CIDRs).
-- **Any invalid entry → empty effective list** (trust nothing), plus a WARN naming the entry
-  and saying that no proxy is trusted until it is fixed.
-- **Trust-all WARN.** If any effective CIDR contains `0.0.0.0` or `::`, a WARN mirrors Gin's
-  `isUnsafeTrustedProxies` (`gin.go:456-459`). The list is still used, because it is the
-  operator's explicit choice.
-- **Single source of truth.** Every consumer receives the same effective list:
-  - Gin (`server.NewRouter`);
-  - the cookie logic (`NewAuthHandlerWithDB(..., cfg.Security.TrustedProxies)`). Its
-    `isTrustedPeer` switches from `security.IsIPInCIDRList` to the same `netip` prefix
-    matcher the detector uses (parsed once at construction), so loopback is no longer
-    treated as interchangeable across IPv4/IPv6 for proxy trust and all consumers agree;
-  - the throttle's detector;
-  - the admin status (`trusted_proxy_count`).
-- `server.NewRouter`'s own invalid-entry fallback stays as defense in depth for hand-built configs.
-- **Behavior change (documented in `trusted-proxies.md` and the release notes).**
-  - Before: one invalid entry made client-address resolution trust no proxy, while the
-    session-cookie HTTPS detection still honored the valid entries.
-  - Now: both trust no proxy, and a startup WARN says so.
-  - Also: session-cookie proxy trust no longer treats `127.0.0.1` and `::1` as
-    interchangeable. An operator whose proxy connects over IPv6 loopback must list
-    `::1/128` (and `127.0.0.1/32` for IPv4 loopback) explicitly.
-- **Tests:**
-  - `TestLoad_TrustedProxies` (`config_test.go:305-327`) is unchanged and gains one case:
-    an invalid entry → `[]` + WARN in `StartupWarnings`. New `TestValidateTrustedProxies_*`
-    cover bare IPv4/IPv6, CIDR, whitespace, and the trust-all warning for `0.0.0.0/0`,
-    `::/0` and `0.0.0.0/1`.
-  - `TestIsTrustedPeer` keeps its cases (malformed entries are still skipped defensively)
-    and gains loopback cases proving `::1/128` does not trust `127.0.0.1` and vice versa,
-    matching Gin.
-  - `server_test.go`'s fallback test is unchanged.
-
-### 3.8 Response contract and observability (Decision G)
-
-The 429 contract applies to both limiters and to the password guard, via `ratelimit.Reject`:
-
-```http
-HTTP/1.1 429 Too Many Requests
-Retry-After: 60
-Content-Type: application/json; charset=utf-8
-
-{"error":"Too many requests. Please wait before trying again."}
-```
-
-- One message for every class and route. It echoes no request fields.
-- `Retry-After` is in integer seconds, ≥ 1 (RFC 9110 §10.2.3; RFC 6585 §4).
-- **No `RateLimit-*` headers.** The IETF spec is still an Internet-Draft
-  (`draft-ietf-httpapi-ratelimit-headers-11`, 23 May 2026), whose field names changed across
-  revisions. Advertising the remaining login budget would help pace guesses, and the UI
-  needs only `Retry-After`.
-
-**Logs** use `middleware.GetRequestLogger(c)`:
-
-| Event | Level | Fields | Volume control |
-| --- | --- | --- | --- |
-| Effective policy | INFO | budgets, trusted-proxy count | once at startup |
-| Config warnings (§3.6, §3.7) | WARN | variable/entry, reason | once at startup |
-| First denial of an episode | WARN | `class`, `client` (sanitized key), `route` (`c.FullPath()` template), `retry_after_seconds`, `suppressed` (count since the last emitted WARN) | **global cap**: a process-wide `rate.Limiter` (burst 10, 10/min) shared by all classes; over the cap, episodes log at DEBUG and increment `suppressed` |
-| Repeat denials | DEBUG | same | — |
-| Untrusted forwarded headers | WARN | peer (sanitized), scope, count | ≤ 1 per 15 min (§3.5.1) |
-
-The Cerberus limiter adopts the same episode scheme with its own cap (fixes 3d). No log
-line ever contains emails, usernames, passwords, tokens, cookies or bodies.
-
-**Metric.** `charon_auth_rate_limited_total{class="login"|"session"}` is added to
-`internal/metrics/metrics.go` and registered in `metrics.Register` (the registry `/metrics`
-serves). `/metrics` is unauthenticated, so there are no client labels. Tests assert
-**deltas** via `prometheus/testutil.ToFloat64`, since the counters are package-global.
-
-**Audit rows: none.** `LogAudit` falls back to synchronous DB writes when its 100-slot channel
-is full (`services/security_service.go:239-263`), and throttle events are attacker-driven.
-
-**Notifications: deferred** (§9). The current pipeline dispatches synchronously, is gated
-and Discord-only, and has different toggle semantics.
-
-### 3.9 Middleware ordering and wiring (Decision H)
-
-```text
-gin Logger/Recovery → RequestID → RequestLogger → Recovery(debug)
-→ EmergencyBypass → gzip → SecurityHeaders
-→ [api]  OptionalAuth → cerb.RateLimitMiddleware() (opt-in) → cerb.Middleware() (ACL …)
-→ [auth] AuthRateLimiter.Middleware()   ← NEW (detector always; throttle unless exempt/bypass/disabled)
-→ [authSession only] AuthMiddleware
-→ handler
-```
-
-- **After `cerb.Middleware()`:** an ACL deny wins and doesn't consume auth budget.
-- **Before `AuthMiddleware`:** unauthenticated floods on session-class and password routes are
-  counted per client. Only the sender is affected.
-- **Before every handler (R2).**
-- **Emergency bypass.** Export `middleware.EmergencyBypassContextKey` and
-  `middleware.IsEmergencyBypass(c *gin.Context) bool` (an ok-form assertion).
-  - Setter: `EmergencyBypass` uses the constant.
-  - Readers: `AuthMiddleware` and `OptionalAuth` (replacing the inline copies at
-    `auth.go:14-21` and `optional_auth.go:16-21`), the new throttle, and Cerberus
-    (`rate_limit.go`, `cerberus.go:155`, fixing 3g).
-  - There is no import cycle: none of `api/middleware`'s imports reach `internal/cerberus` (verified).
-- **Two limiters on one request.** Independent buckets; whichever denies first answers.
-  Bodies are identical, and each sends its own `Retry-After`. The control-plane exemption
-  applies only to Cerberus.
-- **Wiring in `RegisterWithDeps`:**
-  1. `authRateLimiter, err := middleware.NewAuthRateLimiter(cfg.Security.AuthRateLimit, cfg.Security.TrustedProxies)`.
-     An error fails startup closed.
-  2. Register the `/auth` group (§3.2).
-  3. `userHandler.SetPasswordAttemptGuard(authRateLimiter)` and
-     `certHandler.SetPasswordAttemptGuard(authRateLimiter)`.
-  4. Register the admin endpoint on `securityAdmin` (§3.12).
-
-### 3.10 Other unauthenticated routes (Decision I)
-
-| Route | In scope? | Reason |
+| `dbmaint/constants.go` | All thresholds and settings keys (below) |
+| `dbmaint/inspect.go` | `Inspect(ctx, conn) (Stats, error)`: `page_size`, `page_count`, `freelist_count`, `auto_vacuum`, main and WAL file sizes |
+| `dbmaint/plan.go` | `Plan(ctx, db, cfg) PlanResult` (I/O: env, flag, attempts, `Inspect`, disk report) and `Decide(inputs) Decision` (pure, table-tested; steps 1-4 and 6 of 3.3). Steps 5 and 7 are evaluated by the runner |
+| `dbmaint/advise.go` | `Advise(ctx, db, cfg) Advice`: the post-prune re-evaluation of 3.3a (Inspect + `Decide` dry run; no writes) |
+| `dbmaint/convert.go` | `Convert(ctx, db, path, gate, progress)`: as shipped, VACUUM-only (writer-lock probe, `PRAGMA auto_vacuum=2`, `VACUUM`). Checkpointing with bounded retry and the file-size verification live in `Run` (`runner.go`) |
+| `dbmaint/drain.go` | `Drain(ctx, db, budget)`: bounded `incremental_vacuum` steps issued with `QueryContext`, **all rows iterated, then `rows.Close()` before any other pool query** (never `Exec`, 2.4) + checkpoint whose result is read from the `busy` column (pruner only; the boot path never drains) |
+| `dbmaint/gate.go` | `Gate`: state machine, readiness signals, `WaitIdle`, `Deferring`, HTTP middleware |
+| `dbmaint/runner.go` | `Run(ctx, deps) Outcome`: the testable maintenance goroutine body |
+| `dbmaint/diskspace.go` | Free-space and same-filesystem helpers (shared with backup service) |
+| `dbmaint/tmpdir.go` | Temp-directory preparation (`Lstat`/symlink refusal, `0700`, ownership) and the path the free-space check uses (3.5) |
+| `internal/api/handlers/database_maintenance_handler.go` | Status and flag endpoints |
+
+Constants (named, in `constants.go`, unit-tested through `Decide`):
+
+| Constant | Value | Meaning |
 | --- | --- | --- |
-| `POST /setup`, `GET /setup` | No | Setup refuses once any user exists (`user_handler.go:141-150`, recheck at :199), and there is no secret to guess |
-| `GET /invite/validate`, `POST /invite/accept` | No | Tokens are 32 random bytes (`user_handler.go:494-500`), and password hashing runs only after a valid-token match. §9 lists optional defense-in-depth |
-| `POST /security/events`, OAuth callback, `/emergency/*` | No | Own auth schemes; break-glass must never be throttled |
+| `MinFreeRatio` | `0.20` | Convert only when at least 20% of pages are free |
+| `MinReclaimableBytes` | `100 << 20` | Hard floor |
+| `ReclaimableTriggerBytes` | `1 << 30` | ... OR at least 1 GiB reclaimable even below 20% free (floor still applies) |
+| `DiskSafetyMultiplier` / `DiskSlackBytes` | `1.15` / `64 << 20` | Headroom |
+| `DrainPagesPerStep` | `2000` | Pages per `incremental_vacuum(N)` (about 8 MB at 4 KB) |
+| `DrainStepPause` | `50 ms` | Yield between steps |
+| `DrainBudgetPerPass` | `60 s` | Max wall time per pruner pass |
+| `KeepFreeBytes` | `32 << 20` | Free-list floor left in place |
+| `MaxConvertAttempts` | `3` | Consecutive **failed** attempts (cancel-driven interruptions excluded) before backing off until the flag is set |
+| `PlannedMaxWait` | `3 min` | Longest the gate stays `planned` waiting for the two readiness signals (excludes the `quick_check` wait) |
+| `QuickCheckMaxWait` | `15 min` | Longest the runner waits, still in `planned`, for the boot `quick_check` once both signals arrived. Worst case in `planned` = `PlannedMaxWait + QuickCheckMaxWait` |
+| `ConnAcquireTimeout` | `45 s` | Max wait for `sqlDB.Conn(ctx)` in `checking` (and for the conversion connection); on expiry skip as `database_busy` and go back to `idle`/`skipped` (3.4, 3.5) |
+| `ShutdownRunnerWait` | `4 s` | Bounded wait for the runner in the shutdown path, placed FIRST (before the uptime drain); sized against the 10 s Docker default stop grace (3.4 step 9) |
+| `MarkerWriteTimeout` | `3 s` | Detached context timeout for the final marker writes at shutdown (3.5) |
+| `CheckpointRetries` / `CheckpointBackoff` | `6` / `2 s` doubling, cap `30 s` | Bounded retry of `wal_checkpoint(TRUNCATE)` while a reader pins the WAL |
 
-### 3.11 Cerberus limiter changes (one hardening commit, C5)
+### 3.2 New databases and the pruner (steady state)
 
-**Migration:**
+1. In `database.Connect` (`database.go`), before the pragma loop (`:~81`) and before `journal_mode=WAL` (`:82`): if the database is empty (`SELECT count(*) FROM sqlite_master` == 0 **and** `PRAGMA page_count` == 0), execute `PRAGMA auto_vacuum=2`. Populated databases are untouched. The `migrate` CLI (`main.go:115`) and `reset-password` (`:194`) go through `Connect`, so a fresh file they create is also mode 2 (intended).
+2. `UptimePruner.tick` (`uptime_pruner.go:~118-147`): after a clean `pruneOnce` and the existing `ensureIndex`/`dropRedundantIndex` block, **when `PRAGMA auto_vacuum` == 2** and (`deleted > 0` or `freelist_count * page_size > KeepFreeBytes`): call `dbmaint.Drain` (each step is `db.WithContext(ctx).Raw("PRAGMA incremental_vacuum(2000)").Rows()` (or `QueryContext`) with **every row iterated to exhaustion**, then `rows.Close()` and `rows.Err()` checked **before the next pool query (M-c: with `MaxOpenConns(1)` an open `rows` blocks any other query until its context expires; alternatively run the whole pass on one pinned `sqlDB.Conn`)**, because the driver frees only ONE page per call when the statement is run through `Exec` (2.4); `DrainStepPause` between steps using the existing `sleepCtx`; stop at `DrainBudgetPerPass` or when free bytes <= `KeepFreeBytes`; abort on ctx; after each step (and after `rows.Close()`) measure the pages freed by the **`page_count` delta** and log a Warn (and continue) if a step freed fewer than `DrainPagesPerStep/2` pages while more than that remained, so a driver regression cannot silently turn the pass into a no-op; the `freelist_count` delta is deliberately NOT used for this check, because the stats ingester's concurrent inserts reuse free pages and would false-trigger it (L-b); the check is warn-and-continue only: it never stops the pass and is never an error), then `PRAGMA wal_checkpoint(TRUNCATE)` read via `QueryRow(...).Scan(&busy, &log, &checkpointed)` (best-effort, only if pages were freed; `busy=1` is logged at Debug and left to the next pass, it is not an error and `err` is nil in that case (2.4); `pruneOnce` already issues its own checkpoint for passes that delete >= `walCheckpointRowThreshold` rows at `:~199`, which stays). Each step is a short write transaction of about `DrainPagesPerStep` pages: no long lock. This is the only drain path.
+3. If `auto_vacuum` != 2 the pruner does not drain; instead it calls `Advise` (3.3a).
+4. Update the stale comment at `uptime_pruner.go:32-34` ("VACUUM is deliberately not used here; automatic compaction is tracked in GH #1422") to describe the new behavior, and the `UptimePruner` doc comment.
+5. The `UptimePruner` gets two small test seams mirroring the existing ones (`walRowThreshold`, `chunkPause`): an injectable drain/advise function so `tick` tests do not need a real vacuum.
 
-- `(*Cerberus).RateLimitMiddleware()` builds its `ratelimit.KeyedLimiter` with
-  `MustNewKeyedLimiter` from constant defaults. The health and api instances keep separate budgets.
-- Settings precedence moves into `effectiveRateLimit() (requests, windowSec, burst int)`,
-  with behavior unchanged.
-- Per request it calls
-  `limiter.Reconfigure(rate.Limit(float64(requests)/float64(windowSec)), burst)`. Note the
-  **float64 division**, because `requests`/`windowSec` are ints.
-- It then keys via `ratelimit.ClientKey`, rejects via `ratelimit.Reject` (adding
-  `Retry-After`), and logs capped per-episode WARNs.
-- `Cerberus` gains an unexported `now func() time.Time` for tests.
-- **Deleted:** `rateLimitManager`, `newRateLimitManager`, `cleanupLoop`, `cleanup`,
-  `getLimiter`, `NewRateLimitMiddleware`, and their tests. `TestRateLimitManager_*` and
-  `TestNewRateLimitMiddleware_*`, including `TestNewRateLimitMiddleware_BypassesControlPlaneBearerRequests`,
-  are removed in this same commit. Equivalent coverage moves to the `ratelimit` package tests.
+### 3.3 Existing databases: boot-time decision (`Plan`, `Decide`, and the runner's two late checks)
 
-**Exemption fix (R13):**
+- **`Plan` (synchronous, early, does I/O, never blocks or fails startup)**: called from `RegisterWithDeps` (3.4 step 1) through a wrapper `dbmaint.SafePlan` that has its own `defer recover()`: a panic or an error from `Plan` means **`idle` plus one Warn log** (the runner goroutine's `recover` does not cover this synchronous call). Persisted state read by `Plan` (attempts, in-progress marker, last result) is validated against the current database file (L5, below). Gathers env mode, the persisted flag and attempt counter (settings reads, validated), `Inspect` (a handful of PRAGMAs plus `os.Stat` on main and WAL) and the disk report, then calls the pure `Decide(inputs) Decision` (no I/O, no clock), which evaluates **steps 1-4 and 6**.
+- **Runner (`dbmaint.Run`, after readiness)**: evaluates **step 5** (boot `quick_check` result) and **step 7** (writer-lock probe, needs the pool's only connection).
 
-- `isAdminSecurityControlPlaneRequest` becomes a method. It returns true only when:
-  - `c.isAuthenticatedAdmin(ctx)` is true (role `admin` **and** userID > 0, both set only by
-    `OptionalAuth` after validation); **and**
-  - the decoded path matches `/api/v1/security`, `/api/v1/settings` or `/api/v1/config`
-    segment-aware (`p == prefix || HasPrefix(p, prefix+"/")`).
-- The bearer-prefix fallback is deleted.
-- `TestCerberusRateLimitMiddleware_ControlPlaneBypassWithBearerWithoutRoleContext` becomes
-  `_UnvalidatedBearerIsLimited`. New tests: `_ValidNonAdminBearerIsLimited` and `_ValidatedAdminExempt`.
+`Plan` answers "is a conversion **likely**"; a `planned` gate can still end `skipped` (`integrity_check_failed`, `database_busy`, `caddy_not_ready`, `startup_timeout`). Output of `Decide`: `run | skip(reason)`. One kind of work: `convert` (mode 0 -> mode 2). No boot drain.
 
-### 3.12 Admin-only login-protection status (Decision L; R14)
+Order of evaluation (`Plan`/`Decide` = 1-4 and 6, runner = 5 and 7):
 
-- **Endpoint:** `GET /api/v1/security/login-protection`, registered on `securityAdmin`
-  (`routes.go:858-859`, `RequireRole(admin)`).
-- **Handler:** `handlers.NewLoginProtectionHandler(src LoginProtectionStatusSource).Get`.
-- **Source interface:** `type LoginProtectionStatusSource interface { Status() middleware.AuthRateLimitStatus }`,
-  implemented by `*middleware.AuthRateLimiter`.
-- **Unchanged:** `GET /api/v1/security/status`, which is management-level (`routes.go:847`).
+1. `CHARON_DB_COMPACT_ON_START=off` -> skip (`disabled_by_env`).
+2. Already `auto_vacuum=2` -> skip (`already_optimized`); a set flag is cleared (the button on a mode-2 database only ever means "let the pruner drain", which it does by itself).
+3. Flag `maintenance.compact_requested` set (mode 0) -> proceed even when the ratio triggers of step 4 are not met, but the `MinReclaimableBytes` floor still applies: below 100 MB reclaimable -> `nothing_to_reclaim`, flag cleared.
+
+   **Flag lifecycle (L2).** The flag is cleared only when it was **consumed** (a conversion was attempted and reached a terminal outcome of `converted`/`converted_pending_checkpoint`/failed-and-counted) or when there is **nothing left to optimize** (`already_optimized`, `nothing_to_reclaim`). A run that is merely **skipped** for a transient reason (`insufficient_disk`, `database_busy`, `caddy_not_ready`, `startup_timeout`, `integrity_check_failed`, `disabled_by_env`) leaves the flag set, so the request is retried at the next start instead of being silently lost. The UI does not offer the button when it could not do anything (3.7).
+4. Otherwise (`auto`, mode 0): proceed only if `reclaimableBytes >= MinReclaimableBytes` **and** (`freeRatio >= MinFreeRatio` **or** `reclaimableBytes >= ReclaimableTriggerBytes`), `reclaimableBytes = freelist_count * page_size`. Back-off: attempt counter >= `MaxConvertAttempts` and no flag -> skip (`too_many_failures`).
+5. **(runner)** Boot `quick_check` reported corruption -> skip (`integrity_check_failed`).
+6. Free-disk check (3.5) -> skip (`insufficient_disk`) with the numbers.
+7. **(runner)** Writer-lock check (3.5) -> skip (`database_busy`).
+
+**Persisted state vs replaced files (L5, revised by M-b).** `maintenance.attempts`, `maintenance.in_progress` and `maintenance.last_result` are ordinary rows inside the database, so a whole-file swap can carry stale state (an `in_progress` marker or `attempts=3` from another file's history). Each of the three values therefore stores a `file_id` and, for the marker, the boot's process start time. `file_id` is the **inode number only** (`st_ino` of the main database file from `os.Stat`), because `st_dev` is not stable on some setups (overlayfs, btrfs subvolumes, NFS, LVM device minors can change between boots): comparing it would silently delete the state on every boot, so a crash loop (for example an OOM kill mid-`VACUUM`) would never reach `MaxConvertAttempts`. For legacy or unknown stored values that include a device number, if only the device differs (same inode), the result is **"unknown": keep the state**. Only an inode mismatch discards (and deletes) the rows; a leftover `in_progress` marker counts as a failed attempt only when the inode matches.
+
+What is and is NOT detected (measured/verified in this round):
+
+| Event | New inode? | State discarded? |
+| --- | --- | --- |
+| In-place `VACUUM` + `wal_checkpoint(TRUNCATE)` (the conversion itself) | no (dev:ino preserved, measured) | no, legitimate state survives |
+| `ApplyPendingRestore` (`os.Remove` + `os.Rename`, `pending_restore.go:62-67`) | yes | **yes**, detected |
+| `docker cp` of a file onto the path, or any replaced file (new file renamed in) | yes | **yes**, detected |
+| `RehydrateLiveDatabase` (row copy into the live file) | no | **no, not detected**: rows from the restored backup overwrite the live `maintenance.*` rows |
+| `cp` over the file in place (same inode) | no | **no, not detected** |
+| A backup of the same file restored by row copy | n/a (same `file_id` inside the copy) | **no, not detected** |
+
+Only restores that replace the file are detected. In-place row restores can bring back a stale `attempts`/`in_progress`; the recovery is the UI button ("Reclaim space on next restart"), which sets the flag and **resets the counter** (3.5). The consequence is bounded (at worst a skipped or one extra counted attempt) and is documented in `docs/database-maintenance.md`. Bind-mount note (L-f): on Docker Desktop (Windows/macOS) bind mounts go through a file-sharing layer (gRPC FUSE, virtiofs, 9p), where inode numbers may be synthesized and not stable across restarts or remounts; the same rule covers it (inode-only comparison; an unstable inode only causes state to be discarded, i.e. the counter resets, never a false block; on such hosts the crash-loop back-off is therefore best-effort and the env `off` switch remains the control). Test: seed the rows, replace the file via rename (new inode) and assert `Plan` ignores them; assert an in-place `VACUUM` keeps them; assert a dev-only mismatch keeps them.
+
+`Decide` is table-tested at every edge (19.99% vs 20%, 99 MB vs 100 MB, 1 GiB - 1 vs 1 GiB at 5% free, env `off` beating the flag, mode 2 with the flag, flag with counter at max). The runner's steps 5 and 7 are tested through `Run` with fakes. A skipped or failed compaction never blocks startup: one goroutine (`dbmaint.Run`) with `recover()`, a context tied to `appCtx`, and `defer gate.Release()`; a skip writes the reason to the status object and the log (Warn for `insufficient_disk`, Info otherwise).
+
+### 3.3a Upgrade order: how a reporter-type install actually gets compacted (NEW, decision)
+
+The problem. On the first boot after upgrading, `MigrateUptimeRetentionDefault` lowers 90 to 30 and the pruner's first pass runs about 30 s later (`prunerFirstRunDelay`, `uptime_pruner.go:19`). For a reporter-type install (19 M rows) that pass drains about 12 M rows in 5000-row chunks with 250 ms pauses (`firstPassChunkPause`), i.e. tens of minutes. At boot the file is still mode 0 with a small freelist, so `Decide` (correctly) says no; the freed pages appear only afterwards.
+
+Options considered:
+
+| Option | Verdict |
+| --- | --- |
+| Convert at boot #1 regardless, before the prune | Rejected: `VACUUM` would rebuild 4.8 GB of mostly-doomed rows (10+ minutes), and the thresholds say "not worthwhile" at that moment |
+| Hold boot #1 until the prune finishes, then convert | Rejected: monitoring and the management plane paused for the whole drain (tens of minutes) |
+| Runtime (post-prune) conversion trigger | Rejected: needs a live quiesce of scheduler, worker pool, ingester and sync loop (all DB-touching, `routes.go:826-857`), a second trigger path beside boot, and an unannounced multi-minute UI stall at an arbitrary time. This is exactly the surprise to avoid |
+| Post-prune self-restart by exiting with a special code | Rejected: Docker restart policy cannot be detected from inside; with `restart: no`/`on-failure` Charon would simply stay down. An entrypoint-level relaunch loop is possible but is a separate, riskier change (see open question, section 10) |
+| **Post-prune re-evaluation that advises, no flag, conversion at the next boot (chosen)** | See below |
+
+Decision. Conversion stays boot-only (single trigger, nothing running yet, pipeline deferral is trivial). The upgrade gap is closed by making the next start do the work with **no flag and no user action**:
+
+1. The freed pages are **persistent state of the file**: after the pruner drains the backlog they sit on the freelist of the mode-0 file and are reused 1:1 by new inserts while the pruner deletes 1:1 (steady state), so the freelist stays large until a conversion runs. The next boot's `Plan` therefore sees, from the file alone, exactly the situation it needs (reporter: roughly 60-70% free, multiple GB) and `Decide` returns `run`. No `compact_requested` row is written by the machine: that flag stays "the user asked" (it bypasses only the ratio, never the floor). One flag meaning, no machine-written settings, nothing to get stale or to clear.
+2. **`dbmaint.Advise` runs after every clean pruner pass on a mode-0 database** (cheap: a few PRAGMAs and two `os.Stat`). It is a no-op (no advice, no log, no in-memory state) while the temporary conversion switch is off (commits 3-5, L3; removed in commit 6), so nothing promises behaviour before the conversion exists (commit 6). It runs `Decide` (dry run, flag ignored) and suppresses the pending line when the **persisted last result for the current `file_id` is a terminal skip** such as `integrity_check_failed` or `too_many_failures` (L4: do not promise a conversion the next boot will refuse). Otherwise, on the false -> true transition per process, logs one Info line: `database optimization pending: about X GB of the database file is reusable space; it will be returned automatically the next time Charon starts (for example after an update)`. It also updates an in-memory `Advice` (read by the status handler together with its own fresh `Inspect`, 3.7). This is what "re-evaluation after the prune" means: the notice and log become correct as soon as the backlog is drained instead of waiting for a restart, and there is no dependence on the stale boot snapshot.
+3. The conversion happens at the next start, which is a moment the operator already chose (upgrade, host reboot, `docker compose up -d`) and already implies a short UI gap. Charon ships frequently, so for a typical install that is the next update. Nothing is ever converted at an arbitrary time.
+4. **Order independence.** If an install already has >= 20% free pages at boot #1 while a prune backlog is still pending (the test container: 35% free and a 90 -> 30 migration), it converts at boot #1 (rebuilding rows that are about to be pruned - only a longer one-time `VACUUM`); the pruner then deletes the backlog and, because the file is now mode 2, **drains it incrementally in the same boot**. The result is identical to the reporter path, reached one restart sooner. Correctness never depends on the order.
+5. The reporter after the next start: live data about 30 days x 86 400 rows/day (about 2.6 M rows, well under 1 GB), so the one-time `VACUUM` is on the order of a minute or two, and the file drops from 4.8 GB to roughly 1 GB.
+
+What the user sees and when:
+
+| When | Normal user | Notes |
+| --- | --- | --- |
+| Boot #1 after upgrade (reporter-type) | Nothing. UI, proxies and monitoring behave normally | Prune drains in the background. Log: retention lowered to 30 days (existing) |
+| Pruner's first clean pass completes (tens of minutes later for 19 M rows; about 30 s for small installs) | Nothing unless they open **System Settings -> Database**: a quiet info line "Charon will shrink the database by about X GB the next time it starts (for example after an update). Nothing to do." | No page-top banner, no warning color, no button needed. Log line once (Advise) |
+| Next start (update/restart/reboot) | Management UI shows "Optimizing the database... your proxies are still running" for about 1-5 minutes (only while the pool is actually held), then returns. Proxies and the healthcheck are unaffected | Monitoring has a heartbeat gap for that period (documented) |
+| Any later start | Nothing (mode 2; pruner keeps it small) | |
+| Not enough disk | **System Settings -> Database** warning banner with the number ("free up about X GB, then restart") | Also retried automatically each start |
+| Three failed attempts | Warning banner with plain instructions | Button resets the counter |
+| Flag was set earlier, then `CHARON_DB_COMPACT_ON_START=off` was configured | Info line "Optimization is turned off by the server configuration"; button disabled with the reason | The flag stays set and is honoured again when the env is removed (3.7) |
+
+If the operator wants it sooner they just restart Charon. The "Reclaim space on next restart" button remains for the below-threshold case (floor 100 MB still applies) and is hidden or disabled when it could not do anything (3.7).
+
+### 3.4 Wiring and ordering (revision 3 design, references updated)
+
+**Which phases return 503 (single source of truth).**
+
+| Phase | Meaning | UI/API | Pool |
+| --- | --- | --- | --- |
+| `idle` | Nothing planned, or finished with nothing to do | served normally | free |
+| `planned` | A conversion is likely; waiting for readiness signals and the boot `quick_check` | **served normally, no 503**; only the uptime pipeline and scheduled backups are deferred | free |
+| `checking` | Runner is acquiring (and has acquired) the pool connection for the writer-lock probe; **bounded by `ConnAcquireTimeout`** | **503** | held/being acquired |
+| `converting` | `VACUUM` running | **503** | held |
+| `done` / `skipped` / `failed` | Terminal outcome for this boot; waiters released | served normally | free |
+
+Only `checking` and `converting` are `active` (503). No `draining` phase exists. **Bounds (M3):** `planned` is bounded by `PlannedMaxWait + QuickCheckMaxWait`; `checking` is bounded by `ConnAcquireTimeout` (45 s, step 6); `converting` has **no total wall-clock cap, deliberately** (3.5): it ends only by completion, error or ctx cancel.
+
+Design:
+
+1. **Plan synchronously, early.** `RegisterWithDeps` calls `dbmaint.Plan(ctx, db, cfg)` **right after AutoMigrate succeeds (`routes.go:172`) and before the backup service is built/started (`routes.go:304-308`) and before any pipeline goroutine**. The call goes through `SafePlan` (3.3): a panic or error means idle with a Warn, never a blocked or failed startup. The gate is set to `planned` only when `Decide` says `run`. The seed loop and `MigrateUptimeRetentionDefault` (`routes.go:785-807`) run later inside the conditional block and are irrelevant to `Plan`. An unaffected install pays milliseconds.
+2. **Readiness = two signals.** The gate holds `configApplied` and `listenerBound`. `main.go` creates the gate before `RegisterWithDeps` and installs (as shipped, `cmd/api/main.go` installs the gate middleware before calling `RegisterWithDeps`; `RegisterWithDeps` does not install it itself) `router.Use(gate.Middleware())` first (next to `RequestID`/`RequestLogger`/`Recovery`, `main.go:278-282`, so it precedes `EmergencyBypass`/`RateLimit` at `routes.go:159`). After `emergencyServer.Start()` (`main.go:309-312`): `ln, err := net.Listen("tcp", addr)` (fatal on error as today), `gate.MarkListenerBound()`, `go router.RunListener(ln)` (replacing `router.Run(addr)` at `:323`).
+3. **`applyInitialCaddyConfig` reports on all exit paths.** New signature `applyInitialCaddyConfig(ctx, mgr, timeout, interval, onDone func(applied bool))` (definition `routes.go:48`, call `routes.go:1115`), invoked exactly once on every return: success (`true`); `ctx.Done()`, Caddy timeout, `ApplyConfig` error (`false`). Tests cover each path with a fake `caddyBootstrapper`.
+4. **State transitions and bounded waits (two timers, both inside `planned`).**
+   1. `planned` starts a readiness timer of `PlannedMaxWait`. `configApplied=false` -> `skipped` (`caddy_not_ready`). Timer fires with signals missing -> `skipped` (`startup_timeout`, Warn), waiters released.
+   2. When both signals arrive the timer is stopped and replaced by the `quick_check` wait: the runner waits on the boot `quick_check` done channel for at most `QuickCheckMaxWait`, still in `planned` (UI normal, pipeline deferred). Corruption -> `skipped` (`integrity_check_failed`). On timeout it proceeds anyway (the checkpoint retry covers a still-running reader) and logs Info. `PlannedMaxWait` therefore never expires while the runner legitimately waits on a long `quick_check`.
+   3. Worst case in `planned` is `PlannedMaxWait + QuickCheckMaxWait` (18 min); both bounded, so `WaitIdle` always terminates.
+   4. Only when the runner is about to take the pool connection does the gate flip to `checking` (503). `Release()` is idempotent and also deferred by the runner.
+5. **Pipeline deferral.** The goroutines at `routes.go:826` (boot bootstrap), `:847` (ingester), `:851` (pool), `:852` (scheduler), `:853` (sync loop) and `:857` (pruner) call `gate.WaitIdle(ctx)` before starting. `WaitIdle` returns immediately when `idle` (the overwhelmingly common case) and otherwise blocks until the gate leaves `planned`/`checking`/`converting` or ctx is cancelled. Monitoring is paused for the duration (documented heartbeat gap). `uptimeShutdown`'s `uptimeIngesterDone` must still close when ctx is cancelled during the wait (test).
+6. **Flipping to 503, with an acquire timeout (M3).** The runner sets `checking` first, then acquires the pool connection with `sqlDB.Conn(acquireCtx)` where `acquireCtx` is `context.WithTimeout(ctx, ConnAcquireTimeout)` (45 s): `sqlDB.Conn(ctx)` itself has no timeout, so a leaked pool connection (a forgotten `Rows`/`Conn`) would otherwise leave the management plane at 503 forever. On expiry the runner releases (gate -> `skipped`, reason `database_busy`, Warn naming a possibly leaked connection, pipeline released) and does not count it as a failed attempt. The 503 window in `checking` is therefore at most `ConnAcquireTimeout` plus the instant probe. Test: hold the only connection, assert `skipped(database_busy)` after the (injected, short) timeout and that the gate is released and pool users proceed.
+7. **Emergency server.** During `checking`/`converting` the wrapper answers a fast 503 (3.6). `CheckMountedImport` and `emergencyServer.Start()` run before `Listen`, hence before any conversion.
+8. **Testable body.** `dbmaint.Run(ctx, deps) Outcome` (deps: db, path, cfg, gate, clock, disk reporter, quick-check status, injectable `convert`). `main.go`/`routes.go` only start it. Unit tests drive every branch with fakes.
+9. **Shutdown accounting and budget (M2, revised by H2/M-a/M-d/L-d).** Today `main.go` (about `:333-370`) calls `appCancel()` (`:333`), then drains the uptime pipeline (`uptimeShutdown` with a 25 s context, `:346-347`), stops the emergency server (10 s context, `:355`) and returns; `main.go` never closes the database handle, so there is no database-close point to hook: the runner wait is simply placed in the shutdown sequence before the process returns. A cancel-driven stop therefore never got to write a result or clear `maintenance.in_progress`. Commit 4 adds a `runnerDone` channel (closed when `dbmaint.Run` returns).
+   - **Placement: FIRST.** Immediately after `appCancel()` and **before** the uptime drain, `main` waits on `runnerDone` for at most `ShutdownRunnerWait` (**4 s**). The uptime drain returns instantly while the pipeline is deferred behind the gate, so placing the runner wait after it would not help or hurt the budget, but placing it first guarantees the marker writes get the time before anything else can consume the grace period.
+   - **Budget (re-checked).** Docker's default stop grace is 10 s, and the entrypoint's `trap 'shutdown' TERM INT` (`.docker/docker-entrypoint.sh:461`) only runs after the current `sleep 1` of the wait loop returns (`:469-471`), costing up to about 1 s before `kill -TERM "$APP_PID"` (`:451`). During an active conversion: about 1 s (entrypoint) + up to 4 s (runner wait) + about 0 s (uptime drain, deferred) + a fast emergency-server stop (the wrapper returns 503 without the pool) stays under 10 s. Outside a conversion the wait returns immediately (`runnerDone` is already closed or the runner is in `planned`/idle). The pre-existing worst cases (25 s uptime drain, 10 s emergency stop) already exceed the 10 s default independently of this feature and are unchanged.
+   - **What `Run` does on ctx cancel.** (a) While `VACUUM` is in its rebuild phase the driver interrupts it quickly (`interrupted (9)`); while it is in the **uninterruptible copy-back tail** (2.4, H2) it runs to completion and returns **nil**. (b) `Run` therefore decides by the **`Convert` result, not by `ctx.Err()`**: error that is an interrupt -> `interrupted` (uncounted); `nil` (even though ctx is cancelled) -> **`converted`**, with the post-steps run with the detached context below **in this order (M1): write `last_result` and clear the `in_progress` marker FIRST, then make a SINGLE `wal_checkpoint(TRUNCATE)` attempt with no backoff (or skip it; the next pruner pass finishes the shrink, and the result is `converted_pending_checkpoint` if the file has not shrunk)**, because `CheckpointRetries=6` with a doubling 2 s backoff can run about a minute and the 4 s runner wait would expire first, losing the marker clear; any other error -> failed and counted. (c) The final `maintenance.last_result` write and the `maintenance.in_progress` clear use a **detached** context, `context.WithTimeout(context.WithoutCancel(ctx), MarkerWriteTimeout)`, because the cancelled `ctx` cannot carry them. (d) **The pinned connection is closed BEFORE these writes** (M-d): with `MaxOpenConns(1)` a marker write issued while `Run` still holds the pool's only connection blocks until the 3 s timeout and is lost.
+   - **The unavoidable case (H1).** `main` stops waiting for the runner after `ShutdownRunnerWait` (4 s) and returns, so the process exits about 5 s after SIGTERM regardless of the container's stop grace; a longer `stop_grace_period` therefore cannot let a multi-second copy-back tail finish, and no such recommendation is made and no new configuration knob is added. A stop that lands in the copy-back tail can always cost one counted attempt: the process exits mid-copy, the marker is left, the database is still safe (`VACUUM` is atomic, the next boot recovers from the WAL, it is either the old or the fully converted file) and the next boot counts one attempt (3.5) and retries, up to `MaxConvertAttempts` = 3.
+   - **Tests.** (1) `Run` with a fake convert that blocks until cancel and returns an interrupt error: marker cleared, result `interrupted`, attempts unchanged, `Run` returns. (2) `Run` with a fake convert that **ignores cancel** and returns nil after a delay: result is `converted` (not `interrupted`), post-steps run with the detached context, marker cleared, attempts unchanged, `Run` returns; assertions are on outcomes, not on timing. (2b, M1) Same fake, with a fake checkpoint that blocks or returns busy: `last_result` is written and the marker cleared BEFORE the single checkpoint attempt (assert the write order, and that the marker is cleared even when the checkpoint never returns within the wait; no checkpoint retry/backoff runs on the cancelled path). (3) With `MaxOpenConns(1)`, the marker writes succeed because the pinned conn is closed first (fails if the order is reversed). (4) `main`-level helper test that the shutdown wait is bounded at `ShutdownRunnerWait` when the runner never returns, and that it runs before the uptime drain.
+10. **Signature and caller changes** (all in commit 4). `routes.RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb)` (`routes.go:153`) gains a `gate *dbmaint.Gate` parameter (nil-safe: a nil gate behaves as permanently `idle`, no runner). Callers: `cmd/api/main.go:294` (real gate) and `routes.Register` (`routes.go:132`, passes nil, so the test call sites of `Register` stay unchanged). `server.NewEmergencyServerWithDeps(db, cfg, caddyManager, cerberus)` (`emergency_server.go:54`) likewise gains a gate parameter (nil-safe); callers: `main.go:309` (real gate) and `server.NewEmergencyServer` (`emergency_server.go:49`, nil); emergency-server tests updated to also cover the gated 503. `BackupService` gets a nil-safe deferral hook consulted by `RunScheduledBackup` (`backup_service.go:464`), declared as a small interface in `services` (L12) and satisfied by `*dbmaint.Gate`: `Deferring() bool` and `WaitReleased(ctx) bool`. The `WaitReleased` waiter goroutine (3.5) is started with the **application context** (`appCtx`), not a request or job context, so it exits on shutdown instead of leaking; test: cancel `appCtx` while deferred and assert the waiter returns without running the backup.
+
+### 3.5 Safety checks before converting
+
+Disk (from `Inspect`; `live = (page_count - freelist_count) * page_size`):
+
+- In-place `VACUUM` in WAL mode builds the rebuilt database in a temp file of about `live`, then copies it back through the WAL (WAL grows about `live` before the checkpoint): roughly **2x live** when temp and data share a filesystem.
+- Required: `need_tmp = live * DiskSafetyMultiplier + DiskSlackBytes` on the temp dir's filesystem; `need_data = live * DiskSafetyMultiplier + DiskSlackBytes + current_wal_size` on the DB directory's filesystem. Same filesystem (compare `Stat_t.Dev`) -> **sum**. Use `Bavail`, not `Bfree`. Verify the DB directory is writable; `filepath.Clean` every path.
+- Short -> skip `insufficient_disk`, recording `required_bytes` and `available_bytes`.
+
+Temp directory:
+
+- SQLite temp location depends on `SQLITE_TMPDIR`/`temp_store_directory`, else `/var/tmp`, `/usr/tmp`, `/tmp` (possibly a small RAM-backed `/tmp` in Docker).
+- **Decision (M1, spike-backed 2.4):** `SQLITE_TMPDIR` set at runtime after the driver initialised is ignored, so it is set **in `main` before the first `sql.Open` of any kind** (before `ApplyPendingRestore` if that opens a handle, and before `database.Connect`; the `migrate` and `reset-password` subcommands go through the same early helper): `dbmaint.PrepareTempDir(dataDir)` creates/validates `<data>/.tmp` (below) and then `os.Setenv("SQLITE_TMPDIR", <data>/.tmp)`. **An operator-set `SQLITE_TMPDIR` is honoured and left untouched** (no directory is created or chased, it is only validated as an existing writable directory for the free-space check). `PRAGMA temp_store_directory` is rejected: deprecated, process-global and can only be applied per connection after the fact. If preparing `<data>/.tmp` fails (symlink, wrong owner, not creatable), the env var is **not** set, SQLite keeps its default search order, and a Warn is logged.
+- **The free-space check runs against the directory actually used:** `dbmaint.EffectiveTempDir()` = the `SQLITE_TMPDIR` value in the environment if set, else the first existing writable directory of `/var/tmp`, `/usr/tmp`, `/tmp` (SQLite's own order). `need_tmp` is checked on that directory's filesystem, never on a path the process does not use. Test: with `SQLITE_TMPDIR` pointing at a small tmpfs fake, the check uses it; unset, it uses the default chain.
+- For the directory we create, `<data>/.tmp` (`<data>` = `filepath.Dir` of the cleaned database path): `os.Lstat` and **refuse a symlink** (`temp_dir_unsafe`), create `0700` owned by the `charon` user (the entrypoint runs as root then drops privileges; verify ownership rather than trusting an existing directory), never derive from request input. SQLite unlinks its temp files as soon as they are opened, so there is **nothing to clean at boot** (no cleanup step is specified); a leftover would only appear after a hard kill and is harmless and bounded by the next `VACUUM`'s own cleanup.
+
+Writer lock probe (readers are not a blocker): acquire the pool's only connection (`sqlDB.Conn(ctx)`); on it `PRAGMA busy_timeout=0`; `BEGIN EXCLUSIVE`; `ROLLBACK`. `SQLITE_BUSY` means another **writer** holds the DB -> release, restore `busy_timeout=5000` (in a `defer`), skip `database_busy`, up to 3 retries 20 s apart within this boot. The pool connection is acquired with the `ConnAcquireTimeout` of 3.4 step 6; the whole `checking` phase is therefore bounded.
+
+Boot `quick_check` and the WAL pin:
+
+- `database.Connect` exposes completion **without changing the `launchQuickCheck` seam** (`var launchQuickCheck = func(dbPath string) { go runQuickCheck(dbPath) }`, `database.go:19`, overridden by `database_test.go` and `SyncIntegrityCheckForTesting` (`:45`), whose assigned `runQuickCheck` must keep `func(dbPath string)`). Design: `Connect` registers a per-path status entry (`sync.Map` keyed by the cleaned path: `done chan struct{}`, `sync.Once`, result string) **before** `launchQuickCheck(dbPath)` (`:104`); `runQuickCheck` (`:113`) completes it in a `defer` on every exit path. Accessor `database.QuickCheckStatus(dbPath) (done <-chan struct{}, result func() string)`. A regression test asserts that both the default async launcher and `SyncIntegrityCheckForTesting` close `done`.
+- **Total conversion cap: intentionally absent (M3).** `converting` is not wall-clock capped: a cap would interrupt a legitimate multi-minute `VACUUM` on a multi-GB file, waste all the work and make the next boot fail identically (a retry loop that never converts). `VACUUM` is atomic, and its rebuild phase is interruptible (ctx cancel stops it within milliseconds there; the final copy-back tail is not, see 2.4 and below), so the operator's controls are sufficient: `elapsed_seconds` on the status page, SIGTERM/`docker stop` (a stop during the rebuild ends `interrupted` with no counted attempt; a stop during the tail lets the conversion complete if it finishes within the 4 s runner wait, otherwise the process exits mid-copy and it ends as one counted attempt), `CHARON_DB_COMPACT_ON_START=off`. The disk pre-check and acquire timeout remove the realistic hang causes; only a hung disk would stall it, and that would stall anything else too.
+- After `VACUUM` on the normal (non-cancelled) path, `wal_checkpoint(TRUNCATE)` runs with bounded retry (`CheckpointRetries`, doubling from `CheckpointBackoff`, cap 30 s) because any reader makes it return busy (**read the `busy` column via `QueryRow`, not the error, which is nil, 2.4**); the gate stays active during retries. **On the cancelled path (nil `VACUUM` with a cancelled ctx, M1) there is no retry or backoff:** `last_result` and the marker clear are written first, then one checkpoint attempt (or none); the next pruner pass finishes the shrink.
+- **`Run` ordering (M-d).** `Run` closes the pinned connection (`conn.Close()`) **before** any settings write (marker, attempts, last result, flag clear): with `MaxOpenConns(1)` a write issued while the conversion connection is still held blocks until the 3 s timeout and is lost. Together with the H2 rule (a nil `VACUUM` with a cancelled ctx is `converted`) and the M1 ordering (result and marker first, then a single checkpoint attempt), tests with a fake convert that ignores cancel cover all three (3.4 step 9).
+- **Post-`VACUUM` prepared statements (L-c).** `Connect` opens gorm with `PrepareStmt: true`; `VACUUM` bumps the schema cookie. The `Convert` test runs gorm queries (prepared-statement cache warmed before the conversion) after `VACUUM` on the same `*gorm.DB` and asserts they succeed.
+- `PRAGMA journal_size_limit` (for example `64 << 20`) so the WAL is truncated on the next reset; evaluated in commit 2 (apply only around the conversion if it causes churn).
+- **Verify by file size**: record `bytes_before = size(main) + size(wal)` and after the checkpoint `bytes_after` via `os.Stat`; success needs `size(main)` to drop by at least the expected reclaimable amount minus tolerance. If the checkpoint never completed, report `converted_pending_checkpoint` (durable; the pruner's later checkpoint finishes the shrink).
+- Post-conditions: `PRAGMA auto_vacuum` == 2 and `freelist_count` near 0. No post-`VACUUM` `quick_check` (VACUUM is atomic); if ever wanted, after gate release, background, warn-only.
+
+Attempts and interruption:
+
+- The attempt counter increments only when an attempt **fails** (non-cancellation error) or a leftover `maintenance.in_progress` marker (valid for this file's inode, 3.3) from a previous boot shows a kill mid-run. The outcomes of a cancel-driven stop (SIGTERM/SIGINT via `appCtx`) depend on **where** `VACUUM` is (H2, measured, 2.4):
+  - **Rebuild phase:** the driver interrupts `VACUUM` within milliseconds, SQLite rolls back cleanly, `Run` records `interrupted`, clears the marker (through the bounded shutdown wait and detached context of 3.4 step 9) and the counter is **not** incremented.
+  - **Copy-back tail (uninterruptible, seconds to tens of seconds on real disks for multi-GB files):** `VACUUM` keeps running after the cancel and returns **nil**. `Run` records `converted` (by the `Convert` result, not by `ctx.Err()`) and runs the post-steps with the detached context in the M1 order (result and marker first, then a single checkpoint attempt); the counter is not incremented. If the tail outlasts the 4 s shutdown wait, see the next bullet.
+  - **Stop during the tail, process exits mid-copy (H1):** the process exits about 5 s after SIGTERM whatever the container's stop grace, so this can always happen for a long tail. It is safe and atomic (SQLite recovers from the WAL; the database is the old one or the converted one, never a mix), the marker remains and counts as **one attempt** at the next boot, which retries (up to `MaxConvertAttempts` = 3). No `stop_grace_period` recommendation and no new knob: a longer grace cannot help because the runner wait is fixed at 4 s. Stated plainly in the docs.
+- `too_many_failures` (counter >= 3): plain instructions ("Automatic optimization stopped after 3 failed attempts. Make sure there is enough free disk space and that Charon is not being killed during startup, then press Reclaim space on next restart."). Pressing the button sets the flag, which resets the counter.
+- A crash or SIGKILL mid-`VACUUM`, including during the copy-back tail, is safe (SQLite recovers from the WAL).
+
+Backups during maintenance: while the gate phase is `planned`, `checking` or `converting`, **scheduled backups are deferred, not dropped (L6)**: `RunScheduledBackup` logs Info and, when `gate.Deferring()`, starts at most one waiter goroutine (guarded by an atomic flag) that calls `gate.WaitReleased(ctx)` (returns when the gate leaves the active/planned phases, including every terminal outcome, or ctx is cancelled) and then runs the backup once, so a daily cron tick falling inside a conversion is not lost for a day. Bounded because the gate is bounded; test both the deferral and the run-after-release; a manual backup API call is served normally in `planned` and gets the gate's 503 in `checking`/`converting`. `VACUUM INTO` needs another about `live` bytes and a second connection while the conversion already needs about 2x.
+
+Startup log for break-glass: at conversion start one Warn line: `database optimization started; the management UI, API and emergency server return 503 until it finishes; set CHARON_DB_COMPACT_ON_START=off and restart to skip optimization and regain break-glass access`.
+
+### 3.6 Maintenance mode (gate, page, status)
+
+`Gate` states: `idle | planned | checking | converting | done | skipped | failed`; fields `phase`, `started_at`, `elapsed_seconds`, `bytes_before`, `bytes_after`, `message`, `attempt`. In-memory; the status endpoint reads it with **no DB access**.
+
+- **`GET`/`HEAD /api/v1/maintenance/status` is answered by the gate in EVERY phase** (`idle`, `planned`, `checking`, `converting`, `done`, `skipped`, `failed`): `200`, static JSON from gate state, then `c.Abort()`. It must never fall through to the router or the SPA fallback (which would return `index.html` with 200 in `idle`/`done`/`skipped`, breaking the maintenance page's final poll and the E2E spec). Exact-match string comparison; free in the common case. (A registered route cannot be used: the gate must answer before `EmergencyBypass`/`RateLimit`.)
+- **While `checking`/`converting` only**, everything below applies; in all other phases every other request passes with `c.Next()`:
+  - **Answered by the gate itself then `c.Abort()`, only while `checking`/`converting`:** `GET`/`HEAD /api/v1/health` -> 200, static body identical in shape to `HealthHandler`'s. In every other phase the request passes with `c.Next()` to the router's rate-limited health route. **HEAD consistency (L8):** gin does not route `HEAD` to a `GET` route, so in `idle` a `HEAD /api/v1/health` would fall to NoRoute/SPA while the gate answers it 200 in active phases; commit 4 therefore also registers `router.HEAD("/api/v1/health", cerb.RateLimitMiddleware(), handlers.HealthHandler)` next to `routes.go:258`, and a test asserts `HEAD` returns the same status in idle and in every active phase. Exact-match on method and path; no prefix matching; no static asset allow-list (the maintenance page is self-contained).
+  - **Explicitly blocked:** `/api/v1/health/db` gets the same 503 as every other API path.
+  - All other `/api/*` (and the emergency-server wrapper) -> `503` JSON `{"error":"Database optimization in progress","maintenance":true,"retry_after_seconds":15}` with `Retry-After: 15`.
+  - **Unmatched paths (`NoRoute`, e.g. SPA deep links such as `/settings/system`) -> a small self-contained embedded HTML page, `503`**: "Optimizing the database. This can take a few minutes. Your proxies are still running." It polls `/api/v1/maintenance/status` every 5 s and reloads when `active` becomes false.
+  - Content negotiation: JSON when `Accept: application/json` or path under `/api/`, HTML otherwise; `HEAD` gets the same status and headers without a body.
+- **What the gate does NOT front (M4, corrected).** `server.NewRouter` (`backend/internal/server/server.go:18`) registers the static routes (`/`, `/assets`, `/uploads`, `/logo.*`, ...) **before** `main.go` calls `router.Use(gate.Middleware())`, and gin applies `Use` middleware only to routes registered afterwards (plus `NoRoute`/`NoMethod` handlers). So during `checking`/`converting`: navigating to `/` returns the SPA `index.html` with **200**, not the 503 page; only unmatched deep links get the HTML 503 page. This still works because the SPA's own API calls (first the auth/session check) get the gate's `503 {"maintenance":true}` and the Axios interceptor switches to the maintenance view; a 503 does not take the 401 logout path (frontend test, 3.7). **The interceptor plus `/` flow is therefore the primary tested path; the embedded HTML page is the secondary path for deep links and non-SPA clients.**
+- **Decision: static routes stay ungated.** Gating them (passing the gate into `NewRouter` or registering it first) would be possible, but the assets are public, contain no secrets and need no DB; an already-loaded SPA tab needs its assets to keep polling and to render the maintenance view; and a 503 on `/` would turn a cached/loaded SPA into a blank failure instead of the in-app view. Keeping them open costs nothing and keeps one rendering path. Tests: with the gate active, `GET /` returns 200 `text/html` (SPA index), `GET /settings/system` (deep link) returns the 503 HTML page with the security headers, and `GET /api/v1/auth/me` returns the 503 JSON; the E2E spec drives the `/` -> API 503 -> maintenance view flow.
+- **Response headers.** The gate precedes `SecurityHeaders`, so its responses set their own: `Content-Security-Policy` (`default-src 'none'; script-src 'sha256-<hash>'; style-src 'sha256-<hash>'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`; hashes computed from the embedded page's inline script/style at package init and asserted by a test), `Cache-Control: no-store`, `Retry-After`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`. Applies to the HTML page, the 503 JSON and the status JSON in every phase.
+- **Rate limiter note.** The status endpoint bypasses rate limiting (answered before the limiter): accepted, static in-memory data, no DB or disk I/O, 5 s polling.
+- Proxied traffic through Caddy is untouched (2.1).
+- Emergency server: during `checking`/`converting` the wrapper returns a fast 503 `{"error":"Database optimization in progress","maintenance":true}` with `Retry-After`, never touching the pool (accepted loss of break-glass for the duration; the Warn line tells the operator how to regain it). The wrapper's own DB-free `/health` keeps returning **200** in every phase (L7; a test asserts it while the pool is pinned), so anything probing the emergency port sees a live process.
+- Progress is honest and indeterminate (`elapsed_seconds`, `phase`); no fake percentages. The unauthenticated status returns only `{active, phase, elapsed_seconds}`.
+
+### 3.7 API and UI contract
+
+**Flag storage.** Settings row `maintenance.compact_requested` (`"true"` or absent), Type `bool`, Category `maintenance`; `Plan` reads it synchronously; cleared transactionally at consumption. Persisted attempt counter, in-progress marker and last result: `maintenance.attempts`, `maintenance.in_progress`, `maintenance.last_result` (JSON `{at, outcome, reason, bytes_before, bytes_after}`).
+
+**Reserved-key protection (extends, does not duplicate, the #1423 guard).** `settings_handler.go:98` is `var internalSettingPrefixes = []string{"migration."}`. Change the single list to `{"migration.", "maintenance."}`; `isInternalSettingKey` (`:102`, normalizes with `ToLower(TrimSpace)`, prefix-keyed, never Category-keyed) and `filterInternalSettings` (`:113`) are unchanged. Already wired at: `GetSettings` filter (`:76`), `UpdateSetting` guard (`:174`), `PatchConfig` flattened-key guard (`:334`) and `PatchConfig` response filter (`:450`); `respondReservedSettingKey` returns 400. No new code paths. Tests: extend the existing table-driven reserved-key tests in `settings_handler_test.go` (added by #1423) with `maintenance.compact_requested` (and case/whitespace variants, nested `{"maintenance":{"compact_requested":"true"}}` for `PatchConfig`) rather than writing a second set. The flag is only settable through the dedicated endpoints. Update the comment on `internalSettingPrefixes` to name both uses.
+
+Endpoints (authenticated admin only, same middleware as other system settings; snake_case keys), registered next to `routes.go:508-509` (`/system/permissions`) inside the management group with `middleware.RequireRole(models.RoleAdmin)`:
+
+| Method and path | Purpose | Response |
+| --- | --- | --- |
+| `GET /api/v1/maintenance/status` (unauthenticated, gate, every phase) | Liveness for the maintenance page | `{"active":bool,"phase":"idle\|planned\|checking\|converting\|done\|skipped\|failed","elapsed_seconds":int}` |
+| `GET /api/v1/system/database` | Card data and conditional notice | see below |
+| `POST /api/v1/system/database/optimize-on-restart` | Set the flag (idempotent: a repeated POST while the flag is already set returns `200 {"requested":true}`, never 409) | `{"requested":true}` |
+| `DELETE /api/v1/system/database/optimize-on-restart` | Clear the flag | `{"requested":false}` |
+
+`GET /api/v1/system/database`:
 
 ```json
 {
-  "enabled": true,
-  "login":   { "requests": 10, "window_seconds": 600 },
-  "session": { "requests": 60, "window_seconds": 60 },
-  "trusted_proxy_count": 1,
-  "caller_client_key": "203.0.113.7",
-  "caller_client_scope": "public",
-  "untrusted_forwarded_headers": {
-    "local":  { "count": 3, "last_seen": "2026-09-24T10:11:12Z", "last_peer": "172.18.0.5", "last_peer_scope": "private" },
-    "public": { "count": 0, "last_seen": null, "last_peer": "", "last_peer_scope": "" }
-  }
+  "size_bytes": 4800000000,
+  "wal_bytes": 4194304,
+  "reclaimable_bytes": 1700000000,
+  "auto_vacuum": "none",
+  "env_mode": "auto",
+  "compact_requested": false,
+  "can_request_optimize": true,
+  "disk_free_bytes": 52000000000,
+  "last_result": {"at": "2026-10-02T04:11:00Z", "outcome": "converted", "reason": "", "bytes_before": 4800000000, "bytes_after": 2900000000},
+  "notice": null
 }
 ```
 
-- `caller_client_key` / `caller_client_scope` echo the key the throttle would use for **this**
-  request (`ratelimit.ClientKey(c.ClientIP())`). They serve two purposes:
-  - the admin self-check for runtime NAT (§3.5.2);
-  - the E2E effectiveness probe (§4.1). It is deterministic and independent of detector counters.
-- Per record, `last_seen` is `null` and `last_peer`/`last_peer_scope` are empty while
-  `count == 0`. `local.last_peer_scope` is `loopback` or `private`; `public` is always `public`.
-- JSON tags are snake_case. `trusted_proxy_count` is the **effective** count (§3.7).
-- **Peer addresses appear only here**, and only admins can read them.
+`can_request_optimize` (L2) is computed server-side: `false` when `auto_vacuum` is already incremental or `reclaimable_bytes < MinReclaimableBytes` (100 MB), or `env_mode` is `off`. The UI **hides** the "Reclaim space on next restart" button when `auto_vacuum` is incremental or reclaimable is below 100 MB, and shows it **disabled with the reason** when only the env is `off`. `POST .../optimize-on-restart` returns a `409` with a **distinct body per cause** (L-a), so the UI and operators are never told the wrong thing: mode 2 or reclaimable below the floor -> `409 {"error":"the database is already optimized or has too little reclaimable space","code":"nothing_to_optimize"}`; env `off` -> `409 {"error":"database optimization is disabled by CHARON_DB_COMPACT_ON_START=off","code":"disabled_by_env"}`. If the flag is **already set**, a repeated POST returns `200 {"requested":true}` before any of these checks (idempotent, even when the env was switched to `off` afterwards). DELETE stays idempotent. The flag can therefore never be newly set when it could only be cleared again; a skipped run does not clear a set flag (3.3).
 
-### 3.13 Frontend design
+**The notice is computed fresh on every call** (`dbmaint.Inspect` + `Decide` dry run per request), not from a boot snapshot: the pruner's first pass runs about 30 s after boot and frees pages without a restart. `Inspect` is a few PRAGMAs plus `os.Stat`; admin-only; React Query `staleTime` 30 s. `Advise` (3.3a) uses the same `Decide`, so the log line and the notice can never disagree.
 
-#### 3.13.1 429 helper and interceptor
+`notice` is `null` unless something is worth saying; otherwise `{"code":"restart_to_optimize"|"insufficient_disk"|"disabled_by_env"|"too_many_failures"|"database_busy","severity":"info"|"warning","reclaimable_bytes":int,"required_bytes":int?,"available_bytes":int?}`:
 
-New file `frontend/src/utils/rateLimit.ts`:
+- `restart_to_optimize` (**severity `info`**; **emitted only from commit 6 on, once the production planner is live (L3), so commit 5 never promises behaviour that does not exist yet**; also suppressed when the persisted last result for this `file_id` is a terminal skip such as `integrity_check_failed`, L4): legacy mode-0 database, the automatic condition of 3.3 step 4 holds, and the boot path has not yet acted. Rendered as a quiet line in the Database card, never as a page-top banner: "Charon will shrink the database by about X GB the next time it starts (for example after an update). Nothing to do."
+- `insufficient_disk` (**warning**, page-top banner in System Settings): "free up about X GB, then restart".
+- `too_many_failures` (**warning**): the plain instructions from 3.5.
+- `database_busy` (**info**, card): "Optimization was postponed because the database was in use; it will be retried on the next start."
+- `disabled_by_env` (**info**, card): the flag is set (the user pressed the button earlier) **and** the env is `off` now. It can only occur that way: while the env is `off` POST returns 409 and the UI disables the button, so the flag cannot be newly set. No new code path: the notice is derived from `compact_requested && env_mode == off`, and the set flag stays in place and is honoured again when the env is removed (3.3 flag lifecycle).
+- Nothing is shown when the database is healthy, small, or already converted.
 
-| Function | Contract |
-| --- | --- |
-| `parseRetryAfter(value: unknown, nowMs = Date.now()): number \| null` | Delta-seconds (non-negative integer string) → `max(1, n)`. HTTP-date → `max(1, ceil((date − now)/1000))`. Anything else → `null` |
-| `getRetryAfterSeconds(error: unknown): number \| null` | Reads `error.response.headers` (`AxiosHeaders.get('retry-after')` or plain-object key) |
-| `isRateLimitError(error: unknown): boolean` | `error.response?.status === 429` |
-| `rateLimitMessage(t: TFunction, error: unknown): string \| null` | `null` unless 429. Under 60 s → `errors.tooManyRequestsSeconds` `{count}`. 60 s or more → `errors.tooManyRequestsMinutes` `{count: ceil(s/60)}`. Unknown → `errors.tooManyRequests` |
+UI (English strings only; locales are #1421; add strings under the existing `systemSettings` namespace of `frontend/src/locales/en/translation.json` only):
 
-In `api/client.ts`, after the existing `data.error` extraction:
-`const rl = rateLimitMessage(i18n.t, error); if (rl) error.message = rl`. This covers Setup,
-change-password (via `AuthContext`), and any Cerberus 429 app-wide.
+- `frontend/src/api/databaseMaintenance.ts` (typed client wrapping `client.ts`; `system.ts` is unrelated update/notification code), `frontend/src/hooks/useDatabaseMaintenance.ts` (React Query, `invalidateQueries` on mutation).
+- A small **"Database" card in System Settings** (`frontend/src/pages/SystemSettings.tsx`, alongside the Uptime card that #1423 touched): current size, "X GB could be reclaimed" when applicable, the `info` notice line, and the button **"Reclaim space on next restart"** (POST, then "Scheduled - the space is reclaimed the next time Charon starts." with an undo link, DELETE). `warning` notices render as a banner at the top of System Settings; not on the dashboard.
+- Maintenance view (primary path, M4): an axios interceptor in `client.ts` (or a `MaintenanceGate` component): on a `503` with `maintenance:true` from any API call, including the very first session/auth check after `/` returned the SPA, show the lightweight "Optimizing the database" view that polls the status endpoint and returns when `active` is false. The interceptor must treat this 503 as **not** a logout (the 401 path is untouched; Vitest asserts no token clearing or redirect to login) and must not retry-storm (React Query retries are paused while the view is shown).
 
-#### 3.13.2 Login page notice with an administrator pointer
+### 3.8 Env override
 
-On `429`, `pages/Login.tsx` renders an inline `<Alert variant="warning">` below the form
-(`data-testid="login-rate-limit-notice"`, `role="alert"`) **instead of** a toast. It contains:
+`CHARON_DB_COMPACT_ON_START=auto|off` (default `auto`), parsed in `internal/config/config.go` in `Load()` (`:104`) next to the other `CHARON_*` variables via `getEnvAny` (`:256`); a new `Config.DBCompactOnStart` string field. An invalid value, including the removed `force`, falls back to `auto` and appends a `StartupWarnings` entry (logged by `logStartupWarnings`, `main.go`). Precedence: `off` > flag > `auto` thresholds. `off` never runs at boot (also the documented way to regain break-glass access).
 
-- the localized wait message (`rateLimitMessage`);
-- `auth.rateLimitAdminHint`: "Are you the administrator? If everyone sees this message,
-  Charon may not be seeing your visitors' real addresses.";
-- an `<a>` (`target="_blank"`, `rel="noopener noreferrer"`) labeled
-  `auth.rateLimitAdminHintLink` ("How login protection works behind a proxy"), pointing to
-  `TRUSTED_PROXIES_DOCS_URL`.
+Defaults to `off` in the **E2E/CI compose files** so test databases are never converted mid-suite: `.docker/compose/docker-compose.playwright-ci.yml` (environment block at `:45-47`), `.docker/compose/docker-compose.playwright-local.yml` (`:33-34`), `.docker/compose/docker-compose.test.yml` (`:17-18`; this scheduled/test file is gitignored, so only `playwright-ci`, `playwright-local` and `.env.example` carry the default in the repository); `docker-compose.e2e.cerberus-disabled.override.yml` inherits the playwright-ci base (verify in commit 6; add only if it redefines `environment`). Production/dev/local compose files (`docker-compose.yml`, `.dev.yml`, `.local.yml`, `.remote.yml`) do **not** set it (auto is the point). `.env.example` gets a commented `# CHARON_DB_COMPACT_ON_START=auto` entry next to `CHARON_DB_PATH` (`:46`). The many `scripts/*_integration.sh` start fresh tiny databases (never meet the 100 MB floor), so they need no change. Documented in `docs/database-maintenance.md` (4, Phase 5).
 
-The notice clears on the next submit. Other errors keep the existing toast. The link is a
-plain element next to the text, so no `<Trans>` is needed.
+### 3.9 Data model
 
-#### 3.13.3 Admin login-protection card (Decision L; placement: M8)
-
-- **Component:** `frontend/src/components/LoginProtectionCard.tsx`.
-- **Placement:** rendered on `pages/Security.tsx` for `user?.role === 'admin'` only,
-  **outside** the Cerberus-enabled conditionals, because login protection is always on.
-- **Data:** `useLoginProtectionStatus({ enabled: isAdmin })` (React Query) in
-  `hooks/useSecurity.ts` → `getLoginProtectionStatus()` in `api/security.ts` → type `LoginProtectionStatus`.
-
-| State | Condition | Content |
-| --- | --- | --- |
-| Healthy | `enabled` and no recent observation | "On". Budgets. "Charon sees your browser as `<caller_client_key>` (`<scope>`)". Runtime-NAT hint: "If that isn't your device's address, a proxy or your container runtime may be hiding visitor addresses." Docs link |
-| Warning (private/loopback peer) | `local.count > 0` and `local.last_seen` within 24 h, regardless of any later public observations | Everything above, plus a warning: "Forwarded client addresses from `<last_peer>` are being ignored ({{count}} times, last `<relative time>`). If `<last_peer>` is your reverse proxy, add `<last_peer>/32` (or `/128` for IPv6) to `CHARON_TRUSTED_PROXIES`." |
-| Info (public peer) | `public.count > 0`, `public.last_seen` within 24 h, and no Warning state (a Warning takes precedence; the info note may appear below it) | An informational note: "Charon ignored forwarded client-address headers from a public address (`<last_peer>`). This is usually someone sending forged headers; no action is needed." **No trust suggestion and no snippet** |
-| Off | `enabled = false` | "Login protection is turned off (`CHARON_AUTH_RATELIMIT_ENABLED=false`)." Docs link |
-| Error/loading | query state | The standard skeleton or error line. The card never blocks the page |
-
-#### 3.13.4 Docs URL constants
-
-New file `frontend/src/constants/docs.ts`:
-
-- `DOCS_SITE_URL = 'https://wikid82.github.io/Charon/docs'`;
-- `TRUSTED_PROXIES_DOCS_URL`;
-- `LOGIN_PROTECTION_DOCS_URL`.
-
-Only the new links use these constants. Migrating existing hardcoded links is a §9 follow-up.
-
-#### 3.13.5 i18n keys
-
-The new keys go in all five locale files. Plural keys carry `_one`, `_other` **and** a bare
-fallback in every locale, including zh (the `hostCount` convention). Counts are bounded, so
-the CLDR `many` form is unreachable.
-
-| Key | en (source copy; de/es/fr/zh translated in the same register) |
-| --- | --- |
-| `errors.tooManyRequests` | Too many attempts. Please wait a moment and try again. |
-| `errors.tooManyRequestsSeconds` (+`_one`/`_other`) | Too many attempts. Please wait {{count}} seconds and try again. (`_one`: second) |
-| `errors.tooManyRequestsMinutes` (+`_one`/`_other`) | Too many attempts. Please wait {{count}} minutes and try again. (`_one`: minute) |
-| `auth.rateLimitAdminHint` | Are you the administrator? If everyone sees this message, Charon may not be seeing your visitors' real addresses. |
-| `auth.rateLimitAdminHintLink` | How login protection works behind a proxy |
-| `security.loginProtection.*` | Title, on/off, budgets, `callerAddress`, `runtimeNatHint`, `untrustedPrivate` (+ plural), `untrustedPublic` (+ plural), scope labels (loopback/private/public), `docsLink` |
-
-Revision-1 drafts for the `errors.*` keys (de/es/fr/zh) carry over unchanged.
-
-### 3.14 Data flow (login attempt)
-
-```mermaid
-sequenceDiagram
-    participant B as Browser (Login.tsx)
-    participant P as Reverse proxy (optional, trusted)
-    participant G as Gin chain (api group)
-    participant T as AuthRateLimiter (login class)
-    participant H as AuthHandler.Login / AuthService
-    B->>P: POST /api/v1/auth/login
-    P->>G: + X-Forwarded-For: <client>
-    G->>G: OptionalAuth → Cerberus limiter (if on) → ACL
-    G->>T: detector check; ClientIP() → ClientKey (IPv4 | IPv6/64)
-    alt bucket has a token
-        T->>H: c.Next()
-        H-->>B: 200 {token} | 401 {error}
-    else bucket empty
-        T-->>B: 429 Retry-After: N, {"error": generic}
-        B->>B: inline notice "Please wait N seconds" + admin pointer (localized)
-    end
-```
-
-### 3.15 Error handling and edge cases
-
-| Case | Behavior |
-| --- | --- |
-| `c.ClientIP()` is `""` or unparsable, including zoned IPv6 peers | `UnknownClientKey` shared bucket (fail-closed) |
-| IPv4-mapped IPv6 | Same key as the IPv4 address |
-| Clock moves backwards | Monotonic `time.Now` in prod; `x/time/rate` clamps |
-| Cerberus settings change mid-flight | `Reconfigure` purges under the same mutex |
-| Unknown `/auth/*` route (future) | `session` class; the inventory test fails CI until it is classified |
-| New `CheckPassword` call site (future) | The tripwire test fails CI until it is guarded and allowlisted (§4.4) |
-| `c.FullPath() == ""` (defensive) | `session` class |
-| Budget env = `0`, `-5`, `10m`, `abc` | `-1` sentinel → default + WARN (never a burst of 0, never ∞) |
-| `CHARON_AUTH_RATELIMIT_ENABLED` = `no`/`0`/`off` | Stays **enabled**, with a WARN "unrecognized value" |
-| One invalid `CHARON_TRUSTED_PROXIES` entry | No proxy trusted anywhere + WARN (§3.7) |
-| Trusted proxies contain `0.0.0.0` or `::` | Startup WARN (mirrors Gin) |
-| Forwarded headers from a public, untrusted peer | Headers ignored; recorded with scope `public`; guidance never suggests trusting it |
-| Trusted peer sends a malformed forwarded header | Gin keys on the peer; not counted by the detector; DEBUG |
-| Denied client retries early | Denials consume nothing |
-| Restart | Buckets and detector state reset (accepted) |
-| Cerberus limiter also on | Both evaluate; the first denial wins; identical 429 body |
-
----
+No new tables or model fields. Settings rows only (3.7); AutoMigrate lists unchanged; `models` unchanged (no `json` tag work). The GORM security scan still runs when the settings-row queries are added (commit 3/5/6 gates).
 
 ## 4. Implementation Plan
 
-Commits run strictly in §6 order. Every validation command runs in the **foreground**
-(CLAUDE.md "Execution Discipline").
+### Phase 1 - Playwright tests (spec behavior, `test.fixme` first)
 
-### 4.1 Phase 1: Playwright tests and fixtures (spec behavior first)
+`tests/settings/database-maintenance.spec.ts` (new; existing settings specs live in `tests/settings/`). All `test.fixme` in commit 1. Mocked `GET /api/v1/system/database` routes (no real conversion in E2E):
 
-**New file: `tests/core/auth-rate-limit.spec.ts`.** It is collected by `--project=firefox`
-and by the PR Firefox shards. Every test starts as `test.fixme` (C3) and is enabled in C9.
-The header cites issue #1317 and `docs/features/login-protection.md`, never
-`docs/plans/current_spec.md`.
+- Card shows size and hides every notice when `notice` is null.
+- `restart_to_optimize` (`info`) renders as a quiet line in the card, not a banner; `insufficient_disk` and `too_many_failures` (`warning`) render as a top banner with the plain instructions.
+- Button POSTs, shows "Scheduled", undo DELETEs.
+- Button disabled with the reason when `env_mode` is `off`.
+- A `503 {maintenance:true}` from an API call shows the "Optimizing the database" view and returns to the app when the mocked status route reports `active:false`; the mocked status returns JSON in every phase, including after completion.
 
-**Helpers:**
+### Phase 2 - Foundation (no behavior change)
 
-- `isolatedClientIp()` returns a random `198.18.0.0/15` address (RFC 2544 benchmarking range) via `crypto.randomInt`.
-- `exhaustLoginBudget(ctx)` sends concurrent batches of 25 `POST /api/v1/auth/login`
-  requests. It uses unique non-existent probe accounts (`probe-<uuid>@test.local`), so no
-  real account is affected. It stops at the first 429, capped at 2,000.
+- `dbmaint` skeleton: `Inspect`, `Decide` (including the OR trigger), constants, `diskspace` extracted from `backup_service.GetAvailableSpace` (behavior unchanged). Confirm in `codecov.yml` (`ignore:` list covers tests, docs, `.github`, `scripts`, `*.yml`/`*.json`, frontend artifacts) that `backend/internal/dbmaint/**` is **counted**; confirm no `.gitignore`/`.dockerignore` entry hides it.
+- `internal/config`: `CHARON_DB_COMPACT_ON_START` parsing.
+- Spike regression tests on glebarez/go-sqlite (2.4): pragma order on a new file; `VACUUM` on a pinned `sqlDB.Conn` converts a WAL database and keeps WAL; `BEGIN EXCLUSIVE` vs reader/writer; **`incremental_vacuum` regression tests (H1)**: (1) via `QueryContext` with all rows iterated, `freelist_count` drops by about N per call (assert `before - after >= N - slack`, not merely that a small file shrank), reaching 0 in `ceil(free/N)` steps, and the **file** shrinks after `wal_checkpoint(TRUNCATE)` (by `os.Stat`); (2) an explicit **trap test** that `Exec("PRAGMA incremental_vacuum(N)")` frees exactly one page per call on this driver (so a driver upgrade that fixes it flags the test and lets us simplify, and a regression to `Exec` in `Drain` is caught); (3) a `Drain` test on a >= 10k-free-page scratch DB asserting `freelist_count` falls by about `DrainPagesPerStep` per step. Also: `VACUUM INTO` preserves mode 2; context-cancel of a running `VACUUM`: early cancel returns an interrupt error (DB intact, mode unchanged, no temp file left), late cancel during the copy-back tail returns nil or an interrupt error with the DB intact and the mode consistent with the outcome (H2; the test asserts outcomes, not timing); `Drain`/`Query` follow-up query after `rows.Close()` returns immediately while open rows block it (M-c); `wal_checkpoint(TRUNCATE)` busy column is readable via `QueryRow` and is 1 with nil error when a reader blocks (M-c); a post-`VACUUM` gorm `PrepareStmt: true` query on the same `*gorm.DB` succeeds (L-c); `SQLITE_TMPDIR` set before the first open is honoured and set late is ignored (M1); checkpoint busy flag readable; `RunListener` compiles in the pinned gin.
+- `internal/database`: expose the boot `quick_check` completion channel/result through the per-path registry, keeping the `launchQuickCheck` seam and `func(dbPath string)` signature intact.
+- Extend `internalSettingPrefixes` with `maintenance.` (one-line change to the existing list; tests extended in place).
 
-**Guard (tests 1–3) is an effectiveness probe:**
+### Phase 3 - Backend (gate before conversion)
 
-1. Send `GET /api/v1/security/login-protection` with the admin storage state and
-   `X-Forwarded-For: <isolatedClientIp()>`.
-2. Require all three:
-   - `enabled`;
-   - a fast refill (`login.requests / login.window_seconds >= 1`);
-   - `caller_client_key === <probe address>` (proves XFF is honored end to end).
-3. Otherwise `test.skip(...)` with a message naming the Playwright compose files.
+- `Connect`: `auto_vacuum=2` for empty databases before WAL; `Drain`, `Advise`, pruner integration.
+- **Gate first** (commit 4): `Gate` state machine, readiness signals, `WaitIdle`/`Deferring`, middleware (status in every phase; health self-answered only while active; `health/db` blocked in 503 phases; headers, HEAD/JSON negotiation), embedded page, emergency-server fast 503, `applyInitialCaddyConfig` `onDone(applied)` on all paths, explicit `net.Listen` + `MarkListenerBound`, synchronous `Plan`, pipeline-start deferral at the six goroutines of 3.4 step 5, both bounded waits, backup-scheduler deferral (run-after-release), shutdown wait and detached marker writes (3.4 step 9), `SafePlan`, `Conn` acquire timeout, `HEAD /api/v1/health` route, signature/caller changes (3.4 step 10), `dbmaint.Run` with a **fake convert function**. `Advise` and the `restart_to_optimize` notice were gated on the same temporary switch (off until commit 6). **Production behaviour in commit 4 is unchanged: the production `Plan` returns `idle` unconditionally** (a temporary switch that was off until commit 6), so no real install enters `planned`, defers the pipeline or pins the pool before a real `Convert` exists. Tests inject a `Plan` result and a fake convert.
+- Then API (commit 5), then **conversion** (commit 6): `Convert` with checks, `Run` wired to it, last-result/attempt/in-progress persistence, the temporary switch removed (as shipped it was deleted rather than flipped: the production planner is live in commit 6).
+- Unit tests (Go): `Decide` truth table (every threshold edge, OR trigger, env precedence, flag, back-off); `Advise` (transition logging once per process, mode 2 no-op, dry-run ignores the flag, agrees with `Decide`); pruner `tick` drain wiring (mode 2 drains and checkpoints, mode 0 advises and never drains, ctx abort, budget); disk math incl. same-filesystem summing; writer-lock probe (a second connection holding a write lock fails it, a reader does NOT); conversion on a scratch DB with data integrity and index presence and **file-size** assertion; interruption via cancelled context leaves the DB intact and does not bump the counter; checkpoint retry against a held reader; gate middleware allow-list/blocked/503 shapes/headers/HEAD/JSON; **`/api/v1/maintenance/status` returns the same static JSON (not SPA HTML) in every phase, in particular `done`, `skipped`, and `idle` with no plan**; `planned` serves the UI normally while the `quick_check` wait is pending and only `checking`/`converting` return 503; the readiness timer stops when both signals arrive and the `quick_check` wait then runs to `QuickCheckMaxWait`; `Plan` steps 1-4/6 versus runner steps 5/7 (a planned run ending `skipped` releases the pipeline and backups; `SafePlan` turns a panic or error into idle plus a Warn; `Conn` acquire timeout ends `skipped(database_busy)` and releases; cancel-driven stop with a fake convert that blocks until cancel writes `interrupted`, clears the marker via the detached context, leaves attempts unchanged and `Run` returns; a fake convert that **ignores cancel** and returns nil yields `converted` (not `interrupted`) with post-steps on the detached context (H2/M-d); marker writes succeed with `MaxOpenConns(1)` because the pinned conn is closed first (M-d); the shutdown wait is bounded by `ShutdownRunnerWait` and runs before the uptime drain; persisted state with a different inode is ignored, a dev-only mismatch keeps it, an in-place `VACUUM` keeps it (M-b); `Drain` measures freed pages by `page_count` delta and does not false-trigger when concurrent inserts reuse free pages (L-b), issues no other pool query while rows are open (M-c) and reads the checkpoint `busy` column; POST is 200 when the flag is already set, and 409 bodies differ for env-off versus nothing to optimize (L-a); the `WaitReleased` waiter exits on `appCtx` cancel; a skipped run leaves the flag set while `already_optimized`/`nothing_to_reclaim` clear it; `Advise` silent while the temporary switch was off and when the last result is a terminal skip; scheduled backup deferred then run after release; `/` returns the SPA (200), a deep link returns the 503 page, API returns 503 JSON while active; `HEAD /api/v1/health` identical in idle and active; idle health subject to the rate limiter; emergency `/health` 200 while pinned; `Drain` uses `Query` (H1 regression above); mode-2 with flag records `already_optimized`, never converts or drains at boot; pinned-connection + expired rate-limit-cache health test (2.2); every `onDone` path; `PlannedMaxWait` expiry; handlers (auth, idempotent POST/DELETE, fresh notice per call, severity mapping); `maintenance.` reserved-key cases in both settings handlers; maintenance failures never propagate to startup (panic recovered); nil-gate behaves as idle in `RegisterWithDeps` and `NewEmergencyServerWithDeps`; `config` parsing (valid, invalid, `force`); `Connect` mode 2 on a new file and untouched on a populated file.
+- **Integration test (Go, `internal/api/routes` or `internal/dbmaint`, scratch DB + httptest upstream + stub Caddy manager)**: after `ApplyConfig` the proxy path keeps serving while the pool's only connection is pinned (no SQLite access on the data plane). This is the evidence for the 2.1 claim and gates commit 6.
 
-This proves bucket isolation actually works on the stack under test, rather than trusting
-configuration.
+### Phase 4 - Frontend
 
-| # | Test | Asserts |
+API client, hook, System Settings Database card, warning banner, info line, maintenance view, Vitest: notice mapping for every `code` and `severity` (info in card, warning as banner), button states (hidden when `auto_vacuum` is incremental or reclaimable < 100 MB, disabled by env, scheduled, pending, 409 handling), 503 `maintenance:true` handling (maintenance view shown, no logout, no retry storm), undo. `npm run type-check`, coverage >= 85%.
+
+### Phase 5 - Integration, hardening, docs
+
+- Container-level check on a scratch/CI container only (never a live host): a mode-0 scratch database above the thresholds; proxied request keeps succeeding throughout, `/api/v1/health` stays 200, `/` serves the SPA which then shows the maintenance view from its 503 API calls (and a deep link serves the 503 page), database converted (file size drops), uptime resumes, `SIGTERM` mid-conversion (H1/H2: the test accepts every legitimate outcome and asserts safety plus eventual conversion, never instant interruption or a specific outcome). Use a scratch DB whose conversion is either clearly within the rebuild phase (large enough that the stop lands mid-rebuild) or clearly short (completes almost immediately), so the run is deterministic in what it checks; a stop during the copy-back tail is timing-dependent and is covered by the third outcome. After `docker stop` (default grace is fine; a longer `-t` changes nothing because the process exits about 5 s after SIGTERM) the database passes `integrity_check` and ends in exactly one of: (a) mode 0 with last result `interrupted`, marker cleared, attempts unchanged; (b) mode 2 with last result `converted`, marker cleared, attempts unchanged; (c) the marker left with exactly one counted attempt and an intact, recoverable DB. In every case the following boot is healthy and eventually completes the conversion (mode 2, marker cleared, file size down) within `MaxConvertAttempts`. A variant with `docker stop -t 1` (SIGKILL during a larger conversion) asserts only (c) plus the same next-boot completion; a second run on a mode-2 scratch DB shows the pruner draining with `freelist_count` falling. Do not run against `charon` (the dev test container is read-only evidence only). As shipped, the SIGTERM test runs the real `main()` in a child process with Caddy stubbed on 127.0.0.2 via `CHARON_SSRF_INTERNAL_HOST_ALLOWLIST` (Linux-only); it observed outcome (a) for SIGTERM and outcome (c) for SIGKILL.
+- Docs (all authored under repo-root `docs/`; never `docs-site/docs/`):
+  - `docs/features/uptime-monitoring.md`: in **Reclaiming disk space** (`:~110-175`), replace the "the database file may not get smaller by itself" bullet and the long **"Advanced: shrinking the file by hand"** procedure with a short "Charon now shrinks the database file by itself" description (new databases stay small; existing ones are optimized once automatically at the next start when worthwhile; brief "Optimizing" screen; proxies unaffected; heartbeat gap) linking to `docs/database-maintenance.md`. **Keep the manual recipe as a fallback**, moved to `docs/database-maintenance.md` under a new "Advanced: shrinking by hand (fallback)" heading (stop Charon, back up, about 2x data disk, find ownership, one-off `--entrypoint sqlite3` container, `PRAGMA auto_vacuum=INCREMENTAL; VACUUM;`), framed as only needed if automatic optimization is disabled or keeps skipping.
+  - `docs/database-maintenance.md` (existing, already in `docs-site/scripts/docs-manifest.json` `files`; extend rather than creating a duplicate `docs/features/database-maintenance.md`): new sections "Automatic optimization" (plain language: what happens at the next start, why the UI briefly shows "Optimizing", how much free disk is needed, expected duration, what monitoring does), "Configuration" (`CHARON_DB_COMPACT_ON_START=auto|off`, how to regain break-glass with `off`; stopping Charon mid-conversion is always safe; in plain words: stopping the container during the optimisation is safe and will simply retry on the next start (the early rebuild stops quickly; if the stop lands in the final copy-back step the database is still recovered intact and that start counts as one of up to three attempts); do NOT recommend `stop_grace_period` (it cannot help, the process exits about 5 s after the stop signal); and also explain that an in-place row restore (as opposed to replacing the file) can resurrect stale attempt state, fixed by the "Reclaim space on next restart" button, which resets the counter), and Troubleshooting entries ("stuck on Optimizing", "not enough disk space", "stopped after 3 attempts"). Also fix the existing "WAL File Is Very Large" entry (`:270`) if it mentions manual checkpointing that is now automatic.
+  - `docs/features.md`: extend the **Uptime Monitoring** blurb (`:293-297`) or add one line under a data-management heading: the database keeps itself small automatically; link to `docs/database-maintenance.md`. Keep brief.
+  - `ARCHITECTURE.md`: replace `:801-802` ("Deleted rows free pages inside the SQLite file but do not shrink it; there is no automatic compaction today") with the new data lifecycle; add startup-ordering notes (listener and config-applied readiness, maintenance gate, `RunListener`), the pruner's incremental vacuum and `Advise`, and the `internal/dbmaint` package in the directory/component sections; the stale `no VACUUM` remark near `:467` if it concerns the pruner.
+  - `.env.example` and the compose comment for `CHARON_DB_COMPACT_ON_START` (3.8); `docs/plans/archive/` already holds the #1419 spec.
+  - New standalone files are not created, so `docs-manifest.json` needs no edit.
+
+## 5. Commit Slicing Strategy
+
+Decision: one feature = one PR (`feat/db-maintenance-1422` into `development`), merged only when complete. Ordered commits, each building and passing its gate. **Ordering rule: conversion wiring never lands before the gate, the status endpoint, the 503 page and the emergency-server 503**, so no intermediate commit can pin the pool without protection.
+
+| # | Commit | Scope and files | Depends on | Validation gate |
+| --- | --- | --- | --- | --- |
+| 0 | `docs: archive uptime retention spec and add plan for #1422` | `docs/plans/archive/2026-09-30_uptime-retention-1419_spec.md`, `docs/plans/current_spec.md` (this file); (nothing is removed: `db_maintenance_spec.md` is already gone and was never tracked) | none | Links valid; no second live spec |
+| 1 | `test: add e2e specs for database maintenance` | `tests/settings/database-maintenance.spec.ts` (all `test.fixme`) | 0 | `cd /projects/Charon && npx playwright test tests/settings/database-maintenance.spec.ts --project=firefox` (fixme skipped) |
+| 2 | `refactor: add database maintenance package foundation` | `internal/dbmaint/{constants,inspect,plan,diskspace}.go` + tests, shared disk helper extracted from `backup_service.go`, `internal/config` env parsing + tests, `database` quick_check completion registry (seam unchanged), spike regression tests on the glebarez driver (incl. the `incremental_vacuum` `Exec` trap and `Query` drain tests, cancel-interrupt, `SQLITE_TMPDIR` before/after first open), `dbmaint/tmpdir.go`, `internalSettingPrefixes` gains `maintenance.` with extended tests, codecov check | 1 | `go build ./... && go test ./internal/dbmaint/... ./internal/services/... ./internal/database/... ./internal/config/... ./internal/api/handlers/...`; spike results (incremental_vacuum Exec-vs-Query, cancel-interrupt, tmpdir, `RunListener`) recorded in the PR description |
+| 3 | `feat: create new databases in incremental vacuum mode` | `database.Connect` pragma ordering, `drain.go` (**`QueryContext` with full row iteration**, freed-pages sanity check), `advise.go` (**no-op while the temporary conversion switch is false**), pruner integration via `services`-side interfaces (+ stale comment update) and tests, `freelist_count`-drop assertions | 2 | `go test ./internal/database/... ./internal/services/... ./internal/dbmaint/...`; `./scripts/scan-gorm-security.sh --check`; `make lint-fast` |
+| 4 | `feat: show a maintenance page while the database is optimized` | `gate.go`, middleware, embedded page + CSP hashes, status answered in every phase, emergency-server fast 503, `applyInitialCaddyConfig` `onDone`, explicit listener bind, synchronous `Plan` (**production `Plan` idle until commit 6**), pipeline deferral at the six goroutines, both bounded waits, `Conn` acquire timeout, `SafePlan`, shutdown wait (first, 4 s) with detached marker writes and pinned-conn-closed-first ordering (`main.go`), `HEAD /api/v1/health`, backup-scheduler deferral with run-after-release, `RegisterWithDeps`/`NewEmergencyServerWithDeps` gate parameters with callers (`cmd/api/main.go`, `routes.Register`, `server.NewEmergencyServer`) and tests updated, `dbmaint.Run` with an injected fake convert and a minimal persisted-row store (M2: `maintenance.flag`, `attempts`, `in_progress` and `last_result` read/write helpers over the settings table, inode-validated, introduced here so the `Run` tests exercise real rows; commit 6 adds only the real `Convert`, flag consumption and the production wiring that uses them). **No real conversion and no production `planned` phase yet** | 3 | Gate/middleware/pinned-connection health/`onDone`/timeout/status-after-completion tests; a test that the unmodified production `Plan` leaves the gate `idle` and does not defer the pipeline; `go test ./internal/dbmaint/... ./internal/api/... ./internal/server/... ./cmd/...`; manual scratch-container check with a forced test phase |
+| 5 | `feat: add database maintenance status and restart flag api` | `database_maintenance_handler.go`, routes (admin group near `routes.go:508`), tests (auth, idempotency, distinct 409 bodies for nothing-to-optimize versus env-off, 200 on repeated POST, `can_request_optimize`, fresh notice per call, severity, `restart_to_optimize` withheld while the temporary switch was off, reserved-key cases) | 3 | `go test ./internal/api/...`; GORM scan |
+| 6 | `feat: optimize existing databases on startup` | `convert.go`, real `Convert` wired into `Run`, production planner live (temporary switch removed), checkpoint retry, file-size verification, temp-dir handling, flag consumption and production use of the settings rows (the store itself lands in commit 4), start-of-conversion Warn line, E2E/CI compose files default `CHARON_DB_COMPACT_ON_START=off`, `.env.example` `PrepareTempDir` called from `main` before the first open; inode-validated persisted state (`file_id` = `st_ino`, M-b); tests for every skip path | 4, 5 | `go test` for touched packages; scratch-DB conversion test; proxy-stays-up-while-pool-pinned integration test; SIGTERM test; GORM scan |
+| 7 | `feat: add database maintenance card and notice` | Frontend api/hook/card/banner/info line/maintenance view, en strings, Vitest, un-fixme E2E | 4, 5 | `cd frontend && npm run type-check`; `npx vitest run <touched>`; targeted firefox Playwright for the new spec |
+| 8 | `docs: document automatic database maintenance` | Docs listed in Phase 5 (`docs/database-maintenance.md`, `docs/features/uptime-monitoring.md`, `docs/features.md`, `ARCHITECTURE.md`) | 2-7 | Review; links valid; docs-site sync not hand-edited |
+
+Full Definition of Done before merge (per `CLAUDE.md`), all foreground/blocking:
+
+1. Targeted Playwright only: `npx playwright test tests/settings/database-maintenance.spec.ts --project=firefox` (never the full suite or multiple projects locally; CI covers cross-browser).
+2. `./scripts/scan-gorm-security.sh --check` (settings-row queries added; zero CRITICAL/HIGH).
+3. `bash scripts/local-patch-report.sh` (artifacts `test-results/local-patch-report.md/.json`).
+4. **Because this PR adds `feat:` commits**: local CodeQL Go and JS via `lefthook run codeql` (manual stage; or the `security-scan-codeql` skill) and Trivy via `make security-scan-full` (or the `security-scan-trivy` skill; there is no `make trivy` target), zero high/critical.
+5. `lefthook run pre-commit` (fast linters, staticcheck); `make lint-fast`; **`make lint-backend`** (full golangci-lint) before PR.
+6. Coverage: `scripts/go-test-coverage.sh` >= 85% and `scripts/frontend-test-coverage.sh` >= 85%; `dbmaint` counted, patch coverage of new lines high (gate.go, plan.go, convert.go are all unit-testable with fakes).
+7. `cd frontend && npm run type-check`; `cd backend && go build ./...`; `cd frontend && npm run build`.
+8. Any failing test, type or lint error is fixed in the PR (own `fix:`/`test:`/`chore:` commit), never deferred.
+
+Commit subjects contain no `(security)` scope unless the security review finds a genuine security fix, and stay vague about mechanics if they do. No session IDs or links in commits or the PR description. Merge as a normal merge commit into `development`, like every feature PR (each subject appears in the public changelog).
+
+Rollback and contingency (whole PR): revert the PR. Databases already converted to `auto_vacuum=2` stay valid for old code (readers ignore the mode; old code never runs incremental vacuum, so the file simply stops shrinking). `maintenance.*` settings rows are ignored by old code. If conversion misbehaves in the field, `CHARON_DB_COMPACT_ON_START=off` disables it without a rebuild. Commit 6 is the only commit that can pin the pool for a long time; commits 3, 4-5 and 7 can be reverted independently, but 6 must not be kept without 4.
+
+## 6. Security and OWASP Notes
+
+- **A01 Broken access control:** status endpoint unauthenticated but minimal (`active`, `phase`, `elapsed_seconds`), answered by the gate with static data; sizes, paths, error data and both flag endpoints require admin. The gate must not become an auth bypass: exact-match allow-list on method and path, no prefix matching, no static-asset allow-list, `/api/v1/health/db` explicitly blocked. `maintenance.*` keys cannot be written or read through the generic settings endpoints (prefix-keyed via the shared `isInternalSettingKey`, not Category-keyed).
+- **A03 Injection:** all pragmas are constant strings or integers from constants; `incremental_vacuum(N)` uses an integer constant; the env value is validated against the closed set `auto|off`.
+- **A04/A05 Insecure design and misconfiguration:** a failed or skipped compaction can never block startup (recover, contexts, `defer Release`, `PlannedMaxWait`); the attempt counter prevents restart loops from repeatedly stalling the management plane; env `off` is the operator kill-switch; gate responses carry hash-based CSP, `no-store`, `nosniff` and frame denial because they precede `SecurityHeaders`.
+- **Path handling:** every path (DB, WAL, temp dir) goes through `filepath.Clean`; a temp dir under the data volume is `os.Lstat`-checked and refused if a symlink, created `0700`, owned by `charon`, never derived from request input. No file swap (in-place `VACUUM`), so no rename/symlink race on the database file.
+- **A08 Integrity:** `auto_vacuum` assertion, file-size verification and boot `quick_check` gating; `VACUUM` is atomic so the original stays authoritative on any failure.
+- **A09 Logging:** Info/Warn lines for decision, advice, skip reason, start (with the break-glass instruction) and completion (sizes); no secrets, no paths beyond the configured DB path.
+- **Availability:** maintenance mode is a managed, time-boxed denial of the management plane; healthcheck stays green (self-answered while the gate is active); proxying unaffected (2.1); emergency server answers a fast 503.
+- **Information disclosure via disk numbers:** authenticated only.
+
+## 7. Risks, Rollback, and Contingency
+
+| Risk | Impact | Mitigation |
 | --- | --- | --- |
-| 1 | "throttles a client that exhausts its sign-in budget" | With `X-Forwarded-For: ipA`: all non-429 responses are 401; the first 429 has an integer `Retry-After` ≥ 1, body equal to `{error: <generic>}`, and no `probe-` in the body |
-| 2 | "keys the throttle on the real client behind a trusted proxy" | After exhausting `ipA`: `ipB` → 401 (not 429); the runner (no XFF) gets `GET /auth/status` 200 and a probe login 401 |
-| 3 | "keeps session reads available while sign-in is throttled" | With `ipA` exhausted, admin storage state plus `XFF: ipA`: `GET /auth/me` 200; `GET /auth/status` 200 |
-| 4 | "login page explains the wait and points administrators to the docs" | No guard. Unauthenticated state; `page.route('**/api/v1/auth/login')` fulfills 429 with `Retry-After: 42`. `getByTestId('login-rate-limit-notice')` shows `/wait 42 seconds/i` and a link whose `href` contains `/configuration/trusted-proxies` |
-| 5 | "admin card suggests trusting a private proxy that sends forwarded headers" | No guard. `page.route('**/api/v1/security/login-protection')` returns a private `last_peer` (e.g. `172.18.0.5`) with a recent `last_seen`. On `/security` the card shows the warning with `172.18.0.5/32` and the docs link |
-| 6 | "admin card never suggests trusting a public peer" | Same, with `last_peer: 203.0.113.9`, scope `public`. The card shows the informational note and contains **no** `CHARON_TRUSTED_PROXIES` suggestion or `/32` snippet |
+| Conversion on a multi-GB file takes minutes; management plane and monitoring paused | "Optimizing" screen; heartbeat gap | Only when worthwhile (thresholds); only after proxy is live and listener bound; UI normal until the pool is actually taken; honest indeterminate progress; docs set expectations; `off` switch; at the next start after #1423 the file is already small (reporter: about 1-2 minutes) |
+| Reporter-type install is not compacted until its next start | File stays large (not growing) until then | By design (3.3a): never convert at an arbitrary time; `Advise` makes the in-app note and log accurate right after the prune; typical installs restart on every update; the single open question (section 10) covers a user-initiated no-restart follow-up |
+| Conversion at boot #1 rebuilds rows about to be pruned (>= 20% free plus pending backlog) | One-time longer `VACUUM` | Bounded by the same thresholds; the pruner then drains incrementally in the same boot (3.3a item 4) |
+| Health probe hangs on the DB and the container is restarted mid-`VACUUM` | Wasted conversion, restart loop | Gate self-answers health (while active) and status and aborts; `health/db` blocked; pinned-connection + expired-cache test |
+| Callback fires before listener bound / `main.go` DB calls | Startup deadlock or no maintenance page | Two-signal readiness, explicit `net.Listen` |
+| Gate stuck in `planned` | Uptime pipeline never starts | `onDone(applied)` on all exit paths; `PlannedMaxWait`, then `QuickCheckMaxWait`; worst case 18 min, both bounded; ctx cancel releases |
+| Conversion wiring lands before its safeguards | Unprotected pool pin in an intermediate commit | Commit order 4, 5, then 6; production `Plan` idle until 6 |
+| Boot `quick_check` (or any long reader) pins the WAL | Checkpoint busy; file does not shrink | Wait for `quick_check`, bounded checkpoint retry, `journal_size_limit`, verify by file size, `converted_pending_checkpoint` |
+| Disk exhaustion mid-run | Failed `VACUUM` (safe) but disk pressure | Pre-check 2x-live rule (same filesystem summed), `Bavail`, slack; skip and report; backups deferred |
+| Driver differences (temp dir, interrupt, pragma result sets) | Design assumption wrong | Spikes are resolved and recorded as commit 2 regression tests (cancel interrupts only the `VACUUM` rebuild phase, runtime `SQLITE_TMPDIR` does not work, `Exec` frees one page); SQLite default temp dir as fallback; uncounted in-progress marker logic |
+| Docker stop during a conversion | Rebuild phase: wasted work, cleanly rolled back. Copy-back tail (uninterruptible, seconds to tens of seconds on multi-GB files): completes, or is killed mid-copy | `VACUUM` is atomic; ctx-cancel interrupts only the rebuild phase (2.4, H2). `Run` decides by the `Convert` result (nil with a cancelled ctx = `converted`); runner wait placed first in the shutdown path and capped at 4 s within Docker's 10 s default (3.4 step 9); detached `last_result` and marker writes after closing the pinned conn, before a single checkpoint attempt (M1). A stop or kill inside the tail is still safe and atomic but leaves the marker (one counted attempt); a stop during the tail can always cost one counted attempt (the process exits about 5 s after SIGTERM, so `stop_grace_period` cannot help and is not recommended); the next boot recovers and retries, up to 3 |
+| Leaked pool connection or hung `Conn` acquire | Management plane 503 forever | `ConnAcquireTimeout` (45 s) then `skipped(database_busy)` and release; no total conversion cap by design (3.5) |
+| `Drain` via `Exec` silently frees one page per call | Hourly drain does nothing, file never shrinks | `Query` with full row iteration; `rows.Close()` before any other pool query (M-c); freed-pages sanity check by `page_count` delta (L-b); Exec-trap and per-step `freelist_count` tests (2.4) |
+| `Plan` panics or errors synchronously in `RegisterWithDeps` | Startup blocked | `SafePlan` recover: idle plus Warn |
+| Replaced file or row restore carries stale `maintenance.*` rows | False back-off or false in-progress | `file_id` = inode only; file replacement (`ApplyPendingRestore`, `docker cp`) is detected and rows deleted; `st_dev` mismatch alone keeps state (so a crash loop still reaches `MaxConvertAttempts`); in-place row restores and `cp` over the file are NOT detected, the UI button resets the counter (3.3) |
+| Temp dir on small tmpfs, or `<data>/.tmp` symlink/wrong owner | Spurious failure or redirected write | `SQLITE_TMPDIR` set in `main` before the first open (late set is ignored); free-space check on the directory actually used; `Lstat` refusal, `0700`, ownership; fall back to SQLite defaults with a Warn if unsafe |
+| Loss of break-glass during a conversion | Operator cannot use tier-2 | Accepted; fast 503 with `maintenance:true`; Warn line naming `CHARON_DB_COMPACT_ON_START=off` |
+| Pool queue starvation of periodic workers | Timeouts elsewhere | Pipeline start deferred; API/emergency 503 before touching the pool; cert checker, stats ingester, CrowdSec reconcile documented as queuing and verified tolerant in commit 6 |
+| Restore of a pre-conversion backup | Mode reverts to 0 | Boot evaluation every start; info note if thresholds are met |
+| `incremental_vacuum` fragmentation or thrash | Slight read slowdown; extra writes | `KeepFreeBytes` floor, bounded steps and budget, checkpoint after drain |
+| Dropping `idx_heartbeat_lookup` later | Plan regressions | Separate audited PR (2.6) |
 
-If the Cerberus limiter is also on in a local stack, test 1 still passes, because both
-limiters answer through the same `Reject`.
+## 8. Acceptance Criteria
 
-**Fixture hardening** (in C3):
+1. A fresh install's database reports `PRAGMA auto_vacuum` = 2 (pragma issued before WAL on an empty file); a populated file is untouched by `Connect`.
+2. On a mode-2 database, after a prune pass that deleted rows, free pages above `KeepFreeBytes` are returned in bounded steps (each step drops `freelist_count` by about `DrainPagesPerStep`, issued with `Query` and all rows iterated, never `Exec`) with no long lock and the main **file size** shrinks after the checkpoint; on a mode-0 database the pruner never drains and only advises.
+3. On boot, a mode-0 database is converted to mode 2 with data and indexes intact when reclaimable >= 100 MB **and** (free >= 20% **or** reclaimable >= 1 GiB); below that nothing runs unless the flag is set (the floor still applies); thresholds are named constants covered by table tests.
+4. **Reporter path (3.3a):** a mode-0 database whose freelist became large because the pruner drained a backlog (no flag set, no machine-written settings) is converted automatically at the next start, shrinking the file; `Advise` logs the pending optimization once per process and the notice appears without a restart; an install that already meets the thresholds at boot #1 converts then and the pruner drains the remaining backlog incrementally in that same boot.
+5. Compaction starts only after BOTH the initial Caddy config was applied and the HTTP listener is bound; if Caddy is not ready the boot is skipped with a reason; the uptime pipeline, pruner and scheduled backups are released on every outcome (readiness timeout, `quick_check` wait timeout, apply error, cancel, a `planned` run that ends `skipped`); the UI is served normally (no 503) during `planned`; proxied requests succeed throughout a conversion (integration test with the pool pinned).
+6. While the gate is active, `/api/v1/health` and `/api/v1/maintenance/status` return 200 from the gate with the pool connection pinned and the rate-limit cache expired; outside maintenance `/api/v1/health` passes through the normal chain and stays rate limited; `/api/v1/health/db` returns 503 immediately; `/api/v1/maintenance/status` returns the same static JSON in **every** phase including `idle`, `done`, `skipped` (never the SPA HTML).
+7. Insufficient disk (including the same-filesystem 2x case), a held writer lock, disabled env, boot integrity failure, or repeated failures each skip cleanly with a reported reason; startup is never blocked and no error escapes to `main`; a cancel-driven stop does not count toward `MaxConvertAttempts`: the shutdown path waits first, at most 4 s, for the runner; a stop in the interruptible rebuild phase records `interrupted`, a stop that lands in the uninterruptible copy-back tail lets `VACUUM` finish and records `converted` (nil result with a cancelled ctx), and both clear `maintenance.in_progress` with a detached context after the pinned connection is closed; the `last_result` write and marker clear happen before a single, non-retrying checkpoint attempt; a stop that lands in the tail can always leave the marker (still atomic, recovered from the WAL, one counted attempt, retried on the next boot up to 3; `stop_grace_period` does not help because the process exits about 5 s after SIGTERM); the acceptance checks accept all three outcomes (`interrupted` mode 0, `converted` mode 2, or marker left with one counted attempt and an intact DB) and assert eventual conversion on the next boot, never instant interruption or one specific outcome; a stuck pool acquire ends `skipped(database_busy)` after `ConnAcquireTimeout`; `Plan` panics/errors mean idle; persisted `maintenance.*` state from a replaced database file (different inode) is ignored, while an `st_dev`-only difference keeps it.
+8. While converting, the SPA (served at `/` with 200, since static routes are not gated) shows the maintenance view because its API calls receive `503` with `maintenance:true` and the interceptor does not log the user out; unmatched deep links and non-SPA clients get the 503 HTML page (CSP/`no-store`/`Retry-After`/`nosniff`/frame denial), JSON on `Accept: application/json`, HEAD handled identically in idle and active phases; the emergency server answers a fast 503; scheduled backups are deferred from `planned` on; afterwards the app is fully usable and the uptime pipeline resumes.
+9. A novice sees no page-top banner in normal operation, and no button that looks usable but cannot do anything (hidden on a mode-2 database or below 100 MB reclaimable, shown disabled with its reason when only the env is `off`; `restart_to_optimize` and `Advise` stay silent before conversion exists): `info` notices render as a quiet line in the Database card only; `warning` notices (insufficient disk, too many failures) render as a banner; the notice is computed fresh per request; the button only sets a flag consumed at the next boot and can be undone.
+10. `maintenance.*` and `migration.*` settings never appear in `GET /api/v1/settings` or the `PATCH /api/v1/config` response and cannot be written through `UpdateSetting` or `PatchConfig`, using the single shared `internalSettingPrefixes` list.
+11. `CHARON_DB_COMPACT_ON_START` accepts only `auto|off` (invalid values warn and fall back to `auto`); the E2E/CI compose files default it to `off`; production compose files do not set it.
+12. Docs: the automatic behavior replaces the old "may not shrink" caveat in `docs/features/uptime-monitoring.md`, the manual recipe survives as a documented fallback, and `docs/database-maintenance.md`, `docs/features.md`, `ARCHITECTURE.md`, `.env.example` are updated.
+13. All tests, coverage gates (>= 85%), GORM scan, `make lint-backend`, local CodeQL and Trivy (zero high/critical), type-check and builds pass; the targeted firefox spec passes.
 
-- `postLoginWithRetry` (`tests/fixtures/auth-fixtures.ts`): on 429, honor `Retry-After`
-  (capped at 10 s), retry once, then throw `Error("login throttled (429): E2E auth budgets
-  too low for this stack?")`.
-- `TestDataManager.createUser` (`tests/utils/TestDataManager.ts:628-642`): on 429, honor
-  `Retry-After` once; throw only if the retry is **still** 429. Other non-OK logins keep
-  today's behavior (warn and return `token: ''`).
+## 9. Industry precedent (from memory - UNVERIFIED, confirm before citing in docs)
 
-### 4.2 Phase 2: Backend
+- Home Assistant's recorder has `auto_purge` and `auto_repack` (a `VACUUM` after the purge) plus a manual `recorder.purge` with a `repack` option - the same "prune then reclaim" pairing.
+- Sonarr/Radarr run scheduled housekeeping that includes a database `VACUUM`.
 
-| Step | Files | Work |
-| --- | --- | --- |
-| 2.1 | `backend/internal/ratelimit/**`, `backend/go.mod`, `backend/go.sum` | §3.3/§3.4 (C4). Add `github.com/hashicorp/golang-lru/v2 v2.0.7` as a direct require. Review `go.work.sum` changes deliberately |
-| 2.2 | `internal/cerberus/{rate_limit.go,rate_limit_test.go,cerberus.go}`, `internal/api/middleware/{emergency.go,auth.go,optional_auth.go}` (+ tests) | §3.11 plus the exported bypass helper (C5) |
-| 2.3 | `internal/config/{config.go,config_test.go}` | `AuthRateLimitConfig`, `Normalize`, `getEnvIntStrictAny`, `StartupWarnings`, `ENABLED` parsing (C6) |
-| 2.4 | `internal/api/middleware/auth_rate_limit.go` (+ `_test.go`) | Classes/table, `NewAuthRateLimiter`, `Middleware`, `AllowPasswordAttempt`, detector, `Status`, capped logging, clock option (C6) |
-| 2.5 | `internal/metrics/{metrics.go,metrics_test.go}` | `charon_auth_rate_limited_total{class}` + `IncAuthRateLimited`, in `Register` (C6) |
-| 2.6 | `internal/config/config.go` (+ test), `cmd/api/main.go` (+ test) | `ValidateTrustedProxies` in `Load` (§3.7); log `StartupWarnings` after `logger.Init` (C7) |
-| 2.7 | `internal/api/routes/{routes.go,routes_test.go}` + `password_guard_inventory_test.go` | §3.2 group, §3.9 wiring, guards, admin endpoint (C7) |
-| 2.8 | `internal/api/handlers/{user_handler.go,certificate_handler.go,login_protection_handler.go}` (+ tests) | Password guards (§3.2.1); admin endpoint (§3.12) (C7) |
-| 2.9 | `frontend/src/api/security.ts` | `LoginProtectionStatus` type + `getLoginProtectionStatus()`, shipping with the backend contract (C7) |
-| 2.10 | `.docker/compose/docker-compose.playwright-{ci,local}.yml` | §3.6 E2E block; fix the stale comment (C7) |
+Both support automatic, no-knob reclamation; neither is evidence about glebarez/modernc/WAL specifics, which this plan verifies locally.
 
-### 4.3 Phase 3: Frontend
+## 10. Decisions and Open Questions
 
-| Step | Files | Work |
-| --- | --- | --- |
-| 3.1 | `frontend/src/utils/rateLimit.ts` + test | §3.13.1 |
-| 3.2 | `frontend/src/api/client.ts` + test | Interceptor 429 localization |
-| 3.3 | `frontend/src/pages/Login.tsx` + test | §3.13.2 inline notice |
-| 3.4 | `frontend/src/components/LoginProtectionCard.tsx` + test; `pages/Security.tsx` + test; `hooks/useSecurity.ts` | §3.13.3 |
-| 3.5 | `frontend/src/constants/docs.ts` + test | §3.13.4 |
-| 3.6 | `frontend/src/locales/{en,de,es,fr,zh}/translation.json`, `src/__tests__/i18n.test.ts` | §3.13.5 plus a key-parity test |
+Decided by the user earlier: thresholds (20% + 100 MB floor, plus the 1 GiB OR trigger); automatic first conversion at boot; brief break-glass loss acceptable; `idx_heartbeat_lookup` drop is a separate audited PR; localization is #1421; env override is `auto|off` only.
 
-### 4.4 Phase 4: Integration and testing (test matrix, Decision J)
+Decided in this revision: upgrade order is solved by post-prune advice plus conversion at the next start, with no runtime trigger, no machine-written flag and no self-restart (3.3a); `info` notices are a quiet card line, only `warning` notices are banners; docs extend the existing `docs/database-maintenance.md`.
 
-All Go tests use an injected clock and **no `time.Sleep`**. `scripts/go-test-coverage.sh`
-runs with `-race`.
+Decided in revision 5 (Supervisor round 3): drain uses `Query` with full iteration (H1); `SQLITE_TMPDIR` is set in `main` before the first open, honouring an operator value (M1); the shutdown path waits for the runner and writes final markers with a detached context (M2, superseded by H2 in revision 6: the wait is 4 s and placed first, see below); `Conn` acquire timeout and no total conversion cap (M3); static routes stay ungated and the interceptor is the primary maintenance path (M4); `Plan` is wrapped so it can never block startup (M5). The runtime `SQLITE_TMPDIR` spike is closed (it does not work at runtime); the context-cancel spike is corrected in revision 6.
 
-| Area | Test (file) | Proves |
-| --- | --- | --- |
-| Algorithm | `TestKeyedLimiter_BurstThenDeny`, `_RefillAfterInterval`, `_DenialsDoNotConsume`, `_IndependentKeys` | Burst, exact `RetryAfter`, refill, independence |
-| Retry-After math | `TestRetryAfterSeconds` (10/600 s → 60; 60/60 s → 1; 7/100 s → 15; sub-ms → 1) | No float off-by-one |
-| Memory bound | `TestKeyedLimiter_MaxKeysHardCap` (100 cap, 10,000 keys → `Len()==100`), `_SweepEvictsOnlyIdleFullBuckets`, `_SweepKeepsRecentlyDepletedKey` | R9; lossless sweep |
-| No goroutines | `TestKeyedLimiter_StartsNoGoroutines` (non-parallel; `NumGoroutine` delta 0 after 100 constructions) | 3b fixed |
-| Concurrency | `TestKeyedLimiter_ConcurrentSameKeyExactBurst` (16×100 calls, frozen clock → exactly Burst allowed), `_ConcurrentAllowAndReconfigure` | `-race` clean |
-| Validation | `TestNewKeyedLimiter_RejectsInvalidConfig`, `TestPerWindow` (float64 math) | Rejects invalid Burst, Rate and MaxKeys |
-| Keying/scope | `TestClientKey` (IPv4, mapped, same/different /64, loopback, zone, host:port, `""`/garbage), `TestClassifyAddr` (RFC 1918, ULA, CGNAT, link-local, loopback, public v4/v6) | R7; scope rules |
-| HTTP | `TestReject_SetsRetryAfterAndGenericBody` | R3 |
-| Config | `TestLoadAuthRateLimitConfig_Defaults`, `_Overrides`, `_MalformedSentinel`, `_EnabledTrueFalseOnly`, `_EnabledUnrecognizedWarnsAndStaysOn`, `TestAuthRateLimitConfig_NormalizeZeroValueIsSecureDefault`, `_NormalizeBounds`, `TestValidateTrustedProxies_*` (§3.7), `TestLoad_StartupWarningsCollected` | R10, R15; pins production defaults |
-| Main | `TestMain_LogsStartupWarnings` (or equivalent helper test) | Warnings reach the log |
-| Middleware | `TestAuthRateLimiter_LoginAndChangePasswordShareBucket`, `_SessionClassSeparateBudget`, `_ExemptRoutesNeverThrottled`, `_UnknownRouteDefaultsToSession`, `_EmergencyBypassSkips`, `_DisabledPassesThrough`, `_EpisodeLoggingOncePerEpisode`, `_GlobalWarnCapWithSuppressedCount`, `_LogsContainNoCredentials`, `_MetricDeltaPerClass` (`testutil.ToFloat64` before/after), `_AllowPasswordAttemptSharesLoginBucket` | R1–R4, R8, R12 |
-| Detector | `_UntrustedPeerCountsAndRecordsScope`, `_TrustedPeerMalformedHeaderNotCounted`, `_PublicPeerWarnHasNoTrustSuggestion`, `_PrivatePeerWarnSuggestsSlash32Or128`, `_DetectorWarnRateLimited` (fake clock), `_PerScopeStateIndependent`, `_PublicNoiseDoesNotMaskPrivateWarning` | R5 |
-| Trusted proxy | `_UntrustedPeerIgnoresForwardedHeaders`, `_TrustedPeerKeysOnRealClient`, `_TrustedPeerUsesRightmostUntrustedHop`, `_IPv6SlashSixtyFourAggregation`. All use a real `gin.Engine` + `SetTrustedProxies` | R6, D |
-| Cerberus | `Retry-After` present, `_UnvalidatedBearerIsLimited`, `_ValidNonAdminBearerIsLimited`, `_ValidatedAdminExempt`, `_SegmentAwarePrefix`, `_SettingsReconfigureResetsBuckets`, `_PerEpisodeWarnCapped`, `_NoGoroutineLeak` | 3a–3g |
-| Route wiring | `TestRegister_AuthRoutesHaveExplicitRateLimitClass` (two-way inventory); `_RefreshThrottledAsSession` (group-ordering guard); `_LoginThrottledBeforeHandler` (11th → generic 429 body); `_ChangePasswordSharesLoginBudget`; `_ProfileEmailChangeSharesLoginBudget` (name-only update still 200); `_CertificateKeyExportSharesLoginBudget` (`include_key:true` → 429 after exhaustion; `include_key:false` not throttled); `_ExemptAuthRoutesNeverThrottled`; `_SessionBudget`; `_AuthThrottleIndependentOfCerberusToggle`; `_AuthThrottleDisabledByConfig`; `_EmergencyEndpointsNeverThrottled`; `_EmergencyBypassSkipsAuthThrottle`; `_LoginProtectionEndpointAdminOnly` (user → 403, admin → 200) | A, H, R2, R8, R14, B4 |
-| Password tripwire | `TestPasswordVerificationCallSitesAreGuarded` (`go/parser` over **every non-test `.go` file under `backend/internal` and `backend/cmd`**). Any `.CheckPassword` **selector** (call or method value) must sit in an allowlisted func (`AuthService.Login`, `AuthService.ChangePassword`, `UserHandler.UpdateProfile`, `CertificateHandler.Export`); `bcrypt.CompareHashAndPassword` selectors are optionally held to the same allowlist; if enabled, that allowlist must also include the existing token-verification sites (`orthrus/server.go`, `SecurityService` at `security_service.go:205`, `EmergencyTokenService` at `emergency_token_service.go:160`). In the two handler funcs, `AllowPasswordAttempt` must precede `CheckPassword` **by source position**; this is not a control-flow-dominance proof, and the route tests cover behavior | Password-route regression guard |
-| Status API | `TestLoginProtectionHandler_Get_*` (fields, `null` last_seen, caller key echo with and without trusted XFF) | §3.12 |
-| Frontend | `rateLimit.test.ts` (delta, HTTP-date, `0`, negative, junk, missing, AxiosHeaders vs plain, 1/59/60/61/3600 boundaries); `client.test.ts`; `Login.test.tsx` (429 → inline notice with 42 s and docs link, no toast; other errors → toast); `LoginProtectionCard.test.tsx` (healthy, private warning with `/32` and `/128`, public info without snippet, off, 24 h staleness, error); `Security.test.tsx` (card only for admins, visible with Cerberus off); `docs.test.ts`; `i18n.test.ts` (all new keys resolve in 5 locales, with plural forms) | R11, R14 |
-| E2E | §4.1 tests 1–6 | End-to-end |
+Decided after the PR #1428 E2E regression (#1422): the gate answers `/api/v1/health` itself only while `checking`/`converting`; in every other phase health passes with `c.Next()` so it stays under `RateLimitMiddleware` and the other middleware (2.2, 3.6, L8). The status endpoint is still answered in every phase.
 
-**Coverage.** The new `ratelimit` package targets ≥ 95%. Backend, frontend and patch
-coverage must each be **≥ 87%** (the repo's real gate: `scripts/go-test-coverage.sh:14`,
-`scripts/frontend-test-coverage.sh:15`, `codecov.yml`).
+Decided in revision 7 (Supervisor round 5): the `stop_grace_period` recommendation is dropped everywhere because the runner wait is a fixed 4 s and the process exits about 5 s after SIGTERM whatever the container grace (H1, option ii; no new knob); a stop in the copy-back tail can always cost one counted attempt and is retried on the next boot; after a nil `VACUUM` with a cancelled ctx, `last_result` and the marker clear are written first, then a single non-retrying checkpoint attempt (M1); commit 4 introduces the persisted-row store (M2); Drain's freed-pages check is warn-and-continue only (L1).
 
-### 4.5 Phase 5: Documentation and deployment (Decision K)
+Decided in revision 6 (Supervisor round 4, measured): `VACUUM` is interruptible only in its rebuild phase, so a cancel during the copy-back tail yields a nil result that `Run` records as `converted`; the runner wait is placed FIRST in the shutdown path and capped at `ShutdownRunnerWait` = 4 s inside Docker's 10 s default, with the entrypoint `sleep 1` trap latency and the existing 25 s/10 s drains re-checked (3.4 step 9); a stop or kill inside the tail stays safe and atomic with one counted attempt (superseded in revision 7: no `stop_grace_period` recommendation); `file_id` is the inode only (dev mismatch keeps state); in-place row restores are not detected and the UI button resets the counter; `Drain` closes its rows before any other pool query and reads the checkpoint `busy` column; `Run` closes the pinned conn before marker writes; the unsolicited relaunch variant stays rejected (one more reason: the uninterruptible tail makes an unannounced stop/relaunch riskier).
 
-| File | Change |
+Genuinely open (the only one):
+
+1. **Should a follow-up issue be filed for a no-restart path?** Reframed: a **user-initiated** "Restart Charon now to optimize" action (an entrypoint-supervised relaunch of the Charon process only, Caddy kept up), offered in the Database card when the notice is `restart_to_optimize`. Low priority; act on it only if field reports show installs that never restart. An **unsolicited** relaunch is rejected for the same reason the runtime trigger is: it causes an unannounced management-plane stall, changes the `APP_PID` wait-loop contract in `.docker/docker-entrypoint.sh` (which today exits the container when either process dies), and can mask crash loops. Recommendation (Supervisor agrees): file a low-priority follow-up issue, do not build it in this PR; needs the owner's yes/no on filing the issue.
+
+### Review findings traceability (rounds 1-5)
+
+| Finding | Resolved in |
 | --- | --- |
-| `docs/features/login-protection.md` (**new**; auto-published) | Plain language: what it does, defaults, what users see, the lockout second layer, env table. **"All visitors share one address"** covers both cases: an untrusted proxy (→ trusted-proxies doc) and runtime NAT (verified remedies from §3.5.2, a pointer to the admin card's self-check, the kill switch) |
-| `docs/configuration/trusted-proxies.md` (**new**; auto-published) | Durable home for `CHARON_TRUSTED_PROXIES`, detailed below the table |
-| `.docker/compose/docker-compose.yml` | A commented `# - CHARON_TRUSTED_PROXIES=<your proxy's IP>` line with a one-line explanation in the `environment:` block, plus a pointer comment on the `8080:8080` port line (`:12`) |
-| `docs/features.md`, `docs/features/security.md` | Brief "Login Protection" entries. **Remove the unavailable "Require Login" gateway claims** (`features/security.md:25-27`; `features.md:69`) |
-| `docs/security.md` | "Login Protection" section; fix the stale Tier-1 bullet (:491); link the "ClientIP spoofing" bullet (:496) to trusted-proxies.md |
-| `docs/troubleshooting/proxy-headers.md` | New problem: "Everyone sees 'please wait … seconds' on the login page", with both causes (untrusted proxy; runtime NAT) and their remedies |
-| `docs/api.md` | Rewrite "Rate Limiting" (:1761) with the 429 contract and budgets; correct the stale "Authentication not yet implemented" blurb (:16-24); document the admin-only `GET /api/v1/security/login-protection` |
-| `docs/runbooks/emergency-lockout-recovery.md` | Symptom 4 (the real 429 body, `Retry-After`, recovery); replace the stale test-environment section (:60-68) |
-| `ARCHITECTURE.md` | Tech-stack rows; `internal/ratelimit/` in the directory structure; Security Suite text; Layer 1 rewrite; a throttle paragraph in "Management API Authentication & Authorization"; correct the Management Interface claim (:986); env-var rows; bcrypt wording (:913) |
-| Code comments | `config.go:57-65`, `server.go:15-17`, `auth_handler_test.go:325-329` → `docs/configuration/trusted-proxies.md` (+ commit `3b1cd2bb` for design history) |
+| Round 1 M1-M16, round 2 (2 HIGH + 2 MEDIUM) | Kept unchanged: 2.1, 2.2, 3.3, 3.4, 3.6 |
+| H1 (`incremental_vacuum` via `Exec` frees one page) | 2.4 (spike, trap test), 3.1 `drain.go`, 3.2 step 2, Phase 2 tests, AC2 |
+| H2 (`VACUUM` not instantly interruptible) | 2.4, 3.4 step 9, 3.5 (total cap, attempts and interruption), 4 Phase 2/3/5 tests, 7 risk row, AC7, 10; `stop_grace_period` recommendation removed in revision 7 (H1) |
+| M1 (`SQLITE_TMPDIR` before first open) | 2.4, 3.5 Temp directory |
+| M2 (shutdown accounting) | 3.4 step 9 (revised by H2), 3.5 |
+| M3 (`Conn` acquire timeout, no total cap) | 3.4 step 6, 3.5 |
+| M4 (static routes ungated, accurate gate description) | 3.6 |
+| M5 (`SafePlan`) | 3.3, 3.4 step 1 |
+| M6 (compose `start_period`) | 2.2 |
+| Round 5 H1 (`stop_grace_period` cannot help, fixed 4 s wait) | 3.4 step 9 (unavoidable case), 3.5 (attempts and interruption), Phase 5 SIGTERM test (three outcomes), Phase 5 docs bullet, commit 6 row, 7 risk row, AC7, 10 |
+| Round 5 M1 (result and marker first, single checkpoint attempt after nil VACUUM on cancel) | 3.4 step 9(b) and test 2b, 3.5 checkpoint and attempts bullets, 7 risk row |
+| Round 5 M2 (commit 4 persisted-row store) | 5 commit 4 and 6 rows |
+| Round 5 L1-L3 (Drain warn-and-continue only; legacy device-number wording; millisecond claims scoped to rebuild) | 3.2, 3.3 persisted state, 2.4/3.5 |
+| M-a (`ShutdownRunnerWait` value and placement) | 3.1 constants, 3.4 step 9 |
+| M-b (`file_id` inode only, detected vs undetected restores) | 3.3 "Persisted state vs replaced files", 7 risk row, AC7 |
+| M-c (`rows.Close()` before other queries; checkpoint `busy` column) | 2.4, 3.1 `drain.go`, 3.2 step 2, 3.5, Phase 2/3 tests |
+| M-d (close pinned conn before marker writes; nil + cancelled ctx is `converted`) | 3.4 step 9, 3.5 "`Run` ordering", Phase 3 tests |
+| L1 (drain row-iteration and close detail) | 3.2 step 2, 3.1 `drain.go` |
+| L2 (flag lifecycle, `can_request_optimize`) | 3.3 flag lifecycle, 3.7 |
+| L3 (temporary conversion switch, removed in commit 6) | 3.3a item 2, 3.4/Phase 3 commit 4, 3.7 |
+| L4 (no promise of a conversion the next boot refuses) | 3.3a item 2, 3.7 |
+| L5 (persisted state validated against the file) | 3.3 (revised by M-b) |
+| L6 (deferred, not dropped, scheduled backups) | 3.4 step 10, 3.5 "Backups during maintenance" |
+| L7 (emergency `/health` stays 200) | 3.6 |
+| L8 (`HEAD /api/v1/health`; health answered by the gate only while active, passes through otherwise) | 3.6 |
+| L9 (`Plan` recover wrapper) | 3.3, 3.4 step 1 |
+| L10 (`Conn` acquire bounded in `checking`) | 3.4 step 6, 3.1 constants |
+| L11 (accurate static-route and gate description) | 2.1/2.2, 3.6 |
+| L12 (package dependency direction) | 3.1 |
+| L-a (`disabled_by_env` wording, distinct env-off body, idempotent POST) | 3.3a table, 3.7 (endpoint table, `can_request_optimize`, notice list) |
+| L-b (`page_count` delta for freed pages) | 3.2 step 2, Phase 3 tests, 7 risk row |
+| L-c (post-`VACUUM` `PrepareStmt` test) | 3.5 "Post-`VACUUM` prepared statements", Phase 2 tests |
+| L-d (no DB close in `main.go`) | 3.4 step 9 |
+| L-e (AC9 wording) | AC9 |
+| L-f (bind-mount inode stability; `WaitReleased` uses `appCtx`) | 3.3 (bind-mount note), 3.4 step 10 |
 
-`docs/configuration/trusted-proxies.md` covers:
+---
 
-- **What it does.** Client-address resolution for login protection and other IP-based
-  features, plus `X-Forwarded-Proto`/`X-Forwarded-Host` for HTTPS detection. Headers are
-  honored only from listed proxies.
-- **Exact addresses only**, with IPv4 `/32` and IPv6 `/128` examples.
-- **XFF requirement.** The proxy **must append to or overwrite** `X-Forwarded-For` (nginx
-  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, as in
-  `docs/troubleshooting/websocket.md:53-54`). A proxy that sets only `X-Real-IP` and passes
-  the client's own `X-Forwarded-For` through lets clients choose their key.
-- **Stable addresses.** Docker container addresses change on recreate, so recommend a static
-  proxy IP or a dedicated proxy subnet.
-- **Topology examples** from §2.4: a `localhost:8080` self-proxy (`127.0.0.1/32` and
-  `::1/128`), a `charon:8080` self-proxy (the container's own address), and external nginx
-  (its Docker-network address).
-- **Invalid entries.** One invalid entry means no proxy is trusted. This is the behavior
-  change from §3.7.
-- **Verifying the setup** via the admin card's "Charon sees your browser as".
+## Addendum A (revision 10): move the Database page from System Settings to Tasks
 
-**Manifests and ignore files.**
+Supervisor/user-direction history (addendum): revision 8 review returned CHANGES REQUIRED (SF1-SF3 and nits a-f); revision 9 folded them in and the Supervisor returned six nits (a-f) on it; revision 10 folds those nits in and applies the user decision "automatic maintenance already does the work, so Charon must not nudge users": the sidebar attention indicator and everything that existed only for it are removed (subtractive revision), see the traceability tables at the end of A.9.
 
-- No `docs-site/scripts/docs-manifest.json` change is needed: both new files are in
-  manifested directories. `docs/runbooks/` stays contributor-only.
-- No `.gitignore`, `.dockerignore` or `codecov.yml` changes are needed.
+Status: IMPLEMENTED (commits 9-13 on the branch; pending PR update/CI), same PR (#1428, branch `feat/db-maintenance-1422`, not merged). **Where this addendum conflicts with sections 3.7 (UI bullets), 4 Phase 4, the section 5 commit 7 row, DoD item 1 or AC text that names System Settings or `tests/settings/database-maintenance.spec.ts`, this addendum wins.** Everything else in this plan (API contract, gate, 503 interceptor, backend) is unchanged. Research below was verified against the code on this branch.
 
-**Process note (disclosure hygiene).** The PR description, the commit bodies, and
-`docs/reports/qa_report.md` must not describe unfixed weaknesses. They may reference this
-spec's fixed items factually. Anything else goes through the maintainer's private
-tracking. This spec, committed in C0, follows the same rule.
+### A.1 Why
 
-**Deployment and release notes.** The docs site must publish `configuration/trusted-proxies`
-no later than the release that ships the login notice (C8 and C10 ship together).
+Live test on a real instance: after conversion `auto_vacuum` is incremental, so the Settings card shows only "Database size: X" (button hidden by 3.7), and the user found no "maintenance" control anywhere. Direction from the user: Tasks = things you run or inspect, Settings = configuration; move the maintenance UI to Tasks and make it a real page that is never empty. **Principle (user decision, revision 10): the automatic maintenance (boot-time check, one-time conversion when worthwhile, incremental drain after every hourly prune) already does the work, so Charon never pushes the user to act.** The Database page is passive information plus an optional manual trigger; there is no nav indicator, no global banner and no badge anywhere.
 
-- Login protection turns on automatically.
-- Operators behind a reverse proxy should set `CHARON_TRUSTED_PROXIES`. Operators on
-  rootless or desktop runtimes should check the admin card.
-- An invalid trusted-proxy entry now disables proxy trust everywhere, with a WARN (§3.7).
-- There is no migration, no model change and no DB change.
+### A.2 Research findings (verified)
 
-### 4.6 Complexity estimates
+| Topic | Finding |
+| --- | --- |
+| Nav | `Layout.tsx:119-180` builds `navigation` inline; Tasks (`:163-179`) has children Import (nested), Backups (`/tasks/backups`, 💾), Logs (`/tasks/logs`, 📝). Admin-only children use the spread pattern `...(user?.role === 'admin' ? [{...}] : [])` (`:131,143,148,158`). Three render branches take a `NavItem` (`{name, path?, icon?, children?}`, `:25-30`): collapsed icon link (`:243-259`), expanded parent accordion button (`:263-284`), child `Link` (`:336-348`). Mobile uses the same render path. The new child only adds an entry to the array: `NavItem` and the render branches are **not** modified. |
+| Tasks page | `pages/Tasks.tsx` renders a title, **tabs for Backups and Logs only** (Import is sidebar-only), and an `Outlet` in a card. `App.tsx:133-143`: `tasks` index route renders `<Backups />`; `backups`, `logs`, `import/*` children. Not wrapped in `RequireRole`. |
+| Role gating today | Backups/Logs have **no** route guard: backend `management` group is admin + user (`routes.go:534-559`); only `passthrough` users see no nav (`Layout.tsx:182`) and are redirected to `/passthrough`. Admin-only pages use `<RequireRole allowed={['admin']}>` in `App.tsx` (`agent`, `security/crowdsec`, `security/encryption`, `settings/users`); `RequireRole` redirects non-allowed users to `/`. The Database endpoints are `managementAdmin` (`routes.go:582-584`), so a non-admin gets 403. |
+| API already carries the page | `GET /system/database` already returns `size_bytes`, **`wal_bytes`**, `reclaimable_bytes`, `auto_vacuum` (`none\|full\|incremental`), `env_mode`, `compact_requested`, `can_request_optimize`, **`disk_free_bytes`**, `last_result` (`{at, outcome, reason, bytes_before, bytes_after}`) and `notice`. `src/api/databaseMaintenance.ts` already types all of them. **No backend or API change is needed: frontend only.** |
+| `last_result` values | outcomes `converted`, `converted_pending_checkpoint`, `interrupted`, `failed`, `skipped`, `cancelled`; skip/failure reasons `integrity_check_failed`, `database_busy`, `caddy_not_ready`, `startup_timeout`, `shutting_down`, `conversion_failed`, `internal_error`, `insufficient_disk`, `too_many_failures`, `disabled_by_env`, `already_optimized`, `nothing_to_reclaim`, `below_threshold` (`dbmaint/state.go:36-43`, `plan.go:17-22`, `runner.go:17-23`). The live test container holds `maintenance.last_result = converted, 2277880440 -> 1268629504` (read-only check), a realistic fixture for the "last optimization" row. |
+| Global-banner patterns | **None exist.** `Layout` only runs three long-staleTime queries (`health` 1 h, `feature-flags` 5 min, `settings` 5 min) and has no banner or badge slot. Warnings in this app are page-level (for example `Backups.tsx` uses `useDbHealth`). This is why revision 10 adds none: nothing outside the Database page reads the database status. `client.ts` special-cases only 401; a 403 is just a rejected promise, and `useDatabaseStatus` already uses `retry: false`. |
+| Hook/API/gate coupling | `MaintenanceGate.tsx` and the `client.ts` 503 interceptor use `useMaintenanceStatus`, `MAINTENANCE_STATUS_QUERY_KEY` (hook module) and `getMaintenanceStatus` (API module) and the strings `systemSettings.maintenance.*`. They do not depend on the Settings page. |
+| Old-location references | Application: `SystemSettings.tsx:10,389,830`, `components/DatabaseMaintenance.tsx` (strings `systemSettings.database.*`), `pages/__tests__/SystemSettings.test.tsx:925-960`, `components/__tests__/DatabaseMaintenance.test.tsx`, `tests/settings/database-maintenance.spec.ts` (`gotoSystemSettings`, `/settings/system`). Strings: `systemSettings.uptime.retentionDaysHelper` ("...may not shrink until the database is compacted"). Stale "card" wording that a `systemSettings`/`System Settings` grep does not catch: `backend/internal/api/handlers/database_maintenance_handler.go:34` (comment "admin-only database card"), `frontend/src/api/databaseMaintenance.ts:62` and `frontend/src/hooks/useDatabaseMaintenance.ts:17` (doc comments), the `components/DatabaseMaintenance.tsx` doc comment (`:127`, "Database" card in System Settings), `tests/settings/database-maintenance.spec.ts:6,25,324` (header and a step title). Owners (nit e): the three spec-file comments are rewritten in **commit 9**, the commit that `git mv`s and rewrites that file; the three frontend doc comments in commit 11; the backend comment in commit 13 (see A.5, A.6). Docs: `docs/database-maintenance.md` lines 98-143 ("The Database Card" section, including `:126` and `:142`), 415 and 434 ("Database card in/System Settings"); `docs/features.md:301`; this plan (3.7, Phase 4, commit 7, DoD 1). Checked and **not** naming the old location: `docs/features/uptime-monitoring.md` (links only to `docs/database-maintenance.md`), `ARCHITECTURE.md:796-820` (no card mention). `docs/reports/qa_report.md` is a historical report (QA rewrites it; not edited here). `docs-site/scripts/docs-manifest.json` already lists `database-maintenance.md`; no edit. No other locale file contains these keys (English only, as 3.7 decided). |
 
-| Component | Size | Notes |
+### A.3 Decisions
+
+**D1 - Route and navigation.** New admin-only route `/tasks/database`, name `t('navigation.database')` = "Database", icon `🗄️` (siblings: 💾 Backups, 📝 Logs). Nav order inside Tasks: Import, Backups, Logs, **Database** (appended: least churn, and the existing nav tests index by name). The Tasks index route **stays Backups** (no behaviour change for existing users; Database is a destination, not the landing page). Add a **Database tab** to `Tasks.tsx` after Logs, shown to admins only (the tab bar would otherwise offer a link that redirects). The nav entry and the tab are plain links: no indicator, badge or extra text of any kind.
+
+**D2 - Role gating.** Admin-only, hidden rather than read-only, matching `agent` / `encryption` / `users`:
+- Nav child and Tasks tab: only when `user?.role === 'admin'`.
+- Route: `<RequireRole allowed={['admin']}><DatabaseMaintenancePage /></RequireRole>` in `App.tsx` so a deep link by a `user`-role account redirects to `/` (existing behaviour) instead of rendering a blank or error page. A read-only view for non-admins is rejected: every endpoint is admin-only, so it would mean new backend surface for no demand.
+- Because `RequireRole` redirects before the page mounts, the status query only ever runs for admins on the Database page. **`useDatabaseStatus` therefore needs no `enabled` option** (justification: the only consumers are the page and its mutations; nothing in `Layout` or elsewhere reads it any more, so there is no caller that must be able to switch it off; a non-admin never mounts the page and never fires the 403). The hook keeps today's behaviour unchanged (30 s `staleTime`, `retry: false`).
+
+**D3 - Page content (never empty, passive).** New page `frontend/src/pages/DatabaseMaintenance.tsx` (lazy-loaded like its siblings), rendered inside the Tasks card. Sections, top to bottom:
+
+1. Heading "Database" (`h3`, `id="database-page-title"`) and the **automatic-maintenance explainer**, always shown (D3a below).
+2. **Status list** (`<dl>`, two columns from `sm`, one on phones): Database size; Write-ahead log (`wal_bytes`; extra files next to the database that SQLite folds back in on its own); Free disk space (`disk_free_bytes`); Space that could be reclaimed (`reclaimable_bytes`); Optimization mode (plain language, from `auto_vacuum`): `none` = "Manual: freed space stays inside the file until the database is optimized", `incremental` = "Automatic: freed space goes back to your disk on its own", `full` = "Automatic: freed space goes back to your disk immediately". Unknown value -> the raw value is not shown, the row is omitted.
+3. **Last optimization**: from `last_result`: `converted` / `converted_pending_checkpoint` -> "Optimized on {{date}}: {{before}} -> {{after}} (saved {{saved}})" (saved clamped at 0; pending-checkpoint adds "The last cleanup step finishes in the background."); `skipped` with reason -> "Skipped on {{date}}: {{reason in plain words}}"; `failed` / `interrupted` / `cancelled` -> one plain line each; unknown outcome or reason -> a generic line, never the raw code. **`last_result == null` is state-dependent (SF1):** when `!can_request_optimize && !compact_requested` -> `.last.none` "No optimization has been needed so far."; otherwise (a legacy database with reclaimable space, for example the 722 MB live case, where the reclaim button is enabled or scheduled) -> `.last.notYet` "Not optimized yet." The page never says nothing needs doing next to an enabled Reclaim button. The phrase "Nothing to do" is deliberately used **once**, in `reasonIncremental` (D4), and nowhere else on any page state. Format the date on any page state via `new Date(at).toLocaleString(i18n.language)` (invalid date -> omit the date, never "Invalid Date"). Nit d: the skip-reason texts `.reason.nothing_to_reclaim` and `.reason.already_optimized` must **not** contain the phrase "nothing to do" (suggested: "there was no unused space worth reclaiming" and "the database was already set up to return unused space on its own"), because an incremental database whose `last_result` is a `skipped` / `already_optimized` outcome renders both this line and `reasonIncremental`.
+4. **Status notice lines** (D3b), shown in this section.
+5. **Reclaim control** (always rendered, optional, see D4).
+
+**D3a - Explainer (item 1 of the page).** Always shown, plain words, so the user understands nothing is required. One lead sentence plus a three-item list (`databaseMaintenance.description`, `.automatic.start`, `.automatic.convert`, `.automatic.drain`):
+- Lead: "Charon looks after its database by itself, so there is nothing you need to do here. This page just shows how things stand."
+- "Checked at every start: Charon looks at the database each time it starts."
+- "Converted once when worthwhile: if the file holds a lot of unused space, Charon converts it one time, during a start, so it can give that space back."
+- "Handed back after each hourly cleanup: after the hourly clean-up of old data, Charon returns the freed space to your disk."
+No string in the explainer contains the phrase "nothing to do" (the lead says "nothing you need to do").
+
+**D3b - Notices are calm, passive status text (user decision; supersedes the alert banner).** `DatabaseMaintenanceBanner` is replaced by a small `DatabaseNotice` block in the same file (the `Banner` name is dropped: nothing is banner-like any more) that renders `notice` as plain status text inside one `<div role="status">` region (implicit polite live region). Reasoning for `status` rather than `alert`: `role="alert"` is an assertive interruption meant for time-critical problems; these notices are neither urgent nor pushed, they are text the user reads when they choose to visit the page, and the proxies are unaffected. A status region is not announced on initial render by common screen readers, so the page does not interrupt on load, and the text stays reachable by reading order and by `getByRole('status')`. This overrides the Supervisor-approved alert semantics of earlier revisions, with the approval basis being the explicit user instruction not to alarm users. (If the existing `Alert` primitive hardcodes `role="alert"`, the implementer uses a plain styled `div`/`p` with muted text and a small info icon with `aria-hidden`, not the `Alert` component.)
+- **Information lines** (always plain status text, no emphasis styling): `restart_to_optimize` reworded to "Charon will reclaim about {{size}} automatically the next time it starts; nothing is needed from you."; `database_busy` and `disabled_by_env` unchanged in meaning. Shown whenever the server sends them.
+- **Failure states** `insufficient_disk` and `too_many_failures` (background maintenance cannot run / has stopped): shown **only as an in-page notice when the user visits the Database page**; never pushed, no nav indicator, no toast. Worded calmly with what to do: `insufficientDisk` "Charon could not run its automatic database cleanup because the disk is nearly full. Free some disk space and Charon will try again by itself." (keep the existing `{{needed}}` / `{{free}}` interpolation if the current string has it); `tooManyFailures` "Charon stopped trying its automatic database cleanup after several failed attempts. Your proxies are not affected. Check the logs and make sure there is enough free disk space. To let Charon try again, use the optional button below to schedule it, then restart Charon." Titles `.banner.*Title` become `.notice.insufficientDiskTitle` / `.notice.tooManyFailuresTitle` (short, non-alarming: "Automatic cleanup could not run" / "Automatic cleanup has stopped").
+- **User-adjustable choice (recorded):** showing these two failure notices on the page is a default the user may later reverse; if they prefer, dropping them leaves a fully passive page, a change confined to `DatabaseNotice` and its tests.
+
+Loading: a skeleton or "Loading..." line. Error (non-2xx, including a 503 that is not the gate): an `Alert` "Could not load database information" with a Retry button (`refetch`), `aria-label` "Database information unavailable". This one stays `role="alert"`: it reports a failure of the user's own page visit and offers an action, which is the intended use of an alert; it is not a maintenance notice. A Vitest/E2E case asserts the error state renders no notice. The old card returned `null` on failure, which is exactly the empty-page behaviour being removed.
+
+**D4 - Reclaim control: optional, always visible (supersedes the "hidden" rule of 3.7).** The control is always visible; enablement stays 100% server-driven by `can_request_optimize` (contract intact; the constant `MIN_RECLAIMABLE_BYTES` and the `auto_vacuum` check are used only to pick the explanation text, never to enable anything). **Optional wording (user decision):** the control's heading/label and help line must say Charon already does this automatically and that this only schedules it for the next start: `databaseMaintenance.reclaimTitle` "Reclaim space now (optional)" and `.reclaimOptional` "Charon already does this automatically. This only schedules it for the next start." shown above or beside the button in every state. The button text stays "Reclaim space on next restart" (`.reclaimButton`). States, first match wins:
+
+| State | Rendering |
+| --- | --- |
+| `compact_requested` | "Scheduled - the space is reclaimed the next time Charon starts." (omitted when `env_mode == off`, as today) + **Undo** button (unchanged) |
+| `can_request_optimize` | enabled "Reclaim space on next restart" with the helper "{{size}} could be reclaimed. Charon restarts only when you restart it (for example after an update)." |
+| not allowed, `auto_vacuum == incremental` | disabled button + "Nothing to do: the database already returns unused space automatically." |
+| not allowed, `reclaimable_bytes < 100 MiB` | disabled button + "Not worth reclaiming: only a small part of the file (under about 100 MB) is unused." (the backend floor is 100 MiB and `formatBytes` is decimal, so copy, tests and docs all say "about 100 MB", never "less than 100 MB") |
+| not allowed, `env_mode == off` | disabled button + existing reason (`disabledReason`) |
+| not allowed, other | disabled button + "Not available right now." |
+
+Wording rule (SF1): "Nothing to do" appears only in the `reasonIncremental` row above; `reasonTooSmall` starts "Not worth reclaiming", `.last.none`/`.last.notYet`, the explainer, `.notice.restartToOptimize` and the `.reason.nothing_to_reclaim` / `.reason.already_optimized` texts are worded so the phrase never appears twice on one page state and `getByText(/nothing to do/i)` matches exactly one element in the quiet incremental state. Pending request/undo keep `isLoading`; a 409 from POST keeps the existing error toast and `invalidateQueries` refresh. Disabled button gets `aria-describedby` pointing to its reason line.
+
+**D5 - No warning indicators outside the Database page (REMOVED in revision 10).** The sidebar attention indicator, the hook that fed it, the `Layout` query and the `navigation` key it needed were all removed on user direction: the automatic maintenance does the work, so nothing outside the page signals anything, and there is no global banner or badge either (rejected for the same reason). Consequences, all by removal: `Layout.tsx` gets only the new admin-only nav child (no query, no `NavItem` field, no extra text in the link names, so ordinary name locators keep working); `useDatabaseStatus` is unchanged (D2); `AuthContext.logout` is not touched. **Query cache on logout:** the cross-user cached-data concern (SF2) existed only because a Layout-level observer read the cache for any user; with no such observer, the cached status is read only by the admin-only page. The follow-up GitHub issue about clearing the query cache on logout is **no longer needed and is not filed** (the orchestrator must not file it).
+
+**D6 - Settings page.** Remove `<DatabaseMaintenanceCard />` and the notices block (and their import) from `SystemSettings.tsx`. Keep the heartbeat retention field in the Uptime card. Below that field add one muted line with a `Link` to `/tasks/database`: "Database size and cleanup: Tasks -> Database" (`systemSettings.uptime.databaseLink`), rendered **only for admins** (a `user`-role account would be redirected). Update `systemSettings.uptime.retentionDaysHelper`: the sentence "Lowering this frees space inside the database, but the file may not shrink until the database is compacted." becomes "Lowering this frees space, and Charon returns it to your disk automatically." (the old text describes manual compaction, which this PR makes untrue; the rest of the string is kept).
+
+**D7 - Gate and 503 interceptor stay exactly as they are.** `MaintenanceGate`, the `client.ts` interceptor, `useMaintenanceStatus`, `MAINTENANCE_STATUS_QUERY_KEY`, `getMaintenanceStatus`, the server-rendered page and the keys `systemSettings.maintenance.*` are **not touched**. Reason: they are app-wide, run before any route renders, and have no dependency on where the status card lives; moving them would add risk (they were validated by Supervisor rounds 1-5 and by the live test) for no user benefit. The "maintenance" namespace name under `systemSettings` is a harmless naming wart; renaming it is explicitly out of scope.
+
+**D8 - Renames and moves.**
+
+| From | To |
+| --- | --- |
+| `components/DatabaseMaintenance.tsx` exporting `DatabaseMaintenanceBanner`, `DatabaseMaintenanceCard` | same file; both old exports are deleted and replaced by new exports `DatabaseNotice`, `DatabaseStatusList`, `LastOptimization`, `ReclaimControl` (page building blocks, so each is unit-testable) |
+| (new) | `pages/DatabaseMaintenance.tsx` (default export, composes the blocks, loading and error states) |
+| `hooks/useDatabaseMaintenance.ts`, `api/databaseMaintenance.ts` | **stay unchanged in behaviour** (shared with the gate); doc comments only (commit 11) |
+| `tests/settings/database-maintenance.spec.ts` | `git mv` to `tests/tasks/database-maintenance.spec.ts` (next to `backups-*.spec.ts`, `logs-viewing.spec.ts`; `playwright.config.js` `testDir: ./tests` already covers it) |
+
+i18n (English only; other locales fall back, none contain these keys). Remove `systemSettings.database.*` entirely (CLEAN). Add a new top-level namespace `databaseMaintenance` (siblings `backups`, `logs` are top-level; avoids a `tasks.*` namespace that holds only a title and description today) and `navigation.database` (no other `navigation` key is added):
+
+- `navigation.database` "Database".
+- Kept names, moved under the new namespace: `databaseMaintenance.title`, `.reclaimButton`, `.scheduled`, `.undo`, `.disabledReason`, `.requestFailed`, `.undoFailed`, `.notice.restartToOptimize` (reworded, D3b), `.notice.databaseBusy`, `.notice.disabledByEnv`, and the two failure texts renamed `.notice.insufficientDiskTitle`, `.notice.insufficientDisk`, `.notice.tooManyFailuresTitle`, `.notice.tooManyFailures` (reworded, D3b; the old `.banner.*` keys are not carried over).
+- **Both old keys `.size` and `.reclaimable` are removed (nit b):** the old `systemSettings.database.size` and `.reclaimable` strings are not carried over under the new namespace; their replacements are `.fields.size` and `.fields.reclaimable` (labels only, the values are rendered separately). `.size` therefore does not appear in the kept-names list above.
+- New: `.description`, `.automatic.start`, `.automatic.convert`, `.automatic.drain` (D3a), `.loading`, `.loadError`, `.retry`; status labels `.fields.size`, `.fields.wal`, `.fields.walHint`, `.fields.diskFree`, `.fields.reclaimable`, `.fields.mode`; `.mode.none`, `.mode.incremental`, `.mode.full`; `.last.title`, `.last.none` ("No optimization has been needed so far."), `.last.notYet` ("Not optimized yet."), `.last.converted`, `.last.convertedPending`, `.last.skipped`, `.last.failed`, `.last.interrupted`, `.last.cancelled`, `.last.unknown`; skip reasons `.reason.<code>` for the codes listed in A.2 plus `.reason.unknown`; reclaim states `.reclaimTitle`, `.reclaimOptional`, `.reclaimHelper`, `.reasonIncremental`, `.reasonTooSmall`, `.reasonUnavailable`.
+- `systemSettings.uptime.databaseLink` (new), `systemSettings.uptime.retentionDaysHelper` (reworded, D6).
+
+### A.4 Tests (Vitest and E2E)
+
+Vitest (the gate stays at 85%; the moved logic is fully covered, so coverage does not drop):
+- `components/__tests__/DatabaseMaintenance.test.tsx`: notice cases (info lines as plain status text with `role="status"`; the two failure notices; assert **no** `role="alert"` is rendered for any `notice`; null notice renders nothing), the D4 matrix (each row incl. the "other" fallback, the aria link and the optional-wording help line in every state), status list (WAL, disk free, each mode, unknown mode omitted), explainer (the three automatic-maintenance items always present), last result (each outcome, `null` -> "No optimization has been needed so far" when `!can_request_optimize && !compact_requested` and "Not optimized yet" when `can_request_optimize` or `compact_requested` (SF1; the second case also asserts "Nothing to do" is absent), exactly one element matches `/nothing to do/i` in the quiet incremental state, **nit d: an incremental state whose `last_result` is `skipped` with reason `already_optimized`, and another with `nothing_to_reclaim`, still has exactly one `/nothing to do/i` match**, invalid date, saved clamped at 0).
+- New `pages/__tests__/DatabaseMaintenance.test.tsx`: loading, error + retry (error state renders no notice), quiet healthy state is not empty, schedule/undo flow, 409 toast.
+- `hooks/__tests__/useDatabaseMaintenance.test.tsx`: unchanged (the hook is unchanged).
+- `pages/__tests__/SystemSettings.test.tsx`: delete the `Database maintenance` describe (`:925-960`), add: no Database card, no notice, admin sees the Tasks link, non-admin does not. **Test plumbing (SF3):** `SystemSettings.tsx` does not call `useAuth` today and the admin-only link (D6) adds that dependency, so this test file gains an auth mock/provider with a role toggle (admin/user); its `databaseApi` mock becomes dead once the describe is removed and is **deleted** (CLEAN).
+- `components/__tests__/Layout.test.tsx`: add only the admin-only Database child cases (cf. `:686-728` role cases): visible for admin, absent for `user`. **No `api/databaseMaintenance` mock is added** (Layout makes no status request any more, so there is nothing to mock; assert instead that rendering Layout for an admin issues no `/system/database` call).
+- New small `pages/__tests__/Tasks.test.tsx`: Database tab admin-only, existing tabs unchanged. `Tasks.tsx` also needs `useAuth` for the admin-only tab (SF3), so this file uses the same auth mock with a role toggle.
+- `components/__tests__/MaintenanceGate.test.tsx` and `api/databaseMaintenance.test.ts` are untouched and must stay green (proves D7).
+
+E2E (`tests/tasks/database-maintenance.spec.ts`): `gotoSystemSettings` -> `gotoDatabasePage` (`/tasks/database`, wait for `getByRole('heading', { name: /^database$/i, level: 3 })`); card locator -> `getByRole('region', { name: /^database$/i })` on the page (same `aria-labelledby` pattern). Nav locators use regexes. Notice locators use `getByRole('status')` scoped by the notice text or title (never `getByRole('alert')`, apart from the load-error case). Cases: quiet state is not empty (size, mode, the explainer text, exactly one `getByText(/nothing to do/i)` match, disabled button with its reason and the "optional" help line; plus a `last_result: null` + `can_request_optimize: true` case that shows "Not optimized yet", no "Nothing to do" and an enabled button); the info-notice cases carry over as plain status lines; the two failure states show their calm notice only on the page; the "hidden" button cases become "disabled with reason" cases; schedule/Undo and idempotent-POST cases carry over; **new**: Tasks nav shows Database for admin, tab present, Settings no longer has the card and shows the Tasks link, a failure notice present in the API response produces **no** nav change on `/` (the Tasks entry and Database link keep exactly their normal text) and renders only on the Database page, non-admin (mock `/auth/me` role `user`, flag to the Playwright agent if the fixture cannot) gets no nav item, makes no `/system/database` request and is redirected from the deep link; the maintenance-view and status-contract cases move unchanged. Mocks stay `page.route`-based, so `CHARON_DB_COMPACT_ON_START=off` in E2E compose stays valid.
+
+### A.5 Docs
+
+- `docs/database-maintenance.md`: rename the "The Database Card" section (`:98`) to "The Database Page", say **Tasks -> Database**, describe what the page always shows (size, mode, reclaimable, last optimization, the plain-words explainer of what runs automatically) and that the reclaim button is optional, always visible and disabled with a reason when not applicable; state that Charon never nudges (no sidebar indicator or banner) and that the two failure notices appear only on the page; update `:126`, `:142` ("the Database card shows" -> "the Database page shows"), `:415` and `:434` (System Settings -> Tasks -> Database); use "about 100 MB" for the floor in every user-facing sentence.
+- `docs/features.md:301`: "A quiet Database card in System Settings" -> "The Database page under Tasks".
+- `ARCHITECTURE.md:796-820`: one sentence that the admin UI is the Tasks -> Database page backed by `GET/POST/DELETE /system/database...`; `docs/features/uptime-monitoring.md`: no change (verified). No new standalone doc, so no manifest edit.
+- Comment-only "card" wording: rewrite the backend comment (`database_maintenance_handler.go:34`, "database card" -> "database page") in the commit-13 docs/refactor commit. This is the **one** backend file touched, comment text only, so "no backend or API change" holds for behaviour (the AC 6 `git diff --stat` check becomes "no non-comment backend change"; the comment edit is the only `backend/` hunk). The frontend doc comments are rewritten in commit 11 and the spec-file comments in commit 9 (A.2).
+- This plan: the Status line gets a pointer to this addendum (done); 3.7 and the commit table are not rewritten.
+- PR #1428 description: the orchestrator updates it after the commits land (title/summary/test-plan lines that say "System Settings -> Database"); not done by this plan.
+
+### A.6 Commit slicing (same PR, appended after commit 8; each builds and passes its gate)
+
+Every commit that touches application code (10, 11) also runs `cd frontend && npm run build` (nit f); commit 12 changes only E2E specs and commit 9 only a spec file plus its comments, so the build gate is not repeated there, but commit 12 verifies against the real UI that commit 10 built.
+
+| # | Commit | Scope and files | Depends on | Validation gate |
+| --- | --- | --- | --- | --- |
+| 9 | `test: move database maintenance e2e spec to tasks` | `git mv tests/settings/database-maintenance.spec.ts tests/tasks/database-maintenance.spec.ts`; new locators and the D3/D4/D6 cases added; the stale "card" comments at the old `:6,25,324` rewritten here (nit e); everything that needs the new page is `test.fixme` (maintenance-view and status-contract cases stay live) | 8 | `cd /projects/Charon && npx playwright test tests/tasks/database-maintenance.spec.ts --project=firefox` (live cases pass, fixme skipped) |
+| 10 | `feat: add database page to tasks` | `pages/DatabaseMaintenance.tsx`, `components/DatabaseMaintenance.tsx` (new blocks `DatabaseNotice`, `DatabaseStatusList`, `LastOptimization`, `ReclaimControl`; **old card and banner kept until commit 11**), `App.tsx` (route + `RequireRole`), `Layout.tsx` (admin-only nav child only), `Tasks.tsx` (admin tab), `translation.json` (new `databaseMaintenance.*`, `navigation.database`), Vitest for all of it incl. new `Tasks.test.tsx` (with auth mock) and the admin-only child cases in `Layout.test.tsx` | 9 | `cd frontend && npm run type-check`; `npx vitest run src/components/__tests__/DatabaseMaintenance.test.tsx src/pages/__tests__/DatabaseMaintenance.test.tsx src/pages/__tests__/Tasks.test.tsx src/components/__tests__/Layout.test.tsx`; `npm run build` |
+| 11 | `refactor: remove database card from system settings` | `SystemSettings.tsx` (remove card and notices, add admin-only link, retention helper), delete `DatabaseMaintenanceCard` and `DatabaseMaintenanceBanner` and the `systemSettings.database.*` strings, `SystemSettings.test.tsx` (auth mock with role toggle, delete the dead `databaseApi` mock, SF3), stale "card" doc comments in `api/databaseMaintenance.ts:62`, `hooks/useDatabaseMaintenance.ts:17`, `components/DatabaseMaintenance.tsx:127` | 10 | type-check; `npx vitest run src/pages/__tests__/SystemSettings.test.tsx src/components/__tests__/DatabaseMaintenance.test.tsx`; `npm run build`; `grep -rn "systemSettings.database" frontend/src` is empty |
+| 12 | `test: enable database page e2e specs` | remove every `test.fixme` in `tests/tasks/database-maintenance.spec.ts`, fix locators against the real UI | 10, 11 | the same targeted firefox run, all green; also run `tests/tasks/logs-viewing.spec.ts` once under firefox as the tab-bar regression check |
+| 13 | `docs: point database maintenance docs at the tasks page` | A.5 docs, plus the comment-only backend tweak at `database_maintenance_handler.go:34` ("card" -> "page") | 10-12 | links valid; `grep -rniE "system settings.{0,40}database\|database card" docs ARCHITECTURE.md` shows only history/report files, and `grep -rniE "database card" backend/internal frontend/src tests` is empty |
+
+Commits 10 and 11 may merge into one if the diff is small, but never before 9 (E2E first). After commit 13 the orchestrator re-runs, as the **final QA re-run for the changed surface** (QA agent, last, foreground): targeted firefox Playwright for the moved spec; `scripts/frontend-test-coverage.sh` (>= 85%); `cd frontend && npm run type-check && npm run build`; `bash scripts/local-patch-report.sh`; `lefthook run pre-commit`; **local CodeQL JS** (`lefthook run codeql`, the UI surface changed; Go scan unchanged but part of the same hook); then **Supervisor re-review** of the addendum implementation, then the PR description update. Not required again because nothing changed there: backend tests/coverage, GORM scan, Trivy (no backend, model or dependency changes).
+
+### A.7 Risks and rollback
+
+| Risk | Mitigation |
+| --- | --- |
+| Existing nav/Tasks tests break on the added child or tab | Database is appended last; role-gated; tests updated in commit 10 |
+| Non-admin hits `/tasks/database` | `RequireRole` redirect; the page never mounts, no request fired |
+| Disabled button misread as broken | Always paired with a reason line (D4), covered by tests and E2E |
+| User never sees that background maintenance stopped (no push, no indicator) | Accepted by user decision; the two failure notices show whenever the page is visited, and the explainer states that Charon works by itself; revisit only if the user asks |
+| Optional Reclaim control misread as required | Title and help line say it is optional and already automatic (D4), asserted in tests |
+| Unknown future `last_result` outcome or reason | Generic line, no raw codes (tested) |
+| Stale reference to the old location | grep gates in commits 11 and 13 |
+| Gate regression by accident | D7: no gate/interceptor/hook-key edits; gate tests must stay green; maintenance E2E cases move unchanged |
+
+Rollback: the addendum commits are frontend and docs only; reverting 9-13 restores the rev 7 Settings card with no data, API or backend implication.
+
+### A.8 Acceptance criteria
+
+1. Admins see **Tasks -> Database** in the sidebar and as a Tasks tab, both as plain links with no indicator; `user`-role accounts see neither, make no `/system/database` request, and are redirected from `/tasks/database` to `/`. The Tasks index is still Backups.
+2. The Database page is never empty: with `notice: null`, `auto_vacuum: incremental` and `last_result: null` it still shows the automatic-maintenance explainer, size, WAL, free disk, mode in plain words, reclaimable space, "No optimization has been needed so far", one "Nothing to do" (in the disabled button's reason) and a disabled reclaim button with the reason; with `last_result: null` and either `can_request_optimize: true` **or `compact_requested: true`** it shows "Not optimized yet" next to an enabled button (or the scheduled state with Undo) and no "Nothing to do".
+3. `last_result` renders for every outcome with human text and no raw codes; invalid dates never show "Invalid Date"; the `already_optimized` / `nothing_to_reclaim` texts never contain "nothing to do".
+4. The reclaim control is labelled optional and says Charon already does this automatically; the button is enabled iff `can_request_optimize`; scheduled state shows the message and Undo; the 409 and error toasts are unchanged.
+5. System Settings has no Database card or notice, keeps the heartbeat retention field, shows the admin-only Tasks link and the updated helper text; no `systemSettings.database.*` string remains.
+6. Notices are passive: info lines and the two failure notices render as `role="status"` text only on the Database page, never as `role="alert"`, never in the nav, a banner, a badge or a toast; no code outside the Database page reads the database status; `MaintenanceGate`, the 503 interceptor and their tests are unchanged and green; no non-comment backend or API change (`git diff --stat` shows only the comment-only hunk in `database_maintenance_handler.go`).
+7. No remaining doc or test refers to the old location (except historical reports); frontend coverage >= 85%; type-check, build, targeted firefox Playwright, patch report, lefthook and local CodeQL JS pass.
+
+### A.9 Open questions (genuine only)
+
+None. Former Q1 (warning visibility) is **resolved by user decision**: no nudging of any kind; failure notices are in-page only (D3b). One recorded user-adjustable choice: whether to keep the two in-page failure notices (`insufficient_disk`, `too_many_failures`) or drop them for a fully passive page.
+
+### Addendum A revision 10 traceability
+
+| Item | Resolution | Where |
 | --- | --- | --- |
-| `internal/ratelimit` + tests | M | ~200 LOC + ~450 LOC tests |
-| Cerberus hardening (C5) | M | Net deletion; test rewrites; bypass helper |
-| Config + validation + warnings | M | Table-driven tests |
-| Auth middleware + detector + guard + metric | M | Largest test surface |
-| Routes wiring, handlers, admin endpoint, compose | M | Inventory, ordering and tripwire tests |
-| Frontend (helper, notice, card, i18n) | M | 5 locales |
-| E2E spec + fixtures | M | Probe guard + 6 tests |
-| Docs | M | 2 new files + 9 edits |
-| **Total** | ~4–5 dev-days | |
+| User decision: no nudging (supersedes Q1) | Sidebar/nav attention indicator, its hook, the `Layout` query and `enabled` option, the screen-reader text, its `navigation` key, the Layout test mock additions, the global banner and any badge are all removed; old commit 12 deleted, later commits renumbered 12-13 (old 13, 14) | A.1, A.3 D5, A.6, A.7 |
+| SF2 (cached admin data shown to a non-admin) | Resolved by removal: no cross-user cached-data indicator exists any more; logout cache-clear follow-up issue is **not filed** | A.3 D5 |
+| `useDatabaseStatus` `enabled` option | Dropped: no caller needs it (page is admin-only via `RequireRole`) | A.3 D2 |
+| Notices passive | `DatabaseNotice`, `role="status"`, calm wording, info lines plain; two failure notices in-page only (user-adjustable) | A.3 D3b; A.4; A.8 AC6 |
+| Reclaim optional | Title and help text say automatic already; always visible, disabled with reason | A.3 D4; A.8 AC4 |
+| Explainer of automatic work | `.description` and `.automatic.*` | A.3 D3a |
+| Nit a (sentence break at D3.4) | Fixed ("...nowhere else on any page state. Format the date on any page state via ...") | A.3 D3 item 3 |
+| Nit b (`.size` / `.reclaimable` naming conflict) | Both old keys removed; replaced by `.fields.size` / `.fields.reclaimable` | A.3 i18n list |
+| Nit c (AC2 `compact_requested`) | AC2 says "either `can_request_optimize` or `compact_requested`" | A.8 AC2 |
+| Nit d ("nothing to do" in reason texts) | `.reason.nothing_to_reclaim` / `.reason.already_optimized` reworded; Vitest case for incremental + skipped last result | A.3 D3 item 3; A.4 |
+| Nit e (spec-file "card" comments) | Assigned to commit 9 (the `git mv` / rewrite commit) | A.2; A.6 |
+| Nit f (`npm run build` in gates) | Added to commits 10 and 11, rationale stated for 9 and 12 | A.6 |
 
----
+### Addendum A revision 9 traceability (still applicable items)
 
-## 5. Acceptance Criteria
-
-### 5.1 Functional
-
-| # | Criterion | Req |
+| Finding | Resolution | Where |
 | --- | --- | --- |
-| F1 | With zero config, the 11th `login`-class request from one client within 60 s returns 429 with `Retry-After` ≤ 60 and the generic body; after the refill interval, one more request is allowed | R1–R3 |
-| F2 | Login, change-password, profile email change and certificate key export share one per-client bucket. Refresh and status share another. The five exempt routes are never throttled | A, R4 |
-| F3 | A throttled request never reaches password verification or account bookkeeping | R2 |
-| F4 | Behind a trusted proxy, distinct real clients get independent buckets. From an untrusted peer, forwarded headers are ignored, the detector records count, last-seen, peer and scope, and the WARN is capped and scope-aware | R5, R6 |
-| F5 | IPv6 clients in one /64 share a bucket; empty, unparsable and zoned client IPs share `unknown` | R7 |
-| F6 | `/api/v1/emergency/*`, the Tier-2 server and emergency-bypass requests are never throttled | R8 |
-| F7 | No limiter starts goroutines; tracked keys never exceed `MaxKeys` | R9 |
-| F8 | Malformed values fall back to defaults with a WARN. Only `ENABLED=false` disables; unrecognized values WARN and stay on. The zero-value config is enabled | R10 |
-| F9 | The login page shows the localized wait notice with an administrator pointer and docs link, in all 5 locales | R11 |
-| F10 | Logs contain no credentials; WARN volume is capped with a suppressed count | R12 |
-| F11 | The Cerberus limiter exempts only `OptionalAuth`-validated admins on segment-aware control-plane paths; its 429s carry `Retry-After`; its memory is bounded | R13, B |
-| F12 | `GET /api/v1/security/login-protection` is admin-only and returns the §3.12 schema. The card shows it only to admins, whatever the Cerberus state, and never suggests trusting a public peer | R14, L |
-| F13 | One invalid `CHARON_TRUSTED_PROXIES` entry yields no trusted proxy anywhere, plus a WARN; trust-all lists WARN | R15, M |
-
-### 5.2 Definition of Done (CLAUDE.md, in order)
-
-| # | DoD step | How it applies |
-| --- | --- | --- |
-| 1 | Playwright, targeted and firefox-only | Rebuild (`.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`), then `npx playwright test tests/core/auth-rate-limit.spec.ts tests/core/authentication.spec.ts --project=firefox`. All pass; tests 1–3 **run** (the probe guard passes) |
-| 1.5 | GORM security scan | **Not triggered**: no models, GORM queries or migrations. State this in the PR |
-| 2 | Local patch coverage | `bash scripts/local-patch-report.sh` → `test-results/local-patch-report.{md,json}`; patch ≥ 87% |
-| 3 | Security scans (feat ⇒ local) | CodeQL Go + JS via `lefthook run pre-commit`. Trivy via `.github/skills/scripts/skill-runner.sh security-scan-trivy` and `make security-scan-full` (image scan). Zero high/critical |
-| 4 | Lefthook triage | `lefthook run pre-commit` is clean |
-| 5 | Staticcheck (blocking) | `make lint-fast`; `make lint-backend` before the PR |
-| 6 | Coverage | `scripts/go-test-coverage.sh` and `scripts/frontend-test-coverage.sh` each ≥ 87% |
-| 7 | Type safety | `cd frontend && npm run type-check` |
-| 8 | Build | `cd backend && go build ./...`; `cd frontend && npm run build` |
-| 9 | All tests pass | Including `-race` |
-| 10 | Clean-up | No debug output or dead code; deleted internals leave no orphans |
-
----
-
-## 6. Commit Slicing Strategy
-
-**Decision: one PR into `development` with ordered, logical commits.** Each commit builds
-and passes its own gate, and the PR as a whole passes §5.2 before merge. Every validation
-command runs in the foreground. Local E2E is firefox-only and targeted.
-
-### 6.1 How commit subjects get published (verified)
-
-- **Feature PRs use merge commits.** They are not squash-merged:
-  - `8168732a` (#1316) and `1f6588e6` (#1373) each have two parents;
-  - the merge subject is the PR title plus `(#PR)`.
-- **The What's New generator publishes every subject.** `scripts/generate-changelog.sh:86`
-  runs `git log "$range"` **without** `--first-parent`, so every subject in the tag range is
-  published verbatim: each branch commit, the merge subject, and any "Merge branch …" commits.
-- **Categorization** (`generate-changelog.sh:34-58`):
-  - `^(feat|fix)\(security\)!?:` subjects → one **Security** entry each;
-  - `feat` / `fix` → Features / Fixes;
-  - everything else → Other. `refactor(security):` is not matched by the Security pattern,
-    so it lands in Other.
-- **Precedent.** The #1316 merge published **four** Security entries in v0.40.2: the merge
-  subject plus three branch `fix(security)` commits.
-
-### 6.2 Subject policy (recommended; maintainer decision M3)
-
-1. **Exactly one user-facing Security entry: the merge subject.** Title the PR
-   `feat(security): harden authentication endpoints against abuse (#1317)`. GitHub then
-   produces the merge subject `feat(security): harden authentication endpoints against
-   abuse (#1317) (#<PR>)`.
-2. **At most one hardening entry: C5**, `fix(security): harden request throttling in the API layer`.
-3. **No other `(feat|fix)(security)` subjects.** The wiring commit C7 is plain `feat:`,
-   because the merge subject already carries the Security entry. It shows up once in
-   Features, consistent with #1373's multiple Features entries.
-4. **Every subject must be safe to publish verbatim.** No weakness class, vector or code
-   path; describe the protection or mechanism.
-5. **Prefer rebasing onto `development`** over merging it into the branch, so no
-   "Merge branch 'development' …" subjects are published. If a merge is needed, accept that
-   Other entry.
-
-### 6.3 Commits
-
-| # | Subject (published verbatim) | Category | Scope | Files (main) | Depends on | Validation gate |
-| --- | --- | --- | --- | --- | --- | --- |
-| C0 | `docs: archive redirection-hosts spec and add plan for #1317` | Other | Planning artifacts | `docs/plans/current_spec.md`, `docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md` | — | `npx markdownlint-cli2 docs/plans/current_spec.md` (the archive is lint-ignored) |
-| C1 | `chore: repoint redirection-host comments to the archived spec` | Other | Comment-only; fixes the 21 refs broken by C0 | `routes.go` (:75, :1044), `routes_test.go` (:1742-1744), `caddy/{config.go:103,401, config_options.go:12, redirect_routes.go:48, manager.go:115, manager_redirect_test.go:50, config_redirect_test.go:15,39,107}`, `handlers/redirection_host_handler.go:25`, `services/redirectionhost_service.go:15,59`, `models/redirection_host.go:12,33`, `frontend/src/components/RedirectionHostForm.tsx:74`, `frontend/src/api/redirectionHosts.ts:46` | C0 | (a) `git grep -c '2026-09-23_redirection-hosts-1367_spec.md' -- <C1 files>` totals 21. (b) `git grep -n 'docs/plans/current_spec.md' -- <C1 files>` returns **exactly 5 matches**: the Web Push singleton-index comment and the Web Push provisioning comment in `routes.go`, the two Web Push subscription allowlist reasons in `routes_test.go`, and the read-route-audit scope comment in `routes_test.go`. They are left for the §9 sweep. (c) `go build ./... && go vet ./...`; `cd frontend && npm run lint && npm run type-check` |
-| C2 | `chore: remove stale test backups and an unused auth helper` | Other | CLEAN | Delete tracked `backend/internal/metrics/metrics_test.go.bak` and `security_metrics_test.go.bak`; remove `isProduction()` (`auth_handler.go:32-36`) and its test | — | `go build ./... && go vet ./...`; `go test ./internal/api/handlers/... ./internal/metrics/...` |
-| C3 | `test: add pending E2E coverage for authentication rate limiting` | Other | `fixme` spec + fixture hardening | `tests/core/auth-rate-limit.spec.ts`, `tests/fixtures/auth-fixtures.ts`, `tests/utils/TestDataManager.ts` | — | Needs a **running E2E stack** (the firefox project depends on `setup`, which logs in; any current development image works). Run `npx playwright test tests/core/auth-rate-limit.spec.ts tests/core/authentication.spec.ts --project=firefox`: the new spec is skipped, and authentication passes with the hardened fixtures |
-| C4 | `refactor: add shared keyed rate limiter package` | Other | New unwired package + dependency | `backend/internal/ratelimit/**`, `backend/go.mod`, `backend/go.sum` | — | `go test -race ./internal/ratelimit/...` (≥ 95%); `make lint-fast` (no depguard/gomodguard rules exist); `go build ./...` |
-| C5 | `fix(security): harden request throttling in the API layer` | **Security** (hardening) | Cerberus → shared limiter; all of §2.3 (3a–3g); exported bypass helper | `internal/cerberus/**`, `internal/api/middleware/{emergency,auth,optional_auth}.go` (+ tests) | C4 | `go test -race ./internal/cerberus/... ./internal/api/middleware/... ./internal/api/routes/...`; `make lint-fast`. The PR's "E2E Firefox Security" CI job covers the security-enforcement specs (§7 RK7) |
-| C6 | `refactor: add configuration and middleware for per-client request limits` | Other | Unwired: config, middleware, detector, guard method, metric | `internal/config/**`, `internal/api/middleware/auth_rate_limit*.go`, `internal/metrics/metrics*.go` | C4, C5 | `go test -race ./internal/config/... ./internal/api/middleware/... ./internal/metrics/...`; `make lint-fast` |
-| C7 | `feat: apply per-client limits to sign-in and password checks` | Features | Wiring: `/auth` group, password guards, admin endpoint + TS contract, trusted-proxy validation + startup warnings, E2E compose env | `routes.go` + tests, `handlers/{user,certificate,login_protection}_handler.go` + tests, `config.go`, `cmd/api/main.go`, `frontend/src/api/security.ts`, playwright compose files | C6 | `cd backend && go test -race ./... && go build ./...`; `cd frontend && npm run type-check`; rebuild E2E, then `npx playwright test tests/core/authentication.spec.ts --project=firefox` |
-| C8 | `feat: explain sign-in waits and show login protection status to admins` | Features | Frontend (§3.13) | Phase 3 files | C7 | `cd frontend && npm run lint && npm run type-check && npm run test && npm run build`; `scripts/frontend-test-coverage.sh` ≥ 87% |
-| C9 | `test: enable E2E coverage for authentication rate limiting` | Other | Remove `fixme` | `tests/core/auth-rate-limit.spec.ts` | C7, C8 | Rebuilt E2E stack, then `npx playwright test tests/core/auth-rate-limit.spec.ts tests/core/authentication.spec.ts --project=firefox`, all green with tests 1–3 executed |
-| C10 | `docs: document login protection and trusted proxy setup` | Other | §4.5, including the compose hint, forward-auth docs correction and §13 repoints. Must link the upstream runtime pages with version caveats (docs-writer re-verifies). **Must land in the same release as C8**, so the docs site publishes `configuration/trusted-proxies` no later than the login notice that links to it | Phase 5 files | C7 | `npm run lint:md` (or `npx markdownlint-cli2` on changed files); `go build ./...` (comment edits) |
-
-- **Merge subject:** `feat(security): harden authentication endpoints against abuse (#1317) (#<PR>)`,
-  which is the only other Security entry.
-- **Final run:** after C10, run §5.2 once over the PR (patch report, CodeQL + Trivy, lefthook, coverage, builds).
-
-### 6.4 Rollback and contingency
-
-- **Whole feature.** Revert the merge commit with `git revert -m 1 <merge>`. There is no
-  data migration, and config is env-only.
-- **Runtime kill switch (no redeploy).** Set `CHARON_AUTH_RATELIMIT_ENABLED=false` and restart.
-- **Partial.** C5 (all Cerberus hardening) is one independently revertible commit. C4 is a
-  leaf package that C5 and C6 depend on. The trusted-proxy validation lives in C7.
-- **E2E flakes from throttling.** Raise only the E2E compose budgets. The hardened fixtures
-  now fail loudly with a 429 message rather than flaking downstream.
-- **Noisy detector.** The WARN is already capped; a follow-up can downgrade it without touching enforcement.
-
----
-
-## 7. Risks & Mitigations
-
-| # | Risk | Likelihood / Impact | Mitigation |
-| --- | --- | --- | --- |
-| RK1 | **Untrusted proxy in front of the UI**: all visitors share one key, so one client can keep sign-in closed for every account at ~1 req/min (§3.5.3) | Med / **High** | Detector (count, last-seen, scope), admin card, capped scope-aware WARN, docs, the login-page admin pointer, short `Retry-After`, unthrottled break-glass, kill switch. Device cookies are the first follow-up (M2) |
-| RK2 | **Runtime NAT** (rootless or VM runtimes, SNAT load balancers): the same shared-key effect, with **no** header signal (§3.5.2) | Med (common in rootless/desktop setups) / **High** | Verified runtime remedies in docs; the admin card's "Charon sees your browser as" self-check; host-level proxy + trusted proxies; kill switch; M2 |
-| RK3 | E2E flakiness from the shared runner address | High if unmitigated / Med | Explicit E2E-only budgets; XFF isolation proven by the effectiveness probe; fixtures fail loudly on 429 |
-| RK4 | Memory exhaustion via key rotation | Low / Med | 10,000-key LRU cap, IPv6 /64, no goroutines |
-| RK5 | Header spoofing to evade the throttle | Low / High | Gin ignores untrusted peers' headers; right-to-left XFF walk; trust-all WARN; docs require append/overwrite XFF and exact addresses |
-| RK6 | Operator trusts broad ranges, so any client in them chooses its key | Med / Med | Docs guidance; Q5 |
-| RK7 | C5's exemption fix adds Cerberus-limiter pressure in the near-margin security E2E project | Med / Med | Valid admin tokens stay exempt; watch the PR's "E2E Firefox Security" job; adjust E2E-side traffic only |
-| RK8 | Forward-auth wired later without keeping `/auth/verify` exempt | Low / High | The inventory test locks the classification |
-| RK9 | A future password check lands unguarded | Med / Med | Tripwire test (§4.4) |
-| RK10 | Behavior change for invalid trusted-proxy lists (cookie HTTPS detection now also trusts nothing) | Low / Low | Startup WARN names the entry; documented in the release notes |
-| RK11 | `Retry-After` float rounding off-by-one | Low / Low | ms rounding; table tests |
-| RK12 | Config typos silently disable protection | Low / High | Only literal `false` disables; unrecognized values WARN; the zero value is enabled |
-| RK13 | Attacker-driven log floods | Med / Low | Global WARN cap with a suppressed count; episode logging; detector capped at one per 15 min |
-| RK14 | DB-write amplification | — | No audit rows |
-| RK15 | New dependency (golang-lru/v2, MPL-2.0) | Low / Low | Zero transitive deps; license class already shipped; fallback (Q2) |
-| RK16 | Restart resets buckets | Low / Low | Operator-controlled; the lockout layer persists |
-| RK17 | The E2E trust list changes cookie Host handling if a non-IP base URL is used | Low / Med | The compose comment requires IP-literal or `localhost` base URLs; no spec sends forwarded headers |
-| RK18 | Admin endpoint exposes peer addresses | Low / Low | Admin-only (`securityAdmin`); RBAC route test |
-| RK19 | `go.work.sum` churn from dependency commands | Med / Low | Review in C4 |
-
----
-
-## 8. Open Questions & Maintainer Decisions
-
-All items below are **decided**: the maintainer approved every recommended default on 2026-09-24.
-
-### 8.1 Questions (decided)
-
-1. **Q1: Login budget.** **Decided:** approved as recommended — 10 per 600 s (burst 10, +1/min), matching Vaultwarden.
-   The stricter alternative is 5 per 300 s.
-2. **Q2: Store dependency.** **Decided:** approved as recommended — `hashicorp/golang-lru/v2` (`simplelru`). The alternative
-   is a ~50-line `container/list` LRU.
-3. **Q3: Cerberus hardening in this PR.** **Decided:** approved as recommended — keeping it, now folded into one commit
-   (C5). The alternative is a separate `fix(security)` PR.
-4. **Q4: Throttle-event notifications.** **Decided:** approved as recommended — deferring (§9).
-5. **Q5: Trusted-proxy guardrails.** **Decided:** approved as recommended — a WARN only for trust-all lists (Gin
-   semantics), plus docs guidance for broad RFC 1918 ranges.
-6. **Q6: E2E trust model.** **Decided:** approved as recommended — trusting the runner-peer ranges in both Playwright
-   stacks (now including `100.64.0.0/10` and `fc00::/7`), test-only.
-
-### 8.2 Maintainer decisions (decided)
-
-- **M1: Default-trust loopback in the container image.** **Decided:** approved as recommended — **not in this PR**; it
-  becomes its own issue. Changing the default trust changes client-address resolution for
-  every IP-based decision in the application, not just login protection. It also reverses
-  #1316's trust-nothing default, so it deserves separate review.
-- **M2: Device cookies.** **Decided:** approved as recommended — making per-browser buckets alongside per-IP buckets the
-  **first** follow-up (§9.1).
-- **M3: Security subject policy and merge subject.** **Decided:** approved as recommended — §6.2. The merge subject
-  `feat(security): harden authentication endpoints against abuse (#1317) (#<PR>)` is the
-  single user-facing Security entry, C5 is the single hardening entry, and C7 is plain
-  `feat:`. The alternative is for C7 to carry `feat(security):` with a non-security PR title;
-  that relies on title discipline at merge time and is less robust.
-- **M8: Admin notice placement.** **Decided:** approved as recommended — the **Security-dashboard card** over a global
-  admin banner, because:
-  1. The Security page is the established home for security posture, and the card carries
-     useful always-on information (budgets, the caller-address self-check), not just warnings.
-  2. Anyone can trigger the detector by sending forged headers. A global banner would let any
-     client put a warning on every admin page, while a card contains it and treats public
-     peers as informational.
-  3. It needs no global layout changes or dismissal persistence.
-
-  The alternative is a dismissible global admin banner shown **only** for loopback/private
-  peers (the strong misconfiguration signal), linking to the card.
-
----
-
-## 9. Follow-ups (Out of Scope)
-
-1. **Device cookies (first; M2).** Per-browser "device cookie" budgets alongside per-IP
-   budgets, following the OWASP guidance "Slow Down Online Guessing Attacks with Device
-   Cookies". A browser that has previously authenticated keeps its own budget, so shared-address
-   setups (untrusted proxy, runtime NAT, CGNAT) don't lock out known users.
-2. **Throttle-event notifications.** An async dispatcher (app `ctx`) behind a global
-   `ratelimit`-based debounce (≤ 1 per class per 15 min, with a suppressed count), feeding
-   `NotifySecurityRateLimitHits`. The toggle's semantics need deciding.
-3. **Login-flow hardening.** Additional login-flow hardening items are tracked privately.
-4. **Invite routes.** Optionally attach the `session` class to `/invite/*` for defense in depth.
-5. **Forward-auth.** Decide whether to implement the forward-auth gateway (C10 corrects the docs).
-6. **Emergency server trusted proxies.** See the existing
-   `docs/issues/created/20260718-emergency-server-missing-trusted-proxies.md`.
-7. **Metrics registration.** Register the `security_metrics.go` collectors on the served registry.
-8. **Spec-reference sweep.** 132 `docs/plans/current_spec.md` references remain in code and
-   tests after this PR, including the 5 in C1's files. Add a lefthook/CI guard against new ones.
-9. **Certificate key export bug.** `POST /certificates/:uuid/export` with `include_key: true`
-   always answers 403, because the handler reads a context value (`user`) that the auth
-   middleware never sets (`certificate_handler.go:342`). File it and fix it separately; the
-   §3.2.1 guard already precedes that branch.
-10. **Docs links.** Migrate the existing hardcoded frontend docs links to `constants/docs.ts`,
-    and verify their paths against the published site.
-11. **Address-scope DRY.** Consolidate `auth_handler.go`'s CGNAT/private classification with
-    `ratelimit.ClassifyAddr`. That change touches session-cookie code, so it is left out of
-    this feature's scope.
-12. **Configurable IPv6 aggregation.** Revisit only if abuse from delegated /56 or /48 blocks is observed.
-
----
-
-## 10. Revision History
-
-| Rev | Date | Changes |
-| --- | --- | --- |
-| 1 | 2026-09-24 | Initial spec |
-| 2 | 2026-09-24 | Supervisor review. **B1:** shared-address analysis (untrusted proxy + runtime NAT), severity, admin-only endpoint + card, scope-aware guidance, compose hint, login-page admin pointer, device-cookie follow-up. **B2:** merge-commit publishing mechanism; subjects re-derived; Cerberus commits folded (C5); unwired commit → `refactor:`. **B3:** effective trust validation, effectiveness probe, E2E trust list, fixtures fail loudly. **B4:** password-verifying routes outside `/auth` guarded, plus a tripwire test. **B5:** unfixed-weakness details replaced by a private-tracking pointer; process note. **B6:** C1 gate scoped. Suggestions 1–17 adopted |
-| 3 | 2026-09-24 | Supervisor approval (10 non-blocking items folded in) and maintainer approval of Q1–Q6, M1, M2, M3, M8 (marked decided). Trusted-proxy strings kept as given when valid; cookie trust uses the detector's `netip` matcher (no loopback equivalence); per-scope detector records; broader tripwire (all non-test files, any `.CheckPassword` selector, source-position ordering); `createUser` throws only on persistent 429; runtime-NAT specifics marked unverified with C10 re-verification; review-item references removed and Phase headings numbered 4.1–4.6; C1 gate asserts 5 named matches; Gin wording fixes; docs publish no later than the login notice |
+| SF1 `last_result == null` text contradicts an enabled Reclaim button; "Nothing to do" repeated | `.last.none` only when `!can_request_optimize && !compact_requested`, else `.last.notYet`; "Nothing to do" kept once (`reasonIncremental`), `notice.restartToOptimize` reworded again in revision 10 | A.3 D3 item 3, D4, i18n list; A.4; A.8 AC2 |
+| SF3 test plumbing | auth mock with role toggle for `SystemSettings` and `Tasks` tests; dead `databaseApi` mock deleted; the Layout mock addition is no longer needed (removed in revision 10) | A.4; A.6 commits 10, 11 |
+| Nit a stale "card" wording | files inventoried; backend comment-only tweak in commit 13; grep gate includes `database card` | A.2; A.5; A.6 |
+| Nit b old-location list | `docs/database-maintenance.md:126,142` added | A.2 |
+| Nit c/e accessible names, mobile indicator | moot: no indicator exists, so nav link names are unchanged | A.3 D5 |
+| Nit d alert locator collision | moot for notices (now `role="status"`); the load-error alert keeps its own `aria-label` | A.3 D3b |
+| Nit f MB vs MiB | "about 100 MB" in copy, tests and docs | A.3 D4; A.5 |

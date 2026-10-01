@@ -440,8 +440,8 @@ func TestBackupHandler_Upload_WrapRawDatabaseFailure(t *testing.T) {
 	content, err := os.ReadFile(dbPath) // #nosec G304 -- test fixture path
 	require.NoError(t, err)
 
-	require.NoError(t, os.Chmod(svc.BackupDir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(svc.BackupDir, 0o700) })
+	require.NoError(t, os.Chmod(svc.BackupDir, 0o500))       //nolint:gosec // G302: dir must stay traversable but read-only for this test
+	t.Cleanup(func() { _ = os.Chmod(svc.BackupDir, 0o700) }) //nolint:gosec // G302: restore traversable dir mode for cleanup
 
 	body, contentType := buildMultipartUpload(t, "upload.db", content, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/upload", body)
@@ -498,8 +498,8 @@ func TestBackupHandler_Upload_ZipKind_WriteFileFailure(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(svc.BackupDir, filename)) // #nosec G304 -- test-controlled path
 	require.NoError(t, err)
 
-	require.NoError(t, os.Chmod(svc.BackupDir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(svc.BackupDir, 0o700) })
+	require.NoError(t, os.Chmod(svc.BackupDir, 0o500))       //nolint:gosec // G302: dir must stay traversable but read-only for this test
+	t.Cleanup(func() { _ = os.Chmod(svc.BackupDir, 0o700) }) //nolint:gosec // G302: restore traversable dir mode for cleanup
 
 	body, contentType := buildMultipartUpload(t, "whatever.zip", content, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups/upload", body)

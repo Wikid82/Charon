@@ -1,125 +1,94 @@
-# QA and Security Report: Login Protection (#1317)
+# QA and Security Report - GH #1422 automatic database maintenance
 
-- **Branch:** `feat/auth-rate-limit-1317` (rebased on `origin/development`, 28 feature commits plus two QA commits)
-- **Plan:** `docs/plans/current_spec.md` (approved); DoD mapping in spec section 5.2
-- **Scope:** per-client rate limiting on `/api/v1/auth/*` and password-verifying routes, the admin
-  `GET /api/v1/security/login-protection` status endpoint, the Login page notice, the Security page
-  Login Protection card, the shared `internal/ratelimit` package, the reworked Cerberus API limiter,
-  trusted-proxy parsing, and the related docs and E2E coverage.
-- **Verdict:** **PASS WITH NOTES** (see section 6)
+Branch `feat/db-maintenance-1422`, HEAD e937a7dc, range `3437ab88..HEAD`. Spec: docs/plans/current_spec.md rev 7.
 
-## 1. Definition of Done results
+## Verdict: PASS (no blocking findings)
 
-| # | Step | Command | Result | Evidence |
-| --- | --- | --- | --- | --- |
-| 1 | E2E stack rebuild | `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e` | Pass | 35 s, `charon-e2e` healthy |
-| 1 | Playwright, targeted | `npx playwright test tests/core/auth-rate-limit.spec.ts tests/core/authentication.spec.ts tests/settings/user-lifecycle.spec.ts --project=firefox` | Pass | 32 passed, 0 failed, 0 skipped, 1.0 min. Rate-limit tests 1 to 3 executed (not skipped) |
-| 1 | Playwright, repeat | `npx playwright test tests/core/auth-rate-limit.spec.ts --project=firefox --repeat-each=3` | Pass | 19 passed, 0 failed, 0 skipped, 26 s |
-| 1.5 | GORM scan | `./scripts/scan-gorm-security.sh --check` | Pass | 0 CRITICAL, 0 HIGH, 0 MEDIUM; 2 INFO. The only diff under `backend/internal/models` is a comment repoint in `redirection_host.go`; no model, query-shape or migration changes in this feature |
-| 2 | Patch coverage | `bash scripts/local-patch-report.sh` (rerun after the coverage runs so it used fresh inputs) | Pass | Overall 97.8 percent (611 of 625 changed lines), backend 97.8, frontend 97.6. Artifacts: `test-results/local-patch-report.{md,json}` |
-| 3 | CodeQL Go | `scripts/pre-commit-hooks/codeql-go-scan.sh` (CodeQL CLI 2.26.4) | Pass | After the fix in section 4 and the suppression line update in section 6: 4 results, all pre-existing and suppressed; `scripts/security/codeql-findings-gate.sh codeql-results-go.sarif go` reports 4 suppressed, 0 blocking |
-| 3 | CodeQL JS | `scripts/pre-commit-hooks/codeql-js-scan.sh` | Pass | 0 results; gate reports 0 blocking |
-| 3 | Trivy | `.github/skills/scripts/skill-runner.sh security-scan-trivy` | Pass for the change | 0 findings in tracked files. Findings reported only in git-ignored paths (`.claude/worktrees/*` copies, `docs-site/build/` output, a local untracked key file); none in files this branch adds or changes |
-| 3 | govulncheck | `.github/skills/scripts/skill-runner.sh security-scan-go-vuln` | Pass | 0 vulnerabilities affecting the code (new dependency: `hashicorp/golang-lru/v2` v2.0.7) |
-| 4 | Lefthook | `lefthook run pre-commit --all-files` | Pass | All hooks pass; the earlier Semgrep findings in three untouched files are resolved (section 4 and 6) |
-| 5 | Staticcheck | `make lint-fast` | Pass | 0 issues (backend and agent) |
-| 5 | Full golangci-lint | `cd backend && golangci-lint run --config .golangci.yml ./...` | Non-blocking in CI | 91 findings remain (bodyclose 1, gocritic 50, gosec 40; pre-existing, at the per-linter caps). Findings on lines this branch added or changed (`--new-from-rev=origin/development`): 7 found and fixed, now 0 |
-| 6 | Backend coverage | `bash scripts/go-test-coverage.sh` | Pass | Lines 88.8 percent, statements 92.2 percent, gate 87 percent; 8 min 13 s |
-| 6 | Frontend coverage | `bash scripts/frontend-test-coverage.sh` | Pass | Lines 91.2 percent (7981 of 8751), statements 90.04, branches 83.38, functions 87.86; 281 files, 3525 tests passed; 13 min 50 s |
-| 7 | Type check, frontend | `cd frontend && npm run type-check` | Pass | 0 errors, 33 s |
-| 7 | Type check, tests | `npx tsc --noEmit --strict --module esnext --moduleResolution bundler --skipLibCheck --target es2022 --lib es2022,dom --types node <167 .ts files under tests/>` | Pass | 0 errors |
-| 8 | Build | `cd backend && go build ./...`; `cd frontend && npm run build` | Pass | Both succeed |
-| 9 | Backend, cache-free, race | `cd backend && go test -race -count=1 ./...` | Pass | 38 packages ok, 0 failures, 8 min 30 s |
-| 9 | Frontend, full | `cd frontend && npm run test` | Pass | 281 files, 3525 passed, 4 skipped and 2 todo (all pre-existing, none added by this branch), 0 failed, 10 min 49 s |
-| 10 | Clean-up scan | added lines of `git diff origin/development...HEAD` | Pass | No debug prints, commented-out code or new skips. One conditional `test.skip` in the rate-limit E2E spec is an environment guard with a message; it did not trigger. `.gitignore`, `.dockerignore`, `codecov.yml` need no change for `backend/internal/ratelimit`, the new docs pages or the test helpers |
+## Gates
 
-## 2. Test and coverage numbers
+| Gate | Command | Result |
+|---|---|---|
+| Playwright | `npx playwright test tests/settings/database-maintenance.spec.ts --project=firefox` (after docker-rebuild-e2e) | 14/14 passed |
+| GORM scan | `./scripts/scan-gorm-security.sh --check` | 0 CRITICAL, 0 HIGH, 0 MEDIUM |
+| Patch coverage | `bash scripts/local-patch-report.sh` | artifacts present; overall 94.8%, backend 94.4%, frontend 100% (uncovered lines are error branches) |
+| CodeQL Go+JS | `lefthook run codeql --all-files` (CodeQL 2.26.4) | Go 4 results, all pre-existing and suppressed in codeql-suppressions.yml (none in files of this branch); JS 0; 0 blocking |
+| Trivy | `docker build -t charon:local .` + `aquasec/trivy image --severity CRITICAL,HIGH charon:local` | OS 0, app/charon 0, caddy 0; 1 HIGH in each of crowdsec and cscli binaries (CVE-2026-32286, pgproto3, no fixed version), third-party, already tracked in .trivyignore/.grype.yaml/SECURITY.md. No CRITICAL. |
+| Pre-commit | `lefthook run pre-commit --all-files` | all 16 hooks passed (incl. semgrep) |
+| Lint | `make lint-fast`, `make lint-backend` | 0 issues both |
+| Backend coverage | `scripts/go-test-coverage.sh` | statements 92.1%, lines 89.1% (gate 87%) PASS |
+| Frontend coverage | `scripts/frontend-test-coverage.sh` | 289 files / 3586 tests passed (4 skipped, 2 todo pre-existing), lines 91.31% (gate 87%) PASS |
+| Types / builds | `npm run type-check`, `go build ./...`, `npm run build` | all OK |
+| Backend suite | `go test ./...` | all packages ok, 0 failures |
+| Race | `go test -race ./internal/dbmaint/... ./cmd/... ./internal/api/routes/... ./internal/services/... ./internal/database/...` | all ok |
 
-- Backend: 88.8 percent line coverage (gate 87), 92.2 percent statements.
-- Frontend: 91.2 percent line coverage (gate 87).
-- Patch coverage of the change: 97.8 percent (gate 87). Remaining uncovered changed lines are defensive
-  branches: `frontend/src/api/security.ts` 77-78, `backend/cmd/api/main.go` 263,
-  `backend/internal/api/routes/routes.go` 326-327, `backend/internal/ratelimit/limiter.go` 81-82 and 148-149,
-  `backend/internal/api/middleware/auth_rate_limit.go` 135-139, `backend/internal/cerberus/rate_limit.go` 123.
+Note: the Trivy container was pointed at the rootless docker socket (/run/user/1001/docker.sock) instead of the stale /var/run/docker.sock hard-coded in `make security-scan-full`.
 
-## 3. Security audit
+## Synthetic real-data run (scratch DB, removed afterwards)
 
-Reviewed the branch diff against `SECURITY.md` and OWASP Top 10 categories.
+Live schema via AutoMigrate, 60 monitors, 3,000,000 heartbeats, oldest 1.23M deleted, WAL, auto_vacuum=0, real StartupPlan/Start/Run path:
 
-| Area | Result |
-| --- | --- |
-| Authorization on `GET /api/v1/security/login-protection` | Registered on the admin-only group (`RequireRole(admin)`). Route tests assert 401 without a token and 403 for a non-admin user. |
-| Input handling on the new endpoint | Read-only, no request body, query or path input consumed. Response contains budgets, trusted-proxy count, observation counters and the caller's own derived key and scope. |
-| Log content | Denial and detector lines carry the client key, route template, class and counts only. No credentials, tokens, emails or usernames. Client key and route template are now passed through `util.SanitizeForLog` (section 4). The first denial per episode is WARN under a global cap; the rest are DEBUG. |
-| Header trust | Client address comes from Gin `ClientIP()` with the trusted-proxy list parsed once. RFC 7239 `Forwarded` is never consulted. Unit and route tests cover untrusted peers ignoring forwarded headers and trusted peers using the rightmost untrusted hop. |
-| Memory and CPU bounds | `KeyedLimiter` is an LRU capped at 10,000 keys with idle sweeping and no goroutines. Throwaway benchmark (not committed): 2,000,000 distinct keys, tracked keys stayed at 10,000, about 729 ns per call, heap growth about 2.7 MiB. |
-| Configuration failure modes | Zero, negative, non-numeric or out-of-range budget values fall back to defaults with a startup warning. An unrecognised enable value keeps protection on. Only a literal `false` disables it, and that is logged at WARN. A limiter construction error aborts route registration rather than starting unprotected. |
-| Break-glass paths | `/api/v1/emergency/*` is registered outside the throttled group; the Tier-2 server is a separate listener. Verified by test and against the E2E stack (below). |
-| Route classification | Every `/api/v1/auth` route is in the classification table; an inventory test fails when a route is added without a class. A second inventory test covers every password-verifying route outside the group. |
+- Before: 569,270,272 B main, 138,982 pages, 56,645 free (40.8%), reclaimable 232 MB; Decide = Run.
+- Advisor (Reclaimer.AfterPrune on a legacy DB): Pending=true, 232 MB.
+- GET /api/v1/system/database before: notice `restart_to_optimize` (info), can_request_optimize true.
+- Conversion wall time 5.7 s; during it GET /, /api/v1/system/database and /api/v1/health/db returned 503 and /api/v1/maintenance/status returned 200 `{"active":true,"phase":"converting",...}`.
+- After: 318,664,704 B (-44%), integrity_check ok, auto_vacuum=2, journal_mode=wal, 1,770,000 rows intact, last_result converted, notice null, `.tmp` empty and mode 0700.
+- Steady state: after pruning 770k more rows, Reclaimer drained 25,291 pages in 13 steps (318.7 MB to 215.1 MB), advice no longer pending.
 
-### Black-box checks against the E2E stack (`charon-e2e`, localhost only)
+## Security audit
 
-The E2E stack sets the login budget to 300 per 60 s and trusts loopback and private ranges, so requests
-from the test host arrive from a trusted peer.
+- SQL: every statement in dbmaint, database and the pruner is a constant or parameterised (`?`); the only formatted ones take integer constants/ints (`incremental_vacuum(%d)`, `busy_timeout=%d`); `"PRAGMA "+name` callers pass literals only. No user input reaches DDL/PRAGMA.
+- Gate: answers only GET/HEAD on the exact paths /api/v1/health and /api/v1/maintenance/status; /api/v1/health/db, trailing-slash and sub-paths are blocked (503 JSON or HTML) while active and pass through otherwise; the gate sits before all DB-touching middleware; status/health do no DB access. CSP is hash-based (default-src 'none', script/style sha256 computed from the embedded page, verified by test), plus no-store, nosniff, X-Frame-Options DENY. Remote users cannot trigger the gate: phases change only from the boot-time runner.
+- Endpoints: GET /system/database and POST/DELETE /system/database/optimize-on-restart are on managementAdmin; tests assert 401 (no token), 403 (role=user). Cookie auth is SameSite Strict/Lax like every other mutating endpoint; no new CSRF surface. POST is idempotent (200 {requested:true}); error bodies are generic or name only the env var.
+- Reserved prefix guard (`migration.`, `maintenance.`): normalised (lowercase+trim) prefix check on UpdateSetting and on every flattened PatchConfig key (nested JSON, mixed case, whitespace, empty-segment cases covered); GetSettings and PatchConfig responses filter reserved rows; Category is ignored. Other settings writers use fixed keys.
+- Temp dir: `<data>/.tmp` via Lstat (symlink and non-dir refused), owner == euid, forced 0700, filepath.Clean; operator-set SQLITE_TMPDIR honoured untouched; failure falls back with a warning.
+- State/file_id: inode-only id, state of another file is ignored/deleted, in-progress marker counts as a failed attempt, 3-attempt back-off, a fresh admin request resets it. The flag cannot force a conversion below the 100 MB floor nor skip the integrity, disk or writer-lock checks. Corrupt state rows are deleted, not trusted.
+- Writer exclusion: BEGIN EXCLUSIVE probe with busy_timeout=0 on the pinned single pool connection, retries then skip as database_busy (tested with a real second writer).
+- Logs: sizes, counts and reason codes only; no secrets, no paths beyond config.
+- DoS: status endpoint is a mutex read plus fmt (no DB, no allocation proportional to input).
+- Provenance: no session IDs, claude.ai links, Co-Authored-By or "generated with" in any commit message or diff; all 14 commit subjects use conventional prefixes; none uses a `(security)` scope. Added `nolint` comments are all justified test or gosec-G115 notes.
 
-- Burst of 900 parallel bad-credential logins from one client: 831 to 835 answered 429 with `Retry-After`
-  and the generic body `{"error":"Too many requests. Please wait before trying again."}`; the rest 401.
-- `GET /auth/me`, `GET /auth/verify` and `GET /auth/status` were never throttled while login was throttled.
-- The RFC 7239 `Forwarded` header did not change the throttle key (429 rate unchanged versus control).
-- `POST /api/v1/emergency/security-reset` (400 requests) and the Tier-2 port (300 requests) returned only
-  401, never 429, while the login route was throttled.
-- Not tested black-box: forged forwarded headers from an untrusted peer. Every peer that can reach this
-  stack from the host is inside a trusted range, so the case is covered by the middleware and route tests
-  named above instead.
+## Findings (all non-blocking, informational)
 
-## 4. Fixes made during QA
+1. LOW/INFO - The Makefile target `security-scan-full` mounts /var/run/docker.sock, which on this dev host is a stale root daemon; the scan needs the rootless socket. Pre-existing tooling issue, not part of this PR.
+2. INFO - FileID is inode-only; a replaced database file that happens to reuse the old inode would inherit stale attempts/last_result. Consequence is bounded (back-off counter or a notice), and Load clears state on mismatch. No action needed.
+3. INFO - /api/v1/health (GET/HEAD) is now answered by the gate and so no longer passes cerberus.RateLimitMiddleware; the handler is DB-free and cheap, so this is acceptable.
+4. INFO - Trivy HIGH CVE-2026-32286 in bundled crowdsec/cscli binaries has no fixed version and is already tracked.
 
-| Commit | Subject | What |
-| --- | --- | --- |
-| `96fb0713` | `fix: sanitize client and route fields in rate-limit denial logs` | Two new CodeQL `go/log-injection` findings (severity 6.1) in the denial log lines of the auth throttle and the Cerberus limiter. Values are passed through `util.SanitizeForLog`; rescan shows both gone. |
-| `b9050d21` | `refactor: resolve gocritic findings in the rate-limit code` | Seven full-config golangci-lint findings on lines this branch added (named results, `http.NoBody`, early `continue`). Affected packages re-tested. |
-| `51dcc88d` | `test: remove scanner findings from test fixtures` | Scanner findings in three test files (section 4a). |
 
-### 4a. Semgrep gate and findings
+---
 
-CI (`.github/workflows/semgrep.yml`) runs `scripts/pre-commit-hooks/semgrep-scan.sh` twice: once with SARIF output
-(`continue-on-error`, upload only) and once as the hard-fail gate with `--error`. Rulesets are p/golang,
-p/javascript, p/typescript, p/react, p/secrets and p/dockerfile at ERROR and WARNING severity, over the targets
-`Dockerfile backend frontend/src scripts .github/workflows`. Semgrep skips test paths by default, so a CI run
-reports 0 findings for the files below; they surface when the files are passed explicitly (the staged-file
-lefthook hook does this) or when default ignores are disabled. The three files are identical to
-`origin/development` (empty `git diff origin/development...HEAD` for each), so the findings pre-date this branch.
+## Re-run: Tasks > Database page and development merge
 
-| File | Finding | Resolution |
-| --- | --- | --- |
-| `backend/internal/api/middleware/auth_test.go` | Cookie without `HttpOnly` and `Secure` (rules `cookie-missing-httponly`, `cookie-missing-secure`; test cookies) | Fixed: explicit `HttpOnly: true, Secure: true` on all test cookies. The middleware reads only name and value, so behavior is unchanged. |
-| `tests/certificate-export.spec.ts` | Committed private key literal (`detected-private-key`) | Fixed: new helper `tests/utils/test-certificate.ts` generates the certificate and key with `openssl` at runtime. The same subject (`CN=test.local, O=TestOrg`) is kept. |
-| `tests/security-enforcement/authorization-rbac.spec.ts` | Hard-coded bearer token (`hardcoded-bearer-token`) | Fixed: the expired-token header is built from base64url-encoded header and payload parts at runtime; same claims. |
+Date: 2026-10-01. Branch `feat/db-maintenance-1422`, HEAD `107241f8`. Scope: merge of `development` (d3625e08) plus Addendum A (Database page under Tasks). Heavy commands ran with TMPDIR/GOTMPDIR under /var/tmp.
 
-No `nosemgrep` suppressions were added. Result: the CI invocation reports 0 findings (0 blocking), and the four
-touched files report 0 findings when scanned explicitly. Verification: `go test -race -count=1
-./internal/api/middleware/...` passes; strict `tsc` over all `.ts` files under `tests/` reports 0 errors;
-`tests/certificate-export.spec.ts` passes (14 of 14, firefox); `tests/security-enforcement/authorization-rbac.spec.ts`
-ran in the `security-tests` project (the firefox project ignores that directory): 88 passed, including the expired
-session test; 5 UI redirect tests failed only because the Chromium headless shell is not installed on this host.
+Result: **PASS** (no blocking findings).
 
-## 5. Deviations and how they were handled
+### Gate results
 
-- The local-patch report was first run on stale coverage inputs and rerun after the fresh coverage runs.
-- `make lint-backend` needs Docker, so `golangci-lint` was run locally with `backend/.golangci.yml`.
+| Gate | Command | Outcome |
+|---|---|---|
+| E2E (Database page) | `npx playwright test tests/tasks/database-maintenance.spec.ts --project=firefox` (charon-e2e rebuilt first) | 25 passed |
+| E2E (tab bar) | `tests/tasks/logs-viewing.spec.ts --project=firefox` | 25 passed |
+| E2E (Settings uptime card) | `tests/monitoring/uptime-monitoring-scale.spec.ts --project=firefox` | 9 passed |
+| Patch coverage | `bash scripts/local-patch-report.sh` (baseline origin/development...HEAD) | Overall 94.9% (1532/1614), backend 94.4%, frontend 100% (141/141), agent n/a; all pass; artifacts present |
+| CodeQL | `lefthook run codeql --all-files` (CLI 2.26.4) | Go: 4 results, all already suppressed in codeql-suppressions.yml (none in files touched by this branch); JS: 0; 0 blocking |
+| Trivy | `docker build -t charon:local .` then `aquasec/trivy image --severity CRITICAL,HIGH` via rootless socket | With .trivyignore: 0 findings. Without it: only CVE-2026-32286 (HIGH, pgproto3/v2, no fix) in crowdsec and cscli, the known accepted item |
+| Pre-commit | `lefthook run pre-commit --all-files` | all hooks passed (semgrep 0 findings) |
+| Lint | `make lint-fast`; `make lint-backend` | 0 issues; 0 issues |
+| Frontend coverage | `scripts/frontend-test-coverage.sh` | 291 files / 3633 tests passed; lines 91.35% (gate 87%) |
+| Backend coverage | `scripts/go-test-coverage.sh` | pass; line coverage 89.1% (gate 87%), statements 92.2% |
+| Type/build | `npm run type-check`; `go build ./... && go vet ./...`; `npm run build` | all clean |
+| Go tests | `go test ./...`; `go test -race ./internal/dbmaint/... ./internal/api/... ./cmd/...` | 0 failures; 0 races |
 
-## 6. Notes (not blocking)
+### Security / compliance audit
 
-1. **CodeQL suppression line.** This branch moved the flagged cookie-setting call in
-   `backend/internal/api/handlers/auth_handler.go` from line 198 to 187. The maintainer updated the matching
-   entry in `.github/codeql/codeql-suppressions.yml` (commit `b0ca33aa`). A fresh Go scan and
-   `scripts/security/codeql-findings-gate.sh` now report 4 suppressed, 0 blocking; the JS scan reports 0 results.
-2. **Semgrep.** See section 4a for what CI gates and how the findings were resolved.
-3. **Full golangci-lint config:** 91 pre-existing findings remain, non-blocking in CI.
-4. Additional item tracked privately.
+- Admin gating: `/tasks/database` is wrapped in `RequireRole allowed={['admin']}` (App.tsx:139); Layout nav item (Layout.tsx:178) and Tasks tab (Tasks.tsx:17) are admin-only. E2E confirms non-admin has no nav item, deep link redirects to "/", and no `/system/database` request is made.
+- XSS: no `dangerouslySetInnerHTML`/`innerHTML` in the new page, component, hook or API client; all values rendered as React text.
+- Accessibility: passive notices use `role="status"`; load error uses an `Alert` with its own accessible name (covered by E2E).
+- `grep -rn "systemSettings.database" frontend/src` is empty; no leftover references to removed components.
+- Commit hygiene on `3437ab88..HEAD`: no session IDs, claude.ai links, Co-Authored-By or "generated with" lines in messages or diff; all non-merge subjects use conventional prefixes; no `(security)` scope used.
+- Docs: links in docs/database-maintenance.md, docs/features.md, ARCHITECTURE.md resolve (the one flagged URL is an external GitHub link); ARCHITECTURE.md and the docs refer to Tasks -> Database. `docs-site/docs/` is git-ignored and untracked (no hand edits).
 
-## 7. Verdict
+### Findings
 
-**PASS.** All Definition of Done gates pass, targeted E2E is green including repeats, patch
-coverage is 97.8 percent, and the QA fixes are committed. The CodeQL gate (Go and JS) and the Semgrep gate report
-no blocking findings.
+None blocking. Informational: local patch coverage shortfalls are confined to existing dbmaint/database error branches (diskspace.go, probe.go, tmpdir.go, database.go), above the 85% backend threshold overall. GH #1426 /tmp leak not exercised as a failure.

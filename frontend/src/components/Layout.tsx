@@ -175,6 +175,7 @@ export default function Layout({ children }: LayoutProps) {
         },
         { name: t('navigation.backups'), path: '/tasks/backups', icon: '💾' },
         { name: t('navigation.logs'), path: '/tasks/logs', icon: '📝' },
+        ...(user?.role === 'admin' ? [{ name: t('navigation.database'), path: '/tasks/database', icon: '🗄️' }] : []),
       ]
     },
   ].filter(item => {

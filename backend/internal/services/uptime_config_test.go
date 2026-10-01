@@ -23,7 +23,7 @@ func TestUptimeConfig_FallsBackToHardcodedDefaultsWhenSettingsMissing(t *testing
 
 	assert.Equal(t, 60, cfg.DefaultIntervalSeconds())
 	assert.Equal(t, 30, cfg.WorkerPoolSize())
-	assert.Equal(t, 90, cfg.RetentionDays())
+	assert.Equal(t, 30, cfg.RetentionDays())
 }
 
 func TestUptimeConfig_ReadsSeededValues(t *testing.T) {
@@ -84,7 +84,7 @@ func TestUptimeConfig_NilDBUsesDefaults(t *testing.T) {
 	cfg := newUptimeConfig(nil)
 	assert.Equal(t, 60, cfg.DefaultIntervalSeconds())
 	assert.Equal(t, 30, cfg.WorkerPoolSize())
-	assert.Equal(t, 90, cfg.RetentionDays())
+	assert.Equal(t, 30, cfg.RetentionDays())
 }
 
 func TestClampInterval(t *testing.T) {
@@ -120,4 +120,34 @@ func TestClampInterval(t *testing.T) {
 		assert.Equal(t, 60, clampInterval(0, nil))
 		assert.Equal(t, 30, clampInterval(1, nil))
 	})
+}
+
+func TestUptimeConfig_RetentionDefaultConstants(t *testing.T) {
+	assert.Equal(t, 30, UptimeRetentionDefaultDays)
+	assert.Equal(t, 1, UptimeRetentionMinDays)
+	assert.Equal(t, 3650, UptimeRetentionMaxDays)
+}
+
+func TestUptimeConfig_RetentionClamp(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  int
+	}{
+		{"zero falls back to default", "0", 30},
+		{"negative falls back to default", "-5", 30},
+		{"non-integer falls back to default", "abc", 30},
+		{"min edge unchanged", "1", 1},
+		{"default unchanged", "30", 30},
+		{"max edge unchanged", "3650", 3650},
+		{"above max capped", "3651", 3650},
+		{"far above max capped", "9999", 3650},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupUptimeTestDB(t)
+			seedUptimeSetting(t, db, "uptime.heartbeat_retention_days", tc.value)
+			assert.Equal(t, tc.want, newUptimeConfig(db).RetentionDays())
+		})
+	}
 }

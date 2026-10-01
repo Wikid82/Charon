@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
 
@@ -31,14 +32,27 @@ const (
 	// issues PRAGMA wal_checkpoint(TRUNCATE) to reclaim WAL file growth.
 	walCheckpointRowThreshold = 50_000
 	// optimizeEveryPasses runs PRAGMA optimize on a ~daily sub-cadence (every
-	// Nth clean pass at the hourly interval). VACUUM is deliberately not used.
+	// Nth clean pass at the hourly interval). Returning freed pages to the OS is
+	// not done here: after each clean pass the SpaceReclaimer drains the free list
+	// of an incremental-mode database in small steps (GH #1422).
 	optimizeEveryPasses = 24
 )
 
+// SpaceReclaimer returns space freed by a prune pass to the operating system.
+// The concrete implementation lives in internal/dbmaint; the pruner depends only
+// on this interface.
+type SpaceReclaimer interface {
+	// AfterPrune is called after a clean pass that deleted the given number of
+	// rows. It must not fail the pass: problems are the implementation's to log.
+	AfterPrune(ctx context.Context, deleted int64)
+}
+
 // UptimePruner hard-deletes uptime_heartbeats rows older than
 // uptime.heartbeat_retention_days on an hourly cadence, in paused chunks so the
-// single SQLite write connection stays available (spec §3.4). It also owns the
-// deferred idx_heartbeat_monitor_created index (spec §3.5.6): rather than a
+// single SQLite write connection stays available (spec §3.4). After each clean
+// pass it hands over to an optional SpaceReclaimer so the freed pages are
+// returned to the OS (GH #1422). It also owns the deferred
+// idx_heartbeat_monitor_created index (spec §3.5.6): rather than a
 // struct tag / AutoMigrate build over a potentially huge table at boot, the
 // pruner issues CREATE INDEX IF NOT EXISTS at the end of every clean, caught-up
 // pass — idempotent, and retried hourly until it lands, so a transient early
@@ -48,6 +62,9 @@ type UptimePruner struct {
 	cfg *uptimeConfig
 	now func() time.Time
 
+	// reclaimer, when set, returns freed pages to the OS after a clean pass.
+	reclaimer SpaceReclaimer
+
 	// firstPassDone widens the inter-chunk pause until the first clean pass
 	// completes. atomic because a future restore hook may flip it off-loop.
 	firstPassDone atomic.Bool
@@ -56,6 +73,10 @@ type UptimePruner struct {
 	// idempotency is the real guarantee, so a stale false simply costs one
 	// extra no-op DDL on the next pass.
 	indexCreated atomic.Bool
+	// redundantIndexDropped latches once DROP INDEX for the redundant single-column
+	// monitor_id index has succeeded. It is separate from indexCreated so a failed
+	// or busy drop is retried on the next pass instead of being skipped for good.
+	redundantIndexDropped atomic.Bool
 	// passCount counts clean prune passes, for the PRAGMA optimize sub-cadence.
 	passCount atomic.Int64
 
@@ -70,6 +91,8 @@ type UptimePruner struct {
 	beforeChunkHook func(iteration int)
 	// walRowThreshold overrides walCheckpointRowThreshold when > 0 (test seam).
 	walRowThreshold int64
+	// chunkPause overrides the inter-chunk pause when > 0 (test seam).
+	chunkPause time.Duration
 }
 
 // NewUptimePruner builds a pruner over the worker pool's DB handle and shared
@@ -77,6 +100,12 @@ type UptimePruner struct {
 // NewUptimeScheduler). Run is started by routes.go on the shared request ctx.
 func NewUptimePruner(pool *UptimeWorkerPool) *UptimePruner {
 	return newUptimePruner(pool.db, pool.cfg)
+}
+
+// SetSpaceReclaimer installs the hook that runs after every clean prune pass.
+// Call it before Run; a nil reclaimer (the default) disables the hook.
+func (p *UptimePruner) SetSpaceReclaimer(r SpaceReclaimer) {
+	p.reclaimer = r
 }
 
 func newUptimePruner(db *gorm.DB, cfg *uptimeConfig) *UptimePruner {
@@ -143,7 +172,18 @@ func (p *UptimePruner) tick(ctx context.Context) {
 
 	// Deferred index (§3.5.6): idempotent CREATE INDEX IF NOT EXISTS at the end
 	// of every clean, caught-up pass, retried hourly until it lands.
-	_ = p.ensureIndex(ctx)
+	if err := p.ensureIndex(ctx); err == nil {
+		// Only drop the single-column index once the ordered composite exists.
+		if dropErr := p.dropRedundantIndex(ctx); dropErr != nil {
+			logger.Log().WithError(dropErr).Warn("UptimePruner: redundant index not dropped; will retry next pass")
+		}
+	}
+
+	// Hand the freed pages back to the OS once the index work is done (an index
+	// drop frees pages too).
+	if p.reclaimer != nil {
+		p.reclaimer.AfterPrune(ctx, deleted)
+	}
 
 	if n := p.passCount.Add(1); n%optimizeEveryPasses == 0 {
 		// Best-effort maintenance hint; a failure here is not actionable.
@@ -158,9 +198,12 @@ func (p *UptimePruner) pruneOnce(ctx context.Context) (int64, error) {
 	days := p.cfg.RetentionDays()
 	cutoff := p.now().Add(-time.Duration(days) * 24 * time.Hour)
 
-	pause := pruneChunkPause
-	if !p.firstPassDone.Load() {
-		pause = firstPassChunkPause
+	pause := p.chunkPause
+	if pause <= 0 {
+		pause = pruneChunkPause
+		if !p.firstPassDone.Load() {
+			pause = firstPassChunkPause
+		}
 	}
 
 	var total int64
@@ -172,17 +215,7 @@ func (p *UptimePruner) pruneOnce(ctx context.Context) (int64, error) {
 			return total, err
 		}
 
-		// Subquery form (not DELETE ... LIMIT, which modernc.org/sqlite does not
-		// compile in). ORDER BY id deletes the oldest rows first and keeps the
-		// plan on the primary key. Fully parameterised on cutoff + LIMIT.
-		res := p.db.WithContext(ctx).Exec(
-			`DELETE FROM uptime_heartbeats
-			 WHERE id IN (
-			     SELECT id FROM uptime_heartbeats
-			     WHERE created_at < ?
-			     ORDER BY id
-			     LIMIT ?
-			 )`, cutoff, pruneChunkSize)
+		res := p.db.WithContext(ctx).Exec(pruneChunkDeleteSQL, cutoff, pruneChunkSize)
 		if res.Error != nil {
 			return total, fmt.Errorf("uptime prune chunk: %w", res.Error)
 		}
@@ -190,7 +223,9 @@ func (p *UptimePruner) pruneOnce(ctx context.Context) (int64, error) {
 		if res.RowsAffected < pruneChunkSize {
 			break // fewer than a full chunk deleted => caught up
 		}
-		time.Sleep(pause)
+		if err := util.SleepContext(ctx, pause); err != nil {
+			return total, err
+		}
 	}
 
 	threshold := p.walRowThreshold
@@ -226,3 +261,38 @@ func (p *UptimePruner) ensureIndex(ctx context.Context) error {
 	}
 	return nil
 }
+
+// DropRedundantMonitorIndexSQL removes the legacy single-column monitor_id
+// index. It is a strict prefix of idx_heartbeat_lookup and
+// idx_heartbeat_monitor_created, so no query loses an access path. GORM never
+// drops an index removed from a tag, hence the explicit statement (also run by
+// the migrate CLI).
+const DropRedundantMonitorIndexSQL = `DROP INDEX IF EXISTS idx_uptime_heartbeats_monitor_id`
+
+// dropRedundantIndex drops the legacy single-column index. Callers must have
+// confirmed idx_heartbeat_monitor_created exists first. The latch is set only on
+// success, so a busy or failed DROP is retried on the next pass.
+func (p *UptimePruner) dropRedundantIndex(ctx context.Context) error {
+	if p.redundantIndexDropped.Load() {
+		return nil
+	}
+	if err := p.db.WithContext(ctx).Exec(DropRedundantMonitorIndexSQL).Error; err != nil {
+		return fmt.Errorf("drop idx_uptime_heartbeats_monitor_id: %w", err)
+	}
+	p.redundantIndexDropped.Store(true)
+	return nil
+}
+
+// pruneChunkDeleteSQL deletes one chunk of expired heartbeats. Subquery form
+// because modernc.org/sqlite does not compile DELETE ... LIMIT. ORDER BY
+// created_at, id lets the planner walk idx_uptime_heartbeats_created_at in index
+// order (its entries are (created_at, rowid)) and stop at the cutoff, so the
+// final caught-up chunk of a pass no longer scans the whole table. No INDEXED BY:
+// that would error if the index were ever missing. Parameters: cutoff, limit.
+const pruneChunkDeleteSQL = `DELETE FROM uptime_heartbeats
+	 WHERE id IN (
+	     SELECT id FROM uptime_heartbeats
+	     WHERE created_at < ?
+	     ORDER BY created_at, id
+	     LIMIT ?
+	 )`

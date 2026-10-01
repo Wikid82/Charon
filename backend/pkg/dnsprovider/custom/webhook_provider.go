@@ -283,7 +283,7 @@ func (p *WebhookProvider) BuildCaddyConfig(creds map[string]string) map[string]a
 	// Add insecure skip verify with default (false)
 	insecureSkipVerify := false
 	if insecureStr := strings.TrimSpace(creds["insecure_skip_verify"]); insecureStr != "" {
-		insecureSkipVerify = strings.ToLower(insecureStr) == "true"
+		insecureSkipVerify = strings.EqualFold(insecureStr, "true")
 	}
 	config["insecure_skip_verify"] = insecureSkipVerify
 
@@ -332,7 +332,7 @@ func (p *WebhookProvider) GetRetryCount(creds map[string]string) int {
 // IsInsecureSkipVerify returns whether TLS verification should be skipped.
 func (p *WebhookProvider) IsInsecureSkipVerify(creds map[string]string) bool {
 	if insecureStr := strings.TrimSpace(creds["insecure_skip_verify"]); insecureStr != "" {
-		return strings.ToLower(insecureStr) == "true"
+		return strings.EqualFold(insecureStr, "true")
 	}
 	return false
 }

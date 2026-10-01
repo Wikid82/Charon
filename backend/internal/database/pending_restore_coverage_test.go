@@ -44,8 +44,7 @@ func TestApplyPendingRestore_QuarantineRenameFailure(t *testing.T) {
 	// Remove write permission on dir so the quarantine os.Rename (which
 	// must update the directory's entries) fails, while lookups (needed by
 	// the earlier os.Remove(failedPath) best-effort call) still succeed.
-	require.NoError(t, os.Chmod(dir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	makeDirReadOnly(t, dir, 0o500)
 
 	err := ApplyPendingRestore(dbPath)
 	require.Error(t, err)
@@ -90,8 +89,7 @@ func TestApplyPendingRestore_FinalRenameFailure(t *testing.T) {
 	// against nonexistent dbPath/-wal/-shm still resolve to ENOENT (lookup
 	// only needs search permission), but the final os.Rename needs write
 	// permission on the directory to update its entries, so it fails.
-	require.NoError(t, os.Chmod(dir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	makeDirReadOnly(t, dir, 0o500)
 
 	err := ApplyPendingRestore(dbPath)
 	require.Error(t, err)
@@ -125,7 +123,7 @@ func buildIntegrityCheckFailingSQLiteFile(t *testing.T, path string) {
 	const corruptionOffset = 4106
 	require.Greater(t, len(content), corruptionOffset, "fixture insert pattern must produce a file large enough to corrupt at a fixed offset")
 	content[corruptionOffset] ^= 0xFF
-	require.NoError(t, os.WriteFile(path, content, 0o600))
+	require.NoError(t, os.WriteFile(path, content, 0o600)) //nolint:gosec // G703: path is a test-controlled t.TempDir fixture
 }
 
 // TestApplyPendingRestore_IntegrityCheckReportsCorruption_QuarantinesFile
@@ -170,4 +168,18 @@ func TestMarkPendingRestoreOutcome_OpenFailure_NeverPanics(t *testing.T) {
 	require.NotPanics(t, func() {
 		markPendingRestoreOutcome(dir, "restore_completed")
 	})
+}
+
+// chmodDir changes a directory's mode. Directories need the owner execute bit
+// to be searchable, so the file-mode ceiling gosec applies (0600) cannot apply.
+func chmodDir(dir string, mode os.FileMode) error {
+	return os.Chmod(dir, mode) //nolint:gosec // G302: directory permission bits, execute (search) bit is required
+}
+
+// makeDirReadOnly applies mode to dir and restores owner rwx on test cleanup so
+// t.TempDir can remove it.
+func makeDirReadOnly(t *testing.T, dir string, mode os.FileMode) {
+	t.Helper()
+	require.NoError(t, chmodDir(dir, mode))
+	t.Cleanup(func() { _ = chmodDir(dir, 0o700) })
 }

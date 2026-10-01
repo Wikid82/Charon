@@ -34,6 +34,9 @@ services:
       - CHARON_ENV=e2e  # E2E ACME/TLS policies without an ACME email; any non-production value also enables CHARON_CHANGELOG_VERSION
       - CHARON_DEBUG=0
       - TZ=UTC
+      # Test databases are never optimized at startup: a conversion mid-suite would
+      # answer the management UI and API with 503 (GH #1422)
+      - CHARON_DB_COMPACT_ON_START=off
       # Encryption key and emergency token loaded from env_file (../../.env)
       # DO NOT add them here - env_file takes precedence and explicit entries override with empty values
       # Emergency server (Tier 2 break glass) - separate port bypassing all security

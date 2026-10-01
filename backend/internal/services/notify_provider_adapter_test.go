@@ -60,7 +60,7 @@ func (c *capturingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 	}, nil
 }
 
-func (c *capturingRoundTripper) last() (*http.Request, []byte) {
+func (c *capturingRoundTripper) last() (req *http.Request, body []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	n := len(c.requests)
@@ -127,7 +127,7 @@ func TestBuildNotifySenderDiscord(t *testing.T) {
 
 func TestBuildNotifySenderSlackUsesTokenAsWebhookURL(t *testing.T) {
 	w, rt := newCapturingWrapper()
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test fixture placeholder token
 		Type:     "slack",
 		URL:      "unused-placeholder",
 		Token:    "https://hooks.slack.com/services/T000/B000/xxxxxxxxxxxxxxxxxxxxxxxx",
@@ -255,7 +255,7 @@ func TestBuildNotifySenderNtfySetsBearerHeader(t *testing.T) {
 
 func TestBuildNotifySenderTelegramBuildsProductionURLAndChatID(t *testing.T) {
 	w, rt := newCapturingWrapper()
-	provider := models.NotificationProvider{
+	provider := models.NotificationProvider{ //nolint:gosec // G101: test fixture placeholder token
 		Type:     "telegram",
 		URL:      "chat-id-456",
 		Token:    "bot-token-789",

@@ -35,7 +35,7 @@ import (
 // generator, not a fragile magic number.
 func corruptSQLiteFileForIntegrityCheck(t *testing.T, path string) {
 	t.Helper()
-	orig, err := os.ReadFile(path)
+	orig, err := os.ReadFile(path) //nolint:gosec // G304: path is a t.TempDir() fixture
 	require.NoError(t, err)
 
 	const pageSize = 4096
@@ -45,7 +45,7 @@ func corruptSQLiteFileForIntegrityCheck(t *testing.T, path string) {
 		candidate[offset] ^= 0xFF
 
 		probePath := path + ".probe"
-		require.NoError(t, os.WriteFile(probePath, candidate, 0o600))
+		require.NoError(t, os.WriteFile(probePath, candidate, 0o600)) //nolint:gosec // G703: path is a t.TempDir() fixture
 
 		db, openErr := sql.Open("sqlite3", probePath)
 		if openErr != nil {
@@ -58,7 +58,7 @@ func corruptSQLiteFileForIntegrityCheck(t *testing.T, path string) {
 		_ = os.Remove(probePath)
 
 		if scanErr == nil && !strings.EqualFold(strings.TrimSpace(result), "ok") {
-			require.NoError(t, os.WriteFile(path, candidate, 0o600))
+			require.NoError(t, os.WriteFile(path, candidate, 0o600)) //nolint:gosec // G703: path is a t.TempDir() fixture
 			return
 		}
 	}

@@ -185,7 +185,7 @@ func TestWritePendingRestoreFile_CopyFails(t *testing.T) {
 	// A directory opens successfully via os.Open but fails on Read, so
 	// io.Copy fails distinctly from the "open" and "create" branches above.
 	sourceDir := filepath.Join(dir, "source-is-a-dir")
-	require.NoError(t, os.Mkdir(sourceDir, 0o755))
+	require.NoError(t, os.Mkdir(sourceDir, 0o750))
 
 	svc := &BackupService{DataDir: dir, DatabaseName: "charon.db"}
 

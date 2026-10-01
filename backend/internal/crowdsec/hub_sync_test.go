@@ -2075,6 +2075,60 @@ func TestExtractTarGz_EmptyArchive(t *testing.T) {
 	require.Empty(t, entries)
 }
 
+func buildSingleEntryTarGz(t *testing.T, hdr *tar.Header, body string) []byte {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	gw := gzip.NewWriter(buf)
+	tw := tar.NewWriter(gw)
+	require.NoError(t, tw.WriteHeader(hdr))
+	if body != "" {
+		_, err := tw.Write([]byte(body))
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+	return buf.Bytes()
+}
+
+func TestExtractTarGz_RejectsBareParentEntry(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	archive := buildSingleEntryTarGz(t, &tar.Header{Name: "..", Typeflag: tar.TypeDir, Mode: 0o755}, "")
+	err := svc.extractTarGz(context.Background(), archive, targetDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsafe path")
+}
+
+func TestExtractTarGz_RejectsDotDotPrefixedName(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	// Documents the existing name check: any cleaned name starting with ".." is rejected.
+	archive := buildSingleEntryTarGz(t, &tar.Header{Name: "..foo", Mode: 0o644, Size: 3}, "abc")
+	err := svc.extractTarGz(context.Background(), archive, targetDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsafe path")
+	require.NoFileExists(t, filepath.Join(targetDir, "..foo"))
+}
+
+func TestExtractTarGz_MasksSpecialModeBits(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	// tar.Header.Mode carries the raw unix bits: 0o4000 setuid, 0o2000 setgid, 0o1000 sticky.
+	archive := buildSingleEntryTarGz(t, &tar.Header{Name: "sub", Typeflag: tar.TypeDir, Mode: 0o7755}, "")
+	require.NoError(t, svc.extractTarGz(context.Background(), archive, targetDir))
+
+	info, err := os.Stat(filepath.Join(targetDir, "sub"))
+	require.NoError(t, err)
+	require.True(t, info.IsDir())
+	require.Zero(t, info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky), "special mode bits must be stripped")
+}
+
 func TestExtractTarGz_InvalidTarAfterGzip(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())

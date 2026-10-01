@@ -3,6 +3,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 
 import App from './App.tsx'
+import MaintenanceGate from './components/MaintenanceGate'
 import { AuthProvider } from './context/AuthContext'
 import { LanguageProvider } from './context/LanguageContext'
 import { ThemeProvider } from './context/ThemeContext'
@@ -28,13 +29,15 @@ const renderApp = () => {
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ThemeProvider>
-            <LanguageProvider>
-              <App />
-            </LanguageProvider>
-          </ThemeProvider>
-        </AuthProvider>
+        <MaintenanceGate>
+          <AuthProvider>
+            <ThemeProvider>
+              <LanguageProvider>
+                <App />
+              </LanguageProvider>
+            </ThemeProvider>
+          </AuthProvider>
+        </MaintenanceGate>
       </QueryClientProvider>
     </React.StrictMode>,
   )

@@ -2,6 +2,7 @@
 package crypto
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -159,10 +160,10 @@ func (rs *RotationService) tryDecryptWithVersion(ciphertextB64 string, version i
 
 // EncryptWithCurrentKey encrypts plaintext with the current (or next during rotation) key.
 // Returns the ciphertext and the version number of the key used.
-func (rs *RotationService) EncryptWithCurrentKey(plaintext []byte) (string, int, error) {
+func (rs *RotationService) EncryptWithCurrentKey(plaintext []byte) (ciphertext string, keyVersion int, err error) {
 	// During rotation, use next key if available
 	if rs.nextKey != nil {
-		ciphertext, err := rs.nextKey.Encrypt(plaintext)
+		ciphertext, err = rs.nextKey.Encrypt(plaintext)
 		if err != nil {
 			return "", 0, fmt.Errorf("failed to encrypt with next key: %w", err)
 		}
@@ -170,7 +171,7 @@ func (rs *RotationService) EncryptWithCurrentKey(plaintext []byte) (string, int,
 	}
 
 	// Normal operation: use current key
-	ciphertext, err := rs.currentKey.Encrypt(plaintext)
+	ciphertext, err = rs.currentKey.Encrypt(plaintext)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to encrypt with current key: %w", err)
 	}
@@ -304,7 +305,7 @@ func (rs *RotationService) ValidateKeyConfiguration() error {
 	if err != nil {
 		return fmt.Errorf("current key decryption test failed: %w", err)
 	}
-	if string(plaintext) != string(testData) {
+	if !bytes.Equal(plaintext, testData) {
 		return fmt.Errorf("current key round-trip test failed")
 	}
 
@@ -318,7 +319,7 @@ func (rs *RotationService) ValidateKeyConfiguration() error {
 		if err != nil {
 			return fmt.Errorf("next key decryption test failed: %w", err)
 		}
-		if string(plaintext) != string(testData) {
+		if !bytes.Equal(plaintext, testData) {
 			return fmt.Errorf("next key round-trip test failed")
 		}
 	}
@@ -333,7 +334,7 @@ func (rs *RotationService) ValidateKeyConfiguration() error {
 		if err != nil {
 			return fmt.Errorf("legacy key V%d decryption test failed: %w", version, err)
 		}
-		if string(plaintext) != string(testData) {
+		if !bytes.Equal(plaintext, testData) {
 			return fmt.Errorf("legacy key V%d round-trip test failed", version)
 		}
 	}

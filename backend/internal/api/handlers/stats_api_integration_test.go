@@ -61,7 +61,7 @@ func TestStatsAPI_Summary_SeededCounts(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/summary", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/summary", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -84,7 +84,7 @@ func TestStatsAPI_TopHosts_24h(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/top-hosts?period=24h", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -106,7 +106,7 @@ func TestStatsAPI_StatusDistribution_7d(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/status-distribution?period=7d", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/status-distribution?period=7d", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -135,7 +135,7 @@ func TestStatsAPI_TrafficVolume_1h(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/traffic-volume?bucket=1h", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/traffic-volume?bucket=1h", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -161,7 +161,7 @@ func TestStatsAPI_CertExpiry_30Days(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=30", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=30", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -206,7 +206,7 @@ func TestStatsAPI_CertExpiry_WithExpiringSoon(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=30", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=30", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -230,7 +230,7 @@ func TestStatsAPI_CertExpiry_ZeroDays_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=0", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=0", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -247,7 +247,7 @@ func TestStatsAPI_CertExpiry_366Days_Returns400(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=366", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/cert-expiry?within_days=366", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -269,7 +269,7 @@ func TestStatsAPI_Health_DroppedCountPresent(t *testing.T) {
 	r := setupStatsRouter(h)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/stats/health", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/stats/health", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)

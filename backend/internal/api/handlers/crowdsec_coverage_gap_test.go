@@ -75,7 +75,7 @@ func TestGetCachedPreset_ValidationAndMiss(t *testing.T) {
 	_, r := gin.CreateTestContext(w)
 	r.GET("/api/v1/presets/:slug", h.GetCachedPreset)
 
-	req, _ := http.NewRequest(http.MethodGet, "/api/v1/presets/valid-slug", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/presets/valid-slug", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// Expect 404 on cache miss
@@ -92,7 +92,7 @@ func TestGetCachedPreset_SlugRequired(t *testing.T) {
 
 	// Manually set params with empty slug
 	c.Params = []gin.Param{{Key: "slug", Value: "   "}}
-	c.Request = httptest.NewRequest("GET", "/api", nil)
+	c.Request = httptest.NewRequest("GET", "/api", http.NoBody)
 
 	tmpDir := t.TempDir()
 	cache, _ := crowdsec.NewHubCache(tmpDir, time.Hour)

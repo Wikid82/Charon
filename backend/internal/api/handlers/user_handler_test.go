@@ -304,7 +304,7 @@ func TestUserHandler_GetProfile_SecretEchoContract(t *testing.T) {
 func TestUserHandler_ListUsers_SecretEchoContract(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
 
-	user := &models.User{
+	user := &models.User{ //nolint:gosec // G101: dummy credentials used to assert redaction
 		UUID:         uuid.NewString(),
 		Email:        "user@example.com",
 		Name:         "User",

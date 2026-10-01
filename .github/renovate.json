@@ -340,10 +340,12 @@
       "customType": "regex",
       "description": "Track golangci-lint version in quality checks workflow",
       "managerFilePatterns": [
-        "/^\\.github/workflows/quality-checks\\.yml$/"
+        "/^\\.github/workflows/quality-checks\\.yml$/",
+        "/^Makefile$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=github-releases depName=golangci/golangci-lint\\n\\s+version: v(?<currentValue>[^\\s]+)"
+        "# renovate: datasource=github-releases depName=golangci/golangci-lint\\n\\s+version: v(?<currentValue>[^\\s]+)",
+        "# renovate: datasource=github-releases depName=golangci/golangci-lint\\n\\t.*golangci/golangci-lint:v(?<currentValue>[^\\s]+)"
       ],
       "depNameTemplate": "golangci/golangci-lint",
       "datasourceTemplate": "github-releases",
@@ -869,7 +871,8 @@
       "matchFileNames": [
         ".github/workflows/**",
         "scripts/**",
-        ".github/skills/**"
+        ".github/skills/**",
+        "Makefile"
       ],
       "semanticCommitType": "chore"
     },

@@ -28,7 +28,7 @@ func (e *DefaultExecutor) Execute(name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: executor interface; callers pass the operator-configured caddy binary path
 	output, err := cmd.CombinedOutput()
 
 	// If context timed out, return a clear error message
@@ -397,36 +397,4 @@ func (i *Importer) ValidateCaddyBinary() error {
 		return errors.New("caddy binary not found or not executable")
 	}
 	return nil
-}
-
-// BackupCaddyfile creates a timestamped backup of the original Caddyfile.
-func BackupCaddyfile(originalPath, backupDir string) (string, error) {
-	if err := os.MkdirAll(backupDir, 0o700); err != nil {
-		return "", fmt.Errorf("creating backup directory: %w", err)
-	}
-
-	timestamp := fmt.Sprintf("%d", os.Getpid()) // Simple timestamp placeholder
-	// Ensure the backup path is contained within backupDir to prevent path traversal
-	backupFile := fmt.Sprintf("Caddyfile.%s.backup", timestamp)
-	// Create a safe join with backupDir
-	backupPath := filepath.Join(backupDir, backupFile)
-
-	// Validate the original path: avoid traversal elements pointing outside backupDir
-	clean := filepath.Clean(originalPath)
-	if clean == "" || clean == "." {
-		return "", fmt.Errorf("invalid original path")
-	}
-	if strings.Contains(clean, ".."+string(os.PathSeparator)) || strings.HasPrefix(clean, "..") {
-		return "", fmt.Errorf("invalid original path")
-	}
-	input, err := os.ReadFile(clean)
-	if err != nil {
-		return "", fmt.Errorf("reading original file: %w", err)
-	}
-
-	if err := os.WriteFile(backupPath, input, 0o600); err != nil {
-		return "", fmt.Errorf("writing backup: %w", err)
-	}
-
-	return backupPath, nil
 }

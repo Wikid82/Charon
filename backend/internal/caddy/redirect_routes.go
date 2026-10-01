@@ -46,9 +46,9 @@ func dedupeAndTrackDomains(domainNames string, processedDomains map[string]bool,
 // single static_response handler per host instead of a reverse_proxy chain,
 // since a redirect has no backend to proxy to. See
 // docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2.
-func BuildRedirectRoutes(redirectHosts []models.RedirectionHost, processedDomains map[string]bool) ([]*Route, []string) {
-	routes := make([]*Route, 0, len(redirectHosts))
-	ipSubjects := make([]string, 0)
+func BuildRedirectRoutes(redirectHosts []models.RedirectionHost, processedDomains map[string]bool) (routes []*Route, ipSubjects []string) {
+	routes = make([]*Route, 0, len(redirectHosts))
+	ipSubjects = make([]string, 0)
 
 	for i := len(redirectHosts) - 1; i >= 0; i-- { // newest-first, same as GenerateConfig
 		rh := redirectHosts[i] // #nosec G602 -- bounds checked by loop condition
@@ -71,13 +71,9 @@ func BuildRedirectRoutes(redirectHosts []models.RedirectionHost, processedDomain
 
 		handlers := []Handler{}
 		if rh.HSTSEnabled {
-			hstsValue := "max-age=31536000"
-			if rh.HSTSSubdomains {
-				hstsValue += "; includeSubDomains"
-			}
-			handlers = append(handlers, HeaderHandler(map[string][]string{
-				"Strict-Transport-Security": {hstsValue},
-			}))
+			handlers = append(handlers, HeaderHandlers(map[string][]string{
+				hstsHeader: {legacyHSTSValue(rh.HSTSSubdomains)},
+			})...)
 		}
 		handlers = append(handlers, RedirectHandler(location, rh.StatusCode))
 

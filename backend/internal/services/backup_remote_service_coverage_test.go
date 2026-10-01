@@ -368,7 +368,7 @@ func TestDecryptSecrets_DecryptFailure(t *testing.T) {
 	enc := newRemoteServiceCoverageEncryption(t)
 	svc := NewBackupRemoteService(db, enc, t.TempDir())
 
-	_, err := svc.decryptSecrets(&models.RemoteStorageTarget{SecretsEncrypted: "not-valid-base64-ciphertext!!"})
+	_, err := svc.decryptSecrets(&models.RemoteStorageTarget{SecretsEncrypted: "not-valid-base64-ciphertext!!"}) //nolint:gosec // G101: test fixture invalid ciphertext string
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decrypt remote target secrets")
 }

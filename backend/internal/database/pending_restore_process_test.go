@@ -47,7 +47,7 @@ const harnessGOCOVERDIREnv = "CHARON_HARNESS_GOCOVERDIR"
 func harnessCoverDir(t *testing.T) string {
 	t.Helper()
 	if dir := os.Getenv(harnessGOCOVERDIREnv); dir != "" {
-		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.MkdirAll(dir, 0o750)) //nolint:gosec // G703: coverage dir from the test harness environment
 		return dir
 	}
 	return t.TempDir()
@@ -284,7 +284,7 @@ func TestPendingRestoreHarness_ErrorPaths(t *testing.T) {
 		// but reading from it during io.Copy fails, exercising prep's copy
 		// error branch distinctly from its open error branch above.
 		sourceDir := filepath.Join(dir, "not-a-file")
-		require.NoError(t, os.Mkdir(sourceDir, 0o755))
+		require.NoError(t, os.Mkdir(sourceDir, 0o750))
 
 		output, code := run("-mode=prep", "-db="+filepath.Join(dir, "charon.db"), "-source="+sourceDir)
 		require.Equal(t, 1, code)

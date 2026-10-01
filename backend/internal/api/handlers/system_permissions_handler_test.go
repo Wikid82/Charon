@@ -161,7 +161,7 @@ func TestSystemPermissionsHandler_HelperFunctions(t *testing.T) {
 	t.Run("parseMode", func(t *testing.T) {
 		mode, err := parseMode("0640")
 		require.NoError(t, err)
-		require.Equal(t, os.FileMode(0640), mode)
+		require.Equal(t, os.FileMode(0o640), mode)
 
 		_, err = parseMode("")
 		require.Error(t, err)
@@ -595,7 +595,7 @@ func TestSystemPermissionsHandler_RepairPermissions_InvalidRequestBody_Root(t *t
 func TestSystemPermissionsHandler_RepairPath_LstatInvalidArgument(t *testing.T) {
 	h := NewSystemPermissionsHandler(config.Config{}, nil, stubPermissionChecker{})
 	allowRoot := t.TempDir()
-	invalidPath := filepath.Join(allowRoot, "\x00invalid")
+	invalidPath := filepath.Join(allowRoot, "\x00invalid") //nolint:gocritic // NUL byte is the input under test
 
 	result := h.repairPath(invalidPath, false, []string{allowRoot})
 	require.Equal(t, "error", result.Status)

@@ -188,8 +188,57 @@ describe('Security', () => {
       await user.click(saveButton)
 
       await waitFor(() => {
-        expect(mockMutate).toHaveBeenCalledWith({ name: 'default', admin_whitelist: '10.0.0.0/8' })
+        expect(mockMutate).toHaveBeenCalledWith(
+          { name: 'default', admin_whitelist: '10.0.0.0/8' },
+          expect.objectContaining({ onSuccess: expect.any(Function) }),
+        )
       })
+    })
+
+    it('should send the edited value and reset the draft to the refetched server value after success', async () => {
+      const user = userEvent.setup()
+      const mockMutate = vi.fn()
+      const { useUpdateSecurityConfig } = await import('../../hooks/useSecurity')
+      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+
+      await renderSecurityPage()
+      const input = await screen.findByDisplayValue('10.0.0.0/8')
+      await user.clear(input)
+      await user.type(input, '192.168.0.0/16')
+      expect(screen.getByDisplayValue('192.168.0.0/16')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /Save/i }))
+      expect(mockMutate).toHaveBeenCalledTimes(1)
+      const [payload, options] = mockMutate.mock.calls[0]
+      expect(payload).toEqual({ name: 'default', admin_whitelist: '192.168.0.0/16' })
+
+      // Draft is still shown until the success handler runs
+      expect(screen.getByDisplayValue('192.168.0.0/16')).toBeInTheDocument()
+      await act(async () => {
+        await options.onSuccess()
+      })
+      // Falls back to the server value once the draft is cleared
+      await waitFor(() => expect(screen.getByDisplayValue('10.0.0.0/8')).toBeInTheDocument())
+    })
+  })
+
+  describe('CrowdSec status query', () => {
+    it('renders the toggle from the polled status when it differs from config', async () => {
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
+
+      await renderSecurityPage()
+      await waitFor(() => expect(screen.getByTestId('toggle-crowdsec')).not.toBeChecked())
+    })
+
+    it('falls back to the configured state when the status request fails', async () => {
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      vi.mocked(crowdsecApi.statusCrowdsec).mockRejectedValue(new Error('down'))
+
+      await renderSecurityPage()
+      await waitFor(() => expect(crowdsecApi.statusCrowdsec).toHaveBeenCalled())
+      await waitFor(() => expect(screen.getByTestId('toggle-crowdsec')).toBeChecked())
     })
   })
 

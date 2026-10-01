@@ -23,6 +23,7 @@ run_skill() {
 run_skill "integration-test-cerberus" "$@"
 run_skill "integration-test-coraza" "$@"
 run_skill "integration-test-rate-limit" "$@"
+run_skill "integration-test-security-headers" "$@"
 run_skill "integration-test-crowdsec" "$@"
 run_skill "integration-test-crowdsec-decisions" "$@"
 run_skill "integration-test-crowdsec-startup" "$@"

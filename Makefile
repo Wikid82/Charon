@@ -1,4 +1,4 @@
-.PHONY: help install test build run clean docker-build docker-run build-offline release go-check gopls-logs lint-fast lint-staticcheck-only security-local
+.PHONY: help install test build run clean docker-build docker-run build-offline release go-check gopls-logs lint-backend lint-agent lint-fast lint-staticcheck-only security-local
 
 # Default target
 help:
@@ -189,9 +189,17 @@ security-scan-deps:
 	cd backend && go list -m -u all | grep -E '\[.*\]' || echo "All modules up to date"
 
 # Quality Assurance targets
+# Full golangci-lint config (backend/.golangci.yml) is shared by backend and agent.
+# The version pin below is tracked by Renovate and must match .github/workflows/quality-checks.yml.
 lint-backend:
-	@echo "Running golangci-lint..."
-	cd backend && docker run --rm -v $(PWD)/backend:/app -w /app golangci/golangci-lint:latest golangci-lint run -v
+	@echo "Running golangci-lint (full config) on backend..."
+	@# renovate: datasource=github-releases depName=golangci/golangci-lint
+	docker run --rm -v $(PWD):/app -w /app/backend golangci/golangci-lint:v2.14.0 golangci-lint run -v --timeout=5m ./...
+
+lint-agent:
+	@echo "Running golangci-lint (full config, shared from backend/) on agent..."
+	@# renovate: datasource=github-releases depName=golangci/golangci-lint
+	docker run --rm -v $(PWD):/app -w /app/agent golangci/golangci-lint:v2.14.0 golangci-lint run -v --timeout=5m --config ../backend/.golangci.yml ./...
 
 lint-fast:
 	@echo "Running fast linters (staticcheck, govet, errcheck, ineffassign, unused) — backend + agent..."

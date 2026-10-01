@@ -320,7 +320,7 @@ func getExistingBouncer(ctx context.Context, name string) (BouncerRegistration, 
 
 // registerBouncer registers a new bouncer with CrowdSec using cscli.
 func registerBouncer(ctx context.Context, name string) (string, error) {
-	cmd := exec.CommandContext(ctx, "cscli", "bouncers", "add", name, "-o", "raw")
+	cmd := exec.CommandContext(ctx, "cscli", "bouncers", "add", name, "-o", "raw") //nolint:gosec // G204: fixed binary "cscli"; sole caller passes the constant defaultRegistrationName
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("register bouncer: %w", err)

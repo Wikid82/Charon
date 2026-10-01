@@ -25,7 +25,7 @@ func TestEmergencyBypass_NoToken(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.RemoteAddr = "127.0.0.1:12345"
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -48,7 +48,7 @@ func TestEmergencyBypass_InvalidClientIP(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "test-token-that-meets-minimum-length-requirement-32-chars")
 	req.RemoteAddr = "invalid-remote-addr"
 	w := httptest.NewRecorder()
@@ -74,7 +74,7 @@ func TestEmergencyBypass_ValidToken(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "bypass active"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "test-token-that-meets-minimum-length-requirement-32-chars")
 	req.RemoteAddr = "127.0.0.1:12345"
 	w := httptest.NewRecorder()
@@ -104,7 +104,7 @@ func TestEmergencyBypass_ValidToken_IPv6Localhost(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "bypass active"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "test-token-that-meets-minimum-length-requirement-32-chars")
 	req.RemoteAddr = "[::1]:12345"
 	w := httptest.NewRecorder()
@@ -129,7 +129,7 @@ func TestEmergencyBypass_InvalidToken(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "wrong-token")
 	req.RemoteAddr = "127.0.0.1:12345"
 	w := httptest.NewRecorder()
@@ -154,7 +154,7 @@ func TestEmergencyBypass_UnauthorizedIP(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "test-token-that-meets-minimum-length-requirement-32-chars")
 	req.RemoteAddr = "203.0.113.1:12345" // Public IP (not in management network)
 	w := httptest.NewRecorder()
@@ -179,7 +179,7 @@ func TestEmergencyBypass_TokenStripped(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "test-token-that-meets-minimum-length-requirement-32-chars")
 	req.RemoteAddr = "127.0.0.1:12345"
 	w := httptest.NewRecorder()
@@ -205,7 +205,7 @@ func TestEmergencyBypass_MinimumLength(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "short-token")
 	req.RemoteAddr = "127.0.0.1:12345"
 	w := httptest.NewRecorder()
@@ -231,7 +231,7 @@ func TestEmergencyBypass_NoTokenConfigured(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "ok"})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set(EmergencyTokenHeader, "any-token")
 	req.RemoteAddr = "127.0.0.1:12345"
 	w := httptest.NewRecorder()
@@ -266,7 +266,7 @@ func TestEmergencyBypass_DefaultCIDRs(t *testing.T) {
 	}
 
 	for _, remoteAddr := range testIPs {
-		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 		req.Header.Set(EmergencyTokenHeader, "test-token-that-meets-minimum-length-requirement-32-chars")
 		req.RemoteAddr = remoteAddr
 		w := httptest.NewRecorder()

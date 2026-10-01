@@ -52,7 +52,7 @@ func TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB(t *testing.T)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
 
 	h.Start(c)
 

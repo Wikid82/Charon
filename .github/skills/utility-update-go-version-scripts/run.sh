@@ -79,7 +79,7 @@ echo ""
 
 # List of critical tools to rebuild
 TOOLS=(
-    "github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+    "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
     "golang.org/x/tools/gopls@latest"
     "golang.org/x/vuln/cmd/govulncheck@latest"
 )

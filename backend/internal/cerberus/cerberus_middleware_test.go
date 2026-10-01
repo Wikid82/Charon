@@ -253,7 +253,7 @@ func TestMiddleware_EmergencyBypassSkipsChecks(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/admin/secure", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/secure", http.NoBody)
 	req.RemoteAddr = "203.0.113.10:1234"
 	ctx.Request = req
 	ctx.Set("emergency_bypass", true)

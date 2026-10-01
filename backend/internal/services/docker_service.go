@@ -272,7 +272,7 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 // fact that context.WithTimeout's child context (listCtx) fails with
 // context.DeadlineExceeded when ITS OWN deadline elapses, while the parent
 // context remains healthy (parent.Err() == nil) up to that point.
-func isBoundedListTimeout(parent context.Context, listCtx context.Context, err error) bool {
+func isBoundedListTimeout(parent, listCtx context.Context, err error) bool {
 	if err == nil {
 		return false
 	}

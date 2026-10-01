@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -294,7 +295,7 @@ func TestUserEndpoints_RequireAdmin(t *testing.T) {
 	db := setupAuditTestDB(t)
 
 	// Create regular user
-	user := models.User{
+	user := models.User{ //nolint:gosec // G101: dummy credentials fixture
 		UUID:         "user-uuid-1234",
 		Email:        "user@test.com",
 		Name:         "Regular User",
@@ -306,7 +307,7 @@ func TestUserEndpoints_RequireAdmin(t *testing.T) {
 	require.NoError(t, db.Create(&user).Error)
 
 	// Create a second user to test admin-only operations against a non-self target
-	otherUser := models.User{
+	otherUser := models.User{ //nolint:gosec // G101: dummy credentials fixture
 		UUID:         "other-uuid-5678",
 		Email:        "other@test.com",
 		Name:         "Other User",
@@ -556,7 +557,7 @@ func TestDeleteUser_CannotDeleteSelf(t *testing.T) {
 	r := setupRouterWithAuth(db, adminID, "admin")
 
 	// Try to delete self
-	req := httptest.NewRequest("DELETE", "/api/users/"+string(rune(adminID+'0')), http.NoBody)
+	req := httptest.NewRequest("DELETE", "/api/users/"+strconv.FormatUint(uint64(adminID), 10), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -599,7 +600,7 @@ func TestUpdatePermissions_ValidModes(t *testing.T) {
 				"permission_mode": tc.mode,
 				"permitted_hosts": []int{},
 			})
-			req := httptest.NewRequest("PUT", "/api/users/"+string(rune(user.ID+'0'))+"/permissions", bytes.NewReader(body))
+			req := httptest.NewRequest("PUT", "/api/users/"+strconv.FormatUint(uint64(user.ID), 10)+"/permissions", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)

@@ -1205,7 +1205,7 @@ func logCertTrustDiagnostics(t *testing.T, tlsConf *tls.Config) {
 	t.Logf("cert-trust-diagnostics: SSL_CERT_FILE=%q", sslCertFile)
 
 	if sslCertFile != "" {
-		data, err := os.ReadFile(sslCertFile)
+		data, err := os.ReadFile(sslCertFile) //nolint:gosec // G304: diagnostics read of SSL_CERT_FILE env path in test
 		if err != nil {
 			t.Logf("cert-trust-diagnostics: failed to read SSL_CERT_FILE: %v", err)
 		} else {

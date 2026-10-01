@@ -75,6 +75,13 @@ func Connect(dbPath string) (*gorm.DB, error) {
 	}
 	configurePool(sqlDB)
 
+	// A brand-new database is created in incremental auto-vacuum mode so freed
+	// pages can be returned to the OS (GH #1422). The mode can only be chosen
+	// while the file is empty and must be set before journal_mode=WAL.
+	if err := enableIncrementalVacuumIfEmpty(sqlDB); err != nil {
+		return nil, err
+	}
+
 	// Set SQLite performance pragmas via SQL execution
 	// This is required for modernc.org/sqlite (pure-Go driver) which doesn't
 	// support DSN-based pragma parameters like mattn/go-sqlite3
@@ -101,9 +108,31 @@ func Connect(dbPath string) (*gorm.DB, error) {
 	// Run quick integrity check on startup in the background (warn-only), on
 	// its own connection. The main pool is capped at one connection, so
 	// sharing it here would still serialize migrations behind the check.
+	registerQuickCheck(dbPath)
 	launchQuickCheck(dbPath)
 
 	return db, nil
+}
+
+// enableIncrementalVacuumIfEmpty issues PRAGMA auto_vacuum=2 when the database
+// has no pages and no schema. On a populated file the pragma is a silent no-op
+// until a VACUUM, so populated databases are left alone (the maintenance
+// package converts them at boot).
+func enableIncrementalVacuumIfEmpty(sqlDB *sql.DB) error {
+	var pageCount, objects int64
+	if err := sqlDB.QueryRow("PRAGMA page_count").Scan(&pageCount); err != nil {
+		return fmt.Errorf("read page_count: %w", err)
+	}
+	if err := sqlDB.QueryRow("SELECT count(*) FROM sqlite_master").Scan(&objects); err != nil {
+		return fmt.Errorf("read sqlite_master: %w", err)
+	}
+	if pageCount != 0 || objects != 0 {
+		return nil
+	}
+	if _, err := sqlDB.Exec("PRAGMA auto_vacuum=2"); err != nil {
+		return fmt.Errorf("enable incremental auto_vacuum: %w", err)
+	}
+	return nil
 }
 
 // runQuickCheck opens a dedicated connection and runs PRAGMA quick_check,
@@ -111,6 +140,9 @@ func Connect(dbPath string) (*gorm.DB, error) {
 // pool, which is capped at one) so the scan - which can take well over a
 // minute on larger databases - never blocks startup or migrations.
 func runQuickCheck(dbPath string) {
+	verdict := ""
+	defer func() { completeQuickCheck(dbPath, verdict) }()
+
 	checkDB, err := sql.Open(sqlite.DriverName, dbPath)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to open SQLite connection for integrity check")
@@ -125,7 +157,10 @@ func runQuickCheck(dbPath string) {
 	var quickCheckResult string
 	if err := checkDB.QueryRow("PRAGMA quick_check").Scan(&quickCheckResult); err != nil {
 		logger.Log().WithError(err).Warn("Failed to run SQLite integrity check on startup")
-	} else if quickCheckResult == "ok" {
+		return
+	}
+	verdict = quickCheckResult
+	if quickCheckResult == QuickCheckOK {
 		logger.Log().Info("SQLite database integrity check passed")
 	} else {
 		// Database has corruption - log error but don't fail startup

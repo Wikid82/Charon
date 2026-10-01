@@ -16,7 +16,7 @@ import (
 // exported so handlers can compute a BackupRecord's checksum for files they
 // write directly (e.g. the upload endpoint persisting an already-uploaded
 // .zip/.zip.age), without duplicating the streaming-hash logic.
-func SHA256File(path string) (string, int64, error) {
+func SHA256File(path string) (checksum string, size int64, err error) {
 	return sha256File(path)
 }
 

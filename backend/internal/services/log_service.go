@@ -233,7 +233,7 @@ func (s *LogService) resolvedInLogDirs(resolved string) bool {
 // QueryLogs parses, filters, sorts, and paginates logs from a specific file.
 // It returns the requested page, the total number of filtered matches, and
 // the number of lines skipped as corrupted or oversized (R4).
-func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]models.CaddyAccessLog, int64, int64, error) {
+func (s *LogService) QueryLogs(filename string, filter models.LogFilter) (page []models.CaddyAccessLog, total, skipped int64, err error) {
 	path, err := s.GetLogPath(filename)
 	if err != nil {
 		return nil, 0, 0, err
