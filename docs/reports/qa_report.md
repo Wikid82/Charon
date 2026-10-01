@@ -53,3 +53,42 @@ Live schema via AutoMigrate, 60 monitors, 3,000,000 heartbeats, oldest 1.23M del
 2. INFO - FileID is inode-only; a replaced database file that happens to reuse the old inode would inherit stale attempts/last_result. Consequence is bounded (back-off counter or a notice), and Load clears state on mismatch. No action needed.
 3. INFO - /api/v1/health (GET/HEAD) is now answered by the gate and so no longer passes cerberus.RateLimitMiddleware; the handler is DB-free and cheap, so this is acceptable.
 4. INFO - Trivy HIGH CVE-2026-32286 in bundled crowdsec/cscli binaries has no fixed version and is already tracked.
+
+
+---
+
+## Re-run: Tasks > Database page and development merge
+
+Date: 2026-10-01. Branch `feat/db-maintenance-1422`, HEAD `107241f8`. Scope: merge of `development` (d3625e08) plus Addendum A (Database page under Tasks). Heavy commands ran with TMPDIR/GOTMPDIR under /var/tmp.
+
+Result: **PASS** (no blocking findings).
+
+### Gate results
+
+| Gate | Command | Outcome |
+|---|---|---|
+| E2E (Database page) | `npx playwright test tests/tasks/database-maintenance.spec.ts --project=firefox` (charon-e2e rebuilt first) | 25 passed |
+| E2E (tab bar) | `tests/tasks/logs-viewing.spec.ts --project=firefox` | 25 passed |
+| E2E (Settings uptime card) | `tests/monitoring/uptime-monitoring-scale.spec.ts --project=firefox` | 9 passed |
+| Patch coverage | `bash scripts/local-patch-report.sh` (baseline origin/development...HEAD) | Overall 94.9% (1532/1614), backend 94.4%, frontend 100% (141/141), agent n/a; all pass; artifacts present |
+| CodeQL | `lefthook run codeql --all-files` (CLI 2.26.4) | Go: 4 results, all already suppressed in codeql-suppressions.yml (none in files touched by this branch); JS: 0; 0 blocking |
+| Trivy | `docker build -t charon:local .` then `aquasec/trivy image --severity CRITICAL,HIGH` via rootless socket | With .trivyignore: 0 findings. Without it: only CVE-2026-32286 (HIGH, pgproto3/v2, no fix) in crowdsec and cscli, the known accepted item |
+| Pre-commit | `lefthook run pre-commit --all-files` | all hooks passed (semgrep 0 findings) |
+| Lint | `make lint-fast`; `make lint-backend` | 0 issues; 0 issues |
+| Frontend coverage | `scripts/frontend-test-coverage.sh` | 291 files / 3633 tests passed; lines 91.35% (gate 87%) |
+| Backend coverage | `scripts/go-test-coverage.sh` | pass; line coverage 89.1% (gate 87%), statements 92.2% |
+| Type/build | `npm run type-check`; `go build ./... && go vet ./...`; `npm run build` | all clean |
+| Go tests | `go test ./...`; `go test -race ./internal/dbmaint/... ./internal/api/... ./cmd/...` | 0 failures; 0 races |
+
+### Security / compliance audit
+
+- Admin gating: `/tasks/database` is wrapped in `RequireRole allowed={['admin']}` (App.tsx:139); Layout nav item (Layout.tsx:178) and Tasks tab (Tasks.tsx:17) are admin-only. E2E confirms non-admin has no nav item, deep link redirects to "/", and no `/system/database` request is made.
+- XSS: no `dangerouslySetInnerHTML`/`innerHTML` in the new page, component, hook or API client; all values rendered as React text.
+- Accessibility: passive notices use `role="status"`; load error uses an `Alert` with its own accessible name (covered by E2E).
+- `grep -rn "systemSettings.database" frontend/src` is empty; no leftover references to removed components.
+- Commit hygiene on `3437ab88..HEAD`: no session IDs, claude.ai links, Co-Authored-By or "generated with" lines in messages or diff; all non-merge subjects use conventional prefixes; no `(security)` scope used.
+- Docs: links in docs/database-maintenance.md, docs/features.md, ARCHITECTURE.md resolve (the one flagged URL is an external GitHub link); ARCHITECTURE.md and the docs refer to Tasks -> Database. `docs-site/docs/` is git-ignored and untracked (no hand edits).
+
+### Findings
+
+None blocking. Informational: local patch coverage shortfalls are confined to existing dbmaint/database error branches (diskspace.go, probe.go, tmpdir.go, database.go), above the 85% backend threshold overall. GH #1426 /tmp leak not exercised as a failure.
