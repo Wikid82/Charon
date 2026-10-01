@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
 import client from '../../api/client'
+import * as databaseApi from '../../api/databaseMaintenance'
 import * as featureFlagsApi from '../../api/featureFlags'
 import * as settingsApi from '../../api/settings'
 import { LanguageProvider } from '../../context/LanguageContext'
@@ -18,6 +19,23 @@ vi.mock('../../api/settings', () => ({
   updateSetting: vi.fn(),
   validatePublicURL: vi.fn(),
   testPublicURL: vi.fn(),
+}))
+
+vi.mock('../../api/databaseMaintenance', () => ({
+  getDatabaseStatus: vi.fn().mockResolvedValue({
+    size_bytes: 120_000_000,
+    wal_bytes: 0,
+    reclaimable_bytes: 0,
+    auto_vacuum: 'incremental',
+    env_mode: 'auto',
+    compact_requested: false,
+    can_request_optimize: false,
+    disk_free_bytes: 1_000_000_000,
+    last_result: null,
+    notice: null,
+  }),
+  requestOptimizeOnRestart: vi.fn(),
+  cancelOptimizeOnRestart: vi.fn(),
 }))
 
 vi.mock('../../api/featureFlags', () => ({
@@ -901,6 +919,43 @@ describe('SystemSettings', () => {
       await waitFor(() => {
         expect(screen.getByText('interval must be at least 30 seconds')).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Database maintenance', () => {
+    it('renders the quiet Database card with no banner or button', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      const card = await screen.findByRole('region', { name: 'Database' })
+      expect(card).toHaveTextContent('120.0 MB')
+      expect(screen.queryByText(/free up about|stopped after 3 failed/i)).toBeNull()
+      expect(screen.queryByRole('button', { name: /reclaim space/i })).toBeNull()
+    })
+
+    it('puts a warning notice in a banner above the Database card', async () => {
+      vi.mocked(databaseApi.getDatabaseStatus).mockResolvedValueOnce({
+        size_bytes: 4_800_000_000,
+        wal_bytes: 0,
+        reclaimable_bytes: 1_700_000_000,
+        auto_vacuum: 'none',
+        env_mode: 'auto',
+        compact_requested: false,
+        can_request_optimize: true,
+        disk_free_bytes: 2_000_000_000,
+        last_result: null,
+        notice: {
+          code: 'insufficient_disk',
+          severity: 'warning',
+          reclaimable_bytes: 1_700_000_000,
+          required_bytes: 9_600_000_000,
+          available_bytes: 2_000_000_000,
+        },
+      })
+      renderWithProviders(<SystemSettings />)
+
+      const banner = await screen.findByText(/free up about 7\.6 GB/i)
+      const card = screen.getByRole('region', { name: 'Database' })
+      expect(banner.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
   })
 })

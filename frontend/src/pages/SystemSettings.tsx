@@ -7,6 +7,7 @@ import client from '../api/client'
 import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import { getSettings, updateSetting, testPublicURL } from '../api/settings'
 import { LanguageSelector } from '../components/LanguageSelector'
+import { DatabaseMaintenanceBanner, DatabaseMaintenanceCard } from '../components/DatabaseMaintenance'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Alert, AlertDescription } from '../components/ui/Alert'
 import { Badge } from '../components/ui/Badge'
@@ -384,6 +385,8 @@ export default function SystemSettings() {
           </div>
           <h1 className="text-2xl font-bold text-content-primary">{t('systemSettings.title')}</h1>
         </div>
+
+        <DatabaseMaintenanceBanner />
 
         {/* Features */}
         <Card>
@@ -823,6 +826,8 @@ export default function SystemSettings() {
             </Button>
           </CardFooter>
         </Card>
+
+        <DatabaseMaintenanceCard />
 
         {/* WebSocket Connection Status */}
         <WebSocketStatusCard showDetails={true} />

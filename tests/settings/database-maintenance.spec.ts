@@ -17,16 +17,13 @@
  *      `active:false`.
  *   5. `/api/v1/maintenance/status` is static JSON in every phase.
  *
- * All specs are `test.fixme` until commit 7 of the #1422 plan
- * ("feat: add database maintenance card and notice") ships the UI and the
- * backend endpoints; that commit removes the fixme markers. Nothing here
- * performs a real conversion: every endpoint is mocked with page.route, in the
- * style of tests/monitoring/uptime-monitoring-scale.spec.ts. The one
- * exception is the status-endpoint contract, which needs a live backend.
+ * Nothing here performs a real conversion: every endpoint is mocked with
+ * page.route, in the style of tests/monitoring/uptime-monitoring-scale.spec.ts.
+ * The one exception is the status-endpoint contract, which needs a live backend.
  *
- * Locator notes for commit 7: the card is located as a region/group named
- * "Database" and banners as role="alert"; adjust to the shipped markup if it
- * differs, keeping role-based locators.
+ * Locators: the card is the region named "Database"; the warning banners are
+ * role="alert" elements named after the database (System Settings has other,
+ * unnamed alerts, so a bare role="alert" would match them too).
  */
 
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -195,6 +192,11 @@ async function gotoSystemSettings(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: /^database$/i })).toBeVisible();
 }
 
+/** Page-top warning banner of the Database maintenance feature (aria-label contains "database"). */
+function databaseBanner(page: Page) {
+  return page.getByRole('alert', { name: /database/i });
+}
+
 function databaseCard(page: Page) {
   return page.getByRole('region', { name: /^database$/i });
 }
@@ -206,8 +208,7 @@ const reclaimButton = (page: Page) =>
 // 1. Quiet when nothing to do
 // =========================================================================
 test.describe('Database maintenance: quiet state', () => {
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('card shows the size and renders no notice, banner or button when notice is null', async ({
+  test('card shows the size and renders no notice, banner or button when notice is null', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -222,7 +223,7 @@ test.describe('Database maintenance: quiet state', () => {
     await test.step('no notice line, no warning banner, no reclaim button', async () => {
       await expect(databaseCard(page)).not.toContainText(/next time it starts/i);
       await expect(databaseCard(page)).not.toContainText(/could be reclaimed/i);
-      await expect(page.getByRole('alert')).toHaveCount(0);
+      await expect(databaseBanner(page)).toHaveCount(0);
       await expect(reclaimButton(page)).toHaveCount(0);
     });
   });
@@ -232,8 +233,7 @@ test.describe('Database maintenance: quiet state', () => {
 // 2. Notices by code and severity
 // =========================================================================
 test.describe('Database maintenance: notices', () => {
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('restart_to_optimize (info) renders as a quiet line in the card, not a banner', async ({
+  test('restart_to_optimize (info) renders as a quiet line in the card, not a banner', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -254,12 +254,11 @@ test.describe('Database maintenance: notices', () => {
     });
 
     await test.step('it is not promoted to a page-top banner', async () => {
-      await expect(page.getByRole('alert')).toHaveCount(0);
+      await expect(databaseBanner(page)).toHaveCount(0);
     });
   });
 
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('database_busy (info) renders as a quiet line in the card, not a banner', async ({
+  test('database_busy (info) renders as a quiet line in the card, not a banner', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -274,11 +273,10 @@ test.describe('Database maintenance: notices', () => {
 
     await expect(databaseCard(page)).toContainText(/postponed because the database was in use/i);
     await expect(databaseCard(page)).toContainText(/retried on the next start/i);
-    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(databaseBanner(page)).toHaveCount(0);
   });
 
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('disabled_by_env (info) renders as a quiet line in the card, not a banner', async ({
+  test('disabled_by_env (info) renders as a quiet line in the card, not a banner', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -295,11 +293,10 @@ test.describe('Database maintenance: notices', () => {
     await gotoSystemSettings(page);
 
     await expect(databaseCard(page)).toContainText(/CHARON_DB_COMPACT_ON_START/);
-    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(databaseBanner(page)).toHaveCount(0);
   });
 
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('insufficient_disk (warning) renders as a page-top banner with plain instructions', async ({
+  test('insufficient_disk (warning) renders as a page-top banner with plain instructions', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -319,7 +316,7 @@ test.describe('Database maintenance: notices', () => {
 
     await gotoSystemSettings(page);
 
-    const banner = page.getByRole('alert');
+    const banner = databaseBanner(page);
     await expect(banner).toBeVisible();
     await expect(banner).toContainText(/free up about .*GB/i);
     await expect(banner).toContainText(/restart/i);
@@ -333,8 +330,7 @@ test.describe('Database maintenance: notices', () => {
     });
   });
 
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('too_many_failures (warning) renders as a page-top banner', async ({ page }) => {
+  test('too_many_failures (warning) renders as a page-top banner', async ({ page }) => {
     await stubAuthenticatedSession(page);
     await setupDatabaseApi(
       page,
@@ -345,7 +341,7 @@ test.describe('Database maintenance: notices', () => {
 
     await gotoSystemSettings(page);
 
-    const banner = page.getByRole('alert');
+    const banner = databaseBanner(page);
     await expect(banner).toBeVisible();
     await expect(banner).toContainText(/optimi[sz]/i);
   });
@@ -355,8 +351,7 @@ test.describe('Database maintenance: notices', () => {
 // 3. "Reclaim space on next restart" button
 // =========================================================================
 test.describe('Database maintenance: reclaim button', () => {
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('button schedules the optimization, shows "Scheduled" and undo clears it', async ({
+  test('button schedules the optimization, shows "Scheduled" and undo clears it', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -392,8 +387,7 @@ test.describe('Database maintenance: reclaim button', () => {
     });
   });
 
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('button is hidden when auto_vacuum is already incremental', async ({ page }) => {
+  test('button is hidden when auto_vacuum is already incremental', async ({ page }) => {
     await stubAuthenticatedSession(page);
     await setupDatabaseApi(
       page,
@@ -405,8 +399,7 @@ test.describe('Database maintenance: reclaim button', () => {
     await expect(reclaimButton(page)).toHaveCount(0);
   });
 
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('button is hidden when reclaimable space is below the 100 MB floor', async ({
+  test('button is hidden when reclaimable space is below the 100 MB floor', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -423,8 +416,7 @@ test.describe('Database maintenance: reclaim button', () => {
     await expect(reclaimButton(page)).toHaveCount(0);
   });
 
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('button is shown disabled with the reason when the env override is off', async ({
+  test('button is shown disabled with the reason when the env override is off', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -441,8 +433,7 @@ test.describe('Database maintenance: reclaim button', () => {
     expect(harness.posts).toBe(0);
   });
 
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('a repeated POST is idempotent: 200 {requested:true} every time, never 409', async ({
+  test('a repeated POST is idempotent: 200 {requested:true} every time, never 409', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -474,8 +465,7 @@ test.describe('Database maintenance: reclaim button', () => {
 // 4. Maintenance view on 503 {maintenance:true}
 // =========================================================================
 test.describe('Database maintenance: maintenance view', () => {
-  // Enabled by commit 7 of the #1422 plan.
-  test.fixme('a maintenance 503 shows the Optimizing view without logout or retry storm, then returns to the app', async ({
+  test('a maintenance 503 shows the Optimizing view without logout or retry storm, then returns to the app', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -541,10 +531,7 @@ test.describe('Database maintenance: maintenance view', () => {
 // 5. Status endpoint: static JSON in every phase
 // =========================================================================
 test.describe('Database maintenance: status endpoint contract', () => {
-  // Enabled by commit 7 of the #1422 plan. Needs the real backend (the gate
-  // answers before the router), so it uses the project's baseURL request
-  // context rather than a mock.
-  test.fixme('GET /api/v1/maintenance/status returns static JSON, never the SPA index', async ({
+  test('GET /api/v1/maintenance/status returns static JSON, never the SPA index', async ({
     request,
   }) => {
     const response = await request.get('/api/v1/maintenance/status');

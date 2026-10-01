@@ -1390,6 +1390,33 @@
       "checksEnqueueDropped": "Checks not queued",
       "queueDepth": "Queue depth",
       "activeWorkers": "Active workers"
+    },
+    "database": {
+      "title": "Database",
+      "size": "Database size: {{size}}.",
+      "reclaimable": "{{size}} could be reclaimed.",
+      "reclaimButton": "Reclaim space on next restart",
+      "scheduled": "Scheduled - the space is reclaimed the next time Charon starts.",
+      "undo": "Undo",
+      "disabledReason": "Disabled by CHARON_DB_COMPACT_ON_START=off on this server.",
+      "requestFailed": "Could not schedule the optimization: {{error}}",
+      "undoFailed": "Could not undo the request: {{error}}",
+      "notice": {
+        "restartToOptimize": "Charon will shrink the database by about {{size}} the next time it starts (for example after an update). Nothing to do.",
+        "databaseBusy": "Optimization was postponed because the database was in use; it will be retried on the next start.",
+        "disabledByEnv": "Optimization is turned off by the server configuration (CHARON_DB_COMPACT_ON_START=off). Your earlier request is kept and applies again once that setting is removed."
+      },
+      "banner": {
+        "insufficientDiskTitle": "Not enough free disk space to optimize the database",
+        "insufficientDisk": "Free up about {{shortfall}} of disk space, then restart Charon (it needs {{required}} free and {{available}} is available). Charon tries again at every start.",
+        "tooManyFailuresTitle": "Database optimization stopped",
+        "tooManyFailures": "Automatic optimization stopped after 3 failed attempts. Make sure there is enough free disk space and that Charon is not being killed during startup, then press Reclaim space on next restart."
+      }
+    },
+    "maintenance": {
+      "title": "Optimizing the database",
+      "body": "This can take a few minutes. Your proxies are still running.",
+      "elapsed": "Running for {{seconds}} seconds"
     }
   },
   "crowdsecConfig": {
