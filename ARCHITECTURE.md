@@ -812,7 +812,8 @@ This pattern is **intentional and valid**:
   the pool's single pinned connection) starts only after the initial config has
   been applied AND the HTTP listener is bound, so proxying never depends on the
   SQLite file. While it runs, the gate (installed in `cmd/api/main.go` before the
-  routes) answers health and `/api/v1/maintenance/status` itself, serves a
+  routes) answers `/api/v1/maintenance/status` (always) and health (only while it
+  runs; otherwise health stays under the normal rate limiting) itself, serves a
   short "Optimizing the database" page and 503s the rest of the management API
   and the emergency server; the uptime pipeline and scheduled backups wait for
   release. A stop mid-run is safe (`VACUUM` is atomic); an unfinished run is
