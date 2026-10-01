@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/yamux v0.1.2
 	github.com/minio/minio-go/v7 v7.3.0
-	github.com/moby/moby/client v0.6.0
+	github.com/moby/moby/client v0.6.1
 	github.com/oschwald/geoip2-golang/v2 v2.4.0
 	github.com/pkg/sftp v1.13.11
 	github.com/prometheus/client_golang v1.24.1
@@ -75,7 +75,7 @@ require (
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
-	github.com/moby/moby/api v1.56.0 // indirect
+	github.com/moby/moby/api v1.56.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
