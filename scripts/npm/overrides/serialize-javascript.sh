@@ -2,7 +2,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+PACKAGE="serialize-javascript"
 
+# Only modules that already declare this override. `npm pkg get` prints "{}"
+# for a missing key, so it cannot be used as an existence check.
 NPM_MODULES=(
         "$REPO_ROOT/docs-site"
     )
@@ -14,11 +17,15 @@ for MODULE in "${NPM_MODULES[@]}"; do
 
     cd "$MODULE" || exit 1
 
-    if [ -n "$(npm pkg get overrides.serialize-javascript)" ]; then
-        LATEST="$(npm view serialize-javascript version)"
-        npm pkg set "overrides.serialize-javascript=^${LATEST}"
-        npm install
-    else
-        npm update serialize-javascript
+    CURRENT="$(node -p "(require('./package.json').overrides || {})['$PACKAGE'] || ''")"
+    if [ -z "$CURRENT" ]; then
+        echo "No overrides.$PACKAGE in $MODULE; refusing to add one." >&2
+        exit 1
     fi
+
+    # Preserve the existing range prefix (^ or ~).
+    PREFIX="$(echo "$CURRENT" | grep -o '^[\^~]' || true)"
+    LATEST="$(npm view "$PACKAGE" version)"
+    npm pkg set "overrides.$PACKAGE=${PREFIX}${LATEST}"
+    npm install
 done
