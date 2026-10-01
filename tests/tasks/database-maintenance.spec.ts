@@ -25,9 +25,8 @@
  *      `active:false`.
  *   6. `/api/v1/maintenance/status` is static JSON in every phase.
  *
- * Status of the cases: sections 1-4 need the Database page built in plan
- * commit 10 and are `test.fixme` until commit 12 enables them; sections 5 and
- * 6 do not depend on the new page and run today.
+ * Sections 1-4 exercise the Database page (plan commits 9-11); sections 5 and 6
+ * do not depend on it.
  *
  * Nothing here performs a real conversion: every endpoint is mocked with
  * page.route, in the style of tests/monitoring/uptime-monitoring-scale.spec.ts.
@@ -235,6 +234,16 @@ function sidebarDatabaseLink(page: Page) {
   return page.getByRole('navigation').getByRole('link', { name: /(^|\s)database$/i });
 }
 
+/** The sidebar accordions start collapsed, so open Tasks before looking for its children. */
+async function expandTasksNav(page: Page): Promise<void> {
+  const tasksToggle = page.getByRole('navigation').getByRole('button', { name: /(^|\s)tasks$/i });
+  await expect(tasksToggle).toBeVisible();
+  if ((await tasksToggle.getAttribute('aria-expanded')) !== 'true') {
+    await tasksToggle.click();
+  }
+  await expect(tasksToggle).toHaveAttribute('aria-expanded', 'true');
+}
+
 const reclaimButton = (page: Page) =>
   databaseRegion(page).getByRole('button', { name: /reclaim space on next restart/i });
 
@@ -250,11 +259,10 @@ function trackDatabaseRequests(page: Page): string[] {
 }
 
 // =========================================================================
-// 1. Never-empty page (needs the Database page: plan commit 10)
+// 1. Never-empty page
 // =========================================================================
-// test.fixme until plan commit 12: needs the Database page built in commit 10.
 test.describe('Database page: never empty', () => {
-  test.fixme('quiet incremental state shows explainer, status fields, one "Nothing to do" and a disabled optional button', async ({
+  test('quiet incremental state shows explainer, status fields, one "Nothing to do" and a disabled optional button', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -299,7 +307,7 @@ test.describe('Database page: never empty', () => {
     });
   });
 
-  test.fixme('last_result null with can_request_optimize shows "Not optimized yet", an enabled button and no "Nothing to do"', async ({
+  test('last_result null with can_request_optimize shows "Not optimized yet", an enabled button and no "Nothing to do"', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -315,7 +323,7 @@ test.describe('Database page: never empty', () => {
     await expect(region).toContainText(/1\.7 GB could be reclaimed/i);
   });
 
-  test.fixme('last_result null with compact_requested shows "Not optimized yet", the scheduled state and Undo', async ({
+  test('last_result null with compact_requested shows "Not optimized yet", the scheduled state and Undo', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -333,7 +341,7 @@ test.describe('Database page: never empty', () => {
     await expect(region.getByRole('button', { name: /undo/i })).toBeVisible();
   });
 
-  test.fixme('last optimization renders a completed conversion in plain words without raw codes', async ({
+  test('last optimization renders a completed conversion in plain words without raw codes', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -361,7 +369,7 @@ test.describe('Database page: never empty', () => {
     await expect(page.getByText(/nothing to do/i)).toHaveCount(1);
   });
 
-  test.fixme('an incremental database whose last result was skipped as already optimized still has exactly one "Nothing to do"', async ({
+  test('an incremental database whose last result was skipped as already optimized still has exactly one "Nothing to do"', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -389,9 +397,8 @@ test.describe('Database page: never empty', () => {
 // =========================================================================
 // 2. Passive notices by code
 // =========================================================================
-// test.fixme until plan commit 12: needs the Database page built in commit 10.
 test.describe('Database page: passive notices', () => {
-  test.fixme('restart_to_optimize (info) renders as calm status text on the page, not an alert', async ({
+  test('restart_to_optimize (info) renders as calm status text on the page, not an alert', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -412,7 +419,7 @@ test.describe('Database page: passive notices', () => {
     await expect(page.getByText(/nothing to do/i)).toHaveCount(0);
   });
 
-  test.fixme('database_busy (info) renders as calm status text on the page', async ({ page }) => {
+  test('database_busy (info) renders as calm status text on the page', async ({ page }) => {
     await stubAuthenticatedSession(page);
     await setupDatabaseApi(
       page,
@@ -429,7 +436,7 @@ test.describe('Database page: passive notices', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
-  test.fixme('disabled_by_env (info) renders as calm status text naming the environment variable', async ({
+  test('disabled_by_env (info) renders as calm status text naming the environment variable', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -449,7 +456,7 @@ test.describe('Database page: passive notices', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
-  test.fixme('insufficient_disk renders as a calm in-page status notice, never an alert', async ({
+  test('insufficient_disk renders as a calm in-page status notice, never an alert', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -475,7 +482,7 @@ test.describe('Database page: passive notices', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
-  test.fixme('too_many_failures renders as a calm in-page status notice, never an alert', async ({
+  test('too_many_failures renders as a calm in-page status notice, never an alert', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -494,7 +501,7 @@ test.describe('Database page: passive notices', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
-  test.fixme('a failure notice changes nothing in the nav on "/" and appears only on the Database page', async ({
+  test('a failure notice changes nothing in the nav on "/" and appears only on the Database page', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -509,6 +516,7 @@ test.describe('Database page: passive notices', () => {
 
     await test.step('the dashboard shows no notice, alert or banner for the database', async () => {
       await expect(page.getByRole('navigation')).toBeVisible();
+      await expandTasksNav(page);
       await expect(noticeWithText(page, /automatic database cleanup/i)).toHaveCount(0);
       await expect(page.getByRole('alert', { name: /database/i })).toHaveCount(0);
     });
@@ -523,7 +531,7 @@ test.describe('Database page: passive notices', () => {
     });
   });
 
-  test.fixme('the load-error Alert has its own name and is not mistaken for a notice', async ({
+  test('the load-error Alert has its own name and is not mistaken for a notice', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -549,9 +557,8 @@ test.describe('Database page: passive notices', () => {
 // =========================================================================
 // 3. Optional Reclaim control
 // =========================================================================
-// test.fixme until plan commit 12: needs the Database page built in commit 10.
 test.describe('Database page: reclaim control', () => {
-  test.fixme('button schedules the optimization, shows "Scheduled" and undo clears it', async ({
+  test('button schedules the optimization, shows "Scheduled" and undo clears it', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -588,7 +595,7 @@ test.describe('Database page: reclaim control', () => {
     });
   });
 
-  test.fixme('button is disabled with the reason when auto_vacuum is already incremental', async ({
+  test('button is disabled with the reason when auto_vacuum is already incremental', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -603,7 +610,7 @@ test.describe('Database page: reclaim control', () => {
     await expect(databaseRegion(page)).toContainText(/already returns unused space automatically/i);
   });
 
-  test.fixme('button is disabled with the reason when reclaimable space is under about 100 MB', async ({
+  test('button is disabled with the reason when reclaimable space is under about 100 MB', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -622,7 +629,7 @@ test.describe('Database page: reclaim control', () => {
     await expect(databaseRegion(page)).toContainText(/about 100 MB/i);
   });
 
-  test.fixme('button is disabled with the reason when the env override is off', async ({ page }) => {
+  test('button is disabled with the reason when the env override is off', async ({ page }) => {
     await stubAuthenticatedSession(page);
     const harness = await setupDatabaseApi(
       page,
@@ -637,7 +644,7 @@ test.describe('Database page: reclaim control', () => {
     expect(harness.posts).toBe(0);
   });
 
-  test.fixme('button is disabled with "Not available right now" for any other not-allowed state', async ({
+  test('button is disabled with "Not available right now" for any other not-allowed state', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -652,7 +659,7 @@ test.describe('Database page: reclaim control', () => {
     await expect(databaseRegion(page)).toContainText(/not available right now/i);
   });
 
-  test.fixme('a repeated POST is idempotent: 200 {requested:true} every time, never 409', async ({
+  test('a repeated POST is idempotent: 200 {requested:true} every time, never 409', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -683,27 +690,32 @@ test.describe('Database page: reclaim control', () => {
 // =========================================================================
 // 4. Navigation, Settings page and role gating
 // =========================================================================
-// test.fixme until plan commit 12: needs the Database page built in commit 10.
 test.describe('Database page: navigation and gating', () => {
-  test.fixme('admin sees Database in the Tasks nav and as a Tasks tab, as plain links', async ({
+  test('admin sees Database in the Tasks nav and as a Tasks tab, as plain links', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
     await setupDatabaseApi(page, makeDatabaseInfo());
 
-    await page.goto('/tasks/backups');
+    // Start at the dashboard: the generic `[]` API fallback is not a valid Backups
+    // payload, so this test never renders the Backups page.
+    await page.goto('/');
 
-    await expect(sidebarDatabaseLink(page)).toBeVisible();
-    await expect(sidebarDatabaseLink(page)).toHaveAccessibleName(/^(\S+\s)?database$/i);
+    await test.step('the sidebar lists Database under Tasks as a plain link', async () => {
+      await expandTasksNav(page);
+      await expect(sidebarDatabaseLink(page)).toBeVisible();
+      await expect(sidebarDatabaseLink(page)).toHaveAccessibleName(/^(\S+\s)?database$/i);
+      await sidebarDatabaseLink(page).click();
+      await expect(page).toHaveURL(/\/tasks\/database$/);
+      await expect(page.getByRole('heading', { name: /^database$/i, level: 3 })).toBeVisible();
+    });
 
-    const tab = page.getByRole('main').getByRole('link', { name: /^database$/i });
-    await expect(tab).toBeVisible();
-    await tab.click();
-    await expect(page).toHaveURL(/\/tasks\/database$/);
-    await expect(page.getByRole('heading', { name: /^database$/i, level: 3 })).toBeVisible();
+    await test.step('the Tasks tab bar carries the same plain link', async () => {
+      await expect(page.getByRole('main').getByRole('link', { name: /^database$/i })).toBeVisible();
+    });
   });
 
-  test.fixme('System Settings has no Database card and links admins to Tasks -> Database', async ({
+  test('System Settings has no Database card and links admins to Tasks -> Database', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page);
@@ -723,7 +735,7 @@ test.describe('Database page: navigation and gating', () => {
     await expect(page).toHaveURL(/\/tasks\/database$/);
   });
 
-  test.fixme('a non-admin has no Database nav item or Settings link and makes no /system/database request', async ({
+  test('a non-admin has no Database nav item or Settings link and makes no /system/database request', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page, NON_ADMIN_USER);
@@ -733,12 +745,14 @@ test.describe('Database page: navigation and gating', () => {
     await page.goto('/settings/system');
     await expect(page.getByRole('heading', { name: /system settings/i }).first()).toBeVisible();
 
+    // Open Tasks first: a collapsed accordion would make the absence check vacuous.
+    await expandTasksNav(page);
     await expect(sidebarDatabaseLink(page)).toHaveCount(0);
     await expect(page.getByRole('link', { name: /database size and cleanup/i })).toHaveCount(0);
     expect(requests).toEqual([]);
   });
 
-  test.fixme('a non-admin deep link to /tasks/database redirects to "/" without a /system/database request', async ({
+  test('a non-admin deep link to /tasks/database redirects to "/" without a /system/database request', async ({
     page,
   }) => {
     await stubAuthenticatedSession(page, NON_ADMIN_USER);
