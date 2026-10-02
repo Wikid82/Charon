@@ -2907,9 +2907,9 @@ common:
 func TestCrowdsecHandler_ListFiles_DirectoryNotExists(t *testing.T) {
 	t.Parallel()
 
-	// Use explicitly non-existent directory
-	nonExistentDir := filepath.Join(os.TempDir(), "crowdsec-test-nonexistent-"+t.Name())
-	_ = os.RemoveAll(nonExistentDir) // Ensure it doesn't exist
+	// A child of the per-test temp dir that is never created: it does not
+	// exist, and nothing outlives the test.
+	nonExistentDir := filepath.Join(t.TempDir(), "nonexistent")
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", nonExistentDir)
 

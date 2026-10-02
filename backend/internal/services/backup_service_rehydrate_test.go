@@ -56,6 +56,7 @@ func TestBackupService_RehydrateLiveDatabase(t *testing.T) {
 	require.NoError(t, db.Create(&seedUser).Error)
 
 	svc := NewBackupService(&config.Config{DatabasePath: dbPath}, nil, nil)
+	t.Cleanup(svc.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 	defer svc.Stop()
 
 	backupFile, err := svc.CreateBackup()
@@ -105,6 +106,7 @@ func TestBackupService_RehydrateLiveDatabase_FromBackupWithWAL(t *testing.T) {
 	require.NoError(t, err)
 
 	svc := NewBackupService(&config.Config{DatabasePath: dbPath}, nil, nil)
+	t.Cleanup(svc.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 	defer svc.Stop()
 
 	backupName := "backup_with_wal.zip"

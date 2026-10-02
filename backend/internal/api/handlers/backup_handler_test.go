@@ -157,8 +157,7 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	t.Helper()
 
 	// Create temp directories
-	tmpDir, err := os.MkdirTemp("", "cpm-backup-test")
-	require.NoError(t, err)
+	tmpDir := t.TempDir()
 
 	// Structure: tmpDir/data/charon.db
 	// BackupService expects DatabasePath to be .../data/charon.db
@@ -166,7 +165,7 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	// It sets BackupDir to .../data/backups.
 
 	dataDir := filepath.Join(tmpDir, "data")
-	err = os.MkdirAll(dataDir, 0o750)
+	err := os.MkdirAll(dataDir, 0o750)
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
