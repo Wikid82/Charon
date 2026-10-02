@@ -13,7 +13,7 @@ import (
 const (
 	// tempEnvVar is the variable SQLite reads for its temporary-file directory.
 	// It only takes effect when set before the driver's first sql.Open; set
-	// later it is ignored (spike-verified, see spike_test.go).
+	// later it is ignored (verified by TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen).
 	tempEnvVar = "SQLITE_TMPDIR"
 	// tempDirName is the directory created next to the database file.
 	tempDirName = ".tmp"
@@ -28,12 +28,34 @@ var defaultTempDirs = []string{"/var/tmp", "/usr/tmp", "/tmp"}
 // or a directory owned by another user.
 var ErrTempDirUnsafe = errors.New("temp directory is not safe to use")
 
+// ErrTempDirSkipped is returned by PrepareTempDir when a root process runs
+// against a data directory owned by another user: creating <data>/.tmp would
+// leave a root-owned directory the service user can then not use.
+var ErrTempDirSkipped = errors.New("temp directory left to the data directory owner")
+
+// currentEUID is the effective uid of the process; a seam for tests only.
+var currentEUID = os.Geteuid
+
+// rootShouldSkip reports whether a process with euid must leave the temp
+// directory to the owner of the data directory (root vs. a non-root owner).
+func rootShouldSkip(euid int, ownerUID uint32) bool {
+	return euid == 0 && ownerUID != 0
+}
+
 // PrepareTempDir creates (or validates) <dataDir>/.tmp, the directory SQLite
 // uses for the temporary file of a VACUUM, so a large rebuild lands on the data
 // volume instead of a small RAM-backed /tmp. A symlink, a non-directory or a
-// directory owned by another user is refused; the directory is 0700.
+// directory owned by another user is refused; the directory is 0700. A root
+// process against a data directory owned by someone else gets ErrTempDirSkipped
+// and touches nothing.
 func PrepareTempDir(dataDir string) (string, error) {
-	dir := filepath.Join(filepath.Clean(dataDir), tempDirName)
+	dataDir = filepath.Clean(dataDir)
+	if st, err := os.Stat(dataDir); err == nil {
+		if sys, ok := st.Sys().(*syscall.Stat_t); ok && rootShouldSkip(currentEUID(), sys.Uid) {
+			return "", ErrTempDirSkipped
+		}
+	}
+	dir := filepath.Join(dataDir, tempDirName)
 
 	info, err := os.Lstat(dir)
 	switch {
@@ -53,7 +75,7 @@ func PrepareTempDir(dataDir string) (string, error) {
 		return "", fmt.Errorf("%w: %s is a symlink or not a directory", ErrTempDirUnsafe, dir)
 	}
 	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int64(st.Uid) != int64(os.Geteuid()) {
+	if !ok || int64(st.Uid) != int64(currentEUID()) {
 		return "", fmt.Errorf("%w: %s is not owned by the current user", ErrTempDirUnsafe, dir)
 	}
 	if info.Mode().Perm() != tempDirMode {
@@ -73,6 +95,10 @@ func ApplyTempDir(dataDir string) {
 		return
 	}
 	dir, err := PrepareTempDir(dataDir)
+	if errors.Is(err, ErrTempDirSkipped) {
+		logger.Log().Debug("database temp directory left to the data directory owner (running as root)")
+		return
+	}
 	if err != nil {
 		logger.Log().WithError(err).Warn("database temp directory not prepared; SQLite will use its default temp location")
 		return

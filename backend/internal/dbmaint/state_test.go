@@ -334,3 +334,78 @@ func TestStore_PeekSurfacesEachReadFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestStore_DiscardMarkerIfConverted(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a marker of the same file is dropped and the counter reset", func(t *testing.T) {
+		db, _ := newSettingsDB(t)
+		s := NewStore(db)
+		require.NoError(t, s.RecordFailure(ctx, "100"))
+		require.NoError(t, s.RecordFailure(ctx, "100"))
+		require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+
+		discarded, err := s.DiscardMarkerIfConverted(ctx, "100")
+		require.NoError(t, err)
+		assert.True(t, discarded)
+		assert.False(t, settingFound(t, db, keyInProgress))
+		assert.False(t, settingFound(t, db, keyAttempts))
+	})
+
+	t.Run("a legacy dev:ino marker of the same inode counts as the same file", func(t *testing.T) {
+		db, _ := newSettingsDB(t)
+		s := NewStore(db)
+		require.NoError(t, s.SetInProgress(ctx, "77:100", time.Now()))
+
+		discarded, err := s.DiscardMarkerIfConverted(ctx, "100")
+		require.NoError(t, err)
+		assert.True(t, discarded)
+	})
+
+	t.Run("another file's marker and counter are left alone", func(t *testing.T) {
+		db, _ := newSettingsDB(t)
+		s := NewStore(db)
+		require.NoError(t, s.RecordFailure(ctx, "200"))
+		require.NoError(t, s.SetInProgress(ctx, "200", time.Now()))
+
+		discarded, err := s.DiscardMarkerIfConverted(ctx, "100")
+		require.NoError(t, err)
+		assert.False(t, discarded)
+		assert.True(t, settingFound(t, db, keyInProgress))
+		assert.True(t, settingFound(t, db, keyAttempts))
+	})
+
+	t.Run("no marker means nothing to do, the counter is kept", func(t *testing.T) {
+		db, _ := newSettingsDB(t)
+		s := NewStore(db)
+		require.NoError(t, s.RecordFailure(ctx, "100"))
+
+		discarded, err := s.DiscardMarkerIfConverted(ctx, "100")
+		require.NoError(t, err)
+		assert.False(t, discarded)
+		assert.True(t, settingFound(t, db, keyAttempts))
+	})
+
+	t.Run("a marker that cannot be deleted is an error and keeps the counter", func(t *testing.T) {
+		db, _ := newSettingsDB(t)
+		s := NewStore(db)
+		require.NoError(t, s.RecordFailure(ctx, "100"))
+		require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+		_, err := db.Exec(`CREATE TRIGGER keep_marker BEFORE DELETE ON settings
+			WHEN OLD."key" = 'maintenance.in_progress' BEGIN SELECT RAISE(ABORT, 'readonly'); END`)
+		require.NoError(t, err)
+
+		discarded, err := s.DiscardMarkerIfConverted(ctx, "100")
+		assert.Error(t, err)
+		assert.False(t, discarded)
+		assert.True(t, settingFound(t, db, keyAttempts))
+	})
+
+	t.Run("a database error is returned", func(t *testing.T) {
+		db, _ := newSettingsDB(t)
+		require.NoError(t, db.Close())
+
+		_, err := NewStore(db).DiscardMarkerIfConverted(ctx, "100")
+		assert.Error(t, err)
+	})
+}

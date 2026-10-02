@@ -220,6 +220,16 @@ func TestDatabaseMaintenance_NoticeSeverityAndPayloadPerCode(t *testing.T) {
 			},
 		},
 		{
+			name: "too_many_failures with a pending request is a warning", env: config.DBCompactAuto,
+			stats: maintStats(200000, 122070, 0), wantCode: "too_many_failures", wantSev: "warning",
+			prepare: func(t *testing.T, r *maintRig) {
+				require.NoError(t, dbmaint.NewStore(r.db).SetFlag(context.Background()))
+				for range dbmaint.MaxConvertAttempts {
+					require.NoError(t, dbmaint.NewStore(r.db).RecordFailure(context.Background(), r.fileID(t)))
+				}
+			},
+		},
+		{
 			name: "database_busy is info", env: config.DBCompactAuto,
 			stats: maintStats(200000, 122070, 0), wantCode: "database_busy", wantSev: "info",
 			prepare: func(t *testing.T, r *maintRig) { r.writeLast(t, dbmaint.ResultSkipped, dbmaint.ReasonDatabaseBusy) },

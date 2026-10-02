@@ -55,7 +55,8 @@ type Inputs struct {
 	EnvMode string
 	// FlagRequested is the persisted "reclaim on next restart" request.
 	FlagRequested bool
-	// Attempts counts consecutive failed conversions recorded for this file.
+	// Attempts counts failed conversion attempts recorded for this file since
+	// the last successful conversion or manual reset (not necessarily consecutive).
 	Attempts int
 	Stats    Stats
 	Disk     DiskReport
@@ -67,7 +68,8 @@ type Decision struct {
 	Run    bool
 	Reason Reason
 	// ClearFlag asks the caller to delete a set request: there is nothing left
-	// to optimize (already optimized, nothing to reclaim).
+	// to optimize (already optimized, nothing to reclaim) or the failure
+	// back-off has stopped the run.
 	ClearFlag      bool
 	RequiredBytes  int64
 	AvailableBytes int64
@@ -76,8 +78,9 @@ type Decision struct {
 func skip(reason Reason) Decision { return Decision{Reason: reason} }
 
 // Decide evaluates the boot decision table. Order: env off, already
-// incremental, the user's flag (the floor still applies), the automatic
-// thresholds and the failure back-off, then free disk.
+// incremental, the threshold step (the user's flag replaces the automatic
+// thresholds but keeps the 100 MiB floor), the failure back-off (which a flag
+// never bypasses), then free disk.
 func Decide(in Inputs) Decision {
 	if in.EnvMode == config.DBCompactOff {
 		return skip(ReasonDisabledByEnv)
@@ -102,9 +105,12 @@ func Decide(in Inputs) Decision {
 		if !worthwhile {
 			return skip(ReasonBelowThreshold)
 		}
-		if in.Attempts >= MaxConvertAttempts {
-			return skip(ReasonTooManyFailures)
-		}
+	}
+
+	if in.Attempts >= MaxConvertAttempts {
+		d := skip(ReasonTooManyFailures)
+		d.ClearFlag = in.FlagRequested
+		return d
 	}
 
 	if required, available, short := in.Disk.Shortfall(); short {

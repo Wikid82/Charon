@@ -61,8 +61,9 @@ type LastResult struct {
 // State is the persisted maintenance state that applies to the current file.
 type State struct {
 	FlagRequested bool
-	// Attempts counts consecutive failed conversions, including a leftover
-	// in-progress marker of an earlier boot.
+	// Attempts counts failed conversion attempts recorded for this file since
+	// the last successful conversion or manual reset (not necessarily
+	// consecutive), including a leftover in-progress marker of an earlier boot.
 	Attempts   int
 	LastResult *LastResult
 }
@@ -199,7 +200,7 @@ func (s *Store) WriteLastResult(ctx context.Context, r LastResult) error {
 	return s.putJSON(ctx, keyLastResult, r)
 }
 
-// RecordFailure increments the consecutive-failure counter of the file.
+// RecordFailure increments the failed-attempt counter of the file.
 func (s *Store) RecordFailure(ctx context.Context, fileID string) error {
 	var rec attemptsRecord
 	found, err := s.getJSON(ctx, keyAttempts, &rec)
@@ -283,6 +284,23 @@ func (s *Store) consumeMarker(ctx context.Context, fileID string, count int) (in
 		}
 	}
 	return count, s.ClearInProgress(ctx)
+}
+
+// DiscardMarkerIfConverted drops a leftover in-progress marker of this file and
+// resets its failure counter, for a file that is already incremental: the
+// conversion completed, so nothing failed and nothing will convert it again. A
+// marker of another file is left to Load, which deletes it. It reports whether
+// a marker of this file was found. It is idempotent.
+func (s *Store) DiscardMarkerIfConverted(ctx context.Context, fileID string) (bool, error) {
+	var marker markerRecord
+	found, err := s.getJSON(ctx, keyInProgress, &marker)
+	if err != nil || !found || !sameFile(marker.FileID, fileID) {
+		return false, err
+	}
+	if err := s.ClearInProgress(ctx); err != nil {
+		return false, err
+	}
+	return true, s.ResetAttempts(ctx)
 }
 
 // loadLastResult returns the last result of the file; another file's is deleted.

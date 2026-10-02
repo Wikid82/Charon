@@ -37,8 +37,9 @@ const (
 	// before it is reported as converted rather than pending a checkpoint.
 	MinShrinkFraction = 0.5
 
-	// MaxConvertAttempts is the number of consecutive failed conversions after
-	// which the boot path backs off until the user requests it again.
+	// MaxConvertAttempts is the number of failed conversion attempts (not
+	// necessarily consecutive) after which the boot path backs off until the user
+	// requests it again.
 	MaxConvertAttempts = 3
 )
 

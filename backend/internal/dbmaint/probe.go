@@ -11,10 +11,20 @@ import (
 // ErrWriterBusy means another writer holds the database.
 var ErrWriterBusy = errors.New("another writer holds the database")
 
-// isWriterBusy recognizes SQLITE_BUSY in a driver error.
+// sqliteBusyCode is the primary SQLite result code of SQLITE_BUSY; extended
+// codes (BUSY_RECOVERY, BUSY_SNAPSHOT, ...) carry it in the low byte.
+const sqliteBusyCode = 5
+
+// isWriterBusy recognizes SQLITE_BUSY in a driver error: by the result code the
+// driver exposes through Code(), with the message text as the fallback for
+// errors that lost the typed value.
 func isWriterBusy(err error) bool {
 	if err == nil {
 		return false
+	}
+	var coded interface{ Code() int }
+	if errors.As(err, &coded) && coded.Code()&0xff == sqliteBusyCode {
+		return true
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked")

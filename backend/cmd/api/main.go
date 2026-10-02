@@ -75,7 +75,9 @@ func parsePluginSignatures() map[string]string {
 // loadConfigForDatabase loads the configuration and points SQLite's temp
 // directory at the data volume. SQLite only reads SQLITE_TMPDIR before the
 // process's first sql.Open, so every entry point calls this before it opens a
-// database (GH #1422). An operator-set SQLITE_TMPDIR is left untouched.
+// database (GH #1422). An operator-set SQLITE_TMPDIR is left untouched, and a
+// root-run command leaves the directory alone when the data directory belongs
+// to another user, so it never creates a root-owned .tmp.
 func loadConfigForDatabase() (config.Config, error) {
 	cfg, err := config.Load()
 	if err != nil {

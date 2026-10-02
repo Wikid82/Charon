@@ -48,6 +48,7 @@ Charon automatically configures SQLite with optimized settings:
 | `busy_timeout` | 5000ms | Waits 5 seconds before failing on lock |
 | `synchronous` | NORMAL | Balanced safety and speed |
 | `cache_size` | 64MB | Memory cache for faster queries |
+| `journal_size_limit` | 64MB | Caps leftover write-ahead log growth at about 64 MB |
 
 ### What Is WAL Mode?
 
@@ -88,7 +89,8 @@ the cupboard is still the same size. Charon takes care of this for you.
   normal by itself.
 - The emergency (break-glass) access is briefly unavailable during this time too.
 - If you stop the container while it is optimizing, it is **safe**. Your data is
-  not harmed, and Charon simply tries again at the next start, up to 3 tries.
+  not harmed, and Charon simply tries again at the next start. It gives up after
+  3 failed tries (see "Automatic cleanup has stopped" below).
   - The very last step (copying the optimized data back) cannot be interrupted
     instantly. If the container stops during that step, it can use up one of the
     3 tries.
@@ -137,14 +139,25 @@ visible. When it does not apply, it is greyed out and the page tells you why
   free disk space of roughly **twice your actual data** while it works, and the
   notice tells you how much. Free up that space (delete old backups or other
   files on the same disk) and Charon tries again by itself.
-- **Automatic cleanup has stopped.** After several failed attempts Charon stopped
-  trying. Your proxies are not affected. Check the logs and make sure there is
-  enough free disk space. To let Charon try again, press **Reclaim space on next
-  restart** (under "Reclaim space now (optional)"), then restart Charon. A plain
-  restart does not retry on its own.
+- **Automatic cleanup has stopped.** After 3 failed attempts Charon stops
+  trying. Your proxies are not affected. The failed starts do not have to be in
+  a row: Charon keeps count until an optimization succeeds or you press the
+  button below. Check the logs and make sure there is enough free disk space.
+  To let Charon try again, press **Reclaim space on next restart** (under
+  "Reclaim space now (optional)"), then restart Charon. That gives it 3 fresh
+  tries. A plain restart does not retry once Charon has stopped. If a
+  **Reclaim** request itself fails 3 times, Charon drops the request and stops
+  again, and you can press the button once more.
 
 You may also see a short line saying the optimization was postponed because the
 database was busy. It is retried at the next start.
+
+What counts as a failed try: an optimization that fails or is cut off, and also
+a start where Charon could not even begin (for example it could not inspect the
+database file or could not write its "in progress" note). A start that is
+postponed because the database was busy does not count. If an earlier
+optimization finished but left its "in progress" note behind, Charon notices the
+database is already optimized and ignores the note automatically.
 
 ### Restoring a Backup
 
@@ -425,7 +438,13 @@ and you are comfortable with the command line.
 
 **Cause:** Many writes without checkpointing.
 
-**Fix:** This is usually handled automatically (Charon also checkpoints after optimizing). To force a checkpoint by hand:
+**Fix:** This is usually handled automatically (Charon also checkpoints after
+optimizing). Charon also sets a limit: leftover write-ahead log growth is capped
+at about 64 MB. The limit does not shrink a log that is smaller than 64 MB, and a
+larger one is trimmed the next time the log resets after a checkpoint, not
+instantly. A manual checkpoint is only needed on an older version, or if
+something keeps the database open for a very long time. To force a checkpoint by
+hand:
 
 ```bash
 sqlite3 /path/to/charon.db "PRAGMA wal_checkpoint(TRUNCATE);"
@@ -454,15 +473,39 @@ of roughly **twice your actual data** while it works.
 
 ### Automatic cleanup has stopped (after 3 attempts)
 
-**Cause:** Charon gave up after 3 failed tries. Usually there was not enough free
-disk space, or the container was killed during startup.
+**Cause:** Charon gave up after 3 failed tries (they do not have to be in a
+row). Usually there was not enough free disk space, or the container was killed
+during startup. A plain restart will not make it try again.
 
 **Fix:**
 
 1. Free up disk space (see the entry above).
 2. Make sure nothing is killing the container while it starts.
 3. In **Tasks -> Database**, press **Reclaim space on next restart**, then restart
-   Charon.
+   Charon. This gives it 3 fresh tries. If those fail too, Charon stops again and
+   you can repeat these steps.
+
+### Warning: "database temp directory not prepared"
+
+**Cause:** In an older version, running a Charon command as the root user inside
+the container (for example `docker exec -u root charon ...`) could create the
+`.tmp` folder inside your data folder owned by root. Charon itself does not run
+as root, so it cannot use that folder. You will see a warning about the database
+temp directory in the log, and SQLite falls back to its default temp location.
+Nothing is lost and Charon keeps working.
+
+**Fix:** Stop Charon, then hand the folder back to the Charon user (or delete it;
+Charon recreates it by itself):
+
+```bash
+docker stop charon
+sudo chown -R 1000:1000 /path/to/your/charon/data/.tmp
+docker start charon
+```
+
+Use the numbers from `ls -ln charon.db` in your data folder if they are not
+`1000 1000` (see the manual shrinking steps above). Newer versions no longer
+create this folder from commands run as root.
 
 ### Lost Data After Recovery
 
