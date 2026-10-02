@@ -85,7 +85,7 @@ func TestRun_LeakFailsPackageNamesFileAndStillRemovesBase(t *testing.T) {
 	out := captureReport(t)
 
 	code := run(func() int {
-		if err := os.WriteFile(filepath.Join(os.TempDir(), "leaked-file.sqlite"), []byte("12345"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(os.TempDir(), "leaked-file.sqlite"), []byte("12345"), 0o600); err != nil { //nolint:gosec // G303: deliberately leaks into the guarded temp root
 			t.Fatalf("write: %v", err)
 		}
 		dir := filepath.Join(os.TempDir(), "leaked-dir")
@@ -112,7 +112,7 @@ func TestRun_LeakDoesNotMaskFailingExitCode(t *testing.T) {
 	useRoot(t)
 	captureReport(t)
 	code := run(func() int {
-		_ = os.WriteFile(filepath.Join(os.TempDir(), "leak"), nil, 0o600)
+		_ = os.WriteFile(filepath.Join(os.TempDir(), "leak"), nil, 0o600) //nolint:gosec // G303: deliberately leaks into the guarded temp root
 		return 2
 	})
 	if code != 2 {
@@ -132,7 +132,7 @@ func TestRun_RemovesReadOnlyDirectoriesLeftByTests(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "inner", "f"), []byte("x"), 0o600); err != nil {
 			t.Fatalf("write: %v", err)
 		}
-		if err := os.Chmod(filepath.Join(dir, "inner"), 0o500); err != nil {
+		if err := os.Chmod(filepath.Join(dir, "inner"), 0o500); err != nil { //nolint:gosec // G302: read-only directory is the scenario under test
 			t.Fatalf("chmod: %v", err)
 		}
 		return 0
