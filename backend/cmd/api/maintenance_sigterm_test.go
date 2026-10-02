@@ -119,11 +119,11 @@ func startCharon(t *testing.T, dir, dbPath string, httpPort int) *charonChild {
 	return c
 }
 
-// waitLine blocks until a line containing substr appears. It reports false when
+// waitLine blocks (up to childWait) until a line containing substr appears. It reports false when
 // the process exits first.
-func (c *charonChild) waitLine(substr string, timeout time.Duration) bool {
+func (c *charonChild) waitLine(substr string) bool {
 	c.t.Helper()
-	deadline := time.After(timeout)
+	deadline := time.After(childWait)
 	for {
 		select {
 		case line := <-c.lines:
@@ -253,7 +253,7 @@ func TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts(t *testing
 
 			// Boot 1: stop it as soon as the conversion has started.
 			first := startCharon(t, dir, dbPath, freePort(t))
-			if !first.waitLine(lineStarted, childWait) {
+			if !first.waitLine(lineStarted) {
 				if exitCode(first.wait(time.Second)) == stubBindFailed {
 					t.Skip("127.0.0.2:2019 is not available for the Caddy stub")
 				}
@@ -295,7 +295,7 @@ func TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts(t *testing
 			converted := stopped.autoVacuum == dbmaint.AutoVacuumIncremental && !stopped.marker
 			for boot := 2; !converted && boot <= dbmaint.MaxConvertAttempts+1; boot++ {
 				next := startCharon(t, dir, dbPath, freePort(t))
-				require.True(t, next.waitLine(lineFinished, childWait), "boot %d did not finish the conversion", boot)
+				require.True(t, next.waitLine(lineFinished), "boot %d did not finish the conversion", boot)
 				require.NoError(t, next.cmd.Process.Signal(syscall.SIGTERM))
 				_ = next.wait(sigtermGraceMax)
 
@@ -372,7 +372,7 @@ func TestMaintenance_RepeatedOrderlyStopsEndInTheBackOffAndReclaimStartsOver(t *
 
 	for stop := 1; stop <= dbmaint.MaxInterruptedRuns; stop++ {
 		child := startCharon(t, dir, dbPath, freePort(t))
-		if !child.waitLine(lineStarted, childWait) {
+		if !child.waitLine(lineStarted) {
 			if exitCode(child.wait(time.Second)) == stubBindFailed {
 				t.Skip("127.0.0.2:2019 is not available for the Caddy stub")
 			}
@@ -410,7 +410,7 @@ func TestMaintenance_RepeatedOrderlyStopsEndInTheBackOffAndReclaimStartsOver(t *
 	// healthcheck answers 200, which also means the plan-time skip was recorded).
 	port := freePort(t)
 	backedOff := startCharon(t, dir, dbPath, port)
-	require.True(t, backedOff.waitLine(lineBackedOff, childWait), "the boot after %d stops reports the back-off", dbmaint.MaxInterruptedRuns)
+	require.True(t, backedOff.waitLine(lineBackedOff), "the boot after %d stops reports the back-off", dbmaint.MaxInterruptedRuns)
 	require.True(t, waitHealthy(port, time.Minute), "the management API is reachable while the optimization is stopped")
 	require.NoError(t, backedOff.cmd.Process.Signal(syscall.SIGTERM))
 	_ = backedOff.wait(sigtermGraceMax)
@@ -429,7 +429,7 @@ func TestMaintenance_RepeatedOrderlyStopsEndInTheBackOffAndReclaimStartsOver(t *
 	// Reclaim: reset both counters and set the request, then one boot converts.
 	reclaimAtStoreLevel(t, dbPath)
 	converting := startCharon(t, dir, dbPath, freePort(t))
-	require.True(t, converting.waitLine(lineFinished, childWait), "the boot after Reclaim converts")
+	require.True(t, converting.waitLine(lineFinished), "the boot after Reclaim converts")
 	require.NoError(t, converting.cmd.Process.Signal(syscall.SIGTERM))
 	_ = converting.wait(sigtermGraceMax)
 
