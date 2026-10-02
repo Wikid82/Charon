@@ -239,6 +239,21 @@ func (s *BackupService) RestoreBackupSafe(filename, passphrase string) (*Restore
 	return s.restoreBackupSafeLockedWithProgress(filename, passphrase, nil)
 }
 
+// discardRestoreSnapshot removes the extracted database snapshot staged in
+// s.restoreDBPath (plus its -wal/-shm sidecars) and clears the field, so a
+// finished restore does not leave a database-sized file in the temp
+// directory. A snapshot that is already gone is not an error. Callers MUST
+// hold s.mu.
+func (s *BackupService) discardRestoreSnapshot() {
+	if s.restoreDBPath == "" {
+		return
+	}
+	for _, p := range []string{s.restoreDBPath, s.restoreDBPath + "-wal", s.restoreDBPath + "-shm"} {
+		_ = os.Remove(p)
+	}
+	s.restoreDBPath = ""
+}
+
 // restoreBackupSafeLockedWithProgress is RestoreBackupSafe's full V->S->A->
 // R->F pipeline body, extracted verbatim except for the progress(stage)
 // calls threaded in at the checkpoints in this plan's §3.3.2 table.
@@ -258,16 +273,17 @@ func (s *BackupService) restoreBackupSafeLockedWithProgress(filename, passphrase
 		return nil, err // F1: nothing was touched.
 	}
 
-	// The extracted DB temp file must survive past this function (it's
-	// consumed by RehydrateLiveDatabase / handed to the pending-restore
-	// file), so pull it out of validatedArchive's own cleanup list.
+	// The extracted DB temp file must outlive the validation step (it's
+	// consumed by RehydrateLiveDatabase / copied into the pending-restore
+	// file below), so pull it out of validatedArchive's own cleanup list and
+	// stage it in s.restoreDBPath. Once this pipeline returns nothing needs
+	// it any more, so discardRestoreSnapshot removes it on every exit path.
 	validated.dropFromCleanup(validated.restoreDBPath)
 	defer validated.cleanup()
 
-	if s.restoreDBPath != "" && s.restoreDBPath != validated.restoreDBPath {
-		_ = os.Remove(s.restoreDBPath)
-	}
+	s.discardRestoreSnapshot() // a snapshot staged by an earlier legacy RestoreBackup
 	s.restoreDBPath = validated.restoreDBPath
+	defer s.discardRestoreSnapshot()
 
 	result := &RestoreResult{LegacyFormat: validated.legacyFormat}
 
