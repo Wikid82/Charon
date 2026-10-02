@@ -431,7 +431,8 @@ func (r *runner) detached(ctx context.Context) (context.Context, context.CancelF
 
 // persist writes last_result, then clears the in-progress marker. A failed
 // conversion also counts as an attempt; a conversion stopped by shutdown counts
-// as an interruption, which has its own, higher limit. Failures are logged, never returned.
+// as an interruption, which has its own, higher limit. Failures are logged,
+// never returned.
 func (r *runner) persist(ctx context.Context, out Outcome) {
 	if out.Result == ResultCancelled {
 		return
@@ -476,10 +477,11 @@ func (r *runner) persist(ctx context.Context, out Outcome) {
 	}
 }
 
-// dropRequestIfBackedOff clears the user's request once the failure budget is
-// exhausted. A failure that keeps the request leaves it set for a retry, but
-// when this was the last allowed one the next boot would only discard it; until
-// then the Database page would show "scheduled" next to the stopped notice.
+// dropRequestIfBackedOff clears the user's request once the
+// failure/interruption budget is exhausted. A failure that keeps the request
+// leaves it set for a retry, but when this was the last allowed one the next
+// boot would only discard it; until then the Database page would show
+// "scheduled" next to the stopped notice.
 func (r *runner) dropRequestIfBackedOff(ctx context.Context) error {
 	st, err := r.store.Peek(ctx, r.fileID)
 	if err != nil || !BackedOff(st.Attempts, st.Interruptions) {

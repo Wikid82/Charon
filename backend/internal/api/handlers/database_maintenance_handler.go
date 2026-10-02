@@ -230,8 +230,8 @@ func (h *DatabaseMaintenanceHandler) notice(stats dbmaint.Stats, disk dbmaint.Di
 
 // RequestOptimize sets the "reclaim space on next restart" flag. A repeated
 // request while the flag is set is a 200 before any other check (it only resets
-// an exhausted failure counter). A request that
-// could never do anything is a 409 whose body names the actual cause.
+// an exhausted failure counter). A request that could never do anything is a
+// 409 whose body names the actual cause.
 // POST /api/v1/system/database/optimize-on-restart
 func (h *DatabaseMaintenanceHandler) RequestOptimize(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -273,7 +273,7 @@ func (h *DatabaseMaintenanceHandler) RequestOptimize(c *gin.Context) {
 	}
 
 	// A fresh request starts from a clean slate: it is how an admin recovers
-	// from "stopped after 3 attempts".
+	// from "stopped after 3 failed attempts or 5 stops".
 	if err := h.store.ResetAttempts(ctx); err != nil {
 		h.fail(c, "could not reset the failure counter", err)
 		return
