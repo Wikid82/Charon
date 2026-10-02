@@ -261,3 +261,94 @@ func TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen(t *testing.T) {
 		}
 	})
 }
+
+func TestRootShouldSkip(t *testing.T) {
+	tests := []struct {
+		name     string
+		euid     int
+		ownerUID uint32
+		want     bool
+	}{
+		{"root on a data dir owned by another user", 0, 1000, true},
+		{"root on a root-owned data dir", 0, 0, false},
+		{"service user on its own data dir", 1000, 1000, false},
+		{"service user on another user's data dir", 1000, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, rootShouldSkip(tt.euid, tt.ownerUID))
+		})
+	}
+}
+
+// stubEUID makes the package believe the process runs as euid. The data
+// directories of these tests belong to the real (non-root) test user, which is
+// what a root-run command against a charon-owned volume looks like.
+func stubEUID(t *testing.T, euid int) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("owner of t.TempDir would be root; covered by TestRootShouldSkip")
+	}
+	prev := currentEUID
+	currentEUID = func() int { return euid }
+	t.Cleanup(func() { currentEUID = prev })
+}
+
+func TestPrepareTempDir_RootLeavesAnotherUsersDataDirAlone(t *testing.T) {
+	stubEUID(t, 0)
+	data := t.TempDir()
+
+	dir, err := PrepareTempDir(data)
+
+	assert.ErrorIs(t, err, ErrTempDirSkipped)
+	assert.Empty(t, dir)
+	assert.NoDirExists(t, filepath.Join(data, ".tmp"), "a root process must not create a root-owned directory")
+}
+
+func TestPrepareTempDir_RootDoesNotTouchAnExistingTempDir(t *testing.T) {
+	stubEUID(t, 0)
+	data := t.TempDir()
+	tmp := filepath.Join(data, ".tmp")
+	require.NoError(t, os.Mkdir(tmp, 0o750))
+	require.NoError(t, os.Chmod(tmp, 0o750))
+
+	_, err := PrepareTempDir(data)
+
+	assert.ErrorIs(t, err, ErrTempDirSkipped, "no unsafe-directory error for the charon-owned directory")
+	assert.NotErrorIs(t, err, ErrTempDirUnsafe)
+	info, statErr := os.Lstat(tmp)
+	require.NoError(t, statErr)
+	assert.Equal(t, os.FileMode(0o750), info.Mode().Perm(), "mode untouched")
+}
+
+func TestPrepareTempDir_RootWithAnUnreadableDataDirFallsThrough(t *testing.T) {
+	stubEUID(t, 0)
+
+	_, err := PrepareTempDir(filepath.Join(t.TempDir(), "nope"))
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrTempDirSkipped, "the existing error path reports it")
+}
+
+func TestPrepareTempDir_OwnerCheckUsesTheSeam(t *testing.T) {
+	stubEUID(t, os.Geteuid()+1)
+	data := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(data, ".tmp"), 0o700))
+
+	_, err := PrepareTempDir(data)
+
+	assert.ErrorIs(t, err, ErrTempDirUnsafe, "a directory owned by another uid than the (stubbed) euid is refused")
+}
+
+func TestApplyTempDir_RootLeavesTheEnvUnsetAndDoesNotWarn(t *testing.T) {
+	stubEUID(t, 0)
+	t.Setenv("SQLITE_TMPDIR", "")
+	data := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(data, ".tmp"), 0o700))
+	logs := captureLogs(t)
+
+	ApplyTempDir(data)
+
+	assert.Empty(t, os.Getenv("SQLITE_TMPDIR"))
+	assert.NotContains(t, logs.String(), `"level":"warning"`)
+}
