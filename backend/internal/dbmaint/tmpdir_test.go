@@ -310,15 +310,17 @@ func TestPrepareTempDir_RootDoesNotTouchAnExistingTempDir(t *testing.T) {
 	data := t.TempDir()
 	tmp := filepath.Join(data, ".tmp")
 	require.NoError(t, os.Mkdir(tmp, 0o750))
-	require.NoError(t, os.Chmod(tmp, 0o750))
+	before, statErr := os.Lstat(tmp)
+	require.NoError(t, statErr)
 
 	_, err := PrepareTempDir(data)
 
 	assert.ErrorIs(t, err, ErrTempDirSkipped, "no unsafe-directory error for the charon-owned directory")
 	assert.NotErrorIs(t, err, ErrTempDirUnsafe)
-	info, statErr := os.Lstat(tmp)
+	after, statErr := os.Lstat(tmp)
 	require.NoError(t, statErr)
-	assert.Equal(t, os.FileMode(0o750), info.Mode().Perm(), "mode untouched")
+	assert.Equal(t, before.Mode().Perm(), after.Mode().Perm(), "mode untouched, not tightened to 0700")
+	assert.NotEqual(t, tempDirMode, after.Mode().Perm())
 }
 
 func TestPrepareTempDir_RootWithAnUnreadableDataDirFallsThrough(t *testing.T) {
