@@ -3,6 +3,7 @@ package dbmaint
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -111,7 +112,7 @@ func TestStore_RecordFailureCountsPerFile(t *testing.T) {
 	ctx := context.Background()
 
 	for want := 1; want <= 3; want++ {
-		require.NoError(t, s.RecordFailure(ctx, "100"))
+		mustRecordFailure(t, s, "100")
 		st, err := s.Load(ctx, "100")
 		require.NoError(t, err)
 		assert.Equal(t, want, st.Attempts)
@@ -123,8 +124,8 @@ func TestStore_LoadIgnoresAndDeletesStateOfAReplacedFile(t *testing.T) {
 	s := NewStore(db)
 	ctx := context.Background()
 
-	require.NoError(t, s.RecordFailure(ctx, "100"))
-	require.NoError(t, s.RecordFailure(ctx, "100"))
+	mustRecordFailure(t, s, "100")
+	mustRecordFailure(t, s, "100")
 	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
 	require.NoError(t, s.WriteLastResult(ctx, LastResult{At: time.Now(), Outcome: ResultFailed, FileID: "100"}))
 
@@ -159,7 +160,7 @@ func TestStore_LeftoverMarkerForTheSameFileCountsAsAFailedAttempt(t *testing.T) 
 	s := NewStore(db)
 	ctx := context.Background()
 
-	require.NoError(t, s.RecordFailure(ctx, "100"))
+	mustRecordFailure(t, s, "100")
 	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
 
 	st, err := s.Load(ctx, "100")
@@ -227,7 +228,10 @@ func TestStore_ErrorsSurfaceFromAClosedDatabase(t *testing.T) {
 	assert.Error(t, s.ClearFlag(ctx))
 	_, err := s.FlagRequested(ctx)
 	assert.Error(t, err)
-	assert.Error(t, s.RecordFailure(ctx, "1"))
+	_, err = s.RecordFailure(ctx, "1")
+	assert.Error(t, err)
+	_, err = s.RecordInterruption(ctx, "1")
+	assert.Error(t, err)
 	assert.Error(t, s.SetInProgress(ctx, "1", time.Now()))
 	assert.Error(t, s.ClearInProgress(ctx))
 	assert.Error(t, s.WriteLastResult(ctx, LastResult{}))
@@ -248,7 +252,7 @@ func TestStore_PeekReadsWithoutConsumingOrDeleting(t *testing.T) {
 	s := NewStore(db)
 	ctx := context.Background()
 	require.NoError(t, s.SetFlag(ctx))
-	require.NoError(t, s.RecordFailure(ctx, "100"))
+	mustRecordFailure(t, s, "100")
 	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
 	require.NoError(t, s.WriteLastResult(ctx, LastResult{At: time.Now(), Outcome: ResultSkipped, Reason: ReasonDatabaseBusy, FileID: "100"}))
 
@@ -279,8 +283,8 @@ func TestStore_ResetAttemptsClearsTheCounterAndIsIdempotent(t *testing.T) {
 	db, _ := newSettingsDB(t)
 	s := NewStore(db)
 	ctx := context.Background()
-	require.NoError(t, s.RecordFailure(ctx, "100"))
-	require.NoError(t, s.RecordFailure(ctx, "100"))
+	mustRecordFailure(t, s, "100")
+	mustRecordFailure(t, s, "100")
 
 	require.NoError(t, s.ResetAttempts(ctx))
 	require.NoError(t, s.ResetAttempts(ctx))
@@ -341,8 +345,8 @@ func TestStore_DiscardMarkerIfConverted(t *testing.T) {
 	t.Run("a marker of the same file is dropped and the counter reset", func(t *testing.T) {
 		db, _ := newSettingsDB(t)
 		s := NewStore(db)
-		require.NoError(t, s.RecordFailure(ctx, "100"))
-		require.NoError(t, s.RecordFailure(ctx, "100"))
+		mustRecordFailure(t, s, "100")
+		mustRecordFailure(t, s, "100")
 		require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
 
 		discarded, err := s.DiscardMarkerIfConverted(ctx, "100")
@@ -365,7 +369,7 @@ func TestStore_DiscardMarkerIfConverted(t *testing.T) {
 	t.Run("another file's marker and counter are left alone", func(t *testing.T) {
 		db, _ := newSettingsDB(t)
 		s := NewStore(db)
-		require.NoError(t, s.RecordFailure(ctx, "200"))
+		mustRecordFailure(t, s, "200")
 		require.NoError(t, s.SetInProgress(ctx, "200", time.Now()))
 
 		discarded, err := s.DiscardMarkerIfConverted(ctx, "100")
@@ -378,7 +382,7 @@ func TestStore_DiscardMarkerIfConverted(t *testing.T) {
 	t.Run("no marker means nothing to do, the counter is kept", func(t *testing.T) {
 		db, _ := newSettingsDB(t)
 		s := NewStore(db)
-		require.NoError(t, s.RecordFailure(ctx, "100"))
+		mustRecordFailure(t, s, "100")
 
 		discarded, err := s.DiscardMarkerIfConverted(ctx, "100")
 		require.NoError(t, err)
@@ -389,7 +393,7 @@ func TestStore_DiscardMarkerIfConverted(t *testing.T) {
 	t.Run("a marker that cannot be deleted is an error and keeps the counter", func(t *testing.T) {
 		db, _ := newSettingsDB(t)
 		s := NewStore(db)
-		require.NoError(t, s.RecordFailure(ctx, "100"))
+		mustRecordFailure(t, s, "100")
 		require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
 		_, err := db.Exec(`CREATE TRIGGER keep_marker BEFORE DELETE ON settings
 			WHEN OLD."key" = 'maintenance.in_progress' BEGIN SELECT RAISE(ABORT, 'readonly'); END`)
@@ -408,4 +412,97 @@ func TestStore_DiscardMarkerIfConverted(t *testing.T) {
 		_, err := NewStore(db).DiscardMarkerIfConverted(ctx, "100")
 		assert.Error(t, err)
 	})
+}
+
+// storedRecord decodes the raw maintenance.attempts row.
+func storedRecord(t *testing.T, db *sql.DB) attemptsRecord {
+	t.Helper()
+	var raw string
+	require.NoError(t, db.QueryRow(`SELECT value FROM settings WHERE "key" = ?`, keyAttempts).Scan(&raw))
+	var rec attemptsRecord
+	require.NoError(t, json.Unmarshal([]byte(raw), &rec))
+	return rec
+}
+
+func TestStore_RecordFailureReturnsTheNewCount(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	for want := 1; want <= 3; want++ {
+		got, err := s.RecordFailure(ctx, "100")
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	}
+
+	got, err := s.RecordFailure(ctx, "999") // the file was replaced: the count restarts
+	require.NoError(t, err)
+	assert.Equal(t, 1, got)
+}
+
+func TestStore_RecordInterruptionCountsPerFileAndKeepsTheFailureCount(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	_, err := s.RecordFailure(ctx, "100")
+	require.NoError(t, err)
+	for want := 1; want <= 3; want++ {
+		got, recErr := s.RecordInterruption(ctx, "100")
+		require.NoError(t, recErr)
+		assert.Equal(t, want, got)
+	}
+	rec := storedRecord(t, db)
+	assert.Equal(t, 1, rec.Count, "an interruption is not a failed attempt")
+	assert.Equal(t, 3, rec.Interrupted)
+
+	got, err := s.RecordInterruption(ctx, "999") // the file was replaced: both counters restart
+	require.NoError(t, err)
+	assert.Equal(t, 1, got)
+	rec = storedRecord(t, db)
+	assert.Zero(t, rec.Count)
+	assert.Equal(t, "999", rec.FileID)
+}
+
+func TestStore_RecordFailureKeepsTheInterruptionCount(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+
+	_, err := s.RecordInterruption(ctx, "100")
+	require.NoError(t, err)
+	_, err = s.RecordInterruption(ctx, "100")
+	require.NoError(t, err)
+	got, err := s.RecordFailure(ctx, "100")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, got)
+	rec := storedRecord(t, db)
+	assert.Equal(t, 1, rec.Count)
+	assert.Equal(t, 2, rec.Interrupted)
+}
+
+func TestAttemptsRecord_LegacyRowDecodesWithoutInterruptions(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	_, err := db.Exec(`INSERT INTO settings ("key", value, type, category) VALUES (?, '{"count":2,"file_id":"100"}', 'json', 'maintenance')`, keyAttempts)
+	require.NoError(t, err)
+
+	rec := storedRecord(t, db)
+	assert.Equal(t, 2, rec.Count)
+	assert.Zero(t, rec.Interrupted)
+
+	got, err := NewStore(db).RecordInterruption(context.Background(), "100")
+	require.NoError(t, err)
+	assert.Equal(t, 1, got)
+	assert.Equal(t, 2, storedRecord(t, db).Count, "the legacy failure count is kept")
+}
+
+func TestAttemptsRecord_ZeroInterruptionsAreOmittedFromTheRow(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	_, err := NewStore(db).RecordFailure(context.Background(), "100")
+	require.NoError(t, err)
+
+	var raw string
+	require.NoError(t, db.QueryRow(`SELECT value FROM settings WHERE "key" = ?`, keyAttempts).Scan(&raw))
+	assert.NotContains(t, raw, "interrupted", "rows stay byte-compatible with older versions until an interruption is recorded")
 }

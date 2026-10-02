@@ -297,7 +297,7 @@ func TestStartupPlan_LeftoverMarkerOfAnOptimizedFileIsDiscarded(t *testing.T) {
 	fileID, err := FileID(path)
 	require.NoError(t, err)
 	store := NewStore(db)
-	require.NoError(t, store.RecordFailure(ctx, fileID))
+	mustRecordFailure(t, store, fileID)
 	require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
 	logs := captureLogs(t)
 
@@ -333,7 +333,7 @@ func TestStartupPlan_ACleanupFailureWarnsAndThePlanContinues(t *testing.T) {
 	fileID, err := FileID(path)
 	require.NoError(t, err)
 	store := NewStore(db)
-	require.NoError(t, store.RecordFailure(ctx, fileID))
+	mustRecordFailure(t, store, fileID)
 	require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
 	// The counter reset (second step of the cleanup) cannot be written.
 	_, err = db.Exec(`CREATE TRIGGER keep_attempts BEFORE DELETE ON settings

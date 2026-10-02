@@ -440,7 +440,8 @@ func (r *runner) persist(ctx context.Context, out Outcome) {
 
 	var errs error
 	if out.countFailure {
-		errs = errors.Join(errs, r.store.RecordFailure(wctx, r.fileID))
+		_, failErr := r.store.RecordFailure(wctx, r.fileID)
+		errs = errors.Join(errs, failErr)
 	}
 	errs = errors.Join(errs,
 		r.store.WriteLastResult(wctx, LastResult{

@@ -64,13 +64,20 @@ type State struct {
 	// Attempts counts failed conversion attempts recorded for this file since
 	// the last successful conversion or manual reset (not necessarily
 	// consecutive), including a leftover in-progress marker of an earlier boot.
-	Attempts   int
-	LastResult *LastResult
+	Attempts int
+	// Interruptions counts orderly stops (SIGTERM) during a conversion recorded
+	// for this file since the last successful conversion or manual reset.
+	Interruptions int
+	LastResult    *LastResult
 }
 
+// attemptsRecord is the maintenance.attempts row. Interrupted is optional so
+// rows written by older versions decode unchanged and rows without
+// interruptions stay byte-compatible with them.
 type attemptsRecord struct {
-	Count  int    `json:"count"`
-	FileID string `json:"file_id"`
+	Count       int    `json:"count"`
+	Interrupted int    `json:"interrupted,omitempty"`
+	FileID      string `json:"file_id"`
 }
 
 type markerRecord struct {
@@ -200,18 +207,42 @@ func (s *Store) WriteLastResult(ctx context.Context, r LastResult) error {
 	return s.putJSON(ctx, keyLastResult, r)
 }
 
-// RecordFailure increments the failed-attempt counter of the file.
-func (s *Store) RecordFailure(ctx context.Context, fileID string) error {
+// currentRecord returns the attempts record of the file; a missing record, or
+// one that belongs to another file, is the zero record for fileID.
+func (s *Store) currentRecord(ctx context.Context, fileID string) (attemptsRecord, error) {
 	var rec attemptsRecord
 	found, err := s.getJSON(ctx, keyAttempts, &rec)
 	if err != nil {
-		return err
+		return attemptsRecord{}, err
 	}
-	count := 1
-	if found && sameFile(rec.FileID, fileID) {
-		count = rec.Count + 1
+	if !found || !sameFile(rec.FileID, fileID) {
+		return attemptsRecord{FileID: fileID}, nil
 	}
-	return s.putJSON(ctx, keyAttempts, attemptsRecord{Count: count, FileID: fileID})
+	return rec, nil
+}
+
+// RecordFailure increments the failed-attempt counter of the file, keeps its
+// interruption counter and returns the new failed-attempt count.
+func (s *Store) RecordFailure(ctx context.Context, fileID string) (int, error) {
+	rec, err := s.currentRecord(ctx, fileID)
+	if err != nil {
+		return 0, err
+	}
+	rec.Count++
+	rec.FileID = fileID
+	return rec.Count, s.putJSON(ctx, keyAttempts, rec)
+}
+
+// RecordInterruption increments the interruption counter of the file, keeps its
+// failed-attempt counter and returns the new interruption count.
+func (s *Store) RecordInterruption(ctx context.Context, fileID string) (int, error) {
+	rec, err := s.currentRecord(ctx, fileID)
+	if err != nil {
+		return 0, err
+	}
+	rec.Interrupted++
+	rec.FileID = fileID
+	return rec.Interrupted, s.putJSON(ctx, keyAttempts, rec)
 }
 
 // Load returns the state that belongs to the file identified by fileID.

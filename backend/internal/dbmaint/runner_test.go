@@ -854,8 +854,8 @@ func TestRun_FlagSurvivesEverySkipAndInterruption(t *testing.T) {
 // A successful conversion ends the streak of failures.
 func TestRun_SuccessResetsTheAttemptCounter(t *testing.T) {
 	h := newHarness(t)
-	require.NoError(t, NewStore(h.db).RecordFailure(context.Background(), h.fileID))
-	require.NoError(t, NewStore(h.db).RecordFailure(context.Background(), h.fileID))
+	mustRecordFailure(t, NewStore(h.db), h.fileID)
+	mustRecordFailure(t, NewStore(h.db), h.fileID)
 
 	assert.Equal(t, ResultConverted, h.run(context.Background()).Result)
 	assert.Zero(t, h.attempts())

@@ -97,6 +97,13 @@ func (r *maintRig) fileID(t *testing.T) string {
 	return id
 }
 
+// recordFailure records one failed conversion attempt for the scratch database.
+func (r *maintRig) recordFailure(t *testing.T) {
+	t.Helper()
+	_, err := dbmaint.NewStore(r.db).RecordFailure(context.Background(), r.fileID(t))
+	require.NoError(t, err)
+}
+
 func (r *maintRig) writeLast(t *testing.T, outcome dbmaint.Result, reason dbmaint.Reason) {
 	t.Helper()
 	require.NoError(t, dbmaint.NewStore(r.db).WriteLastResult(context.Background(), dbmaint.LastResult{
@@ -215,7 +222,7 @@ func TestDatabaseMaintenance_NoticeSeverityAndPayloadPerCode(t *testing.T) {
 			stats: maintStats(200000, 122070, 0), wantCode: "too_many_failures", wantSev: "warning",
 			prepare: func(t *testing.T, r *maintRig) {
 				for range dbmaint.MaxConvertAttempts {
-					require.NoError(t, dbmaint.NewStore(r.db).RecordFailure(context.Background(), r.fileID(t)))
+					r.recordFailure(t)
 				}
 			},
 		},
@@ -225,7 +232,7 @@ func TestDatabaseMaintenance_NoticeSeverityAndPayloadPerCode(t *testing.T) {
 			prepare: func(t *testing.T, r *maintRig) {
 				require.NoError(t, dbmaint.NewStore(r.db).SetFlag(context.Background()))
 				for range dbmaint.MaxConvertAttempts {
-					require.NoError(t, dbmaint.NewStore(r.db).RecordFailure(context.Background(), r.fileID(t)))
+					r.recordFailure(t)
 				}
 			},
 		},
@@ -382,7 +389,7 @@ func TestDatabaseMaintenance_PostResetsTheFailureCounterOnlyWhenNewlySet(t *test
 	store := dbmaint.NewStore(r.db)
 	ctx := context.Background()
 	for range dbmaint.MaxConvertAttempts {
-		require.NoError(t, store.RecordFailure(ctx, r.fileID(t)))
+		r.recordFailure(t)
 	}
 
 	code, _ := r.do(t, http.MethodPost, optimizePath)
@@ -391,7 +398,7 @@ func TestDatabaseMaintenance_PostResetsTheFailureCounterOnlyWhenNewlySet(t *test
 	require.NoError(t, err)
 	assert.Zero(t, st.Attempts, "pressing the button starts over")
 
-	require.NoError(t, store.RecordFailure(ctx, r.fileID(t)))
+	r.recordFailure(t)
 	code, _ = r.do(t, http.MethodPost, optimizePath)
 	require.Equal(t, http.StatusOK, code)
 	st, err = store.Peek(ctx, r.fileID(t))
@@ -482,7 +489,7 @@ func TestDatabaseMaintenance_WriteFailuresAre500(t *testing.T) {
 	})
 	t.Run("post resetting the counter", func(t *testing.T) {
 		r := newMaintRig(t, config.DBCompactAuto)
-		require.NoError(t, dbmaint.NewStore(r.db).RecordFailure(context.Background(), r.fileID(t)))
+		r.recordFailure(t)
 		_, err := r.db.Exec(`CREATE TRIGGER deny_delete BEFORE DELETE ON settings BEGIN SELECT RAISE(ABORT, 'denied'); END`)
 		require.NoError(t, err)
 		code, _ := r.do(t, http.MethodPost, optimizePath)

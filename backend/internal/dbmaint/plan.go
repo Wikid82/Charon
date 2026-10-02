@@ -58,8 +58,19 @@ type Inputs struct {
 	// Attempts counts failed conversion attempts recorded for this file since
 	// the last successful conversion or manual reset (not necessarily consecutive).
 	Attempts int
-	Stats    Stats
-	Disk     DiskReport
+	// Interruptions counts orderly stops during a conversion recorded for this
+	// file since the last successful conversion or manual reset.
+	Interruptions int
+	Stats         Stats
+	Disk          DiskReport
+}
+
+// BackedOff reports whether the boot path has stopped trying the conversion: it
+// failed MaxConvertAttempts times or was stopped MaxInterruptedRuns times. It
+// is the single predicate behind Decide, the status notice and the request
+// handler.
+func BackedOff(attempts, interruptions int) bool {
+	return attempts >= MaxConvertAttempts || interruptions >= MaxInterruptedRuns
 }
 
 // Decision is the outcome of steps 1-4 and 6 of the boot evaluation. Steps 5
@@ -107,7 +118,7 @@ func Decide(in Inputs) Decision {
 		}
 	}
 
-	if in.Attempts >= MaxConvertAttempts {
+	if BackedOff(in.Attempts, in.Interruptions) {
 		d := skip(ReasonTooManyFailures)
 		d.ClearFlag = in.FlagRequested
 		return d
@@ -128,6 +139,7 @@ type PlanConfig struct {
 	EnvMode       string
 	FlagRequested bool
 	Attempts      int
+	Interruptions int
 }
 
 // PlanResult is what Plan learned and decided.
@@ -155,6 +167,7 @@ func Plan(ctx context.Context, q Querier, cfg PlanConfig) (PlanResult, error) {
 			EnvMode:       cfg.EnvMode,
 			FlagRequested: cfg.FlagRequested,
 			Attempts:      cfg.Attempts,
+			Interruptions: cfg.Interruptions,
 			Stats:         stats,
 			Disk:          disk,
 		}),
