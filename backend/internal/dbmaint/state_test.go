@@ -630,3 +630,23 @@ func TestStore_PeekDoesNotMutateTheRecord(t *testing.T) {
 	assert.Equal(t, before, storedRecord(t, db))
 	assert.True(t, settingFound(t, db, keyInProgress))
 }
+
+func TestStore_LoadSurfacesAnAttemptsReadFailure(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	_, err := NewStore(&failNthRead{SQLExecer: db, n: 2}).Load(context.Background(), "100") // 1: flag, 2: attempts
+	assert.Error(t, err)
+}
+
+func TestStore_LoadSurfacesAFailureToCountTheMarker(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+	mustExec(t, db, `CREATE TRIGGER deny_attempts BEFORE INSERT ON settings
+		WHEN NEW."key" = 'maintenance.attempts' BEGIN SELECT RAISE(ABORT, 'denied'); END`)
+
+	_, err := s.Load(ctx, "100")
+
+	assert.Error(t, err)
+	assert.True(t, settingFound(t, db, keyInProgress), "the marker stays so the attempt is counted next time")
+}
