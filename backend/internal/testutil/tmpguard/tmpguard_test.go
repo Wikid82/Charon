@@ -217,3 +217,90 @@ func TestSweepStale_DoesNotFollowSymlinks(t *testing.T) {
 func TestSweepStale_MissingRootIsNoop(t *testing.T) {
 	sweepStale(filepath.Join(t.TempDir(), "missing"), time.Now())
 }
+
+type fakeMain func() int
+
+func (f fakeMain) Run() int { return f() }
+
+// run adapts a plain function to the testMain interface.
+func run(f func() int) int { return Run(fakeMain(f)) }
+
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions")
+	}
+}
+
+func TestRun_RunsUnguardedWhenPrivateRootCannotBeCreated(t *testing.T) {
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	out := captureReport(t)
+
+	ran := false
+	code := run(func() int { ran = true; return 0 })
+
+	if !ran || code != 0 {
+		t.Fatalf("ran=%v code=%d, want tests to run unguarded and pass", ran, code)
+	}
+	if !strings.Contains(out.String(), "running unguarded") {
+		t.Errorf("missing warning: %s", out)
+	}
+}
+
+func TestRun_FailsPackageWhenPrivateRootCannotBeRemoved(t *testing.T) {
+	skipIfRoot(t)
+	root := useRoot(t)
+	out := captureReport(t)
+	t.Cleanup(func() { _ = os.Chmod(root, 0o700) }) //nolint:gosec // restore so t.TempDir cleanup works
+
+	code := run(func() int {
+		// A read-only parent stops the guard from unlinking its base.
+		if err := os.Chmod(root, 0o500); err != nil { //nolint:gosec // G302: read-only directory is the scenario under test
+			t.Fatalf("chmod: %v", err)
+		}
+		return 0
+	})
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(out.String(), "could not remove private temp root") {
+		t.Errorf("missing removal failure report: %s", out)
+	}
+}
+
+func TestRun_TestRemovedBaseIsNotALeak(t *testing.T) {
+	useRoot(t)
+	captureReport(t)
+	code := run(func() int {
+		guardRoot := os.Getenv("TMPDIR") // the guard's private root, not the shared one
+		if err := os.RemoveAll(guardRoot); err != nil {
+			t.Fatalf("remove: %v", err)
+		}
+		return 0
+	})
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+}
+
+func TestRun_ReportsLeakInUnreadableDirectory(t *testing.T) {
+	skipIfRoot(t)
+	useRoot(t)
+	out := captureReport(t)
+
+	code := run(func() int {
+		dir := filepath.Join(os.TempDir(), "locked")
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.Chmod(dir, 0); err != nil {
+			t.Fatalf("chmod: %v", err)
+		}
+		return 0
+	})
+
+	if code != 1 || !strings.Contains(out.String(), "locked") {
+		t.Fatalf("code=%d report=%s, want leak named and exit 1", code, out)
+	}
+}

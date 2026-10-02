@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"
 	"time"
 )
 
@@ -26,37 +25,26 @@ const (
 // report receives the leak report; replaced in tests.
 var report io.Writer = os.Stderr
 
+// testMain is satisfied by *testing.M; a narrow interface keeps Run testable.
+type testMain interface{ Run() int }
+
 // Run executes the package's tests (m.Run) inside a private temp root and
 // returns the exit code for os.Exit. It returns 1 when the tests passed but
 // left files behind, and removes the private root in every case.
-func Run(m *testing.M) int {
-	return run(m.Run)
-}
-
-func run(runFn func() int) int {
+func Run(m testMain) int {
 	origTmp := os.TempDir()
 	sweepStale(origTmp, time.Now())
 
 	base, err := os.MkdirTemp(origTmp, prefix+"*")
 	if err != nil {
 		logf("tmpguard: cannot create private temp root, running unguarded: %v\n", err)
-		return runFn()
+		return m.Run()
 	}
 
-	prevTmp, hadTmp := os.LookupEnv("TMPDIR")
-	if err := os.Setenv("TMPDIR", base); err != nil {
-		_ = os.RemoveAll(base)
-		logf("tmpguard: cannot redirect TMPDIR, running unguarded: %v\n", err)
-		return runFn()
-	}
-
-	code := runFn()
-
-	if hadTmp {
-		_ = os.Setenv("TMPDIR", prevTmp)
-	} else {
-		_ = os.Unsetenv("TMPDIR")
-	}
+	// base comes from MkdirTemp and cannot hold a NUL byte, the only way Setenv fails.
+	_ = os.Setenv("TMPDIR", base)
+	code := m.Run()
+	_ = os.Setenv("TMPDIR", origTmp)
 
 	leaked := listLeaks(base)
 	removeErr := removeTree(base)
@@ -92,11 +80,10 @@ func listLeaks(base string) []string {
 func treeSize(path string) int64 {
 	var total int64
 	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if info, infoErr := d.Info(); infoErr == nil && info.Mode().IsRegular() {
-			total += info.Size()
+		if err == nil && d.Type().IsRegular() {
+			if info, infoErr := d.Info(); infoErr == nil {
+				total += info.Size()
+			}
 		}
 		return nil
 	})
