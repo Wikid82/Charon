@@ -89,6 +89,11 @@ func TestConnect_WALMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5000, busyTimeout, "busy_timeout should be 5000ms")
 
+	var journalSizeLimit int64
+	err = db.Raw("PRAGMA journal_size_limit").Scan(&journalSizeLimit).Error
+	require.NoError(t, err)
+	assert.Equal(t, int64(64<<20), journalSizeLimit, "journal_size_limit should cap leftover WAL growth at 64 MiB")
+
 	var synchronous int
 	err = db.Raw("PRAGMA synchronous").Scan(&synchronous).Error
 	require.NoError(t, err)

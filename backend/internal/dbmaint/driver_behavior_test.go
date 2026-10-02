@@ -327,3 +327,32 @@ func TestDriver_VacuumCancelLateMayComplete(t *testing.T) {
 		integrityOK(t, db)
 	}
 }
+
+// journal_size_limit trims a WAL that grew past the limit at the first WAL
+// reset after a checkpoint; without it the file keeps its high-water mark for
+// the life of the connection (GH #1427, applied in database.Connect).
+func TestDriver_JournalSizeLimitTruncatesTheWALAfterAReset(t *testing.T) {
+	const limit = 1 << 20
+	walSizeAfterBurst := func(t *testing.T, withLimit bool) int64 {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "wal.db")
+		db := openScratch(t, path, 0)
+		if withLimit {
+			mustExec(t, db, fmt.Sprintf("PRAGMA journal_size_limit=%d", limit))
+		}
+		mustExec(t, db, "CREATE TABLE t (id INTEGER PRIMARY KEY, pad BLOB)")
+		// One transaction of about 4 MiB: the WAL grows well past the limit.
+		mustExec(t, db, "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x<40) "+
+			"INSERT INTO t(pad) SELECT zeroblob(100000) FROM c")
+		require.Greater(t, fileSize(t, path+"-wal"), int64(limit), "the burst must outgrow the limit")
+		// PASSIVE, not TRUNCATE: the file must only shrink through the limit.
+		mustExec(t, db, "PRAGMA wal_checkpoint(PASSIVE)")
+		for range 5 { // the first write after a full checkpoint resets the WAL
+			mustExec(t, db, "INSERT INTO t(pad) VALUES (zeroblob(100))")
+		}
+		return fileSize(t, path+"-wal")
+	}
+
+	assert.LessOrEqual(t, walSizeAfterBurst(t, true), int64(limit), "the limit trims the WAL")
+	assert.Greater(t, walSizeAfterBurst(t, false), int64(limit), "control: without the limit the WAL keeps its size")
+}

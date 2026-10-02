@@ -16,6 +16,12 @@ import (
 
 // launchQuickCheck is called by Connect to run the integrity check goroutine.
 // Tests override this with a synchronous version to avoid cleanup races.
+// journalSizeLimitBytes caps how large a write-ahead log may stay after a burst
+// (boot-time index builds, imports, bulk deletes): SQLite trims a larger WAL to
+// this size at the next WAL reset after a checkpoint. Steady-state WALs are far
+// smaller and are never touched.
+const journalSizeLimitBytes = 64 << 20
+
 var launchQuickCheck = func(dbPath string) { go runQuickCheck(dbPath) }
 
 // SyncIntegrityCheckForTesting forces the background integrity check that
@@ -90,6 +96,8 @@ func Connect(dbPath string) (*gorm.DB, error) {
 		"PRAGMA busy_timeout=5000",  // Wait up to 5s instead of failing immediately on lock
 		"PRAGMA synchronous=NORMAL", // Good balance of safety and speed
 		"PRAGMA cache_size=-64000",  // 64MB cache for better performance
+		// Trim a WAL that a burst grew past the limit at the next WAL reset
+		fmt.Sprintf("PRAGMA journal_size_limit=%d", journalSizeLimitBytes),
 	}
 	for _, pragma := range pragmas {
 		if _, err := sqlDB.Exec(pragma); err != nil {
