@@ -14,14 +14,14 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 )
 
-// launchQuickCheck is called by Connect to run the integrity check goroutine.
-// Tests override this with a synchronous version to avoid cleanup races.
 // journalSizeLimitBytes caps how large a write-ahead log may stay after a burst
 // (boot-time index builds, imports, bulk deletes): SQLite trims a larger WAL to
 // this size at the next WAL reset after a checkpoint. Steady-state WALs are far
 // smaller and are never touched.
 const journalSizeLimitBytes = 64 << 20
 
+// launchQuickCheck is called by Connect to run the integrity check goroutine.
+// Tests override this with a synchronous version to avoid cleanup races.
 var launchQuickCheck = func(dbPath string) { go runQuickCheck(dbPath) }
 
 // SyncIntegrityCheckForTesting forces the background integrity check that

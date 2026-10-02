@@ -142,8 +142,9 @@ func logPlanSkip(d Decision) {
 
 // settlePlanSkip persists what a plan-time skip implies. The user's request is
 // cleared only when there is nothing left to optimize or the failure back-off
-// stopped the run (any other skip keeps it for the next start), and a refusal that will repeat every boot is remembered
-// so Advise does not promise a conversion the next start will refuse.
+// stopped the run (any other skip keeps it for the next start), and a refusal
+// that will repeat every boot is remembered so Advise does not promise a
+// conversion the next start will refuse.
 func settlePlanSkip(ctx context.Context, p StartParams, res PlanResult) {
 	d := res.Decision
 	if p.DB == nil || (!d.ClearFlag && d.Reason != ReasonTooManyFailures) {
