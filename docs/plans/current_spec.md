@@ -1,294 +1,372 @@
-# Plan: Database maintenance follow-ups (back-off edge cases, temp dir ownership, naming) - GH #1427
+# Plan: Database tail - test temp leaks (#1426), SIGTERM back-off (#1436), Reclaim counter reset (#1438), DB slice of the performance umbrella (#42)
 
-Type: `fix:` / `refactor:` / `test:` / `docs:` follow-ups on the shipped #1422 feature (v0.44.0). **No `feat:` commit** (no new user-facing capability; no new endpoint, setting or UI), so CodeQL and Trivy are deferred to CI. **No `(security)` scope**: nothing here is a genuine vulnerability (item 4 is a local ownership annoyance, not an escalation; the existing owner check already refuses an unsafe directory).
-Single PR into `development`, ordered commits.
-Branch: `fix/db-maintenance-followups-1427` (already checked out, cut from `development`).
-Status: IMPLEMENTED (commits 1-7 on branch fix/db-maintenance-followups-1427; pending PR/CI).
-Supervisor history: rev 1 reviewed -> CHANGES REQUIRED (no blockers; 2 should-fix S1/S2, 8 nits). Rev 2 applies all of them (traceability table below). Supervisor answers recorded: Q1 no (no entrypoint chown), Q2 yes (64 MiB), Q3 yes (patch bump).
-Rev 2 verified -> one should-fix (`logPlanSkip` misdescribed, test 4 wrong) and five nits; rev 3 applies them (explicit `case ReasonTooManyFailures:` Warn before `default`, test 4 rewritten around `captureLogs(t)`, stale line references, real-`main()` test also at the commit 3 gate, `currentEUID` in the tmpdir owner check, pragma wording, `consumesFlag` wording).
-
-| Review finding | Handled in |
-| --- | --- |
-| S1 docs: pragma table row, wording of the limit, Q2 rationale | 3.6, 6, 8 (Q2), commit 7 in 5 |
-| S2 false "later boot resets the counter" claim, comment fixes | 3.2 (Risks, decision a), file inventory in 3.2 |
-| Nit 1 pre-conversion failure vs flag consumption | 3.2 (Design, Tests), acceptance 3 |
-| Nit 2 `DiscardMarkerIfConverted` error handling | 3.3 (Design, Tests) |
-| Nit 3 data dir `os.Stat` failure, root-CI test guard | 3.4 (Design, Tests) |
-| Nit 4 `too_many_failures` skip logged at Warn | 3.1 (Design, Tests) |
-| Nit 5 `isWriterBusy` driver code check | 3.2 (Design) |
-| Nit 6 flag + counter >= 3 under env=off | section 1 (X3) |
-| Nit 7 SIGTERM-looped conversion never counted | section 9 (follow-up, not in this PR) |
-| Nit 8 real-`main()` test at commit 2 gate and at the end | section 5 (commit 2 and commit 3 gates, final DoD) |
-Predecessor: the #1422 spec is archived at `docs/plans/archive/2026-10-01_database-maintenance-1422_spec.md` (status IMPLEMENTED, shipped in v0.44.0). Section and decision numbers in this plan that say "#1422 plan" refer to that file.
+Type: three independent PRs, all `fix:` / `test:` / `perf:` / `docs:`. **No `feat:` commit anywhere** (no new endpoint, setting, model or UI control), so CodeQL and Trivy are deferred to CI for every PR. **No `(security)` scope**: nothing here is a vulnerability.
+Status: PLANNED (rev 3, awaiting supervisor re-review).
+Supervisor history: rev 1 reviewed 2026-10-02 -> CHANGES REQUIRED (no blockers, 7 should-fix SF1-SF7 plus nits); all applied in rev 2, see the traceability table in 5.7. Measurements in 3.4 were re-run for rev 2 (SF2, SF3).
+Supervisor history (cont.): rev 2 verified 2026-10-02 -> 2 small should-fix (S1, S2) and nits N1-N5; all applied in rev 3 (design unchanged), see 5.7.
+Branch note: this plan is written on local branch `plan/db-tail-1426-1436-1438-42`. **PR #1440 (#1427 follow-ups) is already MERGED** (merge commit `909a2528`, 2026-10-02 05:37Z, verified with `gh pr view 1440` and `git merge-base --is-ancestor`), so nothing has to be stacked: every implementation branch is cut from `development`.
+Predecessors: the #1427 plan is archived at `docs/plans/archive/2026-10-02_database-maintenance-followups-1427_spec.md`; the #1422 plan at `docs/plans/archive/2026-10-01_database-maintenance-1422_spec.md`. "Decision Qn" in this plan refers to nothing in those files unless named.
 
 ## 1. Introduction
 
-GH #1427 collects six follow-ups from the review of the database maintenance feature. Each item was re-verified against the code on this branch and against the read-only live test container (`docker exec charon sqlite3 -readonly`, `ls`, `ps`). Two items are partly wrong or better solved differently than the issue suggests (1, 2); one is real but cosmetic (3); one is real but narrow (4); one is a pure rename (5); one is decided with a measurement (6). Total change is small: about 60 lines of production code, the rest tests and docs.
+Four open GitHub issues, all our own findings (none user-submitted):
 
-### Verdict table
-
-| # | Issue claim | Verified? | Verdict | Fix (one line) |
-| --- | --- | --- | --- | --- |
-| 1 | Flag plus crash loop never backs off | Yes (`plan.go:93`, `state.go:273`, `plan_test.go` case "flag with counter at max runs" pins the bypass) | **Fix, differently** | Make the request bypass the *threshold*, not the *back-off*: `Decide` applies `MaxConvertAttempts` to a flagged run too and clears the flag when it stops (instead of clearing the flag when a marker is consumed). |
-| 2 | Pre-conversion failures are not counted | Partly. Counting is right, but for a *read-only / unwritable* database the counter write fails too, so no back-off can be persisted; and the issue misses the third pre-conversion exit (non-busy probe error, `runner.go:257`). | **Fix (narrower than stated)** | Count Inspect failure, non-busy probe failure and non-busy marker-write failure; classify a `SQLITE_BUSY` marker write as `database_busy` (not counted). Document the unwritable-DB limit. |
-| 3 | Stale marker is counted although the conversion completed | Yes, cosmetic: a mode-2 file never converts again, so the lingering `1` has no effect on any decision | **Fix (small)** | At startup, when the file is already incremental, discard this file's leftover marker and reset the counter instead of counting. |
-| 4 | Root-run CLI can leave a root-owned `<data>/.tmp` | Yes in principle, rare in practice (see 3.4); the issue also misses the mirror case (existing charon-owned `.tmp` makes the root CLI log a bogus "unsafe" Warn) | **Fix, as suggested** | `PrepareTempDir` returns a new `ErrTempDirSkipped` when euid is 0 and the data directory is not owned by root; `ApplyTempDir` logs that at Debug. |
-| 5 | `spike_test.go` is misnamed | Yes (451 lines, permanent regression tests; 3 topics) | **Fix** | `git mv` and split by topic; `TestSpike_` becomes `TestDriver_`; fix two code comments. |
-| 6 | `journal_size_limit` evaluated but not applied | Yes (only mention left is the #1422 plan) | **Apply: 64 MiB** | One pragma in `database.Connect`, a named constant, two tests, docs sentence. Evidence in 3.6. |
-
-### Other small defects found (kept in scope, listed separately)
-
-| ID | Defect | Where | Handling |
+| Issue | Title (short) | Labels | Real nature |
 | --- | --- | --- | --- |
-| X1 | The `Failed` log line says "it will be retried on the next start" even when the failure was the third (the next start will not retry). | `runner.go` `logOutcome` (~L490) | Folded into commit 3: reword to "...it is retried on the next start unless it has failed 3 times". No behaviour change. |
-| X2 | `TestRun_UninspectableDatabaseFailsWithoutConvertingOrCounting` and `TestRun_MissingConvertFailsWithoutCounting` encode the old "pre-conversion failures never count" decision. | `runner_test.go:555`, `:794` | Updated in commit 3 (the first now asserts a counted failure; the second stays: a missing `Convert` is a wiring bug, deliberately not counted). |
-| X3 | `RequestOptimize` returns 200 *before* resetting the counter when the flag is already set, so pressing the button a second time never clears a stuck counter. | `database_maintenance_handler.go:~235` | **Not changed.** With the item 1 fix `Decide` clears the flag whenever it stops on the back-off, so the state "flag set and counter >= 3" no longer persists across a boot. Noted, no action. One residual: flag + counter >= 3 can still persist while `CHARON_DB_COMPACT_ON_START=off` (`Decide` returns `disabled_by_env` first, so the flag is not cleared). Harmless: `RequestOptimize` answers the already-set case with 200 first, and a fresh request while env=off gets 409, so the state cannot be reached or exploited through the UI, and it clears itself once env is re-enabled and a boot stops on the back-off. |
+| #1426 | backend tests leak large temp files into /tmp | bug, testing | Test hygiene **plus a small real production leak** |
+| #1436 | SIGTERM-looped conversion retries forever | bug, performance | Real, low severity, needs a design decision |
+| #1438 | Reclaim does not reset the counter when the flag is already set | bug | Real at API level; the UI never offers the button in that state (see 3.3) |
+| #42 | Performance Optimization & Benchmarking (umbrella, 2025-11-17) | medium, performance, database, caddy, frontend | Stale umbrella; one measured, actionable database hot spot |
 
-Explicitly **not** included (would be scope creep): early marker clear right after `VACUUM` returns (see 3.3 alternatives), entrypoint self-heal of a root-owned `.tmp` (open question Q1), a Plan-time writability probe for read-only databases, `chown` of root-run SQLite side files.
+Everything below was verified against the code on this branch (which equals `development` for all Go and TypeScript files, only CI files and CLAUDE.md differ) and, where stated, by running code. Measurements were taken with a private `TMPDIR`/`GOTMPDIR` under `/var/tmp`; nothing in `/tmp` was touched, and the live test container was only read (`docker exec charon sqlite3 -readonly`).
 
-## 2. Research findings
+## 2. Priorities & Ordering (per CLAUDE.md "Findings Triage & Issue Tracking")
 
-### 2.1 How the pieces fit (verified)
+All four items are our own findings, so the rule is: bug fixes before new implementation; nothing here is critical/high, so none preempts the others as an emergency; medium/low items are scheduled after current work and tracked as issues (already filed, plus the new child issues C1-C8 in 5.3, which per the rule are filed automatically by the orchestrator now).
 
-- `Decide` (`plan.go:81-116`): the `case in.FlagRequested:` branch (L93) only checks the 100 MiB floor; the `Attempts >= MaxConvertAttempts` check (L105) lives in the `default:` branch, so a flagged boot never backs off.
-- `Store.Load` (`state.go:~225`) -> `loadAttempts` (L240) -> `consumeMarker` (L273): a leftover `maintenance.in_progress` marker of the same inode increments and persists `maintenance.attempts` and is deleted. It runs *before* anything knows the auto-vacuum mode.
-- Flag consumption: `Outcome.consumesFlag` (`runner.go:468`) is `Converted() || countFailure`. A kill leaves neither, so the flag stays (by design: "a run that merely skipped or was interrupted leaves the request set").
-- The UI button (`RequestOptimize`) does `ResetAttempts` then `SetFlag`, so a press always starts from a clean counter; `notice()` judges with the same `Decide` the boot uses (`database_maintenance_handler.go:~187`). A `Decide` change is therefore reflected consistently in boot, notice and `Advise` (Advise zeroes flag and attempts, unaffected).
-- Runner exits before the conversion (`runner.go`): `acquireConn` non-busy probe error (L257) -> `Failed/conversion_failed`, no count; `convert()` `Inspect` error (L286-288) and `SetInProgress` error (L296-298) -> `abortBeforeConversion` (L321) -> `Failed/conversion_failed`, no count. `database_busy` (acquire timeout or `ErrWriterBusy` after 3 probe retries) is `Skipped` and is never counted.
-- All settings writes in `persist()` (attempts, last_result, marker clear, flag clear) go through the same `settings` upsert as `SetInProgress`.
-- The #1422 real-`main()` test (`cmd/api/maintenance_sigterm_test.go`, `TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts`) never sets the flag, so it is unaffected by item 1; it asserts "attempts == 0 right after the stop" and "converges within `MaxConvertAttempts` boots", both preserved.
-
-### 2.2 Live container observations (read-only, 2026-10-02)
-
-- `charon` runs with `Config.User = 0:0`; PID 1 is the entrypoint as root, `/app/charon` and `caddy` run as `charon` (entrypoint drops privileges with `gosu`). `docker exec` therefore runs as **root**.
-- `/app/data` is `charon:charon 0750`; `/app/data/.tmp` is `charon:charon 0700` (created by the service at first boot). `.docker/docker-entrypoint.sh` creates/chowns `caddy`, `crowdsec`, `geoip` but **not** `.tmp`.
-- `maintenance.last_result` = `converted` (2.28 GB -> 1.27 GB); no `maintenance.in_progress`, `attempts` or `compact_requested` rows; `auto_vacuum=2`, `journal_size_limit=-1` (default), live WAL 6.1 MB (steady state is small).
-- `charon.log` contains the expected optimization lines and **no** "temp directory not prepared" warning, i.e. item 4 has not happened here.
-
-### 2.3 Measurement for item 6 (sqlite3 3.x CLI, scratch files under `/var/tmp`, deleted)
-
-One long-lived connection (like Charon's pool: `MaxOpenConns(1)`, `ConnMaxLifetime(0)`), WAL mode, one 200 000-row insert transaction, then 1 500 small autocommit inserts:
-
-| Setting | WAL size after the burst | WAL size after 1 500 small writes |
-| --- | --- | --- |
-| default (no limit) | 43 494 872 B | 43 494 872 B (stays at the high-water mark for the life of the connection) |
-| `PRAGMA journal_size_limit=4194304` | 43 494 872 B | **4 194 304 B** (truncated to the limit at the first WAL reset) |
-
-A WAL file is only shrunk by `wal_checkpoint(TRUNCATE)` or when the last connection closes; Charon holds its connection for the whole process lifetime.
-
-## 3. Technical specification, per item
-
-### 3.1 Item 1 - flag plus crash loop never backs off
-
-**Reproduction** (reasoning, covered by the new test): button -> counter 0, flag set. Boot A: converts, process hard-killed mid-`VACUUM` (marker remains). Boot B: `Load` counts 1, `Decide` takes the flag branch, converts, killed again ... `Attempts` climbs 2, 3, 4 ... and the flag is never consumed, so every boot repeats the conversion with a 503 window. Unflagged runs stop after 3.
-
-**Alternatives evaluated**
-
-| Option | Behaviour | Verdict |
-| --- | --- | --- |
-| A. (issue) `StartupPlan` clears the flag when a leftover marker was consumed | Bounded, but the request is dropped after **one** observed kill. For a database that is only eligible via the request (reclaimable >= 100 MiB but < 20% free and < 1 GiB, the "below threshold" band) the next boot is `below_threshold`: one power cut silently cancels an explicit user request. Needs a new `State.MarkerConsumed` plumbed from `consumeMarker` through `Load` and `StartupPlan`; `Decide` stays unbounded for any other path that leaves flag+counter set. | Rejected |
-| B. **`Decide` applies the back-off to a flagged run too** | The request still bypasses the *threshold* (that is its purpose) but not the *failure limit*. A flagged run converts up to `MaxConvertAttempts` times (kills/failures), then stops with `too_many_failures` and **clears the flag**. Pure function change, one test table; boot, `notice()` and `Advise` stay consistent because they share `Decide`. | **Chosen** |
-| C. Count the attempt and let the flag bypass only once | Same bound as A with the same drop-on-first-failure problem, plus new state. | Rejected |
-
-**Design (B)** - `backend/internal/dbmaint/plan.go`, `Decide`:
-
-- Keep order: env off -> already incremental -> threshold step. Split the current `switch`: the flag branch keeps its floor check (`nothing_to_reclaim` + `ClearFlag`), the default branch keeps `worthwhile` (`below_threshold`) but **loses** its `Attempts` check.
-- After the `switch`, one shared check: `if in.Attempts >= MaxConvertAttempts { d := skip(ReasonTooManyFailures); d.ClearFlag = in.FlagRequested; return d }`.
-- `logPlanSkip` (`startup.go:109`): log `ReasonTooManyFailures` at **Warn**, so the boot-D stop that ends a crash loop is easy to find in the log. Today `logPlanSkip` is a `switch`: `""` and `ReasonBelowThreshold` log nothing, `ReasonInsufficientDisk` logs Warn, and only the `default` branch logs Info. Add an explicit `case ReasonTooManyFailures:` that logs Warn **before** `default`; every other reason keeps its current level (below_threshold stays silent).
-- Update the doc comment of `Decide` ("the user's flag (the floor still applies)" -> "the user's flag replaces the threshold, never the failure back-off").
-
-**Interactions checked**
-
-- Button semantics: unchanged. The button resets the counter, so a user who presses it gets 3 fresh tries (`MaxConvertAttempts`). Total conversions after a press that always gets killed: boots A, B, C convert (counter 0, 1, 2), boot D sees counter 3 and stops. Same as the unflagged path.
-- `too_many_failures` notice wording ("a plain restart never retries; only the button does"): now true for flagged and unflagged alike; the flag is cleared at plan time by the existing `settlePlanSkip` (`startup.go`: it already handles `ClearFlag` and `ReasonTooManyFailures` together, and writes the `too_many_failures` last_result so `SuppressesPending` silences `Advise`). No handler or frontend change.
-- `file_id` inode validation: unchanged; a replaced file drops its counter in `storedAttempts` and starts from 0, while the flag (which lives in the DB and travels with it) is evaluated afresh.
-- Runner cancel/SIGTERM: an orderly stop is `interrupted` (not counted), a stop in the copy-back tail is `converted` or a leftover marker (counted once at the next boot). Counting is unchanged; only the consequence of reaching 3 changes.
-- Counted *failed* conversions still consume the flag via `consumesFlag` (existing semantics, `TestRun_FlagIsConsumedByAConversionAndByACountedFailure`); B only closes the kill path, where the flag stays. Item 1 does not change `consumesFlag`; item 2 adds `keepFlag` (see 3.2).
-- X3 (second button press while flag set): not needed, see section 1.
-
-**Tests (TDD, write failing first)**
-
-1. `plan_test.go`: change the table row "flag with counter at max runs" to `wantReason: ReasonTooManyFailures, wantClear: true`; add rows: flag + `Attempts: Max-1` runs; flag + `Attempts: Max` + below-floor stays `nothing_to_reclaim`; flag + `Attempts: Max` + `Stats` incremental stays `already_optimized` (order unchanged); no flag + `Attempts: Max` + below threshold stays `below_threshold` (unchanged).
-2. `startup_test.go`: `TestStartupPlan_FlaggedCrashLoopStopsAfterMaxConvertAttempts` using the real settings DB helper (`newSettingsDB`) and a real legacy scratch database (`newScratchDB` with free pages above the floor): loop `MaxConvertAttempts` times { `SetFlag` once at the start; write a marker for the current `FileID`; run `StartupPlan`; assert `Decision.Run` } then one more iteration asserts `Reason == ReasonTooManyFailures`, `ClearFlag == true`; then call `Start` with the real planner and assert the flag row is gone and `last_result` is `skipped/too_many_failures`. This reproduces the loop without a 240 MB real-`main()` run.
-3. `database_maintenance_handler_test.go`: one notice case: flag set + counter at max -> `noticeTooManyFailures` (documents that the UI and boot agree).
-4. `startup_test.go`: `TestLogPlanSkip_TooManyFailuresIsWarn` captures the logger output with the existing hook `captureLogs(t)` (`backend/internal/dbmaint/drain_test.go:38`: calls `logger.Init(false, buf)` and returns a `*lockedBuffer`; Info and Warn are both captured; `advise_test.go` and `reclaim_test.go` already use it) and asserts: Warn for `too_many_failures`, Info for another default-branch reason such as `already_optimized`, and NO output at all for `below_threshold`.
-5. Existing `TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts` must stay green unchanged (regression of the SIGTERM/SIGKILL paths). It is slow (`-short` skips it); run it explicitly in the gate.
-
-**Risks / rollback**: behaviour change only for the already-broken loop and for "flag + 3 counted attempts", which previously ran a fourth time. Rollback: revert the commit (pure function + tests).
-
-### 3.2 Item 2 - failures before the conversion are not counted
-
-**What actually happens today**: three pre-conversion exits end `Failed/conversion_failed` without `countFailure`: non-busy probe error (`runner.go:257`), `Inspect` error (L286), `SetInProgress` error (L296). Each reaches `settle` -> `persist` -> `Gate.Finish(PhaseFailed)`; the 503 window already started at `BeginChecking`. Nothing is counted and the flag is not consumed, so every boot repeats it.
-
-**Evidence that the issue's example is only partly right**: for a read-only or full database the marker write fails and so does `RecordFailure` (same `settings` upsert, via the pool): `persist` logs "could not record the result" and no counter exists to back off from. The existing test `TestRun_MarkerWriteFailureFailsWithoutConverting` (`DROP TABLE settings`) demonstrates exactly that: the count is unobservable. Counting therefore helps where the failure is *selective*: `Inspect` (a read: pragmas and stat of the file; the DB stays writable, so the counter persists), a non-busy probe error that is not "everything is unwritable", and a marker write that fails for its own reason (the marker goes through the *pinned* connection, `NewStore(conn)`, while the counter goes through the pool, so they can diverge).
-
-**Design** - `backend/internal/dbmaint/runner.go`:
-
-- `abortBeforeConversion`: set `out.countFailure = true` in the non-cancelled branch (a cancelled ctx stays `Cancelled/shutting_down`, never counted - existing behaviour kept).
-- Non-busy probe error branch in `acquireConn` (L257): add `Outcome{..., countFailure: true}`.
-- `SetInProgress` error: if `isWriterBusy(err)` (a writer slipped in between the probe's `ROLLBACK` and the marker write; the pool-wide `busy_timeout=5000` makes this rare but possible), settle as `Skipped/database_busy` and do **not** count (retry-friendly, flag kept). Any other error counts.
-- Flag handling (nit 1 decision): a counted *pre-conversion* failure does **not** consume the flag. Add an explicit `keepFlag bool` on `Outcome` set by `abortBeforeConversion` and the probe branch, and make `consumesFlag` = `Converted() || (countFailure && !keepFlag)`. Rationale: item 1 rejected dropping an explicit request after one observed kill; dropping it after one transient `Inspect`/probe error would be the same mistake (a database in the below-threshold band is only eligible through the request). The bound is the shared back-off from item 1: after `MaxConvertAttempts` counted failures `Decide` stops with `too_many_failures` and clears the flag. A failed `VACUUM` keeps today's semantics (consumes the flag), since that failure happened inside the conversion.
-- `isWriterBusy` hardening (nit 5): **in**, small. Add `errors.As` against the driver's error interface exposing `Code() int` and treat `code & 0xff == 5` (`SQLITE_BUSY`) as busy, next to the existing string match (kept as fallback). Reason: the string match depends on driver message wording, and this classification now decides whether a failure is counted. Test: table over a fake error type with `Code()` 5, 261 (BUSY_RECOVERY, low byte 5), 6 (LOCKED, not busy), and the existing strings.
-- `Inspect` error: counted (read failures are real).
-- `ErrNoConvert` and the `ErrConfigNotApplied`/timeout/quick_check/acquire-timeout skips stay uncounted (wiring bug, environment-readiness, not failures).
-- X1: reword the `ResultFailed` log in `logOutcome` to "database optimization failed; it is retried on the next start unless it has failed 3 times".
-
-**What the user sees**: after three counted failures (not necessarily consecutive, see Risks), `too_many_failures` (existing notice and docs, "container killed during startup / no disk space"); before that the existing failed state and Error log. A flagged request survives counted pre-conversion failures (`keepFlag`) and is cleared only by a conversion, a failed `VACUUM`, or the back-off stop.
-
-**File inventory addition**: fix the comments `State.Attempts` (`state.go:64`) and `Inputs.Attempts` (`plan.go:58`): "consecutive failed conversions" -> "failed conversion attempts recorded for this file since the last successful conversion or manual reset (not necessarily consecutive)".
-
-**Tests**
-
-1. `runner_test.go`: `TestRun_PreConversionFailuresAreCounted` table: (a) `Inspect` failure via `h.deps.DBPath = h.path + ".missing"` (rewrite of `TestRun_UninspectableDatabaseFailsWithoutConvertingOrCounting`, X2) -> `attempts()==1`, `convertCalls==0`; (b) non-busy probe error via `h.deps.Probe` returning `errors.New("disk I/O error")` -> counted; (c) marker write failure that leaves the counter writable: create a SQLite trigger on `settings` (`CREATE TRIGGER no_marker BEFORE INSERT ON settings WHEN NEW."key"='maintenance.in_progress' BEGIN SELECT RAISE(ABORT,'readonly'); END`) -> `Failed`, `attempts()==1`, `convertCalls==0`; (d) marker write failing with a busy error (trigger raising `database is locked`... or a fake via the pinned-conn seam if the trigger cannot produce the string; fallback: unit test the classification helper `isWriterBusy` + a runner test using a `SQLExecer` seam) -> `Skipped/database_busy`, not counted, flag kept; (e) cancelled ctx during Inspect/marker stays `Cancelled`, not counted (existing `TestRun_CancelJustBeforeTheConversionStartsIsNotAFailure` keeps passing).
-2. Keep `TestRun_MarkerWriteFailureFailsWithoutConverting` (DROP TABLE) and extend its comment: the count is unobservable by design when the table is gone; assert no panic, one Warn, `PhaseFailed`.
-3. Flag interplay: `TestRun_FlagIsConsumedByAConversionAndByACountedFailure` keeps its cases (conversion, failed `VACUUM`) and gains a "counted pre-conversion failure keeps the flag" subtest (flag row still set, `attempts()==1`), plus the `isWriterBusy` code table from the design.
-4. Unwritable-database behaviour (documented limit): a test with the real DB opened `?mode=ro` is not required; the DROP TABLE test above covers "state cannot be recorded".
-
-**Risks**: a transient non-busy error (a one-off I/O error, a probe/`Inspect` hiccup) now costs one of three tries instead of none. The counter is **not** a consecutive-failure counter: only a conversion resets it (`persist`, the `Result.Converted()` branch). A boot that merely skips (`below_threshold`, `database_busy`, `already_optimized`) leaves it alone, so one transient error followed by non-converting good boots leaves `attempts=1` dangling, and two more unrelated failures months later lock the user out of the automatic path until they press the button (which resets it). `database_busy` stays uncounted.
-
-**Decision (S2): option (a), correct and document, no decay in this patch.** Justification: a decay needs either a new persisted timestamp (state and migration surface, not a patch-size change) or a reset on a "healthy skip", which is subtly unsafe (a skip such as `database_busy` is decided after the conversion attempt began, and an `already_optimized` reset is exactly item 3's job and already covered). The blast radius is small: the user-visible stop is the existing `too_many_failures` notice with a one-click remedy, and the automatic path only matters for databases that still need conversion. Document the limit in `docs/database-maintenance.md` ("failed starts are counted until the next successful optimization or until you press the button"). A time-based decay is a candidate follow-up if a report appears.
-
-### 3.3 Item 3 - stale marker counted although nothing failed
-
-**Cause**: `settleConverted` runs `checkpointWithRetry` (up to about 90 s: 6 retries, 2 s doubling, 30 s cap) *before* `persist` clears the marker. A SIGKILL/power cut in that window leaves marker + a database already in mode 2. Next boot `consumeMarker` counts 1 and nothing resets it (`ResetAttempts` runs only on a conversion). Effect: a lingering `maintenance.attempts = 1`; harmless to decisions (a mode-2 file never converts again, `Decide` returns `already_optimized` first) but a false failure signal in the state.
-
-**Alternatives**: (a) clear the marker immediately after `VACUUM` returns nil (root-cause shrink of the window) - rejected: reorders `settleConverted` against tests that pin the M1 ordering of the cancelled path, and still leaves the millisecond window plus existing v0.44.0 stale markers; (b) detect at load - **chosen**, covers every cause and installs already carrying a stale marker.
-
-**Design**
-
-- `backend/internal/dbmaint/state.go`: new `func (s *Store) DiscardMarkerIfConverted(ctx, fileID string) (bool, error)`: if a marker for the same file exists, delete it and `ResetAttempts` (nothing failed and nothing will ever convert this file again), return true; another file's marker is left to `consumeMarker`'s existing deletion. Idempotent.
-- `backend/internal/dbmaint/startup.go` `StartupPlan`: before `Load`, read the mode with the existing `readPragma(ctx, db, "auto_vacuum")`; if it equals `AutoVacuumIncremental`, call `DiscardMarkerIfConverted` and log one Info line ("database optimization had completed before an earlier shutdown; clearing the leftover marker"). If `DiscardMarkerIfConverted` returns an error, log a **Warn** and continue (do not fail the plan: aborting would skip optimization for that boot over a cosmetic cleanup; `Load` then behaves exactly as before, counting the marker once). `Load` itself keeps its signature (7 call sites in tests/handler unchanged) and then finds no marker.
-- `Peek` (status endpoint) untouched (read-only by contract).
-- Do **not** write a `last_result` (bytes unknown; the UI would show 0 -> 0). A `converted` history entry is not needed: the status page derives "optimized" from the live `auto_vacuum` value.
-
-**Tests**: `state_test.go`: marker + counter 2 for the same file -> `DiscardMarkerIfConverted` returns true, marker gone, counter 0; other file's marker -> false, untouched; no marker -> false; closed DB -> error. `startup_test.go`: `StartupPlan` with `DiscardMarkerIfConverted` failing (a trigger on `settings` that aborts the marker delete, or a closed pinned store) on a mode-2 DB still returns a plan (no error, `already_optimized`) and logs one Warn. Also: `StartupPlan` on a mode-2 scratch DB with marker + counter 1 -> counter 0, marker gone, `Decision.Reason == already_optimized`; on a mode-0 DB the marker still counts (regression of `TestStore_LeftoverMarkerForTheSameFileCountsAsAFailedAttempt`, which stays green unchanged).
-
-### 3.4 Item 4 - root-run CLI creates a root-owned `<data>/.tmp`
-
-**Who can create it** (verified): the entrypoint (root) does not; the service (euid `charon`) does at first boot; only a **root** process that reaches `loadConfigForDatabase` first can create it root-owned: `docker exec charon /app/charon reset-password|migrate` (root in this compose) or `docker run --rm -v data:/app/data charon /app/charon migrate` against an upgraded-but-never-started volume, or an exec in the first seconds of a boot. Since `.tmp` exists after the first boot of v0.44.0+, the window is small. The mirror case is real and today's behaviour: with a charon-owned `.tmp` present, a root CLI fails the owner check (`tmpdir.go:56`, `Uid != Geteuid`) and logs the Warn "database temp directory not prepared" on every CLI call (noise only).
-
-**Alternatives**: (1) skip when euid 0 and the data dir is not root-owned - **chosen** (the issue's suggestion); (2) `chown` to the data dir owner after `Mkdir` - rejected: more code, a symlink-swap surface under a root process, and the owner check would have to be loosened for root; (3) do not prepare the temp dir for CLI subcommands - rejected: `migrate` builds/drops indexes on possibly multi-GB tables and benefits from the data volume instead of a small `/tmp` (the original #1422 reason, `main.go:75-86`); (4) lazy creation only in the server path - rejected: same effect as (3), plus restructuring `main`.
-
-A root process that skips simply leaves SQLite on its default search order (`/var/tmp`, `/usr/tmp`, `/tmp`), which is what v0.43 did for the CLI.
-
-**Design** - `backend/internal/dbmaint/tmpdir.go`:
-
-- The existing owner check (`tmpdir.go:56`, `int64(st.Uid) != int64(os.Geteuid())`) must also call `currentEUID()` instead of `os.Geteuid()`, so the seam is consistent and a test that stubs the euid sees the same value in both places.
-- Add `var ErrTempDirSkipped = errors.New("temp directory left to the data directory owner")` and a package-level seam `var currentEUID = os.Geteuid` (tests only).
-- In `PrepareTempDir`, before the `Lstat`: `os.Stat` the cleaned data dir; if `currentEUID() == 0` and the owner uid != 0, return `ErrTempDirSkipped` (no create, no chmod). If that `os.Stat` fails (missing or unreadable data dir), do not skip: fall through to the existing behaviour (the `Lstat`/`Mkdir` path and its own errors, logged by `ApplyTempDir` as a Warn as today). Test: nonexistent data dir with `currentEUID` stubbed to 0 returns the existing error, not `ErrTempDirSkipped`. All existing rules stay: `Lstat` first, refuse symlinks/non-directories, owner must equal euid, mode tightened to 0700. A server running as root against a root-owned data dir (rootless Docker maps uid 0) behaves exactly as before.
-- `ApplyTempDir`: `errors.Is(err, ErrTempDirSkipped)` -> `logger.Log().Debug(...)` and return (no Warn); other errors keep the Warn.
-- `main.go` and the comment on `loadConfigForDatabase` need no code change (add one sentence to the doc comment).
-
-**Tests** (`tmpdir_test.go`): table-test a pure helper `rootShouldSkip(euid int, ownerUID uint32) bool`; `PrepareTempDir` with `currentEUID = func() int { return 0 }` on a t.TempDir owned by the (non-root) test user -> `ErrTempDirSkipped` and **no `.tmp` created**; same with a pre-existing `.tmp` (no Warn path, nothing modified, mode untouched); with `currentEUID` returning the real uid the existing tests behave as before; `ApplyTempDir` with the seam -> env unset, no directory. A root-owned data dir cannot be built in CI without root: covered by the pure helper. Guard: the seam tests that assume a non-root test user (data dir owned by the test user, stubbed euid 0) start with `if os.Geteuid() == 0 { t.Skip("owner of t.TempDir would be root; covered by rootShouldSkip") }`, so they do not misbehave when CI runs the tests as real root (the pure-helper table has no such dependency). The existing symlink/regular-file/other-owner refusal tests stay green.
-
-**Existing installs already affected** (root-owned `.tmp`): the service logs the Warn each boot and falls back, harmless. Manual fix goes in the troubleshooting docs: `docker exec charon chown charon:charon /app/data/.tmp` (see Q1 for an automatic fix).
-
-### 3.5 Item 5 - naming
-
-`backend/internal/dbmaint/spike_test.go` (451 lines) holds permanent regression tests pinning `glebarez/go-sqlite` behaviours. Split by topic with `git mv` so history follows:
-
-| New file | Content moved from `spike_test.go` | Rename |
-| --- | --- | --- |
-| `backend/internal/dbmaint/driver_behavior_test.go` (`git mv` of the original) | everything that exercises SQLite/driver semantics: pragma order, VACUUM on a pinned conn, BEGIN EXCLUSIVE, `incremental_vacuum` Query vs Exec, VACUUM INTO, open rows block the pool, checkpoint busy column, prepared statements after VACUUM, VACUUM cancel early/late, plus the `buildCancelDB`/`vacuumWithCancel`/`openTempFDs`/`queryDrainStep` helpers | `TestSpike_*` -> `TestDriver_*`; header comment already says "Regression tests that pin the behaviour of the driver" - keep, drop the word "spike" |
-| `backend/internal/dbmaint/tmpdir_test.go` (append) | `TestHelperTmpdirSpike`, `runTmpdirSpike`, `TestSpike_SQLiteTmpDirOnlyHonouredBeforeFirstOpen` (topic: `SQLITE_TMPDIR`; sits next to the tmpdir tests) | `TestHelperTmpdirSpike` -> `TestHelperTmpdirProbe`; `runTmpdirSpike` -> `runTmpdirProbe`; env vars `CHARON_TMPDIR_SPIKE*` -> `CHARON_TMPDIR_PROBE*`; the `-test.run` regexp string in the helper launcher must change with the function name; test -> `TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen` |
-| `backend/cmd/api/gin_listener_test.go` | `TestSpike_GinRunListenerServesOnABoundListener` (it pins the gin API `main` relies on; it does not belong in `dbmaint`) | `TestGin_RunListenerServesOnABoundListener`; moves its `gin`, `net`, `io`, `http` imports with it |
-
-Also change the two code comments: `drain.go:63` ("(spike_test.go)" -> "(driver_behavior_test.go)") and `tmpdir.go:16` ("spike-verified, see spike_test.go" -> "verified by TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen"). Archived plan text keeps its historical wording (no edit to `docs/plans/archive/`). A repo-wide `grep -rni "spike_test\|TestSpike"` must be empty afterwards (outside the archive). No Codecov/Sonar path rules reference the old name (checked: `grep -rn spike_test .codecov.yml sonar* .github` is empty).
-
-Test count and names must be identical modulo the rename; the gate compares `go test -list '.*' ./internal/dbmaint ./cmd/api` before/after (same count, new names).
-
-### 3.6 Item 6 - `PRAGMA journal_size_limit`
-
-**Evidence** (section 2.3): with a permanent single connection the WAL file keeps the size of its largest burst until a `TRUNCATE` checkpoint; with the limit it is truncated at the first WAL reset after the burst. Existing mitigations: pruner `wal_checkpoint(TRUNCATE)` only when a pass deleted >= 50 000 rows; `Drain` and the conversion checkpoint truncate when they run. What the limit actually does (corrected, verified by re-running the experiment): it only trims a WAL that is **larger than the limit**, at the next WAL reset after a checkpoint. A 43.5 MB WAL stays 43.5 MB with a 64 MiB limit; with a 4 MiB limit it trims to about 4.19 MB. So at 64 MiB it caps leftover growth at about 64 MB; it does not "keep the log small". Gaps it closes: (a) the pruner's `wal_checkpoint(TRUNCATE)` is threshold-gated (>= 50 000 deleted rows), so a burst that is not a big prune (boot-time index builds, restore/import, `AutoMigrate`, the bulk `DELETE` of many hosts) leaves the high-water mark in place for the life of the connection; (b) `converted_pending_checkpoint` after the `VACUUM` copy-back (the WAL can be as large as the database when a reader pinned the checkpoint): once the reader is gone the next auto-checkpoint + WAL reset trims it to the limit. Steady-state WALs are far below 64 MiB (the live one is 6 MB), so the limit never touches them. It does not replace the explicit TRUNCATE checkpoints (it is a trim, not a forced checkpoint, and does nothing while a reader pins the WAL).
-
-Concerns checked: it is a per-connection setting, and `configurePool` allows exactly one connection with `ConnMaxLifetime(0)`, so `sqlDB.Exec` in `Connect` configures the connection the whole process uses (the same assumption `busy_timeout`/`synchronous`/`cache_size` already rely on; a driver-recycled connection would lose all of them equally). `dbmaint` pins that same connection for `VACUUM`, so the setting is active during the conversion. `VACUUM INTO` (backups) writes a separate file, not this WAL. The boot `quick_check` uses its own connection (default behaviour, read-only, unaffected). Cost: one `ftruncate` at a WAL reset when the file exceeds the limit; a WAL that stays under 64 MiB (the live one is 6 MB) is never touched.
-
-**Verdict: apply, 64 MiB.** Large enough to never act at steady state, small enough to cap leftover growth from bursts the pruner threshold misses.
-
-**Design**: `backend/internal/database/database.go`: add `const journalSizeLimitBytes = 64 << 20` and the pragma `fmt.Sprintf("PRAGMA journal_size_limit=%d", journalSizeLimitBytes)` to the pragma list after `journal_mode=WAL`. `gofmt` alignment of the trailing comments in that slice is preserved.
-
-**Tests**: `database_test.go`: `Connect` on a temp file -> `PRAGMA journal_size_limit` returns `67108864`. `driver_behavior_test.go`: `TestDriver_JournalSizeLimitTruncatesTheWALAfterAReset` on a scratch DB with a 1 MiB limit: one large insert transaction (> 1 MiB WAL), then a few hundred small autocommit writes on the same single connection; assert the `-wal` file size ends <= limit, and (control) the same sequence without the limit leaves it larger. Deterministic (single connection, no timers). Docs: a `journal_size_limit` row in the "Database Configuration" table plus one sentence in "WAL File Is Very Large" (section 6).
-
-**Rollback**: remove the one pragma line and the tests; no persisted state (the pragma is not stored in the file).
-
-## 4. Implementation plan
-
-### Phase 1 - Playwright
-No user-visible behaviour changes (no UI, API or notice wording change), so **no new or changed E2E specs**. The existing Tasks -> Database spec is untouched; CI runs the suite.
-
-### Phase 2 - Backend
-Commits 1-6 below. No models, no migrations, no new routes.
-
-### Phase 3 - Frontend
-None.
-
-### Phase 4 - Integration and testing
-Real-`main()` regression: `go test ./cmd/api -run TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts -count=1` (slow; builds a 240 MB scratch DB) at the commit 2 and commit 3 gates and once more at the very end (after commit 7), and the item 1 loop test with the real settings DB (unit-level, fast).
-
-### Phase 5 - Documentation
-`docs/database-maintenance.md` (details in 6). `ARCHITECTURE.md`: no change (the pragma set is not listed there; no new component, directory or security-architecture change). `docs/features.md`: no change.
-
-## 5. Commit Slicing Strategy
-
-Decision: **one PR** into `development` (`fix/db-maintenance-followups-1427`), ordered logical commits, each green on its own gate. Test-first inside each commit (red then green; the tests ship in the same commit as the fix so every commit builds and passes). No E2E commit. ENV for every gate: `export TMPDIR=/var/tmp GOTMPDIR=/var/tmp` (the 64 MB `/tmp` tmpfs is full of leaked files, GH #1426), run foreground and blocking.
-
-Common gate for every code commit (from `/projects/Charon/backend`): `go build ./... && go vet ./internal/dbmaint/... ./internal/database/... ./cmd/api/...` and `go test -race -count=1 ./internal/dbmaint/... ./cmd/api/...` (add `./internal/database/...` in commit 6 and `./internal/api/handlers/...` in commit 3), plus `make lint-fast` (lefthook pre-commit runs staticcheck and is blocking).
-
-| # | Commit (conventional) | Scope / files | Depends on | Validation gate (beyond the common gate) |
+| Rank | Item | Kind | Severity | Why this position |
 | --- | --- | --- | --- | --- |
-| 1 | `refactor: rename and split the dbmaint driver regression tests` | `git mv backend/internal/dbmaint/spike_test.go driver_behavior_test.go`; move tmpdir helper+test into `tmpdir_test.go`; move gin test to `backend/cmd/api/gin_listener_test.go`; rename `TestSpike_`/`TestHelperTmpdirSpike`/env vars; comments in `drain.go:63`, `tmpdir.go:16`. No behaviour change. | - | `go test -list '.*'` of both packages: same number of tests, only names differ; `grep -rniE "spike_test|TestSpike|TMPDIR_SPIKE" backend` (excluding none) is empty; `go test -race` passes incl. the re-exec helper. |
-| 2 | `fix: stop a reclaim request from bypassing the failure back-off` | `plan.go` (`Decide`), `plan_test.go`, `startup_test.go` (loop test), `database_maintenance_handler_test.go` (notice case) | 1 (new test files land in final locations) | Common gate with handlers; targeted `go test ./internal/dbmaint -run 'TestDecide|TestStartupPlan|TestStart'`; real-`main()` test `TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts` (SIGTERM and SIGKILL, slow, run explicitly with `-count=1`, not `-short`) passes; also covers the `logPlanSkip` Warn test. |
-| 3 | `fix: count failures that happen before the conversion starts` | `runner.go` (`abortBeforeConversion`, `acquireConn` probe branch, `keepFlag`/`consumesFlag`, busy classification of the marker write, `isWriterBusy` in `probe.go`, X1 log text, `Attempts` comment fixes in `state.go`/`plan.go`), `runner_test.go` (new table, X2 rewrite) | 2 | Common gate; `go test ./internal/dbmaint -run 'TestRun_'`; real-`main()` test `TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts` (SIGTERM and SIGKILL, slow, `-count=1`, not `-short`) passes again, because this commit changes the runner; no assertion in the suite still depends on "pre-conversion failures never count". |
-| 4 | `fix: ignore a leftover marker once the database is already optimized` | `state.go` (`DiscardMarkerIfConverted`), `startup.go` (`StartupPlan`), `state_test.go`, `startup_test.go` | 2 | Common gate; `TestStore_LeftoverMarkerForTheSameFileCountsAsAFailedAttempt` unchanged and green. |
-| 5 | `fix: leave the temp directory alone when a root-run command targets another user's data directory` | `tmpdir.go` (`ErrTempDirSkipped`, `currentEUID`, `ApplyTempDir`), `tmpdir_test.go`, one sentence in the `loadConfigForDatabase` comment (`cmd/api/main.go:75`) | 1 | Common gate; existing refusal tests (symlink, file, other owner) green. |
-| 6 | `fix: cap the leftover size of the write-ahead log after large bursts` | `backend/internal/database/database.go`, `database_test.go`, `driver_behavior_test.go` (behavioural test) | 1 | Common gate plus `go test -race ./internal/database/...`; the existing `Connect` tests and the pruner tests green; `TestDriver_JournalSizeLimit...` shows the control (no limit) larger than the limited run. |
-| 7 | `docs: document the follow-up behaviour of database maintenance` | `docs/database-maintenance.md` (6 below: pragma table row, WAL sentence, back-off notes, `.tmp` entry); `ARCHITECTURE.md` untouched | 2-6 | `markdownlint` via lefthook; links intact; `docs-site` manifest unchanged (no new file). |
+| 1 | #1426 temp leaks | `fix:` + `test:` (bug) | medium for developers (a full /tmp already broke a coverage run and would break the Definition of Done runs for every following PR); low in production | Cheap, disjoint from the rest, and it unblocks reliable local `go test` / coverage runs for PRs 2 and 3. Do it first. |
+| 2 | #1438 Reclaim reset + #1436 SIGTERM back-off | `fix:` (bugs) | low (self-healing, data never at risk, proxying unaffected) | Bugs outrank the performance work. Bundled in one PR because they edit the same state record, the same `Decide` predicate and the same doc section (see 4). |
+| 3 | #42 database slice (uptime summary refresh) | `perf:` | medium (a 1.4 s stall of the only DB connection every 30 s per active dashboard, at 150 monitors) | Not a `feat`, but it is an optimization, so it follows the bug fixes. It is the only part of #42 with measured evidence. |
+| later | Child issues of #42 (5.3) | various | low/medium | Filed as issues now (no approval needed), scheduled after this work. |
 
-Final Definition of Done for the PR (once, after commit 7):
+The user's stated focus (database work before the weekly rebuild) is respected: all three PRs are database/DB-test work. If time is short, PR 1 and PR 3 are the ones with visible value; PR 2 is correctness polish.
 
-1. Playwright: not applicable (no UI/API change); CI covers the suite. If the reviewer wants a smoke: `npx playwright test tests/<tasks-database spec> --project=firefox` only.
-2. GORM scan: not triggered (no models/GORM queries; `Store` uses `database/sql`). Cheap to run anyway: `./scripts/scan-gorm-security.sh --check`.
-3. `bash scripts/local-patch-report.sh` -> `test-results/local-patch-report.{md,json}`.
-4. `lefthook run pre-commit`; `make lint-fast`; `make lint-backend` before the PR.
-5. Coverage: `scripts/go-test-coverage.sh` >= the gate (85%, `CHARON_MIN_COVERAGE`); new code is fully covered by the tests above.
-6. Real-`main()` SIGTERM/SIGKILL test, once more on the final tree: `go test ./cmd/api -run TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts -count=1`.
-6a. `cd backend && go build ./... && go vet ./... && go test -race -count=1 ./internal/dbmaint/... ./internal/database/... ./cmd/api/...` and the unraced remainder via the coverage script.
-7. CodeQL and Trivy: deferred to CI (no `feat:` commit, no new code path with external input; item 4 only narrows a filesystem operation).
-8. Frontend type-check/build: untouched, not required.
+## 3. Per-issue analysis
 
-**Rollback and contingency**: every commit is independently revertable (1 is a rename, 6 is one pragma, 2-5 are small and covered by their own tests). If the real-`main()` test fails at the commit 2 or commit 3 gate, revert that commit and re-plan; do not weaken the test. If `TestDriver_JournalSizeLimit...` proves timing-sensitive on CI filesystems, keep only the `PRAGMA` read-back test in `database_test.go` and document the measurement (section 2.3) instead of the behavioural test. If the supervisor prefers, item 6 can drop to "documented as not needed" by omitting commit 6 and adding the evidence to docs; nothing else depends on it.
+### 3.1 #1426 test: backend tests leak large temp files into /tmp
 
-## 6. Documentation to update (commit 7)
+**Reproduction (done).** With `TMPDIR` pointed at a fresh directory under `/var/tmp`, the full `go test ./... -count=1 -p 4` (2 min 29 s, all green) leaves exactly:
 
-`docs/database-maintenance.md`:
+| Leftover | Count / size | Source |
+| --- | --- | --- |
+| `charon-restore-db-*.sqlite` | 25 files, 112 MB total (24 files of 8-200 KB, one of **111 MB**) | `extractDatabaseFromBackupWithSizes` result retained in `BackupService.restoreDBPath` |
+| `cpm-backup-test<N>/` (zip + dirs, few KB) | 1 dir | `backend/internal/api/handlers/backup_handler_test.go:160` `os.MkdirTemp("", "cpm-backup-test")` in `setupBackupTest`, never removed |
+| `crowdsec-test-nonexistent-<TestName>/` (empty dir) | 1 dir | `backend/internal/api/handlers/crowdsec_handler_test.go:2911`: the test builds a path in `os.TempDir()`, the handler (or fixture) creates it, nothing removes it |
 
-- "Automatic cleanup has stopped" (~L140) and troubleshooting entry (~L455): state that this also applies to a **Reclaim space on next restart** request: after 3 failed or interrupted starts Charon stops and the request is cleared; press the button again to retry. Keep the plain-language tone.
-- "Database Configuration" table (L44-50, which already lists `journal_mode`, `busy_timeout`, `synchronous`, `cache_size`): add the row `| \`journal_size_limit\` | 64MB | Caps leftover write-ahead log growth at about 64 MB |`.
-- "WAL File Is Very Large" (~L424): add that Charon caps leftover write-ahead log growth at about 64 MB on its own (the limit trims a log larger than 64 MB at the next checkpoint; it does not shrink smaller ones), and that the manual checkpoint is only needed for older versions or an unusually long-running reader. Never describe it as keeping the log small.
-- Back-off note: failed starts are counted until the next successful optimization or until you press the button; they are not required to be consecutive.
-- New short troubleshooting entry (data directory section, near the other `docker exec` advice): "Warning: database temp directory not prepared" after running `charon reset-password`/`migrate` as root: `docker exec charon chown charon:charon /app/data/.tmp` (or delete the folder while Charon is stopped) and restart. Mention that newer versions no longer create it as root.
-- No change to the `too_many_failures` notice text in the UI (no frontend/i18n edit).
+The issue text says "about 111 MB each"; that is inaccurate: only the file produced by `TestRestoreBackupSafe_LargeDatabaseRoundTrip` (`backup_service_v2_hardening_test.go:339`) is 111 MB, the other 24 are tiny. The ~1,079 files in the issue are therefore ~43 full runs times 25 files, and the multi-GB total is ~43 x 111 MB. Per-test bisection (each test run in its own `TMPDIR`) found 21 tests that leave one file each, all of them go through `restoreBackupSafeLockedWithProgress` (`TestRestoreBackupSafe_*`, `TestStartRestoreJob_*`), the legacy `RestoreBackup` + `RehydrateLiveDatabase` pair, or `extractDatabaseFromBackup` directly.
 
-`ARCHITECTURE.md`: no change (verified: `grep cache_size ARCHITECTURE.md` has no hit, so the pragma set is not listed there).
+**The pruner scratch directory is not a steady-state leak.** `TestUptimePruner_TickReturnsFreedPagesToTheOS` uses `t.TempDir()` and, run alone and with the whole `TestUptimePruner*` set (with and without `-race`), leaves nothing. The ~161 MB `TestUptimePruner_TickReturnsFreedPagesToTheOS*` directory in the issue can only come from a run that was aborted (`go test -timeout` panic, Ctrl-C, SIGKILL, OOM or the "No space left on device" link failure) before `t.TempDir()` cleanup ran. It cannot be reproduced by a normal run, and no code change can make an aborted process clean up after itself; mitigation is the sweep in 3.1.4.
 
-## 7. Acceptance criteria
+**Root cause (production, not only tests).**
+`restoreBackupSafeLockedWithProgress` (`backup_restore_safe.go:255-270`) deliberately keeps the extracted snapshot alive "past this function" (`validated.dropFromCleanup(validated.restoreDBPath)`; stored in `s.restoreDBPath`) because `RehydrateLiveDatabase` reads it. But once the function returns, the snapshot has no further purpose: either the live rehydrate succeeded (rows copied), or the durable `charon.db.pending-restore` file was written by `writePendingRestoreFile` (a **copy**, `io.Copy`), or both failed and the user is told to use the pre-restore backup. The path is only replaced on the *next* restore. So a production process holds one DB-sized file (e.g. 111 MB) in the OS temp directory (container writable layer) from the first restore until the next restore or container recreation. Bounded (one file), but real, and it is also what the tests inherit.
+The extraction function itself does **not** leak on its error paths: every failure branch after `os.CreateTemp` removes `tmpPath`, `-wal` and `-shm` (verified by reading `backup_service.go:1679-1790`). `RehydrateLiveDatabase`'s second temp (`charon-restore-src-*.sqlite`, L1468) is removed by `defer`. The legacy `BackupService.RestoreBackup` (L1396) has **no production caller** (only tests, and the `RestoreBackup(filename string) error` method of an interface in `certificate_handler.go:29`); it is dead code that keeps the cross-call field alive (see 5.3, child issue C8).
 
-1. A flagged start that is hard-killed on every boot stops after `MaxConvertAttempts` conversions with `too_many_failures`, the flag cleared, no further 503 windows; pressing the button again starts a fresh 3-try cycle. Test: `StartupPlan` loop test.
-2. `Decide(flag, attempts >= Max)` returns `too_many_failures` with `ClearFlag`; the floor (`nothing_to_reclaim`), `already_optimized` and `disabled_by_env` outcomes are unchanged.
-3. An `Inspect` failure, a non-busy probe error and a non-busy marker-write failure each record one failed attempt; a `SQLITE_BUSY` marker write is `database_busy` and uncounted; shutdown-time failures are never counted; a missing `Convert` is still uncounted; counted pre-conversion failures keep a pending reclaim request (the flag), which only a conversion, a failed `VACUUM` or the back-off stop clears.
-4. A marker left for a file that is already incremental is deleted at startup, the counter is reset, nothing is counted; a marker on a mode-0 file still counts one attempt.
-5. A process with euid 0 and a non-root-owned data directory neither creates, modifies nor warns about `<data>/.tmp`; a non-root service or a root service on a root-owned data directory behaves as before; symlink/file/other-owner refusals unchanged.
-6. No file, function or test name in `backend/` contains `spike`; the test count is unchanged by commit 1.
-7. `Connect` sets `journal_size_limit` to 64 MiB; the behavioural test shows the WAL truncated to the limit after a burst.
-8. Docs updated as in section 6. All DoD gates in section 5 pass; no test skipped, deleted or weakened (only the three intentionally flipped assertions listed in X2/3.1).
+**Design options.**
 
-## 8. Open questions (genuine, with recommendations)
+| Option | Verdict |
+| --- | --- |
+| A. Tests only: `t.Setenv("TMPDIR", t.TempDir())` per test | Rejected as the only fix: ~270 restore-related tests would each need it, and the production retention stays. `t.Setenv` also forbids `t.Parallel()`. |
+| B. Production only: discard the snapshot at the end of the restore pipeline | Necessary (fixes 21 of 21 pipeline tests and the real leak) but does not cover the legacy two-step tests or other packages' leaks. |
+| C. Package-wide TestMain guard (private temp root, assert empty, always remove) | Necessary as the safety net: catches every present and future leak, self-cleans, fails loudly. |
+| D. Delete the dead legacy `RestoreBackup` now | Deferred: it removes ~19 test call sites and an interface method plus mocks; larger than a leak fix. Filed as child issue. |
 
-- **Q1. Should the entrypoint repair an already root-owned `/app/data/.tmp` at container start?** It is the only place that runs as root before the service and could `chown -h charon:charon` it (guarded by `[ -d ] && [ ! -L ]`). **Supervisor answer: no (no entrypoint chown).** Item 4's fix prevents new cases, the live system is not affected, a symlink-following `chown` as root is exactly the class of bug worth avoiding in a shell script, and the docs entry gives the one-line manual fix. Revisit only if an actual report appears.
-- **Q2. `journal_size_limit` value and whether to apply it at all.** **Supervisor answer: yes, apply 64 MiB.** Rationale: it closes the gap left by the pruner's threshold-gated checkpoint and the boot-time index builds, while steady-state WALs are far below 64 MiB so it never touches them (evidence 2.3 and 3.6). If the maintainers prefer zero default-behaviour change in a follow-up release, the alternative is "documented as not needed" with the measurement in the docs; commit 6 is isolated for that.
-- **Q3. Released as?** All commits are `fix:`/`refactor:` so the release is a patch bump (0.44.1) through release-please. **Supervisor answer: yes, patch bump** (the item 1 loop is a real, if rare, user-facing fault worth a patch release).
+**Decision: B + C, plus targeted source fixes for the three known sources.**
 
-## 9. Follow-ups NOT in this PR (for the orchestrator to file)
+3.1.1 Production fix (`fix:`), `backend/internal/services/backup_restore_safe.go` and `backup_service.go`:
+- Add `func (s *BackupService) discardRestoreSnapshot()` that removes `s.restoreDBPath`, `+"-wal"`, `+"-shm"` (ignoring not-exist) and clears the field. Caller holds `s.mu`.
+- In `restoreBackupSafeLockedWithProgress`, right after `s.restoreDBPath = validated.restoreDBPath`, `defer s.discardRestoreSnapshot()` (runs on success, on every error return, and on the unrecoverable-error return; `s.mu` is held by the caller for the whole function, including from `StartRestoreJob`'s goroutine).
+- `RehydrateLiveDatabase` keeps its fallback to `s.restoreDBPath` (still used by the legacy tests and by the pipeline's own retry loop, which runs before the deferred discard).
+- Tests: (1) after a successful `RestoreBackupSafe`, `s.restoreDBPath == ""` and the file is gone; (2) after a pipeline failure at the pre-restore backup step and at the apply step, same; (3) after the rehydrate-fails + pending-file-written path, the `.pending-restore` file still exists and the snapshot is gone (proves the copy is independent); (4) after the unrecoverable double failure, snapshot gone; (5) `discardRestoreSnapshot` on an empty field is a no-op. Existing test `TestBackupService_RestoreBackup_ReplacesStagedRestoreSnapshot` (legacy path) must stay green.
 
-- **SIGTERM-interrupted conversions are never counted.** An orderly stop mid-conversion ends `interrupted` and no marker remains, so a run that is repeatedly SIGTERMed (for example by an orchestrator healthcheck or restart policy firing during the 503 window of a multi-GB `VACUUM`) restarts the conversion on every boot forever, with no back-off. Pre-existing, independent of #1427, and outside this patch's scope. **Recommendation: file it as a GH issue** (low priority, `bug`, area database), proposing either counting an interrupted conversion that made no progress or a wall-clock budget; it needs a design decision, so it should not ride on this PR.
-- Time-based decay of the failed-attempt counter (S2 option b), only if a report appears.
+3.1.2 Test source fixes (`test:`):
+- Legacy-path tests (17 `svc.RestoreBackup(` call sites in `backup_service_test.go`, 2 in `backup_service_rehydrate_test.go`, plus the 5 direct `extractDatabaseFromBackup` calls): register `t.Cleanup(svc.discardRestoreSnapshot)` through one shared helper (for example `newTestBackupServiceWithCleanup`), and for the direct `extractDatabaseFromBackup` calls `t.Cleanup(func(){ os.Remove(path) })`.
+- `setupBackupTest` (handlers): use `t.TempDir()` instead of `os.MkdirTemp`.
+- `TestCrowdsecHandler_ListFiles_DirectoryNotExists`: make the "nonexistent" path a child of `t.TempDir()` that is never created (`filepath.Join(t.TempDir(), "nonexistent")`); then there is nothing to leak and `t.Name()` in a global path (parallel-name collision risk) disappears.
+
+3.1.3 Guard (`test:`): new package `backend/internal/testutil/tmpguard` exporting `Run(m *testing.M) int`:
+1. `base, _ := os.MkdirTemp("", "charon-gotest-*")`; `os.Setenv("TMPDIR", base)` so `os.TempDir()`, `t.TempDir()`, `os.CreateTemp("", ...)` all land inside it.
+2. `code := m.Run()`.
+3. List `base`: any entry left means a test leaked. Print each name and size to stderr; `os.RemoveAll(base)` **always** (self-heal, so /tmp can never fill again even if a test regresses); if `code == 0` and entries exist, return 1 (fail the package with a clear message naming the leaked files).
+4. Sweep: on start, remove sibling `charon-gotest-*` directories older than 24 h in the original temp root (leftovers from aborted runs, only our own prefix; never touches anything else).
+Wire it into the two packages whose full runs leaked: `internal/services` (existing `TestMain` in `mail_service_test.go` calls `initializeTestCAForSuite`, sets `SSL_CERT_FILE`; wrap its `m.Run()` with `tmpguard.Run`; **the test CA file `testCAFile` is written to `os.TempDir()` by `initializeTestCAForSuite` (`mail_service_test.go:82`, fixed name `charon-test-ca-mail-service.pem`) before `m.Run()` and removed at L50 after it. Wrap only the `m.Run()` call (L47), so the file is created before the guard redirects `TMPDIR` and removed after it is done, in the original temp root; if the wrapper ever starts before `initializeTestCAForSuite`, the CA file would land in the guarded root and be reported as a leak, so move its `os.Remove` into the guarded function before the leak check**) and `internal/api/handlers` (`testmain_test.go`). **Rollout checks before merge (SF-nits):** `tmpguard.Run` removes the base with `os.RemoveAll`, which fails on a read-only directory a test left behind (tests that `chmod 0500` a dir): walk the base and restore write permission (`filepath.WalkDir` + `os.Chmod(dir, 0o700)`) before `RemoveAll`, or tolerate and report the failure without failing the package. Run both packages with `go test -count=5` **and** `-race` (`./internal/services/... ./internal/api/handlers/...`, each in its own run) with a private empty `TMPDIR`, which must be empty afterwards. The other packages with a `TestMain` (`cmd/api` spawns real child processes, `internal/dbmaint`, `internal/database`, `cmd/localpatchreport`) were clean in the full run and are left alone; adding the guard there is optional and is listed in the child issue (C8).
+Tests for the guard itself (`tmpguard_test.go`): a leaked file makes `Run` return 1 and still removes the base; a clean run returns 0; the sweep removes a stale (mtime-aged) `charon-gotest-*` dir and leaves a fresh one and an unrelated dir. `Run` takes the `m.Run` function through a small seam (`runFn func() int`) so it is testable without a real `*testing.M`.
+
+3.1.4 Residual: aborted runs. The guard cannot clean when the process is killed; the 24 h sweep removes such leftovers on the next run of the package. The ~1,000 old files already in the developer's `/tmp` are **not** touched by this plan (manual one-off `rm` by the owner; they are the only thing that still matches the pattern `charon-restore-db-*` in `/tmp` itself).
+
+**Severity:** medium for developer workflow, low in production. **Verdict: verified, fix as above.**
+
+### 3.2 #1436 a conversion repeatedly stopped by SIGTERM retries forever
+
+**Verification (code reading plus the existing real-`main()` test).**
+- `convert` (runner.go ~L310): when `convErr != nil && ctx.Err() != nil` the result is `ResultInterrupted`/`ReasonShuttingDown`, `countFailure` is false. `persist` (L~440) writes `last_result` and **clears the in-progress marker**. Next boot: no marker, `Attempts` unchanged, `Decide` runs the conversion again. `maintenance_sigterm_test.go` outcome (a) pins exactly this ("mode 0, interrupted, marker cleared", only for SIGTERM).
+- The loop is bounded only when the stop is *slow*: if the VACUUM does not return within `ShutdownRunnerWait` (4 s, sized against Docker's 10 s grace) the process exits with the marker still set and the next boot counts one attempt (`consumeMarker`); a SIGKILL after the 10 s grace does the same; an uninterruptible copy-back tail that finishes counts as a success (`settleConvertedAfterCancel`). So the unbounded case is exactly "SIGTERM honoured quickly, every boot" - the orchestrator healthcheck/restart-policy scenario in the issue (the management API returns 503 for the whole VACUUM, a healthcheck on it fails, the orchestrator sends SIGTERM).
+- Cost per cycle: management UI/API and emergency server unavailable for the time between boot and the stop; proxying unaffected; data never at risk. The only escape today is `CHARON_DB_COMPACT_ON_START=off`.
+
+**Why VACUUM "progress" cannot be the discriminator.** The conversion is one `VACUUM` statement; there is no observable partial progress, and the old file is authoritative until the atomic swap. Any interrupted VACUUM is "no progress" by construction. So the design question reduces to: how many orderly stops are tolerated.
+
+**Options.**
+
+| Option | Assessment |
+| --- | --- |
+| 1. Count every interruption as a failed attempt (limit 3) | Rejected: a user who restarts on purpose once or twice burns the tries; `Attempts` also means "failed", and the doc and notice text promise that. |
+| 2. Separate interruption counter with its own, more generous limit | **Chosen.** Deterministic, testable without clocks, no new setting row, bounds the loop, a deliberate restart costs one of five. |
+| 3. Wall-clock budget (for example "stop after 30 min of cumulative interrupted time", or "N interruptions within T") | Rejected: needs persisted timestamps and a clock seam, behaves differently for a fast machine and a slow one, and deliberate restarts spread over days would silently reset or not. More state for the same bound. |
+| 4. Exponential boot back-off (skip the next 1, 2, 4 boots) | Rejected: skipping a boot silently leaves a user who asked for **Reclaim** wondering why nothing happens, and needs a "boots since" counter. |
+
+**Decision (Option 2).**
+- Persist the count inside the existing `maintenance.attempts` record: `attemptsRecord{Count int; Interrupted int \`json:"interrupted,omitempty"\`; FileID string}`. Old rows decode with `Interrupted == 0` (no migration); `ResetAttempts` deletes the whole row, so one existing call (successful conversion, manual Reclaim request, #1438's reset) resets both counters. Same semantics as `Attempts`: per file (inode), not necessarily consecutive, reset only by a conversion or a manual request.
+- **Every place that reads, rewrites or overrides the record must carry or zero `Interruptions`** (verified against the code; a miss here silently loses the count or makes the dry runs wrong):
+  - `Store.RecordFailure` (`state.go` ~L205-214, rewrites the row): read the stored record and preserve `Interrupted` while incrementing `Count`.
+  - `Store.consumeMarker` (`state.go` ~L289-296) rewrites `attemptsRecord{Count: count, FileID: fileID}` when a leftover marker of this file is consumed: it must write back `Interrupted` too (otherwise a kill after N interruptions would reset them to 0). Its signature therefore carries the interruption count (for example `consumeMarker(ctx, fileID, count, interrupted int) (int, error)`).
+  - `readAttempts` (~L260) and `storedAttempts` (~L250) return the record's `Interrupted` as well as `Count` (not only `RecordFailure`), so that `Load` (via `loadAttempts`) and `Peek` (L337) both fill `State.Interruptions`.
+  - The two dry-run overrides that blank the persisted request state: `database_maintenance_handler.go:212` (`in.FlagRequested, in.Attempts = false, 0`) and `dbmaint/advise.go:65` (`cfg.FlagRequested, cfg.Attempts = false, 0`) must also zero `Interruptions`. Otherwise `BackedOff` is still true in the dry run after an interruption stop, `Decide` returns `too_many_failures` instead of `Run`, and both the `restart_to_optimize` notice and `Advise` (the pending-conversion log line and `Advice.Pending`) become wrong exactly in the state the user is told to leave with Reclaim.
+- New constant `MaxInterruptedRuns = 5` in `constants.go`, with a comment contrasting it with `MaxConvertAttempts = 3`.
+- New `Store.RecordInterruption(ctx, fileID) (int, error)`; `State` and `Inputs`/`PlanConfig`/`Peek`/`Load` carry `Interruptions int`.
+- `persist` (runner.go): for `Result == ResultInterrupted`, call `RecordInterruption` **before** `WriteLastResult` and `ClearInProgress` (so a kill between the writes leaves the marker, which is then counted once as a failed attempt; the worst case is a rare double count, never a missed one). `ResultCancelled` (stopped before any work started, UI still up) stays unpersisted and uncounted.
+- One shared predicate `dbmaint.BackedOff(attempts, interruptions int) bool` (`attempts >= MaxConvertAttempts || interruptions >= MaxInterruptedRuns`) used by `Decide`, the status notice and the handler (3.3). `Decide` returns `ReasonTooManyFailures` (existing reason, existing notice, existing last_result and flag clearing; no new reason or notice code, so no API contract change).
+- User-visible wording: the boot log line in `logPlanSkip` already says "failed or was interrupted too many times". Update the English notice `databaseMaintenance.notice.tooManyFailures` (`frontend/src/locales/en/translation.json:1475`; only `en` carries the key, the other four locales fall back; no other locale edits). **Existing tests pin substrings of this text and must keep passing unchanged**: `frontend/src/components/__tests__/DatabaseMaintenance.test.tsx:105-106` asserts `/stopped trying its automatic database cleanup.*proxies are not affected/i` and `/optional button below to schedule it, then restart Charon/i`, and the Playwright spec `tests/tasks/database-maintenance.spec.ts:516-518` and `:550` asserts `stopped trying its automatic database cleanup`, `your proxies are not affected` and `optional button below to schedule it, then restart charon`. The new text keeps all three substrings in that order, for example: "Charon stopped trying its automatic database cleanup after several failed or interrupted attempts. Your proxies are not affected. Check the logs and make sure there is enough free disk space, and let the optimization finish; avoid restarting while it runs. To let Charon try again, use the optional button below to schedule it, then restart Charon." (the "let the optimization finish; avoid restarting while it runs" sentence covers the interruption case). Doc updates in `docs/database-maintenance.md` (line numbers re-checked in rev 2): the "3 failed tries" bullet (L90-93) and the "cannot be interrupted instantly" note (L94-96) get the orderly-stop sentence; the "Automatic cleanup has stopped" bullet (L142-150) including "That gives it 3 fresh tries" (L147-149) and "If a Reclaim request itself fails 3 times" (L149); the troubleshooting entry (heading and Cause at **L474-476**; "This gives it 3 fresh tries" at L484-485). Wording: an orderly stop is safe and not counted as a failure; after 5 orderly stops during the optimization Charon also stops, with the same notice and the same remedy (press Reclaim, restart), which gives a fresh start for both counters.
+- The 4 s runner wait, the 3 s marker write timeout and the 10 s Docker grace are unchanged; the three extra small settings writes happen after VACUUM has returned and fit inside the existing `MarkerWriteTimeout` budget (each is one upsert/delete on a one-connection pool; covered by the real-`main()` test below).
+
+**Tests.**
+- `plan_test.go`: table cases for `Decide` (interruptions 4 runs, 5 stops with and without flag, attempts 2 + interruptions 4 runs, flag cleared on stop).
+- `state_test.go`: `RecordInterruption` increments and preserves `Count`; `RecordFailure` preserves `Interrupted`; **`consumeMarker` (a leftover marker of this file, via `Load`) adds one to `Count` and preserves `Interrupted`**; a marker of another file leaves the record alone; `readAttempts`/`Load`/`Peek` all return `Interruptions`; file change resets both; legacy row (no `interrupted` key) decodes; `ResetAttempts` clears both; `Peek` does not mutate.
+- Dry runs ignore interruptions: `advise_test.go`: `Advise` with `PlanConfig.Interruptions == MaxInterruptedRuns` (and `Attempts` 0, flag unset) on a file that qualifies for the automatic conversion still reports `Pending` with no skip reason, identical to the same call with both counters 0 (it is a dry run of the automatic condition; the persisted-history suppression `SuppressesPending` is what silences it after a stop). Handler `notice()` test with `Interruptions` at the limit on the same file: the code is `too_many_failures` (decided by the real-state `Decide` before the dry run), and with the counters below the limit and nothing else pending it stays `restart_to_optimize`. Note on reachability: in `notice()` a backed-off state returns from the first `Decide` before the dry-run line is reached, so zeroing `Interruptions` there is defensive consistency with `Advise`; in `Advise` it is load-bearing.
+- `runner_test.go`: interrupted run records one interruption and no failed attempt, marker cleared, flag kept; fifth interruption makes the next `Decide` skip; success resets; a cancelled-before-work run counts nothing.
+- `startup_test.go`/`plan_test.go`: `settlePlanSkip` writes the `too_many_failures` last_result for an interruption-only stop.
+- Real-`main()` test (`cmd/api/maintenance_sigterm_test.go`, new case beside `TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts`, `-short` skipped like it). **Determinism.** The existing test tolerates three outcomes of one SIGTERM mid-conversion: (a) interrupted (mode 0, `last_result` interrupted, marker cleared), (b) already converted before the signal landed (mode 2), (c) marker left (the stop was slower than `ShutdownRunnerWait`). The new loop test decides each explicitly, using `readState` after every stop:
+  - (a) is the path under test: assert `attempts == 0`, the stored interruption count rose by exactly 1, marker cleared, integrity `ok`.
+  - (c) counts one failed attempt at the *next* boot and leaves the interruption count unchanged, so the five-stops arithmetic no longer holds: `t.Skipf` with the log of the state (an environment too slow to honour SIGTERM in 4 s says nothing about the code; the deterministic gate for the counting is `runner_test.go`/`state_test.go`).
+  - (b) ends the loop (nothing left to interrupt; the 240 MB scratch database converted before the signal on a fast host): if it happens before `MaxInterruptedRuns` stops were recorded, `t.Skipf` likewise; it is never a failure.
+  - Invariants asserted regardless: integrity `ok` after every stop; `attempts` never exceeds 0 while only (a) outcomes occur; after the loop the file is not yet converted.
+  After `MaxInterruptedRuns` (a) outcomes: the next boot does **not** start a conversion (log line "optimization stopped", UI reachable, `last_result` `skipped/too_many_failures`, no marker, the flag untouched). Then simulate **Reclaim** at the store level, exactly what the handler does (`ResetAttempts` + `SetFlag` on the scratch database; the HTTP path is covered by the handler tests, the real-`main()` helpers have no authenticated client), and assert one more boot converts and both counters end at 0. **Seed and runtime:** reuse `seedLegacyDatabase` (240 MB); 5 SIGTERM boots at about 4-6 s each (boot, wait for the conversion to start, signal, up to `sigtermGraceMax`) plus the stopped boot and the converting boot is about 30-45 s in total, versus about 10.8 s for the existing test; `-short` skips it, and CI/QA run it once with a generous timeout. This test also proves the extra settings writes complete inside the shutdown budget.
+- Handler status test: notice code `too_many_failures` when only interruptions are exhausted.
+
+**Severity:** low. **Verdict: verified, fix with Option 2.**
+
+### 3.3 #1438 pressing Reclaim while the flag is set does not reset the counter
+
+**Verification.**
+- Mechanism confirmed: after the third counted pre-conversion failure `abortBeforeConversion` sets `countFailure` and `keepFlag` (`consumesFlag()` false), so the flag stays until the next boot where `Decide` returns `too_many_failures` and `ClearFlag`. In that window `RequestOptimize` (`database_maintenance_handler.go:228-231`) returns 200 on `FlagRequested` before any other step, so `ResetAttempts` (L~254) is skipped.
+- **Correction to the issue:** the Database page never shows the **Reclaim** button in that window. `DatabaseMaintenance.tsx:216` renders "Scheduled - the space is reclaimed the next time Charon starts." plus **Undo** whenever `compact_requested` is true; the button only exists in the `else` branch. A UI user would have to press Undo (`DELETE` clears the flag, counter stays 3) and then Reclaim (flag unset, so `ResetAttempts` runs) - it works, but the page simultaneously shows the "Automatic cleanup has stopped ... use the optional button below to schedule it" notice next to a "Scheduled" label, which is contradictory. The raw early return is reachable through the API or a stale open tab.
+- **Root cause:** the window itself. The run that exhausts the budget leaves a request set that the very next boot will discard. Fixing only the handler (the issue's suggestion) leaves the contradictory UI.
+
+**Options.**
+1. Handler only: reset when the flag is set and the stored count is at or above the limit. Fixes the API; UI stays contradictory.
+2. Runner: when a counted-but-kept failure (or, with #1436, an interruption) exhausts the budget, drop the request in the same `persist`, so no window exists and the UI shows the Reclaim button together with the stopped notice.
+3. Both.
+
+**Decision: Option 3** (root cause in the runner, handler as defense in depth for state written by older versions and for stale tabs).
+- `Store.RecordFailure` returns the new count `(int, error)`; `persist` (runner.go) after recording a counted failure or an interruption loads the new state and, if `BackedOff(...)` and the request is still set (the `keepFlag` and interrupted cases), calls `ClearFlag`. The next boot still writes the `too_many_failures` last_result via `settlePlanSkip` (it triggers on the reason, not on the flag).
+- Handler: in `RequestOptimize`, when `already` is true, `Peek` the state; if `BackedOff(state.Attempts, state.Interruptions)` call `ResetAttempts` and keep returning 200 `{"requested": true}` (idempotent: a second press finds attempts 0 and changes nothing). `Peek` needs the file id (`dbmaint.FileID(h.dbPath)`, as `GetStatus` does); a failed `Peek` or `ResetAttempts` is a 500 like the other write failures.
+- Race analysis: the runner only writes during the boot's maintenance window while the management plane is served as 503 (gate `converting`/`checking`) or not yet serving writes that matter; the handler's `ResetAttempts` is a single `DELETE` and `SetFlag` an upsert. Two concurrent POSTs both reset and both leave the flag set: idempotent. A POST racing the planned-phase runner (UI up, runner waiting) can at worst reset a counter the runner then increments from 0; benign. No transaction needed; the existing non-atomic `ResetAttempts` + `SetFlag` pair in the fresh-request branch is unchanged (a crash between them leaves flag unset, counter 0).
+- **The stopped notice must survive the flag being cleared (SF4, verified against `notice()` at `database_maintenance_handler.go` ~L171-216).** `notice()` judges the world with `Decide` on the real flag and counters, then falls through to a dry run without the flag. After Option 2 clears the flag at exhaustion, a file that is **below the automatic thresholds** (>= 100 MiB reclaimable, but neither free ratio >= `MinFreeRatio` nor reclaimable >= `ReclaimableTriggerBytes`, so it was only ever converted because the user pressed Reclaim) gets `Decide` = `below_threshold` (the threshold step runs before the back-off step), so `notice() == nil`: the page shows the Reclaim button and no explanation of why the request vanished. (Today the same file ends up in the same silent state one boot later, after `Decide` clears the flag.) Fix, in the handler only: before the dry-run override line, when the real-flag `Decide` did not already return `too_many_failures`, judge the state as if the user had asked: `manual := in; manual.FlagRequested = true; if dbmaint.Decide(manual).Reason == dbmaint.ReasonTooManyFailures { return n(noticeTooManyFailures, severityWarning) }`. This reuses `Decide` (no second predicate), fires exactly when the Reclaim button is offered (`canRequestOptimize`: not env-off, not incremental, >= 100 MiB reclaimable) and the back-off is exhausted (`BackedOff(attempts, interruptions)`), and goes away by itself when Reclaim resets the counters, when the file stops qualifying, or when the environment disables optimization. It needs `Interruptions` in `notice()`'s `Inputs` (see 3.2). Consequence for existing behaviour: a backed-off, below-threshold file without a flag now shows the warning notice where it showed nothing; the existing `too_many_failures` handler cases (auto-qualifying file) are unchanged. No `DatabaseMaintenance.tsx` change is needed: the notice and the Reclaim button then appear together in every case, including the manual-only file. (If the frontend dev finds the "Scheduled" label still reachable through legacy state, no extra UI work is planned; it self-heals at the next boot as documented.)
+
+**Tests.** Handler: flag set + attempts at max => counter reset, 200, flag still set; flag set + attempts below max => unchanged; flag set + interruptions at max => reset; failing `Peek`/`ResetAttempts` => 500; repeated POST idempotent. Runner: third counted pre-conversion failure ends with flag cleared and `last_result` written at next `Decide`; first and second keep the flag (existing `keepFlag` tests stay). **Handler notice (SF4), exactly this case:** a file with 100-200 MiB reclaimable and a low free ratio (below the automatic thresholds), flag **unset** (as left by the runner after exhaustion), `Attempts == MaxConvertAttempts` => `notice.code == "too_many_failures"` and `can_request_optimize == true` in the same response; the same with only `Interruptions == MaxInterruptedRuns`; counters below the limit => `notice == nil`; the file already incremental, or env `off` (=> `disabled_by_env` only with a flag, otherwise nil), or under 100 MiB reclaimable with exhausted counters => no stopped notice. `state_test.go`: `RecordFailure` returns the incremented count including after a file change (count restarts at 1).
+
+**Severity:** low. **Verdict: verified at API level; the issue's UI scenario is slightly off (see correction); fix at the root plus the suggested handler guard.**
+
+### 3.4 #42 Performance Optimization & Benchmarking (umbrella)
+
+**Assessment against the current code (task by task).**
+
+| #42 task / criterion | Status today | Evidence |
+| --- | --- | --- |
+| Performance benchmark suite | Partial / not meaningful | Only `handlers/benchmark_test.go` (security handler) and two trivial `services/benchmark_test.go` benchmarks exist; nothing seeds a large installation. |
+| Profile database queries | **Actionable now (this plan, PR 3)** | Measured below. Heartbeat work already done: retention pruner with bounded chunks, deferred composite index, incremental vacuum + drain, batch summary endpoint with 30 s cache, per-request `getSetting` cache in Cerberus (60 s TTL). |
+| Optimize Caddyfile generation | Not measured; **out of scope here** | Config is generated as JSON and hashed (`caddy/manager.go:493`); no timing data exists. Child issue C4. |
+| Caching where appropriate | Mostly done | Summary cache (30 s), stats summary cache, Cerberus settings cache. Remaining hole: `Cerberus.IsEnabled` is uncached (child issue C2). |
+| Test with 100+ proxy hosts | DB side measured here; Caddy side open | See table; `ProxyHostService.List` with 150 hosts: 3.3-5.5 ms, 6 queries (one main + 5 batched `Preload`s, **no N+1**). |
+| Frontend bundle size | Open | `vite.config.ts` already has `manualChunks` (charts, i18n, ui, query, react); no size budget or analysis. Child issue C5. |
+| Low-resource devices (Raspberry Pi) | Open, needs hardware | arm64 appears in only some image workflows; main image multi-arch status not verified by this plan. Child issue C6. |
+| Document performance characteristics | Open | `docs/performance/` holds one unrelated file. Partly covered by PR 3's doc. |
+| Acceptance: 100+ hosts, reload < 1 s, UI responsive, works on Pi 4 | Unverified except the DB part | Title still says "CaddyProxyManager+" (obsolete name). |
+
+**Measurements (real, this host, driver `github.com/glebarez/sqlite` = pure-Go modernc through `database.Connect`, i.e. the production pragmas: WAL, `synchronous=NORMAL`, 64 MB cache, single open connection).**
+Scratch database under `/var/tmp`, seeded through the real models/`AutoMigrate`: 150 proxy hosts (+150 locations), 150 uptime monitors (60 s interval), **1,512,000 heartbeats = 7 days x 1,440 x 150** (304 MB file; 216,000 rows in the trailing-24 h window), `security_configs` default row, settings, one user. Timings are min/median of N runs, via a temporary Go test inside the repo module that was deleted afterwards (`git status` clean). The same `Pi`-class slowdown was **not** measured; treat Pi numbers as unknown. **Rev 2 re-measured** the Q2/Q3 rows below (fresh scratch database with the same shape: 150 monitors x 7 days x 1,440 = 1,512,000 heartbeats, 98 % `up`, the two GORM indexes plus the deferred composite where stated, driver and pragmas as above, 7 runs per query, with and without `idx_heartbeat_monitor_created`, same session) and added the tie and single-pass experiments; the scratch files were deleted. Absolute numbers vary 20-40 % between sessions with page-cache and WAL state (rev 1: Q2 21-24 ms, Q3 57-69 ms; the Supervisor's re-run: 36-39 ms and 55-61 ms; rev 2 below: 30-44 ms and 45-53 ms, on a database whose 420 MB WAL had not been checkpointed). The plan relies on the ratios, not on a single figure.
+
+| Measurement | Result |
+| --- | --- |
+| `UptimeSummaryService.GetSummary` cold (cache miss), no deferred index | min 1.49 s, median 1.60 s |
+| same, with the pruner's `idx_heartbeat_monitor_created` present (steady state on every upgraded install, built by the pruner after the first clean caught-up pass; present in the live container) | min 1.35 s, median 1.38 s |
+| `GetSummary` cached (30 s TTL hit) | median 156 us |
+| Query 2 alone (`recentBeatsSQL`, window function) | 0.84-1.14 s; plan: `SCAN uptime_heartbeats USING INDEX idx_heartbeat_monitor_created` (or `idx_heartbeat_lookup` when the composite is missing) = a scan of **all 1.5 M index entries**, not the 24 h window |
+| Query 3 alone (`uptime24hSQL`, GROUP BY) | 0.47-0.55 s; plan: `SCAN ... USING COVERING INDEX idx_heartbeat_lookup` = again all 1.5 M entries (no `sqlite_stat1`, so the planner does not range-scan `created_at`), with or without the composite index |
+| Query 2 rewritten per monitor (top-N via the composite index) | **30-44 ms** with the index (about 25-30x faster); plan: `SEARCH ... USING COVERING INDEX idx_heartbeat_monitor_created (monitor_id=? AND created_at>?)`. SQL used (identical text for the table rows below): `SELECT h.monitor_id, h.status, h.latency, h.created_at FROM (SELECT id FROM uptime_monitors ORDER BY name LIMIT 500) m JOIN uptime_heartbeats h ON h.id IN (SELECT id FROM uptime_heartbeats WHERE monitor_id = m.id AND created_at >= ? ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY h.monitor_id, h.created_at ASC, h.id ASC` (the `id` tie-breakers cost nothing: 39-41 ms with, 41-44 ms without them; the plan is unchanged, see the tie row) |
+| Query 3 rewritten as two per-monitor counts ("variant A", the proposal) | **45-53 ms** with the index (about 10x faster) without statistics. SQL used: `SELECT m.id AS monitor_id, (SELECT COUNT(*) FROM uptime_heartbeats h WHERE h.monitor_id = m.id AND h.created_at >= ?) AS total, (SELECT COUNT(*) FROM uptime_heartbeats h WHERE h.monitor_id = m.id AND h.status = 'up' AND h.created_at >= ?) AS up FROM (SELECT id FROM uptime_monitors ORDER BY name LIMIT 500) m`, percentage = `up * 100.0 / total` in Go (total 0 => omitted); bit-identical to the old `SUM(...)*100.0/COUNT(*)` on the tie fixture. Plan: `COUNT(*)` = covering range seek on `idx_heartbeat_monitor_created`, `up` = covering range seek `idx_heartbeat_lookup (monitor_id=? AND status=? AND created_at>?)` |
+| Q3 single-pass alternatives (Supervisor SF2), measured with / without the composite index | (D) one scalar subquery per monitor, `SUM(CASE WHEN status='up' ...) * 100.0 / COUNT(*)`: 125-150 ms / 517-553 ms. (B) `JOIN` + `GROUP BY m.id` with `COUNT(*)` and conditional `SUM`: 240-253 ms / 627-681 ms. (C) old shape restricted to the window, forced onto the always-present `idx_uptime_heartbeats_created_at` (`INDEXED BY`): 258-305 ms / 258-281 ms. Old Q3: 470-520 ms / 470-520 ms. A single pass needs `status`, which `idx_heartbeat_monitor_created (monitor_id, created_at)` does not hold, so D and B pay one rowid lookup per in-window row (216 k); variant A avoids the lookups by using two covering range seeks. **A is about 3x (D), 5x (B) and 5-6x (C) faster than the single-pass forms in the steady state**; D is only 5-10 % better than A without the index (a transient state), C is index-independent but 5x slower in the steady state. Decision: keep A |
+| Query 3 unchanged but after `ANALYZE` | 59-70 ms (the planner then range-scans); Query 2 unchanged after `ANALYZE` still 515-574 ms |
+| A new covering index `(created_at, monitor_id, status)` | No gain for Q3 (planner still picks `idx_heartbeat_lookup`), +76 MB, +30 % insert cost (341 vs 259 ms per 20 k rows): **rejected** |
+| Index sizes at 1,512,000 rows (rev 3, S1) | `idx_heartbeat_lookup` **123.2 MB**, `idx_heartbeat_monitor_created` 118.2 MB, `idx_uptime_heartbeats_created_at` 64.2 MB, table 128.7 MB. Source: `dbstat` (`SUM(pgsize)` per name) on a freshly built scratch database in `/var/tmp` with the production schema (150 monitors x 10,080 one-minute beats, 36-character UUID `monitor_id`, 98 % `up`, all three indexes created after the load). Cross-check: the Supervisor read 87.8 MB for `idx_heartbeat_lookup` on the live container (1.07 M rows, dbstat), which extrapolates to about 123 MB at 1.5 M rows. The earlier '143 MB' figure was not reproduced and is dropped |
+| Rewritten Q2 + Q3 when `idx_heartbeat_monitor_created` is missing (rev 2, same SQL) | New Q2 **0.67-0.79 s** (old 1.07-1.19 s, about 35 % better); new Q3 (variant A) **0.54-0.58 s** (old 0.47-0.52 s, **about 11-18 % worse**: two correlated `COUNT`s each scan `idx_heartbeat_lookup (monitor_id=?)`, i.e. about the same rows as the old scan plus per-monitor overhead); total 1.21-1.37 s vs 1.54-1.71 s (about 20 % better, "total not worse"). The rewrite's benefit depends on that index; without it Q3 alone is slower |
+| Ties on `created_at` (rev 2, SF3): 150 monitors x 400 minutes with a second heartbeat (different status) at every 5th timestamp | Without a tie-breaker the old and the new query returned different rows on ties: at `beats`=60 for **0 of 150 monitors with the index and 150 of 150 without it** (this fixture is far more tie-heavy than the Supervisor's, which saw 2 of 150 without and 0 with the index); at `beats`=1 they already differed with the index. The old query is itself nondeterministic on ties (old vs old-with-`id` differ too), so there is no "old order" to preserve. With `ORDER BY created_at DESC, id DESC` inside the window/limit and `ORDER BY ..., created_at ASC, id ASC` outside, old-with-tie-break == new-with-tie-break byte for byte for `beats` 1/30/60, with and without the index (0 of 150 monitors differ). EXPLAIN QUERY PLAN with the tie-breaker (index present): unchanged, `SEARCH ... USING COVERING INDEX idx_heartbeat_monitor_created (monitor_id=? AND created_at>?)`, the only temp b-tree is the final `ORDER BY` (`id` is the rowid, so the index already orders by it); without the index the inner `ORDER BY` needs its own temp b-tree (it did before the tie-breaker too) |
+| Summary refresh total, old vs new SQL (steady state, index present) | about 1.4 s vs about 0.08-0.10 s (sum of the re-measured Q2 30-44 ms and Q3 45-53 ms plus the monitor query and assembly; end-to-end `GetSummary` was measured in rev 1; about 14-16x) |
+| Head-of-line blocking: `Cerberus.IsEnabled` (3 queries) while summary refreshes back-to-back on the single connection | p50 869 ms, p95 1.09 s, max 1.87 s (idle: median 100 us). Worst case (continuous refresh); in production a refresh happens at most once per 30 s per cache expiry, so about 4.6 % of wall time the only DB connection is held by the old refresh |
+| Per-request overhead on every authenticated `/api/v1` call (`api.Use(cerb.Middleware())` runs `IsEnabled`: `security_configs` by name, then `settings` `feature.cerberus.enabled`, then possibly `security.cerberus.enabled`; `AuthenticateToken` adds one `users` lookup) | idle: `IsEnabled` median 100 us (min 52 us), user lookup median 62 us; all three are `SEARCH ... USING INDEX` (no scans). Cheap when idle, but they queue behind any long statement on the one connection |
+| `ProxyHostService.List()` with 150 hosts | min 3.3 ms, median 5.5 ms |
+| `GetMonitorHistory(60)` for one monitor | min 187 us, median 297 us (index search) |
+| Live container (read-only; 28 monitors, 27 hosts, 1.07 M heartbeats, retention 30 d, `sqlite_stat1` present; sqlite3 CLI 3.53, so planner not identical to the driver) | Q2 old 124 ms vs per-monitor rewrite 2.5 ms; Q3 old 8.4 ms vs rewrite 0.06 ms; 37,647 rows in the 24 h window |
+
+**Interpretation.** The uptime summary refresh is the only hot database path with a large, measured, easily removable cost: it is O(total retained heartbeats) instead of O(monitors x 60) because the window-function query defeats the `created_at` range, and while it runs it holds the only connection, stalling heartbeat ingestion and every API request behind it. It scales with retention (default 30 days), monitor count and sampling interval, not with the 24 h it is supposed to bound. Everything else measured is already fast (sub-millisecond lookups, no N+1, no scans in the per-request queries). A single-connection pool is a deliberate, documented choice (`database.go:187`, atomic VACUUM, `ATTACH` rehydrate) and stays.
+
+**Recommended database slice (PR 3): `perf:` rewrite the two summary window queries.**
+- `backend/internal/services/uptime_summary_service.go`: replace `recentBeatsSQL` with a per-monitor top-N query and `uptime24hSQL` with per-monitor counts, both restricted to the same monitor set `loadMonitors` returns (honour `uptimeMonitorScanLimit`); keep the three-query shape, the cache, the `[]MonitorSummary` output and the "no in-window beats => `uptime_24h: null`, `recent_beats: []`" semantics.
+  Sketch of the intended SQL (specification, to be finalized by the implementer; parameterised, no string interpolation):
+  - beats: the Q2 SQL of the measurement table (monitor subset `m` = `SELECT id FROM uptime_monitors ORDER BY name LIMIT 500`, which equals `loadMonitors`' set; the `id` tie-breakers are part of the specification).
+  - uptime: the Q3 variant A SQL of the measurement table (two correlated `COUNT(*)` per monitor, one of them filtered on `status = 'up'`), mapped to a percentage in Go (`up * 100.0 / total`, total 0 => omitted => null). Single-pass forms were measured and are slower in the steady state (table above), so they are not used.
+  - Deterministic ties: ordering by `created_at DESC, id DESC` (limit) and `created_at ASC, id ASC` (output) is a deliberate refinement of the old, tie-nondeterministic order; the oracle in the test uses the same tie-break so the comparison is exact. The oracle's legacy inner select must also expose `id` for the outer `, id ASC` to resolve (`no such column: id` otherwise; verified by running it).
+  - Stale comments to update in the same commit (they describe the ROW_NUMBER design): the `uptimeSummaryWindow` comment at `uptime_summary_service.go:25-28` ("keeps the ROW_NUMBER() window query cheap even before the pruner's deferred index exists") and the `recentBeatsSQL` comment at `:168-171` ("one windowed pass ... Correct with or without idx_heartbeat_monitor_created"); both are rewritten for the per-monitor design and the index dependence.
+- Keep the legacy SQL only as a test oracle (constant in the test file) to prove equivalence; no dead code in production.
+- Guard the dependency on the composite index: document in the code that the rewrite relies on `idx_heartbeat_monitor_created` (built by the pruner's deferred, idempotent `ensureIndex`); without it the queries are correct and the **refresh total is not slower than before (1.21-1.37 s vs 1.54-1.71 s measured, about 20 % better), but Q3 alone is about 11-18 % slower (0.54-0.58 s vs 0.47-0.52 s)**. That window exists only on a fresh install or an upgraded database before the pruner's first clean caught-up pass, when the table is small on a fresh install and the refresh runs at most once per 30 s. Do **not** add the index to the model tags (the deferral exists so an upgrade does not index millions of rows inside AutoMigrate).
+- Not in this slice: statistics (`ANALYZE`) - the pruner already runs `PRAGMA optimize` daily and the rewrite is independent of statistics; no new indexes; no pool changes.
+
+**Tests (PR 3).** (1) Equivalence: seed random heartbeats (several monitors, **duplicate `created_at` values with differing status**, a monitor with no in-window rows, orphan heartbeats of a deleted monitor, rows older than 24 h) and assert old-SQL-with-tie-break (the oracle constant: the legacy text plus `, id DESC` in the window and `, id ASC` in the output, **and the legacy inner select must also expose `id`**, otherwise the added `id ASC` fails with `no such column: id`; verified by running it) == new-SQL result field by field for `beats` in 1/30/60, **run twice: with and without `idx_heartbeat_monitor_created`** (the two index states produced different tie picks without the tie-breaker); additionally on a tie-free fixture the **untouched legacy SQL** must equal the new result (proves the refinement changes nothing when there is nothing to break); Q3 percentages compared exactly (`==` on `float64`; measured bit-identical); (2) the existing `uptime_summary_service` tests stay green unchanged; (3) a query-plan guard test that asserts, **when** `idx_heartbeat_monitor_created` exists, the plan text contains `idx_heartbeat_monitor_created` and no `SCAN uptime_heartbeats` (skip with a clear message if the SQLite version words the plan differently; this is the regression tripwire for the 40x); (4) a Go benchmark `BenchmarkUptimeSummaryCold` over a smaller seed (for example 50 monitors x 2 days, built in a few seconds) so the next person can see the order of magnitude without a 300 MB database; (5) cache and slicing behaviour unchanged (existing tests).
+
+Performance doc note (PR 3, `docs/performance/database.md`): `GetSummary` has no `singleflight` on a cache miss, so concurrent requests that arrive after expiry each run the three queries; with the refresh at ~90 ms this is tolerable (and was not the measured hot spot), recorded there as a possible follow-up inside child issue C1 rather than changed here.
+
+**Verdict for #42:** do not implement the umbrella. Convert it into a tracking epic (edit the title to drop "CaddyProxyManager+", for example "Performance: tracking epic", keep the label set, replace the checklist with links to the child issues in 5.3, tick the items completed by PR 3 and by earlier heartbeat work, close the epic only when all children are closed or consciously dropped). Per the CLAUDE.md "Findings Triage & Issue Tracking" rule ("Out-of-scope findings are filed automatically ... no need to ask first"; read from `origin/development`), the orchestrating session files the child issues C1-C8 **now**, without waiting for plan approval (ready-to-file bodies were prepared with this revision; filing is a GitHub write this planning pass does not perform). Only the edit of the existing #42 epic (rename, new body) waits for the user's approval.
+
+## 4. Recommended PR slicing
+
+Three independent PRs, each cut from `development` (nothing is stacked; PR #1440 is already in `development`). One working tree (no worktrees), so the PRs are developed **sequentially in rank order**, each through its own QA before the next starts on shared packages; the file sets below are disjoint, so merge order between them does not matter and no rebase conflicts are expected.
+
+| PR | Contents | Branch | Commit prefix |
+| --- | --- | --- | --- |
+| PR 1 | #1426 | `fix/test-temp-leaks-1426` | `fix:` + `test:` |
+| PR 2 | #1438 + #1436 (one PR, two ordered fix commits) | `fix/db-maintenance-backoff-1436-1438` | `fix:` |
+| PR 3 | #42 database slice (summary refresh) | `perf/uptime-summary-queries-42` | `perf:` |
+
+Why this grouping: #1438 and #1436 both change the state record (`attemptsRecord`), the exhaustion predicate used by `Decide`, the notice and the handler, and the same documentation paragraphs; splitting them would make the second PR rebase over the first and re-touch the same hunks. They are two low-severity bugs, not critical/high, so the "one fix = one PR" rule for urgent fixes does not apply. #1426 shares no files with them (backup service and test infrastructure). The performance slice is a separate concern (services/uptime) and a `perf:` release trigger of its own.
+
+**File ownership and conflicts**
+
+| Area | PR 1 | PR 2 | PR 3 |
+| --- | --- | --- | --- |
+| `backend/internal/services/backup_*.go` and tests | yes | - | - |
+| `backend/internal/services/mail_service_test.go` (TestMain wrap) | yes | - | - |
+| `backend/internal/api/handlers/testmain_test.go`, `backup_handler_test.go`, `crowdsec_handler_test.go` | yes | - | - |
+| `backend/internal/testutil/tmpguard/` (new) | yes | - | - |
+| `backend/internal/dbmaint/{state,plan,runner,constants,startup}.go` + tests | - | yes | - |
+| `backend/internal/api/handlers/database_maintenance_handler*.go` | - | yes | - |
+| `backend/cmd/api/maintenance_sigterm_test.go` | - | yes | - |
+| `frontend/src/locales/en/translation.json` (one string) | - | yes | - |
+| `docs/database-maintenance.md` | - | yes | - |
+| `backend/internal/services/uptime_summary_service*.go` | - | - | yes |
+| `docs/performance/` (new doc), `docs/features.md` link | - | - | yes |
+
+The only shared package is `internal/services` (PRs 1 and 3, different files) and `internal/api/handlers` (PRs 1 and 2, different files). If PR 1 is still open when PR 3 starts, PR 3's package-level `go test -race ./internal/services/...` runs against its own branch only; the only cross-effect is that PR 1's guard, once merged, applies to PR 3's new tests too (they must not leak: they use `t.TempDir()`/in-memory DBs, so they will not).
+
+**Where the plan documents go.** Rebase the plan branch onto `development` (`git rebase --onto origin/development fix/db-maintenance-followups-1427 plan/db-tail-1426-1436-1438-42`, which drops the already-merged #1440 commits and picks up the newer CLAUDE.md) and land the two docs changes (archive move + this spec) as one `docs:` commit directly on `development` (small docs-only change, allowed by the branching strategy), or carry it as the first commit of PR 1. Recommendation: direct `docs:` commit, so all three implementation branches see the spec.
+
+### 4.1 PR 1 commit slicing - #1426
+
+1. `test:` add `internal/testutil/tmpguard` (+ its tests). Gate: `go test ./internal/testutil/...`.
+2. `test:` fix the three known leak sources in tests (`setupBackupTest`, crowdsec nonexistent-dir test, legacy RestoreBackup/extract tests via the shared cleanup helper). Gate: the affected tests pass with `TMPDIR` under `/var/tmp` and the directory is empty afterwards (check by hand before commit 3).
+3. `fix:` discard the staged restore snapshot at the end of the restore pipeline (`discardRestoreSnapshot` + tests from 3.1.1). Gate: `go test ./internal/services/ -run 'Restore|Extract|Rehydrate|Backup'` and `-race` on that subset.
+4. `test:` enable the guard in `internal/services` and `internal/api/handlers` TestMain. Gate: full `go test ./internal/services/... ./internal/api/handlers/...` green with the guard active and a private `TMPDIR` that is empty afterwards (this is the acceptance check for the whole issue).
+5. `docs:` short note in `docs/development/` (or the testing doc that already describes `TMPDIR`) on the guard and on running tests with `TMPDIR`/`GOTMPDIR` on a disk-backed directory. No user docs (no user-visible change).
+
+### 4.2 PR 2 commit slicing - #1438 + #1436
+
+1. `fix:` state record + predicate: `attemptsRecord.Interrupted`, `Store.RecordInterruption`, `RecordFailure` returns count, `State.Interruptions`, `Inputs/PlanConfig.Interruptions`, `MaxInterruptedRuns`, `dbmaint.BackedOff`, `Decide` uses it. No behaviour change yet because nothing records interruptions. Gate: `dbmaint` unit tests (`plan_test`, `state_test`).
+2. `fix:` #1438 - runner drops the request when a kept-flag failure exhausts the budget; handler resets the counter when the flag is set and the state is backed off; **also the SF4 notice rule of 3.3** (stopped notice persists when the runner cleared the flag, judged with `dbmaint.Decide` and `BackedOff(attempts, interruptions)`, `Interruptions` being 0 until commit 3), so the clearing of the flag never ships without it (no silent-notice window between commits). Gate: `dbmaint` runner tests, handler tests including the SF4 handler case with `Attempts == MaxConvertAttempts` (3.3 Tests), `go test -race ./internal/dbmaint/... ./internal/api/handlers -run 'Database|Maint'`.
+3. `fix:` #1436 - `persist` records interruptions, `Peek/Load` expose them (`readAttempts`/`storedAttempts`, `consumeMarker` preserve them), status notice uses `BackedOff` and reads `Interruptions` into `notice()`'s `Inputs`, the two dry-run overrides zero `Interruptions`; the SF4 rule is already in place from commit 2, so this commit only adds its `Interruptions == MaxInterruptedRuns` test case. Gate: runner/state/handler/advise tests as in 3.2 and 3.3.
+4. `test:` real-`main()` SIGTERM loop test (3.2). Gate: `go test ./cmd/api -run TestMaintenance -v` (not `-short`; it builds a 240 MB scratch database, so run with `TMPDIR`/`GOTMPDIR` on `/var/tmp` and the generous timeout).
+5. `docs:` `docs/database-maintenance.md` (the places in 3.2: L90-96, L142-150, L474-485) and the one English notice string (must keep the substrings pinned by the Vitest and Playwright tests; run both, 5.1); `ARCHITECTURE.md` only if its one-line description at ~L823 ("up to 3 attempts") needs the interruption sentence. Gate: `npm run type-check`, the Vitest file and the Playwright spec named in 5.1.
+
+### 4.3 PR 3 commit slicing - #42 database slice
+
+1. `test:` add the equivalence oracle test and the cold-summary benchmark against the **current** SQL (green on the old code; the benchmark records the baseline in the commit body).
+2. `perf:` rewrite the two window queries (with the tie-breakers) and update the two stale comments (`uptimeSummaryWindow`, `recentBeatsSQL`); remove nothing else. Gate: equivalence + existing summary tests, plan-guard test, `-race` on `./internal/services -run Uptime`, `./scripts/scan-gorm-security.sh --check` (raw SQL and GORM `Raw` calls changed).
+3. `docs:` `docs/performance/database.md` (the measured table in 3.4: workload, hardware class "dev host", method, numbers with and without `idx_heartbeat_monitor_created`, the single-pass alternatives, the missing `singleflight` on a cache miss) and a link line in `docs/features.md`. No docs-site manifest change needed: `docs/performance/` is not an already-manifested directory, so it stays contributor-only unless added to `docs-site/scripts/docs-manifest.json`; decision: keep it contributor-only (sizing guidance for users is child issue C7).
+
+**Release effect (commit prefixes):** `fix:` and `perf:` trigger Docker builds and release-please cuts a patch release for them (PR 2 and the PR 1 production commit are `fix:`; PR 3 is `perf:`); `test:` and `docs:` do not trigger a build or a release by themselves. PR 1's guard commits are `test:`, so only its one `fix:` commit counts.
+
+**Rollback / contingency.** Every PR is a plain revert: no migration, no model, no settings schema change (the new JSON key `interrupted` is optional and ignored by older binaries; downgrade after PR 2 simply forgets interruptions). PR 1's production change is isolated to one deferred call: if a restore regresses, revert commit 3 only (the guard commits are test-only). PR 3: revert restores the old SQL; results are identical by test, so a revert is safe at any time. If the guard (PR 1 commit 4) turns out flaky in CI because some test legitimately leaves state, the fix is the leaking test, not disabling the guard; as a last resort, remove the wiring commit only.
+
+## 5. Quality gates, risks, acceptance, docs, open questions
+
+### 5.1 Per-PR Definition of Done (CLAUDE.md protocol, adapted)
+
+Environment for every run: `export TMPDIR=/var/tmp/<scratch> GOTMPDIR=/var/tmp/<scratch>-go` (create both first). `/tmp` is a 7.9 GB tmpfs that has already filled once; do not rely on it. All commands foreground and blocking with generous timeouts; never background a test, build or scan and end the turn.
+
+| Step | PR 1 | PR 2 | PR 3 |
+| --- | --- | --- | --- |
+| Targeted E2E (`npx playwright test <spec> --project=firefox`) | not applicable (no UI) | **REQUIRED, not conditional:** `npx playwright test tests/tasks/database-maintenance.spec.ts --project=firefox` (single spec, single browser) because it pins substrings of the changed notice text at `:516-518` and `:550` (see 3.2), plus the Vitest file `frontend/src/components/__tests__/DatabaseMaintenance.test.tsx` (L105-106), run with `npx vitest run frontend/src/components/__tests__/DatabaseMaintenance.test.tsx`; both must pass unchanged. The Playwright spec needs the E2E container up (rebuild it with the `docker-rebuild-e2e` skill: `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`) | the uptime/monitors page spec only if one asserts summary timings; the endpoint contract is unchanged |
+| GORM security scan (`./scripts/scan-gorm-security.sh --check`) | not triggered (no models/queries/migrations) | run (raw SQL in `Store` changes; cheap) | **run** (query changes) |
+| `bash scripts/local-patch-report.sh` | required | required | required |
+| CodeQL / Trivy locally | defer to CI (`fix:`/`test:`) | defer to CI | defer to CI (`perf:`, no new feature surface) |
+| `lefthook run pre-commit`, `make lint-fast`, `make lint-backend` | required | required | required |
+| Backend coverage `scripts/go-test-coverage.sh` >= 85 % | required | required | required |
+| Frontend coverage / `npm run type-check` / `npm run build` | not applicable | `type-check` and the Vitest file above (one string) | not applicable |
+| `go test -race` on affected packages | `./internal/services/... ./internal/api/handlers/... ./internal/testutil/...`, plus `go test -count=5` of `./internal/services/...` and of `./internal/api/handlers/...` with a private empty `TMPDIR` that must be empty afterwards | `./internal/dbmaint/... ./internal/api/handlers -run 'Database|Maint'` (full `./internal/api/handlers` race run is heavy; the DoD requires the changed code to be race-clean, so the targeted subset plus the unit packages suffice, state this in the QA report) | `./internal/services -run 'Uptime'` |
+| `go build ./...` | required | required | required |
+| Real-`main()` test | not applicable | `go test ./cmd/api -run TestMaintenance` once at commit 4 and at the end | not applicable |
+| Never | skip, `.skip` or delete a test; defer a failing test/lint as "pre-existing" | same | same |
+
+`qa-security` runs last for each PR (after all implementation commits), writing the QA report, per the orchestration model; no second implementation pass is dispatched onto a PR's files while its QA is running.
+
+### 5.2 Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| Guard makes an unrelated, legitimately-temp-writing test fail | The guard reports the leaking names and always cleans; fix the test (use `t.TempDir()`), never loosen the guard. Run the two packages with `-count=5` and with `-race` before merging (5.1). |
+| `os.Setenv("TMPDIR")` in `TestMain` changes behaviour of tests that assert on `/tmp` paths | grep for `"/tmp"` literals in the two packages; the full `go test ./...` run with a private `TMPDIR` already passed, which is the same situation. |
+| Discarding the snapshot breaks a flow that still needs it after the pipeline | The only readers are `RehydrateLiveDatabase` (inside the pipeline, before the defer) and `writePendingRestoreFile` (copy, inside the pipeline). Covered by tests 1-4 in 3.1.1; the legacy `RestoreBackup` path is untouched. |
+| Interruption limit of 5 is too high/low | One named constant, documented, easily tuned (Q1). |
+| Double count when killed between the interruption write and the marker clear | Accepted and documented in the code comment (rare, only strengthens the back-off; the alternative order could miss a count). |
+| Rewrite relies on `idx_heartbeat_monitor_created`, which the pruner builds late on fresh installs | Measured honestly: without the index the refresh **total is not worse (about 20 % better: 1.21-1.37 s vs 1.54-1.71 s)**, but **Q3 alone is about 11-18 % slower** (0.54-0.58 s vs 0.47-0.52 s). Accepted because the state is transient and the total improves; the single-pass alternatives that would help here (D, B, C in 3.4) are 3-6x slower in the steady state, which is the state that matters. The plan-guard test checks the plan only when the index exists; documented in `docs/performance/database.md`. |
+| Per-monitor query changes tie-breaking on identical `created_at` | The old query was nondeterministic on ties and returned different rows with and without the composite index (measured). The new query adds `id DESC` / `id ASC` tie-breakers (plan and speed unchanged, 3.4), and the oracle in the test uses the same tie-break, so equivalence is exact on tie-heavy fixtures in both index states. |
+| `GetSummary` has no `singleflight` on a cache miss | Not a regression and not measured as a problem after the rewrite (~90 ms); noted in the performance doc and in C1. |
+| Measurements are from one dev host | Documented as relative (order of magnitude), method recorded so it can be rerun; Pi performance explicitly unmeasured. |
+
+### 5.3 New child issues to file for #42 (proposed titles, labels, order)
+
+**The orchestrator files C1-C8 now**, not after plan approval: CLAUDE.md "Findings Triage & Issue Tracking" says out-of-scope findings are filed automatically with no need to ask first, and C1 is the issue PR 3 closes. Ready-to-file bodies (title on the first line, labels on the last) are in the scratchpad `children/C1.md` ... `C8.md`; the proposed new #42 title and body are in `children/EPIC.md`. Only renaming/editing the existing #42 waits for the user's approval of the epic conversion. GitHub writes are not done by this planning pass. Suggested labels in the table.
+
+| Id | Proposed title | Labels | Order / priority |
+| --- | --- | --- | --- |
+| C1 | `perf: uptime summary refresh scans every retained heartbeat and blocks the only DB connection` - the slice implemented by PR 3 (file it, then close with the PR) | performance, database, backend | now (PR 3) |
+| C2 | `perf: Cerberus.IsEnabled issues 2-3 uncached queries per API request (plus one user lookup) on a single-connection pool` - cache with the existing `settingsCache` pattern and invalidate on security setting writes; measured 100 us idle, but it is the main victim of any long statement | performance, backend, database | after PR 3 (low) |
+| C3 | `perf: audit the three indexes on uptime_heartbeats (idx_heartbeat_lookup is the largest, 123 MB at 1.5 M rows)` - check whether `idx_heartbeat_lookup (monitor_id, status, created_at)` is still needed once `idx_heartbeat_monitor_created` exists; the audit must account for C1's rewrite, which uses `idx_heartbeat_lookup` for the `up` count (3.4), so it cannot simply be dropped; sizes at 1.5 M rows: 123 / 118 / 64 MB (3.4); the only insert-cost figure measured is +30 % (341 vs 259 ms per 20 k rows) for the rejected new covering index `(created_at, monitor_id, status)`, not for each existing index | performance, database | after C2 (low) |
+| C4 | `perf(caddy): measure config generation and reload time with 100+ proxy hosts` - benchmark `caddy/manager` generation, hashing and apply against the "reload < 1 s" criterion; optimize only what the numbers justify | performance, caddy, backend | medium; independent of the DB work |
+| C5 | `perf(frontend): bundle size audit and CI size budget` - analyze the Vite output (manual chunks already exist), set a budget, lazy-load heavy routes if over budget | performance, frontend | low |
+| C6 | `perf: validate Charon on a Raspberry Pi 4 (arm64) and record sizing` - confirm the main image is multi-arch, run the seeded scenario from `docs/performance/database.md` on real hardware | performance, testing | medium; needs hardware (owner action) |
+| C7 | `docs: performance characteristics and sizing guide` - user-facing, curated from C1/C4/C6 results; add to the docs-site manifest only when it is written for novices | documentation, performance | last |
+| C8 | `refactor: remove the unused legacy BackupService.RestoreBackup and its interface method; extend the temp-leak guard to the remaining test packages` - dead code (no production caller), removes the cross-call `restoreDBPath` field | refactor, backend, testing | low, after PR 1 |
+| Epic | Rename #42 to `Performance: tracking epic` and replace its checklist with links to C1-C8 (and tick done items) | performance | **after user approval** (edits an existing issue) |
+
+### 5.4 Acceptance criteria
+
+PR 1: (a) a full `go test ./... -count=1 -p 4` with an empty private `TMPDIR` leaves that directory empty (today: 25 `charon-restore-db-*` files, 112 MB, plus two directories); (b) the guard turns a deliberately leaking test into a package failure naming the file, and removes it; (c) after a successful, a failed and a pending-file restore, `BackupService.restoreDBPath` is empty and the staged file is gone while `charon.db.pending-restore` still exists in the pending case; (d) no change to restore results or API responses.
+PR 2: (a) after `MaxInterruptedRuns` orderly stops mid-conversion the next boot does not start a conversion, logs the stopped line, serves the UI, and shows the existing "Automatic cleanup has stopped" notice; (b) a single SIGTERM during the conversion counts no failed attempt and does not stop the next boot's retry; (c) Reclaim after the stop schedules a fresh conversion with both counters reset; (d) after an in-version run that exhausts the budget the runner has dropped the request, and the Database page then shows the **stopped notice together with the Reclaim button in every case, including a file below the automatic thresholds that was only ever reclaimed on request** (the notice is driven by the back-off state through `Decide` with the request assumed, 3.3, not by the cleared flag), never "Scheduled" and "stopped" together; a direct `POST` with the flag set and the counter at the limit resets the counter (200); (e) older `maintenance.attempts` rows decode unchanged; (f) docs and the English notice match the behaviour, and `DatabaseMaintenance.test.tsx` and `tests/tasks/database-maintenance.spec.ts` pass unchanged; (g) `consumeMarker` keeps the interruption count, and `Advise` and the `restart_to_optimize` dry runs ignore interruptions (tests in 3.2).
+PR 3: (a) `GetSummary` returns byte-identical JSON to the old implementation **on tie-free fixtures** (untouched legacy SQL as oracle) and to the tie-broken legacy oracle on fixtures with duplicate `created_at` values, in both index states (the unmodified legacy order is nondeterministic on ties, so byte-identity to it is not claimed there); (b) on the seeded 150-monitor / 1.5 M-heartbeat scratch database the cold refresh drops from about 1.4 s to under 150 ms with the composite index present (measured target about 90 ms), and **without the index the refresh total is not worse than the old one (measured about 20 % better) while Q3 alone may be about 11-18 % slower**, which is accepted and documented; (c) the endpoint contract, cache TTL and `beats` clamping are unchanged; (d) the new benchmark and plan-guard test exist and pass.
+Plan-level: child issues C1-C8 are filed by the orchestrator now (C1 before PR 3 so the PR can close it); the #42 epic conversion (rename and body) is applied only after the user approves it.
+
+### 5.5 Documentation to update
+
+`docs/database-maintenance.md` (PR 2, the places listed in 3.2: L90-96, L142-150 incl. L147-149, L474-485); `docs/performance/database.md` (new, PR 3) and a link line in `docs/features.md`; the testing/development doc that describes `TMPDIR` (PR 1); `ARCHITECTURE.md` only if the one-line "up to 3 attempts" sentence near L823 is made inaccurate (PR 2) or if the new `internal/testutil/tmpguard` package needs a directory-structure line (PR 1, check the testutil entry first). CHANGELOG is generated by release-please from commit subjects: write subjects that are accurate for every self-hosted reader (none uses `(security)`).
+
+### 5.6 Genuine open questions (with recommendations)
+
+1. **How many orderly stops before Charon gives up on the optimization (`MaxInterruptedRuns`)?** Recommendation: 5 (a user who restarts on purpose once or twice is safe; an orchestrator loop costs at most five 503 windows instead of unbounded). It is one constant.
+2. **Remove the dead legacy `BackupService.RestoreBackup` now or later?** Recommendation: later (child issue C8): it touches an interface and ~19 test sites and is not needed to fix the leak. Say so if you prefer to fold it into PR 1.
+3. **Should the Cerberus per-request query caching (C2) join the performance PR?** Recommendation: no; the measured idle cost is about 0.1 ms per request, and most of its practical pain disappears once the 1.4 s connection hold is gone. Keep PR 3 to one measured change.
+
+Everything else was decided with evidence above; the plan can go back to the supervisor for the rev 3 re-review.
+
+### 5.7 Revision history and traceability
+
+| Rev | Date | Change |
+| --- | --- | --- |
+| 1 | 2026-10-02 | First plan. |
+| 2 | 2026-10-02 | Supervisor review of rev 1: CHANGES REQUIRED (no blockers, 7 should-fix, nits). All applied; Q2/Q3 measurements re-run (3.4). |
+
+| 3 | 2026-10-02 | Supervisor verification of rev 2: S1 (index size measured, 3.4), S2 (insert-cost wording, 5.3 C3), N1 (oracle exposes `id`), N2 (SF4 rule moved into commit 2), N3 (EPIC note), N4 (E2E container note), N5 (C3 audit accounts for C1's use of `idx_heartbeat_lookup`). No design change. |
+
+| Finding | Where addressed in rev 2 |
+| --- | --- |
+| SF1 `consumeMarker` / `readAttempts` / dry-run overrides drop or keep `Interruptions` | 3.2 Decision (list "Every place ..."), 3.2 Tests (`state_test`, `advise_test`, handler), 4.2 commit 3, 5.4 PR 2 (g) |
+| SF2 "never slower without the index" is false per query; single-pass aggregate | 3.4 measurement table (new rows, single-pass alternatives A/B/C/D), 3.4 recommended slice, 5.2 risk row, 5.4 PR 3 (b) |
+| SF3 ties are not byte-identical | 3.4 tie row, tie-breaker in the specified SQL, 3.4 Tests (1), 5.2 risk row, 5.4 PR 3 (a) |
+| SF4 stopped notice vanishes when the flag is cleared | 3.3 bullet "The stopped notice must survive the flag being cleared", 3.3 Tests, 4.2 commit 2 (rule, `Attempts` case) and commit 3 (`Interruptions` case), 5.4 PR 2 (d) |
+| SF5 wording pinned by Vitest and Playwright | 3.2 "User-visible wording", 4.2 commit 5, 5.1 E2E row (REQUIRED), 5.4 PR 2 (f) |
+| SF6 determinism of the real-`main()` loop test | 3.2 Tests, real-`main()` bullet (outcomes a/b/c, seed, runtime), 4.2 commit 4 unchanged |
+| SF7 filing rule | 2 (intro and table), 3.4 verdict, 5.3 intro and Epic row, 5.4 plan-level |
+| Nit: doc line refs (L476, L147-149, L482-485) | 3.2 "User-visible wording", 5.5 |
+| Nit: stale comments `uptime_summary_service.go:25-28`, `:168-171` | 3.4 recommended slice, 4.3 commit 2 |
+| Nit: no `singleflight` on cache miss | 3.4 (performance doc note), 4.3 commit 3, 5.2 |
+| Nit: tmpguard rollout (`-count=5`, `-race`, read-only dirs, test CA file) | 3.1.3, 5.1 race row, 5.2 first risk row |
+| Nit: release note (`fix:`/`perf:` build and patch release; `test:`/`docs:` do not) | 4.3 "Release effect" paragraph |
+
