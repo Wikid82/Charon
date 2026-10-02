@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,12 @@ WHERE created_at >= ?
 GROUP BY monitor_id`
 )
 
+// legacyUptimeRow is the row shape of legacyUptime24hSQL.
+type legacyUptimeRow struct {
+	MonitorID string
+	Pct       float64
+}
+
 // equivalenceNow is the fixed clock for the equivalence fixtures.
 var equivalenceNow = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 
@@ -62,7 +69,7 @@ func seedEquivalenceFixture(t *testing.T, db *gorm.DB, withTies bool) {
 		beats = append(beats, models.UptimeHeartbeat{
 			MonitorID: monitorID,
 			Status:    status,
-			Latency:   int64(len(beats)*37%500),
+			Latency:   int64(len(beats) * 37 % 500),
 			CreatedAt: at,
 		})
 	}
@@ -94,8 +101,8 @@ func seedEquivalenceFixture(t *testing.T, db *gorm.DB, withTies bool) {
 }
 
 // oracleSummary assembles the summary exactly like GetSummary but runs the
-// given oracle SQL for the two heartbeat queries.
-func oracleSummary(t *testing.T, svc *UptimeSummaryService, beatsSQL, uptimeSQL string) []MonitorSummary {
+// given legacy beats SQL and the legacy uptime SQL.
+func oracleSummary(t *testing.T, svc *UptimeSummaryService, beatsSQL string) []MonitorSummary {
 	t.Helper()
 	ctx := context.Background()
 	windowStart := svc.now().Add(-uptimeSummaryWindow)
@@ -110,8 +117,8 @@ func oracleSummary(t *testing.T, svc *UptimeSummaryService, beatsSQL, uptimeSQL 
 		beats[r.MonitorID] = append(beats[r.MonitorID], BeatDTO{Status: r.Status, Latency: r.Latency, CreatedAt: r.CreatedAt})
 	}
 
-	var uptimeRows []uptime24hRow
-	require.NoError(t, svc.db.WithContext(ctx).Raw(uptimeSQL, windowStart).Scan(&uptimeRows).Error)
+	var uptimeRows []legacyUptimeRow
+	require.NoError(t, svc.db.WithContext(ctx).Raw(legacyUptime24hSQL, windowStart).Scan(&uptimeRows).Error)
 	uptime := make(map[string]float64)
 	for _, r := range uptimeRows {
 		uptime[r.MonitorID] = r.Pct
@@ -157,7 +164,7 @@ func forEachIndexState(t *testing.T, withTies bool, fn func(t *testing.T, svc *U
 // unique answer, so GetSummary must serialise to exactly the same JSON.
 func TestUptimeSummary_MatchesLegacySQL_TieFree(t *testing.T) {
 	forEachIndexState(t, false, func(t *testing.T, svc *UptimeSummaryService) {
-		want := oracleSummary(t, svc, legacyRecentBeatsSQL, legacyUptime24hSQL)
+		want := oracleSummary(t, svc, legacyRecentBeatsSQL)
 		for _, beats := range []int{1, 30, 60} {
 			t.Run(fmt.Sprintf("beats=%d", beats), func(t *testing.T) {
 				got, err := svc.GetSummary(context.Background(), beats)
@@ -240,4 +247,66 @@ func seedColdSummaryDB(b *testing.B, monitorCount, days int) *gorm.DB {
 	require.NoError(b, db.CreateInBatches(&monitors, 200).Error)
 	require.NoError(b, db.CreateInBatches(&beats, 2000).Error)
 	return db
+}
+
+// Tie-broken legacy oracle: the legacy SQL plus the deterministic tie-breakers
+// the rewrite adds (newest-first by created_at then id inside the cap,
+// oldest-first by created_at then id in the output). The untouched legacy
+// order is nondeterministic on duplicate created_at values, so it cannot be
+// the reference there.
+const tieBrokenLegacyRecentBeatsSQL = `
+SELECT monitor_id, status, latency, created_at
+FROM (
+  SELECT id, monitor_id, status, latency, created_at,
+         ROW_NUMBER() OVER (PARTITION BY monitor_id ORDER BY created_at DESC, id DESC) AS rn
+  FROM uptime_heartbeats
+  WHERE created_at >= ?
+)
+WHERE rn <= ?
+ORDER BY monitor_id, created_at ASC, id ASC`
+
+// On a fixture full of duplicate timestamps with differing statuses the
+// rewrite must equal the tie-broken oracle, whichever index exists.
+func TestUptimeSummary_MatchesTieBrokenLegacySQL_Ties(t *testing.T) {
+	forEachIndexState(t, true, func(t *testing.T, svc *UptimeSummaryService) {
+		want := oracleSummary(t, svc, tieBrokenLegacyRecentBeatsSQL)
+		for _, beats := range []int{1, 30, 60} {
+			t.Run(fmt.Sprintf("beats=%d", beats), func(t *testing.T) {
+				got, err := svc.GetSummary(context.Background(), beats)
+				require.NoError(t, err)
+				requireSameSummaryJSON(t, sliceSummaries(want, beats), got)
+			})
+		}
+	})
+}
+
+// Without ties the tie-breakers must change nothing: the untouched legacy SQL
+// is still the reference.
+func TestUptimeSummary_TieFreeUnaffectedByTieBreakers(t *testing.T) {
+	forEachIndexState(t, false, func(t *testing.T, svc *UptimeSummaryService) {
+		requireSameSummaryJSON(t,
+			oracleSummary(t, svc, legacyRecentBeatsSQL),
+			oracleSummary(t, svc, tieBrokenLegacyRecentBeatsSQL))
+	})
+}
+
+// Regression tripwire for the 40x: with the composite index present, neither
+// summary query may fall back to scanning every retained heartbeat, and the
+// ranked query may only sort the final output (no temp b-tree inside the
+// per-monitor top-N).
+func TestUptimeSummary_QueryPlanUsesCompositeIndex(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	smIndex(t, db)
+	windowStart := equivalenceNow.Add(-uptimeSummaryWindow)
+
+	beatsPlan := explainPlan(t, db, recentBeatsSQL, uptimeMonitorScanLimit, windowStart, uptimeSummaryMaxBeats)
+	uptimePlan := explainPlan(t, db, uptime24hSQL, windowStart, windowStart, uptimeMonitorScanLimit)
+
+	require.Contains(t, beatsPlan, "idx_heartbeat_monitor_created", "plan:\n%s", beatsPlan)
+	require.NotContains(t, beatsPlan, "SCAN uptime_heartbeats", "plan:\n%s", beatsPlan)
+	require.LessOrEqual(t, strings.Count(beatsPlan, "TEMP B-TREE"), 1,
+		"only the final ORDER BY may sort; plan:\n%s", beatsPlan)
+
+	require.Contains(t, uptimePlan, "idx_heartbeat_monitor_created", "plan:\n%s", uptimePlan)
+	require.NotContains(t, uptimePlan, "SCAN uptime_heartbeats", "plan:\n%s", uptimePlan)
 }

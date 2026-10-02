@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -356,7 +355,7 @@ func TestUptimeSummary_ErrorPaths(t *testing.T) {
 		// tx.Statement.SQL is populated there.
 		const cb = "test:fail_recent_beats"
 		require.NoError(t, db.Callback().Row().Before("gorm:row").Register(cb, func(tx *gorm.DB) {
-			if strings.Contains(tx.Statement.SQL.String(), "ROW_NUMBER()") {
+			if tx.Statement.SQL.String() == recentBeatsSQL {
 				_ = tx.AddError(errRecentBeatsInjected)
 			}
 		}))
@@ -373,7 +372,7 @@ func TestUptimeSummary_ErrorPaths(t *testing.T) {
 
 		const cb = "test:fail_uptime24h"
 		require.NoError(t, db.Callback().Row().Before("gorm:row").Register(cb, func(tx *gorm.DB) {
-			if strings.Contains(tx.Statement.SQL.String(), "GROUP BY monitor_id") {
+			if tx.Statement.SQL.String() == uptime24hSQL {
 				_ = tx.AddError(errUptime24hInjected)
 			}
 		}))
