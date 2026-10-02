@@ -1,0 +1,125 @@
+# Stale Branch Prune
+#
+# Deletes remote branches whose tip commit is older than N days (default 90).
+#
+# SAFE ROLLOUT: scheduled runs are DRY-RUN by default. They only delete once the
+# repository variable STALE_BRANCH_PRUNE_LIVE is set to 'true'
+# (Settings > Secrets and variables > Actions > Variables). Manual runs
+# (workflow_dispatch) use the `dry_run` input, which defaults to true.
+#
+# NEVER deleted: the default branch, protected branches, heads of open PRs, and
+# anything matching EXCLUDE_REGEX below. Edit EXCLUDE_REGEX to change the list.
+name: Stale Branch Prune
+
+on:
+  schedule:
+    - cron: '0 4 * * 0' # Weekly: Sundays at 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Delete branches with no commits in this many days'
+        required: false
+        default: '90'
+      dry_run:
+        description: 'If true, only report what would be deleted'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write       # required to delete branch refs
+  pull-requests: read   # required to list open PR head branches
+
+concurrency:
+  group: stale-branch-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      STALE_DAYS: ${{ github.event.inputs.days || '90' }}
+      EVENT_NAME: ${{ github.event_name }}
+      INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+      LIVE_VAR: ${{ vars.STALE_BRANCH_PRUNE_LIVE }}
+      # Branches that must never be deleted (extended regex, matched against the full name).
+      EXCLUDE_REGEX: '^(main|development|nightly|gh-pages|feature/beta-release|release-please--.*|renovate/.*)$'
+    steps:
+      - name: Prune stale branches
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          if ! [[ "$STALE_DAYS" =~ ^[0-9]+$ ]] || [ "$STALE_DAYS" -lt 1 ]; then
+            echo "::error::days must be a positive integer (got '$STALE_DAYS')"
+            exit 1
+          fi
+
+          # Manual runs follow the dry_run input; scheduled runs are dry-run unless LIVE_VAR is true.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            DRY_RUN="${INPUT_DRY_RUN:-true}"
+          elif [ "$LIVE_VAR" = "true" ]; then
+            DRY_RUN=false
+          else
+            DRY_RUN=true
+          fi
+
+          cutoff=$(date -u -d "${STALE_DAYS} days ago" +%s)
+          echo "Repo=$REPO default=$DEFAULT_BRANCH days=$STALE_DAYS dry_run=$DRY_RUN"
+
+          # Head branches of open PRs from this repo (fork PRs are irrelevant to our refs).
+          open_heads=$(gh api --paginate "repos/${REPO}/pulls?state=open&per_page=100" \
+            --jq '.[] | select(.head.repo.full_name == "'"${REPO}"'") | .head.ref') || {
+            echo "::error::Could not list open PRs; refusing to continue"
+            exit 1
+          }
+
+          branches=$(gh api --paginate "repos/${REPO}/branches?per_page=100" \
+            --jq '.[] | [.name, .protected, .commit.sha] | @tsv') || {
+            echo "::error::Could not list branches"
+            exit 1
+          }
+
+          {
+            echo "## Stale branch prune (>${STALE_DAYS} days, dry_run=${DRY_RUN})"
+            echo
+            echo "| Branch | Last commit | Action |"
+            echo "|---|---|---|"
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+
+          failures=0
+          row() { echo "| \`$1\` | $2 | $3 |" >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"; }
+
+          while IFS=$'\t' read -r name protected sha; do
+            [ -z "$name" ] && continue
+
+            if [ "$name" = "$DEFAULT_BRANCH" ]; then row "$name" "-" "skipped: default branch"; continue; fi
+            if [[ "$name" =~ $EXCLUDE_REGEX ]]; then row "$name" "-" "skipped: excluded by name"; continue; fi
+            if [ "$protected" = "true" ]; then row "$name" "-" "skipped: protected"; continue; fi
+            if grep -Fxq -- "$name" <<<"$open_heads"; then row "$name" "-" "skipped: open PR"; continue; fi
+
+            date_str=$(gh api "repos/${REPO}/commits/${sha}" --jq '.commit.committer.date') || {
+              row "$name" "?" "error: could not read commit"; failures=$((failures+1)); continue
+            }
+            ts=$(date -u -d "$date_str" +%s) || { row "$name" "$date_str" "error: bad date"; failures=$((failures+1)); continue; }
+
+            if [ "$ts" -ge "$cutoff" ]; then row "$name" "$date_str" "skipped: active"; continue; fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              row "$name" "$date_str" "would delete"
+              continue
+            fi
+
+            if gh api -X DELETE "repos/${REPO}/git/refs/heads/${name}" >/dev/null 2>&1; then
+              row "$name" "$date_str" "deleted"
+            else
+              row "$name" "$date_str" "error: delete failed"; failures=$((failures+1))
+            fi
+          done <<<"$branches"
+
+          if [ "$failures" -gt 0 ]; then
+            echo "::warning::${failures} branch(es) failed; see the step summary"
+          fi
