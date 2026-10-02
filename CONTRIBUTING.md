@@ -404,6 +404,13 @@ go test ./... -v
 go test -cover ./...
 ```
 
+**Temp files:** the `internal/services` and `internal/api/handlers` test packages run inside `internal/testutil/tmpguard` (wired in their `TestMain`). It redirects `TMPDIR` to a private directory that is always removed afterwards, and fails the package and names the files if a test left anything behind. Fix the leaking test (use `t.TempDir()`) rather than loosening the guard. Directories from killed runs (`charon-gotest-*`, older than 24 hours) are swept on the next run. Test builds and databases need a lot of scratch space, so on a machine with a small RAM-backed `/tmp` point the temp directories at disk:
+
+```bash
+export TMPDIR=/var/tmp/charon-tests GOTMPDIR=/var/tmp/charon-tests-go
+mkdir -p "$TMPDIR" "$GOTMPDIR"
+```
+
 ### Frontend Tests
 
 Write component and hook tests using Vitest and React Testing Library:
