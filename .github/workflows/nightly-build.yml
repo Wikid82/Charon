@@ -18,6 +18,7 @@ env:
   GO_VERSION: '1.27.1'
   NODE_VERSION: '24.21.0'
   GOTOOLCHAIN: auto
+  SYFT_VERSION: 'v1.54.0'
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
@@ -296,7 +297,7 @@ jobs:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: spdx-json
           output-file: sbom-nightly.json
-          syft-version: v1.54.0
+          syft-version: ${{ env.SYFT_VERSION }}
 
       - name: Generate SBOM fallback with pinned Syft
         if: always()
@@ -310,7 +311,6 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.52.0"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in

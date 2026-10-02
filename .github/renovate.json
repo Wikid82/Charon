@@ -298,9 +298,8 @@
         "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
       ],
       "matchStrings": [
-        "SYFT_VERSION=\\\"v(?<currentValue>[^\\\"\\s]+)\\\"",
-        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\"",
-        "syft-version:\\s*v(?<currentValue>[^\\s]+)"
+        "SYFT_VERSION:\\s*['\"]?v(?<currentValue>[^'\"\\s]+)['\"]?",
+        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\""
       ],
       "depNameTemplate": "anchore/syft",
       "datasourceTemplate": "github-releases",
