@@ -92,3 +92,46 @@ Result: **PASS** (no blocking findings).
 ### Findings
 
 None blocking. Informational: local patch coverage shortfalls are confined to existing dbmaint/database error branches (diskspace.go, probe.go, tmpdir.go, database.go), above the 85% backend threshold overall. GH #1426 /tmp leak not exercised as a failure.
+
+---
+
+## Re-run: #1427 follow-ups
+
+Branch `fix/db-maintenance-followups-1427`, range `a7aa2909^..HEAD` (HEAD d18a541a). Backend + docs only. Heavy commands ran with TMPDIR/GOTMPDIR under /var/tmp (scratch dir removed afterwards).
+
+**Verdict: PASS. No blocking findings.**
+
+### Gates
+
+| Gate | Command | Outcome |
+|---|---|---|
+| Build/vet/fmt | `cd backend && go build ./... && go vet ./...`; `gofmt -l .` | clean; gofmt lists nothing |
+| Full backend suite | `go test -count=1 ./...` | 0 failures |
+| Race (2 runs) | `go test -race -count=1 ./internal/dbmaint/... ./cmd/api/... ./internal/database/... ./internal/api/... ./internal/services/...` | run 1 and run 2 both exit 0, no races |
+| Slow real-main() test (2 runs, -race, -v) | `./cmd/api -run TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts` | PASS twice (SIGTERM ~18s, SIGKILL ~17-19s), no flakiness |
+| Patch coverage | `bash scripts/local-patch-report.sh` (re-run after fresh coverage) | artifacts present; backend 51/51 changed lines = 100% (gate 85%); frontend/agent 0 changed lines |
+| Backend coverage | `scripts/go-test-coverage.sh` | pass; line coverage 89.1% (gate 87%), statements 92.1% |
+| Lefthook | `lefthook run pre-commit --all-files` | all hooks passed (semgrep 0 findings, 367 rules) |
+| Lint | `make lint-fast`; `make lint-backend` | 0 issues; 0 issues |
+| GORM | `./scripts/scan-gorm-security.sh --check` | PASSED, 0 issues (2 informational suggestions) |
+| CodeQL / Trivy | deferred to CI | no `feat:`, no new network surface or endpoint, no new dependency |
+| Frontend untouched | `git diff --stat a7aa2909^..HEAD -- frontend tests` | empty; no frontend gates needed |
+
+Working tree was clean after the runs (changelog.json not modified); nothing committed.
+
+### Security / compliance audit
+
+- SQL: `DiscardMarkerIfConverted`, the counters and markers go through the existing `getJSON`/`ClearInProgress`/`ResetAttempts` helpers (parameterised); `PRAGMA journal_size_limit=%d` is built from a compile-time integer constant (64<<20), no user input, no injection path.
+- Temp dir: `PrepareTempDir` keeps `filepath.Clean`, `Lstat`, the symlink/non-directory refusal, the owner==euid check and the 0700 check unchanged. The new `ErrTempDirSkipped` path returns early only when euid==0 and the data directory is owned by a non-root uid, and then touches nothing (a symlinked or attacker-owned `.tmp` is simply never reached; the root process does not create or chmod anything). When the process is non-root or root-owned data, the original checks apply. `ApplyTempDir` handles the skip at Debug level only.
+- Back-off: the failure limit now also applies when the user's flag is set, and a flag-driven run no longer bypasses it. The flag is only set by `POST /system/database/optimize-on-restart`, registered on `managementAdmin` (routes.go:583, admin-only); that handler also calls `ResetAttempts`. No unauthenticated or non-admin path can force or skip a conversion. Pre-conversion failures count and keep the flag, bounded by the 3-attempt limit (no infinite retry loop, no repeated heavy work).
+- Busy classification: `errors.As` on `Code()` matches `code & 0xff == 5` (SQLITE_BUSY and its extended codes only; SQLITE_LOCKED is 6 and is not matched). The text fallback is unchanged.
+- Logs: new messages carry only the reason string; no secrets or new paths.
+- DoS: retries are capped at 3; WAL cap bounds disk growth; no new unbounded loop or allocation.
+- Docs: the chown advice is scoped to `<data>/.tmp`, tells the operator to stop Charon first, and mentions deleting the folder as an alternative.
+- Commit hygiene: `git log a7aa2909^..HEAD --format=%B` and the diff contain no session IDs, claude.ai session links, Co-Authored-By or "generated with" lines. All 11 subjects use `fix:`, `refactor:`, `test:` or `docs:` prefixes; no `(security)` scope is used.
+
+### Findings
+
+None blocking. Informational:
+- Low (docs/comment nit, drain.go:63-64): the doc comment now wraps unevenly after the `spike_test.go` to `driver_behavior_test.go` rename (one short line, one long line). Cosmetic only; no action required.
+- Info: GH #1426 (/tmp leak) was not observed as a failure in any gate.
