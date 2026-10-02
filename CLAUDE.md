@@ -160,6 +160,18 @@ never affected by this.
   5. Hardening + enable E2E + docs
 - **Per-Commit Requirement**: Each commit should build and pass its validation gate; the PR as a whole must pass the full Definition of Done before merge.
 
+## 🔎 Findings Triage & Issue Tracking
+
+Applies to every session (planning, implementation, review, QA, live testing). When you find a bug, defect, risk, or upgrade opportunity that is **outside the scope of the current task**:
+
+- **Out-of-scope findings are filed automatically.** If it is decided NOT to roll the finding into the current PR, immediately file a GitHub issue to track it — no need to ask first. Include what, where (`file:line`), evidence, severity (critical / high / medium / low), a suggested approach, and a link to the issue/PR where it was found. Never silently drop a finding, and never silently widen the current PR to absorb it. (Failing tests, type errors, and lint errors that block CI are not findings to file — they are fixed in the PR per the Definition of Done.)
+- **Security-sensitive findings are not filed as public issues.** Use a private security advisory per `SECURITY.md`, and keep any public reference vague (see the `(security)` SCOPE rule above).
+- **Critical or high findings are fixed first.** The fix may be planned in the same spec as the current work, but it ships as its **own PR** (one fix = one PR) and takes priority over the work in progress.
+- **Planning decides the order.** Every spec written by `planning` MUST include a **Priorities & Ordering** section that lists the findings and states what happens first and why, using these rules (for bounded work with no spec, the orchestrating session applies the same rules):
+  - Working on a **user-submitted issue** → that issue comes first, unless a finding is decided to be higher priority (critical/high).
+  - Working on **our own finding or upgrade** (not user-submitted) → bug fixes always come before new implementation (`feat`).
+  - Medium/low out-of-scope findings → filed as issues and scheduled after the current work.
+
 ## ✅ Task Completion Protocol (Definition of Done)
 
 Before marking an implementation task as complete, perform the following in order:
@@ -235,7 +247,7 @@ Unlike the retired Management agent, the orchestrating session is **not** banned
 
 - **Bounded work** (a well-scoped fix, chore, or CI/docs change to an existing flow — no written spec needed): read what you need, then dispatch straight to the one specialist agent that owns it (`backend-dev`, `frontend-dev`, `devops`, `docs-writer`, `playwright-dev`) with a self-contained prompt. No planning-agent detour required.
 - **Feature-scale work** (new functionality, anything that warrants a written spec per the brainstorming/writing-plans skills): run the full pipeline —
-  1. Delegate to `planning` to research and write `docs/plans/current_spec.md` (with a Commit Slicing Strategy, per "Commit Slicing & PR Strategy" above).
+  1. Delegate to `planning` to research and write `docs/plans/current_spec.md` (with a Commit Slicing Strategy, per "Commit Slicing & PR Strategy" above, and a Priorities & Ordering section, per "Findings Triage & Issue Tracking" above).
   2. Delegate to `supervisor` to review the plan; iterate with `planning` until approved.
   3. Present the plan to the user and get explicit approval before implementation begins.
   4. Delegate implementation commit-by-commit to `backend-dev`/`frontend-dev`/`devops` in dependency order; each commit must pass its own validation gate before the next starts.
