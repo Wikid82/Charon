@@ -286,6 +286,23 @@ func (s *Store) consumeMarker(ctx context.Context, fileID string, count int) (in
 	return count, s.ClearInProgress(ctx)
 }
 
+// DiscardMarkerIfConverted drops a leftover in-progress marker of this file and
+// resets its failure counter, for a file that is already incremental: the
+// conversion completed, so nothing failed and nothing will convert it again. A
+// marker of another file is left to Load, which deletes it. It reports whether
+// a marker of this file was found. It is idempotent.
+func (s *Store) DiscardMarkerIfConverted(ctx context.Context, fileID string) (bool, error) {
+	var marker markerRecord
+	found, err := s.getJSON(ctx, keyInProgress, &marker)
+	if err != nil || !found || !sameFile(marker.FileID, fileID) {
+		return false, err
+	}
+	if err := s.ClearInProgress(ctx); err != nil {
+		return false, err
+	}
+	return true, s.ResetAttempts(ctx)
+}
+
 // loadLastResult returns the last result of the file; another file's is deleted.
 func (s *Store) loadLastResult(ctx context.Context, fileID string) (*LastResult, error) {
 	last, stale, err := s.readLastResult(ctx, fileID)

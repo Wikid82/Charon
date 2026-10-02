@@ -40,6 +40,7 @@ func StartupPlan(ctx context.Context, db *sql.DB, dbPath, envMode string) (PlanR
 	if err != nil {
 		return PlanResult{}, err
 	}
+	discardMarkerOfOptimizedFile(ctx, db, fileID)
 	state, err := NewStore(db).Load(ctx, fileID)
 	if err != nil {
 		return PlanResult{}, fmt.Errorf("load maintenance state: %w", err)
@@ -50,6 +51,24 @@ func StartupPlan(ctx context.Context, db *sql.DB, dbPath, envMode string) (PlanR
 		FlagRequested: state.FlagRequested,
 		Attempts:      state.Attempts,
 	})
+}
+
+// discardMarkerOfOptimizedFile clears the leftover marker of a file that is
+// already incremental (killed after the VACUUM, before the marker was cleared),
+// so Load does not count a completed conversion as a failure. It is cosmetic:
+// an error only logs a warning and Load then behaves as before.
+func discardMarkerOfOptimizedFile(ctx context.Context, db *sql.DB, fileID string) {
+	mode, err := readPragma(ctx, db, "auto_vacuum")
+	if err != nil || mode != AutoVacuumIncremental {
+		return
+	}
+	discarded, err := NewStore(db).DiscardMarkerIfConverted(ctx, fileID)
+	switch {
+	case err != nil:
+		logger.Log().WithError(err).Warn("database maintenance: could not clear the leftover marker of an optimized database")
+	case discarded:
+		logger.Log().Info("database optimization had completed before an earlier shutdown; clearing the leftover marker")
+	}
 }
 
 // StartParams configures Start. Plan and Convert are seams; nil selects

@@ -288,3 +288,63 @@ func TestLogPlanSkip_LevelsPerReason(t *testing.T) {
 
 	assert.Empty(t, logOf(ReasonBelowThreshold))
 }
+
+// A kill between the VACUUM and the marker clear leaves a marker on a file that
+// is already incremental: nothing failed, so nothing is counted.
+func TestStartupPlan_LeftoverMarkerOfAnOptimizedFileIsDiscarded(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 10, keepEvery: 2})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+	require.NoError(t, store.RecordFailure(ctx, fileID))
+	require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
+	logs := captureLogs(t)
+
+	res, err := StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+
+	assert.Equal(t, ReasonAlreadyOptimized, res.Decision.Reason)
+	assert.False(t, settingFound(t, db, keyInProgress))
+	assert.False(t, settingFound(t, db, keyAttempts), "the counter is reset, not incremented")
+	assert.Contains(t, logs.String(), "clearing the leftover marker")
+}
+
+func TestStartupPlan_LeftoverMarkerOfALegacyFileStillCounts(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{rows: 10, keepEvery: 2})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+	require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
+
+	_, err = StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+
+	st, err := store.Peek(ctx, fileID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, st.Attempts)
+	assert.False(t, settingFound(t, db, keyInProgress))
+}
+
+func TestStartupPlan_ACleanupFailureWarnsAndThePlanContinues(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 10, keepEvery: 2})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+	require.NoError(t, store.RecordFailure(ctx, fileID))
+	require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
+	// The counter reset (second step of the cleanup) cannot be written.
+	_, err = db.Exec(`CREATE TRIGGER keep_attempts BEFORE DELETE ON settings
+		WHEN OLD."key" = 'maintenance.attempts' BEGIN SELECT RAISE(ABORT, 'readonly'); END`)
+	require.NoError(t, err)
+	logs := captureLogs(t)
+
+	res, err := StartupPlan(ctx, db, path, config.DBCompactAuto)
+
+	require.NoError(t, err, "a cosmetic cleanup never fails the plan")
+	assert.Equal(t, ReasonAlreadyOptimized, res.Decision.Reason)
+	assert.Contains(t, logs.String(), `"level":"warning"`)
+	assert.Contains(t, logs.String(), "leftover marker")
+}
