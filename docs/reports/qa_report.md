@@ -135,3 +135,43 @@ Working tree was clean after the runs (changelog.json not modified); nothing com
 None blocking. Informational:
 - Low (docs/comment nit, drain.go:63-64): the doc comment now wraps unevenly after the `spike_test.go` to `driver_behavior_test.go` rename (one short line, one long line). Cosmetic only; no action required.
 - Info: GH #1426 (/tmp leak) was not observed as a failure in any gate.
+
+
+## Re-run: #1426 temp-leak guard
+
+Branch `fix/test-temp-leaks-1426`, range `b9728f94..HEAD` (9 commits), backend only. All heavy commands ran with private `TMPDIR`/`GOTMPDIR` under `/var/tmp` (removed afterwards).
+
+**Verdict: PASS. No blocking, no should-fix findings.**
+
+### Gate results
+
+| # | Command | Outcome |
+|---|---|---|
+| 1 | `cd backend && go build ./... && go vet ./...`; `gofmt -l .` | build OK, vet OK, gofmt empty |
+| 2a | `go test -count=1 -race ./internal/testutil/... ./internal/services/... ./internal/api/handlers/...` (private TMPDIR) | all ok (services 504.9s, handlers 349.2s, tmpguard, testutil, remotestorage); private TMPDIR EMPTY afterwards |
+| 2b | `go test -count=1 -p 4 ./...` (second private TMPDIR) | exit 0, zero failures; private TMPDIR EMPTY afterwards |
+| 3 | `go test -run Discard` + `-run 'Discard\|RestoreBackup\|RestoreDB'` in services | 8 new discard tests pass (success, pre-restore-backup failure, apply failure, pending-file written keeps pending copy, unrecoverable, sidecars, empty-field no-op, already-removed); legacy `FileExists(restoreDBPath)` tests (backup_service_test.go:86, :1370) pass |
+| 4 | Scratch copy (`git archive HEAD` under /var/tmp) with a deliberate-leak TestMain package | package FAILS, report names `deliberate-leak.bin (1234 bytes)`, exit 1. Decoys: young prefix dir, prefix-named symlink (to a dir with a file), old prefix-named plain file, old non-prefix dir all SURVIVED (symlink target content intact); old prefix-named dir was swept |
+| 5a | `bash scripts/local-patch-report.sh` | artifacts present (md + json); patch coverage 72/72 = 100% (backend), pass |
+| 5b | `scripts/go-test-coverage.sh` | exit 0; statements 92.2%, line coverage 89.2% vs gate 87%: met |
+| 5c | `lefthook run pre-commit --all-files` | exit 0 (all hooks incl. semgrep: 0 findings, golangci-lint-fast, go-vet, frontend lint/type-check) |
+| 5d | `make lint-fast` / `make lint-backend` | 0 issues / 0 issues |
+| 6 | CodeQL / Trivy | Deferred to CI per CLAUDE.md (no feat:, no new dependency, no network surface). `./scripts/scan-gorm-security.sh --check`: PASSED, 0 issues |
+| 7 | `go test -count>1` on services/handlers | Not run; known pre-existing, GH #1450 |
+
+### Security / compliance audit
+
+- tmpguard sweeper (`backend/internal/testutil/tmpguard/tmpguard.go`): sweeps only entries in `os.TempDir()` whose name has the `charon-gotest-` prefix, `IsDir()` per lstat (symlinks and plain files skipped), and mtime older than 24h. Only entry names are joined to the root, so it cannot reach outside the base (verified empirically in gate 4). `os.RemoveAll` does not follow symlinks. Private root comes from `os.MkdirTemp` (0700, unique).
+- Low / informational (tmpguard.go `removeTree`, ~lines 100-107): `os.Chmod` in the pre-removal walk follows symlinks and there is a theoretical check-to-use window between `ReadDir` and the walk. Exploitation needs a hostile local user racing in a shared temp dir, and the chmod would only apply to files the running user owns. Not exploitable in practice; no change requested. If hardened later, use `os.Lstat` before chmod.
+- Production `discardRestoreSnapshot` (`backend/internal/services/backup_restore_safe.go:242-255`): removes only `s.restoreDBPath` and its `-wal`/`-shm`. `restoreDBPath` is only ever assigned from `os.CreateTemp` outputs (backup_restore_safe.go:165, backup_service.go:1413-1419), never from user input, and is distinct from the live DB and from the pending-restore file (the pending file is a copy written by `writePendingRestoreFile`; a test asserts the pending copy is kept). The mutex requirement is documented and respected. Missing files are tolerated.
+- CONTRIBUTING.md (~lines 407-413): accurate against the code (TestMain wiring in services and handlers, `charon-gotest-` prefix, 24h sweep, `t.TempDir()` advice, `TMPDIR`/`GOTMPDIR` disk-backed example).
+- No secrets or tokens in logs or the diff; guard output lists only file names and sizes.
+- Commit hygiene: no session IDs, claude.ai links, Co-Authored-By or "generated with" lines in `git log b9728f94..HEAD --format=%B` or in the diff. Subjects use `test:`, `fix:`, `docs:`; no `(security)` scope used (appropriate: the leak fix is not a vulnerability fix).
+
+### Findings
+
+None blocking. One Low informational item (tmpguard `removeTree` chmod follows symlinks, see above).
+
+### Housekeeping
+
+No test artifacts modified, nothing committed or pushed; `/var/tmp/charon-qa-pr1-*` scratch removed; `/tmp` untouched; `charon` container untouched.
