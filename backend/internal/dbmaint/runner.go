@@ -125,9 +125,13 @@ type Outcome struct {
 	BytesBefore int64
 	BytesAfter  int64
 	Err         error
-	// countFailure marks a conversion that ran and failed: only those count
-	// toward MaxConvertAttempts.
+	// countFailure marks a failed attempt that counts toward MaxConvertAttempts:
+	// a conversion that ran and failed, or a failure before it could start.
 	countFailure bool
+	// keepFlag leaves the user's reclaim request set although the failure is
+	// counted: a failure before the conversion started consumed nothing, and
+	// the back-off bounds the retries.
+	keepFlag bool
 }
 
 // runner carries the state of one Run call.
@@ -254,7 +258,9 @@ func (r *runner) acquireConn(ctx context.Context) (*sql.Conn, Outcome, bool) {
 			return nil, r.settle(ctx, Outcome{Result: ResultCancelled, Reason: ReasonShuttingDown}), true
 		case !errors.Is(err, ErrWriterBusy):
 			_ = conn.Close()
-			return nil, r.settle(ctx, Outcome{Result: ResultFailed, Reason: ReasonConversionFailed, Err: err}), true
+			return nil, r.settle(ctx, Outcome{
+				Result: ResultFailed, Reason: ReasonConversionFailed, Err: err, countFailure: true, keepFlag: true,
+			}), true
 		case attempt >= r.d.Timings.ProbeRetries:
 			_ = conn.Close()
 			return nil, r.settle(ctx, Outcome{Result: ResultSkipped, Reason: ReasonDatabaseBusy}), true
@@ -317,13 +323,19 @@ func (r *runner) convert(ctx context.Context, conn *sql.Conn) Outcome {
 }
 
 // abortBeforeConversion ends a run that failed before VACUUM started. A failure
-// while the application is shutting down is a stop, not a failed attempt.
+// while the application is shutting down is a stop, not a failed attempt, and
+// a writer that slipped in is a busy skip to retry; any other failure counts
+// but keeps the user's request (the back-off bounds the retries).
 func (r *runner) abortBeforeConversion(ctx context.Context, conn *sql.Conn, out Outcome, err error) Outcome {
 	_ = conn.Close()
-	if ctx.Err() != nil {
+	switch {
+	case ctx.Err() != nil:
 		out.Result, out.Reason = ResultCancelled, ReasonShuttingDown
-	} else {
+	case isWriterBusy(err):
+		out.Result, out.Reason, out.Err = ResultSkipped, ReasonDatabaseBusy, err
+	default:
 		out.Result, out.Reason, out.Err = ResultFailed, ReasonConversionFailed, err
+		out.countFailure, out.keepFlag = true, true
 	}
 	return r.settle(ctx, out)
 }
@@ -462,10 +474,10 @@ func (r *runner) settle(ctx context.Context, out Outcome) Outcome {
 }
 
 // consumesFlag reports whether the user's "reclaim on next restart" request is
-// used up: a conversion reached a terminal outcome (it worked, or it failed and
-// was counted). A run that merely skipped or was interrupted leaves the request
-// set so the next start retries it.
-func (o Outcome) consumesFlag() bool { return o.Result.Converted() || o.countFailure }
+// used up: a conversion worked, or it ran and failed (counted). A run that
+// merely skipped, was interrupted or failed before the conversion started
+// (keepFlag) leaves the request set so the next start retries it.
+func (o Outcome) consumesFlag() bool { return o.Result.Converted() || (o.countFailure && !o.keepFlag) }
 
 func gateOutcome(out Outcome) FinishInfo {
 	info := FinishInfo{Reason: out.Reason, BytesAfter: out.BytesAfter}
@@ -490,7 +502,7 @@ func logOutcome(out Outcome) {
 		entry.WithField("bytes_before", out.BytesBefore).WithField("bytes_after", out.BytesAfter).
 			Info("database optimization finished")
 	case out.Result == ResultFailed:
-		entry.WithError(out.Err).Error("database optimization failed; it will be retried on the next start")
+		entry.WithError(out.Err).Error("database optimization failed; it is retried on the next start unless it has failed 3 times")
 	case out.Result == ResultCancelled || out.Result == ResultInterrupted:
 		entry.Info("database optimization stopped by shutdown")
 	default:

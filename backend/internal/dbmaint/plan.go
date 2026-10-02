@@ -55,7 +55,8 @@ type Inputs struct {
 	EnvMode string
 	// FlagRequested is the persisted "reclaim on next restart" request.
 	FlagRequested bool
-	// Attempts counts consecutive failed conversions recorded for this file.
+	// Attempts counts failed conversion attempts recorded for this file since
+	// the last successful conversion or manual reset (not necessarily consecutive).
 	Attempts int
 	Stats    Stats
 	Disk     DiskReport

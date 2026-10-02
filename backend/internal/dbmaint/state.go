@@ -61,8 +61,9 @@ type LastResult struct {
 // State is the persisted maintenance state that applies to the current file.
 type State struct {
 	FlagRequested bool
-	// Attempts counts consecutive failed conversions, including a leftover
-	// in-progress marker of an earlier boot.
+	// Attempts counts failed conversion attempts recorded for this file since
+	// the last successful conversion or manual reset (not necessarily
+	// consecutive), including a leftover in-progress marker of an earlier boot.
 	Attempts   int
 	LastResult *LastResult
 }
@@ -199,7 +200,7 @@ func (s *Store) WriteLastResult(ctx context.Context, r LastResult) error {
 	return s.putJSON(ctx, keyLastResult, r)
 }
 
-// RecordFailure increments the consecutive-failure counter of the file.
+// RecordFailure increments the failed-attempt counter of the file.
 func (s *Store) RecordFailure(ctx context.Context, fileID string) error {
 	var rec attemptsRecord
 	found, err := s.getJSON(ctx, keyAttempts, &rec)
