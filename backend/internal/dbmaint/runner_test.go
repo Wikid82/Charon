@@ -929,3 +929,53 @@ func TestRun_UnverifiableFileSizeIsConvertedPendingCheckpoint(t *testing.T) {
 	assert.Equal(t, ResultConvertedPendingCheckpoint, out.Result)
 	assert.Equal(t, PhaseDone, h.gate.Snapshot().Phase)
 }
+
+// GH #1438: the run that exhausts the failure budget drops the user's request
+// in the same persist, so no window exists in which the request is still set
+// while the next boot will discard it.
+func TestRun_KeptFlagFailureThatExhaustsTheBudgetDropsTheRequest(t *testing.T) {
+	failProbe := func(h *harness) {
+		h.deps.Probe = func(context.Context, *sql.Conn) error { return errors.New("disk I/O error") }
+	}
+	t.Run("the last allowed failure clears the request", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 1 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts, h.attempts())
+		assert.False(t, h.flagSet(), "the next boot would discard the request, so it is dropped now")
+	})
+	t.Run("a failure with tries left keeps the request", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 2 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts-1, h.attempts())
+		assert.True(t, h.flagSet())
+	})
+	t.Run("a clear that cannot be written is logged and the run still settles", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 1 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+		mustExec(t, h.db, `CREATE TRIGGER keep_flag BEFORE DELETE ON settings
+			WHEN OLD."key" = 'maintenance.compact_requested' BEGIN SELECT RAISE(ABORT, 'readonly'); END`)
+		logs := captureLogs(t)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts, h.attempts())
+		assert.True(t, h.flagSet())
+		assert.NotNil(t, h.lastResult())
+		assert.Contains(t, logs.String(), "could not record the result")
+	})
+}

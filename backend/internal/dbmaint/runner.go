@@ -460,10 +460,24 @@ func (r *runner) persist(ctx context.Context, out Outcome) {
 	}
 	if out.consumesFlag() {
 		errs = errors.Join(errs, r.store.ClearFlag(wctx))
+	} else if out.countFailure && out.keepFlag {
+		errs = errors.Join(errs, r.dropRequestIfBackedOff(wctx))
 	}
 	if errs != nil {
 		logger.Log().WithError(errs).Warn("database maintenance: could not record the result")
 	}
+}
+
+// dropRequestIfBackedOff clears the user's request once the failure budget is
+// exhausted. A failure that keeps the request leaves it set for a retry, but
+// when this was the last allowed one the next boot would only discard it; until
+// then the Database page would show "scheduled" next to the stopped notice.
+func (r *runner) dropRequestIfBackedOff(ctx context.Context) error {
+	st, err := r.store.Peek(ctx, r.fileID)
+	if err != nil || !BackedOff(st.Attempts, st.Interruptions) {
+		return err
+	}
+	return r.store.ClearFlag(ctx)
 }
 
 // settle records the outcome: persisted state, gate release and log line.
@@ -477,7 +491,8 @@ func (r *runner) settle(ctx context.Context, out Outcome) Outcome {
 // consumesFlag reports whether the user's "reclaim on next restart" request is
 // used up: a conversion worked, or it ran and failed (counted). A run that
 // merely skipped, was interrupted or failed before the conversion started
-// (keepFlag) leaves the request set so the next start retries it.
+// (keepFlag) leaves the request set so the next start retries it, unless that
+// failure used up the budget (dropRequestIfBackedOff).
 func (o Outcome) consumesFlag() bool { return o.Result.Converted() || (o.countFailure && !o.keepFlag) }
 
 func gateOutcome(out Outcome) FinishInfo {

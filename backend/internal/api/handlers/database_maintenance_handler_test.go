@@ -519,3 +519,148 @@ func TestDatabaseMaintenance_FlagIsInvisibleToTheSettingsAPI(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &all))
 	assert.NotContains(t, all, dbmaint.SettingKeyFlag)
 }
+
+// failNthRead makes the nth read of the handler's store fail by sending an
+// invalid statement in its place.
+type failNthRead struct {
+	dbmaint.SQLExecer
+	n, calls int
+}
+
+func (f *failNthRead) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	f.calls++
+	if f.calls == f.n {
+		query = "SELECT value FROM no_such_table WHERE 1 = ?"
+		args = []any{1}
+	}
+	return f.SQLExecer.QueryRowContext(ctx, query, args...)
+}
+
+// attemptsOf returns the stored failure counter of the scratch database.
+func (r *maintRig) attemptsOf(t *testing.T) int {
+	t.Helper()
+	st, err := dbmaint.NewStore(r.db).Peek(context.Background(), r.fileID(t))
+	require.NoError(t, err)
+	return st.Attempts
+}
+
+func (r *maintRig) setFlag(t *testing.T) {
+	t.Helper()
+	require.NoError(t, dbmaint.NewStore(r.db).SetFlag(context.Background()))
+}
+
+// GH #1438: a request that is still set although the back-off is exhausted
+// (state left by an older version, or a stale tab) is a fresh request.
+func TestDatabaseMaintenance_PostWithTheFlagSetResetsAnExhaustedCounter(t *testing.T) {
+	t.Run("counter at the limit is reset and the flag stays set", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.setFlag(t)
+		for range dbmaint.MaxConvertAttempts {
+			r.recordFailure(t)
+		}
+
+		for i := range 2 { // the second press finds the counter at 0 and changes nothing
+			code, body := r.do(t, http.MethodPost, optimizePath)
+			require.Equal(t, http.StatusOK, code, "press %d", i)
+			assert.Equal(t, true, body["requested"])
+			assert.Zero(t, r.attemptsOf(t))
+			assert.Equal(t, true, r.status(t)["compact_requested"])
+		}
+	})
+	t.Run("counter below the limit is left alone", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.setFlag(t)
+		for range dbmaint.MaxConvertAttempts - 1 {
+			r.recordFailure(t)
+		}
+
+		code, _ := r.do(t, http.MethodPost, optimizePath)
+
+		require.Equal(t, http.StatusOK, code)
+		assert.Equal(t, dbmaint.MaxConvertAttempts-1, r.attemptsOf(t))
+	})
+	t.Run("unreadable file identity is a 500", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.setFlag(t)
+		r.h.dbPath = filepath.Join(t.TempDir(), "missing.db")
+
+		code, _ := r.do(t, http.MethodPost, optimizePath)
+
+		assert.Equal(t, http.StatusInternalServerError, code)
+	})
+	t.Run("unreadable state is a 500", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.setFlag(t)
+		r.h.store = dbmaint.NewStore(&failNthRead{SQLExecer: r.db, n: 2}) // 1: the request check, 2: Peek
+
+		code, _ := r.do(t, http.MethodPost, optimizePath)
+
+		assert.Equal(t, http.StatusInternalServerError, code)
+	})
+	t.Run("a counter that cannot be reset is a 500", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.setFlag(t)
+		for range dbmaint.MaxConvertAttempts {
+			r.recordFailure(t)
+		}
+		_, err := r.db.Exec(`CREATE TRIGGER deny_delete BEFORE DELETE ON settings BEGIN SELECT RAISE(ABORT, 'denied'); END`)
+		require.NoError(t, err)
+
+		code, _ := r.do(t, http.MethodPost, optimizePath)
+
+		assert.Equal(t, http.StatusInternalServerError, code)
+	})
+}
+
+// SF4: the runner drops the request when it exhausts the budget, so the stopped
+// notice must follow the back-off state, not the flag. The case that matters is
+// a file below the automatic thresholds (100-200 MiB reclaimable, low free
+// ratio) that was only ever converted because the user asked.
+func TestDatabaseMaintenance_StoppedNoticeSurvivesTheRunnerClearingTheRequest(t *testing.T) {
+	belowAutomatic := maintStats(1000000, 38400, 0) // 150 MiB free of a 3.8 GB file: 3.84 %
+	exhaust := func(t *testing.T, r *maintRig) {
+		for range dbmaint.MaxConvertAttempts {
+			r.recordFailure(t)
+		}
+	}
+	cases := []struct {
+		name       string
+		env        string
+		stats      dbmaint.Stats
+		prepare    func(t *testing.T, r *maintRig)
+		wantCode   string // "" means no notice
+		wantCanReq bool
+	}{
+		{"below the automatic thresholds, flag unset, attempts exhausted", config.DBCompactAuto, belowAutomatic, exhaust, "too_many_failures", true},
+		{"counters below the limit", config.DBCompactAuto, belowAutomatic,
+			func(t *testing.T, r *maintRig) {
+				for range dbmaint.MaxConvertAttempts - 1 {
+					r.recordFailure(t)
+				}
+			}, "", true},
+		{"fresh install", config.DBCompactAuto, belowAutomatic, func(*testing.T, *maintRig) {}, "", true},
+		{"already incremental", config.DBCompactAuto, maintStats(1000000, 38400, dbmaint.AutoVacuumIncremental), exhaust, "", false},
+		{"environment off without a flag", config.DBCompactOff, belowAutomatic, exhaust, "", false},
+		{"under the 100 MiB floor", config.DBCompactAuto, maintStats(1000000, 20000, 0), exhaust, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newMaintRig(t, tc.env)
+			r.stats = tc.stats
+			tc.prepare(t, r)
+
+			body := r.status(t)
+
+			n := noticeOf(t, body)
+			if tc.wantCode == "" {
+				assert.Nil(t, n)
+			} else {
+				require.NotNil(t, n)
+				assert.Equal(t, tc.wantCode, n["code"])
+				assert.Equal(t, "warning", n["severity"])
+			}
+			assert.Equal(t, tc.wantCanReq, body["can_request_optimize"])
+			assert.Equal(t, false, body["compact_requested"])
+		})
+	}
+}
