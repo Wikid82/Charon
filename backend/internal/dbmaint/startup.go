@@ -50,6 +50,7 @@ func StartupPlan(ctx context.Context, db *sql.DB, dbPath, envMode string) (PlanR
 		EnvMode:       envMode,
 		FlagRequested: state.FlagRequested,
 		Attempts:      state.Attempts,
+		Interruptions: state.Interruptions,
 	})
 }
 

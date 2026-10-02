@@ -506,3 +506,127 @@ func TestAttemptsRecord_ZeroInterruptionsAreOmittedFromTheRow(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT value FROM settings WHERE "key" = ?`, keyAttempts).Scan(&raw))
 	assert.NotContains(t, raw, "interrupted", "rows stay byte-compatible with older versions until an interruption is recorded")
 }
+
+func mustRecordInterruption(t *testing.T, s *Store, fileID string) {
+	t.Helper()
+	_, err := s.RecordInterruption(context.Background(), fileID)
+	require.NoError(t, err)
+}
+
+func TestStore_LoadAndPeekReturnTheInterruptions(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	mustRecordFailure(t, s, "100")
+	mustRecordInterruption(t, s, "100")
+	mustRecordInterruption(t, s, "100")
+
+	peeked, err := s.Peek(ctx, "100")
+	require.NoError(t, err)
+	assert.Equal(t, 1, peeked.Attempts)
+	assert.Equal(t, 2, peeked.Interruptions)
+
+	loaded, err := s.Load(ctx, "100")
+	require.NoError(t, err)
+	assert.Equal(t, 1, loaded.Attempts)
+	assert.Equal(t, 2, loaded.Interruptions)
+}
+
+func TestStore_ALeftoverMarkerCountsOneAttemptAndKeepsTheInterruptions(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	mustRecordFailure(t, s, "100")
+	mustRecordInterruption(t, s, "100")
+	mustRecordInterruption(t, s, "100")
+	mustRecordInterruption(t, s, "100")
+	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+
+	st, err := s.Load(ctx, "100")
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, st.Attempts)
+	assert.Equal(t, 3, st.Interruptions, "a kill after earlier orderly stops does not forget them")
+	rec := storedRecord(t, db)
+	assert.Equal(t, 2, rec.Count)
+	assert.Equal(t, 3, rec.Interrupted, "the rewritten row carries the interruptions")
+}
+
+func TestStore_ALeftoverMarkerWithoutARecordStartsTheCountAtOne(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+
+	st, err := s.Load(ctx, "100")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, st.Attempts)
+	assert.Zero(t, st.Interruptions)
+	assert.Equal(t, "100", storedRecord(t, db).FileID)
+}
+
+func TestStore_AMarkerOfAnotherFileLeavesTheRecordAlone(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	mustRecordFailure(t, s, "100")
+	mustRecordInterruption(t, s, "100")
+	require.NoError(t, s.SetInProgress(ctx, "200", time.Now()))
+
+	st, err := s.Load(ctx, "100")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, st.Attempts)
+	assert.Equal(t, 1, st.Interruptions)
+	assert.False(t, settingFound(t, db, keyInProgress), "the foreign marker is deleted")
+}
+
+func TestStore_ReplacedFileResetsBothCounters(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	mustRecordFailure(t, s, "100")
+	mustRecordInterruption(t, s, "100")
+
+	peeked, err := s.Peek(ctx, "999")
+	require.NoError(t, err)
+	assert.Zero(t, peeked.Attempts)
+	assert.Zero(t, peeked.Interruptions)
+	assert.True(t, settingFound(t, db, keyAttempts), "a read never deletes another file's row")
+
+	loaded, err := s.Load(ctx, "999")
+	require.NoError(t, err)
+	assert.Zero(t, loaded.Attempts)
+	assert.Zero(t, loaded.Interruptions)
+	assert.False(t, settingFound(t, db, keyAttempts))
+}
+
+func TestStore_ResetAttemptsClearsTheInterruptionsToo(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	mustRecordInterruption(t, s, "100")
+	mustRecordInterruption(t, s, "100")
+
+	require.NoError(t, s.ResetAttempts(ctx))
+
+	st, err := s.Peek(ctx, "100")
+	require.NoError(t, err)
+	assert.Zero(t, st.Interruptions)
+}
+
+func TestStore_PeekDoesNotMutateTheRecord(t *testing.T) {
+	db, _ := newSettingsDB(t)
+	s := NewStore(db)
+	ctx := context.Background()
+	mustRecordInterruption(t, s, "100")
+	require.NoError(t, s.SetInProgress(ctx, "100", time.Now()))
+	before := storedRecord(t, db)
+
+	_, err := s.Peek(ctx, "100")
+	require.NoError(t, err)
+
+	assert.Equal(t, before, storedRecord(t, db))
+	assert.True(t, settingFound(t, db, keyInProgress))
+}

@@ -664,3 +664,84 @@ func TestDatabaseMaintenance_StoppedNoticeSurvivesTheRunnerClearingTheRequest(t 
 		})
 	}
 }
+
+func (r *maintRig) recordInterruptions(t *testing.T, n int) {
+	t.Helper()
+	for range n {
+		_, err := dbmaint.NewStore(r.db).RecordInterruption(context.Background(), r.fileID(t))
+		require.NoError(t, err)
+	}
+}
+
+// GH #1436: orderly stops back off like failures, with the same notice, and the
+// reclaim button resets them.
+func TestDatabaseMaintenance_InterruptionsBackOffLikeFailures(t *testing.T) {
+	belowAutomatic := maintStats(1000000, 38400, 0)
+
+	t.Run("only interruptions exhausted on an automatic file", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.recordInterruptions(t, dbmaint.MaxInterruptedRuns)
+
+		body := r.status(t)
+
+		n := noticeOf(t, body)
+		require.NotNil(t, n)
+		assert.Equal(t, "too_many_failures", n["code"])
+		assert.Equal(t, "warning", n["severity"])
+	})
+	t.Run("only interruptions exhausted below the automatic thresholds, flag unset", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.stats = belowAutomatic
+		r.recordInterruptions(t, dbmaint.MaxInterruptedRuns)
+
+		body := r.status(t)
+
+		n := noticeOf(t, body)
+		require.NotNil(t, n)
+		assert.Equal(t, "too_many_failures", n["code"])
+		assert.Equal(t, true, body["can_request_optimize"])
+	})
+	t.Run("interruptions below the limit say nothing extra", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.stats = belowAutomatic
+		r.recordInterruptions(t, dbmaint.MaxInterruptedRuns-1)
+
+		assert.Nil(t, noticeOf(t, r.status(t)))
+	})
+	t.Run("the dry run for restart_to_optimize ignores interruptions below the limit", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.recordInterruptions(t, dbmaint.MaxInterruptedRuns-1)
+
+		n := noticeOf(t, r.status(t))
+
+		require.NotNil(t, n)
+		assert.Equal(t, "restart_to_optimize", n["code"])
+	})
+	t.Run("a request with the flag set resets exhausted interruptions", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.setFlag(t)
+		r.recordInterruptions(t, dbmaint.MaxInterruptedRuns)
+
+		code, _ := r.do(t, http.MethodPost, optimizePath)
+
+		require.Equal(t, http.StatusOK, code)
+		st, err := dbmaint.NewStore(r.db).Peek(context.Background(), r.fileID(t))
+		require.NoError(t, err)
+		assert.Zero(t, st.Interruptions)
+		assert.Equal(t, true, r.status(t)["compact_requested"])
+	})
+	t.Run("a fresh request resets exhausted interruptions", func(t *testing.T) {
+		r := newMaintRig(t, config.DBCompactAuto)
+		r.recordInterruptions(t, dbmaint.MaxInterruptedRuns)
+
+		code, _ := r.do(t, http.MethodPost, optimizePath)
+
+		require.Equal(t, http.StatusOK, code)
+		st, err := dbmaint.NewStore(r.db).Peek(context.Background(), r.fileID(t))
+		require.NoError(t, err)
+		assert.Zero(t, st.Interruptions)
+		n := noticeOf(t, r.status(t))
+		require.NotNil(t, n)
+		assert.Equal(t, "restart_to_optimize", n["code"], "no stopped notice once the counters are reset")
+	})
+}

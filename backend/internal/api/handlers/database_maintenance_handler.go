@@ -176,6 +176,7 @@ func (h *DatabaseMaintenanceHandler) notice(stats dbmaint.Stats, disk dbmaint.Di
 		EnvMode:       h.envMode,
 		FlagRequested: state.FlagRequested,
 		Attempts:      state.Attempts,
+		Interruptions: state.Interruptions,
 		Stats:         stats,
 		Disk:          disk,
 	}
@@ -217,10 +218,10 @@ func (h *DatabaseMaintenanceHandler) notice(stats dbmaint.Stats, disk dbmaint.Di
 	}
 
 	// The automatic condition, judged without the user's request or the failure
-	// counter (the same dry run Advise uses). It promises a conversion, so it
+	// counters (the same dry run Advise uses). It promises a conversion, so it
 	// stays silent when the next boot would refuse (terminal skip of the last
 	// result).
-	in.FlagRequested, in.Attempts = false, 0
+	in.FlagRequested, in.Attempts, in.Interruptions = false, 0, 0
 	if dbmaint.Decide(in).Run && !dbmaint.SuppressesPending(state.LastResult) {
 		return n(noticeRestartToOptimize, severityInfo)
 	}

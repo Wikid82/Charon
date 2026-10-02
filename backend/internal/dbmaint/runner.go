@@ -430,7 +430,8 @@ func (r *runner) detached(ctx context.Context) (context.Context, context.CancelF
 }
 
 // persist writes last_result, then clears the in-progress marker. A failed
-// conversion also counts as an attempt. Failures are logged, never returned.
+// conversion also counts as an attempt; a conversion stopped by shutdown counts
+// as an interruption, which has its own, higher limit. Failures are logged, never returned.
 func (r *runner) persist(ctx context.Context, out Outcome) {
 	if out.Result == ResultCancelled {
 		return
@@ -438,10 +439,17 @@ func (r *runner) persist(ctx context.Context, out Outcome) {
 	wctx, cancel := r.detached(ctx)
 	defer cancel()
 
+	// The counter is written BEFORE last_result and the marker clear: a kill in
+	// between leaves the marker, which the next boot counts as one failed
+	// attempt (a rare double count, never a missed one).
 	var errs error
-	if out.countFailure {
+	switch {
+	case out.countFailure:
 		_, failErr := r.store.RecordFailure(wctx, r.fileID)
 		errs = errors.Join(errs, failErr)
+	case out.Result == ResultInterrupted:
+		_, intErr := r.store.RecordInterruption(wctx, r.fileID)
+		errs = errors.Join(errs, intErr)
 	}
 	errs = errors.Join(errs,
 		r.store.WriteLastResult(wctx, LastResult{
@@ -460,7 +468,7 @@ func (r *runner) persist(ctx context.Context, out Outcome) {
 	}
 	if out.consumesFlag() {
 		errs = errors.Join(errs, r.store.ClearFlag(wctx))
-	} else if out.countFailure && out.keepFlag {
+	} else if out.keepsRequestWhileCounted() {
 		errs = errors.Join(errs, r.dropRequestIfBackedOff(wctx))
 	}
 	if errs != nil {
@@ -494,6 +502,12 @@ func (r *runner) settle(ctx context.Context, out Outcome) Outcome {
 // (keepFlag) leaves the request set so the next start retries it, unless that
 // failure used up the budget (dropRequestIfBackedOff).
 func (o Outcome) consumesFlag() bool { return o.Result.Converted() || (o.countFailure && !o.keepFlag) }
+
+// keepsRequestWhileCounted reports whether the run counted against a failure
+// budget but left the user's request set (the budget decides about a retry).
+func (o Outcome) keepsRequestWhileCounted() bool {
+	return o.Result == ResultInterrupted || (o.countFailure && o.keepFlag)
+}
 
 func gateOutcome(out Outcome) FinishInfo {
 	info := FinishInfo{Reason: out.Reason, BytesAfter: out.BytesAfter}

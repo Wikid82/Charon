@@ -348,3 +348,35 @@ func TestStartupPlan_ACleanupFailureWarnsAndThePlanContinues(t *testing.T) {
 	assert.Contains(t, logs.String(), `"level":"warning"`)
 	assert.Contains(t, logs.String(), "leftover marker")
 }
+
+// GH #1436: a start that only ever ended in orderly stops also stops after
+// MaxInterruptedRuns, with the same recorded remedy as the failure back-off.
+func TestStartupPlan_InterruptionLoopStopsAfterMaxInterruptedRuns(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{rows: 1300, rowBytes: 100000, keepEvery: 10})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+
+	for range MaxInterruptedRuns - 1 {
+		mustRecordInterruption(t, store, fileID)
+	}
+	res, err := StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+	assert.True(t, res.Decision.Run, "one stop short of the limit still converts")
+
+	mustRecordInterruption(t, store, fileID)
+	res, err = StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+	assert.False(t, res.Decision.Run)
+	assert.Equal(t, ReasonTooManyFailures, res.Decision.Reason)
+
+	assert.False(t, Start(ctx, StartParams{Gate: NewGate(), DB: db, DBPath: path, EnvMode: config.DBCompactAuto}))
+	st, err := store.Peek(ctx, fileID)
+	require.NoError(t, err)
+	assert.Zero(t, st.Attempts, "no failed attempt was ever recorded")
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, ResultSkipped, st.LastResult.Outcome)
+	assert.Equal(t, ReasonTooManyFailures, st.LastResult.Reason)
+	assert.True(t, SuppressesPending(st.LastResult))
+}

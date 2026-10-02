@@ -256,7 +256,7 @@ func (s *Store) Load(ctx context.Context, fileID string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	attempts, err := s.loadAttempts(ctx, fileID)
+	rec, err := s.loadAttempts(ctx, fileID)
 	if err != nil {
 		return State{}, err
 	}
@@ -264,57 +264,58 @@ func (s *Store) Load(ctx context.Context, fileID string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	return State{FlagRequested: flag, Attempts: attempts, LastResult: last}, nil
+	return State{FlagRequested: flag, Attempts: rec.Count, Interruptions: rec.Interrupted, LastResult: last}, nil
 }
 
-// loadAttempts returns the failure counter of the file, folding in a leftover
+// loadAttempts returns the counters of the file, folding in a leftover
 // in-progress marker (a kill mid-conversion) as one more failed attempt.
-func (s *Store) loadAttempts(ctx context.Context, fileID string) (int, error) {
-	count, err := s.storedAttempts(ctx, fileID)
+func (s *Store) loadAttempts(ctx context.Context, fileID string) (attemptsRecord, error) {
+	rec, err := s.storedAttempts(ctx, fileID)
 	if err != nil {
-		return 0, err
+		return attemptsRecord{}, err
 	}
-	return s.consumeMarker(ctx, fileID, count)
+	return s.consumeMarker(ctx, fileID, rec)
 }
 
-// storedAttempts returns the counter of the file; another file's is deleted.
-func (s *Store) storedAttempts(ctx context.Context, fileID string) (int, error) {
-	count, stale, err := s.readAttempts(ctx, fileID)
+// storedAttempts returns the counters of the file; another file's are deleted.
+func (s *Store) storedAttempts(ctx context.Context, fileID string) (attemptsRecord, error) {
+	rec, stale, err := s.readAttempts(ctx, fileID)
 	if err != nil || !stale {
-		return count, err
+		return rec, err
 	}
-	return 0, s.remove(ctx, keyAttempts)
+	return attemptsRecord{}, s.remove(ctx, keyAttempts)
 }
 
-// readAttempts returns the counter of the file without modifying anything;
-// stale reports a counter that belongs to another file.
-func (s *Store) readAttempts(ctx context.Context, fileID string) (count int, stale bool, err error) {
-	var rec attemptsRecord
+// readAttempts returns the counters of the file without modifying anything;
+// stale reports counters that belong to another file.
+func (s *Store) readAttempts(ctx context.Context, fileID string) (rec attemptsRecord, stale bool, err error) {
 	found, err := s.getJSON(ctx, keyAttempts, &rec)
 	if err != nil || !found {
-		return 0, false, err
+		return attemptsRecord{}, false, err
 	}
 	if !sameFile(rec.FileID, fileID) {
-		return 0, true, nil
+		return attemptsRecord{}, true, nil
 	}
-	return rec.Count, false, nil
+	return rec, false, nil
 }
 
 // consumeMarker removes a leftover in-progress marker. One of this file counts
-// as a failed attempt on top of count; another file's marker is just deleted.
-func (s *Store) consumeMarker(ctx context.Context, fileID string, count int) (int, error) {
+// as a failed attempt on top of rec and is written back with the interruption
+// count intact; another file's marker is just deleted.
+func (s *Store) consumeMarker(ctx context.Context, fileID string, rec attemptsRecord) (attemptsRecord, error) {
 	var marker markerRecord
 	found, err := s.getJSON(ctx, keyInProgress, &marker)
 	if err != nil || !found {
-		return count, err
+		return rec, err
 	}
 	if sameFile(marker.FileID, fileID) {
-		count++
-		if putErr := s.putJSON(ctx, keyAttempts, attemptsRecord{Count: count, FileID: fileID}); putErr != nil {
-			return 0, putErr
+		rec.Count++
+		rec.FileID = fileID
+		if putErr := s.putJSON(ctx, keyAttempts, rec); putErr != nil {
+			return attemptsRecord{}, putErr
 		}
 	}
-	return count, s.ClearInProgress(ctx)
+	return rec, s.ClearInProgress(ctx)
 }
 
 // DiscardMarkerIfConverted drops a leftover in-progress marker of this file and
@@ -365,7 +366,7 @@ func (s *Store) Peek(ctx context.Context, fileID string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	attempts, _, err := s.readAttempts(ctx, fileID)
+	rec, _, err := s.readAttempts(ctx, fileID)
 	if err != nil {
 		return State{}, err
 	}
@@ -373,7 +374,7 @@ func (s *Store) Peek(ctx context.Context, fileID string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	return State{FlagRequested: flag, Attempts: attempts, LastResult: last}, nil
+	return State{FlagRequested: flag, Attempts: rec.Count, Interruptions: rec.Interrupted, LastResult: last}, nil
 }
 
 // ResetAttempts clears the failure counter. It is idempotent.
