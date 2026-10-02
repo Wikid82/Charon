@@ -273,7 +273,7 @@ func TestRun_TestRemovedBaseIsNotALeak(t *testing.T) {
 	useRoot(t)
 	captureReport(t)
 	code := run(func() int {
-		guardRoot := os.Getenv("TMPDIR") // the guard's private root, not the shared one
+		guardRoot := os.Getenv("TMPDIR")                // the guard's private root, not the shared one
 		if err := os.RemoveAll(guardRoot); err != nil { //nolint:gosec // G703: guardRoot is the guard's own private temp root
 			t.Fatalf("remove: %v", err)
 		}
