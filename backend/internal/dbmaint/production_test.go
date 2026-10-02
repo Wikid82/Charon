@@ -98,7 +98,7 @@ func TestProduction_SkipPathsLeaveTheGateIdle(t *testing.T) {
 			fileID, err := FileID(path)
 			require.NoError(t, err)
 			for range tc.attempts {
-				require.NoError(t, NewStore(db).RecordFailure(ctx, fileID))
+				mustRecordFailure(t, NewStore(db), fileID)
 			}
 			res, err := StartupPlan(ctx, db, path, tc.env)
 			require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestProduction_FlagHonoursTheBackoffAndTheButtonStartsAFreshCycle(t *testin
 	require.NoError(t, err)
 	store := NewStore(db)
 	for range MaxConvertAttempts {
-		require.NoError(t, store.RecordFailure(ctx, fileID))
+		mustRecordFailure(t, store, fileID)
 	}
 	require.NoError(t, store.SetFlag(ctx))
 

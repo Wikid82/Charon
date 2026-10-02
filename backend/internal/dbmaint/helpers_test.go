@@ -102,3 +102,10 @@ func integrityOK(t *testing.T, db *sql.DB) {
 	require.NoError(t, db.QueryRow("PRAGMA integrity_check").Scan(&res))
 	require.Equal(t, "ok", res)
 }
+
+// mustRecordFailure records one failed attempt for fileID and fails the test on error.
+func mustRecordFailure(t *testing.T, s *Store, fileID string) {
+	t.Helper()
+	_, err := s.RecordFailure(context.Background(), fileID)
+	require.NoError(t, err)
+}

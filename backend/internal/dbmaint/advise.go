@@ -57,12 +57,12 @@ func (a *Advisor) Current() Advice {
 	return a.current
 }
 
-// Advise runs the boot decision as a dry run (the persisted request and the
-// attempt counter are ignored, nothing is written) and records the outcome. It
+// Advise runs the boot decision as a dry run (the persisted request and both
+// failure counters are ignored, nothing is written) and records the outcome. It
 // is skipped when the last run for this file ended in a terminal skip. On an
 // error the previous advice is kept.
 func (a *Advisor) Advise(ctx context.Context, q Querier, cfg PlanConfig) Advice {
-	cfg.FlagRequested, cfg.Attempts = false, 0
+	cfg.FlagRequested, cfg.Attempts, cfg.Interruptions = false, 0, 0
 	res, err := Plan(ctx, q, cfg)
 	if err != nil {
 		logger.Log().WithError(err).Warn("database maintenance: could not evaluate whether optimization is pending")

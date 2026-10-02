@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -854,8 +855,8 @@ func TestRun_FlagSurvivesEverySkipAndInterruption(t *testing.T) {
 // A successful conversion ends the streak of failures.
 func TestRun_SuccessResetsTheAttemptCounter(t *testing.T) {
 	h := newHarness(t)
-	require.NoError(t, NewStore(h.db).RecordFailure(context.Background(), h.fileID))
-	require.NoError(t, NewStore(h.db).RecordFailure(context.Background(), h.fileID))
+	mustRecordFailure(t, NewStore(h.db), h.fileID)
+	mustRecordFailure(t, NewStore(h.db), h.fileID)
 
 	assert.Equal(t, ResultConverted, h.run(context.Background()).Result)
 	assert.Zero(t, h.attempts())
@@ -928,4 +929,181 @@ func TestRun_UnverifiableFileSizeIsConvertedPendingCheckpoint(t *testing.T) {
 
 	assert.Equal(t, ResultConvertedPendingCheckpoint, out.Result)
 	assert.Equal(t, PhaseDone, h.gate.Snapshot().Phase)
+}
+
+// GH #1438: the run that exhausts the failure budget drops the user's request
+// in the same persist, so no window exists in which the request is still set
+// while the next boot will discard it.
+func TestRun_KeptFlagFailureThatExhaustsTheBudgetDropsTheRequest(t *testing.T) {
+	failProbe := func(h *harness) {
+		h.deps.Probe = func(context.Context, *sql.Conn) error { return errors.New("disk I/O error") }
+	}
+	t.Run("the last allowed failure clears the request", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 1 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts, h.attempts())
+		assert.False(t, h.flagSet(), "the next boot would discard the request, so it is dropped now")
+	})
+	t.Run("a failure with tries left keeps the request", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 2 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts-1, h.attempts())
+		assert.True(t, h.flagSet())
+	})
+	t.Run("a clear that cannot be written is logged and the run still settles", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 1 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+		mustExec(t, h.db, `CREATE TRIGGER keep_flag BEFORE DELETE ON settings
+			WHEN OLD."key" = 'maintenance.compact_requested' BEGIN SELECT RAISE(ABORT, 'readonly'); END`)
+		logs := captureLogs(t)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts, h.attempts())
+		assert.True(t, h.flagSet())
+		assert.NotNil(t, h.lastResult())
+		assert.Contains(t, logs.String(), "could not record the result")
+	})
+}
+
+func (h *harness) interruptions() int {
+	h.t.Helper()
+	return h.state().Interruptions
+}
+
+// interruptedRun runs the harness with a conversion that is stopped mid-way by
+// the context, the way an orderly SIGTERM stops it.
+func interruptedRun(h *harness) Outcome {
+	h.t.Helper()
+	started := make(chan struct{})
+	h.deps.Convert = func(ctx context.Context, _ *sql.Conn) error {
+		close(started)
+		<-ctx.Done()
+		return errors.New("interrupted (9)")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan Outcome, 1)
+	go func() { done <- h.run(ctx) }()
+	<-started
+	cancel()
+	return <-done
+}
+
+// GH #1436: an orderly stop mid-conversion is not a failed attempt, but it is
+// counted separately so a restart loop cannot retry forever.
+func TestRun_InterruptedConversionRecordsOneInterruptionAndNoFailure(t *testing.T) {
+	h := flagHarness(t)
+
+	out := interruptedRun(h)
+
+	assert.Equal(t, ResultInterrupted, out.Result)
+	assert.Equal(t, 1, h.interruptions())
+	assert.Zero(t, h.attempts())
+	assert.False(t, h.markerPresent())
+	assert.True(t, h.flagSet(), "below the limit the request stays for the next start")
+	require.NotNil(t, h.lastResult())
+	assert.Equal(t, ResultInterrupted, h.lastResult().Outcome)
+}
+
+func TestRun_TheInterruptionThatExhaustsTheBudgetBacksOffAndDropsTheRequest(t *testing.T) {
+	h := flagHarness(t)
+	for range MaxInterruptedRuns - 1 {
+		mustRecordInterruption(t, NewStore(h.db), h.fileID)
+	}
+
+	assert.Equal(t, ResultInterrupted, interruptedRun(h).Result)
+
+	st := h.state()
+	assert.Equal(t, MaxInterruptedRuns, st.Interruptions)
+	assert.False(t, h.flagSet(), "the next boot would discard the request, so it is dropped now")
+	d := Decide(Inputs{EnvMode: config.DBCompactAuto, Attempts: st.Attempts, Interruptions: st.Interruptions, Stats: statsWith(128000, 64000)})
+	assert.Equal(t, ReasonTooManyFailures, d.Reason)
+}
+
+func TestRun_FourInterruptionsStillRetry(t *testing.T) {
+	h := flagHarness(t)
+	for range MaxInterruptedRuns - 2 {
+		mustRecordInterruption(t, NewStore(h.db), h.fileID)
+	}
+
+	assert.Equal(t, ResultInterrupted, interruptedRun(h).Result)
+
+	st := h.state()
+	assert.Equal(t, MaxInterruptedRuns-1, st.Interruptions)
+	assert.True(t, h.flagSet())
+	d := Decide(Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: st.Attempts, Interruptions: st.Interruptions, Stats: statsWith(128000, 64000)})
+	assert.True(t, d.Run)
+}
+
+func TestRun_InterruptionsAndFailuresKeepSeparateCounters(t *testing.T) {
+	t.Run("an interruption keeps the failed attempts", func(t *testing.T) {
+		h := newHarness(t)
+		mustRecordFailure(t, NewStore(h.db), h.fileID)
+		mustRecordInterruption(t, NewStore(h.db), h.fileID)
+
+		assert.Equal(t, ResultInterrupted, interruptedRun(h).Result)
+
+		st := h.state()
+		assert.Equal(t, 1, st.Attempts)
+		assert.Equal(t, 2, st.Interruptions)
+	})
+	t.Run("a failed attempt keeps the interruptions", func(t *testing.T) {
+		h := newHarness(t)
+		mustRecordFailure(t, NewStore(h.db), h.fileID)
+		mustRecordInterruption(t, NewStore(h.db), h.fileID)
+		h.deps.Convert = func(context.Context, *sql.Conn) error { return errors.New("disk full") }
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		st := h.state()
+		assert.Equal(t, 2, st.Attempts)
+		assert.Equal(t, 1, st.Interruptions)
+	})
+}
+
+func TestRun_SuccessResetsTheInterruptionCounter(t *testing.T) {
+	h := newHarness(t)
+	mustRecordInterruption(t, NewStore(h.db), h.fileID)
+	mustRecordInterruption(t, NewStore(h.db), h.fileID)
+
+	assert.Equal(t, ResultConverted, h.run(context.Background()).Result)
+	assert.Zero(t, h.interruptions())
+}
+
+func TestRun_CancelledBeforeAnyWorkCountsNoInterruption(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assert.Equal(t, ResultCancelled, h.run(ctx).Result)
+	assert.Zero(t, h.interruptions())
+	assert.Zero(t, h.attempts())
+}
+
+func TestRun_AnInterruptionThatCannotBeRecordedStillSettlesTheRun(t *testing.T) {
+	h := flagHarness(t)
+	mustExec(t, h.db, `CREATE TRIGGER deny_attempts BEFORE INSERT ON settings
+		WHEN NEW."key" = 'maintenance.attempts' BEGIN SELECT RAISE(ABORT, 'denied'); END`)
+	logs := captureLogs(t)
+
+	assert.Equal(t, ResultInterrupted, interruptedRun(h).Result)
+
+	assert.False(t, h.markerPresent())
+	assert.Equal(t, ResultInterrupted, h.lastResult().Outcome)
+	assert.Contains(t, logs.String(), "could not record the result")
 }

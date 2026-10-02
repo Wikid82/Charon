@@ -515,7 +515,9 @@ test.describe('Database page: passive notices', () => {
 
     const notice = noticeWithText(page, /stopped trying its automatic database cleanup/i);
     await expect(notice).toBeVisible();
+    await expect(notice).toContainText(/several failed or interrupted attempts/i);
     await expect(notice).toContainText(/your proxies are not affected/i);
+    await expect(notice).toContainText(/let the optimization finish; avoid restarting while it runs/i);
     await expect(notice).toContainText(/optional button below to schedule it, then restart charon/i);
     await expect(reclaimButton(page)).toBeEnabled();
     await expect(page.getByRole('alert')).toHaveCount(0);

@@ -89,8 +89,11 @@ the cupboard is still the same size. Charon takes care of this for you.
   normal by itself.
 - The emergency (break-glass) access is briefly unavailable during this time too.
 - If you stop the container while it is optimizing, it is **safe**. Your data is
-  not harmed, and Charon simply tries again at the next start. It gives up after
-  3 failed tries (see "Automatic cleanup has stopped" below).
+  not harmed, and Charon simply tries again at the next start. A single stop is
+  not counted as a failure. Repeated stops are, however: Charon gives up after
+  3 failed tries or 5 stops during the optimization (see "Automatic cleanup has
+  stopped" below). Let the optimization finish and avoid restarting while it
+  runs.
   - The very last step (copying the optimized data back) cannot be interrupted
     instantly. If the container stops during that step, it can use up one of the
     3 tries.
@@ -139,15 +142,20 @@ visible. When it does not apply, it is greyed out and the page tells you why
   free disk space of roughly **twice your actual data** while it works, and the
   notice tells you how much. Free up that space (delete old backups or other
   files on the same disk) and Charon tries again by itself.
-- **Automatic cleanup has stopped.** After 3 failed attempts Charon stops
-  trying. Your proxies are not affected. The failed starts do not have to be in
-  a row: Charon keeps count until an optimization succeeds or you press the
-  button below. Check the logs and make sure there is enough free disk space.
+- **Automatic cleanup has stopped.** After 3 failed attempts, or 5 stops
+  (interruptions) during the optimization, Charon stops trying. Your proxies are
+  not affected. The two counts are separate, and neither has to be in a row:
+  Charon keeps count until an optimization succeeds or you press the button
+  below. A single deliberate restart is not counted as a failure. Check the logs,
+  make sure there is enough free disk space, and let the optimization finish
+  instead of restarting while it runs.
   To let Charon try again, press **Reclaim space on next restart** (under
-  "Reclaim space now (optional)"), then restart Charon. That gives it 3 fresh
-  tries. A plain restart does not retry once Charon has stopped. If a
-  **Reclaim** request itself fails 3 times, Charon drops the request and stops
-  again, and you can press the button once more.
+  "Reclaim space now (optional)"), then restart Charon. That clears both counts
+  and gives it fresh tries. Pressing the button while the stopped notice is
+  still showing resets the counts right away; you do not need to press it twice.
+  A plain restart does not retry once Charon has stopped. If a **Reclaim**
+  request itself fails 3 times, or is stopped 5 times, Charon drops the request
+  and stops again, and you can press the button once more.
 
 You may also see a short line saying the optimization was postponed because the
 database was busy. It is retried at the next start.
@@ -471,19 +479,24 @@ of roughly **twice your actual data** while it works.
    the same disk).
 2. Restart Charon. It tries again at every start, so nothing else is needed.
 
-### Automatic cleanup has stopped (after 3 attempts)
+### Automatic cleanup has stopped (after 3 failed or 5 interrupted attempts)
 
-**Cause:** Charon gave up after 3 failed tries (they do not have to be in a
-row). Usually there was not enough free disk space, or the container was killed
-during startup. A plain restart will not make it try again.
+**Cause:** Charon gave up after 3 failed tries or 5 stops during the
+optimization (the two counts are separate, and neither has to be in a row).
+Usually there was not enough free disk space, the container was killed during
+startup, or something (for example a health check or restart policy) kept
+stopping the container while it optimized. A plain restart will not make it try
+again.
 
 **Fix:**
 
 1. Free up disk space (see the entry above).
-2. Make sure nothing is killing the container while it starts.
+2. Make sure nothing is killing or restarting the container while it starts and
+   optimizes. The Charon web page is unavailable during the optimization, so a
+   health check on it can fail; give it time or relax the check.
 3. In **Tasks -> Database**, press **Reclaim space on next restart**, then restart
-   Charon. This gives it 3 fresh tries. If those fail too, Charon stops again and
-   you can repeat these steps.
+   Charon. This clears both counts and gives it fresh tries. If those fail or
+   are stopped too, Charon stops again and you can repeat these steps.
 
 ### Warning: "database temp directory not prepared"
 

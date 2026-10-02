@@ -820,7 +820,7 @@ This pattern is **intentional and valid**:
   short "Optimizing the database" page and 503s the rest of the management API
   and the emergency server; the uptime pipeline and scheduled backups wait for
   release. A stop mid-run is safe (`VACUUM` is atomic); an unfinished run is
-  retried at the next boot, up to 3 attempts. Details: `docs/database-maintenance.md`.
+  retried at the next boot, up to 3 failed attempts or 5 orderly stops. Details: `docs/database-maintenance.md`.
 - The E2E/CI compose files (`playwright-ci`, `playwright-local`) default
   `CHARON_DB_COMPACT_ON_START=off` so test databases are never converted mid-suite.
 

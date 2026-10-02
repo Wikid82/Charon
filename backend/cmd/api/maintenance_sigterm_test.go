@@ -37,6 +37,7 @@ const (
 	stubBindFailed  = 42
 	lineStarted     = "database optimization started"
 	lineFinished    = "database optimization finished"
+	lineBackedOff   = "optimization stopped: it failed or was interrupted too many times"
 	childWait       = 3 * time.Minute
 	sigtermGraceMax = 30 * time.Second
 )
@@ -118,11 +119,11 @@ func startCharon(t *testing.T, dir, dbPath string, httpPort int) *charonChild {
 	return c
 }
 
-// waitLine blocks until a line containing substr appears. It reports false when
+// waitLine blocks (up to childWait) until a line containing substr appears. It reports false when
 // the process exits first.
-func (c *charonChild) waitLine(substr string, timeout time.Duration) bool {
+func (c *charonChild) waitLine(substr string) bool {
 	c.t.Helper()
-	deadline := time.After(timeout)
+	deadline := time.After(childWait)
 	for {
 		select {
 		case line := <-c.lines:
@@ -190,7 +191,10 @@ type dbState struct {
 	size       int64
 	marker     bool
 	attempts   int
-	last       *dbmaint.LastResult
+	// interruptions is the stored count of orderly stops mid-conversion.
+	interruptions int
+	flag          bool
+	last          *dbmaint.LastResult
 }
 
 func readState(t *testing.T, path string) dbState {
@@ -218,7 +222,7 @@ func readState(t *testing.T, path string) dbState {
 	// boot will see.
 	state, err := dbmaint.NewStore(db).Peek(context.Background(), fileID)
 	require.NoError(t, err)
-	st.attempts, st.last = state.Attempts, state.LastResult
+	st.attempts, st.interruptions, st.flag, st.last = state.Attempts, state.Interruptions, state.FlagRequested, state.LastResult
 
 	_, err = db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	require.NoError(t, err)
@@ -249,7 +253,7 @@ func TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts(t *testing
 
 			// Boot 1: stop it as soon as the conversion has started.
 			first := startCharon(t, dir, dbPath, freePort(t))
-			if !first.waitLine(lineStarted, childWait) {
+			if !first.waitLine(lineStarted) {
 				if exitCode(first.wait(time.Second)) == stubBindFailed {
 					t.Skip("127.0.0.2:2019 is not available for the Caddy stub")
 				}
@@ -291,7 +295,7 @@ func TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts(t *testing
 			converted := stopped.autoVacuum == dbmaint.AutoVacuumIncremental && !stopped.marker
 			for boot := 2; !converted && boot <= dbmaint.MaxConvertAttempts+1; boot++ {
 				next := startCharon(t, dir, dbPath, freePort(t))
-				require.True(t, next.waitLine(lineFinished, childWait), "boot %d did not finish the conversion", boot)
+				require.True(t, next.waitLine(lineFinished), "boot %d did not finish the conversion", boot)
 				require.NoError(t, next.cmd.Process.Signal(syscall.SIGTERM))
 				_ = next.wait(sigtermGraceMax)
 
@@ -348,4 +352,128 @@ func exitCode(err error) int {
 		return ee.ExitCode()
 	}
 	return 0
+}
+
+// GH #1436: a conversion that every boot ends with an orderly stop (the
+// orchestrator-restart loop) used to retry forever. After MaxInterruptedRuns
+// stops the next boot does not start it, and the reclaim button starts over.
+//
+// Reclaim is simulated at the store level (ResetAttempts + SetFlag, exactly
+// what the handler does): the helper process has no authenticated HTTP client,
+// and the handler path is covered by the handler tests.
+func TestMaintenance_RepeatedOrderlyStopsEndInTheBackOffAndReclaimStartsOver(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a 240 MB scratch database and runs the server up to eight times")
+	}
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data", "charon.db")
+	seedLegacyDatabase(t, dbPath)
+	seeded := fileSizeOf(t, dbPath)
+
+	for stop := 1; stop <= dbmaint.MaxInterruptedRuns; stop++ {
+		child := startCharon(t, dir, dbPath, freePort(t))
+		if !child.waitLine(lineStarted) {
+			if exitCode(child.wait(time.Second)) == stubBindFailed {
+				t.Skip("127.0.0.2:2019 is not available for the Caddy stub")
+			}
+			t.Fatalf("boot %d exited before the conversion started", stop)
+		}
+		// The start line precedes the marker write and the VACUUM; a signal that
+		// lands earlier is a cancelled run, which counts nothing by design. Wait
+		// for the VACUUM's temp file so every stop interrupts real work.
+		require.True(t, waitTempFileIn(child.cmd.Process.Pid, filepath.Join(dir, "data", ".tmp"), 30*time.Second),
+			"boot %d: the conversion's temp file never appeared", stop)
+		require.NoError(t, child.cmd.Process.Signal(syscall.SIGTERM))
+		_ = child.wait(sigtermGraceMax)
+
+		st := readState(t, dbPath)
+		t.Logf("after stop %d: auto_vacuum=%d marker=%v attempts=%d interruptions=%d last=%+v",
+			stop, st.autoVacuum, st.marker, st.attempts, st.interruptions, st.last)
+		require.Equal(t, "ok", st.integrity, "the database is intact after stop %d", stop)
+
+		switch {
+		case st.autoVacuum == dbmaint.AutoVacuumNone && !st.marker &&
+			st.last != nil && st.last.Outcome == dbmaint.ResultInterrupted:
+			assert.Zero(t, st.attempts, "an orderly stop is not a failed attempt (stop %d)", stop)
+			require.Equal(t, stop, st.interruptions, "each orderly stop is counted once")
+		case st.autoVacuum == dbmaint.AutoVacuumIncremental:
+			t.Skipf("the conversion finished before the signal landed on stop %d (fast host); nothing left to interrupt", stop)
+		case st.marker:
+			t.Skipf("stop %d was slower than the shutdown wait, so a marker was left and the next boot counts a failed attempt; "+
+				"the counting itself is covered by the dbmaint runner and state tests", stop)
+		default:
+			t.Fatalf("unexpected state after stop %d: %+v (last %+v)", stop, st, st.last)
+		}
+	}
+
+	// The next boot must not start the conversion, and must stay reachable (the
+	// healthcheck answers 200, which also means the plan-time skip was recorded).
+	port := freePort(t)
+	backedOff := startCharon(t, dir, dbPath, port)
+	require.True(t, backedOff.waitLine(lineBackedOff), "the boot after %d stops reports the back-off", dbmaint.MaxInterruptedRuns)
+	require.True(t, waitHealthy(port, time.Minute), "the management API is reachable while the optimization is stopped")
+	require.NoError(t, backedOff.cmd.Process.Signal(syscall.SIGTERM))
+	_ = backedOff.wait(sigtermGraceMax)
+
+	held := readState(t, dbPath)
+	require.Equal(t, "ok", held.integrity)
+	assert.Equal(t, dbmaint.AutoVacuumNone, held.autoVacuum, "no conversion was started")
+	assert.False(t, held.marker)
+	assert.False(t, held.flag, "the request state is untouched")
+	assert.Zero(t, held.attempts)
+	assert.Equal(t, dbmaint.MaxInterruptedRuns, held.interruptions)
+	require.NotNil(t, held.last)
+	assert.Equal(t, dbmaint.ResultSkipped, held.last.Outcome)
+	assert.Equal(t, dbmaint.ReasonTooManyFailures, held.last.Reason)
+
+	// Reclaim: reset both counters and set the request, then one boot converts.
+	reclaimAtStoreLevel(t, dbPath)
+	converting := startCharon(t, dir, dbPath, freePort(t))
+	require.True(t, converting.waitLine(lineFinished), "the boot after Reclaim converts")
+	require.NoError(t, converting.cmd.Process.Signal(syscall.SIGTERM))
+	_ = converting.wait(sigtermGraceMax)
+
+	final := readState(t, dbPath)
+	assert.Equal(t, "ok", final.integrity)
+	assert.Equal(t, dbmaint.AutoVacuumIncremental, final.autoVacuum)
+	assert.Less(t, final.size, seeded/2, "the file shrank")
+	assert.Zero(t, final.attempts)
+	assert.Zero(t, final.interruptions, "a successful conversion resets the interruption counter")
+	assert.False(t, final.flag, "the conversion consumed the request")
+	require.NotNil(t, final.last)
+	assert.True(t, final.last.Outcome.Converted())
+}
+
+// reclaimAtStoreLevel does what the Reclaim handler does to the persisted
+// state on a database no process has open.
+func reclaimAtStoreLevel(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open(glebarez.DriverName, path)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	db.SetMaxOpenConns(1)
+	store := dbmaint.NewStore(db)
+	require.NoError(t, store.ResetAttempts(context.Background()))
+	require.NoError(t, store.SetFlag(context.Background()))
+}
+
+// waitHealthy polls the healthcheck until it answers 200.
+func waitHealthy(port int, timeout time.Duration) bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
+		if err != nil {
+			return false
+		}
+		if resp, err := client.Do(req); err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return true
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
 }

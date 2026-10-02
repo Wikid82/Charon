@@ -430,7 +430,9 @@ func (r *runner) detached(ctx context.Context) (context.Context, context.CancelF
 }
 
 // persist writes last_result, then clears the in-progress marker. A failed
-// conversion also counts as an attempt. Failures are logged, never returned.
+// conversion also counts as an attempt; a conversion stopped by shutdown counts
+// as an interruption, which has its own, higher limit. Failures are logged,
+// never returned.
 func (r *runner) persist(ctx context.Context, out Outcome) {
 	if out.Result == ResultCancelled {
 		return
@@ -438,9 +440,17 @@ func (r *runner) persist(ctx context.Context, out Outcome) {
 	wctx, cancel := r.detached(ctx)
 	defer cancel()
 
+	// The counter is written BEFORE last_result and the marker clear: a kill in
+	// between leaves the marker, which the next boot counts as one failed
+	// attempt (a rare double count, never a missed one).
 	var errs error
-	if out.countFailure {
-		errs = errors.Join(errs, r.store.RecordFailure(wctx, r.fileID))
+	switch {
+	case out.countFailure:
+		_, failErr := r.store.RecordFailure(wctx, r.fileID)
+		errs = errors.Join(errs, failErr)
+	case out.Result == ResultInterrupted:
+		_, intErr := r.store.RecordInterruption(wctx, r.fileID)
+		errs = errors.Join(errs, intErr)
 	}
 	errs = errors.Join(errs,
 		r.store.WriteLastResult(wctx, LastResult{
@@ -459,10 +469,25 @@ func (r *runner) persist(ctx context.Context, out Outcome) {
 	}
 	if out.consumesFlag() {
 		errs = errors.Join(errs, r.store.ClearFlag(wctx))
+	} else if out.keepsRequestWhileCounted() {
+		errs = errors.Join(errs, r.dropRequestIfBackedOff(wctx))
 	}
 	if errs != nil {
 		logger.Log().WithError(errs).Warn("database maintenance: could not record the result")
 	}
+}
+
+// dropRequestIfBackedOff clears the user's request once the
+// failure/interruption budget is exhausted. A failure that keeps the request
+// leaves it set for a retry, but when this was the last allowed one the next
+// boot would only discard it; until then the Database page would show
+// "scheduled" next to the stopped notice.
+func (r *runner) dropRequestIfBackedOff(ctx context.Context) error {
+	st, err := r.store.Peek(ctx, r.fileID)
+	if err != nil || !BackedOff(st.Attempts, st.Interruptions) {
+		return err
+	}
+	return r.store.ClearFlag(ctx)
 }
 
 // settle records the outcome: persisted state, gate release and log line.
@@ -476,8 +501,15 @@ func (r *runner) settle(ctx context.Context, out Outcome) Outcome {
 // consumesFlag reports whether the user's "reclaim on next restart" request is
 // used up: a conversion worked, or it ran and failed (counted). A run that
 // merely skipped, was interrupted or failed before the conversion started
-// (keepFlag) leaves the request set so the next start retries it.
+// (keepFlag) leaves the request set so the next start retries it, unless that
+// failure used up the budget (dropRequestIfBackedOff).
 func (o Outcome) consumesFlag() bool { return o.Result.Converted() || (o.countFailure && !o.keepFlag) }
+
+// keepsRequestWhileCounted reports whether the run counted against a failure
+// budget but left the user's request set (the budget decides about a retry).
+func (o Outcome) keepsRequestWhileCounted() bool {
+	return o.Result == ResultInterrupted || (o.countFailure && o.keepFlag)
+}
 
 func gateOutcome(out Outcome) FinishInfo {
 	info := FinishInfo{Reason: out.Reason, BytesAfter: out.BytesAfter}

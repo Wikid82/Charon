@@ -176,6 +176,7 @@ func (h *DatabaseMaintenanceHandler) notice(stats dbmaint.Stats, disk dbmaint.Di
 		EnvMode:       h.envMode,
 		FlagRequested: state.FlagRequested,
 		Attempts:      state.Attempts,
+		Interruptions: state.Interruptions,
 		Stats:         stats,
 		Disk:          disk,
 	}
@@ -205,11 +206,22 @@ func (h *DatabaseMaintenanceHandler) notice(stats dbmaint.Stats, disk dbmaint.Di
 		return n(noticeDatabaseBusy, severityInfo)
 	}
 
+	// The runner drops the request when it exhausts the failure budget, and a
+	// file below the automatic thresholds is only ever converted on request, so
+	// the real-flag Decide above can no longer see the back-off. Judge as if the
+	// user had asked: this fires exactly when the reclaim button is offered and
+	// the back-off is exhausted, and ends when the button resets the counters.
+	asked := in
+	asked.FlagRequested = true
+	if dbmaint.Decide(asked).Reason == dbmaint.ReasonTooManyFailures {
+		return n(noticeTooManyFailures, severityWarning)
+	}
+
 	// The automatic condition, judged without the user's request or the failure
-	// counter (the same dry run Advise uses). It promises a conversion, so it
+	// counters (the same dry run Advise uses). It promises a conversion, so it
 	// stays silent when the next boot would refuse (terminal skip of the last
 	// result).
-	in.FlagRequested, in.Attempts = false, 0
+	in.FlagRequested, in.Attempts, in.Interruptions = false, 0, 0
 	if dbmaint.Decide(in).Run && !dbmaint.SuppressesPending(state.LastResult) {
 		return n(noticeRestartToOptimize, severityInfo)
 	}
@@ -217,8 +229,9 @@ func (h *DatabaseMaintenanceHandler) notice(stats dbmaint.Stats, disk dbmaint.Di
 }
 
 // RequestOptimize sets the "reclaim space on next restart" flag. A repeated
-// request while the flag is set is a 200 before any other check. A request that
-// could never do anything is a 409 whose body names the actual cause.
+// request while the flag is set is a 200 before any other check (it only resets
+// an exhausted failure counter). A request that could never do anything is a
+// 409 whose body names the actual cause.
 // POST /api/v1/system/database/optimize-on-restart
 func (h *DatabaseMaintenanceHandler) RequestOptimize(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -229,6 +242,12 @@ func (h *DatabaseMaintenanceHandler) RequestOptimize(c *gin.Context) {
 		return
 	}
 	if already {
+		// A request that is still set although the back-off is exhausted (state
+		// left by an older version, a stale tab) is a fresh request: start over.
+		if err = h.resetExhaustedBackOff(ctx); err != nil {
+			h.fail(c, "could not reset the failure counter", err)
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"requested": true})
 		return
 	}
@@ -254,7 +273,7 @@ func (h *DatabaseMaintenanceHandler) RequestOptimize(c *gin.Context) {
 	}
 
 	// A fresh request starts from a clean slate: it is how an admin recovers
-	// from "stopped after 3 attempts".
+	// from "stopped after 3 failed attempts or 5 stops".
 	if err := h.store.ResetAttempts(ctx); err != nil {
 		h.fail(c, "could not reset the failure counter", err)
 		return
@@ -264,6 +283,23 @@ func (h *DatabaseMaintenanceHandler) RequestOptimize(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"requested": true})
+}
+
+// resetExhaustedBackOff resets the failure counters when the boot path has
+// stopped trying; it changes nothing otherwise, so repeating it is harmless.
+func (h *DatabaseMaintenanceHandler) resetExhaustedBackOff(ctx context.Context) error {
+	fileID, err := dbmaint.FileID(h.dbPath)
+	if err != nil {
+		return fmt.Errorf("identify database file: %w", err)
+	}
+	state, err := h.store.Peek(ctx, fileID)
+	if err != nil {
+		return fmt.Errorf("read maintenance state: %w", err)
+	}
+	if !dbmaint.BackedOff(state.Attempts, state.Interruptions) {
+		return nil
+	}
+	return h.store.ResetAttempts(ctx)
 }
 
 // CancelOptimize clears the flag. It is idempotent.
