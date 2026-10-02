@@ -233,3 +233,58 @@ func TestStart_PlanSkipThatCannotBeRecordedStillLeavesTheGateIdle(t *testing.T) 
 	assert.False(t, planned)
 	assert.Equal(t, PhaseIdle, gate.Snapshot().Phase)
 }
+
+// A reclaim request bypasses the threshold, not the failure back-off: a start
+// that is killed on every boot converts MaxConvertAttempts times, then stops,
+// clears the request and records the stop.
+func TestStartupPlan_FlaggedCrashLoopStopsAfterMaxConvertAttempts(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{rows: 1300, rowBytes: 100000, keepEvery: 10})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+	require.NoError(t, store.SetFlag(ctx))
+
+	for boot := range MaxConvertAttempts {
+		res, planErr := StartupPlan(ctx, db, path, config.DBCompactAuto)
+		require.NoError(t, planErr)
+		require.True(t, res.Decision.Run, "boot %d must convert", boot)
+		// The process is killed mid-conversion: the marker stays behind.
+		require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
+	}
+
+	res, err := StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+	assert.False(t, res.Decision.Run)
+	assert.Equal(t, ReasonTooManyFailures, res.Decision.Reason)
+	assert.True(t, res.Decision.ClearFlag)
+
+	assert.False(t, Start(ctx, StartParams{Gate: NewGate(), DB: db, DBPath: path, EnvMode: config.DBCompactAuto}))
+	on, err := store.FlagRequested(ctx)
+	require.NoError(t, err)
+	assert.False(t, on, "the back-off stop clears the request")
+	assert.False(t, settingFound(t, db, SettingKeyFlag))
+	st, err := store.Peek(ctx, fileID)
+	require.NoError(t, err)
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, ResultSkipped, st.LastResult.Outcome)
+	assert.Equal(t, ReasonTooManyFailures, st.LastResult.Reason)
+}
+
+func TestLogPlanSkip_LevelsPerReason(t *testing.T) {
+	logOf := func(reason Reason) string {
+		buf := captureLogs(t)
+		logPlanSkip(Decision{Reason: reason})
+		return buf.String()
+	}
+
+	tooMany := logOf(ReasonTooManyFailures)
+	assert.Contains(t, tooMany, `"level":"warning"`)
+	assert.Contains(t, tooMany, string(ReasonTooManyFailures))
+
+	optimized := logOf(ReasonAlreadyOptimized)
+	assert.Contains(t, optimized, `"level":"info"`)
+	assert.NotContains(t, optimized, `"level":"warning"`)
+
+	assert.Empty(t, logOf(ReasonBelowThreshold))
+}

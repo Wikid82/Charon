@@ -89,9 +89,32 @@ func TestDecide_Table(t *testing.T) {
 			wantRun: true,
 		},
 		{
-			name:    "flag with counter at max runs",
-			in:      Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts, Stats: statsWith(128000, 64000)},
+			name:       "flag with counter at max backs off and clears the request",
+			in:         Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts, Stats: statsWith(128000, 64000)},
+			wantReason: ReasonTooManyFailures,
+			wantClear:  true,
+		},
+		{
+			name:    "flag with one try left still runs",
+			in:      Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts - 1, Stats: statsWith(128000, 64000)},
 			wantRun: true,
+		},
+		{
+			name:       "flag with counter at max below the floor is nothing to reclaim",
+			in:         Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts, Stats: statsWith(128000, 100)},
+			wantReason: ReasonNothingToReclaim,
+			wantClear:  true,
+		},
+		{
+			name:       "flag with counter at max on an incremental file is already optimized",
+			in:         Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts, Stats: Stats{PageSize: pageSize4K, PageCount: 1000, AutoVacuum: AutoVacuumIncremental}},
+			wantReason: ReasonAlreadyOptimized,
+			wantClear:  true,
+		},
+		{
+			name:       "no flag with counter at max below threshold stays below threshold",
+			in:         Inputs{EnvMode: config.DBCompactAuto, Attempts: MaxConvertAttempts, Stats: statsWith(128000, 100)},
+			wantReason: ReasonBelowThreshold,
 		},
 		{
 			name:       "empty database is below threshold",

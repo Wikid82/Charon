@@ -110,6 +110,9 @@ func logPlanSkip(d Decision) {
 	switch d.Reason {
 	case "", ReasonBelowThreshold:
 		// Nothing worth saying: the common case of an install that needs no work.
+	case ReasonTooManyFailures:
+		logger.Log().WithField("reason", string(d.Reason)).
+			Warn("database optimization stopped: it failed or was interrupted too many times; use the reclaim button to try again")
 	case ReasonInsufficientDisk:
 		logger.Log().WithField("required_bytes", d.RequiredBytes).WithField("available_bytes", d.AvailableBytes).
 			Warn("database optimization skipped: not enough free disk space")
@@ -119,8 +122,8 @@ func logPlanSkip(d Decision) {
 }
 
 // settlePlanSkip persists what a plan-time skip implies. The user's request is
-// cleared only when there is nothing left to optimize (any other skip keeps it
-// for the next start), and a refusal that will repeat every boot is remembered
+// cleared only when there is nothing left to optimize or the failure back-off
+// stopped the run (any other skip keeps it for the next start), and a refusal that will repeat every boot is remembered
 // so Advise does not promise a conversion the next start will refuse.
 func settlePlanSkip(ctx context.Context, p StartParams, res PlanResult) {
 	d := res.Decision
