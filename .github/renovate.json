@@ -106,6 +106,16 @@
     },
     {
       "customType": "regex",
+      "description": "Track Alpine apk package floor (libxml2) via Repology in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>repology)\\s+depName=(?<depName>[^\\s]+)\\s+versioning=(?<versioning>[^\\s]+)\\s*\\nARG LIBXML2_VERSION=(?<currentValue>[^\\s]+)"
+      ]
+    },
+    {
+      "customType": "regex",
       "description": "Track Go toolchain version ARG in Dockerfile",
       "managerFilePatterns": [
         "/^Dockerfile$/"
