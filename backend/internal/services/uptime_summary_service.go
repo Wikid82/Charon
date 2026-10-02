@@ -172,7 +172,8 @@ type recentBeatRow struct {
 // on idx_heartbeat_monitor_created, the pruner's deferred index; the window
 // function this replaced had to rank every retained heartbeat (GH #1441).
 // Without that index the query is still correct, and the refresh total is
-// still no slower than before, but the ranking step needs a temp b-tree.
+// still no slower than before in total, not per query (the uptime query alone
+// can be 4-8% slower), but the ranking step needs a temp b-tree.
 //
 // The monitor subset is the one loadMonitors returns. id is the tie-breaker
 // for heartbeats sharing a created_at, so the same rows are chosen and ordered

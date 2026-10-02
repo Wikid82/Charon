@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -290,10 +291,53 @@ func TestUptimeSummary_TieFreeUnaffectedByTieBreakers(t *testing.T) {
 	})
 }
 
-// Regression tripwire for the 40x: with the composite index present, neither
+var (
+	// SQLite prints a full scan as "SCAN <table-or-alias>" (the summary queries
+	// alias uptime_heartbeats as h), with or without a "USING ... INDEX" tail.
+	fullHeartbeatScanRE = regexp.MustCompile(`\bSCAN (h|uptime_heartbeats)\b`)
+	// An index range read on the composite: SEARCH ... USING [COVERING] INDEX
+	// idx_heartbeat_monitor_created (monitor_id=? ...).
+	compositeSearchRE = regexp.MustCompile(
+		`\bSEARCH (h|uptime_heartbeats) USING (COVERING )?INDEX idx_heartbeat_monitor_created \(monitor_id=\?`)
+)
+
+// requireIndexedHeartbeatPlan fails when plan contains a full scan of
+// uptime_heartbeats (in any alias or index flavour, including a full covering
+// index scan) or lacks a SEARCH on the composite index keyed by monitor_id.
+func requireIndexedHeartbeatPlan(t *testing.T, plan string) {
+	t.Helper()
+	require.NotRegexp(t, fullHeartbeatScanRE, plan, "full scan of uptime_heartbeats; plan:\n%s", plan)
+	require.Regexp(t, compositeSearchRE, plan, "no SEARCH on idx_heartbeat_monitor_created (monitor_id=?); plan:\n%s", plan)
+}
+
+func TestRequireIndexedHeartbeatPlan_Guard(t *testing.T) {
+	good := "SEARCH h USING COVERING INDEX idx_heartbeat_monitor_created (monitor_id=? AND created_at>?)"
+	require.True(t, passesGuard(good))
+	require.True(t, passesGuard("SEARCH uptime_heartbeats USING INDEX idx_heartbeat_monitor_created (monitor_id=?)"))
+	for _, bad := range []string{
+		"SCAN h",
+		"SCAN uptime_heartbeats",
+		"SCAN h USING COVERING INDEX idx_heartbeat_monitor_created",
+		"SCAN uptime_heartbeats USING INDEX idx_heartbeat_monitor_created",
+		"SCAN uptime_monitors | " + good + " | SCAN h USING COVERING INDEX idx_heartbeat_monitor_created",
+		"SEARCH h USING INTEGER PRIMARY KEY (rowid=?)",
+	} {
+		require.False(t, passesGuard(bad), bad)
+	}
+}
+
+// passesGuard reports whether requireIndexedHeartbeatPlan would accept plan.
+func passesGuard(plan string) bool {
+	return !fullHeartbeatScanRE.MatchString(plan) && compositeSearchRE.MatchString(plan)
+}
+
+// Regression tripwire for GH #1441: with the composite index present, neither
 // summary query may fall back to scanning every retained heartbeat, and the
 // ranked query may only sort the final output (no temp b-tree inside the
-// per-monitor top-N).
+// per-monitor top-N). The temp b-tree bound is asserted only in this
+// with-index state: the no-index state legitimately needs two. The measured
+// end-to-end gain is ~8x on the bench fixture and ~15x at 1.5M heartbeats
+// (only the recent-beats query alone approaches 25-40x).
 func TestUptimeSummary_QueryPlanUsesCompositeIndex(t *testing.T) {
 	db := setupUptimeTestDB(t)
 	smIndex(t, db)
@@ -302,11 +346,8 @@ func TestUptimeSummary_QueryPlanUsesCompositeIndex(t *testing.T) {
 	beatsPlan := explainPlan(t, db, recentBeatsSQL, uptimeMonitorScanLimit, windowStart, uptimeSummaryMaxBeats)
 	uptimePlan := explainPlan(t, db, uptime24hSQL, windowStart, windowStart, uptimeMonitorScanLimit)
 
-	require.Contains(t, beatsPlan, "idx_heartbeat_monitor_created", "plan:\n%s", beatsPlan)
-	require.NotContains(t, beatsPlan, "SCAN uptime_heartbeats", "plan:\n%s", beatsPlan)
+	requireIndexedHeartbeatPlan(t, beatsPlan)
 	require.LessOrEqual(t, strings.Count(beatsPlan, "TEMP B-TREE"), 1,
 		"only the final ORDER BY may sort; plan:\n%s", beatsPlan)
-
-	require.Contains(t, uptimePlan, "idx_heartbeat_monitor_created", "plan:\n%s", uptimePlan)
-	require.NotContains(t, uptimePlan, "SCAN uptime_heartbeats", "plan:\n%s", uptimePlan)
+	requireIndexedHeartbeatPlan(t, uptimePlan)
 }
