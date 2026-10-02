@@ -55,7 +55,8 @@ func TestBackupService_CreateAndList(t *testing.T) {
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg, nil, nil)
-	defer service.Stop() // Prevent goroutine leaks
+	t.Cleanup(service.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
+	defer service.Stop()                      // Prevent goroutine leaks
 
 	// Test Create
 	filename, err := service.CreateBackup()
@@ -102,6 +103,7 @@ func TestBackupService_Restore_ZipSlip(t *testing.T) {
 		BackupDir:    filepath.Join(tmpDir, "backups"),
 		DatabaseName: "charon.db",
 	}
+	t.Cleanup(service.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 	_ = os.MkdirAll(service.BackupDir, 0o700)
 
 	// Create malicious zip
@@ -981,6 +983,7 @@ func TestUnzip_DirectoryCreation(t *testing.T) {
 		BackupDir:    filepath.Join(tmpDir, "backups"),
 		DatabaseName: "charon.db",
 	}
+	t.Cleanup(service.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 	_ = os.MkdirAll(service.BackupDir, 0o750)
 	_ = os.MkdirAll(service.DataDir, 0o750)
 
@@ -1059,6 +1062,7 @@ func TestUnzip_FileOpenInZipError(t *testing.T) {
 		BackupDir:    filepath.Join(tmpDir, "backups"),
 		DatabaseName: "charon.db",
 	}
+	t.Cleanup(service.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 	_ = os.MkdirAll(service.DataDir, 0o750)   // #nosec G301 -- test fixture
 
@@ -1301,6 +1305,7 @@ func TestRestoreBackup_CreatesNestedDirectories(t *testing.T) {
 		BackupDir:    filepath.Join(tmpDir, "backups"),
 		DatabaseName: "charon.db",
 	}
+	t.Cleanup(service.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test fixture
 
 	// Create a zip with deeply nested structure
@@ -1346,6 +1351,7 @@ func TestBackupService_FullCycle(t *testing.T) {
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	service := NewBackupService(cfg, nil, nil)
+	t.Cleanup(service.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 	defer service.Stop()
 
 	// Create backup
@@ -1443,6 +1449,7 @@ func TestBackupService_Unzip_ErrorPaths(t *testing.T) {
 		BackupDir:    filepath.Join(tmpDir, "backups"),
 		DatabaseName: "charon.db",
 	}
+	t.Cleanup(service.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 	_ = os.MkdirAll(service.BackupDir, 0o750) // #nosec G301 -- test directory
 
 	t.Run("unzip with invalid zip file", func(t *testing.T) {
@@ -1729,6 +1736,7 @@ func TestBackupService_RestoreBackup_ReplacesStagedRestoreSnapshot(t *testing.T)
 		DatabaseName:  "charon.db",
 		restoreDBPath: "",
 	}
+	t.Cleanup(svc.discardRestoreSnapshot) // legacy RestoreBackup stages a snapshot in the temp dir
 
 	require.NoError(t, svc.RestoreBackup("backup-one.zip"))
 	firstRestore := svc.restoreDBPath
