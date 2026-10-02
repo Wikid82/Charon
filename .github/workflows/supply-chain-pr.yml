@@ -283,7 +283,7 @@ jobs:
         if: steps.set-target.outputs.image_name != ''
         id: sbom_primary
         continue-on-error: true
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ steps.set-target.outputs.image_name }}
           format: cyclonedx-json
@@ -343,7 +343,7 @@ jobs:
         run: |
           MAX_ATTEMPTS=3
           for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.119.0; then
+            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.120.0; then
               break
             fi
             if [[ "$attempt" -eq "$MAX_ATTEMPTS" ]]; then
