@@ -13,7 +13,7 @@ import (
 const (
 	// tempEnvVar is the variable SQLite reads for its temporary-file directory.
 	// It only takes effect when set before the driver's first sql.Open; set
-	// later it is ignored (spike-verified, see spike_test.go).
+	// later it is ignored (verified by TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen).
 	tempEnvVar = "SQLITE_TMPDIR"
 	// tempDirName is the directory created next to the database file.
 	tempDirName = ".tmp"

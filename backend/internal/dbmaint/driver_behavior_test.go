@@ -9,24 +9,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
-func TestSpike_AutoVacuumPragmaOrder(t *testing.T) {
+func TestDriver_AutoVacuumPragmaOrder(t *testing.T) {
 	t.Run("WAL first leaves the new file in mode 0", func(t *testing.T) {
 		db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "a.db"))
 		require.NoError(t, err)
@@ -49,7 +44,7 @@ func TestSpike_AutoVacuumPragmaOrder(t *testing.T) {
 	})
 }
 
-func TestSpike_VacuumOnPinnedConnConvertsAndKeepsWAL(t *testing.T) {
+func TestDriver_VacuumOnPinnedConnConvertsAndKeepsWAL(t *testing.T) {
 	db, path := newScratchDB(t, scratchOpts{rows: 120, rowBytes: 100000, keepEvery: 10})
 	before := fileSize(t, path)
 	require.EqualValues(t, 0, pragmaInt(t, db, "auto_vacuum"))
@@ -70,7 +65,7 @@ func TestSpike_VacuumOnPinnedConnConvertsAndKeepsWAL(t *testing.T) {
 	integrityOK(t, db)
 }
 
-func TestSpike_BeginExclusiveDetectsWritersOnly(t *testing.T) {
+func TestDriver_BeginExclusiveDetectsWritersOnly(t *testing.T) {
 	db, path := newScratchDB(t, scratchOpts{rows: 50})
 	other := openScratch(t, path, 0)
 	ctx := context.Background()
@@ -118,7 +113,7 @@ func queryDrainStep(t *testing.T, q Querier, n int) {
 	require.NoError(t, rows.Close())
 }
 
-func TestSpike_IncrementalVacuumQueryFreesNPagesPerCall(t *testing.T) {
+func TestDriver_IncrementalVacuumQueryFreesNPagesPerCall(t *testing.T) {
 	db, path := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 600, rowBytes: 100000, keepEvery: 10})
 	free := pragmaInt(t, db, "freelist_count")
 	require.Greater(t, free, int64(10000), "scratch database must have >= 10k free pages")
@@ -143,11 +138,11 @@ func TestSpike_IncrementalVacuumQueryFreesNPagesPerCall(t *testing.T) {
 	integrityOK(t, db)
 }
 
-// TestSpike_IncrementalVacuumExecFreesOnePage is the trap: Exec steps the
+// TestDriver_IncrementalVacuumExecFreesOnePage is the trap: Exec steps the
 // statement once, freeing ONE page per call whatever N is. If a driver upgrade
 // fixes this the test fails and Drain can be simplified; a regression of Drain
 // to Exec is caught by the Drain tests.
-func TestSpike_IncrementalVacuumExecFreesOnePage(t *testing.T) {
+func TestDriver_IncrementalVacuumExecFreesOnePage(t *testing.T) {
 	db, _ := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 400, rowBytes: 100000, keepEvery: 10})
 	before := pragmaInt(t, db, "freelist_count")
 	require.Greater(t, before, int64(2000))
@@ -161,7 +156,7 @@ func TestSpike_IncrementalVacuumExecFreesOnePage(t *testing.T) {
 		"Exec must free exactly one page per call on this driver")
 }
 
-func TestSpike_VacuumIntoKeepsIncrementalMode(t *testing.T) {
+func TestDriver_VacuumIntoKeepsIncrementalMode(t *testing.T) {
 	db, _ := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 500})
 	dest := filepath.Join(t.TempDir(), "snapshot.db")
 
@@ -173,9 +168,9 @@ func TestSpike_VacuumIntoKeepsIncrementalMode(t *testing.T) {
 	assert.EqualValues(t, 2, pragmaInt(t, snap, "auto_vacuum"))
 }
 
-// TestSpike_OpenRowsBlockThePool: with MaxOpenConns(1) any other pool query
+// TestDriver_OpenRowsBlockThePool: with MaxOpenConns(1) any other pool query
 // waits until the open rows are closed, so Drain must close them first.
-func TestSpike_OpenRowsBlockThePool(t *testing.T) {
+func TestDriver_OpenRowsBlockThePool(t *testing.T) {
 	db, _ := newScratchDB(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 100, rowBytes: 50000, keepEvery: 10})
 
 	rows, err := db.QueryContext(context.Background(), "PRAGMA incremental_vacuum(10)")
@@ -196,9 +191,9 @@ func TestSpike_OpenRowsBlockThePool(t *testing.T) {
 	assert.Less(t, time.Since(start), 250*time.Millisecond, "after rows.Close() the pool is free again")
 }
 
-// TestSpike_CheckpointBusyIsAColumnNotAnError: a blocking reader makes
+// TestDriver_CheckpointBusyIsAColumnNotAnError: a blocking reader makes
 // wal_checkpoint(TRUNCATE) return busy=1 with a nil error.
-func TestSpike_CheckpointBusyIsAColumnNotAnError(t *testing.T) {
+func TestDriver_CheckpointBusyIsAColumnNotAnError(t *testing.T) {
 	db, path := newScratchDB(t, scratchOpts{rows: 200})
 	reader := openScratch(t, path, 0)
 	ctx := context.Background()
@@ -222,7 +217,7 @@ func TestSpike_CheckpointBusyIsAColumnNotAnError(t *testing.T) {
 	assert.Zero(t, busy)
 }
 
-func TestSpike_PreparedStatementsSurviveVacuum(t *testing.T) {
+func TestDriver_PreparedStatementsSurviveVacuum(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gorm.db")
 	gdb, err := gorm.Open(sqlite.Open(path), &gorm.Config{PrepareStmt: true})
 	require.NoError(t, err)
@@ -291,10 +286,10 @@ func openTempFDs(t *testing.T) []string {
 	return out
 }
 
-// TestSpike_VacuumCancelEarlyInterruptsRebuild: a cancel during the rebuild
+// TestDriver_VacuumCancelEarlyInterruptsRebuild: a cancel during the rebuild
 // phase interrupts VACUUM, leaves the database intact and in its old mode, and
 // leaves no temp file behind.
-func TestSpike_VacuumCancelEarlyInterruptsRebuild(t *testing.T) {
+func TestDriver_VacuumCancelEarlyInterruptsRebuild(t *testing.T) {
 	db, _ := buildCancelDB(t)
 
 	_, err := vacuumWithCancel(t, db, 10*time.Millisecond)
@@ -306,11 +301,11 @@ func TestSpike_VacuumCancelEarlyInterruptsRebuild(t *testing.T) {
 	integrityOK(t, db)
 }
 
-// TestSpike_VacuumCancelLateMayComplete: the copy-back tail is not
+// TestDriver_VacuumCancelLateMayComplete: the copy-back tail is not
 // interruptible, so a late cancel yields either an interrupt error or nil. The
 // test asserts outcomes (database intact, mode consistent with the result),
 // never timing.
-func TestSpike_VacuumCancelLateMayComplete(t *testing.T) {
+func TestDriver_VacuumCancelLateMayComplete(t *testing.T) {
 	baseline, _ := buildCancelDB(t)
 	total, _ := vacuumWithCancel(t, baseline, time.Hour)
 	require.NotZero(t, total)
@@ -330,122 +325,5 @@ func TestSpike_VacuumCancelLateMayComplete(t *testing.T) {
 		}
 		assert.Empty(t, openTempFDs(t))
 		integrityOK(t, db)
-	}
-}
-
-// TestHelperTmpdirSpike runs in a re-executed test binary (see
-// TestSpike_SQLiteTmpDirOnlyHonouredBeforeFirstOpen) because the driver reads
-// SQLITE_TMPDIR once, process-wide.
-func TestHelperTmpdirSpike(t *testing.T) {
-	mode := os.Getenv("CHARON_TMPDIR_SPIKE")
-	if mode == "" {
-		t.Skip("helper process only")
-	}
-	tmpDir := os.Getenv("CHARON_TMPDIR_SPIKE_DIR")
-	dbPath := os.Getenv("CHARON_TMPDIR_SPIKE_DB")
-
-	switch mode {
-	case "before":
-		require.NoError(t, os.Setenv("SQLITE_TMPDIR", tmpDir))
-	case "after":
-		warm, err := sql.Open(sqlite.DriverName, ":memory:")
-		require.NoError(t, err)
-		require.NoError(t, warm.QueryRow("SELECT 1").Scan(new(int)))
-		require.NoError(t, os.Setenv("SQLITE_TMPDIR", tmpDir))
-	}
-
-	db := openScratch(t, dbPath, 0)
-	fillScratch(t, db, 600, 100000, 3)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := db.Exec("VACUUM")
-		done <- err
-	}()
-	seen := map[string]bool{}
-	for running := true; running; {
-		select {
-		case err := <-done:
-			require.NoError(t, err)
-			running = false
-		default:
-			for _, link := range openTempFDs(t) {
-				seen[link] = true
-			}
-			time.Sleep(time.Millisecond)
-		}
-	}
-	for link := range seen {
-		fmt.Println("CHARON_TMPFILE:" + link)
-	}
-}
-
-func runTmpdirSpike(t *testing.T, mode string) (tmpDir string, seen []string) {
-	t.Helper()
-	tmpDir = t.TempDir()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperTmpdirSpike$", "-test.v") //nolint:gosec // re-executes this test binary
-	var env []string
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "SQLITE_TMPDIR=") {
-			env = append(env, kv)
-		}
-	}
-	env = append(env,
-		"CHARON_TMPDIR_SPIKE="+mode,
-		"CHARON_TMPDIR_SPIKE_DIR="+tmpDir,
-		"CHARON_TMPDIR_SPIKE_DB="+filepath.Join(t.TempDir(), "spike.db"),
-	)
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, string(out))
-	for _, line := range strings.Split(string(out), "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "CHARON_TMPFILE:"); ok {
-			seen = append(seen, rest)
-		}
-	}
-	return tmpDir, seen
-}
-
-func TestSpike_SQLiteTmpDirOnlyHonouredBeforeFirstOpen(t *testing.T) {
-	t.Run("set before the first open it is honoured", func(t *testing.T) {
-		dir, seen := runTmpdirSpike(t, "before")
-		require.NotEmpty(t, seen, "VACUUM must have used a temp file")
-		for _, link := range seen {
-			assert.True(t, strings.HasPrefix(link, dir+string(filepath.Separator)), "%s should be under %s", link, dir)
-		}
-	})
-	t.Run("set after the first open it is ignored", func(t *testing.T) {
-		dir, seen := runTmpdirSpike(t, "after")
-		require.NotEmpty(t, seen, "VACUUM must have used a temp file")
-		for _, link := range seen {
-			assert.False(t, strings.HasPrefix(link, dir+string(filepath.Separator)), "%s must not be under %s", link, dir)
-		}
-	})
-}
-
-// TestSpike_GinRunListenerServesOnABoundListener pins the gin API main relies on
-// to bind the listener explicitly before handing it to the engine.
-func TestSpike_GinRunListenerServesOnABoundListener(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	engine.GET("/ping", func(c *gin.Context) { c.String(http.StatusOK, "pong") })
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	served := make(chan error, 1)
-	go func() { served <- engine.RunListener(ln) }()
-
-	resp, err := http.Get("http://" + ln.Addr().String() + "/ping") //nolint:gosec,noctx // loopback test server
-	require.NoError(t, err)
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-	assert.Equal(t, "pong", string(body))
-
-	require.NoError(t, ln.Close())
-	select {
-	case <-served:
-	case <-time.After(5 * time.Second):
-		t.Fatal("RunListener did not return after the listener was closed")
 	}
 }

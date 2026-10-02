@@ -1,11 +1,17 @@
 package dbmaint
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,4 +170,94 @@ func TestBuildDiskReport_Errors(t *testing.T) {
 	t.Setenv("SQLITE_TMPDIR", t.TempDir())
 	_, err = BuildDiskReport(Stats{}, "/definitely/not/there")
 	require.Error(t, err)
+}
+
+// TestHelperTmpdirProbe runs in a re-executed test binary (see
+// TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen) because the driver reads
+// SQLITE_TMPDIR once, process-wide.
+func TestHelperTmpdirProbe(t *testing.T) {
+	mode := os.Getenv("CHARON_TMPDIR_PROBE")
+	if mode == "" {
+		t.Skip("helper process only")
+	}
+	tmpDir := os.Getenv("CHARON_TMPDIR_PROBE_DIR")
+	dbPath := os.Getenv("CHARON_TMPDIR_PROBE_DB")
+
+	switch mode {
+	case "before":
+		require.NoError(t, os.Setenv("SQLITE_TMPDIR", tmpDir))
+	case "after":
+		warm, err := sql.Open(sqlite.DriverName, ":memory:")
+		require.NoError(t, err)
+		require.NoError(t, warm.QueryRow("SELECT 1").Scan(new(int)))
+		require.NoError(t, os.Setenv("SQLITE_TMPDIR", tmpDir))
+	}
+
+	db := openScratch(t, dbPath, 0)
+	fillScratch(t, db, 600, 100000, 3)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := db.Exec("VACUUM")
+		done <- err
+	}()
+	seen := map[string]bool{}
+	for running := true; running; {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+			running = false
+		default:
+			for _, link := range openTempFDs(t) {
+				seen[link] = true
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	for link := range seen {
+		fmt.Println("CHARON_TMPFILE:" + link)
+	}
+}
+
+func runTmpdirProbe(t *testing.T, mode string) (tmpDir string, seen []string) {
+	t.Helper()
+	tmpDir = t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperTmpdirProbe$", "-test.v") //nolint:gosec // re-executes this test binary
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "SQLITE_TMPDIR=") {
+			env = append(env, kv)
+		}
+	}
+	env = append(env,
+		"CHARON_TMPDIR_PROBE="+mode,
+		"CHARON_TMPDIR_PROBE_DIR="+tmpDir,
+		"CHARON_TMPDIR_PROBE_DB="+filepath.Join(t.TempDir(), "probe.db"),
+	)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	for _, line := range strings.Split(string(out), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "CHARON_TMPFILE:"); ok {
+			seen = append(seen, rest)
+		}
+	}
+	return tmpDir, seen
+}
+
+func TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen(t *testing.T) {
+	t.Run("set before the first open it is honoured", func(t *testing.T) {
+		dir, seen := runTmpdirProbe(t, "before")
+		require.NotEmpty(t, seen, "VACUUM must have used a temp file")
+		for _, link := range seen {
+			assert.True(t, strings.HasPrefix(link, dir+string(filepath.Separator)), "%s should be under %s", link, dir)
+		}
+	})
+	t.Run("set after the first open it is ignored", func(t *testing.T) {
+		dir, seen := runTmpdirProbe(t, "after")
+		require.NotEmpty(t, seen, "VACUUM must have used a temp file")
+		for _, link := range seen {
+			assert.False(t, strings.HasPrefix(link, dir+string(filepath.Separator)), "%s must not be under %s", link, dir)
+		}
+	})
 }
