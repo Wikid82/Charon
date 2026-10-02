@@ -3,7 +3,7 @@
 Type: `fix:` / `refactor:` / `test:` / `docs:` follow-ups on the shipped #1422 feature (v0.44.0). **No `feat:` commit** (no new user-facing capability; no new endpoint, setting or UI), so CodeQL and Trivy are deferred to CI. **No `(security)` scope**: nothing here is a genuine vulnerability (item 4 is a local ownership annoyance, not an escalation; the existing owner check already refuses an unsafe directory).
 Single PR into `development`, ordered commits.
 Branch: `fix/db-maintenance-followups-1427` (already checked out, cut from `development`).
-Status: PLANNED (revision 3, awaiting supervisor re-review).
+Status: IMPLEMENTED (commits 1-7 on branch fix/db-maintenance-followups-1427; pending PR/CI).
 Supervisor history: rev 1 reviewed -> CHANGES REQUIRED (no blockers; 2 should-fix S1/S2, 8 nits). Rev 2 applies all of them (traceability table below). Supervisor answers recorded: Q1 no (no entrypoint chown), Q2 yes (64 MiB), Q3 yes (patch bump).
 Rev 2 verified -> one should-fix (`logPlanSkip` misdescribed, test 4 wrong) and five nits; rev 3 applies them (explicit `case ReasonTooManyFailures:` Warn before `default`, test 4 rewritten around `captureLogs(t)`, stale line references, real-`main()` test also at the commit 3 gate, `currentEUID` in the tmpdir owner check, pragma wording, `consumesFlag` wording).
 
