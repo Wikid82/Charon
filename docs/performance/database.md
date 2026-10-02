@@ -15,7 +15,7 @@ The queries are now per monitor: each monitor's newest N beats and its two count
 - Hardware class: "dev host" (a single development machine, not a Raspberry Pi; Pi numbers are unmeasured).
 - Database: opened through `database.Connect` (pure-Go SQLite driver, production pragmas: WAL, `synchronous=NORMAL`, 64 MB cache, one open connection), seeded through the real models and `AutoMigrate`, on a scratch file outside `/tmp`.
 - Timing: cold `GetSummary` (cache miss), min / median of 7 runs, old SQL vs new SQL on the same database, first without and then with `idx_heartbeat_monitor_created`.
-- Reproduce a smaller version with `go test ./internal/services -run XXX -bench UptimeSummaryCold -benchtime=5x` (50 monitors x 2 days; scale the constants in `uptime_summary_equivalence_test.go` for the full workload).
+- Reproduce a smaller version with `go test ./internal/services -run XXX -bench UptimeSummaryCold -benchtime=5x` (50 monitors x 2 days; scale the `monitorCount` and `days` constants in `BenchmarkUptimeSummaryCold` (`uptime_summary_equivalence_test.go`) for the full workload).
 - Absolute numbers vary 20-40 % between sessions (page cache, WAL state). Read the ratios, not single figures.
 
 ## Results
@@ -50,14 +50,14 @@ The old window query was nondeterministic when several heartbeats share a timest
 
 ## Index sizes at 1,512,000 heartbeats
 
-| Object | Size |
-| --- | --- |
-| `idx_heartbeat_lookup (monitor_id, status, created_at)` | 123.2 MB (all three indexes created after the load) |
-| `idx_heartbeat_monitor_created (monitor_id, created_at)` | 118.2 MB |
-| `idx_uptime_heartbeats_created_at (created_at)` | 64.2 MB |
-| table `uptime_heartbeats` | 128.7 MB |
+| Object | Real install (AutoMigrate before load) | Freshly built (lower bound) |
+| --- | --- | --- |
+| `idx_heartbeat_lookup (monitor_id, status, created_at)` | 233.9 MB | 123.2 MB |
+| `idx_heartbeat_monitor_created (monitor_id, created_at)` | 118.2 MB | 118.2 MB |
+| `idx_uptime_heartbeats_created_at (created_at)` | 75.3 MB | 64.2 MB |
+| table `uptime_heartbeats` | 128.7 MB | 128.7 MB |
 
-Source: `dbstat` on a freshly built database with the production schema. A database whose GORM indexes were created by `AutoMigrate` before the load (the real upgrade and fresh-install path) fragments those two b-trees: the re-measurement for this page, built that way, read 233.9 MB for `idx_heartbeat_lookup` and 75.3 MB for `idx_uptime_heartbeats_created_at`, with the composite (built after the load) at 118.2 MB and the table at 128.7 MB. Real installs can therefore show larger index sizes than the first table.
+Source: `dbstat` on a database with the production schema. The middle column is the primary figure: GORM indexes created by `AutoMigrate` before the data arrives (the real upgrade and fresh-install path) fragment those two b-trees, while the composite is built after the load. The last column is a database whose indexes were all created after the load; it is the lower bound, not what installs normally show.
 
 ## Known gap: no `singleflight` on a cache miss
 
