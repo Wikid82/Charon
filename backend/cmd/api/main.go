@@ -329,7 +329,7 @@ func main() {
 	}
 
 	// Initialize emergency server (Tier 2 break glass)
-	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb, gate)
+	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb, gate).WithManagementCIDRs(cfg.Security.ManagementCIDRs)
 	if err := emergencyServer.Start(); err != nil {
 		logger.Log().WithError(err).Fatal("Failed to start emergency server")
 	}

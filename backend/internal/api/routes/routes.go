@@ -325,7 +325,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	})
 
 	// Emergency endpoint
-	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb)
+	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb).WithManagementCIDRs(cfg.Security.ManagementCIDRs)
 	emergency := router.Group("/api/v1/emergency")
 	// Emergency endpoints must stay responsive and should not be rate limited.
 	emergency.POST("/security-reset", emergencyHandler.SecurityReset)

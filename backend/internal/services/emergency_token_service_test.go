@@ -469,3 +469,29 @@ func TestEmergencyToken_DaysUntilExpiration(t *testing.T) {
 		})
 	}
 }
+
+func TestTokensEqual(t *testing.T) {
+	assert.True(t, tokensEqual("same-token-value", "same-token-value"))
+	assert.False(t, tokensEqual("same-token-value", "same-token-valuf"))
+	assert.False(t, tokensEqual("same-token-value", "same-token-value-longer"))
+	assert.False(t, tokensEqual("same-token-value", ""))
+}
+
+func TestEmergencyTokenService_Validate_EnvironmentTokenMismatch(t *testing.T) {
+	db := setupEmergencyTokenTestDB(t)
+	svc := NewEmergencyTokenService(db)
+
+	envToken := "this-is-a-long-test-token-for-environment-fallback-validation"
+	t.Setenv(EmergencyTokenEnvVar, envToken)
+
+	_, err := svc.Validate(envToken[:len(envToken)-1] + "x")
+	assert.Error(t, err)
+	_, err = svc.Validate(envToken + "x")
+	assert.Error(t, err)
+
+	// With a database token present, a wrong value is also refused.
+	_, err = svc.Generate(GenerateRequest{ExpirationDays: 90})
+	require.NoError(t, err)
+	_, err = svc.Validate(envToken + "x")
+	assert.Error(t, err)
+}

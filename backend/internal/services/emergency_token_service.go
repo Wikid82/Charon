@@ -3,6 +3,7 @@ package services
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -175,7 +176,7 @@ func (s *EmergencyTokenService) Validate(token string) (*models.EmergencyToken, 
 		}
 
 		// If DB token doesn't match, allow explicit environment token as break-glass fallback.
-		if hasValidEnvToken && envToken == token {
+		if hasValidEnvToken && tokensEqual(envToken, token) {
 			logger.Log().Debug("Emergency token validated from environment variable while database token exists")
 			return nil, nil
 		}
@@ -193,7 +194,7 @@ func (s *EmergencyTokenService) Validate(token string) (*models.EmergencyToken, 
 	}
 
 	// Simple string comparison for env var token (no bcrypt for legacy)
-	if envToken != token {
+	if !tokensEqual(envToken, token) {
 		return nil, fmt.Errorf("invalid token")
 	}
 
@@ -307,4 +308,9 @@ func (s *EmergencyTokenService) UpdateExpiration(expirationDays int) (*time.Time
 	}).Info("Emergency token expiration updated")
 
 	return expiresAt, nil
+}
+
+// tokensEqual compares two tokens in constant time.
+func tokensEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
