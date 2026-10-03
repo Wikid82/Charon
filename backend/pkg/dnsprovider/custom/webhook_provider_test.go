@@ -1,10 +1,13 @@
 package custom
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
+	"github.com/Wikid82/charon/backend/pkg/safehttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -472,6 +475,89 @@ func TestWebhookProvider_ValidateWebhookURL(t *testing.T) {
 				assert.NoError(t, err)
 			}
 		})
+	}
+}
+
+func TestWebhookProvider_ValidateWebhookURL_AddressPolicy(t *testing.T) {
+	provider := NewWebhookProvider()
+
+	accepted := []string{
+		"https://api.example.com/webhook",
+		"https://api.example.com:8443/hooks/dns",
+		"https://10.0.0.5/webhook",
+		"https://192.168.1.10:8443/webhook",
+		"https://100.64.0.7/webhook",
+		"http://localhost:8080/webhook",
+		"http://localhost./webhook",
+		"http://LOCALHOST:8080/webhook",
+		"http://127.0.0.1:8080/webhook",
+		"http://127.0.0.2:8080/webhook",
+		"http://[::1]:8080/webhook",
+		"http://[::ffff:127.0.0.1]:8080/webhook",
+	}
+	for _, raw := range accepted {
+		if err := provider.validateWebhookURL(raw, "create_url"); err != nil {
+			t.Errorf("%s rejected: %v", raw, err)
+		}
+	}
+
+	rejected := []string{
+		// restricted literal addresses (https so only the address policy can reject them)
+		"https://169.254.169.254/latest/meta-data",
+		"https://[::ffff:169.254.169.254]/",
+		"https://100.100.100.200/",
+		"https://[fd00::1]/webhook",
+		"https://127.1/webhook",
+		"https://2130706433/webhook",
+		"https://0x7f000001/webhook",
+		"https://0177.0.0.1/webhook",
+		"https://[fe80::1]/webhook",
+		"https://0.0.0.0/webhook",
+		"https://240.0.0.1/webhook",
+		"https://192.0.0.1/webhook",
+		"https://[64:ff9b::1]/webhook",
+		"https://[2002::1]/webhook",
+		"https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/webhook",
+		// loopback is only accepted for the explicit localhost exception, and not over https tricks
+		"https://foo.localhost/webhook",
+		// non-loopback http
+		"http://10.0.0.5/webhook",
+		"http://169.254.169.254/",
+		"http://100.100.100.200/",
+		// URL structure
+		"https://user:pw@api.example.com/webhook",
+		"https://good.com@169.254.169.254/",
+		"http://user:pw@localhost:8080/webhook",
+		"https://api.example.com/webhook#frag",
+		"https://api.example.com/webhook?token=abc",
+		"http://localhost:8080/webhook?token=abc",
+		"http://localhost:8080/webhook#frag",
+	}
+	for _, raw := range rejected {
+		if err := provider.validateWebhookURL(raw, "create_url"); err == nil {
+			t.Errorf("%s accepted", raw)
+		}
+	}
+
+	// Blocked literal addresses carry the shared sentinel and the field name.
+	err := provider.validateWebhookURL("https://169.254.169.254/", "delete_url")
+	if err == nil || !errors.Is(err, safehttp.ErrBlockedAddress) || !strings.Contains(err.Error(), "delete_url") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestIsLoopbackWebhookHost(t *testing.T) {
+	loopback := []string{"localhost", "localhost.", "LocalHost", "127.0.0.1", "127.0.0.2", "127.255.255.254", "::1", "::ffff:127.0.0.1"}
+	for _, h := range loopback {
+		if !isLoopbackWebhookHost(h) {
+			t.Errorf("%q should be loopback", h)
+		}
+	}
+	other := []string{"", "example.com", "127.0.0.1.example.com", "10.0.0.1", "::2", "foo.localhost", "localhost.example.com", "128.0.0.1"}
+	for _, h := range other {
+		if isLoopbackWebhookHost(h) {
+			t.Errorf("%q should not be loopback", h)
+		}
 	}
 }
 

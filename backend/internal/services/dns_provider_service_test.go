@@ -5,12 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
+	"github.com/Wikid82/charon/backend/pkg/safehttp"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1868,4 +1874,147 @@ func TestDNSProviderService_ResolveID(t *testing.T) {
 		require.Error(t, err)
 		assert.False(t, errors.Is(err, ErrDNSProviderNotFound))
 	})
+}
+
+// endpointPolicyProvider is a stand-in for a plugin that composes the shared
+// request helper: ValidateCredentials applies the syntax policy and
+// TestCredentials sends through safehttp.NewClient.
+type endpointPolicyProvider struct {
+	dnsprovider.ProviderPlugin
+	typeName string
+	// strictValidate applies safehttp.ValidateURLSyntax in ValidateCredentials.
+	strictValidate bool
+	validateCalls  atomic.Int32
+}
+
+func (p *endpointPolicyProvider) Type() string { return p.typeName }
+
+func (p *endpointPolicyProvider) Metadata() dnsprovider.ProviderMetadata {
+	return dnsprovider.ProviderMetadata{Type: p.typeName, Name: "Endpoint policy fake", InterfaceVersion: dnsprovider.InterfaceVersion}
+}
+
+func (p *endpointPolicyProvider) ValidateCredentials(creds map[string]string) error {
+	p.validateCalls.Add(1)
+	if creds["api_url"] == "" || creds["api_key"] == "" {
+		return errors.New("api_url and api_key are required")
+	}
+	if p.strictValidate {
+		if _, err := safehttp.ValidateURLSyntax(creds["api_url"], safehttp.PrivateNetworkOK()); err != nil {
+			return fmt.Errorf("api_url is invalid: %w", err)
+		}
+	}
+	return nil
+}
+
+func (p *endpointPolicyProvider) TestCredentials(creds map[string]string) error {
+	req, err := http.NewRequest(http.MethodGet, creds["api_url"], http.NoBody)
+	if err != nil {
+		return err
+	}
+	resp, err := safehttp.NewClient(safehttp.PrivateNetworkOK(), 2*time.Second).Do(req)
+	if err != nil {
+		if errors.Is(err, safehttp.ErrBlockedAddress) {
+			return errors.New("api_url points to an address that is not allowed")
+		}
+		return fmt.Errorf("API connection failed: %w", err)
+	}
+	_ = resp.Body.Close()
+	return nil
+}
+
+func registerEndpointPolicyProvider(t *testing.T, name string, strict bool) *endpointPolicyProvider {
+	t.Helper()
+	base, ok := dnsprovider.Global().Get("cloudflare")
+	require.True(t, ok)
+	fake := &endpointPolicyProvider{ProviderPlugin: base, typeName: name, strictValidate: strict}
+	require.NoError(t, dnsprovider.Global().Register(fake))
+	t.Cleanup(func() { dnsprovider.Global().Unregister(name) })
+	return fake
+}
+
+func TestDNSProviderService_TestCredentials_BlockedEndpointDoesNotConnectOrEcho(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+
+	const marker = "RESPONSE-BODY-MARKER"
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(marker))
+	}))
+	defer srv.Close()
+
+	// Lenient ValidateCredentials: the connection attempt itself must be refused.
+	registerEndpointPolicyProvider(t, "endpoint_policy_lenient", false)
+	result, err := service.TestCredentials(context.Background(), CreateDNSProviderRequest{
+		Name:         "Probe",
+		ProviderType: "endpoint_policy_lenient",
+		Credentials:  map[string]string{"api_url": srv.URL, "api_key": "k"},
+	})
+	require.NoError(t, err)
+	assert.False(t, result.Success)
+	assert.Equal(t, "CREDENTIALS_TEST_FAILED", result.Code)
+	assert.Contains(t, result.Error, "not allowed")
+	assert.NotContains(t, result.Error, marker)
+	assert.NotContains(t, result.Message, marker)
+	assert.Zero(t, hits.Load(), "the endpoint must not be contacted")
+}
+
+func TestDNSProviderService_TestCredentials_StrictValidationRejectsBeforeAnyRequest(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+
+	registerEndpointPolicyProvider(t, "endpoint_policy_strict", true)
+	for _, raw := range []string{srv.URL, "http://169.254.169.254/", "http://100.100.100.200/", "https://user:pw@example.com/"} {
+		result, err := service.TestCredentials(context.Background(), CreateDNSProviderRequest{
+			Name:         "Probe",
+			ProviderType: "endpoint_policy_strict",
+			Credentials:  map[string]string{"api_url": raw, "api_key": "k"},
+		})
+		require.NoError(t, err)
+		assert.False(t, result.Success, raw)
+		assert.Equal(t, "INVALID_CREDENTIALS", result.Code, raw)
+	}
+	assert.Zero(t, hits.Load())
+}
+
+func TestDNSProviderService_StoredLoopbackEndpointIsNotRevalidatedOnRead(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	fake := registerEndpointPolicyProvider(t, "endpoint_policy_stored", true)
+
+	// A provider saved before the endpoint policy existed: loopback api_url.
+	credsJSON, err := json.Marshal(map[string]string{"api_url": "http://127.0.0.1:8081", "api_key": "k"})
+	require.NoError(t, err)
+	encrypted, err := encryptor.Encrypt(credsJSON)
+	require.NoError(t, err)
+	row := &models.DNSProvider{
+		UUID:                 uuid.New().String(),
+		Name:                 "Legacy loopback",
+		ProviderType:         "endpoint_policy_stored",
+		Enabled:              true,
+		CredentialsEncrypted: encrypted,
+		KeyVersion:           1,
+	}
+	require.NoError(t, db.Create(row).Error)
+
+	list, err := service.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+
+	got, err := service.Get(ctx, row.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Legacy loopback", got.Name)
+
+	creds, err := service.GetDecryptedCredentials(ctx, row.ID)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(creds["api_url"], "http://127.0.0.1"))
+
+	assert.Zero(t, fake.validateCalls.Load(), "reading stored credentials must not run endpoint validation")
 }
