@@ -284,7 +284,7 @@ func TestManager_ApplyConfig_SelfHopWiringAndSnapshotRedaction(t *testing.T) {
 			continue
 		}
 		snapshots++
-		body, readErr := os.ReadFile(filepath.Join(dir, e.Name()))
+		body, readErr := os.ReadFile(filepath.Clean(filepath.Join(dir, e.Name())))
 		require.NoError(t, readErr)
 		assert.NotContains(t, string(body), secret.Reveal())
 		assert.Contains(t, string(body), snapshotSecretPlaceholder)

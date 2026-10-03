@@ -53,10 +53,10 @@ func TestSecret_FormattingIsRedacted(t *testing.T) {
 	outputs := []string{
 		s.String(),
 		s.GoString(),
-		fmt.Sprintf("%v", s),
+		fmt.Sprintf("%v", s), //nolint:gocritic // exercising the fmt path is the point of this test
 		fmt.Sprintf("%+v", s),
 		fmt.Sprintf("%#v", s),
-		fmt.Sprintf("%s", s), //nolint:gosimple // exercising the verb
+		fmt.Sprintf("%s", s), //nolint:gocritic // exercising the fmt path is the point of this test
 		fmt.Sprintf("%v", holder{S: s}),
 		fmt.Sprintf("%+v", holder{S: s}),
 	}
