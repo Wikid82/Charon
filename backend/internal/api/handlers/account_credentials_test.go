@@ -67,7 +67,7 @@ func (e *credentialsEnv) do(t *testing.T, method, path, token string, body any) 
 	return w
 }
 
-func (e *credentialsEnv) user(t *testing.T, email string, admin bool) (*models.User, string) {
+func (e *credentialsEnv) user(t *testing.T, email string, admin bool) (u *models.User, token string) {
 	t.Helper()
 	u, err := e.auth.Register(email, "password123", "User")
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func (e *credentialsEnv) user(t *testing.T, email string, admin bool) (*models.U
 	} else {
 		require.NoError(t, e.db.Model(u).Update("role", models.RoleUser).Error)
 	}
-	token, err := e.auth.Login(email, "password123")
+	token, err = e.auth.Login(email, "password123")
 	require.NoError(t, err)
 	return u, token
 }
