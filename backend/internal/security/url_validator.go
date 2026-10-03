@@ -297,9 +297,9 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 					// Cloud metadata endpoint must produce the specific error even
 					// when the address arrives as an IPv4-mapped IPv6 value.
 					if ipv4.String() == "169.254.169.254" {
-						return "", fmt.Errorf("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
+						return "", blockedAddressError("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
 					}
-					return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
+					return "", blockedAddressError("connection to private ip addresses is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
 				}
 			}
 
@@ -323,9 +323,9 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 				// Don't leak internal IPs in error messages to external users
 				sanitizedIP := sanitizeIPForError(ip.String())
 				if ip.String() == "169.254.169.254" {
-					return "", fmt.Errorf("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizedIP)
+					return "", blockedAddressError("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizedIP)
 				}
-				return "", fmt.Errorf("connection to private ip addresses is blocked for security (detected: %s)", sanitizedIP)
+				return "", blockedAddressError("connection to private ip addresses is blocked for security (detected: %s)", sanitizedIP)
 			}
 		}
 	}
@@ -364,6 +364,21 @@ func parsePort(port string) (int, error) {
 		return 0, fmt.Errorf("port must be numeric: %s", port)
 	}
 	return portNum, nil
+}
+
+// blockedAddressErr carries a policy-rejection message verbatim while letting
+// callers detect it with errors.Is(err, network.ErrBlockedAddress).
+type blockedAddressErr struct{ msg string }
+
+func (e *blockedAddressErr) Error() string { return e.msg }
+
+func (e *blockedAddressErr) Unwrap() error { return network.ErrBlockedAddress }
+
+// blockedAddressError formats a message for a destination rejected by the
+// address policy. Only address rejections use it; scheme, DNS and port
+// failures do not wrap the sentinel.
+func blockedAddressError(format string, args ...any) error {
+	return &blockedAddressErr{msg: fmt.Sprintf(format, args...)}
 }
 
 // sanitizeIPForError removes sensitive details from IP addresses in error messages.

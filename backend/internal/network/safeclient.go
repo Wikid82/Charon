@@ -5,12 +5,23 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 )
+
+// ErrBlockedAddress is wrapped (with %w) by every error that reports a
+// destination rejected by the address policy. Its message never contains a
+// resolved IP address, so it is safe to surface to administrators. Callers
+// should test for it with errors.Is rather than matching message text.
+var ErrBlockedAddress = errors.New("destination address is not allowed")
+
+// lookupIPAddr resolves a host to IP addresses. It is a package-level seam so
+// tests can supply a controlled resolver; production always uses the default.
+var lookupIPAddr = net.DefaultResolver.LookupIPAddr
 
 // privateBlocks holds pre-parsed CIDR blocks for private/reserved IP ranges.
 // These are parsed once at package initialization for performance.
@@ -69,33 +80,59 @@ var privateCIDRs = []string{
 	"fe80::/10",
 }
 
+// cgnatCIDRs is the shared-address space used by carrier-grade NAT and many
+// overlay networks. It is NOT part of IsPrivateIP; callers opt in to blocking
+// it with WithBlockCGNAT.
+var cgnatCIDRs = []string{
+	"100.64.0.0/10",
+}
+
+// transitionCIDRs lists IPv4/IPv6 transition, translation and special-purpose
+// ranges that have no legitimate use as an outbound HTTP destination. They are
+// NOT part of IsPrivateIP; callers opt in to blocking them with
+// WithBlockTransitionRanges.
+var transitionCIDRs = []string{
+	"192.0.0.0/24",   // IETF protocol assignments
+	"198.18.0.0/15",  // Benchmarking
+	"64:ff9b::/96",   // NAT64 (RFC 6052)
+	"64:ff9b:1::/48", // NAT64 local-use (RFC 8215)
+	"2002::/16",      // 6to4
+	"::/96",          // IPv4-compatible IPv6 (deprecated)
+	"2001::/32",      // Teredo
+}
+
+var (
+	cgnatBlocks      []*net.IPNet
+	cgnatOnce        sync.Once
+	transitionBlocks []*net.IPNet
+	transitionOnce   sync.Once
+)
+
+// parseBlocks parses CIDR strings into networks. Invalid entries are skipped;
+// they cannot occur with the compile-time constant lists in this file.
+func parseBlocks(cidrs []string) []*net.IPNet {
+	blocks := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, block, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+	return blocks
+}
+
 // initPrivateBlocks parses all CIDR blocks once at startup.
 func initPrivateBlocks() {
 	initOnce.Do(func() {
-		privateBlocks = make([]*net.IPNet, 0, len(privateCIDRs))
-		for _, cidr := range privateCIDRs {
-			_, block, err := net.ParseCIDR(cidr)
-			if err != nil {
-				// This should never happen with valid CIDR strings
-				continue
-			}
-			privateBlocks = append(privateBlocks, block)
-		}
+		privateBlocks = parseBlocks(privateCIDRs)
 	})
 }
 
 // initRFC1918Blocks parses the three RFC 1918 CIDR blocks once at startup.
 func initRFC1918Blocks() {
 	rfc1918Once.Do(func() {
-		rfc1918Blocks = make([]*net.IPNet, 0, len(rfc1918CIDRs))
-		for _, cidr := range rfc1918CIDRs {
-			_, block, err := net.ParseCIDR(cidr)
-			if err != nil {
-				// This should never happen with valid CIDR strings
-				continue
-			}
-			rfc1918Blocks = append(rfc1918Blocks, block)
-		}
+		rfc1918Blocks = parseBlocks(rfc1918CIDRs)
 	})
 }
 
@@ -170,6 +207,43 @@ func IsRFC1918(ip net.IP) bool {
 	return false
 }
 
+// IsCGNAT reports whether ip is in the carrier-grade NAT shared address space
+// (100.64.0.0/10). IPv4-mapped IPv6 addresses are normalised first.
+func IsCGNAT(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	cgnatOnce.Do(func() { cgnatBlocks = parseBlocks(cgnatCIDRs) })
+	return containsAny(cgnatBlocks, ip)
+}
+
+// IsTransitionRange reports whether ip is in an IPv4/IPv6 transition,
+// translation or special-purpose range (192.0.0.0/24, 198.18.0.0/15,
+// 64:ff9b::/96, 64:ff9b:1::/48, 2002::/16, ::/96, 2001::/32).
+//
+// IPv6-only forms are matched on the raw 16-byte address; IPv4-mapped IPv6
+// addresses are matched through their IPv4 form. The unspecified and loopback
+// addresses are excluded here because IsPrivateIP already covers them.
+func IsTransitionRange(ip net.IP) bool {
+	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() {
+		return false
+	}
+	transitionOnce.Do(func() { transitionBlocks = parseBlocks(transitionCIDRs) })
+	return containsAny(transitionBlocks, ip)
+}
+
+// containsAny reports whether ip is inside any of the blocks. net.IPNet.Contains
+// already compares IPv4-mapped addresses through their 4-byte form and never
+// matches an IPv4 address against an IPv6 block (or vice versa).
+func containsAny(blocks []*net.IPNet, ip net.IP) bool {
+	for _, block := range blocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // ClientOptions configures the behavior of the safe HTTP client.
 type ClientOptions struct {
 	// Timeout is the total request timeout (default: 10s)
@@ -197,6 +271,14 @@ type ClientOptions struct {
 	// targeting internal hosts). All other restricted ranges — loopback, link-local,
 	// cloud metadata (169.254.x.x), and reserved — remain blocked regardless.
 	AllowRFC1918 bool
+
+	// BlockCGNAT rejects the carrier-grade NAT range (100.64.0.0/10). Off by
+	// default so existing callers are unchanged.
+	BlockCGNAT bool
+
+	// BlockTransitionRanges rejects IPv4/IPv6 transition and special-purpose
+	// ranges (see IsTransitionRange). Off by default.
+	BlockTransitionRanges bool
 
 	// keepAlive, when true, enables HTTP connection pooling on the SSRF-safe
 	// client. When false (the default) the client keeps its historical
@@ -272,6 +354,51 @@ func WithAllowRFC1918() Option {
 	}
 }
 
+// WithBlockCGNAT rejects destinations in the carrier-grade NAT range
+// (100.64.0.0/10) in addition to the ranges blocked by IsPrivateIP.
+func WithBlockCGNAT() Option {
+	return func(opts *ClientOptions) {
+		opts.BlockCGNAT = true
+	}
+}
+
+// WithBlockTransitionRanges rejects destinations in IPv4/IPv6 transition and
+// special-purpose ranges (see IsTransitionRange).
+func WithBlockTransitionRanges() Option {
+	return func(opts *ClientOptions) {
+		opts.BlockTransitionRanges = true
+	}
+}
+
+// blockedByPolicy is the single address-policy predicate shared by the dialer
+// (both its validation and selection passes) and the redirect check. It reports
+// whether ip must NOT be connected to under opts.
+//
+// The always-on rules (IsPrivateIP, which includes loopback and link-local) can
+// only be relaxed by the explicit AllowLocalhost / AllowRFC1918 branches, and
+// those branches only match loopback and RFC 1918 addresses, so no other
+// restricted address is reachable through them.
+func blockedByPolicy(ip net.IP, opts *ClientOptions) bool {
+	if ip == nil {
+		return true
+	}
+	// Transition ranges are matched on the raw address first: IPv6-only forms
+	// do not survive the To4 normalisation below.
+	if opts.BlockTransitionRanges && IsTransitionRange(ip) {
+		return true
+	}
+	if opts.AllowLocalhost && ip.IsLoopback() {
+		return false
+	}
+	if opts.AllowRFC1918 && IsRFC1918(ip) {
+		return false
+	}
+	if opts.BlockCGNAT && IsCGNAT(ip) {
+		return true
+	}
+	return IsPrivateIP(ip)
+}
+
 // WithKeepAlive enables connection pooling (HTTP keep-alives) on the SSRF-safe
 // client. Without this option the client's transport is byte-for-byte identical
 // to today: keep-alives disabled, a single idle connection, IdleConnTimeout
@@ -324,7 +451,7 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 		}
 
 		// Resolve DNS with context timeout
-		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		ips, err := lookupIPAddr(ctx, host)
 		if err != nil {
 			return nil, fmt.Errorf("DNS resolution failed for %s: %w", host, err)
 		}
@@ -333,46 +460,27 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 			return nil, fmt.Errorf("no IP addresses found for host: %s", host)
 		}
 
-		// Validate ALL resolved IPs - if ANY are private, reject the entire request
-		// This prevents attackers from using DNS load balancing to mix private/public IPs
+		// Validate ALL resolved IPs - if ANY are blocked, reject the entire request.
+		// This prevents attackers from using DNS load balancing to mix private/public IPs.
+		// The error deliberately omits the resolved address.
 		for _, ip := range ips {
-			// Allow localhost IPs if AllowLocalhost is set
-			if opts.AllowLocalhost && ip.IP.IsLoopback() {
-				continue
-			}
-
-			// Allow RFC 1918 addresses only when explicitly permitted (e.g., admin-configured
-			// uptime monitors targeting internal hosts). Link-local (169.254.x.x), loopback,
-			// cloud metadata, and all other restricted ranges remain blocked.
-			if opts.AllowRFC1918 && IsRFC1918(ip.IP) {
-				continue
-			}
-
-			if IsPrivateIP(ip.IP) {
-				return nil, fmt.Errorf("connection to private IP blocked: %s resolved to %s", host, ip.IP)
+			if blockedByPolicy(ip.IP, opts) {
+				return nil, fmt.Errorf("connection to private IP blocked for host %s: %w", host, ErrBlockedAddress)
 			}
 		}
 
-		// Find first valid IP to connect to
+		// Select the first IP that passes the same policy predicate, so a
+		// blocked address can never be chosen even if the loops drift apart.
 		var selectedIP net.IP
 		for _, ip := range ips {
-			if opts.AllowLocalhost && ip.IP.IsLoopback() {
-				selectedIP = ip.IP
-				break
-			}
-			// Select RFC 1918 IPs when the caller has opted in.
-			if opts.AllowRFC1918 && IsRFC1918(ip.IP) {
-				selectedIP = ip.IP
-				break
-			}
-			if !IsPrivateIP(ip.IP) {
+			if !blockedByPolicy(ip.IP, opts) {
 				selectedIP = ip.IP
 				break
 			}
 		}
 
 		if selectedIP == nil {
-			return nil, fmt.Errorf("no valid IP addresses found for host: %s", host)
+			return nil, fmt.Errorf("connection to private IP blocked for host %s: no usable address: %w", host, ErrBlockedAddress)
 		}
 
 		// Connect to the validated IP (prevents DNS rebinding TOCTOU attacks)
@@ -382,10 +490,8 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 }
 
 // validateRedirectTarget checks if a redirect URL is safe to follow.
-// Returns an error if the redirect target resolves to private IPs.
-//
-// TODO: If MaxRedirects is ever re-enabled for uptime monitors, thread AllowRFC1918
-// through this function to permit RFC 1918 redirect targets.
+// It applies the same address policy as the dialer (blockedByPolicy), so the
+// AllowLocalhost, AllowRFC1918 and range-blocking options behave identically.
 func validateRedirectTarget(req *http.Request, opts *ClientOptions) error {
 	host := req.URL.Hostname()
 	if host == "" {
@@ -397,24 +503,21 @@ func validateRedirectTarget(req *http.Request, opts *ClientOptions) error {
 		if opts.AllowLocalhost {
 			return nil
 		}
-		return fmt.Errorf("redirect to localhost blocked")
+		return fmt.Errorf("redirect to localhost blocked: %w", ErrBlockedAddress)
 	}
 
 	// Resolve and validate IPs
 	ctx, cancel := context.WithTimeout(context.Background(), opts.DialTimeout)
 	defer cancel()
 
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	ips, err := lookupIPAddr(ctx, host)
 	if err != nil {
 		return fmt.Errorf("DNS resolution failed for redirect target %s: %w", host, err)
 	}
 
 	for _, ip := range ips {
-		if opts.AllowLocalhost && ip.IP.IsLoopback() {
-			continue
-		}
-		if IsPrivateIP(ip.IP) {
-			return fmt.Errorf("redirect to private IP blocked: %s resolved to %s", host, ip.IP)
+		if blockedByPolicy(ip.IP, opts) {
+			return fmt.Errorf("redirect to private IP blocked for host %s: %w", host, ErrBlockedAddress)
 		}
 	}
 
