@@ -13,7 +13,8 @@ Think of a bouncer who lets each visitor knock on the door a limited number of t
 
 - Each visitor (each device address) gets its own allowance.
 - Checking a password is the expensive part, so those requests get the strictest allowance.
-- Charon also locks an account for 15 minutes after 5 wrong passwords. Login protection works alongside that lock.
+- Charon also locks an account for 15 minutes after 5 wrong passwords. Login protection works alongside that lock. Once the 15 minutes pass, the count of wrong passwords starts again from zero.
+- Every failed sign-in shows the same "invalid credentials" message, whatever the reason, and the sign-in screen does not show whether an account is locked.
 - Emergency recovery access is never slowed down. See [Emergency Access](../configuration/emergency-setup.md).
 
 ## What You'll See

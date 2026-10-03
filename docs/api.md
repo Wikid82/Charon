@@ -586,6 +586,34 @@ resendInvite(42);
 
 ---
 
+#### Update User
+
+Update a user's name, email, role, enabled state, or password.
+
+```http
+PUT /users/:id
+Content-Type: application/json
+Authorization: Bearer <token>
+```
+
+**Request Body (all fields optional):**
+
+```json
+{
+  "name": "Jane Doe",
+  "password": "a-new-password",
+  "current_password": "the-old-password"
+}
+```
+
+**Password changes:**
+
+- Changing your **own** password requires `current_password`.
+- An administrator resetting **another** user's password does not need it.
+- Any password change ends that user's existing sessions. If you change your own password this way, you are signed out and need to sign in again.
+
+---
+
 #### Test URL Connectivity
 
 Test if a URL is reachable from the server with comprehensive SSRF (Server-Side Request Forgery) protection.

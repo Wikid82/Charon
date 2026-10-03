@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
@@ -42,7 +43,13 @@ func isTrustedPeer(c *gin.Context, trustedProxies security.TrustedProxyMatcher) 
 	return trustedProxies.ContainsIP(normalizeHost(c.Request.RemoteAddr))
 }
 
+// requestScheme resolves the scheme the client used. A request carrying a verified
+// origin record from Charon's own proxy uses the scheme recorded there; otherwise
+// forwarded headers count only from a configured trusted peer.
 func requestScheme(c *gin.Context, trustedProxies security.TrustedProxyMatcher) string {
+	if origin, ok := middleware.RequestOriginFrom(c); ok && origin.Scheme != "" {
+		return origin.Scheme
+	}
 	if isTrustedPeer(c, trustedProxies) {
 		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
 			// Honor first entry in a comma-separated header
@@ -115,6 +122,11 @@ func isLocalOrPrivateHost(host string) bool {
 func isLocalRequest(c *gin.Context, trustedProxies security.TrustedProxyMatcher) bool {
 	if c.Request == nil {
 		return false
+	}
+
+	// A verified origin record carries the real client address.
+	if origin, ok := middleware.RequestOriginFrom(c); ok {
+		return isLocalOrPrivateHost(origin.Addr)
 	}
 
 	if isTrustedPeer(c, trustedProxies) {
@@ -216,7 +228,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	token, err := h.authService.Login(req.Email, req.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		if errors.Is(err, services.ErrInvalidLogin) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": services.ErrInvalidLogin.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": services.ErrLoginUnavailable.Error()})
 		return
 	}
 
@@ -309,6 +325,14 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Other sessions ended with the password change; keep the caller signed in.
+	token, err := h.authService.TokenForUser(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh session"})
+		return
+	}
+	setSecureCookie(c, "auth_token", token, 3600*24, h.trustedProxies)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully"})
 }

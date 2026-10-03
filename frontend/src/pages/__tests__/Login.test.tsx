@@ -63,6 +63,17 @@ describe('<Login />', () => {
     expect(toastSpy).toHaveBeenCalledWith('Bad creds')
   })
 
+  it('shows the generic message returned for a failed sign-in', async () => {
+    vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: false })
+    vi.spyOn(client, 'post').mockRejectedValueOnce({ response: { data: { error: 'invalid credentials' } } })
+    const toastSpy = vi.spyOn(toast, 'error')
+    renderWithProviders(<Login />)
+    fireEvent.change(screen.getByPlaceholderText(/admin@example.com/i), { target: { value: 'a@b.com' } })
+    fireEvent.change(screen.getByPlaceholderText(/••••••••/i), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/i }))
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith('invalid credentials'))
+  })
+
   it('uses returned token when cookie is unavailable', async () => {
     vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: false })
     const postSpy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { token: 'bearer-token' } })

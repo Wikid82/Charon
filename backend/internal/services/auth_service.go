@@ -2,13 +2,17 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -67,37 +71,126 @@ func (s *AuthService) Register(email, password, name string) (*models.User, erro
 	return user, nil
 }
 
+// Sign-in policy constants.
+const (
+	// MaxFailedLoginAttempts is the number of consecutive failed sign-ins that locks an account.
+	MaxFailedLoginAttempts = 5
+	// LockDuration is how long an account stays locked once the threshold is reached.
+	LockDuration = 15 * time.Minute
+)
+
+var (
+	// ErrInvalidLogin is returned for every sign-in failure cause so callers
+	// present one uniform message.
+	ErrInvalidLogin = errors.New("invalid credentials")
+	// ErrLoginUnavailable is returned when sign-in cannot be evaluated because of an internal error.
+	ErrLoginUnavailable = errors.New("login unavailable")
+)
+
+var (
+	dummyHashOnce sync.Once
+	dummyHash     []byte
+)
+
+// placeholderHash returns a bcrypt hash used to keep password-check cost uniform
+// when no stored hash applies. It is generated at bcrypt.DefaultCost, the same
+// cost models.User.SetPassword uses; if stored hashes ever move to another cost,
+// this must follow.
+func placeholderHash() []byte {
+	dummyHashOnce.Do(func() {
+		h, err := bcrypt.GenerateFromPassword([]byte(uuid.New().String()), bcrypt.DefaultCost)
+		if err != nil {
+			panic(fmt.Errorf("generate placeholder hash: %w", err))
+		}
+		dummyHash = h
+	})
+	return dummyHash
+}
+
+// failedLoginState is the row state returned by the atomic failure update.
+type failedLoginState struct {
+	FailedLoginAttempts int
+	LockedUntil         *time.Time
+}
+
+// recordFailedLogin atomically records one failed attempt for an enabled,
+// currently-unlocked account. The counter restarts at 1 once a previous lock has
+// expired, and the lock is set in the same statement when the threshold is reached.
+// Times are compared with julianday() so stored values in any offset or precision
+// compare correctly. It returns the number of rows affected (0 when the account
+// was locked or disabled in the meantime).
+func (s *AuthService) recordFailedLogin(userID uint, now time.Time) (int64, error) {
+	now = now.UTC()
+	lockUntil := now.Add(LockDuration)
+	const q = `UPDATE users SET
+		failed_login_attempts = CASE WHEN locked_until IS NOT NULL AND julianday(locked_until) <= julianday(?) THEN 1 ELSE failed_login_attempts + 1 END,
+		locked_until = CASE WHEN (CASE WHEN locked_until IS NOT NULL AND julianday(locked_until) <= julianday(?) THEN 1 ELSE failed_login_attempts + 1 END) >= ? THEN ? ELSE NULL END
+		WHERE id = ? AND enabled = ? AND (locked_until IS NULL OR julianday(locked_until) <= julianday(?))
+		RETURNING failed_login_attempts, locked_until`
+	var state failedLoginState
+	res := s.db.Raw(q, now, now, MaxFailedLoginAttempts, lockUntil, userID, true, now).Scan(&state)
+	if res.Error != nil {
+		return 0, fmt.Errorf("record failed login: %w", res.Error)
+	}
+	return res.RowsAffected, nil
+}
+
+// checkPasswordUniformCost verifies the password against the stored hash. Accounts
+// without a stored hash (for example, invitations not yet accepted) are compared
+// against the placeholder hash instead and never match, so each call performs one
+// full-cost comparison.
+func checkPasswordUniformCost(user *models.User, password string) bool {
+	if user.PasswordHash == "" {
+		_ = bcrypt.CompareHashAndPassword(placeholderHash(), []byte(password))
+		return false
+	}
+	return user.CheckPassword(password)
+}
+
+// Login verifies credentials and returns a session token. All sign-in failures
+// returns ErrInvalidLogin and performs exactly one bcrypt comparison.
 func (s *AuthService) Login(email, password string) (string, error) {
 	email = strings.ToLower(email)
 	var user models.User
 	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
-		return "", errors.New("invalid credentials")
-	}
-
-	if !user.Enabled {
-		return "", errors.New("account disabled")
-	}
-
-	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
-		return "", errors.New("account locked")
-	}
-
-	if !user.CheckPassword(password) {
-		user.FailedLoginAttempts++
-		if user.FailedLoginAttempts >= 5 {
-			lockTime := time.Now().Add(15 * time.Minute)
-			user.LockedUntil = &lockTime
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			_ = bcrypt.CompareHashAndPassword(placeholderHash(), []byte(password))
+			return "", ErrInvalidLogin
 		}
-		s.db.Save(&user)
-		return "", errors.New("invalid credentials")
+		logger.Log().WithError(err).Error("login: user lookup failed")
+		return "", ErrLoginUnavailable
 	}
 
-	// Reset failed attempts
-	user.FailedLoginAttempts = 0
-	user.LockedUntil = nil
-	now := time.Now()
-	user.LastLogin = &now
-	s.db.Save(&user)
+	passwordOK := checkPasswordUniformCost(&user, password)
+	now := time.Now().UTC()
+
+	if !user.Enabled || (user.LockedUntil != nil && user.LockedUntil.After(now)) {
+		return "", ErrInvalidLogin
+	}
+
+	if !passwordOK {
+		if _, err := s.recordFailedLogin(user.ID, now); err != nil {
+			logger.Log().WithError(err).Error("login: failed to record attempt")
+			return "", ErrLoginUnavailable
+		}
+		// Zero rows means the account was locked or disabled concurrently.
+		return "", ErrInvalidLogin
+	}
+
+	res := s.db.Model(&models.User{}).
+		Where("id = ? AND enabled = ?", user.ID, true).
+		Updates(map[string]any{
+			"failed_login_attempts": 0,
+			"locked_until":          nil,
+			"last_login":            now,
+		})
+	if res.Error != nil {
+		logger.Log().WithError(res.Error).Error("login: failed to record success")
+		return "", ErrLoginUnavailable
+	}
+	if res.RowsAffected == 0 {
+		return "", ErrInvalidLogin
+	}
 
 	return s.GenerateToken(&user)
 }
@@ -118,6 +211,10 @@ func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 	return token.SignedString([]byte(s.config.JWTSecret))
 }
 
+// ChangePassword verifies the current password and stores the new one. In the same
+// transaction it advances the session version (ending other sessions) and clears
+// failed-attempt and lock state. Callers that keep the user signed in must issue a
+// fresh token afterwards.
 func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword string) error {
 	var user models.User
 	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
@@ -129,10 +226,34 @@ func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword strin
 	}
 
 	if err := user.SetPassword(newPassword); err != nil {
-		return err
+		return fmt.Errorf("hash password: %w", err)
 	}
 
-	return s.db.Save(&user).Error
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		return applyPasswordChange(tx, userID, user.PasswordHash)
+	}); err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	return nil
+}
+
+// applyPasswordChange stores a new password hash for the user and, in the same
+// statement, advances the session version and clears failed-attempt and lock state.
+// Every password change (self-service or administrative) goes through it.
+func applyPasswordChange(tx *gorm.DB, userID uint, passwordHash string) error {
+	res := tx.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{
+		"password_hash":         passwordHash,
+		"session_version":       gorm.Expr("session_version + 1"),
+		"failed_login_attempts": 0,
+		"locked_until":          nil,
+	})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return errors.New("user not found")
+	}
+	return nil
 }
 
 func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
@@ -191,4 +312,13 @@ func (s *AuthService) GetUserByID(id uint) (*models.User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+// TokenForUser issues a session token reflecting the user's current session version.
+func (s *AuthService) TokenForUser(userID uint) (string, error) {
+	user, err := s.GetUserByID(userID)
+	if err != nil {
+		return "", fmt.Errorf("load user: %w", err)
+	}
+	return s.GenerateToken(user)
 }
