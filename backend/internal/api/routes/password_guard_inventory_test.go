@@ -17,9 +17,10 @@ import (
 // password, and whether it must call the sign-in throttle guard first. Login
 // and ChangePassword are throttled by the /api/v1/auth route group instead.
 var passwordCheckAllowlist = map[string]bool{
-	"AuthService.Login":                             false,
+	"checkPasswordUniformCost":                      false, // used by AuthService.Login
 	"AuthService.ChangePassword":                    false,
 	"UserHandler.UpdateProfile":                     true,
+	"UserHandler.UpdateUser":                        true,
 	"CertificateHandler.reauthenticateForKeyExport": true,
 }
 

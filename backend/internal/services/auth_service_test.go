@@ -77,7 +77,8 @@ func TestAuthService_Login(t *testing.T) {
 	// Try login with correct password while locked
 	_, err = service.Login("test@example.com", "password123")
 	assert.Error(t, err)
-	assert.Equal(t, "account locked", err.Error())
+	assert.ErrorIs(t, err, ErrInvalidLogin)
+	assert.Equal(t, "invalid credentials", err.Error())
 }
 
 func TestAuthService_ChangePassword(t *testing.T) {

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
@@ -226,7 +227,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	token, err := h.authService.Login(req.Email, req.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		if errors.Is(err, services.ErrInvalidLogin) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": services.ErrInvalidLogin.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": services.ErrLoginUnavailable.Error()})
 		return
 	}
 
@@ -330,6 +335,14 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Other sessions ended with the password change; keep the caller signed in.
+	token, err := h.authService.TokenForUser(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh session"})
+		return
+	}
+	setSecureCookie(c, "auth_token", token, 3600*24, h.trustedProxies)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully"})
 }
