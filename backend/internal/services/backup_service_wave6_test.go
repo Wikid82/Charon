@@ -46,4 +46,5 @@ func TestBackupServiceWave6_ExtractDatabaseFromBackup_WithShmEntry(t *testing.T)
 	restoredPath, err := svc.extractDatabaseFromBackup(zipPath)
 	require.NoError(t, err)
 	require.FileExists(t, restoredPath)
+	t.Cleanup(func() { _ = os.Remove(restoredPath) })
 }

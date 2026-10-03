@@ -60,8 +60,8 @@ type DrainResult struct {
 //
 // Every step is issued with QueryContext and ALL of its rows are iterated: on
 // this driver Exec steps the statement once and frees a single page per call
-// (spike_test.go). The rows are closed before the next pool query, because with
-// a one-connection pool open rows block every other statement. The freed-page
+// (driver_behavior_test.go). The rows are closed before the next pool query,
+// because with a one-connection pool open rows block every other statement. The freed-page
 // sanity check is warn-and-continue only. It compares page_count, not
 // freelist_count, since concurrent inserts reuse free pages.
 func Drain(ctx context.Context, q Querier, opts DrainOptions) (DrainResult, error) {

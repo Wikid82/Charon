@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil/tmpguard"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -43,8 +44,9 @@ func TestMain(m *testing.M) {
 		panic("failed to set SSL_CERT_FILE: " + err.Error())
 	}
 
-	// Run tests
-	exitCode := m.Run()
+	// Run tests inside a private, always-removed temp root (the CA file above and
+	// its removal below deliberately stay outside the guard).
+	exitCode := tmpguard.Run(m)
 
 	// Cleanup (optional, OS will clean /tmp on reboot)
 	_ = os.Remove(testCAFile)

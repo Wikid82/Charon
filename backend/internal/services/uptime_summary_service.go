@@ -22,10 +22,12 @@ const (
 	// to the requested count, so every request is served from one cache entry.
 	uptimeSummaryMaxBeats = 60
 
-	// uptimeSummaryWindow bounds every heartbeat scan (recent beats + 24h
-	// uptime) to the trailing 24 hours. This is what keeps the ROW_NUMBER()
-	// window query cheap even before the pruner's deferred
-	// idx_heartbeat_monitor_created index exists (spec §3.5.6 / R7).
+	// uptimeSummaryWindow bounds every heartbeat read (recent beats + 24h
+	// uptime) to the trailing 24 hours. Both queries are per-monitor range
+	// seeks on idx_heartbeat_monitor_created (monitor_id, created_at), so their
+	// cost follows monitors x window, not the retained history. Until the
+	// pruner's deferred index exists they remain correct and the refresh total
+	// is no slower than before (spec §3.5.6 / R7, GH #1441).
 	uptimeSummaryWindow = 24 * time.Hour
 
 	// uptimeMonitorScanLimit is a defensive ceiling on the monitor metadata
@@ -164,26 +166,34 @@ type recentBeatRow struct {
 	CreatedAt time.Time
 }
 
-// recentBeatsSQL is query 2/3: one windowed pass that returns, per monitor, the
-// uptimeSummaryMaxBeats most recent heartbeats inside the trailing 24h window,
-// emitted oldest-first. Fully parameterised (window edge + row cap); no string
-// interpolation. Correct with or without idx_heartbeat_monitor_created — that
-// index only makes it faster (spec §3.5.6).
+// recentBeatsSQL is query 2/3: per monitor, the uptimeSummaryMaxBeats most
+// recent heartbeats inside the trailing 24h window, emitted oldest-first.
+// Each monitor's top-N is one index range read (newest first, stop at the cap)
+// on idx_heartbeat_monitor_created, the pruner's deferred index; the window
+// function this replaced had to rank every retained heartbeat (GH #1441).
+// Without that index the query is still correct, and the refresh total is
+// still no slower than before in total, not per query (the uptime query alone
+// can be 4-8% slower), but the ranking step needs a temp b-tree.
+//
+// The monitor subset is the one loadMonitors returns. id is the tie-breaker
+// for heartbeats sharing a created_at, so the same rows are chosen and ordered
+// in every index state. Args: monitor cap, window edge, per-monitor cap; fully
+// parameterised, no string interpolation.
 const recentBeatsSQL = `
-SELECT monitor_id, status, latency, created_at
-FROM (
-  SELECT monitor_id, status, latency, created_at,
-         ROW_NUMBER() OVER (PARTITION BY monitor_id ORDER BY created_at DESC) AS rn
-  FROM uptime_heartbeats
-  WHERE created_at >= ?
+SELECT h.monitor_id, h.status, h.latency, h.created_at
+FROM (SELECT id FROM uptime_monitors ORDER BY name LIMIT ?) m
+JOIN uptime_heartbeats h ON h.id IN (
+  SELECT id FROM uptime_heartbeats
+  WHERE monitor_id = m.id AND created_at >= ?
+  ORDER BY created_at DESC, id DESC
+  LIMIT ?
 )
-WHERE rn <= ?
-ORDER BY monitor_id, created_at ASC`
+ORDER BY h.monitor_id, h.created_at ASC, h.id ASC`
 
 func (s *UptimeSummaryService) loadRecentBeats(ctx context.Context, windowStart time.Time) (map[string][]BeatDTO, error) {
 	var rows []recentBeatRow
 	if err := s.db.WithContext(ctx).
-		Raw(recentBeatsSQL, windowStart, uptimeSummaryMaxBeats).
+		Raw(recentBeatsSQL, uptimeMonitorScanLimit, windowStart, uptimeSummaryMaxBeats).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -201,29 +211,40 @@ func (s *UptimeSummaryService) loadRecentBeats(ctx context.Context, windowStart 
 
 type uptime24hRow struct {
 	MonitorID string
-	Pct       float64
+	Total     int64
+	Up        int64
 }
 
-// uptime24hSQL is query 3/3: grouped up-ratio over the same trailing-24h window.
-// Parameterised window edge; no interpolation.
+// uptime24hSQL is query 3/3: per monitor, the number of heartbeats and of "up"
+// heartbeats in the trailing 24h window, for the same monitor subset as
+// recentBeatsSQL. Two correlated counts are used on purpose: each is a
+// covering range seek (idx_heartbeat_monitor_created for the total,
+// idx_heartbeat_lookup for the "up" count) and measured several times faster
+// than any single-pass aggregate, which needs a row lookup per in-window
+// heartbeat to read status. Args: window edge (total), window edge (up),
+// monitor cap; fully parameterised, no string interpolation.
 const uptime24hSQL = `
-SELECT monitor_id,
-       SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS pct
-FROM uptime_heartbeats
-WHERE created_at >= ?
-GROUP BY monitor_id`
+SELECT m.id AS monitor_id,
+       (SELECT COUNT(*) FROM uptime_heartbeats h
+         WHERE h.monitor_id = m.id AND h.created_at >= ?) AS total,
+       (SELECT COUNT(*) FROM uptime_heartbeats h
+         WHERE h.monitor_id = m.id AND h.status = 'up' AND h.created_at >= ?) AS up
+FROM (SELECT id FROM uptime_monitors ORDER BY name LIMIT ?) m`
 
 func (s *UptimeSummaryService) loadUptime24h(ctx context.Context, windowStart time.Time) (map[string]float64, error) {
 	var rows []uptime24hRow
 	if err := s.db.WithContext(ctx).
-		Raw(uptime24hSQL, windowStart).
+		Raw(uptime24hSQL, windowStart, windowStart, uptimeMonitorScanLimit).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
 	out := make(map[string]float64, len(rows))
 	for _, r := range rows {
-		out[r.MonitorID] = r.Pct
+		if r.Total == 0 {
+			continue // no in-window beats: uptime_24h stays null
+		}
+		out[r.MonitorID] = float64(r.Up) * 100.0 / float64(r.Total)
 	}
 	return out, nil
 }

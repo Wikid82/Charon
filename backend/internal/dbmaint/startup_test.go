@@ -233,3 +233,150 @@ func TestStart_PlanSkipThatCannotBeRecordedStillLeavesTheGateIdle(t *testing.T) 
 	assert.False(t, planned)
 	assert.Equal(t, PhaseIdle, gate.Snapshot().Phase)
 }
+
+// A reclaim request bypasses the threshold, not the failure back-off: a start
+// that is killed on every boot converts MaxConvertAttempts times, then stops,
+// clears the request and records the stop.
+func TestStartupPlan_FlaggedCrashLoopStopsAfterMaxConvertAttempts(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{rows: 1300, rowBytes: 100000, keepEvery: 10})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+	require.NoError(t, store.SetFlag(ctx))
+
+	for boot := range MaxConvertAttempts {
+		res, planErr := StartupPlan(ctx, db, path, config.DBCompactAuto)
+		require.NoError(t, planErr)
+		require.True(t, res.Decision.Run, "boot %d must convert", boot)
+		// The process is killed mid-conversion: the marker stays behind.
+		require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
+	}
+
+	res, err := StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+	assert.False(t, res.Decision.Run)
+	assert.Equal(t, ReasonTooManyFailures, res.Decision.Reason)
+	assert.True(t, res.Decision.ClearFlag)
+
+	assert.False(t, Start(ctx, StartParams{Gate: NewGate(), DB: db, DBPath: path, EnvMode: config.DBCompactAuto}))
+	on, err := store.FlagRequested(ctx)
+	require.NoError(t, err)
+	assert.False(t, on, "the back-off stop clears the request")
+	assert.False(t, settingFound(t, db, SettingKeyFlag))
+	st, err := store.Peek(ctx, fileID)
+	require.NoError(t, err)
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, ResultSkipped, st.LastResult.Outcome)
+	assert.Equal(t, ReasonTooManyFailures, st.LastResult.Reason)
+}
+
+func TestLogPlanSkip_LevelsPerReason(t *testing.T) {
+	logOf := func(reason Reason) string {
+		buf := captureLogs(t)
+		logPlanSkip(Decision{Reason: reason})
+		return buf.String()
+	}
+
+	tooMany := logOf(ReasonTooManyFailures)
+	assert.Contains(t, tooMany, `"level":"warning"`)
+	assert.Contains(t, tooMany, string(ReasonTooManyFailures))
+
+	optimized := logOf(ReasonAlreadyOptimized)
+	assert.Contains(t, optimized, `"level":"info"`)
+	assert.NotContains(t, optimized, `"level":"warning"`)
+
+	assert.Empty(t, logOf(ReasonBelowThreshold))
+}
+
+// A kill between the VACUUM and the marker clear leaves a marker on a file that
+// is already incremental: nothing failed, so nothing is counted.
+func TestStartupPlan_LeftoverMarkerOfAnOptimizedFileIsDiscarded(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 10, keepEvery: 2})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+	mustRecordFailure(t, store, fileID)
+	require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
+	logs := captureLogs(t)
+
+	res, err := StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+
+	assert.Equal(t, ReasonAlreadyOptimized, res.Decision.Reason)
+	assert.False(t, settingFound(t, db, keyInProgress))
+	assert.False(t, settingFound(t, db, keyAttempts), "the counter is reset, not incremented")
+	assert.Contains(t, logs.String(), "clearing the leftover marker")
+}
+
+func TestStartupPlan_LeftoverMarkerOfALegacyFileStillCounts(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{rows: 10, keepEvery: 2})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+	require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
+
+	_, err = StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+
+	st, err := store.Peek(ctx, fileID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, st.Attempts)
+	assert.False(t, settingFound(t, db, keyInProgress))
+}
+
+func TestStartupPlan_ACleanupFailureWarnsAndThePlanContinues(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{autoVacuum: AutoVacuumIncremental, rows: 10, keepEvery: 2})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+	mustRecordFailure(t, store, fileID)
+	require.NoError(t, store.SetInProgress(ctx, fileID, time.Now()))
+	// The counter reset (second step of the cleanup) cannot be written.
+	_, err = db.Exec(`CREATE TRIGGER keep_attempts BEFORE DELETE ON settings
+		WHEN OLD."key" = 'maintenance.attempts' BEGIN SELECT RAISE(ABORT, 'readonly'); END`)
+	require.NoError(t, err)
+	logs := captureLogs(t)
+
+	res, err := StartupPlan(ctx, db, path, config.DBCompactAuto)
+
+	require.NoError(t, err, "a cosmetic cleanup never fails the plan")
+	assert.Equal(t, ReasonAlreadyOptimized, res.Decision.Reason)
+	assert.Contains(t, logs.String(), `"level":"warning"`)
+	assert.Contains(t, logs.String(), "leftover marker")
+}
+
+// GH #1436: a start that only ever ended in orderly stops also stops after
+// MaxInterruptedRuns, with the same recorded remedy as the failure back-off.
+func TestStartupPlan_InterruptionLoopStopsAfterMaxInterruptedRuns(t *testing.T) {
+	ctx := context.Background()
+	db, path := newSettingsDBWith(t, scratchOpts{rows: 1300, rowBytes: 100000, keepEvery: 10})
+	fileID, err := FileID(path)
+	require.NoError(t, err)
+	store := NewStore(db)
+
+	for range MaxInterruptedRuns - 1 {
+		mustRecordInterruption(t, store, fileID)
+	}
+	res, err := StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+	assert.True(t, res.Decision.Run, "one stop short of the limit still converts")
+
+	mustRecordInterruption(t, store, fileID)
+	res, err = StartupPlan(ctx, db, path, config.DBCompactAuto)
+	require.NoError(t, err)
+	assert.False(t, res.Decision.Run)
+	assert.Equal(t, ReasonTooManyFailures, res.Decision.Reason)
+
+	assert.False(t, Start(ctx, StartParams{Gate: NewGate(), DB: db, DBPath: path, EnvMode: config.DBCompactAuto}))
+	st, err := store.Peek(ctx, fileID)
+	require.NoError(t, err)
+	assert.Zero(t, st.Attempts, "no failed attempt was ever recorded")
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, ResultSkipped, st.LastResult.Outcome)
+	assert.Equal(t, ReasonTooManyFailures, st.LastResult.Reason)
+	assert.True(t, SuppressesPending(st.LastResult))
+}

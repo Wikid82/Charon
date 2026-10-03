@@ -134,3 +134,19 @@ func TestStoreHistory_ReadsTheLastResultOfTheCurrentFile(t *testing.T) {
 	assert.Nil(t, history(ctx), "an unreadable store means no history, never a failure")
 	assert.Nil(t, StoreHistory(s, filepath.Join(t.TempDir(), "missing"))(ctx), "an unknown file id means no history")
 }
+
+// Advise is a dry run of the automatic condition: neither counter applies. The
+// persisted-history suppression is what silences it after a stop.
+func TestAdvisor_DryRunIgnoresTheInterruptionCounter(t *testing.T) {
+	captureLogs(t)
+	db, path := newScratchDB(t, scratchOpts{rows: 1300, rowBytes: 100000, keepEvery: 10})
+	cfg := PlanConfig{DBPath: path, EnvMode: config.DBCompactAuto}
+
+	baseline := (&Advisor{}).Advise(context.Background(), db, cfg)
+	require.True(t, baseline.Pending, "the scratch file qualifies for the automatic conversion")
+
+	cfg.Interruptions = MaxInterruptedRuns
+	got := (&Advisor{}).Advise(context.Background(), db, cfg)
+
+	assert.Equal(t, baseline, got)
+}

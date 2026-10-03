@@ -55,10 +55,22 @@ type Inputs struct {
 	EnvMode string
 	// FlagRequested is the persisted "reclaim on next restart" request.
 	FlagRequested bool
-	// Attempts counts consecutive failed conversions recorded for this file.
+	// Attempts counts failed conversion attempts recorded for this file since
+	// the last successful conversion or manual reset (not necessarily consecutive).
 	Attempts int
-	Stats    Stats
-	Disk     DiskReport
+	// Interruptions counts orderly stops during a conversion recorded for this
+	// file since the last successful conversion or manual reset.
+	Interruptions int
+	Stats         Stats
+	Disk          DiskReport
+}
+
+// BackedOff reports whether the boot path has stopped trying the conversion: it
+// failed MaxConvertAttempts times or was stopped MaxInterruptedRuns times. It
+// is the single predicate behind Decide, the status notice and the request
+// handler.
+func BackedOff(attempts, interruptions int) bool {
+	return attempts >= MaxConvertAttempts || interruptions >= MaxInterruptedRuns
 }
 
 // Decision is the outcome of steps 1-4 and 6 of the boot evaluation. Steps 5
@@ -67,7 +79,8 @@ type Decision struct {
 	Run    bool
 	Reason Reason
 	// ClearFlag asks the caller to delete a set request: there is nothing left
-	// to optimize (already optimized, nothing to reclaim).
+	// to optimize (already optimized, nothing to reclaim) or the failure
+	// back-off has stopped the run.
 	ClearFlag      bool
 	RequiredBytes  int64
 	AvailableBytes int64
@@ -76,8 +89,9 @@ type Decision struct {
 func skip(reason Reason) Decision { return Decision{Reason: reason} }
 
 // Decide evaluates the boot decision table. Order: env off, already
-// incremental, the user's flag (the floor still applies), the automatic
-// thresholds and the failure back-off, then free disk.
+// incremental, the threshold step (the user's flag replaces the automatic
+// thresholds but keeps the 100 MiB floor), the failure back-off (which a flag
+// never bypasses), then free disk.
 func Decide(in Inputs) Decision {
 	if in.EnvMode == config.DBCompactOff {
 		return skip(ReasonDisabledByEnv)
@@ -102,9 +116,12 @@ func Decide(in Inputs) Decision {
 		if !worthwhile {
 			return skip(ReasonBelowThreshold)
 		}
-		if in.Attempts >= MaxConvertAttempts {
-			return skip(ReasonTooManyFailures)
-		}
+	}
+
+	if BackedOff(in.Attempts, in.Interruptions) {
+		d := skip(ReasonTooManyFailures)
+		d.ClearFlag = in.FlagRequested
+		return d
 	}
 
 	if required, available, short := in.Disk.Shortfall(); short {
@@ -122,6 +139,7 @@ type PlanConfig struct {
 	EnvMode       string
 	FlagRequested bool
 	Attempts      int
+	Interruptions int
 }
 
 // PlanResult is what Plan learned and decided.
@@ -149,6 +167,7 @@ func Plan(ctx context.Context, q Querier, cfg PlanConfig) (PlanResult, error) {
 			EnvMode:       cfg.EnvMode,
 			FlagRequested: cfg.FlagRequested,
 			Attempts:      cfg.Attempts,
+			Interruptions: cfg.Interruptions,
 			Stats:         stats,
 			Disk:          disk,
 		}),

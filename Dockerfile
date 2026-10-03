@@ -76,9 +76,9 @@ ARG NPM_VERSION=12.2.0
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
 ## If the requested tag isn't available, fall back to a known-good v2.11.6 build.
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_VERSION=2.11.6
+ARG CADDY_VERSION=2.11.7
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_CANDIDATE_VERSION=2.11.6
+ARG CADDY_CANDIDATE_VERSION=2.11.7
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
@@ -941,15 +941,19 @@ WORKDIR /app
 # Install runtime dependencies for Charon, including bash for maintenance scripts
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
+#
+# libxml2 carries open CVEs with no upstream fix as of 2.13.9-r2. It is declared as a
+# minimum-version floor (`>=`) so builds always pull the newest Alpine package, and the
+# floor itself is bumped by Renovate (repology) the moment a patched release is published.
+# renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
+ARG LIBXML2_VERSION=2.13.9-r2
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
-    c-ares busybox-extras \
+    c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" \
     && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
-    xz-libs \
-    # CVE-2026-6732: libxml2 HIGH vulnerability (fixed in 2.13.9-r1)
-    libxml2
+    xz-libs
 
 # Copy gosu binary from gosu-builder (built with Go 1.26+ to avoid stdlib CVEs)
 COPY --from=gosu-builder /gosu-out/gosu /usr/sbin/gosu

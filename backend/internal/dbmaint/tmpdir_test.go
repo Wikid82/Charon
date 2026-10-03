@@ -1,11 +1,17 @@
 package dbmaint
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,4 +170,187 @@ func TestBuildDiskReport_Errors(t *testing.T) {
 	t.Setenv("SQLITE_TMPDIR", t.TempDir())
 	_, err = BuildDiskReport(Stats{}, "/definitely/not/there")
 	require.Error(t, err)
+}
+
+// TestHelperTmpdirProbe runs in a re-executed test binary (see
+// TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen) because the driver reads
+// SQLITE_TMPDIR once, process-wide.
+func TestHelperTmpdirProbe(t *testing.T) {
+	mode := os.Getenv("CHARON_TMPDIR_PROBE")
+	if mode == "" {
+		t.Skip("helper process only")
+	}
+	tmpDir := os.Getenv("CHARON_TMPDIR_PROBE_DIR")
+	dbPath := os.Getenv("CHARON_TMPDIR_PROBE_DB")
+
+	switch mode {
+	case "before":
+		require.NoError(t, os.Setenv("SQLITE_TMPDIR", tmpDir))
+	case "after":
+		warm, err := sql.Open(sqlite.DriverName, ":memory:")
+		require.NoError(t, err)
+		require.NoError(t, warm.QueryRow("SELECT 1").Scan(new(int)))
+		require.NoError(t, os.Setenv("SQLITE_TMPDIR", tmpDir))
+	}
+
+	db := openScratch(t, dbPath, 0)
+	fillScratch(t, db, 600, 100000, 3)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := db.Exec("VACUUM")
+		done <- err
+	}()
+	seen := map[string]bool{}
+	for running := true; running; {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+			running = false
+		default:
+			for _, link := range openTempFDs(t) {
+				seen[link] = true
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	for link := range seen {
+		fmt.Println("CHARON_TMPFILE:" + link)
+	}
+}
+
+func runTmpdirProbe(t *testing.T, mode string) (tmpDir string, seen []string) {
+	t.Helper()
+	tmpDir = t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperTmpdirProbe$", "-test.v") //nolint:gosec // re-executes this test binary
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "SQLITE_TMPDIR=") {
+			env = append(env, kv)
+		}
+	}
+	env = append(env,
+		"CHARON_TMPDIR_PROBE="+mode,
+		"CHARON_TMPDIR_PROBE_DIR="+tmpDir,
+		"CHARON_TMPDIR_PROBE_DB="+filepath.Join(t.TempDir(), "probe.db"),
+	)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	for _, line := range strings.Split(string(out), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "CHARON_TMPFILE:"); ok {
+			seen = append(seen, rest)
+		}
+	}
+	return tmpDir, seen
+}
+
+func TestDriver_SQLiteTmpDirOnlyHonouredBeforeFirstOpen(t *testing.T) {
+	t.Run("set before the first open it is honoured", func(t *testing.T) {
+		dir, seen := runTmpdirProbe(t, "before")
+		require.NotEmpty(t, seen, "VACUUM must have used a temp file")
+		for _, link := range seen {
+			assert.True(t, strings.HasPrefix(link, dir+string(filepath.Separator)), "%s should be under %s", link, dir)
+		}
+	})
+	t.Run("set after the first open it is ignored", func(t *testing.T) {
+		dir, seen := runTmpdirProbe(t, "after")
+		require.NotEmpty(t, seen, "VACUUM must have used a temp file")
+		for _, link := range seen {
+			assert.False(t, strings.HasPrefix(link, dir+string(filepath.Separator)), "%s must not be under %s", link, dir)
+		}
+	})
+}
+
+func TestRootShouldSkip(t *testing.T) {
+	tests := []struct {
+		name     string
+		euid     int
+		ownerUID uint32
+		want     bool
+	}{
+		{"root on a data dir owned by another user", 0, 1000, true},
+		{"root on a root-owned data dir", 0, 0, false},
+		{"service user on its own data dir", 1000, 1000, false},
+		{"service user on another user's data dir", 1000, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, rootShouldSkip(tt.euid, tt.ownerUID))
+		})
+	}
+}
+
+// stubEUID makes the package believe the process runs as euid. The data
+// directories of these tests belong to the real (non-root) test user, which is
+// what a root-run command against a charon-owned volume looks like.
+func stubEUID(t *testing.T, euid int) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("owner of t.TempDir would be root; covered by TestRootShouldSkip")
+	}
+	prev := currentEUID
+	currentEUID = func() int { return euid }
+	t.Cleanup(func() { currentEUID = prev })
+}
+
+func TestPrepareTempDir_RootLeavesAnotherUsersDataDirAlone(t *testing.T) {
+	stubEUID(t, 0)
+	data := t.TempDir()
+
+	dir, err := PrepareTempDir(data)
+
+	assert.ErrorIs(t, err, ErrTempDirSkipped)
+	assert.Empty(t, dir)
+	assert.NoDirExists(t, filepath.Join(data, ".tmp"), "a root process must not create a root-owned directory")
+}
+
+func TestPrepareTempDir_RootDoesNotTouchAnExistingTempDir(t *testing.T) {
+	stubEUID(t, 0)
+	data := t.TempDir()
+	tmp := filepath.Join(data, ".tmp")
+	require.NoError(t, os.Mkdir(tmp, 0o750))
+	before, statErr := os.Lstat(tmp)
+	require.NoError(t, statErr)
+
+	_, err := PrepareTempDir(data)
+
+	assert.ErrorIs(t, err, ErrTempDirSkipped, "no unsafe-directory error for the charon-owned directory")
+	assert.NotErrorIs(t, err, ErrTempDirUnsafe)
+	after, statErr := os.Lstat(tmp)
+	require.NoError(t, statErr)
+	assert.Equal(t, before.Mode().Perm(), after.Mode().Perm(), "mode untouched, not tightened to 0700")
+	assert.NotEqual(t, tempDirMode, after.Mode().Perm())
+}
+
+func TestPrepareTempDir_RootWithAnUnreadableDataDirFallsThrough(t *testing.T) {
+	stubEUID(t, 0)
+
+	_, err := PrepareTempDir(filepath.Join(t.TempDir(), "nope"))
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrTempDirSkipped, "the existing error path reports it")
+}
+
+func TestPrepareTempDir_OwnerCheckUsesTheSeam(t *testing.T) {
+	stubEUID(t, os.Geteuid()+1)
+	data := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(data, ".tmp"), 0o700))
+
+	_, err := PrepareTempDir(data)
+
+	assert.ErrorIs(t, err, ErrTempDirUnsafe, "a directory owned by another uid than the (stubbed) euid is refused")
+}
+
+func TestApplyTempDir_RootLeavesTheEnvUnsetAndDoesNotWarn(t *testing.T) {
+	stubEUID(t, 0)
+	t.Setenv("SQLITE_TMPDIR", "")
+	data := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(data, ".tmp"), 0o700))
+	logs := captureLogs(t)
+
+	ApplyTempDir(data)
+
+	assert.Empty(t, os.Getenv("SQLITE_TMPDIR"))
+	assert.NotContains(t, logs.String(), `"level":"warning"`)
 }

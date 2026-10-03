@@ -89,9 +89,32 @@ func TestDecide_Table(t *testing.T) {
 			wantRun: true,
 		},
 		{
-			name:    "flag with counter at max runs",
-			in:      Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts, Stats: statsWith(128000, 64000)},
+			name:       "flag with counter at max backs off and clears the request",
+			in:         Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts, Stats: statsWith(128000, 64000)},
+			wantReason: ReasonTooManyFailures,
+			wantClear:  true,
+		},
+		{
+			name:    "flag with one try left still runs",
+			in:      Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts - 1, Stats: statsWith(128000, 64000)},
 			wantRun: true,
+		},
+		{
+			name:       "flag with counter at max below the floor is nothing to reclaim",
+			in:         Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts, Stats: statsWith(128000, 100)},
+			wantReason: ReasonNothingToReclaim,
+			wantClear:  true,
+		},
+		{
+			name:       "flag with counter at max on an incremental file is already optimized",
+			in:         Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: MaxConvertAttempts, Stats: Stats{PageSize: pageSize4K, PageCount: 1000, AutoVacuum: AutoVacuumIncremental}},
+			wantReason: ReasonAlreadyOptimized,
+			wantClear:  true,
+		},
+		{
+			name:       "no flag with counter at max below threshold stays below threshold",
+			in:         Inputs{EnvMode: config.DBCompactAuto, Attempts: MaxConvertAttempts, Stats: statsWith(128000, 100)},
+			wantReason: ReasonBelowThreshold,
 		},
 		{
 			name:       "empty database is below threshold",
@@ -194,4 +217,72 @@ func TestPlan_BadTempDirIsAnError(t *testing.T) {
 
 	_, err := Plan(context.Background(), db, PlanConfig{DBPath: path})
 	require.Error(t, err)
+}
+
+func TestBackedOff(t *testing.T) {
+	tests := []struct {
+		name          string
+		attempts      int
+		interruptions int
+		want          bool
+	}{
+		{"fresh state", 0, 0, false},
+		{"attempts below max", MaxConvertAttempts - 1, 0, false},
+		{"attempts at max", MaxConvertAttempts, 0, true},
+		{"interruptions below max", 0, MaxInterruptedRuns - 1, false},
+		{"interruptions at max", 0, MaxInterruptedRuns, true},
+		{"both below their limits", MaxConvertAttempts - 1, MaxInterruptedRuns - 1, false},
+		{"both at their limits", MaxConvertAttempts, MaxInterruptedRuns, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, BackedOff(tt.attempts, tt.interruptions))
+		})
+	}
+}
+
+func TestDecide_InterruptionBackOff(t *testing.T) {
+	stats := statsWith(128000, 64000)
+	tests := []struct {
+		name       string
+		in         Inputs
+		wantRun    bool
+		wantReason Reason
+		wantClear  bool
+	}{
+		{
+			name:    "interruptions just below max still run",
+			in:      Inputs{EnvMode: config.DBCompactAuto, Interruptions: MaxInterruptedRuns - 1, Stats: stats},
+			wantRun: true,
+		},
+		{
+			name:       "interruptions at max back off without the flag",
+			in:         Inputs{EnvMode: config.DBCompactAuto, Interruptions: MaxInterruptedRuns, Stats: stats},
+			wantReason: ReasonTooManyFailures,
+		},
+		{
+			name:       "interruptions at max with the flag back off and clear the request",
+			in:         Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Interruptions: MaxInterruptedRuns, Stats: stats},
+			wantReason: ReasonTooManyFailures,
+			wantClear:  true,
+		},
+		{
+			name:    "attempts below max plus interruptions below max still run",
+			in:      Inputs{EnvMode: config.DBCompactAuto, Attempts: MaxConvertAttempts - 1, Interruptions: MaxInterruptedRuns - 1, Stats: stats},
+			wantRun: true,
+		},
+		{
+			name:       "interruptions at max below threshold stay below threshold",
+			in:         Inputs{EnvMode: config.DBCompactAuto, Interruptions: MaxInterruptedRuns, Stats: statsWith(128000, 100)},
+			wantReason: ReasonBelowThreshold,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Decide(tt.in)
+			assert.Equal(t, tt.wantRun, got.Run)
+			assert.Equal(t, tt.wantReason, got.Reason)
+			assert.Equal(t, tt.wantClear, got.ClearFlag)
+		})
+	}
 }

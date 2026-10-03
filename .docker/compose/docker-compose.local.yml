@@ -25,8 +25,10 @@ services:
       - CHARON_IMPORT_DIR=/app/data/imports
       - CHARON_ACME_STAGING=false
       - FEATURE_CERBERUS_ENABLED=true
-      # Emergency "break-glass" token for security reset when ACL blocks access
-      - CHARON_EMERGENCY_TOKEN=03e4682c1164f0c1cb8e17c99bd1a2d9156b59824dde41af3bb67c513e5c5e92
+      # Emergency "break-glass" token for security reset when ACL blocks access.
+      # Supplied from .env (gitignored); Compose reads .env from this file's directory,
+      # or pass --env-file <path> when the file lives elsewhere (e.g. the repo root).
+      - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:?set CHARON_EMERGENCY_TOKEN in .env - generate with openssl rand -hex 32}
     # Docker socket group access: copy docker-compose.override.example.yml
     # to docker-compose.override.yml and set your host's docker GID.
     extra_hosts:

@@ -40,6 +40,7 @@ func StartupPlan(ctx context.Context, db *sql.DB, dbPath, envMode string) (PlanR
 	if err != nil {
 		return PlanResult{}, err
 	}
+	discardMarkerOfOptimizedFile(ctx, db, fileID)
 	state, err := NewStore(db).Load(ctx, fileID)
 	if err != nil {
 		return PlanResult{}, fmt.Errorf("load maintenance state: %w", err)
@@ -49,7 +50,26 @@ func StartupPlan(ctx context.Context, db *sql.DB, dbPath, envMode string) (PlanR
 		EnvMode:       envMode,
 		FlagRequested: state.FlagRequested,
 		Attempts:      state.Attempts,
+		Interruptions: state.Interruptions,
 	})
+}
+
+// discardMarkerOfOptimizedFile clears the leftover marker of a file that is
+// already incremental (killed after the VACUUM, before the marker was cleared),
+// so Load does not count a completed conversion as a failure. It is cosmetic:
+// an error only logs a warning and Load then behaves as before.
+func discardMarkerOfOptimizedFile(ctx context.Context, db *sql.DB, fileID string) {
+	mode, err := readPragma(ctx, db, "auto_vacuum")
+	if err != nil || mode != AutoVacuumIncremental {
+		return
+	}
+	discarded, err := NewStore(db).DiscardMarkerIfConverted(ctx, fileID)
+	switch {
+	case err != nil:
+		logger.Log().WithError(err).Warn("database maintenance: could not clear the leftover marker of an optimized database")
+	case discarded:
+		logger.Log().Info("database optimization had completed before an earlier shutdown; clearing the leftover marker")
+	}
 }
 
 // StartParams configures Start. Plan and Convert are seams; nil selects
@@ -110,6 +130,9 @@ func logPlanSkip(d Decision) {
 	switch d.Reason {
 	case "", ReasonBelowThreshold:
 		// Nothing worth saying: the common case of an install that needs no work.
+	case ReasonTooManyFailures:
+		logger.Log().WithField("reason", string(d.Reason)).
+			Warn("database optimization stopped: it failed or was interrupted too many times; use the reclaim button to try again")
 	case ReasonInsufficientDisk:
 		logger.Log().WithField("required_bytes", d.RequiredBytes).WithField("available_bytes", d.AvailableBytes).
 			Warn("database optimization skipped: not enough free disk space")
@@ -119,9 +142,10 @@ func logPlanSkip(d Decision) {
 }
 
 // settlePlanSkip persists what a plan-time skip implies. The user's request is
-// cleared only when there is nothing left to optimize (any other skip keeps it
-// for the next start), and a refusal that will repeat every boot is remembered
-// so Advise does not promise a conversion the next start will refuse.
+// cleared only when there is nothing left to optimize or the failure back-off
+// stopped the run (any other skip keeps it for the next start), and a refusal
+// that will repeat every boot is remembered so Advise does not promise a
+// conversion the next start will refuse.
 func settlePlanSkip(ctx context.Context, p StartParams, res PlanResult) {
 	d := res.Decision
 	if p.DB == nil || (!d.ClearFlag && d.Reason != ReasonTooManyFailures) {

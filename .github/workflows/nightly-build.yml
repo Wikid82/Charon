@@ -18,6 +18,7 @@ env:
   GO_VERSION: '1.27.1'
   NODE_VERSION: '24.21.0'
   GOTOOLCHAIN: auto
+  SYFT_VERSION: 'v1.54.0'
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
@@ -299,12 +300,12 @@ jobs:
       - name: Generate SBOM
         id: sbom_primary
         continue-on-error: true
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.resolve_digest.outputs.digest }}
           format: spdx-json
           output-file: sbom-nightly.json
-          syft-version: v1.52.0
+          syft-version: ${{ env.SYFT_VERSION }}
 
       - name: Generate SBOM fallback with pinned Syft
         if: always()
@@ -318,7 +319,6 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.52.0"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in
@@ -631,7 +631,7 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
-          version: 'v0.74.0'
+          version: 'v0.75.0'
           trivyignores: '.trivyignore'
 
       - name: Upload Trivy results

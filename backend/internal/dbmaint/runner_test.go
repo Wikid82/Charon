@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -324,13 +326,13 @@ func TestRun_WriterLockProbe(t *testing.T) {
 		}
 		assert.Equal(t, ResultConverted, h.run(context.Background()).Result)
 	})
-	t.Run("another error fails without counting", func(t *testing.T) {
+	t.Run("another error fails and is counted", func(t *testing.T) {
 		h := newHarness(t)
 		h.deps.Probe = func(context.Context, *sql.Conn) error { return errors.New("disk I/O error") }
 		out := h.run(context.Background())
 		assert.Equal(t, ResultFailed, out.Result)
 		assert.Zero(t, h.convertCalls.Load())
-		assert.Zero(t, h.attempts())
+		assert.Equal(t, 1, h.attempts())
 		assert.Equal(t, PhaseFailed, h.gate.Snapshot().Phase)
 	})
 	t.Run("cancel while waiting between probes", func(t *testing.T) {
@@ -561,16 +563,81 @@ func TestRun_MissingConvertFailsWithoutCounting(t *testing.T) {
 	assert.Zero(t, h.attempts())
 }
 
+// A failure before the conversion starts is a real failed attempt: the counter
+// records it so a start that cannot even begin backs off after
+// MaxConvertAttempts. A busy marker write is a retry-friendly skip instead.
+func TestRun_PreConversionFailuresAreCounted(t *testing.T) {
+	failMarkerWith := func(h *harness, message string) {
+		mustExec(t, h.db, `CREATE TRIGGER no_marker BEFORE INSERT ON settings `+
+			`WHEN NEW."key" = 'maintenance.in_progress' BEGIN SELECT RAISE(ABORT, '`+message+`'); END`)
+	}
+	tests := []struct {
+		name       string
+		arrange    func(h *harness)
+		wantResult Result
+		wantReason Reason
+		wantCount  int
+	}{
+		{
+			name: "inspect fails",
+			arrange: func(h *harness) {
+				// The file vanishes after the run identified it, so only Inspect's stat fails.
+				h.deps.Probe = func(context.Context, *sql.Conn) error {
+					return os.Rename(h.path, h.path+".moved")
+				}
+			},
+			wantResult: ResultFailed, wantReason: ReasonConversionFailed, wantCount: 1,
+		},
+		{
+			name: "probe fails for a reason other than a busy writer",
+			arrange: func(h *harness) {
+				h.deps.Probe = func(context.Context, *sql.Conn) error { return errors.New("disk I/O error") }
+			},
+			wantResult: ResultFailed, wantReason: ReasonConversionFailed, wantCount: 1,
+		},
+		{
+			name:       "marker write fails",
+			arrange:    func(h *harness) { failMarkerWith(h, "readonly") },
+			wantResult: ResultFailed, wantReason: ReasonConversionFailed, wantCount: 1,
+		},
+		{
+			name:       "marker write hits a busy database",
+			arrange:    func(h *harness) { failMarkerWith(h, "database is locked") },
+			wantResult: ResultSkipped, wantReason: ReasonDatabaseBusy, wantCount: 0,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := flagHarness(t)
+			tc.arrange(h)
+
+			out := h.run(context.Background())
+
+			assert.Equal(t, tc.wantResult, out.Result)
+			assert.Equal(t, tc.wantReason, out.Reason)
+			assert.Zero(t, h.convertCalls.Load(), "no VACUUM without a marker")
+			assert.False(t, h.markerPresent())
+			assert.Equal(t, tc.wantCount, h.attempts())
+			assert.True(t, h.flagSet(), "a pre-conversion outcome keeps the request; the back-off bounds the retries")
+			assert.True(t, h.gate.WaitIdle(context.Background()))
+		})
+	}
+}
+
+// With nothing left to record (the table is gone) the count is unobservable by
+// design: the run must still fail cleanly, once, without panicking.
 func TestRun_MarkerWriteFailureFailsWithoutConverting(t *testing.T) {
 	h := newHarness(t)
 	_, err := h.db.Exec("DROP TABLE settings")
 	require.NoError(t, err)
+	logs := captureLogs(t)
 
 	out := h.run(context.Background())
 
 	assert.Equal(t, ResultFailed, out.Result)
 	assert.Zero(t, h.convertCalls.Load(), "no VACUUM without a marker")
 	assert.Equal(t, PhaseFailed, h.gate.Snapshot().Phase)
+	assert.Contains(t, logs.String(), "could not record the result")
 }
 
 func TestRun_DefaultsWorkAgainstARealDatabase(t *testing.T) {
@@ -603,11 +670,41 @@ func TestRun_ReleasesAWaiterQueuedBehindTheGate(t *testing.T) {
 	assert.True(t, released.Load())
 }
 
+// codedError mimics the driver's error type, which exposes the SQLite result
+// code through Code().
+type codedError struct {
+	code int
+	msg  string
+}
+
+func (e *codedError) Error() string { return e.msg }
+func (e *codedError) Code() int     { return e.code }
+
 func TestIsWriterBusy(t *testing.T) {
-	assert.True(t, isWriterBusy(errors.New("database is locked (5) (SQLITE_BUSY)")))
-	assert.True(t, isWriterBusy(errors.New("SQLITE_BUSY")))
-	assert.False(t, isWriterBusy(errors.New("disk I/O error")))
-	assert.False(t, isWriterBusy(nil))
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"busy text from the driver", errors.New("database is locked (5) (SQLITE_BUSY)"), true},
+		{"bare busy name", errors.New("SQLITE_BUSY"), true},
+		{"locked text", errors.New("database is locked"), true},
+		{"unrelated text", errors.New("disk I/O error"), false},
+		{"busy code", &codedError{code: 5, msg: "opaque"}, true},
+		{"busy_recovery extended code", &codedError{code: 261, msg: "opaque"}, true},
+		{"busy_snapshot extended code", &codedError{code: 517, msg: "opaque"}, true},
+		{"locked code is another condition", &codedError{code: 6, msg: "opaque"}, false},
+		{"io error code", &codedError{code: 10, msg: "opaque"}, false},
+		{"busy code wrapped with %w", fmt.Errorf("probe: %w", &codedError{code: 5, msg: "opaque"}), true},
+		{"other code wrapped with %w", fmt.Errorf("probe: %w", &codedError{code: 6, msg: "opaque"}), false},
+		{"other code whose text says busy", &codedError{code: 6, msg: "SQLITE_BUSY"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isWriterBusy(tc.err))
+		})
+	}
 }
 
 func TestProbeWriterLock(t *testing.T) {
@@ -704,6 +801,13 @@ func TestRun_FlagIsConsumedByAConversionAndByACountedFailure(t *testing.T) {
 		assert.False(t, h.flagSet(), "a counted failure consumed the request; the counter now governs retries")
 		assert.Equal(t, 1, h.attempts())
 	})
+	t.Run("failed before the conversion started", func(t *testing.T) {
+		h := flagHarness(t)
+		h.deps.Probe = func(context.Context, *sql.Conn) error { return errors.New("disk I/O error") }
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+		assert.True(t, h.flagSet(), "a pre-conversion failure is counted but keeps the request")
+		assert.Equal(t, 1, h.attempts())
+	})
 }
 
 func TestRun_FlagSurvivesEverySkipAndInterruption(t *testing.T) {
@@ -751,8 +855,8 @@ func TestRun_FlagSurvivesEverySkipAndInterruption(t *testing.T) {
 // A successful conversion ends the streak of failures.
 func TestRun_SuccessResetsTheAttemptCounter(t *testing.T) {
 	h := newHarness(t)
-	require.NoError(t, NewStore(h.db).RecordFailure(context.Background(), h.fileID))
-	require.NoError(t, NewStore(h.db).RecordFailure(context.Background(), h.fileID))
+	mustRecordFailure(t, NewStore(h.db), h.fileID)
+	mustRecordFailure(t, NewStore(h.db), h.fileID)
 
 	assert.Equal(t, ResultConverted, h.run(context.Background()).Result)
 	assert.Zero(t, h.attempts())
@@ -791,17 +895,6 @@ func TestRun_RealConvertShrinksTheFileAndIsVerifiedBySize(t *testing.T) {
 	assert.False(t, h.markerPresent())
 }
 
-func TestRun_UninspectableDatabaseFailsWithoutConvertingOrCounting(t *testing.T) {
-	h := newHarness(t)
-	h.deps.DBPath = h.path + ".missing" // Inspect stats the file
-
-	out := h.run(context.Background())
-
-	assert.Equal(t, ResultFailed, out.Result)
-	assert.Zero(t, h.convertCalls.Load())
-	assert.Equal(t, PhaseFailed, h.gate.Snapshot().Phase)
-}
-
 // A shutdown that lands just as the conversion starts (before the marker is
 // written) is a stop, not a failure: nothing was converted and nothing counts.
 func TestRun_CancelJustBeforeTheConversionStartsIsNotAFailure(t *testing.T) {
@@ -836,4 +929,181 @@ func TestRun_UnverifiableFileSizeIsConvertedPendingCheckpoint(t *testing.T) {
 
 	assert.Equal(t, ResultConvertedPendingCheckpoint, out.Result)
 	assert.Equal(t, PhaseDone, h.gate.Snapshot().Phase)
+}
+
+// GH #1438: the run that exhausts the failure budget drops the user's request
+// in the same persist, so no window exists in which the request is still set
+// while the next boot will discard it.
+func TestRun_KeptFlagFailureThatExhaustsTheBudgetDropsTheRequest(t *testing.T) {
+	failProbe := func(h *harness) {
+		h.deps.Probe = func(context.Context, *sql.Conn) error { return errors.New("disk I/O error") }
+	}
+	t.Run("the last allowed failure clears the request", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 1 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts, h.attempts())
+		assert.False(t, h.flagSet(), "the next boot would discard the request, so it is dropped now")
+	})
+	t.Run("a failure with tries left keeps the request", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 2 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts-1, h.attempts())
+		assert.True(t, h.flagSet())
+	})
+	t.Run("a clear that cannot be written is logged and the run still settles", func(t *testing.T) {
+		h := flagHarness(t)
+		for range MaxConvertAttempts - 1 {
+			mustRecordFailure(t, NewStore(h.db), h.fileID)
+		}
+		failProbe(h)
+		mustExec(t, h.db, `CREATE TRIGGER keep_flag BEFORE DELETE ON settings
+			WHEN OLD."key" = 'maintenance.compact_requested' BEGIN SELECT RAISE(ABORT, 'readonly'); END`)
+		logs := captureLogs(t)
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		assert.Equal(t, MaxConvertAttempts, h.attempts())
+		assert.True(t, h.flagSet())
+		assert.NotNil(t, h.lastResult())
+		assert.Contains(t, logs.String(), "could not record the result")
+	})
+}
+
+func (h *harness) interruptions() int {
+	h.t.Helper()
+	return h.state().Interruptions
+}
+
+// interruptedRun runs the harness with a conversion that is stopped mid-way by
+// the context, the way an orderly SIGTERM stops it.
+func interruptedRun(h *harness) Outcome {
+	h.t.Helper()
+	started := make(chan struct{})
+	h.deps.Convert = func(ctx context.Context, _ *sql.Conn) error {
+		close(started)
+		<-ctx.Done()
+		return errors.New("interrupted (9)")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan Outcome, 1)
+	go func() { done <- h.run(ctx) }()
+	<-started
+	cancel()
+	return <-done
+}
+
+// GH #1436: an orderly stop mid-conversion is not a failed attempt, but it is
+// counted separately so a restart loop cannot retry forever.
+func TestRun_InterruptedConversionRecordsOneInterruptionAndNoFailure(t *testing.T) {
+	h := flagHarness(t)
+
+	out := interruptedRun(h)
+
+	assert.Equal(t, ResultInterrupted, out.Result)
+	assert.Equal(t, 1, h.interruptions())
+	assert.Zero(t, h.attempts())
+	assert.False(t, h.markerPresent())
+	assert.True(t, h.flagSet(), "below the limit the request stays for the next start")
+	require.NotNil(t, h.lastResult())
+	assert.Equal(t, ResultInterrupted, h.lastResult().Outcome)
+}
+
+func TestRun_TheInterruptionThatExhaustsTheBudgetBacksOffAndDropsTheRequest(t *testing.T) {
+	h := flagHarness(t)
+	for range MaxInterruptedRuns - 1 {
+		mustRecordInterruption(t, NewStore(h.db), h.fileID)
+	}
+
+	assert.Equal(t, ResultInterrupted, interruptedRun(h).Result)
+
+	st := h.state()
+	assert.Equal(t, MaxInterruptedRuns, st.Interruptions)
+	assert.False(t, h.flagSet(), "the next boot would discard the request, so it is dropped now")
+	d := Decide(Inputs{EnvMode: config.DBCompactAuto, Attempts: st.Attempts, Interruptions: st.Interruptions, Stats: statsWith(128000, 64000)})
+	assert.Equal(t, ReasonTooManyFailures, d.Reason)
+}
+
+func TestRun_FourInterruptionsStillRetry(t *testing.T) {
+	h := flagHarness(t)
+	for range MaxInterruptedRuns - 2 {
+		mustRecordInterruption(t, NewStore(h.db), h.fileID)
+	}
+
+	assert.Equal(t, ResultInterrupted, interruptedRun(h).Result)
+
+	st := h.state()
+	assert.Equal(t, MaxInterruptedRuns-1, st.Interruptions)
+	assert.True(t, h.flagSet())
+	d := Decide(Inputs{EnvMode: config.DBCompactAuto, FlagRequested: true, Attempts: st.Attempts, Interruptions: st.Interruptions, Stats: statsWith(128000, 64000)})
+	assert.True(t, d.Run)
+}
+
+func TestRun_InterruptionsAndFailuresKeepSeparateCounters(t *testing.T) {
+	t.Run("an interruption keeps the failed attempts", func(t *testing.T) {
+		h := newHarness(t)
+		mustRecordFailure(t, NewStore(h.db), h.fileID)
+		mustRecordInterruption(t, NewStore(h.db), h.fileID)
+
+		assert.Equal(t, ResultInterrupted, interruptedRun(h).Result)
+
+		st := h.state()
+		assert.Equal(t, 1, st.Attempts)
+		assert.Equal(t, 2, st.Interruptions)
+	})
+	t.Run("a failed attempt keeps the interruptions", func(t *testing.T) {
+		h := newHarness(t)
+		mustRecordFailure(t, NewStore(h.db), h.fileID)
+		mustRecordInterruption(t, NewStore(h.db), h.fileID)
+		h.deps.Convert = func(context.Context, *sql.Conn) error { return errors.New("disk full") }
+
+		assert.Equal(t, ResultFailed, h.run(context.Background()).Result)
+
+		st := h.state()
+		assert.Equal(t, 2, st.Attempts)
+		assert.Equal(t, 1, st.Interruptions)
+	})
+}
+
+func TestRun_SuccessResetsTheInterruptionCounter(t *testing.T) {
+	h := newHarness(t)
+	mustRecordInterruption(t, NewStore(h.db), h.fileID)
+	mustRecordInterruption(t, NewStore(h.db), h.fileID)
+
+	assert.Equal(t, ResultConverted, h.run(context.Background()).Result)
+	assert.Zero(t, h.interruptions())
+}
+
+func TestRun_CancelledBeforeAnyWorkCountsNoInterruption(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assert.Equal(t, ResultCancelled, h.run(ctx).Result)
+	assert.Zero(t, h.interruptions())
+	assert.Zero(t, h.attempts())
+}
+
+func TestRun_AnInterruptionThatCannotBeRecordedStillSettlesTheRun(t *testing.T) {
+	h := flagHarness(t)
+	mustExec(t, h.db, `CREATE TRIGGER deny_attempts BEFORE INSERT ON settings
+		WHEN NEW."key" = 'maintenance.attempts' BEGIN SELECT RAISE(ABORT, 'denied'); END`)
+	logs := captureLogs(t)
+
+	assert.Equal(t, ResultInterrupted, interruptedRun(h).Result)
+
+	assert.False(t, h.markerPresent())
+	assert.Equal(t, ResultInterrupted, h.lastResult().Outcome)
+	assert.Contains(t, logs.String(), "could not record the result")
 }

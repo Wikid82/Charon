@@ -37,9 +37,17 @@ const (
 	// before it is reported as converted rather than pending a checkpoint.
 	MinShrinkFraction = 0.5
 
-	// MaxConvertAttempts is the number of consecutive failed conversions after
-	// which the boot path backs off until the user requests it again.
+	// MaxConvertAttempts is the number of failed conversion attempts (not
+	// necessarily consecutive) after which the boot path backs off until the user
+	// requests it again.
 	MaxConvertAttempts = 3
+
+	// MaxInterruptedRuns is the number of orderly stops (SIGTERM) during a
+	// conversion after which the boot path backs off, with the same remedy as
+	// MaxConvertAttempts. It is higher on purpose: a stop is not a failure, and
+	// an admin may restart on purpose once or twice; the limit only ends a
+	// restart loop (an orchestrator killing a slow-to-answer container).
+	MaxInterruptedRuns = 5
 )
 
 // SQLite auto_vacuum modes (PRAGMA auto_vacuum).

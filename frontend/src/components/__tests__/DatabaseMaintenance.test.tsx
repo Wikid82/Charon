@@ -104,6 +104,8 @@ describe('DatabaseNotice', () => {
     const status = screen.getByRole('status')
     expect(status).toHaveTextContent('Automatic cleanup has stopped')
     expect(status).toHaveTextContent(/stopped trying its automatic database cleanup.*proxies are not affected/i)
+    expect(status).toHaveTextContent(/several failed or interrupted attempts/i)
+    expect(status).toHaveTextContent(/let the optimization finish; avoid restarting while it runs/i)
     expect(status).toHaveTextContent(/optional button below to schedule it, then restart Charon/i)
     expect(status).not.toHaveTextContent(/restart charon to let it try again/i)
     expect(screen.queryByRole('alert')).toBeNull()

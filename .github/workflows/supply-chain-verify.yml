@@ -14,6 +14,9 @@ on:
       - published
       - prereleased
 
+env:
+  SYFT_VERSION: 'v1.54.0'
+
 permissions:
   contents: read
   packages: read
@@ -141,12 +144,12 @@ jobs:
         if: steps.image-check.outputs.exists == 'true'
         id: sbom_primary
         continue-on-error: true
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
           format: cyclonedx-json
           output-file: sbom-verify.cyclonedx.json
-          syft-version: v1.52.0
+          syft-version: ${{ env.SYFT_VERSION }}
 
       - name: Generate SBOM fallback with pinned Syft
         if: steps.image-check.outputs.exists == 'true' && always()
@@ -160,7 +163,6 @@ jobs:
 
           echo "Primary SBOM generation failed or produced missing/invalid output; using deterministic Syft fallback"
 
-          SYFT_VERSION="v1.52.0"
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           case "$ARCH" in

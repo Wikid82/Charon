@@ -296,6 +296,8 @@ Know immediately when something goes wrong. Charon continuously monitors your ap
 
 → [Learn More](features/uptime-monitoring.md)
 
+For contributors: how the uptime summary queries behave on large installs is measured in [Database performance](performance/database.md).
+
 ### 🗄️ Automatic Database Maintenance
 
 Charon keeps its database small on its own. An older database with a lot of wasted space is optimized automatically at startup, only when it is worthwhile, and your proxies keep running meanwhile. The Database page under Tasks shows the size and, if you like, lets you ask for it at the next restart.

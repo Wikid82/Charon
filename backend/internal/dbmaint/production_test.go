@@ -98,7 +98,7 @@ func TestProduction_SkipPathsLeaveTheGateIdle(t *testing.T) {
 			fileID, err := FileID(path)
 			require.NoError(t, err)
 			for range tc.attempts {
-				require.NoError(t, NewStore(db).RecordFailure(ctx, fileID))
+				mustRecordFailure(t, NewStore(db), fileID)
 			}
 			res, err := StartupPlan(ctx, db, path, tc.env)
 			require.NoError(t, err)
@@ -134,17 +134,31 @@ func TestProduction_BelowThresholdAndNoDiskAreIdle(t *testing.T) {
 	})
 }
 
-// L2: a set request bypasses the failure back-off and is consumed by the
-// conversion, which also resets the counter.
-func TestProduction_FlagBypassesTheBackoffAndIsConsumed(t *testing.T) {
+// L2: a set request does not bypass the failure back-off (the run stops and
+// the request is cleared), and the button, which resets the counter before it
+// sets the request, gets a conversion that consumes the request and leaves the
+// counter at zero.
+func TestProduction_FlagHonoursTheBackoffAndTheButtonStartsAFreshCycle(t *testing.T) {
 	ctx := context.Background()
 	db, path := newEligibleDB(t, 0)
 	fileID, err := FileID(path)
 	require.NoError(t, err)
 	store := NewStore(db)
 	for range MaxConvertAttempts {
-		require.NoError(t, store.RecordFailure(ctx, fileID))
+		mustRecordFailure(t, store, fileID)
 	}
+	require.NoError(t, store.SetFlag(ctx))
+
+	require.False(t, Start(ctx, StartParams{Gate: NewGate(), DB: db, DBPath: path, EnvMode: config.DBCompactAuto}))
+	on, err := store.FlagRequested(ctx)
+	require.NoError(t, err)
+	assert.False(t, on, "the back-off stop cleared the request")
+	st, err := store.Peek(ctx, fileID)
+	require.NoError(t, err)
+	require.NotNil(t, st.LastResult)
+	assert.Equal(t, ReasonTooManyFailures, st.LastResult.Reason)
+
+	require.NoError(t, store.ResetAttempts(ctx))
 	require.NoError(t, store.SetFlag(ctx))
 	gate := NewGate()
 	gate.ConfigDone(true)
@@ -154,10 +168,10 @@ func TestProduction_FlagBypassesTheBackoffAndIsConsumed(t *testing.T) {
 	require.True(t, gate.WaitRunner(30*time.Second))
 
 	assert.Equal(t, PhaseDone, gate.Snapshot().Phase)
-	on, err := store.FlagRequested(ctx)
+	on, err = store.FlagRequested(ctx)
 	require.NoError(t, err)
 	assert.False(t, on, "the conversion consumed the request")
-	st, err := store.Peek(ctx, fileID)
+	st, err = store.Peek(ctx, fileID)
 	require.NoError(t, err)
 	assert.Zero(t, st.Attempts)
 }

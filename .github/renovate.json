@@ -106,6 +106,16 @@
     },
     {
       "customType": "regex",
+      "description": "Track Alpine apk package floor (libxml2) via Repology in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>repology)\\s+depName=(?<depName>[^\\s]+)\\s+versioning=(?<versioning>[^\\s]+)\\s*\\nARG LIBXML2_VERSION=(?<currentValue>[^\\s]+)"
+      ]
+    },
+    {
+      "customType": "regex",
       "description": "Track Go toolchain version ARG in Dockerfile",
       "managerFilePatterns": [
         "/^Dockerfile$/"
@@ -298,9 +308,8 @@
         "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
       ],
       "matchStrings": [
-        "SYFT_VERSION=\\\"v(?<currentValue>[^\\\"\\s]+)\\\"",
-        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\"",
-        "syft-version:\\s*v(?<currentValue>[^\\s]+)"
+        "SYFT_VERSION:\\s*['\"]?v(?<currentValue>[^'\"\\s]+)['\"]?",
+        "set_default_env \\\"SYFT_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\""
       ],
       "depNameTemplate": "anchore/syft",
       "datasourceTemplate": "github-releases",

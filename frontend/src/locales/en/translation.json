@@ -1472,7 +1472,7 @@
       "insufficientDiskTitle": "Automatic cleanup could not run",
       "insufficientDisk": "Charon could not run its automatic database cleanup because the disk is nearly full. Free some disk space and Charon will try again by itself. It needs {{required}} free and {{available}} is available.",
       "tooManyFailuresTitle": "Automatic cleanup has stopped",
-      "tooManyFailures": "Charon stopped trying its automatic database cleanup after several failed attempts. Your proxies are not affected. Check the logs and make sure there is enough free disk space. To let Charon try again, use the optional button below to schedule it, then restart Charon."
+      "tooManyFailures": "Charon stopped trying its automatic database cleanup after several failed or interrupted attempts. Your proxies are not affected. Check the logs and make sure there is enough free disk space, and let the optimization finish; avoid restarting while it runs. To let Charon try again, use the optional button below to schedule it, then restart Charon."
     }
   },
   "crowdsecConfig": {
