@@ -385,10 +385,7 @@ func (h *SecurityHandler) CreateDecision(c *gin.Context) {
 		return
 	}
 	// Record an audit entry
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "create_decision", Details: payload.Details})
 	c.JSON(http.StatusOK, gin.H{"decision": payload})
 }
@@ -429,10 +426,7 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 		}
 	}
 	// Create an audit event
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "upsert_ruleset", Details: payload.Name})
 	c.JSON(http.StatusOK, gin.H{"ruleset": payload})
 }
@@ -467,10 +461,7 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 			return
 		}
 	}
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "delete_ruleset", Details: idParam})
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
@@ -672,10 +663,7 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 	}
 
 	// Log audit event
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "reload_geoip", Details: "GeoIP database reloaded successfully"})
 
 	c.JSON(http.StatusOK, gin.H{
@@ -825,10 +813,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	}
 
 	// Log audit event
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{
 		Actor:   actor,
 		Action:  "add_waf_exclusion",
@@ -916,10 +901,7 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 	}
 
 	// Log audit event
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{
 		Actor:   actor,
 		Action:  "delete_waf_exclusion",

@@ -12,8 +12,7 @@ import (
 func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if IsEmergencyBypass(c) {
-			c.Set("role", "admin")
-			c.Set("userID", uint(0))
+			SetCaller(c, 0, "admin")
 			c.Next()
 			return
 		}
@@ -35,8 +34,7 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("userID", user.ID)
-		c.Set("role", string(user.Role))
+		SetCaller(c, user.ID, string(user.Role))
 		c.Next()
 	}
 }
@@ -96,7 +94,7 @@ func extractAuthCookieToken(c *gin.Context) string {
 
 func RequireRole(role models.UserRole) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userRole := c.GetString("role")
+		userRole := CallerRole(c)
 		if userRole == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
@@ -113,7 +111,7 @@ func RequireRole(role models.UserRole) gin.HandlerFunc {
 
 func RequireManagementAccess() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := c.GetString("role")
+		role := CallerRole(c)
 		if role == string(models.RolePassthrough) {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Pass-through users cannot access management features"})
 			return

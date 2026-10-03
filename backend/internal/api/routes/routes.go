@@ -882,6 +882,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			logger.Log().WithError(err).Warn("Failed to apply uptime retention default migration; will retry next boot")
 		}
 
+		if err := services.ExpireOwnerlessChallenges(db); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close manual DNS challenges without an owner; will retry next boot")
+		}
+
 		// Ensure security header presets exist
 		secHeadersSvc := services.NewSecurityHeadersService(db)
 		if err := secHeadersSvc.EnsurePresetsExist(); err != nil {

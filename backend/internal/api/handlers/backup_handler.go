@@ -134,12 +134,8 @@ type createBackupRequest struct {
 // captured synchronously here while c still exists (this plan's §3.3.1/
 // §3.5).
 func buildRequestAuditInfo(c *gin.Context) services.RequestAuditInfo {
-	actor := "unknown"
-	if userID, ok := c.Get("userID"); ok { // identical pattern to logPermissionAudit
-		actor = fmt.Sprintf("%v", userID)
-	}
 	return services.RequestAuditInfo{
-		Actor:     actor,
+		Actor:     auditActor(c),
 		IPAddress: c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 	}

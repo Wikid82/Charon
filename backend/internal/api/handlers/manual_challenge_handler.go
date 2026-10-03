@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -135,8 +136,10 @@ func (h *ManualChallengeHandler) GetChallenge(c *gin.Context) {
 		return
 	}
 
-	// Get user ID from context (set by auth middleware)
-	userID := getUserIDFromContext(c)
+	userID, ok := requireChallengeCaller(c)
+	if !ok {
+		return
+	}
 
 	// Verify provider exists and user has access
 	provider, err := h.providerService.Get(c.Request.Context(), providerID)
@@ -225,8 +228,10 @@ func (h *ManualChallengeHandler) VerifyChallenge(c *gin.Context) {
 		return
 	}
 
-	// Get user ID from context
-	userID := getUserIDFromContext(c)
+	userID, ok := requireChallengeCaller(c)
+	if !ok {
+		return
+	}
 
 	// Verify provider exists and is manual type
 	provider, err := h.providerService.Get(c.Request.Context(), providerID)
@@ -335,7 +340,10 @@ func (h *ManualChallengeHandler) PollChallenge(c *gin.Context) {
 		return
 	}
 
-	userID := getUserIDFromContext(c)
+	userID, ok := requireChallengeCaller(c)
+	if !ok {
+		return
+	}
 
 	// Verify provider exists
 	provider, err := h.providerService.Get(c.Request.Context(), providerID)
@@ -403,7 +411,10 @@ func (h *ManualChallengeHandler) ListChallenges(c *gin.Context) {
 		return
 	}
 
-	userID := getUserIDFromContext(c)
+	userID, ok := requireChallengeCaller(c)
+	if !ok {
+		return
+	}
 
 	// Verify provider exists and is manual type
 	provider, err := h.providerService.Get(c.Request.Context(), providerID)
@@ -472,7 +483,10 @@ func (h *ManualChallengeHandler) DeleteChallenge(c *gin.Context) {
 		return
 	}
 
-	userID := getUserIDFromContext(c)
+	userID, ok := requireChallengeCaller(c)
+	if !ok {
+		return
+	}
 
 	// Verify provider exists
 	provider, err := h.providerService.Get(c.Request.Context(), providerID)
@@ -559,7 +573,10 @@ func (h *ManualChallengeHandler) CreateChallenge(c *gin.Context) {
 		return
 	}
 
-	userID := getUserIDFromContext(c)
+	userID, ok := requireChallengeCaller(c)
+	if !ok {
+		return
+	}
 
 	// Verify provider exists and is manual type
 	provider, err := h.providerService.Get(c.Request.Context(), providerID)
@@ -650,29 +667,19 @@ func challengeToResponse(ch *models.ManualChallenge) *ManualChallengeResponse {
 	return resp
 }
 
-// getUserIDFromContext extracts user ID from gin context.
-func getUserIDFromContext(c *gin.Context) uint {
-	// Try to get user_id from context (set by auth middleware)
-	if userID, exists := c.Get("user_id"); exists {
-		switch v := userID.(type) {
-		case uint:
-			return v
-		case int:
-			// Check for overflow when converting int -> uint
-			if v < 0 {
-				return 0 // Invalid negative ID
-			}
-			return uint(v) // #nosec G115 -- validated non-negative
-		case int64:
-			// Check for overflow when converting int64 -> uint
-			// Use simple bounds check instead of complex expression
-			if v < 0 || v > 4294967295 { // Max uint32, safe for most systems
-				return 0 // Out of valid range
-			}
-			return uint(v) // #nosec G115 -- validated range
-		case uint64:
-			return uint(v)
-		}
+// requireChallengeCaller returns the ID of the signed-in user making the
+// request. Challenges are owned by a specific user, so requests without a real
+// user identity (including the emergency path, which carries ID 0) are refused.
+// On failure it writes the error response and returns ok=false.
+func requireChallengeCaller(c *gin.Context) (uint, bool) {
+	userID, ok := middleware.CallerID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, newErrorResponse("UNAUTHORIZED", "Authentication required", nil))
+		return 0, false
 	}
-	return 0
+	if userID == 0 {
+		c.JSON(http.StatusForbidden, newErrorResponse("FORBIDDEN", "A signed-in user is required for this operation", nil))
+		return 0, false
+	}
+	return userID, true
 }

@@ -450,13 +450,6 @@ func (h *CrowdsecHandler) isConsoleEnrollmentEnabled() bool {
 	return false
 }
 
-func actorFromContext(c *gin.Context) string {
-	if id, ok := c.Get("userID"); ok {
-		return fmt.Sprintf("user:%v", id)
-	}
-	return "unknown"
-}
-
 func (h *CrowdsecHandler) hubEndpoints() []string {
 	if h.Hub == nil {
 		return nil
@@ -1325,7 +1318,7 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 		}
 		logger.Log().WithError(err).WithField("tenant", util.SanitizeForLog(payload.Tenant)).WithField("agent", util.SanitizeForLog(payload.AgentName)).WithField("correlation_id", status.CorrelationID).Warn("crowdsec console enrollment failed")
 		if h.Security != nil {
-			_ = h.Security.LogAudit(&models.SecurityAudit{Actor: actorFromContext(c), Action: "crowdsec_console_enroll_failed", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, payload.Tenant, payload.AgentName, status.CorrelationID)})
+			_ = h.Security.LogAudit(&models.SecurityAudit{Actor: auditActor(c), Action: "crowdsec_console_enroll_failed", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, payload.Tenant, payload.AgentName, status.CorrelationID)})
 		}
 		resp := gin.H{"error": err.Error(), "status": status.Status}
 		if status.CorrelationID != "" {
@@ -1336,7 +1329,7 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 	}
 
 	if h.Security != nil {
-		_ = h.Security.LogAudit(&models.SecurityAudit{Actor: actorFromContext(c), Action: "crowdsec_console_enroll_succeeded", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, status.Tenant, status.AgentName, status.CorrelationID)})
+		_ = h.Security.LogAudit(&models.SecurityAudit{Actor: auditActor(c), Action: "crowdsec_console_enroll_succeeded", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, status.Tenant, status.AgentName, status.CorrelationID)})
 	}
 
 	c.JSON(http.StatusOK, status)

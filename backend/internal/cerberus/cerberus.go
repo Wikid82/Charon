@@ -277,28 +277,11 @@ func (c *Cerberus) NotifySecurityEvent(ctx *gin.Context, event models.SecurityEv
 }
 
 func (c *Cerberus) isAuthenticatedAdmin(ctx *gin.Context) bool {
-	role, exists := ctx.Get("role")
-	if !exists {
+	if middleware.CallerRole(ctx) != string(models.RoleAdmin) {
 		return false
 	}
-	roleStr, ok := role.(string)
-	if !ok || roleStr != string(models.RoleAdmin) {
-		return false
-	}
-	userID, exists := ctx.Get("userID")
-	if !exists {
-		return false
-	}
-	switch id := userID.(type) {
-	case uint:
-		return id > 0
-	case int:
-		return id > 0
-	case int64:
-		return id > 0
-	default:
-		return false
-	}
+	id, ok := middleware.CallerID(ctx)
+	return ok && id > 0
 }
 
 func (c *Cerberus) adminWhitelistStatus(clientIP string) (configured, allowed bool) {

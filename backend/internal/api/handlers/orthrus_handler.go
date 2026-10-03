@@ -154,7 +154,7 @@ func (h *OrthrusHandler) Patch(c *gin.Context) {
 			action = "orthrus_write_enabled"
 		}
 		_ = h.securityService.LogAudit(&models.SecurityAudit{
-			Actor:         actorFromContext(c),
+			Actor:         auditActor(c),
 			Action:        action,
 			EventCategory: "orthrus_write",
 			ResourceUUID:  uuid,

@@ -361,13 +361,8 @@ func (h *SystemPermissionsHandler) logAudit(c *gin.Context, action, result, code
 	}
 	payloadJSON, _ := json.Marshal(payload)
 
-	actor := "unknown"
-	if userID, ok := c.Get("userID"); ok {
-		actor = fmt.Sprintf("%v", userID)
-	}
-
 	_ = h.securityService.LogAudit(&models.SecurityAudit{
-		Actor:         actor,
+		Actor:         auditActor(c),
 		Action:        action,
 		EventCategory: "permissions",
 		Details:       string(payloadJSON),
