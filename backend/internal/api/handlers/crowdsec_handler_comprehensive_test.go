@@ -165,41 +165,6 @@ func TestIsConsoleEnrollmentEnabled(t *testing.T) {
 	}
 }
 
-// TestActorFromContext tests the actorFromContext helper
-func TestActorFromContext(t *testing.T) {
-	tests := []struct {
-		name     string
-		setupCtx func(*gin.Context)
-		want     string
-	}{
-		{
-			name: "with userID",
-			setupCtx: func(c *gin.Context) {
-				c.Set("userID", 123)
-			},
-			want: "user:123",
-		},
-		{
-			name: "without userID",
-			setupCtx: func(c *gin.Context) {
-				// No userID set
-			},
-			want: "unknown",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(w)
-			tt.setupCtx(c)
-
-			got := actorFromContext(c)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 // TestHubEndpoints tests the hubEndpoints helper
 func TestHubEndpoints(t *testing.T) {
 	db := OpenTestDB(t)

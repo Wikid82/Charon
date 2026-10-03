@@ -137,7 +137,7 @@ The details modal displays:
 
 - **Event UUID**: Unique identifier for the event
 - **Timestamp**: Exact date and time (ISO 8601 format)
-- **Actor**: User ID or "system" for automated operations
+- **Actor**: `user:<id>` for a signed-in user, `emergency` for emergency-token requests, or the client address when no user is identified. Automated operations show `system`, and some older entries may show `unknown` or `system`
 - **Action**: Operation performed
 - **Category**: Event category (dns_provider, certificate, etc.)
 - **Resource**: DNS provider name and UUID
@@ -395,7 +395,7 @@ GET /api/v1/audit-logs
 
 - `page` (int, default: 1): Page number
 - `limit` (int, default: 50, max: 100): Results per page
-- `actor` (string): Filter by actor (user ID or "system")
+- `actor` (string): Filter by actor (`user:<id>`, `emergency`, a client address, or "system"). Filtering by `user:<id>` also matches older entries recorded with just the numeric ID
 - `action` (string): Filter by action type
 - `event_category` (string): Filter by category (dns_provider, certificate, etc.)
 - `resource_uuid` (string): Filter by resource UUID

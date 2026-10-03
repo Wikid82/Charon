@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -339,6 +340,18 @@ type AuditLogFilter struct {
 	EndDate       *time.Time
 }
 
+// actorFilterValues returns the stored actor values a filter should match.
+// Entries written before the "user:<id>" format recorded the bare numeric ID,
+// so a "user:<id>" filter also matches that legacy form.
+func actorFilterValues(actor string) []string {
+	if id, ok := strings.CutPrefix(actor, "user:"); ok && id != "" {
+		if _, err := strconv.ParseUint(id, 10, 64); err == nil {
+			return []string{actor, id}
+		}
+	}
+	return []string{actor}
+}
+
 // ListAuditLogs retrieves audit logs with pagination and filtering
 func (s *SecurityService) ListAuditLogs(filter AuditLogFilter, page, limit int) ([]models.SecurityAudit, int64, error) {
 	var audits []models.SecurityAudit
@@ -348,7 +361,7 @@ func (s *SecurityService) ListAuditLogs(filter AuditLogFilter, page, limit int) 
 	query := s.db.Model(&models.SecurityAudit{})
 
 	if filter.Actor != "" {
-		query = query.Where("actor = ?", filter.Actor)
+		query = query.Where("actor IN ?", actorFilterValues(filter.Actor))
 	}
 	if filter.Action != "" {
 		query = query.Where("action = ?", filter.Action)

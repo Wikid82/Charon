@@ -407,9 +407,8 @@ func (h *EmergencyHandler) GenerateToken(c *gin.Context) {
 	}
 
 	// Get user ID from context
-	userID, _ := c.Get("userID")
 	var userIDPtr *uint
-	if id, ok := userID.(uint); ok {
+	if id, ok := middleware.CallerID(c); ok {
 		userIDPtr = &id
 	}
 

@@ -553,7 +553,7 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 	})
 }
 
-// TestEncryptionHandler_HelperFunctions tests the isAdmin and getActorFromGinContext helpers
+// TestEncryptionHandler_HelperFunctions tests the isAdmin helper
 func TestEncryptionHandler_HelperFunctions(t *testing.T) {
 
 	t.Run("isAdmin with invalid role type", func(t *testing.T) {
@@ -575,59 +575,6 @@ func TestEncryptionHandler_HelperFunctions(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusForbidden, w.Code)
-	})
-
-	t.Run("getActorFromGinContext with string user_id", func(t *testing.T) {
-		router := gin.New()
-		var capturedActor string
-		router.Use(func(c *gin.Context) {
-			c.Set("userID", "user-string-123")
-			c.Next()
-		})
-		router.GET("/test", func(c *gin.Context) {
-			capturedActor = getActorFromGinContext(c)
-			c.Status(http.StatusOK)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", http.NoBody)
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, "user-string-123", capturedActor)
-	})
-
-	t.Run("getActorFromGinContext with uint user_id", func(t *testing.T) {
-		router := gin.New()
-		var capturedActor string
-		router.Use(func(c *gin.Context) {
-			c.Set("userID", uint(42))
-			c.Next()
-		})
-		router.GET("/test", func(c *gin.Context) {
-			capturedActor = getActorFromGinContext(c)
-			c.Status(http.StatusOK)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", http.NoBody)
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, "42", capturedActor)
-	})
-
-	t.Run("getActorFromGinContext without user_id returns system", func(t *testing.T) {
-		router := gin.New()
-		var capturedActor string
-		router.GET("/test", func(c *gin.Context) {
-			capturedActor = getActorFromGinContext(c)
-			c.Status(http.StatusOK)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", http.NoBody)
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, "system", capturedActor)
 	})
 }
 
@@ -779,28 +726,6 @@ func TestEncryptionHandler_RefreshKey_InvalidOldKey(t *testing.T) {
 
 	// Should have failure count > 0 due to decryption error
 	assert.Greater(t, result.FailureCount, 0)
-}
-
-// TestEncryptionHandler_GetActorFromGinContext_InvalidType tests getActorFromGinContext with invalid type
-func TestEncryptionHandler_GetActorFromGinContext_InvalidType(t *testing.T) {
-
-	router := gin.New()
-	var capturedActor string
-	router.Use(func(c *gin.Context) {
-		c.Set("userID", int64(999)) // int64 instead of uint or string
-		c.Next()
-	})
-	router.GET("/test", func(c *gin.Context) {
-		capturedActor = getActorFromGinContext(c)
-		c.Status(http.StatusOK)
-	})
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", http.NoBody)
-	router.ServeHTTP(w, req)
-
-	// Invalid type should return "system" as fallback
-	assert.Equal(t, "system", capturedActor)
 }
 
 // TestEncryptionHandler_RotateWithPartialFailures tests rotation that has some successes and failures

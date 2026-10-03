@@ -18,7 +18,7 @@ func OptionalAuth(authService *services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		if _, exists := c.Get("role"); exists {
+		if HasCallerRole(c) {
 			c.Next()
 			return
 		}
@@ -35,8 +35,7 @@ func OptionalAuth(authService *services.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("userID", user.ID)
-		c.Set("role", string(user.Role))
+		SetCaller(c, user.ID, string(user.Role))
 		c.Next()
 	}
 }

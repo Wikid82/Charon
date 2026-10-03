@@ -229,7 +229,7 @@ test.describe('Emergency Access & Rate Limiting', () => {
       let rateLimitHit = false;
 
       while (attempts < maxAttempts) {
-        const response = await request.get('/api/v1/auth/verify', {
+        const response = await request.get('/api/v1/auth/me', {
           headers: {
             Authorization: `Bearer ${token}`,
           },

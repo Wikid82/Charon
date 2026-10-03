@@ -130,7 +130,7 @@ func TestRespondPermissionError_AdminWithAudit(t *testing.T) {
 	var audits []models.SecurityAudit
 	require.NoError(t, db.Find(&audits).Error)
 	require.NotEmpty(t, audits)
-	assert.Equal(t, "77", audits[0].Actor)
+	assert.Equal(t, "user:77", audits[0].Actor)
 	assert.Equal(t, "settings_save_failed", audits[0].Action)
 	assert.Equal(t, "permissions", audits[0].EventCategory)
 }
@@ -163,7 +163,7 @@ func TestLogPermissionAudit_ActorFallback(t *testing.T) {
 
 	var audit models.SecurityAudit
 	require.NoError(t, db.First(&audit).Error)
-	assert.Equal(t, "unknown", audit.Actor)
+	assert.Equal(t, ctx.ClientIP(), audit.Actor)
 	assert.Equal(t, "backup_create_failed", audit.Action)
 	assert.Equal(t, "permissions", audit.EventCategory)
 	assert.Contains(t, audit.Details, fmt.Sprintf("\"admin\":%v", false))

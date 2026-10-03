@@ -262,7 +262,7 @@ func (s *BackupService) SetUptimeRehydrator(r UptimeRehydrator) {
 // needs to write a permission-denied SecurityAudit row from inside the job
 // (where no gin.Context is available) — captured synchronously by the
 // handler, from the exact same gin.Context fields
-// handlers.logPermissionAudit already reads today (c.Get("userID"),
+// handlers.logPermissionAudit already reads today (the caller identity,
 // c.ClientIP(), c.Request.UserAgent()). Admin is not carried here —
 // Create/Restore are already requireAdmin-gated before a Start*Job call is
 // reached, so it is always true in this context.

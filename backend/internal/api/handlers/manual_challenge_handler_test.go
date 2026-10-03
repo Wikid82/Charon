@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -108,7 +109,7 @@ func setupChallengeTestRouter() *gin.Engine {
 
 //nolint:unparam // userID kept for future test variants
 func setUserID(c *gin.Context, userID uint) {
-	c.Set("user_id", userID)
+	middleware.SetCaller(c, userID, "admin")
 }
 
 func TestNewManualChallengeHandler(t *testing.T) {
@@ -681,33 +682,6 @@ func TestManualChallengeHandler_RegisterRoutes(t *testing.T) {
 	assert.True(t, paths["/dns-providers/:id/manual-challenge/:challengeId"])
 	assert.True(t, paths["/dns-providers/:id/manual-challenge/:challengeId/verify"])
 	assert.True(t, paths["/dns-providers/:id/manual-challenge/:challengeId/poll"])
-}
-
-func TestGetUserIDFromContext(t *testing.T) {
-	tests := []struct {
-		name     string
-		value    interface{}
-		expected uint
-	}{
-		{"uint value", uint(42), 42},
-		{"int value", int(42), 42},
-		{"int64 value", int64(42), 42},
-		{"uint64 value", uint64(42), 42},
-		{"missing value", nil, 0},
-		{"invalid type", "42", 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, _ := gin.CreateTestContext(httptest.NewRecorder())
-			if tt.value != nil {
-				c.Set("user_id", tt.value)
-			}
-
-			result := getUserIDFromContext(c)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
 }
 
 func TestChallengeToResponse(t *testing.T) {
