@@ -906,6 +906,19 @@
       "enabled": false
     },
     {
+      "description": "The bundled powerdns plugin consumes the in-repo backend module through a local replace directive; never let Renovate resolve or bump it.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchFileNames": [
+        "plugins/powerdns/go.mod"
+      ],
+      "matchPackageNames": [
+        "github.com/Wikid82/charon/backend"
+      ],
+      "enabled": false
+    },
+    {
       "description": "Group GitHub Actions non-major updates into one PR",
       "matchManagers": [
         "github-actions"

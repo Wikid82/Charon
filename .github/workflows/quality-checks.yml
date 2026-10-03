@@ -273,6 +273,15 @@ jobs:
         run: |
           bash "scripts/go-test-coverage.sh" 2>&1 | tee backend/test-output.txt; exit "${PIPESTATUS[0]}"
 
+      # Compile gate + tests for the bundled PowerDNS plugin, plus a plugin.Open
+      # smoke test against a freshly built .so (same toolchain/flags as the host).
+      - name: Build and test PowerDNS plugin
+        env:
+          CGO_ENABLED: 1
+        run: |
+          make plugin-powerdns
+          make plugin-powerdns-smoke
+
       - name: Upload test output artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

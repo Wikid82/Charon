@@ -4,11 +4,15 @@ This is an example DNS provider plugin for Charon that adds support for PowerDNS
 
 ## Building
 
-To build this plugin, you **must** use `CGO_ENABLED=1` and the same Go version as the Charon binary:
+The plugin is a module in the repository workspace (`go.work`), so it is built against the exact dependency versions of the Charon backend. It **must** be built with `CGO_ENABLED=1`, the same Go toolchain, and the same build flags as the Charon binary: no `-trimpath`, no `-race`, no `-cover`. A plugin built differently is rejected when Charon loads it.
 
 ```bash
+make plugin-powerdns          # build (into a temp dir) and run the plugin tests
+make plugin-powerdns-smoke    # rebuild and verify the plugin loads into the host
+
+# or manually
 cd plugins/powerdns
-CGO_ENABLED=1 go build -buildmode=plugin -o ../powerdns.so main.go
+CGO_ENABLED=1 go build -buildmode=plugin -o powerdns.so .
 ```
 
 ## Installation

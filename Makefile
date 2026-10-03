@@ -1,4 +1,4 @@
-.PHONY: help install test build run clean docker-build docker-run build-offline release go-check gopls-logs lint-backend lint-agent lint-fast lint-staticcheck-only security-local
+.PHONY: help plugin-powerdns plugin-powerdns-smoke install test build run clean docker-build docker-run build-offline release go-check gopls-logs lint-backend lint-agent lint-fast lint-staticcheck-only security-local
 
 # Default target
 help:
@@ -19,6 +19,8 @@ help:
 	@echo "  go-check               - Verify backend build readiness (runs scripts/check_go_build.sh)"
 	@echo "  gopls-logs             - Collect gopls diagnostics (runs scripts/gopls_collect.sh)"
 	@echo "  local-patch-report     - Generate local patch coverage report"
+	@echo "  plugin-powerdns        - Build and test the PowerDNS plugin"
+	@echo "  plugin-powerdns-smoke  - plugin.Open smoke test against a fresh PowerDNS plugin build"
 	@echo ""
 	@echo "Security targets:"
 	@echo "  security-scan          - Quick security scan (govulncheck on Go deps)"
@@ -230,3 +232,23 @@ benchmark:
 integration-test:
 	@echo "Running integration tests..."
 	@./scripts/integration-test.sh
+
+# Build the bundled PowerDNS plugin and run its tests.
+# The plugin MUST be built with the same toolchain, flags and dependency
+# versions as the host binary (no -trimpath, -race or -cover), otherwise
+# plugin.Open rejects it. The workspace (go.work) pins the shared dependencies.
+plugin-powerdns:
+	@echo "Building and testing the PowerDNS plugin..."
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	cd plugins/powerdns && \
+	CGO_ENABLED=1 go build -buildmode=plugin -o "$$tmp/powerdns.so" . && \
+	CGO_ENABLED=1 go test -count=1 ./...
+
+# Prove a freshly rebuilt powerdns.so loads into the host (plugin.Open).
+# Always rebuilds into a temp dir; never reuses plugins/powerdns/powerdns.so.
+plugin-powerdns-smoke:
+	@echo "Smoke-testing plugin.Open against a freshly built PowerDNS plugin..."
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	(cd plugins/powerdns && CGO_ENABLED=1 go build -buildmode=plugin -o "$$tmp/powerdns.so" .) && \
+	cd backend && CGO_ENABLED=1 CHARON_SMOKE_PLUGIN_SO="$$tmp/powerdns.so" \
+	go test -tags plugin_smoke -run TestPluginSmoke ./internal/services -count=1
