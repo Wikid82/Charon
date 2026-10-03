@@ -311,6 +311,7 @@ func main() {
 	// Shared Caddy manager and Cerberus instance for API + emergency server
 	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+	caddyManager.SetSelfHop(hopSecret, cfg.HTTPPort)
 	cerb := cerberus.New(cfg.Security, db)
 
 	// Pass config to routes for auth service and certificate service

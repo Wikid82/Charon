@@ -395,6 +395,38 @@ func TestRequestOriginFrom_WrongTypeIsIgnored(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// The proof must not reach handlers, panic reports, request logs or responses.
+func TestSelfHop_ProofDoesNotAppearInLogsOrResponses(t *testing.T) {
+	logs := captureLogs(t)
+	secret := newOriginSecret(t)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	require.NoError(t, r.SetTrustedProxies(nil))
+	r.Use(BaseChain(secret, security.TrustedProxyMatcher{}, true)...)
+	r.GET("/dump", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"headers": c.Request.Header, "client": c.ClientIP()})
+	})
+	r.GET("/panic", func(c *gin.Context) {
+		panic(c.Request.Header)
+	})
+
+	for _, path := range []string{"/dump", "/panic"} {
+		req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
+		req.RemoteAddr = "127.0.0.1:1"
+		req.Header.Set(selfhop.HeaderSecret, secret.Reveal())
+		req.Header.Set(selfhop.HeaderClient, "198.51.100.23")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.NotContains(t, w.Body.String(), secret.Reveal(), path)
+		assert.NotContains(t, strings.ToLower(w.Body.String()), strings.ToLower(selfhop.HeaderSecret), path)
+		assert.NotContains(t, w.Header().Get("X-Request-ID"), secret.Reveal(), path)
+	}
+	assert.NotContains(t, logs.String(), secret.Reveal())
+	assert.Contains(t, logs.String(), "198.51.100.23")
+}
+
 func trustedOriginRouter(t *testing.T, secret *selfhop.Secret, configured []string, res *probeResult) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
