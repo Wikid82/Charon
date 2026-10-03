@@ -324,7 +324,7 @@
         "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
       ],
       "matchStrings": [
-        "anchore/grype/main/install\\.sh \\| sh -s -- -b /usr/local/bin v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)",
+        "anchore/grype/(?:main|[0-9a-f]{40})/install\\.sh \\| sh -s -- -b /usr/local/bin v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)",
         "set_default_env \\\"GRYPE_VERSION\\\" \\\"v(?<currentValue>[^\\\"]+)\\\""
       ],
       "depNameTemplate": "anchore/grype",

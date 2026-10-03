@@ -36,6 +36,14 @@ jobs:
       agent_changed: ${{ steps.sync.outputs.agent_changed }}
 
     steps:
+      - name: Restrict manual runs to the nightly branch
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/nightly'
+        env:
+          TRIGGER_REF: ${{ github.ref }}
+        run: |
+          echo "::error::Manual runs are only permitted from the nightly branch (got ${TRIGGER_REF})"
+          exit 1
+
       - name: Checkout nightly branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

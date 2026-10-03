@@ -146,9 +146,12 @@ jobs:
     steps:
       - name: Resolve image inputs
         id: resolve-image
+        env:
+          INPUT_IMAGE_REF: ${{ inputs.image_ref }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag || 'charon:e2e-test' }}
         run: |
-          IMAGE_REF="${{ inputs.image_ref }}"
-          IMAGE_TAG="${{ inputs.image_tag || 'charon:e2e-test' }}"
+          IMAGE_REF="${INPUT_IMAGE_REF}"
+          IMAGE_TAG="${INPUT_IMAGE_TAG}"
           if [ -n "$IMAGE_REF" ]; then
             {
               echo "image_source=registry"

@@ -61,6 +61,10 @@ jobs:
           REPO_NAME: ${{ github.repository }}
         run: |
           if [[ -n "${INPUT_PR_NUMBER}" ]]; then
+            if [[ ! "${INPUT_PR_NUMBER}" =~ ^[0-9]+$ ]]; then
+              echo "::error::pr_number must be digits-only"
+              exit 1
+            fi
             echo "pr_number=${INPUT_PR_NUMBER}" >> "$GITHUB_OUTPUT"
             echo "📋 Using manually provided PR number: ${INPUT_PR_NUMBER}"
             exit 0
@@ -337,13 +341,13 @@ jobs:
           echo "component_count=${COMPONENT_COUNT}" >> "$GITHUB_OUTPUT"
           echo "✅ SBOM generated with ${COMPONENT_COUNT} components"
 
-      # Scan for vulnerabilities using manual Grype installation (pinned to v0.113.0)
+      # Scan for vulnerabilities using manual Grype installation (installer pinned to the v0.119.0 release commit)
       - name: Install Grype
         if: steps.set-target.outputs.image_name != ''
         run: |
           MAX_ATTEMPTS=3
           for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.120.0; then
+            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/b6f5194537747ee7f705f4113069ac9eb269919f/install.sh | sh -s -- -b /usr/local/bin v0.119.0; then
               break
             fi
             if [[ "$attempt" -eq "$MAX_ATTEMPTS" ]]; then
