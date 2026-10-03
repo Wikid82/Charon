@@ -42,22 +42,37 @@ jobs:
       # Debug: Log workflow_run context for initial validation (can be removed after confidence)
       - name: Debug Workflow Run Context
         if: github.event_name == 'workflow_run'
+        env:
+          WR_NAME: ${{ github.event.workflow_run.name }}
+          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WR_EVENT: ${{ github.event.workflow_run.event }}
+          WR_PULL_REQUESTS: ${{ toJson(github.event.workflow_run.pull_requests) }}
         run: |
           echo "Workflow Run Event Details:"
-          echo "  Workflow: ${{ github.event.workflow_run.name }}"
-          echo "  Conclusion: ${{ github.event.workflow_run.conclusion }}"
-          echo "  Head Branch: ${{ github.event.workflow_run.head_branch }}"
-          echo "  Head SHA: ${{ github.event.workflow_run.head_sha }}"
-          echo "  Event: ${{ github.event.workflow_run.event }}"
-          echo "  PR Count: ${{ toJson(github.event.workflow_run.pull_requests) }}"
+          echo "  Workflow: ${WR_NAME}"
+          echo "  Conclusion: ${WR_CONCLUSION}"
+          echo "  Head Branch: ${WR_HEAD_BRANCH}"
+          echo "  Head SHA: ${WR_HEAD_SHA}"
+          echo "  Event: ${WR_EVENT}"
+          echo "  PR Count: ${WR_PULL_REQUESTS}"
 
       - name: Determine Image Tag
         id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          WR_EVENT: ${{ github.event.workflow_run.event }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WR_PULL_REQUESTS: ${{ toJson(github.event.workflow_run.pull_requests) }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            TAG="${{ github.event.release.tag_name }}"
-          elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            BRANCH="${{ github.event.workflow_run.head_branch }}"
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            TAG="${RELEASE_TAG}"
+          elif [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            BRANCH="${WR_HEAD_BRANCH}"
             # Extract tag from the workflow that triggered us
             if [[ "${BRANCH}" == "main" ]]; then
               TAG="latest"
@@ -65,23 +80,23 @@ jobs:
               TAG="dev"
             elif [[ "${BRANCH}" == "nightly" ]]; then
               TAG="nightly"
-            elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
+            elif [[ "${WR_EVENT}" == "pull_request" ]]; then
               # Extract PR number from workflow_run context with null handling
-              PR_NUMBER=$(jq -r '.pull_requests[0].number // empty' <<< '${{ toJson(github.event.workflow_run.pull_requests) }}')
-              SHORT_SHA=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
+              PR_NUMBER=$(jq -r '.pull_requests[0].number // empty' <<< "${WR_PULL_REQUESTS}")
+              SHORT_SHA=$(echo "${WR_HEAD_SHA}" | cut -c1-7)
               if [[ -n "${PR_NUMBER}" ]]; then
                 TAG="pr-${PR_NUMBER}-${SHORT_SHA}"
               else
                 # Fallback to SHA-based tag if PR number not available
-                TAG="sha-$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)"
+                TAG="sha-$(echo "${WR_HEAD_SHA}" | cut -c1-7)"
               fi
             else
               # For feature branches and other pushes, sanitize branch name for Docker tag
               # Replace / with - to avoid invalid reference format errors
               TAG=$(echo "${BRANCH}" | tr '/' '-')
             fi
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            BRANCH="${{ github.ref_name }}"
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            BRANCH="${REF_NAME}"
             if [[ "${BRANCH}" == "main" ]]; then
               TAG="latest"
             elif [[ "${BRANCH}" == "development" ]]; then
@@ -686,8 +701,10 @@ jobs:
 
       - name: Determine Image Tag
         id: tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="${RELEASE_TAG}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Verify Cosign Signature with Rekor Fallback
@@ -786,7 +803,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="${RELEASE_TAG}"
           mkdir -p ./release-assets
           gh release download "${TAG}" --dir ./release-assets || {
             echo "⚠️ No release assets found or download failed"

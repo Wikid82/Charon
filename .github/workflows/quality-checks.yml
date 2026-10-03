@@ -468,16 +468,19 @@ jobs:
 
       - name: Check if frontend was modified in PR
         id: check-frontend
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${EVENT_NAME}" = "push" ]; then
             echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Try to fetch the PR base ref. This may fail for forked PRs or other cases.
-          git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=1 || true
+          git fetch origin "${BASE_REF}" --depth=1 || true
 
           # Compute changed files against the PR base ref, fallback to origin/main, then fallback to last 10 commits
-          CHANGED=$(git diff --name-only "origin/${{ github.event.pull_request.base.ref }}...HEAD" 2>/dev/null || echo "")
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" 2>/dev/null || echo "")
           printf "Changed files (base ref):\n%s\n" "$CHANGED"
 
           if [ -z "$CHANGED" ]; then
