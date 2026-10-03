@@ -739,8 +739,10 @@ type UpdateUserRequest struct {
 	Name     string  `json:"name"`
 	Email    string  `json:"email"`
 	Password *string `json:"password" binding:"omitempty,min=8"`
-	Role     string  `json:"role"`
-	Enabled  *bool   `json:"enabled"`
+	// CurrentPassword must accompany a password change on the caller's own account.
+	CurrentPassword string `json:"current_password"`
+	Role            string `json:"role"`
+	Enabled         *bool  `json:"enabled"`
 }
 
 // UpdateUser updates an existing user (admin only for management fields, self-service for name/password).
@@ -834,6 +836,20 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	if req.Password != nil {
+		// Changing one's own password requires proof of the current one.
+		if isSelf {
+			if req.CurrentPassword == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Current password is required to change your password"})
+				return
+			}
+			if !allowPasswordAttempt(h.passwordGuard, c) {
+				return
+			}
+			if !user.CheckPassword(req.CurrentPassword) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+				return
+			}
+		}
 		if hashErr := user.SetPassword(*req.Password); hashErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
@@ -841,6 +857,8 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		updates["password_hash"] = user.PasswordHash
 		updates["failed_login_attempts"] = 0
 		updates["locked_until"] = nil
+		// Advance the session version atomically with the new hash so existing sessions end.
+		updates["session_version"] = gorm.Expr("session_version + 1")
 	}
 
 	if req.Enabled != nil && *req.Enabled != user.Enabled {
