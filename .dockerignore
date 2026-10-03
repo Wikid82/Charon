@@ -254,7 +254,6 @@ SECURITY_REMEDIATION_COMPLETE.md
 VERSIONING_IMPLEMENTATION.md
 QA_AUDIT_REPORT*.md
 VERSION.md
-eslint.config.js
 go.work
 go.work.sum
 .cache

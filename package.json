@@ -23,7 +23,6 @@
     "@types/node": "^26.6.4",
     "audit-ci": "^7.1.0",
     "dotenv": "^18.0.5",
-    "eslint": "^10.12.0",
     "lefthook": "^2.1.16",
     "markdownlint-cli2": "^0.23.3",
     "prettier": "^3.9.9",
