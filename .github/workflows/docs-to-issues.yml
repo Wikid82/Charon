@@ -34,7 +34,12 @@ jobs:
   convert-docs:
     name: Convert Markdown to Issues
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      (github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository))
 
     steps:
       - name: Checkout repository
@@ -49,13 +54,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
-        run: npm install gray-matter
+        run: npm install --ignore-scripts --no-save gray-matter@4.0.3
 
       - name: Detect changed files
         id: changes
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          MANUAL_FILE: ${{ github.event.inputs.file_path }}
         with:
           script: |
             const fs = require('fs');
@@ -63,7 +69,7 @@ jobs:
             const commitSha = process.env.COMMIT_SHA || context.sha;
 
             // Manual file specification
-            const manualFile = '${{ github.event.inputs.file_path }}';
+            const manualFile = process.env.MANUAL_FILE;
             if (manualFile) {
               if (fs.existsSync(manualFile)) {
                 core.setOutput('files', JSON.stringify([manualFile]));
@@ -98,13 +104,14 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          FILES_JSON: ${{ steps.changes.outputs.files }}
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
             const matter = require('gray-matter');
 
-            const files = JSON.parse('${{ steps.changes.outputs.files }}');
+            const files = JSON.parse(process.env.FILES_JSON);
             const isDryRun = process.env.DRY_RUN === 'true';
             const createdIssues = [];
             const errors = [];
@@ -322,9 +329,10 @@ jobs:
 
       - name: Move processed files
         if: steps.process.outputs.created_count != '0' && github.event.inputs.dry_run != 'true'
+        env:
+          CREATED_ISSUES: ${{ steps.process.outputs.created_issues }}
         run: |
           mkdir -p docs/issues/created
-          CREATED_ISSUES='${{ steps.process.outputs.created_issues }}'
           echo "$CREATED_ISSUES" | jq -r '.[].file' | while IFS= read -r file; do
             if [ -f "$file" ] && [ -n "$file" ]; then
               filename=$(basename "$file")
@@ -336,6 +344,8 @@ jobs:
 
       - name: Commit moved files
         if: steps.process.outputs.created_count != '0' && github.event.inputs.dry_run != 'true'
+        env:
+          BRANCH_NAME: ${{ github.event.workflow_run.head_branch || github.ref_name }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -343,15 +353,15 @@ jobs:
           # Removed [skip ci] to allow CI checks to run on PRs
           # Infinite loop protection: path filter excludes docs/issues/created/** AND github.actor guard prevents bot loops
           git diff --staged --quiet || git commit -m "chore: move processed issue files to created/"
-          BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
-          git push origin HEAD:refs/heads/${BRANCH}
+          git push origin "HEAD:refs/heads/${BRANCH_NAME}"
 
       - name: Summary
         if: always()
+        env:
+          CREATED: ${{ steps.process.outputs.created_issues }}
+          ERRORS: ${{ steps.process.outputs.errors }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          CREATED='${{ steps.process.outputs.created_issues }}'
-          ERRORS='${{ steps.process.outputs.errors }}'
-          DRY_RUN='${{ github.event.inputs.dry_run }}'
 
           {
             echo "## Docs to Issues Summary"

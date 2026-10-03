@@ -25,7 +25,10 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) }}
     steps:
       - name: Checkout with full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
