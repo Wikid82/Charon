@@ -92,6 +92,8 @@ environment:
 - CHARON_MANAGEMENT_CIDRS=0.0.0.0/0,::/0
 ```
 
+The emergency server uses this same list, with the same defaults as the main Charon API (private ranges plus localhost). If you connect from anywhere else, such as Tailscale (`100.64.0.0/10`) or a public VPN range, add that range here or the emergency server will refuse you.
+
 **Security Notes:**
 
 - Be as restrictive as possible

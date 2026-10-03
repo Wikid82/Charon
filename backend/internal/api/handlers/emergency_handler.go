@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -36,6 +37,7 @@ type EmergencyHandler struct {
 	tokenService    *services.EmergencyTokenService
 	caddyManager    CaddyConfigManager
 	cerberus        CacheInvalidator
+	managementNets  []*net.IPNet
 }
 
 // NewEmergencyHandler creates a new EmergencyHandler
@@ -96,6 +98,22 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 
 		// Proceed with security reset
 		h.performSecurityReset(c, clientIP, startTime)
+		return
+	}
+
+	// The direct path enforces the same management-network requirement as the
+	// middleware before any token is evaluated.
+	if !h.isManagementClient(clientIP) {
+		h.logEnhancedAudit(clientIP, "emergency_reset_forbidden_source", "Request source outside management network", false, time.Since(startTime))
+		log.WithFields(log.Fields{
+			"ip":     util.SanitizeForLog(clientIP),
+			"action": "emergency_reset_forbidden_source",
+		}).Warn("Emergency reset rejected: source outside management network")
+
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "forbidden",
+			"message": "Request source is not permitted.",
+		})
 		return
 	}
 
@@ -513,4 +531,21 @@ func (h *EmergencyHandler) UpdateTokenExpiration(c *gin.Context) {
 		"success":        true,
 		"new_expires_at": expiresAt,
 	})
+}
+
+// WithManagementCIDRs sets the networks allowed to use the direct reset path.
+// An empty list selects the default private and loopback ranges.
+func (h *EmergencyHandler) WithManagementCIDRs(cidrs []string) *EmergencyHandler {
+	h.managementNets = middleware.ParseManagementNets(cidrs)
+	return h
+}
+
+// isManagementClient reports whether the canonical client address is inside the
+// management networks.
+func (h *EmergencyHandler) isManagementClient(clientIP string) bool {
+	nets := h.managementNets
+	if nets == nil {
+		nets = middleware.ParseManagementNets(nil)
+	}
+	return middleware.IsManagementIP(nets, net.ParseIP(clientIP))
 }

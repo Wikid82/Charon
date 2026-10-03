@@ -564,11 +564,7 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 		} else {
 			cfg.Enabled = false
 		}
-		_ = h.svc.Upsert(cfg)
-		if h.caddyManager != nil {
-			_ = h.caddyManager.ApplyConfig(c.Request.Context())
-		}
-		c.JSON(http.StatusOK, gin.H{"enabled": false})
+		h.persistDisabled(c, cfg)
 		return
 	}
 	cfg, err := h.svc.Get()
@@ -586,9 +582,21 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 		return
 	}
 	cfg.Enabled = false
-	_ = h.svc.Upsert(cfg)
+	h.persistDisabled(c, cfg)
+}
+
+// persistDisabled stores cfg and applies the proxy configuration, answering 500
+// when either step fails so the response never reports a state that was not saved.
+func (h *SecurityHandler) persistDisabled(c *gin.Context, cfg *models.SecurityConfig) {
+	if err := h.svc.Upsert(cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable Cerberus"})
+		return
+	}
 	if h.caddyManager != nil {
-		_ = h.caddyManager.ApplyConfig(c.Request.Context())
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"enabled": false})
 }

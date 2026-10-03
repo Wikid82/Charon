@@ -25,6 +25,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/dbmaint"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
+	"github.com/Wikid82/charon/backend/internal/security/selfhop"
 	"github.com/Wikid82/charon/backend/internal/server"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/version"
@@ -294,12 +296,14 @@ func main() {
 	// Initialize structured logger with same writer as stdlib log so both capture logs
 	logger.Init(cfg.Debug, mw)
 	logStartupWarnings(logger.Log(), cfg.StartupWarnings)
-	// Request ID middleware must run before recovery so the recover logs include the request id
-	router.Use(middleware.RequestID())
-	// Log requests with request-scoped logger
-	router.Use(middleware.RequestLogger())
-	// Attach a recovery middleware that logs stack traces when debug is enabled
-	router.Use(middleware.Recovery(cfg.Debug))
+	// Per-process secret that lets the API recognise requests forwarded by its own proxy.
+	hopSecret, err := selfhop.NewSecret()
+	if err != nil {
+		log.Fatalf("init request origin secret: %v", err)
+	}
+	// Request-origin resolution, request id, request logging and recovery, in that order:
+	// the origin must be resolved before anything reads the client address.
+	router.Use(middleware.BaseChain(hopSecret, security.NewTrustedProxyMatcher(cfg.Security.TrustedProxies), cfg.Debug)...)
 	// The gate goes before everything that touches the database (EmergencyBypass,
 	// RateLimit), which RegisterWithDeps installs afterwards.
 	router.Use(gate.Middleware(handlers.HealthHandler))
@@ -307,6 +311,7 @@ func main() {
 	// Shared Caddy manager and Cerberus instance for API + emergency server
 	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+	caddyManager.SetSelfHop(hopSecret, cfg.HTTPPort)
 	cerb := cerberus.New(cfg.Security, db)
 
 	// Pass config to routes for auth service and certificate service
@@ -329,7 +334,7 @@ func main() {
 	}
 
 	// Initialize emergency server (Tier 2 break glass)
-	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb, gate)
+	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb, gate).WithManagementCIDRs(cfg.Security.ManagementCIDRs)
 	if err := emergencyServer.Start(); err != nil {
 		logger.Log().WithError(err).Fatal("Failed to start emergency server")
 	}

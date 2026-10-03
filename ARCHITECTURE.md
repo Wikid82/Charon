@@ -350,6 +350,7 @@ fork/offline fallback.
 
 - **Handlers:** Process HTTP requests, validate input, return responses
 - **Middleware:** CORS, GZIP, authentication, logging, metrics, panic recovery
+- **Request origin:** The `SelfHop` middleware is first in the engine's chain. For proxy hosts whose upstream is Charon itself, Caddy attaches an authenticated per-boot header (`internal/caddy/self_upstream.go`); the middleware verifies it and records the client address, scheme and host (`RequestOrigin`) for later handlers. Shared helpers live in `internal/security/selfhop`.
 - **Routes:** Route registration and grouping (public, authenticated, and admin-only — see [Management API Authentication & Authorization](#management-api-authentication--authorization))
 
 **Example Endpoints:**

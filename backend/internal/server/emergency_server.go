@@ -38,13 +38,14 @@ import (
 // - Caddy itself is down or misconfigured
 // - Emergency access when main application port is unreachable
 type EmergencyServer struct {
-	server   *http.Server
-	listener net.Listener
-	db       *gorm.DB
-	cfg      config.EmergencyConfig
-	cerberus handlers.CacheInvalidator
-	caddy    handlers.CaddyConfigManager
-	gate     *dbmaint.Gate
+	server    *http.Server
+	listener  net.Listener
+	db        *gorm.DB
+	cfg       config.EmergencyConfig
+	cerberus  handlers.CacheInvalidator
+	caddy     handlers.CaddyConfigManager
+	gate      *dbmaint.Gate
+	mgmtCIDRs []string
 }
 
 // NewEmergencyServer creates a new emergency server instance
@@ -63,6 +64,13 @@ func NewEmergencyServerWithDeps(db *gorm.DB, cfg config.EmergencyConfig, caddyMa
 		cerberus: cerberus,
 		gate:     gate,
 	}
+}
+
+// WithManagementCIDRs sets the networks allowed to use the reset endpoint.
+// An empty list selects the default private and loopback ranges.
+func (s *EmergencyServer) WithManagementCIDRs(cidrs []string) *EmergencyServer {
+	s.mgmtCIDRs = cidrs
+	return s
 }
 
 // Start initializes and starts the emergency server
@@ -99,6 +107,8 @@ func (s *EmergencyServer) Start() error {
 
 	// Configure Gin for minimal logging (not production mode to preserve logs)
 	router := gin.New()
+	// Decisions use the connection address only; forwarding headers are never honored here.
+	_ = router.SetTrustedProxies(nil)
 
 	// Middleware 1: Recovery (panic handler)
 	router.Use(gin.Recovery())
@@ -125,7 +135,7 @@ func (s *EmergencyServer) Start() error {
 	})
 
 	// Emergency endpoints only
-	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(s.db, s.caddy, s.cerberus)
+	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(s.db, s.caddy, s.cerberus).WithManagementCIDRs(s.mgmtCIDRs)
 
 	// GET /health - Health check endpoint (NO AUTH - must be accessible for monitoring)
 	router.GET("/health", func(c *gin.Context) {
