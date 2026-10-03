@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 )
 
 type SystemHandler struct{}
@@ -25,7 +27,9 @@ func (h *SystemHandler) GetMyIP(c *gin.Context) {
 	ip := c.ClientIP()
 
 	source := "direct"
-	if peer, _, err := net.SplitHostPort(c.Request.RemoteAddr); err != nil || peer != ip {
+	if _, viaProxy := middleware.RequestOriginFrom(c); viaProxy {
+		source = "forwarded"
+	} else if peer, _, err := net.SplitHostPort(c.Request.RemoteAddr); err != nil || peer != ip {
 		source = "forwarded"
 	}
 

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -40,7 +41,13 @@ func isTrustedPeer(c *gin.Context, trustedProxies security.TrustedProxyMatcher) 
 	return trustedProxies.ContainsIP(normalizeHost(c.Request.RemoteAddr))
 }
 
+// requestScheme resolves the scheme the client used. A request carrying a verified
+// origin record from Charon's own proxy uses the scheme recorded there; otherwise
+// forwarded headers count only from a configured trusted peer.
 func requestScheme(c *gin.Context, trustedProxies security.TrustedProxyMatcher) string {
+	if origin, ok := middleware.RequestOriginFrom(c); ok && origin.Scheme != "" {
+		return origin.Scheme
+	}
 	if isTrustedPeer(c, trustedProxies) {
 		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
 			// Honor first entry in a comma-separated header
@@ -113,6 +120,11 @@ func isLocalOrPrivateHost(host string) bool {
 func isLocalRequest(c *gin.Context, trustedProxies security.TrustedProxyMatcher) bool {
 	if c.Request == nil {
 		return false
+	}
+
+	// A verified origin record carries the real client address.
+	if origin, ok := middleware.RequestOriginFrom(c); ok {
+		return isLocalOrPrivateHost(origin.Addr)
 	}
 
 	if isTrustedPeer(c, trustedProxies) {

@@ -9,6 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/security"
+	"github.com/Wikid82/charon/backend/internal/security/selfhop"
 )
 
 func getMyIP(t *testing.T, r *gin.Engine, remoteAddr string, headers map[string]string) MyIPResponse {
@@ -68,4 +72,28 @@ func TestGetMyIP_HonorsTrustedProxyForwarding(t *testing.T) {
 	resp = getMyIP(t, r, "198.51.100.9:4000", map[string]string{"X-Forwarded-For": "203.0.113.5"})
 	assert.Equal(t, "198.51.100.9", resp.IP)
 	assert.Equal(t, "direct", resp.Source)
+}
+
+func TestGetMyIP_ThroughOwnProxyReportsClient(t *testing.T) {
+	secret, err := selfhop.NewSecret()
+	require.NoError(t, err)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	require.NoError(t, r.SetTrustedProxies(nil))
+	r.Use(middleware.SelfHop(secret, security.TrustedProxyMatcher{}))
+	r.GET("/myip", NewSystemHandler().GetMyIP)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+	req.RemoteAddr = "127.0.0.1:4000"
+	req.Header.Set(selfhop.HeaderSecret, secret.Reveal())
+	req.Header.Set(selfhop.HeaderClient, "198.51.100.23")
+	req.Header.Set("X-Forwarded-For", "6.6.6.6")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp MyIPResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "198.51.100.23", resp.IP)
+	assert.Equal(t, "forwarded", resp.Source)
 }
