@@ -94,6 +94,12 @@ config.action_dispatch.trusted_proxies = [IPAddr.new('10.0.0.0/8')]
 protected $proxies = '*';
 ```
 
+### Proxy Hosts That Point Back at Charon
+
+If a proxy host's destination is Charon itself (on Charon's own port, such as `localhost:8080`), Charon handles the headers for you. The real visitor address, the original web address, and whether the visit used HTTPS all arrive correctly with no extra setup. See [Trusted Proxies](../configuration/trusted-proxies.md).
+
+Sign-in cookies are marked `Secure` whenever the visitor is on HTTPS or is not on a private network, so browsers only send them over protected connections.
+
 ## When to Enable vs Disable
 
 ### Enable When

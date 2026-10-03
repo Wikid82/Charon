@@ -47,12 +47,20 @@ Avoid ranges such as `10.0.0.0/8` or `192.168.0.0/16`. They trust every device i
 
 | Your setup | Add this |
 | --- | --- |
-| A proxy host inside Charon that points to `localhost:8080` | `127.0.0.1/32` and `::1/128` (list both) |
+| A proxy host inside Charon that points to `localhost:8080` (or `127.0.0.1:8080`) | Nothing. Charon recognises this automatically (see below) |
 | A proxy host inside Charon that points to `charon:8080` | Charon's own address on the Docker network |
 | External nginx or Traefik in the same Docker network | That container's address on the Docker network |
 | A proxy running on the host itself | The address Charon sees it connect from. Find it on the Security page (see below) |
 
 Loopback has two forms. `127.0.0.1` and `::1` are treated as different addresses, so list both if you aren't sure which your proxy uses.
+
+### Proxy hosts that point back at Charon
+
+If you create a proxy host whose destination is Charon itself (for example `localhost:8080` or `127.0.0.1:8080`, on Charon's own port), Charon spots this on its own. It passes along the real visitor address that Caddy saw, so you no longer need to add `127.0.0.1/32` and `::1/128` to `CHARON_TRUSTED_PROXIES` for this case. If you have set up trusted proxies, they keep working as before.
+
+Destinations reached by a Docker network name, such as `charon:8080`, are not recognised automatically. Keep listing those in `CHARON_TRUSTED_PROXIES`.
+
+If another proxy terminates HTTPS in front of Charon and is not in `CHARON_TRUSTED_PROXIES`, Caddy sees plain HTTP, so Charon may not mark the sign-in cookie `Secure`. Add that proxy to `CHARON_TRUSTED_PROXIES` so the original scheme is used.
 
 ### Keep the address from changing
 
