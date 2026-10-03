@@ -54,6 +54,8 @@ Need to secure `*.example.com` with a single certificate? Charon now supports DN
 - Cloudflare, AWS Route 53, DigitalOcean, Google Cloud DNS, Azure DNS
 - Namecheap, GoDaddy, Hetzner, Vultr, DNSimple
 
+Charon checks the addresses you enter for DNS providers and refuses ones that point back at the Charon host itself or at cloud-internal addresses.
+
 Your credentials are stored securely with encryption and automatic key rotation. More providers are on the roadmap — see the [DNS Providers Guide](guides/dns-providers.md) for details.
 
 → [Learn More](features/dns-challenge.md)

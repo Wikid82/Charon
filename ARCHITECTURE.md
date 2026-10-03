@@ -209,6 +209,7 @@ graph TB
 │   │   │   └── data/changelog.json     # Build-time generated changelog data (see "Release Workflow")
 │   │   └── utils/              # Helper functions
 │   ├── pkg/                    # Public reusable packages
+│   │   └── safehttp/           # Validated outbound HTTP helpers for in-tree and community DNS provider plugins
 │   ├── integration/            # Integration tests
 │   ├── go.mod                  # Go module definition
 │   └── go.sum                  # Go dependency checksums
@@ -937,7 +938,8 @@ pin (the stage already carries ~40 such pins).
 **Additional Protections:**
 
 - **SSRF Prevention:** Block requests to private IP ranges in webhooks/URL
-  validation. `network.NewSafeHTTPClient` disables HTTP keep-alives by default;
+  validation. DNS provider plugins, which cannot import `internal/`, use the
+  public `backend/pkg/safehttp` facade over the same checks. `network.NewSafeHTTPClient` disables HTTP keep-alives by default;
   the uptime worker pool opts into a pooled variant via
   `network.WithKeepAlive(100, 4, 30s)`, where `safeDialer` still re-validates
   every new connection and the 30 s idle timeout bounds how long a reused
