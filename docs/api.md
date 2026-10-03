@@ -23,6 +23,10 @@ Authorization: Bearer <token>
 
 Public routes: `POST /auth/login`, `GET /auth/verify`, `GET /auth/status`, the setup and invite routes. Every other route requires a valid session. Some routes additionally require the `admin` role.
 
+`GET /auth/verify` is the check Caddy calls for forward auth. It is reachable without the normal session middleware, but it checks the caller's session itself (401 when not signed in). It also needs a recognizable forwarded host (`X-Forwarded-Host`, or `X-Original-Host` when that is absent) and returns 403 when the host is missing, malformed, or not one of your proxy hosts. Hosts are matched exactly, ignoring upper/lower case and port numbers. A stored wildcard such as `*.example.com` covers exactly one extra label (`app.example.com`, but not `a.b.example.com`).
+
+Audit entries record the actor as `user:<id>` for signed-in users, `emergency` for emergency-token requests, and the client address otherwise.
+
 ## Response Format
 
 ### Success Response

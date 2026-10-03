@@ -350,6 +350,7 @@ fork/offline fallback.
 
 - **Handlers:** Process HTTP requests, validate input, return responses
 - **Middleware:** CORS, GZIP, authentication, logging, metrics, panic recovery
+- **Caller identity:** Handlers read the signed-in caller through shared accessors in `backend/internal/api/middleware/ctxkeys.go`, enforced by a guard test
 - **Routes:** Route registration and grouping (public, authenticated, and admin-only — see [Management API Authentication & Authorization](#management-api-authentication--authorization))
 
 **Example Endpoints:**
