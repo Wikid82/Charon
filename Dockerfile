@@ -185,6 +185,11 @@ ARG CADDY_DNS_VERCEL_VERSION=0.0.2
 ARG LIBDNS_NAMEDOTCOM_VERSION=0.9.0
 # renovate: datasource=go depName=github.com/libdns/vercel
 ARG LIBDNS_VERCEL_VERSION=0.1.0
+# Forced transitive pin: caddy-dns/dnsimple -> libdns/dnsimple -> dnsimple-go/v8
+# resolves to v8.0.0 by default (flagged by supply-chain scanners). Force the
+# latest release via an extra --with entry, same mechanism as the libdns ARGs above.
+# renovate: datasource=go depName=github.com/dnsimple/dnsimple-go/v8
+ARG CADDY_DNS_DNSIMPLE_GO_VERSION=8.3.1
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -474,6 +479,7 @@ ARG CADDY_DNS_BUNNY_VERSION
 ARG CADDY_DNS_VERCEL_VERSION
 ARG LIBDNS_NAMEDOTCOM_VERSION
 ARG LIBDNS_VERCEL_VERSION
+ARG CADDY_DNS_DNSIMPLE_GO_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.7
 ARG EXPR_LANG_VERSION
@@ -560,6 +566,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             --with github.com/caddy-dns/hetzner/v2@v${CADDY_DNS_HETZNER_VERSION} \
             --with github.com/caddy-dns/vultr@v${CADDY_DNS_VULTR_VERSION} \
             --with github.com/caddy-dns/dnsimple@v${CADDY_DNS_DNSIMPLE_VERSION} \
+            --with github.com/dnsimple/dnsimple-go/v8@v${CADDY_DNS_DNSIMPLE_GO_VERSION} \
             --with github.com/caddy-dns/ovh@v${CADDY_DNS_OVH_VERSION} \
             --with github.com/caddy-dns/gandi@v${CADDY_DNS_GANDI_VERSION} \
             --with github.com/caddy-dns/linode@v${CADDY_DNS_LINODE_VERSION} \
