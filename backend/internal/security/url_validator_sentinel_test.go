@@ -58,3 +58,16 @@ func TestValidateExternalURL_NonAddressFailuresDoNotWrapSentinel(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateExternalURL_RejectsCGNATMetadataAlias(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{"http://100.100.100.200", "http://100.100.100.200/latest/meta-data", "http://[::ffff:100.100.100.200]"} {
+		_, err := ValidateExternalURL(raw, WithAllowHTTP(), WithAllowRFC1918())
+		if err == nil {
+			t.Fatalf("%s accepted", raw)
+		}
+		if !errors.Is(err, network.ErrBlockedAddress) {
+			t.Errorf("%s: error does not wrap ErrBlockedAddress: %v", raw, err)
+		}
+	}
+}

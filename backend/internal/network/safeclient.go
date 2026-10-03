@@ -21,6 +21,7 @@ var ErrBlockedAddress = errors.New("destination address is not allowed")
 
 // lookupIPAddr resolves a host to IP addresses. It is a package-level seam so
 // tests can supply a controlled resolver; production always uses the default.
+// Tests that replace it must not call t.Parallel(): the swap is process-wide.
 var lookupIPAddr = net.DefaultResolver.LookupIPAddr
 
 // privateBlocks holds pre-parsed CIDR blocks for private/reserved IP ranges.
@@ -53,6 +54,7 @@ var rfc1918CIDRs = []string{
 // - Link-local addresses (169.254.x.x, fe80::) including cloud metadata endpoints
 // - Reserved ranges (0.x.x.x, 240.x.x.x, 255.255.255.255)
 // - IPv6 unique local addresses (fc00::)
+// - A cloud instance metadata alias inside the CGNAT range (100.100.100.200)
 var privateCIDRs = []string{
 	// IPv4 Private Networks (RFC 1918)
 	"10.0.0.0/8",
@@ -78,6 +80,10 @@ var privateCIDRs = []string{
 
 	// IPv6 Link-Local
 	"fe80::/10",
+
+	// Cloud instance metadata alias, inside the CGNAT range (100.64.0.0/10).
+	// Blocked globally; the rest of the CGNAT range is only blocked by WithBlockCGNAT.
+	"100.100.100.200/32",
 }
 
 // cgnatCIDRs is the shared-address space used by carrier-grade NAT and many

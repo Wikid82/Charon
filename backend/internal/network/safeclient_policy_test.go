@@ -328,3 +328,67 @@ func TestNewSafeHTTPClient_BlockOptionsWired(t *testing.T) {
 		t.Errorf("server hit %d times, want 0", hits.Load())
 	}
 }
+
+func TestIsPrivateIP_CGNATMetadataAliasAddress(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		ip   string
+		want bool
+	}{
+		{"100.100.100.200", true},
+		{"::ffff:100.100.100.200", true},
+		{"100.100.100.199", false},
+		{"100.100.100.201", false},
+		{"100.64.0.1", false},
+		{"100.127.255.254", false},
+	}
+	for _, tt := range tests {
+		if got := IsPrivateIP(net.ParseIP(tt.ip)); got != tt.want {
+			t.Errorf("IsPrivateIP(%s) = %v, want %v", tt.ip, got, tt.want)
+		}
+	}
+	if IsRFC1918(net.ParseIP("100.100.100.200")) {
+		t.Error("100.100.100.200 must not be classified as RFC 1918")
+	}
+}
+
+func TestBlockedByPolicy_CGNATMetadataAliasNeverReachableThroughAllowBranches(t *testing.T) {
+	t.Parallel()
+	combos := []ClientOptions{
+		{},
+		{AllowLocalhost: true},
+		{AllowRFC1918: true},
+		{AllowLocalhost: true, AllowRFC1918: true},
+		// CGNAT-allowed policy: the range is not blocked by option.
+		{AllowRFC1918: true, BlockTransitionRanges: true},
+		{AllowLocalhost: true, AllowRFC1918: true, BlockTransitionRanges: true, BlockCGNAT: true},
+	}
+	for _, ipStr := range []string{"100.100.100.200", "::ffff:100.100.100.200"} {
+		for i, opts := range combos {
+			o := opts
+			if !blockedByPolicy(net.ParseIP(ipStr), &o) {
+				t.Errorf("combo %d: %s must be blocked", i, ipStr)
+			}
+		}
+	}
+	// Neighbouring CGNAT addresses stay reachable when CGNAT is not blocked.
+	o := ClientOptions{AllowRFC1918: true}
+	if blockedByPolicy(net.ParseIP("100.100.100.199"), &o) {
+		t.Error("100.100.100.199 must not be blocked when CGNAT blocking is off")
+	}
+}
+
+func TestSafeDialer_CGNATMetadataAliasBlockedInBothLoops(t *testing.T) {
+	withResolver(t, map[string][]string{
+		"first.example": {"100.100.100.200", "8.8.8.8"},
+		"last.example":  {"8.8.8.8", "100.100.100.200"},
+		"mixed.example": {"::ffff:100.100.100.200"},
+	})
+	opts := ClientOptions{AllowLocalhost: true, AllowRFC1918: true, DialTimeout: time.Second}
+	for _, host := range []string{"first.example", "last.example", "mixed.example"} {
+		_, err := safeDialer(&opts)(context.Background(), "tcp", net.JoinHostPort(host, "80"))
+		if !errors.Is(err, ErrBlockedAddress) {
+			t.Errorf("%s: expected ErrBlockedAddress, got %v", host, err)
+		}
+	}
+}

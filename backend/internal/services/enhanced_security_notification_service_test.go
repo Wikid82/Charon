@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -970,4 +971,47 @@ func TestGetDefaultFeatureFlagValue_TestMode(t *testing.T) {
 
 	result := service.getDefaultFeatureFlagValue()
 	assert.Equal(t, "true", result, "Test mode should return true")
+}
+
+func TestSendWebhook_DoesNotFollowRedirects(t *testing.T) {
+	db := setupEnhancedServiceDB(t)
+	service := NewEnhancedSecurityNotificationService(db)
+
+	var targetHits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		targetHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	event := models.SecurityEvent{EventType: "waf_block", Severity: "high", Message: "Test event"}
+	for _, code := range []int{http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL, code)
+		}))
+
+		err := service.sendWebhook(context.Background(), redirector.URL, event)
+		redirector.Close()
+
+		require.Error(t, err, "redirect %d must surface as a non-2xx status", code)
+		assert.Contains(t, err.Error(), "webhook returned status")
+	}
+	assert.Zero(t, targetHits.Load(), "redirect target must never be contacted")
+}
+
+func TestSendWebhook_RejectsRestrictedLiteralAddresses(t *testing.T) {
+	db := setupEnhancedServiceDB(t)
+	service := NewEnhancedSecurityNotificationService(db)
+	event := models.SecurityEvent{EventType: "waf_block", Severity: "high", Message: "Test event"}
+
+	for _, raw := range []string{
+		"http://169.254.169.254/latest/meta-data",
+		"http://100.100.100.200/latest/meta-data",
+		"https://10.0.0.5/hook",
+		"https://user:pw@example.com/hook",
+	} {
+		err := service.sendWebhook(context.Background(), raw, event)
+		require.Error(t, err, raw)
+		assert.Contains(t, err.Error(), "ssrf validation failed", raw)
+	}
 }

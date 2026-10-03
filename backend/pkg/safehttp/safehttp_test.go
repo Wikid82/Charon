@@ -39,6 +39,7 @@ func TestValidateURLSyntax_AlwaysBlockedAddresses(t *testing.T) {
 	t.Parallel()
 	hosts := []string{
 		"169.254.169.254", "[::ffff:169.254.169.254]", "169.254.169.254.", "[fd00:ec2::254]",
+		"100.100.100.200", "[::ffff:100.100.100.200]", "100.100.100.200.",
 		"127.0.0.1", "127.0.0.2", "[::1]", "[::ffff:127.0.0.1]", "localhost", "localhost.", "LOCALHOST", "foo.localhost",
 		"[fd00::1]", "[fe80::1]", "[fe80::1%25eth0]",
 		"0.0.0.0", "240.0.0.1", "255.255.255.255",

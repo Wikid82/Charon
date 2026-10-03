@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -1289,4 +1290,42 @@ func TestHecateHandler_Update_ServiceError(t *testing.T) {
 	h.Update(c)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestZeroTierMembersErrorResponse verifies that a malformed network ID maps to
+// 400 while other upstream failures keep the existing 500 behaviour.
+func TestZeroTierMembersErrorResponse(t *testing.T) {
+	status, body := zeroTierMembersErrorResponse(fmt.Errorf("wrapped: %w", ztprovider.ErrInvalidNetworkID))
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Equal(t, gin.H{"error": "invalid network id"}, body)
+
+	status, body = zeroTierMembersErrorResponse(errors.New("zerotier: unexpected status 502"))
+	assert.Equal(t, http.StatusInternalServerError, status)
+	assert.Equal(t, gin.H{"error": "zerotier: unexpected status 502"}, body)
+}
+
+// TestHecateHandler_ListZeroTierMembers_InvalidNetworkID verifies a malformed
+// network ID is reported as a client error.
+func TestHecateHandler_ListZeroTierMembers_InvalidNetworkID(t *testing.T) {
+	h, svc := newHecateTestSetup(t)
+
+	cfg := &models.TunnelConfig{UUID: "zt-badid-uuid", Provider: models.ProviderZeroTier}
+	ztProv, err := ztprovider.NewZeroTierProvider(cfg, `{"api_token":"test","controller_url":"https://8.8.8.8"}`)
+	require.NoError(t, err)
+	// Start with an already-cancelled context: the client is created and kept,
+	// and the token check fails without opening a connection.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.Error(t, ztProv.Start(ctx))
+	require.NotNil(t, ztProv.GetClient())
+	svc.GetManager().RegisterProvider("zt-badid-uuid", ztProv)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/management/hecate/zerotier/networks/bad/members", http.NoBody)
+	c.Params = gin.Params{{Key: "network_id", Value: "not-a-network-id"}}
+	h.ListZeroTierMembers(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid network id")
 }
