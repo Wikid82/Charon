@@ -17,6 +17,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
     GO_MODULES=(
         "$REPO_ROOT/backend"
         "$REPO_ROOT/agent"
+        "$REPO_ROOT/plugins/powerdns"
     )
 
     for MODULE in "${GO_MODULES[@]}"; do
