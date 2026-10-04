@@ -90,7 +90,7 @@
     "eslint-plugin-security": "^4.2.0",
     "eslint-plugin-sonarjs": "^4.2.2",
     "eslint-plugin-testing-library": "^7.16.2",
-    "eslint-plugin-unicorn": "^76.0.0",
+    "eslint-plugin-unicorn": "^77.0.0",
     "eslint-plugin-unused-imports": "^4.4.1",
     "jsdom": "30.0.1",
     "knip": "^6.39.0",
