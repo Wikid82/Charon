@@ -32,6 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           # For pull_request events, use the branch HEAD SHA (not the ephemeral merge
           # commit that github.sha resolves to), which is directly fetchable by SHA.
           # For workflow_run events fall back to the triggering HEAD SHA.
