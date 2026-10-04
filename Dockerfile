@@ -999,7 +999,8 @@ RUN mkdir -p /app/data/geoip && \
                 echo "⚠️  GeoIP download failed or empty — skipping"; \
                 touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
             fi; \
-        fi
+        fi && \
+    chown -R charon:charon /app/data
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
@@ -1088,7 +1089,7 @@ COPY configs/crowdsec/register_bouncer.sh /usr/local/bin/register_bouncer.sh
 RUN chmod +x /usr/local/bin/install_hub_items.sh /usr/local/bin/register_bouncer.sh
 
 # Copy Go binary from backend builder
-COPY --from=backend-builder /app/backend/charon /app/charon
+COPY --from=backend-builder --chown=charon:charon /app/backend/charon /app/charon
 RUN ln -s /app/charon /app/cpmp || true
 # Copy Delve stub/binary from backend-builder.
 # Security (GO-2026-5024): production builds (BUILD_DEBUG=0) receive a harmless shell
@@ -1099,14 +1100,14 @@ RUN ln -s /app/charon /app/cpmp || true
 COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
 # Copy frontend build from frontend builder
-COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+COPY --from=frontend-builder --chown=charon:charon /app/frontend/dist /app/frontend/dist
 
 # Copy startup script
 COPY .docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Copy utility scripts (used for DB recovery and maintenance)
-COPY scripts/ /app/scripts/
+COPY --chown=charon:charon scripts/ /app/scripts/
 RUN chmod +x /app/scripts/db-recovery.sh
 
 # Set default environment variables
@@ -1127,10 +1128,13 @@ RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 # This satisfies the PluginLoaderService security check (mode & 0002 == 0)
 RUN mkdir -p /app/plugins && chmod 755 /app/plugins
 
-# Security: Set ownership of all application directories to non-root charon user
+# Security: Set ownership of all application directories to non-root charon user.
+# The large /app payloads (binary, frontend, scripts, GeoIP DB) are chowned where they are
+# created (COPY --chown / the GeoIP RUN) — a recursive chown of /app here would re-store
+# them in a second layer on every release. Only the small, root-created dirs need it.
 # Note: /etc/crowdsec will be created as a symlink at runtime, not owned directly
 # Note: /app/plugins has 755 permissions (NOT world-writable) for security
-RUN chown -R charon:charon /app /config /var/log/crowdsec /var/log/caddy && \
+RUN chown -R charon:charon /app/data/caddy /app/data/crowdsec /app/plugins /app/frontend /config /var/log/crowdsec /var/log/caddy && \
     chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
     chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
 
