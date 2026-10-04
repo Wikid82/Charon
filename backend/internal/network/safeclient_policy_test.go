@@ -317,7 +317,7 @@ func TestNewSafeHTTPClient_BlockOptionsWired(t *testing.T) {
 		)
 		resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			t.Fatalf("%s: expected request to be blocked", host)
 		}
 		if !errors.Is(err, ErrBlockedAddress) {

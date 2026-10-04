@@ -201,7 +201,7 @@ func TestNewClient_HardenedTransportForEveryPolicy(t *testing.T) {
 
 		resp, err := client.Get(srv.URL)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			t.Errorf("%s: loopback request succeeded", name)
 			continue
 		}
@@ -230,7 +230,7 @@ func TestNewClient_NamedLoopbackBlockedAtDial(t *testing.T) {
 	for _, host := range []string{"localhost", "localhost."} {
 		resp, err := NewClient(PrivateNetworkOK(), 2*time.Second).Get("http://" + host + ":" + port + "/")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			t.Fatalf("%s: request succeeded", host)
 		}
 		if hits.Load() != 0 {
@@ -260,7 +260,7 @@ func TestClient_RedirectsAreNotFollowed(t *testing.T) {
 			if resp.StatusCode != code {
 				t.Errorf("code %d target %s: got status %d, want the 3xx surfaced", code, target, resp.StatusCode)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			first.Close()
 		}
 		if secondHits.Load() != 0 {
@@ -303,7 +303,7 @@ func TestClient_IgnoresProxyEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if hits.Load() != 1 {
 		t.Errorf("server hits = %d, want 1 (direct connection)", hits.Load())
 	}
@@ -322,7 +322,7 @@ func TestClient_TimeoutAndBodyNotRequired(t *testing.T) {
 	start := time.Now()
 	resp, err := newClient(PrivateNetworkOK(), 100*time.Millisecond, network.WithAllowLocalhost()).Get(slow.URL)
 	if err == nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		t.Fatal("expected timeout")
 	}
 	if elapsed := time.Since(start); elapsed > 400*time.Millisecond {

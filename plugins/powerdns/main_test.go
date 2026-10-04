@@ -217,8 +217,8 @@ func TestProbe_StatusMappingAndNoBodyEcho(t *testing.T) {
 		t.Errorf("api key header = %v", gotKey.Load())
 	}
 
-	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusFound, http.StatusInternalServerError} {
-		status.Store(int32(code))
+	for _, code := range []int32{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusFound, http.StatusInternalServerError} {
+		status.Store(code)
 		err := p.probe(hc, probeTarget(t, srv.URL), "localhost", "k")
 		if err == nil {
 			t.Errorf("status %d should fail", code)
