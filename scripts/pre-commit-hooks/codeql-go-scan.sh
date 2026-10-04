@@ -31,8 +31,11 @@ echo ""
 echo "📊 Analyzing with security-and-quality suite..."
 ANALYZE_LOG=$(mktemp)
 # Analyze with CI-aligned suite (mirrors codeql.yml queries: security-and-quality)
+# plus the repo model pack that code scanning auto-loads from .github/codeql/extensions
 codeql database analyze codeql-db-go \
   codeql/go-queries:codeql-suites/go-security-and-quality.qls \
+  --additional-packs=.github/codeql/extensions \
+  --model-packs=charon/safehttp-models@0.0.1 \
   --format=sarif-latest \
   --output=codeql-results-go.sarif \
   --sarif-add-baseline-file-info \

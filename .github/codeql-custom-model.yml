@@ -16,6 +16,12 @@
 # - IPv6 Unique Local: fc00::/7
 #
 # Reference: /docs/plans/current_spec.md
+#
+# NOTE: this file is NOT loaded by code scanning. Data extensions are only
+# picked up from model packs under .github/codeql/extensions/ (see
+# charon-safehttp-models there). Entries below are kept for documentation; note
+# that a sinkModel marks a request-forgery sink rather than a sanitizer, so
+# they should not be moved into a pack as-is (use barrierModel instead).
 extensions:
   # =============================================================================
   # SSRF SANITIZER MODELS
