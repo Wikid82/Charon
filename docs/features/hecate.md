@@ -71,6 +71,10 @@ These VPN and tunnel services work with Provider Mode:
 | Cloudflare | Cloudflare Tunnel credentials |
 | ZeroTier | ZeroTier network ID + node details |
 
+**Self-hosted NetBird or ZeroTier controllers:** your controller must be reachable at a public `https` address. Controllers that can only be reached through a private or VPN-style address (including Tailscale-style `100.64.x.x`) are refused. The default hosted services are not affected.
+
+**ZeroTier network IDs** must be exactly 16 lowercase letters and digits (`0-9`, `a-f`). Anything else is rejected with an "invalid network id" message.
+
 To add a provider: **Settings → Tunnel Providers → Add Provider** → choose your type → enter credentials → save.
 
 ---
@@ -99,6 +103,8 @@ Remote servers managed through Orthrus agents work with [Uptime Monitoring](upti
 | Agent Mode address not filling in | No network assignment set on the agent | Open the agent → assign a Provider + Device → save |
 | Tunnel keeps restarting | VPN provider is temporarily unreachable | This is normal — Hecate retries automatically with increasing delays |
 | Device not listed in Provider Mode | Provider not yet configured | Add the provider in Settings first |
+| Self-hosted NetBird/ZeroTier controller refused | Controller is only reachable on a private or VPN address | Make it reachable at a public `https` address |
+| "invalid network id" | ZeroTier network ID is not 16 lowercase letters/digits | Copy the ID again from your ZeroTier dashboard |
 
 ---
 

@@ -5,20 +5,28 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"  // Auto-register custom providers (manual)
+	"github.com/Wikid82/charon/backend/pkg/safehttp"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 // MockDNSProviderService is a mock implementation of DNSProviderService for testing.
@@ -1134,4 +1142,106 @@ func TestDNSProviderHandler_CreateGenericError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "unknown database error")
 	mockService.AssertExpectations(t)
+}
+
+// endpointPolicyFakeProvider stands in for a plugin that sends its connectivity
+// check through the shared request helper.
+type endpointPolicyFakeProvider struct {
+	dnsprovider.ProviderPlugin
+}
+
+func (endpointPolicyFakeProvider) Type() string { return "endpoint_policy_handler_fake" }
+
+func (endpointPolicyFakeProvider) Metadata() dnsprovider.ProviderMetadata {
+	return dnsprovider.ProviderMetadata{Type: "endpoint_policy_handler_fake", Name: "Fake", InterfaceVersion: dnsprovider.InterfaceVersion}
+}
+
+func (endpointPolicyFakeProvider) ValidateCredentials(creds map[string]string) error {
+	if creds["api_url"] == "" {
+		return errors.New("api_url is required")
+	}
+	return nil
+}
+
+func (endpointPolicyFakeProvider) TestCredentials(creds map[string]string) error {
+	req, err := http.NewRequest(http.MethodGet, creds["api_url"], http.NoBody)
+	if err != nil {
+		return err
+	}
+	resp, err := safehttp.NewClient(safehttp.PrivateNetworkOK(), 2*time.Second).Do(req)
+	if err != nil {
+		return fmt.Errorf("API connection failed: %w", err)
+	}
+	_ = resp.Body.Close()
+	return nil
+}
+
+func TestDNSProviderHandler_TestCredentials_EndpointPolicyAndRoleGate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&models.DNSProvider{}, &models.DNSProviderCredential{}, &models.SecurityAudit{}))
+	encryptor, err := crypto.NewEncryptionService("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	require.NoError(t, err)
+
+	base, ok := dnsprovider.Global().Get("cloudflare")
+	require.True(t, ok)
+	require.NoError(t, dnsprovider.Global().Register(endpointPolicyFakeProvider{ProviderPlugin: base}))
+	t.Cleanup(func() { dnsprovider.Global().Unregister("endpoint_policy_handler_fake") })
+
+	handler := NewDNSProviderHandler(services.NewDNSProviderService(db, encryptor))
+
+	var role atomic.Value
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.RoleKey, role.Load())
+		c.Next()
+	})
+	router.POST("/dns-providers/test", middleware.RequireRole(models.RoleAdmin), handler.TestCredentials)
+
+	const marker = "RESPONSE-BODY-MARKER"
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(marker))
+	}))
+	defer target.Close()
+
+	body, err := json.Marshal(map[string]any{
+		"name":          "probe",
+		"provider_type": "endpoint_policy_handler_fake",
+		"credentials":   map[string]string{"api_url": target.URL, "api_key": "k"},
+	})
+	require.NoError(t, err)
+	post := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/dns-providers/test", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	// Non-admin callers are refused before any provider code runs.
+	role.Store(string(models.RoleUser))
+	w := post()
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Zero(t, hits.Load())
+
+	// Admin: the request succeeds at the HTTP level but the blocked endpoint is
+	// reported as a failed test, and neither the target nor its body is reached.
+	role.Store(string(models.RoleAdmin))
+	w = post()
+	require.Equal(t, http.StatusOK, w.Code)
+	var result services.TestResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.False(t, result.Success)
+	assert.Equal(t, "CREDENTIALS_TEST_FAILED", result.Code)
+	assert.NotEmpty(t, result.Error)
+	assert.NotContains(t, w.Body.String(), marker)
+	assert.Zero(t, hits.Load(), "the endpoint must not be contacted")
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -25,7 +24,7 @@ func newTestNBClient(t *testing.T, handler http.HandlerFunc) (*NetBirdClient, *h
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	c, err := newNetBirdClientWithURL(context.Background(), "nb-test-token", srv.URL, true)
+	c, err := newNetBirdClientWithHTTP(context.Background(), "nb-test-token", srv.URL, srv.Client())
 	require.NoError(t, err)
 	return c, srv
 }
@@ -156,68 +155,6 @@ func TestForceRefresh_BypassesCache(t *testing.T) {
 	assert.Equal(t, "refreshed", r[0].ID)
 }
 
-// --- SSRF Validation Tests ---
-
-func TestNewNetBirdClient_DefaultURL(t *testing.T) {
-	// Empty management URL defaults to api.netbird.io — SSRF runs but it's a real host.
-	// We skip SSRF to avoid DNS calls in CI; just verify the base URL is set correctly.
-	c, err := newNetBirdClientWithURL(context.Background(), "tok", "", true)
-	require.NoError(t, err)
-	assert.Equal(t, defaultManagementURL, c.baseURL)
-}
-
-func TestNewNetBirdClient_InvalidScheme(t *testing.T) {
-	_, err := NewNetBirdClient(context.Background(), "tok", "http://api.netbird.io")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "https scheme")
-}
-
-func TestNewNetBirdClient_LoopbackRejected(t *testing.T) {
-	_, err := newNetBirdClientWithURL(context.Background(), "tok", "https://127.0.0.1", false)
-	require.Error(t, err)
-}
-
-func TestNewNetBirdClient_PrivateRangeRejected(t *testing.T) {
-	_, err := newNetBirdClientWithURL(context.Background(), "tok", "https://192.168.1.1", false)
-	require.Error(t, err)
-}
-
-func TestNewNetBirdClient_LinkLocalRejected(t *testing.T) {
-	_, err := NewNetBirdClient(context.Background(), "tok", "https://169.254.169.254")
-	require.Error(t, err)
-}
-
-func TestNewNetBirdClient_SkipSSRFAllowsLoopback(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "[]") //nolint:errcheck
-	}))
-	defer srv.Close()
-
-	c, err := newNetBirdClientWithURL(context.Background(), "tok", srv.URL, true)
-	require.NoError(t, err)
-	assert.NotNil(t, c)
-}
-
-func TestIsPrivateIP_Ranges(t *testing.T) {
-	tests := []struct {
-		addr     string
-		expected bool
-	}{
-		{"127.0.0.1", true},
-		{"10.0.0.1", true},
-		{"172.16.0.1", true},
-		{"192.168.1.1", true},
-		{"169.254.1.1", true},
-		{"8.8.8.8", false},
-		{"1.1.1.1", false},
-	}
-	for _, tt := range tests {
-		ip := net.ParseIP(tt.addr)
-		require.NotNil(t, ip, "failed to parse IP %s", tt.addr)
-		assert.Equal(t, tt.expected, isPrivateIP(ip), "IP %s", tt.addr)
-	}
-}
-
 // --- Provider Tests ---
 
 func TestFactory_ValidCredentials(t *testing.T) {
@@ -253,7 +190,7 @@ func TestNetBirdProvider_Start_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	p.newClientFn = func(ctx context.Context, token, url string) (*NetBirdClient, error) {
-		return newNetBirdClientWithURL(ctx, token, srv.URL, true)
+		return newNetBirdClientWithHTTP(ctx, token, srv.URL, srv.Client())
 	}
 
 	require.NoError(t, p.Start(context.Background()))
@@ -272,7 +209,7 @@ func TestNetBirdProvider_Start_InvalidToken(t *testing.T) {
 	require.NoError(t, err)
 
 	p.newClientFn = func(ctx context.Context, token, url string) (*NetBirdClient, error) {
-		return newNetBirdClientWithURL(ctx, "bad-token", srv.URL, true)
+		return newNetBirdClientWithHTTP(ctx, "bad-token", srv.URL, srv.Client())
 	}
 
 	err = p.Start(context.Background())
@@ -291,7 +228,7 @@ func TestNetBirdProvider_Start_EmptyPeerList(t *testing.T) {
 	require.NoError(t, err)
 
 	p.newClientFn = func(ctx context.Context, token, url string) (*NetBirdClient, error) {
-		return newNetBirdClientWithURL(ctx, token, srv.URL, true)
+		return newNetBirdClientWithHTTP(ctx, token, srv.URL, srv.Client())
 	}
 
 	require.NoError(t, p.Start(context.Background()))
@@ -353,7 +290,7 @@ func TestNetBirdProvider_GetClient(t *testing.T) {
 	assert.Nil(t, p.GetClient())
 
 	p.newClientFn = func(ctx context.Context, token, url string) (*NetBirdClient, error) {
-		return newNetBirdClientWithURL(ctx, token, srv.URL, true)
+		return newNetBirdClientWithHTTP(ctx, token, srv.URL, srv.Client())
 	}
 
 	require.NoError(t, p.Start(context.Background()))

@@ -1,0 +1,21 @@
+# Barrier models for the shared outbound-request helpers in
+# backend/pkg/safehttp.
+#
+# The values returned by these functions are safe to use as a request URL:
+#   - ValidateURLSyntax / ValidateURL reject non-HTTP(S) schemes, embedded
+#     credentials, and literal blocked addresses (ValidateURL also resolves
+#     hostnames), and return a parsed *url.URL.
+#   - JoinPath only appends individually escaped path segments to a validated
+#     base URL (dot segments, separators, and control characters are rejected),
+#     so the scheme and host of the result always come from that base.
+# The dialer inside safehttp.NewClient re-validates every connection address
+# and is the authoritative control; these barriers only tell the query where
+# validation has already happened.
+extensions:
+  - addsTo:
+      pack: codeql/go-all
+      extensible: barrierModel
+    data:
+      - ["github.com/Wikid82/charon/backend/pkg/safehttp", "", False, "ValidateURLSyntax", "", "", "ReturnValue[0]", "request-forgery", "manual"]
+      - ["github.com/Wikid82/charon/backend/pkg/safehttp", "", False, "ValidateURL", "", "", "ReturnValue[0]", "request-forgery", "manual"]
+      - ["github.com/Wikid82/charon/backend/pkg/safehttp", "", False, "JoinPath", "", "", "ReturnValue[0]", "request-forgery", "manual"]

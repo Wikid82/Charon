@@ -355,10 +355,21 @@ func (h *HecateHandler) ListZeroTierMembers(c *gin.Context) {
 	}
 	members, err := client.ListMembers(c.Request.Context(), networkID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status, body := zeroTierMembersErrorResponse(err)
+		c.JSON(status, body)
 		return
 	}
 	c.JSON(http.StatusOK, members)
+}
+
+// zeroTierMembersErrorResponse maps a ListMembers failure to an HTTP response:
+// a malformed network ID is a client error; anything else keeps the existing
+// upstream-failure behaviour.
+func zeroTierMembersErrorResponse(err error) (int, gin.H) {
+	if errors.Is(err, ztprovider.ErrInvalidNetworkID) {
+		return http.StatusBadRequest, gin.H{"error": "invalid network id"}
+	}
+	return http.StatusInternalServerError, gin.H{"error": err.Error()}
 }
 
 // ListNetBirdPeers proxies a ListPeers call to the active NetBird provider.
