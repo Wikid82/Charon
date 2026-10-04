@@ -298,7 +298,7 @@ Know immediately when something goes wrong. Charon continuously monitors your ap
 
 → [Learn More](features/uptime-monitoring.md)
 
-For contributors: how the uptime summary queries behave on large installs is measured in [Database performance](performance/database.md).
+For contributors: how the uptime summary queries behave on large installs is measured in [Database performance](https://github.com/Wikid82/Charon/blob/main/docs/performance/database.md).
 
 ### 🗄️ Automatic Database Maintenance
 

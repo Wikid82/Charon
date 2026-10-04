@@ -87,7 +87,7 @@ export CHARON_PLUGIN_SIGNATURES='{"myplugin": "sha256:a1b2c3d4e5f6g7h8i9j0k1l2m3
 
 ## Building Compatible Plugins
 
-A plugin only loads if it was built the same way as Charon itself: `CGO_ENABLED=1 go build -buildmode=plugin`, with no `-trimpath`, `-race` or `-cover`, using the same Go version and the same dependency versions as the Charon binary. Rebuilding always produces a new checksum, so update your allowlist afterwards. See the [plugin development guide](../development/plugin-development.md#building-plugins).
+A plugin only loads if it was built the same way as Charon itself: `CGO_ENABLED=1 go build -buildmode=plugin`, with no `-trimpath`, `-race` or `-cover`, using the same Go version and the same dependency versions as the Charon binary. Rebuilding always produces a new checksum, so update your allowlist afterwards. See the [plugin development guide](https://github.com/Wikid82/Charon/blob/main/docs/development/plugin-development.md#building-plugins).
 
 ## Outgoing Connections
 
