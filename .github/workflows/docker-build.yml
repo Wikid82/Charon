@@ -93,7 +93,7 @@ jobs:
     # Actions' `on:` block cannot reference expressions/env, so there is no shared source).
     # `nightly` is deliberately excluded — it is not in `push.branches`, so a PR headed at
     # `nightly` never races a `push`-triggered run of this workflow.
-    if: ${{ (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Lint' && github.event.workflow_run.path == '.github/workflows/docker-lint.yml')) && (github.event_name != 'pull_request' || !contains(fromJSON('["main","development"]'), github.head_ref)) }}
+    if: ${{ (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.name == 'Docker Lint' && github.event.workflow_run.path == '.github/workflows/docker-lint.yml' && github.event.workflow_run.head_repository.full_name == github.repository)) && (github.event_name != 'pull_request' || !contains(fromJSON('["main","development"]'), github.head_ref)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

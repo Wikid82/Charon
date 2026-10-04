@@ -126,6 +126,10 @@ env:
   PLAYWRIGHT_DEBUG: '1'
   CI_LOG_LEVEL: 'verbose'
 
+permissions:
+  contents: read
+  packages: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

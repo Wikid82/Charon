@@ -5,8 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   # Guards against the release-please date-ordering stranding bug (see
@@ -46,6 +45,9 @@ jobs:
     name: Release Please
     needs: guard-nightly-sequencing
     if: needs.guard-nightly-sequencing.outputs.defer != 'true'
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5

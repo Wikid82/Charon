@@ -26,13 +26,15 @@ env:
   NODE_VERSION: '24.21.0'
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   convert-docs:
     name: Convert Markdown to Issues
+    permissions:
+      contents: write        # push moved issue files back to the branch
+      issues: write
+      pull-requests: write
     runs-on: ubuntu-latest
     if: >-
       github.actor != 'github-actions[bot]' &&

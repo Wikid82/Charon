@@ -28,18 +28,21 @@ env:
   NODE_VERSION: '24.21.0'
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 jobs:
   propagate:
     name: Create PR to synchronize branches
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     runs-on: ubuntu-latest
     if: >-
       github.actor != 'github-actions[bot]' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
         (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'development')))
     steps:
       - name: Set up Node (for github-script)
