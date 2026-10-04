@@ -32,6 +32,8 @@ jobs:
       # Step 1: Get the code
       - name: 📥 Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       # Step 2: Set up Node.js
       - name: 🔧 Set up Node.js

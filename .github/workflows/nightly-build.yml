@@ -50,6 +50,7 @@ jobs:
           ref: nightly
           fetch-depth: 0
           token: ${{ secrets.CHARON_CI_TRIGGER_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Configure Git
         run: |
@@ -60,6 +61,7 @@ jobs:
         id: sync
         env:
           HAS_TRIGGER_TOKEN: ${{ secrets.CHARON_CI_TRIGGER_TOKEN != '' }}
+          PUSH_TOKEN: ${{ secrets.CHARON_CI_TRIGGER_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           # Fetch both branches to ensure we have the latest remote state
           git fetch origin development
@@ -93,7 +95,10 @@ jobs:
               echo "::warning title=Using GITHUB_TOKEN fallback::Set CHARON_CI_TRIGGER_TOKEN to ensure push-triggered workflows run on nightly."
             fi
             # Force push to handle cases where nightly diverged from development
-            git push --force origin nightly
+            # Authenticate this push with an explicit token (checkout does not persist one).
+            AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+            echo "::add-mask::${AUTH_HEADER#AUTHORIZATION: basic }"
+            git -c http.https://github.com/.extraheader="$AUTH_HEADER" push --force origin nightly
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -186,6 +191,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
 
@@ -442,6 +448,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
 
@@ -539,6 +546,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
       - name: Set lowercase image name
@@ -608,6 +616,7 @@ jobs:
       - name: Checkout nightly branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
 
       - name: Set lowercase image name
