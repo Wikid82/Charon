@@ -350,3 +350,9 @@ charon-scan.tar
 .claude/worktrees/
 scripts/tempCodeRunnerFile.sh
 backend/internal/api/routes/keys/hecate-ca.crt
+
+# PowerDNS plugin module: a plain `go build` there leaves an extensionless
+# executable, and tooling (e.g. CodeQL autobuild) can generate a go.sum that
+# the workspace build does not need.
+/plugins/powerdns/powerdns
+/plugins/powerdns/go.sum
