@@ -113,6 +113,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ env.TRIGGER_HEAD_SHA }}
           fetch-depth: 0
       - name: Normalize image name
@@ -448,6 +449,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ env.TRIGGER_HEAD_SHA }}
       - name: Normalize image name
         run: |
@@ -534,6 +536,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ env.TRIGGER_HEAD_SHA }}
       - name: Normalize image name
         run: |
@@ -647,6 +650,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ env.TRIGGER_HEAD_SHA }}
       - name: Normalize image name
         run: |
@@ -1199,6 +1203,8 @@ jobs:
     steps:
       - name: Checkout repository for Trivy ignore rules
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Normalize image name
         run: |
