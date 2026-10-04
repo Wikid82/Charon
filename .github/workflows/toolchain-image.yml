@@ -81,9 +81,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
-  security-events: write
-  pull-requests: write
 
 env:
   TOOLCHAIN_IMAGE: ghcr.io/wikid82/charon-toolchain
@@ -95,6 +92,9 @@ env:
 jobs:
   build-toolchain:
     name: Build & publish toolchain image
+    permissions:
+      contents: read
+      packages: write   # push the toolchain image to GHCR
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:

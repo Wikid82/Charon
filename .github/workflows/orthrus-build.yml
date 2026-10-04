@@ -43,10 +43,12 @@ env:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build-and-push:
+    permissions:
+      contents: read
+      packages: write   # push the image to GHCR
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
