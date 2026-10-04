@@ -878,6 +878,9 @@ RUN set -e; \
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
     # tidy's MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
     # renovate: datasource=go depName=golang.org/x/mod
+    # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
+    # renovate: datasource=go depName=github.com/jackc/pgproto3/v2
+    _retry go get github.com/jackc/pgproto3/v2@v2.3.3; \
     _retry go get golang.org/x/mod@v0.40.0; \
     _retry go mod tidy
 
