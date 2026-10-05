@@ -98,10 +98,7 @@ func (s *SecurityNotificationService) Send(ctx context.Context, event models.Sec
 // sendWebhook sends the event to a webhook URL.
 func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
 	// CRITICAL FIX: Validate webhook URL before making request (SSRF protection)
-	validatedURL, err := security.ValidateExternalURL(webhookURL,
-		security.WithAllowLocalhost(), // Allow localhost for testing
-		security.WithAllowHTTP(),      // Some webhooks use HTTP
-	)
+	validatedURL, err := security.ValidateExternalURL(webhookURL, senderURLOptions()...)
 	if err != nil {
 		// Log SSRF attempt with high severity
 		logger.Log().WithFields(logrus.Fields{

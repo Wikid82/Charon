@@ -677,6 +677,7 @@ func TestEnhancedService_SendViaProviders_QueryProvidersErrorAndCrowdSecRouting(
 }
 
 func TestEnhancedService_SendWebhook_MarshalAndExecuteErrorPaths(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	service := NewEnhancedSecurityNotificationService(db)

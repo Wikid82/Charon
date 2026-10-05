@@ -574,10 +574,7 @@ func (s *EnhancedSecurityNotificationService) dispatchToProvider(ctx context.Con
 // Blocker 4: SSRF-safe URL validation before outbound requests.
 func (s *EnhancedSecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
 	// Blocker 4: Validate URL before making outbound request (SSRF protection)
-	validatedURL, err := security.ValidateExternalURL(webhookURL,
-		security.WithAllowHTTP(),      // Allow HTTP for backwards compatibility
-		security.WithAllowLocalhost(), // Allow localhost for testing
-	)
+	validatedURL, err := security.ValidateExternalURL(webhookURL, senderURLOptions()...)
 	if err != nil {
 		return fmt.Errorf("ssrf validation failed: %w", err)
 	}

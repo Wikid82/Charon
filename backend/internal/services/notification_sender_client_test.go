@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,17 +28,22 @@ func TestSenderAllowLoopbackDefaultsFalse(t *testing.T) {
 }
 
 func TestSenderClientRejectsLoopbackByDefault(t *testing.T) {
-	for _, u := range []string{"http://127.0.0.1:9/x", "http://[::1]:9/x", "http://localhost:9/x"} {
+	for _, u := range []string{
+		"http://127.0.0.1:8080/x", "http://[::1]:8080/x", "http://localhost:8080/x",
+		"http://0.0.0.0:8080/x", "http://[::ffff:127.0.0.1]:8080/x", "http://127.0.0.2:8080/x",
+	} {
 		_, err := security.ValidateExternalURL(u, senderURLOptions()...)
-		assert.Error(t, err, u)
+		require.Error(t, err, u)
+		assert.Contains(t, err.Error(), "private ip addresses is blocked", u)
 
+		// Dial-time layer must also refuse, independent of URL validation.
 		req, reqErr := http.NewRequest(http.MethodPost, u, nil)
 		require.NoError(t, reqErr)
 		resp, doErr := newSenderHTTPClient().Do(req)
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
-		assert.Error(t, doErr, u)
+		require.Error(t, doErr, u)
 	}
 }
 
@@ -57,17 +63,17 @@ func TestSendersRejectLoopbackDestinations(t *testing.T) {
 
 func TestSenderSeamPermitsLoopbackInTests(t *testing.T) {
 	setSenderAllowLoopbackForTest(t)
-	hit := false
+	var hit atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hit = true
+		hit.Store(true)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	event := models.SecurityEvent{EventType: "waf_block", Severity: "warn", Message: "x"}
 	require.NoError(t, (&SecurityNotificationService{}).sendWebhook(context.Background(), srv.URL, event))
-	require.True(t, hit)
-	hit = false
+	require.True(t, hit.Load())
+	hit.Store(false)
 	require.NoError(t, (&EnhancedSecurityNotificationService{}).sendWebhook(context.Background(), srv.URL, event))
-	assert.True(t, hit)
+	assert.True(t, hit.Load())
 }

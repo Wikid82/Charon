@@ -10,7 +10,8 @@ import (
 
 // senderAllowLoopback is a test-only seam. It is always false in production
 // and is only toggled from _test.go files (see setSenderAllowLoopbackForTest).
-var senderAllowLoopback = false
+// Tests that toggle it must not call t.Parallel(), as it is shared package state.
+var senderAllowLoopback bool
 
 // senderURLOptions returns the URL validation options shared by the
 // notification senders.
