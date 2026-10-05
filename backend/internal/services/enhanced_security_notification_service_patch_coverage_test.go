@@ -629,6 +629,7 @@ func TestEnhancedService_IsFeatureEnabled_CreateAndRequeryPath(t *testing.T) {
 }
 
 func TestEnhancedService_SendViaProviders_QueryProvidersErrorAndCrowdSecRouting(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	t.Run("query_providers_error", func(t *testing.T) {
 		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 		require.NoError(t, err)
@@ -755,6 +756,7 @@ func TestEnhancedService_IsFeatureEnabled_CreateAndRequeryErrorPath(t *testing.T
 }
 
 func TestEnhancedService_SendViaProviders_RateLimitRoutingBranch(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	serverCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverCalls++
