@@ -128,7 +128,7 @@ jobs:
 
             const workflows = [
               { id: 'e2e-tests-split.yml' },
-              { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
+              { id: 'aikido-coverage.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
               { id: 'supply-chain-verify.yml' },
               { id: 'codeql.yml' },
             ];
