@@ -63,8 +63,8 @@ Your priority is writing code that is clean, tested, and secure by default.
     - **Local Patch Coverage Preflight (MANDATORY)**: Run VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh` before backend coverage runs.
         - Ensure artifacts exist: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
         - Use the file-level coverage gap list to target tests before final coverage validation.
-    - **Coverage (MANDATORY)**: Run the coverage task/script explicitly and confirm Codecov Patch view is green for modified lines.
-        - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
+    - **Coverage (MANDATORY)**: Run the coverage task/script explicitly and confirm modified lines are covered (`bash scripts/local-patch-report.sh`).
+        - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents patch-coverage regressions.
         - **VS Code Task**: Use "Test: Backend with Coverage" (recommended)
         - **Manual Script**: Execute `/projects/Charon/scripts/go-test-coverage.sh` from the root directory
         - **Minimum**: 85% coverage (configured via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`)
