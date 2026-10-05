@@ -84,6 +84,11 @@ type HubService struct {
 	ApplyTimeout  time.Duration
 }
 
+// hubAllowLoopback is a test-only seam. It is always false in production and is
+// only toggled from _test.go files. Tests that toggle it must not call
+// t.Parallel(), as it is shared package state.
+var hubAllowLoopback bool
+
 // validateHubURL validates a hub URL for security (SSRF protection - HIGH-001).
 // This function prevents Server-Side Request Forgery by:
 // 1. Enforcing HTTPS for production hub URLs
@@ -175,18 +180,21 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 // Hub URLs are validated by validateHubURL() which:
 // - Enforces HTTPS for production
 // - Allowlists known CrowdSec domains (hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)
-// - Allows localhost for testing
+// - Blocks loopback unless the test-only hubAllowLoopback seam is set
 // Using network.NewSafeHTTPClient provides defense-in-depth at the connection level.
 func newHubHTTPClient(timeout time.Duration) *http.Client {
-	return network.NewSafeHTTPClient(
+	opts := []network.Option{
 		network.WithTimeout(timeout),
-		network.WithAllowLocalhost(), // Allow localhost for testing
 		network.WithAllowedDomains(
 			"hub-data.crowdsec.net",
 			"hub.crowdsec.net",
 			"raw.githubusercontent.com",
 		),
-	)
+	}
+	if hubAllowLoopback {
+		opts = append(opts, network.WithAllowLocalhost())
+	}
+	return network.NewSafeHTTPClient(opts...)
 }
 
 func normalizeHubBaseURL(raw string) string {

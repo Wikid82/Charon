@@ -2511,3 +2511,33 @@ func TestFindIndexEntry_EmptySlug(t *testing.T) {
 	_, found := findIndexEntry(idx, "  ")
 	require.False(t, found)
 }
+
+// setHubAllowLoopbackForTest toggles the package-level seam. Callers must not
+// use t.Parallel().
+func setHubAllowLoopbackForTest(t *testing.T, v bool) {
+	t.Helper()
+	prev := hubAllowLoopback
+	hubAllowLoopback = v
+	t.Cleanup(func() { hubAllowLoopback = prev })
+}
+
+// Must not run in parallel: relies on shared seam state.
+func TestNewHubHTTPClient_LoopbackSeam(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	get := func() error {
+		resp, err := newHubHTTPClient(2 * time.Second).Get(srv.URL)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		return err
+	}
+
+	require.Error(t, get(), "default client must reject loopback")
+
+	setHubAllowLoopbackForTest(t, true)
+	require.NoError(t, get(), "seam permits loopback in tests")
+}
