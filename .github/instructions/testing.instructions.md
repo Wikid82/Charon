@@ -156,7 +156,7 @@ Before pushing code, verify E2E coverage:
    # View HTML report
    open coverage/e2e/index.html
 
-   # Check LCOV file exists for Codecov
+   # Check LCOV file exists for the coverage upload
    ls -la coverage/e2e/lcov.info
    ```
 
@@ -185,7 +185,7 @@ Before pushing code, verify E2E coverage:
 ## 3. Coverage & Completion
 * **Coverage Gate:** A task is not "Complete" until a coverage report is generated.
 * **Threshold Compliance:** You must compare the final coverage percentage against the project's threshold (Default: 85% unless specified otherwise). If coverage drops, you must identify the "uncovered lines" and add targeted tests.
-* **Patch Coverage (Mandatory Gate):** Codecov's `patch` status is a mandatory, merge-blocking gate (`codecov.yml`, `coverage.status.patch.default`, target aligned with the project coverage target / `CHARON_MIN_COVERAGE`) — not a suggestion. Every changed/added line in a PR's diff must meet the patch coverage target before the PR can merge, consistent with the rest of the Definition of Done. If patch coverage is below target, add targeted tests covering the uncovered changed lines before completing the task.
+* **Patch Coverage (Mandatory Gate):** Changed/added lines in a PR's diff must be covered by tests (check locally with `bash scripts/local-patch-report.sh`); the project coverage gate (`CHARON_MIN_COVERAGE`) is enforced in CI by the coverage scripts, and coverage reports are uploaded to Aikido for its PR checks — not a suggestion. If patch coverage is below target, add targeted tests covering the uncovered changed lines before completing the task.
 * **Review Patch Coverage:** When reviewing patch coverage reports, first attempt a real, targeted test for every uncovered line. Only treat a line as an acceptable exception (e.g., a branch proven structurally unreachable via any real caller) if you can document the specific reachability proof in a comment at that line — do not wave off uncovered lines as "acceptable" without that documented justification, and do not add contrived tests that don't reflect real reachable states just to inflate the number.
 
 ## 4. GORM Security Validation (Manual Stage)
