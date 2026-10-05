@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -425,8 +426,8 @@ func TestEmergencyServer_TokenRedaction(t *testing.T) {
 		},
 		{ //nolint:gosec // test fixture demonstrating token masking format
 			name:     "ValidToken",
-			token:    "f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b",
-			expected: "[EMERGENCY_TOKEN:f51d...346b]",
+			token:    strings.Repeat("a", 64),
+			expected: "[EMERGENCY_TOKEN:aaaa...aaaa]",
 		},
 	}
 
