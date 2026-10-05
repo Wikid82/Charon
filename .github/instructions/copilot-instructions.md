@@ -120,7 +120,7 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 - **Sync**: React Query expects the exact JSON produced by GORM tags (snake_case). Keep API and UI field names aligned.
 - **Migrations**: When adding models, update `internal/models` AND `internal/api/routes/routes.go` (AutoMigrate).
 - **Testing**: All new code MUST include accompanying unit tests.
-- **Ignore Files**: Always check `.gitignore`, `.dockerignore`, and `.codecov.yml` when adding new file or folders.
+- **Ignore Files**: Always check `.gitignore` and `.dockerignore` when adding new file or folders.
 
 ## Documentation
 
@@ -222,7 +222,7 @@ Before marking an implementation task as complete, perform the following in orde
 
 6. **Coverage Testing** (MANDATORY - Non-negotiable):
     - **Overall Coverage**: Minimum 85% coverage is MANDATORY and will fail the PR if not met.
-    - **Patch Coverage**: Codecov's `patch` status (Codecov Patch view) is a mandatory, merge-blocking gate (`codecov.yml`, `coverage.status.patch.default`, target aligned with the project coverage target / `CHARON_MIN_COVERAGE`), not a suggestion. If patch coverage is incomplete, add targeted tests covering the uncovered changed lines before the PR can merge.
+    - **Patch Coverage**: Changed lines must be covered by tests (check locally with `bash scripts/local-patch-report.sh`); the project gate (`CHARON_MIN_COVERAGE`) is enforced by the coverage scripts, and reports go to Aikido, not a suggestion. If patch coverage is incomplete, add targeted tests covering the uncovered changed lines before the PR can merge.
     - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
         - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
         - If coverage drops below threshold, write additional tests to restore coverage.

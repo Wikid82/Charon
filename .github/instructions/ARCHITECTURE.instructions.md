@@ -276,7 +276,6 @@ graph TB
 ├── go.work                     # Go workspace definition
 ├── package.json                # Frontend dependencies
 ├── playwright.config.js        # E2E test configuration
-├── codecov.yml                 # Code coverage settings
 ├── README.md                   # Project overview
 ├── CONTRIBUTING.md             # Contribution guidelines
 ├── CHANGELOG.md                # Version history
@@ -1118,7 +1117,7 @@ go test ./integration/...
 2. **Test:** Go tests, Vitest, Playwright
 3. **Security:** Trivy, CodeQL, Grype, Govulncheck
 4. **Build:** Docker image build
-5. **Coverage:** Upload to Codecov (85% gate)
+5. **Coverage:** Upload to Aikido (85% gate enforced by the coverage scripts)
 6. **Supply Chain:** SBOM generation, Cosign signing
 
 ---
@@ -1399,7 +1398,7 @@ All agents (`Planning`, `Backend_Dev`, `Frontend_Dev`, `DevOps`) must reference 
 **Tools:**
 
 - SonarQube: Code quality and technical debt
-- Codecov: Coverage tracking and trend analysis
+- Aikido: Security findings and code coverage reporting
 - Grafana: Runtime metrics and performance
 - GitHub Insights: Contributor activity and velocity
 
