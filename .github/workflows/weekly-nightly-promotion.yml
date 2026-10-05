@@ -545,7 +545,7 @@ jobs:
             // here would be redundant. These remaining workflows are supplementary
             // checks not part of the health gate, dispatched once the PR exists.
             const requiredWorkflows = [
-              { id: 'codecov-upload.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
+              { id: 'aikido-coverage.yml', inputs: { run_backend: 'true', run_frontend: 'true' } },
               { id: 'security-pr.yml', inputs: { pr_number: prNumber } },
               { id: 'supply-chain-verify.yml' },
             ];

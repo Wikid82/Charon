@@ -24,7 +24,7 @@ cd "$AGENT_DIR"
 # Packages to exclude from coverage (main package/entrypoint only).
 # Mirrors backend/cmd/api's exclusion in scripts/go-test-coverage.sh:
 # CLI bootstrap/flag-parsing code that doesn't benefit from unit tests, per
-# codecov.yml's "entrypoints and infrastructure code" exclusion precedent.
+# the former codecov.yml "entrypoints and infrastructure code" exclusion precedent.
 EXCLUDE_PACKAGES=(
     "github.com/Wikid82/charon/agent"
 )
