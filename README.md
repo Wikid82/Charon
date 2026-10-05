@@ -29,6 +29,11 @@
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License">
   </a>
 </p>
+<p align="center">
+<a href="https://app.aikido.dev/audit-report/external/vys4mwK7BOmHeifhnlOz1VIB/request" target="_blank">
+    <img src="https://app.aikido.dev/assets/badges/full-light-theme.svg" alt="Aikido Security Audit Report" height="40" />
+</a>
+</p>
 
 ---
 

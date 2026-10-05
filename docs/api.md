@@ -23,6 +23,10 @@ Authorization: Bearer <token>
 
 Public routes: `POST /auth/login`, `GET /auth/verify`, `GET /auth/status`, the setup and invite routes. Every other route requires a valid session. Some routes additionally require the `admin` role.
 
+`GET /auth/verify` is the check Caddy calls for forward auth. It is reachable without the normal session middleware, but it checks the caller's session itself (401 when not signed in). It also needs a recognizable forwarded host (`X-Forwarded-Host`, or `X-Original-Host` when that is absent) and returns 403 when the host is missing, malformed, or not one of your proxy hosts. Hosts are matched exactly, ignoring upper/lower case and port numbers. A stored wildcard such as `*.example.com` covers exactly one extra label (`app.example.com`, but not `a.b.example.com`).
+
+Audit entries record the actor as `user:<id>` for signed-in users, `emergency` for emergency-token requests, and the client address otherwise.
+
 ## Response Format
 
 ### Success Response
@@ -579,6 +583,34 @@ const resendInvite = async (userId) => {
 
 resendInvite(42);
 ```
+
+---
+
+#### Update User
+
+Update a user's name, email, role, enabled state, or password.
+
+```http
+PUT /users/:id
+Content-Type: application/json
+Authorization: Bearer <token>
+```
+
+**Request Body (all fields optional):**
+
+```json
+{
+  "name": "Jane Doe",
+  "password": "a-new-password",
+  "current_password": "the-old-password"
+}
+```
+
+**Password changes:**
+
+- Changing your **own** password requires `current_password`.
+- An administrator resetting **another** user's password does not need it.
+- Any password change ends that user's existing sessions. If you change your own password this way, you are signed out and need to sign in again.
 
 ---
 

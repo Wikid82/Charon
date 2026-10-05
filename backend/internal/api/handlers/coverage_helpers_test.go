@@ -127,33 +127,6 @@ func Test_mapCrowdsecStatus(t *testing.T) {
 	}
 }
 
-// Test actorFromContext helper function
-func Test_actorFromContext(t *testing.T) {
-
-	t.Run("with userID in context", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set("userID", 123)
-
-		result := actorFromContext(c)
-		assert.Equal(t, "user:123", result)
-	})
-
-	t.Run("without userID in context", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-
-		result := actorFromContext(c)
-		assert.Equal(t, "unknown", result)
-	})
-
-	t.Run("with string userID", func(t *testing.T) {
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Set("userID", "admin")
-
-		result := actorFromContext(c)
-		assert.Equal(t, "user:admin", result)
-	})
-}
-
 // Test hubEndpoints helper function
 func Test_hubEndpoints(t *testing.T) {
 

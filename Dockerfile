@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-bc8619e4e914410f
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:1e3c18331c2b65eac0ba827d4a7cf362a7ca274616d783f9ab34c85bc9f888a5
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-7f3fa653939a4329
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:98fcfdb72d9159209de0cebffde76b1ae439f8fb074e1cc047d52a660781bc3f
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -185,6 +185,11 @@ ARG CADDY_DNS_VERCEL_VERSION=0.0.2
 ARG LIBDNS_NAMEDOTCOM_VERSION=0.9.0
 # renovate: datasource=go depName=github.com/libdns/vercel
 ARG LIBDNS_VERCEL_VERSION=0.1.0
+# Forced transitive pin: caddy-dns/dnsimple -> libdns/dnsimple -> dnsimple-go/v8
+# resolves to v8.0.0 by default (flagged by supply-chain scanners). Applied via
+# `go get` in the Stage 2 patch block — NOT an xcaddy `--with`, since xcaddy adds a
+# blank import of the module root and dnsimple-go/v8 has no root package.
+ARG CADDY_DNS_DNSIMPLE_GO_VERSION=8.3.1
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -474,6 +479,7 @@ ARG CADDY_DNS_BUNNY_VERSION
 ARG CADDY_DNS_VERCEL_VERSION
 ARG LIBDNS_NAMEDOTCOM_VERSION
 ARG LIBDNS_VERCEL_VERSION
+ARG CADDY_DNS_DNSIMPLE_GO_VERSION
 # renovate: datasource=go depName=github.com/caddyserver/xcaddy
 ARG XCADDY_VERSION=0.4.7
 ARG EXPR_LANG_VERSION
@@ -667,6 +673,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # crowdsec-builder pin below.
         # renovate: datasource=go depName=golang.org/x/mod
         _retry go get golang.org/x/mod@v0.40.0; \
+        _retry go get github.com/dnsimple/dnsimple-go/v8@v${CADDY_DNS_DNSIMPLE_GO_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -871,6 +878,9 @@ RUN set -e; \
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
     # tidy's MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
     # renovate: datasource=go depName=golang.org/x/mod
+    # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
+    # renovate: datasource=go depName=github.com/jackc/pgproto3/v2
+    _retry go get github.com/jackc/pgproto3/v2@v2.3.3; \
     _retry go get golang.org/x/mod@v0.40.0; \
     _retry go mod tidy
 
@@ -970,7 +980,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=aa10ad6c6dc7daa32344954a9bdfae83d8e791540b7d17f7d06086aeb5b630cc
+ARG GEOLITE2_COUNTRY_SHA256=ff539785596f72ac2a07048f08506b38134bcf3b568182fd65f4534817bf91d7
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
@@ -992,7 +1002,8 @@ RUN mkdir -p /app/data/geoip && \
                 echo "⚠️  GeoIP download failed or empty — skipping"; \
                 touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
             fi; \
-        fi
+        fi && \
+    chown -R charon:charon /app/data
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
@@ -1081,7 +1092,7 @@ COPY configs/crowdsec/register_bouncer.sh /usr/local/bin/register_bouncer.sh
 RUN chmod +x /usr/local/bin/install_hub_items.sh /usr/local/bin/register_bouncer.sh
 
 # Copy Go binary from backend builder
-COPY --from=backend-builder /app/backend/charon /app/charon
+COPY --from=backend-builder --chown=charon:charon /app/backend/charon /app/charon
 RUN ln -s /app/charon /app/cpmp || true
 # Copy Delve stub/binary from backend-builder.
 # Security (GO-2026-5024): production builds (BUILD_DEBUG=0) receive a harmless shell
@@ -1092,14 +1103,14 @@ RUN ln -s /app/charon /app/cpmp || true
 COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
 # Copy frontend build from frontend builder
-COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+COPY --from=frontend-builder --chown=charon:charon /app/frontend/dist /app/frontend/dist
 
 # Copy startup script
 COPY .docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Copy utility scripts (used for DB recovery and maintenance)
-COPY scripts/ /app/scripts/
+COPY --chown=charon:charon scripts/ /app/scripts/
 RUN chmod +x /app/scripts/db-recovery.sh
 
 # Set default environment variables
@@ -1120,10 +1131,13 @@ RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 # This satisfies the PluginLoaderService security check (mode & 0002 == 0)
 RUN mkdir -p /app/plugins && chmod 755 /app/plugins
 
-# Security: Set ownership of all application directories to non-root charon user
+# Security: Set ownership of all application directories to non-root charon user.
+# The large /app payloads (binary, frontend, scripts, GeoIP DB) are chowned where they are
+# created (COPY --chown / the GeoIP RUN) — a recursive chown of /app here would re-store
+# them in a second layer on every release. Only the small, root-created dirs need it.
 # Note: /etc/crowdsec will be created as a symlink at runtime, not owned directly
 # Note: /app/plugins has 755 permissions (NOT world-writable) for security
-RUN chown -R charon:charon /app /config /var/log/crowdsec /var/log/caddy && \
+RUN chown -R charon:charon /app/data/caddy /app/data/crowdsec /app/plugins /app/frontend /config /var/log/crowdsec /var/log/caddy && \
     chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
     chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
 

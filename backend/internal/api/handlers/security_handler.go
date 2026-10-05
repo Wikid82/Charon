@@ -385,10 +385,7 @@ func (h *SecurityHandler) CreateDecision(c *gin.Context) {
 		return
 	}
 	// Record an audit entry
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "create_decision", Details: payload.Details})
 	c.JSON(http.StatusOK, gin.H{"decision": payload})
 }
@@ -429,10 +426,7 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 		}
 	}
 	// Create an audit event
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "upsert_ruleset", Details: payload.Name})
 	c.JSON(http.StatusOK, gin.H{"ruleset": payload})
 }
@@ -467,10 +461,7 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 			return
 		}
 	}
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "delete_ruleset", Details: idParam})
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
@@ -564,11 +555,7 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 		} else {
 			cfg.Enabled = false
 		}
-		_ = h.svc.Upsert(cfg)
-		if h.caddyManager != nil {
-			_ = h.caddyManager.ApplyConfig(c.Request.Context())
-		}
-		c.JSON(http.StatusOK, gin.H{"enabled": false})
+		h.persistDisabled(c, cfg)
 		return
 	}
 	cfg, err := h.svc.Get()
@@ -586,9 +573,21 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 		return
 	}
 	cfg.Enabled = false
-	_ = h.svc.Upsert(cfg)
+	h.persistDisabled(c, cfg)
+}
+
+// persistDisabled stores cfg and applies the proxy configuration, answering 500
+// when either step fails so the response never reports a state that was not saved.
+func (h *SecurityHandler) persistDisabled(c *gin.Context, cfg *models.SecurityConfig) {
+	if err := h.svc.Upsert(cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable Cerberus"})
+		return
+	}
 	if h.caddyManager != nil {
-		_ = h.caddyManager.ApplyConfig(c.Request.Context())
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"enabled": false})
 }
@@ -672,10 +671,7 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 	}
 
 	// Log audit event
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "reload_geoip", Details: "GeoIP database reloaded successfully"})
 
 	c.JSON(http.StatusOK, gin.H{
@@ -825,10 +821,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	}
 
 	// Log audit event
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{
 		Actor:   actor,
 		Action:  "add_waf_exclusion",
@@ -916,10 +909,7 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 	}
 
 	// Log audit event
-	actor := c.GetString("user_id")
-	if actor == "" {
-		actor = c.ClientIP()
-	}
+	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{
 		Actor:   actor,
 		Action:  "delete_waf_exclusion",

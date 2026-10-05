@@ -1,0 +1,12 @@
+# CodeQL model pack: data extensions for Charon's own helpers.
+#
+# Code scanning (github/codeql-action) automatically discovers model packs
+# under .github/codeql/extensions/, so this pack applies to CI without being
+# listed in .github/codeql/codeql-config.yml.
+name: charon/safehttp-models
+version: 0.0.1
+library: true
+extensionTargets:
+  codeql/go-all: "*"
+dataExtensions:
+  - models/**/*.yml

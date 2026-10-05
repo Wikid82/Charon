@@ -4,37 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/Wikid82/charon/backend/pkg/safehttp"
 )
 
 const defaultManagementURL = "https://api.netbird.io"
-
-// privateRanges defines IP ranges that must not be contacted to prevent SSRF.
-var privateRanges []*net.IPNet
-
-func init() {
-	cidrs := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"127.0.0.0/8",
-		"169.254.0.0/16",
-		"::1/128",
-		"fe80::/10",
-		"fc00::/7",
-	}
-	for _, cidr := range cidrs {
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			panic(fmt.Sprintf("netbird: invalid private CIDR %q: %v", cidr, err))
-		}
-		privateRanges = append(privateRanges, network)
-	}
-}
 
 // NetBirdPeer represents a peer registered in a NetBird network.
 type NetBirdPeer struct {
@@ -48,11 +26,14 @@ type NetBirdPeer struct {
 	GroupsCount int       `json:"groups_count,omitempty"`
 }
 
-const cacheTTL = 60 * time.Second
+const (
+	cacheTTL       = 60 * time.Second
+	requestTimeout = 15 * time.Second
+)
 
 // NetBirdClient is an authenticated HTTP client for the NetBird Management API.
 type NetBirdClient struct {
-	baseURL     string
+	baseURL     *url.URL
 	httpClient  *http.Client
 	accessToken string
 
@@ -62,59 +43,40 @@ type NetBirdClient struct {
 	cacheTTL  time.Duration
 }
 
-// NewNetBirdClient creates a NetBirdClient with SSRF validation on the management URL.
-// Returns an error if managementURL is not a valid, reachable HTTPS address or if it
-// resolves to a loopback, link-local, or RFC-1918 address.
+// NewNetBirdClient creates a NetBirdClient for the given management URL.
+// The URL must be https and must not point at a loopback, link-local, private,
+// carrier-grade NAT or otherwise restricted address. The URL is checked up front
+// for an early, readable error; the HTTP client then re-validates the destination
+// on every connection and never follows redirects.
 func NewNetBirdClient(ctx context.Context, accessToken, managementURL string) (*NetBirdClient, error) {
-	return newNetBirdClientWithURL(ctx, accessToken, managementURL, false)
-}
-
-// newNetBirdClientWithURL is the internal constructor. When skipSSRF is true the
-// DNS resolution check is skipped; use this only in tests that use httptest.Server.
-func newNetBirdClientWithURL(ctx context.Context, accessToken, managementURL string, skipSSRF bool) (*NetBirdClient, error) {
 	if managementURL == "" {
 		managementURL = defaultManagementURL
 	}
+	if _, err := safehttp.ValidateURL(managementURL, safehttp.PublicHTTPSOnly()); err != nil {
+		return nil, fmt.Errorf("netbird: invalid management_url: %w", err)
+	}
+	return newNetBirdClientWithHTTP(ctx, accessToken, managementURL, safehttp.NewClient(safehttp.PublicHTTPSOnly(), requestTimeout))
+}
 
+// newNetBirdClientWithHTTP builds a client around an already-constructed
+// http.Client without validating the URL against the address policy. Production
+// code reaches it only through NewNetBirdClient; tests use it with an httptest
+// server's client.
+func newNetBirdClientWithHTTP(_ context.Context, accessToken, managementURL string, hc *http.Client) (*NetBirdClient, error) {
+	if managementURL == "" {
+		managementURL = defaultManagementURL
+	}
 	parsed, err := url.Parse(managementURL)
 	if err != nil {
 		return nil, fmt.Errorf("netbird: invalid management_url: %w", err)
 	}
 
-	if !skipSSRF {
-		if parsed.Scheme != "https" {
-			return nil, fmt.Errorf("netbird: management_url must use https scheme, got %q", parsed.Scheme)
-		}
-		host := parsed.Hostname()
-		addrs, resolveErr := net.DefaultResolver.LookupIPAddr(ctx, host)
-		if resolveErr != nil {
-			return nil, fmt.Errorf("netbird: resolve management host %q: %w", host, resolveErr)
-		}
-		for _, addr := range addrs {
-			if isPrivateIP(addr.IP) {
-				return nil, fmt.Errorf("netbird: management_url resolves to a private/loopback address — SSRF protection")
-			}
-		}
-	}
-
 	return &NetBirdClient{
-		baseURL:     managementURL,
+		baseURL:     parsed,
 		accessToken: accessToken,
 		cacheTTL:    cacheTTL,
-		httpClient: &http.Client{
-			Timeout: 15 * time.Second,
-		},
+		httpClient:  hc,
 	}, nil
-}
-
-// isPrivateIP returns true if ip falls within any of the restricted private ranges.
-func isPrivateIP(ip net.IP) bool {
-	for _, network := range privateRanges {
-		if network.Contains(ip) {
-			return true
-		}
-	}
-	return false
 }
 
 // ListPeers returns all peers visible to the configured access token.
@@ -138,7 +100,11 @@ func (c *NetBirdClient) ForceRefresh(ctx context.Context) ([]NetBirdPeer, error)
 }
 
 func (c *NetBirdClient) fetchAndCache(ctx context.Context) ([]NetBirdPeer, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/peers", http.NoBody)
+	target, err := safehttp.JoinPath(c.baseURL, "api", "peers")
+	if err != nil {
+		return nil, fmt.Errorf("netbird: build request url: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("netbird: build request: %w", err)
 	}

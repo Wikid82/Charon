@@ -27,8 +27,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write       # required to delete branch refs
-  pull-requests: read   # required to list open PR head branches
+  contents: read
 
 concurrency:
   group: stale-branch-prune
@@ -36,6 +35,9 @@ concurrency:
 
 jobs:
   prune:
+    permissions:
+      contents: write       # required to delete branch refs
+      pull-requests: read   # required to list open PR head branches
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

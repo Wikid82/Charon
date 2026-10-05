@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,15 +17,15 @@ import (
 // --- Helpers ---
 
 // newTestZTClient creates a ZeroTierClient pointing to a test HTTP server,
-// bypassing SSRF validation (the server uses a loopback address).
+// bypassing address validation (the server uses a loopback address).
 //
 //nolint:unparam // *httptest.Server returned for future test variants
 func newTestZTClient(t *testing.T, handler http.HandlerFunc) (*ZeroTierClient, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	// Use http:// with skipSSRF=true because httptest uses loopback.
-	c, err := newZeroTierClientWithURL(context.Background(), "test-token", srv.URL, true)
+	// httptest listens on loopback, so the production safe client is bypassed.
+	c, err := newZeroTierClientWithHTTP(context.Background(), "test-token", srv.URL, srv.Client())
 	require.NoError(t, err)
 	return c, srv
 }
@@ -35,7 +34,7 @@ func newTestZTClient(t *testing.T, handler http.HandlerFunc) (*ZeroTierClient, *
 
 func TestListNetworks_Success(t *testing.T) {
 	networks := []ZeroTierNetwork{
-		{ID: "net1", Name: "my-network", Private: true},
+		{ID: "a1b2c3d4e5f60718", Name: "my-network", Private: true},
 	}
 	c, _ := newTestZTClient(t, func(w http.ResponseWriter, r *http.Request) {
 		// Verify Authorization header.
@@ -47,7 +46,7 @@ func TestListNetworks_Success(t *testing.T) {
 	result, err := c.ListNetworks(context.Background())
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	assert.Equal(t, "net1", result[0].ID)
+	assert.Equal(t, "a1b2c3d4e5f60718", result[0].ID)
 	assert.True(t, result[0].Private)
 }
 
@@ -67,11 +66,11 @@ func TestListMembers_Success(t *testing.T) {
 		{ID: "m1", Name: "node-1", IPAssignments: []string{"10.147.17.1"}, Online: true},
 	}
 	c, _ := newTestZTClient(t, func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v1/network/net1/member", r.URL.Path)
+		assert.Equal(t, "/api/v1/network/a1b2c3d4e5f60718/member", r.URL.Path)
 		json.NewEncoder(w).Encode(members) //nolint:errcheck,gosec,gosec
 	})
 
-	result, err := c.ListMembers(context.Background(), "net1")
+	result, err := c.ListMembers(context.Background(), "a1b2c3d4e5f60718")
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	assert.Equal(t, "m1", result[0].ID)
@@ -83,71 +82,8 @@ func TestListMembers_NetworkNotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	_, err := c.ListMembers(context.Background(), "missing-net")
+	_, err := c.ListMembers(context.Background(), "0123456789abcdef")
 	require.Error(t, err)
-}
-
-// --- SSRF Validation Tests ---
-
-func TestSSRF_RejectsHTTPScheme(t *testing.T) {
-	_, err := NewZeroTierClient(context.Background(), "tok", "http://api.zerotier.com")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "https scheme")
-}
-
-func TestSSRF_RejectsLoopbackViaSkipFalse(t *testing.T) {
-	// 127.0.0.1 is always loopback; skip SSRF=false will try DNS and then reject.
-	// We use the internal constructor with skip=false but a literal loopback IP.
-	_, err := newZeroTierClientWithURL(context.Background(), "tok", "https://127.0.0.1", false)
-	require.Error(t, err)
-	// The error is either "SSRF protection" or a DNS resolution error.
-	assert.NotNil(t, err)
-}
-
-func TestSSRF_RejectsLinkLocal(t *testing.T) {
-	// 169.254.169.254 is the AWS metadata endpoint — a classic SSRF target.
-	// We call the public constructor to trigger full validation.
-	_, err := NewZeroTierClient(context.Background(), "tok", "https://169.254.169.254")
-	require.Error(t, err)
-}
-
-func TestSSRF_SkipSSRFAllowsLoopback(t *testing.T) {
-	// Internal constructor with skipSSRF=true should allow loopback (for tests).
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "[]") //nolint:errcheck
-	}))
-	defer srv.Close()
-
-	c, err := newZeroTierClientWithURL(context.Background(), "tok", srv.URL, true)
-	require.NoError(t, err)
-	assert.NotNil(t, c)
-}
-
-func TestSSRF_RejectsPrivateRange(t *testing.T) {
-	// Use a private RFC-1918 address directly — isPrivateIP catches it.
-	// We use skipSSRF=false and a literal private IP so no DNS is needed.
-	_, err := newZeroTierClientWithURL(context.Background(), "tok", "https://192.168.1.1", false)
-	require.Error(t, err)
-}
-
-func TestIsPrivateIP_Ranges(t *testing.T) {
-	tests := []struct {
-		addr     string
-		expected bool
-	}{
-		{"127.0.0.1", true},
-		{"10.0.0.1", true},
-		{"172.16.0.1", true},
-		{"192.168.1.1", true},
-		{"169.254.1.1", true},
-		{"8.8.8.8", false},
-		{"1.1.1.1", false},
-	}
-	for _, tt := range tests {
-		ip := net.ParseIP(tt.addr)
-		require.NotNil(t, ip, "failed to parse IP %s", tt.addr)
-		assert.Equal(t, tt.expected, isPrivateIP(ip), "IP %s", tt.addr)
-	}
 }
 
 // --- Provider Tests ---
@@ -200,7 +136,7 @@ func TestStart_ValidatesToken(t *testing.T) {
 
 	// Inject factory that produces a test client bypassing SSRF.
 	p.newClientFn = func(ctx context.Context, apiToken, controllerURL string) (*ZeroTierClient, error) {
-		return newZeroTierClientWithURL(context.Background(), apiToken, srv.URL, true)
+		return newZeroTierClientWithHTTP(context.Background(), apiToken, srv.URL, srv.Client())
 	}
 
 	require.NoError(t, p.Start(context.Background()))
@@ -234,7 +170,7 @@ func TestStart_ErrorOnInvalidToken(t *testing.T) {
 	require.NoError(t, err)
 
 	p.newClientFn = func(ctx context.Context, apiToken, controllerURL string) (*ZeroTierClient, error) {
-		return newZeroTierClientWithURL(context.Background(), "bad-token", srv.URL, true)
+		return newZeroTierClientWithHTTP(context.Background(), "bad-token", srv.URL, srv.Client())
 	}
 
 	err = p.Start(context.Background())

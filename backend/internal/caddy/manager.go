@@ -19,6 +19,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security/selfhop"
 )
 
 // Test hooks to allow overriding OS and JSON functions
@@ -77,6 +78,8 @@ type Manager struct {
 	securityCfg config.SecurityConfig
 	encSvc      *crypto.EncryptionService
 	orthrusSvc  OrthrusAddrResolver
+	hopSecret   *selfhop.Secret
+	hopPort     string
 }
 
 // NewManager creates a configuration manager.
@@ -99,6 +102,15 @@ func (m *Manager) SetEncryptionService(svc *crypto.EncryptionService) {
 // SetOrthrusServer configures the Orthrus agent resolver for dynamic upstream host resolution.
 func (m *Manager) SetOrthrusServer(s OrthrusAddrResolver) {
 	m.orthrusSvc = s
+}
+
+// SetSelfHop enables recognition of requests proxied to Charon's own API on port.
+// Snapshots written by this manager carry a placeholder instead of the secret.
+// The secret changes at every restart, so a persisted copy goes stale, and any
+// file Caddy keeps of its own config has the same trust level as the config.
+func (m *Manager) SetSelfHop(secret *selfhop.Secret, port string) {
+	m.hopSecret = secret
+	m.hopPort = port
 }
 
 // ApplyConfig generates configuration from database, validates it, applies to Caddy with rollback on failure.
@@ -446,9 +458,15 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		}
 	}
 
+	remoteHosts := orthrusHostUUIDs(hosts)
 	hosts = resolveOrthrusHosts(hosts, m.orthrusSvc)
 
-	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, WithEncryptionService(m.encSvc), WithRedirectionHosts(redirectHosts))
+	genOpts := []GenerateConfigOption{WithEncryptionService(m.encSvc), WithRedirectionHosts(redirectHosts), WithRemoteHosts(remoteHosts)}
+	if m.hopSecret != nil {
+		genOpts = append(genOpts, WithSelfHop(m.hopSecret, m.hopPort))
+	}
+
+	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, genOpts...)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}
@@ -568,6 +586,8 @@ func (m *Manager) saveSnapshot(conf *Config) (string, error) {
 		return "", fmt.Errorf("marshal config: %w", err)
 	}
 
+	configJSON = m.redactHopSecret(configJSON)
+
 	if err := writeFileFunc(path, configJSON, 0o644); err != nil {
 		return "", fmt.Errorf("write snapshot: %w", err)
 	}
@@ -588,6 +608,8 @@ func (m *Manager) rollback(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read snapshot: %w", err)
 	}
+
+	configJSON = m.restoreHopSecret(configJSON)
 
 	var conf Config
 	if err := json.Unmarshal(configJSON, &conf); err != nil {

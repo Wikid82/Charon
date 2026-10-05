@@ -56,27 +56,7 @@ func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
 		return func(c *gin.Context) { c.Next() } // noop
 	}
 
-	// Parse management CIDRs
-	var managementNets []*net.IPNet
-	for _, cidr := range managementCIDRs {
-		_, ipnet, err := net.ParseCIDR(cidr)
-		if err != nil {
-			logger.Log().WithError(err).WithField("cidr", cidr).Warn("Invalid management CIDR")
-			continue
-		}
-		managementNets = append(managementNets, ipnet)
-	}
-
-	// Default to RFC1918 private networks if none specified
-	if len(managementNets) == 0 {
-		managementNets = []*net.IPNet{
-			mustParseCIDR("10.0.0.0/8"),
-			mustParseCIDR("172.16.0.0/12"),
-			mustParseCIDR("192.168.0.0/16"),
-			mustParseCIDR("127.0.0.0/8"), // localhost for local development
-			mustParseCIDR("::1/128"),     // IPv6 localhost
-		}
-	}
+	managementNets := ParseManagementNets(managementCIDRs)
 
 	return func(c *gin.Context) {
 		// Check if emergency token is present
@@ -95,15 +75,7 @@ func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		inManagementNet := false
-		for _, ipnet := range managementNets {
-			if ipnet.Contains(clientIP) {
-				inManagementNet = true
-				break
-			}
-		}
-
-		if !inManagementNet {
+		if !IsManagementIP(managementNets, clientIP) {
 			logger.Log().WithField("ip", util.SanitizeForLog(clientIP.String())).Warn("Emergency bypass: IP not in management network")
 			c.Next()
 			return

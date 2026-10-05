@@ -325,7 +325,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	})
 
 	// Emergency endpoint
-	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb)
+	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb).WithManagementCIDRs(cfg.Security.ManagementCIDRs)
 	emergency := router.Group("/api/v1/emergency")
 	// Emergency endpoints must stay responsive and should not be rate limited.
 	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
@@ -880,6 +880,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		if err := services.MigrateUptimeRetentionDefault(db); err != nil {
 			logger.Log().WithError(err).Warn("Failed to apply uptime retention default migration; will retry next boot")
+		}
+
+		if err := services.ExpireOwnerlessChallenges(db); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close manual DNS challenges without an owner; will retry next boot")
 		}
 
 		// Ensure security header presets exist

@@ -81,9 +81,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
-  security-events: write
-  pull-requests: write
 
 env:
   TOOLCHAIN_IMAGE: ghcr.io/wikid82/charon-toolchain
@@ -95,6 +92,9 @@ env:
 jobs:
   build-toolchain:
     name: Build & publish toolchain image
+    permissions:
+      contents: read
+      packages: write   # push the toolchain image to GHCR
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
@@ -116,6 +116,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           # Non-PR entry points build/verify whichever branch actually
           # triggered the run (push to development or main, or a
           # workflow_dispatch/workflow_call fired against a specific ref) —
@@ -305,6 +306,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           # Match build-toolchain: on non-PR triggers, check out the same
           # branch that triggered the run, so the CRITICAL/HIGH gate scores
           # the image against that branch's own .trivyignore suppressions.
@@ -398,12 +400,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Sync ARG CHARON_TOOLCHAIN_TAG / DIGEST if stale
         env:
           KEY: ${{ needs.build-toolchain.outputs.key }}
           DIGEST: ${{ needs.build-toolchain.outputs.digest }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           cur_tag="$(grep -E '^ARG CHARON_TOOLCHAIN_TAG=' Dockerfile | cut -d= -f2)"
@@ -422,7 +426,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Dockerfile
           git commit -m "chore(docker): sync toolchain image pin to ${KEY}"
-          git push origin "HEAD:${HEAD_REF}"
+          # Authenticate this push with an explicit token (checkout does not persist one).
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${AUTH_HEADER#AUTHORIZATION: basic }"
+          git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "HEAD:${HEAD_REF}"
           echo "::notice::Toolchain pin synced to ${KEY} @ ${DIGEST}. Re-run the 'Toolchain pin freshness' check (GITHUB_TOKEN pushes do not auto-retrigger PR checks)."
 
   # Off the PR path only: if the rebuilt digest differs from the Dockerfile pin,
@@ -446,6 +453,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           # Evaluate + bump the triggering branch's Dockerfile pin (this job's
           # PR targets that same branch as `base:`, computed identically
           # below). Never runs on pull_request. Mirrors build-toolchain.

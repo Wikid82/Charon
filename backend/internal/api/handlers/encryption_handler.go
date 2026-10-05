@@ -56,7 +56,7 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 
 	// Log rotation start
 	if err := h.securityService.LogAudit(&models.SecurityAudit{
-		Actor:         getActorFromGinContext(c),
+		Actor:         auditActor(c),
 		Action:        "encryption_key_rotation_started",
 		EventCategory: "encryption",
 		Details:       "{}",
@@ -74,7 +74,7 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 			"error": err.Error(),
 		})
 		_ = h.securityService.LogAudit(&models.SecurityAudit{
-			Actor:         getActorFromGinContext(c),
+			Actor:         auditActor(c),
 			Action:        "encryption_key_rotation_failed",
 			EventCategory: "encryption",
 			Details:       string(detailsJSON),
@@ -96,7 +96,7 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 		"new_key_version":  result.NewKeyVersion,
 	})
 	_ = h.securityService.LogAudit(&models.SecurityAudit{
-		Actor:         getActorFromGinContext(c),
+		Actor:         auditActor(c),
 		Action:        "encryption_key_rotation_completed",
 		EventCategory: "encryption",
 		Details:       string(detailsJSON),
@@ -164,7 +164,7 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 			"error": err.Error(),
 		})
 		_ = h.securityService.LogAudit(&models.SecurityAudit{
-			Actor:         getActorFromGinContext(c),
+			Actor:         auditActor(c),
 			Action:        "encryption_key_validation_failed",
 			EventCategory: "encryption",
 			Details:       string(detailsJSON),
@@ -181,7 +181,7 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 
 	// Log validation success
 	_ = h.securityService.LogAudit(&models.SecurityAudit{
-		Actor:         getActorFromGinContext(c),
+		Actor:         auditActor(c),
 		Action:        "encryption_key_validation_success",
 		EventCategory: "encryption",
 		Details:       "{}",
@@ -193,18 +193,4 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 		"valid":   true,
 		"message": "All encryption keys are valid",
 	})
-}
-
-// getActorFromGinContext extracts the user ID from Gin context for audit logging.
-func getActorFromGinContext(c *gin.Context) string {
-	// Auth middleware sets "userID" (not "user_id")
-	if userID, exists := c.Get("userID"); exists {
-		if id, ok := userID.(uint); ok {
-			return strconv.FormatUint(uint64(id), 10)
-		}
-		if id, ok := userID.(string); ok {
-			return id
-		}
-	}
-	return "system"
 }

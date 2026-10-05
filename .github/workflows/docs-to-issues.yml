@@ -26,13 +26,15 @@ env:
   NODE_VERSION: '24.21.0'
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   convert-docs:
     name: Convert Markdown to Issues
+    permissions:
+      contents: write        # push moved issue files back to the branch
+      issues: write
+      pull-requests: write
     runs-on: ubuntu-latest
     if: >-
       github.actor != 'github-actions[bot]' &&
@@ -47,6 +49,7 @@ jobs:
         with:
           fetch-depth: 2
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -346,6 +349,7 @@ jobs:
         if: steps.process.outputs.created_count != '0' && github.event.inputs.dry_run != 'true'
         env:
           BRANCH_NAME: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -353,7 +357,10 @@ jobs:
           # Removed [skip ci] to allow CI checks to run on PRs
           # Infinite loop protection: path filter excludes docs/issues/created/** AND github.actor guard prevents bot loops
           git diff --staged --quiet || git commit -m "chore: move processed issue files to created/"
-          git push origin "HEAD:refs/heads/${BRANCH_NAME}"
+          # Authenticate this push with an explicit token (checkout does not persist one).
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${AUTH_HEADER#AUTHORIZATION: basic }"
+          git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "HEAD:refs/heads/${BRANCH_NAME}"
 
       - name: Summary
         if: always()

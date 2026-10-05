@@ -37,9 +37,10 @@ Charon uses Go's plugin system to dynamically load DNS provider implementations.
 ### Build Requirements
 
 - **CGO:** Must be enabled (`CGO_ENABLED=1`)
-- **Go Version:** Must match Charon's Go version exactly (currently 1.25.6+)
+- **Go Version:** Must match Charon's Go version exactly (currently 1.27.1+)
 - **Compiler:** GCC/Clang for Linux, Xcode tools for macOS
 - **Build Mode:** Must use `-buildmode=plugin`
+- **Build Flags:** No `-trimpath`, `-race` or `-cover`; use the same Go toolchain and dependency versions as the Charon binary
 
 ## Interface Specification
 
@@ -180,9 +181,15 @@ func (p *PowerDNSProvider) ValidateCredentials(creds map[string]string) error {
     if creds["api_key"] == "" {
         return fmt.Errorf("api_key is required")
     }
+    // Syntax and literal-address checks only (no DNS lookups)
+    if _, err := safehttp.ValidateURLSyntax(creds["api_url"], safehttp.PrivateNetworkOK()); err != nil {
+        return fmt.Errorf("api_url is not allowed: %w", err)
+    }
     return nil
 }
 ```
+
+See [Validated Outbound Requests](#validated-outbound-requests) below.
 
 #### `TestCredentials(creds map[string]string) error`
 
@@ -196,17 +203,27 @@ func (p *PowerDNSProvider) TestCredentials(creds map[string]string) error {
         return err
     }
 
-    // Test API connectivity
-    url := creds["api_url"] + "/api/v1/servers"
-    req, _ := http.NewRequest("GET", url, nil)
+    // Test API connectivity through the validated helpers
+    policy := safehttp.PrivateNetworkOK()
+    base, err := safehttp.ValidateURL(creds["api_url"], policy)
+    if err != nil {
+        return err
+    }
+    target, err := safehttp.JoinPath(base, "api", "v1", "servers")
+    if err != nil {
+        return err
+    }
+    req, err := http.NewRequest(http.MethodGet, target, http.NoBody)
+    if err != nil {
+        return err
+    }
     req.Header.Set("X-API-Key", creds["api_key"])
 
-    client := &http.Client{Timeout: 10 * time.Second}
-    resp, err := client.Do(req)
+    resp, err := safehttp.NewClient(policy, 10*time.Second).Do(req)
     if err != nil {
         return fmt.Errorf("API connection failed: %w", err)
     }
-    defer resp.Body.Close()
+    defer func() { _ = resp.Body.Close() }()
 
     if resp.StatusCode != http.StatusOK {
         return fmt.Errorf("API returned status %d", resp.StatusCode)
@@ -405,7 +422,7 @@ my-provider-plugin/
 ```go
 module github.com/yourname/charon-plugin-myprovider
 
-go 1.25
+go 1.27
 
 require (
     github.com/Wikid82/charon v0.0.0-20240101000000-abcdef123456
@@ -418,13 +435,40 @@ require (
 replace github.com/Wikid82/charon => /path/to/charon
 ```
 
+## Validated Outbound Requests
+
+Plugins cannot import Charon's internal packages. For checking user-supplied addresses and making requests, import the small public package `github.com/Wikid82/charon/backend/pkg/safehttp`:
+
+```go
+policy := safehttp.PrivateNetworkOK() // or safehttp.PublicHTTPSOnly()
+
+base, err := safehttp.ValidateURL(apiURL, policy) // early, readable error
+if err != nil {
+    return err
+}
+target, err := safehttp.JoinPath(base, "api", "v1", "servers", id)
+if err != nil {
+    return err
+}
+req, _ := http.NewRequest(http.MethodGet, target, http.NoBody)
+resp, err := safehttp.NewClient(policy, 10*time.Second).Do(req)
+```
+
+- `PublicHTTPSOnly()` allows only `https` to public addresses. `PrivateNetworkOK()` also allows `http` and LAN or Tailscale-style addresses. Both refuse the host itself (loopback), link-local and other reserved addresses.
+- `ValidateURLSyntax` checks the address shape and literal IPs without any DNS lookup, and refuses unusual numeric spellings such as `127.1` or `0x7f000001`; use it when saving credentials.
+- `ValidateURL` is an early check for friendlier errors. It also refuses ports below 1024 other than 80 and 443; `ValidateURLSyntax` does not apply that port rule. The connection-time check inside `NewClient` is authoritative: it re-checks every connection and never follows redirects.
+- Test for blocked addresses with `errors.Is(err, safehttp.ErrBlockedAddress)`.
+- Use `JoinPath` to add path pieces; it rejects `..` and separators.
+
 ## Building Plugins
 
 ### Build Command
 
 ```bash
-CGO_ENABLED=1 go build -buildmode=plugin -o myprovider.so main.go
+CGO_ENABLED=1 go build -buildmode=plugin -o myprovider.so .
 ```
+
+For the bundled PowerDNS plugin, use `make plugin-powerdns` (build and test) and `make plugin-powerdns-smoke` (check it loads into Charon).
 
 ### Build Requirements
 
@@ -434,14 +478,16 @@ CGO_ENABLED=1 go build -buildmode=plugin -o myprovider.so main.go
    export CGO_ENABLED=1
    ```
 
-2. **Go version must match Charon:**
+2. **Same flags and versions as Charon:** do not use `-trimpath`, `-race` or `-cover`, and keep dependency versions identical to the Charon binary (an in-repo plugin gets this from the workspace `go.work`). Otherwise Charon refuses to load the plugin.
+
+3. **Go version must match Charon:**
 
    ```bash
    go version
    # Must match Charon's build Go version
    ```
 
-3. **Architecture must match:**
+4. **Architecture must match:**
 
    ```bash
    # For cross-compilation
@@ -485,7 +531,7 @@ set -e
 
 PLUGIN_NAME="myprovider"
 GO_VERSION=$(go version | awk '{print $3}')
-CHARON_GO_VERSION="go1.25.6"
+CHARON_GO_VERSION="go1.27.1"
 
 # Verify Go version
 if [ "$GO_VERSION" != "$CHARON_GO_VERSION" ]; then

@@ -63,13 +63,6 @@ func (h *UserHandler) SetPasswordAttemptGuard(g PasswordAttemptGuard) {
 	h.passwordGuard = g
 }
 
-func (h *UserHandler) actorFromContext(c *gin.Context) string {
-	if userID, ok := c.Get("userID"); ok {
-		return fmt.Sprintf("%v", userID)
-	}
-	return c.ClientIP()
-}
-
 func (h *UserHandler) logUserAudit(c *gin.Context, action string, user *models.User, details map[string]any) {
 	if h.securitySvc == nil || user == nil {
 		return
@@ -81,7 +74,7 @@ func (h *UserHandler) logUserAudit(c *gin.Context, action string, user *models.U
 	}
 
 	_ = h.securitySvc.LogAudit(&models.SecurityAudit{
-		Actor:         h.actorFromContext(c),
+		Actor:         auditActor(c),
 		Action:        action,
 		EventCategory: "user",
 		ResourceID:    &user.ID,
@@ -230,7 +223,7 @@ func (h *UserHandler) Setup(c *gin.Context) {
 // rejectPassthrough aborts with 403 if the caller is a passthrough user.
 // Returns true if the request was rejected (caller should return).
 func rejectPassthrough(c *gin.Context, action string) bool {
-	if c.GetString("role") == string(models.RolePassthrough) {
+	if middleware.CallerRole(c) == string(models.RolePassthrough) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Passthrough users cannot " + action})
 		return true
 	}
@@ -515,7 +508,10 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		return
 	}
 
-	inviterID, _ := c.Get("userID")
+	inviterID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
 
 	var req InviteUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -555,7 +551,6 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	// Set invite expiration (48 hours)
 	inviteExpires := time.Now().Add(48 * time.Hour)
 	invitedAt := time.Now()
-	inviterIDUint := inviterID.(uint)
 
 	user := models.User{
 		UUID:           uuid.New().String(),
@@ -567,7 +562,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		InviteToken:    inviteToken,
 		InviteExpires:  &inviteExpires,
 		InvitedAt:      &invitedAt,
-		InvitedBy:      &inviterIDUint,
+		InvitedBy:      &inviterID,
 		InviteStatus:   "pending",
 	}
 
@@ -739,21 +734,18 @@ type UpdateUserRequest struct {
 	Name     string  `json:"name"`
 	Email    string  `json:"email"`
 	Password *string `json:"password" binding:"omitempty,min=8"`
-	Role     string  `json:"role"`
-	Enabled  *bool   `json:"enabled"`
+	// CurrentPassword must accompany a password change on the caller's own account.
+	CurrentPassword string `json:"current_password"`
+	Role            string `json:"role"`
+	Enabled         *bool  `json:"enabled"`
 }
 
 // UpdateUser updates an existing user (admin only for management fields, self-service for name/password).
 func (h *UserHandler) UpdateUser(c *gin.Context) {
-	currentRole := c.GetString("role")
-	currentUserIDRaw, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
-		return
-	}
-	currentUserID, ok := currentUserIDRaw.(uint)
+	currentRole := middleware.CallerRole(c)
+	currentUserID, ok := middleware.CallerID(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid session"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
 
@@ -834,6 +826,20 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	if req.Password != nil {
+		// Changing one's own password requires proof of the current one.
+		if isSelf {
+			if req.CurrentPassword == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Current password is required to change your password"})
+				return
+			}
+			if !allowPasswordAttempt(h.passwordGuard, c) {
+				return
+			}
+			if !user.CheckPassword(req.CurrentPassword) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+				return
+			}
+		}
 		if hashErr := user.SetPassword(*req.Password); hashErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
@@ -841,6 +847,8 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		updates["password_hash"] = user.PasswordHash
 		updates["failed_login_attempts"] = 0
 		updates["locked_until"] = nil
+		// Advance the session version atomically with the new hash so existing sessions end.
+		updates["session_version"] = gorm.Expr("session_version + 1")
 	}
 
 	if req.Enabled != nil && *req.Enabled != user.Enabled {
@@ -945,8 +953,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	currentUserIDRaw, _ := c.Get("userID")
-	currentUserID, _ := currentUserIDRaw.(uint)
+	currentUserID, _ := middleware.CallerID(c)
 
 	idParam := c.Param("id")
 	id, err := strconv.ParseUint(idParam, 10, 32)

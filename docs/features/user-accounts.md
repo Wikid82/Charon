@@ -53,6 +53,24 @@ standard user.
 
 ---
 
+## Passwords and Sign-In
+
+- **Same message every time.** If a sign-in doesn't work, the login page shows
+  the same "invalid credentials" message, whatever the reason. The sign-in
+  screen doesn't show an account's lock status.
+- **Locks.** After 5 wrong passwords an account is locked for 15 minutes. Once
+  the lock has expired, the count of wrong tries starts again from zero.
+- **Changing your password signs out your other devices.** Use
+  **Change Password** and Charon ends your other sessions, while you stay signed
+  in on the device you used.
+- **Resetting someone else's password.** An administrator can set a new
+  password for another person without knowing the old one. That person is
+  signed out everywhere and signs in with the new password. Changing your own
+  password through the Users API needs your current password, and signs you out
+  so you sign in again.
+
+---
+
 ## The Very First Account
 
 The first time you open a brand-new Charon, it shows a one-time setup screen and

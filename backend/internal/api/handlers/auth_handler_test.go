@@ -749,8 +749,7 @@ func TestAuthHandler_Me(t *testing.T) {
 	r := gin.New()
 	// Simulate middleware
 	r.Use(func(c *gin.Context) {
-		c.Set("userID", user.ID)
-		c.Set("role", user.Role)
+		middleware.SetCaller(c, user.ID, string(user.Role))
 		c.Next()
 	})
 	r.GET("/me", handler.Me)
@@ -784,8 +783,7 @@ func TestAuthHandler_Me_ChangelogOptOutFalse(t *testing.T) {
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("userID", user.ID)
-		c.Set("role", user.Role)
+		middleware.SetCaller(c, user.ID, string(user.Role))
 		c.Next()
 	})
 	r.GET("/me", handler.Me)
@@ -976,11 +974,14 @@ func TestAuthHandler_Verify_ValidToken(t *testing.T) {
 	// Generate token
 	token, _ := handler.authService.GenerateToken(user)
 
+	require.NoError(t, db.Create(&models.ProxyHost{UUID: uuid.NewString(), Name: "App", DomainNames: "app.example.com", Enabled: true}).Error)
+
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	req.Header.Set("X-Forwarded-Host", "app.example.com")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1005,11 +1006,14 @@ func TestAuthHandler_Verify_BearerToken(t *testing.T) {
 
 	token, _ := handler.authService.GenerateToken(user)
 
+	require.NoError(t, db.Create(&models.ProxyHost{UUID: uuid.NewString(), Name: "App", DomainNames: "app.example.com", Enabled: true}).Error)
+
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
 	req := httptest.NewRequest("GET", "/verify", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Forwarded-Host", "app.example.com")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

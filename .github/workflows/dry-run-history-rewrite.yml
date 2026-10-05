@@ -1,15 +1,12 @@
 name: History Rewrite Dry-Run
 
 on:
-  workflow_run:
-    workflows: ["Docker Build, Publish & Test"]
-    types: [completed]
   schedule:
     - cron: '0 2 * * *' # daily at 02:00 UTC
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -19,16 +16,12 @@ jobs:
   preview-history:
     name: Dry-run preview for history rewrite
     runs-on: ubuntu-latest
-    if: >-
-      ${{ github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
 
       - name: Debug git info
         run: |

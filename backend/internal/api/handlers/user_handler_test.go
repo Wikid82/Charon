@@ -38,26 +38,6 @@ func TestMapsKeys(t *testing.T) {
 	assert.Contains(t, keys, "enabled")
 }
 
-func TestUserHandler_actorFromContext(t *testing.T) {
-	t.Parallel()
-
-	handler, _ := setupUserHandler(t)
-
-	rec1 := httptest.NewRecorder()
-	ctx1, _ := gin.CreateTestContext(rec1)
-	req1 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	req1.RemoteAddr = "198.51.100.10:1234"
-	ctx1.Request = req1
-	assert.Equal(t, "198.51.100.10", handler.actorFromContext(ctx1))
-
-	rec2 := httptest.NewRecorder()
-	ctx2, _ := gin.CreateTestContext(rec2)
-	req2 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	ctx2.Request = req2
-	ctx2.Set("userID", uint(42))
-	assert.Equal(t, "42", handler.actorFromContext(ctx2))
-}
-
 func TestUserHandler_logUserAudit_NoOpBranches(t *testing.T) {
 	t.Parallel()
 
@@ -745,7 +725,7 @@ func TestUserHandler_CreateUser_Admin(t *testing.T) {
 
 	var audit models.SecurityAudit
 	require.NoError(t, db.Where("action = ? AND event_category = ?", "user_create", "user").First(&audit).Error)
-	assert.Equal(t, "99", audit.Actor)
+	assert.Equal(t, "user:99", audit.Actor)
 }
 
 func TestUserHandler_CreateUser_InvalidJSON(t *testing.T) {
@@ -2789,8 +2769,8 @@ func TestUserHandler_UpdateUser_InvalidSessionType(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "Invalid session")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Contains(t, w.Body.String(), "Authentication required")
 }
 
 // --- UpdateUser role/enabled restriction for non-admin self ---
@@ -3076,4 +3056,23 @@ func TestUserHandler_UpdateUser_SessionInvalidationError(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "Failed to invalidate sessions")
+}
+
+func TestUserHandler_InviteUser_RequiresSessionUser(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body, _ := json.Marshal(map[string]string{"email": "invitee@example.com"})
+	req := httptest.NewRequest(http.MethodPost, "/users/invite", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

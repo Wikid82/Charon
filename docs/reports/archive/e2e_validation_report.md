@@ -139,7 +139,7 @@ grep CHARON_EMERGENCY_TOKEN .env
 
 # 2. Test emergency reset manually
 curl -u admin:changeme \
-  -H "X-Emergency-Token: f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b" \
+  -H "X-Emergency-Token: <YOUR_EMERGENCY_TOKEN>" \
   -X POST http://localhost:2020/emergency/security-reset \
   -H "Content-Type: application/json" \
   -d '{"reason":"Manual validation"}'

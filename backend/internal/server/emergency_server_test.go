@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -425,8 +426,8 @@ func TestEmergencyServer_TokenRedaction(t *testing.T) {
 		},
 		{ //nolint:gosec // test fixture demonstrating token masking format
 			name:     "ValidToken",
-			token:    "f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b",
-			expected: "[EMERGENCY_TOKEN:f51d...346b]",
+			token:    strings.Repeat("a", 64),
+			expected: "[EMERGENCY_TOKEN:aaaa...aaaa]",
 		},
 	}
 
@@ -436,4 +437,64 @@ func TestEmergencyServer_TokenRedaction(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestEmergencyServer_SecurityReset_HonorsManagementCIDRs(t *testing.T) {
+	db := setupTestDB(t)
+
+	emergencyToken := "test-emergency-token-for-testing-32chars"
+	t.Setenv("CHARON_EMERGENCY_TOKEN", emergencyToken)
+
+	// The loopback test client is outside the configured network.
+	server := NewEmergencyServer(db, config.EmergencyConfig{Enabled: true, BindAddress: "127.0.0.1:0"}).
+		WithManagementCIDRs([]string{"203.0.113.0/24"})
+	require.NoError(t, server.Start())
+	defer func() { _ = server.Stop(context.Background()) }()
+	time.Sleep(100 * time.Millisecond)
+
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", server.GetAddr()), http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("X-Emergency-Token", emergencyToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestEmergencyServer_IgnoresRequestOriginHeaders(t *testing.T) {
+	emergencyToken := "test-emergency-token-for-testing-32chars"
+	hopHeaders := map[string]string{
+		"X-Charon-Self-Hop":        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"X-Charon-Self-Hop-Client": "203.0.113.9",
+		"X-Forwarded-For":          "203.0.113.9",
+	}
+
+	run := func(t *testing.T, cidrs []string) int {
+		t.Helper()
+		db := setupTestDB(t)
+		t.Setenv("CHARON_EMERGENCY_TOKEN", emergencyToken)
+
+		server := NewEmergencyServer(db, config.EmergencyConfig{Enabled: true, BindAddress: "127.0.0.1:0"}).WithManagementCIDRs(cidrs)
+		require.NoError(t, server.Start())
+		t.Cleanup(func() { _ = server.Stop(context.Background()) })
+		time.Sleep(100 * time.Millisecond)
+
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s/emergency/security-reset", server.GetAddr()), http.NoBody)
+		require.NoError(t, err)
+		req.Header.Set("X-Emergency-Token", emergencyToken)
+		for k, v := range hopHeaders {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		return resp.StatusCode
+	}
+
+	// The address used for decisions is the connection's own address: a claimed
+	// client address inside the allowed network does not help a loopback peer...
+	assert.Equal(t, http.StatusForbidden, run(t, []string{"203.0.113.0/24"}))
+	// ...and a claimed outside address does not hurt one that is allowed.
+	assert.Equal(t, http.StatusOK, run(t, []string{"127.0.0.0/8"}))
 }

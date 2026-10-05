@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -318,8 +319,7 @@ func TestSecurityEventIntakeR6Intact(t *testing.T) {
 
 	// Add auth middleware that sets user context
 	router.Use(func(c *gin.Context) {
-		c.Set("user_id", adminUser.ID)
-		c.Set("role", "admin")
+		middleware.SetCaller(c, adminUser.ID, "admin")
 		c.Next()
 	})
 

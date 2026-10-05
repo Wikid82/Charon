@@ -500,31 +500,6 @@ func TestAuditLogHandler_ListByProvider_InvalidProviderID(t *testing.T) {
 }
 
 // =============================================================================
-// getActorFromGinContext Additional Coverage
-// =============================================================================
-
-func TestGetActorFromGinContext_InvalidUserIDType(t *testing.T) {
-
-	router := gin.New()
-	var capturedActor string
-	router.Use(func(c *gin.Context) {
-		c.Set("user_id", 123.45) // float - invalid type
-		c.Next()
-	})
-	router.GET("/test", func(c *gin.Context) {
-		capturedActor = getActorFromGinContext(c)
-		c.Status(http.StatusOK)
-	})
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", http.NoBody)
-	router.ServeHTTP(w, req)
-
-	// Should fall back to "system" for invalid type
-	assert.Equal(t, "system", capturedActor)
-}
-
-// =============================================================================
 // isAdmin Additional Coverage
 // =============================================================================
 

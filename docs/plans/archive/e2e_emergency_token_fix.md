@@ -24,7 +24,7 @@ The backend emergency token endpoint returns:
 **But the environment variable IS set:**
 ```bash
 $ docker exec charon-e2e env | grep CHARON_EMERGENCY_TOKEN
-CHARON_EMERGENCY_TOKEN=f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b
+CHARON_EMERGENCY_TOKEN=<YOUR_EMERGENCY_TOKEN>
 ```
 
 **Impact**:
@@ -279,7 +279,7 @@ docker exec charon-e2e env | grep CHARON_
 # Should return 200 OK
 curl -X POST http://localhost:2020/emergency/security-reset \
   -H "Authorization: Basic YWRtaW46Y2hhbmdlbWU=" \
-  -H "X-Emergency-Token: f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b"
+  -H "X-Emergency-Token: <YOUR_EMERGENCY_TOKEN>"
 
 # Should return 401 Unauthorized
 curl -X POST http://localhost:2020/emergency/security-reset \

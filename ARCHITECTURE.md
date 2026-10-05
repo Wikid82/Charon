@@ -209,6 +209,7 @@ graph TB
 │   │   │   └── data/changelog.json     # Build-time generated changelog data (see "Release Workflow")
 │   │   └── utils/              # Helper functions
 │   ├── pkg/                    # Public reusable packages
+│   │   └── safehttp/           # Validated outbound HTTP helpers for in-tree and community DNS provider plugins
 │   ├── integration/            # Integration tests
 │   ├── go.mod                  # Go module definition
 │   └── go.sum                  # Go dependency checksums
@@ -350,6 +351,8 @@ fork/offline fallback.
 
 - **Handlers:** Process HTTP requests, validate input, return responses
 - **Middleware:** CORS, GZIP, authentication, logging, metrics, panic recovery
+- **Request origin:** The `SelfHop` middleware is first in the engine's chain. For proxy hosts whose upstream is Charon itself, Caddy attaches an authenticated per-boot header (`internal/caddy/self_upstream.go`); the middleware verifies it and records the client address, scheme and host (`RequestOrigin`) for later handlers. Shared helpers live in `internal/security/selfhop`.
+- **Caller identity:** Handlers read the signed-in caller through shared accessors in `backend/internal/api/middleware/ctxkeys.go`, enforced by a guard test
 - **Routes:** Route registration and grouping (public, authenticated, and admin-only — see [Management API Authentication & Authorization](#management-api-authentication--authorization))
 
 **Example Endpoints:**
@@ -935,7 +938,8 @@ pin (the stage already carries ~40 such pins).
 **Additional Protections:**
 
 - **SSRF Prevention:** Block requests to private IP ranges in webhooks/URL
-  validation. `network.NewSafeHTTPClient` disables HTTP keep-alives by default;
+  validation. DNS provider plugins, which cannot import `internal/`, use the
+  public `backend/pkg/safehttp` facade over the same checks. `network.NewSafeHTTPClient` disables HTTP keep-alives by default;
   the uptime worker pool opts into a pooled variant via
   `network.WithKeepAlive(100, 4, 30s)`, where `safeDialer` still re-validates
   every new connection and the 30 s idle timeout bounds how long a reused

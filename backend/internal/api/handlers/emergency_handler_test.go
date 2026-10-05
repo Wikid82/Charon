@@ -18,6 +18,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -93,6 +94,11 @@ func setupEmergencyTestDB(t *testing.T) *gorm.DB {
 func setupEmergencyRouter(handler *EmergencyHandler) *gin.Engine {
 	router := gin.New()
 	_ = router.SetTrustedProxies(nil)
+	// Requests originate inside the management network unless a test says otherwise.
+	router.Use(func(c *gin.Context) {
+		c.Request.RemoteAddr = "127.0.0.1:40000"
+		c.Next()
+	})
 	router.POST("/api/v1/emergency/security-reset", handler.SecurityReset)
 	return router
 }
@@ -706,4 +712,94 @@ func TestUpdateTokenExpiration_InvalidDays(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "Expiration days must be between 0 and 365")
+}
+
+func newEmergencyRouterFrom(handler *EmergencyHandler, remoteAddr string) *gin.Engine {
+	router := gin.New()
+	_ = router.SetTrustedProxies(nil)
+	router.Use(func(c *gin.Context) {
+		c.Request.RemoteAddr = remoteAddr
+		c.Next()
+	})
+	router.POST("/api/v1/emergency/security-reset", handler.SecurityReset)
+	return router
+}
+
+func TestEmergencySecurityReset_DirectPathEnforcesManagementNetwork(t *testing.T) {
+	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
+	t.Setenv(EmergencyTokenEnvVar, validToken)
+
+	tests := []struct {
+		name       string
+		cidrs      []string
+		remoteAddr string
+		wantStatus int
+	}{
+		{"default networks allow private address", nil, "192.168.1.20:5000", http.StatusOK},
+		{"default networks allow loopback", nil, "127.0.0.1:5000", http.StatusOK},
+		{"default networks reject public address", nil, "203.0.113.9:5000", http.StatusForbidden},
+		{"custom networks reject private address outside list", []string{"203.0.113.0/24"}, "10.0.0.5:5000", http.StatusForbidden},
+		{"custom networks allow listed address", []string{"203.0.113.0/24"}, "203.0.113.9:5000", http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupEmergencyTestDB(t)
+			handler := NewEmergencyHandler(db)
+			t.Cleanup(handler.Close)
+			if tc.cidrs != nil {
+				handler.WithManagementCIDRs(tc.cidrs)
+			}
+			router := newEmergencyRouterFrom(handler, tc.remoteAddr)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
+			req.Header.Set(EmergencyTokenHeader, validToken)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.wantStatus, w.Code)
+			if tc.wantStatus == http.StatusForbidden {
+				assert.NotContains(t, w.Body.String(), validToken)
+			}
+		})
+	}
+}
+
+func TestEmergencySecurityReset_OutOfNetworkRejectedBeforeTokenCheck(t *testing.T) {
+	t.Setenv(EmergencyTokenEnvVar, "this-is-a-valid-emergency-token-with-32-chars-minimum")
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
+	router := newEmergencyRouterFrom(handler, "203.0.113.9:5000")
+
+	// Neither a missing nor a wrong token reveals anything beyond the refusal.
+	for _, token := range []string{"", "wrong-token"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
+		if token != "" {
+			req.Header.Set(EmergencyTokenHeader, token)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	}
+}
+
+func TestEmergencySecurityReset_MiddlewareValidatedRequestSkipsDirectCheck(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
+
+	router := gin.New()
+	_ = router.SetTrustedProxies(nil)
+	router.Use(func(c *gin.Context) {
+		c.Request.RemoteAddr = "203.0.113.9:5000"
+		c.Set(middleware.EmergencyBypassContextKey, true)
+		c.Next()
+	})
+	router.POST("/api/v1/emergency/security-reset", handler.SecurityReset)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
 }

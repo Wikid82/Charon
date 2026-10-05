@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -25,7 +26,7 @@ func requireAdmin(c *gin.Context) bool {
 }
 
 func requireAuthenticatedAdmin(c *gin.Context) bool {
-	if _, exists := c.Get("userID"); !exists {
+	if _, ok := middleware.CallerID(c); !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Authorization header required",
 		})
@@ -36,7 +37,7 @@ func requireAuthenticatedAdmin(c *gin.Context) bool {
 }
 
 func isAdmin(c *gin.Context) bool {
-	return c.GetString("role") == string(models.RoleAdmin)
+	return middleware.CallerRole(c) == string(models.RoleAdmin)
 }
 
 func respondPermissionError(c *gin.Context, securityService *services.SecurityService, action string, err error, path string) bool {
@@ -103,13 +104,8 @@ func logPermissionAudit(securityService *services.SecurityService, c *gin.Contex
 	}
 	detailsJSON, _ := json.Marshal(details)
 
-	actor := "unknown"
-	if userID, ok := c.Get("userID"); ok {
-		actor = fmt.Sprintf("%v", userID)
-	}
-
 	_ = securityService.LogAudit(&models.SecurityAudit{
-		Actor:         actor,
+		Actor:         auditActor(c),
 		Action:        action,
 		EventCategory: "permissions",
 		Details:       string(detailsJSON),

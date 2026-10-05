@@ -557,7 +557,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			locHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
 			// Determine if standard headers should be enabled (default true if nil)
 			enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
-			locHandlers = append(locHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
+			locHandlers = append(locHandlers, resolvedOpts.proxyHandler(dial, false, host.WebsocketSupport, host.Application, enableStdHeaders))
 			locRoute := &Route{
 				Match: []Match{
 					{
@@ -636,7 +636,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			"/emergency/security-reset",
 			"/emergency/*",
 		}
-		emergencyHandlers := append(append([]Handler{}, handlers...), ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
+		emergencyHandlers := append(append([]Handler{}, handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.WebsocketSupport, host.Application, enableStdHeaders))
 		emergencyRoute := &Route{
 			Match: []Match{
 				{
@@ -657,7 +657,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		routes = append(routes, emergencyRoute)
 
 		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
-		mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
+		mainHandlers = append(mainHandlers, resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.WebsocketSupport, host.Application, enableStdHeaders))
 
 		route := &Route{
 			Match: []Match{
@@ -1708,6 +1708,9 @@ func dedupeDomains(domains []string) []string {
 	return result
 }
 
+// orthrusHostPrefix marks a ForwardHost that names an Orthrus agent target.
+const orthrusHostPrefix = "orthrus:"
+
 // OrthrusAddrResolver resolves the live proxy address for an Orthrus agent.
 // This interface breaks the import cycle between caddy and orthrus packages.
 type OrthrusAddrResolver interface {
@@ -1720,14 +1723,13 @@ func resolveOrthrusHosts(hosts []models.ProxyHost, server OrthrusAddrResolver) [
 	if server == nil {
 		return hosts
 	}
-	const prefix = "orthrus:"
 	out := make([]models.ProxyHost, len(hosts))
 	copy(out, hosts)
 	for i, h := range out {
-		if !strings.HasPrefix(h.ForwardHost, prefix) {
+		if !strings.HasPrefix(h.ForwardHost, orthrusHostPrefix) {
 			continue
 		}
-		agentUUID := strings.TrimPrefix(h.ForwardHost, prefix)
+		agentUUID := strings.TrimPrefix(h.ForwardHost, orthrusHostPrefix)
 		addr, ok := server.GetProxyAddr(agentUUID)
 		if !ok {
 			continue

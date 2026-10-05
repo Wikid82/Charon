@@ -37,7 +37,12 @@
     "typescript": "~6.0.3"
   },
   "overrides": {
-    "serialize-javascript": "^7.1.2"
+    "serialize-javascript": "^7.1.2",
+    "sitemap": "^9.0.1",
+    "uuid": "^14.0.2",
+    "braces": "^3.0.3",
+    "http-cache-semantics": "^4.3.0",
+    "feed": "^6.0.0"
   },
   "engines": {
     "node": "^24.21.0"

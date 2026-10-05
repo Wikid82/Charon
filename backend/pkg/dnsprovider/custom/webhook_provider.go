@@ -3,12 +3,14 @@ package custom
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
+	"github.com/Wikid82/charon/backend/pkg/safehttp"
 )
 
 // Webhook provider constants.
@@ -195,9 +197,12 @@ func (p *WebhookProvider) ValidateCredentials(creds map[string]string) error {
 	return nil
 }
 
-// validateWebhookURL validates a webhook URL for format and SSRF protection.
-// Note: During validation, we only check format and basic security constraints.
-// Full SSRF validation with DNS resolution happens at runtime when the webhook is called.
+// validateWebhookURL validates a webhook URL at save time.
+//
+// Only format and literal-address checks happen here: Charon makes no request
+// for webhook credentials, and a hostname cannot be judged without a request
+// that may be unreachable from this environment. Any future consumer that sends
+// a request to these URLs MUST do so through safehttp.NewClient.
 func (p *WebhookProvider) validateWebhookURL(rawURL, fieldName string) error {
 	// Parse URL first for basic validation
 	parsed, err := url.Parse(rawURL)
@@ -216,20 +221,39 @@ func (p *WebhookProvider) validateWebhookURL(rawURL, fieldName string) error {
 		return fmt.Errorf("%s is missing hostname", fieldName)
 	}
 
-	// Check if this is a localhost URL (allowed for development)
-	isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	// Loopback is accepted only through this explicit exception (development
+	// and tests); it is the one place plain http is allowed.
+	isLoopback := isLoopbackWebhookHost(host)
 
 	// Require HTTPS for non-localhost URLs
-	if !isLocalhost && parsed.Scheme != "https" {
+	if !isLoopback && parsed.Scheme != "https" {
 		return fmt.Errorf("%s must use HTTPS for non-localhost URLs (security requirement)", fieldName)
 	}
 
-	// For external URLs (non-localhost), we skip DNS-based SSRF validation during
-	// credential validation as the target might not be reachable from the validation
-	// environment. Runtime SSRF protection will be enforced when actually calling the webhook.
-	// This matches the pattern used by RFC2136Provider which also validates format only.
+	if isLoopback {
+		// The shared syntax check rejects loopback outright, so apply only its
+		// structural rules (no credentials, query or fragment) to the exception.
+		if parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || strings.Contains(rawURL, "#") {
+			return fmt.Errorf("%s must not contain credentials, a query string or a fragment", fieldName)
+		}
+		return nil
+	}
 
+	if _, err := safehttp.ValidateURLSyntax(rawURL, safehttp.PrivateNetworkOK()); err != nil {
+		return fmt.Errorf("%s is not allowed: %w", fieldName, err)
+	}
 	return nil
+}
+
+// isLoopbackWebhookHost reports whether host is "localhost" (with or without a
+// trailing dot) or a loopback IP literal, including IPv4-mapped IPv6 forms.
+func isLoopbackWebhookHost(host string) bool {
+	name := strings.TrimSuffix(host, ".")
+	if strings.EqualFold(name, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(name)
+	return ip != nil && ip.IsLoopback()
 }
 
 // TestCredentials attempts to verify credentials work.

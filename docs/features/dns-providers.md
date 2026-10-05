@@ -172,9 +172,35 @@ Content-Type: application/json
 ### Security Notes
 
 - **HTTPS Required**: Non-localhost URLs must use HTTPS
+- **Keep secrets out of the address**: Addresses containing a username and password (`user:pass@`), a `?query` or a `#fragment` are refused, including for `localhost`. Put secrets in the `auth_header` and `auth_value` fields instead.
+- **Checked when saved**: Charon checks each address when you save the provider. If you saved a provider earlier with a `?query` in its address, you will see the error the next time you edit and save it. Remove the query and move the secret into the auth fields.
 - **Authentication**: Always use `auth_header` and `auth_value` for production
 - **Timeouts**: Set appropriate timeouts to avoid blocking certificate issuance
 - **`insecure_skip_verify`**: Never enable in production; only for local development with self-signed certs
+
+---
+
+## PowerDNS
+
+PowerDNS is available as a plugin. Enter the address of your PowerDNS API and your API key.
+
+### Which Addresses Work
+
+| Address | Allowed? |
+|---|---|
+| Your server's LAN address (like `192.168.1.20`) or a Docker network address | Yes |
+| Tailscale-style addresses (`100.64.x.x`) | Yes |
+| `localhost`, `127.0.0.1`, `::1` (the Charon host itself) | No — use your server's LAN or Docker network address instead |
+| Private IPv6 addresses (like `fd00::` or `fd7a::`) | No — use an IPv4 LAN or `100.64.x.x` address |
+| Cloud-internal addresses | No |
+
+- Charon checks the address when you create, update or test the provider.
+- Charon does not follow redirects.
+- When you press **Test**, Charon also refuses ports below 1024 other than 80 and 443 (for example `:22`). Saving a provider does not apply this port rule.
+- Charon also refuses unusual ways of writing an IP address, such as `127.1` or `0x7f000001`. Use the normal form (`192.168.1.20`) or a hostname.
+- Providers you already saved keep issuing certificates as before. The check applies when you test or save.
+- Use `https` if the connection crosses a network you do not fully trust, because your API key is sent with every request. Plain `http` is still allowed.
+- Charon refuses connections to a few internal-only address ranges everywhere it makes outgoing connections.
 
 ---
 

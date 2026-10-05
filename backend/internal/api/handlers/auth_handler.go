@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -40,7 +43,13 @@ func isTrustedPeer(c *gin.Context, trustedProxies security.TrustedProxyMatcher) 
 	return trustedProxies.ContainsIP(normalizeHost(c.Request.RemoteAddr))
 }
 
+// requestScheme resolves the scheme the client used. A request carrying a verified
+// origin record from Charon's own proxy uses the scheme recorded there; otherwise
+// forwarded headers count only from a configured trusted peer.
 func requestScheme(c *gin.Context, trustedProxies security.TrustedProxyMatcher) string {
+	if origin, ok := middleware.RequestOriginFrom(c); ok && origin.Scheme != "" {
+		return origin.Scheme
+	}
 	if isTrustedPeer(c, trustedProxies) {
 		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
 			// Honor first entry in a comma-separated header
@@ -113,6 +122,11 @@ func isLocalOrPrivateHost(host string) bool {
 func isLocalRequest(c *gin.Context, trustedProxies security.TrustedProxyMatcher) bool {
 	if c.Request == nil {
 		return false
+	}
+
+	// A verified origin record carries the real client address.
+	if origin, ok := middleware.RequestOriginFrom(c); ok {
+		return isLocalOrPrivateHost(origin.Addr)
 	}
 
 	if isTrustedPeer(c, trustedProxies) {
@@ -214,7 +228,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	token, err := h.authService.Login(req.Email, req.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		if errors.Is(err, services.ErrInvalidLogin) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": services.ErrInvalidLogin.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": services.ErrLoginUnavailable.Error()})
 		return
 	}
 
@@ -225,12 +243,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	if userIDValue, exists := c.Get("userID"); exists {
-		if userID, ok := userIDValue.(uint); ok && userID > 0 {
-			if err := h.authService.InvalidateSessions(userID); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate session"})
-				return
-			}
+	if userID, ok := middleware.CallerID(c); ok && userID > 0 {
+		if err := h.authService.InvalidateSessions(userID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate session"})
+			return
 		}
 	}
 
@@ -242,13 +258,12 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // Must be called with a valid existing token.
 // Supports long-running test sessions by allowing token refresh before expiry.
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, ok := requireUserID(c)
+	if !ok {
 		return
 	}
 
-	user, err := h.authService.GetUserByID(userID.(uint))
+	user, err := h.authService.GetUserByID(userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -267,19 +282,12 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	userID, ok := userIDValue.(uint)
+	userID, ok := requireUserID(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	role, _ := c.Get("role")
+	role := middleware.CallerRole(c)
 
 	u, err := h.authService.GetUserByID(userID)
 	if err != nil {
@@ -308,16 +316,23 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, ok := requireUserID(c)
+	if !ok {
 		return
 	}
 
-	if err := h.authService.ChangePassword(userID.(uint), req.OldPassword, req.NewPassword); err != nil {
+	if err := h.authService.ChangePassword(userID, req.OldPassword, req.NewPassword); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Other sessions ended with the password change; keep the caller signed in.
+	token, err := h.authService.TokenForUser(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh session"})
+		return
+	}
+	setSecureCookie(c, "auth_token", token, 3600*24, h.trustedProxies)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully"})
 }
@@ -367,31 +382,11 @@ func (h *AuthHandler) Verify(c *gin.Context) {
 		return
 	}
 
-	// Get the forwarded host from Caddy
-	forwardedHost := c.GetHeader("X-Forwarded-Host")
-	if forwardedHost == "" {
-		forwardedHost = c.GetHeader("X-Original-Host")
-	}
-
-	// If we have a database reference and a forwarded host, check permissions
-	if h.db != nil && forwardedHost != "" {
-		// Find the proxy host for this domain
-		var proxyHost models.ProxyHost
-		err := h.db.Where("domain_names LIKE ?", "%"+forwardedHost+"%").First(&proxyHost).Error
-
-		if err == nil && proxyHost.ForwardAuthEnabled {
-			// Load user's permitted hosts for permission check
-			var userWithHosts models.User
-			if err := h.db.Preload("PermittedHosts").First(&userWithHosts, user.ID).Error; err == nil {
-				// Check if user can access this host
-				if !userWithHosts.CanAccessHost(proxyHost.ID) {
-					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-						"error": "Access denied to this application",
-					})
-					return
-				}
-			}
-		}
+	if !h.authorizeForwardedHost(c, user) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error": "Access denied to this application",
+		})
+		return
 	}
 
 	// Set headers for downstream services
@@ -401,6 +396,58 @@ func (h *AuthHandler) Verify(c *gin.Context) {
 
 	// Return 200 OK - access granted
 	c.Status(http.StatusOK)
+}
+
+// forwardedHost returns the host the proxy received the original request for:
+// the first X-Forwarded-Host entry, or X-Original-Host when that header is absent.
+func forwardedHost(c *gin.Context) string {
+	host := c.GetHeader("X-Forwarded-Host")
+	if host == "" {
+		host = c.GetHeader("X-Original-Host")
+	}
+	first, _, _ := strings.Cut(host, ",")
+	return strings.TrimSpace(first)
+}
+
+// authorizeForwardedHost reports whether user may access the proxy host the
+// request was forwarded for. It fails closed: an unusable host, an unknown
+// host, or any lookup error denies access. A host without forward auth enabled
+// accepts any authenticated user.
+func (h *AuthHandler) authorizeForwardedHost(c *gin.Context, user *models.User) bool {
+	if h.db == nil {
+		logger.Log().Warn("forward auth check unavailable: database not configured")
+		return false
+	}
+
+	hosts, err := services.FindProxyHostsByDomain(h.db, forwardedHost(c))
+	if err != nil {
+		logger.Log().WithError(err).Debug("forward auth host lookup failed")
+		return false
+	}
+	if len(hosts) == 0 {
+		logger.Log().Debug("forward auth request for an unknown host")
+		return false
+	}
+
+	var permitted *models.User
+	for i := range hosts {
+		if !hosts[i].ForwardAuthEnabled {
+			logger.Log().WithField("host_id", hosts[i].ID).Debug("forward auth not enabled for host; allowing authenticated user")
+			continue
+		}
+		if permitted == nil {
+			var loaded models.User
+			if err := h.db.Preload("PermittedHosts").First(&loaded, user.ID).Error; err != nil {
+				logger.Log().WithError(err).Debug("forward auth permission load failed")
+				return false
+			}
+			permitted = &loaded
+		}
+		if !permitted.CanAccessHost(hosts[i].ID) {
+			return false
+		}
+	}
+	return true
 }
 
 // VerifyStatus returns the current auth status without triggering a redirect.
@@ -447,9 +494,8 @@ func (h *AuthHandler) VerifyStatus(c *gin.Context) {
 
 // GetAccessibleHosts returns the list of proxy hosts the authenticated user can access.
 func (h *AuthHandler) GetAccessibleHosts(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, ok := requireUserID(c)
+	if !ok {
 		return
 	}
 
@@ -492,9 +538,8 @@ func (h *AuthHandler) GetAccessibleHosts(c *gin.Context) {
 
 // CheckHostAccess checks if the current user can access a specific host.
 func (h *AuthHandler) CheckHostAccess(c *gin.Context) {
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, ok := requireUserID(c)
+	if !ok {
 		return
 	}
 

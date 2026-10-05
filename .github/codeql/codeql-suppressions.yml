@@ -26,7 +26,9 @@
 suppressions:
   - rule_id: go/cookie-secure-not-set
     path: backend/internal/api/handlers/auth_handler.go
-    line: 187
+    line_range:
+      start: 187
+      end: 205
     reason: >
       Secure is false only when isLocalRequest(c) AND scheme != "https"
       (loopback/RFC1918/IPv6-ULA/Tailscale-CGNAT origin over plain HTTP) —
@@ -43,6 +45,10 @@ suppressions:
       the documented fallback for that case. See
       docs/issues/codeql-cookie-suppression-not-honored.md for the full
       investigation history.
+      Extended 2026-10-03: the request-origin/auth handler changes in the
+      security hardening PRs shift the SetCookie sink between lines 187 and
+      ~202 depending on merge state, so the entry is widened to a
+      line_range; this is the only SetCookie call in the file.
     added: "2026-08-04"
     review_by: "2026-11-04"
 

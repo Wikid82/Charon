@@ -2291,22 +2291,6 @@ func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 	require.False(t, updatedCfg.Enabled)
 }
 
-// TestCrowdsecHandler_ActorFromContext tests actor extraction from Gin context
-func TestCrowdsecHandler_ActorFromContext(t *testing.T) {
-	t.Parallel()
-
-	// Test with userID present
-	c1, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c1.Set("userID", 123)
-	actor1 := actorFromContext(c1)
-	require.Equal(t, "user:123", actor1)
-
-	// Test without userID
-	c2, _ := gin.CreateTestContext(httptest.NewRecorder())
-	actor2 := actorFromContext(c2)
-	require.Equal(t, "unknown", actor2)
-}
-
 // TestCrowdsecHandler_IsCerberusEnabled_EnvVar tests Cerberus feature flag via environment variable
 func TestCrowdsecHandler_IsCerberusEnabled_EnvVar(t *testing.T) {
 	// Note: Cannot use t.Parallel() with t.Setenv in subtests

@@ -385,6 +385,8 @@ Charon displays the required DNS record:
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
+> **Note**: A manual challenge belongs to the user who started it. Other users cannot see or act on it, and if someone else already has an active challenge for the same name, Charon tells you one is in progress. Challenges left over from earlier versions (with no owner) are closed once at startup, so just start a new one.
+
 #### Step 3: Add Record to DNS Provider
 
 Log in to your DNS provider and create the TXT record:

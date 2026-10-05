@@ -857,6 +857,19 @@
       "depNameTemplate": "github.com/libdns/vercel",
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track dnsimple-go/v8 forced transitive version ARG in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG CADDY_DNS_DNSIMPLE_GO_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "github.com/dnsimple/dnsimple-go/v8",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
     }
   ],
   "github-actions": {
@@ -889,6 +902,19 @@
       "description": "The ghcr.io/wikid82/charon-toolchain digest pin (Dockerfile ARG CHARON_TOOLCHAIN_TAG / CHARON_TOOLCHAIN_DIGEST) is owned by .github/workflows/toolchain-image.yml's bot PR, NOT Renovate: its content-hash tag (caddy-crowdsec-<hex>) has no version series to follow (spec N7). Disabled here so a stray digest bump cannot land without the matching key change the freshness guard requires.",
       "matchPackageNames": [
         "ghcr.io/wikid82/charon-toolchain"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "The bundled powerdns plugin consumes the in-repo backend module through a local replace directive; never let Renovate resolve or bump it.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchFileNames": [
+        "plugins/powerdns/go.mod"
+      ],
+      "matchPackageNames": [
+        "github.com/Wikid82/charon/backend"
       ],
       "enabled": false
     },

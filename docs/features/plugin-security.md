@@ -85,6 +85,14 @@ export CHARON_PLUGIN_SIGNATURES='{"myplugin": "sha256:a1b2c3d4e5f6g7h8i9j0k1l2m3
 
 ---
 
+## Building Compatible Plugins
+
+A plugin only loads if it was built the same way as Charon itself: `CGO_ENABLED=1 go build -buildmode=plugin`, with no `-trimpath`, `-race` or `-cover`, using the same Go version and the same dependency versions as the Charon binary. Rebuilding always produces a new checksum, so update your allowlist afterwards. See the [plugin development guide](https://github.com/Wikid82/Charon/blob/main/docs/development/plugin-development.md#building-plugins).
+
+## Outgoing Connections
+
+Plugins that call outside services should use Charon's validated helpers (see the plugin development guide). Charon refuses connections to a few internal-only address ranges.
+
 ## Container Deployment Recommendations
 
 ### Read-Only Plugin Mount (Critical)
@@ -191,6 +199,10 @@ docker compose restart charon
 ```
 
 > **⚠️ Warning**: `cp` followed by direct write to the plugin directory is **not atomic** and creates a window for exploitation.
+
+### Bundled PowerDNS Plugin Was Rebuilt
+
+The bundled PowerDNS plugin has been rebuilt. If you pin plugin signatures with `CHARON_PLUGIN_SIGNATURES`, recompute the SHA-256 (`sha256sum powerdns.so`) and update the allowlist. Until you do, the PowerDNS provider will not load.
 
 ### 3. Signature Re-Verification on Reload
 

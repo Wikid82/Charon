@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -1040,4 +1041,28 @@ func TestSecurityService_ListRuleSets_EdgeCases(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, rulesets, 5)
 	})
+}
+
+func TestSecurityService_ListAuditLogs_ActorFormats(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := newTestSecurityService(t, db)
+
+	for i, actor := range []string{"user:7", "7", "70", "user:70", "user:abc", "alice"} {
+		require.NoError(t, db.Create(&models.SecurityAudit{
+			UUID: fmt.Sprintf("actor-%d", i), Actor: actor, Action: "a", EventCategory: "c",
+		}).Error)
+	}
+
+	count := func(filter string) int {
+		_, total, err := svc.ListAuditLogs(AuditLogFilter{Actor: filter}, 1, 50)
+		require.NoError(t, err)
+		return int(total)
+	}
+
+	assert.Equal(t, 2, count("user:7"), "matches current and legacy bare numeric forms")
+	assert.Equal(t, 2, count("user:70"))
+	assert.Equal(t, 1, count("7"), "bare filter is exact")
+	assert.Equal(t, 1, count("user:abc"), "non-numeric ids are exact")
+	assert.Equal(t, 1, count("alice"))
+	assert.Equal(t, 0, count("user:"), "empty id is exact")
 }
