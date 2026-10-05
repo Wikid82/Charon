@@ -78,6 +78,7 @@ func newUptimeChecker(svc *UptimeService) *uptimeChecker {
 		network.WithMaxRedirects(0),
 		network.WithAllowLocalhost(),
 		network.WithAllowRFC1918(),
+		network.WithAllowCGNAT(),
 		network.WithKeepAlive(100, 4, 30*time.Second),
 	)
 	return &uptimeChecker{
@@ -112,6 +113,7 @@ func (c *uptimeChecker) probe(ctx context.Context, monitor models.UptimeMonitor)
 			// hosts. Link-local (169.254.x.x), cloud metadata, and all other
 			// restricted ranges remain blocked at both validation layers.
 			security.WithAllowRFC1918(),
+			security.WithAllowCGNAT(),
 		)
 		if err != nil {
 			msg = fmt.Sprintf("security validation failed: %s", err.Error())

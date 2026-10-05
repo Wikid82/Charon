@@ -71,11 +71,18 @@ func ValidateHostSSRF(host string) error {
 	return nil
 }
 
+// overlayFriendlyPolicy is the address policy for remote storage targets: a NAS
+// on the operator's LAN or on an overlay network is a legitimate destination,
+// while loopback, link-local and every other reserved range stay blocked.
+// It is hoisted into one package var so the save-time check and the dial-time
+// check share a single documented policy.
+// AllowTransition is a temporary staging field.
+var overlayFriendlyPolicy = network.AddressPolicy{AllowRFC1918: true, AllowCGNAT: true, AllowTransition: true}
+
 // validateIPSSRF applies the RFC1918-allowed SSRF policy to a single
 // resolved IP.
 func validateIPSSRF(ip net.IP) error {
-	policy := network.AddressPolicy{AllowRFC1918: true, AllowCGNAT: true, AllowTransition: true}
-	if policy.Blocked(ip) {
+	if overlayFriendlyPolicy.Blocked(ip) {
 		return fmt.Errorf("connection to disallowed address blocked: %s", ip)
 	}
 	return nil

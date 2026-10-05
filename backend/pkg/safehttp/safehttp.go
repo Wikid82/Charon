@@ -53,6 +53,9 @@ func (p Policy) clientOptions(timeout time.Duration) []network.Option {
 	if p.allowRFC1918 {
 		opts = append(opts, network.WithAllowRFC1918())
 	}
+	if p.allowCGNAT {
+		opts = append(opts, network.WithAllowCGNAT())
+	}
 	if !p.allowCGNAT {
 		opts = append(opts, network.WithBlockCGNAT())
 	}
@@ -204,6 +207,9 @@ func ValidateURL(raw string, p Policy) (*url.URL, error) {
 	}
 	if p.allowRFC1918 {
 		opts = append(opts, security.WithAllowRFC1918())
+	}
+	if p.allowCGNAT {
+		opts = append(opts, security.WithAllowCGNAT())
 	}
 	// The returned normalised string is discarded on purpose: requests are built
 	// from the *url.URL parsed above, never from a re-parsed string.
