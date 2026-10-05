@@ -76,8 +76,7 @@ func ValidateHostSSRF(host string) error {
 // while loopback, link-local and every other reserved range stay blocked.
 // It is hoisted into one package var so the save-time check and the dial-time
 // check share a single documented policy.
-// AllowTransition is a temporary staging field.
-var overlayFriendlyPolicy = network.AddressPolicy{AllowRFC1918: true, AllowCGNAT: true, AllowTransition: true}
+var overlayFriendlyPolicy = network.AddressPolicy{AllowRFC1918: true, AllowCGNAT: true}
 
 // validateIPSSRF applies the RFC1918-allowed SSRF policy to a single
 // resolved IP.

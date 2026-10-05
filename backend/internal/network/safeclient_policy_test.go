@@ -108,14 +108,13 @@ func TestClientOptionsPolicy(t *testing.T) {
 		{"rfc1918 default", "10.0.0.5", ClientOptions{}, true},
 		{"rfc1918 allowed", "10.0.0.5", ClientOptions{AllowRFC1918: true}, false},
 		{"link-local never allowed by rfc1918", "169.254.169.254", ClientOptions{AllowRFC1918: true, AllowLocalhost: true}, true},
-		{"cgnat default allowed through", "100.64.0.1", ClientOptions{}, false},
-		{"cgnat blocked by option", "100.64.0.1", ClientOptions{BlockCGNAT: true}, true},
-		{"cgnat blocked even with rfc1918 allowed", "100.64.0.1", ClientOptions{BlockCGNAT: true, AllowRFC1918: true}, true},
-		{"transition default allowed through", "2002::1", ClientOptions{}, false},
-		{"transition blocked by option", "2002::1", ClientOptions{BlockTransitionRanges: true}, true},
-		{"transition blocked with every allowance", "64:ff9b::1", ClientOptions{BlockTransitionRanges: true, AllowLocalhost: true, AllowRFC1918: true}, true},
-		{"teredo blocked by option", "2001:0:4136:e378:8000:63bf:3fff:fdd2", ClientOptions{BlockTransitionRanges: true}, true},
-		{"loopback v6 with transition option and allowance", "::1", ClientOptions{BlockTransitionRanges: true, AllowLocalhost: true}, false},
+		{"shared space default blocked", "100.64.0.1", ClientOptions{}, true},
+		{"shared space allowed by option", "100.64.0.1", ClientOptions{AllowCGNAT: true}, false},
+		{"shared space blocked even with rfc1918 allowed", "100.64.0.1", ClientOptions{AllowRFC1918: true}, true},
+		{"transition blocked by default", "2002::1", ClientOptions{}, true},
+		{"transition blocked with every allowance", "64:ff9b::1", ClientOptions{AllowLocalhost: true, AllowRFC1918: true, AllowCGNAT: true}, true},
+		{"tunnel range blocked", "2001:0:4136:e378:8000:63bf:3fff:fdd2", ClientOptions{}, true},
+		{"loopback v6 with allowance", "::1", ClientOptions{AllowLocalhost: true}, false},
 		{"unspecified blocked", "0.0.0.0", ClientOptions{AllowLocalhost: true, AllowRFC1918: true}, true},
 	}
 	for _, tt := range tests {
@@ -187,7 +186,7 @@ func TestSafeDialer_RejectsBlockedAnswerInEitherPosition(t *testing.T) {
 	withResolver(t, map[string][]string{
 		"blocked-first.example": {"10.0.0.5", "127.0.0.1"},
 		"blocked-last.example":  {"127.0.0.1", "10.0.0.5"},
-		"cgnat-mixed.example":   {"127.0.0.1", "100.64.0.1"},
+		"shared-mixed.example":  {"127.0.0.1", "100.64.0.1"},
 		"trans-mixed.example":   {"2002::1", "127.0.0.1"},
 		"meta-alias.example":    {"::ffff:169.254.169.254", "127.0.0.1"},
 		"clean.example":         {"127.0.0.1"},
@@ -202,9 +201,10 @@ func TestSafeDialer_RejectsBlockedAnswerInEitherPosition(t *testing.T) {
 		{"rfc1918 blocked first", "blocked-first.example", ClientOptions{AllowLocalhost: true}, false},
 		{"rfc1918 blocked last", "blocked-last.example", ClientOptions{AllowLocalhost: true}, false},
 		{"rfc1918 allowed last", "blocked-last.example", ClientOptions{AllowLocalhost: true, AllowRFC1918: true}, true},
-		{"cgnat blocked by option", "cgnat-mixed.example", ClientOptions{AllowLocalhost: true, BlockCGNAT: true}, false},
-		{"cgnat not blocked without option", "cgnat-mixed.example", ClientOptions{AllowLocalhost: true}, true},
-		{"transition blocked by option", "trans-mixed.example", ClientOptions{AllowLocalhost: true, BlockTransitionRanges: true}, false},
+		{"shared space blocked by default", "shared-mixed.example", ClientOptions{AllowLocalhost: true}, false},
+		{"shared space allowed by option", "shared-mixed.example", ClientOptions{AllowLocalhost: true, AllowCGNAT: true}, true},
+		{"transition blocked by default", "trans-mixed.example", ClientOptions{AllowLocalhost: true}, false},
+		{"transition blocked with every allowance", "trans-mixed.example", ClientOptions{AllowLocalhost: true, AllowRFC1918: true, AllowCGNAT: true}, false},
 		{"mapped link-local blocked despite allowances", "meta-alias.example", ClientOptions{AllowLocalhost: true, AllowRFC1918: true}, false},
 		{"clean answer", "clean.example", ClientOptions{AllowLocalhost: true}, true},
 	}
@@ -235,11 +235,11 @@ func TestSafeDialer_RejectsBlockedAnswerInEitherPosition(t *testing.T) {
 
 func TestValidateRedirectTarget_SharedPolicy(t *testing.T) {
 	withResolver(t, map[string][]string{
-		"lan.example":     {"192.168.1.10"},
-		"overlay.example": {"100.64.0.9"},
-		"nat64.example":   {"64:ff9b::1"},
-		"public.example":  {"8.8.8.8"},
-		"meta.example":    {"169.254.169.254"},
+		"lan.example":         {"192.168.1.10"},
+		"overlay.example":     {"100.64.0.9"},
+		"translation.example": {"64:ff9b::1"},
+		"public.example":      {"8.8.8.8"},
+		"meta.example":        {"169.254.169.254"},
 	})
 
 	tests := []struct {
@@ -250,9 +250,9 @@ func TestValidateRedirectTarget_SharedPolicy(t *testing.T) {
 	}{
 		{"rfc1918 default", "lan.example", ClientOptions{}, true},
 		{"rfc1918 allowed", "lan.example", ClientOptions{AllowRFC1918: true}, false},
-		{"cgnat blocked", "overlay.example", ClientOptions{AllowRFC1918: true, BlockCGNAT: true}, true},
-		{"cgnat default", "overlay.example", ClientOptions{}, false},
-		{"transition blocked", "nat64.example", ClientOptions{BlockTransitionRanges: true}, true},
+		{"shared space blocked", "overlay.example", ClientOptions{AllowRFC1918: true}, true},
+		{"shared space allowed by option", "overlay.example", ClientOptions{AllowCGNAT: true}, false},
+		{"transition blocked", "translation.example", ClientOptions{}, true},
 		{"public", "public.example", ClientOptions{}, false},
 		{"link-local with allowances", "meta.example", ClientOptions{AllowRFC1918: true, AllowLocalhost: true}, true},
 	}
@@ -297,7 +297,7 @@ func TestValidateRedirectTarget_ResolutionFailure(t *testing.T) {
 	}
 }
 
-func TestNewSafeHTTPClient_BlockOptionsWired(t *testing.T) {
+func TestNewSafeHTTPClient_DefaultsBlockReservedRanges(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
@@ -306,13 +306,13 @@ func TestNewSafeHTTPClient_BlockOptionsWired(t *testing.T) {
 	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
 
 	withResolver(t, map[string][]string{
-		"overlay.example": {"100.64.0.9"},
-		"nat64.example":   {"64:ff9b::1"},
+		"overlay.example":     {"100.64.0.9"},
+		"translation.example": {"64:ff9b::1"},
 	})
 
-	for _, host := range []string{"overlay.example", "nat64.example"} {
+	for _, host := range []string{"overlay.example", "translation.example"} {
 		client := NewSafeHTTPClient(
-			WithAllowRFC1918(), WithBlockCGNAT(), WithBlockTransitionRanges(),
+			WithAllowRFC1918(),
 			WithTimeout(2*time.Second),
 		)
 		resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/")
@@ -359,9 +359,8 @@ func TestClientOptionsPolicy_MetadataAliasNeverReachableThroughAllowBranches(t *
 		{AllowLocalhost: true},
 		{AllowRFC1918: true},
 		{AllowLocalhost: true, AllowRFC1918: true},
-		// CGNAT-allowed policy: the range is not blocked by option.
-		{AllowRFC1918: true, BlockTransitionRanges: true},
-		{AllowLocalhost: true, AllowRFC1918: true, BlockTransitionRanges: true, BlockCGNAT: true},
+		{AllowCGNAT: true},
+		{AllowLocalhost: true, AllowRFC1918: true, AllowCGNAT: true},
 	}
 	for _, ipStr := range []string{"100.100.100.200", "::ffff:100.100.100.200"} {
 		for i, opts := range combos {
@@ -371,10 +370,10 @@ func TestClientOptionsPolicy_MetadataAliasNeverReachableThroughAllowBranches(t *
 			}
 		}
 	}
-	// Neighbouring CGNAT addresses stay reachable when CGNAT is not blocked.
-	o := ClientOptions{AllowRFC1918: true}
+	// Neighbouring addresses stay reachable once the shared space is allowed.
+	o := ClientOptions{AllowRFC1918: true, AllowCGNAT: true}
 	if o.policy().Blocked(net.ParseIP("100.100.100.199")) {
-		t.Error("100.100.100.199 must not be blocked when CGNAT blocking is off")
+		t.Error("100.100.100.199 must not be blocked when the range is allowed")
 	}
 }
 

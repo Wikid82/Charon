@@ -2,11 +2,13 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -156,5 +158,16 @@ func TestUpdateService_SetAPIURL_GitHubValidation(t *testing.T) {
 				assert.NoError(t, err)
 			}
 		})
+	}
+}
+
+func TestUpdateService_CheckForUpdates_RejectsReservedDestinations(t *testing.T) {
+	for _, target := range []string{"http://100.64.0.1:9/", "http://198.18.0.1:9/", "http://[2002::1]:9/"} {
+		svc := NewUpdateService()
+		svc.apiURL = target
+		_, err := svc.CheckForUpdates()
+		if err == nil || !errors.Is(err, network.ErrBlockedAddress) {
+			t.Errorf("%s: expected policy rejection, got %v", target, err)
+		}
 	}
 }

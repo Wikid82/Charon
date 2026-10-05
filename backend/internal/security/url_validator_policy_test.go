@@ -58,16 +58,47 @@ func TestValidateExternalURL_OverlayAllowanceOption(t *testing.T) {
 		t.Fatal("WithAllowCGNAT did not set AllowCGNAT")
 	}
 
-	// Staging default: the shared address space is accepted without the option.
-	for _, opts := range [][]ValidationOption{{WithAllowHTTP()}, {WithAllowHTTP(), WithAllowCGNAT()}} {
-		if _, err := ValidateExternalURL("http://100.64.0.1", opts...); err != nil {
-			t.Errorf("shared-space literal rejected: %v", err)
-		}
+	if _, err := ValidateExternalURL("http://100.64.0.1", WithAllowHTTP()); !errors.Is(err, network.ErrBlockedAddress) {
+		t.Errorf("shared-space literal accepted by default: %v", err)
+	}
+	if _, err := ValidateExternalURL("http://100.64.0.1", WithAllowHTTP(), WithAllowCGNAT()); err != nil {
+		t.Errorf("shared-space literal rejected with the allowance: %v", err)
 	}
 	// The metadata alias is rejected in every combination.
 	for _, opts := range [][]ValidationOption{{WithAllowHTTP()}, {WithAllowHTTP(), WithAllowCGNAT()}} {
 		if _, err := ValidateExternalURL("http://100.100.100.200", opts...); err == nil {
 			t.Error("metadata alias accepted")
+		}
+	}
+}
+
+func TestValidateExternalURL_ReservedRangesRejectedByDefault(t *testing.T) {
+	t.Parallel()
+	hosts := []string{
+		"192.0.0.1", "198.18.0.1", "198.19.255.255",
+		"[64:ff9b::808:808]", "[64:ff9b:1::1]", "[2002:c000:204::1]", "[::1.2.3.4]",
+		"[2001:0:4136:e378:8000:63bf:3fff:fdd2]", "[::ffff:100.64.0.1]", "100.127.255.255",
+	}
+	allowances := [][]ValidationOption{
+		{WithAllowHTTP()},
+		{WithAllowHTTP(), WithAllowRFC1918(), WithAllowCGNAT(), WithAllowLocalhost()},
+	}
+	for _, h := range hosts {
+		for i, opts := range allowances {
+			if h == "[::ffff:100.64.0.1]" || h == "100.127.255.255" {
+				if i == 1 {
+					continue // shared space is intentionally allowed with the opt-in
+				}
+			}
+			_, err := ValidateExternalURL("http://"+h+":8080", opts...)
+			if !errors.Is(err, network.ErrBlockedAddress) {
+				t.Errorf("%s (allowance set %d): expected policy rejection, got %v", h, i, err)
+			}
+		}
+	}
+	for _, h := range []string{"100.63.255.255", "100.128.0.0", "192.0.1.1", "198.20.0.1"} {
+		if _, err := ValidateExternalURL("http://"+h+":8080", WithAllowHTTP()); err != nil {
+			t.Errorf("%s rejected: %v", h, err)
 		}
 	}
 }

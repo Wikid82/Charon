@@ -82,21 +82,20 @@ var privateCIDRs = []string{
 	"fe80::/10",
 
 	// Cloud instance metadata alias, inside the CGNAT range (100.64.0.0/10).
-	// Blocked globally; the rest of the CGNAT range is only blocked by WithBlockCGNAT.
+	// Blocked even when the rest of the range is allowed.
 	"100.100.100.200/32",
 }
 
 // cgnatCIDRs is the shared-address space used by carrier-grade NAT and many
-// overlay networks. It is NOT part of IsPrivateIP; callers opt in to blocking
-// it with WithBlockCGNAT.
+// overlay networks. It is NOT part of IsPrivateIP; AddressPolicy blocks it unless
+// AllowCGNAT is set.
 var cgnatCIDRs = []string{
 	"100.64.0.0/10",
 }
 
 // transitionCIDRs lists IPv4/IPv6 transition, translation and special-purpose
 // ranges that have no legitimate use as an outbound HTTP destination. They are
-// NOT part of IsPrivateIP; callers opt in to blocking them with
-// WithBlockTransitionRanges.
+// NOT part of IsPrivateIP; AddressPolicy always blocks them.
 var transitionCIDRs = []string{
 	"192.0.0.0/24",   // IETF protocol assignments
 	"198.18.0.0/15",  // Benchmarking
@@ -285,14 +284,6 @@ type ClientOptions struct {
 	// AllowCGNAT permits the shared address space used by overlay networks.
 	AllowCGNAT bool
 
-	// BlockCGNAT rejects the carrier-grade NAT range (100.64.0.0/10). Off by
-	// default so existing callers are unchanged.
-	BlockCGNAT bool
-
-	// BlockTransitionRanges rejects IPv4/IPv6 transition and special-purpose
-	// ranges (see IsTransitionRange). Off by default.
-	BlockTransitionRanges bool
-
 	// keepAlive, when true, enables HTTP connection pooling on the SSRF-safe
 	// client. When false (the default) the client keeps its historical
 	// behaviour byte-for-byte: DisableKeepAlives=true, MaxIdleConns=1,
@@ -375,22 +366,6 @@ func WithAllowCGNAT() Option {
 	}
 }
 
-// WithBlockCGNAT rejects destinations in the carrier-grade NAT range
-// (100.64.0.0/10) in addition to the ranges blocked by IsPrivateIP.
-func WithBlockCGNAT() Option {
-	return func(opts *ClientOptions) {
-		opts.BlockCGNAT = true
-	}
-}
-
-// WithBlockTransitionRanges rejects destinations in IPv4/IPv6 transition and
-// special-purpose ranges (see IsTransitionRange).
-func WithBlockTransitionRanges() Option {
-	return func(opts *ClientOptions) {
-		opts.BlockTransitionRanges = true
-	}
-}
-
 // AddressPolicy is the single outbound address policy. The zero value is the
 // strictest policy: only public addresses are allowed. Every opt-in is explicit.
 type AddressPolicy struct {
@@ -401,9 +376,6 @@ type AddressPolicy struct {
 	// AllowCGNAT permits the shared address space used by overlay networks.
 	// The cloud metadata alias inside it stays blocked.
 	AllowCGNAT bool
-	// AllowTransition is a temporary staging field: when true, transition
-	// ranges are not rejected up front.
-	AllowTransition bool
 }
 
 // Blocked reports whether ip must NOT be connected to under the policy. It is
@@ -419,7 +391,7 @@ func (p AddressPolicy) Blocked(ip net.IP) bool {
 	}
 	// Transition ranges are matched on the raw address first: IPv6-only forms
 	// do not survive the To4 normalisation in IsPrivateIP.
-	if !p.AllowTransition && IsTransitionRange(ip) {
+	if IsTransitionRange(ip) {
 		return true
 	}
 	if p.AllowLocalhost && ip.IsLoopback() {
@@ -434,14 +406,12 @@ func (p AddressPolicy) Blocked(ip net.IP) bool {
 	return IsPrivateIP(ip)
 }
 
-// policy derives the address policy from the client options. While the legacy
-// Block* options coexist with AllowCGNAT, an explicit allow wins over a block.
+// policy derives the address policy from the client options.
 func (o *ClientOptions) policy() AddressPolicy {
 	return AddressPolicy{
-		AllowLocalhost:  o.AllowLocalhost,
-		AllowRFC1918:    o.AllowRFC1918,
-		AllowCGNAT:      !o.BlockCGNAT || o.AllowCGNAT,
-		AllowTransition: !o.BlockTransitionRanges,
+		AllowLocalhost: o.AllowLocalhost,
+		AllowRFC1918:   o.AllowRFC1918,
+		AllowCGNAT:     o.AllowCGNAT,
 	}
 }
 
@@ -583,7 +553,7 @@ func validateRedirectTarget(req *http.Request, opts *ClientOptions) error {
 //   - 10 second timeout
 //   - No redirects (returns http.ErrUseLastResponse)
 //   - Keep-alives disabled
-//   - Private IPs blocked
+//   - Private, shared-address and reserved ranges blocked
 //
 // Use functional options to customize behavior:
 //

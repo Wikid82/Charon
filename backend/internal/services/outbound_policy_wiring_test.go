@@ -45,6 +45,11 @@ func TestOutboundClients_OverlayDestinations(t *testing.T) {
 		if !dialPolicyProbe(t, client, "169.254.169.254:9") {
 			t.Errorf("%s: link-local allowed", name)
 		}
+		for _, addr := range []string{"198.18.0.1:9", "192.0.0.1:9", "[2002::1]:9", "[64:ff9b::808:808]:9"} {
+			if !dialPolicyProbe(t, client, addr) {
+				t.Errorf("%s: %s allowed", name, addr)
+			}
+		}
 	}
 }
 
@@ -55,6 +60,9 @@ func TestNotifyURLValidator_OverlayDestinations(t *testing.T) {
 	}
 	if _, err := notifyURLValidator("http://100.100.100.200/hook", true); err == nil {
 		t.Error("metadata alias accepted")
+	}
+	if _, err := notifyURLValidator("http://198.18.0.1/hook", true); err == nil {
+		t.Error("benchmark-range address accepted")
 	}
 }
 
@@ -77,6 +85,9 @@ func TestSecurityWebhooks_OverlayDestinations(t *testing.T) {
 		}
 		if err := send(context.Background(), "http://100.100.100.200:9/hook"); err == nil {
 			t.Errorf("%s: metadata alias accepted", name)
+		}
+		if err := send(context.Background(), "http://198.18.0.1:9/hook"); err == nil {
+			t.Errorf("%s: benchmark-range address accepted", name)
 		}
 	}
 }

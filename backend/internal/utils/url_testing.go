@@ -22,7 +22,7 @@ func resolveAllowedIP(ctx context.Context, host string, allowLocalhost bool) (ne
 		return nil, fmt.Errorf("missing hostname")
 	}
 
-	policy := network.AddressPolicy{AllowLocalhost: allowLocalhost, AllowCGNAT: true, AllowTransition: true}
+	policy := network.AddressPolicy{AllowLocalhost: allowLocalhost}
 
 	// Fast-path: IP literal.
 	if ip := net.ParseIP(host); ip != nil {
@@ -60,7 +60,8 @@ func resolveAllowedIP(ctx context.Context, host string, allowLocalhost bool) (ne
 // This prevents DNS rebinding attacks by validating the IP just before connecting.
 // Returns a DialContext function suitable for use in http.Transport.
 func ssrfSafeDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
-	policy := network.AddressPolicy{AllowCGNAT: true, AllowTransition: true}
+	// Zero-value policy: only public addresses, loopback included in the block.
+	policy := network.AddressPolicy{}
 	return func(ctx context.Context, netw, addr string) (net.Conn, error) {
 		// Parse host and port from address
 		host, port, err := net.SplitHostPort(addr)

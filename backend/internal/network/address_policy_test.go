@@ -1,8 +1,11 @@
 package network
 
 import (
+	"context"
+	"errors"
 	"net"
 	"testing"
+	"time"
 )
 
 func TestAddressPolicy_Blocked(t *testing.T) {
@@ -39,8 +42,6 @@ func TestAddressPolicy_Blocked(t *testing.T) {
 		{"embedded v4 v6", "::1.2.3.4", AddressPolicy{}, true},
 		{"tunnel v6 prefix", "2001:0:4136:e378:8000:63bf:3fff:fdd2", AddressPolicy{}, true},
 		{"translation with every allowance", "64:ff9b::1", AddressPolicy{AllowLocalhost: true, AllowRFC1918: true, AllowCGNAT: true}, true},
-		{"staging flag lifts translation block", "2002::1", AddressPolicy{AllowTransition: true}, false},
-		{"staging flag keeps loopback blocked", "127.0.0.1", AddressPolicy{AllowTransition: true}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -56,41 +57,29 @@ func TestAddressPolicy_Blocked(t *testing.T) {
 	}
 }
 
-// TestClientOptionsPolicy_Precedence covers the combined legacy and new
-// options: allow wins over block, and the default is unchanged.
-func TestClientOptionsPolicy_Precedence(t *testing.T) {
+// TestClientOptionsPolicy_EndState covers the policy derived from client options.
+func TestClientOptionsPolicy_EndState(t *testing.T) {
 	t.Parallel()
-	cgnat := []struct {
-		blockCGNAT, allowCGNAT, wantAllowed bool
+	tests := []struct {
+		name string
+		opts ClientOptions
+		ip   string
+		want bool
 	}{
-		{false, false, true},
-		{true, false, false},
-		{false, true, true},
-		{true, true, true},
+		{"shared space default", ClientOptions{}, "100.64.0.1", true},
+		{"shared space allowed", ClientOptions{AllowCGNAT: true}, "100.64.0.1", false},
+		{"shared space with other allowances", ClientOptions{AllowLocalhost: true, AllowRFC1918: true}, "100.64.0.1", true},
+		{"metadata alias with allowance", ClientOptions{AllowCGNAT: true}, "100.100.100.200", true},
+		{"mapped metadata alias with allowance", ClientOptions{AllowCGNAT: true}, "::ffff:100.100.100.200", true},
+		{"benchmark range default", ClientOptions{}, "198.18.0.1", true},
+		{"benchmark range with every allowance", ClientOptions{AllowLocalhost: true, AllowRFC1918: true, AllowCGNAT: true}, "198.19.255.255", true},
+		{"tunnel range with every allowance", ClientOptions{AllowLocalhost: true, AllowRFC1918: true, AllowCGNAT: true}, "2002::1", true},
+		{"public with every allowance", ClientOptions{AllowLocalhost: true, AllowRFC1918: true, AllowCGNAT: true}, "8.8.8.8", false},
 	}
-	transition := []struct {
-		block, wantAllowed bool
-	}{
-		{false, true},
-		{true, false},
-	}
-	for _, c := range cgnat {
-		for _, tr := range transition {
-			opts := ClientOptions{BlockCGNAT: c.blockCGNAT, AllowCGNAT: c.allowCGNAT, BlockTransitionRanges: tr.block}
-			p := opts.policy()
-			if got := !p.Blocked(net.ParseIP("100.64.0.1")); got != c.wantAllowed {
-				t.Errorf("%+v: shared space allowed = %v, want %v", opts, got, c.wantAllowed)
-			}
-			for _, ip := range []string{"198.18.0.1", "2002::1"} {
-				if got := !p.Blocked(net.ParseIP(ip)); got != tr.wantAllowed {
-					t.Errorf("%+v: %s allowed = %v, want %v", opts, ip, got, tr.wantAllowed)
-				}
-			}
-			for _, ip := range []string{"100.100.100.200", "::ffff:100.100.100.200"} {
-				if !p.Blocked(net.ParseIP(ip)) {
-					t.Errorf("%+v: %s must be blocked", opts, ip)
-				}
-			}
+	for _, tt := range tests {
+		opts := tt.opts
+		if got := opts.policy().Blocked(net.ParseIP(tt.ip)); got != tt.want {
+			t.Errorf("%s: Blocked(%s) = %v, want %v", tt.name, tt.ip, got, tt.want)
 		}
 	}
 }
@@ -101,5 +90,23 @@ func TestAllowOverlayOption_SetsField(t *testing.T) {
 	WithAllowCGNAT()(&cfg)
 	if !cfg.AllowCGNAT {
 		t.Fatal("WithAllowCGNAT did not set AllowCGNAT")
+	}
+}
+
+func TestNewSafeHTTPClient_OverlayAllowanceWiredToDialer(t *testing.T) {
+	withResolver(t, map[string][]string{"overlay.example": {"100.64.0.9"}})
+
+	blocked := safeDialer(&ClientOptions{DialTimeout: time.Second})
+	if _, err := blocked(context.Background(), "tcp", "overlay.example:9"); !errors.Is(err, ErrBlockedAddress) {
+		t.Fatalf("default dialer: expected ErrBlockedAddress, got %v", err)
+	}
+
+	allowed := safeDialer(&ClientOptions{DialTimeout: 200 * time.Millisecond, AllowCGNAT: true})
+	conn, err := allowed(context.Background(), "tcp", "overlay.example:9")
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if errors.Is(err, ErrBlockedAddress) {
+		t.Fatalf("allowing dialer still refused the address: %v", err)
 	}
 }

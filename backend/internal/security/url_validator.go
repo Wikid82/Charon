@@ -187,6 +187,8 @@ func WithAllowCGNAT() ValidationOption {
 // - Link-local addresses (169.254.0.0/16, fe80::/10) including cloud metadata endpoints
 // - Reserved IP ranges (0.0.0.0/8, 240.0.0.0/4, 255.255.255.255/32)
 // - IPv6 unique local addresses (fc00::/7)
+// - Transition, translation and other special-purpose ranges
+// - The shared overlay address space, unless AllowCGNAT is set
 //
 // Example usage:
 //
@@ -205,7 +207,6 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 		MaxRedirects:    0,
 		Timeout:         3 * time.Second,
 		BlockPrivateIPs: true,
-		AllowCGNAT:      true,
 	}
 
 	// Apply custom options
@@ -297,9 +298,8 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 	// localhost hosts in Phase 2.
 	if config.BlockPrivateIPs {
 		policy := network.AddressPolicy{
-			AllowRFC1918:    config.AllowRFC1918,
-			AllowCGNAT:      config.AllowCGNAT,
-			AllowTransition: true,
+			AllowRFC1918: config.AllowRFC1918,
+			AllowCGNAT:   config.AllowCGNAT,
 		}
 		for _, ip := range ips {
 			if policy.Blocked(ip) {
