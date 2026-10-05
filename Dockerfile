@@ -185,11 +185,11 @@ ARG CADDY_DNS_VERCEL_VERSION=0.0.2
 ARG LIBDNS_NAMEDOTCOM_VERSION=0.9.0
 # renovate: datasource=go depName=github.com/libdns/vercel
 ARG LIBDNS_VERCEL_VERSION=0.1.0
-# Forced transitive pin: caddy-dns/dnsimple -> libdns/dnsimple -> dnsimple-go/v8
-# resolves to v8.0.0 by default (flagged by supply-chain scanners). Applied via
+# Forced transitive pin: caddy-dns/dnsimple -> libdns/dnsimple -> dnsimple-go/v10
+# resolves to v10.0.0 by default (flagged by supply-chain scanners). Applied via
 # `go get` in the Stage 2 patch block — NOT an xcaddy `--with`, since xcaddy adds a
-# blank import of the module root and dnsimple-go/v8 has no root package.
-ARG CADDY_DNS_DNSIMPLE_GO_VERSION=8.3.1
+# blank import of the module root and dnsimple-go/v10 has no root package.
+ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -673,7 +673,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # crowdsec-builder pin below.
         # renovate: datasource=go depName=golang.org/x/mod
         _retry go get golang.org/x/mod@v0.40.0; \
-        _retry go get github.com/dnsimple/dnsimple-go/v8@v${CADDY_DNS_DNSIMPLE_GO_VERSION}; \
+        _retry go get github.com/dnsimple/dnsimple-go/v10@v${CADDY_DNS_DNSIMPLE_GO_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently

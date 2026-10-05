@@ -867,7 +867,7 @@
       "matchStrings": [
         "ARG CADDY_DNS_DNSIMPLE_GO_VERSION=(?<currentValue>[^\\s]+)"
       ],
-      "depNameTemplate": "github.com/dnsimple/dnsimple-go/v8",
+      "depNameTemplate": "github.com/dnsimple/dnsimple-go/v10",
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
     }
