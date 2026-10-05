@@ -298,7 +298,6 @@ graph TB
 ├── go.work                     # Go workspace definition
 ├── package.json                # Frontend dependencies
 ├── playwright.config.js        # E2E test configuration
-├── codecov.yml                 # Code coverage settings
 ├── README.md                   # Project overview
 ├── CONTRIBUTING.md             # Contribution guidelines
 ├── CHANGELOG.md                # Version history
@@ -1770,9 +1769,9 @@ go test ./integration/...
 2. **Test:** Go tests, Vitest, Playwright
 3. **Security:** Trivy, CodeQL, Grype, Govulncheck, Semgrep
 4. **Build:** Docker image build
-5. **Coverage:** Upload to Codecov (85% gate) — `backend`, `frontend`, and
-   `agent` each upload under a distinct Codecov flag
-   (`.github/workflows/codecov-upload.yml`); `quality-checks.yml` runs a
+5. **Coverage:** Coverage scripts enforce the 85% gate; `backend`, `frontend`, and
+   `agent` LCOV reports are merged into a single Aikido upload via GitHub OIDC
+   (`.github/workflows/aikido-coverage.yml`); `quality-checks.yml` runs a
    matching `agent-quality` job (go vet, lint, coverage gate) unconditionally
    on every PR, not only PRs that touch `agent/**`
 6. **Supply Chain:** SBOM generation, Cosign signing
@@ -2135,7 +2134,7 @@ All agents (`Planning`, `Backend_Dev`, `Frontend_Dev`, `DevOps`) must reference 
 **Tools:**
 
 - SonarQube: Code quality and technical debt
-- Codecov: Coverage tracking and trend analysis
+- Aikido: Security findings and code coverage reporting
 - Grafana: Runtime metrics and performance
 - GitHub Insights: Contributor activity and velocity
 

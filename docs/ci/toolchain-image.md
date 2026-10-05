@@ -87,5 +87,5 @@ identical to before, and the app image content is byte-identical (same recipe).
   `scripts/lib/dockerfile-stage.sh`, and `scripts/tests/` — are **excluded from
   the image context via `.dockerignore`** (they run from a plain checkout in
   `toolchain-image.yml` / `quality-checks.yml`, never from inside a container).
-  No `.gitignore` change (source files, must be committed); no `.codecov.yml`
+  No `.gitignore` change (source files, must be committed); no coverage-config
   change (shell/bats/YAML carry no Go/TS coverage).
