@@ -91,9 +91,11 @@ var hubAllowLoopback bool
 
 // validateHubURL validates a hub URL for security (SSRF protection - HIGH-001).
 // This function prevents Server-Side Request Forgery by:
-// 1. Enforcing HTTPS for production hub URLs
-// 2. Allowlisting known CrowdSec hub domains
-// 3. Allowing localhost/test URLs for development and testing
+//  1. Enforcing HTTPS for production hub URLs
+//  2. Allowlisting known CrowdSec hub domains
+//  3. Accepting localhost/test hostnames at this layer; the dial layer
+//     (network.NewSafeHTTPClient) still blocks loopback and private targets
+//     unless the test-only hubAllowLoopback seam is set
 //
 // Returns: error if URL is invalid or not allowlisted
 func validateHubURL(rawURL string) error {

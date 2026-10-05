@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -171,5 +172,7 @@ func TestUpdateService_DefaultClientRejectsLoopback(t *testing.T) {
 
 	// No injected client: the default safe client must refuse loopback targets.
 	_, err := us.CheckForUpdates()
-	assert.Error(t, err)
+	if assert.Error(t, err) {
+		assert.ErrorIs(t, err, network.ErrBlockedAddress)
+	}
 }
