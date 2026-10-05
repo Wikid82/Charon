@@ -139,7 +139,7 @@ func CheckLAPIHealth(lapiURL string) bool {
 	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
 	client := network.NewSafeHTTPClient(
 		network.WithTimeout(defaultHealthTimeout),
-		network.WithAllowLocalhost(), // LAPI validated to be localhost only
+		network.WithAllowLocalhost(), // LAPI is loopback-only; the client permits no other private ranges
 	)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -187,7 +187,7 @@ func GetLAPIVersion(ctx context.Context, lapiURL string) (string, error) {
 	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
 	client := network.NewSafeHTTPClient(
 		network.WithTimeout(defaultHealthTimeout),
-		network.WithAllowLocalhost(), // LAPI validated to be localhost only
+		network.WithAllowLocalhost(), // LAPI is loopback-only; the client permits no other private ranges
 	)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -230,7 +230,7 @@ func checkDecisionsEndpoint(ctx context.Context, lapiURL string) bool {
 	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
 	client := network.NewSafeHTTPClient(
 		network.WithTimeout(defaultHealthTimeout),
-		network.WithAllowLocalhost(), // LAPI validated to be localhost only
+		network.WithAllowLocalhost(), // LAPI is loopback-only; the client permits no other private ranges
 	)
 	resp, err := client.Do(req)
 	if err != nil {

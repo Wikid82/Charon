@@ -76,6 +76,9 @@ func newUptimeChecker(svc *UptimeService) *uptimeChecker {
 		network.WithTimeout(20*time.Second),
 		network.WithDialTimeout(3*time.Second),
 		network.WithMaxRedirects(0),
+		// Intentional: monitors target admin-configured local services, so
+		// loopback and RFC 1918 are permitted. Link-local, cloud metadata and
+		// other restricted ranges stay blocked; redirects are not followed.
 		network.WithAllowLocalhost(),
 		network.WithAllowRFC1918(),
 		network.WithKeepAlive(100, 4, 30*time.Second),
@@ -103,8 +106,8 @@ func (c *uptimeChecker) probe(ctx context.Context, monitor models.UptimeMonitor)
 	case "http", "https":
 		validatedURL, err := security.ValidateExternalURL(
 			monitor.URL,
-			// Uptime monitors are an explicit admin-configured feature and
-			// commonly target loopback in local/dev setups (and in tests).
+			// Intentional product behavior: uptime monitors are admin-configured
+			// and legitimately target services on the local host (loopback).
 			security.WithAllowLocalhost(),
 			security.WithAllowHTTP(),
 			security.WithTimeout(3*time.Second),
