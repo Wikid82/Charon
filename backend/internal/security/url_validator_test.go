@@ -660,55 +660,6 @@ func TestIsPrivateIP_IPv6Comprehensive(t *testing.T) {
 	}
 }
 
-// TestIPv4MappedIPv6Detection tests detection of IPv4-mapped IPv6 addresses.
-// ENHANCEMENT: Required by Supervisor review for SSRF bypass prevention
-func TestIPv4MappedIPv6Detection(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		ip       string
-		expected bool
-	}{
-		// IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
-		{"IPv4-mapped loopback", "::ffff:127.0.0.1", true},
-		{"IPv4-mapped private 10.x", "::ffff:10.0.0.1", true},
-		{"IPv4-mapped private 192.168", "::ffff:192.168.1.1", true},
-		{"IPv4-mapped metadata", "::ffff:169.254.169.254", true},
-		{"IPv4-mapped public", "::ffff:8.8.8.8", true},
-
-		// Regular IPv6 addresses (not mapped)
-		{"Regular IPv6 loopback", "::1", false},
-		{"Regular IPv6 link-local", "fe80::1", false},
-		{"Regular IPv6 public", "2001:4860:4860::8888", false},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			ip := net.ParseIP(tt.ip)
-			if ip == nil {
-				t.Fatalf("Failed to parse IP: %s", tt.ip)
-			}
-
-			result := isIPv4MappedIPv6(ip)
-			if result != tt.expected {
-				t.Errorf("isIPv4MappedIPv6(%s) = %v, want %v", tt.ip, result, tt.expected)
-			}
-		})
-	}
-}
-
-// TestValidateExternalURL_IPv4MappedIPv6Blocking tests blocking of private IPs via IPv6 mapping.
-// ENHANCEMENT: Critical security test per Supervisor review
-func TestValidateExternalURL_IPv4MappedIPv6Blocking(t *testing.T) {
-	t.Parallel()
-	// NOTE: These tests will fail DNS resolution since we can't actually
-	// set up DNS records to return IPv4-mapped IPv6 addresses
-	// The isIPv4MappedIPv6 function itself is tested above
-	t.Skip("DNS resolution of IPv4-mapped IPv6 not testable without custom DNS server")
-}
-
 // TestValidateExternalURL_HostnameValidation tests enhanced hostname validation.
 // ENHANCEMENT: Tests RFC 1035 compliance and suspicious pattern detection
 func TestValidateExternalURL_HostnameValidation(t *testing.T) {
@@ -1011,45 +962,6 @@ func TestValidateExternalURL_EdgeCases(t *testing.T) {
 				if err != nil && !strings.Contains(err.Error(), "dns resolution failed") {
 					t.Errorf("Expected validation to succeed, but got error: %s", err.Error())
 				}
-			}
-		})
-	}
-}
-
-// TestIsIPv4MappedIPv6_EdgeCases tests IPv4-mapped IPv6 detection edge cases.
-// ENHANCEMENT: Additional edge cases for SSRF bypass prevention
-func TestIsIPv4MappedIPv6_EdgeCases(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		ip       string
-		expected bool
-	}{
-		// Standard IPv4-mapped format
-		{"Standard mapped", "::ffff:192.168.1.1", true},
-		{"Mapped public IP", "::ffff:8.8.8.8", true},
-
-		// Edge cases - Note: net.ParseIP returns 16-byte representation for IPv4
-		// So we need to check the raw parsing behavior
-		{"Pure IPv6 2001:db8", "2001:db8::1", false},
-		{"IPv6 loopback", "::1", false},
-
-		// Boundary checks
-		{"All zeros except prefix", "::ffff:0.0.0.0", true},
-		{"All ones", "::ffff:255.255.255.255", true},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			ip := net.ParseIP(tt.ip)
-			if ip == nil {
-				t.Fatalf("Failed to parse IP: %s", tt.ip)
-			}
-			result := isIPv4MappedIPv6(ip)
-			if result != tt.expected {
-				t.Errorf("isIPv4MappedIPv6(%s) = %v, want %v", tt.ip, result, tt.expected)
 			}
 		})
 	}

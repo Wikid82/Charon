@@ -141,10 +141,8 @@ func checkLiteralHost(host string, p Policy) error {
 		return nil
 	}
 
-	blocked := network.IsTransitionRange(ip) ||
-		(network.IsCGNAT(ip) && !p.allowCGNAT) ||
-		(network.IsPrivateIP(ip) && (!p.allowRFC1918 || !network.IsRFC1918(ip)))
-	if blocked {
+	policy := network.AddressPolicy{AllowRFC1918: p.allowRFC1918, AllowCGNAT: p.allowCGNAT, AllowTransition: false}
+	if policy.Blocked(ip) {
 		return fmt.Errorf("url host is not allowed: %w", ErrBlockedAddress)
 	}
 	return nil

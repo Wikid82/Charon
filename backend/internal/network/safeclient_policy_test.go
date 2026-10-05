@@ -92,7 +92,7 @@ func TestIsTransitionRange(t *testing.T) {
 	}
 }
 
-func TestBlockedByPolicy(t *testing.T) {
+func TestClientOptionsPolicy(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -125,8 +125,8 @@ func TestBlockedByPolicy(t *testing.T) {
 				ip = net.ParseIP(tt.ip)
 			}
 			opts := tt.opts
-			if got := blockedByPolicy(ip, &opts); got != tt.want {
-				t.Errorf("blockedByPolicy(%q) = %v, want %v", tt.ip, got, tt.want)
+			if got := opts.policy().Blocked(ip); got != tt.want {
+				t.Errorf("Blocked(%q) = %v, want %v", tt.ip, got, tt.want)
 			}
 		})
 	}
@@ -352,7 +352,7 @@ func TestIsPrivateIP_CGNATMetadataAliasAddress(t *testing.T) {
 	}
 }
 
-func TestBlockedByPolicy_CGNATMetadataAliasNeverReachableThroughAllowBranches(t *testing.T) {
+func TestClientOptionsPolicy_MetadataAliasNeverReachableThroughAllowBranches(t *testing.T) {
 	t.Parallel()
 	combos := []ClientOptions{
 		{},
@@ -366,14 +366,14 @@ func TestBlockedByPolicy_CGNATMetadataAliasNeverReachableThroughAllowBranches(t 
 	for _, ipStr := range []string{"100.100.100.200", "::ffff:100.100.100.200"} {
 		for i, opts := range combos {
 			o := opts
-			if !blockedByPolicy(net.ParseIP(ipStr), &o) {
+			if !o.policy().Blocked(net.ParseIP(ipStr)) {
 				t.Errorf("combo %d: %s must be blocked", i, ipStr)
 			}
 		}
 	}
 	// Neighbouring CGNAT addresses stay reachable when CGNAT is not blocked.
 	o := ClientOptions{AllowRFC1918: true}
-	if blockedByPolicy(net.ParseIP("100.100.100.199"), &o) {
+	if o.policy().Blocked(net.ParseIP("100.100.100.199")) {
 		t.Error("100.100.100.199 must not be blocked when CGNAT blocking is off")
 	}
 }

@@ -22,12 +22,11 @@ func resolveAllowedIP(ctx context.Context, host string, allowLocalhost bool) (ne
 		return nil, fmt.Errorf("missing hostname")
 	}
 
+	policy := network.AddressPolicy{AllowLocalhost: allowLocalhost, AllowCGNAT: true, AllowTransition: true}
+
 	// Fast-path: IP literal.
 	if ip := net.ParseIP(host); ip != nil {
-		if allowLocalhost && ip.IsLoopback() {
-			return ip, nil
-		}
-		if network.IsPrivateIP(ip) {
+		if policy.Blocked(ip) {
 			return nil, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip)
 		}
 		return ip, nil
@@ -43,13 +42,7 @@ func resolveAllowedIP(ctx context.Context, host string, allowLocalhost bool) (ne
 
 	var selected net.IP
 	for _, ip := range ips {
-		if allowLocalhost && ip.IP.IsLoopback() {
-			if selected == nil {
-				selected = ip.IP
-			}
-			continue
-		}
-		if network.IsPrivateIP(ip.IP) {
+		if policy.Blocked(ip.IP) {
 			return nil, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
 		}
 		if selected == nil {
@@ -67,6 +60,7 @@ func resolveAllowedIP(ctx context.Context, host string, allowLocalhost bool) (ne
 // This prevents DNS rebinding attacks by validating the IP just before connecting.
 // Returns a DialContext function suitable for use in http.Transport.
 func ssrfSafeDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	policy := network.AddressPolicy{AllowCGNAT: true, AllowTransition: true}
 	return func(ctx context.Context, netw, addr string) (net.Conn, error) {
 		// Parse host and port from address
 		host, port, err := net.SplitHostPort(addr)
@@ -85,9 +79,9 @@ func ssrfSafeDialer() func(ctx context.Context, network, addr string) (net.Conn,
 		}
 
 		// Validate ALL resolved IPs - if any are private, reject immediately
-		// Using centralized network.IsPrivateIP for consistent SSRF protection
+		// Using the shared network.AddressPolicy for consistent protection
 		for _, ip := range ips {
-			if network.IsPrivateIP(ip.IP) {
+			if policy.Blocked(ip.IP) {
 				return nil, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
 			}
 		}

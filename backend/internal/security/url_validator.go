@@ -128,6 +128,10 @@ type ValidationConfig struct {
 	// monitors. Link-local (169.254.x.x), loopback, cloud metadata, and all other
 	// restricted ranges remain blocked regardless of this flag.
 	AllowRFC1918 bool
+
+	// AllowCGNAT permits the shared address space used by overlay networks.
+	// The cloud metadata alias inside it stays blocked.
+	AllowCGNAT bool
 }
 
 // ValidationOption allows customizing validation behavior.
@@ -160,6 +164,12 @@ func WithMaxRedirects(maxRedirects int) ValidationOption {
 // All other SSRF protections remain active.
 func WithAllowRFC1918() ValidationOption {
 	return func(c *ValidationConfig) { c.AllowRFC1918 = true }
+}
+
+// WithAllowCGNAT permits the shared address space used by overlay networks.
+// The cloud metadata alias inside it stays blocked.
+func WithAllowCGNAT() ValidationOption {
+	return func(c *ValidationConfig) { c.AllowCGNAT = true }
 }
 
 // ValidateExternalURL validates a URL for external HTTP requests with comprehensive SSRF protection.
@@ -195,6 +205,7 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 		MaxRedirects:    0,
 		Timeout:         3 * time.Second,
 		BlockPrivateIPs: true,
+		AllowCGNAT:      true,
 	}
 
 	// Apply custom options
@@ -280,52 +291,19 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 		return "", fmt.Errorf("no ip addresses resolved for hostname: %s", host)
 	}
 
-	// Phase 4: Private IP Blocking
-	// Check ALL resolved IPs against private/reserved ranges
+	// Phase 4: Address Policy
+	// Check ALL resolved IPs against the shared address policy. AllowLocalhost
+	// is intentionally not part of it: it only short-circuits the literal
+	// localhost hosts in Phase 2.
 	if config.BlockPrivateIPs {
+		policy := network.AddressPolicy{
+			AllowRFC1918:    config.AllowRFC1918,
+			AllowCGNAT:      config.AllowCGNAT,
+			AllowTransition: true,
+		}
 		for _, ip := range ips {
-			// ENHANCEMENT: IPv4-mapped IPv6 Detection
-			// Prevent bypass via ::ffff:192.168.1.1 format
-			if ip.To4() != nil && ip.To16() != nil && isIPv4MappedIPv6(ip) {
-				// Extract the IPv4 address from the mapped format
-				ipv4 := ip.To4()
-				// Allow RFC 1918 IPv4-mapped IPv6 only when the caller has explicitly opted in.
-				if config.AllowRFC1918 && network.IsRFC1918(ipv4) {
-					continue
-				}
-				if network.IsPrivateIP(ipv4) {
-					// Cloud metadata endpoint must produce the specific error even
-					// when the address arrives as an IPv4-mapped IPv6 value.
-					if ipv4.String() == "169.254.169.254" {
-						return "", blockedAddressError("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
-					}
-					return "", blockedAddressError("connection to private ip addresses is blocked for security (detected: %s)", sanitizeIPForError(ipv4.String()))
-				}
-			}
-
-			// Allow RFC 1918 addresses only when the caller has explicitly opted in
-			// (e.g., admin-configured uptime monitors targeting internal hosts).
-			// Link-local (169.254.x.x), loopback, cloud metadata, and all other
-			// restricted ranges remain blocked regardless of this flag.
-			if config.AllowRFC1918 && network.IsRFC1918(ip) {
-				continue
-			}
-
-			// Check if IP is in private/reserved ranges using centralized network.IsPrivateIP
-			// This includes:
-			// - RFC 1918 private networks (10.x, 172.16.x, 192.168.x)
-			// - Loopback (127.x.x.x, ::1)
-			// - Link-local (169.254.x.x, fe80::) including cloud metadata
-			// - Reserved ranges (0.x.x.x, 240.x.x.x, 255.255.255.255)
-			// - IPv6 unique local (fc00::)
-			if network.IsPrivateIP(ip) {
-				// ENHANCEMENT: Sanitize Error Messages
-				// Don't leak internal IPs in error messages to external users
-				sanitizedIP := sanitizeIPForError(ip.String())
-				if ip.String() == "169.254.169.254" {
-					return "", blockedAddressError("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitizedIP)
-				}
-				return "", blockedAddressError("connection to private ip addresses is blocked for security (detected: %s)", sanitizedIP)
+			if policy.Blocked(ip) {
+				return "", blockedIPError(ip)
 			}
 		}
 	}
@@ -336,21 +314,18 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 	return normalized, nil
 }
 
-// isIPv4MappedIPv6 detects IPv4-mapped IPv6 addresses (::ffff:192.168.1.1).
-// This prevents SSRF bypass via IPv6 notation of private IPv4 addresses.
-func isIPv4MappedIPv6(ip net.IP) bool {
-	// IPv4-mapped IPv6 addresses have the form ::ffff:a.b.c.d
-	// In binary: 80 bits of zeros, 16 bits of ones, 32 bits of IPv4
-	if len(ip) != net.IPv6len {
-		return false
+// blockedIPError builds the rejection error for an address the policy refused.
+// The cloud metadata endpoint, including its IPv4-mapped form, gets a specific
+// message; the address shown is always sanitized.
+func blockedIPError(ip net.IP) error {
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
 	}
-	// Check for ::ffff: prefix (10 zero bytes, 2 0xff bytes)
-	for i := 0; i < 10; i++ {
-		if ip[i] != 0 {
-			return false
-		}
+	sanitized := sanitizeIPForError(ip.String())
+	if ip.String() == "169.254.169.254" {
+		return blockedAddressError("access to cloud metadata endpoints is blocked for security (detected: %s)", sanitized)
 	}
-	return ip[10] == 0xff && ip[11] == 0xff
+	return blockedAddressError("connection to private ip addresses is blocked for security (detected: %s)", sanitized)
 }
 
 // parsePort safely parses a port string to an integer.

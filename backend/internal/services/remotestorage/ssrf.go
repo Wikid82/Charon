@@ -74,10 +74,8 @@ func ValidateHostSSRF(host string) error {
 // validateIPSSRF applies the RFC1918-allowed SSRF policy to a single
 // resolved IP.
 func validateIPSSRF(ip net.IP) error {
-	if network.IsRFC1918(ip) {
-		return nil
-	}
-	if network.IsPrivateIP(ip) {
+	policy := network.AddressPolicy{AllowRFC1918: true, AllowCGNAT: true, AllowTransition: true}
+	if policy.Blocked(ip) {
 		return fmt.Errorf("connection to disallowed address blocked: %s", ip)
 	}
 	return nil

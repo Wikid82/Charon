@@ -1,0 +1,49 @@
+package utils
+
+import (
+	"context"
+	"testing"
+)
+
+func TestResolveAllowedIP_PolicyOutcomes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		host           string
+		allowLocalhost bool
+		wantErr        bool
+	}{
+		{"public literal", "8.8.8.8", false, false},
+		{"loopback literal", "127.0.0.1", false, true},
+		{"loopback literal allowed", "127.0.0.1", true, false},
+		{"loopback v6 allowed", "::1", true, false},
+		{"private literal", "10.0.0.1", true, true},
+		{"link-local literal", "169.254.169.254", true, true},
+		{"metadata alias", "100.100.100.200", false, true},
+		{"shared space literal", "100.64.0.1", false, false},
+		{"special-purpose literal", "198.18.0.1", false, false},
+		{"loopback name blocked", "localhost", false, true},
+		{"loopback name allowed", "localhost", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := resolveAllowedIP(context.Background(), tt.host, tt.allowLocalhost)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("resolveAllowedIP(%q, %v) err = %v, wantErr %v", tt.host, tt.allowLocalhost, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestOutboundDialer_RejectsLoopbackAlways(t *testing.T) {
+	t.Parallel()
+	dial := ssrfSafeDialer()
+	for _, addr := range []string{"127.0.0.1:80", "[::1]:80", "10.0.0.1:80", "100.100.100.200:80"} {
+		conn, err := dial(context.Background(), "tcp", addr)
+		if err == nil {
+			_ = conn.Close()
+			t.Errorf("dial %s succeeded", addr)
+		}
+	}
+}

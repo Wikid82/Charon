@@ -150,6 +150,10 @@ func initRFC1918Blocks() {
 //   - Reserved ranges: 0.0.0.0/8, 240.0.0.0/4, 255.255.255.255/32
 //   - IPv6 unique local addresses: fc00::/7
 //
+// It does NOT cover the shared-address space (other than the one metadata alias)
+// or the transition and special-purpose ranges. Use AddressPolicy.Blocked, the
+// single policy entry point, to apply those rules.
+//
 // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) are correctly handled by extracting
 // the IPv4 portion and validating it.
 //
@@ -278,6 +282,9 @@ type ClientOptions struct {
 	// cloud metadata (169.254.x.x), and reserved — remain blocked regardless.
 	AllowRFC1918 bool
 
+	// AllowCGNAT permits the shared address space used by overlay networks.
+	AllowCGNAT bool
+
 	// BlockCGNAT rejects the carrier-grade NAT range (100.64.0.0/10). Off by
 	// default so existing callers are unchanged.
 	BlockCGNAT bool
@@ -360,6 +367,14 @@ func WithAllowRFC1918() Option {
 	}
 }
 
+// WithAllowCGNAT permits destinations in the shared address space used by
+// overlay networks. The cloud metadata alias inside it stays blocked.
+func WithAllowCGNAT() Option {
+	return func(opts *ClientOptions) {
+		opts.AllowCGNAT = true
+	}
+}
+
 // WithBlockCGNAT rejects destinations in the carrier-grade NAT range
 // (100.64.0.0/10) in addition to the ranges blocked by IsPrivateIP.
 func WithBlockCGNAT() Option {
@@ -376,33 +391,58 @@ func WithBlockTransitionRanges() Option {
 	}
 }
 
-// blockedByPolicy is the single address-policy predicate shared by the dialer
-// (both its validation and selection passes) and the redirect check. It reports
-// whether ip must NOT be connected to under opts.
+// AddressPolicy is the single outbound address policy. The zero value is the
+// strictest policy: only public addresses are allowed. Every opt-in is explicit.
+type AddressPolicy struct {
+	// AllowLocalhost permits loopback addresses.
+	AllowLocalhost bool
+	// AllowRFC1918 permits the three RFC 1918 private ranges.
+	AllowRFC1918 bool
+	// AllowCGNAT permits the shared address space used by overlay networks.
+	// The cloud metadata alias inside it stays blocked.
+	AllowCGNAT bool
+	// AllowTransition is a temporary staging field: when true, transition
+	// ranges are not rejected up front.
+	AllowTransition bool
+}
+
+// Blocked reports whether ip must NOT be connected to under the policy. It is
+// shared by every dial-time, redirect and URL pre-validation check.
 //
 // The always-on rules (IsPrivateIP, which includes loopback and link-local) can
 // only be relaxed by the explicit AllowLocalhost / AllowRFC1918 branches, and
 // those branches only match loopback and RFC 1918 addresses, so no other
 // restricted address is reachable through them.
-func blockedByPolicy(ip net.IP, opts *ClientOptions) bool {
+func (p AddressPolicy) Blocked(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
 	// Transition ranges are matched on the raw address first: IPv6-only forms
-	// do not survive the To4 normalisation below.
-	if opts.BlockTransitionRanges && IsTransitionRange(ip) {
+	// do not survive the To4 normalisation in IsPrivateIP.
+	if !p.AllowTransition && IsTransitionRange(ip) {
 		return true
 	}
-	if opts.AllowLocalhost && ip.IsLoopback() {
+	if p.AllowLocalhost && ip.IsLoopback() {
 		return false
 	}
-	if opts.AllowRFC1918 && IsRFC1918(ip) {
+	if p.AllowRFC1918 && IsRFC1918(ip) {
 		return false
 	}
-	if opts.BlockCGNAT && IsCGNAT(ip) {
+	if IsCGNAT(ip) && !p.AllowCGNAT {
 		return true
 	}
 	return IsPrivateIP(ip)
+}
+
+// policy derives the address policy from the client options. While the legacy
+// Block* options coexist with AllowCGNAT, an explicit allow wins over a block.
+func (o *ClientOptions) policy() AddressPolicy {
+	return AddressPolicy{
+		AllowLocalhost:  o.AllowLocalhost,
+		AllowRFC1918:    o.AllowRFC1918,
+		AllowCGNAT:      !o.BlockCGNAT || o.AllowCGNAT,
+		AllowTransition: !o.BlockTransitionRanges,
+	}
 }
 
 // WithKeepAlive enables connection pooling (HTTP keep-alives) on the SSRF-safe
@@ -441,6 +481,7 @@ func WithKeepAlive(maxIdle, perHost int, idleTimeout time.Duration) Option {
 // This approach defeats Time-of-Check to Time-of-Use (TOCTOU) attacks where
 // DNS could return different IPs between validation and connection.
 func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	policy := opts.policy()
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		// Parse host:port from address
 		host, port, err := net.SplitHostPort(addr)
@@ -470,7 +511,7 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 		// This prevents attackers from using DNS load balancing to mix private/public IPs.
 		// The error deliberately omits the resolved address.
 		for _, ip := range ips {
-			if blockedByPolicy(ip.IP, opts) {
+			if policy.Blocked(ip.IP) {
 				return nil, fmt.Errorf("connection to private IP blocked for host %s: %w", host, ErrBlockedAddress)
 			}
 		}
@@ -479,7 +520,7 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 		// blocked address can never be chosen even if the loops drift apart.
 		var selectedIP net.IP
 		for _, ip := range ips {
-			if !blockedByPolicy(ip.IP, opts) {
+			if !policy.Blocked(ip.IP) {
 				selectedIP = ip.IP
 				break
 			}
@@ -496,7 +537,7 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 }
 
 // validateRedirectTarget checks if a redirect URL is safe to follow.
-// It applies the same address policy as the dialer (blockedByPolicy), so the
+// It applies the same address policy as the dialer (AddressPolicy.Blocked), so the
 // AllowLocalhost, AllowRFC1918 and range-blocking options behave identically.
 func validateRedirectTarget(req *http.Request, opts *ClientOptions) error {
 	host := req.URL.Hostname()
@@ -516,13 +557,14 @@ func validateRedirectTarget(req *http.Request, opts *ClientOptions) error {
 	ctx, cancel := context.WithTimeout(context.Background(), opts.DialTimeout)
 	defer cancel()
 
+	policy := opts.policy()
 	ips, err := lookupIPAddr(ctx, host)
 	if err != nil {
 		return fmt.Errorf("DNS resolution failed for redirect target %s: %w", host, err)
 	}
 
 	for _, ip := range ips {
-		if blockedByPolicy(ip.IP, opts) {
+		if policy.Blocked(ip.IP) {
 			return fmt.Errorf("redirect to private IP blocked for host %s: %w", host, ErrBlockedAddress)
 		}
 	}

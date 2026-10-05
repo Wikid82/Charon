@@ -154,3 +154,30 @@ func TestWithPermissiveSSRFForTesting_SwapsAndRestores(t *testing.T) {
 	assert.Error(t, ssrfValidateHost("127.0.0.1"), "restore must reinstate the production default")
 	assert.Error(t, ssrfValidateDialAddress(net.ParseIP("127.0.0.1")), "restore must reinstate the production default")
 }
+
+func TestRemoteStoragePolicy_Outcomes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		ip      string
+		wantErr bool
+	}{
+		{"8.8.8.8", false},
+		{"10.0.0.5", false},
+		{"192.168.1.10", false},
+		{"100.64.0.1", false},
+		{"127.0.0.1", true},
+		{"::1", true},
+		{"169.254.169.254", true},
+		{"100.100.100.200", true},
+		{"fd00::1", true},
+	}
+	for _, tt := range tests {
+		err := validateIPSSRF(net.ParseIP(tt.ip))
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateIPSSRF(%s) err = %v, wantErr %v", tt.ip, err, tt.wantErr)
+		}
+	}
+	if err := validateIPSSRF(nil); err == nil {
+		t.Error("nil address accepted")
+	}
+}
