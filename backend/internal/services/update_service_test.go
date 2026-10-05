@@ -29,6 +29,7 @@ func TestUpdateService_CheckForUpdates(t *testing.T) {
 	us := NewUpdateService()
 	err := us.SetAPIURL(server.URL + "/releases/latest")
 	assert.NoError(t, err)
+	us.SetHTTPClient(server.Client())
 	// us.currentVersion is private, so we can't set it directly in test unless we export it or add a setter.
 	// However, NewUpdateService sets it from version.Version.
 	// We can temporarily change version.Version if it's a var, but it's likely a const or var in another package.
@@ -157,4 +158,18 @@ func TestUpdateService_SetAPIURL_GitHubValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUpdateService_DefaultClientRejectsLoopback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v1.0.0"})
+	}))
+	defer server.Close()
+
+	us := NewUpdateService()
+	assert.NoError(t, us.SetAPIURL(server.URL))
+
+	// No injected client: the default safe client must refuse loopback targets.
+	_, err := us.CheckForUpdates()
+	assert.Error(t, err)
 }
