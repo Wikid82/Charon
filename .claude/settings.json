@@ -23,6 +23,5 @@
     "semgrep@claude-plugins-official": true,
     "pr-review-toolkit@claude-plugins-official": true,
     "aikido@claude-plugins-official": true
-  },
-  "env": { "AIKIDO_API_KEY": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJhaWtpZG8uZGV2IiwiYXVkIjoiaWRlLmFpa2lkbyIsImlhdCI6MTc5MTA1MDg0MSwibmJmIjoxNzkxMDUwODMxLCJleHAiOjI1Nzk5NjkyNDEsImlzX2lkZV90b2tlbiI6dHJ1ZSwidXNlcl9pZCI6MjkzNjIxLCJ0b2tlbl9pZCI6NTAxMzUsInJlZ2lvbiI6ImV1In0.bJmRJ1UeI480Q6GEyWrZMWn4wrFGKXJyJl0rFPHWQs0" }
+  }
 }
