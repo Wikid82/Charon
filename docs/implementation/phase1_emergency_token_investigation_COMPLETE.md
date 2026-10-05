@@ -79,7 +79,7 @@ func redactToken(token string) string {
 
 ```bash
 $ docker exec charon-e2e env | grep CHARON_EMERGENCY
-CHARON_EMERGENCY_TOKEN=f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b
+CHARON_EMERGENCY_TOKEN=<YOUR_EMERGENCY_TOKEN>
 CHARON_EMERGENCY_SERVER_ENABLED=true
 CHARON_EMERGENCY_BIND=0.0.0.0:2020
 CHARON_EMERGENCY_USERNAME=admin
@@ -118,7 +118,7 @@ $ docker logs charon-e2e 2>&1 | grep -i emergency
 ```bash
 $ curl -X POST http://localhost:2020/emergency/security-reset \
   -u admin:changeme \
-  -H "X-Emergency-Token: f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b" \
+  -H "X-Emergency-Token: <YOUR_EMERGENCY_TOKEN>" \
   -v
 
 < HTTP/1.1 200 OK
@@ -131,7 +131,7 @@ $ curl -X POST http://localhost:2020/emergency/security-reset \
 
 ```bash
 $ curl -X POST http://localhost:8080/api/v1/emergency/security-reset \
-  -H "X-Emergency-Token: f51dedd6a4f2eaa200dcbf4feecae78ff926e06d9094d726f3613729b66d346b" \
+  -H "X-Emergency-Token: <YOUR_EMERGENCY_TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{"reason": "Testing"}'
 

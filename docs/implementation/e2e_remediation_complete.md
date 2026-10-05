@@ -27,10 +27,10 @@ All 7 tasks from the E2E remediation plan have been successfully implemented wit
 ```bash
 # Generated token with openssl
 openssl rand -hex 32
-# Output: 7b3b8a36a6fad839f1b3122131ed4b1f05453118a91b53346482415796e740e2
+# Output: <64-character hex string>
 
 # Added to .env file
-CHARON_EMERGENCY_TOKEN=7b3b8a36a6fad839f1b3122131ed4b1f05453118a91b53346482415796e740e2
+CHARON_EMERGENCY_TOKEN=<YOUR_EMERGENCY_TOKEN>
 ```
 
 **Validation:**
@@ -39,7 +39,7 @@ $ echo -n "$(grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2)" | wc -c
 64  ✅ Correct length
 
 $ cat .env | grep CHARON_EMERGENCY_TOKEN
-CHARON_EMERGENCY_TOKEN=7b3b8a36a6fad839f1b3122131ed4b1f05453118a91b53346482415796e740e2
+CHARON_EMERGENCY_TOKEN=<YOUR_EMERGENCY_TOKEN>
 ✅ Token present in .env file
 ```
 
@@ -601,7 +601,7 @@ $ echo -n "$(grep CHARON_EMERGENCY_TOKEN .env | cut -d= -f2)" | wc -c
 64  ✅ PASS
 
 $ grep CHARON_EMERGENCY_TOKEN .env
-CHARON_EMERGENCY_TOKEN=7b3b8a36a6fad839f1b3122131ed4b1f05453118a91b53346482415796e740e2
+CHARON_EMERGENCY_TOKEN=<YOUR_EMERGENCY_TOKEN>
 ✅ PASS
 ```
 

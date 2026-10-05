@@ -256,10 +256,10 @@ Add to `.env` file in project root:
 CHARON_EMERGENCY_TOKEN=<paste_64_character_token_here>
 ```
 
-**Example:**
+**Example** (generate your own token with `openssl rand -hex 32`; never reuse an example value):
 
 ```bash
-CHARON_EMERGENCY_TOKEN=7b3b8a36a6fad839f1b3122131ed4b1f05453118a91b53346482415796e740e2
+CHARON_EMERGENCY_TOKEN=<YOUR_EMERGENCY_TOKEN>
 ```
 
 **Verify:**
