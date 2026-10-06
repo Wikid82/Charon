@@ -188,15 +188,10 @@ func (h *UserHandler) Setup(c *gin.Context) {
 		Category: "caddy",
 	}
 
-	// Transaction to ensure both succeed
-	err := h.DB.Transaction(func(tx *gorm.DB) error {
-		// Take SQLite's write lock before reading so the eligibility check and
-		// the insert are one atomic unit: a concurrent setup blocks here until
-		// the winner commits, then observes its user and is rejected.
-		if err := tx.Exec("UPDATE users SET id = id WHERE 1 = 0").Error; err != nil {
-			return fmt.Errorf("acquire setup write lock: %w", err)
-		}
-
+	// Take the write lock before the eligibility check so check and insert are
+	// one atomic unit: a concurrent setup waits for the winner, then observes
+	// its user and is rejected.
+	err := services.WithWriteLock(h.DB, &models.User{}, func(tx *gorm.DB) error {
 		var existing int64
 		if err := tx.Model(&models.User{}).Count(&existing).Error; err != nil {
 			return fmt.Errorf("check setup status: %w", err)

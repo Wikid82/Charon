@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -3157,14 +3156,14 @@ func TestUserHandler_Setup_TransactionErrorPaths(t *testing.T) {
 
 	t.Run("write lock failure", func(t *testing.T) {
 		handler, db := setupUserHandler(t)
-		require.NoError(t, db.Callback().Raw().Before("gorm:raw").Register("test:fail_lock", func(tx *gorm.DB) {
-			if strings.Contains(tx.Statement.SQL.String(), "WHERE 1 = 0") {
+		require.NoError(t, db.Callback().Update().Before("gorm:update").Register("test:fail_lock", func(tx *gorm.DB) {
+			if tx.Statement.Table == "users" {
 				_ = tx.AddError(errors.New("forced lock failure"))
 			}
 		}))
 		w := postSetup(handler)
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Contains(t, w.Body.String(), "acquire setup write lock")
+		assert.Contains(t, w.Body.String(), "acquire write lock")
 	})
 
 	t.Run("in-transaction count failure", func(t *testing.T) {

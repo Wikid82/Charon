@@ -76,43 +76,46 @@ func (s *RedirectionHostService) validateRedirectionHost(host *models.Redirectio
 	return nil
 }
 
-// Create validates and creates a new redirection host.
-func (s *RedirectionHostService) Create(host *models.RedirectionHost) error {
+// checkHostWrite runs the validation and uniqueness checks shared by Create
+// and Update. It must run inside the write-locked transaction so the checks
+// and the subsequent write are atomic.
+func (s *RedirectionHostService) checkHostWrite(tx *gorm.DB, host *models.RedirectionHost, excludeID uint) error {
 	if err := s.validateRedirectionHost(host); err != nil {
 		return err
 	}
-
-	if err := s.ValidateUniqueDomain(host.DomainNames, 0); err != nil {
+	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.RedirectionHost{}, excludeID); err != nil {
 		return err
 	}
-
-	if err := s.CheckCrossTableDomainConflict(host.DomainNames); err != nil {
-		return err
-	}
-
-	return s.db.Create(host).Error
+	return CheckDomainConflict(tx, host.DomainNames, &models.ProxyHost{})
 }
 
-// Update validates and updates an existing redirection host.
+// Create validates and creates a new redirection host. The uniqueness checks
+// and the insert run in one write-locked transaction. The lock is database
+// wide, so it also serializes against concurrent ProxyHostService writes
+// (see WithWriteLock).
+func (s *RedirectionHostService) Create(host *models.RedirectionHost) error {
+	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
+		if err := s.checkHostWrite(tx, host, 0); err != nil {
+			return err
+		}
+		return tx.Create(host).Error
+	})
+}
+
+// Update validates and updates an existing redirection host. The uniqueness
+// checks and the write run in one write-locked transaction (see WithWriteLock).
 func (s *RedirectionHostService) Update(host *models.RedirectionHost) error {
-	if err := s.validateRedirectionHost(host); err != nil {
-		return err
-	}
-
-	if err := s.ValidateUniqueDomain(host.DomainNames, host.ID); err != nil {
-		return err
-	}
-
-	if err := s.CheckCrossTableDomainConflict(host.DomainNames); err != nil {
-		return err
-	}
-
-	// Use Updates+Select("*") to handle nullable foreign keys properly,
-	// mirroring ProxyHostService.Update.
-	return s.db.Model(&models.RedirectionHost{}).
-		Where("id = ?", host.ID).
-		Select("*").
-		Updates(host).Error
+	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
+		if err := s.checkHostWrite(tx, host, host.ID); err != nil {
+			return err
+		}
+		// Use Updates+Select("*") to handle nullable foreign keys properly,
+		// mirroring ProxyHostService.Update.
+		return tx.Model(&models.RedirectionHost{}).
+			Where("id = ?", host.ID).
+			Select("*").
+			Updates(host).Error
+	})
 }
 
 // Delete removes a redirection host.
