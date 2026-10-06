@@ -1038,7 +1038,7 @@ func TestFindOverlappingHost(t *testing.T) {
 }
 
 func TestImportHandler_Commit_RejectsOverlappingDomainWithoutResolution(t *testing.T) {
-	testutil.WithTx(t, setupImportTestDB(t), func(tx *gorm.DB) {
+	testutil.WithTx(t, setupImportListTestDB(t), func(tx *gorm.DB) {
 		handler, _, mockImport := setupTestHandler(t, tx)
 		svc := services.NewProxyHostService(tx)
 		handler.proxyHostSvc = svc

@@ -381,7 +381,7 @@ func TestUpload_ReadOnlyDBRespondsWithPermissionError(t *testing.T) {
 		Hosts: []caddy.ParsedHost{{DomainNames: "example.com", ForwardHost: "localhost", ForwardPort: 8080}},
 	}, nil)
 
-	h := NewImportHandler(roDB, "caddy", t.TempDir(), "")
+	h := NewImportHandlerWithService(roDB, importCoverageProxyHostSvcStub{}, "caddy", t.TempDir(), "", nil)
 	h.importerservice = mockSvc
 
 	w := httptest.NewRecorder()
@@ -412,7 +412,7 @@ func TestUploadMulti_ReadOnlyDBRespondsWithPermissionError(t *testing.T) {
 		Hosts: []caddy.ParsedHost{{DomainNames: "multi.example.com", ForwardHost: "localhost", ForwardPort: 8081}},
 	}, nil)
 
-	h := NewImportHandler(roDB, "caddy", t.TempDir(), "")
+	h := NewImportHandlerWithService(roDB, importCoverageProxyHostSvcStub{}, "caddy", t.TempDir(), "", nil)
 	h.importerservice = mockSvc
 
 	w := httptest.NewRecorder()
