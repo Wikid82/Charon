@@ -63,8 +63,8 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/9999", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "certificate not found")
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {

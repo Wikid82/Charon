@@ -84,7 +84,7 @@ func (h *CertificateHandler) Get(c *gin.Context) {
 
 	detail, err := h.service.GetCertificate(certUUID)
 	if err != nil {
-		if err == services.ErrCertNotFound {
+		if errors.Is(err, services.ErrCertNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
 			return
 		}
@@ -225,7 +225,7 @@ func (h *CertificateHandler) Update(c *gin.Context) {
 
 	info, err := h.service.UpdateCertificate(certUUID, req.Name)
 	if err != nil {
-		if err == services.ErrCertNotFound {
+		if errors.Is(err, services.ErrCertNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
 			return
 		}
@@ -394,7 +394,7 @@ func (h *CertificateHandler) Export(c *gin.Context) {
 
 	data, filename, err := h.service.ExportCertificate(certUUID, req.Format, req.IncludeKey, req.PFXPassword)
 	if err != nil {
-		if err == services.ErrCertNotFound {
+		if errors.Is(err, services.ErrCertNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
 			return
 		}
@@ -440,7 +440,11 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 		}
 
 		if err := h.service.DeleteCertificateByID(uint(numID)); err != nil {
-			if err == services.ErrCertInUse {
+			if errors.Is(err, services.ErrCertNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+				return
+			}
+			if errors.Is(err, services.ErrCertInUse) {
 				c.JSON(http.StatusConflict, gin.H{"error": "certificate is in use by one or more proxy hosts"})
 				return
 			}
@@ -464,7 +468,7 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 
 	inUse, err := h.service.IsCertificateInUseByUUID(certUUID)
 	if err != nil {
-		if err == services.ErrCertNotFound {
+		if errors.Is(err, services.ErrCertNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
 			return
 		}
@@ -493,11 +497,11 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteCertificate(certUUID); err != nil {
-		if err == services.ErrCertInUse {
+		if errors.Is(err, services.ErrCertInUse) {
 			c.JSON(http.StatusConflict, gin.H{"error": "certificate is in use by one or more proxy hosts"})
 			return
 		}
-		if err == services.ErrCertNotFound {
+		if errors.Is(err, services.ErrCertNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
 			return
 		}

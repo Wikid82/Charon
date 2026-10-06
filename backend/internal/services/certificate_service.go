@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -174,7 +175,7 @@ func (s *CertificateService) SyncFromDisk() error {
 				var existing models.SSLCertificate
 				res := s.db.Where("domains = ?", domain).First(&existing)
 				if res.Error != nil {
-					if res.Error == gorm.ErrRecordNotFound {
+					if errors.Is(res.Error, gorm.ErrRecordNotFound) {
 						// Create new record
 						now := time.Now()
 						newCert := models.SSLCertificate{
@@ -517,7 +518,7 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM, chainPEM s
 func (s *CertificateService) GetCertificate(certUUID string) (*CertificateDetail, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrCertNotFound
 		}
 		return nil, fmt.Errorf("failed to fetch certificate: %w", err)
@@ -660,7 +661,7 @@ func (s *CertificateService) IsCertificateInUse(id uint) (bool, error) {
 func (s *CertificateService) IsCertificateInUseByUUID(certUUID string) (bool, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, ErrCertNotFound
 		}
 		return false, fmt.Errorf("failed to look up certificate: %w", err)
@@ -672,7 +673,7 @@ func (s *CertificateService) IsCertificateInUseByUUID(certUUID string) (bool, er
 func (s *CertificateService) DeleteCertificate(certUUID string) error {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrCertNotFound
 		}
 		return fmt.Errorf("failed to look up certificate: %w", err)
@@ -756,7 +757,7 @@ func (s *CertificateService) removeACMEFiles(domains string) {
 func (s *CertificateService) ExportCertificate(certUUID, format string, includeKey bool, pfxPassword string) (data []byte, filename string, err error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, "", ErrCertNotFound
 		}
 		return nil, "", fmt.Errorf("failed to fetch certificate: %w", err)
@@ -874,6 +875,9 @@ func (s *CertificateService) MigratePrivateKeys() error {
 func (s *CertificateService) DeleteCertificateByID(id uint) error {
 	var cert models.SSLCertificate
 	if err := s.db.Where("id = ?", id).First(&cert).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrCertNotFound
+		}
 		return fmt.Errorf("failed to look up certificate: %w", err)
 	}
 	return s.DeleteCertificate(cert.UUID)
@@ -883,7 +887,7 @@ func (s *CertificateService) DeleteCertificateByID(id uint) error {
 func (s *CertificateService) UpdateCertificate(certUUID, name string) (*CertificateInfo, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrCertNotFound
 		}
 		return nil, fmt.Errorf("failed to fetch certificate: %w", err)

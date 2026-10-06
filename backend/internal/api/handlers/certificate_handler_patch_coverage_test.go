@@ -493,7 +493,8 @@ func TestDelete_NumericID_DeleteError(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ProxyHost{})) // no SSLCertificate → DeleteCertificateByID fails
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.SSLCertificate{}))
+	require.NoError(t, db.Migrator().DropTable(&models.SSLCertificate{})) // genuine lookup failure (not a missing row) → 500
 
 	svc := services.NewCertificateService(tmpDir, db, nil)
 	h := NewCertificateHandler(svc, nil, nil)
