@@ -397,7 +397,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// before the ProxyHost loop below, so a ProxyHost cannot silently steal
 	// a domain already claimed by a RedirectionHost — whichever resource's
 	// routes are built first wins any residual collision that somehow made
-	// it past the service-layer CheckDomainConflict check (defense in depth,
+	// it past the service-layer checkCrossTableDomainConflict check (defense in depth,
 	// see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2/§4.3).
 	processedDomains := make(map[string]bool)
 	redirectRoutes, redirectIPSubjects := BuildRedirectRoutes(redirectHosts, processedDomains)

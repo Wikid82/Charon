@@ -69,7 +69,7 @@ func (e *credentialsEnv) do(t *testing.T, method, path, token string, body any) 
 
 func (e *credentialsEnv) user(t *testing.T, email string, admin bool) (u *models.User, token string) {
 	t.Helper()
-	u, err := e.auth.Register(email, "password123", "User")
+	u, err := registerTestUser(e.db, email, "password123", "User")
 	require.NoError(t, err)
 	if admin {
 		require.NoError(t, e.db.Model(u).Update("role", models.RoleAdmin).Error)

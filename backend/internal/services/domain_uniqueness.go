@@ -12,7 +12,7 @@ import (
 // row of the same resource type.
 var errDomainExists = errors.New("domain already exists")
 
-// CheckDomainConflict returns an error if any comma-separated domain in
+// checkCrossTableDomainConflict returns an error if any comma-separated domain in
 // domainNames is already claimed by a row in the *other* resource table
 // (ProxyHost when checking from RedirectionHost, and vice versa). Same-table
 // checks are handled by checkSameTableDomainConflict. Comparison is
@@ -25,7 +25,7 @@ var errDomainExists = errors.New("domain already exists")
 // If otherTable's underlying table does not exist (e.g. a test DB that only
 // migrates one of the two models), no conflict is reported — there is
 // nothing to check against.
-func CheckDomainConflict(db *gorm.DB, domainNames string, otherTable any) error {
+func checkCrossTableDomainConflict(db *gorm.DB, domainNames string, otherTable any) error {
 	if !db.Migrator().HasTable(otherTable) {
 		return nil
 	}

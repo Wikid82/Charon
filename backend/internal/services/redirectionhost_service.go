@@ -22,20 +22,6 @@ func NewRedirectionHostService(db *gorm.DB) *RedirectionHostService {
 	return &RedirectionHostService{db: db}
 }
 
-// ValidateUniqueDomain ensures none of the comma-separated domains in
-// domainNames is already used by another redirection host (case- and
-// whitespace-insensitive). The host identified by excludeID is ignored.
-func (s *RedirectionHostService) ValidateUniqueDomain(domainNames string, excludeID uint) error {
-	return checkSameTableDomainConflict(s.db, domainNames, &models.RedirectionHost{}, excludeID)
-}
-
-// CheckCrossTableDomainConflict is the additive cross-table check against
-// ProxyHost's table, mirroring the call ProxyHostService.Create/Update make
-// against RedirectionHost's table (see domain_uniqueness.go).
-func (s *RedirectionHostService) CheckCrossTableDomainConflict(domainNames string) error {
-	return CheckDomainConflict(s.db, domainNames, &models.ProxyHost{})
-}
-
 // validateRedirectionHost validates and normalizes a RedirectionHost's
 // fields before persistence: required fields, target_url scheme/host
 // validation, status-code enum membership, and the self-redirect guard
@@ -86,7 +72,7 @@ func (s *RedirectionHostService) checkHostWrite(tx *gorm.DB, host *models.Redire
 	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.RedirectionHost{}, excludeID); err != nil {
 		return err
 	}
-	return CheckDomainConflict(tx, host.DomainNames, &models.ProxyHost{})
+	return checkCrossTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{})
 }
 
 // Create validates and creates a new redirection host. The uniqueness checks

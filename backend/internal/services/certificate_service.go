@@ -645,7 +645,7 @@ func (s *CertificateService) IsCertificateInUse(id uint) (bool, error) {
 
 	// RedirectionHost is a newer peer table with the same CertificateID FK
 	// pattern as ProxyHost. Guard with HasTable — matching the pattern in
-	// domain_uniqueness.go's CheckDomainConflict — so pre-existing test DBs
+	// domain_uniqueness.go's checkCrossTableDomainConflict — so pre-existing test DBs
 	// that only migrate ProxyHost don't hit a "no such table" error; that is
 	// correct behavior for those isolated ProxyHost-only tests anyway, since
 	// there is nothing to check against.

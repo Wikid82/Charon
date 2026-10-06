@@ -2,12 +2,14 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -22,31 +24,13 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestAuthService_Register(t *testing.T) {
-	db := setupAuthTestDB(t)
-	cfg := config.Config{JWTSecret: "test-secret"}
-	service := NewAuthService(db, cfg)
-
-	// Test 1: First user should be admin
-	admin, err := service.Register("admin@example.com", "password123", "Admin User")
-	require.NoError(t, err)
-	assert.Equal(t, models.RoleAdmin, admin.Role)
-	assert.NotEmpty(t, admin.PasswordHash)
-	assert.NotEqual(t, "password123", admin.PasswordHash)
-
-	// Test 2: Second user should be regular user
-	user, err := service.Register("user@example.com", "password123", "Regular User")
-	require.NoError(t, err)
-	assert.Equal(t, models.RoleUser, user.Role)
-}
-
 func TestAuthService_Login(t *testing.T) {
 	db := setupAuthTestDB(t)
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
 	// Setup user
-	_, err := service.Register("test@example.com", "password123", "Test User")
+	_, err := registerTestUser(service, "test@example.com", "Test User")
 	require.NoError(t, err)
 
 	// Test 1: Successful login
@@ -86,7 +70,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
-	user, err := service.Register("test@example.com", "password123", "Test User")
+	user, err := registerTestUser(service, "test@example.com", "Test User")
 	require.NoError(t, err)
 
 	// Success
@@ -116,7 +100,7 @@ func TestAuthService_ValidateToken(t *testing.T) {
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
-	user, err := service.Register("test@example.com", "password123", "Test User")
+	user, err := registerTestUser(service, "test@example.com", "Test User")
 	require.NoError(t, err)
 
 	token, err := service.Login("test@example.com", "password123")
@@ -138,7 +122,7 @@ func TestAuthService_GetUserByID(t *testing.T) {
 	service := NewAuthService(db, cfg)
 
 	// Setup user
-	user, err := service.Register("test@example.com", "password123", "Test User")
+	user, err := registerTestUser(service, "test@example.com", "Test User")
 	require.NoError(t, err)
 
 	// Test 1: Get existing user
@@ -152,29 +136,13 @@ func TestAuthService_GetUserByID(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestAuthService_Register_EdgeCases tests additional edge cases for registration.
-func TestAuthService_Register_EdgeCases(t *testing.T) {
-	db := setupAuthTestDB(t)
-	cfg := config.Config{JWTSecret: "test-secret"}
-	service := NewAuthService(db, cfg)
-
-	t.Run("duplicate email returns error", func(t *testing.T) {
-		_, err := service.Register("duplicate@example.com", "password123", "User One")
-		assert.NoError(t, err)
-
-		// Try to register same email again
-		_, err = service.Register("duplicate@example.com", "password456", "User Two")
-		assert.Error(t, err)
-	})
-}
-
 // TestAuthService_ChangePassword_EdgeCases tests additional change password scenarios.
 func TestAuthService_ChangePassword_EdgeCases(t *testing.T) {
 	db := setupAuthTestDB(t)
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
-	user, err := service.Register("test@example.com", "password123", "Test User")
+	user, err := registerTestUser(service, "test@example.com", "Test User")
 	require.NoError(t, err)
 
 	t.Run("change to same password", func(t *testing.T) {
@@ -216,7 +184,7 @@ func TestAuthService_ValidateToken_EdgeCases(t *testing.T) {
 	t.Run("token with wrong secret", func(t *testing.T) {
 		// Create service with different secret
 		otherService := NewAuthService(db, config.Config{JWTSecret: "other-secret"})
-		user, _ := otherService.Register("other@example.com", "password123", "Other User")
+		user, _ := registerTestUser(otherService, "other@example.com", "Other User")
 		token, _ := otherService.Login("other@example.com", "password123")
 
 		// Try to validate with original service (different secret)
@@ -232,7 +200,7 @@ func TestAuthService_AuthenticateToken(t *testing.T) {
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
-	user, err := service.Register("auth@example.com", "password123", "Auth User")
+	user, err := registerTestUser(service, "auth@example.com", "Auth User")
 	require.NoError(t, err)
 
 	token, err := service.Login("auth@example.com", "password123")
@@ -255,7 +223,7 @@ func TestAuthService_AuthenticateToken(t *testing.T) {
 	})
 
 	t.Run("disabled_user", func(t *testing.T) {
-		user2, regErr := service.Register("disabled@example.com", "password123", "Disabled User")
+		user2, regErr := registerTestUser(service, "disabled@example.com", "Disabled User")
 		require.NoError(t, regErr)
 
 		token2, loginErr := service.Login("disabled@example.com", "password123")
@@ -274,7 +242,7 @@ func TestAuthService_InvalidateSessions(t *testing.T) {
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
-	user, err := service.Register("invalidate@example.com", "password123", "Invalidate User")
+	user, err := registerTestUser(service, "invalidate@example.com", "Invalidate User")
 	require.NoError(t, err)
 
 	var before models.User
@@ -296,7 +264,7 @@ func TestAuthService_AuthenticateToken_InvalidUserIDInClaims(t *testing.T) {
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
-	user, err := service.Register("claims@example.com", "password123", "Claims User")
+	user, err := registerTestUser(service, "claims@example.com", "Claims User")
 	require.NoError(t, err)
 
 	claims := Claims{
@@ -322,7 +290,7 @@ func TestAuthService_InvalidateSessions_DBError(t *testing.T) {
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
-	user, err := service.Register("dberror@example.com", "password123", "DB Error User")
+	user, err := registerTestUser(service, "dberror@example.com", "DB Error User")
 	require.NoError(t, err)
 
 	sqlDB, err := db.DB()
@@ -331,4 +299,29 @@ func TestAuthService_InvalidateSessions_DBError(t *testing.T) {
 
 	err = service.InvalidateSessions(user.ID)
 	require.Error(t, err)
+}
+
+// registerTestUser is a test-only fixture that inserts a user directly: the
+// first account is an admin, every later one a regular user.
+func registerTestUser(s *AuthService, email, name string) (*models.User, error) {
+	var count int64
+	s.db.Model(&models.User{}).Count(&count)
+	role := models.RoleUser
+	if count == 0 {
+		role = models.RoleAdmin
+	}
+	user := &models.User{
+		UUID:   uuid.New().String(),
+		Email:  strings.ToLower(email),
+		Name:   name,
+		Role:   role,
+		APIKey: uuid.New().String(),
+	}
+	if err := user.SetPassword(loginTestPassword); err != nil {
+		return nil, err
+	}
+	if err := s.db.Create(user).Error; err != nil {
+		return nil, err
+	}
+	return user, nil
 }

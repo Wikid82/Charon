@@ -53,13 +53,6 @@ func (s *ProxyHostService) invalidateCertCache() {
 	}
 }
 
-// ValidateUniqueDomain ensures none of the comma-separated domains in
-// domainNames is already used by another proxy host (case- and
-// whitespace-insensitive). The host identified by excludeID is ignored.
-func (s *ProxyHostService) ValidateUniqueDomain(domainNames string, excludeID uint) error {
-	return checkSameTableDomainConflict(s.db, domainNames, &models.ProxyHost{}, excludeID)
-}
-
 // ValidateHostname checks if the provided string is a valid hostname or IP address.
 func (s *ProxyHostService) ValidateHostname(host string) error {
 	// Parse as URL to extract hostname if scheme is present
@@ -188,7 +181,7 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{}, excludeID); err != nil {
 		return err
 	}
-	if err := CheckDomainConflict(tx, host.DomainNames, &models.RedirectionHost{}); err != nil {
+	if err := checkCrossTableDomainConflict(tx, host.DomainNames, &models.RedirectionHost{}); err != nil {
 		return err
 	}
 	if err := s.validateProxyHost(host); err != nil {

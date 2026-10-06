@@ -20,9 +20,8 @@ func setupProxyHostTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestProxyHostService_ValidateUniqueDomain(t *testing.T) {
+func TestProxyHostService_SameTableDomainConflict(t *testing.T) {
 	db := setupProxyHostTestDB(t)
-	service := NewProxyHostService(db)
 
 	// Create existing host
 	existing := &models.ProxyHost{
@@ -60,7 +59,7 @@ func TestProxyHostService_ValidateUniqueDomain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := service.ValidateUniqueDomain(tt.domainNames, tt.excludeID)
+			err := checkSameTableDomainConflict(db, tt.domainNames, &models.ProxyHost{}, tt.excludeID)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -259,10 +258,9 @@ func TestProxyHostService_UpdateAdvancedConfig(t *testing.T) {
 // TestProxyHostService_EmptyDomain tests validation with empty domain
 func TestProxyHostService_EmptyDomain(t *testing.T) {
 	db := setupProxyHostTestDB(t)
-	service := NewProxyHostService(db)
 
 	// Validate empty domain (should work as no conflict)
-	err := service.ValidateUniqueDomain("", 0)
+	err := checkSameTableDomainConflict(db, "", &models.ProxyHost{}, 0)
 	assert.NoError(t, err)
 }
 
@@ -300,17 +298,16 @@ func TestProxyHostService_validateProxyHost_ValidationErrors(t *testing.T) {
 	assert.ErrorContains(t, err, "dns provider is required")
 }
 
-func TestProxyHostService_ValidateUniqueDomain_DBError(t *testing.T) {
+func TestProxyHostService_SameTableDomainConflict_DBError(t *testing.T) {
 	t.Parallel()
 
 	db := setupProxyHostTestDB(t)
-	service := NewProxyHostService(db)
 
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	err = service.ValidateUniqueDomain("example.com", 0)
+	err = checkSameTableDomainConflict(db, "example.com", &models.ProxyHost{}, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "checking domain uniqueness")
 }

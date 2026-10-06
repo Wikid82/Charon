@@ -11,7 +11,7 @@ import (
 )
 
 // setupDomainUniquenessTestDB migrates both ProxyHost and RedirectionHost so
-// CheckDomainConflict has both tables available to query against.
+// checkCrossTableDomainConflict has both tables available to query against.
 func setupDomainUniquenessTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -20,7 +20,7 @@ func setupDomainUniquenessTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestCheckDomainConflict_FindsConflict(t *testing.T) {
+func TestCrossTableDomainConflict_FindsConflict(t *testing.T) {
 	db := setupDomainUniquenessTestDB(t)
 
 	require.NoError(t, db.Create(&models.RedirectionHost{
@@ -30,12 +30,12 @@ func TestCheckDomainConflict_FindsConflict(t *testing.T) {
 		StatusCode:  301,
 	}).Error)
 
-	err := CheckDomainConflict(db, "old-blog.example.com", &models.RedirectionHost{})
+	err := checkCrossTableDomainConflict(db, "old-blog.example.com", &models.RedirectionHost{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "domain already in use by another host")
 }
 
-func TestCheckDomainConflict_CaseInsensitiveAndMultiDomain(t *testing.T) {
+func TestCrossTableDomainConflict_CaseInsensitiveAndMultiDomain(t *testing.T) {
 	db := setupDomainUniquenessTestDB(t)
 
 	require.NoError(t, db.Create(&models.RedirectionHost{
@@ -46,11 +46,11 @@ func TestCheckDomainConflict_CaseInsensitiveAndMultiDomain(t *testing.T) {
 	}).Error)
 
 	// candidate list contains a domain that overlaps case-insensitively
-	err := CheckDomainConflict(db, "unrelated.example.com,OLD-BLOG.EXAMPLE.COM", &models.RedirectionHost{})
+	err := checkCrossTableDomainConflict(db, "unrelated.example.com,OLD-BLOG.EXAMPLE.COM", &models.RedirectionHost{})
 	assert.Error(t, err)
 }
 
-func TestCheckDomainConflict_NoConflict(t *testing.T) {
+func TestCrossTableDomainConflict_NoConflict(t *testing.T) {
 	db := setupDomainUniquenessTestDB(t)
 
 	require.NoError(t, db.Create(&models.RedirectionHost{
@@ -60,42 +60,42 @@ func TestCheckDomainConflict_NoConflict(t *testing.T) {
 		StatusCode:  301,
 	}).Error)
 
-	err := CheckDomainConflict(db, "brand-new.example.com", &models.RedirectionHost{})
+	err := checkCrossTableDomainConflict(db, "brand-new.example.com", &models.RedirectionHost{})
 	assert.NoError(t, err)
 }
 
-func TestCheckDomainConflict_EmptyDomainNames(t *testing.T) {
+func TestCrossTableDomainConflict_EmptyDomainNames(t *testing.T) {
 	db := setupDomainUniquenessTestDB(t)
 
-	err := CheckDomainConflict(db, "", &models.RedirectionHost{})
+	err := checkCrossTableDomainConflict(db, "", &models.RedirectionHost{})
 	assert.NoError(t, err)
 
-	err = CheckDomainConflict(db, "  , ,", &models.RedirectionHost{})
+	err = checkCrossTableDomainConflict(db, "  , ,", &models.RedirectionHost{})
 	assert.NoError(t, err)
 }
 
-func TestCheckDomainConflict_OtherTableMissing_NoError(t *testing.T) {
+func TestCrossTableDomainConflict_OtherTableMissing_NoError(t *testing.T) {
 	// Only ProxyHost is migrated — RedirectionHost table does not exist.
 	// This mirrors legacy test DB setups elsewhere in this package that
-	// predate the RedirectionHost model; CheckDomainConflict must not turn
+	// predate the RedirectionHost model; checkCrossTableDomainConflict must not turn
 	// that into a hard error.
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}))
 
-	err = CheckDomainConflict(db, "example.com", &models.RedirectionHost{})
+	err = checkCrossTableDomainConflict(db, "example.com", &models.RedirectionHost{})
 	assert.NoError(t, err)
 }
 
-func TestCheckDomainConflict_DBError(t *testing.T) {
+func TestCrossTableDomainConflict_DBError(t *testing.T) {
 	db := setupDomainUniquenessTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	// SSLCertificate's table exists (so the HasTable guard passes) but has no
 	// domain_names column, so the underlying Select query genuinely fails —
-	// this exercises CheckDomainConflict's real DB-error branch without
+	// this exercises checkCrossTableDomainConflict's real DB-error branch without
 	// relying on a closed connection, which HasTable would otherwise mask.
-	err := CheckDomainConflict(db, "example.com", &models.SSLCertificate{})
+	err := checkCrossTableDomainConflict(db, "example.com", &models.SSLCertificate{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "checking cross-table domain conflict")
 }
@@ -110,9 +110,8 @@ func TestDomainsShareAny(t *testing.T) {
 	assert.False(t, DomainsShareAny("", "c.com"))
 }
 
-func TestProxyHostService_ValidateUniqueDomain_PerDomain(t *testing.T) {
+func TestProxyHostService_SameTableDomainConflict_PerDomain(t *testing.T) {
 	db := setupProxyHostTestDB(t)
-	svc := NewProxyHostService(db)
 	existing := &models.ProxyHost{UUID: "u1", DomainNames: "a.com,b.com", ForwardHost: "127.0.0.1", ForwardPort: 80}
 	require.NoError(t, db.Create(existing).Error)
 
@@ -133,7 +132,7 @@ func TestProxyHostService_ValidateUniqueDomain_PerDomain(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := svc.ValidateUniqueDomain(tt.domains, tt.excludeID)
+			err := checkSameTableDomainConflict(db, tt.domains, &models.ProxyHost{}, tt.excludeID)
 			if tt.wantErr {
 				assert.EqualError(t, err, "domain already exists")
 			} else {
@@ -170,13 +169,12 @@ func TestProxyHostService_CreateUpdate_RejectOverlapAndNormalize(t *testing.T) {
 	assert.Equal(t, "c.com,d.com", updated.DomainNames)
 }
 
-func TestRedirectionHostService_ValidateUniqueDomain_PerDomain(t *testing.T) {
+func TestRedirectionHostService_SameTableDomainConflict_PerDomain(t *testing.T) {
 	db := setupRedirectionHostTestDB(t)
-	svc := NewRedirectionHostService(db)
 	existing := &models.RedirectionHost{UUID: "r1", DomainNames: "a.com,b.com", TargetURL: "https://t.example", StatusCode: 301}
 	require.NoError(t, db.Create(existing).Error)
 
-	assert.EqualError(t, svc.ValidateUniqueDomain("B.com", 0), "domain already exists")
-	assert.NoError(t, svc.ValidateUniqueDomain("a.com", existing.ID))
-	assert.NoError(t, svc.ValidateUniqueDomain("z.com", 0))
+	assert.EqualError(t, checkSameTableDomainConflict(db, "B.com", &models.RedirectionHost{}, 0), "domain already exists")
+	assert.NoError(t, checkSameTableDomainConflict(db, "a.com", &models.RedirectionHost{}, existing.ID))
+	assert.NoError(t, checkSameTableDomainConflict(db, "z.com", &models.RedirectionHost{}, 0))
 }
