@@ -58,11 +58,11 @@ func checkSameTableDomainConflict(db *gorm.DB, domainNames string, table any, ex
 // domainsOverlap reports whether any domain in domainNames appears in any
 // row of table (excluding excludeID when > 0).
 //
-// Matching is deliberately limited to exact, case-insensitive host names.
-// Wildcard-vs-specific overlap (e.g. *.example.com vs www.example.com),
-// trailing-dot forms and IDN/punycode equivalence are intentional non-goals:
-// Caddy gives specific hosts precedence over wildcards, so those pairs can
-// coexist, and names are compared exactly as entered.
+// Matching is deliberately limited to exact, case-insensitive host names,
+// ignoring whitespace and a single trailing dot. Wildcard-vs-specific overlap
+// (e.g. *.example.com vs www.example.com) and IDN/punycode equivalence are
+// intentional non-goals: Caddy gives specific hosts precedence over wildcards,
+// so those pairs can coexist, and other forms are compared as entered.
 func domainsOverlap(db *gorm.DB, domainNames string, table any, excludeID uint) (bool, error) {
 	candidates := splitDomains(domainNames)
 	if len(candidates) == 0 {
@@ -91,30 +91,35 @@ func domainsOverlap(db *gorm.DB, domainNames string, table any, excludeID uint) 
 	return false, nil
 }
 
-// splitDomains parses a comma-separated domain list into a lowercased,
-// trimmed set for per-domain comparison. Empty entries are dropped.
+// normalizeDomain trims whitespace, lowercases and strips a single trailing dot
+// so that "example.com." and "example.com" compare as the same host. An empty
+// result means the entry carries no domain and should be dropped.
+func normalizeDomain(d string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")
+}
+
+// splitDomains parses a comma-separated domain list into a normalized set for
+// per-domain comparison. Empty entries are dropped.
 func splitDomains(domainNames string) map[string]bool {
 	parts := strings.Split(domainNames, ",")
 	set := make(map[string]bool, len(parts))
 	for _, p := range parts {
-		p = strings.ToLower(strings.TrimSpace(p))
-		if p == "" {
-			continue
+		if p = normalizeDomain(p); p != "" {
+			set[p] = true
 		}
-		set[p] = true
 	}
 	return set
 }
 
-// CanonicalDomainNames returns domainNames with each element trimmed and
-// lowercased, empty elements dropped and duplicates removed (first
+// CanonicalDomainNames returns domainNames with each element normalized (see
+// normalizeDomain), empty elements dropped and duplicates removed (first
 // occurrence wins), rejoined with ",".
 func CanonicalDomainNames(domainNames string) string {
 	parts := strings.Split(domainNames, ",")
 	seen := make(map[string]bool, len(parts))
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
-		p = strings.ToLower(strings.TrimSpace(p))
+		p = normalizeDomain(p)
 		if p == "" || seen[p] {
 			continue
 		}

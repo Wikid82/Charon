@@ -102,12 +102,15 @@ func TestCrossTableDomainConflict_DBError(t *testing.T) {
 func TestCanonicalDomainNames(t *testing.T) {
 	assert.Equal(t, "a.com,b.com", CanonicalDomainNames("  A.com , ,B.COM,a.com "))
 	assert.Equal(t, "", CanonicalDomainNames(" , "))
+	assert.Equal(t, "a.com,b.com", CanonicalDomainNames("a.com., A.com ,b.com."))
+	assert.Equal(t, "", CanonicalDomainNames(" . , ."))
 }
 
 func TestDomainsShareAny(t *testing.T) {
 	assert.True(t, DomainsShareAny("a.com,b.com", " B.com"))
 	assert.False(t, DomainsShareAny("a.com", "c.com"))
 	assert.False(t, DomainsShareAny("", "c.com"))
+	assert.True(t, DomainsShareAny("a.com.", "a.com"))
 }
 
 func TestProxyHostService_SameTableDomainConflict_PerDomain(t *testing.T) {
@@ -126,6 +129,9 @@ func TestProxyHostService_SameTableDomainConflict_PerDomain(t *testing.T) {
 		{"case variant", "B.COM", 0, true},
 		{"whitespace variant", "  b.com  ", 0, true},
 		{"whitespace in list", "x.com , A.com", 0, true},
+		{"trailing dot variant", "b.com.", 0, true},
+		{"trailing dot with case and whitespace", " A.COM. ", 0, true},
+		{"only a dot is empty", " . ", 0, false},
 		{"disjoint", "c.com,d.com", 0, false},
 		{"update excluding self", "a.com", existing.ID, false},
 		{"empty list", " , ", 0, false},
@@ -177,4 +183,60 @@ func TestRedirectionHostService_SameTableDomainConflict_PerDomain(t *testing.T) 
 	assert.EqualError(t, checkSameTableDomainConflict(db, "B.com", &models.RedirectionHost{}, 0), "domain already exists")
 	assert.NoError(t, checkSameTableDomainConflict(db, "a.com", &models.RedirectionHost{}, existing.ID))
 	assert.NoError(t, checkSameTableDomainConflict(db, "z.com", &models.RedirectionHost{}, 0))
+}
+
+func TestProxyHostService_CreateUpdate_TrailingDotNormalizedAndRejected(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	svc := NewProxyHostService(db)
+
+	first := &models.ProxyHost{UUID: "td1", DomainNames: "Example.com.", ForwardHost: "127.0.0.1", ForwardPort: 80}
+	require.NoError(t, svc.Create(first))
+
+	var stored models.ProxyHost
+	require.NoError(t, db.First(&stored, first.ID).Error)
+	assert.Equal(t, "example.com", stored.DomainNames)
+
+	dup := &models.ProxyHost{UUID: "td2", DomainNames: "example.com", ForwardHost: "127.0.0.1", ForwardPort: 80}
+	assert.EqualError(t, svc.Create(dup), "domain already exists")
+
+	second := &models.ProxyHost{UUID: "td3", DomainNames: "other.com", ForwardHost: "127.0.0.1", ForwardPort: 80}
+	require.NoError(t, svc.Create(second))
+	second.DomainNames = "other.com,EXAMPLE.com."
+	assert.EqualError(t, svc.Update(second), "domain already exists")
+}
+
+func TestRedirectionHostService_CreateUpdate_TrailingDotNormalizedAndRejected(t *testing.T) {
+	db := setupDomainUniquenessTestDB(t)
+	svc := NewRedirectionHostService(db)
+
+	first := &models.RedirectionHost{UUID: "tr1", DomainNames: "Old.example.com.", TargetURL: "https://t.example", StatusCode: 301}
+	require.NoError(t, svc.Create(first))
+
+	var stored models.RedirectionHost
+	require.NoError(t, db.First(&stored, first.ID).Error)
+	assert.Equal(t, "old.example.com", stored.DomainNames)
+
+	dup := &models.RedirectionHost{UUID: "tr2", DomainNames: "old.example.com", TargetURL: "https://t.example", StatusCode: 301}
+	assert.EqualError(t, svc.Create(dup), "domain already exists")
+
+	second := &models.RedirectionHost{UUID: "tr3", DomainNames: "new.example.com", TargetURL: "https://t.example", StatusCode: 301}
+	require.NoError(t, svc.Create(second))
+	second.DomainNames = "old.example.com."
+	assert.EqualError(t, svc.Update(second), "domain already exists")
+
+	// Cross-table: a proxy host claiming the dotted form is rejected too.
+	require.NoError(t, db.Create(&models.ProxyHost{UUID: "trp", DomainNames: "proxied.example.com", ForwardHost: "127.0.0.1", ForwardPort: 80}).Error)
+	cross := &models.RedirectionHost{UUID: "tr4", DomainNames: "proxied.example.com.", TargetURL: "https://t.example", StatusCode: 301}
+	assert.ErrorContains(t, svc.Create(cross), "domain already in use by another host")
+}
+
+func TestRedirectionHostService_SelfRedirectGuard_TrailingDot(t *testing.T) {
+	db := setupDomainUniquenessTestDB(t)
+	svc := NewRedirectionHostService(db)
+
+	host := &models.RedirectionHost{UUID: "sr1", DomainNames: "loop.example.com.", TargetURL: "https://LOOP.example.com/x", StatusCode: 301}
+	assert.ErrorContains(t, svc.Create(host), "redirect target cannot point back")
+
+	host = &models.RedirectionHost{UUID: "sr2", DomainNames: "loop.example.com", TargetURL: "https://loop.example.com./x", StatusCode: 301}
+	assert.ErrorContains(t, svc.Create(host), "redirect target cannot point back")
 }

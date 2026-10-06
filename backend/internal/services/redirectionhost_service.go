@@ -47,12 +47,8 @@ func (s *RedirectionHostService) validateRedirectionHost(host *models.Redirectio
 		return errors.New("status_code must be one of 301, 302, 307, 308")
 	}
 
-	targetHost := strings.ToLower(parsed.Hostname())
-	for _, d := range strings.Split(host.DomainNames, ",") {
-		d = strings.ToLower(strings.TrimSpace(d))
-		if d != "" && d == targetHost {
-			return errors.New("redirect target cannot point back to one of this host's own domains")
-		}
+	if splitDomains(host.DomainNames)[normalizeDomain(parsed.Hostname())] {
+		return errors.New("redirect target cannot point back to one of this host's own domains")
 	}
 
 	if host.UseDNSChallenge && host.DNSProviderID == nil {
