@@ -70,7 +70,7 @@ func TestGenerateConfig_RedirectHostsPrecedeProxyHostRoutes(t *testing.T) {
 
 // TestGenerateConfig_CrossResourceGhostHost_RedirectionWinsOverProxyHost
 // confirms a domain claimed by both a RedirectionHost and a ProxyHost (which
-// should never happen given the service-layer CheckDomainConflict check, but
+// should never happen given the service-layer checkCrossTableDomainConflict check, but
 // is defended in depth here) results in only the RedirectionHost's route
 // being emitted, since its domains are registered into processedDomains
 // first.

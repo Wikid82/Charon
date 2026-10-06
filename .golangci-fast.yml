@@ -13,6 +13,7 @@ linters:
     - unused       # Unused code detection
     - unparam      # Unused function parameters
     - gocritic     # Code style checks (appendAssign, sloppyLen, etc.)
+    - bodyclose    # Unclosed HTTP response bodies (enforced by CI)
     - gosec        # Security checks (critical issues only)
     # Note: gosimple is merged into staticcheck in golangci-lint v2
   settings:
@@ -24,7 +25,25 @@ linters:
         - (io.Closer).Close
         - (*os.File).Close
         - (net/http.ResponseWriter).Write
-    # gocritic defaults (appendAssign, sloppyLen, etc.) are active without settings
+    # Must stay in sync with the gocritic block in backend/.golangci.yml (CI config);
+    # enforced by scripts/ci/check-golangci-gocritic-parity.sh.
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+        - opinionated
+        - experimental
+      disabled-checks:
+        - whyNoLint
+        - wrapperFunc
+        - hugeParam
+        - rangeValCopy
+        - ifElseChain
+        - appendCombine
+        - appendAssign
+        - commentedOutCode
+        - sprintfQuotedString
     gosec:
       # Only check CRITICAL security issues for fast pre-commit
       includes:

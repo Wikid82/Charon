@@ -243,35 +243,12 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 			}
 
 			// Check for conflicts with existing hosts and build conflict details
-			existingHosts, _ := h.proxyHostSvc.List()
-			existingDomainsMap := make(map[string]models.ProxyHost)
-			for _, eh := range existingHosts {
-				existingDomainsMap[eh.DomainNames] = eh
+			existingHosts, ok := listExistingHostsForImport(c, h.proxyHostSvc)
+			if !ok {
+				return
 			}
-
-			conflictDetails := make(map[string]gin.H)
-			for _, ph := range transient.Hosts {
-				if existing, found := existingDomainsMap[ph.DomainNames]; found {
-					transient.Conflicts = append(transient.Conflicts, ph.DomainNames)
-					conflictDetails[ph.DomainNames] = gin.H{
-						"existing": gin.H{
-							"forward_scheme": existing.ForwardScheme,
-							"forward_host":   existing.ForwardHost,
-							"forward_port":   existing.ForwardPort,
-							"ssl_forced":     existing.SSLForced,
-							"websocket":      existing.WebsocketSupport,
-							"enabled":        existing.Enabled,
-						},
-						"imported": gin.H{
-							"forward_scheme": ph.ForwardScheme,
-							"forward_host":   ph.ForwardHost,
-							"forward_port":   ph.ForwardPort,
-							"ssl_forced":     ph.SSLForced,
-							"websocket":      ph.WebsocketSupport,
-						},
-					}
-				}
-			}
+			conflicts, conflictDetails := detectImportConflicts(existingHosts, transient.Hosts)
+			transient.Conflicts = append(transient.Conflicts, conflicts...)
 
 			c.JSON(http.StatusOK, gin.H{
 				"session":           gin.H{"id": sid, "state": "transient", "source_file": h.mountPath},
@@ -421,35 +398,12 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	}
 
 	// Check for conflicts with existing hosts and build conflict details
-	existingHosts, _ := h.proxyHostSvc.List()
-	existingDomainsMap := make(map[string]models.ProxyHost)
-	for _, eh := range existingHosts {
-		existingDomainsMap[eh.DomainNames] = eh
+	existingHosts, ok := listExistingHostsForImport(c, h.proxyHostSvc)
+	if !ok {
+		return
 	}
-
-	conflictDetails := make(map[string]gin.H)
-	for _, ph := range result.Hosts {
-		if existing, found := existingDomainsMap[ph.DomainNames]; found {
-			result.Conflicts = append(result.Conflicts, ph.DomainNames)
-			conflictDetails[ph.DomainNames] = gin.H{
-				"existing": gin.H{
-					"forward_scheme": existing.ForwardScheme,
-					"forward_host":   existing.ForwardHost,
-					"forward_port":   existing.ForwardPort,
-					"ssl_forced":     existing.SSLForced,
-					"websocket":      existing.WebsocketSupport,
-					"enabled":        existing.Enabled,
-				},
-				"imported": gin.H{
-					"forward_scheme": ph.ForwardScheme,
-					"forward_host":   ph.ForwardHost,
-					"forward_port":   ph.ForwardPort,
-					"ssl_forced":     ph.SSLForced,
-					"websocket":      ph.WebsocketSupport,
-				},
-			}
-		}
-	}
+	conflicts, conflictDetails := detectImportConflicts(existingHosts, result.Hosts)
+	result.Conflicts = append(result.Conflicts, conflicts...)
 
 	session := models.ImportSession{
 		UUID:           sid,
@@ -684,16 +638,12 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 	}
 
 	// Check for conflicts
-	existingHosts, _ := h.proxyHostSvc.List()
-	existingDomains := make(map[string]bool)
-	for _, eh := range existingHosts {
-		existingDomains[eh.DomainNames] = true
+	existingHosts, ok := listExistingHostsForImport(c, h.proxyHostSvc)
+	if !ok {
+		return
 	}
-	for _, ph := range result.Hosts {
-		if existingDomains[ph.DomainNames] {
-			result.Conflicts = append(result.Conflicts, ph.DomainNames)
-		}
-	}
+	conflicts, _ := detectImportConflicts(existingHosts, result.Hosts)
+	result.Conflicts = append(result.Conflicts, conflicts...)
 
 	session := models.ImportSession{
 		UUID:           sid,
@@ -887,10 +837,9 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 	errors := []string{}
 
 	// Get existing hosts to check for overwrites
-	existingHosts, _ := h.proxyHostSvc.List()
-	existingMap := make(map[string]*models.ProxyHost)
-	for i := range existingHosts {
-		existingMap[existingHosts[i].DomainNames] = &existingHosts[i]
+	existingHosts, ok := listExistingHostsForImport(c, h.proxyHostSvc)
+	if !ok {
+		return
 	}
 
 	for _, host := range proxyHosts {
@@ -913,7 +862,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 		// Handle overwrite: preserve existing ID, UUID, and certificate
 		if action == "overwrite" {
-			if existing, found := existingMap[host.DomainNames]; found {
+			if existing, found := findOverlappingHost(existingHosts, host.DomainNames); found {
 				host.ID = existing.ID
 				host.UUID = existing.UUID
 				host.CertificateID = existing.CertificateID // Preserve certificate association

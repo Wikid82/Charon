@@ -2,7 +2,6 @@ package services
 
 import (
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 
@@ -23,43 +22,12 @@ func NewRedirectionHostService(db *gorm.DB) *RedirectionHostService {
 	return &RedirectionHostService{db: db}
 }
 
-// ValidateUniqueDomain ensures no duplicate domains exist among other
-// RedirectionHost rows before creation/update. Mirrors
-// ProxyHostService.ValidateUniqueDomain's same-table, whole-string
-// domain_names comparison (proxyhost_service.go:57-74), scoped to the
-// redirection_hosts table instead of proxy_hosts.
-func (s *RedirectionHostService) ValidateUniqueDomain(domainNames string, excludeID uint) error {
-	var count int64
-	query := s.db.Model(&models.RedirectionHost{}).Where("domain_names = ?", domainNames)
-
-	if excludeID > 0 {
-		query = query.Where("id != ?", excludeID)
-	}
-
-	if err := query.Count(&count).Error; err != nil {
-		return fmt.Errorf("checking domain uniqueness: %w", err)
-	}
-
-	if count > 0 {
-		return errors.New("domain already exists")
-	}
-
-	return nil
-}
-
-// CheckCrossTableDomainConflict is the additive cross-table check against
-// ProxyHost's table, mirroring the call ProxyHostService.Create/Update make
-// against RedirectionHost's table (see domain_uniqueness.go).
-func (s *RedirectionHostService) CheckCrossTableDomainConflict(domainNames string) error {
-	return CheckDomainConflict(s.db, domainNames, &models.ProxyHost{})
-}
-
 // validateRedirectionHost validates and normalizes a RedirectionHost's
 // fields before persistence: required fields, target_url scheme/host
 // validation, status-code enum membership, and the self-redirect guard
 // (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.1/§4.3/§4.4/§7).
 func (s *RedirectionHostService) validateRedirectionHost(host *models.RedirectionHost) error {
-	host.DomainNames = strings.TrimSpace(host.DomainNames)
+	host.DomainNames = CanonicalDomainNames(host.DomainNames)
 	host.TargetURL = strings.TrimSpace(host.TargetURL)
 
 	if host.DomainNames == "" {
@@ -79,12 +47,8 @@ func (s *RedirectionHostService) validateRedirectionHost(host *models.Redirectio
 		return errors.New("status_code must be one of 301, 302, 307, 308")
 	}
 
-	targetHost := strings.ToLower(parsed.Hostname())
-	for _, d := range strings.Split(host.DomainNames, ",") {
-		d = strings.ToLower(strings.TrimSpace(d))
-		if d != "" && d == targetHost {
-			return errors.New("redirect target cannot point back to one of this host's own domains")
-		}
+	if splitDomains(host.DomainNames)[normalizeDomain(parsed.Hostname())] {
+		return errors.New("redirect target cannot point back to one of this host's own domains")
 	}
 
 	if host.UseDNSChallenge && host.DNSProviderID == nil {
@@ -94,43 +58,50 @@ func (s *RedirectionHostService) validateRedirectionHost(host *models.Redirectio
 	return nil
 }
 
-// Create validates and creates a new redirection host.
-func (s *RedirectionHostService) Create(host *models.RedirectionHost) error {
+// checkHostWrite runs the validation and uniqueness checks shared by Create
+// and Update. It must run inside the write-locked transaction so the checks
+// and the subsequent write are atomic. A non-nil certificate_id must reference
+// an existing certificate.
+func (s *RedirectionHostService) checkHostWrite(tx *gorm.DB, host *models.RedirectionHost, excludeID uint) error {
 	if err := s.validateRedirectionHost(host); err != nil {
 		return err
 	}
-
-	if err := s.ValidateUniqueDomain(host.DomainNames, 0); err != nil {
+	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.RedirectionHost{}, excludeID); err != nil {
 		return err
 	}
-
-	if err := s.CheckCrossTableDomainConflict(host.DomainNames); err != nil {
+	if err := checkCrossTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{}); err != nil {
 		return err
 	}
-
-	return s.db.Create(host).Error
+	return ensureCertificateExists(tx, host.CertificateID)
 }
 
-// Update validates and updates an existing redirection host.
+// Create validates and creates a new redirection host. The uniqueness checks
+// and the insert run in one write-locked transaction. The lock is database
+// wide, so it also serializes against concurrent ProxyHostService writes
+// (see WithWriteLock).
+func (s *RedirectionHostService) Create(host *models.RedirectionHost) error {
+	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
+		if err := s.checkHostWrite(tx, host, 0); err != nil {
+			return err
+		}
+		return tx.Create(host).Error
+	})
+}
+
+// Update validates and updates an existing redirection host. The uniqueness
+// checks and the write run in one write-locked transaction (see WithWriteLock).
 func (s *RedirectionHostService) Update(host *models.RedirectionHost) error {
-	if err := s.validateRedirectionHost(host); err != nil {
-		return err
-	}
-
-	if err := s.ValidateUniqueDomain(host.DomainNames, host.ID); err != nil {
-		return err
-	}
-
-	if err := s.CheckCrossTableDomainConflict(host.DomainNames); err != nil {
-		return err
-	}
-
-	// Use Updates+Select("*") to handle nullable foreign keys properly,
-	// mirroring ProxyHostService.Update.
-	return s.db.Model(&models.RedirectionHost{}).
-		Where("id = ?", host.ID).
-		Select("*").
-		Updates(host).Error
+	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
+		if err := s.checkHostWrite(tx, host, host.ID); err != nil {
+			return err
+		}
+		// Use Updates+Select("*") to handle nullable foreign keys properly,
+		// mirroring ProxyHostService.Update.
+		return tx.Model(&models.RedirectionHost{}).
+			Where("id = ?", host.ID).
+			Select("*").
+			Updates(host).Error
+	})
 }
 
 // Delete removes a redirection host.

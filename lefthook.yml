@@ -94,6 +94,10 @@ pre-commit:
       glob: "{backend/internal/orthrus/muzzle.go,agent/muzzle/muzzle.go}"
       run: go run scripts/ci/check_muzzle_allowlist_parity.go
 
+    golangci-gocritic-parity:
+      glob: "{.golangci-fast.yml,backend/.golangci.yml}"
+      run: scripts/ci/check-golangci-gocritic-parity.sh
+
     # --- Frontend ---
     # NOTE: ESLint upgraded to v10.x. Overrides in frontend/package.json for
     # react-hooks, jsx-a11y, promise plugins (peer deps not yet updated).

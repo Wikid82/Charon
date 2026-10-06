@@ -22,9 +22,8 @@ func setupRedirectionHostTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestRedirectionHostService_ValidateUniqueDomain(t *testing.T) {
+func TestRedirectionHostService_SameTableDomainConflict(t *testing.T) {
 	db := setupRedirectionHostTestDB(t)
-	service := NewRedirectionHostService(db)
 
 	existing := &models.RedirectionHost{
 		UUID:        "rh-1",
@@ -47,7 +46,7 @@ func TestRedirectionHostService_ValidateUniqueDomain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := service.ValidateUniqueDomain(tt.domainNames, tt.excludeID)
+			err := checkSameTableDomainConflict(db, tt.domainNames, &models.RedirectionHost{}, tt.excludeID)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -57,22 +56,20 @@ func TestRedirectionHostService_ValidateUniqueDomain(t *testing.T) {
 	}
 }
 
-func TestRedirectionHostService_ValidateUniqueDomain_DBError(t *testing.T) {
+func TestRedirectionHostService_SameTableDomainConflict_DBError(t *testing.T) {
 	db := setupRedirectionHostTestDB(t)
-	service := NewRedirectionHostService(db)
 
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	err = service.ValidateUniqueDomain("example.com", 0)
+	err = checkSameTableDomainConflict(db, "example.com", &models.RedirectionHost{}, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "checking domain uniqueness")
 }
 
-func TestRedirectionHostService_CheckCrossTableDomainConflict_RejectsProxyHostDomain(t *testing.T) {
+func TestRedirectionHostService_CrossTableDomainConflict_RejectsProxyHostDomain(t *testing.T) {
 	db := setupRedirectionHostTestDB(t)
-	service := NewRedirectionHostService(db)
 
 	require.NoError(t, db.Create(&models.ProxyHost{
 		UUID:        "ph-1",
@@ -81,18 +78,17 @@ func TestRedirectionHostService_CheckCrossTableDomainConflict_RejectsProxyHostDo
 		ForwardPort: 8080,
 	}).Error)
 
-	err := service.CheckCrossTableDomainConflict("claimed.example.com")
+	err := checkCrossTableDomainConflict(db, "claimed.example.com", &models.ProxyHost{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "domain already in use by another host")
 }
 
-func TestRedirectionHostService_CheckCrossTableDomainConflict_RejectsOtherRedirectionHostDomain(t *testing.T) {
-	// CheckCrossTableDomainConflict only checks ProxyHost; the same-table
+func TestRedirectionHostService_CrossTableDomainConflict_RejectsOtherRedirectionHostDomain(t *testing.T) {
+	// checkCrossTableDomainConflict only checks ProxyHost; the same-table
 	// rejection for another RedirectionHost's domain goes through
-	// ValidateUniqueDomain above. This test documents that combination as
+	// checkSameTableDomainConflict above. This test documents that combination as
 	// Commit 4's Create/Update are expected to call both checks together.
 	db := setupRedirectionHostTestDB(t)
-	service := NewRedirectionHostService(db)
 
 	require.NoError(t, db.Create(&models.RedirectionHost{
 		UUID:        "rh-1",
@@ -102,18 +98,17 @@ func TestRedirectionHostService_CheckCrossTableDomainConflict_RejectsOtherRedire
 	}).Error)
 
 	// Same-table check (own table) catches it.
-	err := service.ValidateUniqueDomain("claimed.example.com", 0)
+	err := checkSameTableDomainConflict(db, "claimed.example.com", &models.RedirectionHost{}, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "domain already exists")
 
 	// Cross-table check against ProxyHost does not (no ProxyHost row exists).
-	err = service.CheckCrossTableDomainConflict("claimed.example.com")
+	err = checkCrossTableDomainConflict(db, "claimed.example.com", &models.ProxyHost{})
 	assert.NoError(t, err)
 }
 
-func TestRedirectionHostService_CheckCrossTableDomainConflict_NoConflict(t *testing.T) {
+func TestRedirectionHostService_CrossTableDomainConflict_NoConflict(t *testing.T) {
 	db := setupRedirectionHostTestDB(t)
-	service := NewRedirectionHostService(db)
 
 	require.NoError(t, db.Create(&models.ProxyHost{
 		UUID:        "ph-1",
@@ -122,7 +117,7 @@ func TestRedirectionHostService_CheckCrossTableDomainConflict_NoConflict(t *test
 		ForwardPort: 8080,
 	}).Error)
 
-	err := service.CheckCrossTableDomainConflict("free.example.com")
+	err := checkCrossTableDomainConflict(db, "free.example.com", &models.ProxyHost{})
 	assert.NoError(t, err)
 }
 
@@ -394,7 +389,7 @@ func TestRedirectionHostService_DB(t *testing.T) {
 }
 
 // TestRedirectionHostService_Update_RejectsDuplicateDomain confirms Update's
-// same-table uniqueness check (ValidateUniqueDomain) rejects a rename onto a
+// same-table uniqueness check (checkSameTableDomainConflict) rejects a rename onto a
 // domain already owned by a different RedirectionHost row — the excludeID
 // argument must only exempt the row being updated, not every other row.
 func TestRedirectionHostService_Update_RejectsDuplicateDomain(t *testing.T) {

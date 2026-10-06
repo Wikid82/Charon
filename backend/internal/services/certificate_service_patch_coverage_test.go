@@ -236,7 +236,7 @@ func TestDeleteCertificateByID_NotFound(t *testing.T) {
 
 	cs := newTestCertificateService(tmpDir, db)
 	err = cs.DeleteCertificateByID(99999)
-	assert.Error(t, err)
+	require.ErrorIs(t, err, ErrCertNotFound)
 }
 
 // --- UpdateCertificate ---

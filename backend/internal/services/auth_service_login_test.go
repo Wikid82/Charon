@@ -38,7 +38,7 @@ func newLoginTestService(t *testing.T) (*AuthService, *gorm.DB, *models.User) {
 	t.Helper()
 	db := setupLoginTestDB(t)
 	svc := NewAuthService(db, config.Config{JWTSecret: "test-secret"})
-	user, err := svc.Register("user@example.com", loginTestPassword, "User")
+	user, err := registerTestUser(svc, "user@example.com", "User")
 	require.NoError(t, err)
 	return svc, db, user
 }
@@ -61,11 +61,11 @@ func wrongLogins(t *testing.T, svc *AuthService, n int) {
 func TestLogin_UniformFailureResponse(t *testing.T) {
 	svc, db, user := newLoginTestService(t)
 
-	disabled, err := svc.Register("disabled@example.com", loginTestPassword, "Disabled")
+	disabled, err := registerTestUser(svc, "disabled@example.com", "Disabled")
 	require.NoError(t, err)
 	require.NoError(t, db.Model(&models.User{}).Where("id = ?", disabled.ID).Update("enabled", false).Error)
 
-	locked, err := svc.Register("locked@example.com", loginTestPassword, "Locked")
+	locked, err := registerTestUser(svc, "locked@example.com", "Locked")
 	require.NoError(t, err)
 	require.NoError(t, db.Model(&models.User{}).Where("id = ?", locked.ID).
 		Update("locked_until", time.Now().UTC().Add(time.Hour)).Error)
@@ -107,7 +107,7 @@ func TestLogin_UnknownAccountRunsPasswordCheck(t *testing.T) {
 	}
 	// Use a separate account for the wrong-password path so the first account's
 	// lock state does not influence the comparison.
-	_, err := svc.Register("second@example.com", loginTestPassword, "Second")
+	_, err := registerTestUser(svc, "second@example.com", "Second")
 	require.NoError(t, err)
 
 	known := median("second@example.com")
