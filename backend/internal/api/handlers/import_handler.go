@@ -244,14 +244,10 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 
 			// Check for conflicts with existing hosts and build conflict details
 			existingHosts, _ := h.proxyHostSvc.List()
-			existingDomainsMap := make(map[string]models.ProxyHost)
-			for _, eh := range existingHosts {
-				existingDomainsMap[eh.DomainNames] = eh
-			}
 
 			conflictDetails := make(map[string]gin.H)
 			for _, ph := range transient.Hosts {
-				if existing, found := existingDomainsMap[ph.DomainNames]; found {
+				if existing, found := findOverlappingHost(existingHosts, ph.DomainNames); found {
 					transient.Conflicts = append(transient.Conflicts, ph.DomainNames)
 					conflictDetails[ph.DomainNames] = gin.H{
 						"existing": gin.H{
@@ -422,14 +418,10 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 
 	// Check for conflicts with existing hosts and build conflict details
 	existingHosts, _ := h.proxyHostSvc.List()
-	existingDomainsMap := make(map[string]models.ProxyHost)
-	for _, eh := range existingHosts {
-		existingDomainsMap[eh.DomainNames] = eh
-	}
 
 	conflictDetails := make(map[string]gin.H)
 	for _, ph := range result.Hosts {
-		if existing, found := existingDomainsMap[ph.DomainNames]; found {
+		if existing, found := findOverlappingHost(existingHosts, ph.DomainNames); found {
 			result.Conflicts = append(result.Conflicts, ph.DomainNames)
 			conflictDetails[ph.DomainNames] = gin.H{
 				"existing": gin.H{
@@ -685,12 +677,8 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 
 	// Check for conflicts
 	existingHosts, _ := h.proxyHostSvc.List()
-	existingDomains := make(map[string]bool)
-	for _, eh := range existingHosts {
-		existingDomains[eh.DomainNames] = true
-	}
 	for _, ph := range result.Hosts {
-		if existingDomains[ph.DomainNames] {
+		if _, found := findOverlappingHost(existingHosts, ph.DomainNames); found {
 			result.Conflicts = append(result.Conflicts, ph.DomainNames)
 		}
 	}
@@ -888,10 +876,6 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 	// Get existing hosts to check for overwrites
 	existingHosts, _ := h.proxyHostSvc.List()
-	existingMap := make(map[string]*models.ProxyHost)
-	for i := range existingHosts {
-		existingMap[existingHosts[i].DomainNames] = &existingHosts[i]
-	}
 
 	for _, host := range proxyHosts {
 		action := req.Resolutions[host.DomainNames]
@@ -913,7 +897,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 		// Handle overwrite: preserve existing ID, UUID, and certificate
 		if action == "overwrite" {
-			if existing, found := existingMap[host.DomainNames]; found {
+			if existing, found := findOverlappingHost(existingHosts, host.DomainNames); found {
 				host.ID = existing.ID
 				host.UUID = existing.UUID
 				host.CertificateID = existing.CertificateID // Preserve certificate association
@@ -1044,4 +1028,15 @@ func CheckMountedImport(db *gorm.DB, mountPath, caddyBinary, importDir string) e
 func mustMarshal(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// findOverlappingHost returns the first existing proxy host that shares at
+// least one (canonicalized) domain with domainNames.
+func findOverlappingHost(existing []models.ProxyHost, domainNames string) (models.ProxyHost, bool) {
+	for _, eh := range existing {
+		if services.DomainsShareAny(eh.DomainNames, domainNames) {
+			return eh, true
+		}
+	}
+	return models.ProxyHost{}, false
 }

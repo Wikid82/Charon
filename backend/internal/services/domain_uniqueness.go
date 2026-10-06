@@ -8,50 +8,81 @@ import (
 	"gorm.io/gorm"
 )
 
+// errDomainExists is returned when a domain is already claimed by another
+// row of the same resource type.
+var errDomainExists = errors.New("domain already exists")
+
 // CheckDomainConflict returns an error if any comma-separated domain in
 // domainNames is already claimed by a row in the *other* resource table
-// (ProxyHost when checking from RedirectionHost, and vice versa). It never
-// queries the caller's own table — each service's existing same-table check
-// (unchanged) already covers that. Comparison is per-individual domain (both
-// sides' comma-separated lists are split and lowercased), since the two
-// tables have no shared string convention to exact-match against.
+// (ProxyHost when checking from RedirectionHost, and vice versa). Same-table
+// checks are handled by checkSameTableDomainConflict. Comparison is
+// per-individual domain (both sides' comma-separated lists are split,
+// trimmed and lowercased).
 //
 // otherTable is the GORM model of the *other* resource, e.g. a
 // RedirectionHost service passes &models.ProxyHost{} and vice versa.
 //
-// This is purely additive: it only ever adds a new rejection reason (a
-// domain claimed by the other resource type). It never relaxes, replaces, or
-// bypasses either service's existing same-table uniqueness check. If
-// otherTable's underlying table does not exist (e.g. a test DB that only
+// If otherTable's underlying table does not exist (e.g. a test DB that only
 // migrates one of the two models), no conflict is reported — there is
-// nothing to check against, and this must never turn into a hard error for
-// callers that legitimately don't know about the other resource type.
+// nothing to check against.
 func CheckDomainConflict(db *gorm.DB, domainNames string, otherTable any) error {
-	candidates := splitDomains(domainNames)
-	if len(candidates) == 0 {
+	if !db.Migrator().HasTable(otherTable) {
 		return nil
 	}
 
-	if !db.Migrator().HasTable(otherTable) {
-		return nil
+	conflict, err := domainsOverlap(db, domainNames, otherTable, 0)
+	if err != nil {
+		return fmt.Errorf("checking cross-table domain conflict: %w", err)
+	}
+	if conflict {
+		return errors.New("domain already in use by another host")
+	}
+	return nil
+}
+
+// checkSameTableDomainConflict returns errDomainExists if any individual
+// domain in domainNames is already claimed by another row of table. The row
+// whose ID equals excludeID (when > 0) is ignored so updates do not collide
+// with themselves.
+func checkSameTableDomainConflict(db *gorm.DB, domainNames string, table any, excludeID uint) error {
+	conflict, err := domainsOverlap(db, domainNames, table, excludeID)
+	if err != nil {
+		return fmt.Errorf("checking domain uniqueness: %w", err)
+	}
+	if conflict {
+		return errDomainExists
+	}
+	return nil
+}
+
+// domainsOverlap reports whether any domain in domainNames appears in any
+// row of table (excluding excludeID when > 0).
+func domainsOverlap(db *gorm.DB, domainNames string, table any, excludeID uint) (bool, error) {
+	candidates := splitDomains(domainNames)
+	if len(candidates) == 0 {
+		return false, nil
+	}
+
+	query := db.Model(table).Select("domain_names")
+	if excludeID > 0 {
+		query = query.Where("id != ?", excludeID)
 	}
 
 	var rows []struct {
 		DomainNames string
 	}
-	if err := db.Model(otherTable).Select("domain_names").Find(&rows).Error; err != nil {
-		return fmt.Errorf("checking cross-table domain conflict: %w", err)
+	if err := query.Find(&rows).Error; err != nil {
+		return false, err
 	}
 
 	for _, row := range rows {
 		for existing := range splitDomains(row.DomainNames) {
 			if candidates[existing] {
-				return errors.New("domain already in use by another host")
+				return true, nil
 			}
 		}
 	}
-
-	return nil
+	return false, nil
 }
 
 // splitDomains parses a comma-separated domain list into a lowercased,
@@ -67,4 +98,34 @@ func splitDomains(domainNames string) map[string]bool {
 		set[p] = true
 	}
 	return set
+}
+
+// CanonicalDomainNames returns domainNames with each element trimmed and
+// lowercased, empty elements dropped and duplicates removed (first
+// occurrence wins), rejoined with ",".
+func CanonicalDomainNames(domainNames string) string {
+	parts := strings.Split(domainNames, ",")
+	seen := make(map[string]bool, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return strings.Join(out, ",")
+}
+
+// DomainsShareAny reports whether two comma-separated domain lists have at
+// least one domain in common after canonicalization.
+func DomainsShareAny(a, b string) bool {
+	set := splitDomains(a)
+	for d := range splitDomains(b) {
+		if set[d] {
+			return true
+		}
+	}
+	return false
 }

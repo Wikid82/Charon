@@ -99,3 +99,84 @@ func TestCheckDomainConflict_DBError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "checking cross-table domain conflict")
 }
+func TestCanonicalDomainNames(t *testing.T) {
+	assert.Equal(t, "a.com,b.com", CanonicalDomainNames("  A.com , ,B.COM,a.com "))
+	assert.Equal(t, "", CanonicalDomainNames(" , "))
+}
+
+func TestDomainsShareAny(t *testing.T) {
+	assert.True(t, DomainsShareAny("a.com,b.com", " B.com"))
+	assert.False(t, DomainsShareAny("a.com", "c.com"))
+	assert.False(t, DomainsShareAny("", "c.com"))
+}
+
+func TestProxyHostService_ValidateUniqueDomain_PerDomain(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	svc := NewProxyHostService(db)
+	existing := &models.ProxyHost{UUID: "u1", DomainNames: "a.com,b.com", ForwardHost: "127.0.0.1", ForwardPort: 80}
+	require.NoError(t, db.Create(existing).Error)
+
+	tests := []struct {
+		name      string
+		domains   string
+		excludeID uint
+		wantErr   bool
+	}{
+		{"subset of existing", "b.com", 0, true},
+		{"superset of existing", "x.com,a.com", 0, true},
+		{"case variant", "B.COM", 0, true},
+		{"whitespace variant", "  b.com  ", 0, true},
+		{"whitespace in list", "x.com , A.com", 0, true},
+		{"disjoint", "c.com,d.com", 0, false},
+		{"update excluding self", "a.com", existing.ID, false},
+		{"empty list", " , ", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := svc.ValidateUniqueDomain(tt.domains, tt.excludeID)
+			if tt.wantErr {
+				assert.EqualError(t, err, "domain already exists")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestProxyHostService_CreateUpdate_RejectOverlapAndNormalize(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	svc := NewProxyHostService(db)
+
+	first := &models.ProxyHost{UUID: "u1", DomainNames: " A.com , B.com ", ForwardHost: "127.0.0.1", ForwardPort: 80}
+	require.NoError(t, svc.Create(first))
+
+	var stored models.ProxyHost
+	require.NoError(t, db.First(&stored, first.ID).Error)
+	assert.Equal(t, "a.com,b.com", stored.DomainNames)
+
+	dup := &models.ProxyHost{UUID: "u2", DomainNames: "B.com", ForwardHost: "127.0.0.1", ForwardPort: 80}
+	assert.EqualError(t, svc.Create(dup), "domain already exists")
+
+	second := &models.ProxyHost{UUID: "u3", DomainNames: "c.com", ForwardHost: "127.0.0.1", ForwardPort: 80}
+	require.NoError(t, svc.Create(second))
+
+	second.DomainNames = "C.com, a.com"
+	assert.EqualError(t, svc.Update(second), "domain already exists")
+
+	second.DomainNames = "C.com,d.com"
+	require.NoError(t, svc.Update(second))
+	var updated models.ProxyHost
+	require.NoError(t, db.First(&updated, second.ID).Error)
+	assert.Equal(t, "c.com,d.com", updated.DomainNames)
+}
+
+func TestRedirectionHostService_ValidateUniqueDomain_PerDomain(t *testing.T) {
+	db := setupRedirectionHostTestDB(t)
+	svc := NewRedirectionHostService(db)
+	existing := &models.RedirectionHost{UUID: "r1", DomainNames: "a.com,b.com", TargetURL: "https://t.example", StatusCode: 301}
+	require.NoError(t, db.Create(existing).Error)
+
+	assert.EqualError(t, svc.ValidateUniqueDomain("B.com", 0), "domain already exists")
+	assert.NoError(t, svc.ValidateUniqueDomain("a.com", existing.ID))
+	assert.NoError(t, svc.ValidateUniqueDomain("z.com", 0))
+}

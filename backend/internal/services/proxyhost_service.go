@@ -53,24 +53,11 @@ func (s *ProxyHostService) invalidateCertCache() {
 	}
 }
 
-// ValidateUniqueDomain ensures no duplicate domains exist before creation/update.
+// ValidateUniqueDomain ensures none of the comma-separated domains in
+// domainNames is already used by another proxy host (case- and
+// whitespace-insensitive). The host identified by excludeID is ignored.
 func (s *ProxyHostService) ValidateUniqueDomain(domainNames string, excludeID uint) error {
-	var count int64
-	query := s.db.Model(&models.ProxyHost{}).Where("domain_names = ?", domainNames)
-
-	if excludeID > 0 {
-		query = query.Where("id != ?", excludeID)
-	}
-
-	if err := query.Count(&count).Error; err != nil {
-		return fmt.Errorf("checking domain uniqueness: %w", err)
-	}
-
-	if count > 0 {
-		return errors.New("domain already exists")
-	}
-
-	return nil
+	return checkSameTableDomainConflict(s.db, domainNames, &models.ProxyHost{}, excludeID)
 }
 
 // ValidateHostname checks if the provided string is a valid hostname or IP address.
@@ -118,7 +105,7 @@ func (s *ProxyHostService) ValidateHostname(host string) error {
 }
 
 func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
-	host.DomainNames = strings.TrimSpace(host.DomainNames)
+	host.DomainNames = CanonicalDomainNames(host.DomainNames)
 	host.ForwardHost = strings.TrimSpace(host.ForwardHost)
 
 	if host.DomainNames == "" {

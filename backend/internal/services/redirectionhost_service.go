@@ -2,7 +2,6 @@ package services
 
 import (
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 
@@ -23,28 +22,11 @@ func NewRedirectionHostService(db *gorm.DB) *RedirectionHostService {
 	return &RedirectionHostService{db: db}
 }
 
-// ValidateUniqueDomain ensures no duplicate domains exist among other
-// RedirectionHost rows before creation/update. Mirrors
-// ProxyHostService.ValidateUniqueDomain's same-table, whole-string
-// domain_names comparison (proxyhost_service.go:57-74), scoped to the
-// redirection_hosts table instead of proxy_hosts.
+// ValidateUniqueDomain ensures none of the comma-separated domains in
+// domainNames is already used by another redirection host (case- and
+// whitespace-insensitive). The host identified by excludeID is ignored.
 func (s *RedirectionHostService) ValidateUniqueDomain(domainNames string, excludeID uint) error {
-	var count int64
-	query := s.db.Model(&models.RedirectionHost{}).Where("domain_names = ?", domainNames)
-
-	if excludeID > 0 {
-		query = query.Where("id != ?", excludeID)
-	}
-
-	if err := query.Count(&count).Error; err != nil {
-		return fmt.Errorf("checking domain uniqueness: %w", err)
-	}
-
-	if count > 0 {
-		return errors.New("domain already exists")
-	}
-
-	return nil
+	return checkSameTableDomainConflict(s.db, domainNames, &models.RedirectionHost{}, excludeID)
 }
 
 // CheckCrossTableDomainConflict is the additive cross-table check against
@@ -59,7 +41,7 @@ func (s *RedirectionHostService) CheckCrossTableDomainConflict(domainNames strin
 // validation, status-code enum membership, and the self-redirect guard
 // (docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.1/§4.3/§4.4/§7).
 func (s *RedirectionHostService) validateRedirectionHost(host *models.RedirectionHost) error {
-	host.DomainNames = strings.TrimSpace(host.DomainNames)
+	host.DomainNames = CanonicalDomainNames(host.DomainNames)
 	host.TargetURL = strings.TrimSpace(host.TargetURL)
 
 	if host.DomainNames == "" {
