@@ -57,7 +57,7 @@ permissions:
   contents: read
 
 env:
-  SYFT_VERSION: 'v1.54.0'
+  SYFT_VERSION: 'v1.54.1'
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
