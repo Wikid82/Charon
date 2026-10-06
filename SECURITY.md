@@ -582,6 +582,31 @@ it). Review 2026-12-04.
 
 ---
 
+### [HIGH] GHSA-vfj7-8cjw-p6xm · braces DoS via `micromatch` (root dev tooling)
+
+| Field        | Value |
+|--------------|-------|
+| **ID**       | GHSA-vfj7-8cjw-p6xm (CVSS 7.5) |
+| **Severity** | High |
+| **Status**   | Accepted Risk (no fixed version exists) |
+
+**What**
+`braces` stack-exhaustion DoS on deeply nested patterns. Every published version (`<= 3.0.3`,
+the latest) is affected and `first_patched_version` is null.
+
+**Who**
+
+- Discovered by: `npm audit` / `audit-ci` in `scripts/charon_dep_update.sh`
+- Affects: repo-root devDependencies only (`@bgotink/playwright-coverage`, `markdownlint-cli2`
+  via `micromatch`) — never shipped to users; patterns come from our own config, not untrusted input
+
+**When**
+
+- Disclosed: 2026-09-18 (public)
+- Target fix: remove the root `audit-ci.json` allowlist entry once `braces` ships a patched release
+
+---
+
 ### [HIGH] GHSA-mh99-v99m-4gvg · brace-expansion DoS via `eslint-plugin-jsx-a11y` (frontend)
 
 | Field        | Value |
