@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -137,9 +138,14 @@ func isSetupConflictError(err error) bool {
 		strings.Contains(errText, "database table is locked")
 }
 
+// errSetupAlreadyCompleted signals that a user already exists, detected inside
+// the setup transaction.
+var errSetupAlreadyCompleted = errors.New("setup already completed")
+
 // Setup creates the initial admin user and configures the ACME email.
 func (h *UserHandler) Setup(c *gin.Context) {
-	// 1. Check if setup is allowed
+	// 1. Cheap early rejection. The authoritative check is repeated inside the
+	// transaction below, which is what makes setup single-shot.
 	var count int64
 	if err := h.DB.Model(&models.User{}).Count(&count).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check setup status"})
@@ -184,6 +190,21 @@ func (h *UserHandler) Setup(c *gin.Context) {
 
 	// Transaction to ensure both succeed
 	err := h.DB.Transaction(func(tx *gorm.DB) error {
+		// Take SQLite's write lock before reading so the eligibility check and
+		// the insert are one atomic unit: a concurrent setup blocks here until
+		// the winner commits, then observes its user and is rejected.
+		if err := tx.Exec("UPDATE users SET id = id WHERE 1 = 0").Error; err != nil {
+			return fmt.Errorf("acquire setup write lock: %w", err)
+		}
+
+		var existing int64
+		if err := tx.Model(&models.User{}).Count(&existing).Error; err != nil {
+			return fmt.Errorf("check setup status: %w", err)
+		}
+		if existing > 0 {
+			return errSetupAlreadyCompleted
+		}
+
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
@@ -195,6 +216,11 @@ func (h *UserHandler) Setup(c *gin.Context) {
 	})
 
 	if err != nil {
+		if errors.Is(err, errSetupAlreadyCompleted) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed"})
+			return
+		}
+
 		var postTxCount int64
 		if countErr := h.DB.Model(&models.User{}).Count(&postTxCount).Error; countErr == nil && postTxCount > 0 {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed"})
