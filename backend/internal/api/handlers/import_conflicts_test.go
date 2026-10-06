@@ -255,3 +255,74 @@ func TestImportHandler_ListFailureFailsClosed(t *testing.T) {
 		assertGenericListFailure(t, postImportJSON(r, "/commit", map[string]any{"session_uuid": sid, "resolutions": map[string]string{}}))
 	})
 }
+
+// uploadThenOverwriteCommit uploads content, then commits resolving every
+// imported domain with "overwrite", and returns the decoded commit response.
+func uploadThenOverwriteCommit(t *testing.T, router http.Handler, uploadPath, commitPath, content, domain string) map[string]any {
+	t.Helper()
+	w := postImportJSON(router, uploadPath, map[string]string{"content": content})
+	require.Equal(t, http.StatusOK, w.Code)
+	var up map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &up))
+	sid := up["session"].(map[string]any)["id"].(string)
+
+	w = postImportJSON(router, commitPath, map[string]any{
+		"session_uuid": sid,
+		"resolutions":  map[string]string{domain: "overwrite"},
+	})
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	return resp
+}
+
+func TestImportCommit_OverwriteMatchesOverlappingExistingHost(t *testing.T) {
+	seed := func(t *testing.T, db *gorm.DB) models.ProxyHost {
+		t.Helper()
+		host := models.ProxyHost{UUID: "existing-uuid", DomainNames: "keep.example.com, Target.Example.com", ForwardScheme: "http", ForwardHost: "old", ForwardPort: 80, Enabled: true}
+		require.NoError(t, db.Create(&host).Error)
+		return host
+	}
+	assertOverwritten := func(t *testing.T, db *gorm.DB, original models.ProxyHost, resp map[string]any) {
+		t.Helper()
+		assert.Equal(t, float64(1), resp["updated"])
+		assert.Equal(t, float64(0), resp["created"])
+		var hosts []models.ProxyHost
+		require.NoError(t, db.Find(&hosts).Error)
+		require.Len(t, hosts, 1)
+		assert.Equal(t, original.ID, hosts[0].ID)
+		assert.Equal(t, "new", hosts[0].ForwardHost)
+	}
+
+	npmContent, _ := json.Marshal(NPMExport{ProxyHosts: []NPMProxyHost{
+		{ID: 1, DomainNames: []string{"target.example.com"}, ForwardScheme: "http", ForwardHost: "new", ForwardPort: 8080, Enabled: true},
+	}})
+	charonContent, _ := json.Marshal(CharonExport{Version: "1.0.0", ProxyHosts: []CharonProxyHost{
+		{UUID: "n1", DomainNames: "target.example.com", ForwardScheme: "http", ForwardHost: "new", ForwardPort: 8080, Enabled: true},
+	}})
+
+	t.Run("npm handler", func(t *testing.T) {
+		db := setupNPMTestDB(t)
+		orig := seed(t, db)
+		router := gin.New()
+		NewNPMImportHandler(db).RegisterRoutes(router.Group("/api/v1"))
+		resp := uploadThenOverwriteCommit(t, router, "/api/v1/import/npm/upload", "/api/v1/import/npm/commit", string(npmContent), "target.example.com")
+		assertOverwritten(t, db, orig, resp)
+	})
+	t.Run("json handler npm format", func(t *testing.T) {
+		db := setupJSONTestDB(t)
+		orig := seed(t, db)
+		router := gin.New()
+		NewJSONImportHandler(db).RegisterRoutes(router.Group("/api/v1"))
+		resp := uploadThenOverwriteCommit(t, router, "/api/v1/import/json/upload", "/api/v1/import/json/commit", string(npmContent), "target.example.com")
+		assertOverwritten(t, db, orig, resp)
+	})
+	t.Run("json handler charon format", func(t *testing.T) {
+		db := setupJSONTestDB(t)
+		orig := seed(t, db)
+		router := gin.New()
+		NewJSONImportHandler(db).RegisterRoutes(router.Group("/api/v1"))
+		resp := uploadThenOverwriteCommit(t, router, "/api/v1/import/json/upload", "/api/v1/import/json/commit", string(charonContent), "target.example.com")
+		assertOverwritten(t, db, orig, resp)
+	})
+}
