@@ -3163,7 +3163,9 @@ func TestUserHandler_Setup_TransactionErrorPaths(t *testing.T) {
 		}))
 		w := postSetup(handler)
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Contains(t, w.Body.String(), "acquire write lock")
+		assert.Contains(t, w.Body.String(), "Failed to complete setup")
+		assert.NotContains(t, w.Body.String(), "forced lock failure")
+		assert.NotContains(t, w.Body.String(), "acquire write lock")
 	})
 
 	t.Run("in-transaction count failure", func(t *testing.T) {
@@ -3177,7 +3179,8 @@ func TestUserHandler_Setup_TransactionErrorPaths(t *testing.T) {
 		}))
 		w := postSetup(handler)
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Contains(t, w.Body.String(), "check setup status")
+		assert.Contains(t, w.Body.String(), "Failed to complete setup")
+		assert.NotContains(t, w.Body.String(), "forced count failure")
 	})
 
 	t.Run("user appears after early check", func(t *testing.T) {

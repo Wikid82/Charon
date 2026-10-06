@@ -227,7 +227,8 @@ func (h *UserHandler) Setup(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete setup: " + err.Error()})
+		middleware.GetRequestLogger(c).WithError(err).Error("Setup: failed to complete setup")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete setup"})
 		return
 	}
 

@@ -57,6 +57,12 @@ func checkSameTableDomainConflict(db *gorm.DB, domainNames string, table any, ex
 
 // domainsOverlap reports whether any domain in domainNames appears in any
 // row of table (excluding excludeID when > 0).
+//
+// Matching is deliberately limited to exact, case-insensitive host names.
+// Wildcard-vs-specific overlap (e.g. *.example.com vs www.example.com),
+// trailing-dot forms and IDN/punycode equivalence are intentional non-goals:
+// Caddy gives specific hosts precedence over wildcards, so those pairs can
+// coexist, and names are compared exactly as entered.
 func domainsOverlap(db *gorm.DB, domainNames string, table any, excludeID uint) (bool, error) {
 	candidates := splitDomains(domainNames)
 	if len(candidates) == 0 {
