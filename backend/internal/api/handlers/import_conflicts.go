@@ -44,9 +44,9 @@ func findOverlappingHost(existing []models.ProxyHost, domainNames string) (model
 
 // detectImportConflicts returns the imported domain strings that overlap an
 // existing host, plus per-domain existing/imported comparison details.
-func detectImportConflicts(existing []models.ProxyHost, imported []caddy.ParsedHost) ([]string, map[string]gin.H) {
-	conflicts := []string{}
-	details := make(map[string]gin.H)
+func detectImportConflicts(existing []models.ProxyHost, imported []caddy.ParsedHost) (conflicts []string, details map[string]gin.H) {
+	conflicts = []string{}
+	details = make(map[string]gin.H)
 	for _, ph := range imported {
 		eh, found := findOverlappingHost(existing, ph.DomainNames)
 		if !found {
