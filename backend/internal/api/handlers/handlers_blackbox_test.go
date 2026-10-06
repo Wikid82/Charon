@@ -1092,6 +1092,10 @@ func TestUpload_NormalizationFallback(t *testing.T) {
 func TestCommit_OverwriteAction(t *testing.T) {
 	db := setupImportTestDB(t)
 
+	// The referenced certificate must exist: host writes reject dangling references.
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.Create(&models.SSLCertificate{ID: 42, UUID: uuid.NewString(), Name: "existing-cert", Provider: "custom"}).Error)
+
 	// Create existing host with certificate association
 	existingHost := models.ProxyHost{
 		UUID:          uuid.NewString(),
