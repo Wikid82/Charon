@@ -47,6 +47,7 @@ func TestDiscordOnly_DispatchToProviderRejectsNonDiscord(t *testing.T) {
 
 // TestDiscordOnly_DispatchToProviderAcceptsDiscord tests that dispatchToProvider accepts Discord providers.
 func TestDiscordOnly_DispatchToProviderAcceptsDiscord(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 

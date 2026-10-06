@@ -61,6 +61,8 @@ JSON templates give you complete control over notification formatting, allowing 
 5. Configure notification triggers
 6. Save your provider
 
+> **Receivers on the same host:** Notification webhooks cannot target loopback addresses (`localhost`, `127.0.0.1`, `::1`). If your receiver runs on the same machine as Charon, use the host's non-loopback address instead (for example its LAN IP or a Docker network hostname).
+
 ### JSON Template Support
 
 For JSON-based services (Discord, Slack, Gotify, and Custom Webhook), you can choose from three template options. Email uses its own built-in HTML templates and does not use JSON templates.

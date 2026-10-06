@@ -9,6 +9,7 @@
 .git/
 .gitignore
 .github/
+codecov.yml
 .sourcery.yml
 .claude/
 

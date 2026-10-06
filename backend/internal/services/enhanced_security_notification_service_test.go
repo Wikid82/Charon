@@ -863,6 +863,7 @@ func TestSendWebhook_SSRFValidation(t *testing.T) {
 }
 
 func TestSendWebhook_Success(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	db := setupEnhancedServiceDB(t)
 	service := NewEnhancedSecurityNotificationService(db)
 
@@ -974,6 +975,7 @@ func TestGetDefaultFeatureFlagValue_TestMode(t *testing.T) {
 }
 
 func TestSendWebhook_DoesNotFollowRedirects(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	db := setupEnhancedServiceDB(t)
 	service := NewEnhancedSecurityNotificationService(db)
 

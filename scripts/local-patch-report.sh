@@ -83,7 +83,7 @@ fi
 # Three-tier baseline resolution (F.3):
 #   Tier 1 - explicit $CHARON_PATCH_BASELINE override (handled above, already set).
 #   Tier 2 - ask gh what the current branch's actual open PR base is, so the
-#            local diff matches the PR diff reviewers see.
+#            local diff matches exactly what Codecov compares against.
 #   Tier 3 - static heuristic fallback, preferring origin/development over
 #            origin/main (per F.2: development is the default integration
 #            branch; main is only ever a target for the scheduled nightly
