@@ -3,6 +3,7 @@ package remotestorage
 import (
 	"context"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -153,4 +154,59 @@ func TestWithPermissiveSSRFForTesting_SwapsAndRestores(t *testing.T) {
 	restore()
 	assert.Error(t, ssrfValidateHost("127.0.0.1"), "restore must reinstate the production default")
 	assert.Error(t, ssrfValidateDialAddress(net.ParseIP("127.0.0.1")), "restore must reinstate the production default")
+}
+
+func TestRemoteStoragePolicy_Outcomes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		ip      string
+		wantErr bool
+	}{
+		{"8.8.8.8", false},
+		{"10.0.0.5", false},
+		{"192.168.1.10", false},
+		{"100.64.0.1", false},
+		{"127.0.0.1", true},
+		{"::1", true},
+		{"169.254.169.254", true},
+		{"100.100.100.200", true},
+		{"fd00::1", true},
+	}
+	for _, tt := range tests {
+		err := validateIPSSRF(net.ParseIP(tt.ip))
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateIPSSRF(%s) err = %v, wantErr %v", tt.ip, err, tt.wantErr)
+		}
+	}
+	if err := validateIPSSRF(nil); err == nil {
+		t.Error("nil address accepted")
+	}
+}
+
+func TestRemoteStoragePolicy_RejectsReservedRanges(t *testing.T) {
+	t.Parallel()
+	for _, ip := range []string{
+		"192.0.0.1", "198.18.0.1", "198.19.255.255", "64:ff9b::808:808", "64:ff9b:1::1",
+		"2002:c000:204::1", "::1.2.3.4", "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+	} {
+		if err := validateIPSSRF(net.ParseIP(ip)); err == nil {
+			t.Errorf("validateIPSSRF(%s) accepted", ip)
+		}
+	}
+}
+
+func TestSafeDialer_ControlHookRejectsReservedLiteral(t *testing.T) {
+	t.Parallel()
+	d := safeDialer(200 * time.Millisecond)
+	for _, addr := range []string{"198.18.0.1:9", "[2002::1]:9"} {
+		conn, err := d.DialContext(context.Background(), "tcp", addr)
+		if err == nil {
+			_ = conn.Close()
+			t.Errorf("dial %s succeeded", addr)
+			continue
+		}
+		if !strings.Contains(err.Error(), "disallowed address blocked") {
+			t.Errorf("dial %s: expected policy rejection, got %v", addr, err)
+		}
+	}
 }

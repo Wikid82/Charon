@@ -49,12 +49,12 @@ func PrivateNetworkOK() Policy {
 
 // clientOptions maps the policy onto the internal client options.
 func (p Policy) clientOptions(timeout time.Duration) []network.Option {
-	opts := []network.Option{network.WithTimeout(timeout), network.WithBlockTransitionRanges()}
+	opts := []network.Option{network.WithTimeout(timeout)}
 	if p.allowRFC1918 {
 		opts = append(opts, network.WithAllowRFC1918())
 	}
-	if !p.allowCGNAT {
-		opts = append(opts, network.WithBlockCGNAT())
+	if p.allowCGNAT {
+		opts = append(opts, network.WithAllowCGNAT())
 	}
 	return opts
 }
@@ -141,10 +141,8 @@ func checkLiteralHost(host string, p Policy) error {
 		return nil
 	}
 
-	blocked := network.IsTransitionRange(ip) ||
-		(network.IsCGNAT(ip) && !p.allowCGNAT) ||
-		(network.IsPrivateIP(ip) && (!p.allowRFC1918 || !network.IsRFC1918(ip)))
-	if blocked {
+	policy := network.AddressPolicy{AllowRFC1918: p.allowRFC1918, AllowCGNAT: p.allowCGNAT}
+	if policy.Blocked(ip) {
 		return fmt.Errorf("url host is not allowed: %w", ErrBlockedAddress)
 	}
 	return nil
@@ -191,9 +189,8 @@ func isNumericSegment(seg string) bool {
 // ValidateURL runs ValidateURLSyntax and then a DNS-based address check.
 //
 // It is an early-error convenience only: the dialer inside NewClient re-checks
-// every address at connect time and is the authoritative control. In particular
-// the early check does not apply the carrier-grade NAT or transition-range
-// rules to resolved hostnames.
+// every address at connect time and is the authoritative control. The early
+// check applies the same address policy to every resolved address.
 func ValidateURL(raw string, p Policy) (*url.URL, error) {
 	u, err := ValidateURLSyntax(raw, p)
 	if err != nil {
@@ -206,6 +203,9 @@ func ValidateURL(raw string, p Policy) (*url.URL, error) {
 	}
 	if p.allowRFC1918 {
 		opts = append(opts, security.WithAllowRFC1918())
+	}
+	if p.allowCGNAT {
+		opts = append(opts, security.WithAllowCGNAT())
 	}
 	// The returned normalised string is discarded on purpose: requests are built
 	// from the *url.URL parsed above, never from a re-parsed string.

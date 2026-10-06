@@ -77,3 +77,23 @@ func TestSenderSeamPermitsLoopbackInTests(t *testing.T) {
 	require.NoError(t, (&EnhancedSecurityNotificationService{}).sendWebhook(context.Background(), srv.URL, event))
 	assert.True(t, hit.Load())
 }
+
+func TestSenderHelpers_AllowCGNATRejectTransitionByDefault(t *testing.T) {
+	require.False(t, senderAllowLoopback)
+
+	_, err := security.ValidateExternalURL("http://100.64.0.1/hook", senderURLOptions()...)
+	assert.NoError(t, err, "CGNAT must be allowed")
+	for _, u := range []string{
+		"http://100.100.100.200/hook", "http://127.0.0.1/hook",
+		"http://198.18.0.1/hook", "http://[2002::1]/hook", "http://[64:ff9b::808:808]/hook",
+	} {
+		_, err := security.ValidateExternalURL(u, senderURLOptions()...)
+		assert.Error(t, err, u)
+	}
+
+	client := newSenderHTTPClient()
+	assert.False(t, dialPolicyProbe(t, client, "100.64.0.1:9"), "CGNAT dial refused")
+	for _, addr := range []string{"100.100.100.200:9", "127.0.0.1:9", "198.18.0.1:9", "[2002::1]:9", "[64:ff9b::808:808]:9"} {
+		assert.True(t, dialPolicyProbe(t, client, addr), addr)
+	}
+}

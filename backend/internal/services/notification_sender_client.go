@@ -14,9 +14,10 @@ import (
 var senderAllowLoopback bool
 
 // senderURLOptions returns the URL validation options shared by the
-// notification senders.
+// notification senders. CGNAT (overlay networks) is always allowed; loopback is
+// opt-in via the test seam only.
 func senderURLOptions() []security.ValidationOption {
-	opts := []security.ValidationOption{security.WithAllowHTTP()}
+	opts := []security.ValidationOption{security.WithAllowHTTP(), security.WithAllowCGNAT()}
 	if senderAllowLoopback {
 		opts = append(opts, security.WithAllowLocalhost())
 	}
@@ -24,9 +25,10 @@ func senderURLOptions() []security.ValidationOption {
 }
 
 // newSenderHTTPClient builds the validated outbound client shared by the
-// notification senders.
+// notification senders. CGNAT (overlay networks) is always allowed; loopback is
+// opt-in via the test seam only.
 func newSenderHTTPClient() *http.Client {
-	opts := []network.Option{network.WithTimeout(10 * time.Second)}
+	opts := []network.Option{network.WithTimeout(10 * time.Second), network.WithAllowCGNAT()}
 	if senderAllowLoopback {
 		opts = append(opts, network.WithAllowLocalhost())
 	}
