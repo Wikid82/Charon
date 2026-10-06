@@ -578,6 +578,7 @@ func (s *EnhancedSecurityNotificationService) sendWebhook(ctx context.Context, w
 	validatedURL, err := security.ValidateExternalURL(webhookURL,
 		security.WithAllowHTTP(),      // Allow HTTP for backwards compatibility
 		security.WithAllowLocalhost(), // Allow localhost for testing
+		security.WithAllowCGNAT(),
 	)
 	if err != nil {
 		return fmt.Errorf("ssrf validation failed: %w", err)
@@ -600,6 +601,7 @@ func (s *EnhancedSecurityNotificationService) sendWebhook(ctx context.Context, w
 	client := network.NewSafeHTTPClient(
 		network.WithTimeout(10*time.Second),
 		network.WithAllowLocalhost(), // Allow localhost for testing
+		network.WithAllowCGNAT(),
 	)
 	resp, err := client.Do(req)
 	if err != nil {
