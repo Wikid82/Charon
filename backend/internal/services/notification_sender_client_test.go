@@ -37,7 +37,7 @@ func TestSenderClientRejectsLoopbackByDefault(t *testing.T) {
 		assert.Contains(t, err.Error(), "private ip addresses is blocked", u)
 
 		// Dial-time layer must also refuse, independent of URL validation.
-		req, reqErr := http.NewRequest(http.MethodPost, u, nil)
+		req, reqErr := http.NewRequest(http.MethodPost, u, http.NoBody)
 		require.NoError(t, reqErr)
 		resp, doErr := newSenderHTTPClient().Do(req)
 		if resp != nil {
