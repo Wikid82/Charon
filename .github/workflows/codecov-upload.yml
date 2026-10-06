@@ -40,7 +40,7 @@ jobs:
   backend-codecov:
     name: Backend Codecov Upload
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_backend }}
     steps:
       - name: Checkout
@@ -172,7 +172,7 @@ jobs:
   frontend-codecov:
     name: Frontend Codecov Upload
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend }}
     steps:
       - name: Checkout

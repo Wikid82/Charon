@@ -33,6 +33,10 @@ environment_variables:
     description: "Minimum coverage percentage required (overrides default)"
     default: "85"
     required: false
+  - name: "CHARON_TEST_TIMEOUT"
+    description: "Per-package go test timeout passed as -timeout"
+    default: "30m"
+    required: false
   - name: "CPM_MIN_COVERAGE"
     description: "Alternative name for minimum coverage threshold (legacy)"
     default: "85"
