@@ -60,7 +60,8 @@ func (s *RedirectionHostService) validateRedirectionHost(host *models.Redirectio
 
 // checkHostWrite runs the validation and uniqueness checks shared by Create
 // and Update. It must run inside the write-locked transaction so the checks
-// and the subsequent write are atomic.
+// and the subsequent write are atomic. A non-nil certificate_id must reference
+// an existing certificate.
 func (s *RedirectionHostService) checkHostWrite(tx *gorm.DB, host *models.RedirectionHost, excludeID uint) error {
 	if err := s.validateRedirectionHost(host); err != nil {
 		return err
@@ -68,7 +69,10 @@ func (s *RedirectionHostService) checkHostWrite(tx *gorm.DB, host *models.Redire
 	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.RedirectionHost{}, excludeID); err != nil {
 		return err
 	}
-	return checkCrossTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{})
+	if err := checkCrossTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{}); err != nil {
+		return err
+	}
+	return ensureCertificateExists(tx, host.CertificateID)
 }
 
 // Create validates and creates a new redirection host. The uniqueness checks

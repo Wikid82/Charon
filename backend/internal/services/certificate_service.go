@@ -30,6 +30,24 @@ var ErrCertInUse = fmt.Errorf("certificate is in use by one or more proxy hosts"
 // ErrCertNotFound is returned when a certificate cannot be found by UUID.
 var ErrCertNotFound = fmt.Errorf("certificate not found")
 
+// ensureCertificateExists returns ErrCertNotFound when certID is non-nil and no
+// such certificate row exists. Host writes call it inside their write-locked
+// transaction so a concurrent certificate delete cannot leave a dangling
+// reference (foreign keys are not enforced by the database).
+func ensureCertificateExists(tx *gorm.DB, certID *uint) error {
+	if certID == nil {
+		return nil
+	}
+	var count int64
+	if err := tx.Model(&models.SSLCertificate{}).Where("id = ?", *certID).Count(&count).Error; err != nil {
+		return fmt.Errorf("checking certificate existence: %w", err)
+	}
+	if count == 0 {
+		return ErrCertNotFound
+	}
+	return nil
+}
+
 // CertificateInfo represents parsed certificate details for list responses.
 type CertificateInfo struct {
 	UUID         string    `json:"uuid"`

@@ -176,7 +176,8 @@ func normalizeAdvancedConfig(host *models.ProxyHost) error {
 
 // checkHostWrite runs the uniqueness and validation checks shared by Create
 // and Update. It must run inside the write-locked transaction so the checks
-// and the subsequent write are atomic.
+// and the subsequent write are atomic. A non-nil certificate_id must reference
+// an existing certificate.
 func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, excludeID uint) error {
 	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{}, excludeID); err != nil {
 		return err
@@ -185,6 +186,9 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 		return err
 	}
 	if err := s.validateProxyHost(host); err != nil {
+		return err
+	}
+	if err := ensureCertificateExists(tx, host.CertificateID); err != nil {
 		return err
 	}
 	return normalizeAdvancedConfig(host)
