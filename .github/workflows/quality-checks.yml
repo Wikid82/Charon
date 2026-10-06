@@ -79,6 +79,18 @@ jobs:
           set -euo pipefail
           go run scripts/ci/check_muzzle_allowlist_parity.go
 
+  codecov-trigger-parity-guard:
+    name: Codecov Trigger/Comment Parity Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Enforce Codecov trigger and comment parity
+        run: |
+          bash scripts/ci/check-codecov-trigger-parity.sh
+
   toolchain-key-tests:
     name: Toolchain key / freshness-guard scripts (bats)
     runs-on: ubuntu-latest
@@ -309,7 +321,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Coverage upload to Aikido lives in `aikido-coverage.yml`.
+      # Codecov upload moved to `codecov-upload.yml` (pull_request + workflow_dispatch).
 
 
       - name: GORM Security Scanner
@@ -436,7 +448,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Coverage upload to Aikido is handled in aikido-coverage.yml (agent-coverage job).
+      # Codecov upload handled separately in codecov-upload.yml (agent-codecov job).
 
       # Last step so lint never hides test results; !cancelled() so a failing
       # test step never skips lint. The agent module shares the full config that
@@ -545,7 +557,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Coverage upload to Aikido lives in `aikido-coverage.yml`.
+      # Codecov upload moved to `codecov-upload.yml` (pull_request + workflow_dispatch).
 
 
 
