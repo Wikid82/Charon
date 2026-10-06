@@ -28,6 +28,7 @@ func TestUpdateHandler_Check(t *testing.T) {
 	svc := services.NewUpdateService()
 	err := svc.SetAPIURL(server.URL + "/releases/latest")
 	assert.NoError(t, err)
+	svc.SetHTTPClient(server.Client())
 
 	// Setup Handler
 	h := NewUpdateHandler(svc)
@@ -58,6 +59,7 @@ func TestUpdateHandler_Check(t *testing.T) {
 	svcError := services.NewUpdateService()
 	err = svcError.SetAPIURL(serverError.URL)
 	assert.NoError(t, err)
+	svcError.SetHTTPClient(serverError.Client())
 	hError := NewUpdateHandler(svcError)
 
 	rError := gin.New()

@@ -18,7 +18,8 @@ type UpdateService struct {
 	repoName       string
 	lastCheck      time.Time
 	cachedResult   *UpdateInfo
-	apiURL         string // For testing
+	apiURL         string       // For testing
+	httpClient     *http.Client // Test-only override; nil selects the default safe client
 }
 
 type UpdateInfo struct {
@@ -110,12 +111,9 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 		return s.cachedResult, nil
 	}
 
-	// Use SSRF-safe HTTP client for defense-in-depth
-	// Note: SetAPIURL already validates the URL against github.com allowlist
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(5*time.Second),
-		network.WithAllowLocalhost(), // Allow localhost for testing
-	)
+	// SetAPIURL already validates the URL against the github.com allowlist;
+	// the default client additionally blocks private and loopback targets.
+	client := s.outboundClient()
 
 	req, err := http.NewRequest("GET", s.apiURL, http.NoBody)
 	if err != nil {
@@ -161,4 +159,18 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 	s.lastCheck = time.Now()
 
 	return info, nil
+}
+
+// SetHTTPClient overrides the outbound client. Intended for tests that need
+// to reach local httptest servers; production code never calls it.
+func (s *UpdateService) SetHTTPClient(c *http.Client) {
+	s.httpClient = c
+}
+
+// outboundClient returns the injected client, or the default SSRF-safe client.
+func (s *UpdateService) outboundClient() *http.Client {
+	if s.httpClient != nil {
+		return s.httpClient
+	}
+	return network.NewSafeHTTPClient(network.WithTimeout(5 * time.Second))
 }

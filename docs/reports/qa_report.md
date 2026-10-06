@@ -1,29 +1,27 @@
-# QA Report: Hardening Outbound Client Configuration in Notification Senders
+# QA Report
 
-Branch: `fix/notification-sender-client-hardening` (2 commits on top of `origin/development`)
-Date: 2026-10-05
-Scope: backend services + docs (`notification_sender_client.go`, security notification services, tests, `docs/features/notifications.md`).
+Branch: `fix/localhost-allowance-followups` (4 commits on `development`)
 
-## Gate Results
+## Scope
+
+Hardening outbound client configuration in the update checker and hub sync, removing unused LAPI helpers. Backend and documentation changes only (plus a one-line addition to `docs/troubleshooting/crowdsec.md`).
+
+## Results
 
 | Gate | Result | Notes |
 |---|---|---|
-| Playwright E2E | N/A | Backend + docs only; no UI/API-contract change |
-| GORM security scan | N/A | No models, queries, or migrations touched |
-| Local patch coverage preflight | PASS | Patch coverage 100% (2/2 changed lines); artifacts `test-results/local-patch-report.md/.json` present |
-| Security scans (CodeQL/Trivy) | DEFERRED | Fix-scoped change; deferred to CI per CLAUDE.md |
-| Lefthook pre-commit (`--all-files`) | PASS | All 16 hooks passed, incl. semgrep (0 findings), staticcheck/golangci-lint-fast, go-vet, frontend lint/type-check |
-| `make lint-fast` | PASS | 0 issues (backend + agent) |
-| Backend coverage (`scripts/go-test-coverage.sh`) | PASS | 92.3% statements / 89.5% line coverage; gate 87% |
-| Frontend type-check / coverage | N/A | No frontend changes (type-check ran via lefthook: pass) |
 | `go build ./...` | PASS | |
-| `go test -race ./internal/services/... -count=1` | PASS | No regressions after rebase |
-| `go test ./internal/api/...` | PASS | All packages OK |
-
-## Findings
-
-No blocking, high, medium, or low findings. Working tree clean after all gates.
+| Local patch coverage preflight | PASS | 18/18 changed lines covered (100%); artifacts in `test-results/` |
+| Backend coverage (`scripts/go-test-coverage.sh`) | PASS | 92.4% statements, 89.5% lines; gate met |
+| `lefthook run pre-commit --all-files` | PASS | All hooks green, Semgrep 0 findings |
+| `make lint-fast` | PASS | 0 issues (backend and agent) |
+| Race tests: `services`, `crowdsec` | PASS | `-race -count=1`, all packages ok |
+| `go test ./internal/api/...` | PASS | all packages ok |
+| GORM scan | N/A | No models, queries or migrations touched |
+| Playwright / frontend gates | N/A | Backend and docs only |
+| CodeQL / Trivy | Deferred to CI | Fix-scoped change |
+| Docs | PASS | Troubleshooting note is accurate; `docs-site/docs/` untouched |
 
 ## Verdict
 
-PASS.
+PASS. No blocking issues.
