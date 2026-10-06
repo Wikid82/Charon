@@ -678,48 +678,77 @@ func (s *CertificateService) DeleteCertificate(certUUID string) error {
 		return fmt.Errorf("failed to look up certificate: %w", err)
 	}
 
-	// Prevent deletion if the certificate is referenced by any proxy host
-	inUse, err := s.IsCertificateInUse(cert.ID)
-	if err != nil {
+	// Reference check and delete are a single conditional statement, so a
+	// host cannot be assigned between the two. Files are only removed once the
+	// row is actually gone.
+	if err := s.deleteIfUnreferenced(cert.ID); err != nil {
 		return err
-	}
-	if inUse {
-		return ErrCertInUse
 	}
 
 	if cert.Provider == "letsencrypt" || cert.Provider == "letsencrypt-staging" {
-		// Best-effort file deletion
-		certRoot := filepath.Join(s.dataDir, "certificates")
-		_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
-				if info.Name() == cert.Domains+".crt" {
-					logger.Log().WithField("path", path).Info("CertificateService: deleting ACME cert file")
-					if err := os.Remove(path); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
-						logger.Log().WithError(err).Error("CertificateService: failed to delete cert file")
+		s.removeACMEFiles(cert.Domains)
+	}
+
+	s.InvalidateCache()
+	return nil
+}
+
+// deleteIfUnreferenced deletes the certificate row only if no proxy host or
+// redirection host references it, as one atomic statement. It returns
+// ErrCertInUse when a reference exists and ErrCertNotFound when the row is
+// already gone.
+func (s *CertificateService) deleteIfUnreferenced(id uint) error {
+	query := s.db.Where("id = ?", id).
+		Where("NOT EXISTS (SELECT 1 FROM proxy_hosts WHERE proxy_hosts.certificate_id = ssl_certificates.id)")
+	// Same HasTable guard as IsCertificateInUse for DBs without the newer table.
+	if s.db.Migrator().HasTable(&models.RedirectionHost{}) {
+		query = query.Where("NOT EXISTS (SELECT 1 FROM redirection_hosts WHERE redirection_hosts.certificate_id = ssl_certificates.id)")
+	}
+
+	res := query.Delete(&models.SSLCertificate{})
+	if res.Error != nil {
+		return fmt.Errorf("failed to delete certificate: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
+		return nil
+	}
+
+	var remaining int64
+	if err := s.db.Model(&models.SSLCertificate{}).Where("id = ?", id).Count(&remaining).Error; err != nil {
+		return fmt.Errorf("failed to verify certificate state: %w", err)
+	}
+	if remaining == 0 {
+		return ErrCertNotFound
+	}
+	return ErrCertInUse
+}
+
+// removeACMEFiles best-effort removes the on-disk ACME artifacts for domains.
+func (s *CertificateService) removeACMEFiles(domains string) {
+	certRoot := filepath.Join(s.dataDir, "certificates")
+	_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
+			if info.Name() == domains+".crt" {
+				logger.Log().WithField("path", path).Info("CertificateService: deleting ACME cert file")
+				if err := os.Remove(path); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+					logger.Log().WithError(err).Error("CertificateService: failed to delete cert file")
+				}
+				keyPath := strings.TrimSuffix(path, ".crt") + ".key"
+				if _, err := os.Stat(keyPath); err == nil {
+					if err := os.Remove(keyPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+						logger.Log().WithError(err).Warn("Failed to remove key file")
 					}
-					keyPath := strings.TrimSuffix(path, ".crt") + ".key"
-					if _, err := os.Stat(keyPath); err == nil {
-						if err := os.Remove(keyPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
-							logger.Log().WithError(err).Warn("Failed to remove key file")
-						}
-					}
-					jsonPath := strings.TrimSuffix(path, ".crt") + ".json"
-					if _, err := os.Stat(jsonPath); err == nil {
-						if err := os.Remove(jsonPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
-							logger.Log().WithError(err).Warn("Failed to remove JSON file")
-						}
+				}
+				jsonPath := strings.TrimSuffix(path, ".crt") + ".json"
+				if _, err := os.Stat(jsonPath); err == nil {
+					if err := os.Remove(jsonPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+						logger.Log().WithError(err).Warn("Failed to remove JSON file")
 					}
 				}
 			}
-			return nil
-		})
-	}
-
-	if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", cert.ID).Error; err != nil {
-		return fmt.Errorf("failed to delete certificate: %w", err)
-	}
-	s.InvalidateCache()
-	return nil
+		}
+		return nil
+	})
 }
 
 // ExportCertificate exports a certificate in the requested format.
