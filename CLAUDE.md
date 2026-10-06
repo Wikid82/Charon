@@ -131,7 +131,7 @@ never affected by this.
 - **Sync**: React Query expects the exact JSON produced by GORM tags (snake_case). Keep API and UI field names aligned.
 - **Migrations**: When adding models, update `internal/models` AND `internal/api/routes/routes.go` (AutoMigrate).
 - **Testing**: All new code MUST include accompanying unit tests.
-- **Ignore Files**: Always check `.gitignore` and `.dockerignore` when adding new files or folders.
+- **Ignore Files**: Always check `.gitignore`, `.dockerignore`, and `.codecov.yml` when adding new files or folders.
 
 ## Documentation
 

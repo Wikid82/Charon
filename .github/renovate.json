@@ -181,27 +181,14 @@
     },
     {
       "customType": "regex",
-      "description": "Track gotestsum version in coverage workflow",
+      "description": "Track gotestsum version in codecov workflow",
       "managerFilePatterns": [
-        "/^\\.github/workflows/aikido-coverage\\.yml$/"
+        "/^\\.github/workflows/codecov-upload\\.yml$/"
       ],
       "matchStrings": [
         "gotestsum@v(?<currentValue>[^\\s]+)"
       ],
       "depNameTemplate": "gotest.tools/gotestsum",
-      "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "description": "Track gcov2lcov version in coverage workflow",
-      "managerFilePatterns": [
-        "/^\\.github/workflows/aikido-coverage\\.yml$/"
-      ],
-      "matchStrings": [
-        "gcov2lcov@v(?<currentValue>[^\\s]+)"
-      ],
-      "depNameTemplate": "github.com/jandelgado/gcov2lcov",
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
     },

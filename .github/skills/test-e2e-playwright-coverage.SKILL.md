@@ -70,7 +70,7 @@ metadata:
 
 ## Overview
 
-Runs Playwright end-to-end tests with code coverage collection using `@bgotink/playwright-coverage`. This skill collects V8 coverage data during test execution and generates reports in LCOV, HTML, and JSON formats suitable for coverage tooling.
+Runs Playwright end-to-end tests with code coverage collection using `@bgotink/playwright-coverage`. This skill collects V8 coverage data during test execution and generates reports in LCOV, HTML, and JSON formats suitable for upload to Codecov.
 
 **IMPORTANT**: This skill starts the **Vite dev server** (not Docker) because V8 coverage requires access to source files. Running coverage against the Docker container will result in `0%` coverage.
 
@@ -119,6 +119,12 @@ For use in GitHub Actions or other CI/CD pipelines:
   env:
     PLAYWRIGHT_BASE_URL: http://localhost:8080
     CI: true
+
+- name: Upload E2E Coverage to Codecov
+  uses: codecov/codecov-action@v5
+  with:
+    files: ./coverage/e2e/lcov.info
+    flags: e2e
 ```
 
 ## Parameters
@@ -146,7 +152,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 ### Output Directories
 - **coverage/e2e/**: Coverage reports (LCOV, HTML, JSON)
-  - `lcov.info` - LCOV format
+  - `lcov.info` - LCOV format for Codecov upload
   - `coverage.json` - JSON format for programmatic access
   - `index.html` - HTML report for visual inspection
 - **playwright-report/**: HTML test report with results and traces
@@ -173,7 +179,7 @@ The skill generates coverage in multiple formats:
 
 | Format | File | Purpose |
 |--------|------|---------|
-| LCOV | `coverage/e2e/lcov.info` | Coverage tooling |
+| LCOV | `coverage/e2e/lcov.info` | Codecov upload |
 | HTML | `coverage/e2e/index.html` | Visual inspection |
 | JSON | `coverage/e2e/coverage.json` | Programmatic access |
 
