@@ -12,6 +12,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
 MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-87}}"
+# Per-package `go test` timeout. Go's 10m default is too tight for the slowest
+# packages (internal/services takes ~9.5m under -race on CI runners).
+TEST_TIMEOUT="${CHARON_TEST_TIMEOUT:-30m}"
 
 generate_test_encryption_key() {
     if command -v openssl >/dev/null 2>&1; then
@@ -130,12 +133,12 @@ trap 'rm -f "$TEST_OUTPUT_FILE"' EXIT
 
 if command -v gotestsum &> /dev/null; then
     set +e
-    gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    gotestsum --format pkgname -- -race -timeout="$TEST_TIMEOUT" -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
     GO_TEST_STATUS=$?
     set -e
 else
     set +e
-    go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    go test -race -v -timeout="$TEST_TIMEOUT" -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
     GO_TEST_STATUS=$?
     set -e
 fi
