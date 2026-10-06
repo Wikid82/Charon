@@ -103,6 +103,7 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 	validatedURL, err := security.ValidateExternalURL(webhookURL,
 		security.WithAllowLocalhost(), // Allow localhost for testing
 		security.WithAllowHTTP(),      // Some webhooks use HTTP
+		security.WithAllowCGNAT(),
 	)
 	if err != nil {
 		// Log SSRF attempt with high severity
@@ -133,6 +134,7 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 	client := network.NewSafeHTTPClient(
 		network.WithTimeout(10*time.Second),
 		network.WithAllowLocalhost(), // Allow localhost for testing
+		network.WithAllowCGNAT(),
 	)
 	resp, err := client.Do(req)
 	if err != nil {

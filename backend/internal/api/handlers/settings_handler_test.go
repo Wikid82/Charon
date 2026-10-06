@@ -1830,6 +1830,30 @@ func TestSettingsHandler_TestPublicURL_IPv6LocalhostBlocked(t *testing.T) {
 	// IPv6 loopback should be blocked
 }
 
+func TestSettingsHandler_TestPublicURL_ReservedRangesBlocked(t *testing.T) {
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := newAdminRouter()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	for _, target := range []string{"http://100.64.0.1", "http://198.18.0.1", "http://[2002::1]", "http://[64:ff9b::808:808]"} {
+		jsonBody, _ := json.Marshal(map[string]string{"url": target})
+		req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code, target)
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp), target)
+		assert.False(t, resp["reachable"].(bool), target)
+	}
+}
+
 // TestUpdateSetting_EmptyValueIsAccepted guards the PR-1 fix: Value must NOT carry
 // binding:"required". Gin treats "" as missing for string fields and returns 400 if
 // the tag is present. Re-adding the tag would silently regress the CrowdSec enable
