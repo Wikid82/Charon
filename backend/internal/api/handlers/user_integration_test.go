@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -49,7 +51,7 @@ func TestUserLoginAfterEmailChange(t *testing.T) {
 	// 1. Create Initial User
 	initialEmail := "initial@example.com"
 	password := "password123"
-	user, err := authService.Register(initialEmail, password, "Test User")
+	user, err := registerTestUser(db, initialEmail, password, "Test User")
 	require.NoError(t, err)
 	require.NotNil(t, user)
 
@@ -114,4 +116,22 @@ func TestUserLoginAfterEmailChange(t *testing.T) {
 
 	// If this fails, it confirms case sensitivity issue
 	assert.Equal(t, http.StatusOK, w.Code, "Login with mixed case email should succeed")
+}
+
+// registerTestUser is a test-only fixture that inserts a user directly.
+func registerTestUser(db *gorm.DB, email, password, name string) (*models.User, error) {
+	user := &models.User{
+		UUID:   uuid.New().String(),
+		Email:  strings.ToLower(email),
+		Name:   name,
+		Role:   models.RoleUser,
+		APIKey: uuid.New().String(),
+	}
+	if err := user.SetPassword(password); err != nil {
+		return nil, err
+	}
+	if err := db.Create(user).Error; err != nil {
+		return nil, err
+	}
+	return user, nil
 }

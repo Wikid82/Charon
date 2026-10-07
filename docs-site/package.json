@@ -42,7 +42,8 @@
     "uuid": "^14.0.2",
     "braces": "^3.0.3",
     "http-cache-semantics": "^4.3.0",
-    "feed": "^6.0.0"
+    "feed": "^6.0.0",
+    "tinypool": "^2.2.0"
   },
   "engines": {
     "node": "^24.21.0"

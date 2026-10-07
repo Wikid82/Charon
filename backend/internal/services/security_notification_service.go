@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -100,10 +98,7 @@ func (s *SecurityNotificationService) Send(ctx context.Context, event models.Sec
 // sendWebhook sends the event to a webhook URL.
 func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
 	// CRITICAL FIX: Validate webhook URL before making request (SSRF protection)
-	validatedURL, err := security.ValidateExternalURL(webhookURL,
-		security.WithAllowLocalhost(), // Allow localhost for testing
-		security.WithAllowHTTP(),      // Some webhooks use HTTP
-	)
+	validatedURL, err := security.ValidateExternalURL(webhookURL, senderURLOptions()...)
 	if err != nil {
 		// Log SSRF attempt with high severity
 		logger.Log().WithFields(logrus.Fields{
@@ -130,10 +125,7 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 	req.Header.Set("User-Agent", "Charon-Cerberus/1.0")
 
 	// Use SSRF-safe HTTP client for defense-in-depth
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(10*time.Second),
-		network.WithAllowLocalhost(), // Allow localhost for testing
-	)
+	client := newSenderHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("execute request: %w", err)

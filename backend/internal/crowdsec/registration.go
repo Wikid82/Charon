@@ -5,23 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	neturl "net/url"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/network"
 )
 
 const (
 	// defaultLAPIURL is the default CrowdSec LAPI URL.
 	// Port 8085 is used to avoid conflict with Charon management API on port 8080.
 	defaultLAPIURL          = "http://127.0.0.1:8085"
-	defaultHealthTimeout    = 5 * time.Second
 	defaultRegistrationName = "caddy-bouncer"
 )
 
@@ -32,12 +26,6 @@ type BouncerRegistration struct {
 	IPAddress string    `json:"ip_address,omitempty"`
 	Valid     bool      `json:"valid"`
 	CreatedAt time.Time `json:"created_at,omitempty"`
-}
-
-// LAPIHealthResponse represents the health check response from CrowdSec LAPI.
-type LAPIHealthResponse struct {
-	Message string `json:"message,omitempty"`
-	Version string `json:"version,omitempty"`
 }
 
 // validateLAPIURL validates a CrowdSec LAPI URL for security (SSRF protection - MEDIUM-001).
@@ -118,140 +106,6 @@ func EnsureBouncerRegistered(ctx context.Context, lapiURL string) (string, error
 
 	// Register new bouncer using cscli
 	return registerBouncer(ctx, defaultRegistrationName)
-}
-
-// CheckLAPIHealth verifies CrowdSec LAPI is responding.
-func CheckLAPIHealth(lapiURL string) bool {
-	if lapiURL == "" {
-		lapiURL = defaultLAPIURL
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), defaultHealthTimeout)
-	defer cancel()
-
-	// Try the /health endpoint first (standard LAPI health check)
-	healthURL := strings.TrimRight(lapiURL, "/") + "/health"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, http.NoBody)
-	if err != nil {
-		return false
-	}
-
-	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(defaultHealthTimeout),
-		network.WithAllowLocalhost(), // LAPI validated to be localhost only
-	)
-	resp, err := client.Do(req)
-	if err != nil {
-		// Fallback: try the /v1/decisions endpoint with a HEAD request
-		return checkDecisionsEndpoint(ctx, lapiURL)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logger.Log().WithError(closeErr).Warn("Failed to close response body")
-		}
-	}()
-
-	// Check content-type to ensure we're getting JSON from actual LAPI (not HTML from frontend)
-	contentType := resp.Header.Get("Content-Type")
-	if contentType != "" && !strings.Contains(contentType, "application/json") {
-		// Not JSON response, likely hitting a frontend/proxy
-		return false
-	}
-
-	// LAPI returns 200 OK for healthy status
-	if resp.StatusCode == http.StatusOK {
-		return true
-	}
-
-	// If health endpoint returned non-OK, try decisions endpoint fallback
-	if resp.StatusCode == http.StatusNotFound {
-		return checkDecisionsEndpoint(ctx, lapiURL)
-	}
-
-	return false
-}
-
-// GetLAPIVersion retrieves the CrowdSec LAPI version.
-func GetLAPIVersion(ctx context.Context, lapiURL string) (string, error) {
-	if lapiURL == "" {
-		lapiURL = defaultLAPIURL
-	}
-
-	versionURL := strings.TrimRight(lapiURL, "/") + "/v1/version"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, versionURL, http.NoBody)
-	if err != nil {
-		return "", fmt.Errorf("create version request: %w", err)
-	}
-
-	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(defaultHealthTimeout),
-		network.WithAllowLocalhost(), // LAPI validated to be localhost only
-	)
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("version request failed: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logger.Log().WithError(closeErr).Warn("Failed to close response body")
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("version request returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read version response: %w", err)
-	}
-
-	var versionResp struct {
-		Version string `json:"version"`
-	}
-	if err := json.Unmarshal(body, &versionResp); err != nil {
-		// Some versions return plain text
-		return strings.TrimSpace(string(body)), nil
-	}
-
-	return versionResp.Version, nil
-}
-
-// checkDecisionsEndpoint is a fallback health check using the decisions endpoint.
-func checkDecisionsEndpoint(ctx context.Context, lapiURL string) bool {
-	decisionsURL := strings.TrimRight(lapiURL, "/") + "/v1/decisions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, decisionsURL, http.NoBody)
-	if err != nil {
-		return false
-	}
-
-	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(defaultHealthTimeout),
-		network.WithAllowLocalhost(), // LAPI validated to be localhost only
-	)
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close response body")
-		}
-	}()
-
-	// Check content-type to avoid false positives from HTML responses
-	contentType := resp.Header.Get("Content-Type")
-	if contentType != "" && !strings.Contains(contentType, "application/json") {
-		// Not JSON response, likely hitting a frontend/proxy
-		return false
-	}
-
-	// 401 is expected without auth, but indicates LAPI is running
-	// 200 with empty array is also valid (no decisions)
-	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusUnauthorized
 }
 
 // getBouncerAPIKey returns the bouncer API key from environment variables.

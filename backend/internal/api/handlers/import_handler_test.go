@@ -1018,3 +1018,111 @@ func TestImportHandler_Cancel_TransientUploadCancelled_BranchCoverage(t *testing
 		assert.True(t, os.IsNotExist(err))
 	})
 }
+
+func TestFindOverlappingHost(t *testing.T) {
+	existing := []models.ProxyHost{
+		{DomainNames: "a.example.com,b.example.com", ForwardHost: "one"},
+		{DomainNames: "c.example.com", ForwardHost: "two"},
+	}
+
+	got, found := findOverlappingHost(existing, " B.Example.com ")
+	require.True(t, found)
+	assert.Equal(t, "one", got.ForwardHost)
+
+	got, found = findOverlappingHost(existing, "x.example.com,C.example.com")
+	require.True(t, found)
+	assert.Equal(t, "two", got.ForwardHost)
+
+	_, found = findOverlappingHost(existing, "d.example.com")
+	assert.False(t, found)
+}
+
+func TestImportHandler_Commit_RejectsOverlappingDomainWithoutResolution(t *testing.T) {
+	testutil.WithTx(t, setupImportListTestDB(t), func(tx *gorm.DB) {
+		handler, _, mockImport := setupTestHandler(t, tx)
+		svc := services.NewProxyHostService(tx)
+		handler.proxyHostSvc = svc
+		require.NoError(t, svc.Create(&models.ProxyHost{
+			UUID: "existing-1", DomainNames: "a.example.com,b.example.com", ForwardHost: "127.0.0.1", ForwardPort: 80,
+		}))
+
+		mockImport.importResult = &caddy.ImportResult{
+			Hosts: []caddy.ParsedHost{
+				{DomainNames: "B.example.com", ForwardScheme: "http", ForwardHost: "evil", ForwardPort: 9000},
+			},
+		}
+		handler.importerservice = &mockImporterAdapter{mockImport}
+
+		uploadPath := filepath.Join(handler.importDir, "uploads", "overlap.caddyfile")
+		require.NoError(t, os.MkdirAll(filepath.Dir(uploadPath), 0o700))
+		require.NoError(t, os.WriteFile(uploadPath, []byte("placeholder"), 0o600))
+
+		body, _ := json.Marshal(map[string]any{"session_uuid": "overlap", "resolutions": map[string]string{}})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "\"created\":0")
+		assert.Contains(t, w.Body.String(), "domain already exists")
+
+		var count int64
+		require.NoError(t, tx.Model(&models.ProxyHost{}).Count(&count).Error)
+		assert.Equal(t, int64(1), count)
+	})
+}
+
+// setupImportListTestDB also migrates the tables ProxyHostService.List preloads.
+func setupImportListTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db := setupImportTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Location{}, &models.SSLCertificate{}, &models.AccessList{}, &models.SecurityHeaderProfile{}, &models.ProxyGroup{}))
+	return db
+}
+
+func TestImportHandler_Commit_OverwriteMatchesCaseVariant(t *testing.T) {
+	testutil.WithTx(t, setupImportListTestDB(t), func(tx *gorm.DB) {
+		handler, _, mockImport := setupTestHandler(t, tx)
+		svc := services.NewProxyHostService(tx)
+		handler.proxyHostSvc = svc
+		existing := &models.ProxyHost{UUID: "existing-2", DomainNames: "site.example.com", ForwardHost: "old", ForwardPort: 80}
+		require.NoError(t, svc.Create(existing))
+
+		mockImport.importResult = &caddy.ImportResult{
+			Hosts: []caddy.ParsedHost{
+				{DomainNames: "Site.Example.com", ForwardScheme: "http", ForwardHost: "new", ForwardPort: 9000},
+			},
+		}
+		handler.importerservice = &mockImporterAdapter{mockImport}
+
+		uploadPath := filepath.Join(handler.importDir, "uploads", "overwrite-case.caddyfile")
+		require.NoError(t, os.MkdirAll(filepath.Dir(uploadPath), 0o700))
+		require.NoError(t, os.WriteFile(uploadPath, []byte("placeholder"), 0o600))
+
+		body, _ := json.Marshal(map[string]any{
+			"session_uuid": "overwrite-case",
+			"resolutions":  map[string]string{"Site.Example.com": "overwrite"},
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router := gin.New()
+		addAdminMiddleware(router)
+		handler.RegisterRoutes(router.Group("/api/v1"))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "\"updated\":1")
+
+		var got models.ProxyHost
+		require.NoError(t, tx.First(&got, existing.ID).Error)
+		assert.Equal(t, "new", got.ForwardHost)
+		assert.Equal(t, "site.example.com", got.DomainNames)
+	})
+}

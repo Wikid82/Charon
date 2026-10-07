@@ -397,9 +397,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// before the ProxyHost loop below, so a ProxyHost cannot silently steal
 	// a domain already claimed by a RedirectionHost — whichever resource's
 	// routes are built first wins any residual collision that somehow made
-	// it past the service-layer CheckDomainConflict check (defense in depth,
+	// it past the service-layer checkCrossTableDomainConflict check (defense in depth,
 	// see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2/§4.3).
 	processedDomains := make(map[string]bool)
+	wafUnprotectedHosts := 0
 	redirectRoutes, redirectIPSubjects := BuildRedirectRoutes(redirectHosts, processedDomains)
 	routes = append(routes, redirectRoutes...)
 	ipSubjects = append(ipSubjects, redirectIPSubjects...)
@@ -512,6 +513,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// WAF handler (placeholder) — add according to runtime flag
 		if wafH := buildWAFHandler(&host, rulesets, rulesetPaths, secCfg, wafEnabled); wafH != nil {
 			securityHandlers = append(securityHandlers, wafH)
+		} else if wafEnabled && !host.WAFDisabled && (secCfg == nil || secCfg.WAFMode != "disabled") {
+			wafUnprotectedHosts++
 		}
 
 		// Rate Limit handler (placeholder)
@@ -676,6 +679,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}).Debug("[CONFIG DEBUG] Creating MAIN route (no path matchers)")
 
 		routes = append(routes, route)
+	}
+
+	// WAF is enabled but some hosts got no handler: no ruleset could be resolved (or its
+	// file could not be written). Say so, otherwise the UI toggle looks active while
+	// nothing is protected.
+	if wafUnprotectedHosts > 0 {
+		logger.Log().WithField("hosts", wafUnprotectedHosts).Warn(
+			"WAF is enabled but no ruleset could be resolved; these hosts are NOT protected. " +
+				"Set a WAF rules source or ensure a ruleset exists.")
 	}
 
 	// Add catch-all 404 handler
@@ -1189,7 +1201,8 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 	// 1. Exact match to secCfg.WAFRulesSource (user's global choice)
 	// 2. Exact match to hostRulesetName (per-host advanced_config)
 	// 3. Match to host.Application (app-specific defaults)
-	// 4. Fallback to owasp-crs
+	// 4. Fallback to the OWASP CRS ruleset (name matched loosely, see isOWASPCRSName)
+	// 5. Fallback to the only ruleset, if exactly one exists
 	var selected *models.SecurityRuleSet
 	var hostRulesetMatch, appMatch, owaspFallback *models.SecurityRuleSet
 
@@ -1208,8 +1221,9 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 		if host != nil && r.Name == host.Application && appMatch == nil {
 			appMatch = &rulesets[i]
 		}
-		// Priority 4: Track owasp-crs as fallback
-		if r.Name == "owasp-crs" && owaspFallback == nil {
+		// Priority 4: Track the OWASP CRS ruleset as fallback. Matched on a normalized
+		// name so the UI-created "OWASP Core Rule Set" resolves, not just "owasp-crs".
+		if isOWASPCRSName(r.Name) && owaspFallback == nil {
 			owaspFallback = &rulesets[i]
 		}
 	}
@@ -1223,6 +1237,10 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 			selected = appMatch
 		case owaspFallback != nil:
 			selected = owaspFallback
+		case len(rulesets) == 1:
+			// Priority 5: a lone ruleset is unambiguous. Without this a WAF that the UI
+			// shows as enabled silently protects nothing.
+			selected = &rulesets[0]
 		}
 	}
 
@@ -1240,6 +1258,19 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 	}
 
 	return h
+}
+
+// isOWASPCRSName reports whether a ruleset name refers to the OWASP Core Rule Set,
+// ignoring case and separators ("owasp-crs", "OWASP CRS", "OWASP Core Rule Set").
+func isOWASPCRSName(name string) bool {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	n := b.String()
+	return n == "owaspcrs" || n == "owaspcoreruleset"
 }
 
 // buildWAFDirectives constructs the ModSecurity directive string for Coraza.

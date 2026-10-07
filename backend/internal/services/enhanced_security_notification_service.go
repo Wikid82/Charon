@@ -15,7 +15,6 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
@@ -575,10 +574,7 @@ func (s *EnhancedSecurityNotificationService) dispatchToProvider(ctx context.Con
 // Blocker 4: SSRF-safe URL validation before outbound requests.
 func (s *EnhancedSecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
 	// Blocker 4: Validate URL before making outbound request (SSRF protection)
-	validatedURL, err := security.ValidateExternalURL(webhookURL,
-		security.WithAllowHTTP(),      // Allow HTTP for backwards compatibility
-		security.WithAllowLocalhost(), // Allow localhost for testing
-	)
+	validatedURL, err := security.ValidateExternalURL(webhookURL, senderURLOptions()...)
 	if err != nil {
 		return fmt.Errorf("ssrf validation failed: %w", err)
 	}
@@ -597,10 +593,7 @@ func (s *EnhancedSecurityNotificationService) sendWebhook(ctx context.Context, w
 	req.Header.Set("User-Agent", "Charon-Cerberus/1.0")
 
 	// Validated outbound client: dial-time address validation, no redirects, no proxy.
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(10*time.Second),
-		network.WithAllowLocalhost(), // Allow localhost for testing
-	)
+	client := newSenderHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("execute request: %w", err)

@@ -11,7 +11,7 @@ import (
 )
 
 // setupProxyHostRedirectionConflictTestDB migrates ProxyHost, Location, and
-// RedirectionHost so the additive CheckDomainConflict call in
+// RedirectionHost so the additive checkCrossTableDomainConflict call in
 // ProxyHostService.Create/Update has a real RedirectionHost table to query
 // against. This is deliberately a separate helper from
 // setupProxyHostTestDB (proxyhost_service_test.go), which is left untouched

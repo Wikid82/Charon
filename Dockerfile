@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-7f3fa653939a4329
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:98fcfdb72d9159209de0cebffde76b1ae439f8fb074e1cc047d52a660781bc3f
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-04ecbc386f253556
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:0a0d8ae239c678406593eaf0653ad8873d4b98ff9cf57e19ed8e2918f9327bae
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -82,9 +82,13 @@ ARG CADDY_CANDIDATE_VERSION=2.11.7
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.3.0
+ARG CADDY_SECURITY_VERSION=1.4.1
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.1
+# coraza WAF override: coraza-caddy v2.6.1 requires coraza v3.7.0, which carries a CVE
+# fixed in v3.8.1. Pinned in the Stage 2 patch block; drop once coraza-caddy requires >=3.8.1.
+# renovate: datasource=go depName=github.com/corazawaf/coraza/v3
+ARG CORAZA_VERSION=3.8.1
 # xcaddy plugins that previously resolved "latest" at build time (B4). Pinned so
 # a toolchain-key.sh input moves when the plugin does. All values are bare
 # (no leading `v`); the `--with` lines add the `v`. Renovate tracks each via
@@ -185,11 +189,11 @@ ARG CADDY_DNS_VERCEL_VERSION=0.0.2
 ARG LIBDNS_NAMEDOTCOM_VERSION=0.9.0
 # renovate: datasource=go depName=github.com/libdns/vercel
 ARG LIBDNS_VERCEL_VERSION=0.1.0
-# Forced transitive pin: caddy-dns/dnsimple -> libdns/dnsimple -> dnsimple-go/v8
-# resolves to v8.0.0 by default (flagged by supply-chain scanners). Applied via
+# Forced transitive pin: caddy-dns/dnsimple -> libdns/dnsimple -> dnsimple-go/v10
+# resolves to v10.0.0 by default (flagged by supply-chain scanners). Applied via
 # `go get` in the Stage 2 patch block — NOT an xcaddy `--with`, since xcaddy adds a
-# blank import of the module root and dnsimple-go/v8 has no root package.
-ARG CADDY_DNS_DNSIMPLE_GO_VERSION=8.3.1
+# blank import of the module root and dnsimple-go/v10 has no root package.
+ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -448,6 +452,7 @@ ARG CADDY_USE_CANDIDATE
 ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
+ARG CORAZA_VERSION
 ARG CADDY_GEOIP2_VERSION
 ARG CADDY_RATELIMIT_VERSION
 ARG CADDY_DNS_CLOUDFLARE_VERSION
@@ -610,6 +615,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # earlier GHSA-hrxh-6v49-42gf xDS RBAC / HTTP/2 fixes. Affects /usr/bin/caddy
         # (transitive dependency). Fixed at v1.83.1.
         _retry go get google.golang.org/grpc@v${GRPC_VERSION}; \
+        # coraza WAF CVE (fixed in v3.8.1). Transitive via coraza-caddy, which requires
+        # v3.7.0. Affects /usr/bin/caddy.
+        _retry go get github.com/corazawaf/coraza/v3@v${CORAZA_VERSION}; \
         # CVE-2026-34986: go-jose JOSE/JWT validation bypass
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
@@ -673,7 +681,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # crowdsec-builder pin below.
         # renovate: datasource=go depName=golang.org/x/mod
         _retry go get golang.org/x/mod@v0.40.0; \
-        _retry go get github.com/dnsimple/dnsimple-go/v8@v${CADDY_DNS_DNSIMPLE_GO_VERSION}; \
+        _retry go get github.com/dnsimple/dnsimple-go/v10@v${CADDY_DNS_DNSIMPLE_GO_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
             # NOTE: smallstep/certificates (pulled by caddy-security stack) currently
@@ -700,6 +708,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # settle MVS keeps the shipped /usr/bin/caddy on the fixed v1.83.1. Same
         # "final re-pin after plugin updates" pattern as the Caddy-core line above.
         _retry go get google.golang.org/grpc@v${GRPC_VERSION}; \
+        # Final re-pin: coraza WAF CVE (fixed in v3.8.1). Transitive via coraza-caddy, which requires
+        # v3.7.0. Affects /usr/bin/caddy.
+        _retry go get github.com/corazawaf/coraza/v3@v${CORAZA_VERSION}; \
         # Clean up go.mod and ensure all dependencies are resolved
         _retry go mod tidy; \
         # Patch DecisionsListOpts API: crowdsec v1.7.8 changed fields (IPEquals, ScopeEquals,
@@ -762,6 +773,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # the build loudly rather than ship a silently-regressed binary.
         go version -m /usr/bin/caddy | grep -E "google\.golang\.org/grpc[[:space:]]+v${GRPC_VERSION}[[:space:]]" || { echo "ERROR: /usr/bin/caddy did not embed grpc-go v${GRPC_VERSION} (CVE-2026-84304)"; go version -m /usr/bin/caddy | grep "google.golang.org/grpc" || true; exit 1; }; \
         echo "Verified /usr/bin/caddy embeds grpc-go v${GRPC_VERSION}"; \
+        # Assert the shipped binary embeds the fixed coraza (>= v3.8.1 CVE fix).
+        go version -m /usr/bin/caddy | grep -E "github\.com/corazawaf/coraza/v3[[:space:]]+v${CORAZA_VERSION}[[:space:]]" || { echo "ERROR: /usr/bin/caddy did not embed coraza v${CORAZA_VERSION}"; go version -m /usr/bin/caddy | grep "corazawaf/coraza" || true; exit 1; }; \
+        echo "Verified /usr/bin/caddy embeds coraza v${CORAZA_VERSION}"; \
         # Clean up temporary build directories
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 

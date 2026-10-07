@@ -152,6 +152,7 @@ func TestSecurityNotificationService_Send_FilteredBySeverity(t *testing.T) {
 }
 
 func TestSecurityNotificationService_Send_WebhookFailure(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	db := setupSecurityNotifTestDB(t)
 	svc := NewSecurityNotificationService(db)
 
@@ -204,6 +205,7 @@ func TestShouldNotify(t *testing.T) {
 }
 
 func TestSecurityNotificationService_Send_ACLDeny(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	db := setupSecurityNotifTestDB(t)
 	svc := NewSecurityNotificationService(db)
 
@@ -370,6 +372,7 @@ func TestSecurityNotificationService_Send_SeverityBelowThreshold(t *testing.T) {
 
 // TestSecurityNotificationService_Send_WebhookSuccess tests successful webhook dispatch.
 func TestSecurityNotificationService_Send_WebhookSuccess(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	db := setupSecurityNotifTestDB(t)
 	svc := NewSecurityNotificationService(db)
 
@@ -491,6 +494,7 @@ func TestSecurityNotificationService_sendWebhook_RequestExecutionError(t *testin
 
 // TestSecurityNotificationService_sendWebhook_Non200Status tests non-2xx HTTP status handling.
 func TestSecurityNotificationService_sendWebhook_Non200Status(t *testing.T) {
+	setSenderAllowLoopbackForTest(t)
 	db := setupSecurityNotifTestDB(t)
 	svc := NewSecurityNotificationService(db)
 

@@ -289,3 +289,30 @@ func TestBuildWAFHandler_AdvancedConfigParsing(t *testing.T) {
 		})
 	}
 }
+
+// Regression: a UI-created "OWASP Core Rule Set" with no WAFRulesSource set must still
+// resolve, otherwise the WAF toggle is on but no handler is generated.
+func TestBuildWAFHandler_OWASPCRSNameVariantsResolve(t *testing.T) {
+	for _, name := range []string{"owasp-crs", "OWASP Core Rule Set", "OWASP CRS", "owasp_core_ruleset"} {
+		t.Run(name, func(t *testing.T) {
+			rulesets := []models.SecurityRuleSet{{Name: "Other"}, {Name: name}}
+			paths := map[string]string{name: "/data/coraza/crs.conf", "Other": "/data/coraza/other.conf"}
+			h := buildWAFHandler(&models.ProxyHost{UUID: "h"}, rulesets, paths, &models.SecurityConfig{WAFMode: ""}, true)
+			require.NotNil(t, h)
+			require.Contains(t, h["directives"], "/data/coraza/crs.conf")
+		})
+	}
+}
+
+func TestBuildWAFHandler_SingleRulesetFallback(t *testing.T) {
+	rulesets := []models.SecurityRuleSet{{Name: "my-custom-rules"}}
+	paths := map[string]string{"my-custom-rules": "/data/coraza/custom.conf"}
+	h := buildWAFHandler(&models.ProxyHost{UUID: "h"}, rulesets, paths, &models.SecurityConfig{}, true)
+	require.NotNil(t, h)
+	require.Contains(t, h["directives"], "/data/coraza/custom.conf")
+
+	// Two unrelated rulesets and no selection is ambiguous: still no handler.
+	rulesets = append(rulesets, models.SecurityRuleSet{Name: "more-rules"})
+	paths["more-rules"] = "/data/coraza/more.conf"
+	require.Nil(t, buildWAFHandler(&models.ProxyHost{UUID: "h"}, rulesets, paths, &models.SecurityConfig{}, true))
+}

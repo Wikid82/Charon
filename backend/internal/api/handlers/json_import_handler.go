@@ -13,7 +13,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
-	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
@@ -146,35 +145,12 @@ func (h *JSONImportHandler) handleCharonUpload(c *gin.Context, export CharonExpo
 		return
 	}
 
-	existingHosts, _ := h.proxyHostSvc.List()
-	existingDomainsMap := make(map[string]models.ProxyHost)
-	for _, eh := range existingHosts {
-		existingDomainsMap[eh.DomainNames] = eh
+	existingHosts, ok := listExistingHostsForImport(c, h.proxyHostSvc)
+	if !ok {
+		return
 	}
-
-	conflictDetails := make(map[string]gin.H)
-	for _, ph := range result.Hosts {
-		if existing, found := existingDomainsMap[ph.DomainNames]; found {
-			result.Conflicts = append(result.Conflicts, ph.DomainNames)
-			conflictDetails[ph.DomainNames] = gin.H{
-				"existing": gin.H{
-					"forward_scheme": existing.ForwardScheme,
-					"forward_host":   existing.ForwardHost,
-					"forward_port":   existing.ForwardPort,
-					"ssl_forced":     existing.SSLForced,
-					"websocket":      existing.WebsocketSupport,
-					"enabled":        existing.Enabled,
-				},
-				"imported": gin.H{
-					"forward_scheme": ph.ForwardScheme,
-					"forward_host":   ph.ForwardHost,
-					"forward_port":   ph.ForwardPort,
-					"ssl_forced":     ph.SSLForced,
-					"websocket":      ph.WebsocketSupport,
-				},
-			}
-		}
-	}
+	conflicts, conflictDetails := detectImportConflicts(existingHosts, result.Hosts)
+	result.Conflicts = append(result.Conflicts, conflicts...)
 
 	sid := uuid.NewString()
 
@@ -210,35 +186,12 @@ func (h *JSONImportHandler) handleNPMUpload(c *gin.Context, export NPMExport) {
 		return
 	}
 
-	existingHosts, _ := h.proxyHostSvc.List()
-	existingDomainsMap := make(map[string]models.ProxyHost)
-	for _, eh := range existingHosts {
-		existingDomainsMap[eh.DomainNames] = eh
+	existingHosts, ok := listExistingHostsForImport(c, h.proxyHostSvc)
+	if !ok {
+		return
 	}
-
-	conflictDetails := make(map[string]gin.H)
-	for _, ph := range result.Hosts {
-		if existing, found := existingDomainsMap[ph.DomainNames]; found {
-			result.Conflicts = append(result.Conflicts, ph.DomainNames)
-			conflictDetails[ph.DomainNames] = gin.H{
-				"existing": gin.H{
-					"forward_scheme": existing.ForwardScheme,
-					"forward_host":   existing.ForwardHost,
-					"forward_port":   existing.ForwardPort,
-					"ssl_forced":     existing.SSLForced,
-					"websocket":      existing.WebsocketSupport,
-					"enabled":        existing.Enabled,
-				},
-				"imported": gin.H{
-					"forward_scheme": ph.ForwardScheme,
-					"forward_host":   ph.ForwardHost,
-					"forward_port":   ph.ForwardPort,
-					"ssl_forced":     ph.SSLForced,
-					"websocket":      ph.WebsocketSupport,
-				},
-			}
-		}
-	}
+	conflicts, conflictDetails := detectImportConflicts(existingHosts, result.Hosts)
+	result.Conflicts = append(result.Conflicts, conflicts...)
 
 	sid := uuid.NewString()
 
@@ -333,10 +286,9 @@ func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExpo
 	skipped := 0
 	errors := []string{}
 
-	existingHosts, _ := h.proxyHostSvc.List()
-	existingMap := make(map[string]*models.ProxyHost)
-	for i := range existingHosts {
-		existingMap[existingHosts[i].DomainNames] = &existingHosts[i]
+	existingHosts, ok := listExistingHostsForImport(c, h.proxyHostSvc)
+	if !ok {
+		return
 	}
 
 	for _, host := range proxyHosts {
@@ -356,7 +308,7 @@ func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExpo
 		}
 
 		if action == "overwrite" {
-			if existing, found := existingMap[host.DomainNames]; found {
+			if existing, found := findOverlappingHost(existingHosts, host.DomainNames); found {
 				host.ID = existing.ID
 				host.UUID = existing.UUID
 				host.CertificateID = existing.CertificateID
@@ -403,10 +355,9 @@ func (h *JSONImportHandler) commitNPMImport(c *gin.Context, export NPMExport, re
 	skipped := 0
 	errors := []string{}
 
-	existingHosts, _ := h.proxyHostSvc.List()
-	existingMap := make(map[string]*models.ProxyHost)
-	for i := range existingHosts {
-		existingMap[existingHosts[i].DomainNames] = &existingHosts[i]
+	existingHosts, ok := listExistingHostsForImport(c, h.proxyHostSvc)
+	if !ok {
+		return
 	}
 
 	for _, host := range proxyHosts {
@@ -426,7 +377,7 @@ func (h *JSONImportHandler) commitNPMImport(c *gin.Context, export NPMExport, re
 		}
 
 		if action == "overwrite" {
-			if existing, found := existingMap[host.DomainNames]; found {
+			if existing, found := findOverlappingHost(existingHosts, host.DomainNames); found {
 				host.ID = existing.ID
 				host.UUID = existing.UUID
 				host.CertificateID = existing.CertificateID

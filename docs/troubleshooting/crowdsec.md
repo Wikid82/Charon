@@ -14,6 +14,7 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
   - Docker images (v1.7.4+): cscli is pre-installed.
   - Bare-metal deployments: install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL.
 - HUB_BASE_URL points to a JSON hub endpoint (default: <https://hub-data.crowdsec.net/api/index.json>). Redirects to HTML will be rejected.
+  - A loopback hub mirror is no longer reachable from the hub client; RFC 1918 hosts were already blocked.
 - Proxy env is set when required: HTTP(S)_PROXY and NO_PROXY are respected by the hub client.
 - For slow or proxied networks, increase HUB_PULL_TIMEOUT_SECONDS (default 25) and HUB_APPLY_TIMEOUT_SECONDS (default 45) to avoid premature timeouts.
 - Preset workflow: pull from Hub using cache keys/ETags → preview changes → apply with automatic backup and reload flag.

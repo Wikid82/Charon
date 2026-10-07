@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -137,9 +138,14 @@ func isSetupConflictError(err error) bool {
 		strings.Contains(errText, "database table is locked")
 }
 
+// errSetupAlreadyCompleted signals that a user already exists, detected inside
+// the setup transaction.
+var errSetupAlreadyCompleted = errors.New("setup already completed")
+
 // Setup creates the initial admin user and configures the ACME email.
 func (h *UserHandler) Setup(c *gin.Context) {
-	// 1. Check if setup is allowed
+	// 1. Cheap early rejection. The authoritative check is repeated inside the
+	// transaction below, which is what makes setup single-shot.
 	var count int64
 	if err := h.DB.Model(&models.User{}).Count(&count).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check setup status"})
@@ -182,8 +188,18 @@ func (h *UserHandler) Setup(c *gin.Context) {
 		Category: "caddy",
 	}
 
-	// Transaction to ensure both succeed
-	err := h.DB.Transaction(func(tx *gorm.DB) error {
+	// Take the write lock before the eligibility check so check and insert are
+	// one atomic unit: a concurrent setup waits for the winner, then observes
+	// its user and is rejected.
+	err := services.WithWriteLock(h.DB, &models.User{}, func(tx *gorm.DB) error {
+		var existing int64
+		if err := tx.Model(&models.User{}).Count(&existing).Error; err != nil {
+			return fmt.Errorf("check setup status: %w", err)
+		}
+		if existing > 0 {
+			return errSetupAlreadyCompleted
+		}
+
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}
@@ -195,6 +211,11 @@ func (h *UserHandler) Setup(c *gin.Context) {
 	})
 
 	if err != nil {
+		if errors.Is(err, errSetupAlreadyCompleted) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed"})
+			return
+		}
+
 		var postTxCount int64
 		if countErr := h.DB.Model(&models.User{}).Count(&postTxCount).Error; countErr == nil && postTxCount > 0 {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed"})
@@ -206,7 +227,8 @@ func (h *UserHandler) Setup(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete setup: " + err.Error()})
+		middleware.GetRequestLogger(c).WithError(err).Error("Setup: failed to complete setup")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete setup"})
 		return
 	}
 

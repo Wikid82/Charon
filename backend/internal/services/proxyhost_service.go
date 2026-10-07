@@ -53,26 +53,6 @@ func (s *ProxyHostService) invalidateCertCache() {
 	}
 }
 
-// ValidateUniqueDomain ensures no duplicate domains exist before creation/update.
-func (s *ProxyHostService) ValidateUniqueDomain(domainNames string, excludeID uint) error {
-	var count int64
-	query := s.db.Model(&models.ProxyHost{}).Where("domain_names = ?", domainNames)
-
-	if excludeID > 0 {
-		query = query.Where("id != ?", excludeID)
-	}
-
-	if err := query.Count(&count).Error; err != nil {
-		return fmt.Errorf("checking domain uniqueness: %w", err)
-	}
-
-	if count > 0 {
-		return errors.New("domain already exists")
-	}
-
-	return nil
-}
-
 // ValidateHostname checks if the provided string is a valid hostname or IP address.
 func (s *ProxyHostService) ValidateHostname(host string) error {
 	// Parse as URL to extract hostname if scheme is present
@@ -118,7 +98,7 @@ func (s *ProxyHostService) ValidateHostname(host string) error {
 }
 
 func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
-	host.DomainNames = strings.TrimSpace(host.DomainNames)
+	host.DomainNames = CanonicalDomainNames(host.DomainNames)
 	host.ForwardHost = strings.TrimSpace(host.ForwardHost)
 
 	if host.DomainNames == "" {
@@ -176,75 +156,75 @@ func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
 	return nil
 }
 
-// Create validates and creates a new proxy host.
-func (s *ProxyHostService) Create(host *models.ProxyHost) error {
-	if err := s.ValidateUniqueDomain(host.DomainNames, 0); err != nil {
+// normalizeAdvancedConfig validates and normalizes a host's advanced_config
+// JSON in place. An empty value is left untouched.
+func normalizeAdvancedConfig(host *models.ProxyHost) error {
+	if host.AdvancedConfig == "" {
+		return nil
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+		return fmt.Errorf("invalid advanced_config JSON: %w", err)
+	}
+	norm, err := json.Marshal(caddy.NormalizeAdvancedConfig(parsed))
+	if err != nil {
+		return fmt.Errorf("invalid advanced_config after normalization: %w", err)
+	}
+	host.AdvancedConfig = string(norm)
+	return nil
+}
+
+// checkHostWrite runs the uniqueness and validation checks shared by Create
+// and Update. It must run inside the write-locked transaction so the checks
+// and the subsequent write are atomic. A non-nil certificate_id must reference
+// an existing certificate.
+func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, excludeID uint) error {
+	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{}, excludeID); err != nil {
 		return err
 	}
-
-	if err := CheckDomainConflict(s.db, host.DomainNames, &models.RedirectionHost{}); err != nil {
+	if err := checkCrossTableDomainConflict(tx, host.DomainNames, &models.RedirectionHost{}); err != nil {
 		return err
 	}
-
 	if err := s.validateProxyHost(host); err != nil {
 		return err
 	}
-
-	// Normalize and validate advanced config (if present)
-	if host.AdvancedConfig != "" {
-		var parsed any
-		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
-			return fmt.Errorf("invalid advanced_config JSON: %w", err)
-		}
-		parsed = caddy.NormalizeAdvancedConfig(parsed)
-		if norm, err := json.Marshal(parsed); err != nil {
-			return fmt.Errorf("invalid advanced_config after normalization: %w", err)
-		} else {
-			host.AdvancedConfig = string(norm)
-		}
+	if err := ensureCertificateExists(tx, host.CertificateID); err != nil {
+		return err
 	}
+	return normalizeAdvancedConfig(host)
+}
 
-	if err := s.db.Create(host).Error; err != nil {
+// Create validates and creates a new proxy host. The uniqueness checks and the
+// insert run in one write-locked transaction (see WithWriteLock).
+func (s *ProxyHostService) Create(host *models.ProxyHost) error {
+	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
+		if err := s.checkHostWrite(tx, host, 0); err != nil {
+			return err
+		}
+		return tx.Create(host).Error
+	})
+	if err != nil {
 		return err
 	}
 	s.invalidateCertCache()
 	return nil
 }
 
-// Update validates and updates an existing proxy host.
+// Update validates and updates an existing proxy host. The uniqueness checks
+// and the write run in one write-locked transaction (see WithWriteLock).
 func (s *ProxyHostService) Update(host *models.ProxyHost) error {
-	if err := s.ValidateUniqueDomain(host.DomainNames, host.ID); err != nil {
-		return err
-	}
-
-	if err := CheckDomainConflict(s.db, host.DomainNames, &models.RedirectionHost{}); err != nil {
-		return err
-	}
-
-	if err := s.validateProxyHost(host); err != nil {
-		return err
-	}
-
-	// Normalize and validate advanced config (if present)
-	if host.AdvancedConfig != "" {
-		var parsed any
-		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
-			return fmt.Errorf("invalid advanced_config JSON: %w", err)
+	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
+		if err := s.checkHostWrite(tx, host, host.ID); err != nil {
+			return err
 		}
-		parsed = caddy.NormalizeAdvancedConfig(parsed)
-		if norm, err := json.Marshal(parsed); err != nil {
-			return fmt.Errorf("invalid advanced_config after normalization: %w", err)
-		} else {
-			host.AdvancedConfig = string(norm)
-		}
-	}
-
-	// Use Updates to handle nullable foreign keys properly
-	// Must use Select to explicitly allow setting nullable fields to nil
-	if err := s.db.Model(&models.ProxyHost{}).
-		Where("id = ?", host.ID).
-		Select("*").
-		Updates(host).Error; err != nil {
+		// Use Updates to handle nullable foreign keys properly
+		// Must use Select to explicitly allow setting nullable fields to nil
+		return tx.Model(&models.ProxyHost{}).
+			Where("id = ?", host.ID).
+			Select("*").
+			Updates(host).Error
+	})
+	if err != nil {
 		return err
 	}
 	s.invalidateCertCache()

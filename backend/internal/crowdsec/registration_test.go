@@ -3,8 +3,6 @@ package crowdsec
 import (
 	"context"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,67 +54,6 @@ func withPath(t *testing.T, newPath string, fn func()) {
 		}
 	})
 	fn()
-}
-
-func TestCheckLAPIHealth_Healthy(t *testing.T) {
-	// Create a mock LAPI server that returns 200 OK with JSON content-type
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"ok"}`))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	healthy := CheckLAPIHealth(server.URL)
-	assert.True(t, healthy, "LAPI should be healthy")
-}
-
-func TestCheckLAPIHealth_Unhealthy(t *testing.T) {
-	// Create a mock LAPI server that returns 500
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	healthy := CheckLAPIHealth(server.URL)
-	assert.False(t, healthy, "LAPI should be unhealthy")
-}
-
-func TestCheckLAPIHealth_Unreachable(t *testing.T) {
-	// Use an invalid URL that won't connect
-	healthy := CheckLAPIHealth("http://127.0.0.1:19999")
-	assert.False(t, healthy, "LAPI should be unreachable")
-}
-
-func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
-	// Create a mock LAPI server where /health fails but /v1/decisions returns 401
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if r.URL.Path == "/v1/decisions" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized) // Expected without auth
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	healthy := CheckLAPIHealth(server.URL)
-	// Should fallback to decisions endpoint check which returns 401 (indicates running)
-	assert.True(t, healthy, "LAPI should be healthy via decisions fallback")
-}
-
-func TestCheckLAPIHealth_DefaultURL(t *testing.T) {
-	// With empty URL, should use default (which won't be running in test)
-	healthy := CheckLAPIHealth("")
-	assert.False(t, healthy, "Default LAPI should not be running in test environment")
 }
 
 func TestGetBouncerAPIKey_FromEnv(t *testing.T) {
@@ -264,40 +201,6 @@ exit 2
 		assert.NoError(t, err)
 		assert.Equal(t, "new-key", key)
 	})
-}
-
-func TestGetLAPIVersion_JSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/version" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"version":"1.2.3"}`))
-	}))
-	defer server.Close()
-
-	ver, err := GetLAPIVersion(context.Background(), server.URL)
-	assert.NoError(t, err)
-	assert.Equal(t, "1.2.3", ver)
-}
-
-func TestGetLAPIVersion_PlainText(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/version" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("vX.Y.Z\n"))
-	}))
-	defer server.Close()
-
-	ver, err := GetLAPIVersion(context.Background(), server.URL)
-	assert.NoError(t, err)
-	assert.Equal(t, "vX.Y.Z", ver)
 }
 
 func TestValidateLAPIURL(t *testing.T) {

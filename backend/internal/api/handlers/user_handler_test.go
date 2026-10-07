@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -3075,4 +3076,128 @@ func TestUserHandler_InviteUser_RequiresSessionUser(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// TestUserHandler_Setup_ConcurrentDistinctEmailsSingleAdmin posts Setup from
+// many goroutines with distinct emails (so no unique-email constraint can mask
+// a double-create) against a file-backed multi-connection SQLite database, and
+// asserts exactly one admin is created.
+func TestUserHandler_Setup_ConcurrentDistinctEmailsSingleAdmin(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s/setup.db?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)", t.TempDir())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if sqlDB, dbErr := db.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{}))
+
+	handler := NewUserHandler(db, nil)
+	r := gin.New()
+	r.POST("/setup", handler.Setup)
+
+	const concurrency = 12
+	start := make(chan struct{})
+	statuses := make(chan int, concurrency)
+
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+
+			jsonBody, _ := json.Marshal(map[string]string{
+				"name":     "Admin",
+				"email":    fmt.Sprintf("admin%d@example.com", i),
+				"password": "password123",
+			})
+			req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			resp := httptest.NewRecorder()
+			r.ServeHTTP(resp, req)
+			statuses <- resp.Code
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+	close(statuses)
+
+	created := 0
+	for status := range statuses {
+		switch status {
+		case http.StatusCreated:
+			created++
+		case http.StatusForbidden, http.StatusConflict:
+		default:
+			t.Fatalf("unexpected setup concurrency status: %d", status)
+		}
+	}
+	assert.Equal(t, 1, created)
+
+	var userCount int64
+	require.NoError(t, db.Model(&models.User{}).Count(&userCount).Error)
+	assert.Equal(t, int64(1), userCount)
+}
+
+func TestUserHandler_Setup_TransactionErrorPaths(t *testing.T) {
+	postSetup := func(handler *UserHandler) *httptest.ResponseRecorder {
+		r := gin.New()
+		r.POST("/setup", handler.Setup)
+		body, _ := json.Marshal(map[string]string{"name": "Admin", "email": "admin@example.com", "password": "password123"})
+		req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("write lock failure", func(t *testing.T) {
+		handler, db := setupUserHandler(t)
+		require.NoError(t, db.Callback().Update().Before("gorm:update").Register("test:fail_lock", func(tx *gorm.DB) {
+			if tx.Statement.Table == "users" {
+				_ = tx.AddError(errors.New("forced lock failure"))
+			}
+		}))
+		w := postSetup(handler)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Contains(t, w.Body.String(), "Failed to complete setup")
+		assert.NotContains(t, w.Body.String(), "forced lock failure")
+		assert.NotContains(t, w.Body.String(), "acquire write lock")
+	})
+
+	t.Run("in-transaction count failure", func(t *testing.T) {
+		handler, db := setupUserHandler(t)
+		calls := 0
+		require.NoError(t, db.Callback().Query().Before("gorm:query").Register("test:fail_second_count", func(tx *gorm.DB) {
+			calls++
+			if calls == 2 { // first is the early pre-check
+				_ = tx.AddError(errors.New("forced count failure"))
+			}
+		}))
+		w := postSetup(handler)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Contains(t, w.Body.String(), "Failed to complete setup")
+		assert.NotContains(t, w.Body.String(), "forced count failure")
+	})
+
+	t.Run("user appears after early check", func(t *testing.T) {
+		handler, db := setupUserHandler(t)
+		calls := 0
+		require.NoError(t, db.Callback().Query().After("gorm:query").Register("test:seed_after_precheck", func(tx *gorm.DB) {
+			calls++
+			if calls == 1 {
+				require.NoError(t, tx.Session(&gorm.Session{NewDB: true}).Create(&models.User{UUID: uuid.NewString(), Email: "first@example.com", APIKey: uuid.NewString()}).Error)
+			}
+		}))
+		w := postSetup(handler)
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.Contains(t, w.Body.String(), "Setup already completed")
+
+		var n int64
+		require.NoError(t, db.Model(&models.User{}).Count(&n).Error)
+		assert.Equal(t, int64(1), n)
+	})
 }

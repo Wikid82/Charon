@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SYFT_VERSION: 'v1.54.0'
+  SYFT_VERSION: 'v1.54.1'
 
 permissions:
   contents: read
@@ -349,7 +349,7 @@ jobs:
         run: |
           MAX_ATTEMPTS=3
           for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/b6f5194537747ee7f705f4113069ac9eb269919f/install.sh | sh -s -- -b /usr/local/bin v0.120.0; then
+            if curl -sSfL https://raw.githubusercontent.com/anchore/grype/b6f5194537747ee7f705f4113069ac9eb269919f/install.sh | sh -s -- -b /usr/local/bin v0.120.1; then
               break
             fi
             if [[ "$attempt" -eq "$MAX_ATTEMPTS" ]]; then

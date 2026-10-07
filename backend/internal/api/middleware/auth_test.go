@@ -3,12 +3,14 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -108,8 +110,8 @@ func TestRequireRole_Forbidden(t *testing.T) {
 }
 
 func TestAuthMiddleware_Cookie(t *testing.T) {
-	authService := setupAuthService(t)
-	user, err := authService.Register("test@example.com", "password", "Test User")
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := registerTestUser(db, "test@example.com", "Test User")
 	require.NoError(t, err)
 	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
@@ -132,8 +134,8 @@ func TestAuthMiddleware_Cookie(t *testing.T) {
 }
 
 func TestAuthMiddleware_ValidToken(t *testing.T) {
-	authService := setupAuthService(t)
-	user, err := authService.Register("test@example.com", "password", "Test User")
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := registerTestUser(db, "test@example.com", "Test User")
 	require.NoError(t, err)
 	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
@@ -156,10 +158,10 @@ func TestAuthMiddleware_ValidToken(t *testing.T) {
 }
 
 func TestAuthMiddleware_PrefersCookieOverAuthorizationHeader(t *testing.T) {
-	authService := setupAuthService(t)
-	cookieUser, _ := authService.Register("cookie-header@example.com", "password", "Cookie Header User")
+	authService, db := setupAuthServiceWithDB(t)
+	cookieUser, _ := registerTestUser(db, "cookie-header@example.com", "Cookie Header User")
 	cookieToken, _ := authService.GenerateToken(cookieUser)
-	headerUser, _ := authService.Register("header@example.com", "password", "Header User")
+	headerUser, _ := registerTestUser(db, "header@example.com", "Header User")
 	headerToken, _ := authService.GenerateToken(headerUser)
 
 	gin.SetMode(gin.TestMode)
@@ -181,8 +183,8 @@ func TestAuthMiddleware_PrefersCookieOverAuthorizationHeader(t *testing.T) {
 }
 
 func TestAuthMiddleware_UsesCookieWhenAuthorizationHeaderIsInvalid(t *testing.T) {
-	authService := setupAuthService(t)
-	user, err := authService.Register("cookie-valid@example.com", "password", "Cookie Valid User")
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := registerTestUser(db, "cookie-valid@example.com", "Cookie Valid User")
 	require.NoError(t, err)
 	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
@@ -207,8 +209,8 @@ func TestAuthMiddleware_UsesCookieWhenAuthorizationHeaderIsInvalid(t *testing.T)
 }
 
 func TestAuthMiddleware_UsesLastNonEmptyCookieWhenDuplicateCookiesExist(t *testing.T) {
-	authService := setupAuthService(t)
-	user, err := authService.Register("dupecookie@example.com", "password", "Dup Cookie User")
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := registerTestUser(db, "dupecookie@example.com", "Dup Cookie User")
 	require.NoError(t, err)
 	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
@@ -268,8 +270,8 @@ func TestRequireRole_MissingRoleInContext(t *testing.T) {
 }
 
 func TestAuthMiddleware_QueryParamFallback(t *testing.T) {
-	authService := setupAuthService(t)
-	user, err := authService.Register("test@example.com", "password", "Test User")
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := registerTestUser(db, "test@example.com", "Test User")
 	require.NoError(t, err)
 	token, err := authService.GenerateToken(user)
 	require.NoError(t, err)
@@ -293,15 +295,15 @@ func TestAuthMiddleware_QueryParamFallback(t *testing.T) {
 }
 
 func TestAuthMiddleware_PrefersCookieOverQueryParam(t *testing.T) {
-	authService := setupAuthService(t)
+	authService, db := setupAuthServiceWithDB(t)
 
 	// Create two different users
-	cookieUser, err := authService.Register("cookie@example.com", "password", "Cookie User")
+	cookieUser, err := registerTestUser(db, "cookie@example.com", "Cookie User")
 	require.NoError(t, err)
 	cookieToken, err := authService.GenerateToken(cookieUser)
 	require.NoError(t, err)
 
-	queryUser, err := authService.Register("query@example.com", "password", "Query User")
+	queryUser, err := registerTestUser(db, "query@example.com", "Query User")
 	require.NoError(t, err)
 	queryToken, err := authService.GenerateToken(queryUser)
 	require.NoError(t, err)
@@ -328,7 +330,7 @@ func TestAuthMiddleware_PrefersCookieOverQueryParam(t *testing.T) {
 
 func TestAuthMiddleware_RejectsDisabledUserToken(t *testing.T) {
 	authService, db := setupAuthServiceWithDB(t)
-	user, err := authService.Register("disabled@example.com", "password", "Disabled User")
+	user, err := registerTestUser(db, "disabled@example.com", "Disabled User")
 	require.NoError(t, err)
 
 	token, err := authService.GenerateToken(user)
@@ -354,7 +356,7 @@ func TestAuthMiddleware_RejectsDisabledUserToken(t *testing.T) {
 
 func TestAuthMiddleware_RejectsDeletedUserToken(t *testing.T) {
 	authService, db := setupAuthServiceWithDB(t)
-	user, err := authService.Register("deleted@example.com", "password", "Deleted User")
+	user, err := registerTestUser(db, "deleted@example.com", "Deleted User")
 	require.NoError(t, err)
 
 	token, err := authService.GenerateToken(user)
@@ -379,8 +381,8 @@ func TestAuthMiddleware_RejectsDeletedUserToken(t *testing.T) {
 }
 
 func TestAuthMiddleware_RejectsTokenAfterSessionInvalidation(t *testing.T) {
-	authService := setupAuthService(t)
-	user, err := authService.Register("session-invalidated@example.com", "password", "Session Invalidated")
+	authService, db := setupAuthServiceWithDB(t)
+	user, err := registerTestUser(db, "session-invalidated@example.com", "Session Invalidated")
 	require.NoError(t, err)
 
 	token, err := authService.GenerateToken(user)
@@ -484,4 +486,22 @@ func TestRequireManagementAccess_AdminAllowed(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// registerTestUser is a test-only fixture that inserts a user directly.
+func registerTestUser(db *gorm.DB, email, name string) (*models.User, error) {
+	user := &models.User{
+		UUID:   uuid.New().String(),
+		Email:  strings.ToLower(email),
+		Name:   name,
+		Role:   models.RoleUser,
+		APIKey: uuid.New().String(),
+	}
+	if err := user.SetPassword("password"); err != nil {
+		return nil, err
+	}
+	if err := db.Create(user).Error; err != nil {
+		return nil, err
+	}
+	return user, nil
 }

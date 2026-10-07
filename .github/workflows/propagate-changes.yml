@@ -124,22 +124,12 @@ jobs:
                 // blocked the auto-PR, a human had to manually recreate it, and that
                 // manual PR was later closed unmerged). A blocked auto-PR is silent and
                 // fragile; an annotated one at least surfaces for review.
-                let originalFiles = (compare.data.files || []).map(f => f.filename || '');
-                let files = originalFiles.map(f => f.toLowerCase());
+                const originalFiles = (compare.data.files || []).map(f => f.filename || '');
+                const files = originalFiles.map(f => f.toLowerCase());
 
-                // Fallback: if compare.files is empty/truncated, aggregate files from the commit list
-                if (files.length === 0 && Array.isArray(compare.data.commits) && compare.data.commits.length > 0) {
-                  originalFiles = [];
-                  for (const commit of compare.data.commits) {
-                    const commitData = await github.rest.repos.getCommit({ owner: context.repo.owner, repo: context.repo.repo, ref: commit.sha });
-                    for (const f of (commitData.data.files || [])) {
-                      originalFiles.push(f.filename || '');
-                    }
-                  }
-                  originalFiles = Array.from(new Set(originalFiles));
-                  files = originalFiles.map(f => f.toLowerCase());
-                }
-
+                // An empty compare.files means identical trees. Do NOT fall back to per-commit
+                // file lists: a merge commit's files are vs its first parent and would
+                // wrongly repopulate the list (the cause of PR #1490).
                 // ahead_by > 0 only means src has commits base lacks — it does NOT
                 // mean the resulting tree differs. A merge commit (e.g. the nightly ->
                 // main weekly promotion) can leave src "ahead" by that merge commit

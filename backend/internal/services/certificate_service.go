@@ -5,6 +5,7 @@ import (
 	crand "crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -28,6 +29,24 @@ var ErrCertInUse = fmt.Errorf("certificate is in use by one or more proxy hosts"
 
 // ErrCertNotFound is returned when a certificate cannot be found by UUID.
 var ErrCertNotFound = fmt.Errorf("certificate not found")
+
+// ensureCertificateExists returns ErrCertNotFound when certID is non-nil and no
+// such certificate row exists. Host writes call it inside their write-locked
+// transaction so a concurrent certificate delete cannot leave a dangling
+// reference (foreign keys are not enforced by the database).
+func ensureCertificateExists(tx *gorm.DB, certID *uint) error {
+	if certID == nil {
+		return nil
+	}
+	var count int64
+	if err := tx.Model(&models.SSLCertificate{}).Where("id = ?", *certID).Count(&count).Error; err != nil {
+		return fmt.Errorf("checking certificate existence: %w", err)
+	}
+	if count == 0 {
+		return ErrCertNotFound
+	}
+	return nil
+}
 
 // CertificateInfo represents parsed certificate details for list responses.
 type CertificateInfo struct {
@@ -174,7 +193,7 @@ func (s *CertificateService) SyncFromDisk() error {
 				var existing models.SSLCertificate
 				res := s.db.Where("domains = ?", domain).First(&existing)
 				if res.Error != nil {
-					if res.Error == gorm.ErrRecordNotFound {
+					if errors.Is(res.Error, gorm.ErrRecordNotFound) {
 						// Create new record
 						now := time.Now()
 						newCert := models.SSLCertificate{
@@ -517,7 +536,7 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM, chainPEM s
 func (s *CertificateService) GetCertificate(certUUID string) (*CertificateDetail, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrCertNotFound
 		}
 		return nil, fmt.Errorf("failed to fetch certificate: %w", err)
@@ -644,7 +663,7 @@ func (s *CertificateService) IsCertificateInUse(id uint) (bool, error) {
 
 	// RedirectionHost is a newer peer table with the same CertificateID FK
 	// pattern as ProxyHost. Guard with HasTable — matching the pattern in
-	// domain_uniqueness.go's CheckDomainConflict — so pre-existing test DBs
+	// domain_uniqueness.go's checkCrossTableDomainConflict — so pre-existing test DBs
 	// that only migrate ProxyHost don't hit a "no such table" error; that is
 	// correct behavior for those isolated ProxyHost-only tests anyway, since
 	// there is nothing to check against.
@@ -660,7 +679,7 @@ func (s *CertificateService) IsCertificateInUse(id uint) (bool, error) {
 func (s *CertificateService) IsCertificateInUseByUUID(certUUID string) (bool, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, ErrCertNotFound
 		}
 		return false, fmt.Errorf("failed to look up certificate: %w", err)
@@ -672,54 +691,83 @@ func (s *CertificateService) IsCertificateInUseByUUID(certUUID string) (bool, er
 func (s *CertificateService) DeleteCertificate(certUUID string) error {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrCertNotFound
 		}
 		return fmt.Errorf("failed to look up certificate: %w", err)
 	}
 
-	// Prevent deletion if the certificate is referenced by any proxy host
-	inUse, err := s.IsCertificateInUse(cert.ID)
-	if err != nil {
+	// Reference check and delete are a single conditional statement, so a
+	// host cannot be assigned between the two. Files are only removed once the
+	// row is actually gone.
+	if err := s.deleteIfUnreferenced(cert.ID); err != nil {
 		return err
-	}
-	if inUse {
-		return ErrCertInUse
 	}
 
 	if cert.Provider == "letsencrypt" || cert.Provider == "letsencrypt-staging" {
-		// Best-effort file deletion
-		certRoot := filepath.Join(s.dataDir, "certificates")
-		_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
-				if info.Name() == cert.Domains+".crt" {
-					logger.Log().WithField("path", path).Info("CertificateService: deleting ACME cert file")
-					if err := os.Remove(path); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
-						logger.Log().WithError(err).Error("CertificateService: failed to delete cert file")
+		s.removeACMEFiles(cert.Domains)
+	}
+
+	s.InvalidateCache()
+	return nil
+}
+
+// deleteIfUnreferenced deletes the certificate row only if no proxy host or
+// redirection host references it, as one atomic statement. It returns
+// ErrCertInUse when a reference exists and ErrCertNotFound when the row is
+// already gone.
+func (s *CertificateService) deleteIfUnreferenced(id uint) error {
+	query := s.db.Where("id = ?", id).
+		Where("NOT EXISTS (SELECT 1 FROM proxy_hosts WHERE proxy_hosts.certificate_id = ssl_certificates.id)")
+	// Same HasTable guard as IsCertificateInUse for DBs without the newer table.
+	if s.db.Migrator().HasTable(&models.RedirectionHost{}) {
+		query = query.Where("NOT EXISTS (SELECT 1 FROM redirection_hosts WHERE redirection_hosts.certificate_id = ssl_certificates.id)")
+	}
+
+	res := query.Delete(&models.SSLCertificate{})
+	if res.Error != nil {
+		return fmt.Errorf("failed to delete certificate: %w", res.Error)
+	}
+	if res.RowsAffected > 0 {
+		return nil
+	}
+
+	var remaining int64
+	if err := s.db.Model(&models.SSLCertificate{}).Where("id = ?", id).Count(&remaining).Error; err != nil {
+		return fmt.Errorf("failed to verify certificate state: %w", err)
+	}
+	if remaining == 0 {
+		return ErrCertNotFound
+	}
+	return ErrCertInUse
+}
+
+// removeACMEFiles best-effort removes the on-disk ACME artifacts for domains.
+func (s *CertificateService) removeACMEFiles(domains string) {
+	certRoot := filepath.Join(s.dataDir, "certificates")
+	_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
+			if info.Name() == domains+".crt" {
+				logger.Log().WithField("path", path).Info("CertificateService: deleting ACME cert file")
+				if err := os.Remove(path); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+					logger.Log().WithError(err).Error("CertificateService: failed to delete cert file")
+				}
+				keyPath := strings.TrimSuffix(path, ".crt") + ".key"
+				if _, err := os.Stat(keyPath); err == nil {
+					if err := os.Remove(keyPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+						logger.Log().WithError(err).Warn("Failed to remove key file")
 					}
-					keyPath := strings.TrimSuffix(path, ".crt") + ".key"
-					if _, err := os.Stat(keyPath); err == nil {
-						if err := os.Remove(keyPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
-							logger.Log().WithError(err).Warn("Failed to remove key file")
-						}
-					}
-					jsonPath := strings.TrimSuffix(path, ".crt") + ".json"
-					if _, err := os.Stat(jsonPath); err == nil {
-						if err := os.Remove(jsonPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
-							logger.Log().WithError(err).Warn("Failed to remove JSON file")
-						}
+				}
+				jsonPath := strings.TrimSuffix(path, ".crt") + ".json"
+				if _, err := os.Stat(jsonPath); err == nil {
+					if err := os.Remove(jsonPath); err != nil { //nolint:gosec // G122: Walk is within application-controlled certRoot
+						logger.Log().WithError(err).Warn("Failed to remove JSON file")
 					}
 				}
 			}
-			return nil
-		})
-	}
-
-	if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", cert.ID).Error; err != nil {
-		return fmt.Errorf("failed to delete certificate: %w", err)
-	}
-	s.InvalidateCache()
-	return nil
+		}
+		return nil
+	})
 }
 
 // ExportCertificate exports a certificate in the requested format.
@@ -727,7 +775,7 @@ func (s *CertificateService) DeleteCertificate(certUUID string) error {
 func (s *CertificateService) ExportCertificate(certUUID, format string, includeKey bool, pfxPassword string) (data []byte, filename string, err error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, "", ErrCertNotFound
 		}
 		return nil, "", fmt.Errorf("failed to fetch certificate: %w", err)
@@ -845,6 +893,9 @@ func (s *CertificateService) MigratePrivateKeys() error {
 func (s *CertificateService) DeleteCertificateByID(id uint) error {
 	var cert models.SSLCertificate
 	if err := s.db.Where("id = ?", id).First(&cert).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrCertNotFound
+		}
 		return fmt.Errorf("failed to look up certificate: %w", err)
 	}
 	return s.DeleteCertificate(cert.UUID)
@@ -854,7 +905,7 @@ func (s *CertificateService) DeleteCertificateByID(id uint) error {
 func (s *CertificateService) UpdateCertificate(certUUID, name string) (*CertificateInfo, error) {
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrCertNotFound
 		}
 		return nil, fmt.Errorf("failed to fetch certificate: %w", err)

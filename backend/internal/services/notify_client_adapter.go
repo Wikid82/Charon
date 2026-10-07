@@ -88,6 +88,7 @@ func notifyClientFactory(allowHTTP bool, maxRedirects int) *http.Client {
 	opts := []network.Option{
 		network.WithTimeout(notifyClientTimeout),
 		network.WithMaxRedirects(maxRedirects),
+		network.WithAllowCGNAT(),
 	}
 	if allowHTTP {
 		opts = append(opts, network.WithAllowLocalhost())
@@ -99,7 +100,7 @@ func notifyClientFactory(allowHTTP bool, maxRedirects int) *http.Client {
 // existing SSRF-safe URL validation (internal/security) — Seam 2 of the
 // extraction spec (§3.2).
 func notifyURLValidator(rawURL string, allowHTTP bool) (string, error) {
-	var opts []security.ValidationOption
+	opts := []security.ValidationOption{security.WithAllowCGNAT()}
 	if allowHTTP {
 		opts = append(opts, security.WithAllowHTTP(), security.WithAllowLocalhost())
 	}

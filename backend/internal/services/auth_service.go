@@ -32,45 +32,6 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// Register creates a user account, assigning RoleAdmin to the very first account
-// (count == 0) and RoleUser to every subsequent one.
-//
-// It is retained solely as an internal/test-only user-creation helper. Public
-// self-registration was removed: this method is no longer reachable via any HTTP
-// route. First-admin bootstrap goes through POST /api/v1/setup, and further
-// accounts are created by an admin (POST /api/v1/users) or via the email-invite
-// flow. Behavior here is deliberately unchanged; do not wire it back to a route.
-func (s *AuthService) Register(email, password, name string) (*models.User, error) {
-	email = strings.ToLower(email)
-	var count int64
-	s.db.Model(&models.User{}).Count(&count)
-
-	role := models.RoleUser
-	if count == 0 {
-		role = models.RoleAdmin
-	}
-
-	user := &models.User{
-		UUID:      uuid.New().String(),
-		Email:     email,
-		Name:      name,
-		Role:      role,
-		APIKey:    uuid.New().String(),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	if err := user.SetPassword(password); err != nil {
-		return nil, err
-	}
-
-	if err := s.db.Create(user).Error; err != nil {
-		return nil, err
-	}
-
-	return user, nil
-}
-
 // Sign-in policy constants.
 const (
 	// MaxFailedLoginAttempts is the number of consecutive failed sign-ins that locks an account.
