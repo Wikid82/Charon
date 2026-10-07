@@ -1362,7 +1362,8 @@ ignore:
 
   # CVE-2026-85091: zlib gz_vacate() heap buffer overflow via stale gzwrite() buffer pointers (DoS)
   # Severity: HIGH (CVSS 8.3 v4.0 / 7.4 v3.1)
-  # Package: zlib 1.3.2-r0 (Alpine apk base image)
+  # Package: zlib 1.3.2-r1 (Alpine apk base image; bumped from 1.3.2-r0 on 2026-10-07 when Alpine
+  # published -r1 on 2026-10-06. grype still reports no fix, so the pin must follow the shipped version)
   # Status: No upstream fix available — grype reports fix.versions: [] / fix.state: "" as of 2026-09-18
   #
   # Vulnerability Details:
@@ -1373,7 +1374,7 @@ ignore:
   #
   # Root Cause (No Fix Available):
   # - grype's NVD-sourced advisory records no fixed version for CVE-2026-85091 as of 2026-09-18.
-  # - Alpine's zlib package tracker has not yet published a patched build past 1.3.2-r0.
+  # - Alpine's zlib package tracker has not yet published a patched build past 1.3.2-r1.
   # - Fix path: once Alpine (or upstream zlib) ships a patched package, rebuild the Docker image
   #   and remove this suppression.
   #
@@ -1385,7 +1386,7 @@ ignore:
   # - Container-level isolation reduces the attack surface further.
   #
   # Mitigation (active while suppression is in effect):
-  # - Monitor Alpine's zlib package tracker for a patched build past 1.3.2-r0.
+  # - Monitor Alpine's zlib package tracker for a patched build past 1.3.2-r1.
   # - Weekly CI security rebuild (security-weekly-rebuild.yml) flags any new CVEs in the full image.
   #
   # Review:
@@ -1405,11 +1406,11 @@ ignore:
   - vulnerability: CVE-2026-85091
     package:
       name: zlib
-      version: "1.3.2-r0"
+      version: "1.3.2-r1"
       type: apk
     reason: |
       HIGH — zlib gz_vacate() heap buffer overflow via stale gzwrite() buffer pointers (DoS) in
-      zlib 1.3.2-r0 (Alpine base image). No upstream fix: grype reports fix.versions empty as of
+      zlib 1.3.2-r1 (Alpine base image). No upstream fix: grype reports fix.versions empty as of
       2026-09-18. Charon's Go backend uses compress/gzip and compress/flate, not zlib directly;
       zlib is present only as an Alpine system-library dependency. Risk accepted pending an
       Alpine/upstream patch.
