@@ -681,6 +681,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # crowdsec-builder pin below.
         # renovate: datasource=go depName=golang.org/x/mod
         _retry go get golang.org/x/mod@v0.40.0; \
+        # CVE-2026-61801: golang.org/x/sys/windows DoS via unbounded parsing of user and group database files 
+        _retry go get github.com/moby/sys/user@v0.4.1; \
+        # renovate: datasource=go depName=github.com/moby/sys/user
         _retry go get github.com/dnsimple/dnsimple-go/v10@v${CADDY_DNS_DNSIMPLE_GO_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
