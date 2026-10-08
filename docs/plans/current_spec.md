@@ -1,372 +1,252 @@
-# Plan: Database tail - test temp leaks (#1426), SIGTERM back-off (#1436), Reclaim counter reset (#1438), DB slice of the performance umbrella (#42)
+# Plan: Curated CrowdSec presets falsely report success (Aikido finding)
 
-Type: three independent PRs, all `fix:` / `test:` / `perf:` / `docs:`. **No `feat:` commit anywhere** (no new endpoint, setting, model or UI control), so CodeQL and Trivy are deferred to CI for every PR. **No `(security)` scope**: nothing here is a vulnerability.
-Status: PLANNED (rev 3, awaiting supervisor re-review).
-Supervisor history: rev 1 reviewed 2026-10-02 -> CHANGES REQUIRED (no blockers, 7 should-fix SF1-SF7 plus nits); all applied in rev 2, see the traceability table in 5.7. Measurements in 3.4 were re-run for rev 2 (SF2, SF3).
-Supervisor history (cont.): rev 2 verified 2026-10-02 -> 2 small should-fix (S1, S2) and nits N1-N5; all applied in rev 3 (design unchanged), see 5.7.
-Branch note: this plan is written on local branch `plan/db-tail-1426-1436-1438-42`. **PR #1440 (#1427 follow-ups) is already MERGED** (merge commit `909a2528`, 2026-10-02 05:37Z, verified with `gh pr view 1440` and `git merge-base --is-ancestor`), so nothing has to be stacked: every implementation branch is cut from `development`.
-Predecessors: the #1427 plan is archived at `docs/plans/archive/2026-10-02_database-maintenance-followups-1427_spec.md`; the #1422 plan at `docs/plans/archive/2026-10-01_database-maintenance-1422_spec.md`. "Decision Qn" in this plan refers to nothing in those files unless named.
+Type: single PR, `fix:` (medium fix, branch off `development`: `fix/crowdsec-curated-preset-apply`). Not `(security)`-scoped as a changelog category: the finding is low severity, admin-only, a false security state and not an auth bypass or exploitable vulnerability. Subject must stay generic, e.g. `fix: apply curated CrowdSec presets for real and report failures`.
+Status: rev 2, supervisor APPROVED. Decision D1 DECIDED by the user: option (a), rename `geolocation-aware` to the honest "GeoIP Enrichment" preset (slug `geoip-enrichment`). Ready for user plan approval, then implementation.
+Predecessor: the previous plan in this file (DB tail, #1426/#1436/#1438/#42) is archived at `docs/plans/archive/2026-10-02_db-tail-1426-1436-1438-42_spec.md`.
 
 ## 1. Introduction
 
-Four open GitHub issues, all our own findings (none user-submitted):
+Aikido AI-pentest finding, low severity, true positive (user-confirmed): "Curated CrowdSec presets falsely report success and leave protections inactive".
 
-| Issue | Title (short) | Labels | Real nature |
-| --- | --- | --- | --- |
-| #1426 | backend tests leak large temp files into /tmp | bug, testing | Test hygiene **plus a small real production leak** |
-| #1436 | SIGTERM-looped conversion retries forever | bug, performance | Real, low severity, needs a design decision |
-| #1438 | Reclaim does not reset the counter when the flag is already set | bug | Real at API level; the UI never offers the button in that state (see 3.3) |
-| #42 | Performance Optimization & Benchmarking (umbrella, 2025-11-17) | medium, performance, database, caddy, frontend | Stale umbrella; one measured, actionable database hot spot |
+`POST /api/v1/admin/crowdsec/presets/apply` for the curated presets `honeypot-friendly-defaults` and `geolocation-aware` returns HTTP 200 `{status:"applied", reload_hint:true, used_cscli:false}`, records a `CrowdsecPresetEvent{Status:"applied"}` and changes nothing on disk or in CrowdSec. The UI toasts "Preset applied via backend (reload required)". The operator believes protections are on; they are not.
 
-Everything below was verified against the code on this branch (which equals `development` for all Go and TypeScript files, only CI files and CLAUDE.md differ) and, where stated, by running code. Measurements were taken with a private `TMPDIR`/`GOTMPDIR` under `/var/tmp`; nothing in `/tmp` was touched, and the live test container was only read (`docker exec charon sqlite3 -readonly`).
+Goal: curated presets are genuinely applied (or fail loudly with a recorded failure), the response and audit trail reflect what actually happened, and the UI never claims success it cannot back.
 
-## 2. Priorities & Ordering (per CLAUDE.md "Findings Triage & Issue Tracking")
+## 2. Research Findings (root cause trace, CLAUDE.md "Context First")
 
-All four items are our own findings, so the rule is: bug fixes before new implementation; nothing here is critical/high, so none preempts the others as an emergency; medium/low items are scheduled after current work and tracked as issues (already filed, plus the new child issues C1-C8 in 5.3, which per the rule are filed automatically by the orchestrator now).
+### 2.1 Entry point (frontend)
 
-| Rank | Item | Kind | Severity | Why this position |
+- `frontend/src/pages/CrowdSecConfig.tsx:469` `handleApplyPreset` calls `applyCrowdsecPreset({slug, cache_key})` (`frontend/src/api/presets.ts:82`), and on 2xx unconditionally toasts `Preset applied via backend` (line 479). The only fallback is `err.response?.status === 501` (line 485) -> `applyPresetLocally` (line 427).
+- The curated list shown in the page comes from the backend `GET /admin/crowdsec/presets` (merged with hub entries) plus a static frontend catalog `frontend/src/data/crowdsecPresets.ts` (`CROWDSEC_PRESETS`, line 160 maps it to `source: 'charon-curated'`).
+
+### 2.2 Transformation (backend)
+
+- `backend/internal/crowdsec/presets.go`: three curated presets. `honeypot-friendly-defaults` and `geolocation-aware` have `RequiresHub:false`; `crowdsecurity/base-http-scenarios` has `RequiresHub:true`. The `Preset` struct holds only metadata (slug, title, summary, source, tags, requires_hub). There is no content/definition anywhere on the server.
+- `backend/internal/api/handlers/crowdsec_handler.go:1179` `ApplyPreset`: `if preset, ok := FindPreset(slug); ok && !preset.RequiresHub {` creates the event with `Status:"applied"` (error from `DB.Create` ignored), then returns 200 with `status:"applied"`, `backup:""`, `reload_hint:true`, `used_cscli:false`. No file written, no `cscli` call, no reload. Verified: finding is accurate.
+- `PullPreset` (line 1090) has the mirror short-circuit: `preview` is only the string `# Curated preset: <title>\n# <summary>`, `cache_key:"curated-<slug>"`, nothing cached.
+- The real path `HubService.Apply` (`backend/internal/crowdsec/hub_sync.go:596`) is unreachable for curated slugs: it backs up (`backupExisting`, line 904), prefers `cscli hub install <slug>` (`runCSCLI`, line 885), else `extractTarGz` of a cached hub archive, with rollback on failure. It only works for slugs that exist as hub index entries; the curated slugs `honeypot-friendly-defaults` / `geolocation-aware` are Charon-invented and are NOT hub entries, so even removing the short-circuit would just fail with a cache miss.
+
+### 2.3 Persistence / exit
+
+- `models.CrowdsecPresetEvent` (`backend/internal/models/crowdsec_preset_event.go`): slug, action, status, cache_key, backup_path, error, timestamps. Failure rows already exist for the hub path (`Status:"failed"`, `Error`). The curated path never records failure.
+- Existing test `TestApplyCuratedPresetSkipsHub` (`backend/internal/api/handlers/crowdsec_presets_handler_test.go:478`) asserts the buggy behavior (200 + `applied`, with `cscli`-less hub, empty temp dir). It encodes the bug and must be rewritten.
+
+### 2.4 Why the frontend 501 fallback (Option B) cannot be trusted
+
+`applyPresetLocally` (lines 427-457) writes `presetPreview || selectedPreset.content` into whichever file is currently selected in the file editor (`selectedPath ?? files[0]`), via the generic `writeCrowdsecFile`. Consequences:
+
+1. For curated presets the pulled `presetPreview` is the two-line comment stub above; writing it "applies" nothing.
+2. `selectedPreset.content` in `crowdsecPresets.ts` is a pseudo-YAML `configs:\n  collections: ...` document that is not a CrowdSec configuration schema. CrowdSec does not read such a file; it would at best be inert and at worst overwrite a real file (e.g. `config.yaml`) the operator had selected.
+3. The content is client-supplied and untrusted from the server's point of view, which is the exact thing Aikido's remediation says to avoid.
+4. Several referenced items (`crowdsecurity/geo-fencing`, `crowdsecurity/geo-bf`, the `geoip-enricher` as a collection) are not verified hub items (see 2.5).
+
+So "501 and rely on the frontend" would only move the false success into the browser.
+
+### 2.5 Content validity risk
+
+Verified against the live hub index (`hub-cdn.crowdsec.net/master/.index.json`, supervisor review):
+
+- Exist: collections `crowdsecurity/sshd`, `crowdsecurity/caddy`; scenarios `crowdsecurity/http-backdoors-attempts`, `crowdsecurity/http-probing`, `crowdsecurity/ssh-bf`; parsers `crowdsecurity/sshd-logs`, `crowdsecurity/caddy-logs`, `crowdsecurity/geoip-enrich`, and `crowdsecurity/whitelists` (a PARSER, not a postoverflow; the existing frontend content mislabels it).
+- Do NOT exist: `crowdsecurity/geo-fencing`, `crowdsecurity/geo-bf`, `crowdsecurity/geoip-enricher`. `geoip-enrich` exists only as a parser, is already pulled in by collections such as `crowdsecurity/linux`, and is enrichment only (it adds country/ASN metadata to events; it blocks nothing).
+
+So today's `geolocation-aware` content is entirely fictional, and its description ("tighten access by region") is not achievable with hub items. Task B0 re-checks type AND existence of every item at implementation time (the hub changes), but the facts above are the baseline.
+
+## 3. Options evaluated
+
+| | Option A: server-side authoritative apply | Option B: return 501, rely on frontend fallback |
+| --- | --- | --- |
+| Source of truth | Server-side curated definition (list of hub items by type+name), compiled into the binary | Client-supplied content |
+| Writes/activates | Backup, `cscli <type> install <name>` per item (validated item names), reload, verify via `cscli ... list` | Writes a pseudo-YAML or a comment stub into a user-selected file |
+| Verifies | Yes (post-install list check) | No |
+| Audit trail | Server records applied/failed truthfully | Server records nothing; local write is unaudited |
+| Meets Aikido remediation | Yes, fully | Only if the fallback is "guaranteed to apply the intended content", which 2.4 shows it is not |
+| Cost | Medium (new definition type, installer, tests) | Small, but leaves the product broken |
+
+Recommendation: Option A (long-term fix). Option B is rejected for the reasons in 2.4. Following the "RequiresHub" semantics, curated presets become "Charon-defined bundles of hub items": they need `cscli` (and hub connectivity for `cscli hub update`), so the honest model is that they are applied through the same hub mechanism with a server-owned definition. When the prerequisites are missing the endpoint fails with a clear error and a recorded `failed` event rather than pretending.
+
+## 4. Technical Specifications
+
+### 4.1 Server-side curated definitions (`backend/internal/crowdsec/presets.go`)
+
+Extend, do not replace, the existing types (keep `ListCuratedPresets`/`FindPreset` signatures and the JSON of `Preset` unchanged for `ListPresets` consumers).
+
+- New type `PresetItem struct { Type string; Name string }` where `Type` is one of the allowlisted cscli hub types `collections|parsers|scenarios|postoverflows` and `Name` matches `^[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*$` (hub `author/name`).
+- Add unexported/json-excluded field `Items []PresetItem` to `Preset` (`json:"-"` so the list payload is unchanged) populated in `curatedPresets` for each `RequiresHub:false` preset. Add `func (p Preset) Validate() error` (non-empty items, allowlisted types, name regex); `init`-time or test-time enforced via a unit test over `curatedPresets`.
+- `RequiresHub:false` is retained as the "defined by Charon, not fetched from the hub index" marker. Doc comment must say so.
+- Content (re-verified in Task B0, type and existence):
+  - `honeypot-friendly-defaults`: collections `crowdsecurity/sshd`, `crowdsecurity/caddy`; scenarios `crowdsecurity/http-backdoors-attempts`, `crowdsecurity/http-probing`; parser `crowdsecurity/whitelists` (type `parsers`, NOT `postoverflows`). Drop items already pulled in by the collections (B0 checks the collection contents with `cscli collections inspect`). `ssh-bf`, `sshd-logs`, `caddy-logs` are covered by the collections and need not be listed explicitly unless B0 shows they are not.
+  - The preset `Summary` (backend) and `description`/`warning` (frontend) must describe exactly what ends up installed (SSH and Caddy log parsing plus brute-force/probing detection, whitelists parser). B0 either trims the item list or rewrites the text so they match; the current "low-noise tuned for tarpits" claim is unsupported by plain hub installs and must be removed or justified.
+- **Decision D1 (geolocation-aware): DECIDED by the user, option (a).** The preset is renamed to an honest GeoIP Enrichment preset; the removal path and its follow-up issue are dropped.
+  - Slug changes: `geolocation-aware` -> `geoip-enrichment` (the old slug promises region-based protection the preset cannot give, and keeping it would keep the misleading name in URLs, audit rows and logs). Title "GeoIP Enrichment", tags `geo`, `enrichment` (`access-control` dropped), `RequiresHub:false`, `Source:"charon-curated"`.
+  - Items: exactly one, parser `crowdsecurity/geoip-enrich` (type `parsers`). B0 re-verifies type and existence.
+  - Backend `Summary`: "Enriches CrowdSec log events with GeoIP data (country and ASN). It does not block or allow traffic by region."
+  - Frontend `description`: "Enriches CrowdSec log events with GeoIP data (country and ASN). Useful for decision context and dashboards." Frontend `warning`: "Enrichment only: this does not block traffic by region. Use access lists for region rules." Both must match the backend summary semantics (no mention of tightening access, geo-fencing, or requiring a GeoIP database).
+  - Existing data: the old slug only ever appears in `CrowdsecPresetEvent` rows (audit trail of the false "applied" no-op). Those rows are left untouched (historical, they are not a config state; no migration, no rewrite; rewriting audit history would be wrong). Stored UI selections: the preset selection is component state in `CrowdSecConfig.tsx`, not persisted; B0 greps `localStorage`/`sessionStorage` use in that page and the Playwright specs to confirm. A client still posting the old slug gets the unknown-slug path (not a curated preset, so it goes to the hub path and fails with the existing cache-miss error, never a false success); no alias is added.
+  - Everything that references the old slug is updated: `presets.go`, `presets_test.go` (the `"another preset", "geolocation-aware"` case ~line 49), `crowdsec_presets_handler_test.go`, `frontend/src/data/crowdsecPresets.ts`, `frontend/src/data/__tests__/crowdsecPresets.test.ts` (lines ~11, 57, 134), the i18n files in all five locales if the title or description is localized there (B0 greps `frontend/src/locales/*/translation.json` for `geolocation`/`Geolocation`), and docs mentioning it.
+  - Caveat to state in docs: `geoip-enrich` is already pulled in by collections such as `crowdsecurity/linux`, so applying this preset may be a no-op install that still verifies as installed; that is a truthful success.
+
+### 4.2 Applier (`backend/internal/crowdsec/hub_sync.go` or new `curated_apply.go` in the same package)
+
+New method on `HubService` (reuses `Exec`, `DataDir`, `ApplyTimeout`, `copyDir`, `emptyDir`, `sanitizeSlug`, logger):
+
+`func (s *HubService) ApplyCurated(ctx context.Context, preset Preset) (ApplyResult, error)`
+
+**Backup/rollback must NOT reuse `backupExisting`/`rollback`.** Those rename the whole `DataDir` away (it holds `config.yaml` and the live CrowdSec config), which would leave CrowdSec without a config while `cscli` runs and makes `cscli` write into a vanished directory. `ApplyCurated` uses a copy-based backup that leaves `DataDir` in place and intact at all times:
+
+- Backup: `copyDir(DataDir, DataDir+".backup."+ts)` (existing helper, 0700 backup dir). `DataDir` is never renamed, removed, or emptied before success is known. Backup failure -> remove partial backup, return error, nothing installed.
+- Where `cscli` writes: with the Charon-managed layout `cscli` is pointed at `DataDir` as its config dir (`config.yaml` `config_paths`: `config_dir`, `data_dir`, `hub_dir`, i.e. `DataDir/hub`, `DataDir/collections|parsers|scenarios|postoverflows` symlinks, and `DataDir/hub/.index.json`). Task B0 confirms the actual `config_paths` for the shipped image and the implementer MUST ensure the backup covers every directory `cscli` mutates; if `hub_dir`/`data_dir` resolve outside `DataDir`, those are added to the backup set (copy each) and to rollback. Paths are `filepath.Clean`ed.
+- Symlinks: the existing `copyDir` (`hub_sync.go`, uses `os.ReadDir` + `entry.IsDir()` + `copyFile`) does NOT preserve symlinks. A symlink entry reports `IsDir()==false`, so it goes to `copyFile`, which `os.Open`s the target: a symlink to a file is silently turned into a regular file copy, and a symlink to a directory (the `collections/`, `parsers/`, `scenarios/`, `postoverflows/` item entries are symlinks into the hub dir) makes `io.Copy` fail with "is a directory", so the backup would fail or restore the wrong structure. Task B0 confirms this against the shipped layout. The curated path therefore MUST NOT use `copyDir` as is: add a symlink-preserving variant (check `entry.Type()&fs.ModeSymlink`, `os.Readlink`, `os.Symlink` at the destination; never follow links; reject/skip links whose resolved target escapes the backup root only when copying, preserving the literal link target). Prefer fixing `copyDir` itself for all callers (DRY) if the existing `copyDir` tests and the hub-path fallback stay green; otherwise add `copyDirPreserveLinks` and use it only for the curated path.
+- Rollback note: rollback (`emptyDir` then `copyDir`) is briefly non-atomic against a running CrowdSec (it may see a missing or partial hub dir for a moment); accepted because the backup copy is retained.
+- Rollback on failure: restore from the copy into the existing `DataDir` (`emptyDir` of the affected mutation dirs, then `copyDir` back); `DataDir` itself is never removed, so it exists and is intact during and after the failed install. The backup copy is kept (its path is returned to the user, as in the hub path) so an operator can recover manually if rollback itself fails; a rollback failure is logged at Error and appended to the returned error.
+- Timeout: `applyCtx, cancel := context.WithTimeout(ctx, s.ApplyTimeout)` exactly like `Apply`; every `Exec.Execute` receives `applyCtx`; an expired ctx is checked before each step and triggers rollback.
+
+Behavior (ordered, fail-closed):
+
+1. `preset.Validate()` runs inside `ApplyCurated` on the input it receives (not only on the static catalog at test time); failure returns `ErrInvalidPresetDefinition` (500, nothing touched).
+2. Require `s.hasCSCLI(applyCtx)`; otherwise return `ErrCSCLIUnavailable` (new sentinel) without touching disk. Result `Status:"failed"`.
+3. Acquire the `HubService` mutex, create the copy-based backup; set `result.BackupPath` only after success.
+4. `cscli hub update` (non-fatal warning on failure), then for each item `cscli <type> install <name>` using argv (never a shell; type from allowlist, name by regex). Stop at first failure.
+5. Verify each item with `cscli <type> inspect <name> -o json`, exact argv `["cscli", "<type>", "inspect", "<name>", "-o", "json"]` (e.g. `cscli collections inspect crowdsecurity/sshd -o json`). Parse the JSON and require `installed == true` (and, if present, `up_to_date`/`tainted` do not make it fail unless `tainted==true`). Non-JSON output, nonzero exit, missing field, or `installed:false` is a failure. Unit-test fixtures (B0 confirms the field names against the shipped cscli version; the implementer replaces the fixture if they differ):
+   - installed: `{"name":"crowdsecurity/sshd","type":"collections","installed":true,"up_to_date":true,"tainted":false,"local":false,"version":"0.2"}`
+   - not installed: `{"name":"crowdsecurity/sshd","type":"collections","installed":false}`
+   - malformed: `not json`
+6. On any failure after step 3: rollback as above, return a wrapped error (`fmt.Errorf("install %s %s: %w", ...)`), `Status:"failed"`, `ErrorMessage` set.
+7. On success: `Status:"applied"`, `UsedCSCLI:true`, `ReloadHint:true`, `CacheKey:"curated-"+slug`, `AppliedPreset:slug`.
+
+Reload: CrowdSec needs a reload to load new items. Use the existing reload convention in the handler (`cscli hub reload` is already used after whitelist mutations at `crowdsec_handler.go:2744` as non-fatal). Decision D2: keep `reload_hint:true` (operator/UI triggers restart through existing start/stop controls) and ALSO attempt `cscli hub reload` best-effort; do not report "reloaded"; the contract only claims "installed and verified". If implementer finds that a reliable programmatic reload exists in `CrowdsecExecutor`, calling it is allowed but optional and must not change the success criterion.
+
+Concurrency: guard `ApplyCurated` and `Apply` with a single `sync.Mutex` on `HubService` so two applies cannot interleave backup/rollback.
+
+### 4.3 Handler (`crowdsec_handler.go`)
+
+- `PullPreset`: leave the curated short-circuit but make the preview truthful: return a human-readable list of the items that will be installed (generated from `preset.Items`), `source:"charon-curated"`. Keeps `cache_key:"curated-<slug>"` so the frontend flow is unchanged.
+- `ApplyPreset`: replace the no-op branch with `res, err := h.Hub.ApplyCurated(ctx, preset)` and share the existing success/failure tail used by the hub path. Extract the duplicated event-recording and response-building code into two small helpers (`recordPresetEvent(slug, status, res, err)` and `respondApplySuccess`/`respondApplyFailure`), per the DRY rule (this is the second occurrence). Event-recording errors from `DB.Create` are logged at Warn instead of silently discarded (`_ =`), for both paths.
+- Failure event: `CrowdsecPresetEvent{Slug, Action:"apply", Status:"failed", CacheKey:"curated-"+slug, BackupPath, Error: err.Error()}`.
+- Status mapping for the curated path (order matters): first `errors.Is(err, crowdsec.ErrCSCLIUnavailable)` -> 503 `{"error":"CrowdSec CLI is not available; curated presets require cscli"}` (handled BEFORE the hub path's `strings.Contains(errorMsg, "cscli unavailable")` rewriting so that message guidance is not mangled); then `mapCrowdsecStatus(err, http.StatusInternalServerError)` (deadline/cancel -> 504, otherwise 500). `ErrInvalidPresetDefinition` -> 500. All failure responses include `backup` when a backup exists (rollback already restored it; keep the existing field semantic) and `cache_key`.
+- Never leak raw command output or absolute paths beyond what the hub path already returns; error strings are wrapped Go errors (no stdout dumps).
+
+### 4.4 API contract changes
+
+| Case | Before | After |
+| --- | --- | --- |
+| Curated preset, cscli present, all items installed and verified | 200 `applied` (nothing done) | 200 `{status:"applied", backup:"<path>", reload_hint:true, used_cscli:true, cache_key:"curated-<slug>", slug}` |
+| Curated preset, cscli missing | 200 `applied` | 503 `{error, cache_key}`; event `failed` |
+| Install/verify failure | 200 `applied` | 500 `{error, backup?, cache_key}`; rolled back; event `failed` |
+| Timeout | n/a | 504 |
+| Unknown slug / hub preset path | unchanged | unchanged |
+
+`ApplyCrowdsecPresetResponse` (frontend) is structurally unchanged. No 501 is returned by the server for curated presets. No DB schema change; `AutoMigrate` untouched.
+
+### 4.5 Frontend
+
+- `CrowdSecConfig.tsx` `handleApplyPreset`: keep 501 fallback only for hub presets, never for slugs with `source === 'charon-curated'` (the server is now authoritative; for curated presets a 501 would be a contract violation and shows an error). Success toast text depends on response: when `res.status === 'applied'` show applied (+ reload note); any other status shows an error toast, never success. Add handling for 503 curated (cscli missing) that is distinct from the "hub unavailable" message: show the server error text.
+- Frontend `warning`/`description` text for every remaining curated entry is aligned with what the backend actually installs (B0 output) and with the Decision D1 outcome (4.1); the current `geolocation-aware` entry is renamed to `geoip-enrichment` with the D1 texts, and `honeypot-friendly-defaults` low-noise claims are removed or corrected.
+- `applyPresetLocally`: stop using pseudo-YAML `crowdsecPresets.ts` content for curated slugs. Delete the now-dead pseudo-YAML `content` of the curated entries (`honeypot-friendly-defaults`, `geoip-enrichment`; entries only stay if the UI still needs description/warning text from this file, otherwise the server list is the sole source) from `frontend/src/data/crowdsecPresets.ts` if nothing else needs them; the server list is the single source. Check `CROWDSEC_PRESETS` usages (`CrowdSecConfig.tsx:160`, `data/__tests__/crowdsecPresets.test.ts`, `frontend/src/data/securityPresets.ts` is unrelated) and remove dead code per CLAUDE.md CLEAN. If `bot-mitigation-essentials` is the only remaining entry and it is a hub preset served by the backend, the file may be deleted entirely along with its test.
+- i18n: only if new strings are added; update `frontend/src/locales/*/translation.json` for all five locales (en, de, es, fr, zh).
+
+### 4.6 Error handling and edge cases
+
+- cscli present but hub unreachable: `cscli hub update` warns; install of already-present items may still succeed; verification decides.
+- Item already installed: `cscli install` is idempotent (returns 0 or "already installed"); treat as success iff verification passes.
+- Partial install then failure: the copy-based rollback (4.2) restores every directory `cscli` mutates (config dir, hub dir, data dir as resolved in B0) while `DataDir` stays in place. If rollback itself fails, the error says so, the backup path is returned, and the failure event is still recorded.
+- Cerberus disabled: unchanged 404. `Hub == nil`: unchanged 503.
+- Double-click / concurrent applies: mutex (4.2); frontend already disables the button via `isApplyingPreset`.
+- Backup accumulation: unchanged behavior (same as hub path); see F3.
+
+## 5. Priorities & Ordering (CLAUDE.md "Findings Triage & Issue Tracking")
+
+Source: Aikido AI-pentest finding (external scanner, not a user-submitted GitHub issue); user-confirmed true positive, severity low. Rules applied: our own finding -> bug fix before any `feat`; nothing here is critical/high, so no emergency preemption and no separate-PR carve-out.
+
+| Rank | Item | Kind | Severity | Decision |
 | --- | --- | --- | --- | --- |
-| 1 | #1426 temp leaks | `fix:` + `test:` (bug) | medium for developers (a full /tmp already broke a coverage run and would break the Definition of Done runs for every following PR); low in production | Cheap, disjoint from the rest, and it unblocks reliable local `go test` / coverage runs for PRs 2 and 3. Do it first. |
-| 2 | #1438 Reclaim reset + #1436 SIGTERM back-off | `fix:` (bugs) | low (self-healing, data never at risk, proxying unaffected) | Bugs outrank the performance work. Bundled in one PR because they edit the same state record, the same `Decide` predicate and the same doc section (see 4). |
-| 3 | #42 database slice (uptime summary refresh) | `perf:` | medium (a 1.4 s stall of the only DB connection every 30 s per active dashboard, at 150 monitors) | Not a `feat`, but it is an optimization, so it follows the bug fixes. It is the only part of #42 with measured evidence. |
-| later | Child issues of #42 (5.3) | various | low/medium | Filed as issues now (no approval needed), scheduled after this work. |
-
-The user's stated focus (database work before the weekly rebuild) is respected: all three PRs are database/DB-test work. If time is short, PR 1 and PR 3 are the ones with visible value; PR 2 is correctness polish.
-
-## 3. Per-issue analysis
-
-### 3.1 #1426 test: backend tests leak large temp files into /tmp
-
-**Reproduction (done).** With `TMPDIR` pointed at a fresh directory under `/var/tmp`, the full `go test ./... -count=1 -p 4` (2 min 29 s, all green) leaves exactly:
-
-| Leftover | Count / size | Source |
-| --- | --- | --- |
-| `charon-restore-db-*.sqlite` | 25 files, 112 MB total (24 files of 8-200 KB, one of **111 MB**) | `extractDatabaseFromBackupWithSizes` result retained in `BackupService.restoreDBPath` |
-| `cpm-backup-test<N>/` (zip + dirs, few KB) | 1 dir | `backend/internal/api/handlers/backup_handler_test.go:160` `os.MkdirTemp("", "cpm-backup-test")` in `setupBackupTest`, never removed |
-| `crowdsec-test-nonexistent-<TestName>/` (empty dir) | 1 dir | `backend/internal/api/handlers/crowdsec_handler_test.go:2911`: the test builds a path in `os.TempDir()`, the handler (or fixture) creates it, nothing removes it |
-
-The issue text says "about 111 MB each"; that is inaccurate: only the file produced by `TestRestoreBackupSafe_LargeDatabaseRoundTrip` (`backup_service_v2_hardening_test.go:339`) is 111 MB, the other 24 are tiny. The ~1,079 files in the issue are therefore ~43 full runs times 25 files, and the multi-GB total is ~43 x 111 MB. Per-test bisection (each test run in its own `TMPDIR`) found 21 tests that leave one file each, all of them go through `restoreBackupSafeLockedWithProgress` (`TestRestoreBackupSafe_*`, `TestStartRestoreJob_*`), the legacy `RestoreBackup` + `RehydrateLiveDatabase` pair, or `extractDatabaseFromBackup` directly.
-
-**The pruner scratch directory is not a steady-state leak.** `TestUptimePruner_TickReturnsFreedPagesToTheOS` uses `t.TempDir()` and, run alone and with the whole `TestUptimePruner*` set (with and without `-race`), leaves nothing. The ~161 MB `TestUptimePruner_TickReturnsFreedPagesToTheOS*` directory in the issue can only come from a run that was aborted (`go test -timeout` panic, Ctrl-C, SIGKILL, OOM or the "No space left on device" link failure) before `t.TempDir()` cleanup ran. It cannot be reproduced by a normal run, and no code change can make an aborted process clean up after itself; mitigation is the sweep in 3.1.4.
-
-**Root cause (production, not only tests).**
-`restoreBackupSafeLockedWithProgress` (`backup_restore_safe.go:255-270`) deliberately keeps the extracted snapshot alive "past this function" (`validated.dropFromCleanup(validated.restoreDBPath)`; stored in `s.restoreDBPath`) because `RehydrateLiveDatabase` reads it. But once the function returns, the snapshot has no further purpose: either the live rehydrate succeeded (rows copied), or the durable `charon.db.pending-restore` file was written by `writePendingRestoreFile` (a **copy**, `io.Copy`), or both failed and the user is told to use the pre-restore backup. The path is only replaced on the *next* restore. So a production process holds one DB-sized file (e.g. 111 MB) in the OS temp directory (container writable layer) from the first restore until the next restore or container recreation. Bounded (one file), but real, and it is also what the tests inherit.
-The extraction function itself does **not** leak on its error paths: every failure branch after `os.CreateTemp` removes `tmpPath`, `-wal` and `-shm` (verified by reading `backup_service.go:1679-1790`). `RehydrateLiveDatabase`'s second temp (`charon-restore-src-*.sqlite`, L1468) is removed by `defer`. The legacy `BackupService.RestoreBackup` (L1396) has **no production caller** (only tests, and the `RestoreBackup(filename string) error` method of an interface in `certificate_handler.go:29`); it is dead code that keeps the cross-call field alive (see 5.3, child issue C8).
-
-**Design options.**
-
-| Option | Verdict |
-| --- | --- |
-| A. Tests only: `t.Setenv("TMPDIR", t.TempDir())` per test | Rejected as the only fix: ~270 restore-related tests would each need it, and the production retention stays. `t.Setenv` also forbids `t.Parallel()`. |
-| B. Production only: discard the snapshot at the end of the restore pipeline | Necessary (fixes 21 of 21 pipeline tests and the real leak) but does not cover the legacy two-step tests or other packages' leaks. |
-| C. Package-wide TestMain guard (private temp root, assert empty, always remove) | Necessary as the safety net: catches every present and future leak, self-cleans, fails loudly. |
-| D. Delete the dead legacy `RestoreBackup` now | Deferred: it removes ~19 test call sites and an interface method plus mocks; larger than a leak fix. Filed as child issue. |
-
-**Decision: B + C, plus targeted source fixes for the three known sources.**
-
-3.1.1 Production fix (`fix:`), `backend/internal/services/backup_restore_safe.go` and `backup_service.go`:
-- Add `func (s *BackupService) discardRestoreSnapshot()` that removes `s.restoreDBPath`, `+"-wal"`, `+"-shm"` (ignoring not-exist) and clears the field. Caller holds `s.mu`.
-- In `restoreBackupSafeLockedWithProgress`, right after `s.restoreDBPath = validated.restoreDBPath`, `defer s.discardRestoreSnapshot()` (runs on success, on every error return, and on the unrecoverable-error return; `s.mu` is held by the caller for the whole function, including from `StartRestoreJob`'s goroutine).
-- `RehydrateLiveDatabase` keeps its fallback to `s.restoreDBPath` (still used by the legacy tests and by the pipeline's own retry loop, which runs before the deferred discard).
-- Tests: (1) after a successful `RestoreBackupSafe`, `s.restoreDBPath == ""` and the file is gone; (2) after a pipeline failure at the pre-restore backup step and at the apply step, same; (3) after the rehydrate-fails + pending-file-written path, the `.pending-restore` file still exists and the snapshot is gone (proves the copy is independent); (4) after the unrecoverable double failure, snapshot gone; (5) `discardRestoreSnapshot` on an empty field is a no-op. Existing test `TestBackupService_RestoreBackup_ReplacesStagedRestoreSnapshot` (legacy path) must stay green.
-
-3.1.2 Test source fixes (`test:`):
-- Legacy-path tests (17 `svc.RestoreBackup(` call sites in `backup_service_test.go`, 2 in `backup_service_rehydrate_test.go`, plus the 5 direct `extractDatabaseFromBackup` calls): register `t.Cleanup(svc.discardRestoreSnapshot)` through one shared helper (for example `newTestBackupServiceWithCleanup`), and for the direct `extractDatabaseFromBackup` calls `t.Cleanup(func(){ os.Remove(path) })`.
-- `setupBackupTest` (handlers): use `t.TempDir()` instead of `os.MkdirTemp`.
-- `TestCrowdsecHandler_ListFiles_DirectoryNotExists`: make the "nonexistent" path a child of `t.TempDir()` that is never created (`filepath.Join(t.TempDir(), "nonexistent")`); then there is nothing to leak and `t.Name()` in a global path (parallel-name collision risk) disappears.
-
-3.1.3 Guard (`test:`): new package `backend/internal/testutil/tmpguard` exporting `Run(m *testing.M) int`:
-1. `base, _ := os.MkdirTemp("", "charon-gotest-*")`; `os.Setenv("TMPDIR", base)` so `os.TempDir()`, `t.TempDir()`, `os.CreateTemp("", ...)` all land inside it.
-2. `code := m.Run()`.
-3. List `base`: any entry left means a test leaked. Print each name and size to stderr; `os.RemoveAll(base)` **always** (self-heal, so /tmp can never fill again even if a test regresses); if `code == 0` and entries exist, return 1 (fail the package with a clear message naming the leaked files).
-4. Sweep: on start, remove sibling `charon-gotest-*` directories older than 24 h in the original temp root (leftovers from aborted runs, only our own prefix; never touches anything else).
-Wire it into the two packages whose full runs leaked: `internal/services` (existing `TestMain` in `mail_service_test.go` calls `initializeTestCAForSuite`, sets `SSL_CERT_FILE`; wrap its `m.Run()` with `tmpguard.Run`; **the test CA file `testCAFile` is written to `os.TempDir()` by `initializeTestCAForSuite` (`mail_service_test.go:82`, fixed name `charon-test-ca-mail-service.pem`) before `m.Run()` and removed at L50 after it. Wrap only the `m.Run()` call (L47), so the file is created before the guard redirects `TMPDIR` and removed after it is done, in the original temp root; if the wrapper ever starts before `initializeTestCAForSuite`, the CA file would land in the guarded root and be reported as a leak, so move its `os.Remove` into the guarded function before the leak check**) and `internal/api/handlers` (`testmain_test.go`). **Rollout checks before merge (SF-nits):** `tmpguard.Run` removes the base with `os.RemoveAll`, which fails on a read-only directory a test left behind (tests that `chmod 0500` a dir): walk the base and restore write permission (`filepath.WalkDir` + `os.Chmod(dir, 0o700)`) before `RemoveAll`, or tolerate and report the failure without failing the package. Run both packages with `go test -count=5` **and** `-race` (`./internal/services/... ./internal/api/handlers/...`, each in its own run) with a private empty `TMPDIR`, which must be empty afterwards. The other packages with a `TestMain` (`cmd/api` spawns real child processes, `internal/dbmaint`, `internal/database`, `cmd/localpatchreport`) were clean in the full run and are left alone; adding the guard there is optional and is listed in the child issue (C8).
-Tests for the guard itself (`tmpguard_test.go`): a leaked file makes `Run` return 1 and still removes the base; a clean run returns 0; the sweep removes a stale (mtime-aged) `charon-gotest-*` dir and leaves a fresh one and an unrelated dir. `Run` takes the `m.Run` function through a small seam (`runFn func() int`) so it is testable without a real `*testing.M`.
-
-3.1.4 Residual: aborted runs. The guard cannot clean when the process is killed; the 24 h sweep removes such leftovers on the next run of the package. The ~1,000 old files already in the developer's `/tmp` are **not** touched by this plan (manual one-off `rm` by the owner; they are the only thing that still matches the pattern `charon-restore-db-*` in `/tmp` itself).
-
-**Severity:** medium for developer workflow, low in production. **Verdict: verified, fix as above.**
-
-### 3.2 #1436 a conversion repeatedly stopped by SIGTERM retries forever
-
-**Verification (code reading plus the existing real-`main()` test).**
-- `convert` (runner.go ~L310): when `convErr != nil && ctx.Err() != nil` the result is `ResultInterrupted`/`ReasonShuttingDown`, `countFailure` is false. `persist` (L~440) writes `last_result` and **clears the in-progress marker**. Next boot: no marker, `Attempts` unchanged, `Decide` runs the conversion again. `maintenance_sigterm_test.go` outcome (a) pins exactly this ("mode 0, interrupted, marker cleared", only for SIGTERM).
-- The loop is bounded only when the stop is *slow*: if the VACUUM does not return within `ShutdownRunnerWait` (4 s, sized against Docker's 10 s grace) the process exits with the marker still set and the next boot counts one attempt (`consumeMarker`); a SIGKILL after the 10 s grace does the same; an uninterruptible copy-back tail that finishes counts as a success (`settleConvertedAfterCancel`). So the unbounded case is exactly "SIGTERM honoured quickly, every boot" - the orchestrator healthcheck/restart-policy scenario in the issue (the management API returns 503 for the whole VACUUM, a healthcheck on it fails, the orchestrator sends SIGTERM).
-- Cost per cycle: management UI/API and emergency server unavailable for the time between boot and the stop; proxying unaffected; data never at risk. The only escape today is `CHARON_DB_COMPACT_ON_START=off`.
-
-**Why VACUUM "progress" cannot be the discriminator.** The conversion is one `VACUUM` statement; there is no observable partial progress, and the old file is authoritative until the atomic swap. Any interrupted VACUUM is "no progress" by construction. So the design question reduces to: how many orderly stops are tolerated.
-
-**Options.**
-
-| Option | Assessment |
-| --- | --- |
-| 1. Count every interruption as a failed attempt (limit 3) | Rejected: a user who restarts on purpose once or twice burns the tries; `Attempts` also means "failed", and the doc and notice text promise that. |
-| 2. Separate interruption counter with its own, more generous limit | **Chosen.** Deterministic, testable without clocks, no new setting row, bounds the loop, a deliberate restart costs one of five. |
-| 3. Wall-clock budget (for example "stop after 30 min of cumulative interrupted time", or "N interruptions within T") | Rejected: needs persisted timestamps and a clock seam, behaves differently for a fast machine and a slow one, and deliberate restarts spread over days would silently reset or not. More state for the same bound. |
-| 4. Exponential boot back-off (skip the next 1, 2, 4 boots) | Rejected: skipping a boot silently leaves a user who asked for **Reclaim** wondering why nothing happens, and needs a "boots since" counter. |
-
-**Decision (Option 2).**
-- Persist the count inside the existing `maintenance.attempts` record: `attemptsRecord{Count int; Interrupted int \`json:"interrupted,omitempty"\`; FileID string}`. Old rows decode with `Interrupted == 0` (no migration); `ResetAttempts` deletes the whole row, so one existing call (successful conversion, manual Reclaim request, #1438's reset) resets both counters. Same semantics as `Attempts`: per file (inode), not necessarily consecutive, reset only by a conversion or a manual request.
-- **Every place that reads, rewrites or overrides the record must carry or zero `Interruptions`** (verified against the code; a miss here silently loses the count or makes the dry runs wrong):
-  - `Store.RecordFailure` (`state.go` ~L205-214, rewrites the row): read the stored record and preserve `Interrupted` while incrementing `Count`.
-  - `Store.consumeMarker` (`state.go` ~L289-296) rewrites `attemptsRecord{Count: count, FileID: fileID}` when a leftover marker of this file is consumed: it must write back `Interrupted` too (otherwise a kill after N interruptions would reset them to 0). Its signature therefore carries the interruption count (for example `consumeMarker(ctx, fileID, count, interrupted int) (int, error)`).
-  - `readAttempts` (~L260) and `storedAttempts` (~L250) return the record's `Interrupted` as well as `Count` (not only `RecordFailure`), so that `Load` (via `loadAttempts`) and `Peek` (L337) both fill `State.Interruptions`.
-  - The two dry-run overrides that blank the persisted request state: `database_maintenance_handler.go:212` (`in.FlagRequested, in.Attempts = false, 0`) and `dbmaint/advise.go:65` (`cfg.FlagRequested, cfg.Attempts = false, 0`) must also zero `Interruptions`. Otherwise `BackedOff` is still true in the dry run after an interruption stop, `Decide` returns `too_many_failures` instead of `Run`, and both the `restart_to_optimize` notice and `Advise` (the pending-conversion log line and `Advice.Pending`) become wrong exactly in the state the user is told to leave with Reclaim.
-- New constant `MaxInterruptedRuns = 5` in `constants.go`, with a comment contrasting it with `MaxConvertAttempts = 3`.
-- New `Store.RecordInterruption(ctx, fileID) (int, error)`; `State` and `Inputs`/`PlanConfig`/`Peek`/`Load` carry `Interruptions int`.
-- `persist` (runner.go): for `Result == ResultInterrupted`, call `RecordInterruption` **before** `WriteLastResult` and `ClearInProgress` (so a kill between the writes leaves the marker, which is then counted once as a failed attempt; the worst case is a rare double count, never a missed one). `ResultCancelled` (stopped before any work started, UI still up) stays unpersisted and uncounted.
-- One shared predicate `dbmaint.BackedOff(attempts, interruptions int) bool` (`attempts >= MaxConvertAttempts || interruptions >= MaxInterruptedRuns`) used by `Decide`, the status notice and the handler (3.3). `Decide` returns `ReasonTooManyFailures` (existing reason, existing notice, existing last_result and flag clearing; no new reason or notice code, so no API contract change).
-- User-visible wording: the boot log line in `logPlanSkip` already says "failed or was interrupted too many times". Update the English notice `databaseMaintenance.notice.tooManyFailures` (`frontend/src/locales/en/translation.json:1475`; only `en` carries the key, the other four locales fall back; no other locale edits). **Existing tests pin substrings of this text and must keep passing unchanged**: `frontend/src/components/__tests__/DatabaseMaintenance.test.tsx:105-106` asserts `/stopped trying its automatic database cleanup.*proxies are not affected/i` and `/optional button below to schedule it, then restart Charon/i`, and the Playwright spec `tests/tasks/database-maintenance.spec.ts:516-518` and `:550` asserts `stopped trying its automatic database cleanup`, `your proxies are not affected` and `optional button below to schedule it, then restart charon`. The new text keeps all three substrings in that order, for example: "Charon stopped trying its automatic database cleanup after several failed or interrupted attempts. Your proxies are not affected. Check the logs and make sure there is enough free disk space, and let the optimization finish; avoid restarting while it runs. To let Charon try again, use the optional button below to schedule it, then restart Charon." (the "let the optimization finish; avoid restarting while it runs" sentence covers the interruption case). Doc updates in `docs/database-maintenance.md` (line numbers re-checked in rev 2): the "3 failed tries" bullet (L90-93) and the "cannot be interrupted instantly" note (L94-96) get the orderly-stop sentence; the "Automatic cleanup has stopped" bullet (L142-150) including "That gives it 3 fresh tries" (L147-149) and "If a Reclaim request itself fails 3 times" (L149); the troubleshooting entry (heading and Cause at **L474-476**; "This gives it 3 fresh tries" at L484-485). Wording: an orderly stop is safe and not counted as a failure; after 5 orderly stops during the optimization Charon also stops, with the same notice and the same remedy (press Reclaim, restart), which gives a fresh start for both counters.
-- The 4 s runner wait, the 3 s marker write timeout and the 10 s Docker grace are unchanged; the three extra small settings writes happen after VACUUM has returned and fit inside the existing `MarkerWriteTimeout` budget (each is one upsert/delete on a one-connection pool; covered by the real-`main()` test below).
-
-**Tests.**
-- `plan_test.go`: table cases for `Decide` (interruptions 4 runs, 5 stops with and without flag, attempts 2 + interruptions 4 runs, flag cleared on stop).
-- `state_test.go`: `RecordInterruption` increments and preserves `Count`; `RecordFailure` preserves `Interrupted`; **`consumeMarker` (a leftover marker of this file, via `Load`) adds one to `Count` and preserves `Interrupted`**; a marker of another file leaves the record alone; `readAttempts`/`Load`/`Peek` all return `Interruptions`; file change resets both; legacy row (no `interrupted` key) decodes; `ResetAttempts` clears both; `Peek` does not mutate.
-- Dry runs ignore interruptions: `advise_test.go`: `Advise` with `PlanConfig.Interruptions == MaxInterruptedRuns` (and `Attempts` 0, flag unset) on a file that qualifies for the automatic conversion still reports `Pending` with no skip reason, identical to the same call with both counters 0 (it is a dry run of the automatic condition; the persisted-history suppression `SuppressesPending` is what silences it after a stop). Handler `notice()` test with `Interruptions` at the limit on the same file: the code is `too_many_failures` (decided by the real-state `Decide` before the dry run), and with the counters below the limit and nothing else pending it stays `restart_to_optimize`. Note on reachability: in `notice()` a backed-off state returns from the first `Decide` before the dry-run line is reached, so zeroing `Interruptions` there is defensive consistency with `Advise`; in `Advise` it is load-bearing.
-- `runner_test.go`: interrupted run records one interruption and no failed attempt, marker cleared, flag kept; fifth interruption makes the next `Decide` skip; success resets; a cancelled-before-work run counts nothing.
-- `startup_test.go`/`plan_test.go`: `settlePlanSkip` writes the `too_many_failures` last_result for an interruption-only stop.
-- Real-`main()` test (`cmd/api/maintenance_sigterm_test.go`, new case beside `TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts`, `-short` skipped like it). **Determinism.** The existing test tolerates three outcomes of one SIGTERM mid-conversion: (a) interrupted (mode 0, `last_result` interrupted, marker cleared), (b) already converted before the signal landed (mode 2), (c) marker left (the stop was slower than `ShutdownRunnerWait`). The new loop test decides each explicitly, using `readState` after every stop:
-  - (a) is the path under test: assert `attempts == 0`, the stored interruption count rose by exactly 1, marker cleared, integrity `ok`.
-  - (c) counts one failed attempt at the *next* boot and leaves the interruption count unchanged, so the five-stops arithmetic no longer holds: `t.Skipf` with the log of the state (an environment too slow to honour SIGTERM in 4 s says nothing about the code; the deterministic gate for the counting is `runner_test.go`/`state_test.go`).
-  - (b) ends the loop (nothing left to interrupt; the 240 MB scratch database converted before the signal on a fast host): if it happens before `MaxInterruptedRuns` stops were recorded, `t.Skipf` likewise; it is never a failure.
-  - Invariants asserted regardless: integrity `ok` after every stop; `attempts` never exceeds 0 while only (a) outcomes occur; after the loop the file is not yet converted.
-  After `MaxInterruptedRuns` (a) outcomes: the next boot does **not** start a conversion (log line "optimization stopped", UI reachable, `last_result` `skipped/too_many_failures`, no marker, the flag untouched). Then simulate **Reclaim** at the store level, exactly what the handler does (`ResetAttempts` + `SetFlag` on the scratch database; the HTTP path is covered by the handler tests, the real-`main()` helpers have no authenticated client), and assert one more boot converts and both counters end at 0. **Seed and runtime:** reuse `seedLegacyDatabase` (240 MB); 5 SIGTERM boots at about 4-6 s each (boot, wait for the conversion to start, signal, up to `sigtermGraceMax`) plus the stopped boot and the converting boot is about 30-45 s in total, versus about 10.8 s for the existing test; `-short` skips it, and CI/QA run it once with a generous timeout. This test also proves the extra settings writes complete inside the shutdown budget.
-- Handler status test: notice code `too_many_failures` when only interruptions are exhausted.
-
-**Severity:** low. **Verdict: verified, fix with Option 2.**
-
-### 3.3 #1438 pressing Reclaim while the flag is set does not reset the counter
-
-**Verification.**
-- Mechanism confirmed: after the third counted pre-conversion failure `abortBeforeConversion` sets `countFailure` and `keepFlag` (`consumesFlag()` false), so the flag stays until the next boot where `Decide` returns `too_many_failures` and `ClearFlag`. In that window `RequestOptimize` (`database_maintenance_handler.go:228-231`) returns 200 on `FlagRequested` before any other step, so `ResetAttempts` (L~254) is skipped.
-- **Correction to the issue:** the Database page never shows the **Reclaim** button in that window. `DatabaseMaintenance.tsx:216` renders "Scheduled - the space is reclaimed the next time Charon starts." plus **Undo** whenever `compact_requested` is true; the button only exists in the `else` branch. A UI user would have to press Undo (`DELETE` clears the flag, counter stays 3) and then Reclaim (flag unset, so `ResetAttempts` runs) - it works, but the page simultaneously shows the "Automatic cleanup has stopped ... use the optional button below to schedule it" notice next to a "Scheduled" label, which is contradictory. The raw early return is reachable through the API or a stale open tab.
-- **Root cause:** the window itself. The run that exhausts the budget leaves a request set that the very next boot will discard. Fixing only the handler (the issue's suggestion) leaves the contradictory UI.
-
-**Options.**
-1. Handler only: reset when the flag is set and the stored count is at or above the limit. Fixes the API; UI stays contradictory.
-2. Runner: when a counted-but-kept failure (or, with #1436, an interruption) exhausts the budget, drop the request in the same `persist`, so no window exists and the UI shows the Reclaim button together with the stopped notice.
-3. Both.
-
-**Decision: Option 3** (root cause in the runner, handler as defense in depth for state written by older versions and for stale tabs).
-- `Store.RecordFailure` returns the new count `(int, error)`; `persist` (runner.go) after recording a counted failure or an interruption loads the new state and, if `BackedOff(...)` and the request is still set (the `keepFlag` and interrupted cases), calls `ClearFlag`. The next boot still writes the `too_many_failures` last_result via `settlePlanSkip` (it triggers on the reason, not on the flag).
-- Handler: in `RequestOptimize`, when `already` is true, `Peek` the state; if `BackedOff(state.Attempts, state.Interruptions)` call `ResetAttempts` and keep returning 200 `{"requested": true}` (idempotent: a second press finds attempts 0 and changes nothing). `Peek` needs the file id (`dbmaint.FileID(h.dbPath)`, as `GetStatus` does); a failed `Peek` or `ResetAttempts` is a 500 like the other write failures.
-- Race analysis: the runner only writes during the boot's maintenance window while the management plane is served as 503 (gate `converting`/`checking`) or not yet serving writes that matter; the handler's `ResetAttempts` is a single `DELETE` and `SetFlag` an upsert. Two concurrent POSTs both reset and both leave the flag set: idempotent. A POST racing the planned-phase runner (UI up, runner waiting) can at worst reset a counter the runner then increments from 0; benign. No transaction needed; the existing non-atomic `ResetAttempts` + `SetFlag` pair in the fresh-request branch is unchanged (a crash between them leaves flag unset, counter 0).
-- **The stopped notice must survive the flag being cleared (SF4, verified against `notice()` at `database_maintenance_handler.go` ~L171-216).** `notice()` judges the world with `Decide` on the real flag and counters, then falls through to a dry run without the flag. After Option 2 clears the flag at exhaustion, a file that is **below the automatic thresholds** (>= 100 MiB reclaimable, but neither free ratio >= `MinFreeRatio` nor reclaimable >= `ReclaimableTriggerBytes`, so it was only ever converted because the user pressed Reclaim) gets `Decide` = `below_threshold` (the threshold step runs before the back-off step), so `notice() == nil`: the page shows the Reclaim button and no explanation of why the request vanished. (Today the same file ends up in the same silent state one boot later, after `Decide` clears the flag.) Fix, in the handler only: before the dry-run override line, when the real-flag `Decide` did not already return `too_many_failures`, judge the state as if the user had asked: `manual := in; manual.FlagRequested = true; if dbmaint.Decide(manual).Reason == dbmaint.ReasonTooManyFailures { return n(noticeTooManyFailures, severityWarning) }`. This reuses `Decide` (no second predicate), fires exactly when the Reclaim button is offered (`canRequestOptimize`: not env-off, not incremental, >= 100 MiB reclaimable) and the back-off is exhausted (`BackedOff(attempts, interruptions)`), and goes away by itself when Reclaim resets the counters, when the file stops qualifying, or when the environment disables optimization. It needs `Interruptions` in `notice()`'s `Inputs` (see 3.2). Consequence for existing behaviour: a backed-off, below-threshold file without a flag now shows the warning notice where it showed nothing; the existing `too_many_failures` handler cases (auto-qualifying file) are unchanged. No `DatabaseMaintenance.tsx` change is needed: the notice and the Reclaim button then appear together in every case, including the manual-only file. (If the frontend dev finds the "Scheduled" label still reachable through legacy state, no extra UI work is planned; it self-heals at the next boot as documented.)
-
-**Tests.** Handler: flag set + attempts at max => counter reset, 200, flag still set; flag set + attempts below max => unchanged; flag set + interruptions at max => reset; failing `Peek`/`ResetAttempts` => 500; repeated POST idempotent. Runner: third counted pre-conversion failure ends with flag cleared and `last_result` written at next `Decide`; first and second keep the flag (existing `keepFlag` tests stay). **Handler notice (SF4), exactly this case:** a file with 100-200 MiB reclaimable and a low free ratio (below the automatic thresholds), flag **unset** (as left by the runner after exhaustion), `Attempts == MaxConvertAttempts` => `notice.code == "too_many_failures"` and `can_request_optimize == true` in the same response; the same with only `Interruptions == MaxInterruptedRuns`; counters below the limit => `notice == nil`; the file already incremental, or env `off` (=> `disabled_by_env` only with a flag, otherwise nil), or under 100 MiB reclaimable with exhausted counters => no stopped notice. `state_test.go`: `RecordFailure` returns the incremented count including after a file change (count restarts at 1).
-
-**Severity:** low. **Verdict: verified at API level; the issue's UI scenario is slightly off (see correction); fix at the root plus the suggested handler guard.**
-
-### 3.4 #42 Performance Optimization & Benchmarking (umbrella)
-
-**Assessment against the current code (task by task).**
-
-| #42 task / criterion | Status today | Evidence |
-| --- | --- | --- |
-| Performance benchmark suite | Partial / not meaningful | Only `handlers/benchmark_test.go` (security handler) and two trivial `services/benchmark_test.go` benchmarks exist; nothing seeds a large installation. |
-| Profile database queries | **Actionable now (this plan, PR 3)** | Measured below. Heartbeat work already done: retention pruner with bounded chunks, deferred composite index, incremental vacuum + drain, batch summary endpoint with 30 s cache, per-request `getSetting` cache in Cerberus (60 s TTL). |
-| Optimize Caddyfile generation | Not measured; **out of scope here** | Config is generated as JSON and hashed (`caddy/manager.go:493`); no timing data exists. Child issue C4. |
-| Caching where appropriate | Mostly done | Summary cache (30 s), stats summary cache, Cerberus settings cache. Remaining hole: `Cerberus.IsEnabled` is uncached (child issue C2). |
-| Test with 100+ proxy hosts | DB side measured here; Caddy side open | See table; `ProxyHostService.List` with 150 hosts: 3.3-5.5 ms, 6 queries (one main + 5 batched `Preload`s, **no N+1**). |
-| Frontend bundle size | Open | `vite.config.ts` already has `manualChunks` (charts, i18n, ui, query, react); no size budget or analysis. Child issue C5. |
-| Low-resource devices (Raspberry Pi) | Open, needs hardware | arm64 appears in only some image workflows; main image multi-arch status not verified by this plan. Child issue C6. |
-| Document performance characteristics | Open | `docs/performance/` holds one unrelated file. Partly covered by PR 3's doc. |
-| Acceptance: 100+ hosts, reload < 1 s, UI responsive, works on Pi 4 | Unverified except the DB part | Title still says "CaddyProxyManager+" (obsolete name). |
-
-**Measurements (real, this host, driver `github.com/glebarez/sqlite` = pure-Go modernc through `database.Connect`, i.e. the production pragmas: WAL, `synchronous=NORMAL`, 64 MB cache, single open connection).**
-Scratch database under `/var/tmp`, seeded through the real models/`AutoMigrate`: 150 proxy hosts (+150 locations), 150 uptime monitors (60 s interval), **1,512,000 heartbeats = 7 days x 1,440 x 150** (304 MB file; 216,000 rows in the trailing-24 h window), `security_configs` default row, settings, one user. Timings are min/median of N runs, via a temporary Go test inside the repo module that was deleted afterwards (`git status` clean). The same `Pi`-class slowdown was **not** measured; treat Pi numbers as unknown. **Rev 2 re-measured** the Q2/Q3 rows below (fresh scratch database with the same shape: 150 monitors x 7 days x 1,440 = 1,512,000 heartbeats, 98 % `up`, the two GORM indexes plus the deferred composite where stated, driver and pragmas as above, 7 runs per query, with and without `idx_heartbeat_monitor_created`, same session) and added the tie and single-pass experiments; the scratch files were deleted. Absolute numbers vary 20-40 % between sessions with page-cache and WAL state (rev 1: Q2 21-24 ms, Q3 57-69 ms; the Supervisor's re-run: 36-39 ms and 55-61 ms; rev 2 below: 30-44 ms and 45-53 ms, on a database whose 420 MB WAL had not been checkpointed). The plan relies on the ratios, not on a single figure.
-
-| Measurement | Result |
-| --- | --- |
-| `UptimeSummaryService.GetSummary` cold (cache miss), no deferred index | min 1.49 s, median 1.60 s |
-| same, with the pruner's `idx_heartbeat_monitor_created` present (steady state on every upgraded install, built by the pruner after the first clean caught-up pass; present in the live container) | min 1.35 s, median 1.38 s |
-| `GetSummary` cached (30 s TTL hit) | median 156 us |
-| Query 2 alone (`recentBeatsSQL`, window function) | 0.84-1.14 s; plan: `SCAN uptime_heartbeats USING INDEX idx_heartbeat_monitor_created` (or `idx_heartbeat_lookup` when the composite is missing) = a scan of **all 1.5 M index entries**, not the 24 h window |
-| Query 3 alone (`uptime24hSQL`, GROUP BY) | 0.47-0.55 s; plan: `SCAN ... USING COVERING INDEX idx_heartbeat_lookup` = again all 1.5 M entries (no `sqlite_stat1`, so the planner does not range-scan `created_at`), with or without the composite index |
-| Query 2 rewritten per monitor (top-N via the composite index) | **30-44 ms** with the index (about 25-30x faster); plan: `SEARCH ... USING COVERING INDEX idx_heartbeat_monitor_created (monitor_id=? AND created_at>?)`. SQL used (identical text for the table rows below): `SELECT h.monitor_id, h.status, h.latency, h.created_at FROM (SELECT id FROM uptime_monitors ORDER BY name LIMIT 500) m JOIN uptime_heartbeats h ON h.id IN (SELECT id FROM uptime_heartbeats WHERE monitor_id = m.id AND created_at >= ? ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY h.monitor_id, h.created_at ASC, h.id ASC` (the `id` tie-breakers cost nothing: 39-41 ms with, 41-44 ms without them; the plan is unchanged, see the tie row) |
-| Query 3 rewritten as two per-monitor counts ("variant A", the proposal) | **45-53 ms** with the index (about 10x faster) without statistics. SQL used: `SELECT m.id AS monitor_id, (SELECT COUNT(*) FROM uptime_heartbeats h WHERE h.monitor_id = m.id AND h.created_at >= ?) AS total, (SELECT COUNT(*) FROM uptime_heartbeats h WHERE h.monitor_id = m.id AND h.status = 'up' AND h.created_at >= ?) AS up FROM (SELECT id FROM uptime_monitors ORDER BY name LIMIT 500) m`, percentage = `up * 100.0 / total` in Go (total 0 => omitted); bit-identical to the old `SUM(...)*100.0/COUNT(*)` on the tie fixture. Plan: `COUNT(*)` = covering range seek on `idx_heartbeat_monitor_created`, `up` = covering range seek `idx_heartbeat_lookup (monitor_id=? AND status=? AND created_at>?)` |
-| Q3 single-pass alternatives (Supervisor SF2), measured with / without the composite index | (D) one scalar subquery per monitor, `SUM(CASE WHEN status='up' ...) * 100.0 / COUNT(*)`: 125-150 ms / 517-553 ms. (B) `JOIN` + `GROUP BY m.id` with `COUNT(*)` and conditional `SUM`: 240-253 ms / 627-681 ms. (C) old shape restricted to the window, forced onto the always-present `idx_uptime_heartbeats_created_at` (`INDEXED BY`): 258-305 ms / 258-281 ms. Old Q3: 470-520 ms / 470-520 ms. A single pass needs `status`, which `idx_heartbeat_monitor_created (monitor_id, created_at)` does not hold, so D and B pay one rowid lookup per in-window row (216 k); variant A avoids the lookups by using two covering range seeks. **A is about 3x (D), 5x (B) and 5-6x (C) faster than the single-pass forms in the steady state**; D is only 5-10 % better than A without the index (a transient state), C is index-independent but 5x slower in the steady state. Decision: keep A |
-| Query 3 unchanged but after `ANALYZE` | 59-70 ms (the planner then range-scans); Query 2 unchanged after `ANALYZE` still 515-574 ms |
-| A new covering index `(created_at, monitor_id, status)` | No gain for Q3 (planner still picks `idx_heartbeat_lookup`), +76 MB, +30 % insert cost (341 vs 259 ms per 20 k rows): **rejected** |
-| Index sizes at 1,512,000 rows (rev 3, S1) | `idx_heartbeat_lookup` **123.2 MB**, `idx_heartbeat_monitor_created` 118.2 MB, `idx_uptime_heartbeats_created_at` 64.2 MB, table 128.7 MB. Source: `dbstat` (`SUM(pgsize)` per name) on a freshly built scratch database in `/var/tmp` with the production schema (150 monitors x 10,080 one-minute beats, 36-character UUID `monitor_id`, 98 % `up`, all three indexes created after the load). Cross-check: the Supervisor read 87.8 MB for `idx_heartbeat_lookup` on the live container (1.07 M rows, dbstat), which extrapolates to about 123 MB at 1.5 M rows. The earlier '143 MB' figure was not reproduced and is dropped |
-| Rewritten Q2 + Q3 when `idx_heartbeat_monitor_created` is missing (rev 2, same SQL) | New Q2 **0.67-0.79 s** (old 1.07-1.19 s, about 35 % better); new Q3 (variant A) **0.54-0.58 s** (old 0.47-0.52 s, **about 11-18 % worse**: two correlated `COUNT`s each scan `idx_heartbeat_lookup (monitor_id=?)`, i.e. about the same rows as the old scan plus per-monitor overhead); total 1.21-1.37 s vs 1.54-1.71 s (about 20 % better, "total not worse"). The rewrite's benefit depends on that index; without it Q3 alone is slower |
-| Ties on `created_at` (rev 2, SF3): 150 monitors x 400 minutes with a second heartbeat (different status) at every 5th timestamp | Without a tie-breaker the old and the new query returned different rows on ties: at `beats`=60 for **0 of 150 monitors with the index and 150 of 150 without it** (this fixture is far more tie-heavy than the Supervisor's, which saw 2 of 150 without and 0 with the index); at `beats`=1 they already differed with the index. The old query is itself nondeterministic on ties (old vs old-with-`id` differ too), so there is no "old order" to preserve. With `ORDER BY created_at DESC, id DESC` inside the window/limit and `ORDER BY ..., created_at ASC, id ASC` outside, old-with-tie-break == new-with-tie-break byte for byte for `beats` 1/30/60, with and without the index (0 of 150 monitors differ). EXPLAIN QUERY PLAN with the tie-breaker (index present): unchanged, `SEARCH ... USING COVERING INDEX idx_heartbeat_monitor_created (monitor_id=? AND created_at>?)`, the only temp b-tree is the final `ORDER BY` (`id` is the rowid, so the index already orders by it); without the index the inner `ORDER BY` needs its own temp b-tree (it did before the tie-breaker too) |
-| Summary refresh total, old vs new SQL (steady state, index present) | about 1.4 s vs about 0.08-0.10 s (sum of the re-measured Q2 30-44 ms and Q3 45-53 ms plus the monitor query and assembly; end-to-end `GetSummary` was measured in rev 1; about 14-16x) |
-| Head-of-line blocking: `Cerberus.IsEnabled` (3 queries) while summary refreshes back-to-back on the single connection | p50 869 ms, p95 1.09 s, max 1.87 s (idle: median 100 us). Worst case (continuous refresh); in production a refresh happens at most once per 30 s per cache expiry, so about 4.6 % of wall time the only DB connection is held by the old refresh |
-| Per-request overhead on every authenticated `/api/v1` call (`api.Use(cerb.Middleware())` runs `IsEnabled`: `security_configs` by name, then `settings` `feature.cerberus.enabled`, then possibly `security.cerberus.enabled`; `AuthenticateToken` adds one `users` lookup) | idle: `IsEnabled` median 100 us (min 52 us), user lookup median 62 us; all three are `SEARCH ... USING INDEX` (no scans). Cheap when idle, but they queue behind any long statement on the one connection |
-| `ProxyHostService.List()` with 150 hosts | min 3.3 ms, median 5.5 ms |
-| `GetMonitorHistory(60)` for one monitor | min 187 us, median 297 us (index search) |
-| Live container (read-only; 28 monitors, 27 hosts, 1.07 M heartbeats, retention 30 d, `sqlite_stat1` present; sqlite3 CLI 3.53, so planner not identical to the driver) | Q2 old 124 ms vs per-monitor rewrite 2.5 ms; Q3 old 8.4 ms vs rewrite 0.06 ms; 37,647 rows in the 24 h window |
-
-**Interpretation.** The uptime summary refresh is the only hot database path with a large, measured, easily removable cost: it is O(total retained heartbeats) instead of O(monitors x 60) because the window-function query defeats the `created_at` range, and while it runs it holds the only connection, stalling heartbeat ingestion and every API request behind it. It scales with retention (default 30 days), monitor count and sampling interval, not with the 24 h it is supposed to bound. Everything else measured is already fast (sub-millisecond lookups, no N+1, no scans in the per-request queries). A single-connection pool is a deliberate, documented choice (`database.go:187`, atomic VACUUM, `ATTACH` rehydrate) and stays.
-
-**Recommended database slice (PR 3): `perf:` rewrite the two summary window queries.**
-- `backend/internal/services/uptime_summary_service.go`: replace `recentBeatsSQL` with a per-monitor top-N query and `uptime24hSQL` with per-monitor counts, both restricted to the same monitor set `loadMonitors` returns (honour `uptimeMonitorScanLimit`); keep the three-query shape, the cache, the `[]MonitorSummary` output and the "no in-window beats => `uptime_24h: null`, `recent_beats: []`" semantics.
-  Sketch of the intended SQL (specification, to be finalized by the implementer; parameterised, no string interpolation):
-  - beats: the Q2 SQL of the measurement table (monitor subset `m` = `SELECT id FROM uptime_monitors ORDER BY name LIMIT 500`, which equals `loadMonitors`' set; the `id` tie-breakers are part of the specification).
-  - uptime: the Q3 variant A SQL of the measurement table (two correlated `COUNT(*)` per monitor, one of them filtered on `status = 'up'`), mapped to a percentage in Go (`up * 100.0 / total`, total 0 => omitted => null). Single-pass forms were measured and are slower in the steady state (table above), so they are not used.
-  - Deterministic ties: ordering by `created_at DESC, id DESC` (limit) and `created_at ASC, id ASC` (output) is a deliberate refinement of the old, tie-nondeterministic order; the oracle in the test uses the same tie-break so the comparison is exact. The oracle's legacy inner select must also expose `id` for the outer `, id ASC` to resolve (`no such column: id` otherwise; verified by running it).
-  - Stale comments to update in the same commit (they describe the ROW_NUMBER design): the `uptimeSummaryWindow` comment at `uptime_summary_service.go:25-28` ("keeps the ROW_NUMBER() window query cheap even before the pruner's deferred index exists") and the `recentBeatsSQL` comment at `:168-171` ("one windowed pass ... Correct with or without idx_heartbeat_monitor_created"); both are rewritten for the per-monitor design and the index dependence.
-- Keep the legacy SQL only as a test oracle (constant in the test file) to prove equivalence; no dead code in production.
-- Guard the dependency on the composite index: document in the code that the rewrite relies on `idx_heartbeat_monitor_created` (built by the pruner's deferred, idempotent `ensureIndex`); without it the queries are correct and the **refresh total is not slower than before (1.21-1.37 s vs 1.54-1.71 s measured, about 20 % better), but Q3 alone is about 11-18 % slower (0.54-0.58 s vs 0.47-0.52 s)**. That window exists only on a fresh install or an upgraded database before the pruner's first clean caught-up pass, when the table is small on a fresh install and the refresh runs at most once per 30 s. Do **not** add the index to the model tags (the deferral exists so an upgrade does not index millions of rows inside AutoMigrate).
-- Not in this slice: statistics (`ANALYZE`) - the pruner already runs `PRAGMA optimize` daily and the rewrite is independent of statistics; no new indexes; no pool changes.
-
-**Tests (PR 3).** (1) Equivalence: seed random heartbeats (several monitors, **duplicate `created_at` values with differing status**, a monitor with no in-window rows, orphan heartbeats of a deleted monitor, rows older than 24 h) and assert old-SQL-with-tie-break (the oracle constant: the legacy text plus `, id DESC` in the window and `, id ASC` in the output, **and the legacy inner select must also expose `id`**, otherwise the added `id ASC` fails with `no such column: id`; verified by running it) == new-SQL result field by field for `beats` in 1/30/60, **run twice: with and without `idx_heartbeat_monitor_created`** (the two index states produced different tie picks without the tie-breaker); additionally on a tie-free fixture the **untouched legacy SQL** must equal the new result (proves the refinement changes nothing when there is nothing to break); Q3 percentages compared exactly (`==` on `float64`; measured bit-identical); (2) the existing `uptime_summary_service` tests stay green unchanged; (3) a query-plan guard test that asserts, **when** `idx_heartbeat_monitor_created` exists, the plan text contains `idx_heartbeat_monitor_created` and no `SCAN uptime_heartbeats` (skip with a clear message if the SQLite version words the plan differently; this is the regression tripwire for the 40x); (4) a Go benchmark `BenchmarkUptimeSummaryCold` over a smaller seed (for example 50 monitors x 2 days, built in a few seconds) so the next person can see the order of magnitude without a 300 MB database; (5) cache and slicing behaviour unchanged (existing tests).
-
-Performance doc note (PR 3, `docs/performance/database.md`): `GetSummary` has no `singleflight` on a cache miss, so concurrent requests that arrive after expiry each run the three queries; with the refresh at ~90 ms this is tolerable (and was not the measured hot spot), recorded there as a possible follow-up inside child issue C1 rather than changed here.
-
-**Verdict for #42:** do not implement the umbrella. Convert it into a tracking epic (edit the title to drop "CaddyProxyManager+", for example "Performance: tracking epic", keep the label set, replace the checklist with links to the child issues in 5.3, tick the items completed by PR 3 and by earlier heartbeat work, close the epic only when all children are closed or consciously dropped). Per the CLAUDE.md "Findings Triage & Issue Tracking" rule ("Out-of-scope findings are filed automatically ... no need to ask first"; read from `origin/development`), the orchestrating session files the child issues C1-C8 **now**, without waiting for plan approval (ready-to-file bodies were prepared with this revision; filing is a GitHub write this planning pass does not perform). Only the edit of the existing #42 epic (rename, new body) waits for the user's approval.
-
-## 4. Recommended PR slicing
-
-Three independent PRs, each cut from `development` (nothing is stacked; PR #1440 is already in `development`). One working tree (no worktrees), so the PRs are developed **sequentially in rank order**, each through its own QA before the next starts on shared packages; the file sets below are disjoint, so merge order between them does not matter and no rebase conflicts are expected.
-
-| PR | Contents | Branch | Commit prefix |
-| --- | --- | --- | --- |
-| PR 1 | #1426 | `fix/test-temp-leaks-1426` | `fix:` + `test:` |
-| PR 2 | #1438 + #1436 (one PR, two ordered fix commits) | `fix/db-maintenance-backoff-1436-1438` | `fix:` |
-| PR 3 | #42 database slice (summary refresh) | `perf/uptime-summary-queries-42` | `perf:` |
-
-Why this grouping: #1438 and #1436 both change the state record (`attemptsRecord`), the exhaustion predicate used by `Decide`, the notice and the handler, and the same documentation paragraphs; splitting them would make the second PR rebase over the first and re-touch the same hunks. They are two low-severity bugs, not critical/high, so the "one fix = one PR" rule for urgent fixes does not apply. #1426 shares no files with them (backup service and test infrastructure). The performance slice is a separate concern (services/uptime) and a `perf:` release trigger of its own.
-
-**File ownership and conflicts**
-
-| Area | PR 1 | PR 2 | PR 3 |
-| --- | --- | --- | --- |
-| `backend/internal/services/backup_*.go` and tests | yes | - | - |
-| `backend/internal/services/mail_service_test.go` (TestMain wrap) | yes | - | - |
-| `backend/internal/api/handlers/testmain_test.go`, `backup_handler_test.go`, `crowdsec_handler_test.go` | yes | - | - |
-| `backend/internal/testutil/tmpguard/` (new) | yes | - | - |
-| `backend/internal/dbmaint/{state,plan,runner,constants,startup}.go` + tests | - | yes | - |
-| `backend/internal/api/handlers/database_maintenance_handler*.go` | - | yes | - |
-| `backend/cmd/api/maintenance_sigterm_test.go` | - | yes | - |
-| `frontend/src/locales/en/translation.json` (one string) | - | yes | - |
-| `docs/database-maintenance.md` | - | yes | - |
-| `backend/internal/services/uptime_summary_service*.go` | - | - | yes |
-| `docs/performance/` (new doc), `docs/features.md` link | - | - | yes |
-
-The only shared package is `internal/services` (PRs 1 and 3, different files) and `internal/api/handlers` (PRs 1 and 2, different files). If PR 1 is still open when PR 3 starts, PR 3's package-level `go test -race ./internal/services/...` runs against its own branch only; the only cross-effect is that PR 1's guard, once merged, applies to PR 3's new tests too (they must not leak: they use `t.TempDir()`/in-memory DBs, so they will not).
-
-**Where the plan documents go.** Rebase the plan branch onto `development` (`git rebase --onto origin/development fix/db-maintenance-followups-1427 plan/db-tail-1426-1436-1438-42`, which drops the already-merged #1440 commits and picks up the newer CLAUDE.md) and land the two docs changes (archive move + this spec) as one `docs:` commit directly on `development` (small docs-only change, allowed by the branching strategy), or carry it as the first commit of PR 1. Recommendation: direct `docs:` commit, so all three implementation branches see the spec.
-
-### 4.1 PR 1 commit slicing - #1426
-
-1. `test:` add `internal/testutil/tmpguard` (+ its tests). Gate: `go test ./internal/testutil/...`.
-2. `test:` fix the three known leak sources in tests (`setupBackupTest`, crowdsec nonexistent-dir test, legacy RestoreBackup/extract tests via the shared cleanup helper). Gate: the affected tests pass with `TMPDIR` under `/var/tmp` and the directory is empty afterwards (check by hand before commit 3).
-3. `fix:` discard the staged restore snapshot at the end of the restore pipeline (`discardRestoreSnapshot` + tests from 3.1.1). Gate: `go test ./internal/services/ -run 'Restore|Extract|Rehydrate|Backup'` and `-race` on that subset.
-4. `test:` enable the guard in `internal/services` and `internal/api/handlers` TestMain. Gate: full `go test ./internal/services/... ./internal/api/handlers/...` green with the guard active and a private `TMPDIR` that is empty afterwards (this is the acceptance check for the whole issue).
-5. `docs:` short note in `docs/development/` (or the testing doc that already describes `TMPDIR`) on the guard and on running tests with `TMPDIR`/`GOTMPDIR` on a disk-backed directory. No user docs (no user-visible change).
-
-### 4.2 PR 2 commit slicing - #1438 + #1436
-
-1. `fix:` state record + predicate: `attemptsRecord.Interrupted`, `Store.RecordInterruption`, `RecordFailure` returns count, `State.Interruptions`, `Inputs/PlanConfig.Interruptions`, `MaxInterruptedRuns`, `dbmaint.BackedOff`, `Decide` uses it. No behaviour change yet because nothing records interruptions. Gate: `dbmaint` unit tests (`plan_test`, `state_test`).
-2. `fix:` #1438 - runner drops the request when a kept-flag failure exhausts the budget; handler resets the counter when the flag is set and the state is backed off; **also the SF4 notice rule of 3.3** (stopped notice persists when the runner cleared the flag, judged with `dbmaint.Decide` and `BackedOff(attempts, interruptions)`, `Interruptions` being 0 until commit 3), so the clearing of the flag never ships without it (no silent-notice window between commits). Gate: `dbmaint` runner tests, handler tests including the SF4 handler case with `Attempts == MaxConvertAttempts` (3.3 Tests), `go test -race ./internal/dbmaint/... ./internal/api/handlers -run 'Database|Maint'`.
-3. `fix:` #1436 - `persist` records interruptions, `Peek/Load` expose them (`readAttempts`/`storedAttempts`, `consumeMarker` preserve them), status notice uses `BackedOff` and reads `Interruptions` into `notice()`'s `Inputs`, the two dry-run overrides zero `Interruptions`; the SF4 rule is already in place from commit 2, so this commit only adds its `Interruptions == MaxInterruptedRuns` test case. Gate: runner/state/handler/advise tests as in 3.2 and 3.3.
-4. `test:` real-`main()` SIGTERM loop test (3.2). Gate: `go test ./cmd/api -run TestMaintenance -v` (not `-short`; it builds a 240 MB scratch database, so run with `TMPDIR`/`GOTMPDIR` on `/var/tmp` and the generous timeout).
-5. `docs:` `docs/database-maintenance.md` (the places in 3.2: L90-96, L142-150, L474-485) and the one English notice string (must keep the substrings pinned by the Vitest and Playwright tests; run both, 5.1); `ARCHITECTURE.md` only if its one-line description at ~L823 ("up to 3 attempts") needs the interruption sentence. Gate: `npm run type-check`, the Vitest file and the Playwright spec named in 5.1.
-
-### 4.3 PR 3 commit slicing - #42 database slice
-
-1. `test:` add the equivalence oracle test and the cold-summary benchmark against the **current** SQL (green on the old code; the benchmark records the baseline in the commit body).
-2. `perf:` rewrite the two window queries (with the tie-breakers) and update the two stale comments (`uptimeSummaryWindow`, `recentBeatsSQL`); remove nothing else. Gate: equivalence + existing summary tests, plan-guard test, `-race` on `./internal/services -run Uptime`, `./scripts/scan-gorm-security.sh --check` (raw SQL and GORM `Raw` calls changed).
-3. `docs:` `docs/performance/database.md` (the measured table in 3.4: workload, hardware class "dev host", method, numbers with and without `idx_heartbeat_monitor_created`, the single-pass alternatives, the missing `singleflight` on a cache miss) and a link line in `docs/features.md`. No docs-site manifest change needed: `docs/performance/` is not an already-manifested directory, so it stays contributor-only unless added to `docs-site/scripts/docs-manifest.json`; decision: keep it contributor-only (sizing guidance for users is child issue C7).
-
-**Release effect (commit prefixes):** `fix:` and `perf:` trigger Docker builds and release-please cuts a patch release for them (PR 2 and the PR 1 production commit are `fix:`; PR 3 is `perf:`); `test:` and `docs:` do not trigger a build or a release by themselves. PR 1's guard commits are `test:`, so only its one `fix:` commit counts.
-
-**Rollback / contingency.** Every PR is a plain revert: no migration, no model, no settings schema change (the new JSON key `interrupted` is optional and ignored by older binaries; downgrade after PR 2 simply forgets interruptions). PR 1's production change is isolated to one deferred call: if a restore regresses, revert commit 3 only (the guard commits are test-only). PR 3: revert restores the old SQL; results are identical by test, so a revert is safe at any time. If the guard (PR 1 commit 4) turns out flaky in CI because some test legitimately leaves state, the fix is the leaking test, not disabling the guard; as a last resort, remove the wiring commit only.
-
-## 5. Quality gates, risks, acceptance, docs, open questions
-
-### 5.1 Per-PR Definition of Done (CLAUDE.md protocol, adapted)
-
-Environment for every run: `export TMPDIR=/var/tmp/<scratch> GOTMPDIR=/var/tmp/<scratch>-go` (create both first). `/tmp` is a 7.9 GB tmpfs that has already filled once; do not rely on it. All commands foreground and blocking with generous timeouts; never background a test, build or scan and end the turn.
-
-| Step | PR 1 | PR 2 | PR 3 |
-| --- | --- | --- | --- |
-| Targeted E2E (`npx playwright test <spec> --project=firefox`) | not applicable (no UI) | **REQUIRED, not conditional:** `npx playwright test tests/tasks/database-maintenance.spec.ts --project=firefox` (single spec, single browser) because it pins substrings of the changed notice text at `:516-518` and `:550` (see 3.2), plus the Vitest file `frontend/src/components/__tests__/DatabaseMaintenance.test.tsx` (L105-106), run with `npx vitest run frontend/src/components/__tests__/DatabaseMaintenance.test.tsx`; both must pass unchanged. The Playwright spec needs the E2E container up (rebuild it with the `docker-rebuild-e2e` skill: `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`) | the uptime/monitors page spec only if one asserts summary timings; the endpoint contract is unchanged |
-| GORM security scan (`./scripts/scan-gorm-security.sh --check`) | not triggered (no models/queries/migrations) | run (raw SQL in `Store` changes; cheap) | **run** (query changes) |
-| `bash scripts/local-patch-report.sh` | required | required | required |
-| CodeQL / Trivy locally | defer to CI (`fix:`/`test:`) | defer to CI | defer to CI (`perf:`, no new feature surface) |
-| `lefthook run pre-commit`, `make lint-fast`, `make lint-backend` | required | required | required |
-| Backend coverage `scripts/go-test-coverage.sh` >= 85 % | required | required | required |
-| Frontend coverage / `npm run type-check` / `npm run build` | not applicable | `type-check` and the Vitest file above (one string) | not applicable |
-| `go test -race` on affected packages | `./internal/services/... ./internal/api/handlers/... ./internal/testutil/...`, plus `go test -count=5` of `./internal/services/...` and of `./internal/api/handlers/...` with a private empty `TMPDIR` that must be empty afterwards | `./internal/dbmaint/... ./internal/api/handlers -run 'Database|Maint'` (full `./internal/api/handlers` race run is heavy; the DoD requires the changed code to be race-clean, so the targeted subset plus the unit packages suffice, state this in the QA report) | `./internal/services -run 'Uptime'` |
-| `go build ./...` | required | required | required |
-| Real-`main()` test | not applicable | `go test ./cmd/api -run TestMaintenance` once at commit 4 and at the end | not applicable |
-| Never | skip, `.skip` or delete a test; defer a failing test/lint as "pre-existing" | same | same |
-
-`qa-security` runs last for each PR (after all implementation commits), writing the QA report, per the orchestration model; no second implementation pass is dispatched onto a PR's files while its QA is running.
-
-### 5.2 Risks
-
-| Risk | Mitigation |
-| --- | --- |
-| Guard makes an unrelated, legitimately-temp-writing test fail | The guard reports the leaking names and always cleans; fix the test (use `t.TempDir()`), never loosen the guard. Run the two packages with `-count=5` and with `-race` before merging (5.1). |
-| `os.Setenv("TMPDIR")` in `TestMain` changes behaviour of tests that assert on `/tmp` paths | grep for `"/tmp"` literals in the two packages; the full `go test ./...` run with a private `TMPDIR` already passed, which is the same situation. |
-| Discarding the snapshot breaks a flow that still needs it after the pipeline | The only readers are `RehydrateLiveDatabase` (inside the pipeline, before the defer) and `writePendingRestoreFile` (copy, inside the pipeline). Covered by tests 1-4 in 3.1.1; the legacy `RestoreBackup` path is untouched. |
-| Interruption limit of 5 is too high/low | One named constant, documented, easily tuned (Q1). |
-| Double count when killed between the interruption write and the marker clear | Accepted and documented in the code comment (rare, only strengthens the back-off; the alternative order could miss a count). |
-| Rewrite relies on `idx_heartbeat_monitor_created`, which the pruner builds late on fresh installs | Measured honestly: without the index the refresh **total is not worse (about 20 % better: 1.21-1.37 s vs 1.54-1.71 s)**, but **Q3 alone is about 11-18 % slower** (0.54-0.58 s vs 0.47-0.52 s). Accepted because the state is transient and the total improves; the single-pass alternatives that would help here (D, B, C in 3.4) are 3-6x slower in the steady state, which is the state that matters. The plan-guard test checks the plan only when the index exists; documented in `docs/performance/database.md`. |
-| Per-monitor query changes tie-breaking on identical `created_at` | The old query was nondeterministic on ties and returned different rows with and without the composite index (measured). The new query adds `id DESC` / `id ASC` tie-breakers (plan and speed unchanged, 3.4), and the oracle in the test uses the same tie-break, so equivalence is exact on tie-heavy fixtures in both index states. |
-| `GetSummary` has no `singleflight` on a cache miss | Not a regression and not measured as a problem after the rewrite (~90 ms); noted in the performance doc and in C1. |
-| Measurements are from one dev host | Documented as relative (order of magnitude), method recorded so it can be rerun; Pi performance explicitly unmeasured. |
-
-### 5.3 New child issues to file for #42 (proposed titles, labels, order)
-
-**The orchestrator files C1-C8 now**, not after plan approval: CLAUDE.md "Findings Triage & Issue Tracking" says out-of-scope findings are filed automatically with no need to ask first, and C1 is the issue PR 3 closes. Ready-to-file bodies (title on the first line, labels on the last) are in the scratchpad `children/C1.md` ... `C8.md`; the proposed new #42 title and body are in `children/EPIC.md`. Only renaming/editing the existing #42 waits for the user's approval of the epic conversion. GitHub writes are not done by this planning pass. Suggested labels in the table.
-
-| Id | Proposed title | Labels | Order / priority |
-| --- | --- | --- | --- |
-| C1 | `perf: uptime summary refresh scans every retained heartbeat and blocks the only DB connection` - the slice implemented by PR 3 (file it, then close with the PR) | performance, database, backend | now (PR 3) |
-| C2 | `perf: Cerberus.IsEnabled issues 2-3 uncached queries per API request (plus one user lookup) on a single-connection pool` - cache with the existing `settingsCache` pattern and invalidate on security setting writes; measured 100 us idle, but it is the main victim of any long statement | performance, backend, database | after PR 3 (low) |
-| C3 | `perf: audit the three indexes on uptime_heartbeats (idx_heartbeat_lookup is the largest, 123 MB at 1.5 M rows)` - check whether `idx_heartbeat_lookup (monitor_id, status, created_at)` is still needed once `idx_heartbeat_monitor_created` exists; the audit must account for C1's rewrite, which uses `idx_heartbeat_lookup` for the `up` count (3.4), so it cannot simply be dropped; sizes at 1.5 M rows: 123 / 118 / 64 MB (3.4); the only insert-cost figure measured is +30 % (341 vs 259 ms per 20 k rows) for the rejected new covering index `(created_at, monitor_id, status)`, not for each existing index | performance, database | after C2 (low) |
-| C4 | `perf(caddy): measure config generation and reload time with 100+ proxy hosts` - benchmark `caddy/manager` generation, hashing and apply against the "reload < 1 s" criterion; optimize only what the numbers justify | performance, caddy, backend | medium; independent of the DB work |
-| C5 | `perf(frontend): bundle size audit and CI size budget` - analyze the Vite output (manual chunks already exist), set a budget, lazy-load heavy routes if over budget | performance, frontend | low |
-| C6 | `perf: validate Charon on a Raspberry Pi 4 (arm64) and record sizing` - confirm the main image is multi-arch, run the seeded scenario from `docs/performance/database.md` on real hardware | performance, testing | medium; needs hardware (owner action) |
-| C7 | `docs: performance characteristics and sizing guide` - user-facing, curated from C1/C4/C6 results; add to the docs-site manifest only when it is written for novices | documentation, performance | last |
-| C8 | `refactor: remove the unused legacy BackupService.RestoreBackup and its interface method; extend the temp-leak guard to the remaining test packages` - dead code (no production caller), removes the cross-call `restoreDBPath` field | refactor, backend, testing | low, after PR 1 |
-| Epic | Rename #42 to `Performance: tracking epic` and replace its checklist with links to C1-C8 (and tick done items) | performance | **after user approval** (edits an existing issue) |
-
-### 5.4 Acceptance criteria
-
-PR 1: (a) a full `go test ./... -count=1 -p 4` with an empty private `TMPDIR` leaves that directory empty (today: 25 `charon-restore-db-*` files, 112 MB, plus two directories); (b) the guard turns a deliberately leaking test into a package failure naming the file, and removes it; (c) after a successful, a failed and a pending-file restore, `BackupService.restoreDBPath` is empty and the staged file is gone while `charon.db.pending-restore` still exists in the pending case; (d) no change to restore results or API responses.
-PR 2: (a) after `MaxInterruptedRuns` orderly stops mid-conversion the next boot does not start a conversion, logs the stopped line, serves the UI, and shows the existing "Automatic cleanup has stopped" notice; (b) a single SIGTERM during the conversion counts no failed attempt and does not stop the next boot's retry; (c) Reclaim after the stop schedules a fresh conversion with both counters reset; (d) after an in-version run that exhausts the budget the runner has dropped the request, and the Database page then shows the **stopped notice together with the Reclaim button in every case, including a file below the automatic thresholds that was only ever reclaimed on request** (the notice is driven by the back-off state through `Decide` with the request assumed, 3.3, not by the cleared flag), never "Scheduled" and "stopped" together; a direct `POST` with the flag set and the counter at the limit resets the counter (200); (e) older `maintenance.attempts` rows decode unchanged; (f) docs and the English notice match the behaviour, and `DatabaseMaintenance.test.tsx` and `tests/tasks/database-maintenance.spec.ts` pass unchanged; (g) `consumeMarker` keeps the interruption count, and `Advise` and the `restart_to_optimize` dry runs ignore interruptions (tests in 3.2).
-PR 3: (a) `GetSummary` returns byte-identical JSON to the old implementation **on tie-free fixtures** (untouched legacy SQL as oracle) and to the tie-broken legacy oracle on fixtures with duplicate `created_at` values, in both index states (the unmodified legacy order is nondeterministic on ties, so byte-identity to it is not claimed there); (b) on the seeded 150-monitor / 1.5 M-heartbeat scratch database the cold refresh drops from about 1.4 s to under 150 ms with the composite index present (measured target about 90 ms), and **without the index the refresh total is not worse than the old one (measured about 20 % better) while Q3 alone may be about 11-18 % slower**, which is accepted and documented; (c) the endpoint contract, cache TTL and `beats` clamping are unchanged; (d) the new benchmark and plan-guard test exist and pass.
-Plan-level: child issues C1-C8 are filed by the orchestrator now (C1 before PR 3 so the PR can close it); the #42 epic conversion (rename and body) is applied only after the user approves it.
-
-### 5.5 Documentation to update
-
-`docs/database-maintenance.md` (PR 2, the places listed in 3.2: L90-96, L142-150 incl. L147-149, L474-485); `docs/performance/database.md` (new, PR 3) and a link line in `docs/features.md`; the testing/development doc that describes `TMPDIR` (PR 1); `ARCHITECTURE.md` only if the one-line "up to 3 attempts" sentence near L823 is made inaccurate (PR 2) or if the new `internal/testutil/tmpguard` package needs a directory-structure line (PR 1, check the testutil entry first). CHANGELOG is generated by release-please from commit subjects: write subjects that are accurate for every self-hosted reader (none uses `(security)`).
-
-### 5.6 Genuine open questions (with recommendations)
-
-1. **How many orderly stops before Charon gives up on the optimization (`MaxInterruptedRuns`)?** Recommendation: 5 (a user who restarts on purpose once or twice is safe; an orchestrator loop costs at most five 503 windows instead of unbounded). It is one constant.
-2. **Remove the dead legacy `BackupService.RestoreBackup` now or later?** Recommendation: later (child issue C8): it touches an interface and ~19 test sites and is not needed to fix the leak. Say so if you prefer to fold it into PR 1.
-3. **Should the Cerberus per-request query caching (C2) join the performance PR?** Recommendation: no; the measured idle cost is about 0.1 ms per request, and most of its practical pain disappears once the 1.4 s connection hold is gone. Keep PR 3 to one measured change.
-
-Everything else was decided with evidence above; the plan can go back to the supervisor for the rev 3 re-review.
-
-### 5.7 Revision history and traceability
-
-| Rev | Date | Change |
-| --- | --- | --- |
-| 1 | 2026-10-02 | First plan. |
-| 2 | 2026-10-02 | Supervisor review of rev 1: CHANGES REQUIRED (no blockers, 7 should-fix, nits). All applied; Q2/Q3 measurements re-run (3.4). |
-
-| 3 | 2026-10-02 | Supervisor verification of rev 2: S1 (index size measured, 3.4), S2 (insert-cost wording, 5.3 C3), N1 (oracle exposes `id`), N2 (SF4 rule moved into commit 2), N3 (EPIC note), N4 (E2E container note), N5 (C3 audit accounts for C1's use of `idx_heartbeat_lookup`). No design change. |
-
-| Finding | Where addressed in rev 2 |
-| --- | --- |
-| SF1 `consumeMarker` / `readAttempts` / dry-run overrides drop or keep `Interruptions` | 3.2 Decision (list "Every place ..."), 3.2 Tests (`state_test`, `advise_test`, handler), 4.2 commit 3, 5.4 PR 2 (g) |
-| SF2 "never slower without the index" is false per query; single-pass aggregate | 3.4 measurement table (new rows, single-pass alternatives A/B/C/D), 3.4 recommended slice, 5.2 risk row, 5.4 PR 3 (b) |
-| SF3 ties are not byte-identical | 3.4 tie row, tie-breaker in the specified SQL, 3.4 Tests (1), 5.2 risk row, 5.4 PR 3 (a) |
-| SF4 stopped notice vanishes when the flag is cleared | 3.3 bullet "The stopped notice must survive the flag being cleared", 3.3 Tests, 4.2 commit 2 (rule, `Attempts` case) and commit 3 (`Interruptions` case), 5.4 PR 2 (d) |
-| SF5 wording pinned by Vitest and Playwright | 3.2 "User-visible wording", 4.2 commit 5, 5.1 E2E row (REQUIRED), 5.4 PR 2 (f) |
-| SF6 determinism of the real-`main()` loop test | 3.2 Tests, real-`main()` bullet (outcomes a/b/c, seed, runtime), 4.2 commit 4 unchanged |
-| SF7 filing rule | 2 (intro and table), 3.4 verdict, 5.3 intro and Epic row, 5.4 plan-level |
-| Nit: doc line refs (L476, L147-149, L482-485) | 3.2 "User-visible wording", 5.5 |
-| Nit: stale comments `uptime_summary_service.go:25-28`, `:168-171` | 3.4 recommended slice, 4.3 commit 2 |
-| Nit: no `singleflight` on cache miss | 3.4 (performance doc note), 4.3 commit 3, 5.2 |
-| Nit: tmpguard rollout (`-count=5`, `-race`, read-only dirs, test CA file) | 3.1.3, 5.1 race row, 5.2 first risk row |
-| Nit: release note (`fix:`/`perf:` build and patch release; `test:`/`docs:` do not) | 4.3 "Release effect" paragraph |
+| 1 | Curated presets no-op / false success (this PR) | `fix:` | low | Do now, single PR off `development` |
+| 2 | F1: `applyPresetLocally` writes unvalidated client content into an arbitrary selected CrowdSec file | `fix:` | low-medium | Narrowed in this PR for curated slugs (4.5). Residual hub-preset fallback behavior: file as issue, schedule after this PR |
+| 3 | F2: the HUB path (`HubService.Apply`) still uses `backupExisting`, which renames the entire `DataDir` (including `config.yaml` and `hub_cache`) while CrowdSec runs, and its rollback only covers `DataDir`. The CURATED path is fixed in this PR (copy-based backup, 4.2) and is no longer deferred; only the hub path remains | `fix:` | low-medium | File as issue for the hub path (to verify), after this PR; reuse the copy-based helper |
+| 4 | F3: unbounded `DataDir.backup.*` accumulation from repeated applies | `chore:` | low | File as issue |
+| 5 | F4: `crowdsec_handler.go` is ~2800 lines; preset handlers should move to `crowdsec_presets_handler.go` | `refactor:` | low | File as issue; do not widen this PR |
+| 6 | F5: Playwright `tests/security/crowdsec-config.spec.ts` preset tests are tolerant "may not be implemented" skips that would not have caught this bug | `test:` | low | Partially addressed here (new spec, section 6.3); the old tolerance cleanup is a follow-up issue |
 
+Per CLAUDE.md these out-of-scope findings (F2 to F5, and the residual of F1) are filed automatically as GitHub issues by the orchestrator, none security-sensitive (no private advisory needed). The GitHub MCP server failed to connect in the planning session, so filing must use `gh issue create`.
+
+## 6. Test Plan
+
+### 6.1 Backend unit tests (TDD, written first)
+
+`backend/internal/crowdsec` (new `curated_apply_test.go`, reuse the fake `CommandExecutor` pattern in `hub_pull_apply_test.go`):
+
+- Success: fake exec records `cscli version`, `hub update`, one `install` per item, one `inspect <type> <name> -o json` verification per item (exact argv per 4.2 step 5); asserts argv exactly (no shell), `Status:"applied"`, `UsedCSCLI`, backup path created, `ReloadHint`.
+- cscli missing (`version` errors): returns `ErrCSCLIUnavailable`, `Status:"failed"`, no backup dir created, no install calls.
+- Install failure on item N: the fake executor's `install` hook asserts, at call time, that `DataDir` exists and its sentinel file (`config.yaml`) is intact (proves no rename away); after the failure the test asserts `DataDir` exists, the sentinel and any files the fake install added/changed are restored to the original contents, `Status:"failed"`, error wraps cause, backup copy still present.
+- Symlink rollback test: seed `DataDir` with `hub/collections/crowdsecurity/sshd.yaml` plus `collections/sshd.yaml -> ../hub/collections/crowdsecurity/sshd.yaml` (relative link) and a dangling link; run a failing install that mutates both; assert after rollback `os.Lstat` shows symlinks (mode `ModeSymlink`) with identical `Readlink` targets, regular files byte-identical, no dereferenced copies. Also a unit test for the symlink-preserving copy itself (file link, dir link, dangling link, nested).
+- Same assertions for verification failure and for a timeout in the middle of install (DataDir exists and is intact during and after).
+- Verification fixtures (4.2 step 5): installed JSON passes; `installed:false`, malformed JSON, nonzero exit, missing field each fail; assert exact argv `cscli <type> inspect <name> -o json`.
+- `Validate` runs on the input of `ApplyCurated`: calling it with an invalid/hand-built `Preset` (bad type `../x`, bad name `a b`, empty items) returns `ErrInvalidPresetDefinition` with no exec calls and no backup, independent of the static catalog.
+- Timeout: `ApplyTimeout` set tiny via the existing field; a fake executor that blocks until ctx is done yields a deadline error and rollback.
+- Verification failure (install exit 0 but `inspect -o json` reports `installed:false`): treated as failure and rolled back.
+- Backup failure: no install attempted.
+- Timeout via cancelled ctx: error satisfies `errors.Is(err, context.DeadlineExceeded)` or Canceled.
+- Concurrency: two parallel `ApplyCurated` calls serialize (run with `-race`).
+- `presets_test.go`: every `RequiresHub:false` preset passes `Validate()`; invalid type / name (`../x`, `a b`, `;rm`) rejected; `Items` not serialized in JSON of `Preset`.
+
+`backend/internal/api/handlers/crowdsec_presets_handler_test.go`:
+
+- Rewrite `TestApplyCuratedPresetSkipsHub` into: success returns 200 only when the fake exec succeeds, `used_cscli:true`, backup non-empty, event row `applied`; assert fake exec saw installs (proves not a no-op).
+- New: cscli unavailable -> 503, event row `status=failed`, `error` non-empty, response has no `applied`.
+- New: install failure -> 500 with `backup`, event `failed`.
+- New: `DB.Create` failure is logged, request outcome unchanged (use closed DB / missing table) for both curated and hub paths.
+- Update `TestPullCuratedPresetSkipsHub` to assert the preview lists the items.
+- Regression: hub path (`TestApply...` existing tests) unchanged and green after the helper extraction.
+
+Coverage: patch coverage target 100% for new code; overall >= 85% (`scripts/go-test-coverage.sh`). GORM scan not required (no model/query changes beyond existing `Create`), but run `./scripts/scan-gorm-security.sh --check` anyway if any `DB` call shape changes.
+
+### 6.2 Frontend unit tests (Vitest, `frontend/src/pages/__tests__/CrowdSecConfig*.test.tsx`)
+
+- Curated apply success: toast success only when `status === 'applied'`; applyInfo shows backup and `used_cscli`.
+- Curated apply non-2xx (parametrized over 500, 503, 504, 501, 400): error toast with server message, no success toast, `applyPresetLocally` NOT called, no `writeCrowdsecFile` call. The contract is: ANY non-2xx on a curated slug never calls `applyPresetLocally`.
+- Curated apply 501 (contract violation): error shown, still no local write.
+- Hub preset 501: existing local fallback behavior preserved (regression).
+- Non-`applied` status in 200 response never shows a success toast.
+- Remove/update `data/__tests__/crowdsecPresets.test.ts` consistent with 4.5. Frontend coverage >= 85% (`scripts/frontend-test-coverage.sh`); `npm run type-check`.
+
+### 6.3 Playwright (single spec, firefox only, targeted)
+
+Add `tests/security/crowdsec-preset-apply.spec.ts` (replace nothing; leave the tolerant spec alone). Uses `page.route` to stub `POST **/admin/crowdsec/presets/apply`:
+
+1. Stub 503 `{error:"CrowdSec CLI is not available..."}`: select "Honeypot Friendly Defaults", click Apply; expect an error toast/message and NO "applied" success toast.
+2. Stub 200 `{status:"applied", used_cscli:true, backup:"...", reload_hint:true}`: expect success toast with reload note.
+3. Assert no request to the generic file-write endpoint is made in cases 1 and 2 (no local fallback for curated presets).
+
+Run: `cd /projects/Charon && npx playwright test tests/security/crowdsec-preset-apply.spec.ts --project=firefox` (foreground). Full-suite/cross-browser is CI-only. Real-cscli E2E against the container is optional and only if the E2E container image ships `cscli` (implementer to check; otherwise covered by unit tests).
+
+## 7. Implementation Plan (phases mapped to commits)
+
+Task B0 (before any code): verify every item name in 4.1 against the live hub index (`cscli hub list -a` in the E2E/dev container, or `https://hub-data.crowdsec.net/.index.json`). Record the verified list in the PR description. Check type AND existence of every item (`cscli <type> inspect <name> -o json` against the shipped cscli, or the hub index `hub-cdn.crowdsec.net/master/.index.json`); confirm the JSON field names used by the 4.2 fixtures; confirm `config_paths` (config/hub/data dirs) of the shipped image for the backup set; align the `honeypot-friendly-defaults` summary/warning with what is installed. Decision D1 is already decided (option a); B0 only re-verifies that `crowdsecurity/geoip-enrich` exists as a parser, confirms the localStorage/locale greps from 4.1, and confirms symlink behavior of `copyDir` (4.2).
+
+## 8. Commit Slicing Strategy
+
+Decision: ONE PR (`fix/crowdsec-curated-preset-apply` off `development`, PR into `development`), ordered logical commits. Each commit builds and passes its gate.
+
+| # | Commit | Scope / files | Depends on | Validation gate |
+| --- | --- | --- | --- | --- |
+| 1 | `test: add failing specs for curated CrowdSec preset apply` | ONLY `tests/security/crowdsec-preset-apply.spec.ts` as `test.fixme` (no backend or other files; backend tests land with commit 3). | none | spec file lints; `npx playwright test <spec> --project=firefox` reports fixme/skipped |
+| 2 | `refactor: extract crowdsec preset event/response helpers and add curated item definitions` | `backend/internal/crowdsec/presets.go` (+`PresetItem`, `Items`, `Validate`), `presets_test.go`, handler helper extraction (`recordPresetEvent`, response helpers), DB.Create error logging; NO behavior change to curated apply yet | 1 | `cd backend && go build ./... && go test ./internal/crowdsec/... ./internal/api/handlers/...`; existing tests green |
+| 3 | `fix: apply curated CrowdSec presets via cscli and record failures` | `hub_sync.go`/`curated_apply.go` (`ApplyCurated`, `ErrCSCLIUnavailable`, mutex, symlink-preserving copy, `geoip-enrichment` rename in `presets.go`/tests), `crowdsec_handler.go` (ApplyPreset + PullPreset preview), rewritten/new handler and package tests (section 6.1) | 2 | `go test -race ./internal/crowdsec/... ./internal/api/handlers/...`; `make lint-fast`; backend coverage script >= 85%; local patch report |
+| 4 | `fix: stop reporting curated preset success the server did not confirm` | `CrowdSecConfig.tsx`, `data/crowdsecPresets.ts` (+ test) cleanup, `api/presets.ts` types if needed, i18n (5 locales) if new strings, Vitest tests (6.2) | 3 | `npm run type-check`, `npx vitest run` on touched tests, `npm run build`, frontend coverage >= 85% |
+| 5 | `test: enable curated preset apply e2e and update docs` | un-fixme the Playwright spec; `docs/features.md` / `docs/features/` CrowdSec preset note (curated presets require `cscli`, are verified, failures are reported); `ARCHITECTURE.md` only if the CrowdSec integration section describes preset apply (check; likely a one-line note) | 4 | `npx playwright test tests/security/crowdsec-preset-apply.spec.ts --project=firefox`; `lefthook run pre-commit`; docs sync rule (no edits under `docs-site/docs/`) |
+
+Definition of Done for the PR (CLAUDE.md): targeted Playwright (firefox) first; GORM scan only if models/queries change (not expected); `bash scripts/local-patch-report.sh`; CodeQL/Trivy are deferred to CI (this is a `fix:` with no new feature surface); `lefthook run pre-commit`; staticcheck clean; backend and frontend coverage >= 85%; type-check; both builds; no debug leftovers.
+
+Rollback / contingency:
+- The PR is revertable as a unit; no schema change, so revert has no data impact.
+- If Task B0 shows no verifiable hub items for a curated preset (for example `geoip-enrich` is gone from the hub), stop and ask the user rather than shipping a no-op preset.
+- If `cscli` is absent from some deployment shapes, curated presets will return 503 by design (honest failure); the UI message must tell the operator why. Consider (follow-up, not this PR) hiding the Apply button for curated presets when `cscli` is known unavailable.
+- If reliable post-install reload is not feasible in this PR, ship with `reload_hint:true` semantics (explicitly "installed and verified, restart required").
+
+## 9. Acceptance Criteria
+
+1. Applying a curated preset with `cscli` available installs the server-defined hub items, verifies them, creates a backup and returns 200 `applied` with `used_cscli:true` and a non-empty `backup`.
+2. Without `cscli`, or on any install/verify/backup/timeout failure, the endpoint returns a non-2xx error, never `applied`, rolls back, and persists a `CrowdsecPresetEvent` with `Status:"failed"` and `Error`.
+3. No code path returns `applied` unless something was installed and verified. The old no-op branch is gone.
+4. The frontend never shows a success toast for non-`applied` or error responses and never writes client-supplied curated content to a CrowdSec file; hub-preset 501 fallback unchanged.
+5. Curated item definitions are server-side, validated (allowlisted types, name regex, argv execution, no shell) and verified against the real hub (Task B0); Decision D1 is implemented as decided (option a: `geoip-enrichment`, enrichment-only wording) and no preset or `warning` text over-promises. Curated apply never renames or empties `DataDir`; rollback keeps it intact.
+6. `TestApplyCuratedPresetSkipsHub` no longer asserts the buggy behavior; new tests in 6.1/6.2/6.3 pass; coverage thresholds met; DoD in section 8 satisfied; CI green.
