@@ -332,6 +332,8 @@ describe('CrowdSecConfig coverage', () => {
     vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({})
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(501, 'not implemented'))
     await renderPage()
+    // Local apply needs the pulled preview content, which now arrives from the hub pull.
+    await waitFor(() => expect(screen.getByTestId('preset-preview')).toHaveTextContent('crowdsecurity/http-cve'))
     const applyBtn = screen.getByTestId('apply-preset-btn')
     await userEvent.click(applyBtn)
     await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Preset apply is not available on the server; applying locally instead'))
