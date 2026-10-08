@@ -1177,24 +1177,9 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 
 	// Check for curated preset that doesn't require hub
 	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
-		if h.DB != nil {
-			_ = h.DB.Create(&models.CrowdsecPresetEvent{
-				Slug:       slug,
-				Action:     "apply",
-				Status:     "applied",
-				CacheKey:   "curated-" + slug,
-				BackupPath: "",
-			}).Error
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status":      "applied",
-			"backup":      "",
-			"reload_hint": true,
-			"used_cscli":  false,
-			"cache_key":   "curated-" + slug,
-			"slug":        slug,
-		})
+		res := crowdsec.ApplyResult{Status: "applied", ReloadHint: true, CacheKey: "curated-" + slug, AppliedPreset: slug}
+		h.recordPresetEvent(slug, res, nil)
+		respondApplySuccess(c, res)
 		return
 	}
 
@@ -1235,9 +1220,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		// backup_path and cache_key are system-generated values
 		// codeql[go/log-injection]
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).WithField("cache_key", util.SanitizeForLog(res.CacheKey)).Warn("crowdsec preset apply failed")
-		if h.DB != nil {
-			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error
-		}
+		h.recordPresetEvent(slug, res, err)
 		// Build detailed error response
 		errorMsg := err.Error()
 		// Add actionable guidance based on error type
@@ -1246,29 +1229,55 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		} else if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
 			errorMsg = "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
 		}
-		errorResponse := gin.H{"error": errorMsg, "hub_endpoints": h.hubEndpoints()}
-		if res.BackupPath != "" {
-			errorResponse["backup"] = res.BackupPath
-		}
-		if res.CacheKey != "" {
-			errorResponse["cache_key"] = res.CacheKey
-		}
+		errorResponse := applyFailureBody(errorMsg, res)
+		errorResponse["hub_endpoints"] = h.hubEndpoints()
 		c.JSON(status, errorResponse)
 		return
 	}
 
-	if h.DB != nil {
-		status := res.Status
-		if status == "" {
-			status = "applied"
-		}
-		slugVal := res.AppliedPreset
-		if slugVal == "" {
-			slugVal = slug
-		}
-		_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slugVal, Action: "apply", Status: status, CacheKey: res.CacheKey, BackupPath: res.BackupPath}).Error
-	}
+	h.recordPresetEvent(slug, res, nil)
+	respondApplySuccess(c, res)
+}
 
+// recordPresetEvent persists an apply audit row. A nil err records the result status
+// (defaulting to "applied"); a non-nil err records a "failed" row with the error text.
+// Persistence errors are logged and never alter the request outcome.
+func (h *CrowdsecHandler) recordPresetEvent(slug string, res crowdsec.ApplyResult, applyErr error) {
+	if h.DB == nil {
+		return
+	}
+	event := models.CrowdsecPresetEvent{Slug: slug, Action: "apply", CacheKey: res.CacheKey, BackupPath: res.BackupPath}
+	if applyErr != nil {
+		event.Status = "failed"
+		event.Error = applyErr.Error()
+	} else {
+		event.Status = res.Status
+		if event.Status == "" {
+			event.Status = "applied"
+		}
+		if res.AppliedPreset != "" {
+			event.Slug = res.AppliedPreset
+		}
+	}
+	if err := h.DB.Create(&event).Error; err != nil {
+		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(event.Slug)).Warn("failed to record crowdsec preset event")
+	}
+}
+
+// applyFailureBody builds the common error payload for a failed preset apply.
+func applyFailureBody(msg string, res crowdsec.ApplyResult) gin.H {
+	body := gin.H{"error": msg}
+	if res.BackupPath != "" {
+		body["backup"] = res.BackupPath
+	}
+	if res.CacheKey != "" {
+		body["cache_key"] = res.CacheKey
+	}
+	return body
+}
+
+// respondApplySuccess writes the 200 payload for a completed preset apply.
+func respondApplySuccess(c *gin.Context, res crowdsec.ApplyResult) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":      res.Status,
 		"backup":      res.BackupPath,

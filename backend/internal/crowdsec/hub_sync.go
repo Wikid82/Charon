@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -1067,14 +1068,25 @@ func copyDir(src, dst string) error {
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
 
-		if entry.IsDir() {
+		switch {
+		case entry.Type()&fs.ModeSymlink != 0:
+			// Preserve the link literally (never follow it): hub item entries are
+			// symlinks, and dangling links must survive a backup/restore round trip.
+			target, err := os.Readlink(srcPath)
+			if err != nil {
+				return fmt.Errorf("readlink %s: %w", srcPath, err)
+			}
+			if err := os.Symlink(target, dstPath); err != nil {
+				return fmt.Errorf("symlink %s: %w", dstPath, err)
+			}
+		case entry.IsDir():
 			if err := os.MkdirAll(dstPath, 0o700); err != nil {
 				return fmt.Errorf("mkdir %s: %w", dstPath, err)
 			}
 			if err := copyDir(srcPath, dstPath); err != nil {
 				return err
 			}
-		} else {
+		default:
 			if err := copyFile(srcPath, dstPath); err != nil {
 				return err
 			}

@@ -1,6 +1,10 @@
 package crowdsec
 
-import "testing"
+import (
+	"encoding/json"
+	"errors"
+	"testing"
+)
 
 func TestListCuratedPresetsReturnsCopy(t *testing.T) {
 	t.Parallel()
@@ -83,5 +87,66 @@ func TestListCuratedPresetsReturnsDifferentCopy(t *testing.T) {
 	list3 := ListCuratedPresets()
 	if list3[0].Title == "MODIFIED" {
 		t.Fatalf("mutation leaked to fresh copy")
+	}
+}
+
+func TestCuratedPresetsValidate(t *testing.T) {
+	t.Parallel()
+	for _, p := range ListCuratedPresets() {
+		if p.RequiresHub {
+			continue
+		}
+		if err := p.Validate(); err != nil {
+			t.Errorf("curated preset %q failed validation: %v", p.Slug, err)
+		}
+	}
+}
+
+func TestPresetValidateRejectsBadDefinitions(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		items []PresetItem
+	}{
+		{"empty items", nil},
+		{"bad type traversal", []PresetItem{{Type: "../x", Name: "crowdsecurity/sshd"}}},
+		{"unknown type", []PresetItem{{Type: "appsec-rules", Name: "crowdsecurity/sshd"}}},
+		{"name with space", []PresetItem{{Type: "collections", Name: "a b"}}},
+		{"name with shell meta", []PresetItem{{Type: "collections", Name: ";rm/x"}}},
+		{"name traversal", []PresetItem{{Type: "collections", Name: "../x/y"}}},
+		{"name without author", []PresetItem{{Type: "collections", Name: "sshd"}}},
+		{"uppercase name", []PresetItem{{Type: "collections", Name: "CrowdSecurity/sshd"}}},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := Preset{Slug: "x", Items: tt.items}.Validate()
+			if !errors.Is(err, ErrInvalidPresetDefinition) {
+				t.Fatalf("expected ErrInvalidPresetDefinition, got %v", err)
+			}
+		})
+	}
+}
+
+func TestPresetItemsNotSerialized(t *testing.T) {
+	t.Parallel()
+	p, ok := FindPreset("honeypot-friendly-defaults")
+	if !ok || len(p.Items) == 0 {
+		t.Fatalf("expected curated preset with items")
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, found := m["Items"]; found {
+		t.Fatalf("Items must not be serialized")
+	}
+	if _, found := m["items"]; found {
+		t.Fatalf("items must not be serialized")
 	}
 }
