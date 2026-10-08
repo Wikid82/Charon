@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -73,6 +74,9 @@ type CrowdsecHandler struct {
 	// This field allows tests to inject a permissive validator for mock servers
 	// without mutating package-level state (which causes data races).
 	validateLAPIURL func(string) (*url.URL, error)
+
+	// signalProcess delivers a signal to a PID; overridable in tests.
+	signalProcess func(pid int, sig syscall.Signal) error
 
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
@@ -395,7 +399,9 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		Security:        securitySvc,
 		dashCache:       newDashboardCache(),
 		validateLAPIURL: validateCrowdsecLAPIBaseURLDefault,
+		signalProcess:   signalOSProcess,
 	}
+	hubSvc.Reload = h.reloadCrowdSec
 	if db != nil {
 		h.WhitelistSvc = services.NewCrowdSecWhitelistService(db, dataDir)
 	}
@@ -2779,9 +2785,7 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 		return
 	}
 
-	if _, execErr := h.CmdExec.Execute(c.Request.Context(), "cscli", "hub", "reload"); execErr != nil {
-		logger.Log().WithError(execErr).Warn("cscli hub reload failed after whitelist add (non-fatal)")
-	}
+	h.reloadAfterWhitelistChange(c.Request.Context(), "add")
 
 	c.JSON(http.StatusCreated, entry)
 }
@@ -2805,9 +2809,7 @@ func (h *CrowdsecHandler) DeleteWhitelist(c *gin.Context) {
 		return
 	}
 
-	if _, execErr := h.CmdExec.Execute(c.Request.Context(), "cscli", "hub", "reload"); execErr != nil {
-		logger.Log().WithError(execErr).Warn("cscli hub reload failed after whitelist delete (non-fatal)")
-	}
+	h.reloadAfterWhitelistChange(c.Request.Context(), "delete")
 
 	c.Status(http.StatusNoContent)
 }
@@ -2858,4 +2860,47 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/whitelist", h.ListWhitelists)
 	rg.POST("/admin/crowdsec/whitelist", h.AddWhitelist)
 	rg.DELETE("/admin/crowdsec/whitelist/:uuid", h.DeleteWhitelist)
+}
+
+// signalOSProcess sends sig to the process with the given PID.
+func signalOSProcess(pid int, sig syscall.Signal) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", pid, err)
+	}
+	if err := proc.Signal(sig); err != nil {
+		return fmt.Errorf("signal process %d: %w", pid, err)
+	}
+	return nil
+}
+
+// reloadCrowdSec sends SIGHUP to the CrowdSec process Charon manages (tracked via its PID file)
+// so it reloads parsers, scenarios and whitelists. CrowdSec treats SIGHUP as a reload request
+// (the same signal its systemd unit's ExecReload uses). Returns crowdsec.ErrCrowdSecNotRunning
+// when no managed process is running.
+func (h *CrowdsecHandler) reloadCrowdSec(ctx context.Context) error {
+	if h.Executor == nil {
+		return crowdsec.ErrCrowdSecNotRunning
+	}
+	running, pid, err := h.Executor.Status(ctx, h.DataDir)
+	if err != nil {
+		return fmt.Errorf("crowdsec status: %w", err)
+	}
+	if !running || pid <= 0 {
+		return crowdsec.ErrCrowdSecNotRunning
+	}
+	signal := h.signalProcess
+	if signal == nil {
+		signal = signalOSProcess
+	}
+	return signal(pid, syscall.SIGHUP)
+}
+
+// reloadAfterWhitelistChange reloads CrowdSec best-effort; failures never fail the request.
+func (h *CrowdsecHandler) reloadAfterWhitelistChange(ctx context.Context, action string) {
+	switch err := h.reloadCrowdSec(ctx); {
+	case err == nil, errors.Is(err, crowdsec.ErrCrowdSecNotRunning):
+	default:
+		logger.Log().WithError(err).Warnf("crowdsec reload failed after whitelist %s (non-fatal)", action)
+	}
 }

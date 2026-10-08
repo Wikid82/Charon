@@ -56,7 +56,7 @@ Popular presets include:
 
 #### Curated Presets
 
-Charon also ships curated presets such as **Honeypot Friendly Defaults** and **GeoIP Enrichment** (`geoip-enrichment`, formerly `geolocation-aware`; it adds IP geolocation data to alerts and does not block by region). Curated presets are installed on the server with `cscli`, after a backup is taken. If the install fails, the backup is rolled back, and Charon shows the server's error instead of a success message. A "reload required" note appears when CrowdSec must be reloaded for the preset to take effect.
+Charon also ships curated presets such as **Honeypot Friendly Defaults** and **GeoIP Enrichment** (`geoip-enrichment`, formerly `geolocation-aware`; it adds IP geolocation data to alerts and does not block by region). Curated presets are installed on the server with `cscli`, after a backup is taken. If the install fails, the backup is rolled back, and Charon shows the server's error instead of a success message. After a preset is applied (and after whitelist changes), Charon signals the CrowdSec process it manages to reload so new rules take effect. If CrowdSec is not running or the reload cannot be confirmed, a "reload required" note appears and the rules load the next time CrowdSec starts or restarts.
 
 ### Console Enrollment
 

@@ -142,12 +142,15 @@ func mutateDataDir(dir string) {
 func TestApplyCuratedSuccess(t *testing.T) {
 	exec := &curatedExec{}
 	hub, dir := newCuratedHub(t, exec)
+	reloads := 0
+	hub.Reload = func(context.Context) error { reloads++; return nil }
 
 	res, err := hub.ApplyCurated(context.Background(), twoItemPreset())
 	require.NoError(t, err)
 	require.Equal(t, "applied", res.Status)
 	require.True(t, res.UsedCSCLI)
-	require.True(t, res.ReloadHint)
+	require.False(t, res.ReloadHint, "reload succeeded")
+	require.Equal(t, 1, reloads)
 	require.Equal(t, "test-preset", res.AppliedPreset)
 	require.Equal(t, "curated-test-preset", res.CacheKey)
 	require.NotEmpty(t, res.BackupPath)
@@ -160,16 +163,15 @@ func TestApplyCuratedSuccess(t *testing.T) {
 		"cscli collections inspect crowdsecurity/sshd -o json",
 		"cscli parsers install crowdsecurity/whitelists",
 		"cscli parsers inspect crowdsecurity/whitelists -o json",
-		"cscli hub reload",
 	}, exec.snapshot())
 	assertSeedIntact(t, dir)
 	// the backup is a faithful copy including symlinks
 	assertSeedIntact(t, res.BackupPath)
 }
 
-func TestApplyCuratedHubUpdateAndReloadFailuresAreNonFatal(t *testing.T) {
+func TestApplyCuratedHubUpdateFailureIsNonFatal(t *testing.T) {
 	exec := &curatedExec{hook: func(_ context.Context, cmd string) ([]byte, bool, error) {
-		if strings.HasPrefix(cmd, "cscli hub") {
+		if cmd == "cscli hub update" {
 			return nil, true, errors.New("hub unreachable")
 		}
 		return nil, false, nil
@@ -179,6 +181,31 @@ func TestApplyCuratedHubUpdateAndReloadFailuresAreNonFatal(t *testing.T) {
 	res, err := hub.ApplyCurated(context.Background(), twoItemPreset())
 	require.NoError(t, err)
 	require.Equal(t, "applied", res.Status)
+}
+
+func TestApplyCuratedReloadOutcomes(t *testing.T) {
+	cases := map[string]struct {
+		reload   ReloadFunc
+		wantHint bool
+	}{
+		"success":     {func(context.Context) error { return nil }, false},
+		"failure":     {func(context.Context) error { return errors.New("signal failed") }, true},
+		"not running": {func(context.Context) error { return fmt.Errorf("status: %w", ErrCrowdSecNotRunning) }, true},
+		"no reloader": {nil, true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			exec := &curatedExec{}
+			hub, _ := newCuratedHub(t, exec)
+			hub.Reload = tc.reload
+
+			res, err := hub.ApplyCurated(context.Background(), twoItemPreset())
+			require.NoError(t, err)
+			require.Equal(t, "applied", res.Status)
+			require.Equal(t, tc.wantHint, res.ReloadHint)
+			require.Equal(t, 0, exec.count("hub reload"))
+		})
+	}
 }
 
 func TestApplyCuratedCSCLIUnavailable(t *testing.T) {
@@ -251,6 +278,8 @@ func TestApplyCuratedInstallFailureRollsBackInPlace(t *testing.T) {
 	}
 	hub, d := newCuratedHub(t, exec)
 	dir = d
+	reloads := 0
+	hub.Reload = func(context.Context) error { reloads++; return nil }
 
 	res, err := hub.ApplyCurated(context.Background(), twoItemPreset())
 	require.Error(t, err)
@@ -261,7 +290,7 @@ func TestApplyCuratedInstallFailureRollsBackInPlace(t *testing.T) {
 	require.NotEmpty(t, res.BackupPath)
 	require.DirExists(t, res.BackupPath, "backup copy retained after rollback")
 	assertSeedIntact(t, dir)
-	require.Equal(t, 0, exec.count("hub reload"), "no reload after failure")
+	require.Equal(t, 0, reloads, "no reload after failure")
 }
 
 func TestApplyCuratedVerificationFailures(t *testing.T) {

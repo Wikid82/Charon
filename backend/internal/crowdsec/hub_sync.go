@@ -77,6 +77,7 @@ type ApplyResult struct {
 // HubService coordinates hub pulls, caching, and apply operations.
 type HubService struct {
 	Exec          CommandExecutor
+	Reload        ReloadFunc // optional; reloads the managed CrowdSec process after hub changes
 	Cache         *HubCache
 	DataDir       string
 	HTTPClient    *http.Client

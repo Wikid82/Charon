@@ -16,6 +16,12 @@ import (
 // ErrCSCLIUnavailable is returned when a curated preset is applied without a working cscli.
 var ErrCSCLIUnavailable = errors.New("cscli unavailable")
 
+// ErrCrowdSecNotRunning is returned by a ReloadFunc when no managed CrowdSec process is running.
+var ErrCrowdSecNotRunning = errors.New("crowdsec is not running")
+
+// ReloadFunc signals the managed CrowdSec process to reload its configuration and hub items.
+type ReloadFunc func(ctx context.Context) error
+
 // curatedBackupTimeFormat includes sub-second precision so back-to-back applies never share a backup dir.
 const curatedBackupTimeFormat = "20060102-150405.000000"
 
@@ -58,13 +64,9 @@ func (s *HubService) ApplyCurated(ctx context.Context, preset Preset) (ApplyResu
 		return fail(err)
 	}
 
-	if _, err := s.Exec.Execute(applyCtx, "cscli", "hub", "reload"); err != nil {
-		logger.Log().WithError(err).Warn("cscli hub reload failed after curated preset apply; restart required")
-	}
-
 	result.Status = "applied"
 	result.UsedCSCLI = true
-	result.ReloadHint = true
+	result.ReloadHint = !s.reloadCrowdSec(applyCtx, "curated preset apply")
 	return result, nil
 }
 
@@ -179,4 +181,23 @@ func emptyDirExcept(dir string, keep func(name string) bool) error {
 		}
 	}
 	return nil
+}
+
+// reloadCrowdSec asks the managed CrowdSec process to reload (best-effort) and reports
+// whether the reload was performed. A missing reloader or a stopped process is not an error:
+// CrowdSec loads the installed items itself on its next start.
+func (s *HubService) reloadCrowdSec(ctx context.Context, reason string) bool {
+	if s.Reload == nil {
+		return false
+	}
+	err := s.Reload(ctx)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, ErrCrowdSecNotRunning):
+		logger.Log().WithField("reason", reason).Info("crowdsec is not running; installed items load on next start")
+	default:
+		logger.Log().WithError(err).WithField("reason", reason).Warn("crowdsec reload failed; restart required")
+	}
+	return false
 }
