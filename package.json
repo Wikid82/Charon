@@ -26,7 +26,7 @@
     "audit-ci": "^7.1.0",
     "dotenv": "^18.0.6",
     "eslint": "^10.12.0",
-    "lefthook": "^2.2.0",
+    "lefthook": "^2.2.1",
     "markdownlint-cli2": "^0.23.3",
     "prettier": "^3.9.9",
     "prettier-plugin-tailwindcss": "^0.8.1",

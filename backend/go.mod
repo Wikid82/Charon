@@ -17,7 +17,7 @@ require (
 	github.com/moby/moby/client v0.6.1
 	github.com/oschwald/geoip2-golang/v2 v2.4.0
 	github.com/pkg/sftp v1.13.11
-	github.com/prometheus/client_golang v1.24.1
+	github.com/prometheus/client_golang v1.25.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/sirupsen/logrus v1.10.2
 	github.com/stretchr/testify v1.12.1
