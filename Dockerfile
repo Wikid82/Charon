@@ -84,7 +84,7 @@ ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
 ARG CADDY_SECURITY_VERSION=1.4.1
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
-ARG CORAZA_CADDY_VERSION=2.6.1
+ARG CORAZA_CADDY_VERSION=2.6.2
 # coraza WAF override: coraza-caddy v2.6.1 requires coraza v3.7.0, which carries a CVE
 # fixed in v3.8.1. Pinned in the Stage 2 patch block; drop once coraza-caddy requires >=3.8.1.
 # renovate: datasource=go depName=github.com/corazawaf/coraza/v3
