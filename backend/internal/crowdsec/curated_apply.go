@@ -96,6 +96,7 @@ func (s *HubService) verifyItem(ctx context.Context, item PresetItem) error {
 	if err != nil {
 		return err
 	}
+	// Field names follow cscli's `-o json` inspect output (installed, tainted).
 	var state struct {
 		Installed *bool `json:"installed"`
 		Tainted   bool  `json:"tainted"`
@@ -115,12 +116,13 @@ func (s *HubService) verifyItem(ctx context.Context, item PresetItem) error {
 	return nil
 }
 
+// The live crowdsec.db (and -wal/-shm) is excluded so rollback can never regress engine state.
 // backupCopy copies DataDir (symlinks preserved) into backupPath, leaving DataDir untouched.
 func (s *HubService) backupCopy(backupPath string) error {
 	if err := os.Mkdir(backupPath, 0o700); err != nil {
 		return fmt.Errorf("mkdir backup: %w", err)
 	}
-	if err := copyDir(s.DataDir, backupPath); err != nil {
+	if err := copyDirFiltered(s.DataDir, backupPath, isLiveDBFile); err != nil {
 		_ = os.RemoveAll(backupPath)
 		return fmt.Errorf("copy backup: %w", err)
 	}
@@ -129,11 +131,52 @@ func (s *HubService) backupCopy(backupPath string) error {
 
 // restoreCopy replaces the contents of DataDir with the backup while keeping DataDir itself in place.
 func (s *HubService) restoreCopy(backupPath string) error {
-	if err := emptyDir(s.DataDir); err != nil {
+	if err := emptyDirExcept(s.DataDir, isLiveDBFile); err != nil {
 		return fmt.Errorf("empty data dir: %w", err)
 	}
-	if err := copyDir(backupPath, s.DataDir); err != nil {
+	if err := copyDirFiltered(backupPath, s.DataDir, isLiveDBFile); err != nil {
 		return fmt.Errorf("restore backup: %w", err)
+	}
+	return nil
+}
+
+// isLiveDBFile reports whether name is the live CrowdSec SQLite database or its WAL/SHM sidecars.
+// These are owned by the running engine and must never be copied into, or restored from, a backup.
+func isLiveDBFile(name string) bool {
+	switch name {
+	case "crowdsec.db", "crowdsec.db-wal", "crowdsec.db-shm":
+		return true
+	}
+	return false
+}
+
+// emptyDirExcept removes the contents of dir except entries (at any depth) for which keep returns true.
+// Directories are removed only when nothing kept remains inside them.
+func emptyDirExcept(dir string, keep func(name string) bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if keep(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			if err := emptyDirExcept(path, keep); err != nil {
+				return err
+			}
+			// A directory that still holds kept files cannot be removed; leave it in place.
+			if remaining, rerr := os.ReadDir(path); rerr == nil && len(remaining) > 0 {
+				continue
+			}
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
 	}
 	return nil
 }

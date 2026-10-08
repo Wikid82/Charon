@@ -1057,6 +1057,11 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 
 // copyDir recursively copies a directory tree.
 func copyDir(src, dst string) error {
+	return copyDirFiltered(src, dst, nil)
+}
+
+// copyDirFiltered is copyDir that leaves out entries whose base name makes skip return true.
+func copyDirFiltered(src, dst string, skip func(name string) bool) error {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return fmt.Errorf("stat src: %w", err)
@@ -1071,6 +1076,9 @@ func copyDir(src, dst string) error {
 	}
 
 	for _, entry := range entries {
+		if skip != nil && skip(entry.Name()) {
+			continue
+		}
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
 
@@ -1089,7 +1097,7 @@ func copyDir(src, dst string) error {
 			if err := os.MkdirAll(dstPath, 0o700); err != nil {
 				return fmt.Errorf("mkdir %s: %w", dstPath, err)
 			}
-			if err := copyDir(srcPath, dstPath); err != nil {
+			if err := copyDirFiltered(srcPath, dstPath, skip); err != nil {
 				return err
 			}
 		default:

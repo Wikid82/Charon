@@ -483,3 +483,61 @@ func TestVerifyItemNilContextError(t *testing.T) {
 	cancel()
 	require.ErrorIs(t, hub.verifyItem(ctx, PresetItem{Type: "collections", Name: "crowdsecurity/sshd"}), context.Canceled)
 }
+
+func TestApplyCuratedRollbackLeavesLiveDatabaseUntouched(t *testing.T) {
+	var dir string
+	exec := &curatedExec{}
+	exec.hook = func(_ context.Context, cmd string) ([]byte, bool, error) {
+		if strings.Contains(cmd, " install ") {
+			// The running engine keeps writing to its database while the install is in flight.
+			for _, f := range []string{"crowdsec.db", "crowdsec.db-wal", "crowdsec.db-shm"} {
+				_ = os.WriteFile(filepath.Join(dir, "data", f), []byte("live-"+f), 0o600)
+			}
+			mutateDataDir(dir)
+			return nil, true, errors.New("install exploded")
+		}
+		return nil, false, nil
+	}
+	hub, d := newCuratedHub(t, exec)
+	dir = d
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data", "crowdsec.db"), []byte("before"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data", "keep.txt"), []byte("kept"), 0o600))
+
+	res, err := hub.ApplyCurated(context.Background(), twoItemPreset())
+	require.Error(t, err)
+
+	// Backup never contains the database or its sidecars.
+	for _, f := range []string{"crowdsec.db", "crowdsec.db-wal", "crowdsec.db-shm"} {
+		_, statErr := os.Stat(filepath.Join(res.BackupPath, "data", f))
+		require.True(t, os.IsNotExist(statErr), "%s must not be backed up", f)
+		// Rollback neither deleted nor rewound the live files.
+		got, readErr := os.ReadFile(filepath.Join(dir, "data", f))
+		require.NoError(t, readErr, f)
+		require.Equal(t, "live-"+f, string(got))
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "data", "keep.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "kept", string(got))
+	assertSeedIntact(t, dir)
+}
+
+func TestEmptyDirExcept(t *testing.T) {
+	require.NoError(t, emptyDirExcept(filepath.Join(t.TempDir(), "missing"), isLiveDBFile))
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a", "b"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "gone", "x"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a", "crowdsec.db"), []byte("db"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a", "b", "f"), []byte("f"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "top"), []byte("t"), 0o600))
+
+	require.NoError(t, emptyDirExcept(dir, isLiveDBFile))
+	require.FileExists(t, filepath.Join(dir, "a", "crowdsec.db"))
+	require.NoFileExists(t, filepath.Join(dir, "top"))
+	require.NoDirExists(t, filepath.Join(dir, "a", "b"))
+	require.NoDirExists(t, filepath.Join(dir, "gone"))
+
+	// a regular file instead of a directory cannot be listed
+	require.Error(t, emptyDirExcept(filepath.Join(dir, "a", "crowdsec.db"), isLiveDBFile))
+}
