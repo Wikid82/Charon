@@ -54,6 +54,10 @@ Popular presets include:
 - **Bad User-Agents** — Block known malicious bots
 - **CVE Exploits** — Protection against known vulnerabilities
 
+#### Curated Presets
+
+Charon also ships curated presets such as **Honeypot Friendly Defaults** and **GeoIP Enrichment** (`geoip-enrichment`, formerly `geolocation-aware`; it adds IP geolocation data to alerts and does not block by region). Curated presets are installed on the server with `cscli`, after a backup is taken. If the install fails, the backup is rolled back, and Charon shows the server's error instead of a success message. A "reload required" note appears when CrowdSec must be reloaded for the preset to take effect.
+
 ### Console Enrollment
 
 Connect to the CrowdSec Console for centralized management:

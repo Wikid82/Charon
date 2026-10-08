@@ -216,7 +216,7 @@ Add `tests/security/crowdsec-preset-apply.spec.ts` (replace nothing; leave the t
 2. Stub 200 `{status:"applied", used_cscli:true, backup:"...", reload_hint:true}`: expect success toast with reload note.
 3. Assert no request to the generic file-write endpoint is made in cases 1 and 2 (no local fallback for curated presets).
 
-Run: `cd /projects/Charon && npx playwright test tests/security/crowdsec-preset-apply.spec.ts --project=firefox` (foreground). Full-suite/cross-browser is CI-only. Real-cscli E2E against the container is optional and only if the E2E container image ships `cscli` (implementer to check; otherwise covered by unit tests).
+Run: `cd /projects/Charon && npx playwright test tests/security/crowdsec-preset-apply.spec.ts --project=security-tests` (foreground). Full-suite/cross-browser is CI-only. Real-cscli E2E against the container is optional and only if the E2E container image ships `cscli` (implementer to check; otherwise covered by unit tests).
 
 ## 7. Implementation Plan (phases mapped to commits)
 
@@ -228,11 +228,11 @@ Decision: ONE PR (`fix/crowdsec-curated-preset-apply` off `development`, PR into
 
 | # | Commit | Scope / files | Depends on | Validation gate |
 | --- | --- | --- | --- | --- |
-| 1 | `test: add failing specs for curated CrowdSec preset apply` | ONLY `tests/security/crowdsec-preset-apply.spec.ts` as `test.fixme` (no backend or other files; backend tests land with commit 3). | none | spec file lints; `npx playwright test <spec> --project=firefox` reports fixme/skipped |
+| 1 | `test: add failing specs for curated CrowdSec preset apply` | ONLY `tests/security/crowdsec-preset-apply.spec.ts` as `test.fixme` (no backend or other files; backend tests land with commit 3). | none | spec file lints; `npx playwright test <spec> --project=security-tests` reports fixme/skipped |
 | 2 | `refactor: extract crowdsec preset event/response helpers and add curated item definitions` | `backend/internal/crowdsec/presets.go` (+`PresetItem`, `Items`, `Validate`), `presets_test.go`, handler helper extraction (`recordPresetEvent`, response helpers), DB.Create error logging; NO behavior change to curated apply yet | 1 | `cd backend && go build ./... && go test ./internal/crowdsec/... ./internal/api/handlers/...`; existing tests green |
 | 3 | `fix: apply curated CrowdSec presets via cscli and record failures` | `hub_sync.go`/`curated_apply.go` (`ApplyCurated`, `ErrCSCLIUnavailable`, mutex, symlink-preserving copy, `geoip-enrichment` rename in `presets.go`/tests), `crowdsec_handler.go` (ApplyPreset + PullPreset preview), rewritten/new handler and package tests (section 6.1) | 2 | `go test -race ./internal/crowdsec/... ./internal/api/handlers/...`; `make lint-fast`; backend coverage script >= 85%; local patch report |
 | 4 | `fix: stop reporting curated preset success the server did not confirm` | `CrowdSecConfig.tsx`, `data/crowdsecPresets.ts` (+ test) cleanup, `api/presets.ts` types if needed, i18n (5 locales) if new strings, Vitest tests (6.2) | 3 | `npm run type-check`, `npx vitest run` on touched tests, `npm run build`, frontend coverage >= 85% |
-| 5 | `test: enable curated preset apply e2e and update docs` | un-fixme the Playwright spec; `docs/features.md` / `docs/features/` CrowdSec preset note (curated presets require `cscli`, are verified, failures are reported); `ARCHITECTURE.md` only if the CrowdSec integration section describes preset apply (check; likely a one-line note) | 4 | `npx playwright test tests/security/crowdsec-preset-apply.spec.ts --project=firefox`; `lefthook run pre-commit`; docs sync rule (no edits under `docs-site/docs/`) |
+| 5 | `test: enable curated preset apply e2e and update docs` | un-fixme the Playwright spec; `docs/features.md` / `docs/features/` CrowdSec preset note (curated presets require `cscli`, are verified, failures are reported); `ARCHITECTURE.md` only if the CrowdSec integration section describes preset apply (check; likely a one-line note) | 4 | `npx playwright test tests/security/crowdsec-preset-apply.spec.ts --project=security-tests`; `lefthook run pre-commit`; docs sync rule (no edits under `docs-site/docs/`) |
 
 Definition of Done for the PR (CLAUDE.md): targeted Playwright (firefox) first; GORM scan only if models/queries change (not expected); `bash scripts/local-patch-report.sh`; CodeQL/Trivy are deferred to CI (this is a `fix:` with no new feature surface); `lefthook run pre-commit`; staticcheck clean; backend and frontend coverage >= 85%; type-check; both builds; no debug leftovers.
 
