@@ -51,7 +51,7 @@ test.describe('CrowdSec Curated Preset Apply @security', () => {
     await waitForLoadingComplete(page);
   });
 
-  test.fixme('should show success toast with reload note when backend reports applied', async ({ page }) => {
+  test('should show success toast with reload note when backend reports applied', async ({ page }) => {
     const fileWrites = trackFileWrites(page);
     await page.route(APPLY_ROUTE, async (route) => {
       await route.fulfill({
@@ -77,7 +77,7 @@ test.describe('CrowdSec Curated Preset Apply @security', () => {
   });
 
   for (const status of [500, 503, 504]) {
-    test.fixme(`should show an error and no success toast when apply returns ${status}`, async ({ page }) => {
+    test(`should show an error and no success toast when apply returns ${status}`, async ({ page }) => {
       const fileWrites = trackFileWrites(page);
       const message = 'CrowdSec CLI is not available; curated preset could not be applied';
       await page.route(APPLY_ROUTE, async (route) => {
@@ -102,7 +102,7 @@ test.describe('CrowdSec Curated Preset Apply @security', () => {
     });
   }
 
-  test.fixme('should not fall back to a local write when apply returns 501 for a curated preset', async ({ page }) => {
+  test('should not fall back to a local write when apply returns 501 for a curated preset', async ({ page }) => {
     const fileWrites = trackFileWrites(page);
     await page.route(APPLY_ROUTE, async (route) => {
       await route.fulfill({
@@ -123,7 +123,7 @@ test.describe('CrowdSec Curated Preset Apply @security', () => {
     });
   });
 
-  test.fixme('should not show success toast when a 200 response has a non-applied status', async ({ page }) => {
+  test('should not show success toast when a 200 response has a non-applied status', async ({ page }) => {
     const fileWrites = trackFileWrites(page);
     await page.route(APPLY_ROUTE, async (route) => {
       await route.fulfill({
@@ -135,7 +135,8 @@ test.describe('CrowdSec Curated Preset Apply @security', () => {
 
     await selectCuratedPresetAndApply(page);
 
-    await test.step('Verify no success toast is shown', async () => {
+    await test.step('Verify the incomplete status is surfaced and no success toast is shown', async () => {
+      await expect(page.getByText(/preset apply did not complete \(status: failed\)/i).first()).toBeVisible();
       await expect(page.getByText(/preset applied/i)).toHaveCount(0);
     });
     await test.step('Verify no local fallback write', async () => {
