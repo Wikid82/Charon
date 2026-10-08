@@ -246,8 +246,12 @@ RUN for _attempt in 1 2 3; do \
 # advisory's v0.44.0 fix floor) to match the same x/sys version already used by the Delve debug
 # stage below (Dockerfile:199) for this identical advisory. Do NOT bump GOSU_VERSION instead:
 # upstream tag 1.19's go.mod actually requires an OLDER golang.org/x/sys v0.1.0.
+#
+# Also pin github.com/moby/sys/user to v0.4.1 (CVE-2026-61801: unbounded parsing of user and
+# group database files). gosu is the only shipped binary that links this module; upstream
+# tag 1.17 resolves it to v0.1.0.
 RUN for _attempt in 1 2 3; do \
-        go get golang.org/x/sys@v0.46.0 && go mod tidy && go mod verify && break; \
+        go get golang.org/x/sys@v0.46.0 github.com/moby/sys/user@v0.4.1 && go mod tidy && go mod verify && break; \
         [ "${_attempt}" -lt 3 ] || exit 1; \
         echo "golang.org/x/sys pin attempt ${_attempt}/3 failed; retrying in $((_attempt * 15))s..." >&2; \
         sleep $((_attempt * 15)); \
@@ -663,9 +667,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
         _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
-        # CVE-2026-61801: golang.org/x/sys/windows DoS via unbounded parsing of user and group database files 
-        # renovate: datasource=go depName=github.com/moby/sys/user
-        _retry go get github.com/moby/sys/user@v0.4.1; \
         # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
         # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
         # renovate: datasource=go depName=github.com/buger/jsonparser
