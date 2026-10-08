@@ -49,7 +49,7 @@ tf_write_dockerfile() {
 
   cat > "$TF_DF" <<EOF
 # syntax=docker/dockerfile:1
-ARG GO_VERSION=1.27.1
+ARG GO_VERSION=1.27.2
 ARG ALPINE_IMAGE=${alpine_image}
 ARG CROWDSEC_VERSION=1.8.1
 ARG EXPR_LANG_VERSION=1.17.8
