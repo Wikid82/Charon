@@ -50,7 +50,7 @@ func TestFindPresetCaseVariants(t *testing.T) {
 		found bool
 	}{
 		{"exact match", "crowdsecurity/base-http-scenarios", true},
-		{"another preset", "geolocation-aware", true},
+		{"another preset", "geoip-enrichment", true},
 		{"case sensitive miss", "BOT-MITIGATION-ESSENTIALS", false},
 		{"partial match miss", "bot-mitigation", false},
 		{"empty slug", "", false},

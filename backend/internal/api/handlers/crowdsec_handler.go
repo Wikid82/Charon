@@ -1091,7 +1091,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":       "pulled",
 			"slug":         preset.Slug,
-			"preview":      "# Curated preset: " + preset.Title + "\n# " + preset.Summary,
+			"preview":      curatedPresetPreview(preset),
 			"cache_key":    "curated-" + preset.Slug,
 			"etag":         "curated",
 			"retrieved_at": time.Now(),
@@ -1177,9 +1177,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 
 	// Check for curated preset that doesn't require hub
 	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
-		res := crowdsec.ApplyResult{Status: "applied", ReloadHint: true, CacheKey: "curated-" + slug, AppliedPreset: slug}
-		h.recordPresetEvent(slug, res, nil)
-		respondApplySuccess(c, res)
+		h.applyCuratedPreset(c, preset)
 		return
 	}
 
@@ -1237,6 +1235,37 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 
 	h.recordPresetEvent(slug, res, nil)
 	respondApplySuccess(c, res)
+}
+
+// applyCuratedPreset installs a Charon-defined preset through cscli and reports the true outcome.
+// A failure is recorded as a "failed" audit event and never answered with a 2xx status.
+func (h *CrowdsecHandler) applyCuratedPreset(c *gin.Context, preset crowdsec.Preset) {
+	res, err := h.Hub.ApplyCurated(c.Request.Context(), preset)
+	if err != nil {
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(preset.Slug)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).Warn("curated crowdsec preset apply failed")
+		h.recordPresetEvent(preset.Slug, res, err)
+
+		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
+		msg := err.Error()
+		if errors.Is(err, crowdsec.ErrCSCLIUnavailable) {
+			status = http.StatusServiceUnavailable
+			msg = "CrowdSec CLI is not available; curated presets require cscli"
+		}
+		c.JSON(status, applyFailureBody(msg, res))
+		return
+	}
+	h.recordPresetEvent(preset.Slug, res, nil)
+	respondApplySuccess(c, res)
+}
+
+// curatedPresetPreview renders the hub items a curated preset will install.
+func curatedPresetPreview(preset crowdsec.Preset) string {
+	var b strings.Builder
+	b.WriteString("# Curated preset: " + preset.Title + "\n# " + preset.Summary + "\n#\n# Installs these CrowdSec hub items:\n")
+	for _, item := range preset.Items {
+		b.WriteString("#   " + item.Type + ": " + item.Name + "\n")
+	}
+	return b.String()
 }
 
 // recordPresetEvent persists an apply audit row. A nil err records the result status

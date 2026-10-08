@@ -62,9 +62,9 @@ var curatedPresets = []Preset{
 	{
 		Slug:        "honeypot-friendly-defaults",
 		Title:       "Honeypot Friendly Defaults",
-		Summary:     "Lightweight parser and collection set tuned to reduce noise for tarpits and honeypots.",
+		Summary:     "Installs SSH and Caddy log parsing with brute-force and web probing detection, plus the CrowdSec whitelists parser.",
 		Source:      "charon-curated",
-		Tags:        []string{"low-noise", "ssh", "http"},
+		Tags:        []string{"ssh", "http"},
 		RequiresHub: false,
 		Items: []PresetItem{
 			{Type: "collections", Name: "crowdsecurity/sshd"},
@@ -83,11 +83,11 @@ var curatedPresets = []Preset{
 		RequiresHub: true,
 	},
 	{
-		Slug:        "geolocation-aware",
-		Title:       "Geolocation Aware",
-		Summary:     "Adds geo-aware decisions to tighten access by region; best paired with existing ACLs.",
+		Slug:        "geoip-enrichment",
+		Title:       "GeoIP Enrichment",
+		Summary:     "Enriches CrowdSec log events with GeoIP data (country and ASN). It does not block or allow traffic by region.",
 		Source:      "charon-curated",
-		Tags:        []string{"geo", "access-control"},
+		Tags:        []string{"geo", "enrichment"},
 		RequiresHub: false,
 		Items: []PresetItem{
 			{Type: "parsers", Name: "crowdsecurity/geoip-enrich"},

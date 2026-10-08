@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -83,6 +84,9 @@ type HubService struct {
 	MirrorBaseURL string
 	PullTimeout   time.Duration
 	ApplyTimeout  time.Duration
+
+	// mu serializes Apply and ApplyCurated so backup/rollback cycles never interleave.
+	mu sync.Mutex
 }
 
 // hubAllowLoopback is a test-only seam. It is always false in production and is
@@ -599,6 +603,8 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 	if cleanSlug == "" {
 		return ApplyResult{}, fmt.Errorf("invalid slug")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	applyCtx, cancel := context.WithTimeout(ctx, s.ApplyTimeout)
 	defer cancel()
 
