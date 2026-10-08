@@ -10,7 +10,7 @@ import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
-import { CROWDSEC_PRESETS } from '../../data/crowdsecPresets'
+import { HUB_PRESET_FIXTURES } from '../../test-utils/crowdsecPresetFixtures'
 import { renderWithQueryClient, createTestQueryClient } from '../../test-utils/renderWithQueryClient'
 import * as exportUtils from '../../utils/crowdsecExport'
 import { toast } from '../../utils/toast'
@@ -79,7 +79,7 @@ const disabledStatus = {
   crowdsec: { ...baseStatus.crowdsec, enabled: true, mode: 'disabled' as const },
 }
 
-const presetFromCatalog = CROWDSEC_PRESETS[0]
+const presetFromCatalog = HUB_PRESET_FIXTURES[0]
 
 const axiosError = (status: number, message: string, data?: Record<string, unknown>) =>
   new AxiosError(message, undefined, undefined, undefined, {
@@ -293,9 +293,9 @@ describe('CrowdSecConfig coverage', () => {
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValueOnce({
       presets: [
         {
-          slug: CROWDSEC_PRESETS[0].slug,
-          title: CROWDSEC_PRESETS[0].title,
-          summary: CROWDSEC_PRESETS[0].description,
+          slug: HUB_PRESET_FIXTURES[0].slug,
+          title: HUB_PRESET_FIXTURES[0].title,
+          summary: HUB_PRESET_FIXTURES[0].description,
           source: 'hub',
           requires_hub: false,
           available: true,
@@ -303,9 +303,9 @@ describe('CrowdSecConfig coverage', () => {
           cache_key: 'cache-a',
         },
         {
-          slug: CROWDSEC_PRESETS[1].slug,
-          title: CROWDSEC_PRESETS[1].title,
-          summary: CROWDSEC_PRESETS[1].description,
+          slug: HUB_PRESET_FIXTURES[1].slug,
+          title: HUB_PRESET_FIXTURES[1].title,
+          summary: HUB_PRESET_FIXTURES[1].description,
           source: 'hub',
           requires_hub: false,
           available: true,
@@ -317,8 +317,8 @@ describe('CrowdSecConfig coverage', () => {
 
     await renderPage()
 
-    const firstCard = await screen.findByRole('button', { name: new RegExp(CROWDSEC_PRESETS[0].title, 'i') })
-    const secondCard = await screen.findByRole('button', { name: new RegExp(CROWDSEC_PRESETS[1].title, 'i') })
+    const firstCard = await screen.findByRole('button', { name: new RegExp(HUB_PRESET_FIXTURES[0].title, 'i') })
+    const secondCard = await screen.findByRole('button', { name: new RegExp(HUB_PRESET_FIXTURES[1].title, 'i') })
 
     firstCard.focus()
     await userEvent.keyboard('{Enter}')
