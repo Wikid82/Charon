@@ -15,8 +15,11 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
   - Bare-metal deployments: install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL.
 - HUB_BASE_URL points to a JSON hub endpoint (default: <https://hub-data.crowdsec.net/api/index.json>). Redirects to HTML will be rejected.
   - A loopback hub mirror is no longer reachable from the hub client; RFC 1918 hosts were already blocked.
+  - The hub address must be an `https` address on the official CrowdSec hub hosts. Custom `http`, local, or other mirror addresses are not supported.
 - Proxy env is set when required: HTTP(S)_PROXY and NO_PROXY are respected by the hub client.
 - For slow or proxied networks, increase HUB_PULL_TIMEOUT_SECONDS (default 25) and HUB_APPLY_TIMEOUT_SECONDS (default 45) to avoid premature timeouts.
+- The config file editor hides CrowdSec's account and connection credential files; they remain on disk (see `docker exec charon ls -la /app/data/crowdsec/config`).
+- Backups sit next to the CrowdSec data folder, named `crowdsec.backup.<timestamp>` and `crowdsec.filebackup.<timestamp>`. Acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file. For manual recovery, run `docker exec charon ls -la /app/data` to find them, stop CrowdSec, copy the one you want back, then start it again.
 - Preset workflow: pull from Hub using cache keys/ETags → preview changes → apply with automatic backup and reload flag.
 - Preset pull/apply requires either cscli or cached presets.
 - Offline/curated presets remain available at all times.

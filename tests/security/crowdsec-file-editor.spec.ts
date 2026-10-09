@@ -142,12 +142,11 @@ test.describe('CrowdSec File Editor @security', () => {
     });
   });
 
-  // Enabled by commit A6 once the A1 (credentials hidden) and A2 (name-only backups) backend changes land.
   test.describe('credentials files and response paths (live API)', () => {
     const CREDENTIAL_FILES = ['local_api_credentials.yaml', 'online_api_credentials.yaml'];
     const ABSOLUTE_PATH = /(^|["'\s(])\/(app|data|etc|tmp|var|home)\//;
 
-    test.fixme('should omit both credentials files from the file list', async ({ page }) => {
+    test('should omit both credentials files from the file list', async ({ page }) => {
       const response = await page.request.get('/api/v1/admin/crowdsec/files');
       expect(response.ok()).toBe(true);
       const body = (await response.json()) as { files: string[] };
@@ -157,13 +156,13 @@ test.describe('CrowdSec File Editor @security', () => {
     });
 
     for (const name of CREDENTIAL_FILES) {
-      test.fixme(`should reject reading ${name} with invalid path`, async ({ page }) => {
+      test(`should reject reading ${name} with invalid path`, async ({ page }) => {
         const response = await page.request.get(`/api/v1/admin/crowdsec/file?path=${encodeURIComponent(name)}`);
         expect(response.status()).toBe(400);
         expect(await response.json()).toMatchObject({ error: 'invalid path' });
       });
 
-      test.fixme(`should reject writing ${name} with file cannot be edited`, async ({ page }) => {
+      test(`should reject writing ${name} with file cannot be edited`, async ({ page }) => {
         const response = await page.request.post('/api/v1/admin/crowdsec/file', {
           data: { path: name, content: 'url: http://127.0.0.1:8080\n' },
         });
@@ -172,7 +171,7 @@ test.describe('CrowdSec File Editor @security', () => {
       });
     }
 
-    test.fixme('should not leak an absolute path in rejection bodies', async ({ page }) => {
+    test('should not leak an absolute path in rejection bodies', async ({ page }) => {
       const read = await page.request.get(`/api/v1/admin/crowdsec/file?path=${encodeURIComponent(CREDENTIAL_FILES[0])}`);
       const write = await page.request.post('/api/v1/admin/crowdsec/file', {
         data: { path: CREDENTIAL_FILES[1], content: 'x: y\n' },
@@ -181,13 +180,21 @@ test.describe('CrowdSec File Editor @security', () => {
       expect(await write.text()).not.toMatch(ABSOLUTE_PATH);
     });
 
-    test.fixme('should return only a backup name, never an absolute path, on a successful write', async ({ page }) => {
-      const read = await page.request.get(`/api/v1/admin/crowdsec/file?path=${encodeURIComponent(SELECTED_PATH)}`);
+    test('should return only a backup name, never an absolute path, on a successful write', async ({ page }) => {
+      // Pick a real, editable config.yaml from the live listing rather than assuming its location,
+      // and write it back unchanged so repeated runs leave the config untouched (no backup-count assumptions).
+      const list = await page.request.get('/api/v1/admin/crowdsec/files');
+      expect(list.ok()).toBe(true);
+      const { files } = (await list.json()) as { files: string[] };
+      const target = files.find((f) => f === SELECTED_PATH || f.endsWith(`/${SELECTED_PATH}`));
+      expect(target, 'live file list should include config.yaml').toBeTruthy();
+
+      const read = await page.request.get(`/api/v1/admin/crowdsec/file?path=${encodeURIComponent(target!)}`);
       expect(read.ok()).toBe(true);
       const { content } = (await read.json()) as { content: string };
 
       const write = await page.request.post('/api/v1/admin/crowdsec/file', {
-        data: { path: SELECTED_PATH, content },
+        data: { path: target, content },
       });
       expect(write.ok()).toBe(true);
       const body = (await write.json()) as { backup?: string };
