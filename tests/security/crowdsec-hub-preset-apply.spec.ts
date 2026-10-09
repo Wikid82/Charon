@@ -10,9 +10,6 @@
  * The preset list, pull and apply endpoints are stubbed so the tests are
  * deterministic and do not require the CrowdSec hub or cscli.
  *
- * Marked test.fixme until the feature commits land; enabled in the final
- * E2E commit of docs/plans/current_spec.md.
- *
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
@@ -101,7 +98,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
     await stubHubPreset(page);
   });
 
-  test.fixme('should show success toast with reload note when backend reports applied', async ({ page }) => {
+  test('should show success toast with reload note when backend reports applied', async ({ page }) => {
     const fileWrites = trackFileWrites(page);
     await page.route(APPLY_ROUTE, async (route) => {
       await route.fulfill({
@@ -127,7 +124,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
     });
   });
 
-  test.fixme('should not show success toast when a 200 response has a non-applied status', async ({ page }) => {
+  test('should not show success toast when a 200 response has a non-applied status', async ({ page }) => {
     const fileWrites = trackFileWrites(page);
     await page.route(APPLY_ROUTE, async (route) => {
       await route.fulfill({
@@ -149,7 +146,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
   });
 
   for (const status of [500, 503, 504]) {
-    test.fixme(`should show an error and no success toast when hub apply returns ${status}`, async ({ page }) => {
+    test(`should show an error and no success toast when hub apply returns ${status}`, async ({ page }) => {
       const fileWrites = trackFileWrites(page);
       const message = 'hub preset could not be applied';
       await page.route(APPLY_ROUTE, async (route) => {
@@ -174,7 +171,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
     });
   }
 
-  test.fixme('should show an error and perform no write when hub apply returns 501', async ({ page }) => {
+  test('should show an error and perform no write when hub apply returns 501', async ({ page }) => {
     const fileWrites = trackFileWrites(page);
     await page.route(APPLY_ROUTE, async (route) => {
       await route.fulfill({

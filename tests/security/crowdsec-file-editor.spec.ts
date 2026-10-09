@@ -9,9 +9,6 @@
  * The file list, read, write and backup endpoints are stubbed so the tests are
  * deterministic and never touch the real CrowdSec tree.
  *
- * Marked test.fixme until the feature commits land; enabled in the final
- * E2E commit of docs/plans/current_spec.md.
- *
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
@@ -20,7 +17,8 @@ import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 const FILES_ROUTE = '**/api/v1/admin/crowdsec/files';
-const FILE_ROUTE = '**/api/v1/admin/crowdsec/file**';
+// Anchored so it does not also match the sibling /crowdsec/files list endpoint.
+const FILE_ROUTE = /\/api\/v1\/admin\/crowdsec\/file(\?.*)?$/;
 const BACKUPS_ROUTE = '**/api/v1/backups';
 const SELECTED_PATH = 'config.yaml';
 const OTHER_PATH = 'parsers/s01-parse/e2e.yaml';
@@ -85,7 +83,7 @@ test.describe('CrowdSec File Editor @security', () => {
     await waitForLoadingComplete(page);
   });
 
-  test.fixme('should post exactly one write for exactly the selected path on save', async ({ page }) => {
+  test('should post exactly one write for exactly the selected path on save', async ({ page }) => {
     const stub = await stubEditor(page, {
       status: 200,
       json: { status: 'written', backup: '/app/data/crowdsec.filebackup.20260101-000000.000000' },
@@ -104,7 +102,7 @@ test.describe('CrowdSec File Editor @security', () => {
     });
   });
 
-  test.fixme('should show the server message when the write is rejected with 400 (invalid YAML)', async ({ page }) => {
+  test('should show the server message when the write is rejected with 400 (invalid YAML)', async ({ page }) => {
     const message = 'file content is not valid YAML';
     const stub = await stubEditor(page, { status: 400, json: { error: message } });
 
@@ -120,7 +118,7 @@ test.describe('CrowdSec File Editor @security', () => {
     });
   });
 
-  test.fixme('should show the server message when the write is rejected with 400 (disallowed file type)', async ({ page }) => {
+  test('should show the server message when the write is rejected with 400 (disallowed file type)', async ({ page }) => {
     const message = 'file type is not allowed';
     await stubEditor(page, { status: 400, json: { error: message } });
 
@@ -132,7 +130,7 @@ test.describe('CrowdSec File Editor @security', () => {
     });
   });
 
-  test.fixme('should show the server message when the write is rejected with 413 (too large)', async ({ page }) => {
+  test('should show the server message when the write is rejected with 413 (too large)', async ({ page }) => {
     const message = 'file content exceeds the maximum allowed size';
     await stubEditor(page, { status: 413, json: { error: message } });
 

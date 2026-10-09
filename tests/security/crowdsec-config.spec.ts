@@ -54,103 +54,44 @@ test.describe('CrowdSec Configuration @security', () => {
     });
 
     test('should display presets section', async ({ page }) => {
-      // Look for presets, packages, scenarios, or collections section
-      // This feature may not be fully implemented
-      const presetsSection = page.getByText(/packages|presets|scenarios|collections|bouncers/i).first();
-      const presetsVisible = await presetsSection.isVisible().catch(() => false);
-
-      if (presetsVisible) {
-        await expect(presetsSection).toBeVisible();
-      } else {
-        test.info().annotations.push({
-          type: 'info',
-          description: 'Presets section not visible - feature may not be implemented'
-        });
-      }
+      await expect(page.getByRole('heading', { name: 'Presets', level: 3 })).toBeVisible();
+      await expect(page.getByRole('button', { name: /apply preset/i })).toBeVisible();
     });
   });
 
   test.describe('Preset Management', () => {
-    // Preset management may not be fully implemented
-    test('should display list of available presets', async ({ page }) => {
-      await test.step('Verify presets are listed', async () => {
-        // Wait for presets to load
-        await page.waitForResponse(resp =>
-          resp.url().includes('/presets') || resp.url().includes('/crowdsec') || resp.url().includes('/hub'),
-          { timeout: 10000 }
-        ).catch(() => {
-          // If no API call, presets might be loaded statically or not implemented
-        });
+    // Apply outcomes (success, error, fallback) are covered by crowdsec-preset-apply.spec.ts
+    // and crowdsec-hub-preset-apply.spec.ts. These cases cover the list, search and preview.
+    const CURATED_TITLE = 'Honeypot Friendly Defaults';
+    const OTHER_TITLE = 'GeoIP Enrichment';
 
-        // Should show preset cards or list items
-        const presetElements = page.locator('[class*="card"], [class*="preset"], button').filter({
-          hasText: /apply|install|owasp|basic|advanced|paranoid/i
-        });
+    test('should list the curated presets', async ({ page }) => {
+      await expect(page.getByRole('button', { name: new RegExp(CURATED_TITLE, 'i') })).toBeVisible();
+      await expect(page.getByRole('button', { name: new RegExp(OTHER_TITLE, 'i') })).toBeVisible();
+    });
 
-        const count = await presetElements.count();
+    test('should filter presets by the search query', async ({ page }) => {
+      const search = page.getByRole('textbox', { name: /search presets/i });
 
-        if (count === 0) {
-          // Presets might not be implemented - check for config file management instead
-          const configSection = page.getByText(/configuration|file|config/i).first();
-          const configVisible = await configSection.isVisible().catch(() => false);
+      await test.step('Search for a matching preset', async () => {
+        await search.fill('honeypot');
+        await expect(page.getByRole('button', { name: new RegExp(CURATED_TITLE, 'i') })).toBeVisible();
+        await expect(page.getByRole('button', { name: new RegExp(OTHER_TITLE, 'i') })).toHaveCount(0);
+      });
 
-          if (!configVisible) {
-            test.info().annotations.push({
-              type: 'info',
-              description: 'No presets displayed - feature may not be implemented'
-            });
-          }
-        }
+      await test.step('Search for a non-matching term', async () => {
+        await search.fill('no-such-preset-xyz');
+        await expect(page.getByRole('button', { name: new RegExp(CURATED_TITLE, 'i') })).toHaveCount(0);
+        await expect(page.getByText(/no presets/i).first()).toBeVisible();
       });
     });
 
-    test('should allow searching presets', async ({ page }) => {
-      const searchInput = page.getByPlaceholder(/search/i);
-      const searchVisible = await searchInput.isVisible().catch(() => false);
-
-      if (searchVisible) {
-        await test.step('Search for a preset', async () => {
-          await searchInput.fill('basic');
-          // Results should be filtered
-          await page.waitForTimeout(500); // Debounce
-        });
-      }
-    });
-
-    test('should show preset preview when selected', async ({ page }) => {
-      // Find and click on a preset to preview
-      const presetButton = page.locator('button').filter({ hasText: /preview|view|select/i }).first();
-      const buttonVisible = await presetButton.isVisible().catch(() => false);
-
-      if (buttonVisible) {
-        await presetButton.click();
-        // Should show preview content
-        await page.waitForTimeout(500);
-      }
-    });
-
-    test('should apply preset with confirmation', async ({ page }) => {
-      // Find apply button
-      const applyButton = page.locator('button').filter({ hasText: /apply/i }).first();
-      const buttonVisible = await applyButton.isVisible().catch(() => false);
-
-      if (buttonVisible) {
-        await test.step('Click apply button', async () => {
-          await applyButton.click();
-        });
-
-        await test.step('Handle confirmation or result', async () => {
-          // Either a confirmation dialog or success toast should appear
-          const confirmDialog = page.getByRole('dialog');
-          const dialogVisible = await confirmDialog.isVisible().catch(() => false);
-
-          if (dialogVisible) {
-            // Cancel to not make permanent changes
-            const cancelButton = page.getByRole('button', { name: /cancel/i });
-            await cancelButton.click();
-          }
-        });
-      }
+    test('should show the preset details when a preset is selected', async ({ page }) => {
+      const preset = page.getByRole('button', { name: new RegExp(CURATED_TITLE, 'i') });
+      await preset.click();
+      await expect(preset).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('preset-warning')).toBeVisible();
+      await expect(page.getByTestId('preset-preview')).toBeVisible();
     });
   });
 
@@ -195,22 +136,8 @@ test.describe('CrowdSec Configuration @security', () => {
     });
 
     test('should have import functionality', async ({ page }) => {
-      // Look for import button or file input
-      const importButton = page.getByRole('button', { name: /import/i });
-      const importInput = page.locator('input[type="file"]');
-
-      const importVisible = await importButton.isVisible().catch(() => false);
-      const inputVisible = await importInput.isVisible().catch(() => false);
-
-      // Import functionality may not be implemented
-      if (importVisible || inputVisible) {
-        await expect(importButton.or(importInput)).toBeVisible();
-      } else {
-        test.info().annotations.push({
-          type: 'info',
-          description: 'Import functionality not visible - feature may not be implemented'
-        });
-      }
+      await expect(page.getByTestId('import-file')).toBeVisible();
+      await expect(page.getByRole('button', { name: /^import$/i })).toBeVisible();
     });
   });
 
