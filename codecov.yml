@@ -25,35 +25,32 @@ require_ci_to_pass: yes
 # -----------------------------------------------------------------------------
 # Notification gating
 # -----------------------------------------------------------------------------
-# Coverage is uploaded by three independent, parallel jobs in
-# .github/workflows/codecov-upload.yml (flags: backend, frontend, agent).
-# after_n_builds alone proved insufficient: Codecov still evaluated the
-# project/patch statuses as soon as an early upload (the quick agent job)
-# landed, so codecov/patch went red and later flipped green.
-# manual_trigger holds ALL notifications (commit statuses and PR comment)
-# until the final `notify-codecov` job in codecov-upload.yml runs
-# `send-notifications`, which it only does after the uploads have finished.
-# after_n_builds is kept as a secondary guard on the same 3-upload count.
+# Coverage is produced by three parallel jobs in
+# .github/workflows/codecov-upload.yml (flags: backend, frontend, agent). They
+# only stage their report as an artifact; the final `upload-codecov` job then
+# uploads all three back to back. Codecov re-evaluates statuses (codecov/patch,
+# codecov/project) on every upload, so uploading from each job made the checks
+# flap (the quick agent upload landed ~13 min before backend). With one
+# combined upload step, partial reports are no longer posted. A seconds-wide
+# window remains between the three back-to-back uploads.
+# after_n_builds and wait_for_ci are kept as harmless secondary guards.
 #
-# NOTE: `notify-codecov` runs when no upload job failed or was cancelled and
-# at least one succeeded. A manual workflow_dispatch that disables a job
-# (run_frontend=false etc.) therefore still sends notifications, but computed
-# from the partial report (and after_n_builds: 3 may keep the status pending).
-# If any upload fails, no notification is sent and the status stays pending;
-# the failed upload job is the signal to re-run. Normal pull_request runs
-# execute all 3 jobs.
+# NOTE: `upload-codecov` runs when no test job failed or was cancelled and at
+# least one succeeded. A manual workflow_dispatch that disables a job
+# (run_frontend=false etc.) therefore uploads only the existing reports, and
+# after_n_builds: 3 may keep the status pending. If a test job fails, nothing
+# is uploaded; re-run the failed job. Normal pull_request runs execute all 3.
 codecov:
   notify:
     after_n_builds: 3
-    manual_trigger: true
     wait_for_ci: yes
 
 # -----------------------------------------------------------------------------
 # PR Comment Configuration
 # -----------------------------------------------------------------------------
 comment:
-  # Hold the PR comment until all 3 coverage uploads land (and the manual
-  # notification trigger fires), matching codecov.notify.after_n_builds — avoids posting partial numbers that
+  # Hold the PR comment until all 3 coverage uploads land matching
+  # codecov.notify.after_n_builds — avoids posting partial numbers that
   # get edited moments later.
   after_n_builds: 3
   # Post coverage report as PR comment
