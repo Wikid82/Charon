@@ -912,7 +912,7 @@ RUN sed -i 's/string(program\.Source())/program.Source().String()/g' pkg/exprhel
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build -o /crowdsec-out/crowdsec \
-        -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v${CROWDSEC_VERSION}" \
+        -ldflags "-s -w -X github.com/crowdsecurity/go-cs-lib/version.Version=v${CROWDSEC_VERSION}" \
         ./cmd/crowdsec && \
     xx-verify /crowdsec-out/crowdsec
 
@@ -920,7 +920,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build -o /crowdsec-out/cscli \
-        -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v${CROWDSEC_VERSION}" \
+        -ldflags "-s -w -X github.com/crowdsecurity/go-cs-lib/version.Version=v${CROWDSEC_VERSION}" \
         ./cmd/crowdsec-cli && \
     xx-verify /crowdsec-out/cscli
 
@@ -1051,9 +1051,9 @@ COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
 
 # N5 — app-side sanity check on the toolchain-provided cscli binary: it must run
-# and emit its recognisable version block. (CrowdSec 1.8.x prints an empty
-# `version:` field here regardless of the -X ldflag, so match a stable field
-# instead.) A wrong-arch / stale-recipe image fails this immediately.
+# and emit its recognisable version block. (The version itself is injected via
+# the go-cs-lib/version.Version -X ldflag in the crowdsec-inline stage; match a
+# stable field here.) A wrong-arch / stale-recipe image fails this immediately.
 RUN set -e; \
     /usr/local/bin/cscli version >/tmp/cscli-v.txt 2>&1 \
         || { echo "ERROR: toolchain cscli is not runnable"; cat /tmp/cscli-v.txt; exit 1; }; \
