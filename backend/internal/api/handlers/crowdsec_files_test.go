@@ -581,7 +581,36 @@ func TestCrowdsecFiles_Read_UnreadableFileIs500(t *testing.T) {
 	p := f.put("config/locked.yaml", "a: 1\n")
 	require.NoError(t, os.Chmod(p, 0o000))       // #nosec G302 -- test fixture
 	t.Cleanup(func() { _ = os.Chmod(p, 0o600) }) // #nosec G302 -- test fixture
-	assert.Equal(t, http.StatusInternalServerError, f.read("config/locked.yaml").Code)
+	w := f.read("config/locked.yaml")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.JSONEq(t, `{"error":"failed to read file"}`, w.Body.String())
+	assert.NotContains(t, w.Body.String(), f.dir, "responses must not leak server paths")
+}
+
+func TestCrowdsecFiles_Read_OversizedFileIs413(t *testing.T) {
+	t.Parallel()
+	f := newFilesFixture(t)
+	f.put("config/atlimit.yaml", strings.Repeat("a", maxCrowdsecFileBytes))
+	assert.Equal(t, http.StatusOK, f.read("config/atlimit.yaml").Code)
+	f.put("config/big.yaml", strings.Repeat("a", maxCrowdsecFileBytes+1))
+	w := f.read("config/big.yaml")
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+	assert.JSONEq(t, `{"error":"file too large"}`, w.Body.String())
+}
+
+func TestCrowdsecFiles_List_WalkFailureIsGeneric500(t *testing.T) {
+	t.Parallel()
+	f := newFilesFixture(t)
+	notDir := filepath.Join(f.root, "plain")
+	require.NoError(t, os.WriteFile(notDir, []byte("x"), 0o600))
+	f.router = gin.New()
+	h := newTestCrowdsecHandler(t, setupCrowdDB(t), &fakeExec{}, "/bin/false", filepath.Join(notDir, "sub"))
+	h.RegisterRoutes(f.router.Group("/api/v1"))
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/files", http.NoBody))
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.JSONEq(t, `{"error":"failed to list files"}`, w.Body.String())
+	assert.NotContains(t, w.Body.String(), f.root)
 }
 
 func TestFileErrorLog_StripsControlCharacters(t *testing.T) {

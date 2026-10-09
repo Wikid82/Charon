@@ -297,10 +297,31 @@ func (h *CrowdsecHandler) ListFiles(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fileErrorLog(err).Warn("crowdsec file listing failed")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list files"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"files": files})
+}
+
+var errFileTooLarge = errors.New("file exceeds read limit")
+
+// readCapped reads at most maxCrowdsecFileBytes from p, failing with errFileTooLarge when the file is
+// larger so an oversized file is never loaded into memory.
+func readCapped(p string) ([]byte, error) {
+	f, err := os.Open(p) // #nosec G304 -- p is validated and symlink-resolved to stay inside DataDir by resolveReadable
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxCrowdsecFileBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	if len(data) > maxCrowdsecFileBytes {
+		return nil, errFileTooLarge
+	}
+	return data, nil
 }
 
 // ReadFile returns the contents of a specific file under DataDir. Query param 'path' required.
@@ -315,14 +336,17 @@ func (h *CrowdsecHandler) ReadFile(c *gin.Context) {
 		ferr.respond(c)
 		return
 	}
-	// #nosec G304 -- p is validated and symlink-resolved to stay inside DataDir by resolveReadable
-	data, err := os.ReadFile(p)
+	data, err := readCapped(p)
 	if err != nil {
-		if os.IsNotExist(err) {
+		switch {
+		case os.IsNotExist(err):
 			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
-			return
+		case errors.Is(err, errFileTooLarge):
+			(&fileError{status: http.StatusRequestEntityTooLarge, msg: "file too large"}).respond(c)
+		default:
+			fileErrorLog(err).Warn("crowdsec file read failed")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"content": string(data)})

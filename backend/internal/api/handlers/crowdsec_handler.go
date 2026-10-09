@@ -777,11 +777,6 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
-			// Ensure parent directory exists
-			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-				return fmt.Errorf("failed to create parent directory: %w", err)
-			}
-
 			// Validate mode is safe before conversion
 			fileMode := os.FileMode(0o640) // Default safe mode
 			if header.Mode > 0 && header.Mode <= 0o777 {
@@ -789,8 +784,7 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 				fileMode = os.FileMode(header.Mode)
 			}
 
-			// #nosec G304 -- target is constructed safely above with path traversal protection
-			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, fileMode)
+			outFile, err := crowdsec.CreateFileNoSymlink(destDir, target, 0o750, fileMode)
 			if err != nil {
 				return fmt.Errorf("failed to create file: %w", err)
 			}

@@ -965,12 +965,9 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 			continue
 		}
 
-		if mkdirErr := os.MkdirAll(filepath.Dir(destPath), 0o700); mkdirErr != nil { //nolint:gosec // G703: destPath contained under targetDir by the filepath.Rel check above
-			return fmt.Errorf("mkdir parent: %w", mkdirErr)
-		}
-		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode) //nolint:gosec // G304,G703: destPath contained under targetDir by the filepath.Rel check above
+		f, err := CreateFileNoSymlink(targetDir, destPath, 0o700, mode)
 		if err != nil {
-			return fmt.Errorf("open %s: %w", destPath, err)
+			return err
 		}
 		// Limit decompressed size to prevent decompression bombs (100MB limit)
 		const maxDecompressedSize = 100 * 1024 * 1024 // 100MB
