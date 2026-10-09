@@ -365,7 +365,7 @@ If CrowdSec doesn't auto-start:
 3. **Check directory permissions:**
 
    ```bash
-   docker exec charon ls -la /var/lib/crowdsec/data/
+   docker exec charon ls -la /app/data/crowdsec/data/
    ```
 
    Expected: `charon:charon` ownership

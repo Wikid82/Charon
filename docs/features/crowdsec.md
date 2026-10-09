@@ -58,6 +58,14 @@ Popular presets include:
 
 Charon also ships curated presets such as **Honeypot Friendly Defaults** and **GeoIP Enrichment** (`geoip-enrichment`, formerly `geolocation-aware`; it adds IP geolocation data to alerts and does not block by region). Curated presets are installed on the server with `cscli`, after a backup is taken. If the install fails, the backup is rolled back, and Charon shows the server's error instead of a success message. After a preset is applied (and after whitelist changes), Charon signals the CrowdSec process it manages to reload so new rules take effect. If CrowdSec is not running or the reload cannot be confirmed, a "reload required" note appears and the rules load the next time CrowdSec starts or restarts.
 
+#### Safe Applies and Rollback
+
+Hub presets are applied on the server too, with the same safety net: before anything changes, Charon makes a backup copy of your CrowdSec settings. If something goes wrong, your settings are put back exactly as they were, and Charon shows you the error. Your live CrowdSec folder is never moved or emptied along the way.
+
+- Charon keeps the 5 most recent full backups and the 10 most recent single-file backups, and quietly deletes older ones.
+- Only one change runs at a time, so two edits can't collide.
+- The config file editor only accepts common text and settings files (`.yaml`, `.yml`, `.json`, `.txt`, `.conf`) up to 1 MiB, and applies stricter file validation than before.
+
 ### Console Enrollment
 
 Connect to the CrowdSec Console for centralized management:
@@ -91,6 +99,7 @@ CrowdSec settings are stored in Charon's database and synchronized with the Secu
 - **On Container Start** — CrowdSec launches automatically if previously enabled
 - **Configuration Sync** — Changes in the UI immediately apply to CrowdSec
 - **State Persistence** — Decisions and configurations survive restarts
+- **Downloaded Data Survives Recreating the Container** — CrowdSec's own database and the lists it downloads (such as blocklists and the location database) are stored in your Charon data folder. If any are missing after an upgrade, Charon re-downloads them on startup.
 
 ## Troubleshooting Console Enrollment
 
@@ -211,6 +220,12 @@ curl -I https://api.crowdsec.net
 |------|------|---------|
 | `api.crowdsec.net` | 443 | Console API and heartbeats |
 | `hub.crowdsec.net` | 443 | Hub presets download |
+
+### "unable to init data for file" in the CrowdSec Log
+
+**What it means:** CrowdSec looked for one of its downloaded helper lists (like a blocklist or location database) and the file was missing. In older versions this could happen after recreating the container.
+
+**What to do:** Update Charon and restart the container. The missing files are downloaded again automatically (this needs internet access) and the message goes away. Nothing else is needed.
 
 ## Using the Diagnostic Script
 

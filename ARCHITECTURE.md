@@ -292,6 +292,7 @@ graph TB
 │   ├── backups/                # Database backups
 │   ├── caddy/                  # Caddy certificates
 │   └── crowdsec/               # CrowdSec local database
+│       └── data/               # CrowdSec `data_dir`: LAPI db + hub data files (persistent)
 │
 ├── Dockerfile                  # Multi-stage Docker build
 ├── Makefile                    # Build automation
@@ -876,6 +877,30 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 - Automatic IP banning with configurable duration
 - Decision management API (view, create, delete bans)
 - IP whitelist management: operators add/remove IPs and CIDRs via the management UI; entries are persisted in SQLite and regenerated into a `crowdsecurity/whitelists` parser YAML on every mutating operation and at startup
+
+**Preset apply and config edits:** Applying a hub preset, importing a
+configuration, and saving a file in the config editor never rename or empty the
+live CrowdSec directory. Each operation first takes a copy-based snapshot
+(`<DataDir>.backup.<timestamp>`, newest 5 kept; the live database, the
+top-level `data/` directory, and `hub_cache/` are skipped to keep snapshots
+small) and restores it if the operation fails. Single-file edits keep their own
+backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). One handler-level
+lock serializes apply, import, and file saves. The file editor applies stricter
+validation than before (file type, size, and path checks), and the frontend no
+longer has a local-write fallback for presets; failures are shown as errors.
+
+**Persistent hub data:** CrowdSec's `data_dir` (LAPI database and hub data files
+such as blocklists and the GeoIP database) lives at `/app/data/crowdsec/data`
+on the persistent volume, so it survives container recreation. The entrypoint
+migrates older configs that pointed at `/var/lib/crowdsec/data`, and, only when
+hub data files are missing, runs a gated, time-bounded `cscli hub upgrade` to
+re-download them (startup log line only; no UI). `scripts/crowdsec_data_persistence_test.sh`
+verifies this in the CrowdSec integration job.
+
+**Versioning:** the bundled `cscli` and `crowdsec` binaries report their real
+version (currently v1.8.1); the Docker build fails if they do not. The
+entrypoint pins `cscli.hub_branch: master` in the CrowdSec config for
+deterministic hub access (an operator-set value is preserved).
 
 **Modes:**
 

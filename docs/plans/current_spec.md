@@ -184,7 +184,7 @@ Every command run by implementers is foreground/blocking per CLAUDE.md. Each com
 **Commit 1 - `test: add deterministic E2E specs for CrowdSec preset and file flows (fixme)`** (#1518, step 1 of the suggested sequence)
 - Files: new `tests/security/crowdsec-hub-preset-apply.spec.ts`, new `tests/security/crowdsec-file-editor.spec.ts`.
 - Content, all stubbed with `page.route` like `crowdsec-preset-apply.spec.ts`, marked `test.fixme` until their feature commits: hub preset apply success shows success only when body `status==='applied'`; hub preset apply 500/503/504 shows an error and **zero** `POST /admin/crowdsec/file` calls; hub preset apply 501 shows an error and zero writes; file editor save success posts exactly one write for exactly the selected path; file editor shows the server message for 400 (disallowed type / invalid YAML) and 413.
-- Depends on: none. Gate: `npx playwright test tests/security/crowdsec-hub-preset-apply.spec.ts tests/security/crowdsec-file-editor.spec.ts --project=firefox` runs and reports the tests as fixme/skipped with no failures; lint/type-check clean.
+- Depends on: none. Gate: `npx playwright test tests/security/crowdsec-hub-preset-apply.spec.ts tests/security/crowdsec-file-editor.spec.ts --project=security-tests` runs and reports the tests as fixme/skipped with no failures; lint/type-check clean.
 
 **Commit 2 - `refactor: move CrowdSec preset handlers into their own file`** (#1517)
 - Files: new `backend/internal/api/handlers/crowdsec_preset_handler.go`; edit `crowdsec_handler.go`; move/split preset-only tests into `crowdsec_preset_handler_test.go`.
@@ -233,7 +233,7 @@ Every command run by implementers is foreground/blocking per CLAUDE.md. Each com
 **Commit 9 - `test: enable CrowdSec preset and file-editor E2E specs and drop tolerant ones`** (#1518, final step)
 - Files: the two specs from Commit 1 (remove `fixme`), `tests/security/crowdsec-config.spec.ts` (delete the tolerant "Preset Management" assertions that are now covered by deterministic specs, or convert each remaining case to a deterministic stub; no `isVisible().catch(() => false)` guards, no "feature may not be implemented" annotations remain in `tests/security/crowdsec-*.spec.ts`).
 - Depends on: Commits 4 and 5.
-- Gate: `npx playwright test tests/security/crowdsec-hub-preset-apply.spec.ts tests/security/crowdsec-file-editor.spec.ts tests/security/crowdsec-preset-apply.spec.ts tests/security/crowdsec-config.spec.ts --project=firefox` green. Mutation check: temporarily re-add the local-write fallback (or revert the success-status check) and confirm at least one of the new specs fails, then undo. Full-suite and cross-browser runs are CI-only.
+- Gate: `npx playwright test tests/security/crowdsec-hub-preset-apply.spec.ts tests/security/crowdsec-file-editor.spec.ts tests/security/crowdsec-preset-apply.spec.ts tests/security/crowdsec-config.spec.ts --project=security-tests` green. Mutation check: temporarily re-add the local-write fallback (or revert the success-status check) and confirm at least one of the new specs fails, then undo. Full-suite and cross-browser runs are CI-only.
 
 **Commit 10 - `docs: document CrowdSec preset apply safety and data persistence`**
 - Files: `ARCHITECTURE.md`, `docs/features/crowdsec.md`, `docs/troubleshooting/` entry if appropriate (see 7).
@@ -258,7 +258,7 @@ Every command run by implementers is foreground/blocking per CLAUDE.md. Each com
 
 - **Backend unit:** new tests in Commits 3 and 4 (list above). Coverage: package and patch coverage must not drop; overall >= 85% (`scripts/go-test-coverage.sh`); `bash scripts/local-patch-report.sh` produces `test-results/local-patch-report.md/.json`.
 - **Frontend unit:** updated Vitest in Commit 5; `scripts/frontend-test-coverage.sh` >= 85%; `npm run type-check`; `npm run build`.
-- **Playwright (#1518):** deterministic stubbed specs per Commit 1/9, role-based locators, no `waitForTimeout`, no visibility-guard skips. Locally only the targeted spec files with `--project=firefox`; CI runs the full matrix.
+- **Playwright (#1518):** deterministic stubbed specs per Commit 1/9, role-based locators, no `waitForTimeout`, no visibility-guard skips. Locally only the targeted spec files with `--project=security-tests` (security specs are excluded from the browser projects; other specs use `--project=firefox`); CI runs the full matrix.
 - **Build-time assertion (#1524):** Dockerfile `RUN` check in Commit 8 with the negative (mismatched version) and positive proof recorded in the PR description.
 - **Container integration:** `scripts/crowdsec_data_persistence_test.sh` and `scripts/crowdsec_startup_test.sh` (Commit 6/8).
 - **Security scans:** this is a `fix:` with no new endpoints; CodeQL/Trivy are deferred to CI per CLAUDE.md, except that Commit 7's toolchain Trivy gate runs in CI by design. GORM scan not required (no model changes); run it only if a model is touched.
