@@ -192,11 +192,6 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 func newHubHTTPClient(timeout time.Duration) *http.Client {
 	opts := []network.Option{
 		network.WithTimeout(timeout),
-		network.WithAllowedDomains(
-			"hub-data.crowdsec.net",
-			"hub.crowdsec.net",
-			"raw.githubusercontent.com",
-		),
 	}
 	if hubAllowLoopback {
 		opts = append(opts, network.WithAllowLocalhost())
