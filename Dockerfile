@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-84b395d5e166197a
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:c794255843bde83c3a3ccde0260ac6e5fa7d13d08cad344ee97003355404074e
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-31408b042c60b9fc
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:19a2fcaccb91be8c73b05ddc8add7b591873589f60faad438176e1b9e9a0278f
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
