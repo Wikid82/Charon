@@ -411,7 +411,7 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "written", "backup": backupDir})
+	c.JSON(http.StatusOK, gin.H{"status": "written", "backup": crowdsec.BackupID(backupDir)})
 }
 
 // fileErrorLog returns a log entry carrying err with control characters

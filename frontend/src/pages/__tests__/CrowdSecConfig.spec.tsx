@@ -85,7 +85,7 @@ describe('CrowdSecConfig', () => {
     })
     vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({
       status: 'applied',
-      backup: '/tmp/backup.tar.gz',
+      backup: 'crowdsec.backup.20260101-000000.000000',
       reload_hint: true,
       used_cscli: true,
       cache_key: 'cache-123',
@@ -370,7 +370,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: '' })
     vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValueOnce({
       status: 'applied',
-      backup: '/tmp/crowdsec-backup',
+      backup: 'crowdsec.backup.20260101-000000.000000',
       reload_hint: true,
       used_cscli: true,
       cache_key: 'cache-123',
@@ -382,7 +382,7 @@ describe('CrowdSecConfig', () => {
     const applyBtn = await screen.findByTestId('apply-preset-btn')
     await userEvent.click(applyBtn)
 
-    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('/tmp/crowdsec-backup'))
+    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('crowdsec.backup.20260101-000000.000000'))
     expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Status: applied')
     expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Method: cscli')
     // reloadHint is a boolean and renders as empty/true - just verify the info section exists

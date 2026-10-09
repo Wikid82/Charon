@@ -1236,6 +1236,8 @@
       "previewUnavailable": "预览不可用",
       "applied": "已应用",
       "backup": "备份",
+      "backupCreated": "备份已创建：{{name}}（{{location}}）",
+      "backupLocation": "存放在 CrowdSec 数据目录旁",
       "reload": "重新加载",
       "required": "必需",
       "method": "方法",

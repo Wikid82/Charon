@@ -1573,6 +1573,8 @@
       "previewUnavailable": "Preview unavailable",
       "applied": "Applied",
       "backup": "Backup",
+      "backupCreated": "Backup created: {{name}} ({{location}})",
+      "backupLocation": "stored next to the CrowdSec data directory",
       "reload": "Reload",
       "required": "Required",
       "method": "Method",

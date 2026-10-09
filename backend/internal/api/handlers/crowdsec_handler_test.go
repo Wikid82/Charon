@@ -3249,9 +3249,10 @@ func TestCrowdsecHandler_WriteFile_BackupCreation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Contains(t, resp, "backup")
 
-	backupPath := resp["backup"].(string)
-	require.NotEmpty(t, backupPath)
-	require.True(t, strings.HasPrefix(backupPath, tmpDir+".filebackup."), backupPath)
+	backupName := resp["backup"].(string)
+	require.True(t, strings.HasPrefix(backupName, filepath.Base(tmpDir)+".filebackup."), backupName)
+	require.Equal(t, filepath.Base(backupName), backupName, "response carries a name, not a path")
+	backupPath := filepath.Join(filepath.Dir(tmpDir), backupName)
 
 	// Only the replaced file is backed up, with its previous content; DataDir stays in place.
 	// #nosec G304 -- test reads a path it just created

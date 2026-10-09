@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -287,10 +288,20 @@ func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) 
 	return removed, errors.Join(errs...)
 }
 
-// rollbackFailure annotates cause with a failed restore and the snapshot kept for manual recovery.
+// BackupID returns the client-safe name of a backup: the final path element, never the absolute
+// location. It covers the directory kinds (*.backup.<ts>, *.filebackup.<ts>) and file backups
+// (acquis.yaml.backup.<ts>); an empty path yields an empty name.
+func BackupID(path string) string {
+	if path == "" {
+		return ""
+	}
+	return filepath.Base(path)
+}
+
+// rollbackFailure annotates cause with a failed restore; the snapshot location is logged, never returned.
 func rollbackFailure(cause, restoreErr error, backupPath string) error {
 	logger.Log().WithError(restoreErr).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("preset rollback failed; backup retained for manual recovery")
-	return fmt.Errorf("%w (rollback failed: %v; backup retained at %s)", cause, restoreErr, backupPath)
+	return fmt.Errorf("%w (rollback failed; backup retained, see server logs)", cause)
 }
 
 // BackupFile copies the single file dataDir/rel into a new <dataDir>.filebackup.<ts>/<rel> directory
@@ -334,4 +345,28 @@ func BackupFile(dataDir, rel string) (string, error) {
 		logger.Log().WithError(pruneErr).Warn("crowdsec file backup prune incomplete")
 	}
 	return dir, nil
+}
+
+// absPathPattern matches absolute filesystem paths that follow whitespace, a quote, "(" or "=".
+// URL path segments are preceded by ":" or "/" and are therefore left alone.
+var absPathPattern = regexp.MustCompile(`(^|[\s('"=])/[^\s:;)'"]+`)
+
+// RedactPaths replaces absolute filesystem paths in an error message with "<path>" so server
+// layout never reaches an API client. Detail belongs in server logs.
+func RedactPaths(msg string) string {
+	return absPathPattern.ReplaceAllString(msg, "${1}<path>")
+}
+
+// withoutPath unwraps a filesystem error to its underlying cause (for example "permission
+// denied"), dropping the absolute path that *fs.PathError and *os.LinkError embed.
+func withoutPath(err error) error {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Err
+	}
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) {
+		return linkErr.Err
+	}
+	return err
 }

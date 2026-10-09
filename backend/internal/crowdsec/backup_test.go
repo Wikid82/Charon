@@ -639,7 +639,9 @@ func TestApplyRestoreFailureIsReported(t *testing.T) {
 
 	res, err := svc.Apply(context.Background(), "test/preset")
 	require.ErrorContains(t, err, "rollback failed")
-	require.ErrorContains(t, err, "backup retained at "+res.BackupPath)
+	require.ErrorContains(t, err, "backup retained, see server logs")
+	require.NotContains(t, err.Error(), res.BackupPath, "the backup location stays in server logs")
+	require.NotContains(t, err.Error(), dir)
 }
 
 func TestApplySnapshotFailureChangesNothing(t *testing.T) {
@@ -689,8 +691,9 @@ func TestRollbackFailureWrapsCause(t *testing.T) {
 	cause := errors.New("boom")
 	err := rollbackFailure(cause, errors.New("restore broke"), "/b")
 	require.ErrorIs(t, err, cause)
-	require.ErrorContains(t, err, "restore broke")
-	require.ErrorContains(t, err, "/b")
+	require.ErrorContains(t, err, "see server logs")
+	require.NotContains(t, err.Error(), "restore broke")
+	require.NotContains(t, err.Error(), "/b")
 }
 
 // makeTarGzWithSymlink returns an archive that writes one file and then hits a symlink entry.

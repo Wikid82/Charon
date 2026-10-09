@@ -62,10 +62,10 @@ func TestApplyResponseHelpers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	respondApplySuccess(c, crowdsec.ApplyResult{Status: "applied", BackupPath: "/b", ReloadHint: true, UsedCSCLI: true, CacheKey: "k", AppliedPreset: "s"})
+	respondApplySuccess(c, crowdsec.ApplyResult{Status: "applied", BackupPath: "/data/crowdsec.backup.1", ReloadHint: true, UsedCSCLI: true, CacheKey: "k", AppliedPreset: "s"})
 	require.Equal(t, http.StatusOK, w.Code)
-	require.JSONEq(t, `{"status":"applied","backup":"/b","reload_hint":true,"used_cscli":true,"cache_key":"k","slug":"s"}`, w.Body.String())
+	require.JSONEq(t, `{"status":"applied","backup":"crowdsec.backup.1","reload_hint":true,"used_cscli":true,"cache_key":"k","slug":"s"}`, w.Body.String())
 
 	require.Equal(t, gin.H{"error": "m"}, applyFailureBody("m", crowdsec.ApplyResult{}))
-	require.Equal(t, gin.H{"error": "m", "backup": "/b", "cache_key": "k"}, applyFailureBody("m", crowdsec.ApplyResult{BackupPath: "/b", CacheKey: "k"}))
+	require.Equal(t, gin.H{"error": "m", "backup": "crowdsec.backup.1", "cache_key": "k"}, applyFailureBody("m", crowdsec.ApplyResult{BackupPath: "/data/crowdsec.backup.1", CacheKey: "k"}))
 }

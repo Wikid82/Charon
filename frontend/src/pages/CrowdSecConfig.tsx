@@ -57,6 +57,8 @@ export default function CrowdSecConfig() {
   const [validationError, setValidationError] = useState<string | null>(null)
   const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string } | null>(null)
   const queryClient = useQueryClient()
+  const backupCreatedMessage = (name: string) =>
+    t('crowdsecConfig.presets.backupCreated', { name, location: t('crowdsecConfig.presets.backupLocation') })
   // Read the "CrowdSec is starting" signal broadcast by Security.tsx via the
   // QueryClient cache. No HTTP call is made; this is pure in-memory coordination.
   const { data: crowdsecStartingCache } = useQuery<{ isStarting: boolean; startedAt?: number }>({
@@ -471,7 +473,7 @@ export default function CrowdSecConfig() {
       const reloadNote = res.reload_hint ? ' (reload required)' : ''
       toast.success(`Preset applied via backend${reloadNote}`)
       if (res.backup) {
-        setPresetStatusMessage(`Backup stored at ${res.backup}`)
+        setPresetStatusMessage(backupCreatedMessage(res.backup))
       }
     } catch (err) {
       if (!isAxiosError(err)) {
@@ -481,7 +483,7 @@ export default function CrowdSecConfig() {
       // The server is authoritative for every preset source: surface its message for any
       // non-2xx response and never write preset content client-side.
       const status = err.response?.status
-      const backupPath = (err.response?.data as { backup?: string } | undefined)?.backup
+      const backupName = (err.response?.data as { backup?: string } | undefined)?.backup
       const message = getServerErrorMessage(err, 'Failed to apply preset')
       if (status === 400) {
         setValidationError(message)
@@ -489,8 +491,8 @@ export default function CrowdSecConfig() {
       if (status === 503) {
         setHubUnavailable(true)
       }
-      setApplyInfo({ status: 'failed', backup: backupPath || undefined, cacheKey: presetMeta?.cacheKey })
-      toast.error(`Apply failed: ${message}${backupPath ? `. Backup created at ${backupPath}` : ''}`)
+      setApplyInfo({ status: 'failed', backup: backupName || undefined, cacheKey: presetMeta?.cacheKey })
+      toast.error(`Apply failed: ${message}${backupName ? `. ${backupCreatedMessage(backupName)}` : ''}`)
     } finally {
       setIsApplyingPreset(false)
     }
@@ -1113,7 +1115,7 @@ export default function CrowdSecConfig() {
               {applyInfo && (
                 <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3 text-xs text-gray-200" data-testid="preset-apply-info">
                   <p>{t('common.status')}: {applyInfo.status || t('crowdsecConfig.presets.applied')}</p>
-                  {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup}</p>}
+                  {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup} ({t('crowdsecConfig.presets.backupLocation')})</p>}
                   {applyInfo.reloadHint && <p>{t('crowdsecConfig.presets.reload')}: {t('crowdsecConfig.presets.required')}</p>}
                   {applyInfo.usedCscli !== undefined && <p>{t('crowdsecConfig.presets.method')}: {applyInfo.usedCscli ? 'cscli' : t('crowdsecConfig.presets.filesystem')}</p>}
                 </div>

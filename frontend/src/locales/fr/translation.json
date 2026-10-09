@@ -1237,6 +1237,8 @@
       "previewUnavailable": "Aperçu non disponible",
       "applied": "Appliqué",
       "backup": "Sauvegarde",
+      "backupCreated": "Sauvegarde créée : {{name}} ({{location}})",
+      "backupLocation": "stockée à côté du répertoire de données CrowdSec",
       "reload": "Recharger",
       "required": "Requis",
       "method": "Méthode",

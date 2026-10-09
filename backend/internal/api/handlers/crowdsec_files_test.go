@@ -499,10 +499,12 @@ func TestCrowdsecFiles_Write_BackupHoldsOnlyPreviousVersionAndIsCappedIndependen
 	var resp map[string]string
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp["backup"])
-	prev, err := os.ReadFile(filepath.Join(resp["backup"], "config", "config.yaml")) // #nosec G304 -- test path
+	require.Equal(t, filepath.Base(resp["backup"]), resp["backup"], "response carries a name, not a path")
+	backupDir := filepath.Join(f.root, resp["backup"])
+	prev, err := os.ReadFile(filepath.Join(backupDir, "config", "config.yaml")) // #nosec G304 -- test path
 	require.NoError(t, err)
 	assert.Equal(t, "v: 0\n", string(prev))
-	_, err = os.Stat(filepath.Join(resp["backup"], "config", "other.yaml"))
+	_, err = os.Stat(filepath.Join(backupDir, "config", "other.yaml"))
 	assert.True(t, os.IsNotExist(err), "backup must hold only the replaced file")
 
 	for i := 2; i <= 14; i++ {

@@ -960,7 +960,7 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 
 		if hdr.FileInfo().IsDir() {
 			if mkdirErr := os.MkdirAll(destPath, mode); mkdirErr != nil { //nolint:gosec // G703: destPath contained under targetDir by the filepath.Rel check above
-				return fmt.Errorf("mkdir %s: %w", destPath, mkdirErr)
+				return fmt.Errorf("mkdir %s: %w", cleanName, withoutPath(mkdirErr))
 			}
 			continue
 		}
@@ -975,15 +975,15 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 		written, err := io.Copy(f, limitedReader)
 		if err != nil {
 			_ = f.Close()
-			return fmt.Errorf("write %s: %w", destPath, err)
+			return fmt.Errorf("write %s: %w", cleanName, withoutPath(err))
 		}
 		// Verify we didn't hit the limit (potential attack)
 		if written >= maxDecompressedSize {
 			_ = f.Close()
-			return fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", destPath, maxDecompressedSize)
+			return fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", cleanName, maxDecompressedSize)
 		}
 		if err := f.Close(); err != nil {
-			return fmt.Errorf("close %s: %w", destPath, err)
+			return fmt.Errorf("close %s: %w", cleanName, withoutPath(err))
 		}
 	}
 	return nil

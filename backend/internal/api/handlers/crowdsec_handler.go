@@ -679,7 +679,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 
 	if err = validator.Validate(dst); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", err)})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
 	}
 
@@ -711,8 +711,9 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	// Extract archive
 	extractErr := h.extractArchive(dst, h.DataDir)
 	if extractErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(extractErr.Error())).Warn("crowdsec import extraction failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("extraction failed: %v", extractErr)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "extraction failed"})
 		return
 	}
 
@@ -720,11 +721,11 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	configPath := filepath.Join(h.DataDir, "config.yaml")
 	if err := validateYAMLFile(configPath); err != nil {
 		rollback()
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", err)})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": backupDir})
+	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)})
 }
 
 // pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
@@ -875,8 +876,9 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export failed")
 		// If any error occurred while creating the archive, return 500
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to export crowdsec config"})
 		return
 	}
 }
@@ -2027,7 +2029,7 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "updated",
-		"backup":      backupPath,
+		"backup":      crowdsec.BackupID(backupPath),
 		"reload_hint": true,
 	})
 }
