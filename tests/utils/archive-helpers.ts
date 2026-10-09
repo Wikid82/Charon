@@ -2,6 +2,8 @@ import { promises as fs } from 'fs';
 import * as tar from 'tar';
 import * as path from 'path';
 import { createWriteStream } from 'fs';
+import { randomBytes } from 'crypto';
+import { gzipSync } from 'zlib';
 
 export interface ArchiveOptions {
   format: 'tar.gz' | 'zip';
@@ -179,10 +181,7 @@ export async function createOversizedArchive(
     for (let i = 0; i < Math.ceil(sizeBytes / chunkSize); i++) {
       const remainingBytes = Math.min(chunkSize, sizeBytes - (i * chunkSize));
       // Use random data to prevent compression
-      const chunk = Buffer.from(
-        Array.from({ length: remainingBytes }, () => Math.floor(Math.random() * 256))
-      );
-      writeStream.write(chunk);
+      writeStream.write(randomBytes(remainingBytes));
     }
 
     await new Promise((resolve) => writeStream.end(resolve));
@@ -202,4 +201,48 @@ export async function createOversizedArchive(
     // Clean up temp directory
     await fs.rm(tempDir, { recursive: true, force: true });
   }
+}
+
+/** One entry of a hand-built tar archive. The name is written to the header exactly as given. */
+export interface RawTarEntry {
+  name: string;
+  content: string;
+}
+
+function tarHeader(name: string, size: number): Buffer {
+  const header = Buffer.alloc(512);
+  header.write(name, 0, 100, 'utf-8');
+  header.write('0000644\0', 100, 'ascii'); // mode
+  header.write('0000000\0', 108, 'ascii'); // uid
+  header.write('0000000\0', 116, 'ascii'); // gid
+  header.write(`${size.toString(8).padStart(11, '0')}\0`, 124, 'ascii'); // size
+  header.write('00000000000\0', 136, 'ascii'); // mtime
+  header.write('        ', 148, 'ascii'); // checksum placeholder (spaces)
+  header.write('0', 156, 'ascii'); // regular file
+  header.write('ustar\0', 257, 'ascii');
+  header.write('00', 263, 'ascii');
+
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
+  return header;
+}
+
+/**
+ * Create a tar.gz whose entry names are written verbatim, in order. node-tar normalises
+ * names such as "../../etc/passwd", so archives that must carry a literal traversal entry
+ * are built block by block here.
+ * @returns Absolute path to the created archive
+ */
+export async function createRawTarGz(entries: RawTarEntry[], outputPath: string): Promise<string> {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+
+  const blocks: Buffer[] = [];
+  for (const { name, content } of entries) {
+    const data = Buffer.from(content, 'utf-8');
+    blocks.push(tarHeader(name, data.length), data, Buffer.alloc((512 - (data.length % 512)) % 512));
+  }
+  blocks.push(Buffer.alloc(1024)); // end-of-archive marker
+
+  await fs.writeFile(outputPath, gzipSync(Buffer.concat(blocks)));
+  return outputPath;
 }
