@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -268,7 +269,7 @@ func (h *CrowdsecHandler) ListFiles(c *gin.Context) {
 		if err != nil {
 			// Permission errors (e.g. lost+found) should not abort the walk
 			if os.IsPermission(err) {
-				logger.Log().WithError(err).WithField("path", p).Debug("Skipping inaccessible path during list")
+				fileErrorLog(err).WithField("path", sanitizeForLog(p)).Debug("Skipping inaccessible path during list")
 				return filepath.SkipDir
 			}
 			return err
@@ -374,7 +375,7 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 	}
 	backupDir, err := crowdsec.BackupFile(h.DataDir, rel)
 	if err != nil {
-		logger.Log().WithError(err).Warn("crowdsec file backup failed")
+		fileErrorLog(err).Warn("crowdsec file backup failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
 		return
 	}
@@ -383,9 +384,15 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		return
 	}
 	if err := atomicWriteFile(target, []byte(payload.Content), mode); err != nil {
-		logger.Log().WithError(err).Warn("crowdsec file write failed")
+		fileErrorLog(err).Warn("crowdsec file write failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "written", "backup": backupDir})
+}
+
+// fileErrorLog returns a log entry carrying err with control characters
+// stripped, since file operation errors embed request-derived paths.
+func fileErrorLog(err error) *logrus.Entry {
+	return logger.Log().WithField("error", sanitizeForLog(err.Error()))
 }

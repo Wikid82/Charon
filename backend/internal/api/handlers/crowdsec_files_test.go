@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -581,4 +582,15 @@ func TestCrowdsecFiles_Read_UnreadableFileIs500(t *testing.T) {
 	require.NoError(t, os.Chmod(p, 0o000))       // #nosec G302 -- test fixture
 	t.Cleanup(func() { _ = os.Chmod(p, 0o600) }) // #nosec G302 -- test fixture
 	assert.Equal(t, http.StatusInternalServerError, f.read("config/locked.yaml").Code)
+}
+
+func TestFileErrorLog_StripsControlCharacters(t *testing.T) {
+	t.Parallel()
+	err := errors.New("open config/a\r\nb\nc.yaml: denied")
+	entry := fileErrorLog(err)
+	got, ok := entry.Data["error"].(string)
+	require.True(t, ok)
+	assert.NotContains(t, got, "\n")
+	assert.NotContains(t, got, "\r")
+	assert.Contains(t, got, "denied")
 }
