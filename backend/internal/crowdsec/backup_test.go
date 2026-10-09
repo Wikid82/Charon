@@ -454,7 +454,7 @@ func TestPruneBackupsReportsRemovalErrors(t *testing.T) {
 	old := mkBackupDir(t, dataDir, "backup", "20250101-000000.000000")
 	mkBackupDir(t, dataDir, "backup", "20250102-000000.000000")
 	// A read-only parent makes the removal fail.
-	require.NoError(t, os.Chmod(parent, 0o500)) //nolint:gosec // G302: test needs a read-only dir
+	require.NoError(t, os.Chmod(parent, 0o500))       //nolint:gosec // G302: test needs a read-only dir
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) }) //nolint:gosec // G302: restore owner access to a temp directory so cleanup can remove it
 
 	removed, err := PruneBackups(dataDir, BackupKindSnapshot, 1)
@@ -752,9 +752,159 @@ func TestBackupFileMkdirFailure(t *testing.T) {
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "crowdsec")
 	writeFile(t, filepath.Join(dir, "f.yaml"), "x")
-	require.NoError(t, os.Chmod(parent, 0o500)) //nolint:gosec // G302: test needs a read-only dir
+	require.NoError(t, os.Chmod(parent, 0o500))       //nolint:gosec // G302: test needs a read-only dir
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) }) //nolint:gosec // G302: restore owner access to a temp directory so cleanup can remove it
 
 	_, err := BackupFile(dir, "f.yaml")
 	require.ErrorContains(t, err, "mkdir file backup")
+}
+
+// ---- failure paths: unreadable, unremovable and colliding entries ----
+
+// lockDir sets mode on dir and restores owner access on cleanup so TempDir can be removed.
+func lockDir(t *testing.T, dir string, mode os.FileMode) {
+	t.Helper()
+	require.NoError(t, os.Chmod(dir, mode))        //nolint:gosec // G302: test needs a restricted dir
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // G302: restore owner access so cleanup can remove it
+}
+
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based failure cannot be provoked as root")
+	}
+}
+
+func TestSnapshotStatErrorRemovesPartialSnapshot(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "crowdsec")
+	// A self-referencing symlink makes Stat fail with ELOOP, which is not "does not exist".
+	require.NoError(t, os.Symlink("crowdsec", dir))
+
+	_, err := Snapshot(dir)
+	require.ErrorContains(t, err, "stat data dir")
+	matches, globErr := filepath.Glob(dir + ".backup.*")
+	require.NoError(t, globErr)
+	require.Empty(t, matches, "snapshot directory removed on failure")
+}
+
+func TestClearConfigReportsUnremovableEntries(t *testing.T) {
+	skipIfRoot(t)
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "crowdsec")
+	writeFile(t, filepath.Join(dir, "config.yaml"), "x")
+	lockDir(t, dir, 0o500)
+
+	err := ClearConfig(dir)
+	require.ErrorContains(t, err, "empty data dir")
+	require.FileExists(t, filepath.Join(dir, "config.yaml"), "a failed clear must not claim success")
+}
+
+func TestEmptyDirExceptPropagatesNestedErrors(t *testing.T) {
+	skipIfRoot(t)
+	t.Parallel()
+	dir := t.TempDir()
+	inner := filepath.Join(dir, "outer", "inner")
+	writeFile(t, filepath.Join(inner, "f.yaml"), "x")
+	lockDir(t, inner, 0o500)
+
+	require.Error(t, emptyDirExcept(dir, func(string) bool { return false }))
+	require.FileExists(t, filepath.Join(inner, "f.yaml"))
+}
+
+func TestCopyTreeFailurePaths(t *testing.T) {
+	t.Parallel()
+	t.Run("directory cannot be created at destination", func(t *testing.T) {
+		t.Parallel()
+		src, dst := t.TempDir(), t.TempDir()
+		writeFile(t, filepath.Join(src, "sub", "a.yaml"), "a")
+		writeFile(t, filepath.Join(dst, "sub"), "a file where a directory must go")
+		require.ErrorContains(t, copyTree(src, dst, nil), "mkdir")
+	})
+	t.Run("nested copy failure is returned", func(t *testing.T) {
+		t.Parallel()
+		src, dst := t.TempDir(), t.TempDir()
+		writeFile(t, filepath.Join(src, "sub", "inner", "a.yaml"), "a")
+		writeFile(t, filepath.Join(dst, "sub", "inner"), "a file where a directory must go")
+		require.Error(t, copyTree(src, dst, nil))
+	})
+	t.Run("file cannot be copied", func(t *testing.T) {
+		t.Parallel()
+		src, dst := t.TempDir(), t.TempDir()
+		writeFile(t, filepath.Join(src, "a.yaml"), "a")
+		require.NoError(t, os.MkdirAll(filepath.Join(dst, "a.yaml"), 0o700))
+		require.ErrorContains(t, copyTree(src, dst, nil), "create dst")
+	})
+	t.Run("unreadable directory", func(t *testing.T) {
+		skipIfRoot(t)
+		t.Parallel()
+		src, dst := t.TempDir(), t.TempDir()
+		writeFile(t, filepath.Join(src, "sub", "a.yaml"), "a")
+		lockDir(t, filepath.Join(src, "sub"), 0o000)
+		require.ErrorContains(t, copyTree(src, dst, nil), "read dir")
+	})
+}
+
+func TestPruneAfterApplyToleratesPruneFailure(t *testing.T) {
+	t.Parallel()
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	writeFile(t, blocker, "x")
+	svc := NewHubService(nil, nil, filepath.Join(blocker, "crowdsec"))
+
+	// The parent of DataDir is a regular file, so listing backups fails; the failure is only logged.
+	_, err := PruneBackups(svc.DataDir, BackupKindSnapshot, DefaultBackupRetention)
+	require.ErrorContains(t, err, "list backups")
+	require.NotPanics(t, svc.pruneAfterApply)
+}
+
+func TestBackupFileFailurePaths(t *testing.T) {
+	skipIfRoot(t)
+	t.Parallel()
+	t.Run("unreadable source leaves no backup directory", func(t *testing.T) {
+		t.Parallel()
+		dir := seedPersistentTree(t)
+		src := filepath.Join(dir, "config", "config.yaml")
+		require.NoError(t, os.Chmod(src, 0o000))       //nolint:gosec // G302: test needs an unreadable file
+		t.Cleanup(func() { _ = os.Chmod(src, 0o600) }) //nolint:gosec // G302: restore owner access
+
+		_, err := BackupFile(dir, filepath.Join("config", "config.yaml"))
+		require.ErrorContains(t, err, "copy file backup")
+		matches, globErr := filepath.Glob(dir + "." + BackupKindFile + ".*")
+		require.NoError(t, globErr)
+		require.Empty(t, matches)
+	})
+	t.Run("prune failure does not fail the backup", func(t *testing.T) {
+		t.Parallel()
+		dir := seedPersistentTree(t)
+		for i := 1; i <= DefaultFileBackupRetention; i++ {
+			old := mkBackupDir(t, dir, BackupKindFile, fmt.Sprintf("202501%02d-000000.000000", i))
+			locked := filepath.Join(old, "locked")
+			writeFile(t, filepath.Join(locked, "f.yaml"), "x")
+			lockDir(t, locked, 0o500)
+		}
+
+		backup, err := BackupFile(dir, filepath.Join("config", "config.yaml"))
+		require.NoError(t, err)
+		require.DirExists(t, backup)
+	})
+}
+
+func TestRestoreAfterReportsRollbackFailure(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "crowdsec")
+	writeFile(t, dir, "DataDir replaced by a regular file")
+	svc := NewHubService(nil, nil, dir)
+	cause := errors.New("extract failed")
+
+	err := svc.restoreAfter(cause, filepath.Join(t.TempDir(), "gone"), "test/preset")
+	require.ErrorIs(t, err, cause)
+	require.ErrorContains(t, err, "rollback failed")
+
+	// A restorable snapshot returns the cause unchanged.
+	good := seedPersistentTree(t)
+	snap, snapErr := Snapshot(good)
+	require.NoError(t, snapErr)
+	err = NewHubService(nil, nil, good).restoreAfter(cause, snap, "test/preset")
+	require.Equal(t, cause, err)
 }

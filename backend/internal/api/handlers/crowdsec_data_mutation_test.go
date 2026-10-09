@@ -309,3 +309,39 @@ func TestCuratedApplyPrunesSnapshotsToFive(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, matches, 5)
 }
+
+func TestImportConfigClearFailureRollsBackAndReportsBothFailures(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks do not apply to root")
+	}
+	t.Parallel()
+	dir := t.TempDir()
+	seedEngineState(t, dir)
+	// A read-only config directory can be snapshotted but not emptied, so both the clear and the
+	// rollback that follows it fail; the snapshot is retained.
+	locked := filepath.Join(dir, "locked")
+	writeTree(t, locked, map[string]string{"f.yaml": "x"})
+	require.NoError(t, os.Chmod(locked, 0o500))       // #nosec G302 -- test fixture
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o750) }) // #nosec G302 -- test fixture
+	_, r := newImportRouter(t, dir)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, importRequest(t, map[string]string{"config.yaml": importableConfig}))
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "failed to create config dir")
+
+	matches, err := filepath.Glob(dir + ".backup.*")
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "snapshot kept for manual recovery")
+	require.Equal(t, "x", readTreeFile(t, filepath.Join(matches[0], "locked", "f.yaml")))
+	assertEngineStateIntact(t, dir)
+}
+
+func TestPruneSnapshotsLogsAndToleratesFailure(t *testing.T) {
+	t.Parallel()
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+	h, _ := newImportRouter(t, filepath.Join(blocker, "crowdsec"))
+	// The parent of DataDir is a regular file, so listing snapshots fails; pruning is best effort.
+	require.NotPanics(t, h.pruneSnapshots)
+}

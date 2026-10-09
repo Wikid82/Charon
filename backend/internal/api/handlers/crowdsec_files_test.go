@@ -594,3 +594,69 @@ func TestFileErrorLog_StripsControlCharacters(t *testing.T) {
 	assert.NotContains(t, got, "\r")
 	assert.Contains(t, got, "denied")
 }
+
+func TestResolveReadable_UnresolvablePaths(t *testing.T) {
+	t.Parallel()
+	t.Run("data dir cannot be resolved", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		loop := filepath.Join(root, "crowdsec")
+		require.NoError(t, os.Symlink("crowdsec", loop)) // ELOOP is not "does not exist"
+		_, ferr := resolveReadable(loop, "config/a.yaml")
+		require.NotNil(t, ferr)
+		assert.Equal(t, http.StatusInternalServerError, ferr.status)
+	})
+	t.Run("self-referencing link inside data dir is refused", func(t *testing.T) {
+		t.Parallel()
+		f := newFilesFixture(t)
+		require.NoError(t, os.MkdirAll(filepath.Join(f.dir, "config"), 0o750))
+		require.NoError(t, os.Symlink("loop.yaml", filepath.Join(f.dir, "config", "loop.yaml")))
+		w := f.read("config/loop.yaml")
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+func TestResolveWritable_UninspectablePathIs500(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks do not apply to root")
+	}
+	t.Parallel()
+	f := newFilesFixture(t)
+	locked := filepath.Join(f.dir, "locked")
+	require.NoError(t, os.MkdirAll(locked, 0o750))
+	require.NoError(t, os.Chmod(locked, 0o000))       // #nosec G302 -- test fixture
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o750) }) // #nosec G302 -- test fixture
+
+	// Lstat fails with EACCES (not ENOENT) below an unsearchable directory.
+	w := f.write("locked/a.yaml", "a: 1\n")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "failed to inspect path", errorOf(t, w))
+}
+
+func TestCrowdsecFiles_Write_FilesystemFailuresAre500(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks do not apply to root")
+	}
+	t.Parallel()
+	t.Run("new directory cannot be created", func(t *testing.T) {
+		t.Parallel()
+		f := newFilesFixture(t)
+		require.NoError(t, os.Chmod(f.dir, 0o500))       // #nosec G302 -- test fixture
+		t.Cleanup(func() { _ = os.Chmod(f.dir, 0o750) }) // #nosec G302 -- test fixture
+		w := f.write("newdir/a.yaml", "a: 1\n")
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, "failed to prepare dir", errorOf(t, w))
+	})
+	t.Run("file cannot be written", func(t *testing.T) {
+		t.Parallel()
+		f := newFilesFixture(t)
+		cfg := filepath.Join(f.dir, "config")
+		require.NoError(t, os.MkdirAll(cfg, 0o750))
+		require.NoError(t, os.Chmod(cfg, 0o500))       // #nosec G302 -- test fixture
+		t.Cleanup(func() { _ = os.Chmod(cfg, 0o750) }) // #nosec G302 -- test fixture
+		w := f.write("config/new.yaml", "a: 1\n")
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, "failed to write file", errorOf(t, w))
+		assert.NoFileExists(t, filepath.Join(cfg, "new.yaml"))
+	})
+}
