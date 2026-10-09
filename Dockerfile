@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-31408b042c60b9fc
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:19a2fcaccb91be8c73b05ddc8add7b591873589f60faad438176e1b9e9a0278f
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-d75806d895b00627
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:82f3204d6eed07288a0ed5bf45a99fb0cab9940195bbc3d03e598b6bed51da97
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -662,11 +662,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.45.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0; \
-        # GHSA-479m-364c-43vc: goxmldsig XML signature validation bypass (loop variable capture)
-        # Fix available at v1.6.0. Pin here so the Caddy binary is patched immediately;
-        # remove once caddy-security ships a release built with goxmldsig >= v1.6.0.
-        # renovate: datasource=go depName=github.com/jackc/pgx/v4
-        _retry go get github.com/jackc/pgx/v4@v4.18.3; \
+        # CVE-2026-41889: SQL Injection via placeholder confusion with dollar quoted string literals
+        # renovate: datasource=go depName=github.com/jackc/pgx/v5
+        _retry go get github.com/jackc/pgx/v5@v5.11.0; \
         # CVE-2026-41889: Improper Neutralization of Special Elements used in an SQL Command 
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
         _retry go get github.com/russellhaering/goxmldsig@v1.6.0; \
@@ -1019,11 +1017,15 @@ WORKDIR /app
 # floor itself is bumped by Renovate (repology) the moment a patched release is published.
 # renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
 ARG LIBXML2_VERSION=2.13.9-r2
+#
+# zlib is pinned to an exact version so the image never silently keeps an older vulnerable
+# build from the base layer (`apk upgrade` alone left Aikido flagging it).
+ARG ZLIB_VERSION=1.3.2-r1
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
-    c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" \
-    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils \
+    c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
+    && apk upgrade --no-cache libcrypto3 libssl3 musl musl-utils \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
     xz-libs
 
