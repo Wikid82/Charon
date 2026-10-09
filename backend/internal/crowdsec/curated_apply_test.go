@@ -102,12 +102,12 @@ func backupsOf(t *testing.T, dataDir string) []string {
 // assertSeedIntact checks the seeded layout byte-for-byte and symlink-for-symlink.
 func assertSeedIntact(t *testing.T, dir string) {
 	t.Helper()
-	cfg, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	cfg, err := os.ReadFile(filepath.Join(dir, "config.yaml")) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	require.Equal(t, "original: true\n", string(cfg))
 
 	yml := filepath.Join(dir, "hub", "collections", "crowdsecurity", "sshd.yaml")
-	data, err := os.ReadFile(yml)
+	data, err := os.ReadFile(yml) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	require.Equal(t, "name: sshd\n", string(data))
 	info, err := os.Lstat(yml)
@@ -265,7 +265,7 @@ func TestApplyCuratedInstallFailureRollsBackInPlace(t *testing.T) {
 			return nil, false, nil
 		}
 		// DataDir must exist and be intact while cscli runs (never renamed away).
-		cfg, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+		cfg, err := os.ReadFile(filepath.Join(dir, "config.yaml")) //nolint:gosec // G304: Test file in temp directory
 		if err != nil {
 			return nil, true, fmt.Errorf("data dir not in place during install: %w", err)
 		}
@@ -541,11 +541,11 @@ func TestApplyCuratedRollbackLeavesLiveDatabaseUntouched(t *testing.T) {
 		_, statErr := os.Stat(filepath.Join(res.BackupPath, "data", f))
 		require.True(t, os.IsNotExist(statErr), "%s must not be backed up", f)
 		// Rollback neither deleted nor rewound the live files.
-		got, readErr := os.ReadFile(filepath.Join(dir, "data", f))
+		got, readErr := os.ReadFile(filepath.Join(dir, "data", f)) //nolint:gosec // G304: Test file in temp directory
 		require.NoError(t, readErr, f)
 		require.Equal(t, "live-"+f, string(got))
 	}
-	got, err := os.ReadFile(filepath.Join(dir, "data", "keep.txt"))
+	got, err := os.ReadFile(filepath.Join(dir, "data", "keep.txt")) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	require.Equal(t, "kept", string(got))
 	assertSeedIntact(t, dir)

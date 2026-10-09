@@ -36,7 +36,7 @@ func TestCopyDirPreservesSymlinks(t *testing.T) {
 		require.Equal(t, want, got)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dst, "hub", "collections", "crowdsecurity", "sshd.yaml"))
+	data, err := os.ReadFile(filepath.Join(dst, "hub", "collections", "crowdsecurity", "sshd.yaml")) //nolint:gosec // G304: Test file in temp directory
 	require.NoError(t, err)
 	require.Equal(t, "name: sshd\n", string(data))
 	info, err := os.Lstat(filepath.Join(dst, "hub", "collections", "crowdsecurity", "sshd.yaml"))
