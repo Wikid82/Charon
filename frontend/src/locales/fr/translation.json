@@ -1178,7 +1178,7 @@
       "goToSecurity": "Aller au tableau de bord de sécurité",
       "enrollmentToken": "Jeton d'inscription",
       "tokenPlaceholder": "Collez votre jeton d'inscription de la Console CrowdSec",
-      "agentName": "Nom de l'agent (optionnel)",
+      "agentName": "Nom de l'agent",
       "agentPlaceholder": "mon-instance-charon",
       "tenant": "Locataire/Organisation (optionnel)",
       "tenantPlaceholder": "id-org-de-console",
@@ -1221,7 +1221,8 @@
       "reenrolling": "Réinscription...",
       "clearState": "Effacer l'état d'inscription",
       "clearing": "Effacement...",
-      "clearConfirm": "Cela effacera l'état d'inscription local. Vous devrez peut-être vous réinscrire. Continuer ?"
+      "clearConfirm": "Cela effacera l'état d'inscription local. Vous devrez peut-être vous réinscrire. Continuer ?",
+      "clearFailed": "Impossible d'effacer l'état d'inscription : {{message}}"
     },
     "packages": {
       "title": "Paquets de configuration",

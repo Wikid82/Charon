@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router'
 
@@ -83,8 +83,11 @@ export default function CrowdSecConfig() {
   const [enrollmentToken, setEnrollmentToken] = useState('')
   const [consoleTenant, setConsoleTenant] = useState('')
   const [consoleAgentName, setConsoleAgentName] = useState((typeof window !== 'undefined' && window.location?.hostname) || 'charon-agent')
+  // Tracks manual edits so late-arriving enrollment status never overwrites what the user typed
+  const consoleAgentNameEdited = useRef(false)
+  const consoleTenantEdited = useRef(false)
   const [consoleAck, setConsoleAck] = useState(false)
-  const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; tenant?: string; ack?: string; submit?: string }>({})
+  const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; ack?: string; submit?: string }>({})
   const consoleStatusQuery = useConsoleStatus(consoleEnrollmentEnabled)
   const enrollConsoleMutation = useEnrollConsole()
   const clearEnrollmentMutation = useClearConsoleEnrollment()
@@ -219,14 +222,27 @@ export default function CrowdSecConfig() {
     }
   }, [presetCatalog, selectedPresetSlug])
 
+  // Prefer the enrolled identity over the hostname default, unless the user already edited the field
   useEffect(() => {
-    if (consoleStatusQuery.data?.agent_name) {
-      setConsoleAgentName((prev) => prev || consoleStatusQuery.data?.agent_name || prev)
+    const enrolledAgent = consoleStatusQuery.data?.agent_name
+    if (enrolledAgent && !consoleAgentNameEdited.current) {
+      setConsoleAgentName(enrolledAgent)
     }
-    if (consoleStatusQuery.data?.tenant) {
-      setConsoleTenant((prev) => prev || consoleStatusQuery.data?.tenant || prev)
+    const enrolledTenant = consoleStatusQuery.data?.tenant
+    if (enrolledTenant && !consoleTenantEdited.current) {
+      setConsoleTenant(enrolledTenant)
     }
   }, [consoleStatusQuery.data?.agent_name, consoleStatusQuery.data?.tenant])
+
+  const handleConsoleAgentNameChange = (value: string) => {
+    consoleAgentNameEdited.current = true
+    setConsoleAgentName(value)
+  }
+
+  const handleConsoleTenantChange = (value: string) => {
+    consoleTenantEdited.current = true
+    setConsoleTenant(value)
+  }
 
   const selectedPreset = presetCatalog.find((preset) => preset.slug === selectedPresetSlug)
   const selectedPresetRequiresHub = selectedPreset?.requiresHub ?? false
@@ -306,16 +322,13 @@ export default function CrowdSecConfig() {
     return 'Console enrollment failed'
   }
 
-  const validateConsoleEnrollment = (options?: { allowMissingTenant?: boolean; requireAck?: boolean }) => {
-    const nextErrors: { token?: string; agent?: string; tenant?: string; ack?: string } = {}
+  const validateConsoleEnrollment = (options?: { requireAck?: boolean }) => {
+    const nextErrors: { token?: string; agent?: string; ack?: string } = {}
     if (!enrollmentToken.trim()) {
       nextErrors.token = 'Enrollment token is required'
     }
     if (!consoleAgentName.trim()) {
       nextErrors.agent = 'Agent name is required'
-    }
-    if (!consoleTenant.trim() && !options?.allowMissingTenant) {
-      nextErrors.tenant = 'Tenant / organization is required'
     }
     if (options?.requireAck && !consoleAck) {
       nextErrors.ack = 'You must acknowledge the console data-sharing notice'
@@ -325,9 +338,8 @@ export default function CrowdSecConfig() {
   }
 
   const submitConsoleEnrollment = async (force = false) => {
-    const allowMissingTenant = force && !consoleTenant.trim()
     const requireAck = normalizedConsoleStatus === 'not_enrolled'
-    if (!validateConsoleEnrollment({ allowMissingTenant, requireAck })) return
+    if (!validateConsoleEnrollment({ requireAck })) return
     const tenantValue = consoleTenant.trim() || consoleStatusQuery.data?.tenant || consoleAgentName || 'charon-agent'
     try {
       await enrollConsoleMutation.mutateAsync({
@@ -709,7 +721,7 @@ export default function CrowdSecConfig() {
                 id="console-agent-name"
                 label={t('crowdsecConfig.consoleEnrollment.agentName')}
                 value={consoleAgentName}
-                onChange={(e) => setConsoleAgentName(e.target.value)}
+                onChange={(e) => handleConsoleAgentNameChange(e.target.value)}
                 error={consoleErrors.agent}
                 errorTestId="console-enroll-error"
                 data-testid="console-agent-name"
@@ -718,10 +730,8 @@ export default function CrowdSecConfig() {
                 id="console-tenant"
                 label={t('crowdsecConfig.consoleEnrollment.tenant')}
                 value={consoleTenant}
-                onChange={(e) => setConsoleTenant(e.target.value)}
+                onChange={(e) => handleConsoleTenantChange(e.target.value)}
                 helperText={t('crowdsecConfig.consoleEnrollment.tenantHelper')}
-                error={consoleErrors.tenant}
-                errorTestId="console-enroll-error"
                 data-testid="console-tenant"
               />
             </div>
@@ -864,7 +874,7 @@ export default function CrowdSecConfig() {
                             id="reenroll-agent-name"
                             type="text"
                             value={consoleAgentName}
-                            onChange={(e) => setConsoleAgentName(e.target.value)}
+                            onChange={(e) => handleConsoleAgentNameChange(e.target.value)}
                             placeholder={t('crowdsecConfig.reenroll.agentPlaceholder')}
                           />
                         </div>
@@ -876,7 +886,7 @@ export default function CrowdSecConfig() {
                             id="reenroll-tenant"
                             type="text"
                             value={consoleTenant}
-                            onChange={(e) => setConsoleTenant(e.target.value)}
+                            onChange={(e) => handleConsoleTenantChange(e.target.value)}
                             placeholder={t('crowdsecConfig.reenroll.orgPlaceholder')}
                           />
                         </div>

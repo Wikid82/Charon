@@ -1177,7 +1177,7 @@
       "goToSecurity": "前往安全仪表板",
       "enrollmentToken": "注册令牌",
       "tokenPlaceholder": "粘贴您从 CrowdSec 控制台获取的注册令牌",
-      "agentName": "代理名称（可选）",
+      "agentName": "代理名称",
       "agentPlaceholder": "我的-charon-实例",
       "tenant": "租户/组织（可选）",
       "tenantPlaceholder": "控制台中的组织ID",
@@ -1220,7 +1220,8 @@
       "reenrolling": "正在重新注册...",
       "clearState": "清除注册状态",
       "clearing": "正在清除...",
-      "clearConfirm": "这将清除本地注册状态。您可能需要重新注册。是否继续？"
+      "clearConfirm": "这将清除本地注册状态。您可能需要重新注册。是否继续？",
+      "clearFailed": "清除注册状态失败：{{message}}"
     },
     "packages": {
       "title": "配置包",

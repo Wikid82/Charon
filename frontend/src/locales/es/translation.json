@@ -1178,7 +1178,7 @@
       "goToSecurity": "Ir al Panel de Seguridad",
       "enrollmentToken": "Token de inscripción",
       "tokenPlaceholder": "Pegue su token de inscripción de la Consola CrowdSec",
-      "agentName": "Nombre del agente (opcional)",
+      "agentName": "Nombre del agente",
       "agentPlaceholder": "mi-instancia-charon",
       "tenant": "Inquilino/Organización (opcional)",
       "tenantPlaceholder": "id-org-de-consola",
@@ -1221,7 +1221,8 @@
       "reenrolling": "Reinscribiendo...",
       "clearState": "Limpiar estado de inscripción",
       "clearing": "Limpiando...",
-      "clearConfirm": "Esto limpiará el estado de inscripción local. Puede que necesite reinscribirse. ¿Continuar?"
+      "clearConfirm": "Esto limpiará el estado de inscripción local. Puede que necesite reinscribirse. ¿Continuar?",
+      "clearFailed": "No se pudo borrar el estado de registro: {{message}}"
     },
     "packages": {
       "title": "Paquetes de configuración",

@@ -1506,7 +1506,7 @@
       "goToSecurity": "Go to Security Dashboard",
       "enrollmentToken": "Enrollment Token",
       "tokenPlaceholder": "Paste your enrollment token from CrowdSec Console",
-      "agentName": "Agent Name (optional)",
+      "agentName": "Agent Name",
       "agentPlaceholder": "my-charon-instance",
       "tenant": "Tenant/Organization (optional)",
       "tenantPlaceholder": "org-id-from-console",
@@ -1542,7 +1542,8 @@
       "reenrolling": "Re-enrolling...",
       "clearState": "Clear enrollment state",
       "clearing": "Clearing...",
-      "clearConfirm": "This will clear local enrollment state. You may need to re-enroll. Continue?"
+      "clearConfirm": "This will clear local enrollment state. You may need to re-enroll. Continue?",
+      "clearFailed": "Failed to clear enrollment state: {{message}}"
     },
     "packages": {
       "title": "Configuration Packages",

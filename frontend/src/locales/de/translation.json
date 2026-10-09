@@ -1176,7 +1176,7 @@
       "goToSecurity": "Zum Sicherheits-Dashboard",
       "enrollmentToken": "Registrierungstoken",
       "tokenPlaceholder": "Fügen Sie Ihr Registrierungstoken von der CrowdSec-Konsole ein",
-      "agentName": "Agent-Name (optional)",
+      "agentName": "Agent-Name",
       "agentPlaceholder": "meine-charon-instanz",
       "tenant": "Mandant/Organisation (optional)",
       "tenantPlaceholder": "org-id-aus-konsole",
@@ -1219,7 +1219,8 @@
       "reenrolling": "Neu registrieren...",
       "clearState": "Registrierungsstatus löschen",
       "clearing": "Lösche...",
-      "clearConfirm": "Dies löscht den lokalen Registrierungsstatus. Möglicherweise müssen Sie sich erneut registrieren. Fortfahren?"
+      "clearConfirm": "Dies löscht den lokalen Registrierungsstatus. Möglicherweise müssen Sie sich erneut registrieren. Fortfahren?",
+      "clearFailed": "Der Registrierungsstatus konnte nicht gelöscht werden: {{message}}"
     },
     "packages": {
       "title": "Konfigurationspakete",

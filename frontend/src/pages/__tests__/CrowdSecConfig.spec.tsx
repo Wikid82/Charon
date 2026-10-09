@@ -202,6 +202,77 @@ describe('CrowdSecConfig', () => {
     expect((screen.getByTestId('console-enrollment-token') as HTMLInputElement).value).toBe('')
   })
 
+  const setupConsoleEnrollment = () => {
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+  }
+
+  it('does not require a tenant to enroll (backend treats it as optional)', async () => {
+    setupConsoleEnrollment()
+    renderWithProviders(<CrowdSecConfig />)
+
+    await screen.findByTestId('console-enrollment-card')
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'secret-1234567890')
+    await userEvent.clear(screen.getByTestId('console-agent-name'))
+    await userEvent.type(screen.getByTestId('console-agent-name'), 'agent-one')
+    await userEvent.click(screen.getByTestId('console-ack-checkbox'))
+    await userEvent.click(screen.getByTestId('console-enroll-btn'))
+
+    await waitFor(() => expect(enrollConsoleMock).toHaveBeenCalledWith(expect.objectContaining({
+      agent_name: 'agent-one',
+      tenant: 'agent-one',
+      force: false,
+    })))
+    expect(screen.queryByText(/Tenant \/ organization is required/)).not.toBeInTheDocument()
+  })
+
+  it('still requires an agent name', async () => {
+    setupConsoleEnrollment()
+    renderWithProviders(<CrowdSecConfig />)
+
+    await screen.findByTestId('console-enrollment-card')
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'secret-1234567890')
+    await userEvent.clear(screen.getByTestId('console-agent-name'))
+    await userEvent.click(screen.getByTestId('console-ack-checkbox'))
+    await userEvent.click(screen.getByTestId('console-enroll-btn'))
+
+    expect(await screen.findByText('Agent name is required')).toBeInTheDocument()
+    expect(enrollConsoleMock).not.toHaveBeenCalled()
+  })
+
+  it('defaults the agent name to the hostname when not enrolled', async () => {
+    setupConsoleEnrollment()
+    renderWithProviders(<CrowdSecConfig />)
+
+    const input = await screen.findByTestId('console-agent-name')
+    expect((input as HTMLInputElement).value).toBe(window.location.hostname)
+  })
+
+  it('initializes the agent name and tenant from the enrolled status', async () => {
+    setupConsoleEnrollment()
+    consoleStatusMock.mockReturnValue({ status: 'enrolled', key_present: true, agent_name: 'enrolled-agent', tenant: 'enrolled-org' })
+    renderWithProviders(<CrowdSecConfig />)
+
+    await waitFor(() => expect((screen.getByTestId('console-agent-name') as HTMLInputElement).value).toBe('enrolled-agent'))
+    expect((screen.getByTestId('console-tenant') as HTMLInputElement).value).toBe('enrolled-org')
+  })
+
+  it('does not overwrite a typed agent name when enrolled status arrives later', async () => {
+    setupConsoleEnrollment()
+    renderWithProviders(<CrowdSecConfig />)
+
+    const agent = await screen.findByTestId('console-agent-name')
+    await userEvent.clear(agent)
+    await userEvent.type(agent, 'my-typed-agent')
+
+    consoleStatusMock.mockReturnValue({ status: 'enrolled', key_present: true, agent_name: 'enrolled-agent', tenant: 'enrolled-org' })
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'x')
+
+    await waitFor(() => expect((screen.getByTestId('console-tenant') as HTMLInputElement).value).toBe('enrolled-org'))
+    expect((screen.getByTestId('console-agent-name') as HTMLInputElement).value).toBe('my-typed-agent')
+  })
+
   it('renders masked key state in console status', async () => {
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
     vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
