@@ -50,6 +50,12 @@ ARG XNET_VERSION=0.61.0
 # golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.58.0
+# Shared golang.org/x/mod pin (GOSUMDB tile-verification bypass, CVE-2026-56864 / CVE-2026-56865;
+# fixed in v0.40.0). Must be >= the x/mod that the pinned x/net and x/crypto require (v0.41.0):
+# `go get golang.org/x/mod@<older>` is a downgrade and its cascade drags x/net, x/crypto and
+# x/text back down with it, silently undoing the pins above.
+# renovate: datasource=go depName=golang.org/x/mod
+ARG XMOD_VERSION=0.41.0
 # klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
