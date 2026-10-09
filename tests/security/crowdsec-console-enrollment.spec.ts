@@ -333,7 +333,7 @@ test.describe('CrowdSec Console Enrollment', () => {
     });
 
     test('should enroll without a tenant because the field is labelled optional', async ({ page }) => {
-      test.fixme(true, 'F4: the tenant and agent name fields are labelled "(optional)" but validation rejects them when blank');
+      test.fixme(true, '#1531 F4: the tenant and agent name fields are labelled "(optional)" but validation rejects them when blank');
       const tracker = await openTracked(page, NOT_ENROLLED, { enrollResponse: PENDING });
 
       await tokenField(page).fill(KEY);
@@ -345,7 +345,7 @@ test.describe('CrowdSec Console Enrollment', () => {
     });
 
     test('should enroll without an agent name because the field is labelled optional', async ({ page }) => {
-      test.fixme(true, 'F4: the tenant and agent name fields are labelled "(optional)" but validation rejects them when blank');
+      test.fixme(true, '#1531 F4: the tenant and agent name fields are labelled "(optional)" but validation rejects them when blank');
       const tracker = await openTracked(page, NOT_ENROLLED, { enrollResponse: PENDING });
 
       await tokenField(page).fill(KEY);
@@ -447,7 +447,7 @@ test.describe('CrowdSec Console Enrollment', () => {
     });
 
     test('should keep the enrolled agent name when rotating without editing it', async ({ page }) => {
-      test.fixme(true, 'F5: the agent name field is never filled from the enrolled status, so a rotation renames the agent to the page host name');
+      test.fixme(true, '#1531 F5: the agent name field is never filled from the enrolled status, so a rotation renames the agent to the page host name');
       const tracker = await openTracked(page, ENROLLED, { enrollResponse: PENDING });
 
       await expect(agentField(page)).toHaveValue('e2e-agent');
