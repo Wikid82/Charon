@@ -163,7 +163,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
       await openPageAndApplyHubPreset(page);
 
       await test.step('Verify an error is surfaced', async () => {
-        await expect(page.getByText(/apply failed|hub unavailable/i).first()).toBeVisible();
+        await expect(page.getByText(message).first()).toBeVisible();
       });
       await test.step('Verify no success toast is shown', async () => {
         await expect(page.getByText(/preset applied/i)).toHaveCount(0);

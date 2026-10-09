@@ -193,7 +193,12 @@ describe('CrowdSecConfig curated preset apply', () => {
     expect(crowdsecApi.writeCrowdsecFile).not.toHaveBeenCalled()
   })
 
-  it('keeps the local fallback for hub presets on 501', async () => {
+  it.each([
+    [501, 'apply unsupported'],
+    [503, 'hub unavailable upstream'],
+    [500, 'apply blew up'],
+    [504, 'upstream timed out'],
+  ])('surfaces the server message for hub preset %i and performs no file write', async (status, message) => {
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [hubPreset] })
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
       status: 'pulled',
@@ -202,12 +207,16 @@ describe('CrowdSecConfig curated preset apply', () => {
       cache_key: hubPreset.cache_key,
       source: 'hub',
     })
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(axiosError(501, 'not implemented'))
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(axiosError(status, 'Request failed', { error: message }))
     await renderPage()
     await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
     await waitFor(() => expect(screen.getByTestId('preset-preview')).toHaveTextContent('base-http-scenarios'))
     await userEvent.click(screen.getByTestId('apply-preset-btn'))
-    await waitFor(() => expect(crowdsecApi.writeCrowdsecFile).toHaveBeenCalledWith('acquis.yaml', expect.stringContaining('base-http-scenarios')))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(`Apply failed: ${message}`))
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(toast.info).not.toHaveBeenCalled()
+    expect(crowdsecApi.writeCrowdsecFile).not.toHaveBeenCalled()
+    expect(backupsApi.createBackup).not.toHaveBeenCalled()
   })
 
   it('shows a generic error for non-HTTP failures on curated presets', async () => {

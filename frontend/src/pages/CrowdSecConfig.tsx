@@ -24,6 +24,15 @@ import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hoo
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { toast } from '../utils/toast'
 
+/** Prefer the server's `error` message for Axios failures, falling back to the given text. */
+function getServerErrorMessage(err: unknown, fallback: string): string {
+  if (isAxiosError(err)) {
+    const serverError = (err.response?.data as { error?: string } | undefined)?.error
+    return serverError || err.message || fallback
+  }
+  return fallback
+}
+
 const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDashboard'))
 
 export default function CrowdSecConfig() {
@@ -115,7 +124,16 @@ export default function CrowdSecConfig() {
 
   const listMutation = useQuery({ queryKey: ['crowdsec-files'], queryFn: listCrowdsecFiles })
   const readMutation = useMutation({ mutationFn: (path: string) => readCrowdsecFile(path), onSuccess: (data) => setFileContent(data.content) })
-  const writeMutation = useMutation({ mutationFn: async ({ path, content }: { path: string; content: string }) => writeCrowdsecFile(path, content), onSuccess: () => { toast.success('File saved'); queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] }) } })
+  const writeMutation = useMutation({
+    mutationFn: async ({ path, content }: { path: string; content: string }) => writeCrowdsecFile(path, content),
+    onSuccess: () => {
+      toast.success('File saved')
+      queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
+    },
+    onError: (err: unknown) => {
+      toast.error(getServerErrorMessage(err, 'Failed to save file'))
+    },
+  })
 
   const presetsQuery = useQuery({
     queryKey: ['crowdsec-presets'],
@@ -422,39 +440,7 @@ export default function CrowdSecConfig() {
       await backupMutation.mutateAsync()
       await writeMutation.mutateAsync({ path: selectedPath, content: fileContent })
     } catch {
-      // handled
-    }
-  }
-
-  const applyPresetLocally = async (reason?: string) => {
-    if (!selectedPreset) {
-      toast.error('Select a preset to apply')
-      return
-    }
-
-    const targetPath = selectedPath ?? listMutation.data?.files?.[0]
-    if (!targetPath) {
-      toast.error('Select a configuration file to apply the preset')
-      return
-    }
-
-    const content = presetPreview
-    if (!content) {
-      toast.error('Preset preview is unavailable; retry pulling before applying')
-      return
-    }
-
-    try {
-      await backupMutation.mutateAsync()
-      await writeCrowdsecFile(targetPath, content)
-      queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
-      setSelectedPath(targetPath)
-      setFileContent(content)
-      setApplyInfo({ status: 'applied-locally', cacheKey: presetMeta?.cacheKey })
-      toast.success(reason ? `${reason}: preset applied locally` : 'Preset applied locally (backup created)')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to apply preset locally'
-      toast.error(msg)
+      // Failures are surfaced by the mutations' onError handlers; success toast only fires on onSuccess.
     }
   }
 
@@ -488,60 +474,23 @@ export default function CrowdSecConfig() {
         setPresetStatusMessage(`Backup stored at ${res.backup}`)
       }
     } catch (err) {
-      if (isAxiosError(err)) {
-        const status = err.response?.status
-        const serverError = err.response?.data?.error as string | undefined
-        const backupPath = (err.response?.data as { backup?: string } | undefined)?.backup
-
-        // Curated presets are applied authoritatively by the server. Any failure is
-        // surfaced as-is and must never fall back to writing client-side content.
-        if (selectedPreset.source === 'charon-curated') {
-          const curatedMsg = serverError || err.message
-          if (status === 400) {
-            setValidationError(curatedMsg || 'Preset validation failed')
-          }
-          setApplyInfo({ status: 'failed', backup: backupPath, cacheKey: presetMeta?.cacheKey })
-          toast.error(`Apply failed: ${curatedMsg}${backupPath ? `. Backup created at ${backupPath}` : ''}`)
-          return
-        }
-
-        if (status === 501) {
-          toast.info('Preset apply is not available on the server; applying locally instead')
-          await applyPresetLocally('Backend apply unavailable')
-          return
-        }
-
-        if (err.response?.status === 400) {
-          setValidationError(err.response?.data?.error || 'Preset validation failed')
-          toast.error('Preset validation failed')
-          return
-        }
-
-        if (err.response?.status === 503) {
-          setHubUnavailable(true)
-          setPresetStatusMessage('CrowdSec hub unavailable. Retry or load cached copy.')
-          toast.error('Hub unavailable; retry pull/apply or use cached copy')
-          return
-        }
-
-        const errorMsg = serverError || err.message
-
-        // Check if error is due to missing cache
-        if (errorMsg.includes('not cached') || errorMsg.includes('Pull the preset first')) {
-          toast.error(errorMsg)
-          setValidationError('Preset must be pulled before applying. Click "Pull Preview" first.')
-          return
-        }
-
-        if (backupPath) {
-          setApplyInfo({ status: 'failed', backup: backupPath, cacheKey: presetMeta?.cacheKey })
-          toast.error(`Apply failed: ${errorMsg}. Backup created at ${backupPath}`)
-          return
-        }
-        toast.error(`Apply failed: ${errorMsg}`)
-      } else {
+      if (!isAxiosError(err)) {
         toast.error('Failed to apply preset')
+        return
       }
+      // The server is authoritative for every preset source: surface its message for any
+      // non-2xx response and never write preset content client-side.
+      const status = err.response?.status
+      const backupPath = (err.response?.data as { backup?: string } | undefined)?.backup
+      const message = getServerErrorMessage(err, 'Failed to apply preset')
+      if (status === 400) {
+        setValidationError(message)
+      }
+      if (status === 503) {
+        setHubUnavailable(true)
+      }
+      setApplyInfo({ status: 'failed', backup: backupPath || undefined, cacheKey: presetMeta?.cacheKey })
+      toast.error(`Apply failed: ${message}${backupPath ? `. Backup created at ${backupPath}` : ''}`)
     } finally {
       setIsApplyingPreset(false)
     }

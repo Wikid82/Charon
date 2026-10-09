@@ -11,6 +11,7 @@ import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as api from '../../api/security'
 import { HUB_PRESET_FIXTURES } from '../../test-utils/crowdsecPresetFixtures'
+import { toast } from '../../utils/toast'
 import CrowdSecConfig from '../CrowdSecConfig'
 
 import type { ConsoleEnrollmentStatus } from '../../api/consoleEnrollment'
@@ -21,6 +22,9 @@ vi.mock('../../api/backups')
 vi.mock('../../api/settings')
 vi.mock('../../api/presets')
 vi.mock('../../api/featureFlags')
+vi.mock('../../utils/toast', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}))
 vi.mock('../../components/CrowdSecBouncerKeyDisplay', () => ({
   CrowdSecBouncerKeyDisplay: () => null,
 }))
@@ -271,34 +275,30 @@ describe('CrowdSecConfig', () => {
     expect(screen.getByRole('link', { name: /Cerberus/i })).toHaveAttribute('href', '/security')
   })
 
-  it('renders preset preview and applies with backup when backend apply is unavailable', async () => {
+  it('shows the server error and does not write files when backend apply is unavailable', async () => {
     const status = { crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } }
-    const presetContent = HUB_PRESET_FIXTURES.find((preset) => preset.slug === 'bot-mitigation-essentials')?.content || ''
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status)
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: ['acquis.yaml'] })
     vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: '' })
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
-    vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({ status: 'written' })
     const axiosError = new AxiosError('not implemented', undefined, undefined, undefined, {
       status: 501,
       statusText: 'Not Implemented',
       headers: {},
       config: { headers: {} },
-      data: {},
+      data: { error: 'apply unsupported' },
     } as AxiosResponse)
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(axiosError)
 
     renderWithProviders(<CrowdSecConfig />)
     expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByTestId('preset-preview')).toHaveTextContent('configs:'))
-    const fileSelect = screen.getByTestId('crowdsec-file-select')
-    await userEvent.selectOptions(fileSelect, 'acquis.yaml')
-    const applyBtn = screen.getByTestId('apply-preset-btn')
-    await userEvent.click(applyBtn)
+    await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
+    await userEvent.click(screen.getByTestId('apply-preset-btn'))
 
     await waitFor(() => expect(presetsApi.applyCrowdsecPreset).toHaveBeenCalledWith({ slug: 'bot-mitigation-essentials', cache_key: 'cache-123' }))
-    await waitFor(() => expect(backupsApi.createBackup).toHaveBeenCalled())
-    await waitFor(() => expect(crowdsecApi.writeCrowdsecFile).toHaveBeenCalledWith('acquis.yaml', presetContent))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Apply failed: apply unsupported'))
+    expect(backupsApi.createBackup).not.toHaveBeenCalled()
+    expect(crowdsecApi.writeCrowdsecFile).not.toHaveBeenCalled()
   })
 
   it('surfaces validation error when slug is invalid', async () => {
@@ -388,7 +388,7 @@ describe('CrowdSecConfig', () => {
     // reloadHint is a boolean and renders as empty/true - just verify the info section exists
   })
 
-  it('shows improved error message when preset is not cached', async () => {
+  it('shows the server message when preset is not cached', async () => {
     const axiosError = {
       isAxiosError: true,
       response: {
@@ -407,7 +407,7 @@ describe('CrowdSecConfig', () => {
     const applyBtn = await screen.findByTestId('apply-preset-btn')
     await userEvent.click(applyBtn)
 
-    expect(await screen.findByTestId('preset-validation-error')).toBeInTheDocument()
-    expect(screen.getByTestId('preset-validation-error')).toHaveTextContent('Preset must be pulled before applying')
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Apply failed: CrowdSec preset not cached. Pull the preset first')))
+    expect(screen.queryByTestId('preset-validation-error')).not.toBeInTheDocument()
   })
 })
