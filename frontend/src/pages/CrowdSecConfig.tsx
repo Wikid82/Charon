@@ -22,6 +22,7 @@ import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
+import { sanitizeSecret } from '../utils/sanitizeSecret'
 import { toast } from '../utils/toast'
 
 /** Prefer the server's `error` message for Axios failures, falling back to the given text. */
@@ -296,8 +297,6 @@ export default function CrowdSecConfig() {
   const consoleTokenState = consoleStatusQuery.data ? (consoleStatusQuery.data.key_present ? 'Stored (masked)' : 'Not stored') : '—'
   const canRotateKey = normalizedConsoleStatus === 'enrolled' || normalizedConsoleStatus === 'degraded' || isConsolePendingAcceptance
   const consoleDocsHref = 'https://wikid82.github.io/charon/security/'
-
-  const sanitizeSecret = (msg: string) => msg.replace(/\b[A-Za-z0-9]{10,64}\b/g, '***')
 
   const sanitizeErrorMessage = (err: unknown) => {
     if (isAxiosError(err)) {
@@ -968,7 +967,7 @@ export default function CrowdSecConfig() {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             data-testid="import-file"
             accept=".tar.gz,.zip"
-            aria-label={t('crowdsecConfig.packages.selectFile') || "Select CrowdSec package"}
+            aria-label={t('crowdsecConfig.packages.selectFile')}
           />
         </div>
       </Card>
@@ -994,7 +993,7 @@ export default function CrowdSecConfig() {
             </div>
             <select
               value={sortBy}
-              aria-label={t('crowdsecConfig.presets.sortBy') || "Sort presets"}
+              aria-label={t('crowdsecConfig.presets.sortBy')}
               onChange={(e) => setSortBy(e.target.value as 'alpha' | 'type' | 'source')}
               className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
             >
@@ -1163,7 +1162,7 @@ export default function CrowdSecConfig() {
             onChange={(e) => setFileContent(e.target.value)}
             rows={12}
             className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white"
-            aria-label={t('crowdsecConfig.files.content') || "File content"}
+            aria-label={t('crowdsecConfig.files.content')}
           />
           <div className="flex gap-2">
             <Button onClick={handleSaveFile} isLoading={writeMutation.isPending || backupMutation.isPending}>{t('common.save')}</Button>
@@ -1545,7 +1544,7 @@ export default function CrowdSecConfig() {
               {t('crowdsecConfig.whitelist.deleteModal.title', 'Remove Whitelist Entry')}
             </h2>
             <p className="text-sm text-gray-300 mb-4">
-              {t('crowdsecConfig.whitelist.deleteModal.body', 'Remove {{ip}} from the whitelist? CrowdSec may then block this IP if it triggers alerts.', { ip: confirmDeleteWhitelist.ip_or_cidr })}
+              {t('crowdsecConfig.whitelist.deleteModal.body', { ip: confirmDeleteWhitelist.ip_or_cidr })}
             </p>
             <div className="flex justify-end gap-3">
               <Button

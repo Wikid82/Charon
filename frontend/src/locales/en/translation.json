@@ -488,7 +488,8 @@
           "24h": "24h",
           "7d": "7d",
           "30d": "30d"
-        }
+        },
+        "timeRangeLabel": "Time range"
       }
     },
     "acl": {
@@ -1524,7 +1525,8 @@
       "tenantLabel": "Tenant",
       "lastAttempt": "Last attempt",
       "enrolledAt": "Enrolled",
-      "correlationId": "Correlation ID"
+      "correlationId": "Correlation ID",
+      "lastError": "Last error"
     },
     "reenroll": {
       "title": "Re-enrollment Options",
@@ -1547,7 +1549,8 @@
       "description": "Export or import CrowdSec configuration packages (tar.gz/zip). A backup is created before importing.",
       "export": "Export",
       "import": "Import",
-      "importing": "Importing..."
+      "importing": "Importing...",
+      "selectFile": "Select CrowdSec package file"
     },
     "presets": {
       "title": "Presets",
@@ -1581,12 +1584,14 @@
       "filesystem": "Filesystem",
       "loadCached": "Load cached preview",
       "applyDisabled": "Apply disabled while hub is offline.",
-      "noPresets": "No presets available. Ensure Cerberus is enabled."
+      "noPresets": "No presets available. Ensure Cerberus is enabled.",
+      "sortBy": "Sort presets"
     },
     "files": {
       "title": "Edit Configuration Files",
       "selectFile": "Select a file...",
-      "refresh": "Refresh"
+      "refresh": "Refresh",
+      "content": "File content"
     },
     "bannedIps": {
       "title": "Banned IPs",
@@ -1621,6 +1626,35 @@
       "title": "Confirm Unban",
       "confirm": "Are you sure you want to unban",
       "submit": "Unban"
+    },
+    "lapiInitializing": "CrowdSec is running, but the Local API is still initializing.",
+    "lapiInitializingDesc": "Console enrollment will be available once the Local API is ready. This can take up to a minute after CrowdSec starts.",
+    "checkingAgain": "(checking again...)",
+    "notRunning": "CrowdSec is not running",
+    "notRunningDesc": "Start CrowdSec before enrolling in the Console.",
+    "starting": "Starting CrowdSec...",
+    "startFailed": "Failed to start CrowdSec",
+    "startCrowdsec": "Start CrowdSec",
+    "goToSecurity": "Go to Security",
+    "whitelist": {
+      "tabLabel": "Whitelist",
+      "title": "IP Whitelist",
+      "description": "Whitelisted IPs and CIDRs are never blocked by CrowdSec, even if they trigger alerts.",
+      "ipLabel": "IP or CIDR",
+      "reasonLabel": "Reason",
+      "reasonPlaceholder": "Optional reason",
+      "addMyIp": "Add My IP",
+      "none": "No whitelist entries",
+      "columnIp": "IP / CIDR",
+      "columnReason": "Reason",
+      "columnAdded": "Added",
+      "deleteAriaLabel": "Remove whitelist entry for",
+      "delete": "Delete",
+      "deleteModal": {
+        "title": "Remove Whitelist Entry",
+        "body": "Remove {{ip}} from the whitelist? CrowdSec may then block this IP if it triggers alerts.",
+        "submit": "Remove"
+      }
     }
   },
   "smtp": {
