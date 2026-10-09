@@ -415,7 +415,6 @@ test.describe('CrowdSec Dashboard @security', () => {
     });
 
     test('should name the time range group in readable text', async ({ page }) => {
-      test.fixme(true, '#1530 F3: security.crowdsec.dashboard.timeRange is an object in the translations, so the radiogroup name is an i18next error string instead of "Time range"');
       await openDashboard(page);
 
       await expect(page.getByRole('radiogroup', { name: 'Time range', exact: true })).toBeVisible();

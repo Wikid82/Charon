@@ -170,8 +170,7 @@ test.describe('CrowdSec Diagnostics', () => {
 
   test.describe('Configuration Export', () => {
     test('should export the configuration as a timestamped gzip archive containing the imported files', async ({ request }) => {
-      // Identity encoding keeps the response-compression middleware out of the way (see the fixme below).
-      const response = await request.get(`${ADMIN}/export`, { headers: { 'Accept-Encoding': 'identity' } });
+      const response = await request.get(`${ADMIN}/export`);
       expect(response.status()).toBe(200);
 
       expect(response.headers()['content-type']).toContain('application/gzip');
@@ -186,13 +185,14 @@ test.describe('CrowdSec Diagnostics', () => {
     });
 
     test('should export a single gzip layer to clients that accept compressed responses', async ({ request }) => {
-      test.fixme(true, 'F6: with Accept-Encoding gzip the export is gzipped a second time by the response middleware and sent without a Content-Encoding header, so the downloaded .tar.gz is double-compressed');
-      const response = await request.get(`${ADMIN}/export`);
+      const response = await request.get(`${ADMIN}/export`, { headers: { 'Accept-Encoding': 'gzip' } });
       expect(response.status()).toBe(200);
 
-      const body = await response.body();
-      const archive = gunzipSync(body).toString('latin1');
-      expect(archive).toContain('config.yaml');
+      // One gunzip must yield a tar stream (ustar magic at offset 257), not another gzip layer.
+      const tar = gunzipSync(await response.body());
+      expect(tar.subarray(0, 2)).not.toEqual(Buffer.from([0x1f, 0x8b]));
+      expect(tar.subarray(257, 262).toString('latin1')).toBe('ustar');
+      expect(tar.toString('latin1')).toContain('config.yaml');
     });
   });
 

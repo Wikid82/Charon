@@ -258,7 +258,7 @@ test.describe('CrowdSec Console Enrollment', () => {
 
       await expect(card(page)).toMatchAriaSnapshot(`
         - heading "Console Enrollment" [level=3]
-        - textbox "Agent Name (optional)"
+        - textbox "Agent Name"
         - textbox "Tenant/Organization (optional)"
         - checkbox "I understand this will rotate my LAPI credentials if already enrolled"
         - button "Enroll" [disabled]
@@ -308,18 +308,7 @@ test.describe('CrowdSec Console Enrollment', () => {
       expect(tracker.enrollments).toEqual([]);
     });
 
-    test('should require a tenant for a first enrollment', async ({ page }) => {
-      const tracker = await openTracked(page, NOT_ENROLLED);
-
-      await tokenField(page).fill(KEY);
-      await card(page).getByRole('checkbox', { name: /I understand this will rotate/ }).check();
-      await enrollButton(page).click();
-
-      await expect(card(page).getByText('Tenant / organization is required', { exact: true })).toBeVisible();
-      expect(tracker.enrollments).toEqual([]);
-    });
-
-    test('should list every missing field at once', async ({ page }) => {
+    test('should list every missing required field at once', async ({ page }) => {
       const tracker = await openTracked(page, NOT_ENROLLED);
 
       await tokenField(page).fill(KEY);
@@ -327,35 +316,35 @@ test.describe('CrowdSec Console Enrollment', () => {
       await enrollButton(page).click();
 
       await expect(card(page).getByText('Agent name is required', { exact: true })).toBeVisible();
-      await expect(card(page).getByText('Tenant / organization is required', { exact: true })).toBeVisible();
       await expect(card(page).getByText('You must acknowledge the console data-sharing notice', { exact: true })).toBeVisible();
+      await expect(card(page).getByText('Tenant / organization is required')).toHaveCount(0);
       expect(tracker.enrollments).toEqual([]);
     });
 
-    test('should enroll without a tenant because the field is labelled optional', async ({ page }) => {
-      test.fixme(true, '#1531 F4: the tenant and agent name fields are labelled "(optional)" but validation rejects them when blank');
+    test('should enroll without a tenant and send the agent name as the tenant', async ({ page }) => {
       const tracker = await openTracked(page, NOT_ENROLLED, { enrollResponse: PENDING });
 
       await tokenField(page).fill(KEY);
+      await agentField(page).fill('e2e-agent');
       await card(page).getByRole('checkbox', { name: /I understand this will rotate/ }).check();
       await enrollButton(page).click();
 
-      await expect.poll(() => tracker.enrollments.length).toBe(1);
+      await expect.poll(() => tracker.enrollments).toEqual([
+        { enrollment_key: KEY, tenant: 'e2e-agent', agent_name: 'e2e-agent', force: false },
+      ]);
       await expect(card(page).getByText('Tenant / organization is required')).toHaveCount(0);
     });
 
-    test('should enroll without an agent name because the field is labelled optional', async ({ page }) => {
-      test.fixme(true, '#1531 F4: the tenant and agent name fields are labelled "(optional)" but validation rejects them when blank');
-      const tracker = await openTracked(page, NOT_ENROLLED, { enrollResponse: PENDING });
+    test('should send the enrolled tenant when rotating with the tenant field cleared', async ({ page }) => {
+      const tracker = await openTracked(page, ENROLLED, { enrollResponse: PENDING });
 
       await tokenField(page).fill(KEY);
-      await agentField(page).fill('');
-      await tenantField(page).fill('e2e-tenant');
-      await card(page).getByRole('checkbox', { name: /I understand this will rotate/ }).check();
-      await enrollButton(page).click();
+      await tenantField(page).fill('');
+      await rotateButton(page).click();
 
-      await expect.poll(() => tracker.enrollments.length).toBe(1);
-      await expect(card(page).getByText('Agent name is required')).toHaveCount(0);
+      await expect.poll(() => tracker.enrollments).toEqual([
+        { enrollment_key: KEY, tenant: 'e2e-tenant', agent_name: 'e2e-agent', force: true },
+      ]);
     });
   });
 
@@ -447,7 +436,6 @@ test.describe('CrowdSec Console Enrollment', () => {
     });
 
     test('should keep the enrolled agent name when rotating without editing it', async ({ page }) => {
-      test.fixme(true, '#1531 F5: the agent name field is never filled from the enrolled status, so a rotation renames the agent to the page host name');
       const tracker = await openTracked(page, ENROLLED, { enrollResponse: PENDING });
 
       await expect(agentField(page)).toHaveValue('e2e-agent');
@@ -507,7 +495,7 @@ test.describe('CrowdSec Console Enrollment', () => {
 
       await section(page).getByRole('button', { name: 'Re-enroll with new key' }).click();
       await section(page).getByLabel('New Enrollment Key').fill('new-enrollment-key');
-      await section(page).getByLabel('Agent Name (optional)').fill('e2e-agent');
+      await section(page).getByLabel('Agent Name').fill('e2e-agent');
       await section(page).getByRole('button', { name: 'Re-enroll', exact: true }).click();
 
       await expect(
@@ -561,6 +549,24 @@ test.describe('CrowdSec Console Enrollment', () => {
       await expect(page.getByTestId('reenroll-section')).toHaveCount(0);
       await expect(page.getByTestId('console-token-state')).toHaveText('Not stored');
       expect(tracker.clears).toBe(1);
+    });
+
+    test('should show an error toast and keep the state when clearing fails', async ({ page }) => {
+      const tracker = await openTracked(page, ENROLLED);
+      await page.route(CROWDSEC_ROUTES.consoleEnrollment, (route) =>
+        route.request().method() === 'DELETE'
+          ? route.fulfill({ status: 500, contentType: 'application/json', json: { error: 'database is locked' } })
+          : route.fallback(),
+      );
+
+      page.once('dialog', (dialog) => void dialog.accept());
+      await page.getByRole('button', { name: 'Clear enrollment state' }).click();
+
+      await expect(
+        getToastLocator(page, 'Failed to clear enrollment state: database is locked', { type: 'error' }),
+      ).toBeVisible();
+      await expect(page.getByTestId('console-status-label')).toHaveText('Status: enrolled');
+      expect(tracker.clears).toBe(0);
     });
   });
 

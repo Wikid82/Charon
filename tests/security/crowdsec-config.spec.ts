@@ -137,7 +137,6 @@ test.describe('CrowdSec Configuration @security', () => {
     });
 
     test('should expose the file editor with an accessible name', async ({ page }) => {
-      test.fixme(true, '#1530 F2: files.content, packages.selectFile and presets.sortBy translation keys are missing, so aria-labels are raw keys');
       await expect(page.getByRole('textbox', { name: /file content/i })).toBeVisible();
     });
   });
@@ -209,7 +208,7 @@ test.describe('CrowdSec Configuration @security', () => {
 
       await expect(page.getByRole('heading', { name: 'Console Enrollment', level: 3 })).toBeVisible();
       await expect(consoleCard(page).getByLabel('Enrollment Token', { exact: true })).toBeVisible();
-      await expect(consoleCard(page).getByLabel('Agent Name (optional)')).toBeVisible();
+      await expect(consoleCard(page).getByLabel('Agent Name')).toBeVisible();
       await expect(consoleCard(page).getByRole('button', { name: 'Enroll', exact: true })).toBeVisible();
       await expect(page.getByText('Status: not enrolled')).toBeVisible();
       await expect(page.getByText('Not stored')).toBeVisible();
@@ -288,7 +287,6 @@ test.describe('CrowdSec Configuration @security', () => {
     });
 
     test('should label the last error in readable text', async ({ page }) => {
-      test.fixme(true, '#1530 F1: consoleEnrollment.lastError translation key is missing, so the last-error line renders a raw key');
       await openWithStubs(page, {
         consoleEnrollmentEnabled: true,
         consoleStatus: crowdsecFixtures.enrollment({ status: 'failed', last_error: 'key rejected by console' }),
@@ -316,7 +314,7 @@ test.describe('CrowdSec Configuration @security', () => {
 
       const card = consoleCard(page);
       await card.getByLabel('Enrollment Token', { exact: true }).fill('stub-enrollment-key');
-      await card.getByLabel('Agent Name (optional)').fill('e2e-agent');
+      await card.getByLabel('Agent Name').fill('e2e-agent');
       await card.getByLabel('Tenant/Organization (optional)').fill('e2e-tenant');
       await card.getByRole('checkbox', { name: /I understand this will rotate/ }).check();
       await card.getByRole('button', { name: 'Enroll', exact: true }).click();
@@ -418,7 +416,6 @@ test.describe('CrowdSec Configuration @security', () => {
     });
 
     test('should show readable text in the LAPI warnings', async ({ page }) => {
-      test.fixme(true, '#1530 F1: crowdsecConfig.lapiInitializing, notRunning, startCrowdsec, goToSecurity and related translation keys are missing, so the warnings render raw keys');
       await openWithStubs(page, {
         ...ENROLL_FLAGS,
         status: crowdsecFixtures.runningStatus({ running: false, pid: 0, lapi_ready: false }),
