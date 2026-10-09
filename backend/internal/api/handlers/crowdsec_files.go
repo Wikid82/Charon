@@ -379,7 +379,7 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare dir"})
 		return
 	}
