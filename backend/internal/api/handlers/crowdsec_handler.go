@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -73,6 +74,9 @@ type CrowdsecHandler struct {
 	// This field allows tests to inject a permissive validator for mock servers
 	// without mutating package-level state (which causes data races).
 	validateLAPIURL func(string) (*url.URL, error)
+
+	// signalProcess delivers a signal to a PID; overridable in tests.
+	signalProcess func(pid int, sig syscall.Signal) error
 
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
@@ -395,7 +399,9 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		Security:        securitySvc,
 		dashCache:       newDashboardCache(),
 		validateLAPIURL: validateCrowdsecLAPIBaseURLDefault,
+		signalProcess:   signalOSProcess,
 	}
+	hubSvc.Reload = h.reloadCrowdSec
 	if db != nil {
 		h.WhitelistSvc = services.NewCrowdSecWhitelistService(db, dataDir)
 	}
@@ -1091,7 +1097,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":       "pulled",
 			"slug":         preset.Slug,
-			"preview":      "# Curated preset: " + preset.Title + "\n# " + preset.Summary,
+			"preview":      curatedPresetPreview(preset),
 			"cache_key":    "curated-" + preset.Slug,
 			"etag":         "curated",
 			"retrieved_at": time.Now(),
@@ -1177,24 +1183,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 
 	// Check for curated preset that doesn't require hub
 	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
-		if h.DB != nil {
-			_ = h.DB.Create(&models.CrowdsecPresetEvent{
-				Slug:       slug,
-				Action:     "apply",
-				Status:     "applied",
-				CacheKey:   "curated-" + slug,
-				BackupPath: "",
-			}).Error
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status":      "applied",
-			"backup":      "",
-			"reload_hint": true,
-			"used_cscli":  false,
-			"cache_key":   "curated-" + slug,
-			"slug":        slug,
-		})
+		h.applyCuratedPreset(c, preset)
 		return
 	}
 
@@ -1235,9 +1224,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		// backup_path and cache_key are system-generated values
 		// codeql[go/log-injection]
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).WithField("cache_key", util.SanitizeForLog(res.CacheKey)).Warn("crowdsec preset apply failed")
-		if h.DB != nil {
-			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error
-		}
+		h.recordPresetEvent(slug, res, err)
 		// Build detailed error response
 		errorMsg := err.Error()
 		// Add actionable guidance based on error type
@@ -1246,29 +1233,86 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		} else if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
 			errorMsg = "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
 		}
-		errorResponse := gin.H{"error": errorMsg, "hub_endpoints": h.hubEndpoints()}
-		if res.BackupPath != "" {
-			errorResponse["backup"] = res.BackupPath
-		}
-		if res.CacheKey != "" {
-			errorResponse["cache_key"] = res.CacheKey
-		}
+		errorResponse := applyFailureBody(errorMsg, res)
+		errorResponse["hub_endpoints"] = h.hubEndpoints()
 		c.JSON(status, errorResponse)
 		return
 	}
 
-	if h.DB != nil {
-		status := res.Status
-		if status == "" {
-			status = "applied"
-		}
-		slugVal := res.AppliedPreset
-		if slugVal == "" {
-			slugVal = slug
-		}
-		_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slugVal, Action: "apply", Status: status, CacheKey: res.CacheKey, BackupPath: res.BackupPath}).Error
-	}
+	h.recordPresetEvent(slug, res, nil)
+	respondApplySuccess(c, res)
+}
 
+// applyCuratedPreset installs a Charon-defined preset through cscli and reports the true outcome.
+// A failure is recorded as a "failed" audit event and never answered with a 2xx status.
+func (h *CrowdsecHandler) applyCuratedPreset(c *gin.Context, preset crowdsec.Preset) {
+	res, err := h.Hub.ApplyCurated(c.Request.Context(), preset)
+	if err != nil {
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(preset.Slug)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).Warn("curated crowdsec preset apply failed")
+		h.recordPresetEvent(preset.Slug, res, err)
+
+		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
+		msg := err.Error()
+		if errors.Is(err, crowdsec.ErrCSCLIUnavailable) {
+			status = http.StatusServiceUnavailable
+			msg = "CrowdSec CLI is not available; curated presets require cscli"
+		}
+		c.JSON(status, applyFailureBody(msg, res))
+		return
+	}
+	h.recordPresetEvent(preset.Slug, res, nil)
+	respondApplySuccess(c, res)
+}
+
+// curatedPresetPreview renders the hub items a curated preset will install.
+func curatedPresetPreview(preset crowdsec.Preset) string {
+	var b strings.Builder
+	b.WriteString("# Curated preset: " + preset.Title + "\n# " + preset.Summary + "\n#\n# Installs these CrowdSec hub items:\n")
+	for _, item := range preset.Items {
+		b.WriteString("#   " + item.Type + ": " + item.Name + "\n")
+	}
+	return b.String()
+}
+
+// recordPresetEvent persists an apply audit row. A nil err records the result status
+// (defaulting to "applied"); a non-nil err records a "failed" row with the error text.
+// Persistence errors are logged and never alter the request outcome.
+func (h *CrowdsecHandler) recordPresetEvent(slug string, res crowdsec.ApplyResult, applyErr error) {
+	if h.DB == nil {
+		return
+	}
+	event := models.CrowdsecPresetEvent{Slug: slug, Action: "apply", CacheKey: res.CacheKey, BackupPath: res.BackupPath}
+	if applyErr != nil {
+		event.Status = "failed"
+		event.Error = applyErr.Error()
+	} else {
+		event.Status = res.Status
+		if event.Status == "" {
+			event.Status = "applied"
+		}
+		if res.AppliedPreset != "" {
+			event.Slug = res.AppliedPreset
+		}
+	}
+	if err := h.DB.Create(&event).Error; err != nil {
+		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(event.Slug)).Warn("failed to record crowdsec preset event")
+	}
+}
+
+// applyFailureBody builds the common error payload for a failed preset apply.
+func applyFailureBody(msg string, res crowdsec.ApplyResult) gin.H {
+	body := gin.H{"error": msg}
+	if res.BackupPath != "" {
+		body["backup"] = res.BackupPath
+	}
+	if res.CacheKey != "" {
+		body["cache_key"] = res.CacheKey
+	}
+	return body
+}
+
+// respondApplySuccess writes the 200 payload for a completed preset apply.
+func respondApplySuccess(c *gin.Context, res crowdsec.ApplyResult) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":      res.Status,
 		"backup":      res.BackupPath,
@@ -2741,9 +2785,7 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 		return
 	}
 
-	if _, execErr := h.CmdExec.Execute(c.Request.Context(), "cscli", "hub", "reload"); execErr != nil {
-		logger.Log().WithError(execErr).Warn("cscli hub reload failed after whitelist add (non-fatal)")
-	}
+	h.reloadAfterWhitelistChange(c.Request.Context(), "add")
 
 	c.JSON(http.StatusCreated, entry)
 }
@@ -2767,9 +2809,7 @@ func (h *CrowdsecHandler) DeleteWhitelist(c *gin.Context) {
 		return
 	}
 
-	if _, execErr := h.CmdExec.Execute(c.Request.Context(), "cscli", "hub", "reload"); execErr != nil {
-		logger.Log().WithError(execErr).Warn("cscli hub reload failed after whitelist delete (non-fatal)")
-	}
+	h.reloadAfterWhitelistChange(c.Request.Context(), "delete")
 
 	c.Status(http.StatusNoContent)
 }
@@ -2820,4 +2860,47 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/whitelist", h.ListWhitelists)
 	rg.POST("/admin/crowdsec/whitelist", h.AddWhitelist)
 	rg.DELETE("/admin/crowdsec/whitelist/:uuid", h.DeleteWhitelist)
+}
+
+// signalOSProcess sends sig to the process with the given PID.
+func signalOSProcess(pid int, sig syscall.Signal) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", pid, err)
+	}
+	if err := proc.Signal(sig); err != nil {
+		return fmt.Errorf("signal process %d: %w", pid, err)
+	}
+	return nil
+}
+
+// reloadCrowdSec sends SIGHUP to the CrowdSec process Charon manages (tracked via its PID file)
+// so it reloads parsers, scenarios and whitelists. CrowdSec treats SIGHUP as a reload request
+// (the same signal its systemd unit's ExecReload uses). Returns crowdsec.ErrCrowdSecNotRunning
+// when no managed process is running.
+func (h *CrowdsecHandler) reloadCrowdSec(ctx context.Context) error {
+	if h.Executor == nil {
+		return crowdsec.ErrCrowdSecNotRunning
+	}
+	running, pid, err := h.Executor.Status(ctx, h.DataDir)
+	if err != nil {
+		return fmt.Errorf("crowdsec status: %w", err)
+	}
+	if !running || pid <= 0 {
+		return crowdsec.ErrCrowdSecNotRunning
+	}
+	signal := h.signalProcess
+	if signal == nil {
+		signal = signalOSProcess
+	}
+	return signal(pid, syscall.SIGHUP)
+}
+
+// reloadAfterWhitelistChange reloads CrowdSec best-effort; failures never fail the request.
+func (h *CrowdsecHandler) reloadAfterWhitelistChange(ctx context.Context, action string) {
+	switch err := h.reloadCrowdSec(ctx); {
+	case err == nil, errors.Is(err, crowdsec.ErrCrowdSecNotRunning):
+	default:
+		logger.Log().WithError(err).Warnf("crowdsec reload failed after whitelist %s (non-fatal)", action)
+	}
 }

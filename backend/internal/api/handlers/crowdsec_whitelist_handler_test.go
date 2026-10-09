@@ -2,13 +2,14 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"syscall"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -17,14 +18,20 @@ import (
 	"gorm.io/gorm"
 )
 
-type mockCmdExecWhitelist struct {
-	reloadCalled bool
-	reloadErr    error
+// reloadRecorder installs a fake managed CrowdSec process and records SIGHUP delivery.
+type reloadRecorder struct {
+	signalled []int
+	sigs      []syscall.Signal
+	signalErr error
 }
 
-func (m *mockCmdExecWhitelist) Execute(_ context.Context, _ string, _ ...string) ([]byte, error) {
-	m.reloadCalled = true
-	return nil, m.reloadErr
+func (r *reloadRecorder) attach(h *CrowdsecHandler, running bool) {
+	h.Executor = &fakeExec{started: running}
+	h.signalProcess = func(pid int, sig syscall.Signal) error {
+		r.signalled = append(r.signalled, pid)
+		r.sigs = append(r.sigs, sig)
+		return r.signalErr
+	}
 }
 
 func setupWhitelistHandler(t *testing.T) (*CrowdsecHandler, *gin.Engine, *gorm.DB) {
@@ -63,8 +70,8 @@ func TestListWhitelists_Empty(t *testing.T) {
 func TestAddWhitelist_ValidIP(t *testing.T) {
 	t.Parallel()
 	h, r, _ := setupWhitelistHandler(t)
-	mock := &mockCmdExecWhitelist{}
-	h.CmdExec = mock
+	mock := &reloadRecorder{}
+	mock.attach(h, true)
 
 	body := `{"ip_or_cidr":"1.2.3.4","reason":"test"}`
 	w := httptest.NewRecorder()
@@ -73,7 +80,8 @@ func TestAddWhitelist_ValidIP(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	assert.True(t, mock.reloadCalled)
+	assert.Equal(t, []int{12345}, mock.signalled)
+	assert.Equal(t, []syscall.Signal{syscall.SIGHUP}, mock.sigs)
 
 	var entry models.CrowdSecWhitelist
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &entry))
@@ -115,8 +123,8 @@ func TestAddWhitelist_Duplicate(t *testing.T) {
 func TestDeleteWhitelist_Existing(t *testing.T) {
 	t.Parallel()
 	h, r, db := setupWhitelistHandler(t)
-	mock := &mockCmdExecWhitelist{}
-	h.CmdExec = mock
+	mock := &reloadRecorder{}
+	mock.attach(h, true)
 
 	svc := services.NewCrowdSecWhitelistService(db, "")
 	entry, err := svc.Add(t.Context(), "7.7.7.7", "to delete")
@@ -127,7 +135,8 @@ func TestDeleteWhitelist_Existing(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	assert.True(t, mock.reloadCalled)
+	assert.Equal(t, []int{12345}, mock.signalled)
+	assert.Equal(t, []syscall.Signal{syscall.SIGHUP}, mock.sigs)
 }
 
 func TestDeleteWhitelist_NotFound(t *testing.T) {
@@ -214,8 +223,8 @@ func TestAddWhitelist_DBError(t *testing.T) {
 func TestAddWhitelist_ReloadFailure(t *testing.T) {
 	t.Parallel()
 	h, r, _ := setupWhitelistHandler(t)
-	mock := &mockCmdExecWhitelist{reloadErr: errors.New("cscli failed")}
-	h.CmdExec = mock
+	mock := &reloadRecorder{signalErr: errors.New("signal failed")}
+	mock.attach(h, true)
 
 	body := `{"ip_or_cidr":"3.3.3.3","reason":"reload test"}`
 	w := httptest.NewRecorder()
@@ -224,7 +233,8 @@ func TestAddWhitelist_ReloadFailure(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	assert.True(t, mock.reloadCalled)
+	assert.Equal(t, []int{12345}, mock.signalled)
+	assert.Equal(t, []syscall.Signal{syscall.SIGHUP}, mock.sigs)
 }
 
 func TestDeleteWhitelist_DBError(t *testing.T) {
@@ -251,8 +261,8 @@ func TestDeleteWhitelist_DBError(t *testing.T) {
 func TestDeleteWhitelist_ReloadFailure(t *testing.T) {
 	t.Parallel()
 	h, r, db := setupWhitelistHandler(t)
-	mock := &mockCmdExecWhitelist{reloadErr: errors.New("cscli failed")}
-	h.CmdExec = mock
+	mock := &reloadRecorder{signalErr: errors.New("signal failed")}
+	mock.attach(h, true)
 
 	svc := services.NewCrowdSecWhitelistService(db, "")
 	entry, err := svc.Add(t.Context(), "5.5.5.5", "reload test")
@@ -263,7 +273,8 @@ func TestDeleteWhitelist_ReloadFailure(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	assert.True(t, mock.reloadCalled)
+	assert.Equal(t, []int{12345}, mock.signalled)
+	assert.Equal(t, []syscall.Signal{syscall.SIGHUP}, mock.sigs)
 }
 
 func TestDeleteWhitelist_EmptyUUID(t *testing.T) {
@@ -281,4 +292,44 @@ func TestDeleteWhitelist_EmptyUUID(t *testing.T) {
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "uuid is required", resp["error"])
+}
+
+func TestAddWhitelist_CrowdSecNotRunningSkipsSignal(t *testing.T) {
+	t.Parallel()
+	h, r, _ := setupWhitelistHandler(t)
+	mock := &reloadRecorder{}
+	mock.attach(h, false)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/whitelist", bytes.NewBufferString(`{"ip_or_cidr":"6.6.6.6"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.Empty(t, mock.signalled)
+}
+
+func TestReloadCrowdSec(t *testing.T) {
+	t.Parallel()
+	h, _, _ := setupWhitelistHandler(t)
+	mock := &reloadRecorder{}
+	mock.attach(h, true)
+	require.NoError(t, h.Hub.Reload(t.Context()), "hub service must reload through the handler")
+	assert.Equal(t, []syscall.Signal{syscall.SIGHUP}, mock.sigs)
+
+	mock = &reloadRecorder{}
+	mock.attach(h, false)
+	require.ErrorIs(t, h.reloadCrowdSec(t.Context()), crowdsec.ErrCrowdSecNotRunning)
+
+	mock = &reloadRecorder{signalErr: errors.New("boom")}
+	mock.attach(h, true)
+	require.Error(t, h.reloadCrowdSec(t.Context()))
+
+	h.Executor = nil
+	require.ErrorIs(t, h.reloadCrowdSec(t.Context()), crowdsec.ErrCrowdSecNotRunning)
+
+	h.signalProcess = nil
+	h.Executor = &fakeExec{started: false}
+	require.ErrorIs(t, h.reloadCrowdSec(t.Context()), crowdsec.ErrCrowdSecNotRunning)
+	require.Error(t, signalOSProcess(-1, syscall.SIGHUP))
 }

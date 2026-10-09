@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -75,6 +77,7 @@ type ApplyResult struct {
 // HubService coordinates hub pulls, caching, and apply operations.
 type HubService struct {
 	Exec          CommandExecutor
+	Reload        ReloadFunc // optional; reloads the managed CrowdSec process after hub changes
 	Cache         *HubCache
 	DataDir       string
 	HTTPClient    *http.Client
@@ -82,6 +85,9 @@ type HubService struct {
 	MirrorBaseURL string
 	PullTimeout   time.Duration
 	ApplyTimeout  time.Duration
+
+	// mu serializes Apply and ApplyCurated so backup/rollback cycles never interleave.
+	mu sync.Mutex
 }
 
 // hubAllowLoopback is a test-only seam. It is always false in production and is
@@ -598,6 +604,8 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 	if cleanSlug == "" {
 		return ApplyResult{}, fmt.Errorf("invalid slug")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	applyCtx, cancel := context.WithTimeout(ctx, s.ApplyTimeout)
 	defer cancel()
 
@@ -1050,6 +1058,11 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 
 // copyDir recursively copies a directory tree.
 func copyDir(src, dst string) error {
+	return copyDirFiltered(src, dst, nil)
+}
+
+// copyDirFiltered is copyDir that leaves out entries whose base name makes skip return true.
+func copyDirFiltered(src, dst string, skip func(name string) bool) error {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return fmt.Errorf("stat src: %w", err)
@@ -1064,17 +1077,31 @@ func copyDir(src, dst string) error {
 	}
 
 	for _, entry := range entries {
+		if skip != nil && skip(entry.Name()) {
+			continue
+		}
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
 
-		if entry.IsDir() {
+		switch {
+		case entry.Type()&fs.ModeSymlink != 0:
+			// Preserve the link literally (never follow it): hub item entries are
+			// symlinks, and dangling links must survive a backup/restore round trip.
+			target, err := os.Readlink(srcPath)
+			if err != nil {
+				return fmt.Errorf("readlink %s: %w", srcPath, err)
+			}
+			if err := os.Symlink(target, dstPath); err != nil {
+				return fmt.Errorf("symlink %s: %w", dstPath, err)
+			}
+		case entry.IsDir():
 			if err := os.MkdirAll(dstPath, 0o700); err != nil {
 				return fmt.Errorf("mkdir %s: %w", dstPath, err)
 			}
-			if err := copyDir(srcPath, dstPath); err != nil {
+			if err := copyDirFiltered(srcPath, dstPath, skip); err != nil {
 				return err
 			}
-		} else {
+		default:
 			if err := copyFile(srcPath, dstPath); err != nil {
 				return err
 			}

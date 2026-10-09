@@ -10,7 +10,7 @@ import * as crowdsecApi from '../../api/crowdsec'
 import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as api from '../../api/security'
-import { CROWDSEC_PRESETS } from '../../data/crowdsecPresets'
+import { HUB_PRESET_FIXTURES } from '../../test-utils/crowdsecPresetFixtures'
 import CrowdSecConfig from '../CrowdSecConfig'
 
 import type { ConsoleEnrollmentStatus } from '../../api/consoleEnrollment'
@@ -60,7 +60,7 @@ describe('CrowdSecConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({
-      presets: CROWDSEC_PRESETS.map((preset) => ({
+      presets: HUB_PRESET_FIXTURES.map((preset) => ({
         slug: preset.slug,
         title: preset.title,
         summary: preset.description,
@@ -73,7 +73,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
       status: 'pulled',
       slug: 'bot-mitigation-essentials',
-      preview: CROWDSEC_PRESETS[0].content,
+      preview: HUB_PRESET_FIXTURES[0].content,
       cache_key: 'cache-123',
       etag: 'etag-123',
       retrieved_at: '2024-01-01T00:00:00Z',
@@ -273,7 +273,7 @@ describe('CrowdSecConfig', () => {
 
   it('renders preset preview and applies with backup when backend apply is unavailable', async () => {
     const status = { crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } }
-    const presetContent = CROWDSEC_PRESETS.find((preset) => preset.slug === 'bot-mitigation-essentials')?.content || ''
+    const presetContent = HUB_PRESET_FIXTURES.find((preset) => preset.slug === 'bot-mitigation-essentials')?.content || ''
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status)
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: ['acquis.yaml'] })
     vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: '' })

@@ -144,7 +144,6 @@ export default function CrowdSecConfig() {
           slug: preset.slug,
           title: preset.title || local?.title || preset.slug,
           description: local?.description || preset.summary,
-          content: local?.content || '',
           tags: local?.tags || preset.tags,
           warning: local?.warning,
           requiresHub: Boolean(preset.requires_hub),
@@ -157,8 +156,11 @@ export default function CrowdSecConfig() {
         }
       })
     }
+    // Only show the static fallback once the server list failed; otherwise a placeholder
+    // entry would be auto-selected and pulled while the real list is still loading.
+    if (!presetsQuery.isError) return []
     return CROWDSEC_PRESETS.map((preset) => ({ ...preset, requiresHub: false, available: true, cached: false, source: 'charon-curated' }))
-  }, [presetsQuery.data])
+  }, [presetsQuery.data, presetsQuery.isError])
 
   const filteredPresets = useMemo(() => {
     let result = [...presetCatalog]
@@ -247,7 +249,7 @@ export default function CrowdSecConfig() {
       retrievedAt: selectedPreset.retrievedAt,
       source: selectedPreset.source,
     })
-    setPresetPreview(selectedPreset.content || '')
+    setPresetPreview('')
     pullPresetMutation.mutate(selectedPreset.slug)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when slug changes, not on mutation/preset object identity changes
   }, [selectedPreset?.slug])
@@ -436,7 +438,7 @@ export default function CrowdSecConfig() {
       return
     }
 
-    const content = presetPreview || selectedPreset.content
+    const content = presetPreview
     if (!content) {
       toast.error('Preset preview is unavailable; retry pulling before applying')
       return
@@ -475,6 +477,11 @@ export default function CrowdSecConfig() {
         cacheKey: res.cache_key,
       })
 
+      if (res.status !== 'applied') {
+        toast.error(`Preset apply did not complete (status: ${res.status || 'unknown'})`)
+        return
+      }
+
       const reloadNote = res.reload_hint ? ' (reload required)' : ''
       toast.success(`Preset applied via backend${reloadNote}`)
       if (res.backup) {
@@ -482,7 +489,23 @@ export default function CrowdSecConfig() {
       }
     } catch (err) {
       if (isAxiosError(err)) {
-        if (err.response?.status === 501) {
+        const status = err.response?.status
+        const serverError = err.response?.data?.error as string | undefined
+        const backupPath = (err.response?.data as { backup?: string } | undefined)?.backup
+
+        // Curated presets are applied authoritatively by the server. Any failure is
+        // surfaced as-is and must never fall back to writing client-side content.
+        if (selectedPreset.source === 'charon-curated') {
+          const curatedMsg = serverError || err.message
+          if (status === 400) {
+            setValidationError(curatedMsg || 'Preset validation failed')
+          }
+          setApplyInfo({ status: 'failed', backup: backupPath, cacheKey: presetMeta?.cacheKey })
+          toast.error(`Apply failed: ${curatedMsg}${backupPath ? `. Backup created at ${backupPath}` : ''}`)
+          return
+        }
+
+        if (status === 501) {
           toast.info('Preset apply is not available on the server; applying locally instead')
           await applyPresetLocally('Backend apply unavailable')
           return
@@ -501,8 +524,7 @@ export default function CrowdSecConfig() {
           return
         }
 
-        const errorMsg = err.response?.data?.error || err.message
-        const backupPath = (err.response?.data as { backup?: string })?.backup
+        const errorMsg = serverError || err.message
 
         // Check if error is due to missing cache
         if (errorMsg.includes('not cached') || errorMsg.includes('Pull the preset first')) {
@@ -1135,7 +1157,7 @@ export default function CrowdSecConfig() {
                   className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm text-gray-200 whitespace-pre-wrap"
                   data-testid="preset-preview"
                 >
-                  {presetPreview || selectedPreset.content || t('crowdsecConfig.presets.previewUnavailable')}
+                  {presetPreview || t('crowdsecConfig.presets.previewUnavailable')}
                 </pre>
               </div>
 
