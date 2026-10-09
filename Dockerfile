@@ -657,7 +657,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0; \
         # CVE-2026-41889: SQL Injection via placeholder confusion with dollar quoted string literals
         # renovate: datasource=go depName=github.com/jackc/pgx/v5
-        _retry go get github.com/jackc/pgx/v5@v5.9.2    ; \
+        _retry go get github.com/jackc/pgx/v5@v5.11.0; \
         # CVE-2026-41889: Improper Neutralization of Special Elements used in an SQL Command 
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
         _retry go get github.com/russellhaering/goxmldsig@v1.6.0; \
