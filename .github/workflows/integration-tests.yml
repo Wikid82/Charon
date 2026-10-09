@@ -431,7 +431,7 @@ jobs:
     name: CrowdSec Bouncer Integration
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # test-only work (two suites); image is built upstream in `build`.
+    timeout-minutes: 25 # test-only work (three suites, the persistence suite starts four containers); image is built upstream in `build`.
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -457,6 +457,13 @@ jobs:
         run: |
           chmod +x .github/skills/scripts/skill-runner.sh
           .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup 2>&1 | tee lapi-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Run CrowdSec Data Persistence Test
+        id: persistence-test
+        run: |
+          chmod +x .github/skills/scripts/skill-runner.sh
+          .github/skills/scripts/skill-runner.sh integration-test-crowdsec-data-persistence 2>&1 | tee persistence-test-output.txt
           exit "${PIPESTATUS[0]}"
 
       - name: Dump Debug Info on Failure
@@ -536,6 +543,16 @@ jobs:
             grep -E "✗ FAIL|✗ CRITICAL|Error|failed" lapi-test-output.txt | head -20 || echo "See logs for details"
             echo '```'
           fi
+
+          # CrowdSec Data Persistence Test
+          if [ "${{ steps.persistence-test.outcome }}" == "success" ]; then
+            echo "✅ **CrowdSec Data Persistence: Passed**"
+          else
+            echo "❌ **CrowdSec Data Persistence: Failed**"
+            echo '```'
+            grep -E "✗ FAIL|Timed out|exited" persistence-test-output.txt | head -20 || echo "See logs for details"
+            echo '```'
+          fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup
@@ -543,5 +560,7 @@ jobs:
         run: |
           docker rm -f charon-debug || true
           docker rm -f charon-crowdsec-startup-test || true
+          docker rm -f charon-crowdsec-persist-test || true
+          docker volume rm charon_crowdsec_persist_data 2>/dev/null || true
           docker rm -f crowdsec || true
           docker network rm containers_default || true

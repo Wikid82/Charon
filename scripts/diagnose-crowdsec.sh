@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Default configuration
-DATA_DIR="${CROWDSEC_DATA_DIR:-/var/lib/crowdsec}"
+DATA_DIR="${CROWDSEC_DATA_DIR:-/app/data/crowdsec}"
 JSON_OUTPUT=false
 LAPI_PORT="${CROWDSEC_LAPI_PORT:-8085}"
 
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --json         Output results as JSON"
-            echo "  --data-dir     CrowdSec data directory (default: /var/lib/crowdsec)"
+            echo "  --data-dir     CrowdSec data directory (default: /app/data/crowdsec)"
             echo "  --lapi-port    LAPI port (default: 8085)"
             echo "  -h, --help     Show this help message"
             exit 0

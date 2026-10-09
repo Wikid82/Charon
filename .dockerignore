@@ -168,6 +168,7 @@ scripts/tests/
 scripts/toolchain-key.sh
 scripts/verify-toolchain-pin.sh
 scripts/lib/dockerfile-stage.sh
+scripts/crowdsec_data_persistence_test.sh
 
 # -----------------------------------------------------------------------------
 # Tools (not needed in image)
