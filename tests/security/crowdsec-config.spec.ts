@@ -137,7 +137,7 @@ test.describe('CrowdSec Configuration @security', () => {
     });
 
     test('should expose the file editor with an accessible name', async ({ page }) => {
-      test.fixme(true, 'F2: files.content, packages.selectFile and presets.sortBy translation keys are missing, so aria-labels are raw keys');
+      test.fixme(true, '#1530 F2: files.content, packages.selectFile and presets.sortBy translation keys are missing, so aria-labels are raw keys');
       await expect(page.getByRole('textbox', { name: /file content/i })).toBeVisible();
     });
   });
@@ -288,7 +288,7 @@ test.describe('CrowdSec Configuration @security', () => {
     });
 
     test('should label the last error in readable text', async ({ page }) => {
-      test.fixme(true, 'F1: consoleEnrollment.lastError translation key is missing, so the last-error line renders a raw key');
+      test.fixme(true, '#1530 F1: consoleEnrollment.lastError translation key is missing, so the last-error line renders a raw key');
       await openWithStubs(page, {
         consoleEnrollmentEnabled: true,
         consoleStatus: crowdsecFixtures.enrollment({ status: 'failed', last_error: 'key rejected by console' }),
@@ -418,7 +418,7 @@ test.describe('CrowdSec Configuration @security', () => {
     });
 
     test('should show readable text in the LAPI warnings', async ({ page }) => {
-      test.fixme(true, 'F1: crowdsecConfig.lapiInitializing, notRunning, startCrowdsec, goToSecurity and related translation keys are missing, so the warnings render raw keys');
+      test.fixme(true, '#1530 F1: crowdsecConfig.lapiInitializing, notRunning, startCrowdsec, goToSecurity and related translation keys are missing, so the warnings render raw keys');
       await openWithStubs(page, {
         ...ENROLL_FLAGS,
         status: crowdsecFixtures.runningStatus({ running: false, pid: 0, lapi_ready: false }),
