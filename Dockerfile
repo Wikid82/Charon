@@ -1050,15 +1050,21 @@ RUN set -e; \
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
 
-# N5 — app-side sanity check on the toolchain-provided cscli binary: it must run
-# and emit its recognisable version block. (The version itself is injected via
-# the go-cs-lib/version.Version -X ldflag in the crowdsec-inline stage; match a
-# stable field here.) A wrong-arch / stale-recipe image fails this immediately.
+# N5 — app-side sanity check on the toolchain-provided cscli binary: it must run,
+# emit its recognisable version block, and report the pinned CrowdSec version.
+# The version is injected via the go-cs-lib/version.Version -X ldflag in the
+# crowdsec-inline stage; `-X` on a nonexistent symbol is silently ignored, so the
+# "version: v${CROWDSEC_VERSION}" assertion fails the build if that ever no-ops
+# again. A wrong-arch / stale-recipe image fails this immediately.
+# A global ARG is not visible inside a stage without redeclaring it.
+ARG CROWDSEC_VERSION
 RUN set -e; \
     /usr/local/bin/cscli version >/tmp/cscli-v.txt 2>&1 \
         || { echo "ERROR: toolchain cscli is not runnable"; cat /tmp/cscli-v.txt; exit 1; }; \
     grep -q 'Constraint_api' /tmp/cscli-v.txt \
         || { echo "ERROR: toolchain cscli version output not recognised"; cat /tmp/cscli-v.txt; exit 1; }; \
+    grep -q "^version: v${CROWDSEC_VERSION}\$" /tmp/cscli-v.txt \
+        || { echo "ERROR: toolchain cscli does not report version v${CROWDSEC_VERSION} (version ldflag no-op or wrong pin)"; cat /tmp/cscli-v.txt; exit 1; }; \
     rm -f /tmp/cscli-v.txt; \
     echo "Verified toolchain cscli runs (GoVersion: $(/usr/local/bin/cscli version 2>&1 | sed -n 's/^GoVersion: //p'))"
 # Copy CrowdSec configuration files to .dist directory (will be used at runtime)

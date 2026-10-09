@@ -356,6 +356,25 @@ ACQUIS_EOF
         echo "⚠️  WARNING: Could not verify CrowdSec data_dir redirect — hub data files may not survive container recreation"
     fi
 
+    # Pin the hub branch. Without cscli.hub_branch, every hub command first asks
+    # version.crowdsec.net for the latest release and derives the branch from the running version,
+    # which hard-fails offline and 404s once the CDN has no branch named after this version.
+    # A non-empty hub_branch is used as-is (no lookup). Idempotent: an operator-chosen non-empty
+    # value is respected; missing/empty/commented values are set to master.
+    if ! grep -Eq '^[[:space:]]+hub_branch:[[:space:]]*[^[:space:]#]' "$CS_CONFIG_DIR/config.yaml"; then
+        sed -i '/^[[:space:]]\+hub_branch:/d' "$CS_CONFIG_DIR/config.yaml"
+        if grep -q '^cscli:' "$CS_CONFIG_DIR/config.yaml"; then
+            sed -i '/^cscli:[[:space:]]*$/a\  hub_branch: master' "$CS_CONFIG_DIR/config.yaml"
+        else
+            printf '\ncscli:\n  hub_branch: master\n' >>"$CS_CONFIG_DIR/config.yaml"
+        fi
+    fi
+    if grep -Eq '^[[:space:]]+hub_branch:[[:space:]]*[^[:space:]#]' "$CS_CONFIG_DIR/config.yaml"; then
+        echo "✓ CrowdSec hub branch pinned: $(sed -n 's/^[[:space:]]*hub_branch:[[:space:]]*//p' "$CS_CONFIG_DIR/config.yaml" | head -n1)"
+    else
+        echo "⚠️  WARNING: Could not pin cscli.hub_branch — hub commands may depend on version.crowdsec.net"
+    fi
+
     # Verify LAPI configuration was applied correctly
     if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
         echo "✓ CrowdSec LAPI configured for port 8085"

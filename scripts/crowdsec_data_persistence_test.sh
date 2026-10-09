@@ -14,8 +14,12 @@ set -euo pipefail
 #   2. Recreate container with the same volume: files present, `cscli hub upgrade` NOT run.
 #   3. Recreate with data files deleted from the volume: `cscli hub upgrade` runs once and the
 #      files are restored.
-#   4. Legacy volume (config.yaml still pointing at /var/lib/crowdsec/data, no data files):
-#      data_dir is migrated and the files are restored.
+#   4. Legacy volume (config.yaml still pointing at /var/lib/crowdsec/data, no data files, no
+#      cscli.hub_branch): data_dir is migrated, the files are restored and hub_branch is added.
+#   5. An operator-chosen cscli.hub_branch is preserved (and never duplicated) across restarts.
+#
+# The entrypoint also pins cscli.hub_branch to master so hub commands never depend on
+# version.crowdsec.net; scenarios 1 and 4 assert it is set exactly once.
 #
 # Requires network access (CrowdSec hub) and a charon image (default: charon:local).
 
@@ -138,6 +142,11 @@ crowdsec_data_errors() {
         'rm -f /var/log/crowdsec/crowdsec.log; timeout 20 crowdsec -c /etc/crowdsec/config.yaml >/dev/null 2>&1; grep -Ei "unable to init data for file|unable to initialize GeoIP" /var/log/crowdsec/crowdsec.log || true'
 }
 
+# hub_branch_lines: every hub_branch line in the persisted config.yaml.
+hub_branch_lines() {
+    docker exec "${CONTAINER_NAME}" grep -E '^[[:space:]]*hub_branch:' "${CONFIG_YAML}" || true
+}
+
 echo "=============================================="
 echo "=== CrowdSec Data Persistence Test ==="
 echo "=============================================="
@@ -193,6 +202,15 @@ else
     pass_test
 fi
 
+log_test "Check 5b: cscli.hub_branch pinned to master exactly once and cscli reports the pinned version"
+if [ "$(hub_branch_lines)" != "  hub_branch: master" ]; then
+    fail_test "expected a single 'hub_branch: master' line, got: $(hub_branch_lines | tr '\n' '|')"
+elif ! docker exec "${CONTAINER_NAME}" cscli version 2>&1 | grep -Eq '^version: v[0-9]+\.[0-9]+\.[0-9]+'; then
+    fail_test "cscli version does not report a version"
+else
+    pass_test
+fi
+
 # ----------------------------------------------------------------------------
 log_info "Scenario 2: recreate with intact data (healthy restart)"
 start_container
@@ -226,16 +244,31 @@ fi
 # ----------------------------------------------------------------------------
 log_info "Scenario 4: legacy volume (data_dir still at the old location)"
 docker rm -f "${CONTAINER_NAME}" >/dev/null
-volume_sh "sed -i 's|data_dir: ${DATA_DIR}/|data_dir: /var/lib/crowdsec/data/|' ${CONFIG_YAML} && find ${DATA_DIR} -mindepth 1 -maxdepth 1 ! -name 'crowdsec.db*' -exec rm -rf {} +"
+volume_sh "sed -i -e 's|data_dir: ${DATA_DIR}/|data_dir: /var/lib/crowdsec/data/|' -e '/hub_branch:/d' ${CONFIG_YAML} && find ${DATA_DIR} -mindepth 1 -maxdepth 1 ! -name 'crowdsec.db*' -exec rm -rf {} +"
 start_container
 
-log_test "Check 8: data_dir migrated and data files restored"
+log_test "Check 8: data_dir migrated, data files restored and hub_branch re-added"
 if ! docker exec "${CONTAINER_NAME}" grep -q "data_dir: ${DATA_DIR}/" "${CONFIG_YAML}"; then
     fail_test "data_dir was not migrated to ${DATA_DIR}/"
+elif [ "$(hub_branch_lines)" != "  hub_branch: master" ]; then
+    fail_test "hub_branch was not re-added exactly once: $(hub_branch_lines | tr '\n' '|')"
 elif [ -n "$(missing_data_files)" ]; then
     fail_test "data files missing after migration: $(missing_data_files | tr '\n' ' ')"
 else
     pass_test
+fi
+
+# ----------------------------------------------------------------------------
+log_info "Scenario 5: operator-chosen hub_branch is preserved"
+docker rm -f "${CONTAINER_NAME}" >/dev/null
+volume_sh "sed -i 's|^  hub_branch: master|  hub_branch: custom-branch|' ${CONFIG_YAML}"
+start_container
+
+log_test "Check 9: custom hub_branch kept, not duplicated"
+if [ "$(hub_branch_lines)" = "  hub_branch: custom-branch" ]; then
+    pass_test
+else
+    fail_test "custom hub_branch not preserved: $(hub_branch_lines | tr '\n' '|')"
 fi
 
 echo ""
