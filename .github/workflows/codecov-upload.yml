@@ -253,3 +253,33 @@ jobs:
           files: ./agent/coverage.txt
           flags: agent
           fail_ci_if_error: true
+
+  # Fires Codecov notifications (statuses + PR comment) once, after every
+  # upload has finished. Pairs with codecov.notify.manual_trigger in codecov.yml.
+  # Runs only if no upload failed/was cancelled and at least one succeeded, so a
+  # workflow_dispatch with a job disabled (skipped) still notifies, while a
+  # failed upload leaves notifications unsent rather than reporting a partial
+  # result as final.
+  notify-codecov:
+    name: Codecov Send Notifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend-codecov, frontend-codecov, agent-codecov]
+    if: >-
+      ${{ !cancelled()
+      && !contains(needs.*.result, 'failure')
+      && contains(needs.*.result, 'success') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Send Codecov notifications
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          run_command: send-notifications
+          fail_ci_if_error: true

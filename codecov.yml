@@ -27,27 +27,33 @@ require_ci_to_pass: yes
 # -----------------------------------------------------------------------------
 # Coverage is uploaded by three independent, parallel jobs in
 # .github/workflows/codecov-upload.yml (flags: backend, frontend, agent).
-# Without this, Codecov re-evaluates the project/patch commit statuses after
-# EACH upload lands, so the first upload produces a partial report that fails
-# the 87% gate — the status shows red, then flips green once the remaining
-# uploads arrive. after_n_builds makes Codecov hold the status as pending
-# until all 3 uploads are in, then post a single pass/fail.
+# after_n_builds alone proved insufficient: Codecov still evaluated the
+# project/patch statuses as soon as an early upload (the quick agent job)
+# landed, so codecov/patch went red and later flipped green.
+# manual_trigger holds ALL notifications (commit statuses and PR comment)
+# until the final `notify-codecov` job in codecov-upload.yml runs
+# `send-notifications`, which it only does after the uploads have finished.
+# after_n_builds is kept as a secondary guard on the same 3-upload count.
 #
-# NOTE: on manual workflow_dispatch runs that disable a job (run_frontend=false
-# etc.) fewer than 3 uploads arrive and the status stays pending. Normal
-# pull_request runs always execute all 3 jobs, so this only affects ad-hoc
-# manual runs.
+# NOTE: `notify-codecov` runs when no upload job failed or was cancelled and
+# at least one succeeded. A manual workflow_dispatch that disables a job
+# (run_frontend=false etc.) therefore still sends notifications, but computed
+# from the partial report (and after_n_builds: 3 may keep the status pending).
+# If any upload fails, no notification is sent and the status stays pending;
+# the failed upload job is the signal to re-run. Normal pull_request runs
+# execute all 3 jobs.
 codecov:
   notify:
     after_n_builds: 3
+    manual_trigger: true
     wait_for_ci: yes
 
 # -----------------------------------------------------------------------------
 # PR Comment Configuration
 # -----------------------------------------------------------------------------
 comment:
-  # Hold the PR comment until all 3 coverage uploads land, matching
-  # codecov.notify.after_n_builds — avoids posting partial numbers that
+  # Hold the PR comment until all 3 coverage uploads land (and the manual
+  # notification trigger fires), matching codecov.notify.after_n_builds — avoids posting partial numbers that
   # get edited moments later.
   after_n_builds: 3
   # Post coverage report as PR comment
