@@ -11,7 +11,7 @@ is_root() {
 }
 
 # Print (one per line) the data files declared by installed CrowdSec hub items
-# (`data: - dest_file:` entries in their YAML) that are absent or empty in the data dir.
+# (`data: - dest_file:` entries in their YAML) that are absent from the data dir (an empty file is legitimate, e.g. an empty blocklist).
 # `cscli ... inspect -o json` does not expose declared data files, so the installed item
 # files under the config dir are read directly. Prints nothing when everything is present.
 # Usage: list_missing_hub_data_files <config_dir> <data_dir>
@@ -23,7 +23,7 @@ list_missing_hub_data_files() {
         find -L "$_cfg/$_sub" -type f -name '*.yaml' -exec grep -h 'dest_file:' {} + 2>/dev/null || true
     done | sed -e 's/^.*dest_file:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' -e "s/[\"']//g" -e 's/[[:space:]]*$//' | sort -u | while IFS= read -r _file; do
         [ -n "$_file" ] || continue
-        [ -s "$_data/$_file" ] || echo "$_file"
+        [ -e "$_data/$_file" ] || echo "$_file"
     done
 }
 

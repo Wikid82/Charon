@@ -12,6 +12,7 @@ set -euo pipefail
 #   1. Fresh volume: items really install, data_dir is on the volume, data files exist,
 #      GeoLite2-City.mmdb exists, `crowdsec -t` reports no data-init errors.
 #   2. Recreate container with the same volume: files present, `cscli hub upgrade` NOT run.
+#   2b. Recreate with one data file present but empty: `cscli hub upgrade` NOT run (empty is valid).
 #   3. Recreate with data files deleted from the volume: `cscli hub upgrade` runs once and the
 #      files are restored.
 #   4. Legacy volume (config.yaml still pointing at /var/lib/crowdsec/data, no data files, no
@@ -122,12 +123,12 @@ declared_data_files() {
         "find -L /etc/crowdsec/parsers /etc/crowdsec/scenarios /etc/crowdsec/postoverflows -type f -name '*.yaml' -exec grep -h 'dest_file:' {} + 2>/dev/null | sed -e 's/^.*dest_file:[[:space:]]*//' -e 's/[[:space:]]*\$//' | sort -u"
 }
 
-# missing_data_files: declared data files that are absent or empty in data_dir.
+# missing_data_files: declared data files that are absent from data_dir (empty files are valid).
 missing_data_files() {
     local f
     declared_data_files | while IFS= read -r f; do
         [ -n "${f}" ] || continue
-        docker exec "${CONTAINER_NAME}" test -s "${DATA_DIR}/${f}" || echo "${f}"
+        docker exec "${CONTAINER_NAME}" test -e "${DATA_DIR}/${f}" || echo "${f}"
     done
 }
 
@@ -220,6 +221,24 @@ if [ -n "$(missing_data_files)" ]; then
     fail_test "data files missing after recreation: $(missing_data_files | tr '\n' ' ')"
 elif [ "$(count_upgrades)" -ne 0 ]; then
     fail_test "hub upgrade ran although all data files were present"
+else
+    pass_test
+fi
+
+# ----------------------------------------------------------------------------
+log_info "Scenario 2b: recreate with a present-but-empty data file (legitimately empty list)"
+EMPTY_FILE="$(declared_data_files | head -n1)"
+docker rm -f "${CONTAINER_NAME}" >/dev/null
+volume_sh "truncate -s 0 '${DATA_DIR}/${EMPTY_FILE}'"
+start_container
+
+log_test "Check 6b: an empty-but-present data file does NOT trigger hub upgrade and stays empty"
+if [ -z "${EMPTY_FILE}" ]; then
+    fail_test "no declared data file to empty"
+elif [ "$(count_upgrades)" -ne 0 ]; then
+    fail_test "hub upgrade ran although the only 'problem' was an empty data file"
+elif docker exec "${CONTAINER_NAME}" test -s "${DATA_DIR}/${EMPTY_FILE}"; then
+    fail_test "${EMPTY_FILE} was repopulated unexpectedly"
 else
     pass_test
 fi
