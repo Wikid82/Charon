@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/yamux v0.1.2
 	github.com/minio/minio-go/v7 v7.3.0
-	github.com/moby/moby/client v0.6.1
+	github.com/moby/moby/client v0.6.2
 	github.com/oschwald/geoip2-golang/v2 v2.4.0
 	github.com/pkg/sftp v1.13.11
 	github.com/prometheus/client_golang v1.25.0
@@ -37,7 +37,7 @@ require (
 
 require (
 	filippo.io/hpke v0.4.0 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/Microsoft/go-winio v0.6.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.4 // indirect
