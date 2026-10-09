@@ -78,6 +78,10 @@ type CrowdsecHandler struct {
 	// signalProcess delivers a signal to a PID; overridable in tests.
 	signalProcess func(pid int, sig syscall.Signal) error
 
+	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write).
+	// Lock order is always dataMu first, then HubService.mu.
+	dataMu sync.Mutex
+
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
 
@@ -641,7 +645,9 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 	})
 }
 
-// ImportConfig accepts a tar.gz or zip upload and extracts into DataDir (backing up existing config).
+// ImportConfig accepts a tar.gz upload and replaces the CrowdSec configuration in DataDir. The previous
+// configuration is snapshotted first and restored on failure; engine-owned state (live db, data/,
+// hub_cache/) is never replaced and DataDir itself is never renamed.
 func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -677,22 +683,27 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
-	// Backup current config
-	var backupDir string
-	if _, err := os.Stat(h.DataDir); err == nil {
-		backupDir = h.DataDir + ".backup." + time.Now().Format("20060102-150405")
-		if err := os.Rename(h.DataDir, backupDir); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
-			return
+	// Serialize with preset applies and file writes, then snapshot (copy, never rename) the config.
+	h.dataMu.Lock()
+	defer h.dataMu.Unlock()
+
+	backupDir, err := crowdsec.Snapshot(h.DataDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
+		return
+	}
+	defer h.pruneSnapshots()
+
+	// rollback restores the snapshot in place; DataDir itself is never removed or renamed.
+	rollback := func() {
+		if rbErr := crowdsec.Restore(backupDir, h.DataDir); rbErr != nil {
+			logger.Log().WithError(rbErr).WithField("backup_path", util.SanitizeForLog(backupDir)).Error("crowdsec import rollback failed; backup retained for manual recovery")
 		}
 	}
 
-	// Create target dir
-	if err := os.MkdirAll(h.DataDir, 0o750); err != nil {
-		// Rollback on failure
-		if backupDir != "" {
-			_ = os.Rename(backupDir, h.DataDir)
-		}
+	// Replace the configuration but keep engine-owned state (live db, data/, hub_cache/).
+	if err := crowdsec.ClearConfig(h.DataDir); err != nil {
+		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
 		return
 	}
@@ -700,11 +711,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	// Extract archive
 	extractErr := h.extractArchive(dst, h.DataDir)
 	if extractErr != nil {
-		// Rollback on extraction failure
-		_ = os.RemoveAll(h.DataDir)
-		if backupDir != "" {
-			_ = os.Rename(backupDir, h.DataDir)
-		}
+		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("extraction failed: %v", extractErr)})
 		return
 	}
@@ -712,16 +719,19 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	// Validate extracted config
 	configPath := filepath.Join(h.DataDir, "config.yaml")
 	if err := validateYAMLFile(configPath); err != nil {
-		// Rollback on validation failure
-		_ = os.RemoveAll(h.DataDir)
-		if backupDir != "" {
-			_ = os.Rename(backupDir, h.DataDir)
-		}
+		rollback()
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", err)})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": backupDir})
+}
+
+// pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
+func (h *CrowdsecHandler) pruneSnapshots() {
+	if _, err := crowdsec.PruneBackups(h.DataDir, crowdsec.BackupKindSnapshot, crowdsec.DefaultBackupRetention); err != nil {
+		logger.Log().WithError(err).Warn("crowdsec backup prune incomplete")
+	}
 }
 
 // extractArchive extracts a tar.gz archive to the destination directory.
@@ -755,6 +765,10 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 		target := filepath.Join(destDir, header.Name)
 		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid file path: %s", header.Name)
+		}
+		// Engine-owned state (live db files, top-level data/ and hub_cache/) is never taken from an upload.
+		if crowdsec.IsEngineOwnedPath(strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))) {
+			continue
 		}
 
 		switch header.Typeflag {
@@ -932,7 +946,8 @@ func (h *CrowdsecHandler) ReadFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"content": string(data)})
 }
 
-// WriteFile writes content to a file under the CrowdSec DataDir, creating a backup before doing so.
+// WriteFile writes content to a file under the CrowdSec DataDir, first copying only the replaced file into
+// the file-backup namespace.
 // JSON body: { "path": "relative/path.conf", "content": "..." }
 func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 	var payload struct {
@@ -953,15 +968,16 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
-	// Backup existing DataDir
-	backupDir := h.DataDir + ".backup." + time.Now().Format("20060102-150405")
-	if _, err := os.Stat(h.DataDir); err == nil {
-		if err := os.Rename(h.DataDir, backupDir); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
-			return
-		}
+	h.dataMu.Lock()
+	defer h.dataMu.Unlock()
+
+	// Back up only the file being replaced; DataDir itself is never renamed or emptied.
+	backupDir, err := crowdsec.BackupFile(h.DataDir, clean)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
+		return
 	}
-	// Recreate DataDir and write file
+	// Prepare the parent directory and write the file
 	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare dir"})
 		return

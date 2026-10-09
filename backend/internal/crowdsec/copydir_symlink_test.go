@@ -21,7 +21,7 @@ func TestCopyDirPreservesSymlinks(t *testing.T) {
 	require.NoError(t, os.Symlink("hub/collections", filepath.Join(src, "dirlink")))
 	require.NoError(t, os.Symlink("does/not/exist", filepath.Join(src, "dangling")))
 
-	require.NoError(t, copyDir(src, dst))
+	require.NoError(t, copyTree(src, dst, nil))
 
 	for name, want := range map[string]string{
 		"collections/sshd.yaml": "../hub/collections/crowdsecurity/sshd.yaml",
@@ -49,5 +49,5 @@ func TestCopyDirSymlinkDestinationError(t *testing.T) {
 	require.NoError(t, os.Symlink("target", filepath.Join(src, "link")))
 	dst := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dst, "link"), []byte("x"), 0o600))
-	require.Error(t, copyDir(src, dst))
+	require.Error(t, copyTree(src, dst, nil))
 }

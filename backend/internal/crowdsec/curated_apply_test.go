@@ -397,7 +397,8 @@ func TestApplyCuratedContextExpiresBetweenItems(t *testing.T) {
 func TestApplyCuratedBackupFailureInstallsNothing(t *testing.T) {
 	exec := &curatedExec{}
 	hub, _ := newCuratedHub(t, exec)
-	hub.DataDir = filepath.Join(t.TempDir(), "does-not-exist")
+	hub.DataDir = filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(hub.DataDir, []byte("x"), 0o600))
 
 	res, err := hub.ApplyCurated(context.Background(), twoItemPreset())
 	require.Error(t, err)
@@ -552,7 +553,7 @@ func TestApplyCuratedRollbackLeavesLiveDatabaseUntouched(t *testing.T) {
 }
 
 func TestEmptyDirExcept(t *testing.T) {
-	require.NoError(t, emptyDirExcept(filepath.Join(t.TempDir(), "missing"), isLiveDBFile))
+	require.NoError(t, emptyDirExcept(filepath.Join(t.TempDir(), "missing"), IsEngineOwnedPath))
 
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a", "b"), 0o700))
@@ -561,12 +562,12 @@ func TestEmptyDirExcept(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a", "b", "f"), []byte("f"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "top"), []byte("t"), 0o600))
 
-	require.NoError(t, emptyDirExcept(dir, isLiveDBFile))
+	require.NoError(t, emptyDirExcept(dir, IsEngineOwnedPath))
 	require.FileExists(t, filepath.Join(dir, "a", "crowdsec.db"))
 	require.NoFileExists(t, filepath.Join(dir, "top"))
 	require.NoDirExists(t, filepath.Join(dir, "a", "b"))
 	require.NoDirExists(t, filepath.Join(dir, "gone"))
 
 	// a regular file instead of a directory cannot be listed
-	require.Error(t, emptyDirExcept(filepath.Join(dir, "a", "crowdsec.db"), isLiveDBFile))
+	require.Error(t, emptyDirExcept(filepath.Join(dir, "a", "crowdsec.db"), IsEngineOwnedPath))
 }

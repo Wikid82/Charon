@@ -856,22 +856,6 @@ func TestHubHTTPErrorMethods(t *testing.T) {
 	require.True(t, err.CanFallback())
 }
 
-func TestBackupExistingHandlesDeviceBusy(t *testing.T) {
-	t.Parallel()
-	dataDir := filepath.Join(t.TempDir(), "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o750))
-	// #nosec G306 -- Test fixture file used for copy-based backup verification
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("content"), 0o644))
-
-	svc := NewHubService(nil, nil, dataDir)
-	backupPath := dataDir + ".backup.test"
-
-	// Even if rename fails, copy-based backup should work
-	err := svc.backupExisting(backupPath)
-	require.NoError(t, err)
-	require.FileExists(t, filepath.Join(backupPath, "file.txt"))
-}
-
 func TestCopyFile(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -919,7 +903,7 @@ func TestCopyDir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dstDir, 0o750)) // #nosec G301 -- test fixture
 
 	// Test successful copy
-	err := copyDir(srcDir, dstDir)
+	err := copyTree(srcDir, dstDir, nil)
 	require.NoError(t, err)
 
 	// Verify files were copied
@@ -936,14 +920,14 @@ func TestCopyDir(t *testing.T) {
 	require.Equal(t, []byte("file2"), content2)
 
 	// Test copy non-existent directory
-	err = copyDir(filepath.Join(tmpDir, "nonexistent"), dstDir)
+	err = copyTree(filepath.Join(tmpDir, "nonexistent"), dstDir, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "stat src")
 
 	// Test copy file as directory (should fail)
 	fileNotDir := filepath.Join(tmpDir, "file.txt")
 	require.NoError(t, os.WriteFile(fileNotDir, []byte("test"), 0o600))
-	err = copyDir(fileNotDir, dstDir)
+	err = copyTree(fileNotDir, dstDir, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not a directory")
 }
@@ -1313,7 +1297,7 @@ func TestCopyDirAndCopyFile(t *testing.T) {
 
 		require.NoError(t, os.MkdirAll(dstDir, 0o750)) // #nosec G301 -- test fixture
 
-		err := copyDir(srcDir, dstDir)
+		err := copyTree(srcDir, dstDir, nil)
 		require.NoError(t, err)
 
 		// Verify all files copied correctly
@@ -1336,64 +1320,9 @@ func TestCopyDirAndCopyFile(t *testing.T) {
 		require.NoError(t, os.WriteFile(srcFile, []byte("test"), 0o600))
 		require.NoError(t, os.MkdirAll(dstDir, 0o750)) // #nosec G301 -- test fixture
 
-		err := copyDir(srcFile, dstDir)
+		err := copyTree(srcFile, dstDir, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not a directory")
-	})
-}
-
-// ============================================
-// emptyDir Tests
-// ============================================
-
-func TestEmptyDir(t *testing.T) {
-	t.Parallel()
-	t.Run("empties directory with files", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("content1"), 0o600))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("content2"), 0o600))
-
-		err := emptyDir(dir)
-		require.NoError(t, err)
-
-		// Directory should still exist
-		require.DirExists(t, dir)
-
-		// But be empty
-		entries, err := os.ReadDir(dir)
-		require.NoError(t, err)
-		require.Empty(t, entries)
-	})
-
-	t.Run("empties directory with subdirectories", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		subDir := filepath.Join(dir, "subdir")
-		require.NoError(t, os.MkdirAll(subDir, 0o750)) // #nosec G301 -- test fixture
-		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o600))
-
-		err := emptyDir(dir)
-		require.NoError(t, err)
-
-		require.DirExists(t, dir)
-		entries, err := os.ReadDir(dir)
-		require.NoError(t, err)
-		require.Empty(t, entries)
-	})
-
-	t.Run("handles non-existent directory", func(t *testing.T) {
-		t.Parallel()
-		err := emptyDir(filepath.Join(t.TempDir(), "nonexistent"))
-		require.NoError(t, err, "should not error on non-existent directory")
-	})
-
-	t.Run("handles empty directory", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		err := emptyDir(dir)
-		require.NoError(t, err)
-		require.DirExists(t, dir)
 	})
 }
 
@@ -1501,111 +1430,6 @@ func TestExtractTarGz(t *testing.T) {
 		require.NoError(t, err)
 
 		require.FileExists(t, filepath.Join(targetDir, "a", "b", "c", "deep.txt"))
-	})
-}
-
-// ============================================
-// backupExisting Tests
-// ============================================
-
-func TestBackupExisting(t *testing.T) {
-	t.Parallel()
-	t.Run("handles non-existent directory", func(t *testing.T) {
-		t.Parallel()
-		dataDir := filepath.Join(t.TempDir(), "nonexistent")
-		svc := NewHubService(nil, nil, dataDir)
-		backupPath := dataDir + ".backup"
-
-		err := svc.backupExisting(backupPath)
-		require.NoError(t, err)
-		require.NoDirExists(t, backupPath)
-	})
-
-	t.Run("creates backup of existing directory", func(t *testing.T) {
-		t.Parallel()
-		dataDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte("config data"), 0o600))
-
-		subDir := filepath.Join(dataDir, "subdir")
-		require.NoError(t, os.MkdirAll(subDir, 0o750)) // #nosec G301 -- test fixture
-		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested data"), 0o600))
-
-		svc := NewHubService(nil, nil, dataDir)
-		backupPath := filepath.Join(t.TempDir(), "backup")
-
-		err := svc.backupExisting(backupPath)
-		require.NoError(t, err)
-
-		// Verify backup exists
-		require.FileExists(t, filepath.Join(backupPath, "config.txt"))
-		require.FileExists(t, filepath.Join(backupPath, "subdir", "nested.txt"))
-	})
-
-	t.Run("backup contents match original", func(t *testing.T) {
-		t.Parallel()
-		dataDir := t.TempDir()
-		originalContent := "important config"
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte(originalContent), 0o600)) // #nosec G306 -- test fixture
-
-		svc := NewHubService(nil, nil, dataDir)
-		backupPath := filepath.Join(t.TempDir(), "backup")
-
-		err := svc.backupExisting(backupPath)
-		require.NoError(t, err)
-
-		backupContent, err := os.ReadFile(filepath.Join(backupPath, "config.txt")) // #nosec G304 -- test fixture path
-		require.NoError(t, err)
-		require.Equal(t, originalContent, string(backupContent))
-	})
-}
-
-// ============================================
-// rollback Tests
-// ============================================
-
-func TestRollback(t *testing.T) {
-	t.Parallel()
-	t.Run("rollback with backup", func(t *testing.T) {
-		t.Parallel()
-		parentDir := t.TempDir()
-		dataDir := filepath.Join(parentDir, "data")
-		backupPath := filepath.Join(parentDir, "backup")
-
-		// Create backup first
-		require.NoError(t, os.MkdirAll(backupPath, 0o750))                                                            // #nosec G301 -- test fixture
-		require.NoError(t, os.WriteFile(filepath.Join(backupPath, "backed_up.txt"), []byte("backup content"), 0o600)) // #nosec G306 -- test fixture
-
-		// Create data dir with different content
-		require.NoError(t, os.MkdirAll(dataDir, 0o750))                                                           // #nosec G301 -- test fixture
-		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "current.txt"), []byte("current content"), 0o600)) // #nosec G306 -- test fixture
-
-		svc := NewHubService(nil, nil, dataDir)
-
-		err := svc.rollback(backupPath)
-		require.NoError(t, err)
-
-		// Data dir should now have backup contents
-		require.FileExists(t, filepath.Join(dataDir, "backed_up.txt"))
-		// Backup path should no longer exist (renamed to dataDir)
-		require.NoDirExists(t, backupPath)
-	})
-
-	t.Run("rollback with empty backup path", func(t *testing.T) {
-		t.Parallel()
-		dataDir := t.TempDir()
-		svc := NewHubService(nil, nil, dataDir)
-
-		err := svc.rollback("")
-		require.NoError(t, err)
-	})
-
-	t.Run("rollback with non-existent backup", func(t *testing.T) {
-		t.Parallel()
-		dataDir := t.TempDir()
-		svc := NewHubService(nil, nil, dataDir)
-
-		err := svc.rollback(filepath.Join(t.TempDir(), "nonexistent"))
-		require.NoError(t, err)
 	})
 }
 
@@ -1913,97 +1737,6 @@ func TestNewHubService_CustomMirrorBaseURL(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
 
 	require.Equal(t, "https://mirror.example.com", svc.MirrorBaseURL)
-}
-
-// ============================================
-// backupExisting Additional Tests
-// ============================================
-
-func TestBackupExisting_CopyFallback_Success(t *testing.T) {
-	t.Parallel()
-	dataDir := t.TempDir()
-
-	// Create complex directory structure
-	require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "configs", "scenarios"), 0o750))                                   // #nosec G301 -- test fixture
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "main.yaml"), []byte("main config"), 0o600))                      // #nosec G306 -- test fixture
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "configs", "sub.yaml"), []byte("sub config"), 0o600))             // #nosec G306 -- test fixture
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "configs", "scenarios", "s1.yaml"), []byte("scenario 1"), 0o600)) // #nosec G306 -- test fixture
-
-	svc := NewHubService(nil, nil, dataDir)
-	backupPath := filepath.Join(t.TempDir(), "backup")
-
-	err := svc.backupExisting(backupPath)
-	require.NoError(t, err)
-
-	// Verify all files were backed up
-	require.FileExists(t, filepath.Join(backupPath, "main.yaml"))
-	require.FileExists(t, filepath.Join(backupPath, "configs", "sub.yaml"))
-	require.FileExists(t, filepath.Join(backupPath, "configs", "scenarios", "s1.yaml"))
-
-	// Verify content integrity
-	content, err := os.ReadFile(filepath.Join(backupPath, "configs", "scenarios", "s1.yaml")) // #nosec G304 -- test fixture path
-	require.NoError(t, err)
-	require.Equal(t, "scenario 1", string(content))
-}
-
-func TestBackupExisting_RenameSuccess(t *testing.T) {
-	t.Parallel()
-	baseDir := t.TempDir()
-	dataDir := filepath.Join(baseDir, "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o750))                                                // #nosec G301 -- test fixture
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("content"), 0o600)) // #nosec G306 -- test fixture
-
-	svc := NewHubService(nil, nil, dataDir)
-	backupPath := filepath.Join(baseDir, "backup")
-
-	err := svc.backupExisting(backupPath)
-	require.NoError(t, err)
-
-	// Original should be gone (renamed, not copied)
-	require.NoDirExists(t, dataDir)
-	// Backup should exist with content
-	require.FileExists(t, filepath.Join(backupPath, "file.txt"))
-}
-
-func TestBackupExisting_EmptyDirectory(t *testing.T) {
-	t.Parallel()
-	dataDir := t.TempDir()
-
-	svc := NewHubService(nil, nil, dataDir)
-	backupPath := filepath.Join(t.TempDir(), "backup")
-
-	err := svc.backupExisting(backupPath)
-	require.NoError(t, err)
-
-	// Backup should exist even for empty dir
-	require.DirExists(t, backupPath)
-}
-
-func TestBackupExisting_PreservesPermissions(t *testing.T) {
-	t.Parallel()
-	dataDir := t.TempDir()
-	execFile := filepath.Join(dataDir, "executable.sh")
-	require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/bash"), 0o750)) // #nosec G306 -- test fixture for executable script
-
-	svc := NewHubService(nil, nil, dataDir)
-	backupPath := filepath.Join(t.TempDir(), "backup")
-
-	err := svc.backupExisting(backupPath)
-	require.NoError(t, err)
-
-	// Check permissions were preserved
-	origInfo, err := os.Stat(execFile)
-	if err == nil {
-		// If original still exists (rename succeeded)
-		backupInfo, err := os.Stat(filepath.Join(backupPath, "executable.sh"))
-		require.NoError(t, err)
-		require.Equal(t, origInfo.Mode(), backupInfo.Mode())
-	} else {
-		// If original was renamed (which removes it)
-		backupInfo, err := os.Stat(filepath.Join(backupPath, "executable.sh"))
-		require.NoError(t, err)
-		require.Equal(t, os.FileMode(0o750), backupInfo.Mode()&0o777)
-	}
 }
 
 // ============================================

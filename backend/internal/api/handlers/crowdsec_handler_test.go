@@ -377,43 +377,48 @@ func TestExportConfigSkipsSymlinks(t *testing.T) {
 	require.Equal(t, []string{"config.yaml"}, names)
 }
 
-func TestWriteFileCreatesBackup(t *testing.T) {
+// TestWriteFileNeverRenamesDataDir is the regression test for the destructive rename: writing one
+// file must leave DataDir and every unrelated file in place.
+func TestWriteFileNeverRenamesDataDir(t *testing.T) {
 	t.Parallel()
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
-	// create existing config dir with a marker file
-	_ = os.MkdirAll(tmpDir, 0o750)                                                // #nosec G301 -- test directory
-	_ = os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o600) // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o600)) // #nosec G306 -- test fixture
+	before, err := os.Stat(tmpDir)
+	require.NoError(t, err)
 
-	fe := &fakeExec{}
-	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
-
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
-	// write content to new file
 	payload := map[string]string{"path": "conf.d/new.conf", "content": "hello world"}
 	b, _ := json.Marshal(payload)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/file", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("write expected 200 got %d body=%s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	// ensure backup directory was created
-	entries, err := os.ReadDir(filepath.Dir(tmpDir))
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Empty(t, resp["backup"], "a new file has nothing to back up")
+
+	after, err := os.Stat(tmpDir)
 	require.NoError(t, err)
-	foundBackup := false
-	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), filepath.Base(tmpDir)+".backup.") {
-			foundBackup = true
-			break
-		}
-	}
-	require.True(t, foundBackup, "expected backup directory to be created")
+	require.True(t, os.SameFile(before, after), "DataDir must not be renamed")
+	// #nosec G304 -- test reads fixture paths
+	kept, err := os.ReadFile(filepath.Join(tmpDir, "existing.conf"))
+	require.NoError(t, err)
+	require.Equal(t, "v1", string(kept))
+	// #nosec G304 -- test reads fixture paths
+	written, err := os.ReadFile(filepath.Join(tmpDir, "conf.d", "new.conf"))
+	require.NoError(t, err)
+	require.Equal(t, "hello world", string(written))
+
+	matches, err := filepath.Glob(tmpDir + ".*")
+	require.NoError(t, err)
+	require.Empty(t, matches, "no backup directories are created for a new file")
 }
 
 func TestListPresetsCerberusDisabled(t *testing.T) {
@@ -3227,7 +3232,7 @@ func TestCrowdsecHandler_WriteFile_BackupCreation(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	body := map[string]string{
-		"path":    "test.conf",
+		"path":    "existing.conf",
 		"content": "new content",
 	}
 	b, _ := json.Marshal(body)
@@ -3246,10 +3251,17 @@ func TestCrowdsecHandler_WriteFile_BackupCreation(t *testing.T) {
 
 	backupPath := resp["backup"].(string)
 	require.NotEmpty(t, backupPath)
+	require.True(t, strings.HasPrefix(backupPath, tmpDir+".filebackup."), backupPath)
 
-	// Verify backup directory exists
-	_, err := os.Stat(backupPath)
+	// Only the replaced file is backed up, with its previous content; DataDir stays in place.
+	// #nosec G304 -- test reads a path it just created
+	old, err := os.ReadFile(filepath.Join(backupPath, "existing.conf"))
 	require.NoError(t, err)
+	require.Equal(t, "old content", string(old))
+	// #nosec G304 -- test reads a path it just created
+	cur, err := os.ReadFile(existingFile)
+	require.NoError(t, err)
+	require.Equal(t, "new content", string(cur))
 }
 
 // Test ReadFile with path traversal protection

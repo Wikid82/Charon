@@ -224,6 +224,10 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	}
 
+	// One mutation of DataDir at a time across preset apply, config import and file writes.
+	h.dataMu.Lock()
+	defer h.dataMu.Unlock()
+
 	// Check for curated preset that doesn't require hub
 	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
 		h.applyCuratedPreset(c, preset)

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -598,7 +597,8 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 	return PullResult{Meta: cachedMeta, Preview: previewText}, nil
 }
 
-// Apply installs the preset, preferring cscli when available. Falls back to manual extraction.
+// Apply installs the preset, preferring cscli when available and falling back to the cached archive.
+// DataDir is never renamed: a copy-based snapshot is taken first and restored in place on failure.
 func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error) {
 	cleanSlug := sanitizeSlug(slug)
 	if cleanSlug == "" {
@@ -614,75 +614,75 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 	if metaErr == nil {
 		result.CacheKey = meta.CacheKey
 	}
-	hasCS := s.hasCSCLI(applyCtx)
 
-	// Read archive into memory BEFORE backup, since cache is inside DataDir.
-	// If we backup first, the archive path becomes invalid (file moved).
-	var archive []byte
-	var archiveReadErr error
-	if metaErr == nil {
-		archive, archiveReadErr = os.ReadFile(meta.ArchivePath)
-		if archiveReadErr != nil {
-			logger.Log().WithField("error", util.SanitizeForLog(archiveReadErr.Error())).WithField("archive_path", util.SanitizeForLog(meta.ArchivePath)).
-				Warn("failed to read cached archive before backup")
-		}
-	}
-
-	backupPath := filepath.Clean(s.DataDir) + ".backup." + time.Now().Format("20060102-150405")
-	if err := s.backupExisting(backupPath); err != nil {
-		// Only set BackupPath if backup was actually created
+	backupPath, err := s.snapshot()
+	if err != nil {
 		return result, fmt.Errorf("backup: %w", err)
 	}
-	// Set BackupPath only after successful backup
 	result.BackupPath = backupPath
+	defer s.pruneAfterApply()
 
-	// Try cscli first
-	if hasCS {
+	if s.hasCSCLI(applyCtx) {
 		cscliErr := s.runCSCLI(applyCtx, cleanSlug)
 		if cscliErr == nil {
 			result.Status = "applied"
-			result.ReloadHint = true
+			result.ReloadHint = !s.reloadCrowdSec(applyCtx, "hub preset apply")
 			result.UsedCSCLI = true
 			return result, nil
 		}
 		logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("error", util.SanitizeForLog(cscliErr.Error())).Warn("cscli install failed; attempting cache fallback")
-	}
-
-	// Handle cache miss OR failed archive read - need to refresh cache
-	if metaErr != nil || archiveReadErr != nil {
-		originalErr := metaErr
-		if originalErr == nil {
-			originalErr = archiveReadErr
-		}
-		refreshed, refreshErr := s.refreshCache(applyCtx, cleanSlug, originalErr)
-		if refreshErr != nil {
-			_ = s.rollback(backupPath)
-			logger.Log().WithField("error", util.SanitizeForLog(refreshErr.Error())).WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("backup_path", util.SanitizeForLog(backupPath)).Warn("cache refresh failed; rolled back backup")
-			msg := fmt.Sprintf("load cache for %s: %v", cleanSlug, refreshErr)
-			result.ErrorMessage = msg
-			return result, fmt.Errorf("load cache for %s: %w", cleanSlug, refreshErr)
-		}
-		meta = refreshed
-		result.CacheKey = meta.CacheKey
-
-		// Re-read archive from the newly refreshed cache location
-		archive, archiveReadErr = os.ReadFile(meta.ArchivePath)
-		if archiveReadErr != nil {
-			_ = s.rollback(backupPath)
-			return result, fmt.Errorf("read archive after refresh: %w", archiveReadErr)
+		// Drop whatever cscli may have written so the archive extract starts from the pre-apply tree.
+		if rbErr := s.restore(backupPath); rbErr != nil {
+			return result, rollbackFailure(fmt.Errorf("cscli install failed: %w", cscliErr), rbErr, backupPath)
 		}
 	}
 
-	// Use pre-loaded archive bytes
+	archive, err := s.loadArchive(applyCtx, cleanSlug, meta, metaErr, &result)
+	if err != nil {
+		return result, s.restoreAfter(err, backupPath, cleanSlug)
+	}
 	if err := s.extractTarGz(applyCtx, archive, s.DataDir); err != nil {
-		_ = s.rollback(backupPath)
-		return result, fmt.Errorf("extract: %w", err)
+		return result, s.restoreAfter(fmt.Errorf("extract: %w", err), backupPath, cleanSlug)
 	}
 
 	result.Status = "applied"
-	result.ReloadHint = true
+	result.ReloadHint = !s.reloadCrowdSec(applyCtx, "hub preset apply")
 	result.UsedCSCLI = false
 	return result, nil
+}
+
+// loadArchive reads the cached archive, refreshing the cache from the hub on a miss or unreadable file.
+func (s *HubService) loadArchive(ctx context.Context, slug string, meta CachedPreset, metaErr error, result *ApplyResult) ([]byte, error) {
+	if metaErr == nil {
+		archive, readErr := os.ReadFile(meta.ArchivePath)
+		if readErr == nil {
+			return archive, nil
+		}
+		logger.Log().WithField("error", util.SanitizeForLog(readErr.Error())).WithField("archive_path", util.SanitizeForLog(meta.ArchivePath)).Warn("failed to read cached archive")
+		metaErr = readErr
+	}
+	refreshed, refreshErr := s.refreshCache(ctx, slug, metaErr)
+	if refreshErr != nil {
+		msg := fmt.Sprintf("load cache for %s: %v", slug, refreshErr)
+		result.ErrorMessage = msg
+		return nil, fmt.Errorf("load cache for %s: %w", slug, refreshErr)
+	}
+	result.CacheKey = refreshed.CacheKey
+	archive, err := os.ReadFile(refreshed.ArchivePath)
+	if err != nil {
+		return nil, fmt.Errorf("read archive after refresh: %w", err)
+	}
+	return archive, nil
+}
+
+// restoreAfter restores the snapshot after a failed apply step and returns the original error,
+// annotated when the restore itself failed.
+func (s *HubService) restoreAfter(cause error, backupPath, slug string) error {
+	if rbErr := s.restore(backupPath); rbErr != nil {
+		return rollbackFailure(cause, rbErr, backupPath)
+	}
+	logger.Log().WithField("error", util.SanitizeForLog(cause.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("backup_path", util.SanitizeForLog(backupPath)).Warn("preset apply failed; restored previous configuration")
+	return cause
 }
 
 func (s *HubService) findPreviewFile(data []byte) string {
@@ -909,77 +909,10 @@ func cleanShellArg(val string) string {
 	return sanitizeSlug(val)
 }
 
-func (s *HubService) backupExisting(backupPath string) error {
-	if _, err := os.Stat(s.DataDir); errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-
-	// First try rename for performance (atomic operation)
-	if err := os.Rename(s.DataDir, backupPath); err == nil {
-		return nil
-	}
-
-	// If rename fails (e.g., device busy, cross-device), use copy approach
-	logger.Log().WithField("data_dir", s.DataDir).WithField("backup_path", backupPath).Info("rename failed; using copy-based backup")
-
-	// Create backup directory
-	if err := os.MkdirAll(backupPath, 0o700); err != nil {
-		return fmt.Errorf("mkdir backup: %w", err)
-	}
-
-	// Copy directory contents recursively
-	if err := copyDir(s.DataDir, backupPath); err != nil {
-		_ = os.RemoveAll(backupPath)
-		return fmt.Errorf("copy backup: %w", err)
-	}
-
-	return nil
-}
-
-func (s *HubService) rollback(backupPath string) error {
-	_ = os.RemoveAll(s.DataDir)
-	if backupPath == "" {
-		return nil
-	}
-	if _, err := os.Stat(backupPath); err == nil {
-		return os.Rename(backupPath, s.DataDir)
-	}
-	return nil
-}
-
-// emptyDir removes all contents of a directory but leaves the directory itself.
-func emptyDir(dir string) error {
-	d, err := os.Open(dir) // #nosec G304 -- Directory path from validated backup root // #nosec G304 -- Directory path from validated backup root
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	defer func() {
-		if closeErr := d.Close(); closeErr != nil {
-			logger.Log().WithError(closeErr).Warn("Failed to close directory")
-		}
-	}()
-	names, err := d.Readdirnames(-1)
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// extractTarGz validates and extracts archive into targetDir.
+// extractTarGz validates and overlays archive onto targetDir. Existing files are replaced only when
+// the archive carries a same-named entry; the snapshot taken by Apply is the safety net. Entries for
+// engine-owned state (live db files, top-level data/ and hub_cache/) are skipped.
 func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir string) error {
-	// Clear target directory contents instead of removing the directory itself
-	// to avoid "device or resource busy" errors if targetDir is a mount point.
-	if err := emptyDir(targetDir); err != nil {
-		return fmt.Errorf("clean target: %w", err)
-	}
 	if err := os.MkdirAll(targetDir, 0o700); err != nil {
 		return fmt.Errorf("mkdir target: %w", err)
 	}
@@ -1012,6 +945,9 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 		cleanName := filepath.Clean(hdr.Name)
 		if strings.HasPrefix(cleanName, "..") || strings.Contains(cleanName, ".."+string(os.PathSeparator)) || filepath.IsAbs(cleanName) {
 			return fmt.Errorf("unsafe path %s", hdr.Name)
+		}
+		if IsEngineOwnedPath(cleanName) {
+			continue
 		}
 		destPath := filepath.Join(targetDir, cleanName)
 		// Defense in depth: confirm the joined path is still contained in targetDir.
@@ -1051,60 +987,6 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 		}
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close %s: %w", destPath, err)
-		}
-	}
-	return nil
-}
-
-// copyDir recursively copies a directory tree.
-func copyDir(src, dst string) error {
-	return copyDirFiltered(src, dst, nil)
-}
-
-// copyDirFiltered is copyDir that leaves out entries whose base name makes skip return true.
-func copyDirFiltered(src, dst string, skip func(name string) bool) error {
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return fmt.Errorf("stat src: %w", err)
-	}
-	if !srcInfo.IsDir() {
-		return fmt.Errorf("src is not a directory")
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return fmt.Errorf("read dir: %w", err)
-	}
-
-	for _, entry := range entries {
-		if skip != nil && skip(entry.Name()) {
-			continue
-		}
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		switch {
-		case entry.Type()&fs.ModeSymlink != 0:
-			// Preserve the link literally (never follow it): hub item entries are
-			// symlinks, and dangling links must survive a backup/restore round trip.
-			target, err := os.Readlink(srcPath)
-			if err != nil {
-				return fmt.Errorf("readlink %s: %w", srcPath, err)
-			}
-			if err := os.Symlink(target, dstPath); err != nil {
-				return fmt.Errorf("symlink %s: %w", dstPath, err)
-			}
-		case entry.IsDir():
-			if err := os.MkdirAll(dstPath, 0o700); err != nil {
-				return fmt.Errorf("mkdir %s: %w", dstPath, err)
-			}
-			if err := copyDirFiltered(srcPath, dstPath, skip); err != nil {
-				return err
-			}
-		default:
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
