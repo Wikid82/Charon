@@ -973,11 +973,15 @@ WORKDIR /app
 # floor itself is bumped by Renovate (repology) the moment a patched release is published.
 # renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
 ARG LIBXML2_VERSION=2.13.9-r2
+#
+# zlib is pinned to an exact version so the image never silently keeps an older vulnerable
+# build from the base layer (`apk upgrade` alone left Aikido flagging it).
+ARG ZLIB_VERSION=1.3.2-r1
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
     bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
-    c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" \
-    && apk upgrade --no-cache zlib libcrypto3 libssl3 musl musl-utils \
+    c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
+    && apk upgrade --no-cache libcrypto3 libssl3 musl musl-utils \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
     xz-libs
 
