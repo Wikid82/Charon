@@ -64,7 +64,7 @@ Hub presets are applied on the server too, with the same safety net: before anyt
 
 - Charon keeps the 5 most recent full backups and the 10 most recent single-file backups, and quietly deletes older ones.
 - Only one change runs at a time, so two edits can't collide.
-- The config file editor only accepts common text and settings files (`.yaml`, `.yml`, `.json`, `.txt`, `.conf`) up to 1 MiB, and applies stricter file validation than before.
+- The config file editor only accepts common text and settings files (`.yaml`, `.yml`, `.json`, `.txt`, `.conf`) up to 1 MiB, and validates file type, size and YAML.
 
 ### Console Enrollment
 
@@ -99,7 +99,7 @@ CrowdSec settings are stored in Charon's database and synchronized with the Secu
 - **On Container Start** — CrowdSec launches automatically if previously enabled
 - **Configuration Sync** — Changes in the UI immediately apply to CrowdSec
 - **State Persistence** — Decisions and configurations survive restarts
-- **Downloaded Data Survives Recreating the Container** — CrowdSec's own database and the lists it downloads (such as blocklists and the location database) are stored in your Charon data folder. If any are missing after an upgrade, Charon re-downloads them on startup.
+- **Downloaded Data Survives Recreating the Container** — CrowdSec's own database and the lists it downloads (such as blocklists and the location database) are stored in your Charon data folder. If any are missing after an upgrade, Charon re-downloads them on startup. If the CrowdSec Hub is unreachable, a restart with missing data files may take up to about two minutes longer while the refresh times out.
 
 ## Troubleshooting Console Enrollment
 

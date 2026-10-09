@@ -885,8 +885,8 @@ live CrowdSec directory. Each operation first takes a copy-based snapshot
 top-level `data/` directory, and `hub_cache/` are skipped to keep snapshots
 small) and restores it if the operation fails. Single-file edits keep their own
 backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). One handler-level
-lock serializes apply, import, and file saves. The file editor applies stricter
-validation than before (file type, size, and path checks), and the frontend no
+lock serializes apply, import, and file saves. The file editor validates file
+type, size and YAML, and the frontend no
 longer has a local-write fallback for presets; failures are shown as errors.
 
 **Persistent hub data:** CrowdSec's `data_dir` (LAPI database and hub data files
