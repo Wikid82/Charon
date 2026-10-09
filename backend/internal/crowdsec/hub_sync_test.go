@@ -1834,19 +1834,6 @@ func TestExtractTarGz_RejectsBareParentEntry(t *testing.T) {
 	require.Contains(t, err.Error(), "unsafe path")
 }
 
-func TestExtractTarGz_RejectsDotDotPrefixedName(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	// Documents the existing name check: any cleaned name starting with ".." is rejected.
-	archive := buildSingleEntryTarGz(t, &tar.Header{Name: "..foo", Mode: 0o644, Size: 3}, "abc")
-	err := svc.extractTarGz(context.Background(), archive, targetDir)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsafe path")
-	require.NoFileExists(t, filepath.Join(targetDir, "..foo"))
-}
-
 func TestExtractTarGz_MasksSpecialModeBits(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
@@ -2273,4 +2260,32 @@ func TestNewHubHTTPClient_LoopbackSeam(t *testing.T) {
 
 	setHubAllowLoopbackForTest(t, true)
 	require.NoError(t, get(), "seam permits loopback in tests")
+}
+
+func TestExtractTarGzDotDotNames(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	for _, name := range []string{"..foo", "a/..b", "...", "a/..."} {
+		t.Run("accepts "+name, func(t *testing.T) {
+			t.Parallel()
+			targetDir := t.TempDir()
+			archive := makeTarGz(t, map[string]string{name: "ok"})
+			require.NoError(t, svc.extractTarGz(context.Background(), archive, targetDir))
+			require.FileExists(t, filepath.Join(targetDir, filepath.FromSlash(name)))
+		})
+	}
+
+	for _, name := range []string{"../x", "a/../../x", "/abs", ".."} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			t.Parallel()
+			parent := t.TempDir()
+			targetDir := filepath.Join(parent, "data")
+			archive := makeTarGz(t, map[string]string{name: "bad"})
+			err := svc.extractTarGz(context.Background(), archive, targetDir)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "unsafe path")
+			require.NoFileExists(t, filepath.Join(parent, "x"))
+		})
+	}
 }
