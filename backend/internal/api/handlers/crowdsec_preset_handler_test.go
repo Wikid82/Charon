@@ -52,9 +52,9 @@ func TestListPresetsIncludesCacheAndIndex(t *testing.T) {
 	require.NoError(t, err)
 
 	hub := crowdsec.NewHubService(nil, cache, t.TempDir())
-	hub.HubBaseURL = "http://example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
-		if req.URL.String() == "http://example.com/api/index.json" {
+		if req.URL.String() == "https://hub.crowdsec.net/api/index.json" {
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection"}]}`)), Header: make(http.Header)}, nil
 		}
 		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
@@ -97,14 +97,14 @@ func TestPullPresetHandlerSuccess(t *testing.T) {
 	archive := makePresetTar(t, map[string]string{"config.yaml": "key: value"})
 
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case "http://example.com/api/index.json":
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","etag":"e1","download_url":"http://example.com/demo.tgz","preview_url":"http://example.com/demo.yaml"}]}`)), Header: make(http.Header)}, nil
-		case "http://example.com/demo.yaml":
+		case "https://hub.crowdsec.net/api/index.json":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","etag":"e1","download_url":"https://hub.crowdsec.net/demo.tgz","preview_url":"https://hub.crowdsec.net/demo.yaml"}]}`)), Header: make(http.Header)}, nil
+		case "https://hub.crowdsec.net/demo.yaml":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("preview")), Header: make(http.Header)}, nil
-		case "http://example.com/demo.tgz":
+		case "https://hub.crowdsec.net/demo.tgz":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 		default:
 			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
@@ -187,7 +187,7 @@ func TestPullPresetHandlerHubError(t *testing.T) {
 	require.NoError(t, err)
 
 	hub := crowdsec.NewHubService(nil, cache, t.TempDir())
-	hub.HubBaseURL = "http://example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
 	})}
@@ -213,7 +213,7 @@ func TestPullPresetHandlerTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	hub := crowdsec.NewHubService(nil, cache, t.TempDir())
-	hub.HubBaseURL = "http://example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
 		return nil, context.DeadlineExceeded
 	})}
@@ -319,9 +319,9 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 func TestListPresetsMergesCuratedAndHub(t *testing.T) {
 
 	hub := crowdsec.NewHubService(nil, nil, t.TempDir())
-	hub.HubBaseURL = "http://hub.example"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
-		if req.URL.String() == "http://hub.example/api/index.json" {
+		if req.URL.String() == "https://hub.crowdsec.net/api/index.json" {
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"items":[{"name":"crowdsecurity/custom","title":"Custom","description":"d","type":"collection"}]}`)), Header: make(http.Header)}, nil
 		}
 		return nil, errors.New("unexpected request")

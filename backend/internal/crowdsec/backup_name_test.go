@@ -19,7 +19,7 @@ func TestRedactPaths(t *testing.T) {
 	require.Equal(t, "open <path>: no such file", RedactPaths("open /app/data/x/y.yaml: no such file"))
 	require.Equal(t, "mkdir <path>: denied", RedactPaths("mkdir /tmp/a-b/c: denied"))
 	require.Equal(t, `fetch "<path>"`, RedactPaths(`fetch "/var/lib/x"`))
-	require.Equal(t, "fetch https://hub.example.com/a/index.json failed", RedactPaths("fetch https://hub.example.com/a/index.json failed"))
+	require.Equal(t, "fetch https://hub.crowdsec.net/a/index.json failed", RedactPaths("fetch https://hub.crowdsec.net/a/index.json failed"))
 	require.Equal(t, "plain message", RedactPaths("plain message"))
 }
 

@@ -114,6 +114,7 @@ func TestFetchIndexFallbackHTTP(t *testing.T) {
 	defer hubServer.Close()
 
 	svc.HubBaseURL = hubServer.URL
+	svc.validateURL = func(string) error { return nil } // local httptest server is not an allowlisted hub host
 	svc.HTTPClient = hubServer.Client()
 
 	idx, err := svc.FetchIndex(context.Background())
@@ -128,7 +129,7 @@ func TestFetchIndexHTTPRejectsRedirect(t *testing.T) {
 	}
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
-	svc.HubBaseURL = "http://hub.example"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		resp := newResponse(http.StatusMovedPermanently, "")
 		resp.Header.Set("Location", "https://hub.crowdsec.net/")
@@ -229,14 +230,14 @@ func TestPullCachesPreview(t *testing.T) {
 	archiveBytes := makeTarGz(t, map[string]string{"config.yaml": "value: 1"})
 
 	svc := NewHubService(nil, cache, dataDir)
-	svc.HubBaseURL = "http://example.com"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case "http://example.com" + defaultHubIndexPath:
-			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection","etag":"etag1","download_url":"http://example.com/demo.tgz","preview_url":"http://example.com/demo.yaml"}]}`), nil
-		case "http://example.com/demo.yaml":
+		case "https://hub.crowdsec.net" + defaultHubIndexPath:
+			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection","etag":"etag1","download_url":"https://hub.crowdsec.net/demo.tgz","preview_url":"https://hub.crowdsec.net/demo.yaml"}]}`), nil
+		case "https://hub.crowdsec.net/demo.yaml":
 			return newResponse(http.StatusOK, "preview-body"), nil
-		case "http://example.com/demo.tgz":
+		case "https://hub.crowdsec.net/demo.tgz":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archiveBytes)), Header: make(http.Header)}, nil
 		default:
 			return newResponse(http.StatusNotFound, ""), nil
@@ -341,14 +342,14 @@ func TestPullEvictsExpiredCacheAndRefreshes(t *testing.T) {
 
 	cache.nowFn = func() time.Time { return fixed.Add(3 * time.Second) }
 	svc := NewHubService(nil, cache, t.TempDir())
-	svc.HubBaseURL = "http://example.com"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case "http://example.com" + defaultHubIndexPath:
-			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection","etag":"etag2","download_url":"http://example.com/demo.tgz","preview_url":"http://example.com/demo.yaml"}]}`), nil
-		case "http://example.com/demo.yaml":
+		case "https://hub.crowdsec.net" + defaultHubIndexPath:
+			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection","etag":"etag2","download_url":"https://hub.crowdsec.net/demo.tgz","preview_url":"https://hub.crowdsec.net/demo.yaml"}]}`), nil
+		case "https://hub.crowdsec.net/demo.yaml":
 			return newResponse(http.StatusOK, "fresh-preview"), nil
-		case "http://example.com/demo.tgz":
+		case "https://hub.crowdsec.net/demo.tgz":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 		default:
 			return newResponse(http.StatusNotFound, ""), nil
@@ -368,15 +369,15 @@ func TestPullFallsBackToArchivePreview(t *testing.T) {
 	archive := makeTarGz(t, map[string]string{"scenarios/demo.yaml": "title: demo"})
 
 	svc := NewHubService(nil, cache, t.TempDir())
-	svc.HubBaseURL = "http://example.com"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.String() == "http://example.com"+defaultHubIndexPath {
-			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","etag":"etag1","download_url":"http://example.com/demo.tgz","preview_url":"http://example.com/demo.yaml"}]}`), nil
+		if req.URL.String() == "https://hub.crowdsec.net"+defaultHubIndexPath {
+			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","etag":"etag1","download_url":"https://hub.crowdsec.net/demo.tgz","preview_url":"https://hub.crowdsec.net/demo.yaml"}]}`), nil
 		}
-		if req.URL.String() == "http://example.com/demo.yaml" {
+		if req.URL.String() == "https://hub.crowdsec.net/demo.yaml" {
 			return newResponse(http.StatusInternalServerError, ""), nil
 		}
-		if req.URL.String() == "http://example.com/demo.tgz" {
+		if req.URL.String() == "https://hub.crowdsec.net/demo.tgz" {
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 		}
 		return newResponse(http.StatusNotFound, ""), nil
@@ -395,7 +396,7 @@ func TestPullFallsBackToMirrorArchiveOnForbidden(t *testing.T) {
 
 	archiveBytes := makeTarGz(t, map[string]string{"config.yml": "foo: bar"})
 	svc := NewHubService(nil, cache, dataDir)
-	svc.HubBaseURL = "https://primary.example"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.MirrorBaseURL = defaultHubMirrorBaseURL
 
 	calls := make([]string, 0)
@@ -403,13 +404,13 @@ func TestPullFallsBackToMirrorArchiveOnForbidden(t *testing.T) {
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		calls = append(calls, req.URL.String())
 		switch req.URL.String() {
-		case "https://primary.example/api/index.json":
+		case "https://hub.crowdsec.net/api/index.json":
 			resp := newResponse(http.StatusOK, indexBody)
 			resp.Header.Set("Content-Type", "application/json")
 			return resp, nil
-		case "https://primary.example/crowdsecurity/demo.tgz":
+		case "https://hub.crowdsec.net/crowdsecurity/demo.tgz":
 			return newResponse(http.StatusForbidden, ""), nil
-		case "https://primary.example/crowdsecurity/demo.yaml":
+		case "https://hub.crowdsec.net/crowdsecurity/demo.yaml":
 			return newResponse(http.StatusForbidden, ""), nil
 		case defaultHubMirrorBaseURL + "/.index.json":
 			resp := newResponse(http.StatusOK, indexBody)
@@ -441,7 +442,7 @@ func TestFetchWithLimitRejectsLargePayload(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(big)), Header: make(http.Header)}, nil
 	})}
 
-	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://example.com/large.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "https://hub.crowdsec.net/large.tgz")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "payload too large")
 }
@@ -511,7 +512,7 @@ func TestPullValidatesSlugAndMissingPreset(t *testing.T) {
 	cache, cacheErr := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, cacheErr)
 	svc.Cache = cache
-	svc.HubBaseURL = "http://hub.example"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/other","title":"Other","description":"d","type":"collection"}]}`), nil
 	})}
@@ -531,7 +532,7 @@ func TestFetchWithLimitRequiresClient(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HTTPClient = nil
-	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://example.com/demo.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "https://hub.crowdsec.net/demo.tgz")
 	require.Error(t, err)
 }
 
@@ -568,7 +569,7 @@ func TestFetchIndexCSCLIParseError(t *testing.T) {
 	t.Parallel()
 	exec := &recordingExec{outputs: map[string][]byte{"cscli hub list -o json": []byte("not-json")}}
 	svc := NewHubService(exec, nil, t.TempDir())
-	svc.HubBaseURL = "http://hub.example"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		return newResponse(http.StatusInternalServerError, ""), nil
 	})}
@@ -580,12 +581,12 @@ func TestFetchIndexCSCLIParseError(t *testing.T) {
 func TestFetchWithLimitStatusError(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
-	svc.HubBaseURL = "http://hub.example"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		return newResponse(http.StatusNotFound, ""), nil
 	})}
 
-	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://hub.example/demo.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "https://hub.crowdsec.net/demo.tgz")
 	require.Error(t, err)
 }
 
@@ -839,9 +840,9 @@ func TestIndexURLCandidates_GitHubMirror(t *testing.T) {
 func TestBuildResourceURLs_DeduplicatesExplicitAndBases(t *testing.T) {
 	t.Parallel()
 
-	urls := buildResourceURLs("https://hub.example/preset.tgz", "crowdsecurity/demo", "/%s.tgz", []string{"https://hub.example", "https://hub.example"})
+	urls := buildResourceURLs("https://hub.crowdsec.net/preset.tgz", "crowdsecurity/demo", "/%s.tgz", []string{"https://hub.crowdsec.net", "https://hub.crowdsec.net"})
 	require.NotEmpty(t, urls)
-	require.Equal(t, "https://hub.example/preset.tgz", urls[0])
+	require.Equal(t, "https://hub.crowdsec.net/preset.tgz", urls[0])
 	require.Len(t, urls, 2)
 }
 
@@ -849,9 +850,9 @@ func TestHubHTTPErrorMethods(t *testing.T) {
 	t.Parallel()
 
 	inner := errors.New("inner")
-	err := hubHTTPError{url: "https://hub.example", statusCode: 404, inner: inner, fallback: true}
+	err := hubHTTPError{url: "https://hub.crowdsec.net", statusCode: 404, inner: inner, fallback: true}
 
-	require.Contains(t, err.Error(), "https://hub.example")
+	require.Contains(t, err.Error(), "https://hub.crowdsec.net")
 	require.ErrorIs(t, err, inner)
 	require.True(t, err.CanFallback())
 }
@@ -991,25 +992,41 @@ func TestValidateHubURL_InvalidSchemes(t *testing.T) {
 	}
 }
 
-func TestValidateHubURL_LocalhostExceptions(t *testing.T) {
+func TestValidateHubURL_RejectsNonProductionHosts(t *testing.T) {
 	t.Parallel()
-	localhostURLs := []string{
+	nonProductionURLs := []string{
 		"http://localhost:8080/index.json",
 		"http://127.0.0.1:8080/index.json",
 		"http://[::1]:8080/index.json",
-		"http://test.hub/api/index.json",
+		"https://localhost/index.json",
+		"https://127.0.0.1/index.json",
+		"https://[::1]/index.json",
+		"https://test.hub/api/index.json",
+		"https://example.com/api/index.json",
+		"https://test.example.com/api/index.json",
+		"https://server.local/api/index.json",
 		"http://example.com/api/index.json",
-		"http://test.example.com/api/index.json",
-		"http://server.local/api/index.json",
 	}
 
-	for _, url := range localhostURLs {
+	for _, url := range nonProductionURLs {
 		t.Run(url, func(t *testing.T) {
 			t.Parallel()
-			err := validateHubURL(url)
-			require.NoError(t, err, "Expected localhost/test domain to be allowed")
+			require.Error(t, validateHubURL(url), "Expected non-production host to be rejected")
 		})
 	}
+}
+
+func TestNewHubHTTPClient_RejectsLoopback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	resp, err := newHubHTTPClient(2 * time.Second).Get(srv.URL)
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+	require.Error(t, err, "hub client must reject loopback")
 }
 
 func TestValidateHubURL_UnknownDomainRejection(t *testing.T) {
@@ -1101,7 +1118,7 @@ func TestParseRawIndex(t *testing.T) {
 			}
 		}`
 
-		idx, err := parseRawIndex([]byte(rawJSON), "https://hub.example.com/api/index.json")
+		idx, err := parseRawIndex([]byte(rawJSON), "https://hub.crowdsec.net/api/index.json")
 		require.NoError(t, err)
 		require.Len(t, idx.Items, 2)
 
@@ -1122,14 +1139,14 @@ func TestParseRawIndex(t *testing.T) {
 
 	t.Run("returns error on invalid JSON", func(t *testing.T) {
 		t.Parallel()
-		_, err := parseRawIndex([]byte("not json"), "https://hub.example.com")
+		_, err := parseRawIndex([]byte("not json"), "https://hub.crowdsec.net")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "parse raw index")
 	})
 
 	t.Run("returns error on empty index", func(t *testing.T) {
 		t.Parallel()
-		_, err := parseRawIndex([]byte("{}"), "https://hub.example.com")
+		_, err := parseRawIndex([]byte("{}"), "https://hub.crowdsec.net")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "empty raw index")
 	})
@@ -1154,7 +1171,7 @@ func TestFetchIndexHTTPFromURL_HTMLDetection(t *testing.T) {
 		return resp, nil
 	})}
 
-	_, err := svc.fetchIndexHTTPFromURL(context.Background(), "http://test.hub/index.json")
+	_, err := svc.fetchIndexHTTPFromURL(context.Background(), "https://hub.crowdsec.net/index.json")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "HTML")
 }
@@ -1195,11 +1212,11 @@ func TestHubService_Apply_CacheRefresh(t *testing.T) {
 	// Reset time to trigger expiration
 	cache.nowFn = time.Now
 
-	indexBody := `{"items":[{"name":"test/preset","title":"Test","etag":"etag2","download_url":"http://test.hub/preset.tgz"}]}`
+	indexBody := `{"items":[{"name":"test/preset","title":"Test","etag":"etag2","download_url":"https://hub.crowdsec.net/preset.tgz"}]}`
 	newArchive := makeTarGz(t, map[string]string{"config.yml": "new"})
 
 	svc := NewHubService(nil, cache, dataDir)
-	svc.HubBaseURL = "http://test.hub"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		if strings.Contains(req.URL.String(), "index.json") {
 			return newResponse(http.StatusOK, indexBody), nil
@@ -1443,14 +1460,14 @@ func TestHubHTTPErrorError(t *testing.T) {
 		t.Parallel()
 		inner := errors.New("connection refused")
 		err := hubHTTPError{
-			url:        "https://hub.example.com/index.json",
+			url:        "https://hub.crowdsec.net/index.json",
 			statusCode: 503,
 			inner:      inner,
 			fallback:   true,
 		}
 
 		msg := err.Error()
-		require.Contains(t, msg, "https://hub.example.com/index.json")
+		require.Contains(t, msg, "https://hub.crowdsec.net/index.json")
 		require.Contains(t, msg, "503")
 		require.Contains(t, msg, "connection refused")
 	})
@@ -1458,14 +1475,14 @@ func TestHubHTTPErrorError(t *testing.T) {
 	t.Run("error without inner error", func(t *testing.T) {
 		t.Parallel()
 		err := hubHTTPError{
-			url:        "https://hub.example.com/index.json",
+			url:        "https://hub.crowdsec.net/index.json",
 			statusCode: 404,
 			inner:      nil,
 			fallback:   false,
 		}
 
 		msg := err.Error()
-		require.Contains(t, msg, "https://hub.example.com/index.json")
+		require.Contains(t, msg, "https://hub.crowdsec.net/index.json")
 		require.Contains(t, msg, "404")
 		require.NotContains(t, msg, "nil")
 	})
@@ -1477,7 +1494,7 @@ func TestHubHTTPErrorUnwrap(t *testing.T) {
 		t.Parallel()
 		inner := errors.New("underlying error")
 		err := hubHTTPError{
-			url:        "https://hub.example.com",
+			url:        "https://hub.crowdsec.net",
 			statusCode: 500,
 			inner:      inner,
 		}
@@ -1489,7 +1506,7 @@ func TestHubHTTPErrorUnwrap(t *testing.T) {
 	t.Run("unwrap returns nil when no inner", func(t *testing.T) {
 		t.Parallel()
 		err := hubHTTPError{
-			url:        "https://hub.example.com",
+			url:        "https://hub.crowdsec.net",
 			statusCode: 500,
 			inner:      nil,
 		}
@@ -1502,7 +1519,7 @@ func TestHubHTTPErrorUnwrap(t *testing.T) {
 		t.Parallel()
 		inner := context.Canceled
 		err := hubHTTPError{
-			url:        "https://hub.example.com",
+			url:        "https://hub.crowdsec.net",
 			statusCode: 0,
 			inner:      inner,
 		}
@@ -1517,7 +1534,7 @@ func TestHubHTTPErrorCanFallback(t *testing.T) {
 	t.Run("returns true when fallback is true", func(t *testing.T) {
 		t.Parallel()
 		err := hubHTTPError{
-			url:        "https://hub.example.com",
+			url:        "https://hub.crowdsec.net",
 			statusCode: 503,
 			fallback:   true,
 		}
@@ -1528,7 +1545,7 @@ func TestHubHTTPErrorCanFallback(t *testing.T) {
 	t.Run("returns false when fallback is false", func(t *testing.T) {
 		t.Parallel()
 		err := hubHTTPError{
-			url:        "https://hub.example.com",
+			url:        "https://hub.crowdsec.net",
 			statusCode: 404,
 			fallback:   false,
 		}
@@ -1607,29 +1624,39 @@ func TestValidateHubURL_EdgeCases(t *testing.T) {
 			errorMsg:  "unsupported scheme",
 		},
 		{
-			name:      "Test domain allowed",
-			url:       "http://test.hub/api/index.json",
+			name:      "Allowlisted hosts over HTTPS accepted",
+			url:       "https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json",
 			wantError: false,
 		},
 		{
-			name:      "Example.com allowed for testing",
-			url:       "http://example.com/index.json",
-			wantError: false,
+			name:      "Test domain rejected",
+			url:       "https://test.hub/api/index.json",
+			wantError: true,
+			errorMsg:  "unknown hub domain",
 		},
 		{
-			name:      ".local domain allowed",
-			url:       "http://myserver.local/index.json",
-			wantError: false,
+			name:      "Example.com rejected",
+			url:       "https://example.com/index.json",
+			wantError: true,
+			errorMsg:  "unknown hub domain",
 		},
 		{
-			name:      "Subdomain of example.com allowed",
-			url:       "http://test.example.com/index.json",
-			wantError: false,
+			name:      ".local domain rejected",
+			url:       "https://myserver.local/index.json",
+			wantError: true,
+			errorMsg:  "unknown hub domain",
 		},
 		{
-			name:      "IPv6 loopback allowed",
+			name:      "Plain HTTP loopback rejected",
+			url:       "http://localhost:8080/index.json",
+			wantError: true,
+			errorMsg:  "must use HTTPS",
+		},
+		{
+			name:      "IPv6 loopback rejected",
 			url:       "http://[::1]:8080/index.json",
-			wantError: false,
+			wantError: true,
+			errorMsg:  "must use HTTPS",
 		},
 		{
 			name:      "Unknown production domain rejected",
@@ -1723,20 +1750,20 @@ func TestNewHubService_EnvVarTimeouts_Whitespace(t *testing.T) {
 
 func TestNewHubService_CustomHubBaseURL(t *testing.T) {
 	// Note: Cannot use t.Parallel() with t.Setenv()
-	t.Setenv("HUB_BASE_URL", "https://custom.hub.example.com")
+	t.Setenv("HUB_BASE_URL", "https://hub.crowdsec.net")
 
 	svc := NewHubService(nil, nil, t.TempDir())
 
-	require.Equal(t, "https://custom.hub.example.com", svc.HubBaseURL)
+	require.Equal(t, "https://hub.crowdsec.net", svc.HubBaseURL)
 }
 
 func TestNewHubService_CustomMirrorBaseURL(t *testing.T) {
 	// Note: Cannot use t.Parallel() with t.Setenv()
-	t.Setenv("HUB_MIRROR_BASE_URL", "https://mirror.example.com")
+	t.Setenv("HUB_MIRROR_BASE_URL", "https://hub-data.crowdsec.net")
 
 	svc := NewHubService(nil, nil, t.TempDir())
 
-	require.Equal(t, "https://mirror.example.com", svc.MirrorBaseURL)
+	require.Equal(t, "https://hub-data.crowdsec.net", svc.MirrorBaseURL)
 }
 
 // ============================================
@@ -2052,7 +2079,7 @@ func TestFetchIndexHTTPFromURL_ParseRawIndexFallback(t *testing.T) {
 		return resp, nil
 	})}
 
-	idx, err := svc.fetchIndexHTTPFromURL(context.Background(), "http://test.hub/.index.json")
+	idx, err := svc.fetchIndexHTTPFromURL(context.Background(), "https://hub.crowdsec.net/.index.json")
 	require.NoError(t, err)
 	require.Len(t, idx.Items, 1)
 	require.Equal(t, "crowdsecurity/nginx", idx.Items[0].Name)
@@ -2077,7 +2104,7 @@ func TestFetchIndexHTTPFromURL_EmptyJSONArray(t *testing.T) {
 	// Empty items array triggers raw index parsing (map[string]map[string]...), which succeeds
 	// but returns empty index. This is actually valid JSON but semantically empty.
 	// The code returns idx even if empty in this case (no error), so we should not expect an error.
-	idx, err := svc.fetchIndexHTTPFromURL(context.Background(), "http://test.hub/index.json")
+	idx, err := svc.fetchIndexHTTPFromURL(context.Background(), "https://hub.crowdsec.net/index.json")
 	require.NoError(t, err)
 	require.Empty(t, idx.Items, "should parse successfully but return empty items")
 }
@@ -2095,7 +2122,7 @@ func TestFetchIndexHTTPFromURL_InvalidJSON(t *testing.T) {
 		return resp, nil
 	})}
 
-	_, err := svc.fetchIndexHTTPFromURL(context.Background(), "http://test.hub/index.json")
+	_, err := svc.fetchIndexHTTPFromURL(context.Background(), "https://hub.crowdsec.net/index.json")
 	require.Error(t, err)
 }
 
@@ -2232,36 +2259,6 @@ func TestFindIndexEntry_EmptySlug(t *testing.T) {
 	require.False(t, found)
 }
 
-// setHubAllowLoopbackForTest toggles the package-level seam. Callers must not
-// use t.Parallel().
-func setHubAllowLoopbackForTest(t *testing.T, v bool) {
-	t.Helper()
-	prev := hubAllowLoopback
-	hubAllowLoopback = v
-	t.Cleanup(func() { hubAllowLoopback = prev })
-}
-
-// Must not run in parallel: relies on shared seam state.
-func TestNewHubHTTPClient_LoopbackSeam(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	get := func() error {
-		resp, err := newHubHTTPClient(2 * time.Second).Get(srv.URL)
-		if err == nil {
-			_ = resp.Body.Close()
-		}
-		return err
-	}
-
-	require.Error(t, get(), "default client must reject loopback")
-
-	setHubAllowLoopbackForTest(t, true)
-	require.NoError(t, get(), "seam permits loopback in tests")
-}
-
 func TestExtractTarGzDotDotNames(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
@@ -2288,4 +2285,17 @@ func TestExtractTarGzDotDotNames(t *testing.T) {
 			require.NoFileExists(t, filepath.Join(parent, "x"))
 		})
 	}
+}
+
+func TestHubBaseCandidates_DistinctRolesKeepOrder(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = "https://hub.crowdsec.net"
+	svc.MirrorBaseURL = defaultHubMirrorBaseURL
+
+	require.Equal(t, []string{
+		"https://hub.crowdsec.net",
+		defaultHubMirrorBaseURL,
+		defaultHubBaseURL,
+	}, svc.hubBaseCandidates())
 }
