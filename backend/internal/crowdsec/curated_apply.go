@@ -5,12 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // ErrCSCLIUnavailable is returned when a curated preset is applied without a working cscli.
@@ -21,9 +17,6 @@ var ErrCrowdSecNotRunning = errors.New("crowdsec is not running")
 
 // ReloadFunc signals the managed CrowdSec process to reload its configuration and hub items.
 type ReloadFunc func(ctx context.Context) error
-
-// curatedBackupTimeFormat includes sub-second precision so back-to-back applies never share a backup dir.
-const curatedBackupTimeFormat = "20060102-150405.000000"
 
 // ApplyCurated installs every hub item of a Charon-defined preset through cscli and verifies
 // each one. DataDir is never renamed or emptied before success is known: a copy-based backup
@@ -50,16 +43,16 @@ func (s *HubService) ApplyCurated(ctx context.Context, preset Preset) (ApplyResu
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	backupPath := filepath.Clean(s.DataDir) + ".backup." + time.Now().Format(curatedBackupTimeFormat)
-	if err := s.backupCopy(backupPath); err != nil {
+	backupPath, err := s.snapshot()
+	if err != nil {
 		return fail(fmt.Errorf("backup: %w", err))
 	}
 	result.BackupPath = backupPath
+	defer s.pruneAfterApply()
 
 	if err := s.installAndVerify(applyCtx, preset); err != nil {
-		if rbErr := s.restoreCopy(backupPath); rbErr != nil {
-			logger.Log().WithError(rbErr).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("curated preset rollback failed; backup retained for manual recovery")
-			err = fmt.Errorf("%w (rollback failed: %v; backup retained at %s)", err, rbErr, backupPath)
+		if rbErr := s.restore(backupPath); rbErr != nil {
+			err = rollbackFailure(err, rbErr, backupPath)
 		}
 		return fail(err)
 	}
@@ -114,71 +107,6 @@ func (s *HubService) verifyItem(ctx context.Context, item PresetItem) error {
 	}
 	if state.Tainted {
 		return errors.New("item reported as tainted")
-	}
-	return nil
-}
-
-// The live crowdsec.db (and -wal/-shm) is excluded so rollback can never regress engine state.
-// backupCopy copies DataDir (symlinks preserved) into backupPath, leaving DataDir untouched.
-func (s *HubService) backupCopy(backupPath string) error {
-	if err := os.Mkdir(backupPath, 0o700); err != nil {
-		return fmt.Errorf("mkdir backup: %w", err)
-	}
-	if err := copyDirFiltered(s.DataDir, backupPath, isLiveDBFile); err != nil {
-		_ = os.RemoveAll(backupPath)
-		return fmt.Errorf("copy backup: %w", err)
-	}
-	return nil
-}
-
-// restoreCopy replaces the contents of DataDir with the backup while keeping DataDir itself in place.
-func (s *HubService) restoreCopy(backupPath string) error {
-	if err := emptyDirExcept(s.DataDir, isLiveDBFile); err != nil {
-		return fmt.Errorf("empty data dir: %w", err)
-	}
-	if err := copyDirFiltered(backupPath, s.DataDir, isLiveDBFile); err != nil {
-		return fmt.Errorf("restore backup: %w", err)
-	}
-	return nil
-}
-
-// isLiveDBFile reports whether name is the live CrowdSec SQLite database or its WAL/SHM sidecars.
-// These are owned by the running engine and must never be copied into, or restored from, a backup.
-func isLiveDBFile(name string) bool {
-	switch name {
-	case "crowdsec.db", "crowdsec.db-wal", "crowdsec.db-shm":
-		return true
-	}
-	return false
-}
-
-// emptyDirExcept removes the contents of dir except entries (at any depth) for which keep returns true.
-// Directories are removed only when nothing kept remains inside them.
-func emptyDirExcept(dir string, keep func(name string) bool) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	for _, entry := range entries {
-		if keep(entry.Name()) {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		if entry.IsDir() {
-			if err := emptyDirExcept(path, keep); err != nil {
-				return err
-			}
-			// A directory that still holds kept files cannot be removed; leave it in place.
-			if remaining, rerr := os.ReadDir(path); rerr == nil && len(remaining) > 0 {
-				continue
-			}
-		}
-		if err := os.Remove(path); err != nil {
-			return err
-		}
 	}
 	return nil
 }

@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-d75806d895b00627
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:82f3204d6eed07288a0ed5bf45a99fb0cab9940195bbc3d03e598b6bed51da97
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-0b537c195f3b4f50
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:83b1b45f58af51a9be23ecb56155b29b3b7a64db61862aff043d535aca1645bb
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -50,6 +50,12 @@ ARG XNET_VERSION=0.60.0
 # golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
 # renovate: datasource=go depName=golang.org/x/crypto
 ARG XCRYPTO_VERSION=0.57.0
+# Shared golang.org/x/mod pin (GOSUMDB tile-verification bypass, CVE-2026-56864 / CVE-2026-56865;
+# fixed in v0.40.0). Must be >= the x/mod that the pinned x/net and x/crypto require (v0.41.0):
+# `go get golang.org/x/mod@<older>` is a downgrade and its cascade drags x/net, x/crypto and
+# x/text back down with it, silently undoing the pins above.
+# renovate: datasource=go depName=golang.org/x/mod
+ARG XMOD_VERSION=0.41.0
 # klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
@@ -494,6 +500,7 @@ ARG XCADDY_VERSION=0.4.7
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
+ARG XMOD_VERSION
 ARG KLAUSPOST_COMPRESS_VERSION
 ARG GRPC_VERSION
 ARG CROWDSEC_VERSION
@@ -681,8 +688,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # the transparency log). Affects /usr/bin/caddy — go mod tidy's MVS resolution otherwise
         # lands on an older, vulnerable version. Fix available at v0.40.0. Same pattern as the
         # crowdsec-builder pin below.
-        # renovate: datasource=go depName=golang.org/x/mod
-        _retry go get golang.org/x/mod@v0.40.0; \
+        _retry go get golang.org/x/mod@v${XMOD_VERSION}; \
+        # Re-assert x/crypto, x/net after the x/mod pin: any downgrade cascade from the
+        # x/mod / OpenTelemetry go gets must not leave them below the pinned CVE floor.
+        _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION} golang.org/x/net@v${XNET_VERSION}; \
         _retry go get github.com/dnsimple/dnsimple-go/v10@v${CADDY_DNS_DNSIMPLE_GO_VERSION}; \
         if [ "${CADDY_PATCH_SCENARIO}" = "A" ]; then \
             # Rollback scenario: keep explicit nebula pin if upstream compatibility regresses.
@@ -713,6 +722,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Final re-pin: coraza WAF CVE (fixed in v3.8.1). Transitive via coraza-caddy, which requires
         # v3.7.0. Affects /usr/bin/caddy.
         _retry go get github.com/corazawaf/coraza/v3@v${CORAZA_VERSION}; \
+        # Final re-pin: x/crypto + x/net (CVE floor). Later downgrading `go get`s (OpenTelemetry,
+        # x/mod) cascade through x/ modules; re-asserting last, then tidy, keeps them fixed.
+        _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION} golang.org/x/net@v${XNET_VERSION}; \
         # Clean up go.mod and ensure all dependencies are resolved
         _retry go mod tidy; \
         # Patch DecisionsListOpts API: crowdsec v1.7.8 changed fields (IPEquals, ScopeEquals,
@@ -778,6 +790,18 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Assert the shipped binary embeds the fixed coraza (>= v3.8.1 CVE fix).
         go version -m /usr/bin/caddy | grep -E "github\.com/corazawaf/coraza/v3[[:space:]]+v${CORAZA_VERSION}[[:space:]]" || { echo "ERROR: /usr/bin/caddy did not embed coraza v${CORAZA_VERSION}"; go version -m /usr/bin/caddy | grep "corazawaf/coraza" || true; exit 1; }; \
         echo "Verified /usr/bin/caddy embeds coraza v${CORAZA_VERSION}"; \
+        # Assert the shipped binary embeds golang.org/x/net and x/crypto at or above the pinned
+        # versions. A downgrading `go get` earlier in this recipe once silently dragged x/net back
+        # below the CVE fix; fail the build loudly instead of shipping it.
+        for pin in "golang.org/x/net:${XNET_VERSION}" "golang.org/x/crypto:${XCRYPTO_VERSION}"; do \
+            mod="${pin%%:*}"; want="v${pin#*:}"; \
+            got="$(go version -m /usr/bin/caddy | grep -E "^[[:space:]]+dep[[:space:]]+${mod}[[:space:]]" | awk "{print \$3}")"; \
+            if [ -z "$got" ] || [ "$(printf "%s\\n%s\\n" "$want" "$got" | sort -V | head -n1)" != "$want" ]; then \
+                echo "ERROR: /usr/bin/caddy embeds ${mod} ${got:-<none>}, below pinned ${want}"; \
+                exit 1; \
+            fi; \
+            echo "Verified /usr/bin/caddy embeds ${mod} ${got} (>= ${want})"; \
+        done; \
         # Clean up temporary build directories
         rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
@@ -801,6 +825,7 @@ ARG CROWDSEC_VERSION
 ARG EXPR_LANG_VERSION
 ARG XNET_VERSION
 ARG XCRYPTO_VERSION
+ARG XMOD_VERSION
 ARG KLAUSPOST_COMPRESS_VERSION
 ARG GRPC_VERSION
 
@@ -893,11 +918,13 @@ RUN set -e; \
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
     # tidy's MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
-    # renovate: datasource=go depName=golang.org/x/mod
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=go depName=github.com/jackc/pgproto3/v2
     _retry go get github.com/jackc/pgproto3/v2@v2.3.3; \
-    _retry go get golang.org/x/mod@v0.40.0; \
+    _retry go get golang.org/x/mod@v${XMOD_VERSION}; \
+    # Re-assert x/crypto, x/net after the x/mod pin: the x/mod pin is a downgrade-prone `go get`
+    # whose cascade must not leave them below the pinned CVE floor (see XMOD_VERSION).
+    _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION} golang.org/x/net@v${XNET_VERSION}; \
     _retry go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
@@ -910,7 +937,7 @@ RUN sed -i 's/string(program\.Source())/program.Source().String()/g' pkg/exprhel
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build -o /crowdsec-out/crowdsec \
-        -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v${CROWDSEC_VERSION}" \
+        -ldflags "-s -w -X github.com/crowdsecurity/go-cs-lib/version.Version=v${CROWDSEC_VERSION}" \
         ./cmd/crowdsec && \
     xx-verify /crowdsec-out/crowdsec
 
@@ -918,9 +945,26 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build -o /crowdsec-out/cscli \
-        -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v${CROWDSEC_VERSION}" \
+        -ldflags "-s -w -X github.com/crowdsecurity/go-cs-lib/version.Version=v${CROWDSEC_VERSION}" \
         ./cmd/crowdsec-cli && \
     xx-verify /crowdsec-out/cscli
+
+# Assert the shipped binaries embed golang.org/x/net and x/crypto at or above the pinned versions.
+# A downgrading `go get` earlier in the recipe once silently dragged x/net back below the CVE fix;
+# fail the build loudly instead of shipping it.
+# hadolint ignore=DL3059
+RUN set -e; \
+    for bin in /crowdsec-out/crowdsec /crowdsec-out/cscli; do \
+        for pin in "golang.org/x/net:${XNET_VERSION}" "golang.org/x/crypto:${XCRYPTO_VERSION}"; do \
+            mod="${pin%%:*}"; want="v${pin#*:}"; \
+            got="$(go version -m "$bin" | grep -E "^[[:space:]]+dep[[:space:]]+${mod}[[:space:]]" | awk "{print \$3}")"; \
+            if [ -z "$got" ] || [ "$(printf "%s\\n%s\\n" "$want" "$got" | sort -V | head -n1)" != "$want" ]; then \
+                echo "ERROR: $bin embeds ${mod} ${got:-<none>}, below pinned ${want}"; \
+                exit 1; \
+            fi; \
+            echo "Verified $bin embeds ${mod} ${got} (>= ${want})"; \
+        done; \
+    done
 
 # Copy config files
 RUN mkdir -p /crowdsec-out/config && \
@@ -1052,15 +1096,21 @@ RUN set -e; \
 COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
 COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
 
-# N5 — app-side sanity check on the toolchain-provided cscli binary: it must run
-# and emit its recognisable version block. (CrowdSec 1.8.x prints an empty
-# `version:` field here regardless of the -X ldflag, so match a stable field
-# instead.) A wrong-arch / stale-recipe image fails this immediately.
+# N5 — app-side sanity check on the toolchain-provided cscli binary: it must run,
+# emit its recognisable version block, and report the pinned CrowdSec version.
+# The version is injected via the go-cs-lib/version.Version -X ldflag in the
+# crowdsec-inline stage; `-X` on a nonexistent symbol is silently ignored, so the
+# "version: v${CROWDSEC_VERSION}" assertion fails the build if that ever no-ops
+# again. A wrong-arch / stale-recipe image fails this immediately.
+# A global ARG is not visible inside a stage without redeclaring it.
+ARG CROWDSEC_VERSION
 RUN set -e; \
     /usr/local/bin/cscli version >/tmp/cscli-v.txt 2>&1 \
         || { echo "ERROR: toolchain cscli is not runnable"; cat /tmp/cscli-v.txt; exit 1; }; \
     grep -q 'Constraint_api' /tmp/cscli-v.txt \
         || { echo "ERROR: toolchain cscli version output not recognised"; cat /tmp/cscli-v.txt; exit 1; }; \
+    grep -q "^version: v${CROWDSEC_VERSION}\$" /tmp/cscli-v.txt \
+        || { echo "ERROR: toolchain cscli does not report version v${CROWDSEC_VERSION} (version ldflag no-op or wrong pin)"; cat /tmp/cscli-v.txt; exit 1; }; \
     rm -f /tmp/cscli-v.txt; \
     echo "Verified toolchain cscli runs (GoVersion: $(/usr/local/bin/cscli version 2>&1 | sed -n 's/^GoVersion: //p'))"
 # Copy CrowdSec configuration files to .dist directory (will be used at runtime)

@@ -1338,7 +1338,7 @@ Charon uses two types of storage:
    - **Caddy Logs**: `/var/log/caddy/` - Access logs monitored by CrowdSec
    - **CrowdSec Logs**: `/var/log/crowdsec/` - Agent and LAPI logs
    - **Runtime Config**: `/config/` - Dynamically generated Caddy JSON configuration
-   - **CrowdSec Runtime**: `/var/lib/crowdsec/` - CrowdSec agent runtime data
+   - **CrowdSec Runtime**: `/var/lib/crowdsec/` - Scratch space only. The CrowdSec database and hub data files (blocklists, GeoIP databases) live on the persistent volume under `/app/data/crowdsec/data`
    - **Temporary Files**: `/tmp/` - Used by CrowdSec hub operations
    - **Runtime State**: `/run/` - PIDs and runtime state files
 
@@ -1537,7 +1537,7 @@ docker exec charon ls -la /app/data
 
 **CrowdSec fails to start:**
 
-- Verify `/var/lib/crowdsec` tmpfs mount exists
+- Verify `/var/lib/crowdsec` tmpfs mount exists (scratch space only; CrowdSec data lives under `/app/data/crowdsec/data` and must be on the volume)
 - Check `/app/data/crowdsec` volume is writable
 - Ensure symlink `/etc/crowdsec -> /app/data/crowdsec/config` is preserved
 

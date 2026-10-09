@@ -161,13 +161,13 @@ jobs:
           path: backend/test-output.txt
           retention-days: 7
 
-      - name: Upload backend coverage to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      - name: Stage backend coverage for upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./backend/coverage.txt
-          flags: backend
-          fail_ci_if_error: true
+          name: coverage-backend
+          path: backend/coverage.txt
+          if-no-files-found: error
+          retention-days: 1
 
   frontend-codecov:
     name: Frontend Codecov Upload
@@ -199,13 +199,13 @@ jobs:
           bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
           exit "${PIPESTATUS[0]}"
 
-      - name: Upload frontend coverage to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+      - name: Stage frontend coverage for upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./frontend/coverage
-          flags: frontend
-          fail_ci_if_error: true
+          name: coverage-frontend
+          path: frontend/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 1
 
   agent-codecov:
     name: Agent Codecov Upload
@@ -246,7 +246,84 @@ jobs:
           path: agent/test-output.txt
           retention-days: 7
 
+      - name: Stage agent coverage for upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-agent
+          path: agent/coverage.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  # The test jobs above only stage their coverage file as an artifact. Codecov
+  # re-evaluates statuses on every upload, so uploading from three parallel jobs
+  # (agent in ~2 min, backend in ~15 min) made codecov/patch flap red/green.
+  # This job uploads all reports back to back once every test job is done, so
+  # Codecov never sees a partial report (only a seconds-wide window between the
+  # three uploads remains).
+  #
+  # Runs only if no test job failed/was cancelled and at least one succeeded.
+  # A workflow_dispatch with a job disabled (skipped) still uploads, but only
+  # the reports that exist, so Codecov computes from a partial report. If a test
+  # job fails, nothing is uploaded and no codecov/* status is posted.
+  upload-codecov:
+    name: Codecov Upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [backend-codecov, frontend-codecov, agent-codecov]
+    if: >-
+      ${{ !cancelled()
+      && !contains(needs.*.result, 'failure')
+      && contains(needs.*.result, 'success') }}
+    steps:
+      # Checkout at the tested SHA is required so Codecov can map report paths.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Download backend coverage
+        if: ${{ needs.backend-codecov.result == 'success' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: coverage-backend
+          path: backend
+
+      - name: Download frontend coverage
+        if: ${{ needs.frontend-codecov.result == 'success' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: coverage-frontend
+          path: frontend/coverage
+
+      - name: Download agent coverage
+        if: ${{ needs.agent-codecov.result == 'success' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: coverage-agent
+          path: agent
+
+      - name: Upload backend coverage to Codecov
+        if: ${{ needs.backend-codecov.result == 'success' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./backend/coverage.txt
+          flags: backend
+          fail_ci_if_error: true
+
+      - name: Upload frontend coverage to Codecov
+        if: ${{ needs.frontend-codecov.result == 'success' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./frontend/coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: true
+
       - name: Upload agent coverage to Codecov
+        if: ${{ needs.agent-codecov.result == 'success' }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

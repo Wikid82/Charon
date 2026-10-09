@@ -348,6 +348,32 @@ func TestCrowdsec_WriteFile_Success(t *testing.T) {
 	assert.Equal(t, "new content", string(content))
 }
 
+func TestCrowdsec_WriteFile_NewSubdirectoryOwnerOnly(t *testing.T) {
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	b, _ := json.Marshal(map[string]string{"path": "newdir/sub/new.conf", "content": "x"})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/file", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	for _, d := range []string{"newdir", filepath.Join("newdir", "sub")} {
+		info, err := os.Stat(filepath.Join(tmpDir, d))
+		if !assert.NoError(t, err) {
+			continue
+		}
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	}
+}
+
 func TestCrowdsec_ListPresets_Disabled(t *testing.T) {
 	db := setupCrowdDB(t)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")

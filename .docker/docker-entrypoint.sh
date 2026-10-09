@@ -10,6 +10,23 @@ is_root() {
     [ "$(id -u)" -eq 0 ]
 }
 
+# Print (one per line) the data files declared by installed CrowdSec hub items
+# (`data: - dest_file:` entries in their YAML) that are absent from the data dir (an empty file is legitimate, e.g. an empty blocklist).
+# `cscli ... inspect -o json` does not expose declared data files, so the installed item
+# files under the config dir are read directly. Prints nothing when everything is present.
+# Usage: list_missing_hub_data_files <config_dir> <data_dir>
+list_missing_hub_data_files() {
+    _cfg="$1"
+    _data="$2"
+    for _sub in parsers scenarios postoverflows contexts; do
+        [ -d "$_cfg/$_sub" ] || continue
+        find -L "$_cfg/$_sub" -type f -name '*.yaml' -exec grep -h 'dest_file:' {} + 2>/dev/null || true
+    done | sed -e 's/^.*dest_file:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' -e "s/[\"']//g" -e 's/[[:space:]]*$//' | sort -u | while IFS= read -r _file; do
+        [ -n "$_file" ] || continue
+        [ -e "$_data/$_file" ] || echo "$_file"
+    done
+}
+
 run_as_charon() {
     if is_root; then
         gosu charon "$@"
@@ -320,6 +337,44 @@ ACQUIS_EOF
         echo "⚠️  WARNING: Could not verify LAPI db_path redirect — bouncer keys may not survive rebuilds"
     fi
 
+    # Redirect CrowdSec data_dir (hub data files: blocklists, GeoLite2 databases, ...) to the
+    # persistent volume. The default /var/lib/crowdsec/data/ lives in the image layer, so after a
+    # container recreation the hub items (kept under /etc/crowdsec -> volume) are still installed
+    # but their data files are gone, which makes CrowdSec log "unable to init data for file".
+    # Idempotent: a config that already points at the volume is left untouched.
+    if grep -q "data_dir: /var/lib/crowdsec/data" "$CS_CONFIG_DIR/config.yaml"; then
+        sed -i "s|data_dir: /var/lib/crowdsec/data/\?\$|data_dir: ${CS_DATA_DIR}/|" "$CS_CONFIG_DIR/config.yaml"
+        # Existing installs: carry over anything an operator kept at the old location
+        # (e.g. a mounted volume), without overwriting files already on the volume.
+        if [ -d /var/lib/crowdsec/data ] && find /var/lib/crowdsec/data -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .; then
+            cp -R -n /var/lib/crowdsec/data/. "$CS_DATA_DIR/" 2>/dev/null || echo "Warning: could not copy existing CrowdSec data files to $CS_DATA_DIR"
+        fi
+    fi
+    if grep -q "data_dir: ${CS_DATA_DIR}/\?\$" "$CS_CONFIG_DIR/config.yaml"; then
+        echo "✓ CrowdSec data_dir redirected to persistent volume: ${CS_DATA_DIR}/"
+    else
+        echo "⚠️  WARNING: Could not verify CrowdSec data_dir redirect — hub data files may not survive container recreation"
+    fi
+
+    # Pin the hub branch. Without cscli.hub_branch, every hub command first asks
+    # version.crowdsec.net for the latest release and derives the branch from the running version,
+    # which hard-fails offline and 404s once the CDN has no branch named after this version.
+    # A non-empty hub_branch is used as-is (no lookup). Idempotent: an operator-chosen non-empty
+    # value is respected; missing/empty/commented values are set to master.
+    if ! grep -Eq '^[[:space:]]+hub_branch:[[:space:]]*[^[:space:]#]' "$CS_CONFIG_DIR/config.yaml"; then
+        sed -i '/^[[:space:]]\+hub_branch:/d' "$CS_CONFIG_DIR/config.yaml"
+        if grep -q '^cscli:' "$CS_CONFIG_DIR/config.yaml"; then
+            sed -i '/^cscli:[[:space:]]*$/a\  hub_branch: master' "$CS_CONFIG_DIR/config.yaml"
+        else
+            printf '\ncscli:\n  hub_branch: master\n' >>"$CS_CONFIG_DIR/config.yaml"
+        fi
+    fi
+    if grep -Eq '^[[:space:]]+hub_branch:[[:space:]]*[^[:space:]#]' "$CS_CONFIG_DIR/config.yaml"; then
+        echo "✓ CrowdSec hub branch pinned: $(sed -n 's/^[[:space:]]*hub_branch:[[:space:]]*//p' "$CS_CONFIG_DIR/config.yaml" | head -n1)"
+    else
+        echo "⚠️  WARNING: Could not pin cscli.hub_branch — hub commands may depend on version.crowdsec.net"
+    fi
+
     # Verify LAPI configuration was applied correctly
     if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
         echo "✓ CrowdSec LAPI configured for port 8085"
@@ -352,6 +407,26 @@ ACQUIS_EOF
         echo "Ensuring CrowdSec hub items are installed..."
         if [ -x /usr/local/bin/install_hub_items.sh ]; then
             /usr/local/bin/install_hub_items.sh || echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
+        fi
+
+        # Hub items live under /etc/crowdsec (volume) but their data files live in data_dir. If the
+        # data files are gone while the items are installed (e.g. the data directory was recreated),
+        # `cscli hub upgrade` is the only command that re-downloads them (`install` is a no-op for
+        # installed items). It upgrades every installed item, so it runs ONLY in this recovery case,
+        # never on a healthy start, is bounded, never forced and never fatal.
+        MISSING_HUB_DATA="$(list_missing_hub_data_files "$CS_CONFIG_DIR" "$CS_DATA_DIR")"
+        if [ -n "$MISSING_HUB_DATA" ]; then
+            echo "⚠️ CrowdSec hub data files missing from $CS_DATA_DIR: $(echo "$MISSING_HUB_DATA" | tr '\n' ' ')"
+            echo "Running 'cscli hub upgrade' to restore them (this also upgrades installed hub items)..."
+            if ! timeout 120s cscli hub upgrade 2>&1; then
+                echo "⚠️ Hub upgrade failed or timed out. CrowdSec will start, but some detection data may be missing until the next restart."
+            fi
+            STILL_MISSING="$(list_missing_hub_data_files "$CS_CONFIG_DIR" "$CS_DATA_DIR")"
+            if [ -n "$STILL_MISSING" ]; then
+                echo "⚠️ CrowdSec hub data files still missing: $(echo "$STILL_MISSING" | tr '\n' ' ')"
+            else
+                echo "✓ CrowdSec hub data files restored"
+            fi
         fi
     fi
 
