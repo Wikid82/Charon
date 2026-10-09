@@ -658,14 +658,14 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	// Save to temp file
 	tmpDir := os.TempDir()
 	tmpPath := filepath.Join(tmpDir, fmt.Sprintf("crowdsec-import-%d", time.Now().UnixNano()))
-	if err := os.MkdirAll(tmpPath, 0o750); err != nil {
+	if err = os.MkdirAll(tmpPath, 0o750); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp dir"})
 		return
 	}
 	defer func() { _ = os.RemoveAll(tmpPath) }()
 
 	dst := filepath.Join(tmpPath, file.Filename)
-	if err := c.SaveUploadedFile(file, dst); err != nil {
+	if err = c.SaveUploadedFile(file, dst); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save upload"})
 		return
 	}
@@ -678,7 +678,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		RequiredFiles:       []string{"config.yaml"},
 	}
 
-	if err := validator.Validate(dst); err != nil {
+	if err = validator.Validate(dst); err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", err)})
 		return
 	}

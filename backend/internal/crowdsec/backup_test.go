@@ -455,7 +455,7 @@ func TestPruneBackupsReportsRemovalErrors(t *testing.T) {
 	mkBackupDir(t, dataDir, "backup", "20250102-000000.000000")
 	// A read-only parent makes the removal fail.
 	require.NoError(t, os.Chmod(parent, 0o500)) //nolint:gosec // G302: test needs a read-only dir
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) }) //nolint:gosec // G302: restore owner access to a temp directory so cleanup can remove it
 
 	removed, err := PruneBackups(dataDir, BackupKindSnapshot, 1)
 	require.Error(t, err)
@@ -753,7 +753,7 @@ func TestBackupFileMkdirFailure(t *testing.T) {
 	dir := filepath.Join(parent, "crowdsec")
 	writeFile(t, filepath.Join(dir, "f.yaml"), "x")
 	require.NoError(t, os.Chmod(parent, 0o500)) //nolint:gosec // G302: test needs a read-only dir
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) }) //nolint:gosec // G302: restore owner access to a temp directory so cleanup can remove it
 
 	_, err := BackupFile(dir, "f.yaml")
 	require.ErrorContains(t, err, "mkdir file backup")
