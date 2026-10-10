@@ -347,14 +347,30 @@ func BackupFile(dataDir, rel string) (string, error) {
 	return dir, nil
 }
 
-// absPathPattern matches absolute filesystem paths that follow whitespace, a quote, "(" or "=".
-// URL path segments are preceded by ":" or "/" and are therefore left alone.
-var absPathPattern = regexp.MustCompile(`(^|[\s('"=])/[^\s:;)'"]+`)
+// absPathPattern matches an absolute filesystem path that starts the string or follows whitespace,
+// a quote, or one of ( [ { < = ,. URL path segments are preceded by ":" or a word character
+// and are therefore left alone. A path ends at whitespace, a quote, or one of : ; , ) ] } > <.
+var absPathPattern = regexp.MustCompile(`(^|[\s(\[{<=,'"])(/[^\s:;,)\]}>'"<]+)`)
+
+// apiRoutePrefix marks route-looking text (for example " /api/v1/x") that RedactPaths must not
+// rewrite, since API routes are not filesystem paths.
+const apiRoutePrefix = "/api/"
 
 // RedactPaths replaces absolute filesystem paths in an error message with "<path>" so server
 // layout never reaches an API client. Detail belongs in server logs.
+//
+// Limits: this is a heuristic over free text. Any absolute path in the recognised positions is
+// redacted except those under /api/, so a bare route outside /api/ is also redacted (safe
+// direction). Paths containing spaces or ":", Windows-style paths, and relative paths are not
+// recognised; callers must not rely on it for those, and should prefer fixed messages.
 func RedactPaths(msg string) string {
-	return absPathPattern.ReplaceAllString(msg, "${1}<path>")
+	return absPathPattern.ReplaceAllStringFunc(msg, func(m string) string {
+		sub := absPathPattern.FindStringSubmatch(m)
+		if strings.HasPrefix(sub[2], apiRoutePrefix) {
+			return m
+		}
+		return sub[1] + "<path>"
+	})
 }
 
 // withoutPath unwraps a filesystem error to its underlying cause (for example "permission

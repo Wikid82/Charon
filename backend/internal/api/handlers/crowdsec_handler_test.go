@@ -1082,7 +1082,7 @@ labels:
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, acquisPath, resp["path"])
+	require.NotContains(t, resp, "path")
 	require.Equal(t, acquisContent, resp["content"])
 }
 
@@ -1323,7 +1323,7 @@ func TestCrowdsecHandler_Status_Error(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "status check failed")
+	require.Contains(t, w.Body.String(), "failed to read CrowdSec status")
 }
 
 func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
@@ -1342,7 +1342,7 @@ func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "failed to start process")
+	require.Contains(t, w.Body.String(), "failed to start CrowdSec")
 }
 
 func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {

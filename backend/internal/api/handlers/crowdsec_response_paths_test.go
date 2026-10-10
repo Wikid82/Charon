@@ -14,6 +14,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // serverPathPattern matches absolute server path prefixes that must never reach a client.
@@ -143,4 +145,115 @@ func TestResponses_ExportErrorCarriesNoPaths(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	requireNoServerPaths(t, w.Body.String(), dir)
 	require.Contains(t, w.Body.String(), "failed to export crowdsec config")
+}
+
+// pathErrExec fails every lifecycle call with an error that embeds an absolute server path.
+type pathErrExec struct{}
+
+func (p *pathErrExec) err() error {
+	return &os.PathError{Op: "open", Path: "/app/data/crowdsec/crowdsec.pid", Err: os.ErrPermission}
+}
+func (p *pathErrExec) Start(context.Context, string, string) (int, error) { return 0, p.err() }
+func (p *pathErrExec) Stop(context.Context, string) error                 { return p.err() }
+func (p *pathErrExec) Status(context.Context, string) (running bool, pid int, err error) {
+	return false, 0, p.err()
+}
+
+func serveCrowdsec(h *CrowdsecHandler, method, target string) *httptest.ResponseRecorder {
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(method, target, http.NoBody))
+	return w
+}
+
+func TestResponses_AcquisitionGetCarriesNoPath(t *testing.T) {
+	dir := t.TempDir()
+	acquis := filepath.Join(dir, "acquis.yaml")
+	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquis)
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+
+	w := serveCrowdsec(h, http.MethodGet, "/api/v1/admin/crowdsec/acquisition")
+	require.Equal(t, http.StatusNotFound, w.Code)
+	requireNoServerPaths(t, w.Body.String(), dir)
+	require.JSONEq(t, `{"error":"acquisition config not found"}`, w.Body.String())
+
+	require.NoError(t, os.WriteFile(acquis, []byte("source: file\n"), 0o600))
+	w = serveCrowdsec(h, http.MethodGet, "/api/v1/admin/crowdsec/acquisition")
+	require.Equal(t, http.StatusOK, w.Code)
+	requireNoServerPaths(t, w.Body.String(), dir)
+	require.JSONEq(t, `{"content":"source: file\n"}`, w.Body.String())
+}
+
+func TestResponses_DiagnosticsConfigCarriesNoPaths(t *testing.T) {
+	dataDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "config"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config", "config.yaml"), []byte("listen_uri: 127.0.0.1:8080\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config", "acquis.yaml"), []byte("source: file\nfilenames: [a]\n"), 0o600))
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
+
+	w := serveCrowdsec(h, http.MethodGet, "/api/v1/admin/crowdsec/diagnostics/config")
+	require.Equal(t, http.StatusOK, w.Code)
+	requireNoServerPaths(t, w.Body.String(), dataDir)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, true, resp["config_exists"])
+	require.Equal(t, true, resp["acquis_exists"])
+	require.NotContains(t, resp, "config_path")
+	require.NotContains(t, resp, "acquis_path")
+}
+
+func TestResponses_LifecycleFailuresReturnFixedMessages(t *testing.T) {
+	dataDir := t.TempDir()
+	h := newTestCrowdsecHandler(t, setupCrowdDB(t), &pathErrExec{}, "/bin/false", dataDir)
+	cases := []struct {
+		name, method, target, want string
+	}{
+		{"start", http.MethodPost, "/api/v1/admin/crowdsec/start", "failed to start CrowdSec"},
+		{"stop", http.MethodPost, "/api/v1/admin/crowdsec/stop", "failed to stop CrowdSec"},
+		{"status", http.MethodGet, "/api/v1/admin/crowdsec/status", "failed to read CrowdSec status"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := serveCrowdsec(h, tc.method, tc.target)
+			require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+			requireNoServerPaths(t, w.Body.String(), dataDir)
+			require.JSONEq(t, `{"error":"`+tc.want+`"}`, w.Body.String())
+		})
+	}
+}
+
+func TestResponses_ConsoleFailuresReturnFixedMessages(t *testing.T) {
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+	h := setupTestConsoleEnrollment(t)
+	require.NoError(t, h.DB.Migrator().DropTable(&models.CrowdsecConsoleEnrollment{}))
+
+	cases := []struct {
+		name, method, target, want string
+	}{
+		{"status", http.MethodGet, "/api/v1/admin/crowdsec/console/status", "failed to read enrollment status"},
+		{"heartbeat", http.MethodGet, "/api/v1/admin/crowdsec/console/heartbeat", "failed to read enrollment status"},
+		{"clear", http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", "failed to clear enrollment state"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := serveCrowdsec(h, tc.method, tc.target)
+			require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+			requireNoServerPaths(t, w.Body.String())
+			require.JSONEq(t, `{"error":"`+tc.want+`"}`, w.Body.String())
+		})
+	}
+}
+
+func TestResponses_PresetCacheReadFailureReturnsFixedMessage(t *testing.T) {
+	dataDir := t.TempDir()
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
+	meta, err := h.Hub.Cache.Store(context.Background(), "demo", "etag", "hub", "preview", []byte("x"))
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(meta.PreviewPath))
+
+	w := serveCrowdsec(h, http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/demo")
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	requireNoServerPaths(t, w.Body.String(), dataDir)
+	require.JSONEq(t, `{"error":"failed to load preset preview"}`, w.Body.String())
 }

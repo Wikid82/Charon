@@ -62,3 +62,10 @@ Suggested remediation: drop the `path` fields (or return a fixed label), and eit
 - Full-suite and cross-browser E2E are deferred to CI.
 - CodeQL and a container-image Trivy scan are deferred to CI.
 - Coverage and local patch scripts were not rerun, as instructed.
+
+## Resolution (F1, F2 and the remaining findings)
+
+- **F1: fixed.** `GET /admin/crowdsec/acquisition` no longer returns `path`; `GET /admin/crowdsec/diagnostics/config` no longer returns `config_path` or `acquis_path` (nothing in `frontend/src` or `tests/` read them). Start, Stop, Status, ClearEnrollment, console heartbeat and the preset cache preview/metadata handlers now return fixed messages and log the detail server-side; console enrollment errors, which are user-facing validation text, pass through `RedactPaths`. Covered by `crowdsec_response_paths_test.go`.
+- **F2: fixed.** `RedactPaths` now matches absolute paths at the start of the string or after whitespace, a quote, `(`, `[`, `{`, `<`, `=` or `,`, ends them at whitespace, a quote or `: ; , ) ] } > <`, and leaves text under `/api/` untouched. Remaining limits (paths containing spaces or `:`, Windows or relative paths) are documented on the function; handlers prefer fixed messages. Covered by `TestRedactPaths`.
+- **F3, F5: reviewed and left** as low or informational, as recommended (backend redaction is the primary control; the gzip exclusion is exact for every registered route).
+- **F4: handled by commit rewording** before merge.

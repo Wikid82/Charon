@@ -21,6 +21,15 @@ func TestRedactPaths(t *testing.T) {
 	require.Equal(t, `fetch "<path>"`, RedactPaths(`fetch "/var/lib/x"`))
 	require.Equal(t, "fetch https://hub.crowdsec.net/a/index.json failed", RedactPaths("fetch https://hub.crowdsec.net/a/index.json failed"))
 	require.Equal(t, "plain message", RedactPaths("plain message"))
+	require.Equal(t, "<path>", RedactPaths("/app/data/x"))
+	require.Equal(t, "list [<path>]", RedactPaths("list [/data/crowdsec/a.yaml]"))
+	require.Equal(t, "{<path>}", RedactPaths("{/etc/crowdsec/config.yaml}"))
+	require.Equal(t, "a=1,<path>,b", RedactPaths("a=1,/srv/x/y,b"))
+	require.Equal(t, "<<path>>", RedactPaths("</opt/crowdsec/bin>"))
+	require.Equal(t, "stat <path>; retry <path>", RedactPaths("stat /custom/dir/f; retry /other/g"))
+	require.Equal(t, "route /api/v1/x failed", RedactPaths("route /api/v1/x failed"))
+	require.Equal(t, "GET (/api/v1/admin/crowdsec) failed", RedactPaths("GET (/api/v1/admin/crowdsec) failed"))
+	require.Equal(t, "see https://hub.crowdsec.net//a and a/b/c", RedactPaths("see https://hub.crowdsec.net//a and a/b/c"))
 }
 
 func TestExtractTarGzErrorsOmitAbsolutePaths(t *testing.T) {

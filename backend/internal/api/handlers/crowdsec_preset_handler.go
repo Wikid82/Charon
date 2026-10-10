@@ -392,12 +392,14 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "cache miss"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to load crowdsec preset preview")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load preset preview"})
 		return
 	}
 	meta, metaErr := h.Hub.Cache.Load(ctx, slug)
 	if metaErr != nil && !errors.Is(metaErr, crowdsec.ErrCacheMiss) && !errors.Is(metaErr, crowdsec.ErrCacheExpired) {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": metaErr.Error()})
+		logger.Log().WithField("error", util.SanitizeForLog(metaErr.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to load crowdsec preset cache metadata")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load preset cache metadata"})
 		return
 	}
 	cacheTTL := h.Hub.Cache.TTL()

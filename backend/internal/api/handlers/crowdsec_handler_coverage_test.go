@@ -43,7 +43,7 @@ func TestCrowdsec_Start_Error(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "failed to start crowdsec")
+	assert.Contains(t, w.Body.String(), "failed to start CrowdSec")
 }
 
 func TestCrowdsec_Stop_Error(t *testing.T) {
@@ -61,7 +61,7 @@ func TestCrowdsec_Stop_Error(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "failed to stop crowdsec")
+	assert.Contains(t, w.Body.String(), "failed to stop CrowdSec")
 }
 
 func TestCrowdsec_Status_Error(t *testing.T) {
@@ -79,7 +79,7 @@ func TestCrowdsec_Status_Error(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "failed to get status")
+	assert.Contains(t, w.Body.String(), "failed to read CrowdSec status")
 }
 
 // ReadFile tests

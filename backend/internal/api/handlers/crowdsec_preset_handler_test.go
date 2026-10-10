@@ -435,7 +435,7 @@ func TestGetCachedPresetPreviewError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "no such file")
+	require.Contains(t, w.Body.String(), "failed to load preset preview")
 }
 
 func TestPullCuratedPresetSkipsHub(t *testing.T) {
