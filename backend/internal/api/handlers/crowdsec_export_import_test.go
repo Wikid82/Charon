@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
@@ -519,4 +520,24 @@ func TestSkipArchiveEntryAndLiveDirSet(t *testing.T) {
 
 	_, err = liveDirSet(filepath.Join(dir, "missing"))
 	require.Error(t, err)
+}
+
+func TestExportConfigAbortsEarlyWhenCompressedSizeExceedsImportLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("TMPDIR", tmpDir)
+	dir := t.TempDir()
+	noise := make([]byte, crowdsec.MaxImportCompressedBytes+(2<<20))
+	_, err := rand.Read(noise)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.bin"), noise, 0o600))
+	_, r := newImportRouter(t, dir)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody))
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), crowdsec.ErrExportTooLarge.Error())
+
+	left, err := filepath.Glob(filepath.Join(tmpDir, "crowdsec-export-*"))
+	require.NoError(t, err)
+	require.Empty(t, left, "the temporary archive must be removed")
 }

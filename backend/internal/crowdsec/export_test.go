@@ -300,3 +300,104 @@ func TestAddExportFileRefusesWhatLstatRejects(t *testing.T) {
 	require.NoError(t, err, "a vanished entry is skipped")
 	require.Zero(t, n)
 }
+
+// swapAndExport runs an export of a.yaml whose file is replaced inside the beforeOpen seam, with a
+// timeout guard so a blocking open fails the test instead of hanging it.
+func swapAndExport(t *testing.T, swap func(path string)) (names []string, err error) {
+	t.Helper()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{"a.yaml": "abcdef", "z.yaml": "z"})
+	var buf bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		_, exportErr := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
+			beforeOpen: func(path string) {
+				if filepath.Base(path) == "a.yaml" {
+					swap(path)
+				}
+			},
+		})
+		done <- exportErr
+	}()
+	select {
+	case err = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("export blocked after the file was swapped")
+	}
+	if err == nil {
+		names = exportNames(t, buf.Bytes())
+	}
+	return names, err
+}
+
+func TestWriteExportArchiveFileSwappedForFIFOIsSkipped(t *testing.T) {
+	t.Parallel()
+	names, err := swapAndExport(t, func(path string) {
+		require.NoError(t, os.Remove(path))
+		require.NoError(t, syscall.Mkfifo(path, 0o600))
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"z.yaml"}, names)
+}
+
+func TestWriteExportArchiveFileSwappedForSymlinkIsNotFollowed(t *testing.T) {
+	t.Parallel()
+	secret := filepath.Join(t.TempDir(), "secret.txt")
+	require.NoError(t, os.WriteFile(secret, []byte("TOP-SECRET-CONTENT"), 0o600))
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{"a.yaml": "abcdef"})
+	var buf bytes.Buffer
+	_, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
+		beforeOpen: func(path string) {
+			require.NoError(t, os.Remove(path))
+			require.NoError(t, os.Symlink(secret, path))
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, exportNames(t, buf.Bytes()))
+	gr, err := gzip.NewReader(&buf)
+	require.NoError(t, err)
+	raw, err := io.ReadAll(gr)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "TOP-SECRET-CONTENT")
+}
+
+func TestWriteExportArchiveFileReplacedByAnotherFileFails(t *testing.T) {
+	t.Parallel()
+	_, err := swapAndExport(t, func(path string) {
+		// Create the replacement first so it cannot reuse the old inode, then rename it over the path.
+		replacement := path + ".new"
+		require.NoError(t, os.WriteFile(replacement, []byte("abcdef"), 0o600))
+		require.NoError(t, os.Rename(replacement, path))
+	})
+	require.ErrorIs(t, err, ErrExportFileUnreadable)
+}
+
+func TestWriteExportArchiveAbortsOnceCompressedLimitIsPassed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	noise := make([]byte, 1<<20)
+	_, err := rand.Read(noise)
+	require.NoError(t, err)
+	for _, name := range []string{"a.bin", "b.bin", "c.bin", "d.bin"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), noise, 0o600))
+	}
+	var sink bytes.Buffer
+	const limit = 100 << 10
+	_, err = writeExportArchive(context.Background(), dir, &sink, MaxImportUncompressedBytes,
+		exportHooks{maxCompressed: limit})
+	require.ErrorIs(t, err, ErrExportTooLarge)
+	require.LessOrEqual(t, sink.Len(), limit, "nothing past the limit may reach the destination")
+}
+
+func TestLimitWriterPassesThroughBelowLimit(t *testing.T) {
+	t.Parallel()
+	var sink bytes.Buffer
+	lw := &limitWriter{w: &sink, limit: 4}
+	n, err := lw.Write([]byte("abcd"))
+	require.NoError(t, err)
+	require.Equal(t, 4, n)
+	_, err = lw.Write([]byte("e"))
+	require.ErrorIs(t, err, ErrExportTooLarge)
+	require.Equal(t, "abcd", sink.String())
+}

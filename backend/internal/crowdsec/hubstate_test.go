@@ -170,3 +170,28 @@ func TestClearConfigKeepsPidFile(t *testing.T) {
 	require.Equal(t, "7", readFile(t, filepath.Join(dir, "crowdsec.pid")))
 	require.NoFileExists(t, filepath.Join(dir, "other.yaml"))
 }
+
+// TestIsLiveSymlinkFollowsIntermediateLinks documents the invariant on isLiveSymlink: a path beneath a
+// live link is answered for the link's target, so callers must check ancestors first. The ancestor-first
+// KeptOrBeneathKept still keeps everything under the link, and never reports a target outside the tree.
+func TestIsLiveSymlinkFollowsIntermediateLinks(t *testing.T) {
+	t.Parallel()
+	outside := t.TempDir()
+	require.NoError(t, os.Symlink("x", filepath.Join(outside, "inner")))
+	dir := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "link")))
+
+	require.True(t, isLiveSymlink(dir, "link"))
+	// On its own, the deeper path answers for the link's target (a link outside the tree)...
+	require.True(t, isLiveSymlink(dir, filepath.Join("link", "inner")))
+	// ...and a regular file or missing name behind the link is not a link, so the answer is not
+	// meaningful without the ancestor check.
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "plain"), []byte("p"), 0o600))
+	require.False(t, isLiveSymlink(dir, filepath.Join("link", "plain")))
+
+	keep := ImportKeeper(dir)
+	for _, rel := range []string{"link", "link/plain", "link/inner", "link/missing/deep"} {
+		require.True(t, KeptOrBeneathKept(keep, rel), rel)
+	}
+	require.False(t, KeptOrBeneathKept(keep, "other/plain"))
+}

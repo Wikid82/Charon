@@ -40,6 +40,12 @@ func ImportKeeper(dataDir string) func(rel string) bool {
 
 // isLiveSymlink reports whether rel names a symlink below dataDir. The path is lstat-ed, never
 // followed; unsafe or missing paths are simply not symlinks.
+//
+// Invariant: Lstat resolves symlinks in the intermediate components, so for a path beneath a live
+// link the answer describes the link's target, not a link inside the tree. The result is only
+// meaningful when every ancestor of rel has already been checked and found not to be kept, which is
+// what callers guarantee by visiting ancestors first (KeptOrBeneathKept runs the shortest prefix
+// first; the clear and copy walks never descend into a kept entry).
 func isLiveSymlink(dataDir, rel string) bool {
 	if rel == "" || strings.ContainsRune(rel, 0) || !filepath.IsLocal(rel) {
 		return false

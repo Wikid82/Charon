@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -32,9 +33,28 @@ var (
 	ErrExportFileUnreadable = errors.New("a file in the CrowdSec folder could not be read")
 )
 
-// exportHooks lets tests change the tree between listing a file and reading it.
+// exportHooks lets tests change the tree between listing a file and reading it, and lower the
+// compressed-size limit so the early abort can be exercised without a 50 MiB fixture.
 type exportHooks struct {
-	beforeOpen func(path string)
+	beforeOpen    func(path string)
+	maxCompressed int64 // zero means MaxImportCompressedBytes
+}
+
+// limitWriter forwards to w and fails with ErrExportTooLarge once more than limit bytes have been
+// written, so an oversized archive stops growing on disk as soon as an import would reject it.
+type limitWriter struct {
+	w       io.Writer
+	limit   int64
+	written int64
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	if l.written+int64(len(p)) > l.limit {
+		return 0, ErrExportTooLarge
+	}
+	n, err := l.w.Write(p)
+	l.written += int64(n)
+	return n, err
 }
 
 // CheckExportImportable verifies that an archive of the given compressed and uncompressed size passes
@@ -64,7 +84,11 @@ func WriteExportArchive(ctx context.Context, dataDir string, w io.Writer) (int64
 }
 
 func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxBytes int64, hooks exportHooks) (int64, error) {
-	gw := gzip.NewWriter(w)
+	maxCompressed := hooks.maxCompressed
+	if maxCompressed <= 0 {
+		maxCompressed = MaxImportCompressedBytes
+	}
+	gw := gzip.NewWriter(&limitWriter{w: w, limit: maxCompressed})
 	tw := tar.NewWriter(gw)
 	var total int64
 
@@ -142,8 +166,14 @@ func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, h
 		hooks.beforeOpen(path)
 	}
 
-	f, err := os.Open(path) //nolint:gosec // G304: path is dataDir (Charon-owned) joined with a walked entry that Lstat just showed is a regular file
+	// O_NOFOLLOW refuses a link swapped in after the Lstat (ELOOP); O_NONBLOCK keeps an open of a
+	// swapped-in FIFO from blocking while the data lock is held. The opened file is verified below.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) //nolint:gosec // G304: path is dataDir (Charon-owned) joined with a walked entry; O_NOFOLLOW|O_NONBLOCK plus the fstat identity check below guard against a swap after Lstat
 	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if errors.Is(err, syscall.ELOOP) {
+		logger.Log().Warnf("skipping %s during export: replaced by a symlink", util.SanitizeForLog(rel))
 		return 0, nil
 	}
 	if err != nil {
@@ -154,6 +184,18 @@ func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, h
 			logger.Log().WithError(closeErr).Warnf("failed to close %s while archiving", util.SanitizeForLog(rel))
 		}
 	}()
+
+	opened, err := f.Stat()
+	if err != nil {
+		return 0, unreadableFile(rel, err)
+	}
+	if !opened.Mode().IsRegular() {
+		logger.Log().Warnf("skipping %s during export: no longer a regular file", util.SanitizeForLog(rel))
+		return 0, nil
+	}
+	if !os.SameFile(info, opened) {
+		return 0, unreadableFile(rel, errors.New("file was replaced while exporting"))
+	}
 
 	hdr := &tar.Header{
 		Name:    filepath.ToSlash(rel),
