@@ -97,10 +97,16 @@ func (s *HubService) restore(path string) error { return Restore(path, s.DataDir
 // Restore replaces the contents of dataDir with the snapshot while keeping dataDir itself (and the
 // engine-owned entries inside it) in place.
 func Restore(snapshotPath, dataDir string) error {
-	if err := ClearConfig(dataDir); err != nil {
+	return RestoreKeeping(snapshotPath, dataDir, IsEngineOwnedPath)
+}
+
+// RestoreKeeping is Restore for callers that preserve more than engine-owned state: entries for which
+// keep(rel) returns true are neither removed from dataDir nor overwritten from the snapshot.
+func RestoreKeeping(snapshotPath, dataDir string, keep func(rel string) bool) error {
+	if err := ClearConfigKeeping(dataDir, keep); err != nil {
 		return err
 	}
-	if err := copyTree(snapshotPath, dataDir, IsEngineOwnedPath); err != nil {
+	if err := copyTree(snapshotPath, dataDir, keep); err != nil {
 		return fmt.Errorf("restore backup: %w", err)
 	}
 	return nil
@@ -109,10 +115,16 @@ func Restore(snapshotPath, dataDir string) error {
 // ClearConfig creates dataDir when missing and removes everything in it except engine-owned state
 // (live db files, top-level data/ and hub_cache/). dataDir itself is never removed or renamed.
 func ClearConfig(dataDir string) error {
+	return ClearConfigKeeping(dataDir, IsEngineOwnedPath)
+}
+
+// ClearConfigKeeping is ClearConfig with a caller-supplied keep predicate. keep is evaluated before
+// the entry type is inspected, so a kept name survives whether it is a file, directory or symlink.
+func ClearConfigKeeping(dataDir string, keep func(rel string) bool) error {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return fmt.Errorf("mkdir data dir: %w", err)
 	}
-	if err := emptyDirExcept(dataDir, IsEngineOwnedPath); err != nil {
+	if err := emptyDirExcept(dataDir, keep); err != nil {
 		return fmt.Errorf("empty data dir: %w", err)
 	}
 	return nil

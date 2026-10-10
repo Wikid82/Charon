@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -333,6 +334,10 @@ func listArchiveContents(path, format string) ([]string, error) {
 		return nil, fmt.Errorf("unsupported format for listing: %s", format)
 	}
 }
+
+// errConfigFileNotFound is the fixed message for an import that contains no config.yaml in a
+// location the engine reads (top level or config/).
+var errConfigFileNotFound = errors.New("config.yaml was not found at the top level or in config/")
 
 // validateYAMLFile validates CrowdSec YAML configuration structure.
 func validateYAMLFile(path string) error {
@@ -699,13 +704,13 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 
 	// rollback restores the snapshot in place; DataDir itself is never removed or renamed.
 	rollback := func() {
-		if rbErr := crowdsec.Restore(backupDir, h.DataDir); rbErr != nil {
+		if rbErr := crowdsec.RestoreKeeping(backupDir, h.DataDir, crowdsec.IsPreservedPath); rbErr != nil {
 			logger.Log().WithError(rbErr).WithField("backup_path", util.SanitizeForLog(backupDir)).Error("crowdsec import rollback failed; backup retained for manual recovery")
 		}
 	}
 
-	// Replace the configuration but keep engine-owned state (live db, data/, hub_cache/).
-	if err := crowdsec.ClearConfig(h.DataDir); err != nil {
+	// Replace the configuration but keep server-local state (engine-owned data and stored account details).
+	if err := crowdsec.ClearConfigKeeping(h.DataDir, crowdsec.IsPreservedPath); err != nil {
 		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
 		return
@@ -721,8 +726,11 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 
 	// Validate extracted config
-	configPath := filepath.Join(h.DataDir, "config.yaml")
-	if err := validateYAMLFile(configPath); err != nil {
+	validateErr := errConfigFileNotFound
+	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
+		validateErr = validateYAMLFile(configPath)
+	}
+	if err := validateErr; err != nil {
 		rollback()
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
@@ -770,8 +778,8 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid file path: %s", header.Name)
 		}
-		// Engine-owned state (live db files, top-level data/ and hub_cache/) is never taken from an upload.
-		if crowdsec.IsEngineOwnedPath(strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))) {
+		// Server-local state (engine-owned data, stored account details) is never taken from an upload.
+		if crowdsec.IsPreservedPath(strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))) {
 			continue
 		}
 
@@ -835,21 +843,33 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		}
 	}()
 
-	// Walk the DataDir and add files to the archive
-	err := filepath.Walk(h.DataDir, func(path string, info os.FileInfo, err error) error {
+	// Walk the DataDir and add files to the archive. Engine-owned state and stored account details are
+	// never exported; SkipDir is returned only for excluded directories so that skipping a file never
+	// drops its siblings.
+	err := filepath.WalkDir(h.DataDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			logger.Log().WithError(err).Warnf("failed to access path %s during export walk", path)
+			logger.Log().WithError(err).Warnf("failed to access path %s during export walk", util.SanitizeForLog(path))
 			return nil // Skip files we cannot access
 		}
-		if info.IsDir() {
+		rel, err := filepath.Rel(h.DataDir, path)
+		if err != nil {
+			return err
+		}
+		if rel != "." && crowdsec.IsPreservedPath(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
 			return nil
 		}
-		// Never follow symlinks: filepath.Walk reports them via Lstat, so skip them here.
-		if info.Mode()&os.ModeSymlink != 0 {
+		if d.IsDir() {
+			return nil
+		}
+		// Never follow symlinks: WalkDir reports them via Lstat, so skip them here.
+		if d.Type()&fs.ModeSymlink != 0 {
 			logger.Log().Warnf("skipping symlink %s during export", util.SanitizeForLog(path))
 			return nil
 		}
-		rel, err := filepath.Rel(h.DataDir, path)
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
@@ -2060,15 +2080,8 @@ func (h *CrowdsecHandler) DiagnosticsConnectivity(c *gin.Context) {
 	// Check 2: LAPI ready (responds to cscli lapi status)
 	if running {
 		args := []string{"lapi", "status"}
-		configPath := filepath.Join(h.DataDir, "config", "config.yaml")
-		if _, err := os.Stat(configPath); err == nil {
+		if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
 			args = append([]string{"-c", configPath}, args...)
-		} else {
-			// Fallback to root config
-			configPath = filepath.Join(h.DataDir, "config.yaml")
-			if _, err := os.Stat(configPath); err == nil {
-				args = append([]string{"-c", configPath}, args...)
-			}
 		}
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		_, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
@@ -2087,8 +2100,7 @@ func (h *CrowdsecHandler) DiagnosticsConnectivity(c *gin.Context) {
 	// Check 4: CAPI reachable (cscli capi status)
 	if checks["capi_registered"].(bool) {
 		args := []string{"capi", "status"}
-		configPath := filepath.Join(h.DataDir, "config", "config.yaml")
-		if _, err := os.Stat(configPath); err == nil {
+		if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
 			args = append([]string{"-c", configPath}, args...)
 		}
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -2151,20 +2163,17 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 	validationErrs := []string{}
 
 	// Check config.yaml - try config subdirectory first, then root
-	configPath := filepath.Join(h.DataDir, "config", "config.yaml")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		configPath = filepath.Join(h.DataDir, "config.yaml")
+	cleanConfigPath := ""
+	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
+		// Path traversal protection: ensure path is within DataDir
+		cleanConfigPath = filepath.Clean(configPath)
+		if !strings.HasPrefix(cleanConfigPath, filepath.Clean(h.DataDir)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config path"})
+			return
+		}
 	}
 
-	// Path traversal protection: ensure path is within DataDir
-	cleanConfigPath := filepath.Clean(configPath)
-	cleanDataDir := filepath.Clean(h.DataDir)
-	if !strings.HasPrefix(cleanConfigPath, cleanDataDir) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config path"})
-		return
-	}
-
-	if _, err := os.Stat(cleanConfigPath); err == nil {
+	if cleanConfigPath != "" {
 		validation["config_exists"] = true
 
 		// Read config and check LAPI port
@@ -2201,6 +2210,7 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 		acquisPath = filepath.Join(h.DataDir, "acquis.yaml")
 	}
 
+	cleanDataDir := filepath.Clean(h.DataDir)
 	// Path traversal protection
 	cleanAcquisPath := filepath.Clean(acquisPath)
 	if !strings.HasPrefix(cleanAcquisPath, cleanDataDir) {

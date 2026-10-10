@@ -254,7 +254,7 @@ no proper structure`,
 
   // New behaviour, enabled by the commit named in each title.
   test.describe('Export contents and import validation (pending)', () => {
-    test.fixme('commit 2: export omits engine data, hub cache, database files and account files', async ({ request }) => {
+    test('commit 2: export omits engine data, hub cache, database files and account files', async ({ request }) => {
       const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
       expect(response.status()).toBe(200);
 
@@ -270,7 +270,7 @@ no proper structure`,
       expect(baseNames).not.toContain('online_api_credentials.yaml');
     });
 
-    test.fixme('commit 2: import accepts an export laid out as config/config.yaml', async ({ request }, testInfo) => {
+    test('commit 2: import accepts an export laid out as config/config.yaml', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         { 'config/config.yaml': VALID_CONFIG, 'config/acquis.yaml': ACQUIS },
         testInfo.outputPath('real-layout.tar.gz'),
@@ -280,6 +280,29 @@ no proper structure`,
 
       expect(response.status()).toBe(200);
       expect((await response.json()).status).toBe('imported');
+    });
+
+    test('commit 2: an export from this instance re-imports and keeps the CAPI registration', async ({ request }) => {
+      // The connectivity diagnostics report registration from the presence of online_api_credentials.yaml,
+      // an account file that must survive an import (it is never part of an export).
+      const readRegistration = async () => {
+        const response = await request.get(`${ADMIN}/diagnostics/connectivity`, { timeout: 60_000 });
+        expect(response.status()).toBe(200);
+        return (await response.json()).capi_registered as boolean;
+      };
+      const registeredBefore = await readRegistration();
+
+      const exported = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+      expect(exported.status()).toBe(200);
+
+      const response = await request.post(`${ADMIN}/import`, {
+        multipart: { file: { name: 'roundtrip.tar.gz', mimeType: 'application/gzip', buffer: await exported.body() } },
+        timeout: 120_000,
+      });
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+      expect(await readRegistration()).toBe(registeredBefore);
     });
 
     test.fixme('commit 3: import rejects a config.yaml that is not valid YAML', async ({ request }, testInfo) => {

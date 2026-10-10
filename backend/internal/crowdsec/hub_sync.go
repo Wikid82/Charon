@@ -935,7 +935,7 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 			return fmt.Errorf("unsafe path %s", hdr.Name)
 		}
 		cleanName := filepath.Clean(hdr.Name)
-		if IsEngineOwnedPath(cleanName) {
+		if IsEngineOwnedPath(cleanName) || IsSecretPath(cleanName) {
 			continue
 		}
 		destPath := filepath.Join(targetDir, cleanName)
