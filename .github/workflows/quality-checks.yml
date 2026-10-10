@@ -91,6 +91,19 @@ jobs:
         run: |
           bash scripts/ci/check-codecov-trigger-parity.sh
 
+      - name: Install bats + shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck
+
+      - name: shellcheck (shell severity=error)
+        run: |
+          shellcheck --severity=error scripts/ci/check-codecov-trigger-parity.sh
+
+      - name: bats
+        run: bats scripts/tests/check-codecov-trigger-parity.bats
+
   toolchain-key-tests:
     name: Toolchain key / freshness-guard scripts (bats)
     runs-on: ubuntu-latest
