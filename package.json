@@ -22,7 +22,7 @@
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.64.0",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "audit-ci": "^7.1.0",
     "dotenv": "^18.0.7",
     "eslint": "^10.12.0",
