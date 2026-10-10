@@ -647,7 +647,7 @@ export default function CrowdSecConfig() {
                       onClick={() => lapiStatusQuery.refetch()}
                       disabled={lapiStatusQuery.isRefetching}
                     >
-                      Check Now
+                      {t('crowdsecConfig.checkNow')}
                     </Button>
                   </div>
                 </div>
@@ -690,7 +690,7 @@ export default function CrowdSecConfig() {
                       onClick={() => lapiStatusQuery.refetch()}
                       disabled={lapiStatusQuery.isRefetching}
                     >
-                      Check Now
+                      {t('crowdsecConfig.checkNow')}
                     </Button>
                     <Button
                       variant="secondary"
@@ -976,7 +976,7 @@ export default function CrowdSecConfig() {
             type="file"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             data-testid="import-file"
-            accept=".tar.gz,.zip"
+            accept=".tar.gz"
             aria-label={t('crowdsecConfig.packages.selectFile')}
           />
         </div>

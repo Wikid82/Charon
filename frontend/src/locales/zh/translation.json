@@ -1068,7 +1068,7 @@
   },
   "importCrowdSec": {
     "title": "CrowdSec 配置包",
-    "description": "上传 tar.gz 或 zip 包。导入前会创建备份，以便需要时回滚。从 Cerberus 仪表板或 CrowdSec 配置页面导出当前包。",
+    "description": "上传 tar.gz 包。导入前会创建备份，以便需要时回滚。从 Cerberus 仪表板或 CrowdSec 配置页面导出当前包。",
     "import": "导入",
     "configImported": "CrowdSec 配置已导入",
     "importFailed": "导入失败：{{error}}",
@@ -1158,6 +1158,7 @@
   },
   "crowdsecConfig": {
     "title": "CrowdSec 配置",
+    "checkNow": "立即检查",
     "loading": "正在加载 CrowdSec 配置...",
     "loadError": "加载 CrowdSec 状态时出错",
     "noStatus": "CrowdSec 状态不可用",
@@ -1225,7 +1226,7 @@
     },
     "packages": {
       "title": "配置包",
-      "description": "导出或导入 CrowdSec 配置包（tar.gz/zip）。导入前会创建备份。",
+      "description": "导出或导入 CrowdSec 配置包（tar.gz）。导入前会创建备份。",
       "export": "导出",
       "import": "导入",
       "importing": "正在导入...",

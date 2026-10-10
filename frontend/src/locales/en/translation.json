@@ -1254,7 +1254,7 @@
   },
   "importCrowdSec": {
     "title": "CrowdSec Configuration Packages",
-    "description": "Upload a tar.gz or zip package. A backup is created before importing so you can roll back if needed. Export the current package from the Cerberus dashboard or CrowdSec config page.",
+    "description": "Upload a tar.gz package. A backup is created before importing so you can roll back if needed. Export the current package from the Cerberus dashboard or CrowdSec config page.",
     "import": "Import",
     "configImported": "CrowdSec config imported",
     "importFailed": "Import failed: {{error}}",
@@ -1478,6 +1478,7 @@
   },
   "crowdsecConfig": {
     "title": "CrowdSec Configuration",
+    "checkNow": "Check Now",
     "loading": "Loading CrowdSec configuration...",
     "loadError": "Error loading CrowdSec status",
     "noStatus": "CrowdSec status unavailable",
@@ -1547,7 +1548,7 @@
     },
     "packages": {
       "title": "Configuration Packages",
-      "description": "Export or import CrowdSec configuration packages (tar.gz/zip). A backup is created before importing.",
+      "description": "Export or import CrowdSec configuration packages (tar.gz). A backup is created before importing.",
       "export": "Export",
       "import": "Import",
       "importing": "Importing...",

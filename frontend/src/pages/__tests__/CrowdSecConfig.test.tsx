@@ -138,6 +138,13 @@ describe('CrowdSecConfig', () => {
     })
   })
 
+  it('restricts the import file picker to .tar.gz archives', async () => {
+    renderComponent()
+
+    const input = await screen.findByTestId('import-file')
+    expect(input).toHaveAttribute('accept', '.tar.gz')
+  })
+
   // 2. File Editor
   it('allows reading and saving config files', async () => {
     const user = userEvent.setup()
