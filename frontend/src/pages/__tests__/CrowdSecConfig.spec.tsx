@@ -85,7 +85,7 @@ describe('CrowdSecConfig', () => {
     })
     vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({
       status: 'applied',
-      backup: '/tmp/backup.tar.gz',
+      backup: 'crowdsec.backup.20260101-000000.000000',
       reload_hint: true,
       used_cscli: true,
       cache_key: 'cache-123',
@@ -200,6 +200,104 @@ describe('CrowdSecConfig', () => {
     }))
 
     expect((screen.getByTestId('console-enrollment-token') as HTMLInputElement).value).toBe('')
+  })
+
+  const setupConsoleEnrollment = () => {
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+  }
+
+  it('does not require a tenant to enroll (backend treats it as optional)', async () => {
+    setupConsoleEnrollment()
+    renderWithProviders(<CrowdSecConfig />)
+
+    await screen.findByTestId('console-enrollment-card')
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'secret-1234567890')
+    await userEvent.clear(screen.getByTestId('console-agent-name'))
+    await userEvent.type(screen.getByTestId('console-agent-name'), 'agent-one')
+    await userEvent.click(screen.getByTestId('console-ack-checkbox'))
+    await userEvent.click(screen.getByTestId('console-enroll-btn'))
+
+    await waitFor(() => expect(enrollConsoleMock).toHaveBeenCalledWith(expect.objectContaining({
+      agent_name: 'agent-one',
+      tenant: 'agent-one',
+      force: false,
+    })))
+    expect(screen.queryByText(/Tenant \/ organization is required/)).not.toBeInTheDocument()
+  })
+
+  it('still requires an agent name', async () => {
+    setupConsoleEnrollment()
+    renderWithProviders(<CrowdSecConfig />)
+
+    await screen.findByTestId('console-enrollment-card')
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'secret-1234567890')
+    await userEvent.clear(screen.getByTestId('console-agent-name'))
+    await userEvent.click(screen.getByTestId('console-ack-checkbox'))
+    await userEvent.click(screen.getByTestId('console-enroll-btn'))
+
+    expect(await screen.findByText('Agent name is required')).toBeInTheDocument()
+    expect(enrollConsoleMock).not.toHaveBeenCalled()
+  })
+
+  it('defaults the agent name to the hostname when not enrolled', async () => {
+    setupConsoleEnrollment()
+    renderWithProviders(<CrowdSecConfig />)
+
+    const input = await screen.findByTestId('console-agent-name')
+    expect((input as HTMLInputElement).value).toBe(window.location.hostname)
+  })
+
+  it('initializes the agent name and tenant from the enrolled status', async () => {
+    setupConsoleEnrollment()
+    consoleStatusMock.mockReturnValue({ status: 'enrolled', key_present: true, agent_name: 'enrolled-agent', tenant: 'enrolled-org' })
+    renderWithProviders(<CrowdSecConfig />)
+
+    await waitFor(() => expect((screen.getByTestId('console-agent-name') as HTMLInputElement).value).toBe('enrolled-agent'))
+    expect((screen.getByTestId('console-tenant') as HTMLInputElement).value).toBe('enrolled-org')
+  })
+
+  it('does not overwrite a typed agent name when enrolled status arrives later', async () => {
+    setupConsoleEnrollment()
+    renderWithProviders(<CrowdSecConfig />)
+
+    const agent = await screen.findByTestId('console-agent-name')
+    await userEvent.clear(agent)
+    await userEvent.type(agent, 'my-typed-agent')
+
+    consoleStatusMock.mockReturnValue({ status: 'enrolled', key_present: true, agent_name: 'enrolled-agent', tenant: 'enrolled-org' })
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'x')
+
+    await waitFor(() => expect((screen.getByTestId('console-tenant') as HTMLInputElement).value).toBe('enrolled-org'))
+    expect((screen.getByTestId('console-agent-name') as HTMLInputElement).value).toBe('my-typed-agent')
+  })
+
+  it('keeps edits made in the re-enroll form and submits them forced', async () => {
+    setupConsoleEnrollment()
+    consoleStatusMock.mockReturnValue({ status: 'enrolled', key_present: true, agent_name: 'enrolled-agent', tenant: 'enrolled-org' })
+    enrollConsoleMock.mockResolvedValue({ status: 'enrolled', key_present: true })
+    renderWithProviders(<CrowdSecConfig />)
+
+    await userEvent.click(await screen.findByTestId('show-reenroll-form-btn'))
+    await userEvent.type(screen.getByTestId('reenroll-token-input'), 'reenroll-secret-123456')
+
+    const agent = document.getElementById('reenroll-agent-name') as HTMLInputElement
+    await userEvent.clear(agent)
+    await userEvent.type(agent, 'renamed-agent')
+    const tenant = document.getElementById('reenroll-tenant') as HTMLInputElement
+    await userEvent.clear(tenant)
+    await userEvent.type(tenant, 'renamed-org')
+
+    expect(agent.value).toBe('renamed-agent')
+    expect(tenant.value).toBe('renamed-org')
+
+    await userEvent.click(screen.getByTestId('reenroll-submit-btn'))
+    await waitFor(() => expect(enrollConsoleMock).toHaveBeenCalledWith(expect.objectContaining({
+      agent_name: 'renamed-agent',
+      tenant: 'renamed-org',
+      force: true,
+    })))
   })
 
   it('renders masked key state in console status', async () => {
@@ -370,7 +468,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: '' })
     vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValueOnce({
       status: 'applied',
-      backup: '/tmp/crowdsec-backup',
+      backup: 'crowdsec.backup.20260101-000000.000000',
       reload_hint: true,
       used_cscli: true,
       cache_key: 'cache-123',
@@ -382,7 +480,7 @@ describe('CrowdSecConfig', () => {
     const applyBtn = await screen.findByTestId('apply-preset-btn')
     await userEvent.click(applyBtn)
 
-    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('/tmp/crowdsec-backup'))
+    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('crowdsec.backup.20260101-000000.000000'))
     expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Status: applied')
     expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Method: cscli')
     // reloadHint is a boolean and renders as empty/true - just verify the info section exists

@@ -441,7 +441,7 @@ func TestApplyCuratedRollbackFailureIsReported(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "install exploded")
 	require.Contains(t, err.Error(), "rollback failed")
-	require.Contains(t, err.Error(), res.BackupPath)
+	require.NotContains(t, err.Error(), res.BackupPath, "the backup location stays in server logs")
 	require.Equal(t, "failed", res.Status)
 	require.DirExists(t, dir, "DataDir itself is never removed")
 }

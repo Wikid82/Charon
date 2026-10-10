@@ -107,7 +107,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
         json: {
           status: 'applied',
           used_cscli: true,
-          backup: '/app/data/crowdsec.backup.20260101-000000.000000',
+          backup: 'crowdsec.backup.20260101-000000.000000',
           reload_hint: true,
           cache_key: CACHE_KEY,
         },

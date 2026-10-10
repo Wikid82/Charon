@@ -123,7 +123,8 @@ func TestApplyCuratedPresetInstallsViaCSCLI(t *testing.T) {
 	require.Equal(t, "curated-"+slug, resp["cache_key"])
 	backup, _ := resp["backup"].(string)
 	require.NotEmpty(t, backup)
-	require.DirExists(t, backup)
+	require.Equal(t, filepath.Base(backup), backup, "response carries a name, not a path")
+	require.DirExists(t, filepath.Join(filepath.Dir(c.dataDir), backup))
 
 	preset, ok := crowdsec.FindPreset(slug)
 	require.True(t, ok)
@@ -133,7 +134,7 @@ func TestApplyCuratedPresetInstallsViaCSCLI(t *testing.T) {
 	require.Len(t, events, 1)
 	require.Equal(t, slug, events[0].Slug)
 	require.Equal(t, "applied", events[0].Status)
-	require.Equal(t, backup, events[0].BackupPath)
+	require.Equal(t, backup, filepath.Base(events[0].BackupPath))
 }
 
 func TestApplyCuratedPresetCSCLIUnavailableReturns503(t *testing.T) {
@@ -180,7 +181,7 @@ func TestApplyCuratedPresetInstallFailureReturns500WithBackup(t *testing.T) {
 	events := c.events()
 	require.Len(t, events, 1)
 	require.Equal(t, "failed", events[0].Status)
-	require.Equal(t, backup, events[0].BackupPath)
+	require.Equal(t, backup, filepath.Base(events[0].BackupPath))
 	require.Contains(t, events[0].Error, "install exploded")
 }
 

@@ -65,6 +65,8 @@ Hub presets are applied on the server too, with the same safety net: before anyt
 - Charon keeps the 5 most recent full backups and the 10 most recent single-file backups, and quietly deletes older ones.
 - Only one change runs at a time, so two edits can't collide.
 - The config file editor only accepts common text and settings files (`.yaml`, `.yml`, `.json`, `.txt`, `.conf`) up to 1 MiB, and validates file type, size and YAML.
+- The config file editor does not list CrowdSec's account and connection credential files. They stay safely on disk; an operator can still reach them from the container shell if needed.
+- Backups are shown by name and are stored next to the CrowdSec data folder (for example `/app/data/`). Full snapshots are named `crowdsec.backup.<timestamp>`, single-file saves `crowdsec.filebackup.<timestamp>`. Saved acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file instead. To recover by hand, stop CrowdSec, copy the backup you want back into place, and start it again.
 
 ### Console Enrollment
 

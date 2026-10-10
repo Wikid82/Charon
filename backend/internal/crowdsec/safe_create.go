@@ -19,7 +19,7 @@ func CreateFileNoSymlink(root, dest string, parentMode, fileMode os.FileMode) (*
 	root = filepath.Clean(root)
 	rel, err := filepath.Rel(root, filepath.Clean(dest))
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return nil, fmt.Errorf("path escapes target: %s", dest)
+		return nil, fmt.Errorf("path escapes target: %s", rel)
 	}
 	cur := root
 	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
@@ -29,18 +29,18 @@ func CreateFileNoSymlink(root, dest string, parentMode, fileMode os.FileMode) (*
 			break
 		}
 		if lerr != nil {
-			return nil, fmt.Errorf("inspect %s: %w", cur, lerr)
+			return nil, fmt.Errorf("inspect %s: %w", rel, withoutPath(lerr))
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("%w: %s", ErrSymlinkInPath, cur)
+			return nil, fmt.Errorf("%w: %s", ErrSymlinkInPath, rel)
 		}
 	}
 	if err = os.MkdirAll(filepath.Dir(dest), parentMode); err != nil { //nolint:gosec // G703: dest verified contained under root and symlink-free above
-		return nil, fmt.Errorf("mkdir parent: %w", err)
+		return nil, fmt.Errorf("mkdir parent: %w", withoutPath(err))
 	}
 	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileMode) //nolint:gosec // G304,G703: dest verified contained under root and symlink-free above
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", dest, err)
+		return nil, fmt.Errorf("open %s: %w", rel, withoutPath(err))
 	}
 	return f, nil
 }

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -287,10 +288,20 @@ func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) 
 	return removed, errors.Join(errs...)
 }
 
-// rollbackFailure annotates cause with a failed restore and the snapshot kept for manual recovery.
+// BackupID returns the client-safe name of a backup: the final path element, never the absolute
+// location. It covers the directory kinds (*.backup.<ts>, *.filebackup.<ts>) and file backups
+// (acquis.yaml.backup.<ts>); an empty path yields an empty name.
+func BackupID(path string) string {
+	if path == "" {
+		return ""
+	}
+	return filepath.Base(path)
+}
+
+// rollbackFailure annotates cause with a failed restore; the snapshot location is logged, never returned.
 func rollbackFailure(cause, restoreErr error, backupPath string) error {
 	logger.Log().WithError(restoreErr).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("preset rollback failed; backup retained for manual recovery")
-	return fmt.Errorf("%w (rollback failed: %v; backup retained at %s)", cause, restoreErr, backupPath)
+	return fmt.Errorf("%w (rollback failed; backup retained, see server logs)", cause)
 }
 
 // BackupFile copies the single file dataDir/rel into a new <dataDir>.filebackup.<ts>/<rel> directory
@@ -334,4 +345,44 @@ func BackupFile(dataDir, rel string) (string, error) {
 		logger.Log().WithError(pruneErr).Warn("crowdsec file backup prune incomplete")
 	}
 	return dir, nil
+}
+
+// absPathPattern matches an absolute filesystem path that starts the string or follows whitespace,
+// a quote, or one of ( [ { < = ,. URL path segments are preceded by ":" or a word character
+// and are therefore left alone. A path ends at whitespace, a quote, or one of : ; , ) ] } > <.
+var absPathPattern = regexp.MustCompile(`(^|[\s(\[{<=,'"])(/[^\s:;,)\]}>'"<]+)`)
+
+// apiRoutePrefix marks route-looking text (for example " /api/v1/x") that RedactPaths must not
+// rewrite, since API routes are not filesystem paths.
+const apiRoutePrefix = "/api/"
+
+// RedactPaths replaces absolute filesystem paths in an error message with "<path>" so server
+// layout never reaches an API client. Detail belongs in server logs.
+//
+// Limits: this is a heuristic over free text. Any absolute path in the recognised positions is
+// redacted except those under /api/, so a bare route outside /api/ is also redacted (safe
+// direction). Paths containing spaces or ":", Windows-style paths, and relative paths are not
+// recognised; callers must not rely on it for those, and should prefer fixed messages.
+func RedactPaths(msg string) string {
+	return absPathPattern.ReplaceAllStringFunc(msg, func(m string) string {
+		sub := absPathPattern.FindStringSubmatch(m)
+		if strings.HasPrefix(sub[2], apiRoutePrefix) {
+			return m
+		}
+		return sub[1] + "<path>"
+	})
+}
+
+// withoutPath unwraps a filesystem error to its underlying cause (for example "permission
+// denied"), dropping the absolute path that *fs.PathError and *os.LinkError embed.
+func withoutPath(err error) error {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Err
+	}
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) {
+		return linkErr.Err
+	}
+	return err
 }

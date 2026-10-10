@@ -1082,7 +1082,7 @@ labels:
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, acquisPath, resp["path"])
+	require.NotContains(t, resp, "path")
 	require.Equal(t, acquisContent, resp["content"])
 }
 
@@ -1323,7 +1323,7 @@ func TestCrowdsecHandler_Status_Error(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "status check failed")
+	require.Contains(t, w.Body.String(), "failed to read CrowdSec status")
 }
 
 func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
@@ -1342,7 +1342,7 @@ func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "failed to start process")
+	require.Contains(t, w.Body.String(), "failed to start CrowdSec")
 }
 
 func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {
@@ -3249,9 +3249,10 @@ func TestCrowdsecHandler_WriteFile_BackupCreation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Contains(t, resp, "backup")
 
-	backupPath := resp["backup"].(string)
-	require.NotEmpty(t, backupPath)
-	require.True(t, strings.HasPrefix(backupPath, tmpDir+".filebackup."), backupPath)
+	backupName := resp["backup"].(string)
+	require.True(t, strings.HasPrefix(backupName, filepath.Base(tmpDir)+".filebackup."), backupName)
+	require.Equal(t, filepath.Base(backupName), backupName, "response carries a name, not a path")
+	backupPath := filepath.Join(filepath.Dir(tmpDir), backupName)
 
 	// Only the replaced file is backed up, with its previous content; DataDir stays in place.
 	// #nosec G304 -- test reads a path it just created

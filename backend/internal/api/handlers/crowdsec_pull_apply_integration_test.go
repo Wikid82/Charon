@@ -37,16 +37,16 @@ func TestPullThenApplyIntegration(t *testing.T) {
 	})
 
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.hub"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{
 		Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.String() {
-			case "http://test.hub/api/index.json":
-				body := `{"items":[{"name":"test/preset","title":"Test","description":"Test preset","etag":"abc123","download_url":"http://test.hub/test.tgz","preview_url":"http://test.hub/test.yaml"}]}`
+			case "https://hub.crowdsec.net/api/index.json":
+				body := `{"items":[{"name":"test/preset","title":"Test","description":"Test preset","etag":"abc123","download_url":"https://hub.crowdsec.net/test.tgz","preview_url":"https://hub.crowdsec.net/test.yaml"}]}`
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
-			case "http://test.hub/test.yaml":
+			case "https://hub.crowdsec.net/test.yaml":
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("preview content")), Header: make(http.Header)}, nil
-			case "http://test.hub/test.tgz":
+			case "https://hub.crowdsec.net/test.tgz":
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 			default:
 				return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
@@ -119,7 +119,7 @@ func TestApplyWithoutPullReturnsProperError(t *testing.T) {
 
 	// Empty cache, no cscli
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.hub"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
 	})}
@@ -165,7 +165,7 @@ func TestApplyRollbackWhenCacheMissingAndRepullFails(t *testing.T) {
 	require.NoError(t, err)
 
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.hub"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
 		// Force repull failure
 		return &http.Response{StatusCode: 500, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil

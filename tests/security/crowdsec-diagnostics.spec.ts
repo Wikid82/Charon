@@ -1,505 +1,266 @@
 /**
  * CrowdSec Diagnostics E2E Tests
  *
- * Tests the CrowdSec diagnostic functionality including:
- * - Configuration file validation
- * - Connectivity checks to CrowdSec services
+ * The diagnostics, export and file endpoints are served by the real backend, which has no
+ * CrowdSec engine in the E2E container (no cscli, nothing running). Each test first imports
+ * a known configuration archive so the files on disk are fixed, then asserts the exact
+ * response the backend produces for that state:
+ * - Configuration validation (diagnostics/config)
+ * - Connectivity checks (diagnostics/connectivity)
  * - Configuration export
+ * - Configuration file listing and reading
+ *
+ * The Security page is the only UI that reports the CrowdSec process state; its running and
+ * stopped indicators are covered with a stubbed status endpoint.
  *
  * @see /projects/Charon/docs/plans/crowdsec_enrollment_debug_spec.md
  */
 
+import { gunzipSync } from 'zlib';
+import type { APIRequestContext } from '@playwright/test';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { createTarGz } from '../utils/archive-helpers';
+import { stubCrowdSecApi, crowdsecFixtures } from '../utils/crowdsec-stubs';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { promises as fs } from 'fs';
+
+const ADMIN = '/api/v1/admin/crowdsec';
+const CONFIG_YAML = `api:
+  server:
+    listen_uri: 127.0.0.1:8085
+`;
+const ACQUIS_YAML = `source: file
+filenames:
+  - /var/log/e2e.log
+labels:
+  type: syslog
+`;
+
+/** Replaces the CrowdSec configuration with a known one, so every test starts from the same files. */
+async function importKnownConfig(
+  request: APIRequestContext,
+  archivePath: string,
+  files: Record<string, string> = { 'config.yaml': CONFIG_YAML, 'acquis.yaml': ACQUIS_YAML },
+) {
+  await createTarGz(files, archivePath);
+  const response = await request.post(`${ADMIN}/import`, {
+    multipart: {
+      file: { name: 'known.tar.gz', mimeType: 'application/gzip', buffer: await fs.readFile(archivePath) },
+    },
+  });
+  expect(response.status()).toBe(200);
+}
 
 test.describe('CrowdSec Diagnostics', () => {
-  test.beforeEach(async ({ page, adminUser }) => {
+  test.beforeEach(async ({ page, adminUser, request }, testInfo) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
+    await importKnownConfig(request, testInfo.outputPath('known.tar.gz'));
   });
 
   test.describe('Configuration Validation', () => {
-    test('should validate CrowdSec configuration files via API', async ({ request }) => {
-      await test.step('GET diagnostics config endpoint', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/diagnostics/config');
+    test('should report both files present and the configured LAPI port', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/diagnostics/config`);
+      expect(response.status()).toBe(200);
+      const config = await response.json();
 
-        // Endpoint may not exist yet
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'info',
-            description: 'Diagnostics config endpoint not implemented (404)',
-          });
-          return;
-        }
-
-        expect(response.ok()).toBeTruthy();
-
-        const config = await response.json();
-
-        // Verify config.yaml validation
-        expect(config).toHaveProperty('config_exists');
-        expect(typeof config.config_exists).toBe('boolean');
-
-        if (config.config_exists) {
-          expect(config).toHaveProperty('config_valid');
-          expect(typeof config.config_valid).toBe('boolean');
-        }
-
-        // Verify acquis.yaml validation
-        expect(config).toHaveProperty('acquis_exists');
-        expect(typeof config.acquis_exists).toBe('boolean');
-
-        if (config.acquis_exists) {
-          expect(config).toHaveProperty('acquis_valid');
-          expect(typeof config.acquis_valid).toBe('boolean');
-        }
-
-        // Verify LAPI port configuration
-        expect(config).toHaveProperty('lapi_port');
-
-        // Verify errors array
-        expect(config).toHaveProperty('errors');
-        expect(Array.isArray(config.errors)).toBe(true);
+      expect(config).toMatchObject({
+        config_exists: true,
+        acquis_exists: true,
+        acquis_valid: true,
+        lapi_port: '8085',
       });
     });
 
-    test('should report config.yaml exists when CrowdSec is initialized', async ({ request }) => {
-      await test.step('Check config file existence', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/diagnostics/config');
+    test('should report config.yaml invalid without the CrowdSec CLI, naming the failure', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/diagnostics/config`);
+      expect(response.status()).toBe(200);
+      const config = await response.json();
 
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Diagnostics config endpoint not implemented',
-          });
-          return;
-        }
-
-        const config = await response.json();
-
-        // Check if CrowdSec is running
-        const statusResponse = await request.get('/api/v1/admin/crowdsec/status');
-        if (statusResponse.ok()) {
-          const status = await statusResponse.json();
-
-          if (status.running) {
-            // If CrowdSec is running, config should exist
-            expect(config.config_exists).toBe(true);
-          }
-        }
-      });
+      // The E2E container has no cscli, so `cscli config check` cannot succeed.
+      expect(config.config_valid).toBe(false);
+      expect(config.errors).toHaveLength(1);
+      expect(config.errors[0]).toMatch(/^config\.yaml validation failed/);
     });
 
-    test('should report LAPI port configuration', async ({ request }) => {
-      await test.step('Verify LAPI port in config', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/diagnostics/config');
-
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Diagnostics config endpoint not implemented',
-          });
-          return;
-        }
-
-        const config = await response.json();
-
-        // LAPI should be configured on port 8085 (not 8080 to avoid conflict with Charon)
-        if (config.lapi_port) {
-          expect(config.lapi_port).toBe('8085');
-        }
+    test('should report missing files and an empty LAPI port when only config.yaml is imported', async ({ request }, testInfo) => {
+      await importKnownConfig(request, testInfo.outputPath('config-only.tar.gz'), {
+        'config.yaml': 'api:\n  server:\n    listen_uri: 0.0.0.0:8080\n',
       });
+
+      const response = await request.get(`${ADMIN}/diagnostics/config`);
+      expect(response.status()).toBe(200);
+      const config = await response.json();
+
+      expect(config).toMatchObject({ config_exists: true, acquis_exists: false, acquis_valid: false, lapi_port: '' });
+      expect(config.errors).toContain('acquis.yaml not found');
+    });
+
+    test('should report an acquisition file without a datasource as invalid', async ({ request }, testInfo) => {
+      await importKnownConfig(request, testInfo.outputPath('bad-acquis.tar.gz'), {
+        'config.yaml': CONFIG_YAML,
+        'acquis.yaml': 'labels:\n  type: syslog\n',
+      });
+
+      const response = await request.get(`${ADMIN}/diagnostics/config`);
+      expect(response.status()).toBe(200);
+      const config = await response.json();
+
+      expect(config).toMatchObject({ acquis_exists: true, acquis_valid: false });
+      expect(config.errors).toContain(
+        "acquis.yaml missing datasource configuration (expected 'source:' and 'filenames:' or 'filename:')",
+      );
     });
   });
 
   test.describe('Connectivity Checks', () => {
-    test('should check connectivity to CrowdSec services', async ({ request }) => {
-      await test.step('GET diagnostics connectivity endpoint', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/diagnostics/connectivity');
+    test('should report every connectivity check as a boolean', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/diagnostics/connectivity`);
+      expect(response.status()).toBe(200);
+      const connectivity = await response.json();
 
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'info',
-            description: 'Diagnostics connectivity endpoint not implemented (404)',
-          });
-          return;
-        }
-
-        expect(response.ok()).toBeTruthy();
-
-        const connectivity = await response.json();
-
-        // All connectivity checks should return boolean values
-        const expectedChecks = [
-          'lapi_running',
-          'lapi_ready',
-          'capi_registered',
-          'console_enrolled',
-        ];
-
-        for (const check of expectedChecks) {
-          expect(connectivity).toHaveProperty(check);
-          expect(typeof connectivity[check]).toBe('boolean');
-        }
-      });
+      for (const check of [
+        'lapi_running',
+        'lapi_ready',
+        'capi_registered',
+        'capi_reachable',
+        'console_enrolled',
+        'console_reachable',
+      ]) {
+        expect(typeof connectivity[check], check).toBe('boolean');
+      }
     });
 
-    test('should report LAPI status accurately', async ({ request }) => {
-      await test.step('Compare LAPI status between endpoints', async () => {
-        // Get status from main status endpoint
-        const statusResponse = await request.get('/api/v1/admin/crowdsec/status');
+    test('should report CrowdSec stopped and LAPI not ready when no engine is running', async ({ request }) => {
+      const connectivity = await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json();
 
-        if (!statusResponse.ok()) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'CrowdSec status endpoint not available',
-          });
-          return;
-        }
-
-        const status = await statusResponse.json();
-
-        // Get connectivity diagnostics
-        const connectivityResponse = await request.get(
-          '/api/v1/admin/crowdsec/diagnostics/connectivity'
-        );
-
-        if (connectivityResponse.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Diagnostics connectivity endpoint not implemented',
-          });
-          return;
-        }
-
-        const connectivity = await connectivityResponse.json();
-
-        // LAPI running status should be consistent between endpoints
-        expect(connectivity.lapi_running).toBe(status.running);
-
-        if (status.running && status.lapi_ready !== undefined) {
-          expect(connectivity.lapi_ready).toBe(status.lapi_ready);
-        }
-      });
+      expect(connectivity.lapi_running).toBe(false);
+      expect(connectivity.lapi_ready).toBe(false);
     });
 
-    test('should check CAPI registration status', async ({ request }) => {
-      await test.step('Verify CAPI registration check', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/diagnostics/connectivity');
+    test('should agree with the status endpoint on whether CrowdSec is running', async ({ request }) => {
+      const statusResponse = await request.get(`${ADMIN}/status`);
+      expect(statusResponse.status()).toBe(200);
+      const status = await statusResponse.json();
+      const connectivity = await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json();
 
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Diagnostics connectivity endpoint not implemented',
-          });
-          return;
-        }
-
-        const connectivity = await response.json();
-
-        expect(connectivity).toHaveProperty('capi_registered');
-        expect(typeof connectivity.capi_registered).toBe('boolean');
-
-        // If console is enrolled, CAPI must be registered
-        if (connectivity.console_enrolled) {
-          expect(connectivity.capi_registered).toBe(true);
-        }
-      });
+      expect(connectivity.lapi_running).toBe(status.running);
+      expect(connectivity.lapi_ready).toBe(status.lapi_ready);
     });
 
-    test('should optionally report console reachability', async ({ request }) => {
-      // Diagnostic checks involving external connectivity can depend on network conditions
-      test.setTimeout(60000);
+    test('should report CAPI as not registered without the online credentials file', async ({ request }) => {
+      const connectivity = await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json();
 
-      await test.step('Check console API reachability', async () => {
-        await expect(async () => {
-          const response = await request.get('/api/v1/admin/crowdsec/diagnostics/connectivity');
+      expect(connectivity.capi_registered).toBe(false);
+      expect(connectivity.capi_reachable).toBe(false);
+    });
 
-          if (response.status() === 404) {
-            // If endpoint is not implemented, we pass
-            return;
-          }
-
-          expect(response.ok()).toBeTruthy();
-
-          const connectivity = await response.json();
-
-          // console_reachable and capi_reachable are optional but valuable
-          if (connectivity.console_reachable !== undefined) {
-            expect(typeof connectivity.console_reachable).toBe('boolean');
-          }
-
-          if (connectivity.capi_reachable !== undefined) {
-            expect(typeof connectivity.capi_reachable).toBe('boolean');
-          }
-        }).toPass({ timeout: 30000 });
+    test('should report CAPI as registered once the online credentials file exists', async ({ request }, testInfo) => {
+      await importKnownConfig(request, testInfo.outputPath('with-capi.tar.gz'), {
+        'config.yaml': CONFIG_YAML,
+        'acquis.yaml': ACQUIS_YAML,
+        'online_api_credentials.yaml': 'url: https://api.crowdsec.net/\nlogin: e2e\npassword: e2e\n',
       });
+
+      const connectivity = await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json();
+
+      expect(connectivity.capi_registered).toBe(true);
     });
   });
 
   test.describe('Configuration Export', () => {
-    test('should export CrowdSec configuration', async ({ request }) => {
-      await test.step('GET export endpoint', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/export');
+    test('should export the configuration as a timestamped gzip archive containing the imported files', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/export`);
+      expect(response.status()).toBe(200);
 
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'info',
-            description: 'Export endpoint not implemented (404)',
-          });
-          return;
-        }
+      expect(response.headers()['content-type']).toContain('application/gzip');
+      expect(response.headers()['content-disposition']).toMatch(
+        /^attachment; filename=crowdsec-config-\d{8}-\d{6}\.tar\.gz$/,
+      );
 
-        expect(response.ok()).toBeTruthy();
-
-        // Verify response is gzip compressed
-        const contentType = response.headers()['content-type'];
-        expect(contentType).toContain('application/gzip');
-
-        // Verify content disposition header
-        const contentDisposition = response.headers()['content-disposition'];
-        expect(contentDisposition).toMatch(/attachment/);
-        expect(contentDisposition).toMatch(/crowdsec-config/);
-        expect(contentDisposition).toMatch(/\.tar\.gz/);
-
-        // Verify response body is not empty
-        const body = await response.body();
-        expect(body.length).toBeGreaterThan(0);
-      });
+      const archive = gunzipSync(await response.body()).toString('latin1');
+      expect(archive).toContain('config.yaml');
+      expect(archive).toContain('acquis.yaml');
+      expect(archive).toContain('listen_uri: 127.0.0.1:8085');
     });
 
-    test('should include filename with timestamp in export', async ({ request }) => {
-      await test.step('Verify export filename format', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/export');
+    test('should export a single gzip layer to clients that accept compressed responses', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/export`, { headers: { 'Accept-Encoding': 'gzip' } });
+      expect(response.status()).toBe(200);
 
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Export endpoint not implemented',
-          });
-          return;
-        }
-
-        const contentDisposition = response.headers()['content-disposition'];
-
-        // Filename should contain crowdsec-config and end with .tar.gz
-        expect(contentDisposition).toMatch(/filename[^;=\n]*=[^;=\n]*crowdsec-config/);
-        expect(contentDisposition).toMatch(/\.tar\.gz/);
-      });
+      // One gunzip must yield a tar stream (ustar magic at offset 257), not another gzip layer.
+      const tar = gunzipSync(await response.body());
+      expect(tar.subarray(0, 2)).not.toEqual(Buffer.from([0x1f, 0x8b]));
+      expect(tar.subarray(257, 262).toString('latin1')).toBe('ustar');
+      expect(tar.toString('latin1')).toContain('config.yaml');
     });
   });
 
   test.describe('Configuration Files API', () => {
-    test('should list CrowdSec configuration files', async ({ request }) => {
-      await test.step('GET files list endpoint', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/files');
+    test('should list the imported configuration files', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/files`);
+      expect(response.status()).toBe(200);
+      const { files } = await response.json();
 
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'info',
-            description: 'Files list endpoint not implemented (404)',
-          });
-          return;
-        }
-
-        expect(response.ok()).toBeTruthy();
-
-        const files = await response.json();
-
-        expect(files).toHaveProperty('files');
-        expect(Array.isArray(files.files)).toBe(true);
-
-        // Verify essential config files are listed
-        const fileList = files.files as string[];
-
-        const hasConfigYaml = fileList.some((f) => f.includes('config.yaml') || f.includes('config/config.yaml'));
-        const hasAcquisYaml = fileList.some((f) => f.includes('acquis.yaml') || f.includes('config/acquis.yaml'));
-
-        // ListFiles (backend/internal/api/handlers/crowdsec_handler.go) walks
-        // the whole CrowdSec DataDir, which can be non-empty for reasons
-        // unrelated to a completed local-install (e.g. hub_cache/ entries
-        // populated by a hub sync, or a bouncer_key file) even before
-        // config.yaml/acquis.yaml have ever been written. `fileList.length >
-        // 0` is therefore not a reliable proxy for "CrowdSec is installed" -
-        // confirmed live by inspecting a running E2E container mid-hub-sync
-        // (non-empty hub_cache/, no config/acquis yet). Gate the
-        // config/acquis expectation on the same `config_exists`/
-        // `acquis_exists` signal the "Configuration Validation" describe
-        // block above already treats as authoritative for install state,
-        // instead of inferring installation from incidental file presence.
-        const diagResponse = await request.get('/api/v1/admin/crowdsec/diagnostics/config');
-        if (diagResponse.ok()) {
-          const diag = await diagResponse.json();
-          if (diag.config_exists || diag.acquis_exists) {
-            expect(hasConfigYaml || hasAcquisYaml).toBe(true);
-          }
-        }
-      });
+      expect(files).toEqual(expect.arrayContaining(['config.yaml', 'acquis.yaml']));
     });
 
-    test('should retrieve specific config file content', async ({ request }) => {
-      await test.step('GET specific file content', async () => {
-        // First get the file list
-        const listResponse = await request.get('/api/v1/admin/crowdsec/files');
+    test('should return the content of config.yaml', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/file?path=${encodeURIComponent('config.yaml')}`);
+      expect(response.status()).toBe(200);
 
-        if (listResponse.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Files list endpoint not implemented',
-          });
-          return;
-        }
+      expect((await response.json()).content).toBe(CONFIG_YAML);
+    });
 
-        const files = await listResponse.json();
-        const fileList = files.files as string[];
+    test('should reject reading a file outside the configuration directory', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/file?path=${encodeURIComponent('../../etc/passwd')}`);
 
-        // Find config.yaml path
-        const configPath = fileList.find((f) => f.includes('config.yaml'));
-
-        if (!configPath) {
-          test.info().annotations.push({
-            type: 'info',
-            description: 'config.yaml not found in file list',
-          });
-          return;
-        }
-
-        // Retrieve file content
-        const contentResponse = await request.get(
-          `/api/v1/admin/crowdsec/file?path=${encodeURIComponent(configPath)}`
-        );
-
-        if (contentResponse.status() === 404) {
-          test.info().annotations.push({
-            type: 'info',
-            description: 'File content retrieval not implemented',
-          });
-          return;
-        }
-
-        expect(contentResponse.ok()).toBeTruthy();
-
-        const content = await contentResponse.json();
-
-        expect(content).toHaveProperty('content');
-        expect(typeof content.content).toBe('string');
-
-        // Verify config contains expected LAPI configuration
-        expect(content.content).toContain('listen_uri');
-      });
+      expect(response.status()).toBe(400);
+      expect((await response.json()).error).toBe('invalid path');
     });
   });
 
   test.describe('Diagnostics UI', () => {
-    test('should display CrowdSec status indicators', async ({ page }) => {
-      await test.step('Navigate to CrowdSec page', async () => {
-        await page.goto('/security/crowdsec');
-        await waitForLoadingComplete(page);
-      });
+    test('should show the CrowdSec process as running with its PID', async ({ page }) => {
+      await stubCrowdSecApi(page, { status: crowdsecFixtures.runningStatus({ pid: 4321 }) });
+      await page.goto('/security');
+      await waitForLoadingComplete(page);
 
-      await test.step('Verify status indicators are present', async () => {
-        // Look for status badges or indicators
-        const statusBadge = page.locator('[class*="badge"]').filter({
-          hasText: /running|stopped|enabled|disabled|online|offline/i,
-        });
-
-        const statusVisible = await statusBadge.first().isVisible().catch(() => false);
-
-        if (statusVisible) {
-          await expect(statusBadge.first()).toBeVisible();
-        } else {
-          // Status may be displayed differently
-          const statusText = page.getByText(/crowdsec.*running|crowdsec.*stopped|lapi.*ready/i);
-          const textVisible = await statusText.first().isVisible().catch(() => false);
-
-          if (!textVisible) {
-            test.info().annotations.push({
-              type: 'info',
-              description: 'Status indicators not found in expected format',
-            });
-          }
-        }
-      });
+      await expect(page.getByText('Running (PID 4321)', { exact: true })).toBeVisible();
+      await expect(page.getByTestId('toggle-crowdsec')).toBeChecked();
     });
 
-    test('should display LAPI ready status when CrowdSec is running', async ({ page, request }) => {
-      await test.step('Check CrowdSec status', async () => {
-        const statusResponse = await request.get('/api/v1/admin/crowdsec/status');
+    test('should show the CrowdSec process as stopped', async ({ page }) => {
+      await stubCrowdSecApi(page, { status: crowdsecFixtures.runningStatus({ running: false, pid: 0, lapi_ready: false }) });
+      await page.goto('/security');
+      await waitForLoadingComplete(page);
 
-        if (!statusResponse.ok()) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'CrowdSec status endpoint not available',
-          });
-          return;
-        }
-
-        const status = await statusResponse.json();
-
-        await page.goto('/security/crowdsec');
-        await waitForLoadingComplete(page);
-
-        if (status.running && status.lapi_ready) {
-          // LAPI ready status should be visible
-          const lapiStatus = page.getByText(/lapi.*ready|local.*api.*ready/i);
-          const lapiVisible = await lapiStatus.isVisible().catch(() => false);
-
-          if (lapiVisible) {
-            await expect(lapiStatus).toBeVisible();
-          }
-        }
-      });
+      await expect(page.getByText('Process stopped', { exact: true })).toBeVisible();
+      await expect(page.getByTestId('toggle-crowdsec')).not.toBeChecked();
     });
   });
 
   test.describe('Error Handling', () => {
-    test('should handle CrowdSec not running gracefully', async ({ page, request }) => {
-      await test.step('Check diagnostics when CrowdSec may not be running', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/diagnostics/connectivity');
+    test('should still answer diagnostics with a complete report when CrowdSec is not running', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/diagnostics/connectivity`);
 
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Diagnostics endpoint not implemented',
-          });
-          return;
-        }
-
-        // Even when CrowdSec is not running, endpoint should return valid response
-        expect(response.ok()).toBeTruthy();
-
-        const connectivity = await response.json();
-
-        // Response should indicate CrowdSec is not running if that's the case
-        if (!connectivity.lapi_running) {
-          expect(connectivity.lapi_ready).toBe(false);
-        }
-      });
+      expect(response.status()).toBe(200);
+      const connectivity = await response.json();
+      expect(connectivity.lapi_running).toBe(false);
+      expect(connectivity.lapi_ready).toBe(false);
     });
 
-    test('should report errors in diagnostics config validation', async ({ request }) => {
-      await test.step('Check for validation errors reporting', async () => {
-        const response = await request.get('/api/v1/admin/crowdsec/diagnostics/config');
-
-        if (response.status() === 404) {
-          test.info().annotations.push({
-            type: 'skip',
-            description: 'Diagnostics config endpoint not implemented',
-          });
-          return;
-        }
-
-        const config = await response.json();
-
-        // errors should always be an array (empty if no errors)
-        expect(config).toHaveProperty('errors');
-        expect(Array.isArray(config.errors)).toBe(true);
-
-        // Each error should be a string
-        for (const error of config.errors) {
-          expect(typeof error).toBe('string');
-        }
+    test('should list every missing file as a string error', async ({ request }, testInfo) => {
+      await importKnownConfig(request, testInfo.outputPath('empty-acquis.tar.gz'), {
+        'config.yaml': CONFIG_YAML,
       });
+
+      const config = await (await request.get(`${ADMIN}/diagnostics/config`)).json();
+
+      expect(config.errors).toEqual([
+        expect.stringMatching(/^config\.yaml validation failed/),
+        'acquis.yaml not found',
+      ]);
     });
   });
 });

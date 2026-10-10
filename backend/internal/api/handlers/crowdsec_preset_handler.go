@@ -168,7 +168,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		// control characters (0x00-0x1F, 0x7F) including CRLF
 		// codeql[go/log-injection]
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).Warn("crowdsec preset pull failed")
-		c.JSON(status, gin.H{"error": err.Error(), "hub_endpoints": h.hubEndpoints()})
+		c.JSON(status, gin.H{"error": crowdsec.RedactPaths(err.Error()), "hub_endpoints": h.hubEndpoints()})
 		return
 	}
 
@@ -273,7 +273,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).WithField("cache_key", util.SanitizeForLog(res.CacheKey)).Warn("crowdsec preset apply failed")
 		h.recordPresetEvent(slug, res, err)
 		// Build detailed error response
-		errorMsg := err.Error()
+		errorMsg := crowdsec.RedactPaths(err.Error())
 		// Add actionable guidance based on error type
 		if errors.Is(err, crowdsec.ErrCacheMiss) || strings.Contains(errorMsg, "cache miss") {
 			errorMsg = "Preset cache missing or expired. Pull the preset again, then retry apply."
@@ -299,7 +299,7 @@ func (h *CrowdsecHandler) applyCuratedPreset(c *gin.Context, preset crowdsec.Pre
 		h.recordPresetEvent(preset.Slug, res, err)
 
 		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
-		msg := err.Error()
+		msg := crowdsec.RedactPaths(err.Error())
 		if errors.Is(err, crowdsec.ErrCSCLIUnavailable) {
 			status = http.StatusServiceUnavailable
 			msg = "CrowdSec CLI is not available; curated presets require cscli"
@@ -350,7 +350,7 @@ func (h *CrowdsecHandler) recordPresetEvent(slug string, res crowdsec.ApplyResul
 func applyFailureBody(msg string, res crowdsec.ApplyResult) gin.H {
 	body := gin.H{"error": msg}
 	if res.BackupPath != "" {
-		body["backup"] = res.BackupPath
+		body["backup"] = crowdsec.BackupID(res.BackupPath)
 	}
 	if res.CacheKey != "" {
 		body["cache_key"] = res.CacheKey
@@ -362,7 +362,7 @@ func applyFailureBody(msg string, res crowdsec.ApplyResult) gin.H {
 func respondApplySuccess(c *gin.Context, res crowdsec.ApplyResult) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":      res.Status,
-		"backup":      res.BackupPath,
+		"backup":      crowdsec.BackupID(res.BackupPath),
 		"reload_hint": res.ReloadHint,
 		"used_cscli":  res.UsedCSCLI,
 		"cache_key":   res.CacheKey,
@@ -392,12 +392,14 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "cache miss"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to load crowdsec preset preview")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load preset preview"})
 		return
 	}
 	meta, metaErr := h.Hub.Cache.Load(ctx, slug)
 	if metaErr != nil && !errors.Is(metaErr, crowdsec.ErrCacheMiss) && !errors.Is(metaErr, crowdsec.ErrCacheExpired) {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": metaErr.Error()})
+		logger.Log().WithField("error", util.SanitizeForLog(metaErr.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to load crowdsec preset cache metadata")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load preset cache metadata"})
 		return
 	}
 	cacheTTL := h.Hub.Cache.TTL()

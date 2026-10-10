@@ -138,7 +138,7 @@ describe('CrowdSecConfig coverage', () => {
     })
     vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({
       status: 'applied',
-      backup: '/tmp/backup.tar.gz',
+      backup: 'crowdsec.backup.20260101-000000.000000',
       reload_hint: true,
       used_cscli: true,
       cache_key: 'cache-123',
@@ -286,7 +286,7 @@ describe('CrowdSecConfig coverage', () => {
   it('sets apply info on backend success', async () => {
     await renderPage()
     await userEvent.click(screen.getByTestId('apply-preset-btn'))
-    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Backup: /tmp/backup.tar.gz'))
+    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Backup: crowdsec.backup.20260101-000000.000000 (stored next to the CrowdSec data directory)'))
   })
 
   it('supports keyboard selection for preset cards (Enter and Space)', async () => {
@@ -351,10 +351,10 @@ describe('CrowdSecConfig coverage', () => {
   })
 
   it('records backup info on apply failure and generic errors', async () => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(500, 'failed', { error: 'boom', backup: '/tmp/backup' }))
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(500, 'failed', { error: 'boom', backup: 'crowdsec.backup.20260101-000000.000000' }))
     await renderPage()
     await userEvent.click(screen.getByTestId('apply-preset-btn'))
-    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('/tmp/backup'))
+    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('crowdsec.backup.20260101-000000.000000'))
 
     cleanup()
 

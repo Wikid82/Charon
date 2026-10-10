@@ -39,8 +39,10 @@ var (
 		".yaml": {}, ".yml": {}, ".json": {}, ".txt": {}, ".conf": {},
 	}
 
-	// protectedWriteNames are credential files the editor never overwrites.
-	protectedWriteNames = map[string]struct{}{
+	// hiddenSecretNames are lowercase base names of secret files that are neither listed nor readable nor
+	// writable through the editor.
+	hiddenSecretNames = map[string]struct{}{
+		"bouncer_key":                 {},
 		"local_api_credentials.yaml":  {},
 		"online_api_credentials.yaml": {},
 	}
@@ -75,14 +77,14 @@ func cleanRelPath(raw string) (string, *fileError) {
 }
 
 // isReadable reports whether rel may be listed and read: engine-owned state (databases, the data and
-// hub_cache trees) and secrets are hidden, everything else stays visible.
+// hub_cache trees) and secrets (see hiddenSecretNames) are hidden, everything else stays visible.
 func isReadable(rel string) bool {
 	slash := filepath.ToSlash(rel)
 	if slash == "" || slash == "." || crowdsec.IsEngineOwnedPath(slash) {
 		return false
 	}
 	base := strings.ToLower(path.Base(slash))
-	if base == "bouncer_key" {
+	if _, hidden := hiddenSecretNames[base]; hidden {
 		return false
 	}
 	if matched, _ := path.Match("*.db*", base); matched {
@@ -100,9 +102,6 @@ func isWritable(rel string) bool {
 	slash := filepath.ToSlash(rel)
 	base := path.Base(slash)
 	if _, ok := writableExtensions[strings.ToLower(path.Ext(base))]; !ok {
-		return false
-	}
-	if _, protected := protectedWriteNames[base]; protected {
 		return false
 	}
 	if strings.HasPrefix(base, writeTempPrefix) {
@@ -412,7 +411,7 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "written", "backup": backupDir})
+	c.JSON(http.StatusOK, gin.H{"status": "written", "backup": crowdsec.BackupID(backupDir)})
 }
 
 // fileErrorLog returns a log entry carrying err with control characters

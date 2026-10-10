@@ -105,6 +105,8 @@ Protect your applications using behavior-based threat detection powered by a glo
 
 Preset changes are backed up first and rolled back automatically if anything goes wrong, and CrowdSec's downloaded data now survives container recreation.
 
+The CrowdSec file editor no longer lists CrowdSec's account and connection credential files, and backups are shown by name.
+
 → [Learn More](features/crowdsec.md) • [Setup Guide](guides/crowdsec-setup.md)
 
 ---

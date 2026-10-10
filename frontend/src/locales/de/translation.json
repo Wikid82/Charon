@@ -384,8 +384,17 @@
           "24h": "24h",
           "7d": "7d",
           "30d": "30d"
-        }
-      }
+        },
+        "timeRangeLabel": "Zeitraum"
+      },
+      "bouncerApiKey": "Bouncer-API-Schlüssel",
+      "keyCopied": "API-Schlüssel in die Zwischenablage kopiert",
+      "keyStoredAt": "Schlüssel gespeichert unter",
+      "noKeyConfigured": "Kein Bouncer-Schlüssel konfiguriert. Aktivieren Sie CrowdSec für die automatische Registrierung.",
+      "notRegistered": "Nicht registriert",
+      "registered": "Registriert",
+      "sourceEnvVar": "Aus Umgebungsvariable",
+      "sourceFile": "Aus Datei"
     },
     "acl": {
       "title": "Zugriffskontrolle",
@@ -1167,7 +1176,7 @@
       "goToSecurity": "Zum Sicherheits-Dashboard",
       "enrollmentToken": "Registrierungstoken",
       "tokenPlaceholder": "Fügen Sie Ihr Registrierungstoken von der CrowdSec-Konsole ein",
-      "agentName": "Agent-Name (optional)",
+      "agentName": "Agent-Name",
       "agentPlaceholder": "meine-charon-instanz",
       "tenant": "Mandant/Organisation (optional)",
       "tenantPlaceholder": "org-id-aus-konsole",
@@ -1186,7 +1195,15 @@
       "tenantLabel": "Mandant",
       "lastAttempt": "Letzter Versuch",
       "enrolledAt": "Registriert",
-      "correlationId": "Korrelations-ID"
+      "correlationId": "Korrelations-ID",
+      "lastError": "Letzter Fehler",
+      "ackText": "Mir ist bekannt, dass meine LAPI-Zugangsdaten rotiert werden, falls bereits registriert",
+      "description": "Verbinden Sie Ihre CrowdSec-LAPI mit der CrowdSec Console für zentrale Verwaltung und Warnungen.",
+      "enrollToken": "Registrierungstoken",
+      "lastHeartbeat": "Letzter Heartbeat",
+      "privacyNote": "Hinweis: Die Registrierung sendet Heartbeat-Daten und Metriken an CrowdSec. Details finden Sie in der Datenschutzrichtlinie von CrowdSec.",
+      "tenantHelper": "Optional: Mandanten-/Organisations-ID angeben, falls Sie ein Multi-Tenant-Setup verwenden",
+      "tokenHelper": "Holen Sie sich Ihr Registrierungstoken aus der CrowdSec Console"
     },
     "reenroll": {
       "title": "Neu-Registrierungsoptionen",
@@ -1202,14 +1219,16 @@
       "reenrolling": "Neu registrieren...",
       "clearState": "Registrierungsstatus löschen",
       "clearing": "Lösche...",
-      "clearConfirm": "Dies löscht den lokalen Registrierungsstatus. Möglicherweise müssen Sie sich erneut registrieren. Fortfahren?"
+      "clearConfirm": "Dies löscht den lokalen Registrierungsstatus. Möglicherweise müssen Sie sich erneut registrieren. Fortfahren?",
+      "clearFailed": "Der Registrierungsstatus konnte nicht gelöscht werden: {{message}}"
     },
     "packages": {
       "title": "Konfigurationspakete",
       "description": "Exportieren oder importieren Sie CrowdSec-Konfigurationspakete (tar.gz/zip). Vor dem Import wird ein Backup erstellt.",
       "export": "Exportieren",
       "import": "Importieren",
-      "importing": "Importiere..."
+      "importing": "Importiere...",
+      "selectFile": "CrowdSec-Paketdatei auswählen"
     },
     "presets": {
       "title": "Vorlagen",
@@ -1235,18 +1254,22 @@
       "previewUnavailable": "Vorschau nicht verfügbar",
       "applied": "Angewendet",
       "backup": "Backup",
+      "backupCreated": "Sicherung erstellt: {{name}} ({{location}})",
+      "backupLocation": "neben dem CrowdSec-Datenverzeichnis gespeichert",
       "reload": "Neu laden",
       "required": "Erforderlich",
       "method": "Methode",
       "filesystem": "Dateisystem",
       "loadCached": "Zwischengespeicherte Vorschau laden",
       "applyDisabled": "Anwenden deaktiviert, solange Hub offline ist.",
-      "noPresets": "Keine Vorlagen verfügbar. Stellen Sie sicher, dass Cerberus aktiviert ist."
+      "noPresets": "Keine Vorlagen verfügbar. Stellen Sie sicher, dass Cerberus aktiviert ist.",
+      "sortBy": "Presets sortieren"
     },
     "files": {
       "title": "Konfigurationsdateien bearbeiten",
       "selectFile": "Datei auswählen...",
-      "refresh": "Aktualisieren"
+      "refresh": "Aktualisieren",
+      "content": "Dateiinhalt"
     },
     "bannedIps": {
       "title": "Gesperrte IPs",
@@ -1281,7 +1304,38 @@
       "title": "Entsperrung bestätigen",
       "confirm": "Sind Sie sicher, dass Sie entsperren möchten",
       "submit": "Entsperren"
-    }
+    },
+    "lapiInitializing": "CrowdSec läuft, aber die lokale API wird noch initialisiert.",
+    "lapiInitializingDesc": "Die Console-Registrierung ist verfügbar, sobald die lokale API bereit ist. Das kann nach dem Start von CrowdSec bis zu einer Minute dauern.",
+    "checkingAgain": "(wird erneut geprüft...)",
+    "notRunning": "CrowdSec läuft nicht",
+    "notRunningDesc": "Starten Sie CrowdSec, bevor Sie sich in der Console registrieren.",
+    "starting": "CrowdSec wird gestartet...",
+    "startFailed": "CrowdSec konnte nicht gestartet werden",
+    "startCrowdsec": "CrowdSec starten",
+    "goToSecurity": "Zu Sicherheit wechseln",
+    "whitelist": {
+      "tabLabel": "Whitelist",
+      "title": "IP-Whitelist",
+      "description": "IPs und CIDRs auf der Whitelist werden von CrowdSec nie blockiert, auch wenn sie Warnungen auslösen.",
+      "ipLabel": "IP oder CIDR",
+      "reasonLabel": "Grund",
+      "reasonPlaceholder": "Optionaler Grund",
+      "addMyIp": "Meine IP hinzufügen",
+      "none": "Keine Whitelist-Einträge",
+      "columnIp": "IP / CIDR",
+      "columnReason": "Grund",
+      "columnAdded": "Hinzugefügt",
+      "deleteAriaLabel": "Whitelist-Eintrag entfernen für",
+      "delete": "Löschen",
+      "deleteModal": {
+        "title": "Whitelist-Eintrag entfernen",
+        "body": "{{ip}} von der Whitelist entfernen? CrowdSec kann diese IP dann blockieren, wenn sie Warnungen auslöst.",
+        "submit": "Entfernen"
+      }
+    },
+    "noConfig": "CrowdSec-Konfiguration im Sicherheitsstatus nicht gefunden",
+    "noteText": "CrowdSec wird über den Schalter auf der Seite gesteuert:"
   },
   "smtp": {
     "title": "E-Mail (SMTP) Einstellungen",

@@ -519,7 +519,8 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 			revertSetting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
 			h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(revertSetting).FirstOrCreate(&revertSetting)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to start crowdsec")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start CrowdSec"})
 		return
 	}
 
@@ -593,7 +594,8 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 func (h *CrowdsecHandler) Stop(c *gin.Context) {
 	ctx := c.Request.Context()
 	if err := h.Executor.Stop(ctx, h.DataDir); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to stop crowdsec")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop CrowdSec"})
 		return
 	}
 
@@ -621,7 +623,8 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 	ctx := c.Request.Context()
 	running, pid, err := h.Executor.Status(ctx, h.DataDir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to read crowdsec status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read CrowdSec status"})
 		return
 	}
 
@@ -679,7 +682,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 
 	if err = validator.Validate(dst); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", err)})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
 	}
 
@@ -711,8 +714,9 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	// Extract archive
 	extractErr := h.extractArchive(dst, h.DataDir)
 	if extractErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(extractErr.Error())).Warn("crowdsec import extraction failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("extraction failed: %v", extractErr)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "extraction failed"})
 		return
 	}
 
@@ -720,11 +724,11 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	configPath := filepath.Join(h.DataDir, "config.yaml")
 	if err := validateYAMLFile(configPath); err != nil {
 		rollback()
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", err)})
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": backupDir})
+	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)})
 }
 
 // pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
@@ -875,8 +879,9 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export failed")
 		// If any error occurred while creating the archive, return 500
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to export crowdsec config"})
 		return
 	}
 }
@@ -922,7 +927,7 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 		if h.Security != nil {
 			_ = h.Security.LogAudit(&models.SecurityAudit{Actor: auditActor(c), Action: "crowdsec_console_enroll_failed", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, payload.Tenant, payload.AgentName, status.CorrelationID)})
 		}
-		resp := gin.H{"error": err.Error(), "status": status.Status}
+		resp := gin.H{"error": crowdsec.RedactPaths(err.Error()), "status": status.Status}
 		if status.CorrelationID != "" {
 			resp["correlation_id"] = status.CorrelationID
 		}
@@ -973,7 +978,7 @@ func (h *CrowdsecHandler) DeleteConsoleEnrollment(c *gin.Context) {
 	ctx := c.Request.Context()
 	if err := h.Console.ClearEnrollment(ctx); err != nil {
 		logger.Log().WithError(err).Warn("failed to clear console enrollment state")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear enrollment state"})
 		return
 	}
 
@@ -1972,7 +1977,7 @@ func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
 	content, err := readAcquisitionConfig(acquisPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found", "path": acquisPath})
+			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found"})
 			return
 		}
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to read acquisition config")
@@ -1982,7 +1987,6 @@ func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"content": string(content),
-		"path":    acquisPath,
 	})
 }
 
@@ -2027,7 +2031,7 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "updated",
-		"backup":      backupPath,
+		"backup":      crowdsec.BackupID(backupPath),
 		"reload_hint": true,
 	})
 }
@@ -2162,7 +2166,6 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 
 	if _, err := os.Stat(cleanConfigPath); err == nil {
 		validation["config_exists"] = true
-		validation["config_path"] = cleanConfigPath
 
 		// Read config and check LAPI port
 		// #nosec G304 -- Path validated against DataDir above
@@ -2207,7 +2210,6 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 
 	if _, err := os.Stat(cleanAcquisPath); err == nil {
 		validation["acquis_exists"] = true
-		validation["acquis_path"] = cleanAcquisPath
 
 		// Check if it has datasources
 		// #nosec G304 -- Path validated against DataDir above
@@ -2245,7 +2247,8 @@ func (h *CrowdsecHandler) ConsoleHeartbeat(c *gin.Context) {
 	ctx := c.Request.Context()
 	status, err := h.Console.Status(ctx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to read console heartbeat status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read enrollment status"})
 		return
 	}
 

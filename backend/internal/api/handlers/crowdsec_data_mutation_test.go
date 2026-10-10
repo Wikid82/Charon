@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,8 +105,10 @@ func TestImportConfigReplacesConfigButPreservesEngineStateAndDataDir(t *testing.
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	backup, _ := resp["backup"].(string)
-	require.Equal(t, dir+".backup.", backup[:len(dir)+len(".backup.")])
+	backupName, _ := resp["backup"].(string)
+	require.True(t, strings.HasPrefix(backupName, filepath.Base(dir)+".backup."), backupName)
+	require.Equal(t, filepath.Base(backupName), backupName, "response carries a name, not a path")
+	backup := filepath.Join(filepath.Dir(dir), backupName)
 
 	after, err := os.Stat(dir)
 	require.NoError(t, err)

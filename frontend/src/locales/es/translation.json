@@ -384,8 +384,17 @@
           "24h": "24h",
           "7d": "7d",
           "30d": "30d"
-        }
-      }
+        },
+        "timeRangeLabel": "Rango de tiempo"
+      },
+      "bouncerApiKey": "Clave API del bouncer",
+      "keyCopied": "Clave API copiada al portapapeles",
+      "keyStoredAt": "Clave almacenada en",
+      "noKeyConfigured": "No hay clave de bouncer configurada. Active CrowdSec para el registro automático.",
+      "notRegistered": "No registrado",
+      "registered": "Registrado",
+      "sourceEnvVar": "Desde variable de entorno",
+      "sourceFile": "Desde archivo"
     },
     "acl": {
       "title": "Control de Acceso",
@@ -1169,7 +1178,7 @@
       "goToSecurity": "Ir al Panel de Seguridad",
       "enrollmentToken": "Token de inscripción",
       "tokenPlaceholder": "Pegue su token de inscripción de la Consola CrowdSec",
-      "agentName": "Nombre del agente (opcional)",
+      "agentName": "Nombre del agente",
       "agentPlaceholder": "mi-instancia-charon",
       "tenant": "Inquilino/Organización (opcional)",
       "tenantPlaceholder": "id-org-de-consola",
@@ -1188,7 +1197,15 @@
       "tenantLabel": "Inquilino",
       "lastAttempt": "Último intento",
       "enrolledAt": "Inscrito",
-      "correlationId": "ID de correlación"
+      "correlationId": "ID de correlación",
+      "lastError": "Último error",
+      "ackText": "Entiendo que esto rotará mis credenciales de LAPI si ya estoy registrado",
+      "description": "Conecte su LAPI de CrowdSec a la consola de CrowdSec para gestión centralizada y alertas.",
+      "enrollToken": "Token de registro",
+      "lastHeartbeat": "Último latido",
+      "privacyNote": "Nota: El registro envía datos de latido y métricas a CrowdSec. Consulte la política de privacidad de CrowdSec para más detalles.",
+      "tenantHelper": "Opcional: indique el ID de inquilino/organización si usa una configuración multiinquilino",
+      "tokenHelper": "Obtenga su token de registro en la consola de CrowdSec"
     },
     "reenroll": {
       "title": "Opciones de reinscripción",
@@ -1204,14 +1221,16 @@
       "reenrolling": "Reinscribiendo...",
       "clearState": "Limpiar estado de inscripción",
       "clearing": "Limpiando...",
-      "clearConfirm": "Esto limpiará el estado de inscripción local. Puede que necesite reinscribirse. ¿Continuar?"
+      "clearConfirm": "Esto limpiará el estado de inscripción local. Puede que necesite reinscribirse. ¿Continuar?",
+      "clearFailed": "No se pudo borrar el estado de registro: {{message}}"
     },
     "packages": {
       "title": "Paquetes de configuración",
       "description": "Exporte o importe paquetes de configuración de CrowdSec (tar.gz/zip). Se crea una copia de seguridad antes de importar.",
       "export": "Exportar",
       "import": "Importar",
-      "importing": "Importando..."
+      "importing": "Importando...",
+      "selectFile": "Seleccionar archivo de paquete de CrowdSec"
     },
     "presets": {
       "title": "Plantillas",
@@ -1237,18 +1256,22 @@
       "previewUnavailable": "Vista previa no disponible",
       "applied": "Aplicado",
       "backup": "Respaldo",
+      "backupCreated": "Copia de seguridad creada: {{name}} ({{location}})",
+      "backupLocation": "almacenada junto al directorio de datos de CrowdSec",
       "reload": "Recargar",
       "required": "Requerido",
       "method": "Método",
       "filesystem": "Sistema de archivos",
       "loadCached": "Cargar vista previa en caché",
       "applyDisabled": "Aplicar deshabilitado mientras el hub está fuera de línea.",
-      "noPresets": "No hay plantillas disponibles. Asegúrese de que Cerberus esté habilitado."
+      "noPresets": "No hay plantillas disponibles. Asegúrese de que Cerberus esté habilitado.",
+      "sortBy": "Ordenar presets"
     },
     "files": {
       "title": "Editar archivos de configuración",
       "selectFile": "Seleccionar un archivo...",
-      "refresh": "Actualizar"
+      "refresh": "Actualizar",
+      "content": "Contenido del archivo"
     },
     "bannedIps": {
       "title": "IPs bloqueadas",
@@ -1283,7 +1306,38 @@
       "title": "Confirmar desbloqueo",
       "confirm": "¿Está seguro de que desea desbloquear",
       "submit": "Desbloquear"
-    }
+    },
+    "lapiInitializing": "CrowdSec se está ejecutando, pero la API local aún se está inicializando.",
+    "lapiInitializingDesc": "El registro en la consola estará disponible cuando la API local esté lista. Puede tardar hasta un minuto después de iniciar CrowdSec.",
+    "checkingAgain": "(comprobando de nuevo...)",
+    "notRunning": "CrowdSec no se está ejecutando",
+    "notRunningDesc": "Inicie CrowdSec antes de registrarse en la consola.",
+    "starting": "Iniciando CrowdSec...",
+    "startFailed": "No se pudo iniciar CrowdSec",
+    "startCrowdsec": "Iniciar CrowdSec",
+    "goToSecurity": "Ir a Seguridad",
+    "whitelist": {
+      "tabLabel": "Lista blanca",
+      "title": "Lista blanca de IP",
+      "description": "Las IP y CIDR de la lista blanca nunca son bloqueadas por CrowdSec, aunque generen alertas.",
+      "ipLabel": "IP o CIDR",
+      "reasonLabel": "Motivo",
+      "reasonPlaceholder": "Motivo opcional",
+      "addMyIp": "Añadir mi IP",
+      "none": "No hay entradas en la lista blanca",
+      "columnIp": "IP / CIDR",
+      "columnReason": "Motivo",
+      "columnAdded": "Añadida",
+      "deleteAriaLabel": "Eliminar entrada de la lista blanca de",
+      "delete": "Eliminar",
+      "deleteModal": {
+        "title": "Eliminar entrada de la lista blanca",
+        "body": "¿Eliminar {{ip}} de la lista blanca? CrowdSec podrá bloquear esta IP si genera alertas.",
+        "submit": "Eliminar"
+      }
+    },
+    "noConfig": "No se encontró la configuración de CrowdSec en el estado de seguridad",
+    "noteText": "CrowdSec se controla mediante el interruptor de la página"
   },
   "smtp": {
     "title": "Configuración de Correo (SMTP)",

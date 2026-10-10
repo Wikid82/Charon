@@ -85,22 +85,18 @@ type HubService struct {
 	PullTimeout   time.Duration
 	ApplyTimeout  time.Duration
 
+	// validateURL overrides validateHubURL when non-nil. Test-only: production
+	// code never sets it, so every hub request goes through validateHubURL.
+	validateURL func(string) error
+
 	// mu serializes Apply and ApplyCurated so backup/rollback cycles never interleave.
 	mu sync.Mutex
 }
-
-// hubAllowLoopback is a test-only seam. It is always false in production and is
-// only toggled from _test.go files. Tests that toggle it must not call
-// t.Parallel(), as it is shared package state.
-var hubAllowLoopback bool
 
 // validateHubURL validates a hub URL for security (SSRF protection - HIGH-001).
 // This function prevents Server-Side Request Forgery by:
 //  1. Enforcing HTTPS for production hub URLs
 //  2. Allowlisting known CrowdSec hub domains
-//  3. Accepting localhost/test hostnames at this layer; the dial layer
-//     (network.NewSafeHTTPClient) still blocks loopback and private targets
-//     unless the test-only hubAllowLoopback seam is set
 //
 // Returns: error if URL is invalid or not allowlisted
 func validateHubURL(rawURL string) error {
@@ -109,7 +105,7 @@ func validateHubURL(rawURL string) error {
 		return fmt.Errorf("invalid URL format: %w", err)
 	}
 
-	// Only allow http/https schemes
+	// Only allow http/https schemes at parse level; https is enforced below
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("unsupported scheme: %s (only http and https are allowed)", parsed.Scheme)
 	}
@@ -119,16 +115,7 @@ func validateHubURL(rawURL string) error {
 		return fmt.Errorf("missing hostname in URL")
 	}
 
-	// Allow localhost and test domains for development/testing
-	// This is safe because tests control the mock servers
-	if host == "localhost" || host == "127.0.0.1" || host == "::1" ||
-		strings.HasSuffix(host, ".example.com") || strings.HasSuffix(host, ".example") ||
-		host == "example.com" || strings.HasSuffix(host, ".local") ||
-		host == "test.hub" { // Allow test.hub for integration tests
-		return nil
-	}
-
-	// For production URLs, must be HTTPS
+	// Hub URLs must be HTTPS
 	if parsed.Scheme != "https" {
 		return fmt.Errorf("hub URLs must use HTTPS (got: %s)", parsed.Scheme)
 	}
@@ -153,6 +140,15 @@ func validateHubURL(rawURL string) error {
 	}
 
 	return nil
+}
+
+// checkURL validates target with the test override when set, otherwise with
+// the production validateHubURL.
+func (s *HubService) checkURL(target string) error {
+	if s.validateURL != nil {
+		return s.validateURL(target)
+	}
+	return validateHubURL(target)
 }
 
 // NewHubService constructs a HubService with sane defaults.
@@ -187,19 +183,11 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 // Hub URLs are validated by validateHubURL() which:
 // - Enforces HTTPS for production
 // - Allowlists known CrowdSec domains (hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)
-// - Blocks loopback unless the test-only hubAllowLoopback seam is set
+// - Blocks loopback and private targets at the dial layer
 // Using network.NewSafeHTTPClient provides defense-in-depth at the connection level.
 func newHubHTTPClient(timeout time.Duration) *http.Client {
 	opts := []network.Option{
 		network.WithTimeout(timeout),
-		network.WithAllowedDomains(
-			"hub-data.crowdsec.net",
-			"hub.crowdsec.net",
-			"raw.githubusercontent.com",
-		),
-	}
-	if hubAllowLoopback {
-		opts = append(opts, network.WithAllowLocalhost())
 	}
 	return network.NewSafeHTTPClient(opts...)
 }
@@ -450,7 +438,7 @@ func (h hubHTTPError) CanFallback() bool {
 
 func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
 	// CRITICAL FIX: Validate hub URL before making HTTP request (HIGH-001)
-	if err := validateHubURL(target); err != nil {
+	if err := s.checkURL(target); err != nil {
 		return HubIndex{}, fmt.Errorf("invalid hub URL: %w", err)
 	}
 
@@ -751,7 +739,7 @@ func (s *HubService) fetchWithFallback(ctx context.Context, urls []string) (data
 
 func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]byte, error) {
 	// CRITICAL FIX: Validate hub URL before making HTTP request (HIGH-001)
-	if err := validateHubURL(url); err != nil {
+	if err := s.checkURL(url); err != nil {
 		return nil, fmt.Errorf("invalid hub URL: %w", err)
 	}
 
@@ -943,7 +931,7 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 			continue
 		}
 		cleanName := filepath.Clean(hdr.Name)
-		if strings.HasPrefix(cleanName, "..") || strings.Contains(cleanName, ".."+string(os.PathSeparator)) || filepath.IsAbs(cleanName) {
+		if hasParentComponent(cleanName) || filepath.IsAbs(cleanName) {
 			return fmt.Errorf("unsafe path %s", hdr.Name)
 		}
 		if IsEngineOwnedPath(cleanName) {
@@ -960,7 +948,7 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 
 		if hdr.FileInfo().IsDir() {
 			if mkdirErr := os.MkdirAll(destPath, mode); mkdirErr != nil { //nolint:gosec // G703: destPath contained under targetDir by the filepath.Rel check above
-				return fmt.Errorf("mkdir %s: %w", destPath, mkdirErr)
+				return fmt.Errorf("mkdir %s: %w", cleanName, withoutPath(mkdirErr))
 			}
 			continue
 		}
@@ -975,15 +963,15 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 		written, err := io.Copy(f, limitedReader)
 		if err != nil {
 			_ = f.Close()
-			return fmt.Errorf("write %s: %w", destPath, err)
+			return fmt.Errorf("write %s: %w", cleanName, withoutPath(err))
 		}
 		// Verify we didn't hit the limit (potential attack)
 		if written >= maxDecompressedSize {
 			_ = f.Close()
-			return fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", destPath, maxDecompressedSize)
+			return fmt.Errorf("file %s exceeded decompression limit (%d bytes), potential decompression bomb", cleanName, maxDecompressedSize)
 		}
 		if err := f.Close(); err != nil {
-			return fmt.Errorf("close %s: %w", destPath, err)
+			return fmt.Errorf("close %s: %w", cleanName, withoutPath(err))
 		}
 	}
 	return nil
@@ -1036,4 +1024,15 @@ func isGzip(data []byte) bool {
 		return false
 	}
 	return data[0] == 0x1f && data[1] == 0x8b
+}
+
+// hasParentComponent reports whether any path component equals "..".
+// Names that merely start with two dots (e.g. "..foo") are legitimate.
+func hasParentComponent(name string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }

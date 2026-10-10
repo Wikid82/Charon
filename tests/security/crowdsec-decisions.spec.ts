@@ -1,286 +1,318 @@
 /**
  * CrowdSec Banned IPs (Decisions) E2E Tests
  *
- * Tests the CrowdSec banned IPs functionality on the main CrowdSec config page:
- * - Viewing active bans (decisions)
- * - Adding manual IP bans
- * - Removing bans (unban)
- * - Ban details and status
+ * Tests the "Banned IPs" card on /security/crowdsec against a stubbed CrowdSec API
+ * (see tests/utils/crowdsec-stubs.ts), so every assertion runs against known data:
+ * - Listing active bans, and the empty, disabled and error states
+ * - Banning an IP (modal, validation, exact request payload, outcomes)
+ * - Unbanning an IP (confirmation, request, outcomes)
  *
- * NOTE: CrowdSec "Decisions" are managed via the "Banned IPs" card on /security/crowdsec
- * There is no separate /security/crowdsec/decisions page - functionality is integrated.
+ * NOTE: CrowdSec "Decisions" are managed via the "Banned IPs" card on /security/crowdsec.
+ * There is no separate decisions page and the card has no search, filter or refresh control.
  *
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
+import type { Page } from '@playwright/test';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
+import { getToastLocator } from '../utils/ui-helpers';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import {
+  crowdsecFixtures,
+  stubCrowdSecApi,
+  type CrowdSecStubOptions,
+} from '../utils/crowdsec-stubs';
+
+const ERROR_TIMEOUT = 15_000;
+
+const DECISIONS = [
+  crowdsecFixtures.decision({
+    id: 'decision-1',
+    ip: '203.0.113.7',
+    reason: 'e2e brute force',
+    duration: '24h',
+    source: 'crowdsec',
+  }),
+  crowdsecFixtures.decision({ id: 'decision-2', ip: '203.0.113.8', reason: '', duration: '4h', source: '' }),
+];
+
+/** Installs the stubs (CrowdSec in local mode), loads the CrowdSec page and waits for the Banned IPs card. */
+async function openBannedIps(page: Page, options: CrowdSecStubOptions = {}) {
+  const recorder = await stubCrowdSecApi(page, {
+    crowdsecMode: 'local',
+    decisions: DECISIONS,
+    banApi: {},
+    ...options,
+  });
+  await page.goto('/security/crowdsec');
+  await waitForLoadingComplete(page);
+  await expect(bannedIpsHeading(page)).toBeVisible();
+  return recorder;
+}
+
+const bannedIpsHeading = (page: Page) => page.getByRole('heading', { name: 'Banned IPs', level: 3 });
+const banDialog = (page: Page) => page.getByRole('dialog', { name: 'Ban IP Address' });
+const unbanDialog = (page: Page) => page.getByRole('dialog', { name: 'Confirm Unban' });
+/** Toasts prefix the message with an icon glyph, so they are matched on the message text within the live region. */
+const successToast = (page: Page, message: string) => getToastLocator(page, message, { type: 'success' });
+const errorToast = (page: Page, message: string) => getToastLocator(page, message, { type: 'error' });
+const decisionRow = (page: Page, ip: string) => page.getByRole('row').filter({ hasText: ip });
 
 test.describe('CrowdSec Banned IPs Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
-    await page.goto('/security/crowdsec');
-    await waitForLoadingComplete(page);
   });
 
   test.describe('Banned IPs Card', () => {
-    test('should display banned IPs section on CrowdSec config page', async ({ page }) => {
-      // Verify we're on the CrowdSec config page
+    test('should display the banned IPs card on the CrowdSec config page', async ({ page }) => {
+      await openBannedIps(page);
+
       await expect(page).toHaveURL('/security/crowdsec');
-
-      // Verify banned IPs section exists
-      const bannedIpsHeading = page.getByRole('heading', { name: /banned ips/i });
-      await expect(bannedIpsHeading).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Ban IP', exact: true })).toBeEnabled();
     });
 
-    test('should show ban IP button when CrowdSec is enabled', async ({ page }) => {
-      // Check if CrowdSec is enabled (status card should show "Running")
-      const statusCard = page.locator('[class*="card"]').filter({ hasText: /status/i });
-      const isRunning = await statusCard.getByText(/running|active/i).isVisible().catch(() => false);
+    test('should disable banning and explain why when CrowdSec is disabled', async ({ page }) => {
+      await openBannedIps(page, { crowdsecMode: 'disabled' });
 
-      if (isRunning) {
-        // Ban IP button should be visible when CrowdSec is running
-        const banButton = page.getByRole('button', { name: /ban ip/i });
-        await expect(banButton).toBeVisible();
-      } else {
-        // Skip if CrowdSec is not enabled
-        // CrowdSec is not enabled - cannot test banned IPs functionality
-      }
+      await expect(page.getByRole('button', { name: 'Ban IP', exact: true })).toBeDisabled();
+      await expect(page.getByText('Enable CrowdSec to manage banned IPs', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Unban' })).toHaveCount(0);
     });
   });
 
-  // Data-focused tests - require CrowdSec running and full implementation
-  test.describe('Banned IPs Data Operations (Requires CrowdSec Running)', () => {
-    test('should show active decisions if any exist', async ({ page }) => {
-      // Wait for decisions to load
-      await page.waitForResponse(resp =>
-        resp.url().includes('/decisions') || resp.url().includes('/crowdsec'),
-        { timeout: 10000 }
-      ).catch(() => {
-        // API might not be called if no decisions
-      });
+  test.describe('Active Decisions', () => {
+    test('should list each active ban with its details', async ({ page }) => {
+      await openBannedIps(page);
 
-      // Could be empty state or list of decisions
-      const emptyState = page.getByText(/no.*decisions|no.*bans|empty/i);
-      const decisionRows = page.locator('tr, [class*="row"]').filter({
-        hasText: /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|ban|captcha/i
-      });
-
-      const emptyVisible = await emptyState.isVisible().catch(() => false);
-      const rowCount = await decisionRows.count();
-
-      // Either empty state or some decisions
-      expect(emptyVisible || rowCount >= 0).toBeTruthy();
+      await expect(page.getByRole('columnheader', { name: /^(IP|Reason|Duration|Banned At|Source|Actions)$/ })).toHaveText([
+        'IP',
+        'Reason',
+        'Duration',
+        'Banned At',
+        'Source',
+        'Actions',
+      ]);
+      const first = decisionRow(page, '203.0.113.7').getByRole('cell');
+      await expect(first.nth(0)).toHaveText('203.0.113.7');
+      await expect(first.nth(1)).toHaveText('e2e brute force');
+      await expect(first.nth(2)).toHaveText('24h');
+      await expect(first.nth(3)).toHaveText(new Date('2026-01-01T00:00:00Z').toLocaleString());
+      await expect(first.nth(4)).toHaveText('crowdsec');
+      await expect(first.nth(5).getByRole('button', { name: 'Unban' })).toBeVisible();
     });
 
-    test('should display decision columns (IP, type, duration, reason)', async ({ page }) => {
-      const table = page.getByRole('table');
-      const tableVisible = await table.isVisible().catch(() => false);
+    test('should show placeholders for a ban without a reason or source', async ({ page }) => {
+      await openBannedIps(page);
 
-      if (tableVisible) {
-        await test.step('Verify table headers', async () => {
-          const headers = page.locator('th, [role="columnheader"]');
-          const headerTexts = await headers.allTextContents();
-
-          // Headers might include IP, type, duration, scope, reason, origin
-          const headerString = headerTexts.join(' ').toLowerCase();
-          const hasRelevantHeaders = headerString.includes('ip') ||
-                                    headerString.includes('type') ||
-                                    headerString.includes('scope') ||
-                                    headerString.includes('origin');
-
-          expect(hasRelevantHeaders).toBeTruthy();
-        });
-      }
-    });
-  });
-
-  test.describe('Add Decision (Ban IP) - Requires CrowdSec Running', () => {
-    test('should have add ban button', async ({ page }) => {
-      const addButton = page.getByRole('button', { name: /add|ban|new/i });
-      const addButtonVisible = await addButton.isVisible().catch(() => false);
-
-      if (addButtonVisible) {
-        await expect(addButton).toBeEnabled();
-      } else {
-        test.info().annotations.push({
-          type: 'info',
-          description: 'Add ban functionality might not be exposed in UI'
-        });
-      }
+      const cells = decisionRow(page, '203.0.113.8').getByRole('cell');
+      await expect(cells.nth(1)).toHaveText('-');
+      await expect(cells.nth(2)).toHaveText('4h');
+      await expect(cells.nth(4)).toHaveText('manual');
     });
 
-    test('should open ban modal on add button click', async ({ page }) => {
-      const addButton = page.getByRole('button', { name: /add.*ban|ban.*ip/i });
-      const addButtonVisible = await addButton.isVisible().catch(() => false);
+    test('should offer an unban action for every ban', async ({ page }) => {
+      await openBannedIps(page);
 
-      if (addButtonVisible) {
-        await addButton.click();
-
-        await test.step('Verify ban modal opens', async () => {
-          const modal = page.getByRole('dialog');
-          const modalVisible = await modal.isVisible().catch(() => false);
-
-          if (modalVisible) {
-            // Modal should have IP input field
-            const ipInput = modal.getByPlaceholder(/ip|address/i).or(
-              modal.locator('input').first()
-            );
-            await expect(ipInput).toBeVisible();
-
-            // Close modal
-            const closeButton = modal.getByRole('button', { name: /cancel|close/i });
-            await closeButton.click();
-          }
-        });
-      }
+      await expect(page.getByRole('button', { name: 'Unban', exact: true })).toHaveCount(DECISIONS.length);
     });
 
-    test('should validate IP address format', async ({ page }) => {
-      const addButton = page.getByRole('button', { name: /add.*ban|ban.*ip/i });
-      const addButtonVisible = await addButton.isVisible().catch(() => false);
+    test('should show an empty state when nothing is banned', async ({ page }) => {
+      await openBannedIps(page, { decisions: [] });
 
-      if (addButtonVisible) {
-        await addButton.click();
-
-        const modal = page.getByRole('dialog');
-        const modalVisible = await modal.isVisible().catch(() => false);
-
-        if (modalVisible) {
-          const ipInput = modal.locator('input').first();
-
-          await test.step('Enter invalid IP', async () => {
-            await ipInput.fill('invalid-ip');
-
-            // Look for submit button
-            const submitButton = modal.getByRole('button', { name: /ban|submit|add/i });
-            await submitButton.click();
-
-            // Should show validation error
-            await page.waitForTimeout(500);
-          });
-
-          // Close modal
-          const closeButton = modal.getByRole('button', { name: /cancel|close/i });
-          const closeVisible = await closeButton.isVisible().catch(() => false);
-          if (closeVisible) {
-            await closeButton.click();
-          }
-        }
-      }
-    });
-  });
-
-  test.describe('Remove Decision (Unban) - Requires CrowdSec Running', () => {
-    test('should show unban action for each decision', async ({ page }) => {
-      // If there are decisions, each should have an unban action
-      const unbanButtons = page.getByRole('button', { name: /unban|remove|delete/i });
-      const count = await unbanButtons.count();
-
-      // Just verify the selector works - actual decisions may or may not exist
-      expect(count >= 0).toBeTruthy();
+      await expect(page.getByText('No banned IPs', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Unban' })).toHaveCount(0);
     });
 
-    test('should confirm before unbanning', async ({ page }) => {
-      const unbanButton = page.getByRole('button', { name: /unban|remove/i }).first();
-      const unbanVisible = await unbanButton.isVisible().catch(() => false);
+    test('should show an error when the bans cannot be loaded', async ({ page }) => {
+      await openBannedIps(page, { decisions: { failWith: 500 } });
 
-      if (unbanVisible) {
-        await unbanButton.click();
-
-        // Should show confirmation dialog
-        const confirmDialog = page.getByRole('dialog');
-        const dialogVisible = await confirmDialog.isVisible().catch(() => false);
-
-        if (dialogVisible) {
-          // Cancel the action
-          const cancelButton = page.getByRole('button', { name: /cancel|no/i });
-          await cancelButton.click();
-        }
-      }
-    });
-  });
-
-  test.describe('Filtering and Search - Requires CrowdSec Running', () => {
-    test('should have search/filter input', async ({ page }) => {
-      const searchInput = page.getByPlaceholder(/search|filter/i);
-      const searchVisible = await searchInput.isVisible().catch(() => false);
-
-      if (searchVisible) {
-        await expect(searchInput).toBeEnabled();
-      }
+      await expect(page.getByText('Failed to load banned IPs', { exact: true })).toBeVisible({ timeout: ERROR_TIMEOUT });
     });
 
-    test('should filter decisions by type', async ({ page }) => {
-      const typeFilter = page.locator('select, [role="listbox"]').filter({
-        hasText: /type|all|ban|captcha/i
-      }).first();
+    test('should make each ban row keyboard focusable', async ({ page }) => {
+      await openBannedIps(page);
+      const row = decisionRow(page, '203.0.113.7');
 
-      const filterVisible = await typeFilter.isVisible().catch(() => false);
-
-      if (filterVisible) {
-        await expect(typeFilter).toBeVisible();
-      }
-    });
-  });
-
-  test.describe('Refresh and Sync - Requires CrowdSec Running', () => {
-    test('should have refresh button', async ({ page }) => {
-      const refreshButton = page.getByRole('button', { name: /refresh|sync|reload/i });
-      const refreshVisible = await refreshButton.isVisible().catch(() => false);
-
-      if (refreshVisible) {
-        await test.step('Click refresh button', async () => {
-          await refreshButton.click();
-          // Should trigger API call
-          await page.waitForTimeout(500);
-        });
-      }
-    });
-  });
-
-  test.describe('Navigation - Requires CrowdSec Running', () => {
-    test('should navigate back to CrowdSec config', async ({ page }) => {
-      const backLink = page.getByRole('link', { name: /crowdsec|back|config/i });
-      const backVisible = await backLink.isVisible().catch(() => false);
-
-      if (backVisible) {
-        await backLink.click();
-        await waitForLoadingComplete(page);
-        await expect(page).toHaveURL(/\/security\/crowdsec(?!\/decisions)/);
-      }
-    });
-  });
-
-  test.describe('Accessibility - Requires CrowdSec Running', () => {
-    test('should be keyboard navigable', async ({ page }) => {
-      // Focus on the page body first to ensure tab navigation starts from the top
-      await page.focus('body');
+      await row.focus();
+      await expect(row).toBeFocused();
       await page.keyboard.press('Tab');
+      await expect(row.getByRole('button', { name: 'Unban' })).toBeFocused();
+    });
+  });
 
-      // Some element should receive focus, but it might take a split second
-      // Using evaluate to check document.activeElement is often more reliable than :focus selector
-      // for rapid state changes in Playwright
-      await page.waitForFunction(() => {
-        const active = document.activeElement;
-        return active && active !== document.body;
-      }, { timeout: 2000 }).catch(() => {
-        // Fallback: just assert we didn't crash
-        console.log('Focus navigation check timed out - proceeding');
-      });
+  test.describe('Ban IP', () => {
+    test('should open the ban dialog with a focused IP field and sensible defaults', async ({ page }) => {
+      await openBannedIps(page);
 
-      const isFocusOnBody = await page.evaluate(() => document.activeElement === document.body);
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
 
-      // If focus is still on body, it means no focusable elements are present or tab order is broken
-      // However, we relax this check to avoid flakiness in CI environments
-      if (!isFocusOnBody) {
-        const focusedVisible = await page.evaluate(() => {
-          const el = document.activeElement as HTMLElement;
-          return el && el.offsetParent !== null; // Simple visibility check
-        });
-        expect(focusedVisible).toBeTruthy();
-      }
+      const dialog = banDialog(page);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByLabel('IP Address')).toBeFocused();
+      await expect(dialog.getByLabel('IP Address')).toHaveValue('');
+      await expect(dialog.getByLabel('Duration')).toHaveValue('24h');
+      await expect(dialog.getByLabel('Duration').getByRole('option')).toHaveText([
+        '1 hour',
+        '4 hours',
+        '24 hours',
+        '7 days',
+        '30 days',
+        'Permanent',
+      ]);
+      await expect(dialog.getByLabel('Reason')).toHaveValue('');
+      await expect(dialog.getByRole('button', { name: 'Ban IP', exact: true })).toBeDisabled();
+    });
+
+    test('should send the entered IP, duration and reason and report success', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
+      const dialog = banDialog(page);
+      await dialog.getByLabel('IP Address').fill('198.51.100.9');
+      await dialog.getByLabel('Duration').selectOption({ label: '7 days' });
+      await dialog.getByLabel('Reason').fill('e2e manual ban');
+      await dialog.getByRole('button', { name: 'Ban IP', exact: true }).click();
+
+      await expect(successToast(page, 'IP 198.51.100.9 has been banned')).toBeVisible();
+      await expect(dialog).toHaveCount(0);
+      expect(stubs.bans).toEqual([{ ip: '198.51.100.9', duration: '7d', reason: 'e2e manual ban' }]);
+    });
+
+    test('should reload the list after banning an IP', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+      await expect.poll(() => stubs.decisionsRequests).toBe(1);
+
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
+      await banDialog(page).getByLabel('IP Address').fill('198.51.100.9');
+      await banDialog(page).getByRole('button', { name: 'Ban IP', exact: true }).click();
+
+      await expect(successToast(page, 'IP 198.51.100.9 has been banned')).toBeVisible();
+      await expect.poll(() => stubs.decisionsRequests).toBe(2);
+    });
+
+    test('should submit with the keyboard from the IP field', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
+      await banDialog(page).getByLabel('IP Address').fill('198.51.100.10');
+      await page.keyboard.press('Enter');
+
+      await expect(successToast(page, 'IP 198.51.100.10 has been banned')).toBeVisible();
+      expect(stubs.bans).toEqual([{ ip: '198.51.100.10', duration: '24h', reason: '' }]);
+    });
+
+    test('should keep the ban button disabled while the IP is blank', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
+      const dialog = banDialog(page);
+      const submit = dialog.getByRole('button', { name: 'Ban IP', exact: true });
+
+      await dialog.getByLabel('IP Address').fill('   ');
+      await expect(submit).toBeDisabled();
+      await dialog.getByLabel('IP Address').fill('198.51.100.9');
+      await expect(submit).toBeEnabled();
+      await dialog.getByLabel('IP Address').fill('');
+      await expect(submit).toBeDisabled();
+      expect(stubs.bans).toEqual([]);
+    });
+
+    test('should show the server error and keep the dialog open when the ban is rejected', async ({ page }) => {
+      const stubs = await openBannedIps(page, { banApi: { banFailure: { failWith: 400 } } });
+
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
+      const dialog = banDialog(page);
+      await dialog.getByLabel('IP Address').fill('not-an-ip');
+      await dialog.getByRole('button', { name: 'Ban IP', exact: true }).click();
+
+      await expect(errorToast(page, 'ban rejected')).toBeVisible();
+      await expect(getToastLocator(page, /has been banned/, { type: 'success' })).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByLabel('IP Address')).toHaveValue('not-an-ip');
+      expect(stubs.bans).toEqual([{ ip: 'not-an-ip', duration: '24h', reason: '' }]);
+    });
+
+    test('should close the dialog without banning when cancelled', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
+      await banDialog(page).getByLabel('IP Address').fill('198.51.100.9');
+      await banDialog(page).getByRole('button', { name: 'Cancel' }).click();
+
+      await expect(banDialog(page)).toHaveCount(0);
+      expect(stubs.bans).toEqual([]);
+    });
+
+    test('should close the dialog with Escape without banning', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
+      await banDialog(page).getByLabel('IP Address').fill('198.51.100.9');
+      await page.keyboard.press('Escape');
+      await expect(banDialog(page)).toHaveCount(0);
+      expect(stubs.bans).toEqual([]);
+    });
+  });
+
+  test.describe('Unban IP', () => {
+    test('should ask for confirmation naming the IP before unbanning', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await decisionRow(page, '203.0.113.7').getByRole('button', { name: 'Unban' }).click();
+
+      const dialog = unbanDialog(page);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText('Are you sure you want to unban 203.0.113.7?')).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      expect(stubs.unbans).toEqual([]);
+    });
+
+    test('should leave the ban in place when the confirmation is cancelled', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await decisionRow(page, '203.0.113.7').getByRole('button', { name: 'Unban' }).click();
+      await unbanDialog(page).getByRole('button', { name: 'Cancel' }).click();
+
+      await expect(unbanDialog(page)).toHaveCount(0);
+      await expect(decisionRow(page, '203.0.113.7')).toBeVisible();
+      expect(stubs.unbans).toEqual([]);
+    });
+
+    test('should unban the IP once confirmed and reload the list', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+      await expect.poll(() => stubs.decisionsRequests).toBe(1);
+
+      await decisionRow(page, '203.0.113.7').getByRole('button', { name: 'Unban' }).click();
+      await unbanDialog(page).getByRole('button', { name: 'Unban', exact: true }).click();
+
+      await expect(successToast(page, 'IP 203.0.113.7 has been unbanned')).toBeVisible();
+      await expect(unbanDialog(page)).toHaveCount(0);
+      expect(stubs.unbans).toEqual(['203.0.113.7']);
+      await expect.poll(() => stubs.decisionsRequests).toBe(2);
+    });
+
+    test('should show the server error and keep the confirmation open when the unban fails', async ({ page }) => {
+      const stubs = await openBannedIps(page, { banApi: { unbanFailure: { failWith: 500 } } });
+
+      await decisionRow(page, '203.0.113.7').getByRole('button', { name: 'Unban' }).click();
+      await unbanDialog(page).getByRole('button', { name: 'Unban', exact: true }).click();
+
+      await expect(errorToast(page, 'unban rejected')).toBeVisible();
+      await expect(getToastLocator(page, /has been unbanned/, { type: 'success' })).toHaveCount(0);
+      await expect(unbanDialog(page)).toBeVisible();
+      expect(stubs.unbans).toEqual(['203.0.113.7']);
+    });
+
+    test('should close the confirmation with Escape', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await decisionRow(page, '203.0.113.7').getByRole('button', { name: 'Unban' }).click();
+      await expect(unbanDialog(page)).toBeVisible();
+      await page.keyboard.press('Escape');
+
+      await expect(unbanDialog(page)).toHaveCount(0);
+      expect(stubs.unbans).toEqual([]);
     });
   });
 });

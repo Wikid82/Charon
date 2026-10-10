@@ -60,7 +60,7 @@ test.describe('CrowdSec Curated Preset Apply @security', () => {
         json: {
           status: 'applied',
           used_cscli: true,
-          backup: '/app/data/backups/crowdsec-preset-test.tar.gz',
+          backup: 'crowdsec.backup.20260101-000000.000000',
           reload_hint: true,
         },
       });

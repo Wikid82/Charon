@@ -384,8 +384,17 @@
           "24h": "24小时",
           "7d": "7天",
           "30d": "30天"
-        }
-      }
+        },
+        "timeRangeLabel": "时间范围"
+      },
+      "bouncerApiKey": "Bouncer API 密钥",
+      "keyCopied": "API 密钥已复制到剪贴板",
+      "keyStoredAt": "密钥存储位置",
+      "noKeyConfigured": "未配置 Bouncer 密钥。启用 CrowdSec 以自动注册。",
+      "notRegistered": "未注册",
+      "registered": "已注册",
+      "sourceEnvVar": "来自环境变量",
+      "sourceFile": "来自文件"
     },
     "acl": {
       "title": "访问控制",
@@ -1168,7 +1177,7 @@
       "goToSecurity": "前往安全仪表板",
       "enrollmentToken": "注册令牌",
       "tokenPlaceholder": "粘贴您从 CrowdSec 控制台获取的注册令牌",
-      "agentName": "代理名称（可选）",
+      "agentName": "代理名称",
       "agentPlaceholder": "我的-charon-实例",
       "tenant": "租户/组织（可选）",
       "tenantPlaceholder": "控制台中的组织ID",
@@ -1187,7 +1196,15 @@
       "tenantLabel": "租户",
       "lastAttempt": "最后尝试",
       "enrolledAt": "注册于",
-      "correlationId": "关联ID"
+      "correlationId": "关联ID",
+      "lastError": "上次错误",
+      "ackText": "我了解如果已注册，这将轮换我的 LAPI 凭据",
+      "description": "将您的 CrowdSec LAPI 连接到 CrowdSec 控制台，以进行集中管理和接收警报。",
+      "enrollToken": "注册令牌",
+      "lastHeartbeat": "上次心跳",
+      "privacyNote": "注意：注册会向 CrowdSec 发送心跳数据和指标。详情请参阅 CrowdSec 的隐私政策。",
+      "tenantHelper": "可选：如果使用多租户设置，请指定租户/组织 ID",
+      "tokenHelper": "从 CrowdSec 控制台获取您的注册令牌"
     },
     "reenroll": {
       "title": "重新注册选项",
@@ -1203,14 +1220,16 @@
       "reenrolling": "正在重新注册...",
       "clearState": "清除注册状态",
       "clearing": "正在清除...",
-      "clearConfirm": "这将清除本地注册状态。您可能需要重新注册。是否继续？"
+      "clearConfirm": "这将清除本地注册状态。您可能需要重新注册。是否继续？",
+      "clearFailed": "清除注册状态失败：{{message}}"
     },
     "packages": {
       "title": "配置包",
       "description": "导出或导入 CrowdSec 配置包（tar.gz/zip）。导入前会创建备份。",
       "export": "导出",
       "import": "导入",
-      "importing": "正在导入..."
+      "importing": "正在导入...",
+      "selectFile": "选择 CrowdSec 软件包文件"
     },
     "presets": {
       "title": "预设",
@@ -1236,18 +1255,22 @@
       "previewUnavailable": "预览不可用",
       "applied": "已应用",
       "backup": "备份",
+      "backupCreated": "备份已创建：{{name}}（{{location}}）",
+      "backupLocation": "存放在 CrowdSec 数据目录旁",
       "reload": "重新加载",
       "required": "必需",
       "method": "方法",
       "filesystem": "文件系统",
       "loadCached": "加载缓存的预览",
       "applyDisabled": "Hub 离线时禁用应用。",
-      "noPresets": "没有可用的预设。请确保 Cerberus 已启用。"
+      "noPresets": "没有可用的预设。请确保 Cerberus 已启用。",
+      "sortBy": "排序预设"
     },
     "files": {
       "title": "编辑配置文件",
       "selectFile": "选择文件...",
-      "refresh": "刷新"
+      "refresh": "刷新",
+      "content": "文件内容"
     },
     "bannedIps": {
       "title": "已封禁 IP",
@@ -1282,7 +1305,38 @@
       "title": "确认解封",
       "confirm": "您确定要解封",
       "submit": "解封"
-    }
+    },
+    "lapiInitializing": "CrowdSec 正在运行，但本地 API 仍在初始化。",
+    "lapiInitializingDesc": "本地 API 就绪后即可进行控制台注册。CrowdSec 启动后可能需要最多一分钟。",
+    "checkingAgain": "(正在重新检查...)",
+    "notRunning": "CrowdSec 未运行",
+    "notRunningDesc": "请先启动 CrowdSec，再注册到控制台。",
+    "starting": "正在启动 CrowdSec...",
+    "startFailed": "启动 CrowdSec 失败",
+    "startCrowdsec": "启动 CrowdSec",
+    "goToSecurity": "前往安全页面",
+    "whitelist": {
+      "tabLabel": "白名单",
+      "title": "IP 白名单",
+      "description": "白名单中的 IP 和 CIDR 即使触发警报也不会被 CrowdSec 拦截。",
+      "ipLabel": "IP 或 CIDR",
+      "reasonLabel": "原因",
+      "reasonPlaceholder": "可选原因",
+      "addMyIp": "添加我的 IP",
+      "none": "没有白名单条目",
+      "columnIp": "IP / CIDR",
+      "columnReason": "原因",
+      "columnAdded": "添加时间",
+      "deleteAriaLabel": "移除白名单条目：",
+      "delete": "删除",
+      "deleteModal": {
+        "title": "移除白名单条目",
+        "body": "要将 {{ip}} 从白名单中移除吗？如果该 IP 触发警报，CrowdSec 之后可能会拦截它。",
+        "submit": "移除"
+      }
+    },
+    "noConfig": "在安全状态中未找到 CrowdSec 配置",
+    "noteText": "CrowdSec 由以下页面上的开关控制："
   },
   "smtp": {
     "title": "电子邮件 (SMTP) 设置",

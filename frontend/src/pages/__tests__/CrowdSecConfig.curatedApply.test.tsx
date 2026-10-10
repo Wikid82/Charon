@@ -127,7 +127,7 @@ describe('CrowdSecConfig curated preset apply', () => {
     })
     vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({
       status: 'applied',
-      backup: '/tmp/backup.tar.gz',
+      backup: 'crowdsec.backup.20260101-000000.000000',
       reload_hint: true,
       used_cscli: true,
       cache_key: curatedPreset.cache_key,
@@ -144,7 +144,8 @@ describe('CrowdSecConfig curated preset apply', () => {
     await renderPage()
     await userEvent.click(screen.getByTestId('apply-preset-btn'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Preset applied via backend (reload required)'))
-    expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Backup: /tmp/backup.tar.gz')
+    expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Backup: crowdsec.backup.20260101-000000.000000 (stored next to the CrowdSec data directory)')
+    expect(screen.getByTestId('preset-apply-info').textContent).not.toMatch(/(^|\s)\//)
     expect(toast.error).not.toHaveBeenCalled()
   })
 
@@ -161,13 +162,13 @@ describe('CrowdSecConfig curated preset apply', () => {
     'surfaces the server error and never applies locally for curated presets on %i',
     async (status) => {
       vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(
-        axiosError(status, 'request failed', { error: `server says ${status}`, backup: '/tmp/rollback.tar.gz' }),
+        axiosError(status, 'request failed', { error: `server says ${status}`, backup: 'crowdsec.backup.20260101-000000.000000' }),
       )
       await renderPage()
       await userEvent.click(screen.getByTestId('apply-preset-btn'))
       await waitFor(() =>
         expect(toast.error).toHaveBeenCalledWith(
-          `Apply failed: server says ${status}. Backup created at /tmp/rollback.tar.gz`,
+          `Apply failed: server says ${status}. Backup created: crowdsec.backup.20260101-000000.000000 (stored next to the CrowdSec data directory)`,
         ),
       )
       expect(toast.success).not.toHaveBeenCalled()

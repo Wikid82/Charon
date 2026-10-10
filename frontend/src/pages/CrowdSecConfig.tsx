@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router'
 
@@ -22,6 +22,7 @@ import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
+import { sanitizeSecret } from '../utils/sanitizeSecret'
 import { toast } from '../utils/toast'
 
 /** Prefer the server's `error` message for Axios failures, falling back to the given text. */
@@ -57,6 +58,8 @@ export default function CrowdSecConfig() {
   const [validationError, setValidationError] = useState<string | null>(null)
   const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string } | null>(null)
   const queryClient = useQueryClient()
+  const backupCreatedMessage = (name: string) =>
+    t('crowdsecConfig.presets.backupCreated', { name, location: t('crowdsecConfig.presets.backupLocation') })
   // Read the "CrowdSec is starting" signal broadcast by Security.tsx via the
   // QueryClient cache. No HTTP call is made; this is pure in-memory coordination.
   const { data: crowdsecStartingCache } = useQuery<{ isStarting: boolean; startedAt?: number }>({
@@ -80,8 +83,11 @@ export default function CrowdSecConfig() {
   const [enrollmentToken, setEnrollmentToken] = useState('')
   const [consoleTenant, setConsoleTenant] = useState('')
   const [consoleAgentName, setConsoleAgentName] = useState((typeof window !== 'undefined' && window.location?.hostname) || 'charon-agent')
+  // Tracks manual edits so late-arriving enrollment status never overwrites what the user typed
+  const consoleAgentNameEdited = useRef(false)
+  const consoleTenantEdited = useRef(false)
   const [consoleAck, setConsoleAck] = useState(false)
-  const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; tenant?: string; ack?: string; submit?: string }>({})
+  const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; ack?: string; submit?: string }>({})
   const consoleStatusQuery = useConsoleStatus(consoleEnrollmentEnabled)
   const enrollConsoleMutation = useEnrollConsole()
   const clearEnrollmentMutation = useClearConsoleEnrollment()
@@ -216,14 +222,27 @@ export default function CrowdSecConfig() {
     }
   }, [presetCatalog, selectedPresetSlug])
 
+  // Prefer the enrolled identity over the hostname default, unless the user already edited the field
   useEffect(() => {
-    if (consoleStatusQuery.data?.agent_name) {
-      setConsoleAgentName((prev) => prev || consoleStatusQuery.data?.agent_name || prev)
+    const enrolledAgent = consoleStatusQuery.data?.agent_name
+    if (enrolledAgent && !consoleAgentNameEdited.current) {
+      setConsoleAgentName(enrolledAgent)
     }
-    if (consoleStatusQuery.data?.tenant) {
-      setConsoleTenant((prev) => prev || consoleStatusQuery.data?.tenant || prev)
+    const enrolledTenant = consoleStatusQuery.data?.tenant
+    if (enrolledTenant && !consoleTenantEdited.current) {
+      setConsoleTenant(enrolledTenant)
     }
   }, [consoleStatusQuery.data?.agent_name, consoleStatusQuery.data?.tenant])
+
+  const handleConsoleAgentNameChange = (value: string) => {
+    consoleAgentNameEdited.current = true
+    setConsoleAgentName(value)
+  }
+
+  const handleConsoleTenantChange = (value: string) => {
+    consoleTenantEdited.current = true
+    setConsoleTenant(value)
+  }
 
   const selectedPreset = presetCatalog.find((preset) => preset.slug === selectedPresetSlug)
   const selectedPresetRequiresHub = selectedPreset?.requiresHub ?? false
@@ -295,8 +314,6 @@ export default function CrowdSecConfig() {
   const canRotateKey = normalizedConsoleStatus === 'enrolled' || normalizedConsoleStatus === 'degraded' || isConsolePendingAcceptance
   const consoleDocsHref = 'https://wikid82.github.io/charon/security/'
 
-  const sanitizeSecret = (msg: string) => msg.replace(/\b[A-Za-z0-9]{10,64}\b/g, '***')
-
   const sanitizeErrorMessage = (err: unknown) => {
     if (isAxiosError(err)) {
       return sanitizeSecret(err.response?.data?.error || err.message)
@@ -305,16 +322,13 @@ export default function CrowdSecConfig() {
     return 'Console enrollment failed'
   }
 
-  const validateConsoleEnrollment = (options?: { allowMissingTenant?: boolean; requireAck?: boolean }) => {
-    const nextErrors: { token?: string; agent?: string; tenant?: string; ack?: string } = {}
+  const validateConsoleEnrollment = (options?: { requireAck?: boolean }) => {
+    const nextErrors: { token?: string; agent?: string; ack?: string } = {}
     if (!enrollmentToken.trim()) {
       nextErrors.token = 'Enrollment token is required'
     }
     if (!consoleAgentName.trim()) {
       nextErrors.agent = 'Agent name is required'
-    }
-    if (!consoleTenant.trim() && !options?.allowMissingTenant) {
-      nextErrors.tenant = 'Tenant / organization is required'
     }
     if (options?.requireAck && !consoleAck) {
       nextErrors.ack = 'You must acknowledge the console data-sharing notice'
@@ -324,9 +338,8 @@ export default function CrowdSecConfig() {
   }
 
   const submitConsoleEnrollment = async (force = false) => {
-    const allowMissingTenant = force && !consoleTenant.trim()
     const requireAck = normalizedConsoleStatus === 'not_enrolled'
-    if (!validateConsoleEnrollment({ allowMissingTenant, requireAck })) return
+    if (!validateConsoleEnrollment({ requireAck })) return
     const tenantValue = consoleTenant.trim() || consoleStatusQuery.data?.tenant || consoleAgentName || 'charon-agent'
     try {
       await enrollConsoleMutation.mutateAsync({
@@ -471,7 +484,7 @@ export default function CrowdSecConfig() {
       const reloadNote = res.reload_hint ? ' (reload required)' : ''
       toast.success(`Preset applied via backend${reloadNote}`)
       if (res.backup) {
-        setPresetStatusMessage(`Backup stored at ${res.backup}`)
+        setPresetStatusMessage(backupCreatedMessage(res.backup))
       }
     } catch (err) {
       if (!isAxiosError(err)) {
@@ -481,7 +494,7 @@ export default function CrowdSecConfig() {
       // The server is authoritative for every preset source: surface its message for any
       // non-2xx response and never write preset content client-side.
       const status = err.response?.status
-      const backupPath = (err.response?.data as { backup?: string } | undefined)?.backup
+      const backupName = (err.response?.data as { backup?: string } | undefined)?.backup
       const message = getServerErrorMessage(err, 'Failed to apply preset')
       if (status === 400) {
         setValidationError(message)
@@ -489,8 +502,8 @@ export default function CrowdSecConfig() {
       if (status === 503) {
         setHubUnavailable(true)
       }
-      setApplyInfo({ status: 'failed', backup: backupPath || undefined, cacheKey: presetMeta?.cacheKey })
-      toast.error(`Apply failed: ${message}${backupPath ? `. Backup created at ${backupPath}` : ''}`)
+      setApplyInfo({ status: 'failed', backup: backupName || undefined, cacheKey: presetMeta?.cacheKey })
+      toast.error(`Apply failed: ${message}${backupName ? `. ${backupCreatedMessage(backupName)}` : ''}`)
     } finally {
       setIsApplyingPreset(false)
     }
@@ -708,7 +721,7 @@ export default function CrowdSecConfig() {
                 id="console-agent-name"
                 label={t('crowdsecConfig.consoleEnrollment.agentName')}
                 value={consoleAgentName}
-                onChange={(e) => setConsoleAgentName(e.target.value)}
+                onChange={(e) => handleConsoleAgentNameChange(e.target.value)}
                 error={consoleErrors.agent}
                 errorTestId="console-enroll-error"
                 data-testid="console-agent-name"
@@ -717,10 +730,8 @@ export default function CrowdSecConfig() {
                 id="console-tenant"
                 label={t('crowdsecConfig.consoleEnrollment.tenant')}
                 value={consoleTenant}
-                onChange={(e) => setConsoleTenant(e.target.value)}
+                onChange={(e) => handleConsoleTenantChange(e.target.value)}
                 helperText={t('crowdsecConfig.consoleEnrollment.tenantHelper')}
-                error={consoleErrors.tenant}
-                errorTestId="console-enroll-error"
                 data-testid="console-tenant"
               />
             </div>
@@ -863,7 +874,7 @@ export default function CrowdSecConfig() {
                             id="reenroll-agent-name"
                             type="text"
                             value={consoleAgentName}
-                            onChange={(e) => setConsoleAgentName(e.target.value)}
+                            onChange={(e) => handleConsoleAgentNameChange(e.target.value)}
                             placeholder={t('crowdsecConfig.reenroll.agentPlaceholder')}
                           />
                         </div>
@@ -875,7 +886,7 @@ export default function CrowdSecConfig() {
                             id="reenroll-tenant"
                             type="text"
                             value={consoleTenant}
-                            onChange={(e) => setConsoleTenant(e.target.value)}
+                            onChange={(e) => handleConsoleTenantChange(e.target.value)}
                             placeholder={t('crowdsecConfig.reenroll.orgPlaceholder')}
                           />
                         </div>
@@ -966,7 +977,7 @@ export default function CrowdSecConfig() {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             data-testid="import-file"
             accept=".tar.gz,.zip"
-            aria-label={t('crowdsecConfig.packages.selectFile') || "Select CrowdSec package"}
+            aria-label={t('crowdsecConfig.packages.selectFile')}
           />
         </div>
       </Card>
@@ -992,7 +1003,7 @@ export default function CrowdSecConfig() {
             </div>
             <select
               value={sortBy}
-              aria-label={t('crowdsecConfig.presets.sortBy') || "Sort presets"}
+              aria-label={t('crowdsecConfig.presets.sortBy')}
               onChange={(e) => setSortBy(e.target.value as 'alpha' | 'type' | 'source')}
               className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
             >
@@ -1113,7 +1124,7 @@ export default function CrowdSecConfig() {
               {applyInfo && (
                 <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3 text-xs text-gray-200" data-testid="preset-apply-info">
                   <p>{t('common.status')}: {applyInfo.status || t('crowdsecConfig.presets.applied')}</p>
-                  {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup}</p>}
+                  {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup} ({t('crowdsecConfig.presets.backupLocation')})</p>}
                   {applyInfo.reloadHint && <p>{t('crowdsecConfig.presets.reload')}: {t('crowdsecConfig.presets.required')}</p>}
                   {applyInfo.usedCscli !== undefined && <p>{t('crowdsecConfig.presets.method')}: {applyInfo.usedCscli ? 'cscli' : t('crowdsecConfig.presets.filesystem')}</p>}
                 </div>
@@ -1161,7 +1172,7 @@ export default function CrowdSecConfig() {
             onChange={(e) => setFileContent(e.target.value)}
             rows={12}
             className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white"
-            aria-label={t('crowdsecConfig.files.content') || "File content"}
+            aria-label={t('crowdsecConfig.files.content')}
           />
           <div className="flex gap-2">
             <Button onClick={handleSaveFile} isLoading={writeMutation.isPending || backupMutation.isPending}>{t('common.save')}</Button>
@@ -1543,7 +1554,7 @@ export default function CrowdSecConfig() {
               {t('crowdsecConfig.whitelist.deleteModal.title', 'Remove Whitelist Entry')}
             </h2>
             <p className="text-sm text-gray-300 mb-4">
-              {t('crowdsecConfig.whitelist.deleteModal.body', 'Remove {{ip}} from the whitelist? CrowdSec may then block this IP if it triggers alerts.', { ip: confirmDeleteWhitelist.ip_or_cidr })}
+              {t('crowdsecConfig.whitelist.deleteModal.body', { ip: confirmDeleteWhitelist.ip_or_cidr })}
             </p>
             <div className="flex justify-end gap-3">
               <Button

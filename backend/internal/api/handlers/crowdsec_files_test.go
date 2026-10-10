@@ -92,25 +92,31 @@ func errorOf(t *testing.T, w *httptest.ResponseRecorder) string {
 func TestCrowdsecFiles_Predicates(t *testing.T) {
 	t.Parallel()
 	readable := map[string]bool{
-		"config.yaml":                 true,
-		"config/config.yaml":          true,
-		"config/scenarios/x.yaml":     true,
-		"config/acquis.d/a.conf":      true,
-		"notes.md":                    true,
-		"config/data/nested.yaml":     true, // only the top-level data/ is protected
-		"bouncer_key":                 false,
-		"config/bouncer_key":          false,
-		"crowdsec.db":                 false,
-		"config/crowdsec.db-wal":      false,
-		"data/crowdsec.db":            false,
-		"data/GeoLite2-City.mmdb":     false,
-		"hub_cache/a.tgz":             false,
-		"config/other.db":             false,
-		"config/other.db-journal":     false,
-		"config/CASE.DB":              false,
-		"data":                        false,
-		"hub_cache":                   false,
-		"config/hub_cache/thing.yaml": true,
+		"config.yaml":                           true,
+		"config/config.yaml":                    true,
+		"config/scenarios/x.yaml":               true,
+		"config/acquis.d/a.conf":                true,
+		"notes.md":                              true,
+		"config/data/nested.yaml":               true, // only the top-level data/ is protected
+		"bouncer_key":                           false,
+		"config/bouncer_key":                    false,
+		"crowdsec.db":                           false,
+		"config/crowdsec.db-wal":                false,
+		"data/crowdsec.db":                      false,
+		"data/GeoLite2-City.mmdb":               false,
+		"hub_cache/a.tgz":                       false,
+		"config/other.db":                       false,
+		"config/other.db-journal":               false,
+		"config/CASE.DB":                        false,
+		"data":                                  false,
+		"hub_cache":                             false,
+		"local_api_credentials.yaml":            false,
+		"config/local_api_credentials.yaml":     false,
+		"config/online_api_credentials.yaml":    false,
+		"config/Local_API_Credentials.YAML":     false,
+		"config/ONLINE_API_CREDENTIALS.yaml":    false,
+		"config/local_api_credentials.yaml.bak": true,
+		"config/hub_cache/thing.yaml":           true,
 	}
 	for rel, want := range readable {
 		assert.Equal(t, want, isReadable(rel), "isReadable(%q)", rel)
@@ -493,10 +499,12 @@ func TestCrowdsecFiles_Write_BackupHoldsOnlyPreviousVersionAndIsCappedIndependen
 	var resp map[string]string
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp["backup"])
-	prev, err := os.ReadFile(filepath.Join(resp["backup"], "config", "config.yaml")) // #nosec G304 -- test path
+	require.Equal(t, filepath.Base(resp["backup"]), resp["backup"], "response carries a name, not a path")
+	backupDir := filepath.Join(f.root, resp["backup"])
+	prev, err := os.ReadFile(filepath.Join(backupDir, "config", "config.yaml")) // #nosec G304 -- test path
 	require.NoError(t, err)
 	assert.Equal(t, "v: 0\n", string(prev))
-	_, err = os.Stat(filepath.Join(resp["backup"], "config", "other.yaml"))
+	_, err = os.Stat(filepath.Join(backupDir, "config", "other.yaml"))
 	assert.True(t, os.IsNotExist(err), "backup must hold only the replaced file")
 
 	for i := 2; i <= 14; i++ {
@@ -688,4 +696,52 @@ func TestCrowdsecFiles_Write_FilesystemFailuresAre500(t *testing.T) {
 		assert.Equal(t, "failed to write file", errorOf(t, w))
 		assert.NoFileExists(t, filepath.Join(cfg, "new.yaml"))
 	})
+}
+
+var credentialsFileNames = []string{
+	"local_api_credentials.yaml", "online_api_credentials.yaml",
+	"Local_API_Credentials.yaml", "ONLINE_API_CREDENTIALS.YAML",
+}
+
+func TestCrowdsecFiles_CredentialsHiddenFromListReadAndWrite(t *testing.T) {
+	t.Parallel()
+	f := newFilesFixture(t)
+	f.put("config/config.yaml", "a: 1\n")
+	for _, name := range credentialsFileNames {
+		f.put("config/"+name, "password: hunter2\n")
+	}
+
+	assert.Equal(t, []string{filepath.Join("config", "config.yaml")}, f.list())
+
+	for _, name := range credentialsFileNames {
+		rel := "config/" + name
+		w := f.read(rel)
+		assert.Equal(t, http.StatusBadRequest, w.Code, rel)
+		assert.Equal(t, "invalid path", errorOf(t, w), rel)
+		assert.NotContains(t, w.Body.String(), "hunter2", rel)
+
+		w = f.write(rel, "a: 1\n")
+		assert.Equal(t, http.StatusBadRequest, w.Code, rel)
+		assert.Equal(t, errFileCannotBeEdited, errorOf(t, w), rel)
+	}
+
+	for _, name := range credentialsFileNames[:2] {
+		b, err := os.ReadFile(filepath.Join(f.dir, "config", name)) // #nosec G304 -- test path
+		require.NoError(t, err)
+		assert.Equal(t, "password: hunter2\n", string(b), "rejected write must not modify %s", name)
+	}
+}
+
+func TestCrowdsecFiles_Read_SymlinkToCredentialsRefused(t *testing.T) {
+	t.Parallel()
+	f := newFilesFixture(t)
+	f.put("config/local_api_credentials.yaml", "password: hunter2\n")
+	require.NoError(t, os.Symlink(
+		filepath.Join(f.dir, "config", "local_api_credentials.yaml"),
+		filepath.Join(f.dir, "config", "innocent.yaml")))
+
+	w := f.read("config/innocent.yaml")
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "invalid path", errorOf(t, w))
+	assert.NotContains(t, w.Body.String(), "hunter2")
 }
