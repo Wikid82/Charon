@@ -882,9 +882,13 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 configuration, and saving a file in the config editor never rename or empty the
 live CrowdSec directory. Each operation first takes a copy-based snapshot
 (`<DataDir>.backup.<timestamp>`, newest 5 kept; the live database, the
-top-level `data/` directory, and `hub_cache/` are skipped to keep snapshots
-small) and restores it if the operation fails. Single-file edits keep their own
-backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). One handler-level
+top-level `data/` directory, `hub_cache/`, and runtime state are skipped to keep
+snapshots small) and restores it if the operation fails. Single-file edits keep their own
+backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). Import and rollback leave
+server-local state untouched: the installed hub tree and its links, runtime
+state, and the proxy/bouncer registration. Export is built in a temporary file
+under the data lock and sent only after it is complete and within the
+importable limits; otherwise a clean error is returned. One handler-level
 lock serializes apply, import, and file saves. The file editor validates file
 type, size and YAML, and the frontend no
 longer has a local-write fallback for presets; failures are shown as errors.

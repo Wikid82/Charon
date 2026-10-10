@@ -82,7 +82,8 @@ type CrowdsecHandler struct {
 	// signalProcess delivers a signal to a PID; overridable in tests.
 	signalProcess func(pid int, sig syscall.Signal) error
 
-	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write).
+	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
+	// and the export build; an export holds it only while writing its temporary file, never while sending.
 	// Lock order is always dataMu first, then HubService.mu.
 	dataMu sync.Mutex
 
@@ -678,8 +679,8 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 }
 
 // ImportConfig accepts a tar.gz upload and replaces the CrowdSec configuration in DataDir. The previous
-// configuration is snapshotted first and restored on failure; engine-owned state (live db, data/,
-// hub_cache/) is never replaced and DataDir itself is never renamed.
+// configuration is snapshotted first and restored on failure; server-local state (live db, data/,
+// hub_cache/, installed hub items) is never replaced and DataDir itself is never renamed.
 func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -704,9 +705,9 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 
 	// Pre-import validation
 	validator := &ConfigArchiveValidator{
-		MaxSize:             50 * 1024 * 1024,  // 50MB
-		MaxUncompressed:     500 * 1024 * 1024, // 500MB
-		MaxCompressionRatio: 100,               // 100x max ratio
+		MaxSize:             crowdsec.MaxImportCompressedBytes,
+		MaxUncompressed:     crowdsec.MaxImportUncompressedBytes,
+		MaxCompressionRatio: crowdsec.MaxImportCompressionRatio,
 		RequiredFiles:       []string{"config.yaml"},
 	}
 
@@ -726,22 +727,25 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 	defer h.pruneSnapshots()
 
+	keep := crowdsec.ImportKeeper(h.DataDir)
+
 	// rollback restores the snapshot in place; DataDir itself is never removed or renamed.
 	rollback := func() {
-		if rbErr := crowdsec.RestoreKeeping(backupDir, h.DataDir, crowdsec.IsPreservedPath); rbErr != nil {
+		if rbErr := crowdsec.RestoreKeeping(backupDir, h.DataDir, keep); rbErr != nil {
 			logger.Log().WithError(rbErr).WithField("backup_path", util.SanitizeForLog(backupDir)).Error("crowdsec import rollback failed; backup retained for manual recovery")
 		}
 	}
 
-	// Replace the configuration but keep server-local state (engine-owned data and stored account details).
-	if err := crowdsec.ClearConfigKeeping(h.DataDir, crowdsec.IsPreservedPath); err != nil {
+	// Replace the configuration but keep server-local state: engine-owned data, stored account details,
+	// the installed hub tree and every symlink in the live tree (installed hub items).
+	if err := crowdsec.ClearConfigKeeping(h.DataDir, keep); err != nil {
 		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
 		return
 	}
 
 	// Extract archive
-	extractErr := h.extractArchive(dst, h.DataDir)
+	extractErr := h.extractArchive(dst, h.DataDir, keep)
 	if extractErr != nil {
 		logger.Log().WithField("error", sanitizeForLog(extractErr.Error())).Warn("crowdsec import extraction failed")
 		rollback()
@@ -771,7 +775,7 @@ func (h *CrowdsecHandler) pruneSnapshots() {
 }
 
 // extractArchive extracts a tar.gz archive to the destination directory.
-func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
+func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(rel string) bool) error {
 	// #nosec G304 -- archivePath is validated upstream
 	f, err := os.Open(archivePath)
 	if err != nil {
@@ -786,6 +790,11 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
+
+	liveDirs, err := liveDirSet(destDir)
+	if err != nil {
+		return err
+	}
 
 	for {
 		header, err := tr.Next()
@@ -802,8 +811,10 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid file path: %s", header.Name)
 		}
-		// Server-local state (engine-owned data, stored account details) is never taken from an upload.
-		if crowdsec.IsPreservedPath(strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))) {
+		// Server-local state (engine-owned data, stored account details, the hub tree, live symlinks) is
+		// never taken from an upload. This runs only after the containment check above.
+		rel := strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))
+		if skipArchiveEntry(liveDirs, rel, header.Typeflag, keep) {
 			continue
 		}
 
@@ -841,8 +852,9 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 	return nil
 }
 
-// ExportConfig creates a tar.gz archive of the CrowdSec data directory and streams it
-// back to the client as a downloadable file.
+// ExportConfig builds a tar.gz archive of the CrowdSec data directory in a temporary file and then
+// sends it. Every failure is reported before the first byte of the download, so a client never receives
+// a truncated archive with a success status.
 func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 	// Ensure DataDir exists
 	if _, err := os.Stat(h.DataDir); os.IsNotExist(err) {
@@ -850,84 +862,80 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		return
 	}
 
-	// Create a gzip writer and tar writer that stream directly to the response
-	c.Header("Content-Type", "application/gzip")
-	filename := fmt.Sprintf("crowdsec-config-%s.tar.gz", time.Now().Format("20060102-150405"))
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
-	gw := gzip.NewWriter(c.Writer)
-	defer func() {
-		if err := gw.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close gzip writer")
-		}
-	}()
-	tw := tar.NewWriter(gw)
-	defer func() {
-		if err := tw.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close tar writer")
-		}
-	}()
-
-	// Walk the DataDir and add files to the archive. Engine-owned state and stored account details are
-	// never exported; SkipDir is returned only for excluded directories so that skipping a file never
-	// drops its siblings.
-	err := filepath.WalkDir(h.DataDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			logger.Log().WithError(err).Warnf("failed to access path %s during export walk", util.SanitizeForLog(path))
-			return nil // Skip files we cannot access
-		}
-		rel, err := filepath.Rel(h.DataDir, path)
-		if err != nil {
-			return err
-		}
-		if rel != "." && crowdsec.IsPreservedPath(rel) {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		// Never follow symlinks: WalkDir reports them via Lstat, so skip them here.
-		if d.Type()&fs.ModeSymlink != 0 {
-			logger.Log().Warnf("skipping symlink %s during export", util.SanitizeForLog(path))
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		// Open file
-		f, err := os.Open(path) //nolint:gosec // G122,G304: symlinks skipped above; DataDir is Charon-owned
-		if err != nil {
-			return err
-		}
-		defer func() {
-			if err := f.Close(); err != nil {
-				logger.Log().WithError(err).Warn("failed to close file while archiving", "path", util.SanitizeForLog(path))
-			}
-		}()
-
-		hdr := &tar.Header{
-			Name:    rel,
-			Size:    info.Size(),
-			Mode:    int64(info.Mode()),
-			ModTime: info.ModTime(),
-		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
-		if _, err := io.Copy(tw, f); err != nil {
-			return err
-		}
-		return nil
-	})
+	tmp, err := os.CreateTemp("", "crowdsec-export-*.tar.gz") // 0600, in os.TempDir()
 	if err != nil {
-		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export failed")
-		// If any error occurred while creating the archive, return 500
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to export crowdsec config"})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export: cannot create temp file")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errExportFailed})
 		return
 	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+
+	size, err := h.buildExport(c.Request.Context(), tmp)
+	if err != nil {
+		h.respondExportError(c, err)
+		return
+	}
+
+	// The lock is released: streaming to a slow client must never block imports or saves.
+	if _, err = tmp.Seek(0, io.SeekStart); err != nil {
+		h.respondExportError(c, fmt.Errorf("rewind export: %w", err))
+		return
+	}
+	filename := fmt.Sprintf("crowdsec-config-%s.tar.gz", time.Now().Format("20060102-150405"))
+	c.DataFromReader(http.StatusOK, size, "application/gzip", tmp, map[string]string{
+		"Content-Disposition": fmt.Sprintf("attachment; filename=%s", filename),
+	})
+}
+
+// buildExport writes the archive into tmp while holding the data lock (local-disk speed only), then
+// checks that an import would accept it. It returns the archive size.
+func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (int64, error) {
+	uncompressed, err := h.writeExportLocked(ctx, tmp)
+	if err != nil {
+		return 0, err
+	}
+	if err = tmp.Sync(); err != nil {
+		return 0, fmt.Errorf("sync export: %w", err)
+	}
+	info, err := tmp.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("stat export: %w", err)
+	}
+	if err := crowdsec.CheckExportImportable(info.Size(), uncompressed); err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
+// writeExportLocked serializes the archive build with every other writer of DataDir.
+func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (int64, error) {
+	h.dataMu.Lock()
+	defer h.dataMu.Unlock()
+	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
+}
+
+const errExportFailed = "failed to export crowdsec config"
+
+// respondExportError maps an export failure to a fixed, non-revealing JSON message.
+func (h *CrowdsecHandler) respondExportError(c *gin.Context, err error) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		c.Abort() // the client is gone
+		return
+	}
+	logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export failed")
+	msg := errExportFailed
+	switch {
+	case errors.Is(err, crowdsec.ErrExportFileUnreadable):
+		msg = "a file in the CrowdSec folder could not be read; see server logs"
+	case errors.Is(err, crowdsec.ErrExportTooLarge):
+		msg = crowdsec.ErrExportTooLarge.Error()
+	case errors.Is(err, crowdsec.ErrExportNotImportable):
+		msg = crowdsec.ErrExportNotImportable.Error()
+	}
+	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": msg})
 }
 
 // ConsoleEnroll enrolls the local engine with CrowdSec console.
@@ -2457,4 +2465,44 @@ func (h *CrowdsecHandler) reloadAfterWhitelistChange(ctx context.Context, action
 	default:
 		logger.Log().WithError(err).Warnf("crowdsec reload failed after whitelist %s (non-fatal)", action)
 	}
+}
+
+// skipArchiveEntry reports whether an extracted entry must be ignored: it lies at or beneath a kept
+// path, or it is a non-directory entry whose path is a directory that existed before extraction began
+// (after the clear step such a directory remains only because it holds kept entries). rel has passed
+// the containment check.
+func skipArchiveEntry(liveDirs map[string]struct{}, rel string, typeflag byte, keep func(rel string) bool) bool {
+	if crowdsec.KeptOrBeneathKept(keep, rel) {
+		return true
+	}
+	if typeflag == tar.TypeDir {
+		return false
+	}
+	_, isLiveDir := liveDirs[filepath.Clean(rel)]
+	return isLiveDir
+}
+
+// liveDirSet lists the directories present under root before extraction starts. After the clear step a
+// directory remains only because it holds kept entries. Symlinks are listed by WalkDir without being
+// followed.
+func liveDirSet(root string) (map[string]struct{}, error) {
+	dirs := map[string]struct{}{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() || path == root {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		dirs[rel] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list live directories: %w", err)
+	}
+	return dirs, nil
 }

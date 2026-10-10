@@ -96,9 +96,8 @@ func isWritable(rel string) bool {
 	if strings.HasPrefix(base, writeTempPrefix) {
 		return false
 	}
-	// The hub tree is managed by cscli, both at the top level and under config/.
-	top, _, _ := strings.Cut(slash, "/")
-	return top != "hub" && !strings.HasPrefix(slash, "config/hub/")
+	// The hub tree is managed by cscli.
+	return !crowdsec.IsHubPath(slash)
 }
 
 // pathWithin reports whether p is root or lies below it.

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
@@ -32,6 +33,8 @@ func seedRealLayout(t *testing.T, dir string) {
 		"config/hub/index.json":                 "{}",
 		"config/notes.yaml.bak":                 "user copy",
 		"bouncer_key":                           "live-key",
+		"config/bouncers/caddy-bouncer.key":     "live-bouncer",
+		"crowdsec.pid":                          "4242",
 		"bouncer_key.bak":                       "near-miss",
 		"caddy.yaml":                            "misc",
 		"crowdsec.db":                           "live-db",
@@ -44,6 +47,10 @@ func seedRealLayout(t *testing.T, dir string) {
 		"config/sub/Local_API_Credentials.YAML": "mixed-case",
 	})
 	require.NoError(t, os.Symlink("../hub/index.json", filepath.Join(dir, "config", "collections", "linked.yaml")))
+	// Installed hub items point at absolute targets that may dangle in a test tree.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "config", "parsers", "s01-parse"), 0o750))
+	require.NoError(t, os.Symlink("/etc/crowdsec/hub/collections/x/abs.yaml", filepath.Join(dir, "config", "collections", "abs.yaml")))
+	require.NoError(t, os.Symlink("/etc/crowdsec/hub/parsers/s01-parse/x/p.yaml", filepath.Join(dir, "config", "parsers", "s01-parse", "p.yaml")))
 }
 
 func exportBytes(t *testing.T, r *gin.Engine) []byte {
@@ -105,7 +112,6 @@ func TestExportConfigRealLayoutEntryList(t *testing.T) {
 		"config/acquis.yaml",
 		"config/collections/placeholder.yaml",
 		"config/config.yaml",
-		"config/hub/index.json",
 		"config/notes.yaml.bak",
 		"nested/data/keep.yaml",
 	}, archiveNames(t, exportBytes(t, r)))
@@ -143,6 +149,7 @@ func TestExportThenImportRealLayoutRoundTrip(t *testing.T) {
 	writeTree(t, dst, map[string]string{
 		"config/config.yaml":                 "api:\n  server:\n    listen_uri: 127.0.0.1:1\n",
 		"config/extra.yaml":                  "gone after import",
+		"config/hub/index.json":              "live-hub",
 		"config/local_api_credentials.yaml":  "live-lapi",
 		"config/online_api_credentials.yaml": "live-capi",
 	})
@@ -160,9 +167,10 @@ func TestExportThenImportRealLayoutRoundTrip(t *testing.T) {
 	require.Equal(t, "lapi-db", readTreeFile(t, filepath.Join(dst, "data", "crowdsec.db")))
 	require.Equal(t, "archive", readTreeFile(t, filepath.Join(dst, "hub_cache", "x", "bundle.tgz")))
 
-	// Known limitation: installed hub item links are not part of an export, and import removes them.
-	_, err := os.Lstat(filepath.Join(dst, "config", "collections", "linked.yaml"))
-	require.True(t, errors.Is(err, os.ErrNotExist), "hub item symlinks are not restored")
+	// Installed hub items are server-local: links and the hub tree stay exactly as they were.
+	assertHubStateIntact(t, dst)
+	require.Equal(t, "4242", readTreeFile(t, filepath.Join(dst, "crowdsec.pid")))
+	require.Equal(t, "live-bouncer", readTreeFile(t, filepath.Join(dst, "config", "bouncers", "caddy-bouncer.key")))
 }
 
 func TestImportConfigLayouts(t *testing.T) {
@@ -371,4 +379,165 @@ func TestEditorHidesSecretsUsingSharedRule(t *testing.T) {
 		require.Equal(t, readable, isReadable(rel), rel)
 	}
 	require.False(t, isWritable("config/online_api_credentials.yaml"))
+}
+
+// assertHubStateIntact checks the links and hub tree written by seedRealLayout (with the live hub
+// index content "live-hub" where a test replaced it).
+func assertHubStateIntact(t *testing.T, dir string) {
+	t.Helper()
+	for rel, want := range map[string]string{
+		"config/collections/linked.yaml":  "../hub/index.json",
+		"config/collections/abs.yaml":     "/etc/crowdsec/hub/collections/x/abs.yaml",
+		"config/parsers/s01-parse/p.yaml": "/etc/crowdsec/hub/parsers/s01-parse/x/p.yaml",
+	} {
+		target, err := os.Readlink(filepath.Join(dir, rel))
+		require.NoError(t, err, rel)
+		require.Equal(t, want, target, rel)
+	}
+	require.FileExists(t, filepath.Join(dir, "config", "hub", "index.json"))
+}
+
+func TestExportConfigOmitsHubPidAndBouncers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRealLayout(t, dir)
+	writeTree(t, dir, map[string]string{"hub/top.json": "x", "bouncers/top.key": "k"})
+	_, r := newImportRouter(t, dir)
+	for _, name := range archiveNames(t, exportBytes(t, r)) {
+		require.False(t, crowdsec.IsExportExcluded(name), name)
+		require.NotContains(t, name, "hub/")
+		require.NotContains(t, name, "bouncers/")
+		require.NotEqual(t, "crowdsec.pid", name)
+	}
+}
+
+func TestImportConfigKeepsLiveLinksAndHubAgainstArchive(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRealLayout(t, dir)
+	writeTree(t, dir, map[string]string{"config/hub/index.json": "live-hub", "hub/top.json": "live-top"})
+	_, r := newImportRouter(t, dir)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, importRequest(t, map[string]string{
+		"config/config.yaml":                  importableConfig,
+		"config/hub/index.json":               "archive-hub",
+		"config/hub/new.json":                 "archive-new",
+		"hub/top.json":                        "archive-top",
+		"config/collections/linked.yaml":      "archive file where a live link exists",
+		"config/collections/abs.yaml/inner":   "archive entry beneath a live link",
+		"config/parsers":                      "archive file where a live directory holds links",
+		"config/collections/placeholder.yaml": "new content",
+		"crowdsec.pid":                        "9999",
+		"config/bouncers/caddy-bouncer.key":   "archive-bouncer",
+	}))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	assertHubStateIntact(t, dir)
+	require.Equal(t, "live-hub", readTreeFile(t, filepath.Join(dir, "config", "hub", "index.json")))
+	require.NoFileExists(t, filepath.Join(dir, "config", "hub", "new.json"))
+	require.Equal(t, "live-top", readTreeFile(t, filepath.Join(dir, "hub", "top.json")))
+	require.Equal(t, "4242", readTreeFile(t, filepath.Join(dir, "crowdsec.pid")))
+	require.Equal(t, "live-bouncer", readTreeFile(t, filepath.Join(dir, "config", "bouncers", "caddy-bouncer.key")))
+	require.DirExists(t, filepath.Join(dir, "config", "parsers"))
+	require.Equal(t, "new content", readTreeFile(t, filepath.Join(dir, "config", "collections", "placeholder.yaml")))
+}
+
+func TestImportConfigLinkToOutsideTreeIsKeptNotFollowed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRealLayout(t, dir)
+	outside := t.TempDir()
+	writeTree(t, outside, map[string]string{"secret.yaml": "outside"})
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "config", "outlink")))
+	_, r := newImportRouter(t, dir)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, importRequest(t, map[string]string{
+		"config/config.yaml":      importableConfig,
+		"config/outlink/new.yaml": "should not land outside",
+	}))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	target, err := os.Readlink(filepath.Join(dir, "config", "outlink"))
+	require.NoError(t, err)
+	require.Equal(t, outside, target)
+	require.NoFileExists(t, filepath.Join(outside, "new.yaml"))
+	require.Equal(t, "outside", readTreeFile(t, filepath.Join(outside, "secret.yaml")))
+}
+
+func TestImportConfigRollbackKeepsLiveState(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRealLayout(t, dir)
+	_, r := newImportRouter(t, dir)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, importRequest(t, map[string]string{
+		"config/config.yaml":                "{{ not: [valid yaml",
+		"config/bouncers/caddy-bouncer.key": "archive-bouncer",
+		"config/hub/index.json":             "archive-hub",
+		"config/extra.yaml":                 "removed again",
+	}))
+	require.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
+
+	assertHubStateIntact(t, dir)
+	require.Equal(t, "{}", readTreeFile(t, filepath.Join(dir, "config", "hub", "index.json")))
+	require.Equal(t, "4242", readTreeFile(t, filepath.Join(dir, "crowdsec.pid")))
+	require.Equal(t, "live-bouncer", readTreeFile(t, filepath.Join(dir, "config", "bouncers", "caddy-bouncer.key")))
+	require.Equal(t, importableConfig, readTreeFile(t, filepath.Join(dir, "config", "config.yaml")))
+	require.NoFileExists(t, filepath.Join(dir, "config", "extra.yaml"))
+}
+
+func TestEditorHidesPidBouncersAndHub(t *testing.T) {
+	t.Parallel()
+	for rel, readable := range map[string]bool{
+		"crowdsec.pid":                      false,
+		"config/bouncers/caddy-bouncer.key": false,
+		"bouncers/x.key":                    false,
+		"nested/crowdsec.pid":               true,
+		"config/bouncers.bak":               true,
+	} {
+		require.Equal(t, readable, isReadable(rel), rel)
+	}
+	require.True(t, isWritable("config/Hub/x.yaml"))
+	require.False(t, isWritable("config/hub/x.yaml"))
+	require.False(t, isWritable("hub/x.yaml"))
+}
+
+func TestSkipArchiveEntryAndLiveDirSet(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "config", "parsers"), 0o750))
+	dirs, err := liveDirSet(dir)
+	require.NoError(t, err)
+	require.Contains(t, dirs, "config")
+	require.Contains(t, dirs, filepath.Join("config", "parsers"))
+
+	keep := func(string) bool { return false }
+	require.True(t, skipArchiveEntry(dirs, "config/parsers", tar.TypeReg, keep), "file at a live directory")
+	require.False(t, skipArchiveEntry(dirs, "config/parsers", tar.TypeDir, keep), "directory entry at a live directory")
+	require.False(t, skipArchiveEntry(dirs, "config/new.yaml", tar.TypeReg, keep))
+
+	_, err = liveDirSet(filepath.Join(dir, "missing"))
+	require.Error(t, err)
+}
+
+func TestExportConfigAbortsEarlyWhenCompressedSizeExceedsImportLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("TMPDIR", tmpDir)
+	dir := t.TempDir()
+	noise := make([]byte, crowdsec.MaxImportCompressedBytes+(2<<20))
+	_, err := rand.Read(noise)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.bin"), noise, 0o600))
+	_, r := newImportRouter(t, dir)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody))
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), crowdsec.ErrExportTooLarge.Error())
+
+	left, err := filepath.Glob(filepath.Join(tmpDir, "crowdsec-export-*"))
+	require.NoError(t, err)
+	require.Empty(t, left, "the temporary archive must be removed")
 }

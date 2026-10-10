@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,7 +34,7 @@ func TestExtractArchive_RepeatedNameLeavesNoStaleBytes(t *testing.T) {
 	dir := t.TempDir()
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dir)
 	arc := writeRawArchive(t, [][2]string{{"config.yaml", "a long first version of the file"}, {"config.yaml", "short"}})
-	require.NoError(t, h.extractArchive(arc, dir))
+	require.NoError(t, h.extractArchive(arc, dir, crowdsec.ImportKeeper(dir)))
 	require.Equal(t, "short", readTreeFile(t, filepath.Join(dir, "config.yaml")))
 }
 
@@ -45,6 +46,10 @@ func TestExtractArchive_RefusesSymlinkedDestination(t *testing.T) {
 	require.NoError(t, os.Symlink(victim, filepath.Join(dir, "config.yaml")))
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dir)
 	arc := writeRawArchive(t, [][2]string{{"config.yaml", "overwritten"}})
-	require.Error(t, h.extractArchive(arc, dir))
+	// The create-time guard still refuses when nothing marks the link as kept.
+	require.Error(t, h.extractArchive(arc, dir, func(string) bool { return false }))
+	require.Equal(t, "untouched", readTreeFile(t, victim))
+	// With the import keeper the entry at a live link is skipped instead.
+	require.NoError(t, h.extractArchive(arc, dir, crowdsec.ImportKeeper(dir)))
 	require.Equal(t, "untouched", readTreeFile(t, victim))
 }

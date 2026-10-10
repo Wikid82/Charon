@@ -15,11 +15,14 @@ var secretNames = map[string]struct{}{
 }
 
 // IsSecretPath reports whether rel (a slash- or OS-separated path relative to DataDir) names a stored
-// secret. Matching is case-insensitive and exact (near-miss names such as "bouncer_key.bak" are not
-// secrets). Any path component may match, so entries beneath a directory named like a secret are
+// secret, including the bouncers/ directory. Matching is case-insensitive and exact (near-miss names
+// such as "bouncer_key.bak" are not secrets). Any path component may match, so entries beneath a directory named like a secret are
 // covered as well.
 func IsSecretPath(rel string) bool {
 	slash := strings.ToLower(filepath.ToSlash(filepath.Clean(rel)))
+	if isBouncersDir(slash) {
+		return true
+	}
 	for _, part := range strings.Split(slash, "/") {
 		if _, ok := secretNames[part]; ok {
 			return true
@@ -46,4 +49,15 @@ func FindConfigFile(dataDir string) string {
 		}
 	}
 	return ""
+}
+
+// isBouncersDir reports whether the lowercase slash path lies in the bouncers directory directly under
+// the data dir or under config/. It holds key files tied to the live LAPI database.
+func isBouncersDir(slash string) bool {
+	first, rest, _ := strings.Cut(slash, "/")
+	if first == "bouncers" {
+		return true
+	}
+	second, _, _ := strings.Cut(rest, "/")
+	return first == "config" && second == "bouncers"
 }
