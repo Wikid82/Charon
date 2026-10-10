@@ -19,8 +19,6 @@ coverage:
         target: 87%
         threshold: 1%
 
-# Fail CI if Codecov upload/report indicates a problem
-require_ci_to_pass: yes
 
 # -----------------------------------------------------------------------------
 # Notification gating
@@ -41,6 +39,8 @@ require_ci_to_pass: yes
 # after_n_builds: 3 may keep the status pending. If a test job fails, nothing
 # is uploaded; re-run the failed job. Normal pull_request runs execute all 3.
 codecov:
+  # Fail CI if Codecov upload/report indicates a problem
+  require_ci_to_pass: yes
   notify:
     after_n_builds: 3
     wait_for_ci: yes
