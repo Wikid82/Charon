@@ -2299,3 +2299,32 @@ func TestHubBaseCandidates_DistinctRolesKeepOrder(t *testing.T) {
 		defaultHubBaseURL,
 	}, svc.hubBaseCandidates())
 }
+
+func TestExtractTarGzLocalPathEdgeCases(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	t.Run("accepts dot directory entry", func(t *testing.T) {
+		t.Parallel()
+		targetDir := t.TempDir()
+		buf := &bytes.Buffer{}
+		gw := gzip.NewWriter(buf)
+		tw := tar.NewWriter(gw)
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: "./", Typeflag: tar.TypeDir, Mode: 0o755}))
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: "./a.txt", Mode: 0o644, Size: 2}))
+		_, err := tw.Write([]byte("ok"))
+		require.NoError(t, err)
+		require.NoError(t, tw.Close())
+		require.NoError(t, gw.Close())
+		require.NoError(t, svc.extractTarGz(context.Background(), buf.Bytes(), targetDir))
+		require.FileExists(t, filepath.Join(targetDir, "a.txt"))
+	})
+
+	t.Run("rejects empty name", func(t *testing.T) {
+		t.Parallel()
+		archive := makeTarGz(t, map[string]string{"": "bad"})
+		err := svc.extractTarGz(context.Background(), archive, t.TempDir())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsafe path")
+	})
+}

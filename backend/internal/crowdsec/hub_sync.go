@@ -930,10 +930,11 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 		if hdr.FileInfo().Mode()&os.ModeType != 0 && !hdr.FileInfo().Mode().IsRegular() && !hdr.FileInfo().IsDir() {
 			continue
 		}
-		cleanName := filepath.Clean(hdr.Name)
-		if hasParentComponent(cleanName) || filepath.IsAbs(cleanName) {
+		// IsLocal rejects absolute, empty and ".." component names (but accepts "..foo").
+		if !filepath.IsLocal(hdr.Name) {
 			return fmt.Errorf("unsafe path %s", hdr.Name)
 		}
+		cleanName := filepath.Clean(hdr.Name)
 		if IsEngineOwnedPath(cleanName) {
 			continue
 		}
@@ -1024,15 +1025,4 @@ func isGzip(data []byte) bool {
 		return false
 	}
 	return data[0] == 0x1f && data[1] == 0x8b
-}
-
-// hasParentComponent reports whether any path component equals "..".
-// Names that merely start with two dots (e.g. "..foo") are legitimate.
-func hasParentComponent(name string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
-		if part == ".." {
-			return true
-		}
-	}
-	return false
 }
