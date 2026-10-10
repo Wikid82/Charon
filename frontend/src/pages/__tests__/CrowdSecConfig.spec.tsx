@@ -273,6 +273,33 @@ describe('CrowdSecConfig', () => {
     expect((screen.getByTestId('console-agent-name') as HTMLInputElement).value).toBe('my-typed-agent')
   })
 
+  it('keeps edits made in the re-enroll form and submits them forced', async () => {
+    setupConsoleEnrollment()
+    consoleStatusMock.mockReturnValue({ status: 'enrolled', key_present: true, agent_name: 'enrolled-agent', tenant: 'enrolled-org' })
+    enrollConsoleMock.mockResolvedValue({ status: 'enrolled', key_present: true })
+    renderWithProviders(<CrowdSecConfig />)
+
+    await userEvent.click(await screen.findByTestId('show-reenroll-form-btn'))
+    await userEvent.type(screen.getByTestId('reenroll-token-input'), 'reenroll-secret-123456')
+
+    const agent = document.getElementById('reenroll-agent-name') as HTMLInputElement
+    await userEvent.clear(agent)
+    await userEvent.type(agent, 'renamed-agent')
+    const tenant = document.getElementById('reenroll-tenant') as HTMLInputElement
+    await userEvent.clear(tenant)
+    await userEvent.type(tenant, 'renamed-org')
+
+    expect(agent.value).toBe('renamed-agent')
+    expect(tenant.value).toBe('renamed-org')
+
+    await userEvent.click(screen.getByTestId('reenroll-submit-btn'))
+    await waitFor(() => expect(enrollConsoleMock).toHaveBeenCalledWith(expect.objectContaining({
+      agent_name: 'renamed-agent',
+      tenant: 'renamed-org',
+      force: true,
+    })))
+  })
+
   it('renders masked key state in console status', async () => {
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
     vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
