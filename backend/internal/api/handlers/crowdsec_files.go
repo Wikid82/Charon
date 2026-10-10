@@ -195,20 +195,44 @@ func checkSize(content string) *fileError {
 	return nil
 }
 
+// parseYAMLDocuments decodes the documents of a YAML stream, each first into a yaml.Node and then
+// into a generic value so duplicate mapping keys and alias abuse are rejected. It returns the first
+// document's node, or io.EOF when the stream has no document. With firstOnly set, later documents are
+// never read; otherwise every document must parse.
+func parseYAMLDocuments(r io.Reader, firstOnly bool) (*yaml.Node, error) {
+	dec := yaml.NewDecoder(r)
+	var first *yaml.Node
+	for {
+		var node yaml.Node
+		err := dec.Decode(&node)
+		if errors.Is(err, io.EOF) {
+			if first == nil {
+				return nil, io.EOF
+			}
+			return first, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("decode yaml document: %w", err)
+		}
+		var doc any
+		if err := node.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode yaml value: %w", err)
+		}
+		if first == nil {
+			first = &node
+		}
+		if firstOnly {
+			return first, nil
+		}
+	}
+}
+
 // checkYAML verifies that YAML files parse; other allowed types are not inspected.
 func checkYAML(rel, content string) *fileError {
 	switch strings.ToLower(filepath.Ext(rel)) {
 	case ".yaml", ".yml":
-		dec := yaml.NewDecoder(strings.NewReader(content))
-		for {
-			var doc any
-			err := dec.Decode(&doc)
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			if err != nil {
-				return badRequest("invalid YAML")
-			}
+		if _, err := parseYAMLDocuments(strings.NewReader(content), false); err != nil && !errors.Is(err, io.EOF) {
+			return badRequest("invalid YAML")
 		}
 	}
 	return nil

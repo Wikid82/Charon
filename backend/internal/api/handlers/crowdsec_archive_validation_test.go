@@ -117,13 +117,13 @@ func TestConfigArchiveValidator_InvalidFormats(t *testing.T) {
 			name:     "txt file",
 			filename: "test.txt",
 			content:  "not an archive",
-			wantErr:  "unsupported format",
+			wantErr:  "only .tar.gz archives are supported",
 		},
 		{
 			name:     "rar file",
 			filename: "test.rar",
 			content:  "Rar!\x1a\x07\x00",
-			wantErr:  "unsupported format",
+			wantErr:  "only .tar.gz archives are supported",
 		},
 	}
 

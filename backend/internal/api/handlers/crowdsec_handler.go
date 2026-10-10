@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +33,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/util"
 
 	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
 
@@ -193,14 +196,13 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 		return fmt.Errorf("archive exceeds maximum size: %d > %d", info.Size(), v.MaxSize)
 	}
 
-	// Detect format
-	format, err := detectArchiveFormat(path)
-	if err != nil {
-		return err
+	// Only tar.gz is supported
+	if formatErr := requireTarGz(path); formatErr != nil {
+		return formatErr
 	}
 
 	// Calculate uncompressed size and check for zip bombs
-	uncompressedSize, err := calculateUncompressedSize(path, format)
+	uncompressedSize, err := calculateUncompressedSize(path)
 	if err != nil {
 		return err
 	}
@@ -216,7 +218,7 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 	}
 
 	// List contents and verify required files
-	contents, err := listArchiveContents(path, format)
+	contents, err := listArchiveContents(path)
 	if err != nil {
 		return err
 	}
@@ -237,127 +239,149 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 	return nil
 }
 
-// detectArchiveFormat detects the archive format (tar.gz or zip).
-func detectArchiveFormat(path string) (string, error) {
-	ext := strings.ToLower(filepath.Ext(path))
+// errArchiveFormat is the fixed message for any upload that is not a .tar.gz archive.
+var errArchiveFormat = errors.New("only .tar.gz archives are supported")
 
-	if strings.HasSuffix(strings.ToLower(path), ".tar.gz") {
-		return "tar.gz", nil
+// requireTarGz rejects every path that does not end in .tar.gz (case-insensitive).
+func requireTarGz(path string) error {
+	if !strings.HasSuffix(strings.ToLower(path), ".tar.gz") {
+		return errArchiveFormat
 	}
-
-	if ext == ".zip" {
-		return "zip", nil
-	}
-
-	return "", fmt.Errorf("unsupported format: %s", ext)
+	return nil
 }
 
-// calculateUncompressedSize calculates the total uncompressed size of the archive.
-func calculateUncompressedSize(path, format string) (int64, error) {
-	switch format {
-	case "tar.gz":
-		// #nosec G304 -- path is validated upstream
-		f, err := os.Open(path)
-		if err != nil {
-			return 0, fmt.Errorf("failed to open archive: %w", err)
-		}
-		defer func() { _ = f.Close() }()
-
-		gr, err := gzip.NewReader(f)
-		if err != nil {
-			return 0, fmt.Errorf("failed to create gzip reader: %w", err)
-		}
-		defer func() { _ = gr.Close() }()
-
-		tr := tar.NewReader(gr)
-		var total int64
-
-		for {
-			header, err := tr.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return 0, fmt.Errorf("failed to read tar header: %w", err)
-			}
-
-			// Only count regular files
-			if header.Typeflag == tar.TypeReg {
-				total += header.Size
-			}
-		}
-
-		return total, nil
-
-	default:
-		return 0, fmt.Errorf("unsupported format for size calculation: %s", format)
+// calculateUncompressedSize calculates the total uncompressed size of the tar.gz archive.
+func calculateUncompressedSize(path string) (int64, error) {
+	// #nosec G304 -- path is validated upstream
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open archive: %w", err)
 	}
+	defer func() { _ = f.Close() }()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+	var total int64
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		// Only count regular files
+		if header.Typeflag == tar.TypeReg {
+			total += header.Size
+		}
+	}
+
+	return total, nil
 }
 
-// listArchiveContents lists all files in the archive.
-func listArchiveContents(path, format string) ([]string, error) {
-	switch format {
-	case "tar.gz":
-		// #nosec G304 -- path is validated upstream
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open archive: %w", err)
-		}
-		defer func() { _ = f.Close() }()
-
-		gr, err := gzip.NewReader(f)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
-		}
-		defer func() { _ = gr.Close() }()
-
-		tr := tar.NewReader(gr)
-		var files []string
-
-		for {
-			header, err := tr.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return nil, fmt.Errorf("failed to read tar header: %w", err)
-			}
-
-			if header.Typeflag == tar.TypeReg {
-				files = append(files, header.Name)
-			}
-		}
-
-		return files, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported format for listing: %s", format)
+// listArchiveContents lists all regular files in the tar.gz archive.
+func listArchiveContents(path string) ([]string, error) {
+	// #nosec G304 -- path is validated upstream
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open archive: %w", err)
 	}
+	defer func() { _ = f.Close() }()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+	var files []string
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		if header.Typeflag == tar.TypeReg {
+			files = append(files, header.Name)
+		}
+	}
+
+	return files, nil
 }
 
 // errConfigFileNotFound is the fixed message for an import that contains no config.yaml in a
 // location the engine reads (top level or config/).
 var errConfigFileNotFound = errors.New("config.yaml was not found at the top level or in config/")
 
-// validateYAMLFile validates CrowdSec YAML configuration structure.
+// crowdsecConfigSections are the top-level keys of CrowdSec's csconfig.Config
+// (pkg/csconfig/config.go). DisableAPI/DisableAgent are command-line flags, not file keys.
+var crowdsecConfigSections = []string{
+	"common", "prometheus", "crowdsec_service", "cscli", "db_config", "api", "config_paths", "plugin_config",
+}
+
+// Fixed config.yaml validation messages. Parser detail is deliberately never surfaced.
+var (
+	errConfigTooLarge = errors.New("config.yaml is too large")
+	errConfigEmpty    = errors.New("config.yaml is empty")
+	errConfigInvalid  = errors.New("config.yaml is not valid YAML")
+	errConfigNotMap   = errors.New("config.yaml must be a YAML mapping")
+	errConfigNoKeys   = errors.New("config.yaml has no CrowdSec configuration sections")
+)
+
+// validateYAMLFile checks that path is a size-bounded YAML mapping holding at least one known
+// CrowdSec top-level section. Nested values are left to CrowdSec. Only the first document of a
+// multi-document file is read, matching the engine. Duplicate mapping keys are rejected on purpose:
+// this is stricter than the engine's own loader, which tolerates some duplicates.
 func validateYAMLFile(path string) error {
-	// #nosec G304 -- path is validated upstream
-	data, err := os.ReadFile(path)
+	data, err := readCapped(path)
+	if errors.Is(err, errFileTooLarge) {
+		return errConfigTooLarge
+	}
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Basic YAML syntax check
-	var config map[string]interface{}
-	if err := json.Unmarshal(data, &config); err != nil {
-		// Try basic structure validation - check for key CrowdSec fields
-		content := string(data)
-		if !strings.Contains(content, "api:") && !strings.Contains(content, "server:") {
-			return fmt.Errorf("invalid CrowdSec config structure")
-		}
+	root, err := parseYAMLDocuments(bytes.NewReader(data), true)
+	if errors.Is(err, io.EOF) {
+		return errConfigEmpty
+	}
+	if err != nil {
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec config.yaml failed YAML parsing")
+		return errConfigInvalid
+	}
+	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return errConfigNotMap
 	}
 
-	return nil
+	// yaml.v3 coerces scalar keys such as 1 or true into strings when decoding into a map, so key
+	// types are checked on the nodes. Only the top level is inspected; nested content is CrowdSec's.
+	found := false
+	mapping := root.Content[0]
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		key := mapping.Content[i]
+		if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
+			return errConfigInvalid
+		}
+		if slices.Contains(crowdsecConfigSections, key.Value) {
+			found = true
+		}
+	}
+	if found {
+		return nil
+	}
+	return errConfigNoKeys
 }
 
 func mapCrowdsecStatus(err error, defaultCode int) int {

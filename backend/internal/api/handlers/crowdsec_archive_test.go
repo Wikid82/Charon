@@ -5,85 +5,37 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-// TestDetectArchiveFormat tests the detectArchiveFormat helper function.
-func TestDetectArchiveFormat(t *testing.T) {
+// TestRequireTarGz tests the requireTarGz helper function.
+func TestRequireTarGz(t *testing.T) {
 	tests := []struct {
-		name        string
-		path        string
-		wantFormat  string
-		wantErr     bool
-		errContains string
+		name    string
+		path    string
+		wantErr bool
 	}{
-		{
-			name:       "tar.gz extension",
-			path:       "/path/to/archive.tar.gz",
-			wantFormat: "tar.gz",
-			wantErr:    false,
-		},
-		{
-			name:       "TAR.GZ uppercase",
-			path:       "/path/to/ARCHIVE.TAR.GZ",
-			wantFormat: "tar.gz",
-			wantErr:    false,
-		},
-		{
-			name:       "zip extension",
-			path:       "/path/to/archive.zip",
-			wantFormat: "zip",
-			wantErr:    false,
-		},
-		{
-			name:       "ZIP uppercase",
-			path:       "/path/to/ARCHIVE.ZIP",
-			wantFormat: "zip",
-			wantErr:    false,
-		},
-		{
-			name:        "unsupported extension",
-			path:        "/path/to/archive.rar",
-			wantFormat:  "",
-			wantErr:     true,
-			errContains: "unsupported format",
-		},
-		{
-			name:        "no extension",
-			path:        "/path/to/archive",
-			wantFormat:  "",
-			wantErr:     true,
-			errContains: "unsupported format",
-		},
-		{
-			name:        "txt extension",
-			path:        "/path/to/archive.txt",
-			wantFormat:  "",
-			wantErr:     true,
-			errContains: "unsupported format",
-		},
+		{"tar.gz extension", "/path/to/archive.tar.gz", false},
+		{"TAR.GZ uppercase", "/path/to/ARCHIVE.TAR.GZ", false},
+		{"zip extension", "/path/to/archive.zip", true},
+		{"ZIP uppercase", "/path/to/ARCHIVE.ZIP", true},
+		{"tgz extension", "/path/to/archive.tgz", true},
+		{"rar extension", "/path/to/archive.rar", true},
+		{"no extension", "/path/to/archive", true},
+		{"txt extension", "/path/to/archive.txt", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			format, err := detectArchiveFormat(tt.path)
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("detectArchiveFormat() expected error, got nil")
-					return
-				}
-				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
-					t.Errorf("detectArchiveFormat() error = %v, want error containing %q", err, tt.errContains)
+			err := requireTarGz(tt.path)
+			if !tt.wantErr {
+				if err != nil {
+					t.Errorf("requireTarGz() unexpected error = %v", err)
 				}
 				return
 			}
-			if err != nil {
-				t.Errorf("detectArchiveFormat() unexpected error = %v", err)
-				return
-			}
-			if format != tt.wantFormat {
-				t.Errorf("detectArchiveFormat() = %q, want %q", format, tt.wantFormat)
+			if err == nil || err.Error() != "only .tar.gz archives are supported" {
+				t.Errorf("requireTarGz() error = %v, want the fixed archive format message", err)
 			}
 		})
 	}
@@ -149,7 +101,7 @@ func TestCalculateUncompressedSize(t *testing.T) {
 
 	// Test calculateUncompressedSize
 	expectedSize := int64(len(testContent) + len(content2))
-	size, err := calculateUncompressedSize(archivePath, "tar.gz")
+	size, err := calculateUncompressedSize(archivePath)
 	if err != nil {
 		t.Errorf("calculateUncompressedSize() unexpected error = %v", err)
 		return
@@ -158,14 +110,8 @@ func TestCalculateUncompressedSize(t *testing.T) {
 		t.Errorf("calculateUncompressedSize() = %d, want %d", size, expectedSize)
 	}
 
-	// Test with unsupported format
-	_, err = calculateUncompressedSize(archivePath, "unsupported")
-	if err == nil {
-		t.Error("calculateUncompressedSize() expected error for unsupported format")
-	}
-
 	// Test with non-existent file
-	_, err = calculateUncompressedSize("/nonexistent/path.tar.gz", "tar.gz")
+	_, err = calculateUncompressedSize("/nonexistent/path.tar.gz")
 	if err == nil {
 		t.Error("calculateUncompressedSize() expected error for non-existent file")
 	}
@@ -225,7 +171,7 @@ func TestListArchiveContents(t *testing.T) {
 	}
 
 	// Test listArchiveContents
-	contents, err := listArchiveContents(archivePath, "tar.gz")
+	contents, err := listArchiveContents(archivePath)
 	if err != nil {
 		t.Errorf("listArchiveContents() unexpected error = %v", err)
 		return
@@ -253,14 +199,8 @@ func TestListArchiveContents(t *testing.T) {
 		t.Errorf("listArchiveContents() returned %d files, want %d", len(contents), len(expectedFiles))
 	}
 
-	// Test with unsupported format
-	_, err = listArchiveContents(archivePath, "unsupported")
-	if err == nil {
-		t.Error("listArchiveContents() expected error for unsupported format")
-	}
-
 	// Test with non-existent file
-	_, err = listArchiveContents("/nonexistent/path.tar.gz", "tar.gz")
+	_, err = listArchiveContents("/nonexistent/path.tar.gz")
 	if err == nil {
 		t.Error("listArchiveContents() expected error for non-existent file")
 	}
@@ -320,8 +260,8 @@ func TestConfigArchiveValidator_Validate(t *testing.T) {
 		t.Fatalf("Failed to create dummy file: %v", writeErr)
 	}
 	err = validator.Validate(unsupportedPath)
-	if err == nil {
-		t.Error("Validate() expected error for unsupported format")
+	if err == nil || err.Error() != "only .tar.gz archives are supported" {
+		t.Errorf("Validate() error = %v, want the fixed archive format message", err)
 	}
 }
 
