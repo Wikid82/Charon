@@ -678,8 +678,8 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 }
 
 // ImportConfig accepts a tar.gz upload and replaces the CrowdSec configuration in DataDir. The previous
-// configuration is snapshotted first and restored on failure; engine-owned state (live db, data/,
-// hub_cache/) is never replaced and DataDir itself is never renamed.
+// configuration is snapshotted first and restored on failure; server-local state (live db, data/,
+// hub_cache/, installed hub items) is never replaced and DataDir itself is never renamed.
 func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -726,22 +726,25 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 	defer h.pruneSnapshots()
 
+	keep := crowdsec.ImportKeeper(h.DataDir)
+
 	// rollback restores the snapshot in place; DataDir itself is never removed or renamed.
 	rollback := func() {
-		if rbErr := crowdsec.RestoreKeeping(backupDir, h.DataDir, crowdsec.IsPreservedPath); rbErr != nil {
+		if rbErr := crowdsec.RestoreKeeping(backupDir, h.DataDir, keep); rbErr != nil {
 			logger.Log().WithError(rbErr).WithField("backup_path", util.SanitizeForLog(backupDir)).Error("crowdsec import rollback failed; backup retained for manual recovery")
 		}
 	}
 
-	// Replace the configuration but keep server-local state (engine-owned data and stored account details).
-	if err := crowdsec.ClearConfigKeeping(h.DataDir, crowdsec.IsPreservedPath); err != nil {
+	// Replace the configuration but keep server-local state: engine-owned data, stored account details,
+	// the installed hub tree and every symlink in the live tree (installed hub items).
+	if err := crowdsec.ClearConfigKeeping(h.DataDir, keep); err != nil {
 		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
 		return
 	}
 
 	// Extract archive
-	extractErr := h.extractArchive(dst, h.DataDir)
+	extractErr := h.extractArchive(dst, h.DataDir, keep)
 	if extractErr != nil {
 		logger.Log().WithField("error", sanitizeForLog(extractErr.Error())).Warn("crowdsec import extraction failed")
 		rollback()
@@ -771,7 +774,7 @@ func (h *CrowdsecHandler) pruneSnapshots() {
 }
 
 // extractArchive extracts a tar.gz archive to the destination directory.
-func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
+func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(rel string) bool) error {
 	// #nosec G304 -- archivePath is validated upstream
 	f, err := os.Open(archivePath)
 	if err != nil {
@@ -786,6 +789,11 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
+
+	liveDirs, err := liveDirSet(destDir)
+	if err != nil {
+		return err
+	}
 
 	for {
 		header, err := tr.Next()
@@ -802,8 +810,10 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid file path: %s", header.Name)
 		}
-		// Server-local state (engine-owned data, stored account details) is never taken from an upload.
-		if crowdsec.IsPreservedPath(strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))) {
+		// Server-local state (engine-owned data, stored account details, the hub tree, live symlinks) is
+		// never taken from an upload. This runs only after the containment check above.
+		rel := strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))
+		if skipArchiveEntry(liveDirs, rel, header.Typeflag, keep) {
 			continue
 		}
 
@@ -879,7 +889,7 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		if err != nil {
 			return err
 		}
-		if rel != "." && crowdsec.IsPreservedPath(rel) {
+		if rel != "." && crowdsec.IsExportExcluded(rel) {
 			if d.IsDir() {
 				return fs.SkipDir
 			}
@@ -2457,4 +2467,44 @@ func (h *CrowdsecHandler) reloadAfterWhitelistChange(ctx context.Context, action
 	default:
 		logger.Log().WithError(err).Warnf("crowdsec reload failed after whitelist %s (non-fatal)", action)
 	}
+}
+
+// skipArchiveEntry reports whether an extracted entry must be ignored: it lies at or beneath a kept
+// path, or it is a non-directory entry whose path is a directory that existed before extraction began
+// (after the clear step such a directory remains only because it holds kept entries). rel has passed
+// the containment check.
+func skipArchiveEntry(liveDirs map[string]struct{}, rel string, typeflag byte, keep func(rel string) bool) bool {
+	if crowdsec.KeptOrBeneathKept(keep, rel) {
+		return true
+	}
+	if typeflag == tar.TypeDir {
+		return false
+	}
+	_, isLiveDir := liveDirs[filepath.Clean(rel)]
+	return isLiveDir
+}
+
+// liveDirSet lists the directories present under root before extraction starts. After the clear step a
+// directory remains only because it holds kept entries. Symlinks are listed by WalkDir without being
+// followed.
+func liveDirSet(root string) (map[string]struct{}, error) {
+	dirs := map[string]struct{}{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() || path == root {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		dirs[rel] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list live directories: %w", err)
+	}
+	return dirs, nil
 }

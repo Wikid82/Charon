@@ -46,7 +46,8 @@ func isLiveDBFile(name string) bool {
 
 // IsEngineOwnedPath reports whether rel (a slash- or OS-separated path relative to DataDir) is state
 // the running engine owns and that snapshots, restores and archive imports must never touch: a live
-// db file at any depth, or anything under the top-level data/ (LAPI db and hub data files) or
+// db file at any depth, the top-level crowdsec.pid (written by the executor, owned by the running
+// process), or anything under the top-level data/ (LAPI db and hub data files) or
 // hub_cache/ (regenerable download cache). Only the top-level directories are excluded; a nested
 // directory with the same name stays part of the configuration.
 func IsEngineOwnedPath(rel string) bool {
@@ -58,7 +59,7 @@ func IsEngineOwnedPath(rel string) bool {
 		return true
 	}
 	top, _, _ := strings.Cut(rel, "/")
-	return top == "data" || top == "hub_cache"
+	return top == "data" || top == "hub_cache" || rel == "crowdsec.pid"
 }
 
 // snapshot copies DataDir into a new <DataDir>.backup.<ts> directory; see Snapshot.
