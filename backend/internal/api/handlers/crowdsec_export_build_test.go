@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -274,4 +275,41 @@ func archiveHasValidConfig(data []byte) bool {
 			found = string(body) == importableConfig
 		}
 	}
+}
+
+func TestExportConfigCancelledRequestAbortsWithoutBody(t *testing.T) {
+	tmp := isolateTempDir(t)
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{"a.yaml": "a"})
+	_, r := newImportRouter(t, dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody).WithContext(ctx)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Empty(t, w.Body.Bytes(), "no JSON error and no archive for a client that is gone")
+	require.Empty(t, w.Header().Get("Content-Disposition"))
+	requireNoExportTempFiles(t, tmp)
+}
+
+func TestExtractArchiveFailures(t *testing.T) {
+	dir := t.TempDir()
+	h, _ := newImportRouter(t, dir)
+	noKeep := func(string) bool { return false }
+
+	require.ErrorContains(t, h.extractArchive(filepath.Join(dir, "missing.tar.gz"), dir, noKeep), "failed to open archive")
+
+	notGzip := filepath.Join(t.TempDir(), "plain.tar.gz")
+	require.NoError(t, os.WriteFile(notGzip, []byte("not gzip"), 0o600))
+	require.ErrorContains(t, h.extractArchive(notGzip, dir, noKeep), "failed to create gzip reader")
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	require.NoError(t, tar.NewWriter(gw).Close())
+	require.NoError(t, gw.Close())
+	valid := filepath.Join(t.TempDir(), "empty.tar.gz")
+	require.NoError(t, os.WriteFile(valid, buf.Bytes(), 0o600))
+	require.ErrorContains(t, h.extractArchive(valid, filepath.Join(dir, "missing-dest"), noKeep), "list live directories")
 }

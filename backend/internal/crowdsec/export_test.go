@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -117,7 +119,7 @@ func TestWriteExportArchiveUnreadableDirectorySkipped(t *testing.T) {
 	dir := t.TempDir()
 	writeExportTree(t, dir, map[string]string{"a.yaml": "a", "locked/x.yaml": "x", "z.yaml": "z"})
 	locked := filepath.Join(dir, "locked")
-	require.NoError(t, os.Chmod(locked, 0o000)) // #nosec G302 -- intentional test permission
+	require.NoError(t, os.Chmod(locked, 0o000))       // #nosec G302 -- intentional test permission
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) // #nosec G302 -- restore test directory
 
 	var buf bytes.Buffer
@@ -211,4 +213,90 @@ func TestCheckExportImportable(t *testing.T) {
 	require.NoError(t, CheckExportImportable(0, 0))
 	// A tiny but highly compressible export is not "too large".
 	require.NotErrorIs(t, CheckExportImportable(10, 10_000), ErrExportTooLarge)
+}
+
+// afterNWriter accepts the first n writes and fails every later one.
+type afterNWriter struct {
+	n   int
+	err error
+}
+
+func (w *afterNWriter) Write(p []byte) (int, error) {
+	if w.n <= 0 {
+		return 0, w.err
+	}
+	w.n--
+	return len(p), nil
+}
+
+func TestWriteExportArchiveTarCloseFailure(t *testing.T) {
+	t.Parallel()
+	// No files: the first write into gzip is the tar trailer, which forces the gzip header out and fails.
+	_, err := WriteExportArchive(context.Background(), t.TempDir(), &afterNWriter{err: errors.New("disk full")})
+	require.ErrorContains(t, err, "close tar writer")
+}
+
+func TestWriteExportArchiveGzipCloseFailure(t *testing.T) {
+	t.Parallel()
+	// The gzip header is written; the compressed trailer is flushed only by Close and fails there.
+	_, err := WriteExportArchive(context.Background(), t.TempDir(), &afterNWriter{n: 1, err: errors.New("disk full")})
+	require.ErrorContains(t, err, "close gzip writer")
+}
+
+func TestWriteExportArchiveCopyFailureIsNotMaskedAsUnreadable(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	buf := make([]byte, 1<<20)
+	_, err := rand.Read(buf)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.bin"), buf, 0o600))
+
+	_, err = WriteExportArchive(context.Background(), dir, &afterNWriter{n: 1, err: errors.New("disk full")})
+	require.ErrorContains(t, err, "copy file into archive")
+	require.NotErrorIs(t, err, ErrExportFileUnreadable)
+}
+
+func TestHandleExportWalkError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	entries, err := os.ReadDir(filepath.Dir(dir))
+	require.NoError(t, err)
+	var dirEntry fs.DirEntry
+	for _, e := range entries {
+		if e.IsDir() {
+			dirEntry = e
+			break
+		}
+	}
+	require.NotNil(t, dirEntry)
+
+	require.NoError(t, handleExportWalkError("gone", nil, fs.ErrNotExist))
+	require.ErrorIs(t, handleExportWalkError("d", dirEntry, fs.ErrPermission), fs.SkipDir)
+	// A permission error on a non-directory, and any other error, abort with the fixed sentinel.
+	require.ErrorIs(t, handleExportWalkError("f", nil, fs.ErrPermission), ErrExportFileUnreadable)
+	require.ErrorIs(t, handleExportWalkError("d", dirEntry, errors.New("io error")), ErrExportFileUnreadable)
+}
+
+func TestAddExportFileRefusesWhatLstatRejects(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{"real.yaml": "x"})
+	require.NoError(t, os.Symlink(filepath.Join(dir, "real.yaml"), filepath.Join(dir, "link.yaml")))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0o750))
+
+	tw := tar.NewWriter(io.Discard)
+	cases := map[string]string{
+		"symlink swapped in":    "link.yaml",
+		"directory swapped in":  "sub",
+		"lstat fails (ENOTDIR)": filepath.Join("real.yaml", "child"),
+	}
+	for name, rel := range cases {
+		n, err := addExportFile(tw, dir, rel, 0, MaxImportUncompressedBytes, exportHooks{})
+		require.ErrorIs(t, err, ErrExportFileUnreadable, name)
+		require.Zero(t, n, name)
+	}
+
+	n, err := addExportFile(tw, dir, "missing.yaml", 0, MaxImportUncompressedBytes, exportHooks{})
+	require.NoError(t, err, "a vanished entry is skipped")
+	require.Zero(t, n)
 }
