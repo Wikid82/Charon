@@ -55,7 +55,7 @@ ARG XCRYPTO_VERSION=0.58.0
 # `go get golang.org/x/mod@<older>` is a downgrade and its cascade drags x/net, x/crypto and
 # x/text back down with it, silently undoing the pins above.
 # renovate: datasource=go depName=golang.org/x/mod
-ARG XMOD_VERSION=0.41.0
+ARG XMOD_VERSION=0.42.0
 # klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
