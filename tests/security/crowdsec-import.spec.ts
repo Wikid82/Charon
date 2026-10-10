@@ -221,6 +221,18 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(baseNames).not.toContain('online_api_credentials.yaml');
     });
 
+    test.fixme('commit 3: export download has a matching Content-Length and is a valid gzip/tar archive', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+      expect(response.status()).toBe(200);
+      expect(response.headers()['content-type']).toContain('application/gzip');
+
+      const body = await response.body();
+      expect(Number(response.headers()['content-length'])).toBe(body.length);
+
+      const entries = await listTarGzEntries(body);
+      expect(entries).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+    });
+
     test('import accepts an export laid out as config/config.yaml', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         { 'config/config.yaml': VALID_CONFIG, 'config/acquis.yaml': ACQUIS },
