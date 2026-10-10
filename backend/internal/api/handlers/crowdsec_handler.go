@@ -922,7 +922,7 @@ func (h *CrowdsecHandler) ReadFile(c *gin.Context) {
 	clean := filepath.Clean(rel)
 	// prevent directory traversal
 	p := filepath.Join(h.DataDir, clean)
-	if !strings.HasPrefix(p, filepath.Clean(h.DataDir)) {
+	if !isPathWithinDir(h.DataDir, p) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
@@ -956,7 +956,7 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 	}
 	clean := filepath.Clean(payload.Path)
 	p := filepath.Join(h.DataDir, clean)
-	if !strings.HasPrefix(p, filepath.Clean(h.DataDir)) {
+	if !isPathWithinDir(h.DataDir, p) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
 		return
 	}
@@ -2594,7 +2594,7 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 	// Path traversal protection: ensure path is within DataDir
 	cleanConfigPath := filepath.Clean(configPath)
 	cleanDataDir := filepath.Clean(h.DataDir)
-	if !strings.HasPrefix(cleanConfigPath, cleanDataDir) {
+	if !isPathWithinDir(cleanDataDir, cleanConfigPath) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config path"})
 		return
 	}
@@ -2639,7 +2639,7 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 
 	// Path traversal protection
 	cleanAcquisPath := filepath.Clean(acquisPath)
-	if !strings.HasPrefix(cleanAcquisPath, cleanDataDir) {
+	if !isPathWithinDir(cleanDataDir, cleanAcquisPath) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquis path"})
 		return
 	}
@@ -2703,6 +2703,21 @@ func (h *CrowdsecHandler) ConsoleHeartbeat(c *gin.Context) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// isPathWithinDir reports whether target is located within baseDir, preventing
+// directory traversal and sibling directory prefix matching.
+func isPathWithinDir(baseDir, target string) bool {
+	if baseDir == "" || target == "" {
+		return false
+	}
+	cleanBase := filepath.Clean(baseDir)
+	cleanTarget := filepath.Clean(target)
+	rel, err := filepath.Rel(cleanBase, cleanTarget)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
 }
 
 // ListWhitelists returns all CrowdSec IP/CIDR whitelist entries.

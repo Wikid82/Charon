@@ -4604,3 +4604,170 @@ func TestGetKeyStatus_EnvKeyRejected(t *testing.T) {
 	assert.True(t, resp["env_key_rejected"].(bool))
 	assert.Contains(t, resp["message"].(string), "CHARON_SECURITY_CROWDSEC_API_KEY")
 }
+
+func TestIsPathWithinDir(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "crowdsec")
+	require.NoError(t, os.MkdirAll(dataDir, 0o750)) // #nosec G301 -- test directory
+
+	t.Run("path inside DataDir passes containment check", func(t *testing.T) {
+		validPaths := []string{
+			filepath.Join(dataDir, "config.yaml"),
+			filepath.Join(dataDir, "acquis.yaml"),
+			filepath.Join(dataDir, "config", "config.yaml"),
+			filepath.Join(dataDir, "config", "acquis.yaml"),
+			filepath.Join(dataDir, "sub", "nested", "file.conf"),
+			dataDir,
+		}
+		for _, p := range validPaths {
+			assert.True(t, isPathWithinDir(dataDir, p), "expected path to be contained: %s", p)
+		}
+	})
+
+	t.Run("sibling directory matching DataDir prefix without separator fails containment check", func(t *testing.T) {
+		siblingDir := dataDir + "_sibling"
+		siblingDash := dataDir + "-backup"
+		siblingPaths := []string{
+			siblingDir,
+			siblingDash,
+			filepath.Join(siblingDir, "config.yaml"),
+			filepath.Join(siblingDir, "acquis.yaml"),
+			filepath.Join(siblingDash, "config.yaml"),
+		}
+		for _, p := range siblingPaths {
+			assert.False(t, isPathWithinDir(dataDir, p), "expected sibling path to be rejected: %s", p)
+		}
+	})
+
+	t.Run("directory traversal path outside DataDir fails containment check", func(t *testing.T) {
+		traversalPaths := []string{
+			filepath.Join(dataDir, "..", "secret.yaml"),
+			filepath.Join(dataDir, "..", "..", "etc", "passwd"),
+			filepath.Join(dataDir, "config", "..", "..", "outside.yaml"),
+			"/etc/passwd",
+			"/tmp",
+		}
+		for _, p := range traversalPaths {
+			assert.False(t, isPathWithinDir(dataDir, p), "expected traversal path to be rejected: %s", p)
+		}
+	})
+
+	t.Run("empty inputs return false", func(t *testing.T) {
+		assert.False(t, isPathWithinDir("", filepath.Join(dataDir, "config.yaml")))
+		assert.False(t, isPathWithinDir(dataDir, ""))
+		assert.False(t, isPathWithinDir("", ""))
+	})
+}
+
+func TestCrowdsecHandler_DiagnosticsConfig_Success(t *testing.T) {
+	t.Parallel()
+
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	configContent := "api:\n  server:\n    listen_uri: 127.0.0.1:8080\n"
+	acquisContent := "source: file\nfilename: /var/log/auth.log\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configContent), 0o600)) // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "acquis.yaml"), []byte(acquisContent), 0o600)) // #nosec G306 -- test fixture
+
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/diagnostics/config", http.NoBody)
+
+	h.DiagnosticsConfig(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.True(t, resp["config_exists"].(bool))
+	assert.True(t, resp["config_valid"].(bool))
+	assert.True(t, resp["acquis_exists"].(bool))
+	assert.True(t, resp["acquis_valid"].(bool))
+	assert.Equal(t, "8080", resp["lapi_port"])
+}
+
+func TestCrowdsecHandler_DiagnosticsConfig_SubdirectoryLayout(t *testing.T) {
+	t.Parallel()
+
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0o750)) // #nosec G301 -- test directory
+
+	configContent := "api:\n  server:\n    listen_uri: 127.0.0.1:9090\n"
+	acquisContent := "source: file\nfilenames:\n  - /var/log/syslog\n"
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(configContent), 0o600)) // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "acquis.yaml"), []byte(acquisContent), 0o600)) // #nosec G306 -- test fixture
+
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/diagnostics/config", http.NoBody)
+
+	h.DiagnosticsConfig(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.True(t, resp["config_exists"].(bool))
+	assert.True(t, resp["acquis_exists"].(bool))
+	assert.Equal(t, filepath.Join(configDir, "config.yaml"), resp["config_path"])
+	assert.Equal(t, filepath.Join(configDir, "acquis.yaml"), resp["acquis_path"])
+	assert.Equal(t, "9090", resp["lapi_port"])
+}
+
+func TestCrowdsecHandler_ReadFile_SiblingDirRejected(t *testing.T) {
+	t.Parallel()
+
+	db := setupCrowdDB(t)
+	baseDir := t.TempDir()
+	dataDir := filepath.Join(baseDir, "crowdsec")
+	siblingDir := filepath.Join(baseDir, "crowdsec_sibling")
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))                                                        // #nosec G301 -- test directory
+	require.NoError(t, os.MkdirAll(siblingDir, 0o750))                                                     // #nosec G301 -- test directory
+	require.NoError(t, os.WriteFile(filepath.Join(siblingDir, "secret.conf"), []byte("secret"), 0o600)) // #nosec G306 -- test fixture
+
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=../crowdsec_sibling/secret.conf", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCrowdsecHandler_WriteFile_SiblingDirRejected(t *testing.T) {
+	t.Parallel()
+
+	db := setupCrowdDB(t)
+	baseDir := t.TempDir()
+	dataDir := filepath.Join(baseDir, "crowdsec")
+	siblingDir := filepath.Join(baseDir, "crowdsec_sibling")
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))    // #nosec G301 -- test directory
+	require.NoError(t, os.MkdirAll(siblingDir, 0o750)) // #nosec G301 -- test directory
+
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	body := `{"path":"../crowdsec_sibling/pwn.conf","content":"bad"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/file", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
