@@ -221,7 +221,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(baseNames).not.toContain('online_api_credentials.yaml');
     });
 
-    test.fixme('commit 3: export download has a matching Content-Length and is a valid gzip/tar archive', async ({ request }) => {
+    test('export download has a matching Content-Length and is a valid gzip/tar archive', async ({ request }) => {
       const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
       expect(response.status()).toBe(200);
       expect(response.headers()['content-type']).toContain('application/gzip');
