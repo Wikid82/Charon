@@ -144,7 +144,7 @@ func TestResponses_ExportErrorCarriesNoPaths(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	requireNoServerPaths(t, w.Body.String(), dir)
-	require.Contains(t, w.Body.String(), "failed to export crowdsec config")
+	require.Contains(t, w.Body.String(), "a file in the CrowdSec folder could not be read")
 }
 
 // pathErrExec fails every lifecycle call with an error that embeds an absolute server path.

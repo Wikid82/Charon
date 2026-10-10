@@ -2823,9 +2823,9 @@ func TestCrowdsecHandler_ExportConfig_PermissionsDenied(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Export should fail when encountering unreadable files
-	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusInternalServerError,
-		"Expected 200 or 500 for permission error, got %d", w.Code)
+	// Export fails cleanly (JSON error, no partial archive) when it meets an unreadable file
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.False(t, bytes.HasPrefix(w.Body.Bytes(), []byte{0x1f, 0x8b}))
 }
 
 func TestCrowdsecHandler_ExportConfig_SuccessValidation(t *testing.T) {
