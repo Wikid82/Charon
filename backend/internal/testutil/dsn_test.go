@@ -49,3 +49,20 @@ func TestOpenMemoryDB_IsolatedAndClosedOnCleanup(t *testing.T) {
 	})
 	require.Error(t, closedProbe(), "pool must be closed after the test")
 }
+
+func BenchmarkMemoryDSN_AcceptsB(b *testing.B) {
+	first := MemoryDSN(b)
+	require.NotEqual(b, first, MemoryDSN(b))
+	require.True(b, strings.HasPrefix(first, "file:BenchmarkMemoryDSN_AcceptsB_"))
+	db := OpenMemoryDB(b)
+	require.NoError(b, db.Exec("CREATE TABLE y (id INTEGER)").Error)
+}
+
+func TestMemoryDSN_AcceptsTB(t *testing.T) {
+	var tb testing.TB = t
+	require.Contains(t, MemoryDSN(tb), "cache=shared")
+	res := testing.Benchmark(func(b *testing.B) {
+		require.Contains(b, MemoryDSN(b, "_journal_mode=WAL"), "&_journal_mode=WAL")
+	})
+	require.NotNil(t, res)
+}
