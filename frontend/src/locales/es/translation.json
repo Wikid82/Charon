@@ -1069,7 +1069,7 @@
   },
   "importCrowdSec": {
     "title": "Paquetes de Configuración de CrowdSec",
-    "description": "Suba un paquete tar.gz o zip. Se crea una copia de seguridad antes de importar para que pueda revertir si es necesario. Exporte el paquete actual desde el panel de Cerberus o la página de configuración de CrowdSec.",
+    "description": "Suba un paquete tar.gz. Se crea una copia de seguridad antes de importar para que pueda revertir si es necesario. Exporte el paquete actual desde el panel de Cerberus o la página de configuración de CrowdSec.",
     "import": "Importar",
     "configImported": "Configuración de CrowdSec importada",
     "importFailed": "Importación fallida: {{error}}",
@@ -1159,6 +1159,7 @@
   },
   "crowdsecConfig": {
     "title": "Configuración de CrowdSec",
+    "checkNow": "Comprobar ahora",
     "loading": "Cargando configuración de CrowdSec...",
     "loadError": "Error al cargar el estado de CrowdSec",
     "noStatus": "Estado de CrowdSec no disponible",
@@ -1226,7 +1227,7 @@
     },
     "packages": {
       "title": "Paquetes de configuración",
-      "description": "Exporte o importe paquetes de configuración de CrowdSec (tar.gz/zip). Se crea una copia de seguridad antes de importar.",
+      "description": "Exporte o importe paquetes de configuración de CrowdSec (tar.gz). Se crea una copia de seguridad antes de importar.",
       "export": "Exportar",
       "import": "Importar",
       "importing": "Importando...",

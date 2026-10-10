@@ -246,3 +246,22 @@ export async function createRawTarGz(entries: RawTarEntry[], outputPath: string)
   await fs.writeFile(outputPath, gzipSync(Buffer.concat(blocks)));
   return outputPath;
 }
+
+/**
+ * List the entry names of a tar.gz archive held in memory, in archive order.
+ * Directory entries keep their trailing slash so callers can tell them apart.
+ */
+export async function listTarGzEntries(archive: Buffer): Promise<string[]> {
+  const names: string[] = [];
+  await new Promise<void>((resolve, reject) => {
+    const parser = new tar.Parser();
+    parser.on('entry', (entry) => {
+      names.push(entry.type === 'Directory' && !entry.path.endsWith('/') ? `${entry.path}/` : entry.path);
+      entry.resume();
+    });
+    parser.on('end', resolve);
+    parser.on('error', reject);
+    parser.end(archive);
+  });
+  return names;
+}

@@ -6,7 +6,7 @@
  *
  * Test Categories:
  * - Page Layout (2 tests): heading, form display
- * - File Validation (3 tests): valid file, invalid format, missing fields
+ * - File Validation (3 tests): valid file, only .tar.gz offered, import disabled without a file
  * - Import Execution (3 tests): import success, error handling, already exists
  */
 
@@ -37,13 +37,6 @@ function createMockTarGzBuffer(): Buffer {
   return Buffer.from('mock tar.gz content for crowdsec config');
 }
 
-/**
- * Helper to create a mock zip file buffer
- */
-function createMockZipBuffer(): Buffer {
-  return Buffer.from('mock zip content for crowdsec config');
-}
-
 test.describe('Import CrowdSec Configuration', () => {
   // =========================================================================
   // Page Layout Tests (2 tests)
@@ -66,8 +59,8 @@ test.describe('Import CrowdSec Configuration', () => {
       const fileInput = page.locator(SELECTORS.fileInput);
       await expect(fileInput).toBeVisible();
 
-      // Verify it accepts proper file types (.tar.gz, .zip)
-      await expect(fileInput).toHaveAttribute('accept', /\.tar\.gz|\.zip/);
+      // Verify it accepts only .tar.gz
+      await expect(fileInput).toHaveAttribute('accept', '.tar.gz');
 
       // Verify import button exists
       const importButton = page.locator(SELECTORS.importButton);
@@ -118,40 +111,12 @@ test.describe('Import CrowdSec Configuration', () => {
       await expect(page.locator(SELECTORS.importButton)).toBeEnabled();
     });
 
-    test('should accept valid .zip configuration files', async ({ page, adminUser }) => {
+    test('should offer only .tar.gz in the file picker', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
-
-      // Mock backup and import APIs
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
-      await page.route('**/api/v1/admin/crowdsec/import', async (route) => {
-        await route.fulfill({
-          status: 200,
-          json: { message: 'Import successful' },
-        });
-      });
-
       await page.goto('/tasks/import/crowdsec');
       await waitForLoadingComplete(page);
 
-      // Upload .zip file
-      const fileInput = page.locator(SELECTORS.fileInput);
-      await fileInput.setInputFiles({
-        name: 'crowdsec-config.zip',
-        mimeType: 'application/zip',
-        buffer: createMockZipBuffer(),
-      });
-
-      // Verify file was accepted (import button should be enabled)
-      await expect(page.locator(SELECTORS.importButton)).toBeEnabled();
+      await expect(page.locator(SELECTORS.fileInput)).toHaveAttribute('accept', '.tar.gz');
     });
 
     test('should disable import button when no file selected', async ({ page, adminUser }) => {

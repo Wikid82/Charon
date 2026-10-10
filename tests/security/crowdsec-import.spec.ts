@@ -21,6 +21,7 @@ import {
   createTarGz,
   createZip,
   createZipBomb,
+  listTarGzEntries,
 } from '../utils/archive-helpers';
 
 const ADMIN = '/api/v1/admin/crowdsec';
@@ -123,35 +124,6 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect((await response.json()).error).toBe('validation failed: required file missing: config.yaml');
     });
 
-    test('should reject a config.yaml that is not YAML and has no CrowdSec sections', async ({ request }, testInfo) => {
-      const archive = await createTarGz(
-        {
-          'config.yaml': `invalid: yaml: syntax: here:
-  unclosed: [bracket
-  bad indentation
-no proper structure`,
-        },
-        testInfo.outputPath('invalid-yaml.tar.gz'),
-      );
-
-      const response = await upload(request, archive, 'invalid-yaml.tar.gz');
-
-      expect(response.status()).toBe(422);
-      expect((await response.json()).error).toBe('config validation failed: invalid CrowdSec config structure');
-    });
-
-    test('should reject a config.yaml without the required CrowdSec fields', async ({ request }, testInfo) => {
-      const archive = await createTarGz(
-        { 'config.yaml': 'other_config:\n  field: value\n  nested:\n    key: data\n' },
-        testInfo.outputPath('missing-fields.tar.gz'),
-      );
-
-      const response = await upload(request, archive, 'missing-fields.tar.gz');
-
-      expect(response.status()).toBe(422);
-      expect((await response.json()).error).toBe('config validation failed: invalid CrowdSec config structure');
-    });
-
     test('should reject an archive larger than 50 MB', async ({ request }, testInfo) => {
       const archive = await createOversizedArchive(testInfo.outputPath('oversized.tar.gz'), 51);
       expect((await fs.stat(archive)).size).toBeGreaterThan(MAX_ARCHIVE_BYTES);
@@ -173,25 +145,6 @@ no proper structure`,
       expect((await response.json()).error).toMatch(
         /^validation failed: suspicious compression ratio: \d+\.\d+x \(potential zip bomb\)$/,
       );
-    });
-
-    test('should reject a ZIP file because only tar.gz is supported', async ({ request }, testInfo) => {
-      const archive = await createZip({}, testInfo.outputPath('config.zip'));
-
-      const response = await upload(request, archive, 'config.zip', 'application/zip');
-
-      expect(response.status()).toBe(422);
-      expect((await response.json()).error).toBe('validation failed: unsupported format for size calculation: zip');
-    });
-
-    test('should reject a file that is not an archive at all', async ({ request }, testInfo) => {
-      const notAnArchive = testInfo.outputPath('notes.txt');
-      await fs.writeFile(notAnArchive, 'plain text');
-
-      const response = await upload(request, notAnArchive, 'notes.txt', 'text/plain');
-
-      expect(response.status()).toBe(422);
-      expect((await response.json()).error).toBe('validation failed: unsupported format: .txt');
     });
 
     test('should reject a corrupted archive', async ({ request }, testInfo) => {
@@ -248,6 +201,134 @@ no proper structure`,
       const files = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
       expect(files).toEqual(expect.arrayContaining(['config.yaml', 'acquis.yaml']));
       expect(files).not.toContain('extra-from-bad-import.yaml');
+    });
+  });
+
+  test.describe('Export contents and import validation', () => {
+    test('export omits engine data, hub cache, database files and account files', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+      expect(response.status()).toBe(200);
+
+      const entries = await listTarGzEntries(await response.body());
+      const files = entries.filter((name) => !name.endsWith('/'));
+      const baseNames = files.map((name) => name.split('/').pop()?.toLowerCase());
+
+      expect(files).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+      expect(files.filter((name) => /^(\.\/)?(data|hub_cache)\//.test(name))).toEqual([]);
+      expect(files.filter((name) => /\.db(-wal|-shm)?$/.test(name))).toEqual([]);
+      expect(baseNames).not.toContain('bouncer_key');
+      expect(baseNames).not.toContain('local_api_credentials.yaml');
+      expect(baseNames).not.toContain('online_api_credentials.yaml');
+    });
+
+    test('import accepts an export laid out as config/config.yaml', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config/config.yaml': VALID_CONFIG, 'config/acquis.yaml': ACQUIS },
+        testInfo.outputPath('real-layout.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'real-layout.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+    });
+
+    test('an export from this instance re-imports and keeps the CAPI registration', async ({ request }) => {
+      // The connectivity diagnostics report registration from the presence of online_api_credentials.yaml,
+      // an account file that must survive an import (it is never part of an export).
+      const readRegistration = async () => {
+        const response = await request.get(`${ADMIN}/diagnostics/connectivity`, { timeout: 60_000 });
+        expect(response.status()).toBe(200);
+        return (await response.json()).capi_registered as boolean;
+      };
+      const registeredBefore = await readRegistration();
+
+      const exported = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+      expect(exported.status()).toBe(200);
+
+      const response = await request.post(`${ADMIN}/import`, {
+        multipart: { file: { name: 'roundtrip.tar.gz', mimeType: 'application/gzip', buffer: await exported.body() } },
+        timeout: 120_000,
+      });
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+      expect(await readRegistration()).toBe(registeredBefore);
+    });
+
+    test('import rejects a config.yaml that is not valid YAML even when it contains api: text', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': 'api:\n  server: [unclosed\n  bad indentation\n' },
+        testInfo.outputPath('invalid-yaml-api.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'invalid-yaml-api.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe('config validation failed: config.yaml is not valid YAML');
+    });
+
+    test('import rejects a config.yaml with no CrowdSec sections', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': 'other_config:\n  field: value\n' },
+        testInfo.outputPath('no-sections.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'no-sections.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(
+        'config validation failed: config.yaml has no CrowdSec configuration sections',
+      );
+    });
+
+    const configRejections: Array<{ title: string; content: string; message: string }> = [
+      { title: 'is empty', content: '', message: 'config validation failed: config.yaml is empty' },
+      {
+        title: 'has a list at the top level',
+        content: '- api\n- common\n',
+        message: 'config validation failed: config.yaml must be a YAML mapping',
+      },
+      {
+        title: 'has a duplicate key',
+        content: 'api:\n  server:\n    log_level: info\napi:\n  server:\n    log_level: debug\n',
+        message: 'config validation failed: config.yaml is not valid YAML',
+      },
+      {
+        title: 'has a non-string key',
+        content: '1: value\napi:\n  server:\n    log_level: info\n',
+        message: 'config validation failed: config.yaml is not valid YAML',
+      },
+    ];
+    for (const { title, content, message } of configRejections) {
+      test(`import rejects a config.yaml that ${title}`, async ({ request }, testInfo) => {
+        const archive = await createTarGz({ 'config.yaml': content }, testInfo.outputPath('rejected-config.tar.gz'));
+
+        const response = await upload(request, archive, 'rejected-config.tar.gz');
+
+        expect(response.status()).toBe(422);
+        expect((await response.json()).error).toBe(message);
+        expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
+      });
+    }
+
+    test('import rejects a ZIP with the single archive-format message', async ({ request }, testInfo) => {
+      const archive = await createZip({}, testInfo.outputPath('config.zip'));
+
+      const response = await upload(request, archive, 'config.zip', 'application/zip');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe('validation failed: only .tar.gz archives are supported');
+    });
+
+    test('import rejects a .txt upload with the single archive-format message', async ({ request }, testInfo) => {
+      const notAnArchive = testInfo.outputPath('notes.txt');
+      await fs.writeFile(notAnArchive, 'plain text');
+
+      const response = await upload(request, notAnArchive, 'notes.txt', 'text/plain');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe('validation failed: only .tar.gz archives are supported');
     });
   });
 });

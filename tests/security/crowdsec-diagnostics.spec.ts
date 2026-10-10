@@ -148,14 +148,19 @@ test.describe('CrowdSec Diagnostics', () => {
       expect(connectivity.lapi_ready).toBe(status.lapi_ready);
     });
 
-    test('should report CAPI as not registered without the online credentials file', async ({ request }) => {
+    // Import treats the account files as server-local state: it never deletes the live
+    // online_api_credentials.yaml and never takes one from an archive, so the CAPI registration the
+    // diagnostics report is the same before and after any import.
+    test('should still report CAPI as registered after importing an archive without the online credentials file', async ({ request }) => {
+      // The E2E image ships online_api_credentials.yaml, and the beforeEach import carries none.
       const connectivity = await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json();
 
-      expect(connectivity.capi_registered).toBe(false);
-      expect(connectivity.capi_reachable).toBe(false);
+      expect(connectivity.capi_registered).toBe(true);
     });
 
-    test('should report CAPI as registered once the online credentials file exists', async ({ request }, testInfo) => {
+    test('should keep the CAPI registration unchanged when the imported archive carries an online credentials file', async ({ request }, testInfo) => {
+      const registeredBefore = (await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json()).capi_registered;
+
       await importKnownConfig(request, testInfo.outputPath('with-capi.tar.gz'), {
         'config.yaml': CONFIG_YAML,
         'acquis.yaml': ACQUIS_YAML,
@@ -164,7 +169,7 @@ test.describe('CrowdSec Diagnostics', () => {
 
       const connectivity = await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json();
 
-      expect(connectivity.capi_registered).toBe(true);
+      expect(connectivity.capi_registered).toBe(registeredBefore);
     });
   });
 

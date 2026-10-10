@@ -315,15 +315,7 @@ func (s *ConsoleEnrollmentService) ensureCAPIRegistered(ctx context.Context) err
 // config subdirectory first (standard layout), then dataDir root.
 // Returns empty string if no config file is found.
 func (s *ConsoleEnrollmentService) findConfigPath() string {
-	configPath := filepath.Join(s.dataDir, "config", "config.yaml")
-	if _, err := os.Stat(configPath); err == nil {
-		return configPath
-	}
-	configPath = filepath.Join(s.dataDir, "config.yaml")
-	if _, err := os.Stat(configPath); err == nil {
-		return configPath
-	}
-	return ""
+	return FindConfigFile(s.dataDir)
 }
 
 func (s *ConsoleEnrollmentService) load(ctx context.Context) (*models.CrowdsecConsoleEnrollment, error) {

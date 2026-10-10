@@ -38,14 +38,6 @@ var (
 	writableExtensions = map[string]struct{}{
 		".yaml": {}, ".yml": {}, ".json": {}, ".txt": {}, ".conf": {},
 	}
-
-	// hiddenSecretNames are lowercase base names of secret files that are neither listed nor readable nor
-	// writable through the editor.
-	hiddenSecretNames = map[string]struct{}{
-		"bouncer_key":                 {},
-		"local_api_credentials.yaml":  {},
-		"online_api_credentials.yaml": {},
-	}
 )
 
 // fileError carries the HTTP status and client-facing message for a rejected file request.
@@ -77,16 +69,13 @@ func cleanRelPath(raw string) (string, *fileError) {
 }
 
 // isReadable reports whether rel may be listed and read: engine-owned state (databases, the data and
-// hub_cache trees) and secrets (see hiddenSecretNames) are hidden, everything else stays visible.
+// hub_cache trees) and secrets (see crowdsec.IsSecretPath) are hidden, everything else stays visible.
 func isReadable(rel string) bool {
 	slash := filepath.ToSlash(rel)
-	if slash == "" || slash == "." || crowdsec.IsEngineOwnedPath(slash) {
+	if slash == "" || slash == "." || crowdsec.IsPreservedPath(slash) {
 		return false
 	}
 	base := strings.ToLower(path.Base(slash))
-	if _, hidden := hiddenSecretNames[base]; hidden {
-		return false
-	}
 	if matched, _ := path.Match("*.db*", base); matched {
 		return false
 	}
@@ -206,20 +195,44 @@ func checkSize(content string) *fileError {
 	return nil
 }
 
+// parseYAMLDocuments decodes the documents of a YAML stream, each first into a yaml.Node and then
+// into a generic value so duplicate mapping keys and alias abuse are rejected. It returns the first
+// document's node, or io.EOF when the stream has no document. With firstOnly set, later documents are
+// never read; otherwise every document must parse.
+func parseYAMLDocuments(r io.Reader, firstOnly bool) (*yaml.Node, error) {
+	dec := yaml.NewDecoder(r)
+	var first *yaml.Node
+	for {
+		var node yaml.Node
+		err := dec.Decode(&node)
+		if errors.Is(err, io.EOF) {
+			if first == nil {
+				return nil, io.EOF
+			}
+			return first, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("decode yaml document: %w", err)
+		}
+		var doc any
+		if err := node.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("decode yaml value: %w", err)
+		}
+		if first == nil {
+			first = &node
+		}
+		if firstOnly {
+			return first, nil
+		}
+	}
+}
+
 // checkYAML verifies that YAML files parse; other allowed types are not inspected.
 func checkYAML(rel, content string) *fileError {
 	switch strings.ToLower(filepath.Ext(rel)) {
 	case ".yaml", ".yml":
-		dec := yaml.NewDecoder(strings.NewReader(content))
-		for {
-			var doc any
-			err := dec.Decode(&doc)
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			if err != nil {
-				return badRequest("invalid YAML")
-			}
+		if _, err := parseYAMLDocuments(strings.NewReader(content), false); err != nil && !errors.Is(err, io.EOF) {
+			return badRequest("invalid YAML")
 		}
 	}
 	return nil
