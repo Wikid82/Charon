@@ -12,6 +12,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,7 +39,7 @@ func createTestSQLiteDB(dbPath string) error {
 func TestDBHealthHandler_Check_Healthy(t *testing.T) {
 
 	// Create in-memory database
-	dbPath := "file::memory:?cache=shared"
+	dbPath := testutil.MemoryDSN(t)
 	db, err := database.Connect(dbPath)
 	require.NoError(t, err)
 
@@ -86,7 +87,7 @@ func TestDBHealthHandler_Check_WithBackupService(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create in-memory database for handler
-	handlerDBPath := "file::memory:?cache=shared"
+	handlerDBPath := testutil.MemoryDSN(t)
 	db, err := database.Connect(handlerDBPath)
 	require.NoError(t, err)
 
@@ -148,7 +149,7 @@ func TestDBHealthHandler_Check_WALMode(t *testing.T) {
 
 func TestDBHealthHandler_ResponseJSONTags(t *testing.T) {
 
-	dbPath := "file::memory:?cache=shared"
+	dbPath := testutil.MemoryDSN(t)
 	db, err := database.Connect(dbPath)
 	require.NoError(t, err)
 
@@ -178,7 +179,7 @@ func TestDBHealthHandler_ResponseJSONTags(t *testing.T) {
 }
 
 func TestNewDBHealthHandler(t *testing.T) {
-	memDBPath := "file::memory:?cache=shared"
+	memDBPath := testutil.MemoryDSN(t)
 	db, err := database.Connect(memDBPath)
 	require.NoError(t, err)
 
@@ -273,7 +274,7 @@ func TestDBHealthHandler_Check_UsesDedicatedConnection_NotSharedDB(t *testing.T)
 	// h.db: a healthy, unrelated in-memory connection — if Check ever fell
 	// back to checking this instead of dbPath, the test would observe a
 	// false "healthy" result.
-	sharedDB, err := database.Connect("file::memory:?cache=shared")
+	sharedDB, err := database.Connect(testutil.MemoryDSN(t))
 	require.NoError(t, err)
 
 	// dbPath: a genuinely corrupted on-disk file, deliberately unrelated to
@@ -318,7 +319,7 @@ func TestDBHealthHandler_Check_UsesDedicatedConnection_NotSharedDB(t *testing.T)
 func TestDBHealthHandler_Check_BackupServiceError(t *testing.T) {
 
 	// Create database
-	memDBPath := "file::memory:?cache=shared"
+	memDBPath := testutil.MemoryDSN(t)
 	db, err := database.Connect(memDBPath)
 	require.NoError(t, err)
 
@@ -360,7 +361,7 @@ func TestDBHealthHandler_Check_BackupServiceError(t *testing.T) {
 func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T) {
 
 	// Create database
-	memDBPath := "file::memory:?cache=shared"
+	memDBPath := testutil.MemoryDSN(t)
 	db, err := database.Connect(memDBPath)
 	require.NoError(t, err)
 

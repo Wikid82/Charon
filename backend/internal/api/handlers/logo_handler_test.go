@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // minimalPNG is a 1×1 pixel valid PNG (67 bytes).
@@ -39,7 +40,7 @@ var minimalSVG = []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000
 
 func setupLogoTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:logo_test_%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})

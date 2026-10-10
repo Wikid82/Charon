@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -19,12 +18,13 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // --- Upload: with chain file (covers chain_file multipart branch) ---
 
 func TestCertificateHandler_Upload_WithChainFile(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -61,7 +61,7 @@ func TestCertificateHandler_Upload_WithChainFile(t *testing.T) {
 // --- Upload: invalid cert data ---
 
 func TestCertificateHandler_Upload_InvalidCertData(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -106,7 +106,7 @@ func newTestEncSvc(t *testing.T) *crypto.EncryptionService {
 // --- Validate handler with key and chain ---
 
 func TestCertificateHandler_Validate_WithKeyAndChain(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -140,7 +140,7 @@ func TestCertificateHandler_Validate_WithKeyAndChain(t *testing.T) {
 }
 
 func TestCertificateHandler_Validate_InvalidCert(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -172,7 +172,7 @@ func TestCertificateHandler_Validate_InvalidCert(t *testing.T) {
 }
 
 func TestCertificateHandler_Validate_MissingCertFile(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 

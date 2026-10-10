@@ -21,6 +21,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 type mockCaddyConfigManager struct {
@@ -140,7 +141,7 @@ func handleSMTPConnection(conn net.Conn) {
 }
 
 func setupSettingsTestDB(t *testing.T) *gorm.DB {
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to test database")
@@ -860,7 +861,7 @@ func TestSettingsHandler_Errors(t *testing.T) {
 // ============= SMTP Settings Tests =============
 
 func setupSettingsHandlerWithMail(t *testing.T) (*handlers.SettingsHandler, *gorm.DB) {
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to test database")

@@ -19,6 +19,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -413,7 +414,7 @@ func TestSystemPermissionsHandler_IsWithinAllowlist_AllRelErrorsReturnFalse(t *t
 
 func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUserID(t *testing.T) {
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}))
 
@@ -437,7 +438,7 @@ func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUserID(t *testing.T)
 
 func TestSystemPermissionsHandler_LogAudit_PersistsAuditWithUnknownActor(t *testing.T) {
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}))
 

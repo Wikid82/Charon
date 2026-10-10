@@ -17,6 +17,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"  // Auto-register custom providers (manual)
@@ -1179,7 +1180,7 @@ func (endpointPolicyFakeProvider) TestCredentials(creds map[string]string) error
 func TestDNSProviderHandler_TestCredentials_EndpointPolicyAndRoleGate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
 	require.NoError(t, err)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // TestSecurityHandler_GetStatus_RespectsSettingsTable verifies that GetStatus
@@ -316,7 +317,7 @@ func TestSecurityHandler_PatchACL_AllowsWhitelistedIP(t *testing.T) {
 
 func TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings(t *testing.T) {
 
-	dsn := "file:TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings?mode=memory&cache=shared"
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))

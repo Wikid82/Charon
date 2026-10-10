@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // minimalWebP is a 1×1 pixel valid WebP (RIFF header).
@@ -38,7 +39,7 @@ var minimalWebP = []byte{
 
 func setupBannerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:banner_test_%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})

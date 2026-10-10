@@ -3,7 +3,6 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,11 +15,12 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 func setupCustomThemeHandlerDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:custom_theme_handler_test_%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})

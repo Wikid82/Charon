@@ -14,6 +14,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -254,7 +255,7 @@ func TestEncryptionHandler_GetStatus_VersionInfo(t *testing.T) {
 
 func TestSettingsHandler_TestPublicURL_RoleNotExists(t *testing.T) {
 
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	handler := NewSettingsHandler(db)
@@ -274,7 +275,7 @@ func TestSettingsHandler_TestPublicURL_RoleNotExists(t *testing.T) {
 
 func TestSettingsHandler_TestPublicURL_InvalidURLFormat(t *testing.T) {
 
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	handler := NewSettingsHandler(db)
@@ -297,7 +298,7 @@ func TestSettingsHandler_TestPublicURL_InvalidURLFormat(t *testing.T) {
 
 func TestSettingsHandler_TestPublicURL_PrivateIPBlocked_Coverage(t *testing.T) {
 
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	handler := NewSettingsHandler(db)
@@ -325,7 +326,7 @@ func TestSettingsHandler_TestPublicURL_PrivateIPBlocked_Coverage(t *testing.T) {
 
 func TestSettingsHandler_ValidatePublicURL_WithTrailingSlash(t *testing.T) {
 
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	handler := NewSettingsHandler(db)
@@ -352,7 +353,7 @@ func TestSettingsHandler_ValidatePublicURL_WithTrailingSlash(t *testing.T) {
 
 func TestSettingsHandler_ValidatePublicURL_MissingScheme(t *testing.T) {
 
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	handler := NewSettingsHandler(db)
@@ -535,7 +536,7 @@ func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *mo
 
 	router := gin.New()
 
-	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared&_journal_mode=WAL", t.Name())
+	dbName := testutil.MemoryDSN(t, "_journal_mode=WAL")
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 
@@ -644,7 +645,7 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 
 	router := gin.New()
 
-	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dbName := testutil.MemoryDSN(t)
 	db, _ := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	_ = db.AutoMigrate(&models.DNSProvider{}, &models.DNSProviderCredential{})
 

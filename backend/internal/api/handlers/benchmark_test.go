@@ -3,9 +3,11 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
@@ -345,7 +347,7 @@ func BenchmarkSecurityHandler_GetStatus_Parallel(b *testing.B) {
 func BenchmarkSecurityHandler_ListDecisions_Parallel(b *testing.B) {
 	gin.SetMode(gin.ReleaseMode)
 	// Use file-based SQLite with WAL mode for parallel testing
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_journal_mode=WAL"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s_%d?mode=memory&cache=shared&_journal_mode=WAL", b.Name(), time.Now().UnixNano())), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {

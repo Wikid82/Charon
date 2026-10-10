@@ -12,11 +12,12 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // TestCertificateHandler_Delete_RequiresAuth tests that delete requires authentication
 func TestCertificateHandler_Delete_RequiresAuth(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestCertificateHandler_Delete_RequiresAuth(t *testing.T) {
 
 // TestCertificateHandler_List_RequiresAuth tests that list requires authentication
 func TestCertificateHandler_List_RequiresAuth(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -74,7 +75,7 @@ func TestCertificateHandler_List_RequiresAuth(t *testing.T) {
 
 // TestCertificateHandler_Upload_RequiresAuth tests that upload requires authentication
 func TestCertificateHandler_Upload_RequiresAuth(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestCertificateHandler_Upload_RequiresAuth(t *testing.T) {
 
 // TestCertificateHandler_Delete_DiskSpaceCheck tests the disk space check before backup
 func TestCertificateHandler_Delete_DiskSpaceCheck(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
