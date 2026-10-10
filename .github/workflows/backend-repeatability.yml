@@ -1,0 +1,52 @@
+name: Backend Repeatability
+
+# Weekly proof that the backend tests of the repeatable packages still pass
+# when run twice in one process in a random order under the race detector.
+# Catches shared in-memory database names and other order/repeat coupling that
+# a single `go test` run cannot see. Not a required check: a failure just
+# fails the run. Companion guard: backend/internal/testutil/dsn_guard_test.go.
+
+on:
+  schedule:
+    - cron: '0 5 * * 4' # Thursdays at 05:00 UTC (no other weekly job runs then)
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: auto
+
+jobs:
+  repeatability:
+    name: Race + repeat + shuffle
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Run repeatability check
+        working-directory: backend
+        env:
+          CGO_ENABLED: 1
+        run: |
+          # Derive the shuffle seed from the run id so a failure is replayable:
+          # re-run locally with the same -shuffle value.
+          SEED=$(( GITHUB_RUN_ID % 2147483646 + 1 ))
+          echo "Shuffle seed: ${SEED}"
+          echo "Shuffle seed: \`${SEED}\`" >> "$GITHUB_STEP_SUMMARY"
+          export TMPDIR="${RUNNER_TEMP}"
+          go test -race -count=2 -shuffle="${SEED}" -timeout=60m \
+            ./internal/crowdsec/... ./internal/api/handlers/...
