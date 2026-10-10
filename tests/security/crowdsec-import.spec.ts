@@ -21,6 +21,7 @@ import {
   createTarGz,
   createZip,
   createZipBomb,
+  listTarGzEntries,
 } from '../utils/archive-helpers';
 
 const ADMIN = '/api/v1/admin/crowdsec';
@@ -248,6 +249,82 @@ no proper structure`,
       const files = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
       expect(files).toEqual(expect.arrayContaining(['config.yaml', 'acquis.yaml']));
       expect(files).not.toContain('extra-from-bad-import.yaml');
+    });
+  });
+
+  // New behaviour, enabled by the commit named in each title.
+  test.describe('Export contents and import validation (pending)', () => {
+    test.fixme('commit 2: export omits engine data, hub cache, database files and account files', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+      expect(response.status()).toBe(200);
+
+      const entries = await listTarGzEntries(await response.body());
+      const files = entries.filter((name) => !name.endsWith('/'));
+      const baseNames = files.map((name) => name.split('/').pop()?.toLowerCase());
+
+      expect(files).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+      expect(files.filter((name) => /^(\.\/)?(data|hub_cache)\//.test(name))).toEqual([]);
+      expect(files.filter((name) => /\.db(-wal|-shm)?$/.test(name))).toEqual([]);
+      expect(baseNames).not.toContain('bouncer_key');
+      expect(baseNames).not.toContain('local_api_credentials.yaml');
+      expect(baseNames).not.toContain('online_api_credentials.yaml');
+    });
+
+    test.fixme('commit 2: import accepts an export laid out as config/config.yaml', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config/config.yaml': VALID_CONFIG, 'config/acquis.yaml': ACQUIS },
+        testInfo.outputPath('real-layout.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'real-layout.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+    });
+
+    test.fixme('commit 3: import rejects a config.yaml that is not valid YAML', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': 'api:\n  server: [unclosed\n  bad indentation\n' },
+        testInfo.outputPath('invalid-yaml-api.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'invalid-yaml-api.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe('config validation failed: config.yaml is not valid YAML');
+    });
+
+    test.fixme('commit 3: import rejects a config.yaml with no CrowdSec sections', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': 'other_config:\n  field: value\n' },
+        testInfo.outputPath('no-sections.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'no-sections.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(
+        'config validation failed: config.yaml has no CrowdSec configuration sections',
+      );
+    });
+
+    test.fixme('commit 3: import rejects a ZIP with the single archive-format message', async ({ request }, testInfo) => {
+      const archive = await createZip({}, testInfo.outputPath('config.zip'));
+
+      const response = await upload(request, archive, 'config.zip', 'application/zip');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe('validation failed: only .tar.gz archives are supported');
+    });
+
+    test.fixme('commit 3: import rejects a .txt upload with the single archive-format message', async ({ request }, testInfo) => {
+      const notAnArchive = testInfo.outputPath('notes.txt');
+      await fs.writeFile(notAnArchive, 'plain text');
+
+      const response = await upload(request, notAnArchive, 'notes.txt', 'text/plain');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe('validation failed: only .tar.gz archives are supported');
     });
   });
 });

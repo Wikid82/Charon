@@ -154,6 +154,14 @@ test.describe('Import CrowdSec Configuration', () => {
       await expect(page.locator(SELECTORS.importButton)).toBeEnabled();
     });
 
+    test.fixme('commit 4: should offer only .tar.gz in the file picker', async ({ page, adminUser }) => {
+      await loginUser(page, adminUser);
+      await page.goto('/tasks/import/crowdsec');
+      await waitForLoadingComplete(page);
+
+      await expect(page.locator(SELECTORS.fileInput)).toHaveAttribute('accept', '.tar.gz');
+    });
+
     test('should disable import button when no file selected', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
       await page.goto('/tasks/import/crowdsec');
