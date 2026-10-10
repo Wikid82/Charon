@@ -1,11 +1,11 @@
-# QA and Security Report: fix/crowdsec-preset-apply-hardening (PR #1525)
+# QA and Security Report: fix/crowdsec-hub-url-and-editor-hardening
 
-Date: 2026-10-09
-Scope: full diff `origin/development...HEAD` (HEAD 513440f5), spec `docs/plans/current_spec.md` (issues #1514-#1518, #1523, #1524).
+Date: 2026-10-10
+Scope: full diff `origin/development...HEAD` (HEAD 5bb1889d, 24 commits, 57 files), spec `docs/plans/current_spec.md` and `docs/plans/crowdsec_preset_apply_hardening_1525_spec.md`. Parts: (A) CrowdSec editor access hardening, backup names instead of paths, archive-name fix, removal of the unenforced `WithAllowedDomains` option, strict hub URL allowlist; (B) #1526 Playwright rewrite of six CrowdSec specs; (C) fixes found by it (i18n keys, `sanitizeSecret`, enrollment form, export gzip).
 
 ## Verdict: PASS (no blocking findings)
 
-No critical or high findings. Two low-severity security hardening candidates are flagged for the maintainer, plus a few low/medium non-security items. None block the PR.
+No critical or high findings. One medium-low gap against the spec's own acceptance criterion ("no absolute path in any CrowdSec API response") is flagged as F1; it is admin-authenticated information exposure, so it is a maintainer decision whether to close it in this PR or file it. All Definition of Done gates pass.
 
 ## Definition of Done evidence
 
@@ -17,51 +17,48 @@ No critical or high findings. Two low-severity security hardening candidates are
 | golangci-lint, agent | `cd agent && golangci-lint run --config ../backend/.golangci.yml ./...` | 0 issues |
 | Frontend type-check | `npm run type-check` | pass |
 | Frontend build | `npm run build` | pass |
-| GORM scan | not run | no `backend/internal/models/**`, migration or GORM query files changed |
-| Lefthook | `lefthook run pre-commit --all-files` (plain run skips every hook with nothing staged) | all 17 hooks pass, including semgrep (0 findings, 367 rules), shellcheck, actionlint, dockerfile-check, golangci-lint-fast, frontend-lint |
-| govulncheck | skill `security-scan-go-vuln` | 0 affected. 1 module-level advisory, GO-2026-5932 (x/crypto/openpgp, no fix), not called by Charon code |
-| Trivy | `trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL` on go.mod/go.sum (backend, agent), package-lock.json and Dockerfile | no HIGH/CRITICAL output. The snap-confined trivy cannot read `/projects`, so the manifests were copied under `$HOME` for the scan. No container image scan was done. CI runs the full Trivy/CodeQL. |
-| CodeQL | not run locally | change is `fix:`-scoped with no new feature surface, so deferred to CI per CLAUDE.md |
-| E2E | `docker-rebuild-e2e` skill, then `npx playwright test tests/security/crowdsec-hub-preset-apply.spec.ts tests/security/crowdsec-file-editor.spec.ts tests/security/crowdsec-config.spec.ts --project=security-tests` | 27 passed, 0 failed (image rebuilt first because the Dockerfile and merge commits were newer than the running container) |
-| Coverage (given, not rerun) | prior runs | backend 90.9% stmt, frontend 91.4% lines, patch 93.9% |
+| GORM scan | not run | no `backend/internal/models/**`, migration or GORM query files changed (0 matches in the diff) |
+| Lefthook | `lefthook run pre-commit --all-files` | all 17 hooks pass, including semgrep (0 findings, 367 rules; it logged timeout warnings on three large test files, which are scan-coverage notes, not findings), shellcheck, actionlint, golangci-lint-fast, frontend-lint. Working tree stayed clean. |
+| govulncheck | skill `security-scan-go-vuln` | 0 affected; 1 module-level advisory in a required module that Charon code does not call |
+| Trivy | `trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL` on go.mod/go.sum (backend, agent), package-lock.json and Dockerfile | no HIGH/CRITICAL. The snap trivy cannot read `/projects`, so the manifests were copied under `$HOME` and removed afterwards. No container-image scan locally. |
+| CodeQL | not run locally | `fix:`/`test:` scope, no new feature surface, deferred to CI per CLAUDE.md |
+| E2E | `npx playwright test <nine crowdsec specs> --project=security-tests` | 179 passed, 0 failed (8.4 min). The E2E container (built at 841955af) is valid for HEAD: `git diff 841955af..HEAD` touches only `_test.go`, vitest and Playwright files. |
+| Coverage (given, not rerun) | prior runs | backend 91.0% stmt / 90.1% line, frontend 91.46% lines, patch 98.9% |
 
-The `go-test-coverage` and `local-patch-report` scripts were not rerun, as instructed. The working tree stayed clean until this report was written.
+## Check-by-check results
 
-## Security review
-
-Reviewed against SECURITY.md. No exploit detail is given here.
-
-- `backend/internal/crowdsec/backup.go`: snapshots and restores copy rather than rename. Symlinks are preserved literally and never followed when copying. Clearing the config removes symlinks themselves, because `DirEntry.IsDir` is false for links. Directories are created 0700. Engine-owned state (live db and WAL/SHM at any depth, top-level `data/` and `hub_cache/`) is excluded from snapshot, restore, clear and import. Prune sorts by the timestamp in the directory name, uses `Lstat` and skips non-directories, so a symlinked "backup" is ignored. No issue.
-- `backend/internal/api/handlers/crowdsec_files.go`: relative-path checks use `filepath.IsLocal`, so NUL, absolute and `..` paths are rejected. Read resolves symlinks, checks containment, re-applies the deny-list to the resolved path and requires a regular file. Write refuses any symlink along the path and any non-regular target. It also enforces the extension allowlist, the credential-file deny-list, the temp-prefix deny-list, `hub/` and `config/hub/` exclusion, a 1 MiB content cap and an 8 MiB body cap (`MaxBytesReader`). Writes go through a temp file, fsync and rename, and the original mode is preserved. A single-file backup is taken before the write. Operations serialize on `dataMu`. Logged errors go through `sanitizeForLog`. Adequate. Minor items are F2 to F4 below.
-- `crowdsec_handler.go` `ImportConfig`: takes `dataMu`, then snapshots, clears, extracts and validates. It rolls back in place on failure and then prunes. The extractor blocks traversal and skips engine-owned entries, and symlink and hardlink entries are not materialized. Lock order is documented (`dataMu` before `HubService.mu`). See F3.
-- `hub_sync.go` and `curated_apply.go`: apply is now snapshot, then cscli or extract, then restore on failure, with prune afterwards. The extractor rejects symlink entries, traversal and absolute paths, strips setuid and setgid bits, caps decompressed size at 100 MB and skips engine-owned paths. See F1.
-- `.docker/docker-entrypoint.sh`: the new `data_dir` redirect, `hub_branch` pin and missing-data recovery are idempotent and non-fatal. `hub upgrade` is bounded by `timeout 120s`. Values read from hub YAML (`dest_file`) are only used in `[ -e ]` tests and echoes, never executed or written. All variables are quoted. shellcheck passes.
-- `configs/crowdsec/install_hub_items.sh`: the `is_installed` helper greps the JSON "installed" flag. No injection surface (arguments are static).
-- `Dockerfile`: the XMOD pin is parameterized and registered in `scripts/toolchain-key.sh` and the toolchain key. The x/net and x/crypto re-pin and the post-build `go version -m` guards are correct (`sort -V` floor check, fails the build). The ldflags target `go-cs-lib/version.Version`, and a new cscli `version: v${CROWDSEC_VERSION}` assertion guards against a silent no-op `-X`. The toolchain tag and digest were synced. No weakening.
-- Frontend `CrowdSecConfig.tsx`: the client-side preset fallback write is removed, so the server is authoritative. Server error text is rendered via toast text (React-escaped), so there is no XSS. Mutation errors now surface.
-- CI: the new `notify-codecov` job uses a SHA-pinned action, `persist-credentials: false` and a minimal `if` guard. The persistence integration step is wired with cleanup.
+1. **No absolute path in responses.** All nine leak sites from spec section 2.3 are closed: `backup` fields now go through `crowdsec.BackupID` (file write, import, preset apply success and failure, curated apply, acquisition update); `rollbackFailure`, extractor, `CreateFileNoSymlink` and import/export errors no longer embed paths; preset pull/apply, import validation errors pass through `RedactPaths`. Backed by `crowdsec_response_paths_test.go` and the live E2E checks. Residual gaps are listed as F1 and F2.
+2. **`sanitizeSecret`.** Still masks anything alphanumeric 10-64 chars that mixes letters and digits, and letters-only runs of 32+. A letters-only token of 10-31 chars, or one split by `-`/`_`, is not masked client-side (previously every 10-64 char run was masked). Real enrollment keys are random alphanumeric, so the chance of a digit-free 25-char key is negligible, and the backend already redacts the exact token (`redactSecret`, `console_enroll.go:421`) before any message reaches the client. Acceptable as defense in depth; see F3.
+3. **Hub URL check.** `validateHubURL` now accepts only https plus the three allowlisted hosts. Previously `localhost`, `127.0.0.1`, `::1`, `*.example.com`, `*.example`, `*.local` and `test.hub` passed this layer, but the dial layer (`NewSafeHTTPClient`) already blocked loopback and private targets in production, and unknown public hosts were already rejected by the allowlist. So no production behavior changes for `HUB_BASE_URL` or `HUB_MIRROR_BASE_URL`; the docs note (`docs/troubleshooting/crowdsec.md`) is accurate. Redirects: the hub client uses default `MaxRedirects` 0 (`CheckRedirect` returns `ErrUseLastResponse`), so a redirect cannot reach an unvalidated host. `WithAllowedDomains` was never read anywhere (`AllowedDomains` had no consumers), so its removal is behavior-neutral and the SSRF protection actually relied on the dial layer plus `validateHubURL`. The test seam `HubService.validateURL` is an unexported field set in exactly one test (`hub_sync_test.go:117`, a local httptest server); production never sets it and nothing outside the package can. The other tests use allowlisted hostnames with mock transports, or unreachable `127.0.0.1:1` URLs that only assert failure (`backup_test.go:598-663`), so none depends on a real non-production host.
+4. **gzip exclusion.** gin-contrib/gzip v1.2.8 matches `strings.HasPrefix(requestURI, path)`. The only registered route with the prefix `/api/v1/admin/crowdsec/export` is `GET /admin/crowdsec/export`; `/admin/crowdsec/decisions/export` does not start with it. No other route is excluded. Caveat in F5.
+5. **E2E tolerance.** The Bz command from the spec over the six files returns nothing (exit 1). An extra scan of the six specs and both helpers for `console.log`, `annotations.push`, `test.fixme` and `.skip(` also returns nothing. `tests/` is in `.dockerignore`, not copied by the Dockerfile, and `crowdsec-stubs.ts` / `archive-helpers.ts` are not imported from `frontend/` or `backend/`, so no test helper ships in a production bundle.
+6. **Commit subjects.** Reviewed with `git log origin/development..HEAD --format=%s`. The only `(security)` subject, `fix(security): harden CrowdSec editor access`, is vague. See F4 for two non-scoped subjects that are slightly specific.
+7. **Security-sensitive items.** See F1 and F6; no exploit detail is given.
 
 ## Findings
 
 No critical or high findings.
 
-### Security-sensitive (do not file publicly; maintainer to decide on advisory or hardening commit)
+### Security-sensitive (do not file publicly; maintainer to decide)
 
-**S1: low.** `backend/internal/crowdsec/hub_sync.go:951-971` (`extractTarGz` file open). The old flow emptied the target before extracting; the new documented overlay design does not. File creation uses `O_CREATE|O_TRUNC` without a symlink check on the destination, so it follows any pre-existing link in the live tree. The archive is hub-sourced and cached, and symlink entries in the archive are already rejected, so exploitation needs a hostile hub archive plus an existing link. The spec's "residual risk" note covers overlaying but not this write-through. Suggested hardening: `Lstat` the destination (and ideally its parents) and refuse symlinks, or open with `O_NOFOLLOW`.
+**F1: low-medium (information exposure, admin-authenticated).** Absolute server paths can still reach CrowdSec API responses at sites that the spec did not enumerate, contradicting its acceptance criterion "no absolute path in any CrowdSec API response, including error text":
+- `backend/internal/api/handlers/crowdsec_handler.go:1977` and `:1986`: `GET /admin/crowdsec/acquisition` returns `path` (the acquisition file location) on both 404 and 200. The frontend does not read it.
+- `crowdsec_handler.go` diagnostics config (`~2136-2230`): `validation["config_path"]` and `validation["acquis_path"]` return absolute paths. The frontend does not read them.
+- `crowdsec_handler.go:522` (Start), `:596` (Stop), `:624` (Status), `:978` (ClearEnrollment), `:2250` (console status), and `crowdsec_preset_handler.go:395` (preview) return raw `err.Error()`. The executor errors wrap filesystem errors (`crowdsec_exec.go:71` "failed to write pid file: %w", `:92` "pid file read: %w"), which embed the pid-file path.
+Suggested remediation: drop the `path` fields (or return a fixed label), and either pass those errors through `crowdsec.RedactPaths` or return fixed messages and log the detail. Add the sites to `crowdsec_response_paths_test.go`.
 
-**S2: low.** `backend/internal/api/handlers/crowdsec_handler.go:793` (`extractArchive`). Same pattern: `OpenFile` without `O_EXCL` or `O_TRUNC`, which can leave stale trailing bytes when an archive repeats a name. The tree is cleared first, so impact is limited to duplicate entries. Fix: `O_CREATE|O_WRONLY|O_TRUNC` plus a symlink check.
+**F6: low (documented limitation).** `ExportConfig` still archives the credentials files and `bouncer_key` that the editor now hides (the spec records this as a known limitation and defers the decision). `docs/features/crowdsec.md` and `docs/features.md` say the editor no longer lists the credential files but do not mention that the config export still includes them, which could give false assurance. Suggested: one sentence in the docs and a tracked issue for the export decision.
 
-### Medium and low non-security (for the maintainer to file)
+### Non-security (for the maintainer to file)
 
-- **F1: low.** `backend/internal/crowdsec/hub_sync.go:954-957`. The containment check compares against `rel == ".."` and uses `HasPrefix(cleanName, "..")`, which also rejects legitimate names starting with `..` (for example `..foo`). Cosmetic and safe, since it errs on the strict side.
-- **F2: low (information exposure to authenticated admin).** `crowdsec_files.go:300` and `:325` return `err.Error()` to the client on 500, which can embed absolute server paths. Other branches use fixed messages. Suggested: generic message and log the detail with `fileErrorLog`.
-- **F3: low.** The `backup` field in the `WriteFile` (`crowdsec_files.go:391`) and `ImportConfig` (`crowdsec_handler.go:727`) responses returns an absolute server path. This is consistent with the existing preset-apply behavior and with UI expectations, so it is likely intentional. The extraction error response in `crowdsec_handler.go:715` also interpolates the archive entry name and `%v` error text.
-- **F4: low.** `ReadFile` (`crowdsec_files.go:319`) has no read-size cap (the write cap is 1 MiB). The risk is small because the endpoint is admin-only and the tree is config-sized.
-- **F5: info.** `local_api_credentials.yaml` and `online_api_credentials.yaml` are write-protected but readable and listed by the editor. This matches the design where `isWritable` is a subset of `isReadable`; confirm that exposing them to admins in the UI is intended.
-- **F6: low (test quality).** Known and accepted: #1526 (tolerant Playwright specs).
+- **F2: low.** `RedactPaths` (`crowdsec/backup.go:351-356`) only redacts absolute paths preceded by whitespace, a quote, `(` or `=` and ends them at whitespace, `:`, `;`, `)` or a quote. Paths preceded by `[`, `{`, `,`, `<`, `@` or `:`, and the tail of a path containing a space or colon, would pass through. Today every redacted source (cscli output, validators, extractor) uses the "open /path: reason" form, so nothing leaks in tested cases; the function is a safety net, not a guarantee. It also rewrites non-path text such as " /api/v1/x" to `<path>` (cosmetic).
+- **F3: low.** `frontend/src/utils/sanitizeSecret.ts:10-18` no longer masks letters-only runs of 10-31 characters (see check 2). Backend redaction is the primary control. Optional: keep masking any 20+ char run regardless of content.
+- **F4: low (changelog wording).** `fix: stop returning server paths in CrowdSec responses` (66a4aced) and `refactor: remove the unenforced allowed-domains client option` (1725feb8) are not `(security)`-scoped but name the issue category fairly directly and will appear verbatim in the public changelog. Consider rewording before merge, for example `fix: show CrowdSec backups by name` and `refactor: remove unused HTTP client option`. No hash is pushed yet, so rewording is cheap.
+- **F5: info.** `routes.go:1260` excludes by URI prefix, so any future route that begins with `/api/v1/admin/crowdsec/export` (for example `export-foo`, or a query string) would also skip compression. Harmless today; an exact-path or regex exclusion would be stricter.
+- **F7: info.** The prior report's S1/S2 (extraction opens destination files without a symlink check in `extractTarGz` and `ImportConfig.extractArchive`) were not re-audited in this pass beyond the changed lines; `CreateFileNoSymlink` is unchanged in behavior.
 
 ## Out of scope and not verified
 
-- Codecov manual-trigger behavior cannot be tested locally.
 - Full-suite and cross-browser E2E are deferred to CI.
 - CodeQL and a container-image Trivy scan are deferred to CI.
+- Coverage and local patch scripts were not rerun, as instructed.
