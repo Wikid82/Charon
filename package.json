@@ -28,7 +28,7 @@
     "eslint": "^10.12.0",
     "lefthook": "^2.2.1",
     "markdownlint-cli2": "^0.23.3",
-    "prettier": "^3.9.9",
+    "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tar": "^7.5.22",
     "typescript": "^6.0.3"
