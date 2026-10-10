@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -134,4 +136,67 @@ func TestImportConfigConfigYAMLValidationMessages(t *testing.T) {
 			require.JSONEq(t, `{"error":"`+tc.want+`"}`, w.Body.String())
 		})
 	}
+}
+
+// validateWithin runs validateYAMLFile and fails the test if it does not return within the bound.
+func validateWithin(t *testing.T, content string) error {
+	const bound = 10 * time.Second
+	t.Helper()
+	path := writeConfigFile(t, content)
+	done := make(chan error, 1)
+	go func() { done <- validateYAMLFile(path) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(bound):
+		t.Fatalf("validateYAMLFile did not return within %s", bound)
+		return nil
+	}
+}
+
+// aliasBombDocument builds a small document whose fully expanded form is fanout^levels nodes.
+func aliasBombDocument(levels, fanout int) string {
+	var b strings.Builder
+	b.WriteString("api:\n  server: {}\n")
+	b.WriteString("l0: &l0 [" + strings.TrimSuffix(strings.Repeat("x,", fanout), ",") + "]\n")
+	for i := 1; i <= levels; i++ {
+		refs := make([]string, fanout)
+		for j := range refs {
+			refs[j] = fmt.Sprintf("*l%d", i-1)
+		}
+		fmt.Fprintf(&b, "l%d: &l%d [%s]\n", i, i, strings.Join(refs, ", "))
+	}
+	return b.String()
+}
+
+func TestValidateYAMLFileRejectsAliasExpansionBomb(t *testing.T) {
+	doc := aliasBombDocument(10, 9)
+	require.Less(t, len(doc), 1024, "the bomb must stay tiny on disk")
+
+	start := time.Now()
+	err := validateWithin(t, doc)
+	require.EqualError(t, err, "config.yaml is not valid YAML")
+	require.Less(t, time.Since(start), 5*time.Second)
+}
+
+func TestValidateYAMLFileAcceptsModerateAliasing(t *testing.T) {
+	// Two levels of 9-way reuse (81 expanded nodes) is ordinary anchor reuse and must still be accepted.
+	require.NoError(t, validateWithin(t, aliasBombDocument(2, 9)))
+}
+
+func TestValidateYAMLFileNesting(t *testing.T) {
+	nested := func(depth int) string {
+		return "api:\n  server: " + strings.Repeat("[", depth) + strings.Repeat("]", depth) + "\n"
+	}
+
+	t.Run("moderate nesting is accepted", func(t *testing.T) {
+		require.NoError(t, validateWithin(t, nested(20)))
+	})
+
+	t.Run("very deep nesting returns promptly without panicking", func(t *testing.T) {
+		err := validateWithin(t, nested(5000))
+		if err != nil {
+			require.EqualError(t, err, "config.yaml is not valid YAML")
+		}
+	})
 }
