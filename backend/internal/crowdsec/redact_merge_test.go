@@ -344,6 +344,8 @@ func TestMergeSelectsFilesLikeTheExport(t *testing.T) {
 		"config/notifications/sub/hook.yaml":  mergeDoc("http", liveMarker),
 		"config/custom_notify/hook2.yaml":     strings.Replace(mergeDoc("http", liveMarker), "name: hook", "name: hook2", 1),
 		"config/notifications.bak/hook3.yaml": strings.Replace(mergeDoc("http", liveMarker), "name: hook", "name: hook3", 1),
+		"config/other/hook4.yml":              strings.Replace(strings.Replace(mergeDoc("http", liveMarker), "type: http", "type: \"http\"", 1), "name: hook", "name: hook4", 1),
+		"config/other/hook5.yml":              "name: first\n---\n" + strings.Replace(mergeDoc("http", liveMarker), "name: hook", "name: hook5", 1),
 	}
 	data := writeTree(t, map[string]string{"config/config.yaml": "x: y\n"})
 	archive := map[string]string{
@@ -351,6 +353,8 @@ func TestMergeSelectsFilesLikeTheExport(t *testing.T) {
 		"config/notifications/sub/hook.yaml":  blankedFile("http"),
 		"config/custom_notify/hook2.yaml":     strings.Replace(blankedFile("http"), "name: hook", "name: hook2", 1),
 		"config/notifications.bak/hook3.yaml": strings.Replace(blankedFile("http"), "name: hook", "name: hook3", 1),
+		"config/other/hook4.yml":              strings.Replace(strings.Replace(blankedFile("http"), "type: http", "type: \"http\"", 1), "name: hook", "name: hook4", 1),
+		"config/other/hook5.yml":              "name: first\n---\n" + strings.Replace(blankedFile("http"), "name: hook", "name: hook5", 1),
 		"config/parsers/other.yaml":           "type: mystery\nname: hook\nsecret: " + RedactedPlaceholder + "\n",
 	}
 	for rel, body := range archive {
@@ -362,7 +366,7 @@ func TestMergeSelectsFilesLikeTheExport(t *testing.T) {
 
 	require.NoError(t, MergeRedactedNotifications(snap, data))
 
-	for _, rel := range []string{"config/notifications/sub/hook.yaml", "config/custom_notify/hook2.yaml", "config/notifications.bak/hook3.yaml"} {
+	for _, rel := range []string{"config/notifications/sub/hook.yaml", "config/custom_notify/hook2.yaml", "config/notifications.bak/hook3.yaml", "config/other/hook4.yml", "config/other/hook5.yml"} {
 		require.Contains(t, readFile(t, relPath(data, rel)), liveMarker, rel)
 	}
 	require.Contains(t, readFile(t, relPath(data, "config/parsers/other.yaml")), RedactedPlaceholder)

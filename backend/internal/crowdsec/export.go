@@ -2,7 +2,6 @@ package crowdsec
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -12,8 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -312,7 +309,7 @@ func addRedactedExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel str
 		if err := checkUnchanged(f, info, rel); err != nil {
 			return 0, err
 		}
-		if kind == NotAFile && IsNotificationFile(filepath.ToSlash(rel), firstYAMLRoot(data), dirs) == NotAFile {
+		if kind == NotAFile && IsNotificationFile(filepath.ToSlash(rel), LookAlikeDocuments(data), dirs) == NotAFile {
 			out = data
 		} else if res, redactErr := RedactNotificationFile(data); redactErr != nil {
 			out = []byte(RedactStubContent)
@@ -330,15 +327,6 @@ func addRedactedExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel str
 // logStubbed notes, without any file content, that a notification file was exported empty.
 func logStubbed(rel string) {
 	logger.Log().Warnf("exporting %s as an empty file: it could not be read safely", util.SanitizeForLog(rel))
-}
-
-// firstYAMLRoot parses the first document of data within the redactor's bounds; nil when it cannot.
-func firstYAMLRoot(data []byte) *yaml.Node {
-	docs, err := ParseYAMLDocuments(bytes.NewReader(data), true)
-	if err != nil || len(docs) == 0 || countNodes(docs[0]) > maxRedactNodes {
-		return nil
-	}
-	return docs[0]
 }
 
 // treeNotificationDirs returns the notification folders of the tree below dataDir (the live tree, an

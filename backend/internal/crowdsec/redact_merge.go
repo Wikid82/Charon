@@ -187,6 +187,9 @@ func readNotificationFile(root, rel string, kind NotificationFileKind, dirs []st
 		logger.Log().Debugf("crowdsec import: %s is too large to examine", util.SanitizeForLog(rel))
 		return notificationFile{}, false, nil
 	}
+	if kind == NotAFile && IsNotificationFile(rel, LookAlikeDocuments(data), dirs) != LookAlikeYAML {
+		return notificationFile{}, false, nil
+	}
 	docs, parseErr := ParseYAMLDocuments(bytes.NewReader(data), false)
 	if parseErr != nil {
 		logger.Log().Debugf("crowdsec import: %s does not parse; leaving it alone", util.SanitizeForLog(rel))
@@ -197,9 +200,6 @@ func readNotificationFile(root, rel string, kind NotificationFileKind, dirs []st
 		nodes += countNodes(d)
 	}
 	if nodes > maxRedactNodes {
-		return notificationFile{}, false, nil
-	}
-	if kind == NotAFile && (len(docs) == 0 || IsNotificationFile(rel, docs[0], dirs) != LookAlikeYAML) {
 		return notificationFile{}, false, nil
 	}
 	return notificationFile{rel: rel, docs: docs, mode: info.Mode().Perm() & 0o600}, true, nil

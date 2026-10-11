@@ -52,11 +52,11 @@ func hasYAMLExt(name string) bool {
 }
 
 // IsNotificationFile is the single place that decides what a notification file is. rel is a slash path
-// below the root being examined and dirs is NotificationDirs for that same root. parsedRoot is the root
-// mapping (or its document node) of the file's first document, or nil when the caller has not parsed
-// it; it is only consulted for YAML files outside the notification directories. The function never
-// reads files itself.
-func IsNotificationFile(rel string, parsedRoot *yaml.Node, dirs []string) NotificationFileKind {
+// below the root being examined and dirs is NotificationDirs for that same root. docs are the parsed
+// documents of the file (see LookAlikeDocuments), or nil when the caller has not parsed it; they are only
+// consulted for YAML files outside the notification directories, where any one document naming a known
+// plugin makes the file a look-alike. The function never reads files itself.
+func IsNotificationFile(rel string, docs []*yaml.Node, dirs []string) NotificationFileKind {
 	rel = path.Clean(filepath.ToSlash(rel))
 	if rel == "." || rel == "" || rel == ".." || strings.HasPrefix(rel, "../") || strings.HasPrefix(rel, "/") {
 		return NotAFile
@@ -67,7 +67,7 @@ func IsNotificationFile(rel string, parsedRoot *yaml.Node, dirs []string) Notifi
 		}
 		return InDirOther
 	}
-	if hasYAMLExt(rel) && namesKnownPlugin(parsedRoot) {
+	if hasYAMLExt(rel) && anyNamesKnownPlugin(docs) {
 		return LookAlikeYAML
 	}
 	return NotAFile
@@ -90,8 +90,38 @@ func inNotificationDir(rel string, dirs []string) bool {
 	return false
 }
 
-// namesKnownPlugin reports whether root is a mapping with a direct plain string "type" naming a known
-// plugin type.
+// LookAlikeDocuments parses data for the look-alike probe shared by export, merge and scan: every
+// document, within the redactor's node bound. It returns nil when the text cannot contain a "type" key,
+// when it does not parse, or when it is too large to inspect, so such a file is never a look-alike.
+func LookAlikeDocuments(data []byte) []*yaml.Node {
+	if int64(len(data)) > maxInspectEntryBytes || !bytes.Contains(data, []byte("type")) {
+		return nil
+	}
+	docs, err := ParseYAMLDocuments(bytes.NewReader(data), false)
+	if err != nil {
+		return nil
+	}
+	nodes := 0
+	for _, d := range docs {
+		nodes += countNodes(d)
+		if nodes > maxRedactNodes {
+			return nil
+		}
+	}
+	return docs
+}
+
+func anyNamesKnownPlugin(docs []*yaml.Node) bool {
+	for _, d := range docs {
+		if namesKnownPlugin(d) {
+			return true
+		}
+	}
+	return false
+}
+
+// namesKnownPlugin reports whether root is a mapping with a direct scalar string "type" (plain or
+// quoted, any scalar style) naming a known plugin type.
 func namesKnownPlugin(root *yaml.Node) bool {
 	if root == nil {
 		return false
@@ -108,7 +138,7 @@ func namesKnownPlugin(root *yaml.Node) bool {
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		k, v := root.Content[i], root.Content[i+1]
 		if k.Kind == yaml.ScalarNode && k.Value == "type" {
-			if v.Kind != yaml.ScalarNode || v.Tag != "!!str" || v.Style != 0 {
+			if v.Kind != yaml.ScalarNode || v.Tag != "!!str" {
 				return false
 			}
 			_, ok := knownPluginTypes[strings.ToLower(v.Value)]

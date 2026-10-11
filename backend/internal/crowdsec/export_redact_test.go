@@ -345,3 +345,37 @@ func TestExportArchiveLogsHoldNoNotificationContent(t *testing.T) {
 	}
 	require.True(t, sawStub)
 }
+
+func TestExportArchiveBlanksLookAlikesWithQuotedOrLaterDocumentTypes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	files := map[string]string{
+		"config/other/double.yml":  "type: \"http\"\nname: n\nurl: https://h.example.invalid/" + planted + "a\n",
+		"config/other/single.yaml": "type: 'splunk'\nname: n\ntoken: " + planted + "b\n",
+		"config/other/second.yml":  "name: first\n---\ntype: slack\nname: n\nwebhook: https://h.example.invalid/" + planted + "c\n",
+		"config/other/flow.yaml":   "{type: http, name: n, url: \"https://h.example.invalid/" + planted + "d\"}\n",
+	}
+	writeExportTree(t, dir, files)
+	archive, entries, _ := exportEntries(t, dir)
+	requireNoToken(t, archive)
+	for name := range files {
+		require.Contains(t, entries, name)
+		require.Contains(t, entries[name], RedactedPlaceholder, name)
+	}
+}
+
+func TestExportArchiveKeepsNearMissesOutsideTheFoldersUnchanged(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	other := map[string]string{
+		"config/other/key_case.yml":       "Type: http\nurl: x\n",
+		"config/other/unknown_q.yml":      "type: \"parser\"\nname: x\n",
+		"config/other/later_broken.yml":   "type: \"http\"\n---\na: [unclosed\n",
+		"config/other/no_plugin_docs.yml": "type: webhook\n---\ntype: parser\n",
+	}
+	writeExportTree(t, dir, other)
+	_, entries, _ := exportEntries(t, dir)
+	for name, want := range other {
+		require.Equal(t, want, entries[name], name)
+	}
+}

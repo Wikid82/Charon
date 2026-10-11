@@ -1,7 +1,6 @@
 package crowdsec
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,12 +10,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func parseRoot(t *testing.T, src string) *yaml.Node {
+func parseDocs(t *testing.T, src string) []*yaml.Node {
 	t.Helper()
-	docs, err := ParseYAMLDocuments(bytes.NewReader([]byte(src)), true)
+	docs, err := ParseYAMLDocuments(strings.NewReader(src), false)
 	require.NoError(t, err)
-	require.NotEmpty(t, docs)
-	return docs[0]
+	return docs
 }
 
 func TestIsNotificationFileClasses(t *testing.T) {
@@ -48,7 +46,17 @@ func TestIsNotificationFileClasses(t *testing.T) {
 		{"look alike via document node", "x.yaml", httpRoot, LookAlikeYAML},
 		{"unknown type", "x.yaml", "type: webhook\n", NotAFile},
 		{"typeless", "config/config.yaml", "api:\n  server: {}\n", NotAFile},
-		{"quoted type is not plain", "x.yaml", "type: \"http\"\n", NotAFile},
+		{"double quoted type", "x.yaml", "type: \"http\"\n", LookAlikeYAML},
+		{"single quoted type", "x.yaml", "type: 'Slack'\n", LookAlikeYAML},
+		{"quoted type key", "x.yaml", "\"type\": http\n", LookAlikeYAML},
+		{"flow style mapping", "x.yaml", "{type: http, name: n}\n", LookAlikeYAML},
+		{"second document names a plugin", "x.yaml", "name: a\n---\ntype: splunk\n", LookAlikeYAML},
+		{"later document after a non mapping", "x.yaml", "- a\n---\ntype: \"email\"\n", LookAlikeYAML},
+		{"no document names a plugin", "x.yaml", "type: webhook\n---\ntype: parser\n", NotAFile},
+		{"key case is exact", "x.yaml", "Type: http\n", NotAFile},
+		{"quoted unknown type", "x.yaml", "type: \"webhook\"\n", NotAFile},
+		{"explicit non string tag", "x.yaml", "type: !!binary aHR0cA==\n", NotAFile},
+		{"unparsable later document", "x.yaml", "type: http\n---\na: [\n", NotAFile},
 		{"aliased type", "x.yaml", "t: &t http\ntype: *t\n", NotAFile},
 		{"non scalar type", "x.yaml", "type: [http]\n", NotAFile},
 		{"non mapping root", "x.yaml", "- type: http\n", NotAFile},
@@ -62,18 +70,20 @@ func TestIsNotificationFileClasses(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			var root *yaml.Node
-			if tc.root != "" {
-				root = parseRoot(t, tc.root)
+			var docs []*yaml.Node
+			if tc.root != "" && !strings.Contains(tc.name, "unparsable") {
+				docs = parseDocs(t, tc.root)
+			} else if tc.root != "" {
+				require.Nil(t, LookAlikeDocuments([]byte(tc.root)))
 			}
-			require.Equal(t, tc.want, IsNotificationFile(tc.rel, root, dirs))
+			require.Equal(t, tc.want, IsNotificationFile(tc.rel, docs, dirs))
 		})
 	}
 }
 
 func TestIsNotificationFileEmptyDocument(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, NotAFile, IsNotificationFile("x.yaml", &yaml.Node{Kind: yaml.DocumentNode}, nil))
+	require.Equal(t, NotAFile, IsNotificationFile("x.yaml", []*yaml.Node{{Kind: yaml.DocumentNode}}, nil))
 }
 
 func writeTree(t *testing.T, files map[string]string) string {
@@ -176,4 +186,14 @@ func TestIsEnvReference(t *testing.T) {
 	}
 	require.False(t, IsEnvReference("$"+strings.Repeat("A", maxEnvRefBytes)))
 	require.True(t, IsEnvReference("$"+strings.Repeat("A", maxEnvRefBytes-1)))
+}
+
+func TestLookAlikeDocumentsBounds(t *testing.T) {
+	t.Parallel()
+	require.Nil(t, LookAlikeDocuments([]byte("name: x\nurl: y\n")), "no type text: not parsed")
+	require.Nil(t, LookAlikeDocuments(nil))
+	require.Nil(t, LookAlikeDocuments([]byte("type: [\n")))
+	require.Nil(t, LookAlikeDocuments([]byte("type: http\n"+strings.Repeat("#", int(maxInspectEntryBytes))+"\n")))
+	require.Nil(t, LookAlikeDocuments([]byte("type: x\nlist: ["+strings.Repeat("1,", maxRedactNodes)+"1]\n")))
+	require.Len(t, LookAlikeDocuments([]byte("a: 1\n---\ntype: http\n")), 2)
 }
