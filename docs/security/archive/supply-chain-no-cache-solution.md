@@ -73,7 +73,7 @@ After implementing `--no-cache` builds, the supply chain scan still reports **8 
 
 **Dependency Chain**:
 
-```
+```text
 github.com/go-playground/validator/v10@v10.28.0
   └─> golang.org/x/crypto@v0.42.0 (VULNERABLE)
 
@@ -308,13 +308,13 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 
 **Before Replace Directive**:
 
-```
+```text
 Medium: 8 (busybox x3, curl x1, golang.org/x/crypto x4)
 ```
 
 **After Replace Directive**:
 
-```
+```text
 Medium: 4 (busybox x3, curl x1)
 ```
 

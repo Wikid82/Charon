@@ -50,7 +50,7 @@ DNS auto-detection uses a simple but powerful process:
 
 **Example Detection Flow:**
 
-```
+```text
 User enters: *.example.com
 ↓
 DNS Lookup: example.com NS records
@@ -112,7 +112,7 @@ Charon has built-in detection for these major DNS providers:
 
    **High Confidence Example:**
 
-   ```
+   ```text
    ✓ Cloudflare detected (High confidence)
 
    Nameservers:
@@ -124,7 +124,7 @@ Charon has built-in detection for these major DNS providers:
 
    **Medium/Low Confidence Example:**
 
-   ```
+   ```text
    ⚠ DigitalOcean detected (Medium confidence)
 
    Nameservers:
@@ -138,7 +138,7 @@ Charon has built-in detection for these major DNS providers:
 
    **No Detection Example:**
 
-   ```
+   ```text
    ✗ DNS provider not detected
 
    Nameservers:
@@ -435,7 +435,7 @@ nslookup -type=NS example.com
 
 Expected output:
 
-```
+```text
 ns1.cloudflare.com.
 ns2.cloudflare.com.
 ```
@@ -563,7 +563,7 @@ Compare with detected nameservers in Charon's result.
 
 **Example:**
 
-```
+```text
 ⚠ DigitalOcean detected (Medium confidence)
 
 Nameservers:
@@ -1241,7 +1241,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 
 **Example Review Checklist:**
 
-```
+```text
 ✓ Provider name: "Cloudflare" ← Correct?
 ✓ Nameservers: ns1.cloudflare.com ← Recognized?
 ✓ Confidence: "High" ← Acceptable?
@@ -1281,7 +1281,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 
 **UI Pattern:**
 
-```
+```text
 ✓ Cloudflare detected (High confidence)
 [✓ Use Cloudflare]  [Select Manually]  ← Keep both options!
 ```
@@ -1332,7 +1332,7 @@ curl -X POST https://charon-dev.internal/api/v1/dns-providers/detect \
 
 **Example Monitoring:**
 
-```
+```text
 Detection Stats (Last 7 Days):
 - Total detections: 1,234
 - Successful (high confidence): 987 (80%)

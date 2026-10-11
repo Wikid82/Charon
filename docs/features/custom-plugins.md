@@ -116,7 +116,7 @@ sha256sum powerdns.so
 
    Expected output:
 
-   ```
+   ```text
    INFO Loaded DNS provider plugin type=powerdns name="PowerDNS" version="1.0.0"
    INFO Loaded 1 external DNS provider plugins (0 failed)
    ```

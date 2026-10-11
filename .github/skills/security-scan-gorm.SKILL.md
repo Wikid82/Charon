@@ -238,7 +238,7 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 
 ### Output Format
 
-```
+```text
 🔍 GORM Security Scanner v1.0.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

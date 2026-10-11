@@ -395,7 +395,7 @@ If you've been using webhook providers without JSON templates:
 
 **Before (Basic webhook):**
 
-```
+```text
 Type: webhook
 URL: https://discord.com/api/webhooks/...
 Template: (not available)
@@ -403,7 +403,7 @@ Template: (not available)
 
 **After (JSON template):**
 
-```
+```text
 Type: discord
 URL: https://discord.com/api/webhooks/...
 Template: detailed (or custom)
@@ -526,7 +526,7 @@ Be mindful of service limits:
 
 Create separate providers for different severity levels:
 
-```
+```text
 Provider: Discord Critical
 Events: uptime_down, ssl_failure
 Template: Custom with @everyone mention

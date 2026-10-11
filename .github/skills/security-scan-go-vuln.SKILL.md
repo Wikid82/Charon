@@ -127,14 +127,14 @@ GOVULNCHECK_FORMAT=json .github/skills/scripts/skill-runner.sh security-scan-go-
 
 ### Text Output (Default)
 
-```
+```text
 Scanning for dependencies with known vulnerabilities...
 No vulnerabilities found.
 ```
 
 Or if vulnerabilities are found:
 
-```
+```text
 Found 2 vulnerabilities in dependencies
 
 Vulnerability #1: GO-2023-1234
@@ -164,7 +164,7 @@ cd backend
 
 Output:
 
-```
+```text
 Scanning your code and 125 packages across 23 dependent modules for known vulnerabilities...
 No vulnerabilities found.
 ```

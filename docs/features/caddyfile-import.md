@@ -53,7 +53,7 @@ Choose one of three methods:
 
 **Paste Content:**
 
-```
+```text
 example.com {
     reverse_proxy localhost:3000
 }
@@ -98,7 +98,7 @@ After import completes, a summary modal displays:
 
 ### Example Results
 
-```
+```text
 Import Complete
 
 ✓ Created: 12 hosts

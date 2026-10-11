@@ -229,7 +229,7 @@ The skill will:
 
 #### Docker Build Failed
 
-```
+```text
 Error: docker build failed
 ```
 
@@ -237,7 +237,7 @@ Error: docker build failed
 
 #### Port Already in Use
 
-```
+```text
 Error: bind: address already in use
 ```
 
@@ -245,7 +245,7 @@ Error: bind: address already in use
 
 #### Health Check Timeout
 
-```
+```text
 Error: Container did not become healthy in 60s
 ```
 
@@ -253,7 +253,7 @@ Error: Container did not become healthy in 60s
 
 #### Volume Permission Issues
 
-```
+```text
 Error: permission denied
 ```
 

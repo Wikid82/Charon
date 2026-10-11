@@ -63,4 +63,4 @@ You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
 - **ACCESSIBILITY**: All interactive elements must be keyboard accessible
 </constraints>
 
-```
+```text

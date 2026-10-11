@@ -125,7 +125,7 @@ For use in GitHub Actions workflows:
 
 Example output:
 
-```
+```text
 === Testing CrowdSec Bouncer Integration ===
 ✓ LAPI Connection: Successful
 ✓ Bouncer Authentication: Valid API Key

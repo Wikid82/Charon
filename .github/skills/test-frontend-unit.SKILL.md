@@ -125,7 +125,7 @@ No environment variables are required for this skill.
 
 Example output:
 
-```
+```text
 ✓ src/components/Button.test.tsx (3)
 ✓ src/utils/helpers.test.ts (5)
 ✓ src/hooks/useAuth.test.ts (4)

@@ -135,7 +135,7 @@ curl -H "Host: yourdomain.com" http://your-backend:8080 -v 2>&1 | grep -i "x-"
 
 Look for:
 
-```
+```text
 > X-Real-IP: 203.0.113.42
 > X-Forwarded-Proto: https
 > X-Forwarded-Host: yourdomain.com

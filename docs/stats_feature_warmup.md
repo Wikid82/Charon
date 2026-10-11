@@ -79,7 +79,7 @@ When you upgrade:
 
 ### Data Collection Pipeline
 
-```
+```text
 Caddy Access Logs
     ↓
 LogWatcher (parses JSON logs)

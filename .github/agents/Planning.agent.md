@@ -97,4 +97,4 @@ You are a PRINCIPAL ARCHITECT responsible for technical planning and system desi
 - **SLICE FOR SPEED**: Prefer multiple small PRs when it improves review quality, delivery speed, or rollback safety
 </constraints>
 
-```
+```text

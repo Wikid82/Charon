@@ -84,7 +84,7 @@ This skill requires no environment variables.
 
 ### Output Example
 
-```
+```text
 Deleted Containers:
 f8d1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab
 
@@ -207,7 +207,7 @@ Common issues and solutions:
 
 ### Permission Denied
 
-```
+```text
 Error: permission denied
 ```
 
@@ -215,7 +215,7 @@ Solution: Add user to docker group or use sudo
 
 ### Daemon Not Running
 
-```
+```text
 Error: Cannot connect to Docker daemon
 ```
 
@@ -223,7 +223,7 @@ Solution: Start Docker service
 
 ### Resource in Use
 
-```
+```text
 Error: resource is in use
 ```
 

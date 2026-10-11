@@ -22,7 +22,7 @@ The database consists of 8 main tables:
 
 ## Entity Relationship Diagram
 
-```
+```text
 ┌─────────────────┐
 │   ProxyHost     │
 ├─────────────────┤

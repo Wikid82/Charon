@@ -40,7 +40,7 @@ Successfully implemented Bug #1 fix per investigation report `docs/issues/crowds
 
 **Example Log Output**:
 
-```
+```text
 time="..." level=info msg="LAPI not ready, retrying with backoff" attempt=1 error="connection refused" next_attempt_ms=500
 time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
 ```
@@ -91,7 +91,7 @@ time="..." level=info msg="CrowdSec bouncer authentication successful" masked_ke
 
 **Coverage Results**:
 
-```
+```text
 crowdsec_handler.go:1548: testKeyAgainstLAPI        75.0%
 crowdsec_handler.go:1641: ensureBouncerRegistration 83.3%
 crowdsec_handler.go:1720: registerAndSaveBouncer    78.6%

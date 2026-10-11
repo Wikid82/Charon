@@ -274,7 +274,7 @@ Schedule within 48 hours of incident resolution.
 
 ### Internal Notification (P1/P2)
 
-```
+```text
 SECURITY INCIDENT ALERT
 
 Severity: [P1/P2]
@@ -294,7 +294,7 @@ Contact: [Incident Commander Name/Channel]
 
 ### User Communication (If Service Affected)
 
-```
+```text
 Service Notification
 
 We are currently experiencing [brief issue description].
@@ -310,7 +310,7 @@ Last Updated: [Time]
 
 ### Post-Incident Summary (External)
 
-```
+```text
 Security Incident Summary
 
 On [Date], we identified and responded to a security incident affecting [scope].
@@ -397,4 +397,4 @@ docker exec charon cscli lapi status
 
 **Last Reviewed:** 2025-12-21
 
-```
+```text

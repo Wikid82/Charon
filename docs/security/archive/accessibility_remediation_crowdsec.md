@@ -36,7 +36,7 @@ Verification was performed using the Playwright E2E test suite running against a
 
 **Result**: ✅ **PASSED**
 
-```
+```text
 ✓ [Firefox] › tests/security/crowdsec-decisions.spec.ts:74:5 › CrowdSec Banned IPs Management › Add Decision (Ban IP) - Requires CrowdSec Running › should open ban modal on add button click (1.2s)
 ```
 

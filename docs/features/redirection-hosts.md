@@ -87,7 +87,7 @@ Turn on **Preserve Path** and Charon carries over whatever specific page (and an
 
 A visitor goes to `old-blog.example.com/posts/my-favorite-recipe?ref=newsletter`. With Target URL set to `https://newblog.example.com`, they land on:
 
-```
+```text
 https://newblog.example.com/posts/my-favorite-recipe?ref=newsletter
 ```
 
@@ -95,7 +95,7 @@ https://newblog.example.com/posts/my-favorite-recipe?ref=newsletter
 
 The same visitor instead lands on exactly:
 
-```
+```text
 https://newblog.example.com
 ```
 

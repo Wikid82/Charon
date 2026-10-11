@@ -247,7 +247,7 @@ cmd := exec.Command("sh", "-c", "cscli bouncers list " + userInput)
 
 ### Directory Structure
 
-```
+```text
 /data/charon/
 ├── config/          (0750 charon:charon)
 │   ├── config.yaml  (0640 charon:charon)

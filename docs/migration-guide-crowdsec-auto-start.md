@@ -26,13 +26,13 @@ Starting in version 0.9.0, CrowdSec now **automatically starts** when the contai
 
 **Before (v0.8.x):**
 
-```
+```text
 Container Start → HTTP Server → Routes Registered → Reconciliation (too late)
 ```
 
 **After (v0.9.0+):**
 
-```
+```text
 Container Start → Database Migrations → Reconciliation → HTTP Server
 ```
 
@@ -141,7 +141,7 @@ docker exec charon cscli lapi status
 
    Expected output:
 
-   ```
+   ```text
    ✓ You can successfully interact with Local API (LAPI)
    ```
 
@@ -239,7 +239,7 @@ CrowdSec auto-starts on container boot if **ANY** of these conditions are true:
 
 **Pseudocode:**
 
-```
+```text
 IF SecurityConfig.crowdsec_mode == "local" THEN
     LOG "Starting based on SecurityConfig mode='local'"
     START CrowdSec
@@ -261,7 +261,7 @@ END IF
 
 **Initialization Flow:**
 
-```
+```text
 Container Boot
     ↓
 Database Migrations (ensures SecurityConfig table exists)
@@ -336,13 +336,13 @@ docker exec charon cscli lapi status
 
 **Expected Output (Success):**
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
 **Expected Output (Failure):**
 
-```
+```text
 Error: can't init client: no credentials or machine found
 ```
 
@@ -377,13 +377,13 @@ docker exec charon sqlite3 /app/data/charon.db \
 
 **Expected Output (Enabled):**
 
-```
+```text
 default|local|1
 ```
 
 **Expected Output (Disabled):**
 
-```
+```text
 default|disabled|0
 ```
 
@@ -396,7 +396,7 @@ docker exec charon ps aux | grep crowdsec | grep -v grep
 
 **Expected Output:**
 
-```
+```text
 charon     123  0.5  1.2  50000 12000 ?        Sl   10:30   0:01 /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
 ```
 
@@ -409,7 +409,7 @@ docker exec charon netstat -tuln | grep 8085
 
 **Expected Output:**
 
-```
+```text
 tcp        0      0 127.0.0.1:8085          0.0.0.0:*               LISTEN
 ```
 

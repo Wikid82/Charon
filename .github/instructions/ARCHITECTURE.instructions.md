@@ -165,7 +165,7 @@ graph TB
 
 ## Directory Structure
 
-```
+```text
 /projects/Charon/
 ├── backend/                    # Go backend source code
 │   ├── cmd/                    # Application entrypoints
@@ -953,7 +953,7 @@ services:
 
 **Example:**
 
-```
+```text
 feat: add DNS-01 challenge support for Cloudflare
 
 Implement Cloudflare DNS provider for automatic wildcard certificate
@@ -989,7 +989,7 @@ Closes #123
 
 ### Test Pyramid
 
-```
+```text
        /\        E2E (Playwright) - 10%
       /  \       Critical user flows
      /____\

@@ -44,7 +44,7 @@ Charon implements a **three-layer defense-in-depth strategy** using two compleme
 
 #### Validation Flow
 
-```
+```text
 User URL Input
       │
       ▼
@@ -594,7 +594,7 @@ err := ValidateExternalURL("http://localhost:8080/admin", WithAllowLocalhost())
 
 **Example Attack Scenario**:
 
-```
+```text
 Time T0: Attacker configures webhook: http://evil.com/webhook
   DNS Resolution: evil.com → 203.0.113.10 (public IP, passes validation)
 
@@ -681,7 +681,7 @@ client := &http.Client{
 
 **Server Log**:
 
-```
+```text
 level=HIGH msg="Blocked SSRF attempt" url="http://192.168.1.100/admin" resolved_ip="192.168.1.100" user_id="admin123" timestamp="2025-12-23T10:30:00Z"
 ```
 

@@ -116,7 +116,7 @@ Visit your website:
 
 If you hit the limit, you'll see errors like:
 
-```
+```text
 too many certificates already issued
 ```
 
@@ -177,13 +177,13 @@ If you hit the 50/week limit in production:
 
 Under the hood, staging points to:
 
-```
+```text
 https://acme-staging-v02.api.letsencrypt.org/directory
 ```
 
 Production points to:
 
-```
+```text
 https://acme-v02.api.letsencrypt.org/directory
 ```
 

@@ -241,7 +241,7 @@ Open `playwright-report/index.html` directly in a browser.
 
 Tests are located in the `tests/` directory and follow Playwright conventions:
 
-```
+```text
 tests/
 ├── auth.setup.ts          # Authentication setup (runs first)
 ├── dashboard.spec.ts      # Dashboard tests

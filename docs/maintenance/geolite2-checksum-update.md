@@ -16,7 +16,7 @@ Update the checksum when:
 
 1. **Docker build fails** with the following error:
 
-   ```
+   ```text
    sha256sum: /app/data/geoip/GeoLite2-Country.mmdb: FAILED
    sha256sum: WARNING: 1 computed checksum did NOT match
    ```
@@ -126,7 +126,7 @@ docker run --rm charon:test-checksum /app/charon --version
 
 **Expected output:**
 
-```
+```text
 ✅ GeoLite2-Country.mmdb: OK
 ✅ Successfully tagged charon:test-checksum
 ```

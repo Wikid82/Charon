@@ -176,7 +176,7 @@ Use semantic HTML first. Only add ARIA when no semantic equivalent exists:
 
 ## File Organization
 
-```
+```text
 src/
 ├── components/ui/    # Shadcn/ui components
 ├── lib/schemas.ts    # Zod schemas

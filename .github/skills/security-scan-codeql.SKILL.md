@@ -183,7 +183,7 @@ This skill uses the **security-and-quality** suite to match CI:
 
 Output:
 
-```
+```text
 [STEP] CODEQL: Scanning Go code...
 [INFO] Creating database for backend/
 [INFO] Analyzing with security-and-quality suite (61 queries)

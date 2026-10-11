@@ -128,7 +128,7 @@ Based on the summary showing "other" category failures, these issues likely fall
 
 Our debug logger outputs structured messages like:
 
-```
+```text
 ✅ Step "Navigate to certificates page" completed [234ms]
   ├─ POST /api/certificates/list [200] 45ms
   ├─ Locator matched "getByRole('table')" [12ms]
@@ -220,7 +220,7 @@ Our debug logger outputs structured messages like:
 
 After tests complete, the custom debug reporter provides:
 
-```
+```text
 ⏱️  Slow Tests (>5s):
 ────────────────────────────────────────────────────────────
 1. should show user status badges           16.25s

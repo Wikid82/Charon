@@ -35,7 +35,7 @@ Add message-text-based classification for moby v0.5.1's permission-denied connec
 
 `grep -n -i "permission denied\|EACCES\|EPERM"` and a direct timestamp-window search both confirm 4 distinct incident pairs inside and around the 2026-07-30 13:37–14:12 window (all `-04:00`), each an `error`-level service log immediately followed by a `500`-status GIN access log for the same `request_id` on `path":"/api/v1/docker/containers"`:
 
-```
+```text
 33154: {"error":"failed to list containers: permission denied while trying to connect to the docker API at unix:///var/run/docker.sock","host":"local","level":"error","msg":"failed to list containers","request_id":"f06ce27f-...","server_id":"","time":"2026-07-30T13:37:14-04:00"}
 33155: {"client":"172.19.0.1","latency":"17.578502ms",...,"path":"/api/v1/docker/containers","status":500,"time":"2026-07-30T13:37:14-04:00"}
 ```
@@ -90,7 +90,7 @@ func (e errConnectionFailed) Unwrap() error { return e.error }   // <-- line 24-
 
 **D. Behavioral reproduction** (executed against the real, unmodified pinned client — not just reasoned about): a standalone Go program mirroring `errConnectionFailed` + the exact `request.go:171` construction, run against `isDockerConnectivityError`'s exact logic copied from `docker_service.go:196-251`, confirmed:
 
-```
+```text
 err.Error(): permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
 errors.As(err, &errno): false
 errors.Is(err, os.ErrPermission): false
@@ -158,7 +158,7 @@ Add an explanatory comment directly above the new line citing this investigation
 
 ### 3.3 Data flow (before/after)
 
-```
+```text
 cli.ContainerList(ctx, ...) returns moby v0.5.1's os.ErrPermission-branch error
    │
    ▼

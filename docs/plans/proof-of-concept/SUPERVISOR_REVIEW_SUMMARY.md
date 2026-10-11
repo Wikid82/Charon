@@ -35,7 +35,7 @@ The specification is now **comprehensive and implementation-ready** with:
 
 **Decision**: Flat structure in `.github/skills/` (NO subcategories)
 
-```
+```text
 .github/skills/
 ├── README.md
 ├── test-backend-coverage.SKILL.md
@@ -83,7 +83,7 @@ The specification is now **comprehensive and implementation-ready** with:
 
 **Validation Test Result**:
 
-```
+```text
 ✓ test-backend-coverage.SKILL.md is valid
 ```
 
@@ -435,7 +435,7 @@ skills-ref list .github/skills/
 
 ### File Structure Quick Reference
 
-```
+```text
 .github/skills/
 ├── README.md                        # Skill index
 ├── INDEX.json                       # AI discovery index

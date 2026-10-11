@@ -36,7 +36,7 @@ python3 validate-skills.py --single test-backend-coverage.SKILL.md
 
 Expected output:
 
-```
+```text
 ✓ test-backend-coverage.SKILL.md is valid
 ```
 
@@ -93,7 +93,7 @@ The POC is based on the actual `go-test-coverage.sh` script:
 
 ## Validation Results
 
-```
+```text
 ✓ test-backend-coverage.SKILL.md is valid
 
 Validation Checks Passed:

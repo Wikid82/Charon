@@ -140,7 +140,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 Example output:
 
-```
+```text
 Computed frontend coverage: 87.5% (minimum required 85%)
 Frontend coverage requirement met
 ```

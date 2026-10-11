@@ -41,7 +41,7 @@ printSummary()                                  // Print colored summary to cons
 
 **Output Example**:
 
-```
+```text
 ├─ Navigate to home page
 ├─ Fill login form (234ms)
    ✅ POST https://api.example.com/login [200] 342ms
@@ -65,7 +65,7 @@ printSummary()                                  // Print colored summary to cons
 
 **Sample Output**:
 
-```
+```text
 🔍 Checking Caddy admin API health at http://localhost:2019...
   ✅ Caddy admin API (port 2019) is healthy [45ms]
 
@@ -113,7 +113,7 @@ use: {
 
 **Sample Output**:
 
-```
+```text
 ╔════════════════════════════════════════════════════════════╗
 ║              E2E Test Execution Summary                      ║
 ╠════════════════════════════════════════════════════════════╣
@@ -217,7 +217,7 @@ env:
 
 **Sample Shard Output**:
 
-```
+```text
 ════════════════════════════════════════════════════════════
 E2E Test Shard 1/4
 Browser: chromium
@@ -371,7 +371,7 @@ Plus existing tasks:
 
 ### Local Console Output (with ANSI colors)
 
-```
+```text
 🧹 Running global test setup...
 
 📍 Base URL: http://localhost:8080
@@ -388,7 +388,7 @@ Plus existing tasks:
 
 ### Test Execution Output
 
-```
+```text
 ├─ Navigate to home
 ├─ Click login button (234ms)
    ✅ POST https://api.example.com/login [200] 342ms
@@ -398,7 +398,7 @@ Plus existing tasks:
 
 ### CI Job Summary
 
-```
+```text
 ## 📊 E2E Test Results
 
 ### Shard Status

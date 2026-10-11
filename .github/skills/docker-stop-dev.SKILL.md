@@ -85,7 +85,7 @@ This skill requires no environment variables.
 
 ### Output Example
 
-```
+```text
 [+] Running 5/5
  ✔ Container charon-dev-caddy-1      Removed
  ✔ Container charon-dev-app-1        Removed
@@ -182,7 +182,7 @@ Common issues and solutions:
 
 ### Container Already Stopped
 
-```
+```text
 Warning: Container already stopped
 ```
 
@@ -190,7 +190,7 @@ No action needed - idempotent operation
 
 ### Volume in Use
 
-```
+```text
 Error: volume is in use
 ```
 
@@ -198,7 +198,7 @@ Solution: Check for other containers using the volume
 
 ### Permission Denied
 
-```
+```text
 Error: permission denied
 ```
 

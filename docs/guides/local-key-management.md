@@ -59,7 +59,7 @@ unset COSIGN_PASSWORD
 
 Use descriptive prefixes for different environments:
 
-```
+```text
 cosign-dev.key      # Development environment
 cosign-staging.key  # Staging environment
 cosign-prod.key     # Production environment (use HSM if possible)

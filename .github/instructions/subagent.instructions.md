@@ -4,7 +4,7 @@ This helper provides the Management agent with templates to create robust and re
 
 1) Basic runSubagent Template
 
-```
+```text
 runSubagent({
   prompt: "<Clear, short instruction for the subagent>",
   description: "<Agent role name - e.g., Backend Dev>",
@@ -41,7 +41,7 @@ runSubagent({
 
 3) Return Contract that all subagents must return
 
-```
+```json
 {
   "changed_files": ["path/to/file1", "path/to/file2"],
   "summary": "Short summary of changes",
@@ -59,7 +59,7 @@ runSubagent({
 
 5) Example: Run a full Feature Implementation
 
-```
+```text
 // 1. Planning
 runSubagent({ description: "Planning", prompt: "<generate plan>", metadata: { plan_file: "docs/plans/current_spec.md" } })
 

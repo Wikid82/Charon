@@ -84,4 +84,4 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
 - **FULL OUTPUT**: Always capture complete test output for failure analysis
 </constraints>
 
-```
+```text

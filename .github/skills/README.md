@@ -11,7 +11,7 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 
 ## Directory Structure
 
-```
+```text
 .github/skills/
 ├── README.md                           # This file
 ├── scripts/                            # Shared infrastructure scripts
@@ -206,7 +206,7 @@ Brief description of what this skill does.
 **Last Updated**: YYYY-MM-DD
 **Maintained by**: Charon Project
 
-```
+```text
 
 ### 3. Create Execution Script
 
@@ -338,7 +338,7 @@ get_project_root ["marker_file"]             # Find project root directory
 
 ### Skill not found
 
-```
+```text
 Error: Skill not found: skill-name
 ```
 
@@ -346,7 +346,7 @@ Error: Skill not found: skill-name
 
 ### Skill script not executable
 
-```
+```text
 Error: Skill execution script is not executable
 ```
 
@@ -354,7 +354,7 @@ Error: Skill execution script is not executable
 
 ### Validation errors
 
-```
+```text
 [ERROR] skill.SKILL.md :: description: Must be 120 characters or less
 ```
 
@@ -362,7 +362,7 @@ Error: Skill execution script is not executable
 
 ### Command not found in skill
 
-```
+```text
 Error: go is not installed or not in PATH
 ```
 

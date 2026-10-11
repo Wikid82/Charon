@@ -350,7 +350,7 @@ docker logs charon 2>&1 | grep "encryption"
 
 Expected output:
 
-```
+```json
 {"level":"info","msg":"Encryption keys loaded: current + next configured"}
 ```
 
@@ -494,7 +494,7 @@ docker logs charon 2>&1 | grep "encryption"
 
 Expected output:
 
-```
+```json
 {"level":"info","msg":"Encryption keys loaded: current + 1 legacy keys"}
 ```
 
@@ -1046,7 +1046,7 @@ If rotation fails or issues are discovered, follow this rollback procedure:
 
 **Error log**:
 
-```
+```json
 {"level":"fatal","msg":"CHARON_ENCRYPTION_KEY not set"}
 ```
 

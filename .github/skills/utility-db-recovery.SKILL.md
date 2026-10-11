@@ -103,7 +103,7 @@ This skill requires no environment variables. It auto-detects Docker vs local en
 
 ### Success Output Example (Healthy Database)
 
-```
+```text
 ==============================================
   Charon Database Recovery Tool
 ==============================================
@@ -133,7 +133,7 @@ ok
 
 ### Recovery Output Example (Corrupted Database)
 
-```
+```text
 ==============================================
   Integrity Check Results
 ==============================================

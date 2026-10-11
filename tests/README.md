@@ -39,7 +39,7 @@ npx playwright codegen http://localhost:8080
 
 ## Project Structure
 
-```
+```text
 tests/
 ├── core/                           # Core application tests
 ├── dns-provider-crud.spec.ts      # DNS provider CRUD tests

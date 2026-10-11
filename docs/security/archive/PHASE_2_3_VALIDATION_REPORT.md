@@ -42,7 +42,7 @@ All Phase 2.3 critical fixes have been **successfully implemented, tested, and v
 
 ### Trivy Security Scan Results
 
-```
+```text
 Report Summary
 ├─ charon:phase-2.3-validation (alpine 3.23.3)
 │  └─ Vulnerabilities: 0
@@ -66,7 +66,7 @@ Total Vulns: 1 (CRITICAL: 0, HIGH: 1)
 
 ### Smoke Test Results
 
-```
+```text
 ✅ Health Endpoint: http://localhost:8080/api/v1/health
    └─ Status: ok
    └─ Response Time: <100ms
@@ -103,7 +103,7 @@ Total Vulns: 1 (CRITICAL: 0, HIGH: 1)
 
 **File:** `backend/internal/api/handlers/user_handler.go` - InviteUser tests
 
-```
+```text
 Test Results: 10/10 PASSING ✅
 
 ✓ TestUserHandler_InviteUser_NonAdmin (0.01s)
@@ -184,7 +184,7 @@ return c.JSON(http.StatusCreated, user)
 
 ✅ **Refresh Endpoint Status:** FUNCTIONAL
 
-```
+```text
 HTTP Status: 200 OK
 Request: POST /api/v1/auth/refresh
 Response: New JWT token + expiry timestamp
@@ -288,7 +288,7 @@ The test fixtures will include:
 
 ### GORM Security Scanner
 
-```
+```text
 Scanned: 41 Go files (2177 lines)
 Duration: 2 seconds
 
@@ -314,7 +314,7 @@ Status: ✅ PASSED - No security issues detected
 
 ### Backend Unit Tests
 
-```
+```text
 Test Summary:
 ├─ Services: PASSING (with expected DB cleanup goroutines)
 ├─ Handlers: PASSING
@@ -333,7 +333,7 @@ Result: ✅ No regressions detected
 
 ### Health & Connectivity
 
-```
+```text
 Health Endpoint: ✅ Responding (200 OK)
 Application Status: ✅ Operational
 Database: ✅ Connected
@@ -503,7 +503,7 @@ The system has successfully completed Phase 2.3 critical fixes. All three remedi
 
 ### Phase 2.3a: Dependency Versions
 
-```
+```text
 golang.org/x/crypto v0.48.0
 golang.org/x/net v0.50.0
 golang.org/x/oauth2 v0.30.0
@@ -513,7 +513,7 @@ github.com/quic-go/qpack v0.6.0
 
 ### Phase 2.3b: Unit Test Names
 
-```
+```text
 ✓ TestUserHandler_InviteUser_NonAdmin
 ✓ TestUserHandler_InviteUser_InvalidJSON
 ✓ TestUserHandler_InviteUser_DuplicateEmail
@@ -528,7 +528,7 @@ github.com/quic-go/qpack v0.6.0
 
 ### Phase 2.3c: Endpoint Verification
 
-```
+```text
 Endpoint: POST /api/v1/auth/refresh
 Status: 200 OK
 Response: New token + expiry timestamp

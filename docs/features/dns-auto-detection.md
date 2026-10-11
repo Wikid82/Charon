@@ -97,7 +97,7 @@ You can always override auto-detection:
 
 ### Example 1: Successful Detection
 
-```
+```text
 Domain: *.example.com
 
 Detection Results:
@@ -116,7 +116,7 @@ Suggested Provider: "Production Cloudflare"
 
 ### Example 2: No Match Found
 
-```
+```text
 Domain: *.internal.company.com
 
 Detection Results:
@@ -133,7 +133,7 @@ Confidence: None
 
 ### Example 3: Multiple Providers (Rare)
 
-```
+```text
 Domain: *.example.com
 
 Detection Results:
@@ -169,7 +169,7 @@ The system recognizes the following DNS providers by their nameserver patterns:
 
 #### Cloudflare
 
-```
+```text
 Nameservers:
   ns1.cloudflare.com
   ns2.cloudflare.com
@@ -179,7 +179,7 @@ Detected: cloudflare (High confidence)
 
 #### AWS Route 53
 
-```
+```text
 Nameservers:
   ns-1234.awsdns-12.com
   ns-5678.awsdns-34.net
@@ -189,7 +189,7 @@ Detected: route53 (High confidence)
 
 #### Google Cloud DNS
 
-```
+```text
 Nameservers:
   ns-cloud-a1.googledomains.com
   ns-cloud-a2.googledomains.com
@@ -199,7 +199,7 @@ Detected: googleclouddns (High confidence)
 
 #### DigitalOcean
 
-```
+```text
 Nameservers:
   ns1.digitalocean.com
   ns2.digitalocean.com
@@ -247,7 +247,7 @@ For custom or internal nameservers:
 
 Example:
 
-```
+```text
 Domain: *.corp.internal
 Nameservers: ns1.corp.internal, ns2.corp.internal
 
@@ -314,7 +314,7 @@ Manual selection required: Select compatible provider or configure custom
 
 **Example**:
 
-```
+```text
 Detected Provider Type: cloudflare
 Error: No DNS provider of type 'cloudflare' is configured
 ```
@@ -371,7 +371,7 @@ Auto-detection is exposed via REST API for automation and integrations.
 
 #### Endpoint
 
-```
+```text
 POST /api/dns-providers/detect
 ```
 

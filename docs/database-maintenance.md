@@ -288,7 +288,7 @@ docker start charon
 
 **Healthy database:**
 
-```
+```text
 ==============================================
   Charon Database Recovery Tool
 ==============================================
@@ -315,7 +315,7 @@ ok
 
 **Corrupted database (with successful recovery):**
 
-```
+```text
 ==============================================
   Integrity Check Results
 ==============================================

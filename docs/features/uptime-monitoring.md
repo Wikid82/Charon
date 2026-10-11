@@ -40,7 +40,7 @@ To prevent false alarms from transient network issues, Charon uses **failure deb
 
 **Example scenario:**
 
-```
+```text
 Check 1: ✅ Success → Status: Up, Failure Count: 0
 Check 2: ❌ Failed  → Status: Up, Failure Count: 1  (no alert)
 Check 3: ❌ Failed  → Status: Down, Failure Count: 2 (alert sent!)
@@ -386,7 +386,7 @@ Charon automatically determines which port to check:
 
 **Example:**
 
-```
+```text
 Host: example.com
 Forward Port: 8080
 → Checks: example.com:8080
@@ -530,7 +530,7 @@ docker logs charon 2>&1 | grep "ERROR.*uptime\|ERROR.*monitor"
 
 **Expected log pattern:**
 
-```
+```text
 INFO[...] All host checks completed host_count=5
 DEBUG[...] Host TCP check completed elapsed_ms=156 host_name=example.com success=true
 ```

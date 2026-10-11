@@ -116,7 +116,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
             - The commit message MUST be meaningful without viewing the diff
             - The commit message MUST be the final content in the response
 
-```
+```text
 ## Example: before vs after
 
 ### ❌ What you’re getting now
@@ -126,7 +126,7 @@ chore: update tests
 
 Edited security-suite-integration.spec.ts +10 -2
 
-```
+```text
 
 ### ✅ What you *want*
 ```
@@ -137,7 +137,7 @@ fix: harden security suite integration test expectations
 - Prevents false positives when optional headers are omitted
 - Aligns test behavior with recent proxy validation changes
 
-```
+```text
 
 </workflow>
 

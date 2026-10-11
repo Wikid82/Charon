@@ -159,7 +159,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 Example output:
 
-```
+```text
 Filtering excluded packages from coverage report...
 Coverage filtering complete
 total:  (statements)    87.4%

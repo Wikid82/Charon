@@ -174,7 +174,7 @@ Checks configuration files:
 
 Output:
 
-```
+```text
 2025-12-20T10:00:00Z	INFO	Trivy version: 0.48.0
 2025-12-20T10:00:01Z	INFO	Scanning filesystem...
 Total: 0 (CRITICAL: 0, HIGH: 0, MEDIUM: 0)

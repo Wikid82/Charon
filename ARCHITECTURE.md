@@ -173,7 +173,7 @@ graph TB
 
 ## Directory Structure
 
-```
+```text
 /projects/Charon/
 ├── backend/                    # Go backend source code
 │   ├── cmd/                    # Application entrypoints
@@ -1095,7 +1095,7 @@ Charon operates with **two distinct traffic flows** on separate ports, each with
 
 **Traffic Separation Example:**
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                     Charon Container                        │
 │                                                             │
@@ -1520,7 +1520,7 @@ See "Branch Promotion Chain" below for how changes flow `main` → `development`
 
 **Example:**
 
-```
+```text
 feat: add DNS-01 challenge support for Cloudflare
 
 Implement Cloudflare DNS provider for automatic wildcard certificate
@@ -1605,7 +1605,7 @@ deliberate, not an inconsistency to "fix" into one uniform pipeline:
 
 ### Test Pyramid
 
-```
+```text
        /\        E2E (Playwright) - 10%
       /  \       Critical user flows
      /____\

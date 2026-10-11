@@ -61,7 +61,7 @@ logger.step('Click login button', 245); // with duration in ms
 
 **Output:**
 
-```
+```text
 ├─ Navigate to home page
 ├─ Click login button (245ms)
 ```
@@ -83,7 +83,7 @@ logger.network({
 
 **Output:**
 
-```
+```text
 ✅ POST https://api.example.com/login [200] 342ms
 ```
 
@@ -97,7 +97,7 @@ logger.locator('[role="button"]', 'click', true, 45);
 
 **Output:**
 
-```
+```text
 ✓ click "[role="button"]" 45ms
 ```
 
@@ -112,7 +112,7 @@ logger.assertion('URL is correct', false, 'http://old.com', 'http://new.com');
 
 **Output:**
 
-```
+```text
 ✓ Assert: Button is visible
 ✗ Assert: URL is correct | expected: "http://new.com", actual: "http://old.com"
 ```
@@ -127,7 +127,7 @@ logger.error('Network request failed', new Error('TIMEOUT'), 1);
 
 **Output:**
 
-```
+```text
 ❌ ERROR: Network request failed - TIMEOUT
 🔄 Recovery: 1 attempts remaining
 ```
@@ -197,7 +197,7 @@ When tests fail in CI/CD:
 
 Each shard logs its execution with timing:
 
-```
+```text
 ════════════════════════════════════════════════════════════
 E2E Test Shard 1/4
 Browser: chromium
@@ -211,7 +211,7 @@ Shard 1 Complete | Duration: 125s
 
 The merged report summary shows:
 
-```
+```text
 ╔════════════════════════════════════════════════════════════╗
 ║              E2E Test Execution Summary                      ║
 ╠════════════════════════════════════════════════════════════╣
@@ -226,7 +226,7 @@ The merged report summary shows:
 
 CI logs include failure categorization:
 
-```
+```text
 🔍 Failure Analysis by Type:
 ────────────────────────────────────────────────────────────
 timeout      │ ████░░░░░░░░░░░░░░░░░ 2/5 (40%)
@@ -236,7 +236,7 @@ network      │ ░░░░░░░░░░░░░░░░░░░░  1
 
 And slowest tests:
 
-```
+```text
 ⏱️  Slow Tests (>5s):
 ────────────────────────────────────────────────────────────
 1. Long-running test name               12.43s
@@ -252,7 +252,7 @@ The network interceptor captures all HTTP traffic:
 
 Network logs appear in console output:
 
-```
+```text
 ✅ GET https://api.example.com/health [200] 156ms
 ⚠️ POST https://api.example.com/user [429] 1234ms
 ❌ GET https://cdn.example.com/asset [timeout] 5000ms
@@ -358,7 +358,7 @@ npm run e2e  # Shows "Slow Tests (>5s)" in summary
 
 And in CI:
 
-```
+```text
 ⏱️  Slow Tests (>5s):
 ────────────────────────────────────────────────────────────
 1. test name               12.43s

@@ -90,7 +90,7 @@ This skill requires no environment variables.
 
 ### Output Example
 
-```
+```text
 Starting Beta Version Bump...
 Current Version: 0.3.0-beta.2
 New Version: 0.3.0-beta.3
@@ -160,7 +160,7 @@ git push origin feature/beta-release --tags
 
 After updating files, the script prompts:
 
-```
+```text
 Do you want to commit and tag this version? (y/n)
 ```
 

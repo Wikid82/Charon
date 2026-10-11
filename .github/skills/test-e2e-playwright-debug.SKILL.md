@@ -232,7 +232,7 @@ DEBUG=pw:api .github/skills/scripts/skill-runner.sh test-e2e-playwright-debug
 
 Tests automatically capture screenshots on failure. Find them in:
 
-```
+```text
 test-results/<test-name>/
 ├── test-failed-1.png
 ├── trace.zip

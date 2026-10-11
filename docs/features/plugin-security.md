@@ -71,7 +71,7 @@ sha256sum myplugin.so | awk '{print "sha256:" $1}'
 
 **Example output**:
 
-```
+```text
 sha256:a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2
 ```
 
@@ -222,14 +222,14 @@ docker compose logs charon | grep -i plugin
 
 **Expected success output**:
 
-```
+```text
 INFO Loaded DNS provider plugin type=powerdns name="PowerDNS" version="1.0.0"
 INFO Loaded 1 external DNS provider plugins (0 failed)
 ```
 
 **If using allowlist**:
 
-```
+```text
 INFO Plugin signature allowlist enabled with 2 entries
 ```
 

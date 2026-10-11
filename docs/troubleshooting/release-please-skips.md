@@ -76,7 +76,7 @@ The two things that actually matter:
 2. Verify real unreleased commits exist and check their dates against the
    boundary's date:
 
-   ```
+   ```bash
    git log --format='%H|%cI|%s' <last-release-sha>..origin/main | grep -E '\|(feat|fix|perf|revert)(\(|:)'
    git log -1 --format='%cI' <last-release-sha>
    ```
@@ -95,7 +95,7 @@ same result. Instead, hand-correct the release-please PR directly:
 1. Check out the `release-please--branches--main` branch.
 2. Recompute the real commit set and correct bump type:
 
-   ```
+   ```bash
    git log --format='%H|%s' <last-release-sha>..origin/main | grep -E '^\w+\|(feat|fix|perf|revert)(\(|:)'
    ```
 

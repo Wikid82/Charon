@@ -177,7 +177,7 @@ The skill outputs:
 
 Example output:
 
-```
+```text
 Filtering excluded packages from coverage report...
 Coverage filtering complete
 github.com/Wikid82/charon/backend/internal/api/handlers  GetStatus       95.2%
@@ -200,7 +200,7 @@ cd /path/to/charon
 
 Expected output:
 
-```
+```text
 Filtering excluded packages from coverage report...
 Coverage filtering complete
 total:  (statements)    87.4%
@@ -219,7 +219,7 @@ export CHARON_MIN_COVERAGE=90
 
 If coverage is below 90%:
 
-```
+```text
 total:  (statements)    87.4%
 Computed coverage: 87.4% (minimum required 90%)
 Coverage 87.4% is below required 90% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)

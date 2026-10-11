@@ -67,7 +67,7 @@ Charon will begin the certificate request and display the Manual DNS Challenge i
 
 When you request a certificate using the Manual DNS provider, Charon displays a challenge screen:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                   Manual DNS Challenge                               │
 ├─────────────────────────────────────────────────────────────────────┤

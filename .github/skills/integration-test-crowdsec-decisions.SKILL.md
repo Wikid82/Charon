@@ -128,7 +128,7 @@ For use in GitHub Actions workflows:
 
 Example output:
 
-```
+```text
 === Testing CrowdSec Decision API ===
 ✓ Create Decision: IP 192.0.2.1 blocked for 4h
 ✓ Retrieve Decisions: 1 active decision found

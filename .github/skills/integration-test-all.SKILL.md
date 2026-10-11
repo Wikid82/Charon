@@ -129,7 +129,7 @@ For use in GitHub Actions workflows:
 
 Example output:
 
-```
+```text
 === Running Integration Test Suite ===
 ✓ Cerberus Integration Tests
 ✓ Coraza WAF Integration Tests

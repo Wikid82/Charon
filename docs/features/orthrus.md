@@ -155,7 +155,7 @@ Some tools like to talk to Docker directly instead of going through Charon's scr
 
 **Connecting your tool:** point it at:
 
-```
+```text
 tcp://<host>:<port>
 ```
 

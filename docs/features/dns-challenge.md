@@ -22,7 +22,7 @@ The DNS-01 challenge is an ACME (Automatic Certificate Management Environment) v
 
 ### How It Works
 
-```
+```text
 ┌─────────────┐       1. Request Certificate       ┌──────────────┐
 │   Charon    │ ─────────────────────────────────▶ │   Let's      │
 │             │                                    │   Encrypt    │
@@ -183,7 +183,7 @@ Charon automatically requests the certificate using DNS-01 validation with the p
 
 The certificate request progresses through these stages:
 
-```
+```text
 Pending → Creating DNS Record → Waiting for Propagation → Validating → Issued
 ```
 
@@ -367,7 +367,7 @@ For DNS providers not directly supported by Charon, you can use the **Manual DNS
 
 Charon displays the required DNS record:
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Manual DNS Challenge Instructions                                   │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -414,7 +414,7 @@ dig TXT _acme-challenge.example.com +short
 
 **Expected output:**
 
-```
+```text
 "dGVzdC12YWx1ZS1mb3ItYWNtZS1jaGFsbGVuZ2U="
 ```
 
@@ -549,7 +549,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 
 2. **Add Let's Encrypt to CAA** (if CAA records exist):
 
-   ```
+   ```text
    example.com.  CAA  0 issue "letsencrypt.org"
    example.com.  CAA  0 issuewild "letsencrypt.org"
    ```

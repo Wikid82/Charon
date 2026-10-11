@@ -231,7 +231,7 @@ FAIL_ON_SEVERITY="Critical" \
 
 ### Output Format
 
-```
+```text
 [INFO] Building Docker image: charon:local...
 [BUILD] Using Dockerfile with multi-stage build
 [BUILD] Image built successfully: charon:local

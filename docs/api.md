@@ -9,7 +9,7 @@ Charon REST API documentation. All endpoints return JSON and use standard HTTP s
 
 ## Base URL
 
-```
+```text
 http://localhost:8080/api/v1
 ```
 

@@ -615,7 +615,7 @@ a placeholder `README.md`) — the extraction session scaffolds into it, it does
 repo. The Go package name at the module root is `notify` (see the rev-2 note at the top of this
 document for why that's a deliberate, unproblematic mismatch with the directory/module name).
 
-```
+```text
 go_notify_yourself/                  # existing repo at /projects/go_notify_yourself — see rev-2 note
 ├── go.mod                           # module github.com/Wikid82/go_notify_yourself
 ├── go.sum

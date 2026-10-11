@@ -339,7 +339,7 @@ docker exec charon cscli lapi status
 
 Expected output:
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
@@ -514,7 +514,7 @@ When developing locally, you may encounter these browser warnings. They are **no
 
 #### COOP Warning on HTTP Non-Localhost IPs
 
-```
+```text
 Cross-Origin-Opener-Policy policy would block the window.closed call.
 ```
 
@@ -536,7 +536,7 @@ Cross-Origin-Opener-Policy policy would block the window.closed call.
 
 #### 401 Errors During Authentication Checks
 
-```
+```text
 GET /api/auth/me → 401 Unauthorized
 ```
 

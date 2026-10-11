@@ -137,7 +137,7 @@ Firefox profile.
 
 **Sequence of events that causes the bug:**
 
-```
+```text
 1. User lands on "/" — Layout mounts, images start fetching (may take 400–900 ms)
 2. User clicks "Proxy Hosts" before images finish loading
 3. ProxyHosts (lazy) suspends while its JS chunk downloads
@@ -314,7 +314,7 @@ This is a non-breaking progressive enhancement and does not change the fix strat
 
 ### 4.4 Data Flow After Fix
 
-```
+```text
 Page load (authenticated user):
   SetupGuard (isLoading) → LoadingDiv
   SetupGuard (done)      → RequireAuth
@@ -342,7 +342,7 @@ These tests will fail initially and pass after implementation.
 
 **File**: `tests/image-double-load.spec.ts`
 
-```
+```text
 Test 1: Images load exactly once on initial page load
   - Navigate to /
   - Intercept network requests to /logo.png and /banner.png

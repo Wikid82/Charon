@@ -174,7 +174,7 @@ source .venv/bin/activate
 
 Output:
 
-```
+```text
 Trim Trailing Whitespace.....................................Passed
 Fix End of Files.............................................Passed
 Check Yaml...................................................Passed

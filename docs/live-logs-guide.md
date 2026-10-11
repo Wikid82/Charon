@@ -61,7 +61,7 @@ Each log entry shows:
 
 **Example log entry:**
 
-```
+```text
 [2025-12-09T10:30:45Z] ERROR [waf] WAF blocked SQL injection attempt
   IP: 203.0.113.42
   Rule: 942100
@@ -275,7 +275,7 @@ Charon sends JSON POST requests:
 
 **Headers:**
 
-```
+```text
 Content-Type: application/json
 User-Agent: Charon/1.0
 ```

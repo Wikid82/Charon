@@ -19,7 +19,7 @@ The output should be a complete implementation plan in Markdown format, saved to
 
 Folder and file structure for both front-end and back-end repositories following Epoch's monorepo structure:
 
-```
+```text
 apps/
   [app-name]/
 services/
@@ -57,7 +57,7 @@ Use subgraphs to organize these layers clearly. Show the data flow between layer
 
 - **Technology Stack Selection**: Document choice rationale for each layer
 
-```
+```text
 
 - **Technology Stack Selection**: Document choice rationale for each layer
 - **Integration Points**: Define clear boundaries and communication protocols
@@ -112,7 +112,7 @@ Recipe Library Page
 │           ├── Recipe Tags (shadcn: Badge)
 │           └── Quick Actions (shadcn: Button - View, Edit)
 
-```
+```text
 
 - **State Flow Diagram**: Component state management using Mermaid
 - Reusable component library specifications

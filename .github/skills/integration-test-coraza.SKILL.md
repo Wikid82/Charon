@@ -122,7 +122,7 @@ For use in GitHub Actions workflows:
 
 Example output:
 
-```
+```text
 === Testing Coraza WAF Integration ===
 ✓ SQL Injection: Blocked (403 Forbidden)
 ✓ XSS Attack: Blocked (403 Forbidden)

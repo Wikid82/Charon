@@ -89,7 +89,7 @@ This skill uses environment variables defined in:
 
 ### Output Example
 
-```
+```text
 [+] Running 5/5
  ✔ Network charon-dev_default        Created
  ✔ Container charon-dev-db-1         Started
@@ -190,7 +190,7 @@ Common issues and solutions:
 
 ### Port Already in Use
 
-```
+```text
 Error: bind: address already in use
 ```
 
@@ -198,7 +198,7 @@ Solution: Stop conflicting service or change port in compose file
 
 ### Image Pull Failed
 
-```
+```text
 Error: failed to pull image
 ```
 
@@ -206,7 +206,7 @@ Solution: Check network connection, authenticate to registry
 
 ### Insufficient Resources
 
-```
+```text
 Error: failed to start container
 ```
 
@@ -214,7 +214,7 @@ Solution: Free up system resources, stop other containers
 
 ### Configuration Error
 
-```
+```text
 Error: invalid compose file
 ```
 

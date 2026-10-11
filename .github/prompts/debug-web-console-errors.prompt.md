@@ -23,13 +23,13 @@ This prompt accepts console error/warning input via two methods:
 
 **Console Input** (paste if not using selection):
 
-```
+```text
 ${input:consoleError:Paste browser console error/warning here}
 ```
 
 **Selected Content** (if applicable):
 
-```
+```text
 ${selection}
 ```
 

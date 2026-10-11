@@ -57,4 +57,4 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
 - **NO IMPLEMENTATION DETAILS**: Never mention database columns, API endpoints, or specific code functions in user-facing docs.
 </constraints>
 
-```
+```text

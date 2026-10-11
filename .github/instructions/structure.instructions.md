@@ -63,7 +63,7 @@ Ask yourself:
 
 ## Directory Structure Reference
 
-```
+```text
 /
 ├── .docker/                    # Docker configuration
 │   ├── compose/               # All docker-compose files

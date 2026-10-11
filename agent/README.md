@@ -37,7 +37,7 @@ docker run \
 
 All environment variables have equivalent CLI flags:
 
-```
+```text
 --server-url   wss://charon.example.com/api/v1/ws/orthrus/connect
 --auth-key     ch_orthrus_<key>     (prefer ORTHRUS_AUTH_KEY env var)
 --agent-id     <uuid>               (from provisioning response)

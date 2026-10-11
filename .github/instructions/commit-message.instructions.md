@@ -40,7 +40,7 @@ Comprehensive guidelines for crafting high-quality commit messages that improve 
 
 A Git commit message consists of two parts:
 
-```
+```text
 <type>(<scope>): <subject>
 
 <body>
@@ -99,7 +99,7 @@ Use these standardized types for consistency and automated tooling:
 
 Add scope in parentheses to specify what part of the codebase changed:
 
-```
+```text
 feat(auth): add OAuth2 provider support
 fix(api): handle null response from external service
 docs(readme): add Docker installation instructions
@@ -142,7 +142,7 @@ chore(deps): upgrade React to 18.3.0
 
 #### Simple Feature
 
-```
+```text
 feat(auth): add two-factor authentication
 
 Implement TOTP-based 2FA using the speakeasy library.
@@ -153,7 +153,7 @@ Closes #234
 
 #### Bug Fix with Context
 
-```
+```text
 fix(api): prevent race condition in user updates
 
 Previously, concurrent updates to user profiles could
@@ -167,7 +167,7 @@ Fixes #567
 
 #### Documentation Update
 
-```
+```text
 docs: add troubleshooting section to README
 
 Include solutions for common installation issues:
@@ -178,7 +178,7 @@ Include solutions for common installation issues:
 
 #### Dependency Update
 
-```
+```text
 chore(deps): upgrade express from 4.17 to 4.19
 
 Security patch for CVE-2024-12345. No breaking changes
@@ -187,7 +187,7 @@ or API modifications required.
 
 #### Breaking Change
 
-```
+```text
 feat(api): redesign user authentication endpoint
 
 BREAKING CHANGE: The /api/login endpoint now returns
@@ -201,7 +201,7 @@ Closes #789
 
 #### Refactoring
 
-```
+```text
 refactor(services): extract user service interface
 
 Move user-related business logic from handlers to a
@@ -212,7 +212,7 @@ Improves testability and separation of concerns.
 
 ### ❌ Bad Examples
 
-```
+```text
 ❌ update files
    → Too vague - what was updated and why?
 
@@ -246,7 +246,7 @@ Each commit should represent one logical change:
 
 ✅ **Good**: Three separate commits
 
-```
+```text
 feat(auth): add login endpoint
 feat(auth): add logout endpoint
 test(auth): add integration tests for auth endpoints
@@ -254,7 +254,7 @@ test(auth): add integration tests for auth endpoints
 
 ❌ **Bad**: One commit with everything
 
-```
+```text
 feat: implement authentication system
 (Contains login, logout, tests, and unrelated CSS changes)
 ```
@@ -278,7 +278,7 @@ feat: implement authentication system
 
 Include issue references in the footer:
 
-```
+```text
 feat(api): add rate limiting middleware
 
 Implement rate limiting using express-rate-limit to
@@ -298,7 +298,7 @@ Refs #346, #347
 
 For pair programming or collaborative work:
 
-```
+```text
 feat(ui): redesign dashboard layout
 
 Co-authored-by: Jane Doe <jane@example.com>
@@ -307,7 +307,7 @@ Co-authored-by: John Smith <john@example.com>
 
 ### Reverting Commits
 
-```
+```text
 revert: revert "feat(api): add rate limiting"
 
 This reverts commit abc123def456.
@@ -394,7 +394,7 @@ Create a commit template to remind you of the format:
 
 **~/.gitmessage**
 
-```
+```text
 # <type>(<scope>): <subject> (max 50 chars)
 # |<----  Using a Maximum Of 50 Characters  ---->|
 
@@ -480,7 +480,7 @@ git rebase -i HEAD~3  # Edit last 3 commits
 
 ### Go Projects
 
-```
+```text
 feat(http): add middleware for request logging
 refactor(db): migrate from database/sql to sqlx
 fix(parser): handle edge case in JSON unmarshaling
@@ -488,7 +488,7 @@ fix(parser): handle edge case in JSON unmarshaling
 
 ### JavaScript/TypeScript Projects
 
-```
+```text
 feat(components): add error boundary component
 fix(hooks): prevent infinite loop in useEffect
 chore(deps): upgrade React to 18.3.0
@@ -496,7 +496,7 @@ chore(deps): upgrade React to 18.3.0
 
 ### Python Projects
 
-```
+```text
 feat(api): add FastAPI endpoint for user registration
 fix(models): correct SQLAlchemy relationship mapping
 test(utils): add unit tests for date parsing

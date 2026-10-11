@@ -30,7 +30,7 @@ The user will provide ONE of the following:
 
 **Format 1 - Codecov Comment:**
 
-```
+```text
 Codecov Report
 Attention: Patch coverage is 75.00000% with 4 lines in your changes missing coverage.
 Project coverage is 82.45%. Comparing base (abc123) to head (def456).
@@ -59,7 +59,7 @@ Files with missing coverage:
 
 2. **Document Findings**: Create a structured list:
 
-   ```
+   ```text
    UNCOVERED FILES:
    - FILE-001: [path/to/file.go] - Lines: [45-48, 62]
    - FILE-002: [path/to/other.ts] - Lines: [23, 67-70]

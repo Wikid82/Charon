@@ -291,7 +291,7 @@ WHERE order_date >= '2024-01-01'
 
 ### Issue Template
 
-```
+```text
 ## [PRIORITY] [CATEGORY]: [Brief Description]
 
 **Location**: [Table/View/Procedure name and line number if applicable]
@@ -313,7 +313,7 @@ WHERE order_date >= '2024-01-01'
 
 **Expected Improvement**: [Performance gain, security benefit]
 
-```
+```text
 
 ### Summary Assessment
 - **Security Score**: [1-10] - SQL injection protection, access controls

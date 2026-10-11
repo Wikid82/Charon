@@ -132,7 +132,7 @@ For use in GitHub Actions workflows:
 
 Example output:
 
-```
+```text
 === Testing CrowdSec Startup Sequence ===
 ✓ LAPI Initialization: Ready in 8s
 ✓ Database Migration: Successful

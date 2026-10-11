@@ -128,7 +128,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 Example output:
 
-```
+```text
 ok      github.com/Wikid82/charon/backend/internal/handlers    0.523s
 ok      github.com/Wikid82/charon/backend/internal/models      0.189s
 ok      github.com/Wikid82/charon/backend/internal/services    0.742s

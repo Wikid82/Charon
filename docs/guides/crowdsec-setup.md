@@ -116,7 +116,7 @@ When you flip the CrowdSec toggle ON, here's what happens behind the scenes:
 
 The bouncer key is stored in your data volume at:
 
-```
+```text
 /app/data/crowdsec/bouncer_key
 ```
 
@@ -136,7 +136,7 @@ docker logs charon
 
 Look for a section like this:
 
-```
+```text
 ╔══════════════════════════════════════════════════════════════╗
 ║              🔑 CrowdSec Bouncer Registered!                ║
 ╠══════════════════════════════════════════════════════════════╣
@@ -238,7 +238,7 @@ cscli bouncers add caddy-bouncer
 
 CrowdSec will output an API key. It looks something like this:
 
-```
+```text
 Api key for 'caddy-bouncer':
 
    f8a7b2c9d3e4a5b6c7d8e9f0a1b2c3d4

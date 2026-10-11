@@ -24,7 +24,7 @@ Multi-Credential per Provider is an advanced feature that allows you to configur
 
 ### Single vs Multi-Credential Architecture
 
-```
+```text
 Single Credential Mode:
 ┌─────────────────────────┐
 │  Cloudflare Provider    │
@@ -36,7 +36,7 @@ Single Credential Mode:
 example.com    customer-a.com  *.dev.com   acme.org
 ```
 
-```
+```text
 Multi-Credential Mode:
 ┌──────────────────────────────────────────────────┐
 │           Cloudflare Provider                    │
@@ -113,7 +113,7 @@ Multi-Credential Mode:
 
 3. **Review Migration Impact**
 
-   ```
+   ```text
    ⚠️ IMPORTANT: This action will:
    - Convert your existing provider credential into a "catch-all" credential
    - Preserve all existing proxy host configurations
@@ -187,7 +187,7 @@ The zone filter determines which domains this credential will be used for:
 
 **Option 1: Exact Domain Match**
 
-```
+```text
 Zone Filter: example.com
 Matches: example.com, www.example.com, api.example.com
 Does NOT Match: subdomain.example.com.au, example.org
@@ -195,7 +195,7 @@ Does NOT Match: subdomain.example.com.au, example.org
 
 **Option 2: Wildcard Match**
 
-```
+```text
 Zone Filter: *.customer-a.com
 Matches: shop.customer-a.com, api.customer-a.com, *.customer-a.com
 Does NOT Match: customer-a.com (root), customer-b.com
@@ -203,7 +203,7 @@ Does NOT Match: customer-a.com (root), customer-b.com
 
 **Option 3: Multiple Zones (Comma-Separated)**
 
-```
+```text
 Zone Filter: example.com,api.example.org,*.dev.example.net
 Matches:
   - example.com and all subdomains
@@ -213,7 +213,7 @@ Matches:
 
 **Option 4: Catch-All (Empty Filter)**
 
-```
+```text
 Zone Filter: (leave empty)
 Matches: Any domain not matched by other credentials
 Use Case: Fallback credential for miscellaneous domains
@@ -299,7 +299,7 @@ You can test credentials at any time to verify they still work:
 
 When Charon needs to issue or renew a certificate for a domain, it selects a credential using this process:
 
-```
+```text
 1. Extract DNS zone from the domain
    Example: For "www.api.example.com", zone is "example.com"
 
@@ -321,21 +321,21 @@ Credentials are evaluated in this order:
 
 **1. Exact Match (Highest Priority)**
 
-```
+```text
 Zone Filter: example.com
 Domain: www.example.com → Zone: example.com → ✅ MATCH
 ```
 
 **2. Wildcard Match**
 
-```
+```text
 Zone Filter: *.customer-a.com
 Domain: shop.customer-a.com → Zone: customer-a.com → ✅ MATCH (after exact check fails)
 ```
 
 **3. Catch-All (Lowest Priority)**
 
-```
+```text
 Zone Filter: (empty)
 Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildcard matches)
 ```
@@ -346,7 +346,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 
 **Configured Credentials:**
 
-```
+```text
 1. Name: "Customer A Production"
    Zone Filter: *.customer-a.com
    Priority: Wildcard
@@ -371,7 +371,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 
 **Configured Credentials:**
 
-```
+```text
 1. Name: "Production"
    Zone Filter: example.com
    Priority: Exact
@@ -397,7 +397,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 
 **Configured Credentials:**
 
-```
+```text
 1. Name: "US Zones"
    Zone Filter: *.us.example.com
    Priority: Wildcard
@@ -426,7 +426,7 @@ If multiple credentials could match the same zone, Charon uses **first match** b
 
 **Example:**
 
-```
+```text
 Credential A: Zone Filter: example.com (Exact)
 Credential B: Zone Filter: *.example.com (Wildcard)
 
@@ -523,7 +523,7 @@ When you create a proxy host with multi-credential mode enabled:
 1. Open the proxy host from the dashboard
 2. In the **SSL/TLS** section, look for:
 
-   ```
+   ```text
    Certificate: Active (Expires: 2026-04-01)
    Credential Used: Customer A Production (Cloudflare)
    Last Renewed: 2026-01-02 14:30 UTC
@@ -562,7 +562,7 @@ When you create a proxy host with multi-credential mode enabled:
 
 **Error Message:**
 
-```
+```text
 Failed to issue certificate for shop.customer-a.com:
 No credential found for provider 'cloudflare' and zone 'customer-a.com'
 ```
@@ -577,7 +577,7 @@ No credential found for provider 'cloudflare' and zone 'customer-a.com'
 
 **Error Message:**
 
-```
+```text
 Failed to issue certificate for shop.customer-a.com:
 Cloudflare API returned 403: Invalid credentials
 ```
@@ -611,7 +611,7 @@ Cloudflare API returned 403: Invalid credentials
 
 **By Customer/Tenant:**
 
-```
+```text
 - "Customer A - Production"
 - "Customer B - Staging"
 - "Tenant XYZ - All Zones"
@@ -619,7 +619,7 @@ Cloudflare API returned 403: Invalid credentials
 
 **By Environment:**
 
-```
+```text
 - "Production Zones"
 - "Staging Zones"
 - "Development Zones"
@@ -627,7 +627,7 @@ Cloudflare API returned 403: Invalid credentials
 
 **By Department:**
 
-```
+```text
 - "Marketing - example.com"
 - "Engineering - api.example.com"
 - "Sales - shop.example.com"
@@ -635,7 +635,7 @@ Cloudflare API returned 403: Invalid credentials
 
 **By Geography:**
 
-```
+```text
 - "US East Zones"
 - "EU West Zones"
 - "APAC Zones"
@@ -649,7 +649,7 @@ Cloudflare API returned 403: Invalid credentials
 
 **Example:**
 
-```
+```text
 Credential: "example.com Primary"
 Zone Filter: example.com
 
@@ -674,7 +674,7 @@ Zone Filter: api.example.org
 
 **Example:**
 
-```
+```text
 Credential: "Customer Zones"
 Zone Filter: *.customers.example.com
 
@@ -699,7 +699,7 @@ Zone Filter: *.internal.example.com
 
 **Example:**
 
-```
+```text
 1. Exact matches for critical domains:
    - "Production Root" → example.com
 
@@ -783,7 +783,7 @@ Zone Filter: *.internal.example.com
 1. Go to **Settings** → **DNS Providers** → **Manage Credentials**
 2. Each credential displays:
 
-```
+```text
 ┌─────────────────────────────────────────────────┐
 │ Customer A Production                           │
 │ Zone Filter: *.customer-a.com                   │
@@ -886,13 +886,13 @@ Zone Filter: *.internal.example.com
 
 **Step 1: Verify Multi-Credential Mode is Enabled**
 
-```
+```text
 Settings → DNS Providers → Check "Multi-Credential Mode: Enabled"
 ```
 
 **Step 2: Check Existing Credentials**
 
-```
+```text
 Settings → DNS Providers → Manage Credentials
 Review zone filters for all credentials
 ```
@@ -901,21 +901,21 @@ Review zone filters for all credentials
 
 **Option A: Add Specific Credential**
 
-```
+```text
 Credential Name: example.com Production
 Zone Filter: example.com
 ```
 
 **Option B: Add Catch-All**
 
-```
+```text
 Credential Name: Catch-All
 Zone Filter: (leave empty)
 ```
 
 **Step 4: Retry Certificate Issuance**
 
-```
+```text
 Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 ```
 
@@ -938,7 +938,7 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 
 **Step 1: Test the Credential**
 
-```
+```text
 Settings → DNS Providers → Manage Credentials → Click "Test" next to credential
 ```
 
@@ -954,7 +954,7 @@ Settings → DNS Providers → Manage Credentials → Click "Test" next to crede
 - Generate new API token at DNS provider
 - Update credential in Charon:
 
-  ```
+  ```text
   Settings → DNS Providers → Manage Credentials → Edit → Update API credentials → Test → Save
   ```
 
@@ -967,7 +967,7 @@ Settings → DNS Providers → Manage Credentials → Click "Test" next to crede
 
 **Step 5: Retry Certificate Issuance**
 
-```
+```text
 Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 ```
 
@@ -991,7 +991,7 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 
 **Valid Formats:**
 
-```
+```text
 ✅ example.com
 ✅ *.customer-a.com
 ✅ example.com,api.example.org
@@ -1001,7 +1001,7 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 
 **Invalid Formats:**
 
-```
+```text
 ❌ example..com (double dot)
 ❌ example.com. (trailing dot)
 ❌ *customer-a.com (missing dot after asterisk)
@@ -1042,7 +1042,7 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 
 **Step 1: Review Zone Matching Logic**
 
-```
+```text
 Priority Order:
 1. Exact match: example.com
 2. Wildcard match: *.customer-a.com
@@ -1057,7 +1057,7 @@ Priority Order:
 
 **Step 3: Review All Credential Zone Filters**
 
-```
+```text
 Settings → DNS Providers → Manage Credentials
 List all zone filters and check for overlaps:
 
@@ -1123,7 +1123,7 @@ For www.example.com:
 - Default timeout: 60 seconds
 - Increase timeout in Charon settings if DNS provider is slow:
 
-  ```
+  ```text
   Settings → Advanced → DNS Propagation Timeout: 120 seconds
   ```
 
@@ -1143,7 +1143,7 @@ For www.example.com:
 
 - View detailed certificate issuance logs:
 
-  ```
+  ```text
   Settings → Logs → Filter by: "certificate_issuance"
   ```
 
