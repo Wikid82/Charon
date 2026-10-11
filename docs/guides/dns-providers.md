@@ -19,7 +19,7 @@ If you don't need wildcard domains, you can skip DNS providers entirely — Char
 These 10 providers are fully supported — connect one from the **DNS Providers** page in the Charon UI and you're ready to issue wildcard certificates.
 
 | Provider | Setup Guide |
-|----------|-------------|
+| ---------- | ------------- |
 | Cloudflare | [Cloudflare Setup](dns-providers/cloudflare.md) |
 | AWS Route 53 | [Route 53 Setup](dns-providers/route53.md) |
 | DigitalOcean | [DigitalOcean Setup](dns-providers/digitalocean.md) |

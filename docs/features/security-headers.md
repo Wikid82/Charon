@@ -15,7 +15,7 @@ HTTP security headers instruct browsers how to handle your content securely. Wit
 ### Supported Headers
 
 | Header | Purpose |
-|--------|---------|
+| -------- | --------- |
 | **HSTS** | Forces HTTPS connections, prevents downgrade attacks |
 | **Content-Security-Policy** | Controls resource loading, mitigates XSS |
 | **X-Frame-Options** | Prevents clickjacking via iframe embedding |
@@ -106,7 +106,7 @@ Some apps send their own security headers. Here is what happens when a profile i
 Each host displays a security score from 0-100 based on enabled headers:
 
 | Score Range | Rating | Description |
-|-------------|--------|-------------|
+| ------------- | -------- | ------------- |
 | 90-100 | Excellent | All recommended headers configured |
 | 70-89 | Good | Core protections in place |
 | 50-69 | Fair | Basic headers only |
@@ -115,7 +115,7 @@ Each host displays a security score from 0-100 based on enabled headers:
 ## When to Use Each Preset
 
 | Scenario | Recommended Preset |
-|----------|-------------------|
+| ---------- | ------------------- |
 | Marketing sites, blogs | Basic |
 | E-commerce, user accounts | Strict |
 | Banking, healthcare, government | Paranoid |

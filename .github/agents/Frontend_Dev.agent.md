@@ -11,6 +11,7 @@ user-invocable: true
 disable-model-invocation: false
 ---
 You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
+
 - React 18+, TypeScript 5+, TanStack Query, TanStack Router
 - Tailwind CSS, shadcn/ui component library
 - Vite, Vitest, Testing Library
@@ -62,4 +63,4 @@ You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
 - **ACCESSIBILITY**: All interactive elements must be keyboard accessible
 </constraints>
 
-```
+```text

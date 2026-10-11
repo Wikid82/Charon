@@ -96,29 +96,33 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | WAF_ENABLED | No | true | Enable WAF protection for tests |
 | TEST_HOST | No | localhost:8080 | Target host for WAF tests |
 
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All WAF tests passed (attacks blocked correctly)
 
 ### Error Exit Codes
+
 - **1**: One or more attacks were not blocked
 - **2**: Docker environment setup failed
 - **3**: WAF not responding or misconfigured
 
 ### Console Output
+
 Example output:
-```
+
+```text
 === Testing Coraza WAF Integration ===
 ✓ SQL Injection: Blocked (403 Forbidden)
 ✓ XSS Attack: Blocked (403 Forbidden)
@@ -165,15 +169,19 @@ WAF_ENABLED=false .github/skills/scripts/skill-runner.sh integration-test-coraza
 ### Common Errors
 
 #### Error: WAF not responding
+
 **Solution**: Verify Docker containers are running: `docker ps | grep coraza`
 
 #### Error: Attacks not blocked (false negatives)
+
 **Solution**: Check WAF configuration in `configs/coraza/` and rule sets
 
 #### Error: Legitimate requests blocked (false positives)
+
 **Solution**: Review WAF logs and adjust rule sensitivity
 
 #### Error: Connection refused
+
 **Solution**: Ensure application is accessible: `curl http://localhost:8080/health`
 
 ### Debugging

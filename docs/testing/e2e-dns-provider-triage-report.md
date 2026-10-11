@@ -13,7 +13,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 ### Before Fixes
 
 | Status | Count |
-|--------|-------|
+| --- | --- |
 | ❌ Failed | 7 |
 | ✅ Passed | 45 |
 | ⏭️ Skipped | 3 |
@@ -21,7 +21,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 ### After Fixes
 
 | Status | Count |
-|--------|-------|
+| --- | --- |
 | ❌ Failed | 0 |
 | ✅ Passed | 52 |
 | ⏭️ Skipped | 3 |
@@ -31,7 +31,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 ### 1. `tests/auth.setup.ts`
 
 | Test | Status |
-|------|--------|
+| --- | --- |
 | authenticate | ✅ Pass |
 
 ### 2. `tests/dns-provider-types.spec.ts`
@@ -39,7 +39,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **API Tests:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | GET /dns-providers/types returns all built-in and custom providers | ✅ Pass |
 | Each provider type has required fields | ✅ Pass |
 | Manual provider type has correct configuration | ✅ Pass |
@@ -50,7 +50,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **UI Tests:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Provider selector shows all provider types in dropdown | ✅ Pass |
 | Provider selector displays provider description | ✅ Pass |
 | Provider types keyboard navigation | ✅ Pass (Fixed) |
@@ -64,7 +64,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Create Provider:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Create Manual DNS provider | ✅ Pass |
 | Create Webhook DNS provider | ✅ Pass |
 | Validation errors for missing required fields | ✅ Pass |
@@ -73,7 +73,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Provider List:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Display provider list or empty state | ✅ Pass |
 | Show Add Provider button | ✅ Pass |
 | Show provider details in list | ✅ Pass |
@@ -81,20 +81,20 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Edit Provider:**
 
 | Test | Status |
-|------|--------|
+| --- | --- |
 | Open edit dialog for existing provider | ⏭️ Skipped (conditional) |
 | Update provider name | ⏭️ Skipped (conditional) |
 
 **Delete Provider:**
 
 | Test | Status |
-|------|--------|
+| --- | --- |
 | Show delete confirmation dialog | ⏭️ Skipped (conditional) |
 
 **API Operations:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | List providers via API | ✅ Pass |
 | Create provider via API | ✅ Pass |
 | Reject invalid provider type via API | ✅ Pass |
@@ -103,7 +103,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Form Accessibility:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Form has accessible labels | ✅ Pass |
 | Keyboard navigation in form | ✅ Pass |
 | Errors announced to screen readers | ✅ Pass |
@@ -113,7 +113,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Provider Selection Flow:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Navigate to DNS Providers page | ✅ Pass |
 | Show Add Provider button on DNS Providers page | ✅ Pass (Fixed) |
 | Display Manual option in provider selection | ✅ Pass (Fixed) |
@@ -121,7 +121,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Manual Challenge UI Display:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Display challenge panel with required elements | ✅ Pass |
 | Show record name and value fields | ✅ Pass |
 | Display progress bar with time remaining | ✅ Pass |
@@ -130,14 +130,14 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Copy to Clipboard:**
 
 | Test | Status |
-|------|--------|
+| --- | --- |
 | Have accessible copy buttons | ✅ Pass |
 | Show copied feedback on click | ✅ Pass |
 
 **Verify Button Interactions:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Have Check DNS Now button | ✅ Pass |
 | Show loading state when checking DNS | ✅ Pass |
 | Have Verify button with description | ✅ Pass |
@@ -145,7 +145,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Accessibility Checks:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Keyboard accessible interactive elements | ✅ Pass |
 | Proper ARIA labels on copy buttons | ✅ Pass |
 | Announce status changes to screen readers | ✅ Pass |
@@ -155,7 +155,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Component Tests:**
 
 | Test | Status |
-|------|--------|
+| ------ | -------- |
 | Render all required challenge information | ✅ Pass |
 | Handle expired challenge state | ✅ Pass |
 | Handle verified challenge state | ✅ Pass |
@@ -163,7 +163,7 @@ Successfully triaged and fixed Playwright E2E tests for the DNS Provider feature
 **Error Handling:**
 
 | Test | Status |
-|------|--------|
+| --- | --- |
 | Display error message on verification failure | ✅ Pass |
 | Handle network errors gracefully | ✅ Pass |
 
@@ -264,7 +264,7 @@ PLAYWRIGHT_BASE_URL=http://localhost:8080 npm run e2e
 ## Test Coverage Summary
 
 | Category | Tests | Passing |
-|----------|-------|---------|
+| ---------- | ------- | --------- |
 | API Endpoints | 10 | 10 |
 | UI Navigation | 6 | 6 |
 | Provider CRUD | 8 | 5 (+3 conditional) |

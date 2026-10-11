@@ -12,7 +12,7 @@ Starting in version 0.9.0, CrowdSec now **automatically starts** when the contai
 **Key Behavioral Changes:**
 
 | Scenario | Before (v0.8.x) | After (v0.9.0+) |
-|----------|-----------------|-----------------|
+| ---------- | ----------------- | ----------------- |
 | **Container Restart** | CrowdSec stays offline | CrowdSec auto-starts if enabled |
 | **Server Reboot** | Manual start required | CrowdSec auto-starts if enabled |
 | **Docker Compose Up** | CrowdSec offline | CrowdSec auto-starts if enabled |
@@ -26,13 +26,13 @@ Starting in version 0.9.0, CrowdSec now **automatically starts** when the contai
 
 **Before (v0.8.x):**
 
-```
+```text
 Container Start → HTTP Server → Routes Registered → Reconciliation (too late)
 ```
 
 **After (v0.9.0+):**
 
-```
+```text
 Container Start → Database Migrations → Reconciliation → HTTP Server
 ```
 
@@ -141,7 +141,7 @@ docker exec charon cscli lapi status
 
    Expected output:
 
-   ```
+   ```text
    ✓ You can successfully interact with Local API (LAPI)
    ```
 
@@ -239,7 +239,7 @@ CrowdSec auto-starts on container boot if **ANY** of these conditions are true:
 
 **Pseudocode:**
 
-```
+```text
 IF SecurityConfig.crowdsec_mode == "local" THEN
     LOG "Starting based on SecurityConfig mode='local'"
     START CrowdSec
@@ -261,7 +261,7 @@ END IF
 
 **Initialization Flow:**
 
-```
+```text
 Container Boot
     ↓
 Database Migrations (ensures SecurityConfig table exists)
@@ -281,7 +281,7 @@ Reconciliation Checks SecurityConfig
 ### Persistence Guarantees
 
 | Action | Persists Across Restart? |
-|--------|--------------------------|
+| -------- | -------------------------- |
 | **Toggle ON via GUI** | ✅ Yes (stored in database) |
 | **Toggle OFF via GUI** | ✅ Yes (stored in database) |
 | **Environment variable** | ❌ No (deprecated, not used) |
@@ -295,7 +295,7 @@ Reconciliation Checks SecurityConfig
 ### Container Boot Sequence
 
 | Phase | Duration | Cumulative | Status |
-|-------|----------|------------|--------|
+| ------- | ---------- | ------------ | -------- |
 | **Container Start** | 1-2s | 1-2s | Entrypoint script running |
 | **Database Migrations** | 1-2s | 2-4s | Security tables created/updated |
 | **CrowdSec Reconciliation** | 2-5s | 4-9s | Process started, verifying |
@@ -307,7 +307,7 @@ Reconciliation Checks SecurityConfig
 ### LAPI Initialization Phases
 
 | Phase | Duration | Description |
-|-------|----------|-------------|
+| ------- | ---------- | ------------- |
 | **Process Start** | 1-2s | CrowdSec binary launches |
 | **Config Loading** | 2-3s | Parsers, scenarios loaded |
 | **Database Init** | 1-2s | SQLite connection established |
@@ -336,13 +336,13 @@ docker exec charon cscli lapi status
 
 **Expected Output (Success):**
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
 **Expected Output (Failure):**
 
-```
+```text
 Error: can't init client: no credentials or machine found
 ```
 
@@ -377,13 +377,13 @@ docker exec charon sqlite3 /app/data/charon.db \
 
 **Expected Output (Enabled):**
 
-```
+```text
 default|local|1
 ```
 
 **Expected Output (Disabled):**
 
-```
+```text
 default|disabled|0
 ```
 
@@ -396,7 +396,7 @@ docker exec charon ps aux | grep crowdsec | grep -v grep
 
 **Expected Output:**
 
-```
+```text
 charon     123  0.5  1.2  50000 12000 ?        Sl   10:30   0:01 /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
 ```
 
@@ -409,7 +409,7 @@ docker exec charon netstat -tuln | grep 8085
 
 **Expected Output:**
 
-```
+```text
 tcp        0      0 127.0.0.1:8085          0.0.0.0:*               LISTEN
 ```
 
@@ -650,7 +650,7 @@ Please report rollback necessity on [GitHub Issues](https://github.com/Wikid82/c
 ## Change History
 
 | Date | Version | Change |
-|------|---------|--------|
+| ------ | --------- | -------- |
 | 2025-12-23 | v0.9.0 | Auto-start behavior implemented |
 | 2025-12-23 | v0.9.0 | Environment variables deprecated |
 | 2025-12-23 | v0.9.0 | Mutex protection added |

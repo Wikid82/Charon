@@ -65,6 +65,7 @@ Analyze the user's request and break it down into commits:
 ### Step 3: {Step Name}
 ...
 ```
+
 </output_template>
 
 <research_guide>

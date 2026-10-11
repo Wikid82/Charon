@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lint the given markdown files (lefthook passes the staged ones) with markdownlint-cli2.
 #
-# Rules: .markdownlint.jsonc (a few noisy rules are off until the repo-wide cleanup).
+# Rules: .markdownlint.jsonc (the few rules that are off carry a rationale there).
 # Skipped paths: docs-site/docs (generated), node_modules, CHANGELOG*, plus everything listed
 # in .markdownlintignore. Exits 0 without running anything when no lintable files remain.
 

@@ -103,9 +103,9 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| watch     | boolean | No    | false   | Run tests in watch mode |
-| filter    | string | No     | ""      | Filter tests by name pattern |
+| --- | --- | --- | --- | --- |
+| watch | boolean | No | false | Run tests in watch mode |
+| filter | string | No | "" | Filter tests by name pattern |
 
 ## Environment Variables
 
@@ -114,14 +114,18 @@ No environment variables are required for this skill.
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All tests passed
 
 ### Error Exit Codes
+
 - **Non-zero**: One or more tests failed
 
 ### Console Output
+
 Example output:
-```
+
+```text
 ✓ src/components/Button.test.tsx (3)
 ✓ src/utils/helpers.test.ts (5)
 ✓ src/hooks/useAuth.test.ts (4)
@@ -167,12 +171,15 @@ Test Files  3 passed (3)
 ### Common Errors
 
 #### Error: Cannot find module
+
 **Solution**: Run `npm install` to ensure all dependencies are installed
 
 #### Error: Test timeout
+
 **Solution**: Increase timeout in vitest.config.ts or fix hanging async tests
 
 #### Error: Unexpected token
+
 **Solution**: Check for syntax errors in test files
 
 ## Related Skills

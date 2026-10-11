@@ -25,7 +25,7 @@ Charon automatically detects and handles WebSocket upgrade requests, proxying th
 WebSocket support enables proxying for:
 
 | Application Type | Examples |
-|-----------------|----------|
+| ----------------- | ---------- |
 | **Chat Applications** | Slack alternatives, support chat widgets |
 | **Live Dashboards** | Monitoring tools, analytics platforms |
 | **Collaborative Tools** | Real-time document editing, whiteboards |

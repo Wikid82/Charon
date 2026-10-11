@@ -8,18 +8,20 @@ Base: `origin/development`, which already includes #1525 (113f646c). All line nu
 Four open issues, all authored by the maintainer (none is user-submitted), all low severity:
 
 | Issue | Type | Area | Summary |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | #1528 | fix / product decision | backend (+ small frontend) | F1 archive entry check too broad, F3 absolute server paths in CrowdSec responses, F5 credentials YAML files still listed/readable in the editor |
 | #1479 | hardening | backend `network` pkg | `WithAllowedDomains` option stores a list nothing reads |
 | #1481 | cleanup | backend `crowdsec` pkg | production hub URL validator carries test-only host allowances |
 | #1526 | test | Playwright | tolerant CrowdSec specs can pass without asserting the feature works |
 
 ### Is #1479 CrowdSec-specific?
+
 No. The option lives in the generic `backend/internal/network/safeclient.go` (`ClientOptions.AllowedDomains`, `WithAllowedDomains`). The `crowdsec` label is there only because its single production caller is `newHubHTTPClient` in `backend/internal/crowdsec/hub_sync.go`. It is included because it was found in the same investigation as #1481 (#1476) and the right fix for #1481 (one validator, no test allowances in production) determines the right fix for #1479 (remove the unused option so `validateHubURL` is the only allowlist).
 
 ## 2. Research Findings
 
 ### 2.1 #1479 `WithAllowedDomains`
+
 - Stored in `ClientOptions.AllowedDomains`; `safeDialer` and `validateRedirectTarget` never read it. Its doc comment ("only these domains will be allowed") is false: a latent footgun.
 - Only production caller: `newHubHTTPClient` (hub_sync.go). That client uses default `MaxRedirects` 0, so redirect enforcement is moot. `validateHubURL` already holds its own copy of the same three hosts, so two lists exist and neither is authoritative.
 - **Three test references** in `backend/internal/network/safeclient_test.go` must change, otherwise compilation breaks when the field is removed:
@@ -29,6 +31,7 @@ No. The option lives in the generic `backend/internal/network/safeclient.go` (`C
 - Redirect/option parity (the issue's second ask): `safeDialer` and `validateRedirectTarget` both go through `opts.policy()` / `AddressPolicy.Blocked`, so `AllowLocalhost`/`AllowRFC1918`/`AllowCGNAT` already behave identically. Pin that with one table test running the same host/option matrix through both rather than changing behavior.
 
 ### 2.2 #1481 test-only allowances
+
 - `validateHubURL` (hub_sync.go ~L106-160) accepts at any scheme (http included): `localhost`, `127.0.0.1`, `::1`, `*.example.com`, `*.example`, `example.com`, `*.local`, `test.hub`, before the HTTPS + three-host allowlist check (`hub-data.crowdsec.net`, `hub.crowdsec.net`, `raw.githubusercontent.com`).
 - Production impact (for a docs/changelog note): an operator-set `HUB_BASE_URL`/`HUB_MIRROR_BASE_URL` using http, localhost or `.local` already fails at the dial layer (`network.NewSafeHTTPClient` blocks loopback/private), so tightening the validator changes the error text and where it is raised, not what works. No supported configuration breaks. Mention in release notes in one sentence.
 - Existing seam: package var `hubAllowLoopback` (~L95), toggled by `setHubAllowLoopbackForTest` (hub_sync_test.go ~L2252) and exercised by `TestNewHubHTTPClient_LoopbackSeam` (~L2258).
@@ -37,6 +40,7 @@ No. The option lives in the generic `backend/internal/network/safeclient.go` (`C
 - `hubBaseCandidates()` (~L215) builds `[HubBaseURL, MirrorBaseURL, defaultHubMirrorBaseURL, defaultHubBaseURL]` and de-duplicates with `uniqueStrings`. The defaults are `https://hub-data.crowdsec.net` and `https://raw.githubusercontent.com/crowdsecurity/hub/master`. If migrated tests reuse those same hosts for the primary/mirror roles, candidates collapse via `uniqueStrings` and fallback-order tests silently change meaning.
 
 ### 2.3 #1528
+
 - **F1**: `extractTarGz` (hub_sync.go ~L946) uses `strings.HasPrefix(cleanName, "..")`, which also rejects legitimate names like `..hidden.yaml`. The containment check below it (`filepath.Rel`, ~L955) already uses `".."+separator`, so the first check is redundant-but-stricter.
 - **F5**: `isReadable` (crowdsec_files.go ~L79) hides `bouncer_key`, `*.db*` and engine-owned trees, but `local_api_credentials.yaml` and `online_api_credentials.yaml` are only in `protectedWriteNames` (write-protected; still listed and readable). Real error messages today: reads of a hidden path return `invalid path` (`resolveReadable` first check ~L128, and the resolved-path re-check ~L149); writes of a hidden path return `file cannot be edited` (`resolveWritable` ~L167-169, `errFileCannotBeEdited`). Mixed-case names: `isReadable` lowercases the base only for the `bouncer_key` and `*.db*` checks, so once the credentials names are added to its deny rules (using the same lowercase comparison) mixed-case variants become hidden too, a deliberate tightening. Nothing in `frontend/src` or the Playwright specs references the credentials files; `docs/troubleshooting/crowdsec.md` (~L644) stays valid.
 - **F5 scope limit: `ExportConfig` is not covered.** `ExportConfig` (crowdsec_handler.go ~L810-880) walks the whole `DataDir` and tars it with no `isReadable` filter (it only skips symlinks), so credentials files and `bouncer_key` remain downloadable by an authenticated admin through the export endpoint. The "consistent with `bouncer_key`" argument therefore applies to the editor list/read surface only, not to export.
@@ -54,9 +58,11 @@ No. The option lives in the generic `backend/internal/network/safeclient.go` (`C
 - Docs: `docs/api` has no mention of the `backup` field (checked); `ARCHITECTURE.md` mentions CrowdSec only as directory layout, so it needs no change (confirm no-op at implementation). Locale files carry `crowdsecConfig.presets.backup` ("Backup") in each language under `frontend/src/locales/*/translation.json`; any new UI string needs all locale files updated (en plus the existing languages).
 
 ### 2.4 #1526 tolerant specs
+
 Files under `tests/security/`: `crowdsec-dashboard.spec.ts`, `crowdsec-decisions.spec.ts`, `crowdsec-diagnostics.spec.ts`, `crowdsec-console-enrollment.spec.ts`, `crowdsec-import.spec.ts`, and the non-preset cases of `crowdsec-config.spec.ts` (back navigation, config file list/content, export, console enrollment, status indicators).
 Counts depend on the pattern; for exactness use two named patterns on `origin/development`: (a) `catch(() => false)` only: dashboard 10, decisions 15, diagnostics 3, console-enrollment 9, import 0, config 11; (b) the broader "tolerance" pattern (adds "may not be", "not implemented", annotation pushes) gave higher numbers in my first pass and 13/15/18/17/1/12 in the supervisor's pass. Do not rely on either number; the gate in section 6 (Bz) defines the final, exact pattern set.
 Two styles:
+
 1. UI specs (`dashboard`, `decisions`, `config`, parts of `console-enrollment`) that `goto('/security/crowdsec')` against the real backend and guard on visibility. Convert to stubbed-API specs following `crowdsec-preset-apply.spec.ts` (`page.route` + `route.fulfill({ json })`, `loginUser`, `waitForLoadingComplete`).
 2. API-contract specs (`diagnostics`, most of `import`, parts of `console-enrollment`) that call `request.get/post('/api/v1/admin/crowdsec/...')` against the live backend and accept multiple statuses because cscli/LAPI are absent in the E2E container (`crowdsec-import` hides this behind a multi-status `expect([...]).toContain(status)` assertion). Convert to (a) strict assertions on a status the E2E container deterministically produces, or (b) stubbed UI tests plus Go handler tests for the real status mapping.
 Strict assertions may expose real bugs (see section 8).
@@ -64,6 +70,7 @@ Strict assertions may expose real bugs (see section 8).
 ## 3. Decisions
 
 ### 3.1 F5: recommendation (needs user confirmation)
+
 **Hide `local_api_credentials.yaml` and `online_api_credentials.yaml` from editor list and read** by adding them to the `isReadable` deny rules next to `bouncer_key` (same lowercase comparison), then delete `protectedWriteNames` and its branch in `isWritable` (redundant: `isWritable` is a subset of `isReadable`).
 
 Behavior change to state in docs: previously readable but write-protected, now hidden entirely (list omits them; read returns `invalid path`; write returns `file cannot be edited`, because `resolveWritable` checks `isReadable` first; new tests must assert these two real messages, not one generic message). Mixed-case names are now hidden too.
@@ -73,18 +80,23 @@ Rationale (reworded; this is information-level hardening, not a closed exposure)
 Alternative rejected: list but mask values (extra UI/parser complexity and a new leak path if masking misses a field).
 
 ### 3.2 F3: recommendation
+
 Return a **backup name**, not a path: a single helper `backupID(path string) string` (in `backend/internal/crowdsec/backup.go`) returning `filepath.Base`, used at every site in 2.3 items 1-4. It is a name, not an opaque token: the three kinds are `*.backup.*` (directory), `*.filebackup.*` (directory) and `acquis.yaml.backup.*` (file). The absolute path stays in server logs only (already `SanitizeForLog`ged).
+
 - Errors: `rollbackFailure` keeps the cause but replaces the path with the backup name plus the hint "see server logs for the backup location"; `extractTarGz`/import errors become fixed messages (for example `archive contains an unsafe path`, `archive extraction failed`) with the entry name/dest path logged sanitized; `ExportConfig` returns a fixed `failed to export configuration` and logs the error.
-- UI keeps manual recovery possible: text such as "Backup created: <name> (next to the CrowdSec data directory)" in the three print sites, via a new i18n key (all locales) rather than hard-coded English; docs pointer in `docs/troubleshooting/crowdsec.md` explains where backups live.
+- UI keeps manual recovery possible: text such as "Backup created: \<name> (next to the CrowdSec data directory)" in the three print sites, via a new i18n key (all locales) rather than hard-coded English; docs pointer in `docs/troubleshooting/crowdsec.md` explains where backups live.
 - Field name `backup` is kept. Acceptance criterion: **no absolute path appears in any CrowdSec API response, including error text** (asserted by handler tests with a regex over response bodies for a leading `/` path or the data-dir prefix).
 
 ### 3.3 F1
+
 Reject an archive entry only if any path component equals `..` or the path is absolute; keep the `Rel`-based containment check as backstop. Tests: allowed `..hidden.yaml`, `a/..b/c.yaml`, `foo..bar`; rejected `../x`, `a/../../x`, `/etc/x`, NUL. No exploit detail in public text.
 
 ### 3.4 #1479: remove vs enforce
+
 Remove `WithAllowedDomains`, `ClientOptions.AllowedDomains` (and its default), the caller in `newHubHTTPClient`, and the three test references in 2.1. Rationale: the only caller has a better-fitting validator, redirects are disabled for that client, and a second list would drift.
 
 ### 3.5 #1481: seam design and migration
+
 - Production `validateHubURL`: https only, host in the three-host allowlist.
 - Test seam: unexported `validateURL func(string) error` on `HubService` (nil means `validateHubURL`), both call sites (`fetchIndexHTTPFromURL` ~L453, `fetchWithLimitFromURL` ~L754) go through one `s.checkURL(target)`.
 - Only the `hub_sync_test.go` ~L106 `httptest.NewServer` test needs the `validateURL` seam (permissive validator) plus a `network.WithAllowLocalhost()` `HTTPClient`. The ~L2259 server lives inside `TestNewHubHTTPClient_LoopbackSeam`, which is deleted together with the var.
@@ -96,6 +108,7 @@ Remove `WithAllowedDomains`, `ClientOptions.AllowedDomains` (and its default), t
 ## 4. Priorities & Ordering
 
 Classification: all four are the maintainer's own findings (not user-submitted), none critical or high, no `feat` in the batch. Order:
+
 1. **#1528**: decide F5 first (as the issue says), then F5, F3, F1 (user-visible and information-exposure items first).
 2. **#1479**, then **#1481** (latent hardening of the hub URL policy; no active bypass).
 3. **#1526** last: largest and open-ended; it should assert the final contracts from 1 and 2.
@@ -117,7 +130,7 @@ Conventional commits; no session ID/link anywhere. All subagent dispatch prompts
 ### Part A (hardening)
 
 | # | Commit | Scope | Files | Depends on | Validation gate |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | A0 | `test(e2e): add fixme specs for editor secrets and response paths` | `test.fixme` specs for F5 (credentials not listed; read rejected) and F3 (`backup` and error bodies contain no absolute path); update fixture stubs to name-only values | `tests/security/crowdsec-file-editor.spec.ts` (~L89 stub + new cases), `tests/security/crowdsec-hub-preset-apply.spec.ts` (~L110), `tests/security/crowdsec-preset-apply.spec.ts` | none | `npx playwright test tests/security/crowdsec-file-editor.spec.ts tests/security/crowdsec-preset-apply.spec.ts tests/security/crowdsec-hub-preset-apply.spec.ts --project=security-tests` |
 | A1 | `fix(security): harden CrowdSec editor access` | F5 per 3.1; tests assert real messages: list omits both names, read -> `invalid path`, write -> `file cannot be edited`, mixed-case and symlink-to-credentials cases (symlink caught by the resolved-path re-check ~L149) | `backend/internal/api/handlers/crowdsec_files.go`, `crowdsec_files_test.go` | A0 | `cd backend && go test ./internal/api/handlers/... ./internal/crowdsec/...` |
 | A2 | `fix: stop returning server paths in CrowdSec responses` (see Q5 on whether this deserves `(security)`; if the user says yes use `fix(security): harden CrowdSec API responses`) | F3 per 3.2 across all nine items in 2.3 (`backupID` helper, `rollbackFailure`, extract/export/import error text, three UI print sites + i18n key in all locales, vitest and Playwright fixtures) | `backend/internal/crowdsec/backup.go` (+test), `hub_sync.go`, `crowdsec_files.go`, `crowdsec_handler.go`, `crowdsec_preset_handler.go`, `frontend/src/pages/CrowdSecConfig.tsx`, `frontend/src/locales/*/translation.json`, `frontend/src/pages/__tests__/CrowdSecConfig.curatedApply.test.tsx` and any other test asserting the old value, `docs/troubleshooting/crowdsec.md` | A1 | backend `go test` for touched packages; `cd frontend && npm run type-check && npx vitest run src/pages/__tests__/CrowdSecConfig*`; response-body regex test shows no absolute path |
@@ -129,7 +142,7 @@ Conventional commits; no session ID/link anywhere. All subagent dispatch prompts
 ### Part B (#1526), after A
 
 | # | Commit | Scope | Files | Validation gate |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | B1 | `test(e2e): shared CrowdSec stub helpers` | extract repeated route stubs and fixtures (status, decisions, enrollment, file list/content, diagnostics) | new helper under `tests/utils/` or `tests/fixtures/` | one spec run |
 | B2 | `test(e2e): deterministic crowdsec-config non-preset cases` | back nav, file list/content, export, enrollment, status indicators | `crowdsec-config.spec.ts` | `npx playwright test tests/security/crowdsec-config.spec.ts --project=security-tests` |
 | B3 | `test(e2e): deterministic crowdsec dashboard and decisions` | | `crowdsec-dashboard.spec.ts`, `crowdsec-decisions.spec.ts` | same per file |
@@ -159,7 +172,7 @@ Full Definition of Done for the PR(s): targeted Playwright as above; full-config
 ## 8. Risks and Mitigations
 
 | Risk | Mitigation |
-|---|---|
+| --- | --- |
 | ~100-110-hit test migration (A5) breaks many tests | Single commit, package-by-package runs, mechanical mapping with distinct hosts per role (3.5) |
 | Migration weakens tests via `uniqueStrings` collapse | Distinct hosts per role; ordering assertions where relevant |
 | F5 hides a file someone relies on viewing | Documented as a behavior change; disk access unchanged; masked read-only view is the fallback |

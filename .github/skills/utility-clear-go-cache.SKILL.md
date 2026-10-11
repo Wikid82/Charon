@@ -76,7 +76,7 @@ This skill accepts no parameters.
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | XDG_CACHE_HOME | No | $HOME/.cache | XDG cache directory location |
 
 ## Outputs
@@ -87,7 +87,7 @@ This skill accepts no parameters.
 
 ### Output Example
 
-```
+```text
 Clearing Go build and module caches...
 Clearing gopls cache...
 Re-downloading modules...
@@ -148,6 +148,7 @@ This skill clears the following:
 ## When to Use This Skill
 
 Use this skill when experiencing:
+
 - Build failures after dependency updates
 - gopls crashes or incorrect diagnostics
 - Module checksum mismatches

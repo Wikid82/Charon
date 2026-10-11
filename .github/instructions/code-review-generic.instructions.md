@@ -19,18 +19,21 @@ When performing a code review, respond in **English** (or specify your preferred
 When performing a code review, prioritize issues in the following order:
 
 ### 🔴 CRITICAL (Block merge)
+
 - **Security**: Vulnerabilities, exposed secrets, authentication/authorization issues
 - **Correctness**: Logic errors, data corruption risks, race conditions
 - **Breaking Changes**: API contract changes without versioning
 - **Data Loss**: Risk of data loss or corruption
 
 ### 🟡 IMPORTANT (Requires discussion)
+
 - **Code Quality**: Severe violations of SOLID principles, excessive duplication
 - **Test Coverage**: Missing tests for critical paths or new functionality
 - **Performance**: Obvious performance bottlenecks (N+1 queries, memory leaks)
 - **Architecture**: Significant deviations from established patterns
 
 ### 🟢 SUGGESTION (Non-blocking improvements)
+
 - **Readability**: Poor naming, complex logic that could be simplified
 - **Optimization**: Performance improvements without functional impact
 - **Best Practices**: Minor deviations from conventions
@@ -53,6 +56,7 @@ When performing a code review, follow these principles:
 When performing a code review, check for:
 
 ### Clean Code
+
 - Descriptive and meaningful names for variables, functions, and classes
 - Single Responsibility Principle: each function/class does one thing well
 - DRY (Don't Repeat Yourself): no code duplication
@@ -62,6 +66,7 @@ When performing a code review, check for:
 - Code should be self-documenting; comments only when necessary
 
 ### Examples
+
 ```javascript
 // ❌ BAD: Poor naming and magic numbers
 function calc(x, y) {
@@ -82,13 +87,16 @@ function calculateDiscount(orderTotal, itemPrice) {
 ```
 
 ### Error Handling
+
 - Proper error handling at appropriate levels
 - Meaningful error messages
 - No silent failures or ignored exceptions
 - Fail fast: validate inputs early
 - Use appropriate error types/exceptions
 
+<!-- markdownlint-disable-next-line MD024 -->
 ### Examples
+
 ```python
 # ❌ BAD: Silent failure and generic error
 def process_user(user_id):
@@ -126,6 +134,7 @@ When performing a code review, check for security issues:
 - **Dependency Security**: Check for known vulnerabilities in dependencies
 
 ### Examples
+
 ```java
 // ❌ BAD: SQL injection vulnerability
 String query = "SELECT * FROM users WHERE email = '" + email + "'";
@@ -158,6 +167,7 @@ When performing a code review, verify test quality:
 - **Mock Appropriately**: Mock external dependencies, not domain logic
 
 ### Examples
+
 ```typescript
 // ❌ BAD: Vague name and assertion
 test('test1', () => {
@@ -188,6 +198,7 @@ When performing a code review, check for performance issues:
 - **Lazy Loading**: Load data only when needed
 
 ### Examples
+
 ```python
 # ❌ BAD: N+1 query problem
 users = User.query.all()
@@ -242,6 +253,7 @@ Explanation of the impact or reason for the suggestion.
 ### Example Comments
 
 #### Critical Issue
+
 ```markdown
 **🔴 CRITICAL - Security: SQL Injection Vulnerability**
 
@@ -265,7 +277,8 @@ stmt.setString(1, email);
 ```
 
 **Reference:** OWASP SQL Injection Prevention Cheat Sheet
-```
+
+```text
 
 #### Important Issue
 ```markdown
@@ -290,7 +303,8 @@ test('should process full refund when order is cancelled', () => {
     expect(result.status).toBe('refunded');
 });
 ```
-```
+
+```text
 
 #### Suggestion
 ```markdown
@@ -318,7 +332,8 @@ if (!user || !user.isActive || !user.hasPermission('write')) {
 }
 // do something
 ```
-```
+
+```text
 
 ## Review Checklist
 

@@ -104,27 +104,31 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose test output (-v flag) |
-| package   | string | No     | ./...   | Package pattern to test |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose test output (-v flag) |
+| package | string | No | ./... | Package pattern to test |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | CHARON_ENCRYPTION_KEY | No | auto-generated for test run | Backend test encryption key. If missing/invalid, an ephemeral 32-byte base64 key is generated for the run. |
 
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All tests passed
 
 ### Error Exit Codes
+
 - **Non-zero**: One or more tests failed
 
 ### Console Output
+
 Example output:
-```
+
+```text
 ok      github.com/Wikid82/charon/backend/internal/handlers    0.523s
 ok      github.com/Wikid82/charon/backend/internal/models      0.189s
 ok      github.com/Wikid82/charon/backend/internal/services    0.742s
@@ -167,12 +171,15 @@ ok      github.com/Wikid82/charon/backend/internal/services    0.742s
 ### Common Errors
 
 #### Error: package not found
+
 **Solution**: Verify package path is correct; run `go list ./...` to see available packages
 
 #### Error: build failed
+
 **Solution**: Fix compilation errors; run `go build ./...` to identify issues
 
 #### Error: test timeout
+
 **Solution**: Increase timeout with `-timeout` flag or fix hanging tests
 
 ## Related Skills

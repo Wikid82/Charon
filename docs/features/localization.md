@@ -14,7 +14,7 @@ Charon's interface is fully localized, making it accessible to users worldwide. 
 ## Supported Languages
 
 | Language | Code | Status |
-|----------|------|--------|
+| ---------- | ------ | -------- |
 | English | `en` | Complete (default) |
 | Spanish | `es` | Complete |
 | French | `fr` | Complete |

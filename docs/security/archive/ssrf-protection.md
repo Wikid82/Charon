@@ -37,14 +37,14 @@ Charon implements a **three-layer defense-in-depth strategy** using two compleme
 #### Defense Layer Architecture
 
 | Layer | Component | Function | Prevents |
-|-------|-----------|----------|----------|
+| ------- | ----------- | ---------- | ---------- |
 | **Layer 1** | `security.ValidateExternalURL()` | Pre-validates URL format, scheme, and DNS resolution | Malformed URLs, blocked protocols, obvious private IPs |
 | **Layer 2** | `network.NewSafeHTTPClient()` | Connection-time IP validation in custom dialer | DNS rebinding, TOCTOU attacks, cached DNS exploits |
 | **Layer 3** | Redirect validation | Each redirect target validated before following | Redirect-based SSRF bypasses |
 
 #### Validation Flow
 
-```
+```text
 User URL Input
       │
       ▼
@@ -189,7 +189,7 @@ Charon blocks **13+ IP ranges** to prevent SSRF attacks:
 **Purpose**: Block access to internal networks
 
 | CIDR | Description | Example |
-|------|-------------|---------|
+| ------ | ------------- | --------- |
 | `10.0.0.0/8` | Class A private network | `10.0.0.1` |
 | `172.16.0.0/12` | Class B private network | `172.16.0.1` |
 | `192.168.0.0/16` | Class C private network | `192.168.1.1` |
@@ -212,7 +212,7 @@ curl -X POST /api/v1/settings/security/webhook \
 **Purpose**: Block access to cloud provider metadata services
 
 | IP Address | Provider | Contains |
-|------------|----------|----------|
+| ------------ | ---------- | ---------- |
 | `169.254.169.254` | AWS, Azure, Oracle | Instance credentials, API keys |
 | `metadata.google.internal` | Google Cloud | Service account tokens |
 | `100.100.100.200` | Alibaba Cloud | Instance metadata |
@@ -242,7 +242,7 @@ curl -X POST /api/v1/settings/security/webhook \
 **Purpose**: Prevent access to services running on the Charon host itself
 
 | CIDR | Description | Example |
-|------|-------------|---------|
+| --- | --- | --- |
 | `127.0.0.0/8` | IPv4 loopback | `127.0.0.1` |
 | `::1/128` | IPv6 loopback | `::1` |
 
@@ -263,7 +263,7 @@ curl -X POST /api/v1/settings/security/webhook \
 **Purpose**: Block non-routable addresses used for local network discovery
 
 | CIDR | Description | Example |
-|------|-------------|---------|
+| --- | --- | --- |
 | `169.254.0.0/16` | IPv4 link-local (APIPA) | `169.254.1.1` |
 | `fe80::/10` | IPv6 link-local | `fe80::1` |
 
@@ -274,7 +274,7 @@ curl -X POST /api/v1/settings/security/webhook \
 **Purpose**: Block addresses with special routing or security implications
 
 | CIDR | Description | Risk |
-|------|-------------|------|
+| ------ | ------------- | ------ |
 | `0.0.0.0/8` | Current network | Undefined behavior |
 | `240.0.0.0/4` | Reserved for future use | Non-routable |
 | `255.255.255.255/32` | Broadcast | Network scan |
@@ -594,7 +594,7 @@ err := ValidateExternalURL("http://localhost:8080/admin", WithAllowLocalhost())
 
 **Example Attack Scenario**:
 
-```
+```text
 Time T0: Attacker configures webhook: http://evil.com/webhook
   DNS Resolution: evil.com → 203.0.113.10 (public IP, passes validation)
 
@@ -681,7 +681,7 @@ client := &http.Client{
 
 **Server Log**:
 
-```
+```text
 level=HIGH msg="Blocked SSRF attempt" url="http://192.168.1.100/admin" resolved_ip="192.168.1.100" user_id="admin123" timestamp="2025-12-23T10:30:00Z"
 ```
 
@@ -942,7 +942,7 @@ func WithTimeout(timeout time.Duration) ValidationOption
 **When to Use Each Option**:
 
 | Option | Use Case | Security Impact |
-|--------|----------|-----------------|
+| -------- | ---------- | ----------------- |
 | `WithAllowHTTP()` | Legacy webhooks without HTTPS | ⚠️ MEDIUM - Exposes traffic to eavesdropping |
 | `WithAllowLocalhost()` | Local testing, integration tests | 🔴 HIGH - Exposes internal services |
 | `WithTimeout()` | Custom DNS timeout for slow networks | ✅ LOW - No security impact |
@@ -1019,7 +1019,7 @@ client := network.NewSafeHTTPClient(
 #### Available Options for `NewSafeHTTPClient`
 
 | Option | Default | Description | Security Impact |
-|--------|---------|-------------|-----------------|
+| -------- | --------- | ------------- | ----------------- |
 | `WithTimeout(d)` | 10s | Total request timeout | ✅ LOW |
 | `WithAllowLocalhost()` | false | Permit 127.0.0.1/localhost/::1 | 🔴 HIGH |
 | `WithAllowedDomains(...)` | nil | Restrict to specific domains | ✅ Improves security |
@@ -1061,7 +1061,7 @@ func safeDialer(opts *ClientOptions) func(ctx, network, addr string) (net.Conn, 
 The `network.IsPrivateIP()` function blocks these IP ranges:
 
 | CIDR Block | Description |
-|------------|-------------|
+| ------------ | ------------- |
 | `10.0.0.0/8` | RFC 1918 Class A private network |
 | `172.16.0.0/12` | RFC 1918 Class B private network |
 | `192.168.0.0/16` | RFC 1918 Class C private network |

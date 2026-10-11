@@ -65,13 +65,13 @@ docker exec charon cscli lapi status
 
 **Expected output when ready:**
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
 **If LAPI is not ready yet:**
 
-```
+```text
 ERROR: connection refused
 ```
 
@@ -135,7 +135,7 @@ docker exec charon ps aux | grep crowdsec
 
 **Expected output:**
 
-```
+```text
 crowdsec  203  0.5  2.3  /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
 ```
 
@@ -171,7 +171,7 @@ docker exec charon cscli machines list
 
 **Expected output:**
 
-```
+```text
 Name                     IP Address      Auth Type    Version
 charon-local-machine     127.0.0.1      password     v1.x.x
 ```
@@ -259,7 +259,7 @@ docker exec charon sqlite3 /app/data/charon.db \
 
 **Expected output:**
 
-```
+```text
 security.crowdsec.enabled|true
 ```
 
@@ -272,14 +272,14 @@ docker exec charon sqlite3 /app/data/charon.db \
 
 **Expected output:**
 
-```
+```text
 default|local|1
 ```
 
 **Mismatch scenarios:**
 
 | Settings | SecurityConfig | Behavior | Fix Needed |
-|----------|----------------|----------|------------|
+| ---------- | ---------------- | ---------- | ------------ |
 | `true` | `local` | ✅ Auto-starts | None |
 | `true` | `disabled` | ❌ Does NOT start | Run Solution 2 |
 | `true` | (missing) | ⚠️ Should auto-create | Run Solution 3 |
@@ -404,14 +404,14 @@ EOF
 
 **Expected output (both enabled):**
 
-```
+```text
 Settings:|true
 SecurityConfig:|local
 ```
 
 **Expected output (both disabled):**
 
-```
+```text
 Settings:|false
 SecurityConfig:|disabled
 ```
@@ -515,7 +515,7 @@ Upgrading from an older version with a **persistent database** may be missing th
 
    **Expected output:**
 
-   ```
+   ```text
    ✓ You can successfully interact with Local API (LAPI)
    ```
 
@@ -573,13 +573,13 @@ Charon now checks LAPI availability before enrollment and retries automatically 
 
    **Expected output when ready:**
 
-   ```
+   ```text
    ✓ You can successfully interact with Local API (LAPI)
    ```
 
    **If LAPI is not running:**
 
-   ```
+   ```text
    ERROR: cannot contact local API
    ```
 

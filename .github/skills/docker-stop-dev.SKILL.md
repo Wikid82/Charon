@@ -85,7 +85,7 @@ This skill requires no environment variables.
 
 ### Output Example
 
-```
+```text
 [+] Running 5/5
  ✔ Container charon-dev-caddy-1      Removed
  ✔ Container charon-dev-app-1        Removed
@@ -97,6 +97,7 @@ This skill requires no environment variables.
 ## What Gets Stopped
 
 Services defined in `.docker/compose/docker-compose.dev.yml`:
+
 1. **Application Containers**: Charon main app
 2. **Database Containers**: SQLite/PostgreSQL services
 3. **Security Services**: CrowdSec bouncer
@@ -106,6 +107,7 @@ Services defined in `.docker/compose/docker-compose.dev.yml`:
 ## What Gets Preserved
 
 The `down` command preserves:
+
 - **Volumes**: Database data persists
 - **Images**: Docker images remain cached
 - **Configs**: Configuration files unchanged
@@ -115,6 +117,7 @@ To remove volumes, use `docker compose -f .docker/compose/docker-compose.dev.yml
 ## Shutdown Order
 
 Docker Compose stops services in reverse dependency order:
+
 1. Reverse proxy stops first
 2. Application services stop next
 3. Security services stop
@@ -155,6 +158,7 @@ docker network ls | grep charon-dev
 ## Graceful Shutdown
 
 The `down` command:
+
 1. Sends `SIGTERM` to each container
 2. Waits for graceful shutdown (default: 10 seconds)
 3. Sends `SIGKILL` if timeout exceeded
@@ -164,6 +168,7 @@ The `down` command:
 ## When to Use This Skill
 
 Use this skill when:
+
 - Switching between development and production modes
 - Freeing system resources (CPU, memory)
 - Preparing for system shutdown/restart
@@ -176,21 +181,27 @@ Use this skill when:
 Common issues and solutions:
 
 ### Container Already Stopped
-```
+
+```text
 Warning: Container already stopped
 ```
+
 No action needed - idempotent operation
 
 ### Volume in Use
-```
+
+```text
 Error: volume is in use
 ```
+
 Solution: Check for other containers using the volume
 
 ### Permission Denied
-```
+
+```text
 Error: permission denied
 ```
+
 Solution: Add user to docker group or use sudo
 
 ## Post-Shutdown Verification
@@ -198,16 +209,19 @@ Solution: Add user to docker group or use sudo
 After stopping, verify:
 
 1. **No Running Containers**:
+
    ```bash
    docker ps --filter "name=charon-dev"
    ```
 
 2. **Network Removed**:
+
    ```bash
    docker network ls | grep charon-dev
    ```
 
 3. **Volumes Still Exist** (if data preservation intended):
+
    ```bash
    docker volume ls | grep charon
    ```

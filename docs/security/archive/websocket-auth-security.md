@@ -15,7 +15,7 @@ This document explains the security improvements made to WebSocket authenticatio
 
 Previously, WebSocket connections authenticated by passing the JWT token as a query parameter:
 
-```
+```text
 wss://example.com/api/v1/logs/live?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
@@ -31,7 +31,7 @@ wss://example.com/api/v1/logs/live?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 WebSocket connections now authenticate using HttpOnly cookies:
 
-```
+```text
 wss://example.com/api/v1/logs/live?source=waf&level=error
 ```
 

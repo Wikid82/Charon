@@ -23,7 +23,7 @@ Backups are `.zip` archives (optionally encrypted, see [Encrypting Backups](#enc
 ## What Gets Backed Up
 
 | Component | Included |
-|-----------|----------|
+| ----------- | ---------- |
 | **Database** | All proxy hosts, redirects, streams, 404 hosts, DNS provider credentials, remote storage targets, and tunnel configs |
 | **SSL Certificates** | Let's Encrypt certificates and custom certificates |
 | **Access Lists** | All access control configurations |

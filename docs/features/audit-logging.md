@@ -44,7 +44,7 @@ The audit log interface consists of:
 All audit events are categorized for easy filtering:
 
 | Category | Description | Example Events |
-|----------|-------------|----------------|
+| ---------- | ------------- | ---------------- |
 | `dns_provider` | DNS provider credential operations | Create, update, delete, test credentials |
 | `certificate` | Certificate lifecycle events | Issuance, renewal, failure |
 | `system` | System-level operations | Automated credential decryption |
@@ -54,7 +54,7 @@ All audit events are categorized for easy filtering:
 Charon logs the following DNS provider operations:
 
 | Action | When It's Logged | Details Captured |
-|--------|------------------|------------------|
+| -------- | ------------------ | ------------------ |
 | `dns_provider_create` | New DNS provider added | Provider name, type, is_default flag |
 | `dns_provider_update` | Provider settings changed | Changed fields, old values, new values |
 | `dns_provider_delete` | Provider removed | Provider name, type, whether credentials existed |
@@ -242,7 +242,7 @@ Export audit logs for external analysis, compliance reporting, or archival:
 
 **Audit Log Entries:**
 
-```
+```text
 2026-01-03 14:23:45 | user:5 | dns_provider_create | dns_provider | {"name":"Cloudflare Prod","type":"cloudflare","is_default":true}
 ```
 
@@ -255,7 +255,7 @@ Export audit logs for external analysis, compliance reporting, or archival:
 
 **Audit Log Entries:**
 
-```
+```text
 2026-01-03 14:25:12 | user:5 | credential_test | dns_provider | {"test_result":"success","response_time_ms":342}
 ```
 
@@ -270,7 +270,7 @@ Export audit logs for external analysis, compliance reporting, or archival:
 
 **Audit Log Entries:**
 
-```
+```text
 2026-01-03 14:30:00 | system | credential_decrypt | dns_provider | {"purpose":"certificate_issuance","success":true}
 2026-01-03 14:30:45 | system | certificate_issued | certificate | {"domain":"app.example.com","provider":"cloudflare","result":"success"}
 ```
@@ -284,7 +284,7 @@ Export audit logs for external analysis, compliance reporting, or archival:
 
 **Audit Log Entries:**
 
-```
+```text
 2026-01-03 15:00:22 | user:5 | dns_provider_update | dns_provider | {"changed_fields":["is_default"],"old_values":{"is_default":false},"new_values":{"is_default":true}}
 ```
 
@@ -297,7 +297,7 @@ Export audit logs for external analysis, compliance reporting, or archival:
 
 **Audit Log Entries:**
 
-```
+```text
 2026-01-03 16:45:33 | user:5 | dns_provider_delete | dns_provider | {"name":"Old Provider","type":"route53","had_credentials":true}
 ```
 
@@ -558,7 +558,7 @@ Authorization: Bearer YOUR_API_TOKEN
 ### Error Responses
 
 | Status Code | Error | Description |
-|-------------|-------|-------------|
+| ------------- | ------- | ------------- |
 | 400 | Invalid parameter | Invalid page/limit or malformed date |
 | 401 | Unauthorized | Missing or invalid authentication |
 | 404 | Not found | Audit event UUID does not exist |

@@ -38,7 +38,7 @@ If this isn't set, clicking **Connect** on a Dropbox or Google Drive target will
 6. On the app's **Settings** tab, note the **App key** and **App secret** — you'll paste these into Charon
 7. Still on **Settings**, find **Redirect URIs** and add:
 
-   ```
+   ```text
    https://your-application-url/api/v1/backups/remote-targets/oauth/dropbox/callback
    ```
 
@@ -69,7 +69,7 @@ The target's badge will read **Connected** once this succeeds.
    - Application type: **Web application**
    - Under **Authorized redirect URIs**, add:
 
-     ```
+     ```text
      https://your-application-url/api/v1/backups/remote-targets/oauth/google_drive/callback
      ```
 

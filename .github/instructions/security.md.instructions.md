@@ -154,11 +154,11 @@ Do not edit or backfill existing Patched entries once they are committed.
 Use the following definitions consistently:
 
 | Severity | CVSS Range | Meaning |
-|----------|------------|---------|
+| --- | --- | --- |
 | **Critical** | 9.0–10.0 | Remote code execution, auth bypass, full data exposure |
-| **High**     | 7.0–8.9  | Significant data exposure, privilege escalation, DoS |
-| **Medium**   | 4.0–6.9  | Limited data exposure, requires user interaction or auth |
-| **Low**      | 0.1–3.9  | Minimal impact, difficult to exploit, defense-in-depth |
+| **High** | 7.0–8.9 | Significant data exposure, privilege escalation, DoS |
+| **Medium** | 4.0–6.9 | Limited data exposure, requires user interaction or auth |
+| **Low** | 0.1–3.9 | Minimal impact, difficult to exploit, defense-in-depth |
 
 When a CVE CVSS score is not yet available, assign a preliminary severity based on these definitions and note it as `(preliminary)` until confirmed.
 

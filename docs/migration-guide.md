@@ -125,7 +125,7 @@ docker exec charon cscli lapi status
 
 **Expected output:**
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
@@ -206,7 +206,7 @@ docker exec charon cscli lapi status
 
 **Expected Output (if CrowdSec was enabled):**
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
@@ -310,7 +310,7 @@ If enrollment was incomplete in v1.x (common issue), re-enroll now:
 
 ### Before (Environment Variables)
 
-```
+```text
 1. Edit docker-compose.yml
 2. docker compose down
 3. docker compose up -d
@@ -321,7 +321,7 @@ If enrollment was incomplete in v1.x (common issue), re-enroll now:
 
 ### After (GUI Toggle)
 
-```
+```text
 1. Toggle switch in Security dashboard
 2. Wait 10 seconds
 3. See "Active" status immediately
@@ -330,7 +330,7 @@ If enrollment was incomplete in v1.x (common issue), re-enroll now:
 ### Feature Comparison
 
 | Aspect | Environment Variable (Old) | GUI Toggle (New) |
-|--------|---------------------------|------------------|
+| -------- | --------------------------- | ------------------ |
 | **Enable/Disable** | Edit file + restart container | Click toggle |
 | **Time to apply** | 30-60 seconds | 10-15 seconds |
 | **Status visibility** | Check logs | Real-time dashboard |

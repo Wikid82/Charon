@@ -168,29 +168,32 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| project   | string | No | firefox | Browser project: chromium, firefox, webkit, all |
-| headed    | boolean | No | false | Run with visible browser window |
-| grep      | string | No | "" | Filter tests by title pattern (regex) |
+| --- | --- | --- | --- | --- |
+| project | string | No | firefox | Browser project: chromium, firefox, webkit, all |
+| headed | boolean | No | false | Run with visible browser window |
+| grep | string | No | "" | Filter tests by title pattern (regex) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| PLAYWRIGHT_BASE_URL | No | http://localhost:8080 | Application URL to test against |
+| ---------- | ---------- | --------- | ------------- |
+| PLAYWRIGHT_BASE_URL | No | <http://localhost:8080> | Application URL to test against |
 | PLAYWRIGHT_HTML_OPEN | No | never | HTML report auto-open behavior |
 | CI | No | "" | Set to "true" for CI environment behavior |
 
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All tests passed
 
 ### Error Exit Codes
+
 - **1**: One or more tests failed
 - **Non-zero**: Configuration or execution error
 
 ### Output Directories
+
 - **playwright-report/**: HTML report with test results and traces
 - **test-results/**: Test artifacts, screenshots, and trace files
 
@@ -238,7 +241,7 @@ Open `playwright-report/index.html` directly in a browser.
 
 Tests are located in the `tests/` directory and follow Playwright conventions:
 
-```
+```text
 tests/
 ├── auth.setup.ts          # Authentication setup (runs first)
 ├── dashboard.spec.ts      # Dashboard tests
@@ -252,22 +255,29 @@ tests/
 ### Common Errors
 
 #### Error: Target page, context or browser has been closed
+
 **Solution**: Ensure the application is running at the configured base URL. Rebuild if needed:
+
 ```bash
 .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
 ```
 
 #### Error: page.goto: net::ERR_CONNECTION_REFUSED
+
 **Solution**: Start the Charon application before running tests:
+
 ```bash
 .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
 ```
 
 #### Error: browserType.launch: Executable doesn't exist
+
 **Solution**: Run `npx playwright install` to install browser binaries
 
 #### Error: Timeout waiting for selector
+
 **Solution**: The application may be slow or in an unexpected state. Try:
+
 ```bash
 # Rebuild with clean state
 .github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
@@ -277,7 +287,9 @@ tests/
 ```
 
 #### Error: Authentication state is stale
+
 **Solution**: Remove stored auth and let setup recreate it:
+
 ```bash
 rm -rf playwright/.auth/user.json
 .github/skills/scripts/skill-runner.sh test-e2e-playwright
@@ -288,27 +300,32 @@ rm -rf playwright/.auth/user.json
 When E2E tests fail, follow this workflow:
 
 1. **Check container health**:
+
    ```bash
    docker ps --filter "name=charon-playwright"
    docker logs charon-playwright --tail 50
    ```
 
 2. **Verify the application is accessible**:
+
    ```bash
    curl -sf http://localhost:8080/api/v1/health
    ```
 
 3. **Rebuild with clean state if needed**:
+
    ```bash
    .github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
    ```
 
 4. **Debug specific failing test**:
+
    ```bash
    .github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="test name"
    ```
 
 5. **View the HTML report for details**:
+
    ```bash
    npx playwright show-report --port 9323
    ```
@@ -316,7 +333,7 @@ When E2E tests fail, follow this workflow:
 ## Key File Locations
 
 | Path | Purpose |
-|------|---------|
+| ------ | --------- |
 | `tests/` | All E2E test files |
 | `tests/auth.setup.ts` | Authentication setup fixture |
 | `playwright.config.js` | Playwright configuration |

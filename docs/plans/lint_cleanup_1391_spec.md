@@ -235,7 +235,7 @@ All commands foreground and blocking with generous timeouts, per CLAUDE.md.
 
 golangci-lint's default caps (50 issues per linter, 3 identical messages) hid most findings, so the counts in Sections 3 and 8 understate the real backlog. From this revision on, **every gate and measurement uses the uncapped flags** with the pinned v2.14.0 binary:
 
-```
+```bash
 cd backend && golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...
 ```
 

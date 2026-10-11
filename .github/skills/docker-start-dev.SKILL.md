@@ -76,6 +76,7 @@ This skill accepts no parameters. Services are configured in `.docker/compose/do
 ## Environment Variables
 
 This skill uses environment variables defined in:
+
 - `.env` (if present)
 - `.docker/compose/docker-compose.dev.yml` environment section
 - Shell environment
@@ -88,7 +89,7 @@ This skill uses environment variables defined in:
 
 ### Output Example
 
-```
+```text
 [+] Running 5/5
  ✔ Network charon-dev_default        Created
  ✔ Container charon-dev-db-1         Started
@@ -100,6 +101,7 @@ This skill uses environment variables defined in:
 ## What Gets Started
 
 Services defined in `.docker/compose/docker-compose.dev.yml`:
+
 1. **charon-app**: Main application container
 2. **charon-db**: SQLite or PostgreSQL database
 3. **crowdsec**: Security bouncer
@@ -109,6 +111,7 @@ Services defined in `.docker/compose/docker-compose.dev.yml`:
 ## Service Startup Order
 
 Docker Compose respects `depends_on` directives:
+
 1. Database services start first
 2. Security services (CrowdSec) start next
 3. Application services start after dependencies
@@ -167,6 +170,7 @@ docker compose -f .docker/compose/docker-compose.dev.yml exec app /bin/sh
 ## Port Mappings
 
 Default development ports (check `.docker/compose/docker-compose.dev.yml`):
+
 - **8080**: Application HTTP
 - **8443**: Application HTTPS (if configured)
 - **9000**: Admin panel (if configured)
@@ -175,6 +179,7 @@ Default development ports (check `.docker/compose/docker-compose.dev.yml`):
 ## Detached Mode
 
 The `-d` flag runs containers in detached mode:
+
 - Services run in background
 - Terminal is freed for other commands
 - Use `docker compose logs -f` to view output
@@ -184,27 +189,35 @@ The `-d` flag runs containers in detached mode:
 Common issues and solutions:
 
 ### Port Already in Use
-```
+
+```text
 Error: bind: address already in use
 ```
+
 Solution: Stop conflicting service or change port in compose file
 
 ### Image Pull Failed
-```
+
+```text
 Error: failed to pull image
 ```
+
 Solution: Check network connection, authenticate to registry
 
 ### Insufficient Resources
-```
+
+```text
 Error: failed to start container
 ```
+
 Solution: Free up system resources, stop other containers
 
 ### Configuration Error
-```
+
+```text
 Error: invalid compose file
 ```
+
 Solution: Validate compose file with `docker compose config`
 
 ## Post-Startup Verification
@@ -212,16 +225,19 @@ Solution: Validate compose file with `docker compose config`
 After starting, verify:
 
 1. **All Services Running**:
+
    ```bash
    docker compose -f .docker/compose/docker-compose.dev.yml ps
    ```
 
 2. **Application Accessible**:
+
    ```bash
    curl http://localhost:8080/health
    ```
 
 3. **No Error Logs**:
+
    ```bash
    docker compose -f .docker/compose/docker-compose.dev.yml logs --tail=50
    ```

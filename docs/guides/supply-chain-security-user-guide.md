@@ -51,7 +51,7 @@ cosign verify \
 
 **Expected Output:**
 
-```
+```text
 Verification for ghcr.io/wikid82/charon:latest --
 The following checks were performed on each of these signatures:
   - The cosign claims were validated
@@ -169,7 +169,7 @@ grype sbom:sbom.spdx.json
 
 **Expected Output:**
 
-```
+```text
 NAME                 INSTALLED           VULNERABILITY   SEVERITY
 github.com/caddyserver/caddy/v2  v2.11.0    (no vulnerabilities found)
 ...

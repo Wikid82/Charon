@@ -14,7 +14,7 @@ Open **Settings → Appearance** to see the theme gallery. Each theme is shown a
 ### Built-In Themes
 
 | Theme | Best For |
-|-------|---------|
+| ------- | --------- |
 | **Dark** (default) | Low-light environments, long sessions |
 | **Light** | Bright rooms, printing |
 | **High Contrast Dark** | Maximum readability on dark backgrounds |
@@ -71,7 +71,7 @@ All built-in themes meet **WCAG 2.1 AA** contrast requirements. The High Contras
 ## Keyboard Navigation
 
 | Key | Action |
-|-----|--------|
+| ----- | -------- |
 | `Tab` | Move between theme cards |
 | `Enter` / `Space` | Select a theme |
 | `Escape` | Close color picker / preview overlay |

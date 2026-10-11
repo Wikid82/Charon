@@ -432,7 +432,7 @@ dig _acme-challenge.example.com TXT @$(dig NS example.com +short | head -1)
 
 **Success:**
 
-```
+```text
 [INFO] DNS provider test successful
 [INFO] ACME challenge completed
 [INFO] Certificate issued successfully
@@ -440,7 +440,7 @@ dig _acme-challenge.example.com TXT @$(dig NS example.com +short | head -1)
 
 **Errors:**
 
-```
+```text
 [ERROR] Failed to create TXT record: <reason>
 [ERROR] DNS propagation timeout after 120 seconds
 [ERROR] ACME validation failed: <acme-error>

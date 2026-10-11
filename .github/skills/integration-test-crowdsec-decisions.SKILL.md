@@ -100,31 +100,35 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | CROWDSEC_API_KEY | No | auto | API key for LAPI access |
-| CROWDSEC_LAPI_URL | No | http://crowdsec:8080 | CrowdSec LAPI endpoint |
+| CROWDSEC_LAPI_URL | No | <http://crowdsec:8080> | CrowdSec LAPI endpoint |
 | TEST_IP | No | 192.0.2.1 | Test IP address for decisions |
 
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All decision API tests passed
 
 ### Error Exit Codes
+
 - **1**: One or more tests failed
 - **2**: LAPI not accessible
 - **3**: Authentication failed
 - **4**: Decision creation/deletion failed
 
 ### Console Output
+
 Example output:
-```
+
+```text
 === Testing CrowdSec Decision API ===
 ✓ Create Decision: IP 192.0.2.1 blocked for 4h
 ✓ Retrieve Decisions: 1 active decision found
@@ -210,15 +214,19 @@ CROWDSEC_API_KEY=my-api-key VERBOSE=1 \
 ### Common Errors
 
 #### Error: LAPI not responding
+
 **Solution**: Check LAPI container: `docker ps | grep crowdsec`
 
 #### Error: Authentication failed
+
 **Solution**: Verify API key: `docker exec crowdsec cscli machines list`
 
 #### Error: Decision not created
+
 **Solution**: Check LAPI logs for validation errors
 
 #### Error: Decision not found after creation
+
 **Solution**: Verify database connectivity and permissions
 
 ### Debugging

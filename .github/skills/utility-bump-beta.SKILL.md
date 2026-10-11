@@ -90,7 +90,7 @@ This skill requires no environment variables.
 
 ### Output Example
 
-```
+```text
 Starting Beta Version Bump...
 Current Version: 0.3.0-beta.2
 New Version: 0.3.0-beta.3
@@ -108,18 +108,21 @@ Remember to push: git push origin feature/beta-release --tags
 ### Current Version is Beta (x.y.z-beta.N)
 
 Increments the beta number:
+
 - `0.3.0-beta.2` → `0.3.0-beta.3`
 - `1.0.0-beta.5` → `1.0.0-beta.6`
 
 ### Current Version is Plain Semver (x.y.z)
 
 Bumps minor version and starts beta.1:
+
 - `0.3.0` → `0.4.0-beta.1`
 - `1.2.0` → `1.3.0-beta.1`
 
 ### Current Version is Alpha or Unrecognized
 
 Defaults to safe fallback:
+
 - `0.3.0-alpha` → `0.3.0-beta.1`
 - `invalid-version` → `0.3.0-beta.1`
 
@@ -157,7 +160,7 @@ git push origin feature/beta-release --tags
 
 After updating files, the script prompts:
 
-```
+```text
 Do you want to commit and tag this version? (y/n)
 ```
 

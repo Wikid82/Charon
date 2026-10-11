@@ -44,7 +44,7 @@ Before using the Manual DNS Provider, ensure you have:
 Fill in the configuration form:
 
 | Field | Description | Recommended Value |
-|-------|-------------|-------------------|
+| --- | --- | --- |
 | **Provider Name** | A descriptive name for this provider | "Manual DNS" |
 | **Challenge Timeout** | Time (in minutes) to complete the challenge | 10 |
 
@@ -67,7 +67,7 @@ Charon will begin the certificate request and display the Manual DNS Challenge i
 
 When you request a certificate using the Manual DNS provider, Charon displays a challenge screen:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                   Manual DNS Challenge                               │
 ├─────────────────────────────────────────────────────────────────────┤
@@ -159,7 +159,7 @@ Different DNS providers have different interfaces. Here are common patterns:
 Most providers follow this pattern:
 
 | Field | What to Enter |
-|-------|---------------|
+| ------- | --------------- |
 | Type | TXT |
 | Host/Name | `_acme-challenge` or full `_acme-challenge.yourdomain.com` |
 | Value/Content | The challenge token from Charon |
@@ -185,7 +185,7 @@ After creating the TXT record:
 ### Challenge Status Messages
 
 | Status | Meaning | Action |
-|--------|---------|--------|
+| -------- | --------- | -------- |
 | **Pending** | Waiting for you to create the DNS record | Create the TXT record |
 | **Checking DNS** | Charon is verifying the record exists | Wait for result |
 | **DNS Found** | Record detected, verifying with ACME | Wait for completion |

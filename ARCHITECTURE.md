@@ -96,7 +96,7 @@ graph TB
 ### Component Communication
 
 | Source | Target | Protocol | Purpose |
-|--------|--------|----------|---------|
+| -------- | -------- | ---------- | --------- |
 | Frontend | Backend | HTTP/1.1 | REST API calls for CRUD operations |
 | Frontend | Backend | WebSocket | Real-time log streaming |
 | Backend | Caddy | HTTP/JSON | Dynamic configuration updates |
@@ -122,7 +122,7 @@ graph TB
 ### Backend
 
 | Component | Technology | Version | Purpose |
-|-----------|-----------|---------|---------|
+| ----------- | ----------- | --------- | --------- |
 | **Language** | Go | 1.26.0 | Primary backend language |
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
@@ -143,7 +143,7 @@ graph TB
 ### Frontend
 
 | Component | Technology | Version | Purpose |
-|-----------|-----------|---------|---------|
+| ----------- | ----------- | --------- | --------- |
 | **Framework** | React | 19.2.3 | UI framework |
 | **Language** | TypeScript | 6.x | Type-safe JavaScript |
 | **Build Tool** | Vite | 8.0.0-beta.18 | Fast bundler and dev server |
@@ -159,7 +159,7 @@ graph TB
 ### Infrastructure
 
 | Component | Technology | Version | Purpose |
-|-----------|-----------|---------|---------|
+| ----------- | ----------- | --------- | --------- |
 | **Containerization** | Docker | 24+ | Application packaging |
 | **Base Image** | Debian Trixie Slim | Latest | Security-hardened base |
 | **CI/CD** | GitHub Actions | N/A | Automated testing and deployment |
@@ -173,7 +173,7 @@ graph TB
 
 ## Directory Structure
 
-```
+```text
 /projects/Charon/
 ├── backend/                    # Go backend source code
 │   ├── cmd/                    # Application entrypoints
@@ -398,7 +398,7 @@ The stats subsystem collects, aggregates, and broadcasts request metrics for the
 **API Endpoints** (all require JWT authentication, mounted under `/api/stats/`):
 
 | Method | Path | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `GET` | `/summary` | 24 h / 7 d / 30 d request counts |
 | `GET` | `/top-hosts` | Top hosts by request count (`period`, `limit`) |
 | `GET` | `/status-distribution` | HTTP status code breakdown (`period`) |
@@ -504,7 +504,7 @@ ticker.
 `POST /api/v1/settings` and the SystemSettings "Uptime Monitoring" card):
 
 | Key | Default | Bounds | Hot-reload |
-|-----|---------|--------|-----------|
+| ----- | --------- | -------- | ----------- |
 | `uptime.default_interval_seconds` | 60 | 30 – 86400 | Yes (~60 s TTL) |
 | `uptime.worker_pool_size` | 30 | 1 – 200 | No — restart to apply |
 | `uptime.heartbeat_retention_days` | 30 | 1 – 3650 | Yes (read each pruner pass) |
@@ -512,7 +512,7 @@ ticker.
 **API Endpoints** (JWT auth, mounted in the `management` group):
 
 | Method | Path | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `GET` | `/api/v1/uptime/monitors/summary` | Per-monitor status, latency, last check, 24 h uptime %, and a `recent_beats` sparkline series — one response, 30 s cached |
 | `GET` | `/api/v1/uptime/monitors/:id/history` | Detailed heartbeat history for one monitor — `limit` (≤ 500), `before` cursor |
 | `GET` | `/api/v1/uptime/health` | `heartbeats_dropped`, `checks_enqueue_dropped`, `queue_depth`, `worker_pool_size` |
@@ -536,7 +536,7 @@ Format-v2 backup archives, a validated safe-restore pipeline, optional archive e
 **API Endpoints** (mounted under the existing `management` group in `internal/api/routes/routes.go`; mutating routes additionally require admin):
 
 | Method | Path | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `GET` | `/api/v1/backups` | List backups (DB-backed, reconciled with filesystem) |
 | `POST` | `/api/v1/backups` | Start a backup job — `202 Accepted` + `job_id` (admin) |
 | `DELETE` | `/api/v1/backups/:filename` | Delete backup (admin) |
@@ -1007,7 +1007,7 @@ pin (the stage already carries ~40 such pins).
 **Route-group boundary** (`backend/internal/api/routes/routes.go`):
 
 | Group | Middleware chain | Who reaches it |
-|-------|------------------|----------------|
+| ------- | ------------------ | ---------------- |
 | `protected` | `AuthMiddleware` | any authenticated caller |
 | `management` | `+ RequireManagementAccess()` | `admin` and `user` (rejects `passthrough`) |
 | `managementAdmin` | `+ RequireRole(models.RoleAdmin)` | `admin` only |
@@ -1095,7 +1095,7 @@ Charon operates with **two distinct traffic flows** on separate ports, each with
 
 **Traffic Separation Example:**
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                     Charon Container                        │
 │                                                             │
@@ -1357,7 +1357,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 ### Port Mapping
 
 | Port | Protocol | Purpose | Bind |
-|------|----------|---------|------|
+| ------ | ---------- | --------- | ------ |
 | 8080 | HTTP | Web UI + REST API | 0.0.0.0 |
 | 80 | HTTP | Caddy reverse proxy | 0.0.0.0 |
 | 443 | HTTPS | Caddy reverse proxy (TLS) | 0.0.0.0 |
@@ -1367,14 +1367,14 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 ### Volume Mounts
 
 | Container Path | Purpose | Required |
-|----------------|---------|----------|
+| --- | --- | --- |
 | `/app/data` | Database, certificates, backups | **Yes** |
 | `/var/run/docker.sock` | Docker container discovery | Optional |
 
 ### Environment Variables
 
 | Variable | Purpose | Default | Required |
-|----------|---------|---------|----------|
+| ---------- | --------- | --------- | ---------- |
 | `CHARON_ENV` | Environment (production/development) | `production` | No |
 | `CHARON_ENCRYPTION_KEY` | 32-byte base64 key for credential encryption | Auto-generated | No |
 | `CHARON_EMERGENCY_TOKEN` | 64-char hex for break-glass access | None | Optional |
@@ -1520,7 +1520,7 @@ See "Branch Promotion Chain" below for how changes flow `main` → `development`
 
 **Example:**
 
-```
+```text
 feat: add DNS-01 challenge support for Cloudflare
 
 Implement Cloudflare DNS provider for automatic wildcard certificate
@@ -1605,7 +1605,7 @@ deliberate, not an inconsistency to "fix" into one uniform pipeline:
 
 ### Test Pyramid
 
-```
+```text
        /\        E2E (Playwright) - 10%
       /  \       Critical user flows
      /____\

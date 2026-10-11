@@ -110,32 +110,37 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose test output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose test output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | CHARON_MIN_COVERAGE | No | 85 | Minimum coverage percentage required for success |
 | CPM_MIN_COVERAGE | No | 85 | Legacy name for minimum coverage (fallback) |
 
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All tests passed and coverage meets threshold
 
 ### Error Exit Codes
+
 - **1**: Coverage below threshold or coverage file generation failed
 - **Non-zero**: Tests failed or other error occurred
 
 ### Output Files
+
 - **frontend/coverage/coverage-summary.json**: Vitest coverage summary (JSON format)
 - **frontend/coverage/index.html**: HTML coverage report (viewable in browser)
 
 ### Console Output
+
 Example output:
-```
+
+```text
 Computed frontend coverage: 87.5% (minimum required 85%)
 Frontend coverage requirement met
 ```
@@ -168,12 +173,15 @@ xdg-open frontend/coverage/index.html  # Linux
 ### Common Errors
 
 #### Error: Coverage summary file not found
+
 **Solution**: Check that Vitest is configured with `--coverage` and `--reporter=json-summary`
 
 #### Error: Frontend coverage X% is below required Y%
+
 **Solution**: Add tests for uncovered components or adjust threshold
 
 #### Error: npm ci failed
+
 **Solution**: Clear node_modules and package-lock.json, then reinstall dependencies
 
 ## Related Skills

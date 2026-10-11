@@ -22,7 +22,7 @@ The database consists of 8 main tables:
 
 ## Entity Relationship Diagram
 
-```
+```text
 ┌─────────────────┐
 │   ProxyHost     │
 ├─────────────────┤
@@ -130,7 +130,7 @@ The database consists of 8 main tables:
 Stores reverse proxy host configurations.
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `uuid` | UUID | Primary key |
 | `domain` | TEXT | Domain names (comma-separated) |
 | `forward_scheme` | TEXT | http or https |
@@ -162,7 +162,7 @@ Stores reverse proxy host configurations.
 Stores remote Caddy server connection information.
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `uuid` | UUID | Primary key |
 | `name` | TEXT | Friendly name |
 | `provider` | TEXT | generic, docker, kubernetes, aws, gcp, azure |
@@ -184,7 +184,7 @@ Stores remote Caddy server connection information.
 Stores generated Caddyfile configurations for each proxy host.
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `uuid` | UUID | Primary key |
 | `proxy_host_id` | UUID | Foreign key to ProxyHost |
 | `raw_config` | TEXT | Generated Caddyfile content |
@@ -202,7 +202,7 @@ Stores generated Caddyfile configurations for each proxy host.
 Stores SSL/TLS certificates (future enhancement).
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `uuid` | UUID | Primary key |
 | `name` | TEXT | Certificate name |
 | `domain_names` | TEXT | Domains covered (comma-separated) |
@@ -217,7 +217,7 @@ Stores SSL/TLS certificates (future enhancement).
 Stores IP-based access control lists (future enhancement).
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `uuid` | UUID | Primary key |
 | `name` | TEXT | List name |
 | `addresses` | TEXT | IP addresses (comma-separated) |
@@ -229,7 +229,7 @@ Stores IP-based access control lists (future enhancement).
 Stores user authentication information (future enhancement).
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `uuid` | UUID | Primary key |
 | `email` | TEXT | Email address (unique) |
 | `password_hash` | TEXT | Bcrypt password hash |
@@ -248,7 +248,7 @@ Stores user authentication information (future enhancement).
 Stores application-wide settings as key-value pairs.
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `uuid` | UUID | Primary key |
 | `key` | TEXT | Setting key (unique) |
 | `value` | TEXT | Setting value (JSON string) |
@@ -271,7 +271,7 @@ Stores application-wide settings as key-value pairs.
 Tracks Caddyfile import sessions.
 
 | Column | Type | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `uuid` | UUID | Primary key |
 | `filename` | TEXT | Uploaded filename (optional) |
 | `state` | TEXT | parsing, reviewing, completed, failed |

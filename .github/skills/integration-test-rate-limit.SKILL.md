@@ -88,13 +88,13 @@ VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-rate-limit
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | RATE_LIMIT_REQUESTS | No | 3 | Allowed requests per window in the test |
 | RATE_LIMIT_WINDOW_SEC | No | 10 | Window size in seconds |
 | RATE_LIMIT_BURST | No | 1 | Burst size in tests |
@@ -102,9 +102,11 @@ VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-rate-limit
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All rate limit integration tests passed
 
 ### Error Exit Codes
+
 - **1**: One or more tests failed
 - **2**: Docker environment setup failed
 - **3**: Container startup timeout

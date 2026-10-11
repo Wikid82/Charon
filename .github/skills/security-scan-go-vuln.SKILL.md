@@ -105,14 +105,14 @@ GOVULNCHECK_FORMAT=json .github/skills/scripts/skill-runner.sh security-scan-go-
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| format    | string | No     | text    | Output format (text, json, sarif) |
-| mode      | string | No     | source  | Scan mode (source or binary) |
+| --- | --- | --- | --- | --- |
+| format | string | No | text | Output format (text, json, sarif) |
+| mode | string | No | source | Scan mode (source or binary) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | GOVULNCHECK_FORMAT | No | text | Output format override |
 
 ## Outputs
@@ -127,14 +127,14 @@ GOVULNCHECK_FORMAT=json .github/skills/scripts/skill-runner.sh security-scan-go-
 
 ### Text Output (Default)
 
-```
+```text
 Scanning for dependencies with known vulnerabilities...
 No vulnerabilities found.
 ```
 
 Or if vulnerabilities are found:
 
-```
+```text
 Found 2 vulnerabilities in dependencies
 
 Vulnerability #1: GO-2023-1234
@@ -163,7 +163,8 @@ cd backend
 ```
 
 Output:
-```
+
+```text
 Scanning your code and 125 packages across 23 dependent modules for known vulnerabilities...
 No vulnerabilities found.
 ```
@@ -202,24 +203,28 @@ No vulnerabilities found.
 ### Common Issues
 
 **Go not installed**:
+
 ```bash
 Error: Go 1.23+ is required
 Solution: Install Go 1.23 or higher
 ```
 
 **Network unavailable**:
+
 ```bash
 Error: Failed to fetch vulnerability database
 Solution: Check internet connection or proxy settings
 ```
 
 **Vulnerabilities found**:
+
 ```bash
 Exit code: 3
 Solution: Review vulnerabilities and update affected packages
 ```
 
 **Module not found**:
+
 ```bash
 Error: go.mod file not found
 Solution: Run from a valid Go module directory
@@ -238,7 +243,7 @@ Solution: Run from a valid Go module directory
 
 ## Notes
 
-- `govulncheck` uses the official Go vulnerability database at https://vuln.go.dev
+- `govulncheck` uses the official Go vulnerability database at <https://vuln.go.dev>
 - Database is automatically updated during each scan
 - Only checks vulnerabilities that are reachable from your code
 - Does not require building the code (analyzes source)

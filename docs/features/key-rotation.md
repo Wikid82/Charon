@@ -350,7 +350,7 @@ docker logs charon 2>&1 | grep "encryption"
 
 Expected output:
 
-```
+```json
 {"level":"info","msg":"Encryption keys loaded: current + next configured"}
 ```
 
@@ -494,7 +494,7 @@ docker logs charon 2>&1 | grep "encryption"
 
 Expected output:
 
-```
+```json
 {"level":"info","msg":"Encryption keys loaded: current + 1 legacy keys"}
 ```
 
@@ -813,7 +813,7 @@ curl "https://your-charon-instance/api/v1/admin/encryption/history?page=1&limit=
 ### Rotation Frequency Recommendations
 
 | Environment | Rotation Frequency | Rationale |
-|-------------|-------------------|-----------|
+| ------------- | ------------------- | ----------- |
 | **Production (High-Risk)** | Quarterly (every 3 months) | Meets most compliance requirements, reduces exposure window |
 | **Production (Standard)** | Annually (every 12 months) | Minimum for PCI-DSS and SOC 2 compliance |
 | **Staging/Testing** | As needed | Match production rotation schedule for testing |
@@ -1046,7 +1046,7 @@ If rotation fails or issues are discovered, follow this rollback procedure:
 
 **Error log**:
 
-```
+```json
 {"level":"fatal","msg":"CHARON_ENCRYPTION_KEY not set"}
 ```
 

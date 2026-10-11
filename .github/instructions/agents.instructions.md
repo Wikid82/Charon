@@ -14,7 +14,7 @@ Instructions for creating effective and maintainable custom agent files that pro
 - File naming convention: lowercase with hyphens (e.g., `test-specialist.agent.md`)
 - Location: `.github/agents/` directory (repository-level) or `agents/` directory (organization/enterprise-level)
 - Purpose: Define specialized agents with tailored expertise, tools, and instructions for specific tasks
-- Official documentation: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-custom-agents
+- Official documentation: <https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-custom-agents>
 
 ## Required Frontmatter
 
@@ -34,44 +34,52 @@ infer: true
 ### Core Frontmatter Properties
 
 #### **description** (REQUIRED)
+
 - Single-quoted string, clearly stating the agent's purpose and domain expertise
 - Should be concise (50-150 characters) and actionable
 - Example: `'Focuses on test coverage, quality, and testing best practices'`
 
 #### **name** (OPTIONAL)
+
 - Display name for the agent in the UI
 - If omitted, defaults to filename (without `.md` or `.agent.md`)
 - Use title case and be descriptive
 - Example: `'Testing Specialist'`
 
 #### **tools** (OPTIONAL)
+
 - List of tool names or aliases the agent can use
 - Supports comma-separated string or YAML array format
 - If omitted, agent has access to all available tools
 - See "Tool Configuration" section below for details
 
 #### **model** (STRONGLY RECOMMENDED)
+
 - Specifies which AI model the agent should use
 - Supported in VS Code, JetBrains IDEs, Eclipse, and Xcode
 - Example: `'Claude Sonnet 4.5'`, `'gpt-4'`, `'gpt-4o'`
 - Choose based on agent complexity and required capabilities
 
 #### **target** (OPTIONAL)
+
 - Specifies target environment: `'vscode'` or `'github-copilot'`
 - If omitted, agent is available in both environments
 - Use when agent has environment-specific features
 
 #### **infer** (OPTIONAL)
+
 - Boolean controlling whether Copilot can automatically use this agent based on context
 - Default: `true` if omitted
 - Set to `false` to require manual agent selection
 
 #### **metadata** (OPTIONAL, GitHub.com only)
+
 - Object with name-value pairs for agent annotation
 - Example: `metadata: { category: 'testing', version: '1.0' }`
 - Not supported in VS Code
 
 #### **mcp-servers** (OPTIONAL, Organization/Enterprise only)
+
 - Configure MCP servers available only to this agent
 - Only supported for organization/enterprise level agents
 - See "MCP Server Configuration" section below
@@ -81,22 +89,26 @@ infer: true
 ### Tool Specification Strategies
 
 **Enable all tools** (default):
+
 ```yaml
 # Omit tools property entirely, or use:
 tools: ['*']
 ```
 
 **Enable specific tools**:
+
 ```yaml
 tools: ['read', 'edit', 'search', 'execute']
 ```
 
 **Enable MCP server tools**:
+
 ```yaml
 tools: ['read', 'edit', 'github/*', 'playwright/navigate']
 ```
 
 **Disable all tools**:
+
 ```yaml
 tools: []
 ```
@@ -106,7 +118,7 @@ tools: []
 All aliases are case-insensitive:
 
 | Alias | Alternative Names | Category | Description |
-|-------|------------------|----------|-------------|
+| ------- | ------------------ | ---------- | ------------- |
 | `execute` | shell, Bash, powershell | Shell execution | Execute commands in appropriate shell |
 | `read` | Read, NotebookRead, view | File reading | Read file contents |
 | `edit` | Edit, MultiEdit, Write, NotebookEdit | File editing | Edit and modify files |
@@ -118,18 +130,22 @@ All aliases are case-insensitive:
 ### Built-in MCP Server Tools
 
 **GitHub MCP Server**:
+
 ```yaml
 tools: ['github/*']  # All GitHub tools
 tools: ['github/get_file_contents', 'github/search_repositories']  # Specific tools
 ```
+
 - All read-only tools available by default
 - Token scoped to source repository
 
 **Playwright MCP Server**:
+
 ```yaml
 tools: ['playwright/*']  # All Playwright tools
 tools: ['playwright/navigate', 'playwright/screenshot']  # Specific tools
 ```
+
 - Configured to access localhost only
 - Useful for browser automation and testing
 
@@ -179,6 +195,7 @@ Structure each sub-agent call with:
 2. **prompt**: Detailed instructions with substituted variables
 
 The prompt should include:
+
 - Who the sub-agent is (specialist role)
 - What context it needs (parameters, paths)
 - What to do (concrete tasks)
@@ -232,8 +249,6 @@ Return: Key findings and identified patterns`
 - **Sequential execution**: Use `await` to maintain order when steps depend on each other
 - **Error handling**: Check results before proceeding to dependent steps
 
-
-
 ## Agent Prompt Structure
 
 The markdown content below the frontmatter defines the agent's behavior, expertise, and instructions. Well-structured prompts typically include:
@@ -259,6 +274,7 @@ Agents can define dynamic parameters to extract values from user input and use t
 ### When to Use Variables
 
 **Use variables when**:
+
 - Agent behavior depends on user input
 - Need to pass dynamic values to sub-agents
 - Want to make agents reusable across different contexts
@@ -266,6 +282,7 @@ Agents can define dynamic parameters to extract values from user input and use t
 - Need to track or reference user-provided context
 
 **Examples**:
+
 - Extract project name from user prompt
 - Capture certification name for pipeline processing
 - Identify file paths or directories
@@ -292,6 +309,7 @@ Process [PARAMETER_NAME] to accomplish [task].
 ### Variable Extraction Methods
 
 #### 1. **Explicit User Input**
+
 Ask the user to provide the variable if not detected in the prompt:
 
 ```markdown
@@ -309,6 +327,7 @@ Use this information to contextualize all subsequent tasks.
 ```
 
 #### 2. **Implicit Extraction from Prompt**
+
 Automatically extract variables from the user's natural language input:
 
 ```javascript
@@ -324,6 +343,7 @@ const basePath = `certifications/${certificationName}`;
 ```
 
 #### 3. **Contextual Variable Resolution**
+
 Use file context or workspace information to derive variables:
 
 ```markdown
@@ -463,10 +483,10 @@ Return: Final verdict and executive summary`
 
 This pattern applies to any orchestration scenario: extract variables, call sub-agents with clear context, await results.
 
-
 ### Variable Best Practices
 
 #### 1. **Clear Documentation**
+
 Always document what variables are expected:
 
 ```markdown
@@ -484,6 +504,7 @@ Always document what variables are expected:
 ```
 
 #### 2. **Consistent Naming**
+
 Use consistent variable naming conventions:
 
 ```javascript
@@ -506,6 +527,7 @@ const bad_variables = {
 ```
 
 #### 3. **Validation and Constraints**
+
 Document valid values and constraints:
 
 ```markdown
@@ -559,6 +581,7 @@ mcp-servers:
 Secrets must be configured in repository settings under "copilot" environment.
 
 **Supported syntax**:
+
 ```yaml
 env:
   # Environment variable only
@@ -576,16 +599,19 @@ env:
 ## File Organization and Naming
 
 ### Repository-Level Agents
+
 - Location: `.github/agents/`
 - Scope: Available only in the specific repository
 - Access: Uses repository-configured MCP servers
 
 ### Organization/Enterprise-Level Agents
+
 - Location: `.github-private/agents/` (then move to `agents/` root)
 - Scope: Available across all repositories in org/enterprise
 - Access: Can configure dedicated MCP servers
 
 ### Naming Conventions
+
 - Use lowercase with hyphens: `test-specialist.agent.md`
 - Name should reflect agent purpose
 - Filename becomes default agent name (if `name` not specified)
@@ -594,13 +620,16 @@ env:
 ## Agent Processing and Behavior
 
 ### Versioning
+
 - Based on Git commit SHAs for the agent file
 - Create branches/tags for different agent versions
 - Instantiated using latest version for repository/branch
 - PR interactions use same agent version for consistency
 
 ### Name Conflicts
+
 Priority (highest to lowest):
+
 1. Repository-level agent
 2. Organization-level agent
 3. Enterprise-level agent
@@ -608,6 +637,7 @@ Priority (highest to lowest):
 Lower-level configurations override higher-level ones with the same name.
 
 ### Tool Processing
+
 - `tools` list filters available tools (built-in and MCP)
 - No tools specified = all tools enabled
 - Empty list (`[]`) = all tools disabled
@@ -615,6 +645,7 @@ Lower-level configurations override higher-level ones with the same name.
 - Unrecognized tool names are ignored (allows environment-specific tools)
 
 ### MCP Server Processing Order
+
 1. Out-of-the-box MCP servers (e.g., GitHub MCP)
 2. Custom agent MCP configuration (org/enterprise only)
 3. Repository-level MCP configurations
@@ -624,6 +655,7 @@ Each level can override settings from previous levels.
 ## Agent Creation Checklist
 
 ### Frontmatter
+
 - [ ] `description` field present and descriptive (50-150 chars)
 - [ ] `description` wrapped in single quotes
 - [ ] `name` specified (optional but recommended)
@@ -633,6 +665,7 @@ Each level can override settings from previous levels.
 - [ ] `infer` set to `false` if manual selection required
 
 ### Prompt Content
+
 - [ ] Clear agent identity and role defined
 - [ ] Core responsibilities listed explicitly
 - [ ] Approach and methodology explained
@@ -644,12 +677,14 @@ Each level can override settings from previous levels.
 - [ ] Total content under 30,000 characters
 
 ### File Structure
+
 - [ ] Filename follows lowercase-with-hyphens convention
 - [ ] File placed in correct directory (`.github/agents/` or `agents/`)
 - [ ] Filename uses only allowed characters
 - [ ] File extension is `.agent.md`
 
 ### Quality Assurance
+
 - [ ] Agent purpose is unique and not duplicative
 - [ ] Tools are minimal and necessary
 - [ ] Instructions are clear and unambiguous
@@ -660,26 +695,31 @@ Each level can override settings from previous levels.
 ## Common Agent Patterns
 
 ### Testing Specialist
+
 **Purpose**: Focus on test coverage and quality
 **Tools**: All tools (for comprehensive test creation)
 **Approach**: Analyze, identify gaps, write tests, avoid production code changes
 
 ### Implementation Planner
+
 **Purpose**: Create detailed technical plans and specifications
 **Tools**: Limited to `['read', 'search', 'edit']`
 **Approach**: Analyze requirements, create documentation, avoid implementation
 
 ### Code Reviewer
+
 **Purpose**: Review code quality and provide feedback
 **Tools**: `['read', 'search']` only
 **Approach**: Analyze, suggest improvements, no direct modifications
 
 ### Refactoring Specialist
+
 **Purpose**: Improve code structure and maintainability
 **Tools**: `['read', 'search', 'edit']`
 **Approach**: Analyze patterns, propose refactorings, implement safely
 
 ### Security Auditor
+
 **Purpose**: Identify security issues and vulnerabilities
 **Tools**: `['read', 'search', 'web']`
 **Approach**: Scan code, check against OWASP, report findings
@@ -687,18 +727,21 @@ Each level can override settings from previous levels.
 ## Common Mistakes to Avoid
 
 ### Frontmatter Errors
+
 - ❌ Missing `description` field
 - ❌ Description not wrapped in quotes
 - ❌ Invalid tool names without checking documentation
 - ❌ Incorrect YAML syntax (indentation, quotes)
 
 ### Tool Configuration Issues
+
 - ❌ Granting excessive tool access unnecessarily
 - ❌ Missing required tools for agent's purpose
 - ❌ Not using tool aliases consistently
 - ❌ Forgetting MCP server namespace (`server-name/tool`)
 
 ### Prompt Content Problems
+
 - ❌ Vague, ambiguous instructions
 - ❌ Conflicting or contradictory guidelines
 - ❌ Lack of clear scope definition
@@ -707,6 +750,7 @@ Each level can override settings from previous levels.
 - ❌ No examples or context for complex tasks
 
 ### Organizational Issues
+
 - ❌ Filename doesn't reflect agent purpose
 - ❌ Wrong directory (confusing repo vs org level)
 - ❌ Using spaces or special characters in filename
@@ -715,6 +759,7 @@ Each level can override settings from previous levels.
 ## Testing and Validation
 
 ### Manual Testing
+
 1. Create the agent file with proper frontmatter
 2. Reload VS Code or refresh GitHub.com
 3. Select the agent from the dropdown in Copilot Chat
@@ -723,6 +768,7 @@ Each level can override settings from previous levels.
 6. Confirm output meets expectations
 
 ### Integration Testing
+
 - Test agent with different file types in scope
 - Verify MCP server connectivity (if configured)
 - Check agent behavior with missing context
@@ -730,6 +776,7 @@ Each level can override settings from previous levels.
 - Validate agent switching and handoffs
 
 ### Quality Checks
+
 - Run through agent creation checklist
 - Review against common mistakes list
 - Compare with example agents in repository
@@ -739,29 +786,34 @@ Each level can override settings from previous levels.
 ## Additional Resources
 
 ### Official Documentation
+
 - [Creating Custom Agents](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-custom-agents)
 - [Custom Agents Configuration](https://docs.github.com/en/copilot/reference/custom-agents-configuration)
 - [Custom Agents in VS Code](https://code.visualstudio.com/docs/copilot/customization/custom-agents)
 - [MCP Integration](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp)
 
 ### Community Resources
+
 - [Awesome Copilot Agents Collection](https://github.com/github/awesome-copilot/tree/main/agents)
 - [Customization Library Examples](https://docs.github.com/en/copilot/tutorials/customization-library/custom-agents)
 - [Your First Custom Agent Tutorial](https://docs.github.com/en/copilot/tutorials/customization-library/custom-agents/your-first-custom-agent)
 
 ### Related Files
+
 - [Prompt Files Guidelines](./prompt.instructions.md) - For creating prompt files
 - [Instructions Guidelines](./instructions.instructions.md) - For creating instruction files
 
 ## Version Compatibility Notes
 
 ### GitHub.com (Coding Agent)
+
 - ✅ Fully supports all standard frontmatter properties
 - ✅ Repository and org/enterprise level agents
 - ✅ MCP server configuration (org/enterprise)
 - ❌ Does not support `model`, `argument-hint`, `handoffs` properties
 
 ### VS Code / JetBrains / Eclipse / Xcode
+
 - ✅ Supports `model` property for AI model selection
 - ✅ Supports `argument-hint` and `handoffs` properties
 - ✅ User profile and workspace-level agents

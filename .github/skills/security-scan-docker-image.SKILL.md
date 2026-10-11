@@ -102,7 +102,7 @@ This skill replicates the **exact CI supply chain verification process** used in
 ## Key Differences from Trivy Filesystem Scan
 
 | Aspect | Trivy (Filesystem) | This Skill (Image Scan) |
-|--------|-------------------|------------------------|
+| -------- | ------------------- | ------------------------ |
 | **Scan Target** | Source code + dependencies | Built Docker image |
 | **Alpine Packages** | ❌ Not detected | ✅ Detected |
 | **Compiled Binaries** | ❌ Not detected | ✅ Detected |
@@ -202,14 +202,14 @@ FAIL_ON_SEVERITY="Critical" \
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+| --- | --- | --- | --- | --- |
 | image_tag | string | No | charon:local | Docker image tag to build and scan |
 | no_cache | boolean | No | false | Build without Docker cache (pass "no-cache" as second arg) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | SYFT_VERSION | No | v1.17.0 | Syft version (matches CI) |
 | GRYPE_VERSION | No | v0.107.0 | Grype version (matches CI) |
 | IMAGE_TAG | No | charon:local | Default image tag if not provided |
@@ -231,7 +231,7 @@ FAIL_ON_SEVERITY="Critical" \
 
 ### Output Format
 
-```
+```text
 [INFO] Building Docker image: charon:local...
 [BUILD] Using Dockerfile with multi-stage build
 [BUILD] Image built successfully: charon:local
@@ -388,7 +388,7 @@ fi
 **Project Standards (Matches CI)**:
 
 | Severity | CVSS Range | Action | Exit Code |
-|----------|-----------|--------|-----------|
+| ---------- | ----------- | -------- | ----------- |
 | 🔴 **CRITICAL** | 9.0-10.0 | **MUST FIX** - Blocks commit/push | 1 |
 | 🟠 **HIGH** | 7.0-8.9 | **SHOULD FIX** - Blocks commit/push | 1 |
 | 🟡 **MEDIUM** | 4.0-6.9 | Fix in next release (logged) | 0 |
@@ -399,36 +399,42 @@ fi
 ### Common Issues
 
 **Docker not running**:
+
 ```bash
 [ERROR] Docker daemon is not running
 Solution: Start Docker Desktop or Docker service
 ```
 
 **Syft not installed**:
+
 ```bash
 [ERROR] Syft not found - install from: https://github.com/anchore/syft
 Solution: Install Syft v1.17.0 using installation instructions above
 ```
 
 **Grype not installed**:
+
 ```bash
 [ERROR] Grype not found - install from: https://github.com/anchore/grype
 Solution: Install Grype v0.107.0 using installation instructions above
 ```
 
 **Build failure**:
+
 ```bash
 [ERROR] Docker build failed with exit code 1
 Solution: Check Dockerfile syntax and dependency availability
 ```
 
 **Network timeout (vulnerability scan)**:
+
 ```bash
 [WARNING] Failed to update Grype vulnerability database
 Solution: Check internet connection or retry later
 ```
 
 **Disk space insufficient**:
+
 ```bash
 [ERROR] No space left on device
 Solution: Clean up Docker images and containers: docker system prune -a
@@ -472,7 +478,7 @@ The QA_Security agent **MUST**:
 This skill **exactly replicates** the supply-chain-pr.yml workflow:
 
 | Step | CI Workflow | This Skill | Match |
-|------|------------|------------|-------|
+| ------ | ------------ | ------------ | ------- |
 | Build Image | ✅ Docker build | ✅ Docker build | ✅ |
 | Load Image | ✅ Load from artifact | ✅ Use built image | ✅ |
 | Syft Version | v1.17.0 | v1.17.0 | ✅ |

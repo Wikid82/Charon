@@ -24,7 +24,7 @@ SQLite is perfect for Charon because:
 ### Where Is My Data?
 
 | Environment | Database Location |
-|-------------|-------------------|
+| --- | --- |
 | Docker | `/app/data/charon.db` |
 | Local dev | `backend/data/charon.db` |
 
@@ -43,7 +43,7 @@ They contain pending transactions.
 Charon automatically configures SQLite with optimized settings:
 
 | Setting | Value | What It Does |
-|---------|-------|--------------|
+| --------- | ------- | -------------- |
 | `journal_mode` | WAL | Enables concurrent reads while writing |
 | `busy_timeout` | 5000ms | Waits 5 seconds before failing on lock |
 | `synchronous` | NORMAL | Balanced safety and speed |
@@ -186,7 +186,7 @@ environment:
 ```
 
 | Value | Meaning |
-|-------|---------|
+| --- | --- |
 | `auto` (default) | Optimize at start when worthwhile |
 | `off` | Never optimize at start. Emergency access stays available during startup |
 
@@ -203,7 +203,7 @@ Charon creates automatic backups before destructive operations (like deleting ho
 These are stored in:
 
 | Environment | Backup Location |
-|-------------|-----------------|
+| --- | --- |
 | Docker | `/app/data/backups/` |
 | Local dev | `backend/data/backups/` |
 
@@ -288,7 +288,7 @@ docker start charon
 
 **Healthy database:**
 
-```
+```text
 ==============================================
   Charon Database Recovery Tool
 ==============================================
@@ -315,7 +315,7 @@ ok
 
 **Corrupted database (with successful recovery):**
 
-```
+```text
 ==============================================
   Integrity Check Results
 ==============================================

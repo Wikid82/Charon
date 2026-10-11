@@ -119,14 +119,14 @@ Get text-formatted detailed findings:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| language  | string | No     | all     | Language to scan (go, javascript, all) |
-| format    | string | No     | summary | Output format (sarif, text, summary) |
+| --- | --- | --- | --- | --- |
+| language | string | No | all | Language to scan (go, javascript, all) |
+| format | string | No | summary | Output format (sarif, text, summary) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | CODEQL_THREADS | No | 0 | Analysis threads (0 = auto-detect) |
 | CODEQL_FAIL_ON_ERROR | No | true | Fail on HIGH/CRITICAL findings |
 
@@ -135,7 +135,7 @@ Get text-formatted detailed findings:
 This skill uses the **security-and-quality** suite to match CI:
 
 | Language | Suite | Queries | Coverage |
-|----------|-------|---------|----------|
+| --- | --- | --- | --- |
 | Go | go-security-and-quality.qls | version-dependent | Security + quality issues |
 | JavaScript | javascript-security-and-quality.qls | version-dependent | Security + quality issues |
 
@@ -159,7 +159,7 @@ This skill uses the **security-and-quality** suite to match CI:
 ### CWE Coverage
 
 | Category | Description | Languages |
-|----------|-------------|-----------|
+| ---------- | ------------- | ----------- |
 | CWE-079 | Cross-Site Scripting (XSS) | JS |
 | CWE-089 | SQL Injection | Go, JS |
 | CWE-117 | Log Injection | Go |
@@ -182,7 +182,8 @@ This skill uses the **security-and-quality** suite to match CI:
 ```
 
 Output:
-```
+
+```text
 [STEP] CODEQL: Scanning Go code...
 [INFO] Creating database for backend/
 [INFO] Analyzing with security-and-quality suite (61 queries)
@@ -224,18 +225,21 @@ pre-commit run codeql-check-findings --all-files
 ### Common Issues
 
 **CodeQL version too old**:
+
 ```bash
 Error: Extensible predicate API mismatch
 Solution: Upgrade CodeQL CLI: gh codeql set-version latest
 ```
 
 **Query pack not found**:
+
 ```bash
 Error: Could not resolve pack codeql/go-queries
 Solution: codeql pack download codeql/go-queries codeql/javascript-queries
 ```
 
 **Database creation failed**:
+
 ```bash
 Error: No source files found
 Solution: Verify source-root points to correct directory
@@ -258,7 +262,7 @@ Solution: Verify source-root points to correct directory
 This skill is specifically designed to match GitHub Actions CodeQL workflow:
 
 | Parameter | Local | CI | Aligned |
-|-----------|-------|-----|---------|
+| ----------- | ------- | ----- | --------- |
 | Query Suite | security-and-quality | security-and-quality | ✅ |
 | Query Expansion | version-dependent | version-dependent | ✅ (when versions match) |
 | Threading | auto | auto | ✅ |
@@ -289,7 +293,7 @@ SARIF files are automatically uploaded to GitHub Security tab in CI.
 ## Performance
 
 | Language | Database Creation | Analysis | Total |
-|----------|------------------|----------|-------|
+| ---------- | ------------------ | ---------- | ------- |
 | Go | ~30s | ~30s | ~60s |
 | JavaScript | ~45s | ~45s | ~90s |
 | All | ~75s | ~75s | ~150s |

@@ -18,11 +18,10 @@ When generating commit messages automatically:
 
 **Litmus Test**:
 If someone reads only the commit message, they should understand:
+
 - What changed
 - Why it mattered
 - What behavior is different now
-
-```
 
 # Git Commit Message Best Practices
 
@@ -41,7 +40,7 @@ Comprehensive guidelines for crafting high-quality commit messages that improve 
 
 A Git commit message consists of two parts:
 
-```
+```text
 <type>(<scope>): <subject>
 
 <body>
@@ -83,7 +82,7 @@ A Git commit message consists of two parts:
 Use these standardized types for consistency and automated tooling:
 
 | Type | Description | Example | When to Use |
-|------|-------------|---------|-------------|
+| ------ | ------------- | --------- | ------------- |
 | `feat` | New user-facing feature | `feat: add password reset email` | New functionality visible to users |
 | `fix` | Bug fix in application code | `fix: correct validation logic for email` | Fixing a bug that affects users |
 | `chore` | Infrastructure, tooling, dependencies | `chore: upgrade Go to 1.21` | CI/CD, build scripts, dependencies |
@@ -100,7 +99,7 @@ Use these standardized types for consistency and automated tooling:
 
 Add scope in parentheses to specify what part of the codebase changed:
 
-```
+```text
 feat(auth): add OAuth2 provider support
 fix(api): handle null response from external service
 docs(readme): add Docker installation instructions
@@ -108,6 +107,7 @@ chore(deps): upgrade React to 18.3.0
 ```
 
 **Common Scopes**:
+
 - Component names: `(button)`, `(modal)`, `(navbar)`
 - Module names: `(auth)`, `(api)`, `(database)`
 - Feature areas: `(settings)`, `(profile)`, `(checkout)`
@@ -116,6 +116,7 @@ chore(deps): upgrade React to 18.3.0
 ## Quick Guidelines
 
 ✅ **DO**:
+
 - Use imperative mood: "Add", "Fix", "Update", "Remove"
 - Start with lowercase type: `feat:`, `fix:`, `docs:`
 - Be specific: "Fix login redirect" not "Fix bug"
@@ -126,6 +127,7 @@ chore(deps): upgrade React to 18.3.0
 - Use conventional commit types
 
 ❌ **DON'T**:
+
 - End summary with punctuation (`.`, `!`, `?`)
 - Use past tense: "Added", "Fixed", "Updated"
 - Use vague messages: "Fix stuff", "Update code", "WIP"
@@ -139,7 +141,8 @@ chore(deps): upgrade React to 18.3.0
 ### ✅ Excellent Examples
 
 #### Simple Feature
-```
+
+```text
 feat(auth): add two-factor authentication
 
 Implement TOTP-based 2FA using the speakeasy library.
@@ -149,7 +152,8 @@ Closes #234
 ```
 
 #### Bug Fix with Context
-```
+
+```text
 fix(api): prevent race condition in user updates
 
 Previously, concurrent updates to user profiles could
@@ -162,7 +166,8 @@ Fixes #567
 ```
 
 #### Documentation Update
-```
+
+```text
 docs: add troubleshooting section to README
 
 Include solutions for common installation issues:
@@ -172,7 +177,8 @@ Include solutions for common installation issues:
 ```
 
 #### Dependency Update
-```
+
+```text
 chore(deps): upgrade express from 4.17 to 4.19
 
 Security patch for CVE-2024-12345. No breaking changes
@@ -180,7 +186,8 @@ or API modifications required.
 ```
 
 #### Breaking Change
-```
+
+```text
 feat(api): redesign user authentication endpoint
 
 BREAKING CHANGE: The /api/login endpoint now returns
@@ -193,7 +200,8 @@ Closes #789
 ```
 
 #### Refactoring
-```
+
+```text
 refactor(services): extract user service interface
 
 Move user-related business logic from handlers to a
@@ -204,7 +212,7 @@ Improves testability and separation of concerns.
 
 ### ❌ Bad Examples
 
-```
+```text
 ❌ update files
    → Too vague - what was updated and why?
 
@@ -237,14 +245,16 @@ Improves testability and separation of concerns.
 Each commit should represent one logical change:
 
 ✅ **Good**: Three separate commits
-```
+
+```text
 feat(auth): add login endpoint
 feat(auth): add logout endpoint
 test(auth): add integration tests for auth endpoints
 ```
 
 ❌ **Bad**: One commit with everything
-```
+
+```text
 feat: implement authentication system
 (Contains login, logout, tests, and unrelated CSS changes)
 ```
@@ -252,12 +262,14 @@ feat: implement authentication system
 ### Commit Frequency
 
 **Commit often to**:
+
 - Keep messages focused and simple
 - Make code review easier
 - Simplify debugging with `git bisect`
 - Reduce risk of lost work
 
 **Good rhythm**:
+
 - After completing a logical unit of work
 - Before switching tasks or taking a break
 - When tests pass for a feature component
@@ -266,7 +278,7 @@ feat: implement authentication system
 
 Include issue references in the footer:
 
-```
+```text
 feat(api): add rate limiting middleware
 
 Implement rate limiting using express-rate-limit to
@@ -277,6 +289,7 @@ Refs #346, #347
 ```
 
 **Keywords for automatic closing**:
+
 - `Closes #123`, `Fixes #123`, `Resolves #123`
 - `Closes: #123` (with colon)
 - Multiple: `Fixes #123, #124, #125`
@@ -285,7 +298,7 @@ Refs #346, #347
 
 For pair programming or collaborative work:
 
-```
+```text
 feat(ui): redesign dashboard layout
 
 Co-authored-by: Jane Doe <jane@example.com>
@@ -294,7 +307,7 @@ Co-authored-by: John Smith <john@example.com>
 
 ### Reverting Commits
 
-```
+```text
 revert: revert "feat(api): add rate limiting"
 
 This reverts commit abc123def456.
@@ -336,11 +349,13 @@ Document your team's commit message conventions:
 Use tools to enforce commit message standards:
 
 **commitlint** (Recommended)
+
 ```bash
 npm install --save-dev @commitlint/{cli,config-conventional}
 ```
 
 **.commitlintrc.json**
+
 ```json
 {
   "extends": ["@commitlint/config-conventional"],
@@ -378,7 +393,8 @@ Before committing, verify:
 Create a commit template to remind you of the format:
 
 **~/.gitmessage**
-```
+
+```text
 # <type>(<scope>): <subject> (max 50 chars)
 # |<----  Using a Maximum Of 50 Characters  ---->|
 
@@ -408,6 +424,7 @@ Create a commit template to remind you of the format:
 ```
 
 **Enable it**:
+
 ```bash
 git config --global commit.template ~/.gitmessage
 ```
@@ -430,6 +447,7 @@ git config --global commit.template ~/.gitmessage
 ```
 
 **Usage**:
+
 ```bash
 git cf "add user authentication"  # Creates: feat: add user authentication
 git cx "resolve null pointer in handler"  # Creates: fix: resolve null pointer in handler
@@ -461,21 +479,24 @@ git rebase -i HEAD~3  # Edit last 3 commits
 ## Language-Specific Considerations
 
 ### Go Projects
-```
+
+```text
 feat(http): add middleware for request logging
 refactor(db): migrate from database/sql to sqlx
 fix(parser): handle edge case in JSON unmarshaling
 ```
 
 ### JavaScript/TypeScript Projects
-```
+
+```text
 feat(components): add error boundary component
 fix(hooks): prevent infinite loop in useEffect
 chore(deps): upgrade React to 18.3.0
 ```
 
 ### Python Projects
-```
+
+```text
 feat(api): add FastAPI endpoint for user registration
 fix(models): correct SQLAlchemy relationship mapping
 test(utils): add unit tests for date parsing
@@ -484,7 +505,7 @@ test(utils): add unit tests for date parsing
 ## Common Pitfalls and Solutions
 
 | Pitfall | Solution |
-|---------|----------|
+| --------- | ---------- |
 | Forgetting to commit | Set reminders, commit frequently |
 | Vague messages | Include specific details about what changed |
 | Too many changes in one commit | Break into atomic commits |
@@ -498,11 +519,13 @@ test(utils): add unit tests for date parsing
 Well-formatted commits enable automatic changelog generation:
 
 **Example Tools**:
+
 - `conventional-changelog`
 - `semantic-release`
 - `standard-version`
 
 **Generated Changelog**:
+
 ```markdown
 ## [1.2.0] - 2024-01-15
 
