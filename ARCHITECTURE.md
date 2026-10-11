@@ -888,7 +888,13 @@ backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). Import and rollbac
 server-local state untouched: the installed hub tree and its links, runtime
 state, and the proxy/bouncer registration. Export is built in a temporary file
 under the data lock and sent only after it is complete and within the
-importable limits; otherwise a clean error is returned. One handler-level
+importable limits; otherwise a clean error is returned. The export also carries
+a small manifest listing the installed hub items by name, and an import verifies
+that the profiles' notification references resolve before it changes anything.
+Installing missing hub items is a separate action: it takes the data lock for
+one hub operation at a time, so it never overlaps an import or preset apply, a
+single-flight guard allows only one restore to run at a time, and the whole
+action has a bounded overall time. One handler-level
 lock serializes apply, import, and file saves. The file editor validates file
 type, size and YAML, and the frontend no
 longer has a local-write fallback for presets; failures are shown as errors.

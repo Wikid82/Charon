@@ -193,6 +193,8 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 - Hub unreachable (503): retry once, then Charon falls back to cached Hub data if available; otherwise stay on curated/offline presets until connectivity returns.
 - Hub returns HTML/redirect: set HUB_BASE_URL to the JSON endpoint above or install cscli so the index is fetched locally.
 - Bad preset slug (400): the slug must match Hub naming; correct the slug before retrying.
+- **"Install missing hub items" says the hub could not be reached**: nothing was installed and nothing was changed. Check that the container has internet access and can resolve names (DNS), then click the button again. Items that were not reached in time can be retried with **Install remaining**.
+- **Import refused because a profile names notifications that have no matching file**: your imported alert profiles refer to notification names that are not in the archive. Add the missing notification files to the configuration, or remove those names from the profile, then import again. Nothing was changed by the refused import.
 - Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue.
 - Apply not supported (501): use curated/offline presets; Hub apply will be re-enabled when supported in your environment.
 - **Security Engine Offline**: If your dashboard says "Offline", it means CrowdSec LAPI is not running.
