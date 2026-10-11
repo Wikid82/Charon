@@ -35,6 +35,10 @@ type ArchiveInfo struct {
 	Incomplete bool
 	// HubItems is the usable hub item manifest, nil when the archive has none or it was rejected.
 	HubItems *ArchiveHubItems
+	// HasNestedConfig and HasFlatConfig report a regular config/config.yaml and a top-level config.yaml
+	// entry. They are set whatever the entry size, unlike Files, which skips entries over the bounds.
+	HasNestedConfig bool
+	HasFlatConfig   bool
 }
 
 // ArchiveEntryRel normalizes a tar entry name exactly as the extractor places it below the destination
@@ -108,10 +112,19 @@ func InspectArchive(archivePath string) (ArchiveInfo, error) {
 			}
 			continue
 		}
-		if !ok || !inspectWanted(filepath.ToSlash(rel)) {
+		if !ok {
 			continue
 		}
 		rel = filepath.ToSlash(rel)
+		switch rel {
+		case "config/config.yaml":
+			info.HasNestedConfig = true
+		case "config.yaml":
+			info.HasFlatConfig = true
+		}
+		if !inspectWanted(rel) {
+			continue
+		}
 		if hdr.Size > maxInspectEntryBytes || total+hdr.Size > maxInspectTotalBytes || (len(info.Files) >= maxInspectEntries && info.Files[rel] == nil) {
 			info.Incomplete = true
 			continue

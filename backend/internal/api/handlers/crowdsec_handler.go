@@ -228,19 +228,34 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 	}
 
 	for _, required := range v.RequiredFiles {
-		found := false
-		for _, file := range contents {
-			if filepath.Base(file) == required || file == required {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("required file missing: %s", required)
+		if err := requireArchiveFile(contents, required); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// requireArchiveFile checks that the archive holds file at the top level or in config/, after the same
+// normalisation the extractor applies ("./a", "a//b" and "b/../a" are spelled alike). A copy in any
+// other folder, such as parsers/config.yaml, does not count. An entry that would leave the destination
+// is reported as invalid instead of missing.
+func requireArchiveFile(contents []string, file string) error {
+	var escaped string
+	for _, name := range contents {
+		rel, ok := crowdsec.ArchiveEntryRel(name)
+		if !ok {
+			escaped = name
+			continue
+		}
+		if rel = filepath.ToSlash(rel); rel == file || rel == "config/"+file {
+			return nil
+		}
+	}
+	if escaped != "" {
+		return fmt.Errorf("invalid file path: %s", escaped)
+	}
+	return fmt.Errorf("required file missing: %s", file)
 }
 
 // errArchiveFormat is the fixed message for any upload that is not a .tar.gz archive.
@@ -324,6 +339,10 @@ func listArchiveContents(path string) ([]string, error) {
 
 	return files, nil
 }
+
+// msgImportFlatArchive is the fixed message for an archive whose configuration is not in the folder a
+// nested installation reads.
+const msgImportFlatArchive = "the archive keeps its configuration at the top level, but this CrowdSec installation reads it from the config folder; export a configuration from this page, or put the files in a config/ folder inside the archive"
 
 // errConfigFileNotFound is the fixed message for an import that contains no config.yaml in a
 // location the engine reads (top level or config/).
@@ -736,6 +755,17 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	h.dataMu.Lock()
 	defer h.dataMu.Unlock()
 
+	// A nested installation reads config/config.yaml: refuse an archive that cannot provide it before
+	// anything is snapshotted or changed. When the inspection was skipped the check after extraction
+	// enforces the same rule.
+	liveLayout := crowdsec.DetectLayout(h.DataDir)
+	if inspectErr == nil {
+		if err = crowdsec.CheckImportLayout(liveLayout, info); err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			return
+		}
+	}
+
 	backupDir, err := crowdsec.Snapshot(h.DataDir)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
@@ -767,6 +797,14 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "extraction failed"})
 		return
+	}
+
+	if liveLayout == crowdsec.LayoutNested {
+		if _, statErr := os.Stat(filepath.Join(h.DataDir, "config", "config.yaml")); statErr != nil {
+			rollback()
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			return
+		}
 	}
 
 	// Validate extracted config

@@ -402,10 +402,10 @@ test.describe('CrowdSec Config Import Validation', () => {
     });
   });
 
-  // Pending until the layout check ships: a CrowdSec installation reads config/config.yaml, so an
+  // A CrowdSec installation reads config/config.yaml, so an
   // archive with its configuration at the top level must be refused instead of replacing it.
   test.describe('Archive Layout', () => {
-    test.fixme('refuses an archive that keeps config.yaml at the top level and changes nothing', async ({ request }, testInfo) => {
+    test('refuses an archive that keeps config.yaml at the top level and changes nothing', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         { 'config.yaml': VALID_CONFIG, 'acquis.yaml': ACQUIS },
         testInfo.outputPath('flat-layout.tar.gz'),
