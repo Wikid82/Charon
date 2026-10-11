@@ -179,7 +179,6 @@ func TestImportConfigLayouts(t *testing.T) {
 	t.Parallel()
 	cases := map[string]map[string]string{
 		"config only":    {"config/config.yaml": importableConfig},
-		"root layout":    {"config.yaml": importableConfig, "other.yaml": "o"},
 		"real and extra": {"config/config.yaml": importableConfig, "config/acquis.yaml": "a"},
 	}
 	for name, files := range cases {
@@ -270,7 +269,7 @@ func TestImportConfigFailureKeepsSecretsAndRestoresConfig(t *testing.T) {
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, importRequest(t, map[string]string{"foo/config.yaml": importableConfig}))
 		require.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
-		require.Contains(t, w.Body.String(), "config.yaml was not found at the top level or in config/")
+		require.Contains(t, w.Body.String(), "validation failed: required file missing: config.yaml")
 		require.Equal(t, importableConfig, readTreeFile(t, filepath.Join(dir, "config", "config.yaml")))
 		assertLiveSecretsIntact(t, dir)
 	})
@@ -501,7 +500,7 @@ func TestEditorHidesPidBouncersAndHub(t *testing.T) {
 	} {
 		require.Equal(t, readable, isReadable(rel), rel)
 	}
-	require.True(t, isWritable("config/Hub/x.yaml"))
+	require.False(t, isWritable("config/Hub/x.yaml"), "hub paths are protected whatever the letter case")
 	require.False(t, isWritable("config/hub/x.yaml"))
 	require.False(t, isWritable("hub/x.yaml"))
 }

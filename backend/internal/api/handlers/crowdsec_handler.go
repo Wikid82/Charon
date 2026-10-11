@@ -85,7 +85,8 @@ type CrowdsecHandler struct {
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
 	// and the export build; an export holds it only while writing its temporary file, never while sending.
 	// Lock order is always dataMu first, then HubService.mu.
-	dataMu sync.Mutex
+	// The wait is abandoned when the request ends (see lockData).
+	dataMu ctxMutex
 
 	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
 	restore hubRestoreState
@@ -228,19 +229,34 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 	}
 
 	for _, required := range v.RequiredFiles {
-		found := false
-		for _, file := range contents {
-			if filepath.Base(file) == required || file == required {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("required file missing: %s", required)
+		if err := requireArchiveFile(contents, required); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// requireArchiveFile checks that the archive holds file at the top level or in config/, after the same
+// normalisation the extractor applies ("./a", "a//b" and "b/../a" are spelled alike). A copy in any
+// other folder, such as parsers/config.yaml, does not count. An entry that would leave the destination
+// is reported as invalid instead of missing.
+func requireArchiveFile(contents []string, file string) error {
+	var escaped string
+	for _, name := range contents {
+		rel, ok := crowdsec.ArchiveEntryRel(name)
+		if !ok {
+			escaped = name
+			continue
+		}
+		if rel = filepath.ToSlash(rel); rel == file || rel == "config/"+file {
+			return nil
+		}
+	}
+	if escaped != "" {
+		return fmt.Errorf("invalid file path: %s", escaped)
+	}
+	return fmt.Errorf("required file missing: %s", file)
 }
 
 // errArchiveFormat is the fixed message for any upload that is not a .tar.gz archive.
@@ -324,6 +340,17 @@ func listArchiveContents(path string) ([]string, error) {
 
 	return files, nil
 }
+
+const (
+	// msgKeptProfileUndefined and msgKeptProfileDuplicate refuse an import without profiles.yaml whose
+	// kept profile no longer matches the notification files. The undefined names follow the prefix.
+	msgKeptProfileUndefined = "the archive has no profiles.yaml, so the current one was kept, but it names notifications the archive has no files for: "
+	msgKeptProfileDuplicate = "the archive has no profiles.yaml, so the current one was kept, but a notification file it needs defines a name the archive already defines"
+)
+
+// msgImportFlatArchive is the fixed message for an archive whose configuration is not in the folder a
+// nested installation reads.
+const msgImportFlatArchive = "the archive keeps its configuration at the top level, but this CrowdSec installation reads it from the config folder; export a configuration from this page, or put the files in a config/ folder inside the archive"
 
 // errConfigFileNotFound is the fixed message for an import that contains no config.yaml in a
 // location the engine reads (top level or config/).
@@ -733,8 +760,21 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 
 	// Serialize with preset applies and file writes, then snapshot (copy, never rename) the config.
-	h.dataMu.Lock()
+	if !h.lockData(c, "import") {
+		return
+	}
 	defer h.dataMu.Unlock()
+
+	// A nested installation reads config/config.yaml: refuse an archive that cannot provide it before
+	// anything is snapshotted or changed. When the inspection was skipped the check after extraction
+	// enforces the same rule.
+	liveLayout := crowdsec.DetectLayout(h.DataDir)
+	if inspectErr == nil {
+		if err = crowdsec.CheckImportLayout(liveLayout, info); err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			return
+		}
+	}
 
 	backupDir, err := crowdsec.Snapshot(h.DataDir)
 	if err != nil {
@@ -769,6 +809,29 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
+	if liveLayout == crowdsec.LayoutNested {
+		if _, statErr := os.Stat(filepath.Join(h.DataDir, "config", "config.yaml")); statErr != nil {
+			rollback()
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			return
+		}
+	}
+
+	// The import cleared every file the archive did not replace: put back the ones CrowdSec cannot start
+	// without, and make sure a kept profile still resolves its notifications.
+	keptFiles, restoreErr := crowdsec.RestoreMissingCompanions(backupDir, h.DataDir, liveConfigPrefix(liveLayout))
+	if restoreErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(restoreErr.Error())).Warn("crowdsec import: restoring the current files failed")
+		rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to keep the current CrowdSec files"})
+		return
+	}
+	if verifyErr := crowdsec.VerifyKeptProfile(h.DataDir, keptFiles); verifyErr != nil {
+		rollback()
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": keptProfileRefusal(verifyErr)})
+		return
+	}
+
 	// Validate extracted config
 	validateErr := errConfigFileNotFound
 	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
@@ -782,7 +845,28 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 
 	resp := gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)}
 	h.addHubItemsReport(resp, info.HubItems)
+	if len(keptFiles) > 0 {
+		resp["kept_files"] = keptFiles
+	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// liveConfigPrefix is the folder below DataDir that holds the configuration CrowdSec reads.
+func liveConfigPrefix(l crowdsec.Layout) string {
+	if l == crowdsec.LayoutNested {
+		return "config"
+	}
+	return ""
+}
+
+// keptProfileRefusal maps a failure of crowdsec.VerifyKeptProfile (an undefined or a duplicate
+// notification) to its fixed 422 message.
+func keptProfileRefusal(err error) string {
+	var undefined *crowdsec.UndefinedNotificationsError
+	if errors.As(err, &undefined) {
+		return msgKeptProfileUndefined + undefined.NameList()
+	}
+	return msgKeptProfileDuplicate
 }
 
 // pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
@@ -927,9 +1011,23 @@ func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (int64,
 	return info.Size(), nil
 }
 
+// lockData takes dataMu, giving up when the request ends. On false the lock is NOT held and the request
+// is aborted without a body (the client is gone), so the caller must return before registering its
+// deferred Unlock.
+func (h *CrowdsecHandler) lockData(c *gin.Context, op string) bool {
+	if err := h.dataMu.LockContext(c.Request.Context()); err != nil {
+		logger.Log().WithField("operation", op).WithField("error", sanitizeForLog(err.Error())).Debug("crowdsec: request ended while waiting for the data lock")
+		c.Abort()
+		return false
+	}
+	return true
+}
+
 // writeExportLocked serializes the archive build with every other writer of DataDir.
 func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (int64, error) {
-	h.dataMu.Lock()
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return 0, fmt.Errorf("wait for the data lock: %w", err)
+	}
 	defer h.dataMu.Unlock()
 	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
 }

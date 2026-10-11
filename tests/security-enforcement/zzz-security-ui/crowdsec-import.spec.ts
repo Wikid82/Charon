@@ -11,6 +11,7 @@
  */
 
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
+import { cleanupBackupsCreatedSince } from '../../utils/backup-cleanup';
 import { waitForLoadingComplete } from '../../utils/wait-helpers';
 
 /**
@@ -38,6 +39,15 @@ function createMockTarGzBuffer(): Buffer {
 }
 
 test.describe('Import CrowdSec Configuration', () => {
+  // The import UI creates a real application backup before each import (#1558).
+  let specStartedAt = '';
+  test.beforeAll(() => {
+    specStartedAt = new Date().toISOString();
+  });
+  test.afterAll(async () => {
+    await cleanupBackupsCreatedSince(specStartedAt);
+  });
+
   // =========================================================================
   // Page Layout Tests (2 tests)
   // =========================================================================

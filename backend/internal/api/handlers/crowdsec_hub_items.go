@@ -58,6 +58,9 @@ const (
 	msgRestoreRunning     = "a restore is already running"
 	msgRestoreHubDown     = "the CrowdSec hub could not be reached; nothing was installed"
 	msgRestoreReadFailed  = "the installed hub items could not be read; nothing was installed"
+	// msgRestoreReadFailedPartial is used when the list could not be read again after the first pass
+	// had already run installs.
+	msgRestoreReadFailedPartial = "the installed hub items could not be read; some items may already have been installed"
 )
 
 // hubRestoreLimits are the time budgets of one restore. The zero value means the production budgets.
@@ -96,6 +99,13 @@ type hubRestoreFailure struct {
 	Type   string `json:"type"`
 	Name   string `json:"name"`
 	Reason string `json:"reason"`
+}
+
+// hubRestoreReadError is the 500 body of a restore whose second read of the installed items failed:
+// the message plus everything that had already happened.
+type hubRestoreReadError struct {
+	Error string `json:"error"`
+	*hubRestoreResponse
 }
 
 type hubRestoreResponse struct {
@@ -154,19 +164,23 @@ func (h *CrowdsecHandler) RestoreHubItems(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": msgRestoreReadFailed})
 		return
 	}
-	if !h.restorePass(ctx, limits.item, others, res) {
-		for _, it := range others {
-			res.Failed = append(res.Failed, hubRestoreFailure{it.Type, it.Name, hubReasonNotAttempted})
+	readOK := h.restorePass(ctx, limits.item, others, res)
+	if len(res.Installed) > 0 {
+		res.Reloaded = h.reloadAfterRestore(ctx)
+	}
+	if !readOK {
+		// Nothing is reported as not attempted: the client sees what happened and a retry re-diffs.
+		msg := msgRestoreReadFailed
+		if len(collections) > 0 {
+			msg = msgRestoreReadFailedPartial
 		}
+		c.JSON(http.StatusInternalServerError, hubRestoreReadError{Error: msg, hubRestoreResponse: res})
+		return
 	}
 	for _, f := range res.Failed {
 		if f.Reason == hubReasonNotAttempted {
 			res.Remaining++
 		}
-	}
-
-	if len(res.Installed) > 0 {
-		res.Reloaded = h.reloadAfterRestore(ctx)
 	}
 	c.JSON(http.StatusOK, res)
 }
@@ -204,7 +218,9 @@ func parseHubRestoreRequest(c *gin.Context) (items []crowdsec.HubItem, status in
 
 // hubUpdate refreshes the hub index in its own locked section.
 func (h *CrowdsecHandler) hubUpdate(ctx context.Context, limit time.Duration) error {
-	h.dataMu.Lock()
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return fmt.Errorf("wait for the data lock: %w", err)
+	}
 	defer h.dataMu.Unlock()
 	uctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
@@ -216,8 +232,10 @@ func (h *CrowdsecHandler) hubUpdate(ctx context.Context, limit time.Duration) er
 
 // installedHubSet reads the installed items under dataMu, so it never observes a tree an import is
 // clearing.
-func (h *CrowdsecHandler) installedHubSet() (map[crowdsec.HubItem]struct{}, error) {
-	h.dataMu.Lock()
+func (h *CrowdsecHandler) installedHubSet(ctx context.Context) (map[crowdsec.HubItem]struct{}, error) {
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return nil, fmt.Errorf("wait for the data lock: %w", err)
+	}
 	defer h.dataMu.Unlock()
 	installed, err := crowdsec.InstalledHubItems(h.DataDir)
 	if err != nil {
@@ -231,13 +249,21 @@ func (h *CrowdsecHandler) installedHubSet() (map[crowdsec.HubItem]struct{}, erro
 }
 
 // restorePass installs the items of one pass that are not installed, recording every outcome in res.
-// It returns false, having recorded nothing, when the installed items cannot be read.
+// An end of ctx marks the items not attempted. It returns false, having recorded nothing, when the
+// installed items cannot be read.
 func (h *CrowdsecHandler) restorePass(ctx context.Context, itemLimit time.Duration, items []crowdsec.HubItem, res *hubRestoreResponse) bool {
 	if len(items) == 0 {
 		return true
 	}
-	installed, err := h.installedHubSet()
+	installed, err := h.installedHubSet(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			// The wait for the lock ran into the overall deadline or the client left.
+			for _, it := range items {
+				res.Failed = append(res.Failed, hubRestoreFailure{it.Type, it.Name, hubReasonNotAttempted})
+			}
+			return true
+		}
 		logger.Log().WithField("error", hubLogDetail(err.Error())).Warn("crowdsec hub items restore: cannot read installed items")
 		return false
 	}
@@ -261,7 +287,9 @@ func (h *CrowdsecHandler) installHubItem(ctx context.Context, itemLimit time.Dur
 	if ctx.Err() != nil {
 		return hubReasonNotAttempted
 	}
-	h.dataMu.Lock()
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return hubReasonNotAttempted
+	}
 	defer h.dataMu.Unlock()
 
 	// The lock wait may have used up the budget or the client may have left meanwhile.
@@ -283,7 +311,7 @@ func (h *CrowdsecHandler) installHubItem(ctx context.Context, itemLimit time.Dur
 			WithField("type", hubLogDetail(it.Type)).WithField("name", hubLogDetail(it.Name)).
 			WithField("error", hubLogDetail(err.Error())).WithField("output", hubLogDetail(string(out))).
 			Warn("crowdsec hub items restore: install failed")
-		if hubItemNotFound(out) {
+		if hubItemNotFound(out, it) {
 			return hubReasonNotFound
 		}
 		return hubReasonInstallFail
@@ -298,11 +326,15 @@ func (h *CrowdsecHandler) installHubItem(ctx context.Context, itemLimit time.Dur
 	return ""
 }
 
-// hubItemNotFound reports whether cscli's output says the hub does not know the item. This is a
-// best-effort match on cscli's wording; anything else is install_failed.
-func hubItemNotFound(out []byte) bool {
-	s := strings.ToLower(string(out))
-	return strings.Contains(s, "can't find") || strings.Contains(s, "not found")
+// hubItemNotFound reports whether cscli's output says the hub does not know this very item. cscli
+// v1.8.1 answers, with exit status 1:
+//
+//	Error: cscli collections install: can't find 'x/y' in collections
+//
+// Only that sentence for the requested item and type matches; any other wording, including a future
+// cscli rewording, is install_failed, which is the safe direction.
+func hubItemNotFound(out []byte, it crowdsec.HubItem) bool {
+	return strings.Contains(string(out), fmt.Sprintf("can't find '%s' in %s", it.Name, it.Type))
 }
 
 // reloadAfterRestore asks CrowdSec to reload on a detached, bounded context so an install that succeeded

@@ -1,5 +1,6 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import * as backupsApi from '../../api/backups'
@@ -71,5 +72,82 @@ describe('CrowdSecConfig hub items panel', () => {
     await userEvent.upload(screen.getByTestId('import-file'), new File(['other'], 'other.tar.gz'))
 
     expect(screen.queryByTestId('hub-items-panel')).not.toBeInTheDocument()
+  })
+
+  it('shows the generic error and allows a retry when a restore answers 500 with a partial body', async () => {
+    await importWith({ status: 'imported', hub_items: { in_export: 2, skipped_invalid: 0, missing: MISSING } })
+    const partialBody = {
+      error: 'the installed hub items could not be read; some items may already have been installed',
+      installed: [{ type: 'collections', name: 'crowdsecurity/caddy' }],
+      already_installed: [],
+      failed: [],
+    }
+    vi.mocked(crowdsecApi.restoreHubItems).mockRejectedValue(
+      new AxiosError('failed', 'ERR_BAD_RESPONSE', undefined, undefined, {
+        status: 500,
+        data: partialBody,
+      } as AxiosResponse),
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Install missing hub items' }))
+
+    expect(await screen.findByText('The hub items could not be installed. Try again.')).toBeInTheDocument()
+    expect(screen.queryByText(/installed, /i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('hub-items-panel')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Install missing hub items' })).toBeEnabled()
+  })
+})
+
+describe('CrowdSecConfig kept files note', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({
+      cerberus: { enabled: true },
+      crowdsec: { enabled: true, mode: 'local', api_url: '' },
+      waf: { enabled: true, mode: 'enabled' },
+      rate_limit: { enabled: true },
+      acl: { enabled: true },
+    })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1, lapi_ready: true })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [] })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'j', type: 'create', status: 'pending' })
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': false })
+  })
+
+  it('lists the kept files as plain text in the import card', async () => {
+    await importWith({ status: 'imported', kept_files: ['acquis.yaml', 'notifications/x.yaml'] })
+
+    const note = await screen.findByTestId('import-kept-files')
+    expect(note).toHaveTextContent(
+      'These files were not in the archive, so the current ones were kept: acquis.yaml, notifications/x.yaml',
+    )
+  })
+
+  it('sanitises archive-derived names and does not render markup', async () => {
+    await importWith({ status: 'imported', kept_files: ['notifications/<b>x</b>\u202e\n.yaml'] })
+
+    const note = await screen.findByTestId('import-kept-files')
+    expect(note).toHaveTextContent('notifications/<b>x</b>.yaml')
+    expect(within(note).queryByText('x')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['no kept_files field', { status: 'imported' }],
+    ['an empty kept_files list', { status: 'imported', kept_files: [] }],
+  ])('shows no note with %s', async (_label, response) => {
+    await importWith(response)
+
+    expect(screen.queryByTestId('import-kept-files')).not.toBeInTheDocument()
+  })
+
+  it('clears the note when another file is selected', async () => {
+    await importWith({ status: 'imported', kept_files: ['profiles.yaml'] })
+    await screen.findByTestId('import-kept-files')
+
+    await userEvent.upload(screen.getByTestId('import-file'), new File(['other'], 'other.tar.gz'))
+
+    expect(screen.queryByTestId('import-kept-files')).not.toBeInTheDocument()
   })
 })

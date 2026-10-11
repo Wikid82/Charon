@@ -1187,6 +1187,7 @@
     },
     "importSuccess": "Configuration CrowdSec importée (sauvegarde créée)",
     "importFailed": "Échec de l'importation",
+    "importKeptFiles": "Ces fichiers n'étaient pas dans l'archive, les fichiers actuels ont donc été conservés : {{files}}",
     "exportPrompt": "Nom de l'archive d'exportation CrowdSec",
     "title": "Configuration CrowdSec",
     "checkNow": "Vérifier maintenant",
@@ -1236,7 +1237,16 @@
       "lastHeartbeat": "Dernier signal de vie",
       "privacyNote": "Remarque : l'inscription envoie des signaux de vie et des métriques à CrowdSec. Consultez la politique de confidentialité de CrowdSec pour plus de détails.",
       "tenantHelper": "Facultatif : indiquez l'ID du locataire/de l'organisation si vous utilisez une configuration multi-locataire",
-      "tokenHelper": "Obtenez votre jeton d'inscription depuis la console CrowdSec"
+      "tokenHelper": "Obtenez votre jeton d'inscription depuis la console CrowdSec",
+      "tokenStored": "Enregistré (masqué)",
+      "tokenNotStored": "Non enregistré",
+      "enrollSubmitted": "Inscription envoyée ! Acceptez la demande sur app.crowdsec.net pour la finaliser.",
+      "enrollSent": "Demande d'inscription envoyée ! Acceptez l'inscription sur app.crowdsec.net pour finaliser l'enregistrement.",
+      "errors": {
+        "agentRequired": "Le nom de l'agent est obligatoire",
+        "ackRequired": "Vous devez accepter l'avis de partage de données avec la console",
+        "enrollFailed": "Échec de l'inscription à la console"
+      }
     },
     "reenroll": {
       "title": "Options de réinscription",
@@ -1296,7 +1306,15 @@
       "loadCached": "Charger l'aperçu en cache",
       "applyDisabled": "Application désactivée tant que le hub est hors ligne.",
       "noPresets": "Aucun préréglage disponible. Assurez-vous que Cerberus est activé.",
-      "sortBy": "Trier les préréglages"
+      "sortBy": "Trier les préréglages",
+      "status": {
+        "previewFetched": "Aperçu récupéré depuis le hub",
+        "hubUnavailable": "Hub CrowdSec indisponible. Réessayez ou chargez la copie en cache.",
+        "pullFailed": "Échec de la récupération de l'aperçu du préréglage",
+        "cachedLoaded": "Aperçu en cache chargé",
+        "cacheLoadFailed": "Échec du chargement de l'aperçu en cache",
+        "slugInvalid": "L'identifiant du préréglage n'est pas valide"
+      }
     },
     "files": {
       "title": "Modifier les fichiers de configuration",
@@ -1365,10 +1383,47 @@
         "title": "Supprimer l'entrée de la liste blanche",
         "body": "Supprimer {{ip}} de la liste blanche ? CrowdSec pourra alors bloquer cette IP si elle déclenche des alertes.",
         "submit": "Supprimer"
-      }
+      },
+      "addFailed": "Échec de l'ajout de l'entrée"
     },
     "noConfig": "Configuration de CrowdSec introuvable dans l'état de sécurité",
-    "noteText": "CrowdSec est contrôlé via l'interrupteur de la page"
+    "noteText": "CrowdSec est contrôlé via l'interrupteur de la page",
+    "toasts": {
+      "fileSaved": "Fichier enregistré",
+      "saveFailed": "Échec de l'enregistrement du fichier",
+      "ipBanned": "L'IP {{ip}} a été bannie",
+      "banFailed": "Échec du bannissement de l'IP",
+      "ipUnbanned": "L'IP {{ip}} a été débannie",
+      "unbanFailed": "Échec du débannissement de l'IP",
+      "ipDetectFailed": "Échec de la détection de votre adresse IP",
+      "selectPreset": "Sélectionnez un préréglage à appliquer",
+      "presetNotCompleted": "L'application du préréglage n'a pas abouti (statut : {{status}})",
+      "statusUnknown": "inconnu",
+      "presetApplied": "Préréglage appliqué via le backend",
+      "presetAppliedReload": "Préréglage appliqué via le backend (rechargement requis)",
+      "presetApplyFailed": "Échec de l'application du préréglage",
+      "applyFailed": "Échec de l'application : {{message}}",
+      "applyFailedWithBackup": "Échec de l'application : {{message}}. {{backup}}"
+    },
+    "overlay": {
+      "fetchingPreset": "Récupération du préréglage...",
+      "fetchingPresetDetail": "Téléchargement de l'aperçu depuis le hub CrowdSec",
+      "loadingPreset": "Chargement du préréglage...",
+      "loadingPresetDetail": "Application du préréglage sélectionné avec sauvegarde",
+      "importing": "Invocation du gardien...",
+      "importingDetail": "Importation de la configuration CrowdSec",
+      "saving": "Le gardien inscrit...",
+      "savingDetail": "Enregistrement du fichier de configuration",
+      "banning": "Le gardien lève son bouclier...",
+      "banningDetail": "Bannissement de l'adresse IP",
+      "unbanning": "Le gardien baisse son bouclier...",
+      "unbanningDetail": "Débannissement de l'adresse IP",
+      "updatingList": "Le gardien met à jour la liste...",
+      "whitelistAddingDetail": "Ajout de l'IP à la liste blanche",
+      "whitelistRemovingDetail": "Retrait de la liste blanche",
+      "default": "Renforcement de la garde...",
+      "defaultDetail": "Configuration en cours"
+    }
   },
   "smtp": {
     "title": "Paramètres Email (SMTP)",

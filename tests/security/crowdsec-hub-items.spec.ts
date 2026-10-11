@@ -15,6 +15,7 @@ import type { APIRequestContext, Page, Route, TestInfo } from '@playwright/test'
 import { request as playwrightRequest } from '@playwright/test';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { createTarGz } from '../utils/archive-helpers';
+import { cleanupBackupsCreatedSince } from '../utils/backup-cleanup';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 const ADMIN = '/api/v1/admin/crowdsec';
@@ -41,6 +42,15 @@ async function restore(request: APIRequestContext, data: unknown) {
 }
 
 test.describe('CrowdSec Hub Item Restore @security', () => {
+  // The import UI creates a real application backup before each import (#1558).
+  let specStartedAt = '';
+  test.beforeAll(() => {
+    specStartedAt = new Date().toISOString();
+  });
+  test.afterAll(async () => {
+    await cleanupBackupsCreatedSince(specStartedAt);
+  });
+
   test.describe('Restore Validation', () => {
     const INVALID_NAMES: Array<{ title: string; name: string }> = [
       { title: 'a flag-like name', name: '--help' },

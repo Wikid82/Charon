@@ -1,83 +1,64 @@
-# QA and Security Report: feat/crowdsec-hub-items-restore
+# QA and Security Report: fix/crowdsec-followups-batch4
 
 Date: 2026-10-11
-Scope: full diff `origin/development...HEAD` (HEAD 96260b17, 7 commits, 47 files) against `SECURITY.md`, `CLAUDE.md` (Definition of Done) and the approved batch-3 plan (with the Supervisor amendments). The branch adds a hub item list to the CrowdSec export, an import-time check of notification references, a new admin endpoint `POST /api/v1/admin/crowdsec/hub-items/restore` that installs missing hub items, the matching frontend panel, translated export/import messages, E2E specs and docs.
+Scope: full diff `origin/development...HEAD` (11 branch commits plus the 1 QA commit listed below, 44 files) against `SECURITY.md`, `CLAUDE.md` (Definition of Done) and the approved batch-4 spec. The branch refuses a CrowdSec import whose configuration is not in the folder CrowdSec reads, keeps the current companion files an archive does not contain (and reports their names), makes the data lock abandonable when a request ends, classifies a missing hub item precisely, matches protected paths regardless of letter case, translates the remaining configuration page messages, and fixes two test-environment issues.
 
 ## Verdict: PASS (no blocking findings)
 
-No critical, high or medium findings. Four low or informational observations (F1-F4) are listed; none blocks merge. No model, migration or GORM query file is in the diff, and no security-sensitive finding was found. One E2E test failed once on the first gate run because the local E2E container's 256 MB data tmpfs filled up (environment, see F1); the same test passes on a clean tmpfs.
+No critical, high or medium findings. One test defect was found and fixed in the branch (F1); two informational observations (F2, F3) are listed. No model, migration or GORM query file is in the diff, and no security-sensitive defect was found in the import path.
 
 ## Definition of Done evidence
 
 | Check | Command | Result |
 |---|---|---|
-| Build and vet | `cd backend && go build ./... && go vet ./...` | pass, no output |
-| golangci-lint, backend | `golangci-lint run --config .golangci.yml ./...` (v2.14.0) | 0 issues |
-| golangci-lint, agent | `cd agent && golangci-lint run --config ../backend/.golangci.yml ./...` | 0 issues |
-| Frontend | `cd frontend && npm run type-check && npm run build` | pass |
-| i18n keys | `vitest run src/pages/__tests__/CrowdSecConfig.i18nKeys.test.ts` | 6 passed; the `crowdsecConfig` key set (185 keys, including the new `hubItems` group) is identical in en, de, es, fr and zh |
-| Lefthook | `lefthook run pre-commit --all-files` | all 17 hooks pass (795 s), including actionlint, shellcheck, semgrep (367 rules, 1946 files, 0 findings), frontend type-check and lint; the working tree stayed clean (only the three untracked plan files) |
-| govulncheck | skill `security-scan-go-vuln` | 0 affected; 1 module-level advisory in a required module that Charon code does not call |
-| Trivy | `trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL` on go.mod/go.sum (backend, agent) and the frontend package files, copied under `$HOME` (the snap trivy cannot read `/projects`) and removed afterwards | no HIGH/CRITICAL |
-| CodeQL | `lefthook run codeql` (CLI 2.27.2, current) | Go: 4 results, all 4 suppressed pre-existing entries in `auth_handler.go`, `remote_server_handler.go`, `uptime_service.go` (none in a file of this diff); JS: 0 results; "0 blocking"; "All CodeQL checks passed"; parity check passed. None of the earlier log-injection findings in the restore code remain. |
-| GORM scan | not run | no `backend/internal/models/**`, migration or GORM query file in the diff (0 matches) |
-| Coverage (given, not rerun) | prior runs | backend 91.4% stmt / 90.4% line, frontend 91.52% lines, patch coverage 94.8% |
-| Patch report artifacts | `test-results/local-patch-report.{md,json}` | produced by the earlier run; the directory is cleared by Playwright's output folder, so the files were gone after the E2E gate and were not regenerated (instruction: do not rerun coverage scripts) |
+| Build | `cd backend && go build ./...` | pass |
+| Backend tests and coverage | `scripts/go-test-coverage.sh` | first run: one failing test (F1); after the fix: all packages pass, statements 91.4%, lines 90.4% (gate 87%) |
+| golangci-lint | `cd backend && golangci-lint run --config .golangci.yml ./...` (v2.14.0) | 0 issues |
+| Frontend type-check and build | `cd frontend && npm run type-check && npm run build` | pass |
+| Frontend coverage | `scripts/frontend-test-coverage.sh` | all tests pass; statements 90.38%, branches 83.92%, functions 88.34%, lines 91.53% (gate 87%) |
+| Patch coverage | `bash scripts/local-patch-report.sh` (strict) | overall 91.6% (416/454), backend 92.0% (379/412), frontend 88.1% (37/42), agent n/a; all above the 87% gate; artifacts `test-results/local-patch-report.{md,json}` produced |
+| CodeQL | `lefthook run codeql` (CLI 2.27.2) | Go: 4 results, all 4 pre-existing suppressed entries in files outside this diff; JS: 0 results; 0 blocking; parity check passed |
+| Trivy | `trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL` on go.mod/go.sum and the frontend package files (copied under `$HOME` because the snap trivy cannot read `/projects`, removed afterwards) | no HIGH/CRITICAL |
+| GORM scan | not run | no `backend/internal/models/**`, migration or GORM query file in the diff |
+| E2E | rebuilt `charon-e2e` with `docker-rebuild-e2e`; `npx playwright test tests/security/crowdsec-import.spec.ts tests/security/crowdsec-diagnostics.spec.ts --project=security-tests` | 72 passed, 0 failed, 0 fixme or skipped (46.7 s) |
 
-## Race and repeat runs
-
-| Run | Result |
-|---|---|
-| `go test -race -count=2 -run 'HubItems\|Restore\|Manifest\|Inspect\|Notification\|Export\|Import\|Keep\|Rollback' ./internal/crowdsec/... ./internal/api/handlers/...` | ok (crowdsec 5.7 s, handlers 64.6 s) |
-| Full package, `go test -race -count=1 -timeout=40m ./internal/api/handlers/` | ok, 386.6 s, no failure. The earlier unrecorded one-off failure in this package was not reproduced; no test name is available to chase. |
-
-## E2E gate (single project, once, on a freshly rebuilt `charon-e2e`)
-
-`npx playwright test tests/security/crowdsec-hub-items.spec.ts tests/security/crowdsec-import.spec.ts tests/security/crowdsec-config.spec.ts tests/security/crowdsec-diagnostics.spec.ts tests/security/crowdsec-file-editor.spec.ts tests/security-enforcement/zzz-security-ui/crowdsec-import.spec.ts --project=security-tests`
-
-Result: 149 passed, 1 failed, no fixme remaining. The failure was `crowdsec-import.spec.ts:132 Rejected Archives > should reject an archive larger than 50 MB`, failing in its `beforeEach` baseline import with 500. Container log: `no space left on device` on the backup write; `/app/data` (256 MB tmpfs) was at 91%, holding about 155 MB of retained backups (each about 39 MB, because the data dir holds about 73 MB of CrowdSec data) and the data dir itself. After removing the backups and `crowdsec.backup.*` leftovers inside the throwaway container, the whole "Rejected Archives" group (5 tests, including that one) passed. `changelog.json` was restored with `git checkout`. See F1.
+Patch coverage detail (lines still uncovered in the patch): `companions.go` 89.0% (the remaining branches are write and close failures on a file just created, and the lost-race `O_EXCL` case, which need fault injection), `archive_inspect.go` 88.2% (defensive read errors), `crowdsec_handler.go` 92.1% (the 500 branch when keeping the current files fails, lines 824-828), `CrowdSecConfig.tsx` 86.5% (error toasts).
 
 ## Security review
 
-### 1. Restore endpoint
+### 1. Import path: nothing destructive before validation
 
-Verified live against the rebuilt `charon-e2e` container (validation paths only; no install was run, the hub was unreachable there):
+Order in `ImportConfig`: upload saved to a private temp folder, archive validator (size, ratio, required file, traversal), archive inspection and notification check, then the data lock, then the layout check, and only then the snapshot (a copy) and the clearing of the old tree. Every refusal before the snapshot changes nothing. After the snapshot, every failure calls `rollback()`: clearing failed, extraction failed, the flat-archive re-check after extraction, failure to keep the current files, and the kept-profile verification. The flat-archive refusal happens both before the snapshot (from the inspection) and after extraction (when the inspection was skipped), and returns a fixed message.
 
-| Probe | Result |
-|---|---|
-| No credentials | 401 |
-| Authenticated user with role `user` (created for the probe) | 403 `Forbidden` |
-| Admin, each invalid item: unknown type, `a/b..c`, leading `-` on owner and on name, NUL, trailing newline, embedded newline, Cyrillic look-alike character, `=`, space, two slashes, 129-character name, empty list, malformed JSON | 400 with the fixed messages `invalid hub item`, `no hub items given`, `invalid request` |
-| 1,001 items | 400 `invalid hub item` |
-| Body over 1 MiB | 413 `request too large` |
-| Unknown JSON field alongside a valid item | ignored (valid item proceeds) |
+### 2. Archive entry names
 
-- Route sits in `managementAdmin` (`RequireRole(admin)`), the same group as the sibling CrowdSec routes; a route test pins the 401.
-- Argv is built as the literal `cscli`, then `<type>`, `install`, `<name>`, through the command executor (no shell). Name pattern `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` plus a `..` ban and a five-value type allowlist; Go RE2 `$` matches only at the end of text, so a trailing newline cannot slip through (probe above confirms). No validated string starts with `-` or contains `=`, whitespace or a second slash, so cobra cannot read it as a flag or extra argument; names beginning with a digit or containing dots are plain positional arguments. cscli v1.8.1 in the image was confirmed to be the version in use.
-- Response bodies carry only fixed reason codes (`not_found`, `install_failed`, `verify_failed`, `not_attempted`) and fixed messages; cscli output and paths go to the log only. All log fields in the new code (`type`, `name`, `error`, `output`) pass through `hubLogDetail` (`sanitizeForLog` plus a 300-byte cap); the remaining log lines use fixed strings or filesystem errors that contain no request data. CodeQL confirms no log-injection result.
-- Concurrency: a compare-and-swap single-flight flag (never waited on) returns 409 to a second call; each item runs under `dataMu` for one cscli section with a context of min(remaining overall time, 120 s); the overall budget is 5 minutes; the hub update has 60 s; the reload uses a detached 10 s context so an install that succeeded just before a disconnect is still reloaded.
-- Lock order `restore.running -> dataMu -> HubService.mu`: all seven `dataMu` users (import, export, file write, preset apply, and the three restore sections) take it non-nested and never call another `dataMu` taker while holding it; `installedHubSet` is the only restore helper that locks and is called without the lock held; the reload runs after every lock is released. No re-entrancy or inversion was found, and the full race run passed.
-- Resource use: an admin can start at most one restore at a time (409 otherwise), at most 1,000 items per call, at most 5 minutes per call, and other `dataMu` users wait for at most one 120 s section. The 1 MiB body cap is applied before the flag is taken; slow body reads are a general server property (see F4).
+`ArchiveEntryRel` is the single normalisation shared by the validator (`requireArchiveFile`), the inspector and the extractor. Absolute names are re-rooted below the destination (as the extractor does), `..` sequences that would leave it are reported as invalid, `./` and doubled slashes collapse, and the required-file check only accepts the top level or `config/`, so a copy such as `parsers/config.yaml` does not count. Case variants are different names on the case-sensitive live filesystem and are never treated as the real configuration; the protected-path predicates (`IsHubPath`, `IsEngineOwnedPath`, `isLiveDBFile`) now lower-case their input, so a differently cased spelling of a protected path is skipped too (conservative direction).
 
-### 2. Manifest path
+### 3. Links and file writes
 
-- `ArchiveEntryRel` is now the single normalization used by both the extractor and `InspectArchive`, so `./charon-hub-items.json`, `a/../charon-hub-items.json` and `charon-hub-items.json` are the same entry for both; a nested `x/charon-hub-items.json` is an ordinary file. The extractor skips the manifest path regardless of the entry type, so it is never written to disk (E2E "never writes the manifest to disk" and the `./` spelling spec pass).
-- Bounds: manifest at most 1 MiB, a duplicate entry ignores the whole manifest, malformed JSON, unknown version and more than 1,000 items ignore it, an individually invalid item is dropped and counted (`skipped_invalid`, names not echoed). `InspectArchive` keeps at most 1 MiB per entry, 8 MiB in total and 256 files, and sets `Incomplete` instead of failing.
-- Export side: the manifest is derived from link targets only; the target is cleaned and parsed as `hub/<type>/[stage/]<owner>/<name>.yaml`, and the name is re-validated with the same function the restore uses. The test table covers relative links, links elsewhere, wrong type, missing stage, too deep, odd extension, invalid name, overlong owner and a dangling target. A file with the reserved name inside the data dir is skipped on export.
+- Presence of a companion in the live tree is decided with `Lstat`, so a link counts as present and is never replaced or written through. Snapshot entries that are links or have the wrong type are skipped and logged with a fixed message.
+- Notification files are restored with `O_WRONLY|O_CREATE|O_EXCL` and mode 0600, after an `Lstat` of the destination; an existing path of any kind (regular file, link, dangling link) is skipped, never written through. The notifications folder is only created when absent, and refused when it is a link or a file. The new unit tests pin each of these (regular, linked and dangling destinations, linked folder, file in the way, read-only folder).
+- Only direct children of `notifications/` with a lowercase `.yaml` or `.yml` name are considered, and only files that define a name the kept profile needs are copied back; a restore that would leave a name defined twice is refused (422) and rolled back.
 
-### 3. Notification check
+### 4. Secrets and responses
 
-- The check runs after the archive validator and before the lock, so a refusal changes nothing (E2E and handler tests assert the live files are untouched). It skips instead of failing when the inspection is incomplete, there is no profiles file, the config redirects the paths, a profile or notification file does not parse, or a notifications value is not a list of names.
-- The 422 message lists at most 10 names, each sanitized and cut at 64 characters, plus "and N more".
-- YAML alias abuse: a temporary probe fed alias-expansion documents of 5 to 40 nested levels (up to 2.1 KB) through `CheckProfileNotifications` in both profiles.yaml and a notification file. Each finished in 1-2 ms with under 400 KB allocated in total (the parser rejects the excessive aliasing before expansion, and the check then skips). The probe file was removed; the working tree is clean.
+`kept_files` carries file names only (fixed companion names plus `notifications/<file name>`), never contents. Error messages are fixed strings or sanitised, length-bounded name lists; I/O errors are wrapped through `withoutPath` so paths are not returned or logged; log fields pass through `SanitizeForLog`. No token or key is logged in the new code.
 
-### 4. Frontend panel
+### 5. Locking (`ctxMutex`)
 
-- No `dangerouslySetInnerHTML` in the panel or the page; item type and name are rendered as React text; error messages are fixed i18n strings chosen from the HTTP status (502, 409, other); the result area is a `role="status"` `aria-live="polite"` region and the section carries `aria-busy`; the 330 s timeout applies only to the restore call; the panel is passive (no banner, no toast; only the existing import success toast). The import failure toast shows the server message (including the 422 notification text) through the existing response interceptor.
+`LockContext` returns an error without taking the lock when the context ends first (an already ended context never takes a free lock); `Unlock` panics when not held. All call sites register `defer Unlock()` only after a successful lock (`lockData` returns false with the lock not held and the callers return before the defer; `writeExportLocked`, `hubUpdate`, `installedHubSet` and `installHubItem` return before the defer on error). No double unlock and no leaked lock was found. The restore single-flight flag is a never-waited compare-and-swap taken before any `dataMu` section and the import never takes it, so the lock order `restore flag -> dataMu` cannot invert. A cancelled waiter releasing nothing is covered by the new cancel tests, and the earlier observation about a non-context-aware lock no longer applies.
 
-### 5. Commits and docs
+### 6. Hub item classification
 
-- Subjects: `docs: describe the CrowdSec hub item list and the import check`, `feat: offer to install missing hub items after a CrowdSec import`, `feat: add an action to install missing CrowdSec hub items`, `feat: record the installed hub items in a CrowdSec export`, `fix: validate notification references in a CrowdSec import`, `fix: translate the CrowdSec export and import messages`, `test(e2e): add fixme specs for the CrowdSec import checks and hub item restore`. All generic; none uses the `(security)` scope; no session ID or link in any message. The docs and `ARCHITECTURE.md` additions describe behavior only, with no file names, process IDs or secret details.
+`hubItemNotFound` now matches only cscli's sentence for the requested type and name; any other wording is `install_failed` (safe direction). A failed second read of the installed list now returns 500 with what already happened instead of claiming items were not attempted.
+
+### 7. Frontend
+
+Archive-derived names are rendered as React text (no `dangerouslySetInnerHTML` or `innerHTML` in the page or the helper); `sanitizeKeptFileName` strips control, format (including direction override) and line/paragraph separator characters and caps the length at 80. The translation key sets for the page are identical in en, de, es, fr and zh (checked by the i18n key test).
+
+### 8. Commits and docs
+
+Subjects are generic; none uses the `(security)` scope; no session id or link in any message. Docs additions describe behaviour only.
 
 ## Findings
 
@@ -85,18 +66,18 @@ No critical, high or medium findings.
 
 ### Low
 
-- **F1: low (test environment, not product).** `tests/security/crowdsec-import.spec.ts:132` (and any import spec late in a full gate run): the local E2E container's `/app/data` is a 256 MB tmpfs, and each import and manual backup writes a roughly 39 MB zip (the data dir holds about 73 MB of CrowdSec data). The gate filled the tmpfs once during the CrowdSec config/import specs and one `beforeEach` import returned 500 (`no space left on device`). Evidence: container log lines `checksum writer: write /app/data/backups/...: no space left on device` and `df` showing 91% used with 4 retained backups. Suggested approach: raise the tmpfs size in the E2E compose file, or have the import/config specs delete the backups they create. Already known behavior ("fills up if the specs run twice"), but it now happens on a single run, so CI on a fresh container should be watched (CI uses its own container; a failure there would look the same).
+- **F1: low (test defect, fixed in this review).** `backend/internal/api/handlers/crowdsec_export_import_test.go` `TestEditorHidesPidBouncersAndHub` still asserted that `config/Hub/x.yaml` is writable, which contradicts the case-insensitive hub matching added by the protected-path commit. It failed deterministically in the handlers package (`go test` exit 1, although the coverage gate message said "met"). The assertion now expects the path to be protected. Evidence: the first `scripts/go-test-coverage.sh` run reported this single failure; after the fix the whole run passes.
 
 ### Informational
 
-- **F2: info.** `backend/internal/api/handlers/crowdsec_hub_items.go` `hubItemNotFound`: classifies `not_found` by matching "can't find" or "not found" (case-insensitive) in cscli output. It is best effort by design; a different cscli wording only turns `not_found` into `install_failed`, with the same safe response. Nothing to change unless cscli is upgraded; the wording was verified against the real hub in the manual run.
-- **F3: info.** `backend/internal/api/handlers/crowdsec_hub_items.go` `installHubItem` / `hubUpdate`: `dataMu.Lock()` is not context-aware, so a restore whose client has left still holds the single-flight flag until it gets the lock and notices the cancelled context (at most one other `dataMu` section, itself bounded). No action needed; mention only for operators who see a 409 right after a cancelled restore.
-- **F4: info.** The restore body read (1 MiB cap) has no per-request read deadline of its own; slow-client behavior is whatever the HTTP server configuration provides, as for every other admin endpoint. Admin-only, so not a new exposure.
+- **F2: info.** `InspectTree` reads the live tree and the pre-import snapshot following links (as CrowdSec does) to parse configuration and notification names. The snapshot keeps links as links, so a linked notifications folder in the live tree is read through, but the contents are only parsed for names and a file is copied back only when it defines a needed name and the file itself is a regular file. This needs an administrator-created link on the server; no action needed.
+- **F3: info.** The 500 branch "failed to keep the current CrowdSec files" in `ImportConfig` (rollback after a companion restore error) has no handler-level test; the underlying function's error paths are covered in the package tests. Reaching it from the handler needs a failure injected into a copy, so it was not added.
 
 ## Known limitations (not re-opened)
 
-Flat archives (#1559), the image ships no notification plugins (#1551 comment), profiles file hazard (#1554), restore edge cases (#1556).
+Redacting sensitive values in notification files on export is tracked separately (#1551); the image ships no notification plugins.
 
-## Manual evidence (given, on throwaway containers at HEAD bcda295d, not repeated here)
+## Commits added by this review
 
-Real-hub restore of 2 real items and 1 bogus (200, bogus reported as `not_found`); export manifest with 61 items; cross-host import reporting the missing items; restore on the second host, then a second restore reporting everything as already installed; a parallel restore refused with 409; import and export waiting during a 34 s ten-collection restore (export about 10.9 s, import about 6.5 s); a real 422 on a missing notification and 200 once defined; an offline restart that is non-fatal.
+- `test: cover the defensive branches of the CrowdSec notification file restore and keep hub paths protected in the editor test` (new tests for `prepareNotificationsDir` 77.8% -> 100% and `writeNotificationFile` 62.5% -> 75%, plus the F1 assertion fix).
+- `docs: update QA report for the CrowdSec follow-up batch` (this report).

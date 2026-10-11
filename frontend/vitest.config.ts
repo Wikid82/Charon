@@ -21,6 +21,8 @@ export default defineConfig({
         url: 'http://localhost',
       },
     },
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
     setupFiles: './src/test/setup.ts',
     // TypeScript types for test globals - these are automatically available in test files
     typecheck: {

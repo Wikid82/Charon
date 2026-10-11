@@ -76,8 +76,12 @@ services:
     tmpfs:
       # True tmpfs for E2E test data - fresh on every run, in-memory only
       # mode=1777 allows any user to write (container runs as non-root)
-      # 256M gives headroom for the backup service's 100MB disk-space check
-      - /app/data:size=256M,mode=1777
+      # 512M: the baseline data is ~85MB and each application backup the CrowdSec import UI
+      # creates is ~40MB (7 retained => ~280MB), so 256M filled up across repeated runs against
+      # one container (#1558). RAM is only used on demand. The backup service also needs 100MB
+      # free for its disk-space check. The specs delete their own backups (best effort); this
+      # size is the backstop when a run is interrupted.
+      - /app/data:size=512M,mode=1777
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     labels:

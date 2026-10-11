@@ -11,8 +11,10 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // ManifestEntryName is the archive entry reserved for the hub item manifest. Exports generate it, an
@@ -35,6 +37,9 @@ type ArchiveInfo struct {
 	Incomplete bool
 	// HubItems is the usable hub item manifest, nil when the archive has none or it was rejected.
 	HubItems *ArchiveHubItems
+	// HasNestedConfig reports a regular config/config.yaml entry. It is set whatever the entry size,
+	// unlike Files, which skips entries over the bounds.
+	HasNestedConfig bool
 }
 
 // ArchiveEntryRel normalizes a tar entry name exactly as the extractor places it below the destination
@@ -108,10 +113,16 @@ func InspectArchive(archivePath string) (ArchiveInfo, error) {
 			}
 			continue
 		}
-		if !ok || !inspectWanted(filepath.ToSlash(rel)) {
+		if !ok {
 			continue
 		}
 		rel = filepath.ToSlash(rel)
+		if rel == "config/config.yaml" {
+			info.HasNestedConfig = true
+		}
+		if !inspectWanted(rel) {
+			continue
+		}
 		if hdr.Size > maxInspectEntryBytes || total+hdr.Size > maxInspectTotalBytes || (len(info.Files) >= maxInspectEntries && info.Files[rel] == nil) {
 			info.Incomplete = true
 			continue
@@ -169,4 +180,90 @@ func (m *manifestSlot) parse() *ArchiveHubItems {
 		logger.Log().Warn("hub item manifest ignored: it is not valid version 1 content")
 	}
 	return items
+}
+
+// InspectTree reads the same entries as InspectArchive from the files on disk below dataDir, in both
+// layouts, under the same bounds. Links are followed, as CrowdSec follows them when it reads the tree; an
+// entry that is not a regular file once resolved, or one that exceeds a bound, makes the result
+// Incomplete so callers fail open on it.
+func InspectTree(dataDir string) (ArchiveInfo, error) {
+	info := ArchiveInfo{Files: map[string][]byte{}}
+	root := filepath.Clean(dataDir)
+	var total int64
+	for _, prefix := range []string{"", "config"} {
+		for _, name := range []string{"config.yaml", "profiles.yaml"} {
+			if err := addTreeFile(&info, &total, root, path.Join(prefix, name)); err != nil {
+				return info, err
+			}
+		}
+		dirRel := path.Join(prefix, "notifications")
+		dirInfo, err := os.Stat(filepath.Join(root, filepath.FromSlash(dirRel)))
+		switch {
+		case treeEntryAbsent(err):
+			continue
+		case err != nil:
+			return info, fmt.Errorf("inspect %s: %w", dirRel, withoutPath(err))
+		case !dirInfo.IsDir():
+			info.Incomplete = true
+			continue
+		}
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(dirRel)))
+		if err != nil {
+			return info, fmt.Errorf("read %s: %w", dirRel, withoutPath(err))
+		}
+		for _, entry := range entries {
+			rel := path.Join(dirRel, entry.Name())
+			if !inspectWanted(rel) {
+				continue
+			}
+			if err := addTreeFile(&info, &total, root, rel); err != nil {
+				return info, err
+			}
+		}
+	}
+	return info, nil
+}
+
+// treeEntryAbsent reports whether a stat error means the entry does not exist (a file in the way of
+// a parent directory counts as absent too).
+func treeEntryAbsent(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
+}
+
+// addTreeFile reads the wanted file rel (slash-separated, below root) into info when it is a regular
+// file within the bounds. A missing file is not an error.
+func addTreeFile(info *ArchiveInfo, total *int64, root, rel string) error {
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	st, err := os.Stat(full)
+	if treeEntryAbsent(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", rel, withoutPath(err))
+	}
+	if !st.Mode().IsRegular() {
+		info.Incomplete = true
+		logger.Log().WithField("entry", util.SanitizeForLog(rel)).Debug("crowdsec tree inspection: entry is not a regular file")
+		return nil
+	}
+	if st.Size() > maxInspectEntryBytes || *total+st.Size() > maxInspectTotalBytes || len(info.Files) >= maxInspectEntries {
+		info.Incomplete = true
+		return nil
+	}
+	f, err := os.Open(full) // #nosec G304 -- full is a fixed name below the data directory, checked regular by Stat above
+	if err != nil {
+		return fmt.Errorf("open %s: %w", rel, withoutPath(err))
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxInspectEntryBytes+1))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", rel, withoutPath(err))
+	}
+	if int64(len(data)) > maxInspectEntryBytes {
+		info.Incomplete = true
+		return nil
+	}
+	*total += int64(len(data))
+	info.Files[rel] = data
+	return nil
 }

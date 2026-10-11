@@ -36,8 +36,9 @@ const (
 
 // isLiveDBFile reports whether name is the live CrowdSec SQLite database or its WAL/SHM sidecars.
 // These are owned by the running engine and must never be copied into, or restored from, a backup.
+// Matching is case-insensitive.
 func isLiveDBFile(name string) bool {
-	switch name {
+	switch strings.ToLower(name) {
 	case "crowdsec.db", "crowdsec.db-wal", "crowdsec.db-shm":
 		return true
 	}
@@ -49,9 +50,9 @@ func isLiveDBFile(name string) bool {
 // db file at any depth, the top-level crowdsec.pid (written by the executor, owned by the running
 // process), or anything under the top-level data/ (LAPI db and hub data files) or
 // hub_cache/ (regenerable download cache). Only the top-level directories are excluded; a nested
-// directory with the same name stays part of the configuration.
+// directory with the same name stays part of the configuration. Matching is case-insensitive.
 func IsEngineOwnedPath(rel string) bool {
-	rel = filepath.ToSlash(filepath.Clean(rel))
+	rel = strings.ToLower(filepath.ToSlash(filepath.Clean(rel)))
 	if rel == "." || rel == "" {
 		return false
 	}

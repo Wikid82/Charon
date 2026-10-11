@@ -33,6 +33,29 @@ const usedKeys = (): string[] => {
   return [...keys]
 }
 
+// Calls and assignments whose string arguments reach the user, so they must go through t().
+const USER_VISIBLE_CALL = /\b(?:toast\.(?:success|error|info|warning)|setPresetStatusMessage|setValidationError|getServerErrorMessage)\(/g
+const USER_VISIBLE_LINE = /\b(?:sub)?message:|\bnextErrors\.\w+ =|\breturn '[A-Z]|^\s*[?:] '[A-Z]|\bmsg = .*'[A-Z]/
+
+/** Returns the source of each user-visible call (up to its closing parenthesis) and each matching line. */
+const userVisibleCalls = (src: string): string[] => {
+  const calls: string[] = []
+  for (const m of src.matchAll(USER_VISIBLE_CALL)) {
+    let depth = 0
+    let end = m.index
+    for (; end < src.length; end++) {
+      if (src[end] === '(') depth++
+      if (src[end] === ')' && --depth === 0) break
+    }
+    calls.push(src.slice(m.index, end + 1))
+  }
+  return [...calls, ...src.split('\n').filter((line) => USER_VISIBLE_LINE.test(line))]
+}
+
+/** True when the text still holds a quoted or template literal with letters after removing t('key') lookups. */
+const hasLiteralText = (code: string): boolean =>
+  /(['`])[^'`]*[A-Za-z]{3}[^'`]*\1/.test(code.replace(/\bt\(\s*'[^']*'/g, 't(').replace(/\bt\(\s*[^'\s][^)]*\?[^)]*\)/g, 't('))
+
 describe('CrowdSec config i18n keys', () => {
   it('finds static keys in the sources', () => {
     expect(usedKeys().length).toBeGreaterThan(50)
@@ -54,5 +77,12 @@ describe('CrowdSec config i18n keys', () => {
       expect(otherNode, `${locale}.${ns}`).toBeDefined()
       expect(leafKeys(otherNode as Json, ns).sort()).toEqual(leafKeys(enNode as Json, ns).sort())
     }
+  })
+
+  it('CrowdSecConfig.tsx has no hard-coded user-visible strings in toasts, status messages or errors', () => {
+    const [source] = Object.entries(sourceModules).filter(([path]) => path.endsWith('/CrowdSecConfig.tsx')).map(([, src]) => src)
+    expect(source).toBeDefined()
+    expect(userVisibleCalls(source).length).toBeGreaterThan(20)
+    expect(userVisibleCalls(source).filter(hasLiteralText)).toEqual([])
   })
 })

@@ -23,6 +23,7 @@ import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
+import { sanitizeKeptFileName } from '../utils/keptFileNames'
 import { sanitizeSecret } from '../utils/sanitizeSecret'
 import { toast } from '../utils/toast'
 
@@ -45,6 +46,7 @@ export default function CrowdSecConfig() {
   const [file, setFile] = useState<File | null>(null)
   // Hub items the last import reported as missing; the key restarts the panel per import.
   const [importHubItems, setImportHubItems] = useState<{ key: number; items: ImportHubItems } | null>(null)
+  const [keptFiles, setKeptFiles] = useState<string[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [selectedPresetSlug, setSelectedPresetSlug] = useState<string>('')
@@ -126,6 +128,7 @@ export default function CrowdSecConfig() {
       toast.success(t('crowdsecConfig.importSuccess'))
       const items = result.hub_items
       setImportHubItems(items && items.missing.length > 0 ? { key: Date.now(), items } : null)
+      setKeptFiles(result.kept_files ?? [])
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
     },
     onError: (err: unknown) => {
@@ -138,11 +141,11 @@ export default function CrowdSecConfig() {
   const writeMutation = useMutation({
     mutationFn: async ({ path, content }: { path: string; content: string }) => writeCrowdsecFile(path, content),
     onSuccess: () => {
-      toast.success('File saved')
+      toast.success(t('crowdsecConfig.toasts.fileSaved'))
       queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
     },
     onError: (err: unknown) => {
-      toast.error(getServerErrorMessage(err, 'Failed to save file'))
+      toast.error(getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed')))
     },
   })
 
@@ -257,7 +260,7 @@ export default function CrowdSecConfig() {
     onSuccess: (data) => {
       setPresetPreview(data.preview)
       setPresetMeta({ cacheKey: data.cache_key, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
-      setPresetStatusMessage('Preview fetched from hub')
+      setPresetStatusMessage(t('crowdsecConfig.presets.status.previewFetched'))
       setHubUnavailable(false)
       setValidationError(null)
     },
@@ -265,17 +268,17 @@ export default function CrowdSecConfig() {
       setPresetStatusMessage(null)
       if (isAxiosError(err)) {
         if (err.response?.status === 400) {
-          setValidationError(err.response.data?.error || 'Preset slug is invalid')
+          setValidationError(err.response.data?.error || t('crowdsecConfig.presets.status.slugInvalid'))
           return
         }
         if (err.response?.status === 503) {
           setHubUnavailable(true)
-          setPresetStatusMessage('CrowdSec hub unavailable. Retry or load cached copy.')
+          setPresetStatusMessage(t('crowdsecConfig.presets.status.hubUnavailable'))
           return
         }
-        setPresetStatusMessage(err.response?.data?.error || 'Failed to pull preset preview')
+        setPresetStatusMessage(err.response?.data?.error || t('crowdsecConfig.presets.status.pullFailed'))
       } else {
-        setPresetStatusMessage('Failed to pull preset preview')
+        setPresetStatusMessage(t('crowdsecConfig.presets.status.pullFailed'))
       }
     },
   })
@@ -302,10 +305,10 @@ export default function CrowdSecConfig() {
       const cached = await getCrowdsecPresetCache(selectedPreset.slug)
       setPresetPreview(cached.preview)
       setPresetMeta({ cacheKey: cached.cache_key, etag: cached.etag, retrievedAt: selectedPreset.retrievedAt, source: selectedPreset.source })
-      setPresetStatusMessage('Loaded cached preview')
+      setPresetStatusMessage(t('crowdsecConfig.presets.status.cachedLoaded'))
       setHubUnavailable(false)
     } catch (err) {
-      const msg = isAxiosError(err) ? err.response?.data?.error || err.message : 'Failed to load cached preview'
+      const msg = isAxiosError(err) ? err.response?.data?.error || err.message : t('crowdsecConfig.presets.status.cacheLoadFailed')
       toast.error(msg)
     }
   }
@@ -315,7 +318,7 @@ export default function CrowdSecConfig() {
   const isConsolePending = enrollConsoleMutation.isPending || normalizedConsoleStatus === 'enrolling'
   const isConsolePendingAcceptance = normalizedConsoleStatus === 'pending_acceptance'
   const consoleStatusLabel = normalizedConsoleStatus.replace('_', ' ')
-  const consoleTokenState = consoleStatusQuery.data ? (consoleStatusQuery.data.key_present ? 'Stored (masked)' : 'Not stored') : '—'
+  const consoleTokenState = consoleStatusQuery.data ? (consoleStatusQuery.data.key_present ? t('crowdsecConfig.consoleEnrollment.tokenStored') : t('crowdsecConfig.consoleEnrollment.tokenNotStored')) : '—'
   const canRotateKey = normalizedConsoleStatus === 'enrolled' || normalizedConsoleStatus === 'degraded' || isConsolePendingAcceptance
   const consoleDocsHref = 'https://wikid82.github.io/charon/security/'
 
@@ -324,19 +327,19 @@ export default function CrowdSecConfig() {
       return sanitizeSecret(err.response?.data?.error || err.message)
     }
     if (err instanceof Error) return sanitizeSecret(err.message)
-    return 'Console enrollment failed'
+    return t('crowdsecConfig.consoleEnrollment.errors.enrollFailed')
   }
 
   const validateConsoleEnrollment = (options?: { requireAck?: boolean }) => {
     const nextErrors: { token?: string; agent?: string; ack?: string } = {}
     if (!enrollmentToken.trim()) {
-      nextErrors.token = 'Enrollment token is required'
+      nextErrors.token = t('crowdsecConfig.consoleEnrollment.tokenRequired')
     }
     if (!consoleAgentName.trim()) {
-      nextErrors.agent = 'Agent name is required'
+      nextErrors.agent = t('crowdsecConfig.consoleEnrollment.errors.agentRequired')
     }
     if (options?.requireAck && !consoleAck) {
-      nextErrors.ack = 'You must acknowledge the console data-sharing notice'
+      nextErrors.ack = t('crowdsecConfig.consoleEnrollment.errors.ackRequired')
     }
     setConsoleErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
@@ -361,8 +364,8 @@ export default function CrowdSecConfig() {
       }
       toast.success(
         force
-          ? 'Enrollment submitted! Accept the request on app.crowdsec.net to complete.'
-          : 'Enrollment request sent! Accept the enrollment on app.crowdsec.net to complete registration.'
+          ? t('crowdsecConfig.consoleEnrollment.enrollSubmitted')
+          : t('crowdsecConfig.consoleEnrollment.enrollSent')
       )
     } catch (err) {
       const message = sanitizeErrorMessage(err)
@@ -381,25 +384,25 @@ export default function CrowdSecConfig() {
   const banMutation = useMutation({
     mutationFn: () => banIP(banForm.ip, banForm.duration, banForm.reason),
     onSuccess: () => {
-      toast.success(`IP ${banForm.ip} has been banned`)
+      toast.success(t('crowdsecConfig.toasts.ipBanned', { ip: banForm.ip }))
       queryClient.invalidateQueries({ queryKey: ['crowdsec-decisions'] })
       setShowBanModal(false)
       setBanForm({ ip: '', duration: '24h', reason: '' })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to ban IP')
+      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.toasts.banFailed'))
     },
   })
 
   const unbanMutation = useMutation({
     mutationFn: (ip: string) => unbanIP(ip),
     onSuccess: (_, ip) => {
-      toast.success(`IP ${ip} has been unbanned`)
+      toast.success(t('crowdsecConfig.toasts.ipUnbanned', { ip }))
       queryClient.invalidateQueries({ queryKey: ['crowdsec-decisions'] })
       setConfirmUnban(null)
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to unban IP')
+      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.toasts.unbanFailed'))
     },
   })
 
@@ -410,7 +413,7 @@ export default function CrowdSecConfig() {
   const whitelistInlineError = addWhitelistMutation.error instanceof Error
     ? addWhitelistMutation.error.message
     : addWhitelistMutation.error != null
-    ? 'Failed to add entry'
+    ? t('crowdsecConfig.whitelist.addFailed')
     : null
 
   const handleAddMyIP = async () => {
@@ -418,7 +421,7 @@ export default function CrowdSecConfig() {
       const result = await getMyIP()
       setWhitelistForm((prev) => ({ ...prev, ip_or_cidr: result.ip }))
     } catch {
-      toast.error('Failed to detect your IP address')
+      toast.error(t('crowdsecConfig.toasts.ipDetectFailed'))
     }
   }
 
@@ -464,7 +467,7 @@ export default function CrowdSecConfig() {
 
   const handleApplyPreset = async () => {
     if (!selectedPreset) {
-      toast.error('Select a preset to apply')
+      toast.error(t('crowdsecConfig.toasts.selectPreset'))
       return
     }
 
@@ -482,25 +485,24 @@ export default function CrowdSecConfig() {
       })
 
       if (res.status !== 'applied') {
-        toast.error(`Preset apply did not complete (status: ${res.status || 'unknown'})`)
+        toast.error(t('crowdsecConfig.toasts.presetNotCompleted', { status: res.status || t('crowdsecConfig.toasts.statusUnknown') }))
         return
       }
 
-      const reloadNote = res.reload_hint ? ' (reload required)' : ''
-      toast.success(`Preset applied via backend${reloadNote}`)
+      toast.success(t(res.reload_hint ? 'crowdsecConfig.toasts.presetAppliedReload' : 'crowdsecConfig.toasts.presetApplied'))
       if (res.backup) {
         setPresetStatusMessage(backupCreatedMessage(res.backup))
       }
     } catch (err) {
       if (!isAxiosError(err)) {
-        toast.error('Failed to apply preset')
+        toast.error(t('crowdsecConfig.toasts.presetApplyFailed'))
         return
       }
       // The server is authoritative for every preset source: surface its message for any
       // non-2xx response and never write preset content client-side.
       const status = err.response?.status
       const backupName = (err.response?.data as { backup?: string } | undefined)?.backup
-      const message = getServerErrorMessage(err, 'Failed to apply preset')
+      const message = getServerErrorMessage(err, t('crowdsecConfig.toasts.presetApplyFailed'))
       if (status === 400) {
         setValidationError(message)
       }
@@ -508,7 +510,11 @@ export default function CrowdSecConfig() {
         setHubUnavailable(true)
       }
       setApplyInfo({ status: 'failed', backup: backupName || undefined, cacheKey: presetMeta?.cacheKey })
-      toast.error(`Apply failed: ${message}${backupName ? `. ${backupCreatedMessage(backupName)}` : ''}`)
+      toast.error(
+        backupName
+          ? t('crowdsecConfig.toasts.applyFailedWithBackup', { message, backup: backupCreatedMessage(backupName) })
+          : t('crowdsecConfig.toasts.applyFailed', { message })
+      )
     } finally {
       setIsApplyingPreset(false)
     }
@@ -536,30 +542,30 @@ export default function CrowdSecConfig() {
   // Determine contextual message
   const getMessage = () => {
     if (pullPresetMutation.isPending) {
-      return { message: 'Fetching preset...', submessage: 'Pulling preview from CrowdSec Hub' }
+      return { message: t('crowdsecConfig.overlay.fetchingPreset'), submessage: t('crowdsecConfig.overlay.fetchingPresetDetail') }
     }
     if (isApplyingPreset) {
-      return { message: 'Loading preset...', submessage: 'Applying curated preset with backup' }
+      return { message: t('crowdsecConfig.overlay.loadingPreset'), submessage: t('crowdsecConfig.overlay.loadingPresetDetail') }
     }
     if (importMutation.isPending) {
-      return { message: 'Summoning the guardian...', submessage: 'Importing CrowdSec configuration' }
+      return { message: t('crowdsecConfig.overlay.importing'), submessage: t('crowdsecConfig.overlay.importingDetail') }
     }
     if (writeMutation.isPending) {
-      return { message: 'Guardian inscribes...', submessage: 'Saving configuration file' }
+      return { message: t('crowdsecConfig.overlay.saving'), submessage: t('crowdsecConfig.overlay.savingDetail') }
     }
     if (banMutation.isPending) {
-      return { message: 'Guardian raises shield...', submessage: 'Banning IP address' }
+      return { message: t('crowdsecConfig.overlay.banning'), submessage: t('crowdsecConfig.overlay.banningDetail') }
     }
     if (unbanMutation.isPending) {
-      return { message: 'Guardian lowers shield...', submessage: 'Unbanning IP address' }
+      return { message: t('crowdsecConfig.overlay.unbanning'), submessage: t('crowdsecConfig.overlay.unbanningDetail') }
     }
     if (addWhitelistMutation.isPending) {
-      return { message: 'Guardian updates list...', submessage: 'Adding IP to whitelist' }
+      return { message: t('crowdsecConfig.overlay.updatingList'), submessage: t('crowdsecConfig.overlay.whitelistAddingDetail') }
     }
     if (deleteWhitelistMutation.isPending) {
-      return { message: 'Guardian updates list...', submessage: 'Removing from whitelist' }
+      return { message: t('crowdsecConfig.overlay.updatingList'), submessage: t('crowdsecConfig.overlay.whitelistRemovingDetail') }
     }
-    return { message: 'Strengthening the guard...', submessage: 'Configuration in progress' }
+    return { message: t('crowdsecConfig.overlay.default'), submessage: t('crowdsecConfig.overlay.defaultDetail') }
   }
 
   const { message, submessage } = getMessage()
@@ -982,11 +988,17 @@ export default function CrowdSecConfig() {
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null)
               setImportHubItems(null)
+              setKeptFiles([])
             }}
             data-testid="import-file"
             accept=".tar.gz"
             aria-label={t('crowdsecConfig.packages.selectFile')}
           />
+          {keptFiles.length > 0 && (
+            <p className="text-sm text-gray-400" data-testid="import-kept-files">
+              {t('crowdsecConfig.importKeptFiles', { files: keptFiles.map(sanitizeKeptFileName).join(', ') })}
+            </p>
+          )}
           {importHubItems && <HubItemsRestorePanel key={importHubItems.key} hubItems={importHubItems.items} />}
         </div>
       </Card>

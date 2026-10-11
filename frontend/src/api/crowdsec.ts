@@ -73,6 +73,8 @@ export interface ImportCrowdsecResult {
   status?: string
   backup?: string
   hub_items?: ImportHubItems
+  /** Names of the current files kept because the archive did not contain them. */
+  kept_files?: string[]
 }
 
 /** Result of a hub item restore. */

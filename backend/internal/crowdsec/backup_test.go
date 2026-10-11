@@ -64,11 +64,11 @@ func seedPersistentTree(t *testing.T) string {
 
 func TestIsEngineOwnedPath(t *testing.T) {
 	t.Parallel()
-	owned := []string{"crowdsec.db", "crowdsec.db-wal", "crowdsec.db-shm", "config/crowdsec.db", "data", "data/x", "data/a/b", "hub_cache", "hub_cache/y", "./data/x"}
+	owned := []string{"DATA/crowdsec.db", "Hub_Cache", "Hub_Cache/y", "Data", "x/CROWDSEC.DB-WAL", "config/Crowdsec.Db-Shm", "crowdsec.db", "crowdsec.db-wal", "crowdsec.db-shm", "config/crowdsec.db", "data", "data/x", "data/a/b", "hub_cache", "hub_cache/y", "./data/x"}
 	for _, p := range owned {
 		require.True(t, IsEngineOwnedPath(p), p)
 	}
-	notOwned := []string{"", ".", "config/data", "config/data/x", "config/hub_cache", "config.yaml", "database/x", "datax", "bouncer_key"}
+	notOwned := []string{"", ".", "Config/Data/x", "config/Hub_Cache", "config/data", "config/data/x", "config/hub_cache", "config.yaml", "database/x", "datax", "bouncer_key"}
 	for _, p := range notOwned {
 		require.False(t, IsEngineOwnedPath(p), p)
 	}
@@ -672,10 +672,13 @@ func TestExtractTarGzOverlaysWithoutWipingAndSkipsEngineOwnedEntries(t *testing.
 	dir := seedPersistentTree(t)
 	svc := NewHubService(nil, nil, dir)
 	archive := makeTarGz(t, map[string]string{
-		"config/new.yaml": "new",
-		"crowdsec.db":     "evil",
-		"data/x":          "evil",
-		"hub_cache/y":     "evil",
+		"config/new.yaml":  "new",
+		"crowdsec.db":      "evil",
+		"data/x":           "evil",
+		"hub_cache/y":      "evil",
+		"Data/crowdsec.db": "evil",
+		"HUB_CACHE/z":      "evil",
+		"CrowdSec.DB-WAL":  "evil",
 	})
 
 	require.NoError(t, svc.extractTarGz(context.Background(), archive, dir))
@@ -684,6 +687,9 @@ func TestExtractTarGzOverlaysWithoutWipingAndSkipsEngineOwnedEntries(t *testing.
 	require.Equal(t, "live-db", readFile(t, filepath.Join(dir, "crowdsec.db")))
 	require.NoFileExists(t, filepath.Join(dir, "data", "x"))
 	require.NoFileExists(t, filepath.Join(dir, "hub_cache", "y"))
+	require.NoDirExists(t, filepath.Join(dir, "Data"))
+	require.NoDirExists(t, filepath.Join(dir, "HUB_CACHE"))
+	require.NoFileExists(t, filepath.Join(dir, "CrowdSec.DB-WAL"))
 }
 
 func TestRollbackFailureWrapsCause(t *testing.T) {
