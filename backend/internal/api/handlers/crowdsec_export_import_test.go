@@ -500,7 +500,7 @@ func TestEditorHidesPidBouncersAndHub(t *testing.T) {
 	} {
 		require.Equal(t, readable, isReadable(rel), rel)
 	}
-	require.True(t, isWritable("config/Hub/x.yaml"))
+	require.False(t, isWritable("config/Hub/x.yaml"), "hub paths are protected whatever the letter case")
 	require.False(t, isWritable("config/hub/x.yaml"))
 	require.False(t, isWritable("hub/x.yaml"))
 }

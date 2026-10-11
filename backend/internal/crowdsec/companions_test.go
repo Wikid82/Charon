@@ -527,3 +527,90 @@ func TestRestoreMissingCompanionsUnreadableNotificationFoldersFailOpen(t *testin
 		})
 	}
 }
+
+func TestPrepareNotificationsDir(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "file"), []byte("x"), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(root, "dir"), 0o750))
+
+	ready, err := prepareNotificationsDir(filepath.Join(root, "dir"))
+	require.NoError(t, err)
+	require.True(t, ready, "an existing plain folder is usable")
+
+	ready, err = prepareNotificationsDir(filepath.Join(root, "new"))
+	require.NoError(t, err)
+	require.True(t, ready)
+	require.DirExists(t, filepath.Join(root, "new"))
+
+	ready, err = prepareNotificationsDir(filepath.Join(root, "file"))
+	require.NoError(t, err)
+	require.False(t, ready, "a file in the way is refused without an error")
+
+	// A parent that is a file makes the inspection itself fail (not "does not exist").
+	_, err = prepareNotificationsDir(filepath.Join(root, "file", "notifications"))
+	require.Error(t, err)
+
+	// A missing parent makes the creation fail.
+	_, err = prepareNotificationsDir(filepath.Join(root, "missing", "notifications"))
+	require.Error(t, err)
+}
+
+func TestWriteNotificationFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dest := filepath.Join(root, "http.yaml")
+
+	wrote, err := writeNotificationFile(dest, []byte("name: a\n"))
+	require.NoError(t, err)
+	require.True(t, wrote)
+	require.Equal(t, "name: a\n", readFile(t, dest))
+	st, err := os.Stat(dest)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), st.Mode().Perm())
+
+	wrote, err = writeNotificationFile(dest, []byte("name: other\n"))
+	require.NoError(t, err)
+	require.False(t, wrote, "an existing file is never replaced")
+	require.Equal(t, "name: a\n", readFile(t, dest))
+
+	target := filepath.Join(root, "target.yaml")
+	require.NoError(t, os.WriteFile(target, []byte("keep"), 0o600))
+	link := filepath.Join(root, "link.yaml")
+	require.NoError(t, os.Symlink(target, link))
+	wrote, err = writeNotificationFile(link, []byte("overwritten"))
+	require.NoError(t, err)
+	require.False(t, wrote, "a link is never written through")
+	require.Equal(t, "keep", readFile(t, target))
+
+	dangling := filepath.Join(root, "dangling.yaml")
+	require.NoError(t, os.Symlink(filepath.Join(root, "absent.yaml"), dangling))
+	wrote, err = writeNotificationFile(dangling, []byte("created"))
+	require.NoError(t, err)
+	require.False(t, wrote, "a dangling link is never written through")
+	require.NoFileExists(t, filepath.Join(root, "absent.yaml"))
+
+	// A parent that is a file makes the inspection fail with something other than "does not exist".
+	require.NoError(t, os.WriteFile(filepath.Join(root, "file"), []byte("x"), 0o600))
+	_, err = writeNotificationFile(filepath.Join(root, "file", "x.yaml"), []byte("a"))
+	require.Error(t, err)
+
+	// A missing folder makes the creation fail.
+	_, err = writeNotificationFile(filepath.Join(root, "missing", "x.yaml"), []byte("a"))
+	require.Error(t, err)
+}
+
+func TestWriteNotificationFileCannotCreateInReadOnlyFolder(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission bits do not restrict root")
+	}
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o500))       //nolint:gosec // G302: read-only folder under test
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o750) }) //nolint:gosec // G302: the test tree must be removable
+
+	wrote, err := writeNotificationFile(filepath.Join(dir, "x.yaml"), []byte("a"))
+
+	require.Error(t, err)
+	require.False(t, wrote)
+}
