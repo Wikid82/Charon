@@ -1187,6 +1187,8 @@
     "importSuccess": "CrowdSec 配置已导入（已创建备份）",
     "importFailed": "导入失败",
     "importKeptFiles": "归档中没有这些文件，因此保留了当前的文件：{{files}}",
+    "importNeedsValues": "这些通知文件中的部分值在导出配置时已被清空，需要填写后才能生效：{{files}}",
+    "importNeedsValuesMore": "以及另外 {{count}} 个",
     "exportPrompt": "为 CrowdSec 导出文件命名",
     "title": "CrowdSec 配置",
     "checkNow": "立即检查",
@@ -1266,7 +1268,7 @@
     },
     "packages": {
       "title": "配置包",
-      "description": "导出或导入 CrowdSec 配置包（tar.gz）。导入前会创建备份。",
+      "description": "导出或导入 CrowdSec 配置包（tar.gz）。导入前会创建备份。导出时，通知文件中的密码、令牌和 Webhook 地址会被清空。",
       "export": "导出",
       "import": "导入",
       "importing": "正在导入...",

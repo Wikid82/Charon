@@ -9,6 +9,7 @@ import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as securityApi from '../../api/security'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import { toast } from '../../utils/toast'
 import CrowdSecConfig from '../CrowdSecConfig'
 
 vi.mock('../../api/security')
@@ -149,5 +150,81 @@ describe('CrowdSecConfig kept files note', () => {
     await userEvent.upload(screen.getByTestId('import-file'), new File(['other'], 'other.tar.gz'))
 
     expect(screen.queryByTestId('import-kept-files')).not.toBeInTheDocument()
+  })
+})
+
+describe('CrowdSecConfig needs-values note', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({
+      cerberus: { enabled: true },
+      crowdsec: { enabled: true, mode: 'local', api_url: '' },
+      waf: { enabled: true, mode: 'enabled' },
+      rate_limit: { enabled: true },
+      acl: { enabled: true },
+    })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1, lapi_ready: true })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [] })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ job_id: 'j', type: 'create', status: 'pending' })
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': false })
+  })
+
+  it('lists the files that still need values as one inline line without a new toast', async () => {
+    await importWith({ status: 'imported', needs_values: ['notifications/http_default.yaml', 'notifications/slack.yaml'] })
+
+    const note = await screen.findByTestId('import-needs-values')
+    expect(note).toHaveTextContent(
+      'Some values in these notification files were blanked when the configuration was exported, so they need to be entered before they work: notifications/http_default.yaml, notifications/slack.yaml',
+    )
+    expect(toast.success).toHaveBeenCalledTimes(1)
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(toast.info).not.toHaveBeenCalled()
+  })
+
+  it('shows the first 10 names and the number of the remaining ones', async () => {
+    const names = Array.from({ length: 13 }, (_, i) => `notifications/n${i + 1}.yaml`)
+    await importWith({ status: 'imported', needs_values: names })
+
+    const note = await screen.findByTestId('import-needs-values')
+    expect(note).toHaveTextContent('notifications/n10.yaml, and 3 more')
+    expect(note).not.toHaveTextContent('notifications/n11.yaml')
+  })
+
+  it('lists exactly 10 names without a remainder', async () => {
+    const names = Array.from({ length: 10 }, (_, i) => `notifications/n${i + 1}.yaml`)
+    await importWith({ status: 'imported', needs_values: names })
+
+    const note = await screen.findByTestId('import-needs-values')
+    expect(note).toHaveTextContent('notifications/n10.yaml')
+    expect(note).not.toHaveTextContent('more')
+  })
+
+  it('sanitises archive-derived names and does not render markup', async () => {
+    await importWith({ status: 'imported', needs_values: ['notifications/<b>x</b>\u202e\n.yaml'] })
+
+    const note = await screen.findByTestId('import-needs-values')
+    expect(note).toHaveTextContent('notifications/<b>x</b>.yaml')
+    expect(within(note).queryByText('x')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['no needs_values field', { status: 'imported' }],
+    ['an empty needs_values list', { status: 'imported', needs_values: [] }],
+  ])('shows no line with %s', async (_label, response) => {
+    await importWith(response)
+
+    await waitFor(() => expect(crowdsecApi.importCrowdsecConfig).toHaveBeenCalled())
+    expect(screen.queryByTestId('import-needs-values')).not.toBeInTheDocument()
+  })
+
+  it('clears the line when another file is selected', async () => {
+    await importWith({ status: 'imported', needs_values: ['notifications/http_default.yaml'] })
+    await screen.findByTestId('import-needs-values')
+
+    await userEvent.upload(screen.getByTestId('import-file'), new File(['other'], 'other.tar.gz'))
+
+    expect(screen.queryByTestId('import-needs-values')).not.toBeInTheDocument()
   })
 })
