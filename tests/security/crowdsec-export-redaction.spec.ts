@@ -4,9 +4,6 @@
  * An export blanks the passwords, tokens, addresses and header values of notification files and
  * keeps the structure a profile needs. An import keeps the current values when the notification
  * already exists, and lists the files that still need values when it does not.
- *
- * The cases are pending (test.fixme) until the backend change lands; they are enabled together
- * with the final end-to-end commit of the feature.
  */
 
 import { promises as fs } from 'fs';
@@ -18,12 +15,15 @@ import {
   listTarGzEntries,
   notificationYamlWithValues,
   profilesYaml,
+  slackNotificationYamlWithAlias,
   readTarGzEntry,
 } from '../utils/archive-helpers';
 
 const ADMIN = '/api/v1/admin/crowdsec';
 const NOTIFICATION = 'http_default';
 const NOTIFICATION_PATH = `notifications/${NOTIFICATION}.yaml`;
+const ALIASED = 'slack_alias';
+const ALIASED_PATH = `notifications/${ALIASED}.yaml`;
 
 const VALID_CONFIG = `api:
   server:
@@ -87,7 +87,7 @@ test.describe('CrowdSec export: blanked notification values', () => {
     await seedNotification(request, testInfo.outputPath('seed.tar.gz'), notificationYamlWithValues(NOTIFICATION));
   });
 
-  test.fixme('export blanks the address and header values of a notification file', async ({ request }) => {
+  test('export blanks the address and header values of a notification file', async ({ request }) => {
     const entry = await readTarGzEntry(await exportArchive(request), cfg(NOTIFICATION_PATH));
 
     expect(entry).not.toBeNull();
@@ -97,7 +97,7 @@ test.describe('CrowdSec export: blanked notification values', () => {
     }
   });
 
-  test.fixme('export keeps no planted value anywhere in the archive', async ({ request }) => {
+  test('export keeps no planted value anywhere in the archive', async ({ request }) => {
     const archive = await exportArchive(request);
 
     const names = await listTarGzEntries(archive);
@@ -110,7 +110,7 @@ test.describe('CrowdSec export: blanked notification values', () => {
     }
   });
 
-  test.fixme('export keeps the keys a profile and the plugin need readable', async ({ request }) => {
+  test('export keeps the keys a profile and the plugin need readable', async ({ request }) => {
     const entry = (await readTarGzEntry(await exportArchive(request), cfg(NOTIFICATION_PATH))) as string;
 
     expect(entry).toContain('type: http');
@@ -122,7 +122,7 @@ test.describe('CrowdSec export: blanked notification values', () => {
     expect(profiles).toContain(NOTIFICATION);
   });
 
-  test.fixme('export drops comments from a notification file', async ({ request }, testInfo) => {
+  test('export drops comments from a notification file', async ({ request }, testInfo) => {
     await seedNotification(
       request,
       testInfo.outputPath('seed-comments.tar.gz'),
@@ -134,7 +134,7 @@ test.describe('CrowdSec export: blanked notification values', () => {
     expect(entry).not.toContain('SECRETTOKEN-comment');
   });
 
-  test.fixme('export leaves out stray non-YAML files from the notifications folder', async ({ request }, testInfo) => {
+  test('export leaves out stray non-YAML files from the notifications folder', async ({ request }, testInfo) => {
     await seedNotification(request, testInfo.outputPath('seed-stray.tar.gz'), notificationYamlWithValues(NOTIFICATION), {
       [cfg(`${NOTIFICATION_PATH}.bak`)]: notificationYamlWithValues(NOTIFICATION),
     });
@@ -145,7 +145,7 @@ test.describe('CrowdSec export: blanked notification values', () => {
     expect(names).not.toContain(cfg(`${NOTIFICATION_PATH}.bak`));
   });
 
-  test.fixme('importing an export on the same system keeps the current values', async ({ request }, testInfo) => {
+  test('importing an export on the same system keeps the current values', async ({ request }, testInfo) => {
     const archivePath = testInfo.outputPath('roundtrip.tar.gz');
     await fs.writeFile(archivePath, await exportArchive(request));
 
@@ -160,26 +160,43 @@ test.describe('CrowdSec export: blanked notification values', () => {
     expect(content).not.toContain(BLANKED_VALUE);
   });
 
-  test.fixme('a file that uses aliases is listed as needing values and stays as exported', async ({ request }, testInfo) => {
-    await seedNotification(
-      request,
-      testInfo.outputPath('seed-aliased.tar.gz'),
-      notificationYamlWithValues(NOTIFICATION, { aliased: true }),
-    );
+  test('a file that uses aliases is listed as needing values and stays as exported', async ({ request }, testInfo) => {
+    await seedNotification(request, testInfo.outputPath('seed-aliased.tar.gz'), notificationYamlWithValues(NOTIFICATION), {
+      'config/profiles.yaml': profilesYaml([NOTIFICATION, ALIASED]),
+      [cfg(ALIASED_PATH)]: slackNotificationYamlWithAlias(ALIASED),
+    });
     const exported = await exportArchive(request);
-    const exportedEntry = (await readTarGzEntry(exported, cfg(NOTIFICATION_PATH))) as string;
+    const exportedEntry = (await readTarGzEntry(exported, cfg(ALIASED_PATH))) as string;
     const archivePath = testInfo.outputPath('roundtrip-aliased.tar.gz');
     await fs.writeFile(archivePath, exported);
 
     const response = await upload(request, archivePath, 'roundtrip-aliased.tar.gz');
 
     expect(response.status()).toBe(200);
-    expect((await response.json()).needs_values).toEqual([NOTIFICATION_PATH]);
+    expect((await response.json()).needs_values).toEqual([ALIASED_PATH]);
     // Excluded from the "values unchanged" comparison: the file comes back exactly as exported.
-    expect(await readConfigFile(request, cfg(NOTIFICATION_PATH))).toBe(exportedEntry);
+    expect(await readConfigFile(request, cfg(ALIASED_PATH))).toBe(exportedEntry);
   });
 
-  test.fixme('importing a blanked file where the notification does not exist keeps the placeholders and lists it', async ({
+  test('a file with an anchor that nothing refers to merges like any other file', async ({ request }, testInfo) => {
+    await seedNotification(
+      request,
+      testInfo.outputPath('seed-anchored.tar.gz'),
+      notificationYamlWithValues(NOTIFICATION, { anchored: true }),
+    );
+    const archivePath = testInfo.outputPath('roundtrip-anchored.tar.gz');
+    await fs.writeFile(archivePath, await exportArchive(request));
+
+    const response = await upload(request, archivePath, 'roundtrip-anchored.tar.gz');
+
+    expect(response.status()).toBe(200);
+    expect((await response.json()).needs_values).toBeUndefined();
+    const content = await readConfigFile(request, cfg(NOTIFICATION_PATH));
+    expect(content).toContain(PLANTED.authorization);
+    expect(content).not.toContain(BLANKED_VALUE);
+  });
+
+  test('importing a blanked file where the notification does not exist keeps the placeholders and lists it', async ({
     request,
   }, testInfo) => {
     const exported = await exportArchive(request);
@@ -188,6 +205,7 @@ test.describe('CrowdSec export: blanked notification values', () => {
       request,
       testInfo.outputPath('seed-other.tar.gz'),
       notificationYamlWithValues('http_other'),
+      { 'config/profiles.yaml': profilesYaml(['http_other']) },
     );
     const archivePath = testInfo.outputPath('fresh.tar.gz');
     await fs.writeFile(archivePath, exported);

@@ -342,8 +342,8 @@ export interface NotificationValues {
   authorization?: string;
   /** Value of a second custom header. */
   apiToken?: string;
-  /** Write the headers through a YAML anchor and alias (the file then uses an alias). */
-  aliased?: boolean;
+  /** Write the headers under a YAML anchor that nothing refers to (the export keeps no alias). */
+  anchored?: boolean;
   /** Add comments to the document. */
   comments?: boolean;
 }
@@ -357,7 +357,7 @@ export function notificationYamlWithValues(name: string, values: NotificationVal
   const url = values.url ?? 'https://notify.example.invalid/hook/SECRETTOKEN-url';
   const authorization = values.authorization ?? 'Bearer SECRETTOKEN-auth';
   const apiToken = values.apiToken ?? 'SECRETTOKEN-header';
-  const headers = values.aliased
+  const headers = values.anchored
     ? `headers: &shared
   Authorization: ${authorization}
   X-Api-Token: ${apiToken}
@@ -366,7 +366,6 @@ export function notificationYamlWithValues(name: string, values: NotificationVal
   Authorization: ${authorization}
   X-Api-Token: ${apiToken}
 `;
-  const aliasLine = values.aliased ? 'extra_headers: *shared\n' : '';
   const comments = values.comments ? '# SECRETTOKEN-comment\n' : '';
   return `${comments}type: http
 name: ${name}
@@ -374,5 +373,18 @@ log_level: info
 format: ""
 url: ${url}
 method: POST
-${headers}${aliasLine}`;
+${headers}`;
+}
+
+/**
+ * A Slack notification file that reuses a kept value (the channel) through an anchor and an alias,
+ * so an export of it still holds an alias.
+ */
+export function slackNotificationYamlWithAlias(name: string): string {
+  return `type: slack
+name: ${name}
+webhook: https://hooks.example.invalid/SECRETTOKEN-url
+channel: &c ops
+username: *c
+`;
 }

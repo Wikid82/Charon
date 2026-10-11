@@ -300,7 +300,7 @@ test.describe('Import CrowdSec Configuration', () => {
   });
 
   // =========================================================================
-  // Blanked notification values (pending until the feature is enabled)
+  // Blanked notification values
   // =========================================================================
   test.describe('Notification files that need values', () => {
     const NEEDS_VALUES_LINE = '[data-testid="import-needs-values"]';
@@ -330,7 +330,7 @@ test.describe('Import CrowdSec Configuration', () => {
       await page.getByTestId('import-btn').click();
     }
 
-    test.fixme('shows the files that need values inline in the import card', async ({ page, adminUser }) => {
+    test('shows the files that need values inline in the import card', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       await importWithResult(page, { needs_values: ['notifications/http_default.yaml'] });
@@ -340,7 +340,7 @@ test.describe('Import CrowdSec Configuration', () => {
       await expect(line).toContainText('notifications/http_default.yaml');
     });
 
-    test.fixme('adds no notification beyond the existing success toast', async ({ page, adminUser }) => {
+    test('adds no notification beyond the existing success toast', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       await importWithResult(page, { needs_values: ['notifications/http_default.yaml'] });
@@ -350,7 +350,7 @@ test.describe('Import CrowdSec Configuration', () => {
       await expect(page.getByRole('alert')).toHaveCount(0);
     });
 
-    test.fixme('shows no line when no file needs values', async ({ page, adminUser }) => {
+    test('shows no line when no file needs values', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
       await importWithResult(page, {});
@@ -359,7 +359,7 @@ test.describe('Import CrowdSec Configuration', () => {
       await expect(page.locator(NEEDS_VALUES_LINE)).toHaveCount(0);
     });
 
-    test.fixme('removes the line when another file is chosen', async ({ page, adminUser }) => {
+    test('removes the line when another file is chosen', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
       await importWithResult(page, { needs_values: ['notifications/http_default.yaml'] });
       await expect(page.locator(NEEDS_VALUES_LINE)).toBeVisible();
