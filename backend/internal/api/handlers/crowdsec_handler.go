@@ -2314,7 +2314,7 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
 		// Path traversal protection: ensure path is within DataDir
 		cleanConfigPath = filepath.Clean(configPath)
-		if !strings.HasPrefix(cleanConfigPath, filepath.Clean(h.DataDir)) {
+		if !pathWithin(filepath.Clean(h.DataDir), cleanConfigPath) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config path"})
 			return
 		}
@@ -2360,7 +2360,7 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 	cleanDataDir := filepath.Clean(h.DataDir)
 	// Path traversal protection
 	cleanAcquisPath := filepath.Clean(acquisPath)
-	if !strings.HasPrefix(cleanAcquisPath, cleanDataDir) {
+	if !pathWithin(cleanDataDir, cleanAcquisPath) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquis path"})
 		return
 	}

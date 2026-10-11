@@ -578,6 +578,12 @@ func TestPathWithin(t *testing.T) {
 	assert.False(t, pathWithin("/a/b", "/a"))
 	assert.False(t, pathWithin("/a/b", "/x/y"))
 	assert.False(t, pathWithin("/a/b", "relative"))
+	// A name that merely starts with two dots is inside the folder; real parent traversal is not.
+	assert.True(t, pathWithin("/a/b", "/a/b/..foo"))
+	assert.True(t, pathWithin("/a/b", "/a/b/..foo/bar"))
+	assert.False(t, pathWithin("/a/b", "/a/b/../c"))
+	assert.False(t, pathWithin("/a/b", "/a/b/../../etc/passwd"))
+	assert.False(t, pathWithin("/a/b", "/a/b_sibling/config.yaml"))
 }
 
 func TestCrowdsecFiles_Read_UnreadableFileIs500(t *testing.T) {
