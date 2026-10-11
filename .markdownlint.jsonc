@@ -2,10 +2,8 @@
 // `make lint-markdown`, and `npm run lint:md`.
 {
   "default": true,
-  // TODO: the rules set to false below fire on pre-existing prose and are off so a commit touching an
-  // older doc does not fail on lines it did not write. Re-enable each one (delete its entry, which
-  // restores the default) once the repo-wide markdown cleanup lands. MD013 and MD040 were the loudest.
-  "MD013": false, // line length (was: line_length 120, heading_line_length 120, code_block_line_length 150, tables false)
+  // Rules turned off below stay off on purpose; each entry says why.
+  "MD013": false, // line length: rewrapping prose is high churn for little value, and long table rows and URLs are unavoidable
   "MD036": false, // bold lead-in labels ("Who", "When", "Step 3: ...") are deliberate captions, not missing headings
   "MD025": {
     "front_matter_title": "" // docs-site pages carry a front-matter title and a matching "# Title"
