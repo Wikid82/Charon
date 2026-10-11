@@ -11,10 +11,12 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
-// ManifestEntryName is the archive entry reserved for the hub item manifest. InspectArchive does not
-// read it yet.
+// ManifestEntryName is the archive entry reserved for the hub item manifest. Exports generate it, an
+// import reads it through InspectArchive and never writes it to disk.
 const ManifestEntryName = "charon-hub-items.json"
 
 // Bounds on what InspectArchive keeps in memory. The archive is untrusted, and the import validator
@@ -31,6 +33,8 @@ type ArchiveInfo struct {
 	Files map[string][]byte
 	// Incomplete is set when a wanted entry exceeded a bound, so Files is not the whole picture.
 	Incomplete bool
+	// HubItems is the usable hub item manifest, nil when the archive has none or it was rejected.
+	HubItems *ArchiveHubItems
 }
 
 // ArchiveEntryRel normalizes a tar entry name exactly as the extractor places it below the destination
@@ -84,9 +88,11 @@ func InspectArchive(archivePath string) (ArchiveInfo, error) {
 
 	tr := tar.NewReader(gr)
 	var total int64
+	manifest := manifestSlot{}
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
+			info.HubItems = manifest.parse()
 			return info, nil
 		}
 		if err != nil {
@@ -96,6 +102,12 @@ func InspectArchive(archivePath string) (ArchiveInfo, error) {
 			continue
 		}
 		rel, ok := ArchiveEntryRel(hdr.Name)
+		if ok && IsManifestPath(rel) {
+			if readErr := manifest.read(tr, hdr.Size); readErr != nil {
+				return info, readErr
+			}
+			continue
+		}
 		if !ok || !inspectWanted(filepath.ToSlash(rel)) {
 			continue
 		}
@@ -115,4 +127,46 @@ func InspectArchive(archivePath string) (ArchiveInfo, error) {
 		total += int64(len(data))
 		info.Files[rel] = data
 	}
+}
+
+// manifestSlot collects the single manifest entry of an archive.
+type manifestSlot struct {
+	entries int
+	data    []byte
+	tooBig  bool
+}
+
+// read takes the body of a regular manifest entry; its size is bounded by maxManifestBytes.
+func (m *manifestSlot) read(r io.Reader, size int64) error {
+	m.entries++
+	if m.entries > 1 || size > maxManifestBytes {
+		m.tooBig = m.tooBig || size > maxManifestBytes
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(r, maxManifestBytes+1))
+	if err != nil {
+		return fmt.Errorf("read archive entry: %w", err)
+	}
+	m.data = data
+	return nil
+}
+
+// parse returns the usable manifest, or nil when there is none: a duplicate entry, an oversized body,
+// malformed JSON and an unknown version all ignore the whole manifest.
+func (m *manifestSlot) parse() *ArchiveHubItems {
+	switch {
+	case m.entries == 0:
+		return nil
+	case m.entries > 1:
+		logger.Log().Warn("hub item manifest ignored: the archive holds it more than once")
+		return nil
+	case m.tooBig || int64(len(m.data)) > maxManifestBytes:
+		logger.Log().Warn("hub item manifest ignored: it is too large")
+		return nil
+	}
+	items := parseHubManifest(m.data)
+	if items == nil {
+		logger.Log().Warn("hub item manifest ignored: it is not valid version 1 content")
+	}
+	return items
 }

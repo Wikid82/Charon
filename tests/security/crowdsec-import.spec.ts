@@ -26,6 +26,7 @@ import {
   listTarGzEntries,
   notificationYaml,
   profilesYaml,
+  readTarGzEntry,
 } from '../utils/archive-helpers';
 
 const ADMIN = '/api/v1/admin/crowdsec';
@@ -218,6 +219,8 @@ test.describe('CrowdSec Config Import Validation', () => {
       const baseNames = files.map((name) => name.split('/').pop()?.toLowerCase());
 
       expect(files).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+      // The hub item manifest is the one extra root entry, present exactly once.
+      expect(files.filter((name) => name === HUB_MANIFEST_NAME)).toEqual([HUB_MANIFEST_NAME]);
       expect(files.filter((name) => /^(\.\/)?(data|hub_cache)\//.test(name))).toEqual([]);
       expect(files.filter((name) => /\.db(-wal|-shm)?$/.test(name))).toEqual([]);
       expect(baseNames).not.toContain('bouncer_key');
@@ -235,6 +238,25 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       const entries = await listTarGzEntries(body);
       expect(entries).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+      expect(entries).toContain(HUB_MANIFEST_NAME);
+    });
+
+    test('export carries a sorted version 1 hub item manifest listing the installed collection', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+      expect(response.status()).toBe(200);
+
+      const manifestText = await readTarGzEntry(await response.body(), HUB_MANIFEST_NAME);
+      expect(manifestText).not.toBeNull();
+      const manifest = JSON.parse(manifestText as string) as { version: number; items: Array<{ type: string; name: string }> };
+
+      expect(manifest.version).toBe(1);
+      expect(Object.keys(manifest).sort()).toEqual(['items', 'version']);
+      expect(manifest.items).toEqual(expect.arrayContaining([{ type: 'collections', name: 'crowdsecurity/caddy' }]));
+      for (const item of manifest.items) {
+        expect(Object.keys(item).sort()).toEqual(['name', 'type']);
+      }
+      const keys = manifest.items.map((item) => `${item.type}\u0000${item.name}`);
+      expect(keys).toEqual([...keys].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))));
     });
 
     test('import accepts an export laid out as config/config.yaml', async ({ request }, testInfo) => {
@@ -268,7 +290,12 @@ test.describe('CrowdSec Config Import Validation', () => {
       });
 
       expect(response.status()).toBe(200);
-      expect((await response.json()).status).toBe('imported');
+      const body = await response.json();
+      expect(body.status).toBe('imported');
+      // Everything the export lists is already installed on the same host.
+      expect(body.hub_items.missing).toEqual([]);
+      expect(body.hub_items.skipped_invalid).toBe(0);
+      expect(body.hub_items.in_export).toBeGreaterThanOrEqual(1);
       expect(await readRegistration()).toBe(registeredBefore);
     });
 
@@ -521,8 +548,8 @@ test.describe('CrowdSec Config Import Validation', () => {
     });
   });
 
-  // Commits 2.4 (#1545): an export carries charon-hub-items.json; an import reports which of
-  // the listed items the target lacks. The container has no hub, so every listed item is missing.
+  // An export carries charon-hub-items.json (names and types only); an import reports which of
+  // the listed items the target lacks. The manifest is read, never written to disk.
   test.describe('Hub Item Manifest', () => {
     const ITEMS = [
       { type: 'collections', name: 'Azlaroc/sftpgo' },
@@ -538,7 +565,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       return upload(request, archive, 'with-manifest.tar.gz');
     }
 
-    test.fixme('commit 2.4: an archive without a manifest imports with no hub_items field', async ({ request }, testInfo) => {
+    test('an archive without a manifest imports with no hub_items field', async ({ request }, testInfo) => {
       const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('legacy.tar.gz'));
 
       const response = await upload(request, archive, 'legacy.tar.gz');
@@ -547,7 +574,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(await response.json()).not.toHaveProperty('hub_items');
     });
 
-    test.fixme('commit 2.4: reports the manifest items the target lacks as hub_items.missing', async ({ request }, testInfo) => {
+    test('reports the manifest items the target lacks as hub_items.missing', async ({ request }, testInfo) => {
       const response = await importWithManifest(request, hubManifest(ITEMS), testInfo.outputPath('manifest.tar.gz'));
 
       expect(response.status()).toBe(200);
@@ -556,7 +583,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(body.hub_items).toEqual({ in_export: 3, skipped_invalid: 0, missing: ITEMS });
     });
 
-    test.fixme('commit 2.4: never writes the manifest to disk or into a later export', async ({ request }, testInfo) => {
+    test('never writes the manifest to disk or lets it shape a later export', async ({ request }, testInfo) => {
       const response = await importWithManifest(request, hubManifest(ITEMS), testInfo.outputPath('manifest-disk.tar.gz'));
       expect(response.status()).toBe(200);
 
@@ -565,10 +592,12 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       const exported = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
       expect(exported.status()).toBe(200);
-      expect(await listTarGzEntries(await exported.body())).not.toContain(HUB_MANIFEST_NAME);
+      // The export regenerates its own manifest from the installed links, not from the upload.
+      const manifest = JSON.parse((await readTarGzEntry(await exported.body(), HUB_MANIFEST_NAME)) as string);
+      expect(manifest.items).not.toContainEqual(ITEMS[0]);
     });
 
-    test.fixme('commit 2.4: reads a manifest spelled ./charon-hub-items.json and still does not write it', async ({ request }, testInfo) => {
+    test('reads a manifest spelled ./charon-hub-items.json and still does not write it', async ({ request }, testInfo) => {
       const archive = await createRawTarGz(
         [
           { name: 'config.yaml', content: VALID_CONFIG },
@@ -585,7 +614,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(files).not.toContain(HUB_MANIFEST_NAME);
     });
 
-    test.fixme('commit 2.4: counts individually invalid manifest items in skipped_invalid without naming them', async ({ request }, testInfo) => {
+    test('counts individually invalid manifest items in skipped_invalid without naming them', async ({ request }, testInfo) => {
       const manifest = hubManifest([
         ITEMS[0],
         { type: 'collections', name: '--help' },
@@ -605,7 +634,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       { title: 'lists more than 1,000 items', manifest: hubManifest(Array.from({ length: 1001 }, (_, i) => ({ type: 'collections', name: `owner/item-${i}` }))) },
     ];
     for (const { title, manifest } of ignoredManifests) {
-      test.fixme(`commit 2.4: ignores a manifest that ${title} and still imports`, async ({ request }, testInfo) => {
+      test(`ignores a manifest that ${title} and still imports`, async ({ request }, testInfo) => {
         const response = await importWithManifest(request, manifest, testInfo.outputPath('ignored-manifest.tar.gz'));
 
         expect(response.status()).toBe(200);
@@ -615,7 +644,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       });
     }
 
-    test.fixme('commit 2.4: ignores the whole manifest when the archive carries it twice', async ({ request }, testInfo) => {
+    test('ignores the whole manifest when the archive carries it twice', async ({ request }, testInfo) => {
       const archive = await createRawTarGz(
         [
           { name: 'config.yaml', content: VALID_CONFIG },
@@ -631,7 +660,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(await response.json()).not.toHaveProperty('hub_items');
     });
 
-    test.fixme('commit 2.4: extracts a nested file with the manifest name as an ordinary file', async ({ request }, testInfo) => {
+    test('extracts a nested file with the manifest name as an ordinary file', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         { 'config.yaml': VALID_CONFIG, [`nested/${HUB_MANIFEST_NAME}`]: hubManifest(ITEMS) },
         testInfo.outputPath('nested-manifest.tar.gz'),
@@ -641,6 +670,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(200);
       expect(await response.json()).not.toHaveProperty('hub_items');
+      expect(await readConfigFile(request, `nested/${HUB_MANIFEST_NAME}`)).toBe(hubManifest(ITEMS));
     });
   });
 });

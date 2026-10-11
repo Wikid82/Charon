@@ -716,14 +716,17 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
-	// Refuse an archive CrowdSec could not start with before taking the lock or changing anything.
-	if err = crowdsec.VerifyImportNotifications(dst); err != nil {
+	// One pass over the upload feeds the pre-import checks and the hub item report. Refuse an archive
+	// CrowdSec could not start with before taking the lock or changing anything.
+	info, inspectErr := crowdsec.InspectArchive(dst)
+	if inspectErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(inspectErr.Error())).Warn("crowdsec import: archive inspection skipped")
+	} else if err = crowdsec.VerifyInspectedNotifications(info); err != nil {
 		var undefined *crowdsec.UndefinedNotificationsError
 		if errors.As(err, &undefined) {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "config validation failed: " + undefined.Error()})
 			return
 		}
-		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec import: notification reference check skipped")
 	}
 
 	// Serialize with preset applies and file writes, then snapshot (copy, never rename) the config.
@@ -774,7 +777,9 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)})
+	resp := gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)}
+	h.addHubItemsReport(resp, info.HubItems)
+	c.JSON(http.StatusOK, resp)
 }
 
 // pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
@@ -2481,6 +2486,9 @@ func (h *CrowdsecHandler) reloadAfterWhitelistChange(ctx context.Context, action
 // (after the clear step such a directory remains only because it holds kept entries). rel has passed
 // the containment check.
 func skipArchiveEntry(liveDirs map[string]struct{}, rel string, typeflag byte, keep func(rel string) bool) bool {
+	if crowdsec.IsManifestPath(rel) {
+		return true // generated hub item list, read by the pre-import inspection, never written to disk
+	}
 	if crowdsec.KeptOrBeneathKept(keep, rel) {
 		return true
 	}

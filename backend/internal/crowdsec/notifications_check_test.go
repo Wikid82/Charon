@@ -102,22 +102,24 @@ func TestCheckProfileNotificationsMatrix(t *testing.T) {
 	}
 }
 
-func TestVerifyImportNotifications(t *testing.T) {
+func verifyArchiveNotifications(t *testing.T, path string) error {
+	t.Helper()
+	info, err := InspectArchive(path)
+	require.NoError(t, err)
+	return VerifyInspectedNotifications(info)
+}
+
+func TestVerifyInspectedNotifications(t *testing.T) {
 	t.Parallel()
 	files := map[string]string{"config/config.yaml": plainConfig, "config/profiles.yaml": profilesNaming(list("b", "a"))}
-	err := VerifyImportNotifications(writeArchive(t, files))
+	err := verifyArchiveNotifications(t, writeArchive(t, files))
 	var undefined *UndefinedNotificationsError
 	require.ErrorAs(t, err, &undefined)
 	require.Equal(t, []string{"a", "b"}, undefined.Names)
 	require.EqualError(t, err, "profiles.yaml names notifications that have no matching file: a, b")
 
 	files["config/notifications/n.yaml"] = notif("a") + "---\n" + notif("b")
-	require.NoError(t, VerifyImportNotifications(writeArchive(t, files)))
-
-	missing := filepath.Join(t.TempDir(), "absent.tar.gz")
-	err = VerifyImportNotifications(missing)
-	require.Error(t, err)
-	require.NotErrorAs(t, err, &undefined)
+	require.NoError(t, verifyArchiveNotifications(t, writeArchive(t, files)))
 }
 
 func TestUndefinedNotificationsErrorMessage(t *testing.T) {

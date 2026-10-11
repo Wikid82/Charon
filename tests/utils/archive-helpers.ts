@@ -266,6 +266,29 @@ export async function listTarGzEntries(archive: Buffer): Promise<string[]> {
   return names;
 }
 
+/** Reads the text content of one entry (matched by exact path) from a tar.gz buffer, or null when absent. */
+export async function readTarGzEntry(archive: Buffer, entryName: string): Promise<string | null> {
+  let content: string | null = null;
+  await new Promise<void>((resolve, reject) => {
+    const parser = new tar.Parser();
+    parser.on('entry', (entry) => {
+      if (entry.path !== entryName) {
+        entry.resume();
+        return;
+      }
+      const chunks: Buffer[] = [];
+      entry.on('data', (chunk: Buffer) => chunks.push(chunk));
+      entry.on('end', () => {
+        content = Buffer.concat(chunks).toString('utf8');
+      });
+    });
+    parser.on('end', resolve);
+    parser.on('error', reject);
+    parser.end(archive);
+  });
+  return content;
+}
+
 /** Name of the hub item manifest that a CrowdSec export carries at the archive root. */
 export const HUB_MANIFEST_NAME = 'charon-hub-items.json';
 

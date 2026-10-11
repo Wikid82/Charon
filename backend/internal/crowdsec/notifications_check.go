@@ -52,15 +52,10 @@ func (e *UndefinedNotificationsError) Error() string {
 	return msg
 }
 
-// VerifyImportNotifications inspects the archive and returns an *UndefinedNotificationsError when its
+// VerifyInspectedNotifications returns an *UndefinedNotificationsError when the inspected archive's
 // profiles name notifications that none of its notification files defines. Cases the archive cannot
-// settle (see CheckProfileNotifications) pass. An error of any other type means the inspection itself
-// failed and says nothing about the archive's content.
-func VerifyImportNotifications(archivePath string) error {
-	info, err := InspectArchive(archivePath)
-	if err != nil {
-		return fmt.Errorf("inspect archive: %w", err)
-	}
+// settle (see CheckProfileNotifications) pass.
+func VerifyInspectedNotifications(info ArchiveInfo) error {
 	if missing := CheckProfileNotifications(info); len(missing) > 0 {
 		return &UndefinedNotificationsError{Names: missing}
 	}
