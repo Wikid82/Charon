@@ -110,7 +110,7 @@ describe('CrowdSecConfig coverage', () => {
     vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
-    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({
       presets: [
         {

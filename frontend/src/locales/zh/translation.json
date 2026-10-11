@@ -1159,6 +1159,31 @@
   "crowdsecConfig": {
     "exportSuccess": "CrowdSec 配置已导出",
     "exportFailed": "导出 CrowdSec 配置失败",
+    "hubItems": {
+      "title": "安装缺失的 Hub 项目",
+      "description": "此导出使用了本主机上未安装的 Hub 项目。它们将从 CrowdSec 官方 Hub 下载。",
+      "missingLabel": "缺失的项目",
+      "install": "安装缺失的 Hub 项目",
+      "installRemaining": "安装剩余项目",
+      "installing": "正在安装 Hub 项目，可能需要几分钟。",
+      "summary": "已安装 {{installed}} 个，已存在 {{alreadyInstalled}} 个，失败 {{failed}} 个。",
+      "remaining": "有 {{count}} 个项目在时间限制内未处理。",
+      "installedLabel": "已安装",
+      "alreadyInstalledLabel": "已存在",
+      "failedLabel": "未安装",
+      "skippedInvalid": "导出中有 {{count}} 个条目无法使用。",
+      "reasons": {
+        "not_found": "在 Hub 中未找到",
+        "install_failed": "安装失败",
+        "verify_failed": "已安装，但验证失败",
+        "not_attempted": "尚未尝试"
+      },
+      "errors": {
+        "hubUnreachable": "无法连接到 CrowdSec Hub，未安装任何内容。请检查网络连接后重试。",
+        "alreadyRunning": "已有恢复任务正在运行，请在其完成后重试。",
+        "generic": "无法安装 Hub 项目，请重试。"
+      }
+    },
     "importSuccess": "CrowdSec 配置已导入（已创建备份）",
     "importFailed": "导入失败",
     "exportPrompt": "为 CrowdSec 导出文件命名",

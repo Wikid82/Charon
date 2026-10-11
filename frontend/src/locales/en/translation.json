@@ -1479,6 +1479,31 @@
   "crowdsecConfig": {
     "exportSuccess": "CrowdSec configuration exported",
     "exportFailed": "Failed to export CrowdSec configuration",
+    "hubItems": {
+      "title": "Install missing hub items",
+      "description": "This export used hub items that are not installed on this host. They are downloaded from the official CrowdSec hub.",
+      "missingLabel": "Missing items",
+      "install": "Install missing hub items",
+      "installRemaining": "Install remaining",
+      "installing": "Installing hub items. This can take several minutes.",
+      "summary": "{{installed}} installed, {{alreadyInstalled}} already installed, {{failed}} failed.",
+      "remaining": "{{count}} items were not attempted before the time limit.",
+      "installedLabel": "Installed",
+      "alreadyInstalledLabel": "Already installed",
+      "failedLabel": "Not installed",
+      "skippedInvalid": "{{count}} entries in the export could not be used.",
+      "reasons": {
+        "not_found": "Not found in the hub",
+        "install_failed": "Installation failed",
+        "verify_failed": "Installed but failed verification",
+        "not_attempted": "Not attempted yet"
+      },
+      "errors": {
+        "hubUnreachable": "The CrowdSec hub could not be reached. Nothing was installed. Check the internet connection and try again.",
+        "alreadyRunning": "A restore is already running. Try again when it has finished.",
+        "generic": "The hub items could not be installed. Try again."
+      }
+    },
     "importSuccess": "CrowdSec config imported (backup created)",
     "importFailed": "Failed to import",
     "exportPrompt": "Name your CrowdSec export archive",

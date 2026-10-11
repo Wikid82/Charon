@@ -1160,6 +1160,31 @@
   "crowdsecConfig": {
     "exportSuccess": "Configuration CrowdSec exportée",
     "exportFailed": "Échec de l'exportation de la configuration CrowdSec",
+    "hubItems": {
+      "title": "Installer les éléments du hub manquants",
+      "description": "Cet export utilisait des éléments du hub qui ne sont pas installés sur cet hôte. Ils sont téléchargés depuis le hub officiel de CrowdSec.",
+      "missingLabel": "Éléments manquants",
+      "install": "Installer les éléments du hub manquants",
+      "installRemaining": "Installer les restants",
+      "installing": "Installation des éléments du hub. Cela peut prendre plusieurs minutes.",
+      "summary": "{{installed}} installés, {{alreadyInstalled}} déjà installés, {{failed}} en échec.",
+      "remaining": "{{count}} éléments n'ont pas été traités avant la limite de temps.",
+      "installedLabel": "Installés",
+      "alreadyInstalledLabel": "Déjà installés",
+      "failedLabel": "Non installés",
+      "skippedInvalid": "{{count}} entrées de l'export n'ont pas pu être utilisées.",
+      "reasons": {
+        "not_found": "Introuvable dans le hub",
+        "install_failed": "Échec de l'installation",
+        "verify_failed": "Installé, mais la vérification a échoué",
+        "not_attempted": "Pas encore tenté"
+      },
+      "errors": {
+        "hubUnreachable": "Le hub CrowdSec est injoignable. Rien n'a été installé. Vérifiez la connexion Internet et réessayez.",
+        "alreadyRunning": "Une restauration est déjà en cours. Réessayez lorsqu'elle sera terminée.",
+        "generic": "Les éléments du hub n'ont pas pu être installés. Réessayez."
+      }
+    },
     "importSuccess": "Configuration CrowdSec importée (sauvegarde créée)",
     "importFailed": "Échec de l'importation",
     "exportPrompt": "Nom de l'archive d'exportation CrowdSec",

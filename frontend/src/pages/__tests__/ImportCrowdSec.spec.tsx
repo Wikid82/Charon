@@ -31,7 +31,7 @@ describe('ImportCrowdSec page', () => {
   it('creates a backup then imports crowdsec', async () => {
     const file = new File(['fake'], 'crowdsec.tar.gz', { type: 'application/gzip' })
     vi.mocked(backups.createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
-    vi.mocked(api.importCrowdsecConfig).mockResolvedValue({ success: true })
+    vi.mocked(api.importCrowdsecConfig).mockResolvedValue({ status: 'imported' })
 
     renderWithProviders(<ImportCrowdSec />)
     const fileInput = document.querySelector('input[type="file"]')

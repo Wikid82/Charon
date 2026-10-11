@@ -117,7 +117,7 @@ describe('CrowdSecConfig – whitelist tab', () => {
     vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
-    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(crowdsecApi.listWhitelists).mockResolvedValue([])
     vi.mocked(crowdsecApi.addWhitelist).mockResolvedValue({
       uuid: 'uuid-new',
