@@ -250,7 +250,7 @@ func TestDataMutationsSerializeOnHandlerLock(t *testing.T) {
 	}
 
 	for name, do := range requests {
-		c.handler.dataMu.Lock()
+		holdLock(&c.handler.dataMu)
 		done := make(chan *httptest.ResponseRecorder, 1)
 		go func() { done <- do() }()
 
@@ -277,7 +277,7 @@ func TestImportConfigWaitsForHandlerLock(t *testing.T) {
 	seedEngineState(t, dir)
 	h, r := newImportRouter(t, dir)
 
-	h.dataMu.Lock()
+	holdLock(&h.dataMu)
 	done := make(chan int, 1)
 	go func() {
 		w := httptest.NewRecorder()

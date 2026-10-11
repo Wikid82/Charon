@@ -374,7 +374,9 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		return
 	}
 
-	h.dataMu.Lock()
+	if !h.lockData(c, "file write") {
+		return
+	}
 	defer h.dataMu.Unlock()
 
 	target, ferr := resolveWritable(h.DataDir, rel)

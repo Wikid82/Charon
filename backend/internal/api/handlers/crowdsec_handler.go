@@ -85,7 +85,8 @@ type CrowdsecHandler struct {
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
 	// and the export build; an export holds it only while writing its temporary file, never while sending.
 	// Lock order is always dataMu first, then HubService.mu.
-	dataMu sync.Mutex
+	// The wait is abandoned when the request ends (see lockData).
+	dataMu ctxMutex
 
 	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
 	restore hubRestoreState
@@ -759,7 +760,9 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 
 	// Serialize with preset applies and file writes, then snapshot (copy, never rename) the config.
-	h.dataMu.Lock()
+	if !h.lockData(c, "import") {
+		return
+	}
 	defer h.dataMu.Unlock()
 
 	// A nested installation reads config/config.yaml: refuse an archive that cannot provide it before
@@ -1008,9 +1011,23 @@ func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (int64,
 	return info.Size(), nil
 }
 
+// lockData takes dataMu, giving up when the request ends. On false the lock is NOT held and the request
+// is aborted without a body (the client is gone), so the caller must return before registering its
+// deferred Unlock.
+func (h *CrowdsecHandler) lockData(c *gin.Context, op string) bool {
+	if err := h.dataMu.LockContext(c.Request.Context()); err != nil {
+		logger.Log().WithField("operation", op).WithField("error", sanitizeForLog(err.Error())).Debug("crowdsec: request ended while waiting for the data lock")
+		c.Abort()
+		return false
+	}
+	return true
+}
+
 // writeExportLocked serializes the archive build with every other writer of DataDir.
 func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (int64, error) {
-	h.dataMu.Lock()
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return 0, fmt.Errorf("wait for the data lock: %w", err)
+	}
 	defer h.dataMu.Unlock()
 	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
 }

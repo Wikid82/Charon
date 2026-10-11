@@ -539,7 +539,7 @@ func TestRestoreHubItemsHungInstallFreesTheLockWithinTheItemTimeout(t *testing.T
 	acquired := make(chan struct{})
 	start := time.Now()
 	go func() {
-		hh.h.dataMu.Lock()
+		holdLock(&hh.h.dataMu)
 		close(acquired)
 		hh.h.dataMu.Unlock()
 	}()
@@ -614,7 +614,7 @@ func TestRestoreHubItemsReleasesTheLockBetweenItems(t *testing.T) {
 	var startedAtAcquire atomic.Int64
 	acquired := make(chan struct{})
 	go func() { // another writer queues behind the first item
-		hh.h.dataMu.Lock()
+		holdLock(&hh.h.dataMu)
 		startedAtAcquire.Store(int64(len(hh.exec.installCalls())))
 		close(acquired)
 		hh.h.dataMu.Unlock()

@@ -218,7 +218,9 @@ func parseHubRestoreRequest(c *gin.Context) (items []crowdsec.HubItem, status in
 
 // hubUpdate refreshes the hub index in its own locked section.
 func (h *CrowdsecHandler) hubUpdate(ctx context.Context, limit time.Duration) error {
-	h.dataMu.Lock()
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return fmt.Errorf("wait for the data lock: %w", err)
+	}
 	defer h.dataMu.Unlock()
 	uctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
@@ -230,8 +232,10 @@ func (h *CrowdsecHandler) hubUpdate(ctx context.Context, limit time.Duration) er
 
 // installedHubSet reads the installed items under dataMu, so it never observes a tree an import is
 // clearing.
-func (h *CrowdsecHandler) installedHubSet() (map[crowdsec.HubItem]struct{}, error) {
-	h.dataMu.Lock()
+func (h *CrowdsecHandler) installedHubSet(ctx context.Context) (map[crowdsec.HubItem]struct{}, error) {
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return nil, fmt.Errorf("wait for the data lock: %w", err)
+	}
 	defer h.dataMu.Unlock()
 	installed, err := crowdsec.InstalledHubItems(h.DataDir)
 	if err != nil {
@@ -245,13 +249,21 @@ func (h *CrowdsecHandler) installedHubSet() (map[crowdsec.HubItem]struct{}, erro
 }
 
 // restorePass installs the items of one pass that are not installed, recording every outcome in res.
-// It returns false, having recorded nothing, when the installed items cannot be read.
+// An end of ctx marks the items not attempted. It returns false, having recorded nothing, when the
+// installed items cannot be read.
 func (h *CrowdsecHandler) restorePass(ctx context.Context, itemLimit time.Duration, items []crowdsec.HubItem, res *hubRestoreResponse) bool {
 	if len(items) == 0 {
 		return true
 	}
-	installed, err := h.installedHubSet()
+	installed, err := h.installedHubSet(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			// The wait for the lock ran into the overall deadline or the client left.
+			for _, it := range items {
+				res.Failed = append(res.Failed, hubRestoreFailure{it.Type, it.Name, hubReasonNotAttempted})
+			}
+			return true
+		}
 		logger.Log().WithField("error", hubLogDetail(err.Error())).Warn("crowdsec hub items restore: cannot read installed items")
 		return false
 	}
@@ -275,7 +287,9 @@ func (h *CrowdsecHandler) installHubItem(ctx context.Context, itemLimit time.Dur
 	if ctx.Err() != nil {
 		return hubReasonNotAttempted
 	}
-	h.dataMu.Lock()
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return hubReasonNotAttempted
+	}
 	defer h.dataMu.Unlock()
 
 	// The lock wait may have used up the budget or the client may have left meanwhile.
