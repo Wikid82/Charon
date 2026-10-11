@@ -9,6 +9,9 @@
  * - Rollback: a rejected import leaves the previous configuration untouched
  *
  * The result of an import is read back through the configuration file API.
+ *
+ * Every archive uses the real layout: a CrowdSec installation reads its configuration from the
+ * config/ folder, and so does every export. cfg() builds the path the file API lists and reads.
  */
 
 import { promises as fs } from 'fs';
@@ -55,6 +58,25 @@ filenames:
 labels:
   type: syslog
 `;
+/** The baseline carries the three companion files so every test starts from the same file set. */
+const BASELINE_PROFILES = `name: default_ip_remediation
+filters:
+  - Alert.Remediation == true && Alert.GetScope() == "Ip"
+decisions:
+  - type: ban
+    duration: 4h
+notifications: []
+on_success: break
+`;
+const BASELINE_SIMULATION = `simulation: false
+# baseline-simulation
+`;
+/** The refusal message for an archive that keeps its configuration at the top level. */
+const FLAT_ARCHIVE_MESSAGE =
+  'the archive keeps its configuration at the top level, but this CrowdSec installation reads it from the config folder; export a configuration from this page, or put the files in a config/ folder inside the archive';
+
+/** The path of a configuration file as the file API lists and reads it. */
+const cfg = (name: string) => `config/${name}`;
 
 /** Uploads an archive file under the given upload name. */
 async function upload(request: APIRequestContext, archivePath: string, uploadName: string, mimeType = 'application/gzip') {
@@ -73,7 +95,12 @@ async function readConfigFile(request: APIRequestContext, name: string) {
 test.describe('CrowdSec Config Import Validation', () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const baseline = await createTarGz(
-      { 'config.yaml': BASELINE_CONFIG, 'acquis.yaml': BASELINE_ACQUIS },
+      {
+        'config/config.yaml': BASELINE_CONFIG,
+        'config/acquis.yaml': BASELINE_ACQUIS,
+        'config/profiles.yaml': BASELINE_PROFILES,
+        'config/simulation.yaml': BASELINE_SIMULATION,
+      },
       testInfo.outputPath('baseline.tar.gz'),
     );
     const response = await upload(request, baseline, 'baseline.tar.gz');
@@ -82,7 +109,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
   test.describe('Accepted Archives', () => {
     test('should import a valid archive and replace the configuration', async ({ request }, testInfo) => {
-      const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('valid.tar.gz'));
+      const archive = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('valid.tar.gz'));
 
       const response = await upload(request, archive, 'valid.tar.gz');
 
@@ -91,12 +118,12 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(body.status).toBe('imported');
       // The backup is reported by name only, never by an absolute path.
       expect(body.backup).toMatch(/^[^/\\]+$/);
-      expect(await readConfigFile(request, 'config.yaml')).toBe(VALID_CONFIG);
+      expect(await readConfigFile(request, cfg('config.yaml'))).toBe(VALID_CONFIG);
     });
 
     test('should import optional files together with config.yaml', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': VALID_CONFIG, 'acquis.yaml': ACQUIS },
+        { 'config/config.yaml': VALID_CONFIG, 'config/acquis.yaml': ACQUIS },
         testInfo.outputPath('with-optional-files.tar.gz'),
       );
 
@@ -104,8 +131,8 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(200);
       expect((await response.json()).status).toBe('imported');
-      expect(await readConfigFile(request, 'config.yaml')).toBe(VALID_CONFIG);
-      expect(await readConfigFile(request, 'acquis.yaml')).toBe(ACQUIS);
+      expect(await readConfigFile(request, cfg('config.yaml'))).toBe(VALID_CONFIG);
+      expect(await readConfigFile(request, cfg('acquis.yaml'))).toBe(ACQUIS);
     });
   });
 
@@ -119,7 +146,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
     test('should reject an archive missing config.yaml', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'other-file.txt': 'not a config', 'acquis.yaml': ACQUIS },
+        { 'config/other-file.txt': 'not a config', 'config/acquis.yaml': ACQUIS },
         testInfo.outputPath('no-config.tar.gz'),
       );
 
@@ -166,7 +193,7 @@ test.describe('CrowdSec Config Import Validation', () => {
     test('should refuse an entry that escapes the configuration directory and keep the previous configuration', async ({ request }, testInfo) => {
       const archive = await createRawTarGz(
         [
-          { name: 'config.yaml', content: VALID_CONFIG },
+          { name: 'config/config.yaml', content: VALID_CONFIG },
           { name: '../../etc/passwd', content: 'malicious content' },
         ],
         testInfo.outputPath('path-traversal.tar.gz'),
@@ -176,27 +203,27 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(500);
       expect((await response.json()).error).toBe('extraction failed');
-      expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
+      expect(await readConfigFile(request, cfg('config.yaml'))).toBe(BASELINE_CONFIG);
     });
   });
 
   test.describe('Rollback', () => {
     test('should restore the previous configuration when the new config.yaml is rejected', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': 'other_config:\n  field: value\n', 'acquis.yaml': ACQUIS },
+        { 'config/config.yaml': 'other_config:\n  field: value\n', 'config/acquis.yaml': ACQUIS },
         testInfo.outputPath('bad-config.tar.gz'),
       );
 
       const response = await upload(request, archive, 'bad-config.tar.gz');
 
       expect(response.status()).toBe(422);
-      expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
-      expect(await readConfigFile(request, 'acquis.yaml')).toBe(BASELINE_ACQUIS);
+      expect(await readConfigFile(request, cfg('config.yaml'))).toBe(BASELINE_CONFIG);
+      expect(await readConfigFile(request, cfg('acquis.yaml'))).toBe(BASELINE_ACQUIS);
     });
 
     test('should not leave files of the rejected archive behind', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': 'other_config:\n  field: value\n', 'extra-from-bad-import.yaml': 'leftover: true\n' },
+        { 'config/config.yaml': 'other_config:\n  field: value\n', 'config/extra-from-bad-import.yaml': 'leftover: true\n' },
         testInfo.outputPath('bad-extra.tar.gz'),
       );
 
@@ -204,8 +231,8 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(response.status()).toBe(422);
 
       const files = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
-      expect(files).toEqual(expect.arrayContaining(['config.yaml', 'acquis.yaml']));
-      expect(files).not.toContain('extra-from-bad-import.yaml');
+      expect(files).toEqual(expect.arrayContaining([cfg('config.yaml'), cfg('acquis.yaml')]));
+      expect(files).not.toContain(cfg('extra-from-bad-import.yaml'));
     });
   });
 
@@ -218,7 +245,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       const files = entries.filter((name) => !name.endsWith('/'));
       const baseNames = files.map((name) => name.split('/').pop()?.toLowerCase());
 
-      expect(files).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+      expect(files).toEqual(expect.arrayContaining(['config/config.yaml']));
       // The hub item manifest is the one extra root entry, present exactly once.
       expect(files.filter((name) => name === HUB_MANIFEST_NAME)).toEqual([HUB_MANIFEST_NAME]);
       expect(files.filter((name) => /^(\.\/)?(data|hub_cache)\//.test(name))).toEqual([]);
@@ -237,7 +264,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(Number(response.headers()['content-length'])).toBe(body.length);
 
       const entries = await listTarGzEntries(body);
-      expect(entries).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+      expect(entries).toEqual(expect.arrayContaining(['config/config.yaml']));
       expect(entries).toContain(HUB_MANIFEST_NAME);
     });
 
@@ -301,7 +328,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
     test('import rejects a config.yaml that is not valid YAML even when it contains api: text', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': 'api:\n  server: [unclosed\n  bad indentation\n' },
+        { 'config/config.yaml': 'api:\n  server: [unclosed\n  bad indentation\n' },
         testInfo.outputPath('invalid-yaml-api.tar.gz'),
       );
 
@@ -313,7 +340,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
     test('import rejects a config.yaml with no CrowdSec sections', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': 'other_config:\n  field: value\n' },
+        { 'config/config.yaml': 'other_config:\n  field: value\n' },
         testInfo.outputPath('no-sections.tar.gz'),
       );
 
@@ -345,13 +372,13 @@ test.describe('CrowdSec Config Import Validation', () => {
     ];
     for (const { title, content, message } of configRejections) {
       test(`import rejects a config.yaml that ${title}`, async ({ request }, testInfo) => {
-        const archive = await createTarGz({ 'config.yaml': content }, testInfo.outputPath('rejected-config.tar.gz'));
+        const archive = await createTarGz({ 'config/config.yaml': content }, testInfo.outputPath('rejected-config.tar.gz'));
 
         const response = await upload(request, archive, 'rejected-config.tar.gz');
 
         expect(response.status()).toBe(422);
         expect((await response.json()).error).toBe(message);
-        expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
+        expect(await readConfigFile(request, cfg('config.yaml'))).toBe(BASELINE_CONFIG);
       });
     }
 
@@ -375,6 +402,80 @@ test.describe('CrowdSec Config Import Validation', () => {
     });
   });
 
+  // Pending until the layout check ships: a CrowdSec installation reads config/config.yaml, so an
+  // archive with its configuration at the top level must be refused instead of replacing it.
+  test.describe('Archive Layout', () => {
+    test.fixme('refuses an archive that keeps config.yaml at the top level and changes nothing', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': VALID_CONFIG, 'acquis.yaml': ACQUIS },
+        testInfo.outputPath('flat-layout.tar.gz'),
+      );
+      const filesBefore = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
+
+      const response = await upload(request, archive, 'flat-layout.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(FLAT_ARCHIVE_MESSAGE);
+      expect(await readConfigFile(request, cfg('config.yaml'))).toBe(BASELINE_CONFIG);
+      expect(await readConfigFile(request, cfg('acquis.yaml'))).toBe(BASELINE_ACQUIS);
+      expect((await (await request.get(`${ADMIN}/files`)).json()).files as string[]).toEqual(filesBefore);
+    });
+  });
+
+  // Pending until imports keep the current companion files: an archive that omits profiles.yaml,
+  // simulation.yaml or acquis.yaml must not leave CrowdSec without them.
+  test.describe('Kept Files', () => {
+    test.fixme('keeps the current files an archive omits and reports them sorted', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config/config.yaml': VALID_CONFIG, 'config/profiles.yaml': BASELINE_PROFILES.replace('default_ip_remediation', 'archive_profile') },
+        testInfo.outputPath('keeps-companions.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'keeps-companions.tar.gz');
+
+      expect(response.status()).toBe(200);
+      // The archive's own profiles.yaml wins and is not listed; patterns/ does not exist in the E2E tree.
+      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'simulation.yaml']);
+      expect(await readConfigFile(request, cfg('profiles.yaml'))).toContain('archive_profile');
+      expect(await readConfigFile(request, cfg('acquis.yaml'))).toBe(BASELINE_ACQUIS);
+      expect(await readConfigFile(request, cfg('simulation.yaml'))).toBe(BASELINE_SIMULATION);
+    });
+
+    test.fixme('keeps the current profiles.yaml when the archive has none', async ({ request }, testInfo) => {
+      const archive = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('no-profiles-kept.tar.gz'));
+
+      const response = await upload(request, archive, 'no-profiles-kept.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'profiles.yaml', 'simulation.yaml']);
+      expect(await readConfigFile(request, cfg('profiles.yaml'))).toBe(BASELINE_PROFILES);
+    });
+
+    test.fixme('gives back the notification file a kept profiles.yaml names', async ({ request }, testInfo) => {
+      // Step 1: make the running system's profile name a notification, with the file that defines it.
+      const withProfile = await createTarGz(
+        {
+          'config/config.yaml': VALID_CONFIG,
+          'config/profiles.yaml': profilesYaml(['x']),
+          'config/notifications/x.yaml': notificationYaml('x'),
+        },
+        testInfo.outputPath('profile-with-notification.tar.gz'),
+      );
+      expect((await upload(request, withProfile, 'profile-with-notification.tar.gz')).status()).toBe(200);
+
+      // Step 2: a config-only archive keeps that profile, so the notification file it needs comes back.
+      const configOnly = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('config-only.tar.gz'));
+      const response = await upload(request, configOnly, 'config-only.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).kept_files).toEqual(
+        expect.arrayContaining(['profiles.yaml', 'notifications/x.yaml']),
+      );
+      expect(await readConfigFile(request, cfg('profiles.yaml'))).toBe(profilesYaml(['x']));
+      expect(await readConfigFile(request, cfg('notifications/x.yaml'))).toBe(notificationYaml('x'));
+    });
+  });
+
   // An import whose profiles.yaml names a notification that no file defines would leave CrowdSec
   // unable to start, so it is refused before anything changes.
   test.describe('Notification References', () => {
@@ -383,7 +484,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
     test('refuses a profiles.yaml naming a notification no file defines and changes nothing', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['x']) },
+        { 'config/config.yaml': VALID_CONFIG, 'config/profiles.yaml': profilesYaml(['x']) },
         testInfo.outputPath('missing-notification.tar.gz'),
       );
       const filesBefore = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
@@ -392,14 +493,14 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(422);
       expect((await response.json()).error).toBe(missingMessage('x'));
-      expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
-      expect(await readConfigFile(request, 'acquis.yaml')).toBe(BASELINE_ACQUIS);
+      expect(await readConfigFile(request, cfg('config.yaml'))).toBe(BASELINE_CONFIG);
+      expect(await readConfigFile(request, cfg('acquis.yaml'))).toBe(BASELINE_ACQUIS);
       expect((await (await request.get(`${ADMIN}/files`)).json()).files as string[]).toEqual(filesBefore);
     });
 
     test('lists every missing notification name in sorted order', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['zeta', 'alpha']) },
+        { 'config/config.yaml': VALID_CONFIG, 'config/profiles.yaml': profilesYaml(['zeta', 'alpha']) },
         testInfo.outputPath('two-missing.tar.gz'),
       );
 
@@ -412,7 +513,7 @@ test.describe('CrowdSec Config Import Validation', () => {
     test('lists at most ten missing names and counts the rest', async ({ request }, testInfo) => {
       const names = Array.from({ length: 12 }, (_, index) => `n${String(index + 1).padStart(2, '0')}`);
       const archive = await createTarGz(
-        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml([...names].reverse()) },
+        { 'config/config.yaml': VALID_CONFIG, 'config/profiles.yaml': profilesYaml([...names].reverse()) },
         testInfo.outputPath('many-missing.tar.gz'),
       );
 
@@ -425,9 +526,9 @@ test.describe('CrowdSec Config Import Validation', () => {
     test('accepts a profiles.yaml whose notification is defined by a notifications file', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         {
-          'config.yaml': VALID_CONFIG,
-          'profiles.yaml': profilesYaml(['x']),
-          'notifications/x.yaml': notificationYaml('x'),
+          'config/config.yaml': VALID_CONFIG,
+          'config/profiles.yaml': profilesYaml(['x']),
+          'config/notifications/x.yaml': notificationYaml('x'),
         },
         testInfo.outputPath('defined-notification.tar.gz'),
       );
@@ -436,15 +537,15 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(200);
       expect((await response.json()).status).toBe('imported');
-      expect(await readConfigFile(request, 'notifications/x.yaml')).toBe(notificationYaml('x'));
+      expect(await readConfigFile(request, cfg('notifications/x.yaml'))).toBe(notificationYaml('x'));
     });
 
     test('accepts a notification defined in a .yml file', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         {
-          'config.yaml': VALID_CONFIG,
-          'profiles.yaml': profilesYaml(['x']),
-          'notifications/x.yml': notificationYaml('x'),
+          'config/config.yaml': VALID_CONFIG,
+          'config/profiles.yaml': profilesYaml(['x']),
+          'config/notifications/x.yml': notificationYaml('x'),
         },
         testInfo.outputPath('yml-notification.tar.gz'),
       );
@@ -458,9 +559,9 @@ test.describe('CrowdSec Config Import Validation', () => {
     test('matches by the name field, so a multi-document file defines every name in it', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         {
-          'config.yaml': VALID_CONFIG,
-          'profiles.yaml': profilesYaml(['first', 'second']),
-          'notifications/both.yaml': notificationYaml('first', 'second'),
+          'config/config.yaml': VALID_CONFIG,
+          'config/profiles.yaml': profilesYaml(['first', 'second']),
+          'config/notifications/both.yaml': notificationYaml('first', 'second'),
         },
         testInfo.outputPath('multi-document.tar.gz'),
       );
@@ -474,9 +575,9 @@ test.describe('CrowdSec Config Import Validation', () => {
     test('refuses a name that only the file name matches', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         {
-          'config.yaml': VALID_CONFIG,
-          'profiles.yaml': profilesYaml(['a']),
-          'notifications/a.yaml': notificationYaml('b'),
+          'config/config.yaml': VALID_CONFIG,
+          'config/profiles.yaml': profilesYaml(['a']),
+          'config/notifications/a.yaml': notificationYaml('b'),
         },
         testInfo.outputPath('file-name-match.tar.gz'),
       );
@@ -490,9 +591,9 @@ test.describe('CrowdSec Config Import Validation', () => {
     test('accepts a name defined under a different file name', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         {
-          'config.yaml': VALID_CONFIG,
-          'profiles.yaml': profilesYaml(['b']),
-          'notifications/a.yaml': notificationYaml('b'),
+          'config/config.yaml': VALID_CONFIG,
+          'config/profiles.yaml': profilesYaml(['b']),
+          'config/notifications/a.yaml': notificationYaml('b'),
         },
         testInfo.outputPath('name-field-match.tar.gz'),
       );
@@ -505,15 +606,15 @@ test.describe('CrowdSec Config Import Validation', () => {
 
     // CrowdSec only loads lowercase .yaml/.yml files directly inside notifications/.
     const ignoredDefinitions = [
-      { title: 'a subdirectory', path: 'notifications/sub/s.yaml' },
-      { title: 'a .txt file', path: 'notifications/s.txt' },
-      { title: 'a .bak file', path: 'notifications/s.bak' },
-      { title: 'an uppercase .YAML file', path: 'notifications/s.YAML' },
+      { title: 'a subdirectory', path: 'config/notifications/sub/s.yaml' },
+      { title: 'a .txt file', path: 'config/notifications/s.txt' },
+      { title: 'a .bak file', path: 'config/notifications/s.bak' },
+      { title: 'an uppercase .YAML file', path: 'config/notifications/s.YAML' },
     ];
     for (const { title, path } of ignoredDefinitions) {
       test(`refuses a notification defined only in ${title}`, async ({ request }, testInfo) => {
         const archive = await createTarGz(
-          { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['s']), [path]: notificationYaml('s') },
+          { 'config/config.yaml': VALID_CONFIG, 'config/profiles.yaml': profilesYaml(['s']), [path]: notificationYaml('s') },
           testInfo.outputPath('ignored-definition.tar.gz'),
         );
         const filesBefore = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
@@ -522,14 +623,14 @@ test.describe('CrowdSec Config Import Validation', () => {
 
         expect(response.status()).toBe(422);
         expect((await response.json()).error).toBe(missingMessage('s'));
-        expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
+        expect(await readConfigFile(request, cfg('config.yaml'))).toBe(BASELINE_CONFIG);
         expect((await (await request.get(`${ADMIN}/files`)).json()).files as string[]).toEqual(filesBefore);
       });
     }
 
     test('accepts an archive whose profiles.yaml names nothing', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': 'name: default_ip_remediation\nnotifications: []\non_success: break\n' },
+        { 'config/config.yaml': VALID_CONFIG, 'config/profiles.yaml': 'name: default_ip_remediation\nnotifications: []\non_success: break\n' },
         testInfo.outputPath('no-notifications.tar.gz'),
       );
 
@@ -539,7 +640,7 @@ test.describe('CrowdSec Config Import Validation', () => {
     });
 
     test('accepts an archive with no profiles.yaml', async ({ request }, testInfo) => {
-      const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('no-profiles.tar.gz'));
+      const archive = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('no-profiles.tar.gz'));
 
       const response = await upload(request, archive, 'no-profiles.tar.gz');
 
@@ -559,14 +660,14 @@ test.describe('CrowdSec Config Import Validation', () => {
 
     async function importWithManifest(request: APIRequestContext, manifest: string, outputPath: string) {
       const archive = await createTarGz(
-        { 'config.yaml': VALID_CONFIG, [HUB_MANIFEST_NAME]: manifest },
+        { 'config/config.yaml': VALID_CONFIG, [HUB_MANIFEST_NAME]: manifest },
         outputPath,
       );
       return upload(request, archive, 'with-manifest.tar.gz');
     }
 
     test('an archive without a manifest imports with no hub_items field', async ({ request }, testInfo) => {
-      const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('legacy.tar.gz'));
+      const archive = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('legacy.tar.gz'));
 
       const response = await upload(request, archive, 'legacy.tar.gz');
 
@@ -600,7 +701,7 @@ test.describe('CrowdSec Config Import Validation', () => {
     test('reads a manifest spelled ./charon-hub-items.json and still does not write it', async ({ request }, testInfo) => {
       const archive = await createRawTarGz(
         [
-          { name: 'config.yaml', content: VALID_CONFIG },
+          { name: 'config/config.yaml', content: VALID_CONFIG },
           { name: `./${HUB_MANIFEST_NAME}`, content: hubManifest(ITEMS) },
         ],
         testInfo.outputPath('dot-slash-manifest.tar.gz'),
@@ -647,7 +748,7 @@ test.describe('CrowdSec Config Import Validation', () => {
     test('ignores the whole manifest when the archive carries it twice', async ({ request }, testInfo) => {
       const archive = await createRawTarGz(
         [
-          { name: 'config.yaml', content: VALID_CONFIG },
+          { name: 'config/config.yaml', content: VALID_CONFIG },
           { name: HUB_MANIFEST_NAME, content: hubManifest(ITEMS) },
           { name: HUB_MANIFEST_NAME, content: hubManifest(ITEMS.slice(0, 1)) },
         ],
@@ -662,7 +763,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
     test('extracts a nested file with the manifest name as an ordinary file', async ({ request }, testInfo) => {
       const archive = await createTarGz(
-        { 'config.yaml': VALID_CONFIG, [`nested/${HUB_MANIFEST_NAME}`]: hubManifest(ITEMS) },
+        { 'config/config.yaml': VALID_CONFIG, [`config/nested/${HUB_MANIFEST_NAME}`]: hubManifest(ITEMS) },
         testInfo.outputPath('nested-manifest.tar.gz'),
       );
 
@@ -670,7 +771,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(200);
       expect(await response.json()).not.toHaveProperty('hub_items');
-      expect(await readConfigFile(request, `nested/${HUB_MANIFEST_NAME}`)).toBe(hubManifest(ITEMS));
+      expect(await readConfigFile(request, cfg(`nested/${HUB_MANIFEST_NAME}`))).toBe(hubManifest(ITEMS));
     });
   });
 });

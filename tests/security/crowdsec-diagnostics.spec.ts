@@ -40,7 +40,7 @@ labels:
 async function importKnownConfig(
   request: APIRequestContext,
   archivePath: string,
-  files: Record<string, string> = { 'config.yaml': CONFIG_YAML, 'acquis.yaml': ACQUIS_YAML },
+  files: Record<string, string> = { 'config/config.yaml': CONFIG_YAML, 'config/acquis.yaml': ACQUIS_YAML },
 ) {
   await createTarGz(files, archivePath);
   const response = await request.post(`${ADMIN}/import`, {
@@ -85,7 +85,7 @@ test.describe('CrowdSec Diagnostics', () => {
 
     test('should report missing files and an empty LAPI port when only config.yaml is imported', async ({ request }, testInfo) => {
       await importKnownConfig(request, testInfo.outputPath('config-only.tar.gz'), {
-        'config.yaml': 'api:\n  server:\n    listen_uri: 0.0.0.0:8080\n',
+        'config/config.yaml': 'api:\n  server:\n    listen_uri: 0.0.0.0:8080\n',
       });
 
       const response = await request.get(`${ADMIN}/diagnostics/config`);
@@ -98,8 +98,8 @@ test.describe('CrowdSec Diagnostics', () => {
 
     test('should report an acquisition file without a datasource as invalid', async ({ request }, testInfo) => {
       await importKnownConfig(request, testInfo.outputPath('bad-acquis.tar.gz'), {
-        'config.yaml': CONFIG_YAML,
-        'acquis.yaml': 'labels:\n  type: syslog\n',
+        'config/config.yaml': CONFIG_YAML,
+        'config/acquis.yaml': 'labels:\n  type: syslog\n',
       });
 
       const response = await request.get(`${ADMIN}/diagnostics/config`);
@@ -162,9 +162,9 @@ test.describe('CrowdSec Diagnostics', () => {
       const registeredBefore = (await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json()).capi_registered;
 
       await importKnownConfig(request, testInfo.outputPath('with-capi.tar.gz'), {
-        'config.yaml': CONFIG_YAML,
-        'acquis.yaml': ACQUIS_YAML,
-        'online_api_credentials.yaml': 'url: https://api.crowdsec.net/\nlogin: e2e\npassword: e2e\n',
+        'config/config.yaml': CONFIG_YAML,
+        'config/acquis.yaml': ACQUIS_YAML,
+        'config/online_api_credentials.yaml': 'url: https://api.crowdsec.net/\nlogin: e2e\npassword: e2e\n',
       });
 
       const connectivity = await (await request.get(`${ADMIN}/diagnostics/connectivity`)).json();
@@ -207,11 +207,11 @@ test.describe('CrowdSec Diagnostics', () => {
       expect(response.status()).toBe(200);
       const { files } = await response.json();
 
-      expect(files).toEqual(expect.arrayContaining(['config.yaml', 'acquis.yaml']));
+      expect(files).toEqual(expect.arrayContaining(['config/config.yaml', 'config/acquis.yaml']));
     });
 
     test('should return the content of config.yaml', async ({ request }) => {
-      const response = await request.get(`${ADMIN}/file?path=${encodeURIComponent('config.yaml')}`);
+      const response = await request.get(`${ADMIN}/file?path=${encodeURIComponent('config/config.yaml')}`);
       expect(response.status()).toBe(200);
 
       expect((await response.json()).content).toBe(CONFIG_YAML);
@@ -257,7 +257,7 @@ test.describe('CrowdSec Diagnostics', () => {
 
     test('should list every missing file as a string error', async ({ request }, testInfo) => {
       await importKnownConfig(request, testInfo.outputPath('empty-acquis.tar.gz'), {
-        'config.yaml': CONFIG_YAML,
+        'config/config.yaml': CONFIG_YAML,
       });
 
       const config = await (await request.get(`${ADMIN}/diagnostics/config`)).json();
