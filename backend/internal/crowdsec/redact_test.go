@@ -130,15 +130,15 @@ func definedPairs(t *testing.T, data []byte) []string {
 
 func TestRedactUnsafeInputsBecomeErrors(t *testing.T) {
 	t.Parallel()
-	bomb := "a: &a [x,x,x,x,x,x,x,x,x]\n"
+	expanding := "a: &a [x,x,x,x,x,x,x,x,x]\n"
 	prev := "a"
 	for _, n := range []string{"b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} {
-		bomb += fmt.Sprintf("%s: &%s [*%s,*%s,*%s,*%s,*%s,*%s,*%s,*%s,*%s]\n", n, n, prev, prev, prev, prev, prev, prev, prev, prev, prev)
+		expanding += fmt.Sprintf("%s: &%s [*%s,*%s,*%s,*%s,*%s,*%s,*%s,*%s,*%s]\n", n, n, prev, prev, prev, prev, prev, prev, prev, prev, prev)
 		prev = n
 	}
 	cases := map[string]string{
 		"duplicate keys":      "type: http\nurl: a\nurl: b\n",
-		"alias expansion":     bomb,
+		"alias expansion":     expanding,
 		"complex key":         "? [a]\n: b\n",
 		"nul byte":            "type: http\nurl: a\x00b\n",
 		"invalid utf8":        "type: http\nurl: \xff\xfe\n",
