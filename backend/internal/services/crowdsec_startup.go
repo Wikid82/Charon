@@ -256,16 +256,23 @@ type CommandExecutor interface {
 	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
+const defaultBouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+
 // ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
 // This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
 // Priority: Validates env var key, then checks file, then auto-generates new key if needed.
 func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor) error {
+	return ensureBouncerRegistration(dataDir, defaultBouncerKeyFile, cmdExec)
+}
+
+// ensureBouncerRegistration implements ensureBouncerRegistrationOnStartup with an explicit key-file path.
+func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandExecutor) error {
 	const (
-		bouncerName    = "caddy-bouncer"
-		bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
-		maxLAPIWait    = 30 * time.Second
-		pollInterval   = 1 * time.Second
+		bouncerName  = "caddy-bouncer"
+		maxLAPIWait  = 30 * time.Second
+		pollInterval = 1 * time.Second
 	)
+	bouncerKeyFile = filepath.Clean(bouncerKeyFile)
 
 	// Wait for LAPI to be ready (poll cscli lapi status)
 	logger.Log().Info("CrowdSec bouncer registration: waiting for LAPI to be ready...")
