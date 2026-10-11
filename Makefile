@@ -1,4 +1,4 @@
-.PHONY: help plugin-powerdns plugin-powerdns-smoke install test build run clean docker-build docker-run build-offline release go-check gopls-logs lint-backend lint-agent lint-fast lint-staticcheck-only security-local
+.PHONY: help plugin-powerdns plugin-powerdns-smoke install test build run clean docker-build docker-run build-offline release go-check gopls-logs lint-backend lint-agent lint-fast lint-staticcheck-only lint-markdown security-local
 
 # Default target
 help:
@@ -212,6 +212,10 @@ lint-staticcheck-only:
 	@echo "Running staticcheck only — backend + agent..."
 	cd backend && golangci-lint run --config ../.golangci-fast.yml --enable-only staticcheck ./...
 	cd agent && golangci-lint run --config ../.golangci-fast.yml --enable-only staticcheck ./...
+
+lint-markdown:
+	@echo "Running markdownlint on all tracked markdown files..."
+	scripts/pre-commit-hooks/markdownlint-staged.sh
 
 lint-docker:
 	@echo "Running Hadolint..."

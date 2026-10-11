@@ -73,6 +73,8 @@ The CI-pinned version (currently v2.14.0, see `.github/workflows/quality-checks.
 
 **Note:** Lefthook pre-commit-phase hooks will **BLOCK commits** if golangci-lint finds issues. This is intentional - fix the issues before committing.
 
+Staged `.md` files are also checked by markdownlint on commit (config in `.markdownlint.jsonc`); run `make lint-markdown` to check every tracked markdown file.
+
 ### CI/CD Go Version Management
 
 GitHub Actions workflows automatically use go 1.26.0 via `GOTOOLCHAIN: auto`, which allows the `setup-go` action to download and use the correct Go version even if the CI environment has an older version installed. This ensures consistent builds across all workflows.
