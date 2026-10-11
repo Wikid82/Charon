@@ -1,0 +1,8 @@
+type: http
+name: anchors
+url: &SECRETTOKEN-urlanchor https://hooks.example.invalid/SECRETTOKEN-url
+headers: &SECRETTOKEN-hdr
+  Authorization: &SECRETTOKEN-auth Bearer SECRETTOKEN-bearer
+  Other: *SECRETTOKEN-auth
+method: &SECRETTOKEN-m POST
+username: *SECRETTOKEN-m

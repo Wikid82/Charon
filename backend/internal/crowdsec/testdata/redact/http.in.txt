@@ -1,0 +1,17 @@
+type: http
+name: http_default
+log_level: info
+url: https://user:SECRETTOKEN-userinfo@hooks.example.invalid/path/SECRETTOKEN-path?key=SECRETTOKEN-query
+method: POST
+unix_socket: /var/run/hook.sock
+skip_tls_verification: false
+ca_cert_path: /etc/crowdsec/ca.pem
+cert_path: /etc/crowdsec/cert.pem
+key_path: /etc/crowdsec/key.pem
+headers:
+  Authorization: Bearer SECRETTOKEN-bearer
+  X-Api-Token: SECRETTOKEN-apitoken
+  authorization: basic SECRETTOKEN-lower
+  Content-Type: application/json
+format: |
+  {{.|toJson}}

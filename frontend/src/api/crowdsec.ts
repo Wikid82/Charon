@@ -75,6 +75,8 @@ export interface ImportCrowdsecResult {
   hub_items?: ImportHubItems
   /** Names of the current files kept because the archive did not contain them. */
   kept_files?: string[]
+  /** Imported notification files whose blanked values still need to be entered. */
+  needs_values?: string[]
 }
 
 /** Result of a hub item restore. */

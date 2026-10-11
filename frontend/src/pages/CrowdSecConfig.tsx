@@ -36,6 +36,8 @@ function getServerErrorMessage(err: unknown, fallback: string): string {
   return fallback
 }
 
+const MAX_LISTED_NEEDS_VALUES = 10
+
 const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDashboard'))
 
 export default function CrowdSecConfig() {
@@ -47,6 +49,9 @@ export default function CrowdSecConfig() {
   // Hub items the last import reported as missing; the key restarts the panel per import.
   const [importHubItems, setImportHubItems] = useState<{ key: number; items: ImportHubItems } | null>(null)
   const [keptFiles, setKeptFiles] = useState<string[]>([])
+  const [needsValues, setNeedsValues] = useState<string[]>([])
+  const listedNeedsValues = needsValues.slice(0, MAX_LISTED_NEEDS_VALUES).map(sanitizeKeptFileName)
+  const hiddenNeedsValues = needsValues.length - listedNeedsValues.length
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [selectedPresetSlug, setSelectedPresetSlug] = useState<string>('')
@@ -129,6 +134,7 @@ export default function CrowdSecConfig() {
       const items = result.hub_items
       setImportHubItems(items && items.missing.length > 0 ? { key: Date.now(), items } : null)
       setKeptFiles(result.kept_files ?? [])
+      setNeedsValues(result.needs_values ?? [])
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
     },
     onError: (err: unknown) => {
@@ -989,6 +995,7 @@ export default function CrowdSecConfig() {
               setFile(e.target.files?.[0] ?? null)
               setImportHubItems(null)
               setKeptFiles([])
+              setNeedsValues([])
             }}
             data-testid="import-file"
             accept=".tar.gz"
@@ -997,6 +1004,15 @@ export default function CrowdSecConfig() {
           {keptFiles.length > 0 && (
             <p className="text-sm text-gray-400" data-testid="import-kept-files">
               {t('crowdsecConfig.importKeptFiles', { files: keptFiles.map(sanitizeKeptFileName).join(', ') })}
+            </p>
+          )}
+          {needsValues.length > 0 && (
+            <p className="text-sm text-gray-400" data-testid="import-needs-values">
+              {t('crowdsecConfig.importNeedsValues', {
+                files: hiddenNeedsValues > 0
+                  ? [...listedNeedsValues, t('crowdsecConfig.importNeedsValuesMore', { count: hiddenNeedsValues })].join(', ')
+                  : listedNeedsValues.join(', '),
+              })}
             </p>
           )}
           {importHubItems && <HubItemsRestorePanel key={importHubItems.key} hubItems={importHubItems.items} />}

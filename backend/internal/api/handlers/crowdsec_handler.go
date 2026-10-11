@@ -82,6 +82,10 @@ type CrowdsecHandler struct {
 	// signalProcess delivers a signal to a PID; overridable in tests.
 	signalProcess func(pid int, sig syscall.Signal) error
 
+	// mergeNotifications and scanPlaceholders are the import's notification steps; overridable in tests.
+	mergeNotifications func(snapshotDir, dataDir string) error
+	scanPlaceholders   func(dataDir string) ([]string, error)
+
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
 	// and the export build; an export holds it only while writing its temporary file, never while sending.
 	// Lock order is always dataMu first, then HubService.mu.
@@ -352,6 +356,9 @@ const (
 // nested installation reads.
 const msgImportFlatArchive = "the archive keeps its configuration at the top level, but this CrowdSec installation reads it from the config folder; export a configuration from this page, or put the files in a config/ folder inside the archive"
 
+// msgKeepCurrentFiles is the fixed message for an import that could not keep the current files.
+const msgKeepCurrentFiles = "failed to keep the current CrowdSec files"
+
 // errConfigFileNotFound is the fixed message for an import that contains no config.yaml in a
 // location the engine reads (top level or config/).
 var errConfigFileNotFound = errors.New("config.yaml was not found at the top level or in config/")
@@ -440,17 +447,19 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		consoleSvc = crowdsec.NewConsoleEnrollmentService(db, &crowdsec.SecureCommandExecutor{}, dataDir, consoleSecret)
 	}
 	h := &CrowdsecHandler{
-		DB:              db,
-		Executor:        executor,
-		CmdExec:         &RealCommandExecutor{},
-		BinPath:         binPath,
-		DataDir:         dataDir,
-		Hub:             hubSvc,
-		Console:         consoleSvc,
-		Security:        securitySvc,
-		dashCache:       newDashboardCache(),
-		validateLAPIURL: validateCrowdsecLAPIBaseURLDefault,
-		signalProcess:   signalOSProcess,
+		DB:                 db,
+		Executor:           executor,
+		CmdExec:            &RealCommandExecutor{},
+		BinPath:            binPath,
+		DataDir:            dataDir,
+		Hub:                hubSvc,
+		Console:            consoleSvc,
+		Security:           securitySvc,
+		dashCache:          newDashboardCache(),
+		validateLAPIURL:    validateCrowdsecLAPIBaseURLDefault,
+		signalProcess:      signalOSProcess,
+		mergeNotifications: crowdsec.MergeRedactedNotifications,
+		scanPlaceholders:   crowdsec.ScanPlaceholders,
 	}
 	hubSvc.Reload = h.reloadCrowdSec
 	if db != nil {
@@ -817,13 +826,22 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		}
 	}
 
+	// Fill the notification values the exported file blanked from the files being replaced, wherever the
+	// notification still points at the same target.
+	if mergeErr := h.mergeNotifications(backupDir, h.DataDir); mergeErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(mergeErr.Error())).Warn("crowdsec import: keeping the current notification values failed")
+		rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		return
+	}
+
 	// The import cleared every file the archive did not replace: put back the ones CrowdSec cannot start
 	// without, and make sure a kept profile still resolves its notifications.
 	keptFiles, restoreErr := crowdsec.RestoreMissingCompanions(backupDir, h.DataDir, liveConfigPrefix(liveLayout))
 	if restoreErr != nil {
 		logger.Log().WithField("error", sanitizeForLog(restoreErr.Error())).Warn("crowdsec import: restoring the current files failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to keep the current CrowdSec files"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
 		return
 	}
 	if verifyErr := crowdsec.VerifyKeptProfile(h.DataDir, keptFiles); verifyErr != nil {
@@ -848,7 +866,21 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if len(keptFiles) > 0 {
 		resp["kept_files"] = keptFiles
 	}
+	if needs := h.placeholderReport(); len(needs) > 0 {
+		resp["needs_values"] = needs
+	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// placeholderReport lists the notification files of the imported tree that still hold blanked values.
+// The report is informational: when it cannot be made the import still stands and the list is omitted.
+func (h *CrowdsecHandler) placeholderReport() []string {
+	names, err := h.scanPlaceholders(h.DataDir)
+	if err != nil {
+		logger.Log().WithField("reported_files", len(names)).Warn("crowdsec import: could not list the notification files that still need values")
+		return nil
+	}
+	return names
 }
 
 // liveConfigPrefix is the folder below DataDir that holds the configuration CrowdSec reads.

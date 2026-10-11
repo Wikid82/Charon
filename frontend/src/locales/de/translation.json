@@ -1186,6 +1186,8 @@
     "importSuccess": "CrowdSec-Konfiguration importiert (Sicherung erstellt)",
     "importFailed": "Import fehlgeschlagen",
     "importKeptFiles": "Diese Dateien waren nicht im Archiv, daher wurden die aktuellen beibehalten: {{files}}",
+    "importNeedsValues": "Einige Werte in diesen Benachrichtigungsdateien wurden beim Export der Konfiguration geleert und müssen eingetragen werden, bevor sie funktionieren: {{files}}",
+    "importNeedsValuesMore": "und {{count}} weitere",
     "exportPrompt": "Name für das CrowdSec-Exportarchiv",
     "title": "CrowdSec-Konfiguration",
     "checkNow": "Jetzt prüfen",
@@ -1265,7 +1267,7 @@
     },
     "packages": {
       "title": "Konfigurationspakete",
-      "description": "Exportieren oder importieren Sie CrowdSec-Konfigurationspakete (tar.gz). Vor dem Import wird ein Backup erstellt.",
+      "description": "Exportieren oder importieren Sie CrowdSec-Konfigurationspakete (tar.gz). Vor dem Import wird ein Backup erstellt. Passwörter, Tokens und Webhook-Adressen in Benachrichtigungsdateien werden beim Export geleert.",
       "export": "Exportieren",
       "import": "Importieren",
       "importing": "Importiere...",

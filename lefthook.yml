@@ -115,6 +115,12 @@ pre-commit:
       exclude: 'frontend/(coverage|dist|node_modules|\.vite)/'
       run: scripts/pre-commit-hooks/semgrep-scan.sh {staged_files}
 
+    # --- Markdown ---
+    # Staged .md files only; generated/ignored paths are skipped inside the script.
+    markdownlint:
+      glob: "*.md"
+      run: scripts/pre-commit-hooks/markdownlint-staged.sh {staged_files}
+
 
 # ============================================================
 # MANUAL: security-full

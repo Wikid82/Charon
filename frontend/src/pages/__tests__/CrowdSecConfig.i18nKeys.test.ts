@@ -79,6 +79,19 @@ describe('CrowdSec config i18n keys', () => {
     }
   })
 
+  it.each(LOCALES)('%s defines the import notice keys and the updated export description', (locale) => {
+    const tree = loadLocale(locale)
+    for (const key of [
+      'crowdsecConfig.importNeedsValues',
+      'crowdsecConfig.importNeedsValuesMore',
+      'crowdsecConfig.packages.description',
+    ]) {
+      expect(typeof lookup(tree, key), `${locale}.${key}`).toBe('string')
+    }
+    expect(lookup(tree, 'crowdsecConfig.importNeedsValues') as string).toContain('{{files}}')
+    expect(lookup(tree, 'crowdsecConfig.importNeedsValuesMore') as string).toContain('{{count}}')
+  })
+
   it('CrowdSecConfig.tsx has no hard-coded user-visible strings in toasts, status messages or errors', () => {
     const [source] = Object.entries(sourceModules).filter(([path]) => path.endsWith('/CrowdSecConfig.tsx')).map(([, src]) => src)
     expect(source).toBeDefined()

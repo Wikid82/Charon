@@ -1,0 +1,10 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: email
+name: "quoted"
+smtp_host: "smtp.example.invalid"
+smtp_port: "587"
+smtp_username: <charon-redacted>
+smtp_password: <charon-redacted>
+receiver_emails: ["a@example.invalid"]
+connect_timeout: 10

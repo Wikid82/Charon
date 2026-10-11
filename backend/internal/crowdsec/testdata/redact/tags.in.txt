@@ -1,0 +1,7 @@
+type: http
+name: !SECRETTOKEN-tag tags
+url: !!str https://hooks.example.invalid/SECRETTOKEN-url
+headers: !!map
+  X-Token: !SECRETTOKEN-custom SECRETTOKEN-value
+timeout: !!str 5s
+method: !!str POST

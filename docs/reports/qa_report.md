@@ -1,64 +1,62 @@
-# QA and Security Report: fix/crowdsec-followups-batch4
+# QA and Security Report: feat/crowdsec-export-redaction
 
 Date: 2026-10-11
-Scope: full diff `origin/development...HEAD` (11 branch commits plus the 1 QA commit listed below, 44 files) against `SECURITY.md`, `CLAUDE.md` (Definition of Done) and the approved batch-4 spec. The branch refuses a CrowdSec import whose configuration is not in the folder CrowdSec reads, keeps the current companion files an archive does not contain (and reports their names), makes the data lock abandonable when a request ends, classifies a missing hub item precisely, matches protected paths regardless of letter case, translates the remaining configuration page messages, and fixes two test-environment issues.
+Scope: full diff `origin/development...HEAD` (8 branch commits plus the 2 QA commits listed below) against `SECURITY.md`, `CLAUDE.md` (Definition of Done) and the approved spec for blanking sensitive values in exported CrowdSec notification files (#1551). The branch rewrites notification files inside the export so they keep their names, types and structure but not their sensitive values, leaves out stray non-YAML files in notification folders, exports a file it cannot rewrite safely as an empty file, and makes the import fill blanked values from the files being replaced when the notification has the same type, name and target. The import card lists the files that still need values.
 
 ## Verdict: PASS (no blocking findings)
 
-No critical, high or medium findings. One test defect was found and fixed in the branch (F1); two informational observations (F2, F3) are listed. No model, migration or GORM query file is in the diff, and no security-sensitive defect was found in the import path.
+No critical, high or medium findings. Two low findings (L1, L2) and three informational notes are listed; none blocks the merge. No model, migration or GORM query file is in the diff, so the GORM scan was not required.
 
 ## Definition of Done evidence
 
 | Check | Command | Result |
 |---|---|---|
-| Build | `cd backend && go build ./...` | pass |
-| Backend tests and coverage | `scripts/go-test-coverage.sh` | first run: one failing test (F1); after the fix: all packages pass, statements 91.4%, lines 90.4% (gate 87%) |
+| Build | `cd backend && go build ./...` and `cd frontend && npm run build` | pass |
+| Backend tests and coverage | `scripts/go-test-coverage.sh` | all packages pass, 0 failing tests; statements 91.5%, lines 90.5% (gate 87%) |
+| Race run | `go test -race -timeout 60m ./internal/crowdsec/... ./internal/api/handlers/...` | pass (crowdsec 109.3 s, handlers 381.7 s) |
 | golangci-lint | `cd backend && golangci-lint run --config .golangci.yml ./...` (v2.14.0) | 0 issues |
-| Frontend type-check and build | `cd frontend && npm run type-check && npm run build` | pass |
-| Frontend coverage | `scripts/frontend-test-coverage.sh` | all tests pass; statements 90.38%, branches 83.92%, functions 88.34%, lines 91.53% (gate 87%) |
-| Patch coverage | `bash scripts/local-patch-report.sh` (strict) | overall 91.6% (416/454), backend 92.0% (379/412), frontend 88.1% (37/42), agent n/a; all above the 87% gate; artifacts `test-results/local-patch-report.{md,json}` produced |
-| CodeQL | `lefthook run codeql` (CLI 2.27.2) | Go: 4 results, all 4 pre-existing suppressed entries in files outside this diff; JS: 0 results; 0 blocking; parity check passed |
-| Trivy | `trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL` on go.mod/go.sum and the frontend package files (copied under `$HOME` because the snap trivy cannot read `/projects`, removed afterwards) | no HIGH/CRITICAL |
-| GORM scan | not run | no `backend/internal/models/**`, migration or GORM query file in the diff |
-| E2E | rebuilt `charon-e2e` with `docker-rebuild-e2e`; `npx playwright test tests/security/crowdsec-import.spec.ts tests/security/crowdsec-diagnostics.spec.ts --project=security-tests` | 72 passed, 0 failed, 0 fixme or skipped (46.7 s) |
+| Frontend type-check | `cd frontend && npm run type-check` | pass |
+| Frontend tests and coverage | `scripts/frontend-test-coverage.sh` | 298 files, 3683 passed, 4 skipped, 2 todo, 0 failed; statements 90.36%, branches 83.83%, functions 88.34%, lines 91.5% (gate 87%) |
+| Patch coverage | `bash scripts/local-patch-report.sh` (strict, run after the coverage runs) | overall 96.5% (737/764), backend 96.4% (731/758), frontend 100% (6/6), agent n/a; artifacts `test-results/local-patch-report.{md,json}` produced |
+| Fuzzing | `go test ./internal/crowdsec/ -run '^$' -fuzz FuzzRedactNotificationFile -fuzztime=120s` | 536,037 executions, 463 corpus entries, no failure |
+| CodeQL | `scripts/pre-commit-hooks/codeql-go-scan.sh`, `codeql-js-scan.sh`, then `codeql-check-findings.sh` (CLI 2.27.2) | Go: 4 results, all 4 pre-existing, in files outside this diff, covered by `codeql-suppressions.yml`; JS: 0 results; 0 blocking |
+| Trivy | `trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL` on the Go and frontend dependency files (copied under `$HOME` because the snap trivy cannot read `/projects`, removed afterwards); the diff does not touch `go.mod`, `go.sum` or `package.json` | no HIGH or CRITICAL |
+| GORM scan | not run | no model, migration or GORM query file in the diff |
+| E2E | rebuilt `charon-e2e` with `docker-rebuild-e2e` (the user's `charon` container was not touched); `npx playwright test tests/security/crowdsec-export-redaction.spec.ts tests/security/crowdsec-import.spec.ts tests/security/crowdsec-diagnostics.spec.ts tests/security-enforcement/zzz-security-ui/crowdsec-import.spec.ts --project=security-tests` | 93 passed, 0 failed, 0 skipped or fixme (1.3 min) |
 
-Patch coverage detail (lines still uncovered in the patch): `companions.go` 89.0% (the remaining branches are write and close failures on a file just created, and the lost-race `O_EXCL` case, which need fault injection), `archive_inspect.go` 88.2% (defensive read errors), `crowdsec_handler.go` 92.1% (the 500 branch when keeping the current files fails, lines 824-828), `CrowdSecConfig.tsx` 86.5% (error toasts).
+Patch coverage detail (changed lines still uncovered): `export.go` 84.3% (16 lines: error branches on a file just opened or stat-ed, which need fault injection), `redact.go` 96.4% (8 lines: defensive encode and walk errors), `crowdsec_handler.go` 96.6% (1 line), `redact_merge.go` 99.3% (2 lines).
 
 ## Security review
 
-### 1. Import path: nothing destructive before validation
+Probes were run as throwaway Go tests (about 60 hostile or odd notification files, a 19-file export tree, merge round trips of 26 awkward values, size and node-count limits); they were deleted afterwards, and the permanent suite already covers the same ground with goldens, a property test and the fuzzer.
 
-Order in `ImportConfig`: upload saved to a private temp folder, archive validator (size, ratio, required file, traversal), archive inspection and notification check, then the data lock, then the layout check, and only then the snapshot (a copy) and the clearing of the old tree. Every refusal before the snapshot changes nothing. After the snapshot, every failure calls `rollback()`: clearing failed, extraction failed, the flat-archive re-check after extraction, failure to keep the current files, and the kept-profile verification. The flat-archive refusal happens both before the snapshot (from the inspection) and after extraction (when the inspection was skipped), and returns a fixed message.
+### 1. No sensitive value survives in the export
 
-### 2. Archive entry names
+- Values: every value outside the per-type allowlist is replaced, whatever its YAML spelling (plain, quoted, block, folded, number, bool-like, null, binary, timestamp, URL with credentials, path or query parts, header values of any shape). Unknown plugin types, wrong-cased or quoted types, a type that arrives through an alias, and keys that differ only by case or by look-alike letters all get the strictest treatment (common keys only).
+- Text around values: comments of every kind (head, line, foot, trailing document comments), tags (custom, verbatim, directive-defined, binary) and anchor names never reach the output; anchors are renumbered and aliases follow. Merge keys (single, list, inline mapping, into `headers`) are walked in the merging context; when the shared definition has been blanked away the output no longer parses and the file is exported empty.
+- Fail closed: duplicate keys, complex keys, expanding alias chains, recursive anchors, unparsable or non-UTF-8 input, more than 50,000 nodes, a file over 1 MiB and a residual-value match all give the empty-file result; the original bytes are never a fallback. Redacting an already redacted file is byte-identical (idempotent), checked for every probe.
+- Archive level: files in notification folders at any depth, with any letter case of the folder or the extension, a folder moved by the configuration inside the data folder, flat and nested layouts, look-alike folder names, files with an oversize or binary body, and links (files and folders) were exported without a planted value. Non-YAML files and editor leftovers inside a notification folder are left out; a name with a trailing space is not a YAML name and is left out.
+- Documented limits confirmed by probe (unchanged from the spec): key text of unknown top-level keys, unknown children of `rotate` and header names stays readable; `format` templates and other kept plain settings are exported as written; other files in the configuration (for example `config.yaml`) are not rewritten.
 
-`ArchiveEntryRel` is the single normalisation shared by the validator (`requireArchiveFile`), the inspector and the extractor. Absolute names are re-rooted below the destination (as the extractor does), `..` sequences that would leave it are reported as invalid, `./` and doubled slashes collapse, and the required-file check only accepts the top level or `config/`, so a copy such as `parsers/config.yaml` does not count. Case variants are different names on the case-sensitive live filesystem and are never treated as the real configuration; the protected-path predicates (`IsHubPath`, `IsEngineOwnedPath`, `isLiveDBFile`) now lower-case their input, so a differently cased spelling of a protected path is skipped too (conservative direction).
+### 2. Import merge
 
-### 3. Links and file writes
+Fills only placeholders, only when type and name match exactly one current definition and every target key (URL, host, port, transport and certificate settings; every non-common key for unknown types) is absent on both sides or unchanged, with an exact comparison. Documents holding aliases or merge keys are never merged and are listed. Values are copied into nodes (26 awkward live values, including line breaks, document separators, directives, anchors and tags, round-tripped to the same value in a single document). Rewrites go to a new exclusive temp file renamed over the old one, mode capped at 0600 and at the current file's mode; links in the path are refused. The merge runs after extraction and before the companion restore; an error rolls the import back with a fixed message. The current files are located from the snapshot's own configuration, never from the archive's.
 
-- Presence of a companion in the live tree is decided with `Lstat`, so a link counts as present and is never replaced or written through. Snapshot entries that are links or have the wrong type are skipped and logged with a fixed message.
-- Notification files are restored with `O_WRONLY|O_CREATE|O_EXCL` and mode 0600, after an `Lstat` of the destination; an existing path of any kind (regular file, link, dangling link) is skipped, never written through. The notifications folder is only created when absent, and refused when it is a link or a file. The new unit tests pin each of these (regular, linked and dangling destinations, linked folder, file in the way, read-only folder).
-- Only direct children of `notifications/` with a lowercase `.yaml` or `.yml` name are considered, and only files that define a name the kept profile needs are copied back; a restore that would leave a name defined twice is refused (422) and rolled back.
+### 3. Logs, errors and responses
 
-### 4. Secrets and responses
+Rewriter errors carry fixed reasons only; log lines carry sanitised relative names or counts; `needs_values` carries sanitised file names only (capped at 50, sorted); a failed scan omits the list and does not undo the import. Tests assert that planted values never appear in captured logs.
 
-`kept_files` carries file names only (fixed companion names plus `notifications/<file name>`), never contents. Error messages are fixed strings or sanitised, length-bounded name lists; I/O errors are wrapped through `withoutPath` so paths are not returned or logged; log fields pass through `SanitizeForLog`. No token or key is logged in the new code.
+### 4. Resource bounds
 
-### 5. Locking (`ctxMutex`)
+Size (1 MiB), node count (50,000), the residual scan (bounded work, otherwise the empty-file result) and per-tree file count (256) are enforced. Measured: a 400 KB file of 45,000 list items redacts in 55 ms; a 9,000-level nested file in 14 ms; a file of 20,000 distinct blanked values returns the empty-file result in 0.95 s. See L2 for the one super-linear case.
 
-`LockContext` returns an error without taking the lock when the context ends first (an already ended context never takes a free lock); `Unlock` panics when not held. All call sites register `defer Unlock()` only after a successful lock (`lockData` returns false with the lock not held and the callers return before the defer; `writeExportLocked`, `hubUpdate`, `installedHubSet` and `installHubItem` return before the defer on error). No double unlock and no leaked lock was found. The restore single-flight flag is a never-waited compare-and-swap taken before any `dataMu` section and the import never takes it, so the lock order `restore flag -> dataMu` cannot invert. A cancelled waiter releasing nothing is covered by the new cancel tests, and the earlier observation about a non-context-aware lock no longer applies.
+### 5. Frontend
 
-### 6. Hub item classification
+The import card renders names as React text after `sanitizeKeptFileName` (control, format and separator characters stripped, length capped), lists at most 10 names plus a count, adds no toast, banner or button, and clears the line when another file is chosen. All five locales carry the new keys (parity test passes).
 
-`hubItemNotFound` now matches only cscli's sentence for the requested type and name; any other wording is `install_failed` (safe direction). A failed second read of the installed list now returns 500 with what already happened instead of claiming items were not attempted.
+### 6. Public wording
 
-### 7. Frontend
-
-Archive-derived names are rendered as React text (no `dangerouslySetInnerHTML` or `innerHTML` in the page or the helper); `sanitizeKeptFileName` strips control, format (including direction override) and line/paragraph separator characters and caps the length at 80. The translation key sets for the page are identical in en, de, es, fr and zh (checked by the i18n key test).
-
-### 8. Commits and docs
-
-Subjects are generic; none uses the `(security)` scope; no session id or link in any message. Docs additions describe behaviour only.
+Commit subjects and bodies, docs, code comments and test names were checked for vulnerability classes, attack scenarios and the phrases "tampered archive" and "destination binding": none found. One test variable was named after an attack pattern and was renamed (commit below). The only `(security)` commit subject is `feat(security): protect sensitive values in CrowdSec exports`, which is generic. No session id or link appears in any message.
 
 ## Findings
 
@@ -66,18 +64,20 @@ No critical, high or medium findings.
 
 ### Low
 
-- **F1: low (test defect, fixed in this review).** `backend/internal/api/handlers/crowdsec_export_import_test.go` `TestEditorHidesPidBouncersAndHub` still asserted that `config/Hub/x.yaml` is writable, which contradicts the case-insensitive hub matching added by the protected-path commit. It failed deterministically in the handlers package (`go test` exit 1, although the coverage gate message said "met"). The assertion now expects the path to be protected. Evidence: the first `scripts/go-test-coverage.sh` run reported this single failure; after the fix the whole run passes.
+- **L1: low (hardening, spec-conformant).** The second-layer check that blanks a notification-shaped YAML file found outside the recognised notification folders looks only at the first document and only at a plain (unquoted, non-aliased) type value. This matters only when a notification folder cannot be located from the configuration (for example a folder setting that is built from an environment reference), because inside a located folder every YAML file is blanked regardless of its content. Recommended: treat a quoted type and every document of the file the same way as a plain first-document type (this only adds blanking). Tracked as a follow-up; the docs already say other files in the configuration are exported as written.
+- **L2: low (availability, administrator only, pre-existing root cause).** `ParseYAMLDocuments` takes super-linear time on files with very many aliases: measured 1.3 s for 208 KB, 4.6 s for 430 KB and 36.7 s for 1 MiB (then rejected as excessively aliased). The export, the import merge and the import report now parse YAML files too, so this cost is paid in more places, while holding the data lock. Needs write access to the configuration (administrator). Recommended: reject a file early when its alias count is high (a cheap pre-scan), and skip the notification-shape probe for files that do not mention a `type` key.
 
 ### Informational
 
-- **F2: info.** `InspectTree` reads the live tree and the pre-import snapshot following links (as CrowdSec does) to parse configuration and notification names. The snapshot keeps links as links, so a linked notifications folder in the live tree is read through, but the contents are only parsed for names and a file is copied back only when it defines a needed name and the file itself is a regular file. This needs an administrator-created link on the server; no action needed.
-- **F3: info.** The 500 branch "failed to keep the current CrowdSec files" in `ImportConfig` (rollback after a companion restore error) has no handler-level test; the underlying function's error paths are covered in the package tests. Reaching it from the handler needs a failure injected into a copy, so it was not added.
+- **I1.** Merge and report stop examining after 256 notification files; any beyond that are left as extracted and not listed. Unreachable in practice (the image ships no notification plugins).
+- **I2.** Charon's full backups (the backup archive of the database and the CrowdSec folder) and the pre-import snapshot copy the CrowdSec folder unchanged by design (host-local, full fidelity). This feature covers the CrowdSec configuration export only.
+- **I3.** The unquoted-type and first-document behaviour of L1 and the key-text, `format` and `config.yaml` limits are the same documented limits as in the spec and the feature guide.
 
 ## Known limitations (not re-opened)
 
-Redacting sensitive values in notification files on export is tracked separately (#1551); the image ships no notification plugins.
+Database settings in the exported `config.yaml` and other private files in the configuration tree are tracked separately (spec follow-ups F1 and F2); the image ships no notification plugins.
 
 ## Commits added by this review
 
-- `test: cover the defensive branches of the CrowdSec notification file restore and keep hub paths protected in the editor test` (new tests for `prepareNotificationsDir` 77.8% -> 100% and `writeNotificationFile` 62.5% -> 75%, plus the F1 assertion fix).
-- `docs: update QA report for the CrowdSec follow-up batch` (this report).
+- `test: tidy a variable name in the CrowdSec notification rewriter tests` (renames a local test variable; no behaviour change).
+- `docs: update QA report for the CrowdSec export protection` (this report).

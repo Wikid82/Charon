@@ -1,0 +1,7 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: carrier_pigeon
+name: pigeon
+url: <charon-redacted>
+timeout: 5s
+nested: <charon-redacted>

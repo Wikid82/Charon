@@ -1,0 +1,14 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: bool_like
+url: <charon-redacted>
+method: POST
+headers:
+  A: <charon-redacted>
+  B: <charon-redacted>
+  C: <charon-redacted>
+  D: <charon-redacted>
+  E: <charon-redacted>
+  F: <charon-redacted>
+  G:

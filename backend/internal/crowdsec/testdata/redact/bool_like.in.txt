@@ -1,0 +1,12 @@
+type: http
+name: bool_like
+url: yes
+method: POST
+headers:
+  A: "on"
+  B: off
+  C: null
+  D: ~
+  E: 12345678
+  F: true
+  G:

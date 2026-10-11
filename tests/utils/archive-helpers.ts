@@ -331,3 +331,60 @@ method: POST
     )
     .join('---\n');
 }
+
+/** The text a CrowdSec export writes in place of a blanked notification value. */
+export const BLANKED_VALUE = '<charon-redacted>';
+
+export interface NotificationValues {
+  /** Address the notification is sent to. */
+  url?: string;
+  /** Value of the Authorization header. */
+  authorization?: string;
+  /** Value of a second custom header. */
+  apiToken?: string;
+  /** Write the headers under a YAML anchor that nothing refers to (the export keeps no alias). */
+  anchored?: boolean;
+  /** Add comments to the document. */
+  comments?: boolean;
+}
+
+/**
+ * A notification plugin config document that carries values a CrowdSec export blanks
+ * (the address, header values) next to values it keeps (type, name, log level, method).
+ * Use obviously fake `SECRETTOKEN-` strings for the values.
+ */
+export function notificationYamlWithValues(name: string, values: NotificationValues = {}): string {
+  const url = values.url ?? 'https://notify.example.invalid/hook/SECRETTOKEN-url';
+  const authorization = values.authorization ?? 'Bearer SECRETTOKEN-auth';
+  const apiToken = values.apiToken ?? 'SECRETTOKEN-header';
+  const headers = values.anchored
+    ? `headers: &shared
+  Authorization: ${authorization}
+  X-Api-Token: ${apiToken}
+`
+    : `headers:
+  Authorization: ${authorization}
+  X-Api-Token: ${apiToken}
+`;
+  const comments = values.comments ? '# SECRETTOKEN-comment\n' : '';
+  return `${comments}type: http
+name: ${name}
+log_level: info
+format: ""
+url: ${url}
+method: POST
+${headers}`;
+}
+
+/**
+ * A Slack notification file that reuses a kept value (the channel) through an anchor and an alias,
+ * so an export of it still holds an alias.
+ */
+export function slackNotificationYamlWithAlias(name: string): string {
+  return `type: slack
+name: ${name}
+webhook: https://hooks.example.invalid/SECRETTOKEN-url
+channel: &c ops
+username: *c
+`;
+}
