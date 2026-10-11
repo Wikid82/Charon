@@ -13,10 +13,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 type stubEnvExecutor struct {
@@ -62,9 +62,7 @@ func (s *stubEnvExecutor) lastArgs() []string {
 
 func openConsoleTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := testutil.OpenMemoryDB(t)
 	require.NoError(t, db.AutoMigrate(&models.CrowdsecConsoleEnrollment{}))
 	return db
 }

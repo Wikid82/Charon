@@ -21,6 +21,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // challengeScopeEnv wires the challenge handlers behind the real auth
@@ -39,7 +40,7 @@ func newChallengeScopeEnv(t *testing.T) *challengeScopeEnv {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ManualChallenge{}))
 

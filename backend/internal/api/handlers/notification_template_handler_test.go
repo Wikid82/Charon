@@ -15,11 +15,12 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}, &models.Notification{}, &models.NotificationProvider{}))
 
@@ -89,7 +90,7 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Create_InvalidJSON(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 	svc := services.NewNotificationService(db, nil)
@@ -110,7 +111,7 @@ func TestNotificationTemplateHandler_Create_InvalidJSON(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Update_InvalidJSON(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 	svc := services.NewNotificationService(db, nil)
@@ -131,7 +132,7 @@ func TestNotificationTemplateHandler_Update_InvalidJSON(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_Preview_InvalidJSON(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 	svc := services.NewNotificationService(db, nil)
@@ -152,7 +153,7 @@ func TestNotificationTemplateHandler_Preview_InvalidJSON(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_AdminRequired(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 	svc := services.NewNotificationService(db, nil)
@@ -182,7 +183,7 @@ func TestNotificationTemplateHandler_AdminRequired(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_List_DBError(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 	svc := services.NewNotificationService(db, nil)
@@ -202,7 +203,7 @@ func TestNotificationTemplateHandler_List_DBError(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_WriteOps_DBError(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 	svc := services.NewNotificationService(db, nil)
@@ -241,7 +242,7 @@ func TestNotificationTemplateHandler_WriteOps_DBError(t *testing.T) {
 }
 
 func TestNotificationTemplateHandler_WriteOps_PermissionErrorResponse(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 

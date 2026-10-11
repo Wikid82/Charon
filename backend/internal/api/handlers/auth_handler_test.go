@@ -13,6 +13,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ import (
 )
 
 func setupAuthHandler(t *testing.T) (*AuthHandler, *gorm.DB) {
-	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dbName := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
@@ -910,7 +911,7 @@ func TestAuthHandler_ChangePassword_Errors(t *testing.T) {
 
 // setupAuthHandlerWithDB creates an AuthHandler with DB access for forward auth tests
 func setupAuthHandlerWithDB(t *testing.T) (*AuthHandler, *gorm.DB) {
-	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dbName := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{})

@@ -155,6 +155,7 @@ ignore:
   # These files contain testing helpers that take *testing.T and are only
   # callable from *_test.go files - they cannot be covered by production code
   - "backend/internal/api/handlers/testdb.go"
+  - "backend/internal/testutil/dsn.go"
   - "backend/internal/api/handlers/test_helpers.go"
 
   # DNS provider implementations (tested via integration tests, not unit tests)

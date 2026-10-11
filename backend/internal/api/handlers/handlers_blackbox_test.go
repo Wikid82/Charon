@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ import (
 )
 
 func setupImportTestDB(t *testing.T) *gorm.DB {
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to test database")

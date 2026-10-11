@@ -25,6 +25,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // mockAuthMiddleware adds an admin session (real context key shapes) to the context for testing
@@ -71,7 +72,7 @@ func openCertHandlerTestDB(t *testing.T, filename string) *gorm.DB {
 }
 
 func TestDeleteCertificate_InUse(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 
 // Test that backup failure prevents deletion
 func TestDeleteCertificate_BackupFailure(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -208,7 +209,7 @@ func TestDeleteCertificate_BackupFailure(t *testing.T) {
 
 // Test that in-use check does not create a backup
 func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -297,7 +298,7 @@ func (m *mockBackupService) GetAvailableSpace() (int64, error) {
 
 // Test List handler
 func TestCertificateHandler_List(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -324,7 +325,7 @@ func TestCertificateHandler_List(t *testing.T) {
 
 // Test Upload handler with missing name
 func TestCertificateHandler_Upload_MissingName(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -352,7 +353,7 @@ func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 
 // Test Upload handler missing certificate_file
 func TestCertificateHandler_Upload_MissingCertFile(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -382,7 +383,7 @@ func TestCertificateHandler_Upload_MissingCertFile(t *testing.T) {
 
 // Test Upload handler missing key_file
 func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -408,7 +409,7 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 }
 
 func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -452,7 +453,7 @@ func TestCertificateHandler_Upload_MissingKeyFile_MultipartWithCert(t *testing.T
 
 // Test Upload handler success path using a mock CertificateService
 func TestCertificateHandler_Upload_Success(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -530,7 +531,7 @@ func generateSelfSignedCertPEM() (certPEM, keyPEM string, err error) {
 // TestCertificateHandler_Upload_WithNotificationService verifies that the notification
 // path is exercised when a non-nil NotificationService is provided.
 func TestCertificateHandler_Upload_WithNotificationService(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.Setting{}, &models.NotificationProvider{}))
 
@@ -564,7 +565,7 @@ func TestCertificateHandler_Upload_WithNotificationService(t *testing.T) {
 
 // Test Delete with invalid ID format
 func TestDeleteCertificate_InvalidID(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -589,7 +590,7 @@ func TestDeleteCertificate_InvalidID(t *testing.T) {
 
 // Test Delete with ID = 0
 func TestDeleteCertificate_ZeroID(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -614,7 +615,7 @@ func TestDeleteCertificate_ZeroID(t *testing.T) {
 
 // Test Delete with low disk space
 func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
@@ -791,7 +792,7 @@ func TestDeleteCertificate_ValidLetsEncrypt_NotInUse(t *testing.T) {
 
 // Test Delete when IsCertificateInUse fails
 func TestDeleteCertificate_UsageCheckError(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}
