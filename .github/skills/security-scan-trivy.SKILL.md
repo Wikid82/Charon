@@ -116,14 +116,14 @@ Get results in JSON format for parsing:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| scanners  | string | No     | vuln,secret,misconfig | Comma-separated list of scanners to run |
-| format    | string | No     | table   | Output format (table, json, sarif) |
+| --- | --- | --- | --- | --- |
+| scanners | string | No | vuln,secret,misconfig | Comma-separated list of scanners to run |
+| format | string | No | table | Output format (table, json, sarif) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | TRIVY_SEVERITY | No | CRITICAL,HIGH,MEDIUM | Severities to report |
 | TRIVY_TIMEOUT | No | 10m | Maximum scan duration |
 

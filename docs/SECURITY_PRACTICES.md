@@ -238,7 +238,7 @@ cmd := exec.Command("sh", "-c", "cscli bouncers list " + userInput)
 ### File Permissions
 
 | File Type | Permissions | Owner | Rationale |
-|-----------|-------------|-------|-----------|
+| ----------- | ------------- | ------- | ----------- |
 | Secret files (keys, tokens) | 0600 | charon:charon | Owner read/write only |
 | Configuration files | 0640 | charon:charon | Owner read/write, group read |
 | Log files | 0640 | charon:charon | Owner read/write, group read |
@@ -289,7 +289,7 @@ if err := os.Chmod(f.Name(), 0600); err != nil {
 ### Sensitive Data
 
 | Data Type | Storage Method | Example |
-|-----------|----------------|---------|
+| ----------- | ---------------- | --------- |
 | Passwords | bcrypt hash | `bcrypt.GenerateFromPassword([]byte(password), 12)` |
 | API Keys | Environment variable or encrypted field | `os.Getenv("API_KEY")` |
 | Tokens | Hashed with random salt | `sha256(token + salt)` |
@@ -461,7 +461,7 @@ return c.JSON(401, gin.H{"error": "invalid API key: abc123"})
 ### Compliance Summary Table
 
 | Framework | Key Requirement | Charon Implementation | Status |
-|-----------|----------------|----------------------|--------|
+| ----------- | ---------------- | ---------------------- | -------- |
 | **GDPR** | Data protection (Art. 32) | API key masking, secure storage | ✅ Compliant |
 | **PCI-DSS** | Render PAN unreadable (Req. 3.4) | Masking utility (same principle) | ✅ Aligned |
 | **SOC 2** | Logical access controls (CC6.1) | Key validation, file permissions | ✅ Compliant |
@@ -581,7 +581,7 @@ grep -i "api[_-]key\|token\|password" playwright-report/index.html
 ## Updates
 
 | Date | Change | Author |
-|------|--------|--------|
+| --- | --- | --- |
 | 2026-02-03 | Initial security practices documentation | GitHub Copilot |
 
 ---

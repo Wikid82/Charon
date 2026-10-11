@@ -14,7 +14,7 @@ Notifications can be triggered by various events:
 ## Supported Services
 
 | Service | JSON Templates | Native API | Rich Formatting |
-|---------|----------------|------------|-----------------|
+| --------- | ---------------- | ------------ | ----------------- |
 | **Discord** | ✅ Yes | ✅ Webhooks | ✅ Embeds |
 | **Slack** | ✅ Yes | ✅ Webhooks | ✅ Native Formatting |
 | **Gotify** | ✅ Yes | ✅ HTTP API | ✅ Priority + Extras |
@@ -355,7 +355,7 @@ releases. This page will be expanded as each provider is validated and released.
 All services support these variables in JSON templates:
 
 | Variable | Description | Example |
-|----------|-------------|---------|
+| ---------- | ------------- | --------- |
 | `{{.Title}}` | Event title | "SSL Certificate Renewed" |
 | `{{.Message}}` | Event message/details | "Certificate for example.com renewed" |
 | `{{.EventType}}` | Type of event | "ssl_renewal", "uptime_down" |

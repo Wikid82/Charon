@@ -99,7 +99,7 @@ CHARON_IMAGE=charon:my-build SH_PREFIX=sh-test .github/skills/scripts/skill-runn
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | CHARON_IMAGE | No | charon:local | Image under test |
 | SH_PREFIX | No | secheaders | Prefix for created containers, network and volumes |
 | SH_HTTP_PORT | No | 8182 | Host port for Caddy HTTP |

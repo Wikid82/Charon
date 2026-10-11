@@ -20,7 +20,7 @@ Successfully implemented Bug #1 fix per investigation report `docs/issues/crowds
 ### Modified Files
 
 | File | Lines Changed | Description |
-|------|--------------|-------------|
+| ------ | -------------- | ------------- |
 | `backend/internal/api/handlers/crowdsec_handler.go` | +173 lines | Core authentication fix |
 | `backend/internal/api/handlers/crowdsec_handler_test.go` | +324 lines | Comprehensive unit tests |
 | `backend/integration/crowdsec_lapi_integration_test.go` | +380 lines | End-to-end integration tests |
@@ -77,7 +77,7 @@ time="..." level=info msg="CrowdSec bouncer authentication successful" masked_ke
 **File**: `backend/internal/api/handlers/crowdsec_handler_test.go`
 
 | Test Name | Coverage | Purpose |
-|-----------|----------|---------|
+| ----------- | ---------- | --------- |
 | `TestTestKeyAgainstLAPI_ValidKey` | ✅ | Verifies 200 OK accepted as valid |
 | `TestTestKeyAgainstLAPI_InvalidKey` | ✅ | Verifies 403 rejected immediately |
 | `TestTestKeyAgainstLAPI_EmptyKey` | ✅ | Verifies empty key rejected |
@@ -108,7 +108,7 @@ crowdsec_handler.go:1830: saveKeyToFile             58.3%
 **File**: `backend/integration/crowdsec_lapi_integration_test.go`
 
 | Test Name | Purpose | Docker Required |
-|-----------|---------|----------------|
+| ----------- | --------- | ---------------- |
 | `TestBouncerAuth_InvalidEnvKeyAutoRecovers` | Verifies auto-recovery from invalid env var | Yes |
 | `TestBouncerAuth_ValidEnvKeyPreserved` | Verifies valid env var used without re-registration | Yes |
 | `TestBouncerAuth_FileKeyPersistsAcrossRestarts` | Verifies key persistence across container restarts | Yes |
@@ -190,7 +190,7 @@ maskAPIKey("valid-api-key-12345678")
 ### File Permissions
 
 | Object | Permission | Rationale |
-|--------|-----------|-----------|
+| -------- | ----------- | ----------- |
 | `/app/data/crowdsec/` | `0700` | Owner-only directory access |
 | `/app/data/crowdsec/bouncer_key` | `0600` | Owner read/write only |
 

@@ -89,13 +89,13 @@ VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-cerberus
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | CHARON_EMERGENCY_TOKEN | No | (empty) | Emergency token for Cerberus teardown flows |
 | SKIP_CLEANUP | No | false | Skip container cleanup after tests |
 | TEST_TIMEOUT | No | 600 | Timeout in seconds for the test |

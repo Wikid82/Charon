@@ -368,7 +368,7 @@ test('Start long task', async ({ page }) => {
 ## Cross-Browser Compatibility
 
 | Strategy | Purpose | Supported Browsers |
-|----------|---------|-------------------|
+| ---------- | --------- | ------------------- |
 | `getFormFieldByLabel()` | Form field location | ✅ Chromium ✅ Firefox ✅ WebKit |
 | `clickSwitch()` | Switch interaction | ✅ Chromium ✅ Firefox ✅ WebKit |
 | `getByRole()` | Semantic locators | ✅ Chromium ✅ Firefox ✅ WebKit |
@@ -437,7 +437,7 @@ await clickSwitch(page.getByRole('switch', { name: /feature/i }));
 ## Test Execution Metrics (Phase 2)
 
 | Metric | Before Phase 2 | After Phase 2 | Improvement |
-|--------|----------------|---------------|-------------|
+| -------- | ---------------- | --------------- | ------------- |
 | System Settings Tests | 23 minutes | 16 minutes | 31% faster |
 | Feature Flag API Calls | ~300 calls | ~30 calls | 90% reduction |
 | Polling Iterations (avg) | 60 per test | 30 per test | 50% reduction |

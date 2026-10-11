@@ -83,7 +83,7 @@ Multi-Credential Mode:
 ### Comparison Matrix
 
 | Aspect | Single Credential | Multi-Credential |
-|--------|------------------|------------------|
+| -------- | ------------------ | ------------------ |
 | **Security Isolation** | ❌ All zones use same key | ✅ Per-zone isolation |
 | **Blast Radius** | ❌ High (all zones affected) | ✅ Limited to filtered zones |
 | **Setup Complexity** | ✅ Simple | ⚠️ Moderate |
@@ -244,7 +244,7 @@ Use Case: Fallback credential for miscellaneous domains
 #### Examples
 
 | Zone Filter | Matches | Does NOT Match |
-|-------------|---------|----------------|
+| ------------- | --------- | ---------------- |
 | `example.com` | `example.com`, `www.example.com`, `api.example.com` | `example.org`, `sub.example.com.au` |
 | `*.customer-a.com` | `shop.customer-a.com`, `api.customer-a.com` | `customer-a.com` (root) |
 | `*.staging.example.com` | `app.staging.example.com`, `api.staging.example.com` | `staging.example.com`, `prod.example.com` |

@@ -97,13 +97,13 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | CROWDSEC_API_KEY | No | auto | Bouncer API key (auto-generated if not set) |
 | CROWDSEC_LAPI_URL | No | <http://crowdsec:8080> | CrowdSec LAPI endpoint |
 | BOUNCER_SYNC_INTERVAL | No | 60 | Decision sync interval in seconds |

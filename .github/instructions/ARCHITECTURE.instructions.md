@@ -95,7 +95,7 @@ graph TB
 ### Component Communication
 
 | Source | Target | Protocol | Purpose |
-|--------|--------|----------|---------|
+| -------- | -------- | ---------- | --------- |
 | Frontend | Backend | HTTP/1.1 | REST API calls for CRUD operations |
 | Frontend | Backend | WebSocket | Real-time log streaming |
 | Backend | Caddy | HTTP/JSON | Dynamic configuration updates |
@@ -121,7 +121,7 @@ graph TB
 ### Backend
 
 | Component | Technology | Version | Purpose |
-|-----------|-----------|---------|---------|
+| ----------- | ----------- | --------- | --------- |
 | **Language** | Go | 1.26.0 | Primary backend language |
 | **HTTP Framework** | Gin | Latest | Routing, middleware, HTTP handling |
 | **Database** | SQLite | 3.x | Embedded database |
@@ -137,7 +137,7 @@ graph TB
 ### Frontend
 
 | Component | Technology | Version | Purpose |
-|-----------|-----------|---------|---------|
+| ----------- | ----------- | --------- | --------- |
 | **Framework** | React | 19.2.3 | UI framework |
 | **Language** | TypeScript | 5.x | Type-safe JavaScript |
 | **Build Tool** | Vite | 6.1.9 | Fast bundler and dev server |
@@ -152,7 +152,7 @@ graph TB
 ### Infrastructure
 
 | Component | Technology | Version | Purpose |
-|-----------|-----------|---------|---------|
+| ----------- | ----------- | --------- | --------- |
 | **Containerization** | Docker | 24+ | Application packaging |
 | **Base Image** | Debian Trixie Slim | Latest | Security-hardened base |
 | **CI/CD** | GitHub Actions | N/A | Automated testing and deployment |
@@ -818,7 +818,7 @@ CMD ["/app/charon"]
 ### Port Mapping
 
 | Port | Protocol | Purpose | Bind |
-|------|----------|---------|------|
+| ------ | ---------- | --------- | ------ |
 | 8080 | HTTP | Web UI + REST API | 0.0.0.0 |
 | 80 | HTTP | Caddy reverse proxy | 0.0.0.0 |
 | 443 | HTTPS | Caddy reverse proxy (TLS) | 0.0.0.0 |
@@ -828,14 +828,14 @@ CMD ["/app/charon"]
 ### Volume Mounts
 
 | Container Path | Purpose | Required |
-|----------------|---------|----------|
+| --- | --- | --- |
 | `/app/data` | Database, certificates, backups | **Yes** |
 | `/var/run/docker.sock` | Docker container discovery | Optional |
 
 ### Environment Variables
 
 | Variable | Purpose | Default | Required |
-|----------|---------|---------|----------|
+| ---------- | --------- | --------- | ---------- |
 | `CHARON_ENV` | Environment (production/development) | `production` | No |
 | `CHARON_ENCRYPTION_KEY` | 32-byte base64 key for credential encryption | Auto-generated | No |
 | `CHARON_EMERGENCY_TOKEN` | 64-char hex for break-glass access | None | Optional |

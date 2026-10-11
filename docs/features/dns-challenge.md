@@ -47,7 +47,7 @@ The DNS-01 challenge is an ACME (Automatic Certificate Management Environment) v
 ### Key Features
 
 | Feature | Description |
-|---------|-------------|
+| --------- | ------------- |
 | **Wildcard Certificates** | Issue certificates for `*.example.com` |
 | **15+ DNS Providers** | Native integration with major DNS services |
 | **Secure Credentials** | AES-256-GCM encryption with automatic key rotation |
@@ -62,7 +62,7 @@ The DNS-01 challenge is an ACME (Automatic Certificate Management Environment) v
 ### DNS-01 vs HTTP-01 Comparison
 
 | Feature | DNS-01 Challenge | HTTP-01 Challenge |
-|---------|-----------------|-------------------|
+| --------- | ----------------- | ------------------- |
 | **Wildcard Certificates** | ✅ Yes | ❌ No |
 | **Requires Port 80** | ❌ No | ✅ Yes |
 | **Works Behind Firewall** | ✅ Yes | ⚠️ Requires port forwarding |
@@ -100,7 +100,7 @@ Charon integrates with 15+ DNS providers for automatic DNS record management.
 These providers have complete, tested integration with automatic record creation and cleanup:
 
 | Provider | API Type | Documentation |
-|----------|----------|---------------|
+| ---------- | ---------- | --------------- |
 | **Cloudflare** | REST API | [Cloudflare Setup Guide](#cloudflare-setup) |
 | **AWS Route53** | AWS SDK | [Route53 Setup Guide](#route53-setup) |
 | **DigitalOcean** | REST API | [DigitalOcean Setup Guide](#digitalocean-setup) |
@@ -112,7 +112,7 @@ These providers have complete, tested integration with automatic record creation
 Fully functional providers with standard API integration:
 
 | Provider | API Type | Notes |
-|----------|----------|-------|
+| ---------- | ---------- | ------- |
 | **Hetzner** | REST API | Hetzner Cloud DNS |
 | **Linode** | REST API | Linode DNS Manager |
 | **Vultr** | REST API | Vultr DNS |
@@ -127,7 +127,7 @@ Fully functional providers with standard API integration:
 For providers without direct API support or custom DNS infrastructure:
 
 | Method | Use Case | Documentation |
-|--------|----------|---------------|
+| -------- | ---------- | --------------- |
 | **RFC 2136** | Self-hosted BIND9, PowerDNS, Knot DNS | [RFC 2136 Setup](./dns-providers.md#rfc-2136-dynamic-dns) |
 | **Webhook** | Custom DNS APIs, automation platforms | [Webhook Provider](./dns-providers.md#webhook-provider) |
 | **Script** | Legacy tools, custom integrations | [Script Provider](./dns-providers.md#script-provider) |
@@ -224,7 +224,7 @@ Cloudflare is the recommended DNS provider due to fast propagation and excellent
 #### Charon Configuration
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Provider Type** | Cloudflare |
 | **API Token** | Your API token (from Option A) |
 | **Email** | (Required only for Global API Key) |
@@ -269,7 +269,7 @@ Create a custom IAM policy with these permissions:
 #### Charon Configuration
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Provider Type** | Route53 |
 | **Access Key ID** | Your IAM access key |
 | **Secret Access Key** | Your IAM secret key |
@@ -290,7 +290,7 @@ Create a custom IAM policy with these permissions:
 #### Charon Configuration
 
 | Field | Value |
-|-------|-------|
+| --- | --- |
 | **Provider Type** | DigitalOcean |
 | **API Token** | Your personal access token |
 
@@ -310,7 +310,7 @@ Create a custom IAM policy with these permissions:
 #### Charon Configuration
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Provider Type** | Google Cloud DNS |
 | **Project ID** | Your GCP project ID |
 | **Service Account JSON** | Contents of the JSON key file |
@@ -332,7 +332,7 @@ Save the output containing `appId`, `password`, and `tenant`.
 #### Charon Configuration
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Provider Type** | Azure DNS |
 | **Subscription ID** | Your Azure subscription ID |
 | **Resource Group** | Resource group containing DNS zone |
@@ -487,7 +487,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 **Solutions**:
 
 | Provider | Common Issues |
-|----------|---------------|
+| ---------- | --------------- |
 | **Cloudflare** | Token expired, wrong zone permissions, using Global API Key without email |
 | **Route53** | IAM policy missing required actions, wrong region |
 | **DigitalOcean** | Token has read-only scope (needs write) |
@@ -578,7 +578,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 #### Cloudflare
 
 | Issue | Solution |
-|-------|----------|
+| ------- | ---------- |
 | "Invalid API Token" | Regenerate token with correct zone permissions |
 | "Zone not found" | Ensure domain is active in Cloudflare account |
 | "Rate limited" | Wait 5 minutes; Cloudflare allows 1200 requests/5 min |
@@ -586,7 +586,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 #### Route53
 
 | Issue | Solution |
-|-------|----------|
+| ------- | ---------- |
 | "Access Denied" | Check IAM policy includes all required actions |
 | "NoSuchHostedZone" | Verify hosted zone ID is correct |
 | "Throttling" | Implement exponential backoff; Route53 has strict rate limits |
@@ -594,7 +594,7 @@ Charon displays instructions to remove the TXT record after certificate issuance
 #### DigitalOcean
 
 | Issue | Solution |
-|-------|----------|
+| --- | --- |
 | "Unable to authenticate" | Regenerate token with Write scope |
 | "Domain not found" | Ensure domain is added to DigitalOcean DNS |
 

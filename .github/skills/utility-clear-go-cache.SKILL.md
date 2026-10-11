@@ -76,7 +76,7 @@ This skill accepts no parameters.
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | XDG_CACHE_HOME | No | $HOME/.cache | XDG cache directory location |
 
 ## Outputs

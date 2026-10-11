@@ -31,7 +31,7 @@ Tokens support granular permissions:
 ## Why Use the API?
 
 | Use Case | Benefit |
-|----------|---------|
+| ---------- | --------- |
 | **CI/CD Pipelines** | Automatically create proxy hosts for staging/preview deployments |
 | **Infrastructure as Code** | Version control your Charon configuration |
 | **Custom Dashboards** | Build monitoring integrations |
@@ -146,7 +146,7 @@ curl -X GET "http://charon:81/api/security/crowdsec/decisions" \
 The API returns standard HTTP status codes:
 
 | Code | Meaning |
-|------|---------|
+| ------ | --------- |
 | `200` | Success |
 | `201` | Resource created |
 | `400` | Invalid request body |

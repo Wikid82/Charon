@@ -5,7 +5,7 @@ This directory contains all Docker Compose configuration variants for Charon.
 ## File Descriptions
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `docker-compose.yml` | Main production compose configuration. Base services and production settings. |
 | `docker-compose.dev.yml` | Development overrides. Enables hot-reload, debug logging, and development tools. |
 | `docker-compose.local.yml` | Local development configuration. Standalone setup for local testing. |

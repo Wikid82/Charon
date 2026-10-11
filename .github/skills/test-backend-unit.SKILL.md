@@ -104,14 +104,14 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose test output (-v flag) |
-| package   | string | No     | ./...   | Package pattern to test |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose test output (-v flag) |
+| package | string | No | ./... | Package pattern to test |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | CHARON_ENCRYPTION_KEY | No | auto-generated for test run | Backend test encryption key. If missing/invalid, an ephemeral 32-byte base64 key is generated for the run. |
 
 ## Outputs

@@ -31,7 +31,7 @@ CHARON_PLUGIN_SIGNATURES='{"pluginname": "sha256:..."}'
 ### Behavior Matrix
 
 | `CHARON_PLUGIN_SIGNATURES` Value | Behavior |
-|----------------------------------|----------|
+| ---------------------------------- | ---------- |
 | Unset or empty (`""`) | **Permissive mode** — All plugins are loaded (backward compatible) |
 | Set to `{}` | **Strict block-all** — No external plugins are loaded |
 | Set with entries | **Allowlist mode** — Only listed plugins with matching signatures are loaded |
@@ -141,7 +141,7 @@ USER charon
 Plugin directories must **not** be world-writable. Charon enforces this at startup.
 
 | Permission | Result |
-|------------|--------|
+| --- | --- |
 | `0755` or stricter | ✅ Allowed |
 | `0777` (world-writable) | ❌ Rejected — plugin loading disabled |
 
@@ -350,7 +350,7 @@ chown charon:charon /path/to/plugins/*.so
 Plugins run **in-process** with Charon and have access to:
 
 | Resource | Access Level |
-|----------|--------------|
+| ---------- | -------------- |
 | System memory | Full read/write |
 | Database credentials | Full access |
 | API tokens and secrets | Full access |
@@ -360,7 +360,7 @@ Plugins run **in-process** with Charon and have access to:
 ### Risk Assessment
 
 | Risk | Mitigation |
-|------|------------|
+| ------ | ------------ |
 | Malicious plugin code | Signature allowlisting, code review |
 | Plugin replacement attack | Read-only mounts, atomic updates |
 | World-writable directory | Automatic permission verification |

@@ -134,7 +134,7 @@ Override the auto-detected port:
 ## Troubleshooting
 
 | Issue | Cause | Solution |
-|-------|-------|----------|
+| ------- | ------- | ---------- |
 | No containers shown | Socket not mounted | Add Docker socket volume |
 | Connection refused | Remote Docker not configured | Enable TCP API on Docker host |
 | Container not proxied | Container not running | Start the container |

@@ -42,7 +42,7 @@ Analyze current repository context and suggest relevant prompt files from the [G
 Display analysis results in structured table comparing awesome-copilot prompts with existing repository prompts:
 
 | Awesome-Copilot Prompt | Description | Already Installed | Similar Local Prompt | Suggestion Rationale |
-|-------------------------|-------------|-------------------|---------------------|---------------------|
+| ------------------------- | ------------- | ------------------- | --------------------- | --------------------- |
 | [code-review.md](https://github.com/github/awesome-copilot/blob/main/prompts/code-review.md) | Automated code review prompts | ❌ No | None | Would enhance development workflow with standardized code review processes |
 | [documentation.md](https://github.com/github/awesome-copilot/blob/main/prompts/documentation.md) | Generate project documentation | ✅ Yes | create_oo_component_documentation.prompt.md | Already covered by existing documentation prompts |
 | [debugging.md](https://github.com/github/awesome-copilot/blob/main/prompts/debugging.md) | Debug assistance prompts | ❌ No | None | Could improve troubleshooting efficiency for development team |

@@ -133,13 +133,13 @@ Run via: `Tasks: Run Task` → `Test: Backend with Coverage`
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose test output (-v flag) |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose test output (-v flag) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | CHARON_MIN_COVERAGE | No | 85 | Minimum coverage percentage required for success |
 | CPM_MIN_COVERAGE | No | 85 | Legacy name for minimum coverage (fallback) |
 | PERF_MAX_MS_GETSTATUS_P95 | No | 25ms | Max P95 latency for GetStatus endpoint |
@@ -298,7 +298,7 @@ The following packages are excluded from coverage analysis as they are entrypoin
 ### Exit Codes Reference
 
 | Exit Code | Meaning | Action |
-|-----------|---------|--------|
+| ----------- | --------- | -------- |
 | 0 | Success | Tests passed, coverage met |
 | 1 | Coverage failure | Add tests or adjust threshold |
 | Non-zero | Test failure | Fix failing tests |

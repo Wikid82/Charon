@@ -233,7 +233,7 @@ Charon has gone through a few backup formats over time. All of them can still be
 restored, but only through specific paths:
 
 | What you have | How to restore it |
-|---|---|
+| --- | --- |
 | A current backup (`.zip` with a manifest, or `.zip.age` if encrypted) | Normal restore flow, from the list or via Upload |
 | An older `.zip` backup with no manifest inside ("legacy format") | Still restorable — Charon logs a warning and skips the checksum step, since there's nothing to check against, but still verifies the database itself is intact |
 | A raw `.db` file from a very old Charon version | **Upload only** — use the **Upload Backup** button on **Tasks → Backups**; Charon detects it by its SQLite file signature, wraps it into a proper archive, and restores it from there. These files are never picked up automatically from disk — they have to be uploaded |
@@ -241,7 +241,7 @@ restored, but only through specific paths:
 ## Quick Reference
 
 | Situation | What to do |
-|---|---|
+| --- | --- |
 | App down, same machine | [Cold restore](#cold-restore-same-machine-app-is-down) |
 | New machine / container | [Off-host restore](#off-host-restore-new-machine-or-container) — set `CHARON_ENCRYPTION_KEY` first |
 | Backup only exists on S3/SFTP | [Fetch it manually](#getting-a-backup-down-from-remote-storage), then restore locally |

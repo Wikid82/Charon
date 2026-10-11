@@ -33,7 +33,7 @@ There's a new `--framework` (`-fw`) parameter for the `pac pcf init` command. Se
 ### Command Parameters
 
 | Parameter | Value |
-|-----------|-------|
+| ----------- | ------- |
 | --name | ReactSample |
 | --namespace | SampleNamespace |
 | --template | field |
@@ -87,7 +87,7 @@ React and Fluent libraries aren't included in the package because they're shared
 The following controls are included in the samples. They function the same as their standard versions but offer better performance since they are virtual controls.
 
 | Sample | Description | Link |
-|--------|-------------|------|
+| --- | --- | --- |
 | ChoicesPickerReact | The standard ChoicesPickerControl converted to be a React Control | ChoicesPickerReact Sample |
 | FacepileReact | The ReactStandardControl converted to be a React Control | FacepileReact |
 
@@ -96,7 +96,7 @@ The following controls are included in the samples. They function the same as th
 Platform libraries are made available both at the build and runtime to the controls that are using platform libraries capability. Currently, the following versions are provided by the platform and are the highest currently supported versions.
 
 | Library | Package | Build Version | Runtime Version |
-|---------|---------|---------------|-----------------|
+| --------- | --------- | --------------- | ----------------- |
 | React | react | 16.14.0 | 17.0.2 (Model), 16.14.0 (Canvas) |
 | Fluent | @fluentui/react | 8.29.0 | 8.29.0 |
 | Fluent | @fluentui/react | 8.121.1 | 8.121.1 |

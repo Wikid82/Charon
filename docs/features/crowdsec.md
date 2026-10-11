@@ -142,7 +142,7 @@ curl http://localhost:8080/api/v1/cerberus/crowdsec/diagnostics/connectivity
 **Common causes and fixes:**
 
 | Cause | Fix |
-|-------|-----|
+| ------- | ----- |
 | Firewall blocking outbound HTTPS | Allow connections to `api.crowdsec.net` on port 443 |
 | DNS resolution failure | Verify `nslookup api.crowdsec.net` works |
 | Proxy not configured | Set `HTTP_PROXY`/`HTTPS_PROXY` environment variables |
@@ -231,7 +231,7 @@ curl -I https://api.crowdsec.net
 **Required outbound connections:**
 
 | Host | Port | Purpose |
-|------|------|---------|
+| --- | --- | --- |
 | `api.crowdsec.net` | 443 | Console API and heartbeats |
 | `hub.crowdsec.net` | 443 | Hub presets download |
 
@@ -276,7 +276,7 @@ The diagnostic script checks CrowdSec connectivity and configuration in one comm
 Access diagnostics programmatically through these API endpoints:
 
 | Endpoint | Method | What It Does |
-|----------|--------|--------------|
+| ---------- | -------- | -------------- |
 | `/api/v1/cerberus/crowdsec/diagnostics/connectivity` | GET | Tests LAPI and CAPI connectivity |
 | `/api/v1/cerberus/crowdsec/diagnostics/config` | GET | Validates enrollment configuration |
 | `/api/v1/cerberus/crowdsec/console/heartbeat` | POST | Forces an immediate heartbeat check |
@@ -307,7 +307,7 @@ curl http://localhost:8080/api/v1/cerberus/crowdsec/diagnostics/connectivity
 Look for these log prefixes when debugging:
 
 | Prefix | What It Means |
-|--------|---------------|
+| -------- | --------------- |
 | `[CROWDSEC_ENROLLMENT]` | Enrollment operations (token validation, CAPI registration) |
 | `[HEARTBEAT_POLLER]` | Background heartbeat service activity |
 | `[CROWDSEC_STARTUP]` | LAPI initialization and startup |
@@ -327,7 +327,7 @@ docker logs charon 2>&1 | grep HEARTBEAT_POLLER
 **Common log patterns:**
 
 | Log Message | Meaning |
-|-------------|---------|
+| ------------- | --------- |
 | `heartbeat sent successfully` | Console communication working |
 | `CAPI registration failed: timeout` | Network issue reaching CrowdSec servers |
 | `enrollment completed` | Console enrollment succeeded |

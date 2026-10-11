@@ -9,7 +9,7 @@
 ## Document Locations
 
 | Document | Path | Status |
-|----------|------|--------|
+| ---------- | ------ | -------- |
 | Complete Specification | [current_spec.md](../current_spec.md) | ✅ Complete |
 | Proof-of-Concept SKILL.md | [test-backend-coverage.SKILL.md](./test-backend-coverage.SKILL.md) | ✅ Validated |
 | Frontmatter Validator | [validate-skills.py](./validate-skills.py) | ✅ Functional |
@@ -92,7 +92,7 @@ The specification is now **comprehensive and implementation-ready** with:
 **8 Workflows Identified for Updates**:
 
 | Workflow | Scripts to Replace | Priority |
-|----------|-------------------|----------|
+| ---------- | ------------------- | ---------- |
 | quality-checks.yml | go-test-coverage.sh, frontend-test-coverage.sh, trivy-scan.sh | P0 |
 | waf-integration.yml | coraza_integration.sh, crowdsec_integration.sh | P1 |
 | security-weekly-rebuild.yml | security-scan.sh | P1 |
@@ -190,7 +190,7 @@ The specification is now **comprehensive and implementation-ready** with:
 **All custom fields documented** in Appendix A (lines 705-720):
 
 | Field | Type | Values | Purpose |
-|-------|------|--------|---------|
+| ------- | ------ | -------- | --------- |
 | category | string | test, integration, security, etc. | Primary categorization |
 | subcategory | string | coverage, unit, scan, etc. | Secondary categorization |
 | execution_time | enum | short, medium, long | Resource planning |
@@ -350,7 +350,7 @@ The specification is now **comprehensive and implementation-ready** with:
 ## Key Metrics
 
 | Metric | Value |
-|--------|-------|
+| -------- | ------- |
 | **Total Skills** | 24 |
 | **Excluded Scripts** | 5 |
 | **Tasks to Update** | 13 |
@@ -453,7 +453,7 @@ skills-ref list .github/skills/
 ### Skills Naming Quick Reference
 
 | Category | Prefix | Count | Examples |
-|----------|--------|-------|----------|
+| ---------- | -------- | ------- | ---------- |
 | Test | `test-` | 4 | test-backend-coverage, test-frontend-unit |
 | Integration | `integration-test-` | 8 | integration-test-crowdsec |
 | Security | `security-` | 3 | security-scan-trivy |

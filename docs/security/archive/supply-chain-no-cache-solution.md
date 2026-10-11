@@ -396,7 +396,7 @@ Implementing `--no-cache` builds across all workflows eliminates false positive 
 **Build Quality**: ✅ No-cache implemented, accurate scanning
 
 | Package | Version | CVE/GHSA | Severity | Fix Available | Action |
-|---------|---------|----------|----------|---------------|--------|
+| --------- | --------- | ---------- | ---------- | --------------- | -------- |
 | busybox | 1.37.0-r20 | CVE-2025-60876 | Medium | ❌ No | Monitor Alpine |
 | busybox-binsh | 1.37.0-r20 | CVE-2025-60876 | Medium | ❌ No | Monitor Alpine |
 | ssl_client | 1.37.0-r20 | CVE-2025-60876 | Medium | ❌ No | Monitor Alpine |

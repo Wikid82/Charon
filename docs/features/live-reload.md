@@ -37,7 +37,7 @@ The entire process typically completes in milliseconds.
 These changes apply instantly without any restart:
 
 | Change Type | Live Reload |
-|-------------|-------------|
+| ------------- | ------------- |
 | Add/remove proxy hosts | ✅ Yes |
 | Modify upstream servers | ✅ Yes |
 | Update SSL certificates | ✅ Yes |

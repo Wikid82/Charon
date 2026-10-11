@@ -136,15 +136,15 @@ Enable MailHog for email testing:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| no-cache  | boolean | No | false | Force rebuild without Docker cache |
-| clean     | boolean | No | false | Remove test volumes for fresh state |
-| profile   | string | No | "" | Docker Compose profile to enable |
+| --- | --- | --- | --- | --- |
+| no-cache | boolean | No | false | Force rebuild without Docker cache |
+| clean | boolean | No | false | Remove test volumes for fresh state |
+| profile | string | No | "" | Docker Compose profile to enable |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | DOCKER_NO_CACHE | No | false | Force rebuild without cache |
 | SKIP_VOLUME_CLEANUP | No | false | Preserve test data volumes |
 
@@ -168,7 +168,7 @@ This skill uses `.docker/compose/docker-compose.playwright-ci.yml` which include
 ### Volumes Created
 
 | Volume | Purpose |
-|--------|---------|
+| -------- | --------- |
 | playwright_data | Application data and SQLite database |
 | playwright_caddy_data | Caddy server data |
 | playwright_caddy_config | Caddy configuration |
@@ -288,7 +288,7 @@ docker exec charon-playwright sqlite3 /app/data/charon.db ".tables"
 ## Key File Locations
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `Dockerfile` | Main application Dockerfile |
 | `.docker/compose/docker-compose.playwright-ci.yml` | CI E2E test compose config |
 | `.docker/compose/docker-compose.playwright-local.yml` | Local E2E test compose config |

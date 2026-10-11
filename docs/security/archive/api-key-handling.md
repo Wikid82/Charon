@@ -259,7 +259,7 @@ Tests cover:
 ## Updates
 
 | Date | Change | Author |
-|------|--------|--------|
+| --- | --- | --- |
 | 2026-02-03 | Initial documentation for Sprint 0 security fix | GitHub Copilot |
 
 ---

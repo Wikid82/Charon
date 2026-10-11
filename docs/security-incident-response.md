@@ -14,7 +14,7 @@ This document provides a structured approach to handling security incidents in C
 ### Severity Levels
 
 | Level | Name | Description | Response Time | Examples |
-|-------|------|-------------|---------------|----------|
+| ------- | ------ | ------------- | --------------- | ---------- |
 | **P1** | Critical | Active exploitation, data breach, or complete service compromise | Immediate (< 15 min) | Confirmed data exfiltration, ransomware, root access compromise |
 | **P2** | High | Attempted exploitation, security control bypass, or significant vulnerability | < 1 hour | WAF bypass detected, brute-force attack in progress, credential stuffing |
 | **P3** | Medium | Suspicious activity, minor vulnerability, or policy violation | < 4 hours | Unusual traffic patterns, failed authentication spike, misconfiguration |
@@ -338,7 +338,7 @@ Questions?
 Maintain an up-to-date contact list:
 
 | Role | Contact Method | Escalation Time |
-|------|----------------|-----------------|
+| ------ | ---------------- | ----------------- |
 | Primary On-Call | [Phone/Pager] | Immediate |
 | Security Team | [Email/Slack] | < 15 min (P1/P2) |
 | System Administrator | [Phone] | < 1 hour |
@@ -388,7 +388,7 @@ docker exec charon cscli lapi status
 ## Document Maintenance
 
 | Version | Date | Author | Changes |
-|---------|------|--------|---------|
+| --- | --- | --- | --- |
 | 1.0 | 2025-12-21 | Security Team | Initial SIRP creation |
 
 **Review Schedule:** Quarterly or after any P1/P2 incident

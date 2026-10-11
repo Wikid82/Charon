@@ -426,7 +426,7 @@ Charon provides a **3-Tier Break Glass Protocol** for emergency lockout recovery
 ### Overview of the 3-Tier System
 
 | Tier | Method | Use When | Security Layer |
-|------|--------|----------|----------------|
+| ------ | -------- | ---------- | ---------------- |
 | **Tier 1** | Emergency Token (Digital Key) | Application accessible but security blocking | Layer 7 bypass middleware |
 | **Tier 2** | Emergency Server (Sidecar Door) | Caddy/CrowdSec blocking main endpoint | Separate port with minimal security |
 | **Tier 3** | Direct System Access (Physical Key) | Complete system failure | SSH/console access to host |
@@ -606,7 +606,7 @@ head -c 32 /dev/urandom | xxd -p -c 64
 **For organizations with compliance requirements:**
 
 | Environment | Rotation Frequency | Minimum Length | Additional Requirements |
-|-------------|-------------------|----------------|------------------------|
+| ------------- | ------------------- | ---------------- | ------------------------ |
 | Development | 180 days | 32 bytes | Document in dev handbook |
 | Staging | 90 days | 32 bytes | Separate from production |
 | Production | 90 days | 32 bytes | Secrets manager, audit trail |
@@ -822,7 +822,7 @@ Charon logs all emergency access attempts with detailed context:
 **Logged Events:**
 
 | Event | Log Level | Fields Captured |
-|-------|-----------|-----------------|
+| ------- | ----------- | ----------------- |
 | Emergency token attempt (success) | WARN | Timestamp, IP, user-agent, path, token_valid=true |
 | Emergency token attempt (failure) | WARN | Timestamp, IP, user-agent, path, token_valid=false, reason |
 | Emergency token rate limit hit | WARN | Timestamp, IP, user-agent, attempts=6+ |

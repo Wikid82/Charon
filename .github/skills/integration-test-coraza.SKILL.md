@@ -96,13 +96,13 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | WAF_ENABLED | No | true | Enable WAF protection for tests |
 | TEST_HOST | No | localhost:8080 | Target host for WAF tests |
 

@@ -170,17 +170,17 @@ Adjust the delay between actions (in milliseconds):
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| file      | string | No | "" | Specific test file to run |
-| grep      | string | No | "" | Filter tests by title pattern |
-| slowmo    | number | No | 500 | Delay between actions (ms) |
+| ----------- | ------ | ---------- | --------- | ------------- |
+| file | string | No | "" | Specific test file to run |
+| grep | string | No | "" | Filter tests by title pattern |
+| slowmo | number | No | 500 | Delay between actions (ms) |
 | inspector | boolean | No | false | Open Playwright Inspector |
-| project   | string | No | chromium | Browser to use |
+| project | string | No | chromium | Browser to use |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | PLAYWRIGHT_BASE_URL | No | <http://localhost:8080> | Application URL |
 | PWDEBUG | No | "" | Set to "1" for Inspector mode |
 | DEBUG | No | "" | Verbose logging (e.g., "pw:api") |
@@ -306,7 +306,7 @@ npx playwright show-trace test-results/*/trace.zip
 ## Test File Locations
 
 | Path | Description |
-|------|-------------|
+| ------ | ------------- |
 | `tests/` | All E2E test files |
 | `tests/auth.setup.ts` | Authentication setup |
 | `tests/login.spec.ts` | Login flow tests |
@@ -366,7 +366,7 @@ Use relative path from tests/ directory:
 ## Common Issues and Solutions
 
 | Issue | Solution |
-|-------|----------|
+| ------- | ---------- |
 | "Target closed" | Application crashed - check container logs |
 | "Element not found" | Use Inspector to verify selector |
 | "Timeout exceeded" | Increase timeout or check if element is hidden |

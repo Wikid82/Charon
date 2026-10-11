@@ -100,13 +100,13 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | CROWDSEC_API_KEY | No | auto | API key for LAPI access |
 | CROWDSEC_LAPI_URL | No | <http://crowdsec:8080> | CrowdSec LAPI endpoint |
 | TEST_IP | No | 192.0.2.1 | Test IP address for decisions |

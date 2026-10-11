@@ -25,10 +25,10 @@ When users upgrade to this version, **the statistics widgets will be empty initi
 Data will populate based on traffic and the selected bucket:
 
 | Bucket | Lookback Window | Time to Full Graph |
-|--------|-----------------|-------------------|
-| 1h     | 30 hours        | ~30 hours         |
-| 6h     | 180 hours       | ~7.5 days         |
-| 1d     | 30 days         | ~30 days          |
+| --- | --- | --- |
+| 1h | 30 hours | ~30 hours |
+| 6h | 180 hours | ~7.5 days |
+| 1d | 30 days | ~30 days |
 
 Users with active proxies will see:
 

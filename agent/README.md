@@ -28,7 +28,7 @@ docker run \
 ## Environment Variables
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `ORTHRUS_SERVER_URL` | — | WebSocket URL of the Charon Orthrus endpoint (`wss://...`) |
 | `ORTHRUS_AUTH_KEY` | — | Auth key from the Charon provisioning response (`ch_orthrus_...`) |
 | `ORTHRUS_DOCKER_SOCKET` | `/var/run/docker.sock` | Path to the local Docker socket |

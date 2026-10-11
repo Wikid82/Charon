@@ -106,13 +106,13 @@ SKIP=prettier,eslint .github/skills/scripts/skill-runner.sh qa-precommit-all
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| files     | string | No     | --all-files | File selection mode (--all-files or staged) |
+| --- | --- | --- | --- | --- |
+| files | string | No | --all-files | File selection mode (--all-files or staged) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | SKIP | No | "" | Comma-separated hook IDs to skip |
 | PRE_COMMIT_HOME | No | ~/.cache/pre-commit | Pre-commit cache directory |
 

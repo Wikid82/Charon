@@ -23,7 +23,7 @@ Key characteristics:
 Skills are stored in specific locations:
 
 | Location | Scope | Recommendation |
-|----------|-------|----------------|
+| ---------- | ------- | ---------------- |
 | `.github/skills/<skill-name>/` | Project/repository | Recommended for project skills |
 | `.claude/skills/<skill-name>/` | Project/repository | Legacy, for backward compatibility |
 | `~/.github/skills/<skill-name>/` | Personal (user-wide) | Recommended for personal skills |
@@ -44,7 +44,7 @@ license: Complete terms in LICENSE.txt
 ```
 
 | Field | Required | Constraints |
-|-------|----------|-------------|
+| ------- | ---------- | ------------- |
 | `name` | Yes | Lowercase, hyphens for spaces, max 64 characters (e.g., `webapp-testing`) |
 | `description` | Yes | Clear description of capabilities AND use cases, max 1024 characters |
 | `license` | No | Reference to LICENSE.txt (e.g., `Complete terms in LICENSE.txt`) or SPDX identifier |
@@ -82,7 +82,7 @@ The poor description fails because:
 The body contains detailed instructions that Copilot loads AFTER the skill is activated. Recommended sections:
 
 | Section | Purpose |
-|---------|---------|
+| --------- | --------- |
 | `# Title` | Brief overview of what this skill enables |
 | `## When to Use This Skill` | List of scenarios (reinforces description triggers) |
 | `## Prerequisites` | Required tools, dependencies, environment setup |
@@ -97,7 +97,7 @@ Skills can include additional files that Copilot accesses on-demand:
 ### Supported Resource Types
 
 | Folder | Purpose | Loaded into Context? | Example Files |
-|--------|---------|---------------------|---------------|
+| -------- | --------- | --------------------- | --------------- |
 | `scripts/` | Executable automation that performs specific operations | When executed | `helper.py`, `validate.sh`, `build.ts` |
 | `references/` | Documentation the AI agent reads to inform decisions | Yes, when referenced | `api_reference.md`, `schema.md`, `workflow_guide.md` |
 | `assets/` | **Static files used AS-IS** in output (not modified by the AI agent) | No | `logo.png`, `brand-template.pptx`, `custom-font.ttf` |
@@ -161,7 +161,7 @@ Use the [scaffold](./templates/scaffold.py) as a starting point.
 Skills use three-level loading for efficiency:
 
 | Level | What Loads | When |
-|-------|------------|------|
+| ------- | ------------ | ------ |
 | 1. Discovery | `name` and `description` only | Always (lightweight metadata) |
 | 2. Instructions | Full `SKILL.md` body | When request matches description |
 | 3. Resources | Scripts, examples, docs | Only when Copilot references them |
@@ -187,7 +187,7 @@ This means:
 When including scripts, prefer cross-platform languages:
 
 | Language | Use Case |
-|----------|----------|
+| ---------- | ---------- |
 | Python | Complex automation, data processing |
 | pwsh | PowerShell Core scripting |
 | Node.js | JavaScript-based tooling |

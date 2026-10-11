@@ -31,7 +31,7 @@ Auto-detection runs automatically when you:
 ### Confidence Levels
 
 | Level | Description | Action Required |
-|-------|-------------|-----------------|
+| ------- | ------------- | ----------------- |
 | **High** | Exact match with known provider pattern | Safe to use auto-detected provider |
 | **Medium** | Partial match or common pattern | Verify provider before using |
 | **Low** | Weak match or ambiguous pattern | Manually verify provider selection |
@@ -76,7 +76,7 @@ If auto-detection doesn't run automatically or you want to recheck:
 The detection results panel displays:
 
 | Field | Description |
-|-------|-------------|
+| ------- | ------------- |
 | **Status** | Whether provider was detected |
 | **Detected Provider Type** | DNS provider identified (e.g., "cloudflare") |
 | **Confidence** | Detection confidence level |
@@ -153,7 +153,7 @@ Confidence: Medium
 The system recognizes the following DNS providers by their nameserver patterns:
 
 | Provider | Nameserver Pattern | Example Nameserver |
-|----------|-------------------|-------------------|
+| ---------- | ------------------- | ------------------- |
 | **Cloudflare** | `*.ns.cloudflare.com` | `ns1.cloudflare.com` |
 | **AWS Route 53** | `*.awsdns*` | `ns-123.awsdns-12.com` |
 | **DigitalOcean** | `*.digitalocean.com` | `ns1.digitalocean.com` |

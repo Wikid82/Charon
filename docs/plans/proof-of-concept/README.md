@@ -20,7 +20,7 @@ This directory contains the proof-of-concept deliverables for the Agent Skills m
 ## Contents
 
 | File | Description | Status |
-|------|-------------|--------|
+| ------ | ------------- | -------- |
 | [test-backend-coverage.SKILL.md](./test-backend-coverage.SKILL.md) | Complete, validated SKILL.md example | ✅ Validated |
 | [validate-skills.py](./validate-skills.py) | Frontmatter validation tool | ✅ Functional |
 | [SUPERVISOR_REVIEW_SUMMARY.md](./SUPERVISOR_REVIEW_SUMMARY.md) | Complete review summary for Supervisor | ✅ Complete |

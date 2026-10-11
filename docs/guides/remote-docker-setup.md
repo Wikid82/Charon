@@ -158,7 +158,7 @@ Charon will check the service regularly and alert you through your configured no
 ## Troubleshooting
 
 | Problem | Likely Cause | Fix |
-|---|---|---|
+| --- | --- | --- |
 | Agent stays **Pending** | Install snippet not run yet | Run `docker compose up -d` on the remote machine |
 | **Test Connection** fails | Agent is offline | Check the agent container is running: `docker ps` |
 | No containers listed | Docker socket not mounted in agent | Add `-v /var/run/docker.sock:/var/run/docker.sock:ro` to the agent's volumes |

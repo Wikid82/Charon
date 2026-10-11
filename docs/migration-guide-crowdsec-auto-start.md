@@ -12,7 +12,7 @@ Starting in version 0.9.0, CrowdSec now **automatically starts** when the contai
 **Key Behavioral Changes:**
 
 | Scenario | Before (v0.8.x) | After (v0.9.0+) |
-|----------|-----------------|-----------------|
+| ---------- | ----------------- | ----------------- |
 | **Container Restart** | CrowdSec stays offline | CrowdSec auto-starts if enabled |
 | **Server Reboot** | Manual start required | CrowdSec auto-starts if enabled |
 | **Docker Compose Up** | CrowdSec offline | CrowdSec auto-starts if enabled |
@@ -281,7 +281,7 @@ Reconciliation Checks SecurityConfig
 ### Persistence Guarantees
 
 | Action | Persists Across Restart? |
-|--------|--------------------------|
+| -------- | -------------------------- |
 | **Toggle ON via GUI** | ✅ Yes (stored in database) |
 | **Toggle OFF via GUI** | ✅ Yes (stored in database) |
 | **Environment variable** | ❌ No (deprecated, not used) |
@@ -295,7 +295,7 @@ Reconciliation Checks SecurityConfig
 ### Container Boot Sequence
 
 | Phase | Duration | Cumulative | Status |
-|-------|----------|------------|--------|
+| ------- | ---------- | ------------ | -------- |
 | **Container Start** | 1-2s | 1-2s | Entrypoint script running |
 | **Database Migrations** | 1-2s | 2-4s | Security tables created/updated |
 | **CrowdSec Reconciliation** | 2-5s | 4-9s | Process started, verifying |
@@ -307,7 +307,7 @@ Reconciliation Checks SecurityConfig
 ### LAPI Initialization Phases
 
 | Phase | Duration | Description |
-|-------|----------|-------------|
+| ------- | ---------- | ------------- |
 | **Process Start** | 1-2s | CrowdSec binary launches |
 | **Config Loading** | 2-3s | Parsers, scenarios loaded |
 | **Database Init** | 1-2s | SQLite connection established |
@@ -650,7 +650,7 @@ Please report rollback necessity on [GitHub Issues](https://github.com/Wikid82/c
 ## Change History
 
 | Date | Version | Change |
-|------|---------|--------|
+| ------ | --------- | -------- |
 | 2025-12-23 | v0.9.0 | Auto-start behavior implemented |
 | 2025-12-23 | v0.9.0 | Environment variables deprecated |
 | 2025-12-23 | v0.9.0 | Mutex protection added |

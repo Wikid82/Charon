@@ -61,7 +61,7 @@ This means it protects the management API but does not directly inspect traffic 
 ### What Cerberus Protects
 
 | Threat Category | CrowdSec | ACL | WAF | Rate Limit |
-|-----------------|----------|-----|-----|------------|
+| ----------------- | ---------- | ----- | ----- | ------------ |
 | Known attackers (IP reputation) | ✅ | ❌ | ❌ | ❌ |
 | Geo-based attacks | ❌ | ✅ | ❌ | ❌ |
 | SQL Injection (SQLi) | ❌ | ❌ | ✅ | ❌ |
@@ -474,7 +474,7 @@ This handles most race conditions where LAPI is still initializing after CrowdSe
 **This matches the pattern used by other security features:**
 
 | Feature | Control Method | Status Endpoint | Lifecycle Handler |
-|---------|---------------|-----------------|-------------------|
+| --------- | --------------- | ----------------- | ------------------- |
 | **Cerberus** | GUI Toggle | `/security/status` | N/A (master switch) |
 | **WAF** | GUI Toggle | `/security/status` | Config regeneration |
 | **ACL** | GUI Toggle | `/security/status` | Config regeneration |
@@ -870,7 +870,7 @@ annotations:
 ## Development Roadmap
 
 | Phase | Feature | Status |
-|-------|---------|--------|
+| ------- | --------- | -------- |
 | 1 | WAF placeholder + metrics | ✅ Complete |
 | 2 | ACL implementation | ✅ Complete |
 | 3 | Break-glass token | ✅ Complete |

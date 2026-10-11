@@ -46,7 +46,7 @@ All HIGH severity vulnerabilities are in Debian Trixie base image system librari
 ### CVE Details Table
 
 | CVE ID | Package(s) | Version | CVSS | Fix Available | Category |
-|--------|-----------|---------|------|---------------|----------|
+| -------- | ----------- | --------- | ------ | --------------- | ---------- |
 | **CVE-2026-0861** | libc-bin, libc6 | 2.41-12+deb13u1 | 8.4 | ❌ No | Memory Corruption |
 | **CVE-2025-13151** | libtasn1-6 | 4.20.0-2 | 7.5 | ❌ No | Buffer Overflow |
 | **CVE-2025-15281** | libc-bin, libc6 | 2.41-12+deb13u1 | 7.5 | ❌ No | Input Validation |
@@ -152,7 +152,7 @@ A vulnerability in the Name Service Switch (NSS) subsystem's handling of network
 ### Exploitability Analysis
 
 | Factor | Rating | Justification |
-|--------|--------|---------------|
+| -------- | -------- | --------------- |
 | **Attack Surface** | 🟢 Low | Vulnerable functions not called by Charon application |
 | **Attack Complexity** | 🔴 High | Requires specific preconditions and attack vectors |
 | **Privileges Required** | 🟢 None/Low | Most vulnerabilities exploitable without initial privileges |
@@ -195,7 +195,7 @@ A vulnerability in the Name Service Switch (NSS) subsystem's handling of network
 ### Business Impact Assessment
 
 | Impact Category | Risk Level | Analysis |
-|-----------------|------------|----------|
+| ----------------- | ------------ | ---------- |
 | **Confidentiality** | 🟡 Low | Container isolation limits data access |
 | **Integrity** | 🟡 Low | Read-only filesystem prevents modification |
 | **Availability** | 🟢 Very Low | DoS requires exploitation first |
@@ -458,7 +458,7 @@ grype charon:latest -o sarif > grype-results.sarif
 ## Changelog
 
 | Date | Version | Changes | Author |
-|------|---------|---------|--------|
+| --- | --- | --- | --- |
 | 2026-02-01 | 1.0 | Initial advisory created (7 HIGH CVEs) | GitHub Copilot (Managment Agent) |
 
 ---

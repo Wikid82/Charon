@@ -279,7 +279,7 @@ default|local|1
 **Mismatch scenarios:**
 
 | Settings | SecurityConfig | Behavior | Fix Needed |
-|----------|----------------|----------|------------|
+| ---------- | ---------------- | ---------- | ------------ |
 | `true` | `local` | ✅ Auto-starts | None |
 | `true` | `disabled` | ❌ Does NOT start | Run Solution 2 |
 | `true` | (missing) | ⚠️ Should auto-create | Run Solution 3 |

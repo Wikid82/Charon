@@ -110,13 +110,13 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose test output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose test output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | CHARON_MIN_COVERAGE | No | 85 | Minimum coverage percentage required for success |
 | CPM_MIN_COVERAGE | No | 85 | Legacy name for minimum coverage (fallback) |
 

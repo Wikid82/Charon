@@ -126,13 +126,13 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose test output (-v flag) |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose test output (-v flag) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | CHARON_ENCRYPTION_KEY | No | auto-generated for test run | Backend test encryption key. If missing/invalid, an ephemeral 32-byte base64 key is generated for the run. |
 | CHARON_MIN_COVERAGE | No | 85 | Minimum coverage percentage required for success |
 | CPM_MIN_COVERAGE | No | 85 | Legacy name for minimum coverage (fallback) |

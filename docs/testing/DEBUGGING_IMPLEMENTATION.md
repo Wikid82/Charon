@@ -297,7 +297,7 @@ Shard 1 Complete | Duration: 125s
 ### Created Files (4)
 
 | File | Lines | Purpose |
-|------|-------|---------|
+| ------ | ------- | --------- |
 | `tests/utils/debug-logger.ts` | 291 | Core debug logging utility |
 | `tests/fixtures/network.ts` | 286 | Network request/response interception |
 | `tests/utils/test-steps.ts` | 148 | Test step and assertion logging helpers |
@@ -309,7 +309,7 @@ Shard 1 Complete | Duration: 125s
 ### Modified Files (3)
 
 | File | Changes |
-|------|---------|
+| ------ | --------- |
 | `tests/global-setup.ts` | Enhanced timing logs, error context, detailed output |
 | `playwright.config.js` | Added trace/video/screenshot config, debug reporter integration |
 | `.github/workflows/e2e-tests.yml` | Added env vars, per-shard logging, improved summaries |
@@ -546,7 +546,7 @@ Plus existing tasks:
 ## Troubleshooting
 
 | Issue | Solution |
-|-------|----------|
+| ------- | ---------- |
 | No colored output locally | Check `CI` env var is not set |
 | Traces not captured | Ensure test fails (traces on-first-retry) |
 | Reporter not running | Verify `tests/reporters/debug-reporter.ts` exists |

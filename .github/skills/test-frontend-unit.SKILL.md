@@ -103,9 +103,9 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| watch     | boolean | No    | false   | Run tests in watch mode |
-| filter    | string | No     | ""      | Filter tests by name pattern |
+| --- | --- | --- | --- | --- |
+| watch | boolean | No | false | Run tests in watch mode |
+| filter | string | No | "" | Filter tests by name pattern |
 
 ## Environment Variables
 

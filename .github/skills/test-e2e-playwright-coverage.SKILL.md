@@ -75,7 +75,7 @@ Runs Playwright end-to-end tests with code coverage collection using `@bgotink/p
 **IMPORTANT**: This skill starts the **Vite dev server** (not Docker) because V8 coverage requires access to source files. Running coverage against the Docker container will result in `0%` coverage.
 
 | Mode | Base URL | Coverage Support |
-|------|----------|-----------------|
+| ------ | ---------- | ----------------- |
 | Docker (`localhost:8080`) | ❌ No - Shows "Unknown% (0/0)" | |
 | Vite Dev (`localhost:5173`) | ✅ Yes - Real coverage data | |
 
@@ -130,13 +130,13 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| project   | string | No | firefox | Browser project: chromium, firefox, webkit |
+| --- | --- | --- | --- | --- |
+| project | string | No | firefox | Browser project: chromium, firefox, webkit |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | PLAYWRIGHT_BASE_URL | No | <http://localhost:8080> | Application URL to test against |
 | PLAYWRIGHT_HTML_OPEN | No | never | HTML report auto-open behavior |
 | CI | No | "" | Set to "true" for CI environment behavior |
@@ -181,7 +181,7 @@ npx playwright show-report --port 9323
 The skill generates coverage in multiple formats:
 
 | Format | File | Purpose |
-|--------|------|---------|
+| -------- | ------ | --------- |
 | LCOV | `coverage/e2e/lcov.info` | Codecov upload |
 | HTML | `coverage/e2e/index.html` | Visual inspection |
 | JSON | `coverage/e2e/coverage.json` | Programmatic access |

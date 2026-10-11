@@ -32,7 +32,7 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 ### Testing Skills
 
 | Skill Name | Category | Description | Status |
-|------------|----------|-------------|--------|
+| ------------ | ---------- | ------------- | -------- |
 | [test-backend-coverage](./test-backend-coverage.SKILL.md) | test | Run Go backend tests with coverage analysis | ✅ Active |
 | [test-backend-unit](./test-backend-unit.SKILL.md) | test | Run fast Go unit tests without coverage | ✅ Active |
 | [test-frontend-coverage](./test-frontend-coverage.SKILL.md) | test | Run frontend tests with coverage reporting | ✅ Active |
@@ -44,7 +44,7 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 ### Integration Testing Skills
 
 | Skill Name | Category | Description | Status |
-|------------|----------|-------------|--------|
+| ------------ | ---------- | ------------- | -------- |
 | [integration-test-all](./integration-test-all.SKILL.md) | integration | Run all integration tests in sequence | ✅ Active |
 | [integration-test-coraza](./integration-test-coraza.SKILL.md) | integration | Test Coraza WAF integration | ✅ Active |
 | [integration-test-crowdsec](./integration-test-crowdsec.SKILL.md) | integration | Test CrowdSec bouncer integration | ✅ Active |
@@ -54,7 +54,7 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 ### Security Skills
 
 | Skill Name | Category | Description | Status |
-|------------|----------|-------------|--------|
+| ------------ | ---------- | ------------- | -------- |
 | [security-scan-gorm](./security-scan-gorm.SKILL.md) | security | Detect GORM ID leaks, exposed secrets, and misconfigurations | ✅ Active |
 | [security-scan-trivy](./security-scan-trivy.SKILL.md) | security | Run Trivy vulnerability scanner | ✅ Active |
 | [security-scan-go-vuln](./security-scan-go-vuln.SKILL.md) | security | Run Go vulnerability check | ✅ Active |
@@ -62,13 +62,13 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 ### QA Skills
 
 | Skill Name | Category | Description | Status |
-|------------|----------|-------------|--------|
+| --- | --- | --- | --- |
 | [qa-lefthook-all](./qa-lefthook-all.SKILL.md) | qa | Run all lefthook pre-commit‑phase hooks on entire codebase | ✅ Active |
 
 ### Utility Skills
 
 | Skill Name | Category | Description | Status |
-|------------|----------|-------------|--------|
+| ------------ | ---------- | ------------- | -------- |
 | [utility-clear-go-cache](./utility-clear-go-cache.SKILL.md) | utility | Clear Go build and module caches | ✅ Active |
 | [utility-bump-beta](./utility-bump-beta.SKILL.md) | utility | Increment beta version number | ✅ Active |
 | [utility-db-recovery](./utility-db-recovery.SKILL.md) | utility | Database integrity check and recovery | ✅ Active |
@@ -76,7 +76,7 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 ### Docker Skills
 
 | Skill Name | Category | Description | Status |
-|------------|----------|-------------|--------|
+| ------------ | ---------- | ------------- | -------- |
 | [docker-start-dev](./docker-start-dev.SKILL.md) | docker | Start development Docker Compose environment | ✅ Active |
 | [docker-stop-dev](./docker-stop-dev.SKILL.md) | docker | Stop development Docker Compose environment | ✅ Active |
 | [docker-rebuild-e2e](./docker-rebuild-e2e.SKILL.md) | docker | Rebuild Docker image and restart E2E Playwright container | ✅ Active |

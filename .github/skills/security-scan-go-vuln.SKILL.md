@@ -105,14 +105,14 @@ GOVULNCHECK_FORMAT=json .github/skills/scripts/skill-runner.sh security-scan-go-
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| format    | string | No     | text    | Output format (text, json, sarif) |
-| mode      | string | No     | source  | Scan mode (source or binary) |
+| --- | --- | --- | --- | --- |
+| format | string | No | text | Output format (text, json, sarif) |
+| mode | string | No | source | Scan mode (source or binary) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | GOVULNCHECK_FORMAT | No | text | Output format override |
 
 ## Outputs

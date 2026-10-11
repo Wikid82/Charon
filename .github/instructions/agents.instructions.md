@@ -118,7 +118,7 @@ tools: []
 All aliases are case-insensitive:
 
 | Alias | Alternative Names | Category | Description |
-|-------|------------------|----------|-------------|
+| ------- | ------------------ | ---------- | ------------- |
 | `execute` | shell, Bash, powershell | Shell execution | Execute commands in appropriate shell |
 | `read` | Read, NotebookRead, view | File reading | Read file contents |
 | `edit` | Edit, MultiEdit, Write, NotebookEdit | File editing | Edit and modify files |

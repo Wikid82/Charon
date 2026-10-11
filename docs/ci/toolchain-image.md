@@ -9,7 +9,7 @@ every CI image build.
 ## How it fits together
 
 | Piece | Role |
-|---|---|
+| --- | --- |
 | `Dockerfile` `caddy-inline` / `crowdsec-inline` stages | The single source of truth for the build recipe. Compiled only by the toolchain workflow and the fork/offline fallback. |
 | `Dockerfile` `toolchain-runtime` stage | `docker buildx build --target toolchain-runtime` → the publishable image. |
 | `Dockerfile` `ARG CHARON_TOOLCHAIN_TAG` / `CHARON_TOOLCHAIN_DIGEST` | The pin. `DIGEST` is the arch-independent manifest-list (OCI index) digest. Bot-owned — do **not** hand-edit. |
@@ -33,7 +33,7 @@ provenance/SBOM attestations (in `docker-build.yml`) are separate and unaffected
 ## Triggers
 
 | Event | Behaviour |
-|---|---|
+| --- | --- |
 | `schedule` (daily 06:00 UTC) | `--no-cache --pull` deterministic rebuild + blocking Trivy CRITICAL/HIGH gate + `:trivy-toolchain` SARIF. If the digest moved → opens `bot/bump-toolchain-image` (base `development`). |
 | `workflow_dispatch` (`force_rebuild=true` default) | Same as `schedule`. Use this for an urgent out-of-band refresh. |
 | `pull_request` touching a tracked input | **Skip-if-already-published:** if `:$KEY` already exists in GHCR, reuse that digest and do not rebuild. Same-repo PRs that genuinely moved a pin get the two-line `TAG`/`DIGEST` bump pushed onto the PR branch by `sync-pin-on-pr` (then re-run the `verify-toolchain-pin` check — `GITHUB_TOKEN` pushes don't auto-retrigger). Forks build `cacheonly` (recipe-compile validation only). |

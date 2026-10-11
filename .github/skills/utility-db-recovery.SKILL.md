@@ -85,9 +85,9 @@ Use the task: **Utility: Database Recovery**
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| --force   | flag | No       | false   | Skip confirmation prompts |
-| -f        | flag | No       | false   | Alias for --force |
+| --- | --- | --- | --- | --- |
+| --force | flag | No | false | Skip confirmation prompts |
+| -f | flag | No | false | Alias for --force |
 
 ## Environment Variables
 

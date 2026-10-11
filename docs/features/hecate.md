@@ -27,7 +27,7 @@ You interact with Hecate every time you add a Remote Server — it's the part th
 When you add a Remote Server, you choose one of these modes:
 
 | Mode | When To Use | What You Provide |
-|---|---|---|
+| --- | --- | --- |
 | **Direct** | The machine is on your local network or has a public IP | Hostname or IP address + port |
 | **Agent** | You installed Orthrus on the remote machine | Just pick the agent from the list |
 | **Provider** | The machine is already on a VPN, no agent needed | Pick the VPN provider + the device |
@@ -51,7 +51,7 @@ Your remote machine is already connected to a VPN service like NetBird, Tailscal
 Go to **Remote Agents** in the sidebar to see all your Orthrus agents at a glance. Each one shows a live status badge:
 
 | Badge | Meaning |
-|---|---|
+| --- | --- |
 | 🟢 Green | Connected and healthy |
 | 🟡 Yellow | Connecting or experiencing delays |
 | 🔴 Red | Unreachable |
@@ -65,7 +65,7 @@ Click any agent to see its details, change its name, view install instructions, 
 These VPN and tunnel services work with Provider Mode:
 
 | Provider | What You Need |
-|---|---|
+| --- | --- |
 | NetBird | NetBird API key |
 | Tailscale | Tailscale API key |
 | Cloudflare | Cloudflare Tunnel credentials |
@@ -98,7 +98,7 @@ Remote servers managed through Orthrus agents work with [Uptime Monitoring](upti
 ## Troubleshooting
 
 | Problem | Likely Cause | Fix |
-|---|---|---|
+| --- | --- | --- |
 | Provider shows an error state | Bad credentials or expired API key | Re-enter credentials in **Settings → Tunnel Providers** |
 | Agent Mode address not filling in | No network assignment set on the agent | Open the agent → assign a Provider + Device → save |
 | Tunnel keeps restarting | VPN provider is temporarily unreachable | This is normal — Hecate retries automatically with increasing delays |

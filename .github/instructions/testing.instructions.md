@@ -108,7 +108,7 @@ This step:
 Playwright E2E tests can run in two modes with different capabilities:
 
 | Mode | Base URL | Coverage Support | When to Use |
-|------|----------|-----------------|-------------|
+| ------ | ---------- | ----------------- | ------------- |
 | **Docker** | `http://localhost:8080` | ❌ No (0% reported) | Integration testing, CI validation |
 | **Vite Dev** | `http://localhost:5173` | ✅ Yes (real coverage) | Local development, coverage collection |
 

@@ -15,7 +15,7 @@ When traffic passes through a reverse proxy, your backend loses visibility into 
 ### Standard Proxy Headers
 
 | Header | Purpose | Example Value |
-|--------|---------|---------------|
+| -------- | --------- | --------------- |
 | **X-Real-IP** | Original client IP address | `203.0.113.42` |
 | **X-Forwarded-For** | Chain of proxy IPs | `203.0.113.42, 10.0.0.1` |
 | **X-Forwarded-Proto** | Original protocol (HTTP/HTTPS) | `https` |
@@ -53,7 +53,7 @@ X-Forwarded-Host preserves the original domain:
 ### Default Behavior
 
 | Host Type | Proxy Headers |
-|-----------|---------------|
+| --- | --- |
 | New hosts | **Enabled** by default |
 | Existing hosts (pre-upgrade) | **Disabled** (preserves existing behavior) |
 
@@ -133,7 +133,7 @@ When multiple proxies exist, verify the entire X-Forwarded-For chain rather than
 ## Troubleshooting
 
 | Issue | Likely Cause | Solution |
-|-------|--------------|----------|
+| ------- | -------------- | ---------- |
 | Backend shows wrong IP | Headers not enabled | Enable proxy headers for host |
 | Redirect loop | Backend doesn't trust X-Forwarded-Proto | Configure backend trust settings |
 | Wrong URLs in emails | Missing X-Forwarded-Host trust | Enable host header forwarding |

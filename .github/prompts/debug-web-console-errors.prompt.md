@@ -42,7 +42,7 @@ Execute the following phases systematically. Do not skip phases or jump to concl
 Categorize the error into one of these types:
 
 | Type | Indicators | Primary Investigation Area |
-|------|------------|---------------------------|
+| ------ | ------------ | --------------------------- |
 | **JavaScript Runtime Error** | `TypeError`, `ReferenceError`, `SyntaxError`, stack trace with `.js`/`.ts` files | Frontend source code |
 | **React/Framework Error** | `React`, `hook`, `component`, `render`, `state`, `props` in message | Component lifecycle, hooks, state management |
 | **Network Error** | `fetch`, `XMLHttpRequest`, HTTP status codes, `CORS`, `net::ERR_` | API endpoints, backend handlers, network config |

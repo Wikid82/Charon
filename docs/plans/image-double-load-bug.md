@@ -15,7 +15,7 @@ Users of the Charon management UI observe the following Firefox Network tab arti
 page navigation:
 
 | Observed request | Status |
-|---|---|
+| --- | --- |
 | `data:application/octet-stream;base64,` | Completed (0 bytes) |
 | `/banner.png` | `NS_BINDING_ABORTED` |
 | `/logo.png` | `NS_BINDING_ABORTED` |
@@ -66,7 +66,7 @@ Every `<img>` element in the frontend has a **hardcoded static path**, never a d
 computed value:
 
 | File | Line | `src` value | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `frontend/src/components/Layout.tsx` | 138 | `/logo.png` | Mobile header — always in DOM |
 | `frontend/src/components/Layout.tsx` | 155 | `/logo.png` | Sidebar — rendered when `isCollapsed = true` |
 | `frontend/src/components/Layout.tsx` | 157 | `/banner.png` | Sidebar — rendered when `isCollapsed = false` |
@@ -371,7 +371,7 @@ are required for this fix.
 #### Task 3.1 — Move Suspense boundary
 
 | | Detail |
-|---|---|
+| --- | --- |
 | **File** | `frontend/src/App.tsx` |
 | **Change** | Remove outer `<Suspense>` from `<Routes>`. Add per-route `<Suspense>` for `/login`, `/setup`, `/accept-invite`, `/passthrough` (these are independently lazy-loaded and not inside Layout). Keep Layout's children wrapped in a lightweight internal Suspense (see Task 3.2). |
 | **Risk** | Low — behavior-equivalent for unauthenticated routes; improves stability for authenticated routes |
@@ -380,7 +380,7 @@ are required for this fix.
 #### Task 3.2 — Add `PageLoadingFallback` inside Layout
 
 | | Detail |
-|---|---|
+| --- | --- |
 | **File** | `frontend/src/components/Layout.tsx` |
 | **Change** | Wrap `{children}` in `<Suspense fallback={<PageLoadingFallback />}>`. `PageLoadingFallback` is a small pulse/skeleton component styled to fit the content area. |
 | **New file** | `frontend/src/components/PageLoadingFallback.tsx` (optional, can be inline) |
@@ -390,7 +390,7 @@ are required for this fix.
 #### Task 3.3 — Fix mobile header image (conditional render)
 
 | | Detail |
-|---|---|
+| --- | --- |
 | **File** | `frontend/src/components/Layout.tsx` |
 | **Change** | Add `useMediaQuery('(max-width: 1023px)')` hook call. Wrap mobile header `<img>` in `{isMobile && ...}`. |
 | **New file** | `frontend/src/hooks/useMediaQuery.ts` |
@@ -400,7 +400,7 @@ are required for this fix.
 #### Task 3.4 — Add `fetchPriority` and `decoding` to sidebar images
 
 | | Detail |
-|---|---|
+| --- | --- |
 | **File** | `frontend/src/components/Layout.tsx` lines 155–157 |
 | **Change** | Add `fetchPriority="high" decoding="async"` to both sidebar `<img>` elements |
 | **Risk** | None — purely additive attributes |
@@ -408,7 +408,7 @@ are required for this fix.
 #### Task 3.5 — Unit tests
 
 | | Detail |
-|---|---|
+| --- | --- |
 | **File** | `frontend/src/components/__tests__/Layout.test.tsx` (existing or new) |
 | **Tests** | (a) Renders banner.png when `isCollapsed = false`; (b) Renders logo.png when `isCollapsed = true`; (c) Does NOT render mobile header image when `isMobile = false`; (d) Renders mobile header image when `isMobile = true` |
 
@@ -433,7 +433,7 @@ are required for this fix.
 plus one new hook file. Splitting into multiple PRs would add overhead without review benefit.
 
 | Commit | Scope | Files | Dependency | Validation Gate |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **1** | `test(e2e): add image double-load regression tests` | `tests/image-double-load.spec.ts` | None | Tests fail (expected — TDD) |
 | **2** | `fix(layout): move Suspense inside Layout to prevent image abort on navigation` | `frontend/src/App.tsx`, `frontend/src/components/Layout.tsx`, `frontend/src/components/PageLoadingFallback.tsx` (new) | Commit 1 | Playwright Tests 1 & 2 pass |
 | **3** | `fix(layout): conditionally render mobile header image to avoid hidden request` | `frontend/src/hooks/useMediaQuery.ts` (new), `frontend/src/components/Layout.tsx`, `frontend/src/components/__tests__/Layout.test.tsx` | Commit 2 | Playwright Test 3 passes; unit tests pass; no regression in mobile viewport |
@@ -465,7 +465,7 @@ critical fix; Commit 3 (mobile image) is an independent optimization.
 ## 8. Risk Register
 
 | Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `useMediaQuery` causes SSR hydration mismatch (if SSR is added later) | Low | Low | Hook uses `() => window.matchMedia(...).matches` lazy init — safe for CSR; document if SSR is added |
 | Moving Suspense changes loading UX for unauthenticated pages | Low | Low | Each unauthenticated route gets its own Suspense with the same fallback as before |
 | `PageLoadingFallback` causes content-area layout shift | Low | Medium | Skeleton should match the approximate height of the content area; test with Lighthouse CLS metric |

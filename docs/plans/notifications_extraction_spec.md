@@ -80,7 +80,7 @@ delivery from scratch each time.
 Charon's notification surface spans four layers, and they are **not** equally coupled:
 
 | Layer | Location | Coupling to Charon |
-|---|---|---|
+| --- | --- | --- |
 | Delivery primitive | `backend/internal/notifications/` | Imports `internal/network` + `internal/security` (SSRF guards) directly. Otherwise pure Go, no GORM, no DB, no Charon config. |
 | Orchestration/business logic | `backend/internal/services/notification_service.go`, `security_notification_service.go`, `enhanced_security_notification_service.go` | Heavily coupled: `*gorm.DB`, `models.NotificationProvider`/`NotificationConfig`, Charon's `Setting` table for feature flags, Charon's `logger`/`util`/`trace` packages, `MailServiceInterface` (Charon SMTP), Charon-branded strings ("[Charon Alert]"), Charon domain concepts (`HostName`, `ServiceCount`, `proxy_host`/`remote_server`/`domain`/`cert`/`uptime`/`security_*` event types). |
 | Persistence | `backend/internal/models/notification*.go` | GORM models with `BeforeCreate` hooks, `gorm:` tags — pure Charon persistence. |
@@ -93,7 +93,7 @@ line, now revised for full provider-layer scope (see the revision note above).
 ### 2.2 `backend/internal/notifications/` package (the current "engine")
 
 | File | LOC | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `engine.go` | 23 | `DeliveryEngine` interface + `DispatchRequest` struct. **Dead code** — grep confirms nothing outside this file implements or references `DeliveryEngine`; `EngineNotifyV1` const is unused elsewhere. |
 | `feature_flags.go` | 15 | String constants naming Charon `Setting`-table keys (e.g. `feature.notifications.service.discord.enabled`). These are Charon policy labels, not engine behavior — the lookup logic lives in `notification_service.go` (`getFeatureFlagValue`), not in this package. |
 | `http_client_executor.go` | 8 | Thin `client.Do` wrapper, exists purely as a test seam. |
@@ -223,7 +223,7 @@ up with **zero** imports of GORM, `models`, or any `github.com/Wikid82/charon/*`
 #### 3.1.1 Moves to the new module — delivery primitive (unchanged from prior draft)
 
 | File | Reason |
-|---|---|
+| --- | --- |
 | `http_wrapper.go` | SSRF-hardened dispatch, retries, header sanitization. Zero Charon-domain knowledge — only needs the two DI seams in §3.2. |
 | `http_wrapper_test.go` | Moves with its subject. |
 | `http_client_executor.go` | Test seam used by `http_wrapper.go`. |
@@ -236,7 +236,7 @@ All of the following are read directly out of `notification_service.go`'s `sendJ
 their destination package. None of these are simple moves — each is genericized per §3.3.
 
 | Current location (`notification_service.go`) | Logic | Destination |
-|---|---|---|
+| --- | --- | --- |
 | `minimalTemplate`/`detailedTemplate` consts (385–386, duplicated 792–793) | Built-in JSON templates | `providers/webhook`, genericized: `.HostName`/`.HostIP`/`.ServiceCount`/`.Services` top-level fields replaced with a single `{{toJSON .Data}}` (see "payload shape change" risk in §7). |
 | Template parse/exec core (388–447, 811–825) — `text/template` + `toJSON` funcmap, 10 KB size cap, 5 s exec timeout | Shared rendering engine | `providers/internal/render` (unexported, shared by all seven provider packages — avoids 7x duplication of the same template plumbing). |
 | `discordWebhookRegex`, `allowedDiscordWebhookHosts`, `normalizeURL`, `validateDiscordWebhookURL`, `validateDiscordProviderURL` (63–127) | Discord webhook URL shape/host validation | `providers/discord` |
@@ -268,7 +268,7 @@ not just a refactor) — called out as a new risk in §7, not silently folded in
 #### 3.1.3 Stays in Charon (per the revision brief) — GORM CRUD, flag gating, event routing
 
 | Function(s) | Reason |
-|---|---|
+| --- | --- |
 | `SendExternal` (215–284) | Event-type filtering against Charon domain concepts (`proxy_host`/`remote_server`/`domain`/`cert`/`uptime`/`security_*`) mapped to `models.NotificationProvider` boolean columns, plus the GORM `Find` query. Becomes the seam: after filtering + flag-check, maps provider row + event data into `notify.Message` + provider `Config`, calls the module's `Sender`, logs the result. |
 | `isDispatchEnabled`, `getFeatureFlagValue` (148–180) | DB-backed feature-flag gating via `models.Setting` — explicitly named as staying in the revision brief. |
 | `emailTemplateForEventType` (360–371) | Charon event-type → HTML template name mapping. Stays; becomes the `TemplateName` selector Charon passes into its `providers/email` adapter (§3.3.4). |
@@ -290,7 +290,7 @@ not just a refactor) — called out as a new risk in §7, not silently folded in
 #### 3.1.4 Stays in Charon — unchanged (persistence, security infra, unrelated features)
 
 | File / area | Reason |
-|---|---|
+| --- | --- |
 | `backend/internal/models/notification.go`, `notification_config.go`, `notification_provider.go`, `notification_template.go` | GORM persistence models; a generic module must not depend on GORM. |
 | `backend/internal/services/security_notification_service.go`, `enhanced_security_notification_service.go` + their tests | Charon-specific security event taxonomy (WAF/ACL/rate-limit/CrowdSec) and legacy-config migration logic. Consumers of the engine, not part of it. |
 | `docs/features/notifications.md` | Charon user-facing product documentation; the new module gets its own fresh README. |

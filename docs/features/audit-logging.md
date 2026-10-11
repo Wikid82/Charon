@@ -44,7 +44,7 @@ The audit log interface consists of:
 All audit events are categorized for easy filtering:
 
 | Category | Description | Example Events |
-|----------|-------------|----------------|
+| ---------- | ------------- | ---------------- |
 | `dns_provider` | DNS provider credential operations | Create, update, delete, test credentials |
 | `certificate` | Certificate lifecycle events | Issuance, renewal, failure |
 | `system` | System-level operations | Automated credential decryption |
@@ -54,7 +54,7 @@ All audit events are categorized for easy filtering:
 Charon logs the following DNS provider operations:
 
 | Action | When It's Logged | Details Captured |
-|--------|------------------|------------------|
+| -------- | ------------------ | ------------------ |
 | `dns_provider_create` | New DNS provider added | Provider name, type, is_default flag |
 | `dns_provider_update` | Provider settings changed | Changed fields, old values, new values |
 | `dns_provider_delete` | Provider removed | Provider name, type, whether credentials existed |
@@ -558,7 +558,7 @@ Authorization: Bearer YOUR_API_TOKEN
 ### Error Responses
 
 | Status Code | Error | Description |
-|-------------|-------|-------------|
+| ------------- | ------- | ------------- |
 | 400 | Invalid parameter | Invalid page/limit or malformed date |
 | 401 | Unauthorized | Missing or invalid authentication |
 | 404 | Not found | Audit event UUID does not exist |

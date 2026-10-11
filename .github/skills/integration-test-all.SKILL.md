@@ -101,13 +101,13 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | DOCKER_BUILDKIT | No | 1 | Enable BuildKit for faster builds |
 | SKIP_CLEANUP | No | false | Skip container cleanup after tests |
 | TEST_TIMEOUT | No | 300 | Timeout in seconds for each test |

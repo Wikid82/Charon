@@ -7,10 +7,11 @@
   // restores the default) once the repo-wide markdown cleanup lands. MD013 and MD040 were the loudest.
   "MD001": false, // heading increment (pre-existing hit in CONTRIBUTING.md)
   "MD013": false, // line length (was: line_length 120, heading_line_length 120, code_block_line_length 150, tables false)
-  "MD025": false, // multiple H1s (front-matter title + "# Title" in docs-site pages)
+  "MD025": {
+    "front_matter_title": "" // docs-site pages carry a front-matter title and a matching "# Title"
+  },
   "MD036": false, // emphasis used as a heading
   "MD040": false, // fenced code language
-  "MD060": false, // table column style
   "MD010": {
     "code_blocks": false // tabs are idiomatic in Go/Makefile snippets
   },

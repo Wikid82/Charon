@@ -82,7 +82,7 @@ A Git commit message consists of two parts:
 Use these standardized types for consistency and automated tooling:
 
 | Type | Description | Example | When to Use |
-|------|-------------|---------|-------------|
+| ------ | ------------- | --------- | ------------- |
 | `feat` | New user-facing feature | `feat: add password reset email` | New functionality visible to users |
 | `fix` | Bug fix in application code | `fix: correct validation logic for email` | Fixing a bug that affects users |
 | `chore` | Infrastructure, tooling, dependencies | `chore: upgrade Go to 1.21` | CI/CD, build scripts, dependencies |
@@ -505,7 +505,7 @@ test(utils): add unit tests for date parsing
 ## Common Pitfalls and Solutions
 
 | Pitfall | Solution |
-|---------|----------|
+| --------- | ---------- |
 | Forgetting to commit | Set reminders, commit frequently |
 | Vague messages | Include specific details about what changed |
 | Too many changes in one commit | Break into atomic commits |

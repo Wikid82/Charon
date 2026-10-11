@@ -217,15 +217,15 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| mode      | string | No     | --report | Operating mode (--report, --check, --enforce) |
+| --- | --- | --- | --- | --- |
+| mode | string | No | --report | Operating mode (--report, --check, --enforce) |
 | output_file | string | No | (stdout) | Path to save report file (e.g., docs/reports/gorm-scan.txt) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| VERBOSE  | No       | 0       | Enable verbose debug output (set to 1) |
+| --- | --- | --- | --- |
+| VERBOSE | No | 0 | Enable verbose debug output (set to 1) |
 
 ## Outputs
 

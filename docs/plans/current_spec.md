@@ -8,7 +8,7 @@ Base: `origin/development`, which already includes #1525 (113f646c). All line nu
 Four open issues, all authored by the maintainer (none is user-submitted), all low severity:
 
 | Issue | Type | Area | Summary |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | #1528 | fix / product decision | backend (+ small frontend) | F1 archive entry check too broad, F3 absolute server paths in CrowdSec responses, F5 credentials YAML files still listed/readable in the editor |
 | #1479 | hardening | backend `network` pkg | `WithAllowedDomains` option stores a list nothing reads |
 | #1481 | cleanup | backend `crowdsec` pkg | production hub URL validator carries test-only host allowances |
@@ -130,7 +130,7 @@ Conventional commits; no session ID/link anywhere. All subagent dispatch prompts
 ### Part A (hardening)
 
 | # | Commit | Scope | Files | Depends on | Validation gate |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | A0 | `test(e2e): add fixme specs for editor secrets and response paths` | `test.fixme` specs for F5 (credentials not listed; read rejected) and F3 (`backup` and error bodies contain no absolute path); update fixture stubs to name-only values | `tests/security/crowdsec-file-editor.spec.ts` (~L89 stub + new cases), `tests/security/crowdsec-hub-preset-apply.spec.ts` (~L110), `tests/security/crowdsec-preset-apply.spec.ts` | none | `npx playwright test tests/security/crowdsec-file-editor.spec.ts tests/security/crowdsec-preset-apply.spec.ts tests/security/crowdsec-hub-preset-apply.spec.ts --project=security-tests` |
 | A1 | `fix(security): harden CrowdSec editor access` | F5 per 3.1; tests assert real messages: list omits both names, read -> `invalid path`, write -> `file cannot be edited`, mixed-case and symlink-to-credentials cases (symlink caught by the resolved-path re-check ~L149) | `backend/internal/api/handlers/crowdsec_files.go`, `crowdsec_files_test.go` | A0 | `cd backend && go test ./internal/api/handlers/... ./internal/crowdsec/...` |
 | A2 | `fix: stop returning server paths in CrowdSec responses` (see Q5 on whether this deserves `(security)`; if the user says yes use `fix(security): harden CrowdSec API responses`) | F3 per 3.2 across all nine items in 2.3 (`backupID` helper, `rollbackFailure`, extract/export/import error text, three UI print sites + i18n key in all locales, vitest and Playwright fixtures) | `backend/internal/crowdsec/backup.go` (+test), `hub_sync.go`, `crowdsec_files.go`, `crowdsec_handler.go`, `crowdsec_preset_handler.go`, `frontend/src/pages/CrowdSecConfig.tsx`, `frontend/src/locales/*/translation.json`, `frontend/src/pages/__tests__/CrowdSecConfig.curatedApply.test.tsx` and any other test asserting the old value, `docs/troubleshooting/crowdsec.md` | A1 | backend `go test` for touched packages; `cd frontend && npm run type-check && npx vitest run src/pages/__tests__/CrowdSecConfig*`; response-body regex test shows no absolute path |
@@ -142,7 +142,7 @@ Conventional commits; no session ID/link anywhere. All subagent dispatch prompts
 ### Part B (#1526), after A
 
 | # | Commit | Scope | Files | Validation gate |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | B1 | `test(e2e): shared CrowdSec stub helpers` | extract repeated route stubs and fixtures (status, decisions, enrollment, file list/content, diagnostics) | new helper under `tests/utils/` or `tests/fixtures/` | one spec run |
 | B2 | `test(e2e): deterministic crowdsec-config non-preset cases` | back nav, file list/content, export, enrollment, status indicators | `crowdsec-config.spec.ts` | `npx playwright test tests/security/crowdsec-config.spec.ts --project=security-tests` |
 | B3 | `test(e2e): deterministic crowdsec dashboard and decisions` | | `crowdsec-dashboard.spec.ts`, `crowdsec-decisions.spec.ts` | same per file |
@@ -172,7 +172,7 @@ Full Definition of Done for the PR(s): targeted Playwright as above; full-config
 ## 8. Risks and Mitigations
 
 | Risk | Mitigation |
-|---|---|
+| --- | --- |
 | ~100-110-hit test migration (A5) breaks many tests | Single commit, package-by-package runs, mechanical mapping with distinct hosts per role (3.5) |
 | Migration weakens tests via `uniqueStrings` collapse | Distinct hosts per role; ordering assertions where relevant |
 | F5 hides a file someone relies on viewing | Documented as a behavior change; disk access unchanged; masked read-only view is the fallback |

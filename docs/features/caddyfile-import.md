@@ -90,7 +90,7 @@ Click **Import** to create hosts. The process handles each host individually—o
 After import completes, a summary modal displays:
 
 | Category | Description |
-|----------|-------------|
+| ---------- | ------------- |
 | **Created** | New hosts added to Charon |
 | **Updated** | Existing hosts modified (if overwrite enabled) |
 | **Skipped** | Hosts skipped due to conflicts or errors |
@@ -118,7 +118,7 @@ Details:
 ### Overwrite Existing
 
 | Setting | Behavior |
-|---------|----------|
+| --- | --- |
 | **Off** (default) | Skip hosts that already exist |
 | **On** | Replace existing hosts with imported configuration |
 
@@ -129,7 +129,7 @@ Create hosts but leave them disabled for review before enabling.
 ### TLS Handling
 
 | Source TLS Setting | Charon Behavior |
-|--------------------|-----------------|
+| -------------------- | ----------------- |
 | ACME configured | Enable Let's Encrypt |
 | Custom certificates | Create host, flag for manual cert upload |
 | No TLS | Create HTTP-only host |
@@ -165,7 +165,7 @@ Some Caddyfile features require manual configuration after import:
 ## Troubleshooting
 
 | Issue | Solution |
-|-------|----------|
+| ------- | ---------- |
 | Parse error | Check Caddyfile syntax validity |
 | Missing hosts | Ensure site blocks have valid domains |
 | TLS warnings | Configure certificates manually post-import |

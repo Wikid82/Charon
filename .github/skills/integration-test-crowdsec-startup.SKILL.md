@@ -104,13 +104,13 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | STARTUP_TIMEOUT | No | 60 | Maximum wait for startup (seconds) |
 | SKIP_CLEANUP | No | false | Skip container cleanup after tests |
 | CROWDSEC_VERSION | No | latest | CrowdSec image version to test |

@@ -168,15 +168,15 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| project   | string | No | firefox | Browser project: chromium, firefox, webkit, all |
-| headed    | boolean | No | false | Run with visible browser window |
-| grep      | string | No | "" | Filter tests by title pattern (regex) |
+| --- | --- | --- | --- | --- |
+| project | string | No | firefox | Browser project: chromium, firefox, webkit, all |
+| headed | boolean | No | false | Run with visible browser window |
+| grep | string | No | "" | Filter tests by title pattern (regex) |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | PLAYWRIGHT_BASE_URL | No | <http://localhost:8080> | Application URL to test against |
 | PLAYWRIGHT_HTML_OPEN | No | never | HTML report auto-open behavior |
 | CI | No | "" | Set to "true" for CI environment behavior |
@@ -333,7 +333,7 @@ When E2E tests fail, follow this workflow:
 ## Key File Locations
 
 | Path | Purpose |
-|------|---------|
+| ------ | --------- |
 | `tests/` | All E2E test files |
 | `tests/auth.setup.ts` | Authentication setup fixture |
 | `playwright.config.js` | Playwright configuration |

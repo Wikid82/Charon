@@ -188,7 +188,7 @@ curl https://charon.example.com/api/v1/dns-providers/types \
 **Key fields:**
 
 | Field | Description |
-|-------|-------------|
+| --- | --- |
 | `is_built_in` | `true` = compiled into Charon, `false` = external plugin |
 | `fields` | Credential field specifications for the UI form |
 

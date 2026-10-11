@@ -492,7 +492,7 @@ test.afterEach(async ({ request }) => {
 ### Helper Functions
 
 | Helper | Purpose | File |
-|--------|---------|------|
+| -------- | --------- | ------ |
 | `getFormFieldByLabel()` | Cross-browser form field locator | `tests/utils/ui-helpers.ts` |
 | `clickSwitch()` | Reliable switch/toggle interaction | `tests/utils/ui-helpers.ts` |
 | `expectSwitchState()` | Assert switch checked state | `tests/utils/ui-helpers.ts` |

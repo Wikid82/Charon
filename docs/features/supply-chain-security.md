@@ -14,7 +14,7 @@ Supply chain attacks are increasingly common. Charon protects you with multiple 
 ### Security Artifacts
 
 | Artifact | Purpose | Standard |
-|----------|---------|----------|
+| ---------- | --------- | ---------- |
 | **Cosign Signature** | Cryptographic proof of origin | Sigstore |
 | **SLSA Provenance** | Build process attestation | SLSA Level 3 |
 | **SBOM** | Complete dependency inventory | SPDX/CycloneDX |
@@ -22,7 +22,7 @@ Supply chain attacks are increasingly common. Charon protects you with multiple 
 ## Why Supply Chain Security Matters
 
 | Threat | Mitigation |
-|--------|------------|
+| -------- | ------------ |
 | **Compromised CI/CD** | SLSA provenance verifies build source |
 | **Malicious maintainer** | Signatures require private key access |
 | **Dependency hijacking** | SBOM enables vulnerability scanning |
@@ -108,7 +108,7 @@ grype sbom:charon-sbom.spdx.json
 SLSA (Supply-chain Levels for Software Artifacts) provenance includes:
 
 | Field | Content |
-|-------|---------|
+| ------- | --------- |
 | `buildType` | GitHub Actions workflow |
 | `invocation` | Commit SHA, branch, workflow run |
 | `materials` | Source repository, dependencies |

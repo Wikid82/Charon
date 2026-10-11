@@ -28,7 +28,7 @@ Logs stream directly to your browser with minimal latency, eliminating the need 
 The log viewer provides intuitive controls for managing the log stream:
 
 | Control | Function |
-|---------|----------|
+| --------- | ---------- |
 | **Pause/Resume** | Temporarily stop the stream to examine specific entries |
 | **Clear** | Remove all displayed logs (doesn't affect server logs) |
 | **Auto-scroll** | Automatically scroll to newest entries (toggle on/off) |

@@ -330,7 +330,7 @@ If enrollment was incomplete in v1.x (common issue), re-enroll now:
 ### Feature Comparison
 
 | Aspect | Environment Variable (Old) | GUI Toggle (New) |
-|--------|---------------------------|------------------|
+| -------- | --------------------------- | ------------------ |
 | **Enable/Disable** | Edit file + restart container | Click toggle |
 | **Time to apply** | 30-60 seconds | 10-15 seconds |
 | **Status visibility** | Check logs | Real-time dashboard |
