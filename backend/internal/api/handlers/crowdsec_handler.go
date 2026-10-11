@@ -340,6 +340,13 @@ func listArchiveContents(path string) ([]string, error) {
 	return files, nil
 }
 
+const (
+	// msgKeptProfileUndefined and msgKeptProfileDuplicate refuse an import without profiles.yaml whose
+	// kept profile no longer matches the notification files. The undefined names follow the prefix.
+	msgKeptProfileUndefined = "the archive has no profiles.yaml, so the current one was kept, but it names notifications the archive has no files for: "
+	msgKeptProfileDuplicate = "the archive has no profiles.yaml, so the current one was kept, but a notification file it needs defines a name the archive already defines"
+)
+
 // msgImportFlatArchive is the fixed message for an archive whose configuration is not in the folder a
 // nested installation reads.
 const msgImportFlatArchive = "the archive keeps its configuration at the top level, but this CrowdSec installation reads it from the config folder; export a configuration from this page, or put the files in a config/ folder inside the archive"
@@ -807,6 +814,21 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		}
 	}
 
+	// The import cleared every file the archive did not replace: put back the ones CrowdSec cannot start
+	// without, and make sure a kept profile still resolves its notifications.
+	keptFiles, restoreErr := crowdsec.RestoreMissingCompanions(backupDir, h.DataDir, liveConfigPrefix(liveLayout))
+	if restoreErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(restoreErr.Error())).Warn("crowdsec import: restoring the current files failed")
+		rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to keep the current CrowdSec files"})
+		return
+	}
+	if verifyErr := crowdsec.VerifyKeptProfile(h.DataDir, keptFiles); verifyErr != nil {
+		rollback()
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": keptProfileRefusal(verifyErr)})
+		return
+	}
+
 	// Validate extracted config
 	validateErr := errConfigFileNotFound
 	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
@@ -820,7 +842,28 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 
 	resp := gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)}
 	h.addHubItemsReport(resp, info.HubItems)
+	if len(keptFiles) > 0 {
+		resp["kept_files"] = keptFiles
+	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// liveConfigPrefix is the folder below DataDir that holds the configuration CrowdSec reads.
+func liveConfigPrefix(l crowdsec.Layout) string {
+	if l == crowdsec.LayoutNested {
+		return "config"
+	}
+	return ""
+}
+
+// keptProfileRefusal maps a failure of crowdsec.VerifyKeptProfile (an undefined or a duplicate
+// notification) to its fixed 422 message.
+func keptProfileRefusal(err error) string {
+	var undefined *crowdsec.UndefinedNotificationsError
+	if errors.As(err, &undefined) {
+		return msgKeptProfileUndefined + undefined.NameList()
+	}
+	return msgKeptProfileDuplicate
 }
 
 // pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.

@@ -422,10 +422,10 @@ test.describe('CrowdSec Config Import Validation', () => {
     });
   });
 
-  // Pending until imports keep the current companion files: an archive that omits profiles.yaml,
-  // simulation.yaml or acquis.yaml must not leave CrowdSec without them.
+  // An archive that omits profiles.yaml, simulation.yaml, acquis.yaml or patterns/ must not leave
+  // CrowdSec without them: the current files are kept and reported.
   test.describe('Kept Files', () => {
-    test.fixme('keeps the current files an archive omits and reports them sorted', async ({ request }, testInfo) => {
+    test('keeps the current files an archive omits and reports them sorted', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         { 'config/config.yaml': VALID_CONFIG, 'config/profiles.yaml': BASELINE_PROFILES.replace('default_ip_remediation', 'archive_profile') },
         testInfo.outputPath('keeps-companions.tar.gz'),
@@ -434,24 +434,24 @@ test.describe('CrowdSec Config Import Validation', () => {
       const response = await upload(request, archive, 'keeps-companions.tar.gz');
 
       expect(response.status()).toBe(200);
-      // The archive's own profiles.yaml wins and is not listed; patterns/ does not exist in the E2E tree.
-      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'simulation.yaml']);
+      // The archive's own profiles.yaml wins and is not listed. The E2E tree also carries the default patterns/ folder.
+      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'patterns', 'simulation.yaml']);
       expect(await readConfigFile(request, cfg('profiles.yaml'))).toContain('archive_profile');
       expect(await readConfigFile(request, cfg('acquis.yaml'))).toBe(BASELINE_ACQUIS);
       expect(await readConfigFile(request, cfg('simulation.yaml'))).toBe(BASELINE_SIMULATION);
     });
 
-    test.fixme('keeps the current profiles.yaml when the archive has none', async ({ request }, testInfo) => {
+    test('keeps the current profiles.yaml when the archive has none', async ({ request }, testInfo) => {
       const archive = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('no-profiles-kept.tar.gz'));
 
       const response = await upload(request, archive, 'no-profiles-kept.tar.gz');
 
       expect(response.status()).toBe(200);
-      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'profiles.yaml', 'simulation.yaml']);
+      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'patterns', 'profiles.yaml', 'simulation.yaml']);
       expect(await readConfigFile(request, cfg('profiles.yaml'))).toBe(BASELINE_PROFILES);
     });
 
-    test.fixme('gives back the notification file a kept profiles.yaml names', async ({ request }, testInfo) => {
+    test('gives back the notification file a kept profiles.yaml names', async ({ request }, testInfo) => {
       // Step 1: make the running system's profile name a notification, with the file that defines it.
       const withProfile = await createTarGz(
         {
@@ -473,6 +473,34 @@ test.describe('CrowdSec Config Import Validation', () => {
       );
       expect(await readConfigFile(request, cfg('profiles.yaml'))).toBe(profilesYaml(['x']));
       expect(await readConfigFile(request, cfg('notifications/x.yaml'))).toBe(notificationYaml('x'));
+    });
+
+    test('refuses an archive without profiles.yaml when the kept profile names a notification no file defines', async ({ request }, testInfo) => {
+      // Replace the running profile with one naming a notification whose file the archive replaces by another name.
+      const withProfile = await createTarGz(
+        {
+          'config/config.yaml': VALID_CONFIG,
+          'config/profiles.yaml': profilesYaml(['x']),
+          'config/notifications/x.yaml': notificationYaml('x'),
+        },
+        testInfo.outputPath('profile-for-refusal.tar.gz'),
+      );
+      expect((await upload(request, withProfile, 'profile-for-refusal.tar.gz')).status()).toBe(200);
+      const filesBefore = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
+
+      // The archive's own x.yaml defines another name, so the file the kept profile needs cannot come back under it.
+      const clashing = await createTarGz(
+        { 'config/config.yaml': VALID_CONFIG, 'config/notifications/x.yaml': notificationYaml('y') },
+        testInfo.outputPath('clashing-notification.tar.gz'),
+      );
+      const response = await upload(request, clashing, 'clashing-notification.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(
+        'the archive has no profiles.yaml, so the current one was kept, but it names notifications the archive has no files for: x',
+      );
+      expect(await readConfigFile(request, cfg('notifications/x.yaml'))).toBe(notificationYaml('x'));
+      expect((await (await request.get(`${ADMIN}/files`)).json()).files as string[]).toEqual(filesBefore);
     });
   });
 
@@ -637,6 +665,9 @@ test.describe('CrowdSec Config Import Validation', () => {
       const response = await upload(request, archive, 'no-notifications.tar.gz');
 
       expect(response.status()).toBe(200);
+      // The archive supplies its own profiles.yaml, so only the files it omits are kept.
+      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'patterns', 'simulation.yaml']);
+      expect(await readConfigFile(request, cfg('profiles.yaml'))).toContain('notifications: []');
     });
 
     test('accepts an archive with no profiles.yaml', async ({ request }, testInfo) => {

@@ -30,7 +30,8 @@ type UndefinedNotificationsError struct {
 	Names []string
 }
 
-func (e *UndefinedNotificationsError) Error() string {
+// NameList spells out the undefined names, bounded in count and length and safe to log or show.
+func (e *UndefinedNotificationsError) NameList() string {
 	listed := e.Names
 	more := 0
 	if len(listed) > maxListedNotifications {
@@ -45,11 +46,15 @@ func (e *UndefinedNotificationsError) Error() string {
 		}
 		safe[i] = n
 	}
-	msg := "profiles.yaml names notifications that have no matching file: " + strings.Join(safe, ", ")
+	msg := strings.Join(safe, ", ")
 	if more > 0 {
 		msg += fmt.Sprintf(", and %d more", more)
 	}
 	return msg
+}
+
+func (e *UndefinedNotificationsError) Error() string {
+	return "profiles.yaml names notifications that have no matching file: " + e.NameList()
 }
 
 // VerifyInspectedNotifications returns an *UndefinedNotificationsError when the inspected archive's
@@ -190,7 +195,24 @@ func referencedNotifications(profiles []byte) (map[string]bool, bool) {
 // definedNotifications collects name: from every document of every notification file CrowdSec loads
 // from dir. It reports false when any such file does not parse.
 func definedNotifications(files map[string][]byte, dir string) (map[string]bool, bool) {
+	byFile, ok := definedNotificationsByFile(files, dir)
+	if !ok {
+		return nil, false
+	}
 	defined := map[string]bool{}
+	for _, names := range byFile {
+		for _, n := range names {
+			defined[n] = true
+		}
+	}
+	return defined, true
+}
+
+// definedNotificationsByFile maps every notification file in dir to the names its documents define (one
+// entry per document, so a name repeated in a file is repeated here). It reports false when any such
+// file does not parse.
+func definedNotificationsByFile(files map[string][]byte, dir string) (map[string][]string, bool) {
+	byFile := map[string][]string{}
 	for rel, data := range files {
 		if path.Dir(rel) != dir {
 			continue
@@ -199,13 +221,15 @@ func definedNotifications(files map[string][]byte, dir string) (map[string]bool,
 		if err != nil {
 			return nil, false
 		}
+		names := []string{}
 		for _, doc := range docs {
 			if n := mappingValue(documentMapping(doc), "name"); n != nil && n.Kind == yaml.ScalarNode && n.Tag == "!!str" {
-				defined[n.Value] = true
+				names = append(names, n.Value)
 			}
 		}
+		byFile[rel] = names
 	}
-	return defined, true
+	return byFile, true
 }
 
 func resolveAlias(n *yaml.Node) *yaml.Node {

@@ -84,11 +84,8 @@ func TestCheckImportLayout(t *testing.T) {
 		refused bool
 	}{
 		{"nested live, nested archive", LayoutNested, ArchiveInfo{HasNestedConfig: true}, false},
-		{"nested live, flat archive", LayoutNested, ArchiveInfo{HasFlatConfig: true}, true},
-		{"nested live, both", LayoutNested, ArchiveInfo{HasNestedConfig: true, HasFlatConfig: true}, false},
-		{"nested live, neither", LayoutNested, ArchiveInfo{}, true},
+		{"nested live, flat archive", LayoutNested, ArchiveInfo{}, true},
 		{"flat live, nested archive", LayoutFlat, ArchiveInfo{HasNestedConfig: true}, false},
-		{"flat live, flat archive", LayoutFlat, ArchiveInfo{HasFlatConfig: true}, false},
 		{"flat live, neither", LayoutFlat, ArchiveInfo{}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,23 +104,22 @@ func TestInspectArchiveLayoutFlags(t *testing.T) {
 	t.Parallel()
 	huge := strings.Repeat("#", int(maxInspectEntryBytes)+1)
 	for _, tc := range []struct {
-		name         string
-		files        map[string]string
-		nested, flat bool
+		name   string
+		files  map[string]string
+		nested bool
 	}{
-		{"nested", map[string]string{"config/config.yaml": plainConfig}, true, false},
-		{"flat", map[string]string{"config.yaml": plainConfig}, false, true},
-		{"both", map[string]string{"config.yaml": plainConfig, "config/config.yaml": plainConfig}, true, true},
-		{"normalised spellings", map[string]string{"./config//config.yaml": plainConfig, "x/../config.yaml": plainConfig}, true, true},
-		{"deeper copies do not count", map[string]string{"parsers/config.yaml": plainConfig, "config/sub/config.yaml": plainConfig}, false, false},
-		{"oversized entries still set the flags", map[string]string{"config/config.yaml": huge, "config.yaml": huge}, true, true},
+		{"nested", map[string]string{"config/config.yaml": plainConfig}, true},
+		{"flat", map[string]string{"config.yaml": plainConfig}, false},
+		{"both", map[string]string{"config.yaml": plainConfig, "config/config.yaml": plainConfig}, true},
+		{"normalised spellings", map[string]string{"./config//config.yaml": plainConfig, "x/../config.yaml": plainConfig}, true},
+		{"deeper copies do not count", map[string]string{"parsers/config.yaml": plainConfig, "config/sub/config.yaml": plainConfig}, false},
+		{"oversized entries still set the flags", map[string]string{"config/config.yaml": huge, "config.yaml": huge}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			info, err := InspectArchive(writeArchive(t, tc.files))
 			require.NoError(t, err)
 			require.Equal(t, tc.nested, info.HasNestedConfig)
-			require.Equal(t, tc.flat, info.HasFlatConfig)
 		})
 	}
 }
