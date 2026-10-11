@@ -1236,7 +1236,16 @@
       "lastHeartbeat": "上次心跳",
       "privacyNote": "注意：注册会向 CrowdSec 发送心跳数据和指标。详情请参阅 CrowdSec 的隐私政策。",
       "tenantHelper": "可选：如果使用多租户设置，请指定租户/组织 ID",
-      "tokenHelper": "从 CrowdSec 控制台获取您的注册令牌"
+      "tokenHelper": "从 CrowdSec 控制台获取您的注册令牌",
+      "tokenStored": "已存储（已隐藏）",
+      "tokenNotStored": "未存储",
+      "enrollSubmitted": "注册已提交！请在 app.crowdsec.net 上接受请求以完成注册。",
+      "enrollSent": "注册请求已发送！请在 app.crowdsec.net 上接受注册以完成登记。",
+      "errors": {
+        "agentRequired": "必须填写代理名称",
+        "ackRequired": "您必须确认控制台数据共享须知",
+        "enrollFailed": "控制台注册失败"
+      }
     },
     "reenroll": {
       "title": "重新注册选项",
@@ -1296,7 +1305,15 @@
       "loadCached": "加载缓存的预览",
       "applyDisabled": "Hub 离线时禁用应用。",
       "noPresets": "没有可用的预设。请确保 Cerberus 已启用。",
-      "sortBy": "排序预设"
+      "sortBy": "排序预设",
+      "status": {
+        "previewFetched": "已从 Hub 获取预览",
+        "hubUnavailable": "CrowdSec Hub 不可用。请重试或加载缓存副本。",
+        "pullFailed": "获取预设预览失败",
+        "cachedLoaded": "已加载缓存的预览",
+        "cacheLoadFailed": "加载缓存的预览失败",
+        "slugInvalid": "预设标识无效"
+      }
     },
     "files": {
       "title": "编辑配置文件",
@@ -1365,10 +1382,47 @@
         "title": "移除白名单条目",
         "body": "要将 {{ip}} 从白名单中移除吗？如果该 IP 触发警报，CrowdSec 之后可能会拦截它。",
         "submit": "移除"
-      }
+      },
+      "addFailed": "添加条目失败"
     },
     "noConfig": "在安全状态中未找到 CrowdSec 配置",
-    "noteText": "CrowdSec 由以下页面上的开关控制："
+    "noteText": "CrowdSec 由以下页面上的开关控制：",
+    "toasts": {
+      "fileSaved": "文件已保存",
+      "saveFailed": "保存文件失败",
+      "ipBanned": "IP {{ip}} 已被封禁",
+      "banFailed": "封禁 IP 失败",
+      "ipUnbanned": "IP {{ip}} 已解除封禁",
+      "unbanFailed": "解除 IP 封禁失败",
+      "ipDetectFailed": "无法检测您的 IP 地址",
+      "selectPreset": "请选择要应用的预设",
+      "presetNotCompleted": "预设应用未完成（状态：{{status}}）",
+      "statusUnknown": "未知",
+      "presetApplied": "已通过后端应用预设",
+      "presetAppliedReload": "已通过后端应用预设（需要重新加载）",
+      "presetApplyFailed": "应用预设失败",
+      "applyFailed": "应用失败：{{message}}",
+      "applyFailedWithBackup": "应用失败：{{message}}。{{backup}}"
+    },
+    "overlay": {
+      "fetchingPreset": "正在获取预设...",
+      "fetchingPresetDetail": "正在从 CrowdSec Hub 拉取预览",
+      "loadingPreset": "正在加载预设...",
+      "loadingPresetDetail": "正在应用精选预设并备份",
+      "importing": "正在召唤守护者...",
+      "importingDetail": "正在导入 CrowdSec 配置",
+      "saving": "守护者正在刻写...",
+      "savingDetail": "正在保存配置文件",
+      "banning": "守护者举起盾牌...",
+      "banningDetail": "正在封禁 IP 地址",
+      "unbanning": "守护者放下盾牌...",
+      "unbanningDetail": "正在解除 IP 地址封禁",
+      "updatingList": "守护者正在更新名单...",
+      "whitelistAddingDetail": "正在将 IP 添加到白名单",
+      "whitelistRemovingDetail": "正在从白名单中移除",
+      "default": "正在加强守卫...",
+      "defaultDetail": "配置进行中"
+    }
   },
   "smtp": {
     "title": "电子邮件 (SMTP) 设置",

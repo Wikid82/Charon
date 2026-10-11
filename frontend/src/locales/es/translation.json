@@ -1237,7 +1237,16 @@
       "lastHeartbeat": "Último latido",
       "privacyNote": "Nota: El registro envía datos de latido y métricas a CrowdSec. Consulte la política de privacidad de CrowdSec para más detalles.",
       "tenantHelper": "Opcional: indique el ID de inquilino/organización si usa una configuración multiinquilino",
-      "tokenHelper": "Obtenga su token de registro en la consola de CrowdSec"
+      "tokenHelper": "Obtenga su token de registro en la consola de CrowdSec",
+      "tokenStored": "Almacenado (enmascarado)",
+      "tokenNotStored": "No almacenado",
+      "enrollSubmitted": "¡Inscripción enviada! Acepte la solicitud en app.crowdsec.net para completarla.",
+      "enrollSent": "¡Solicitud de inscripción enviada! Acepte la inscripción en app.crowdsec.net para completar el registro.",
+      "errors": {
+        "agentRequired": "El nombre del agente es obligatorio",
+        "ackRequired": "Debe confirmar el aviso de uso compartido de datos de la consola",
+        "enrollFailed": "Error en la inscripción en la consola"
+      }
     },
     "reenroll": {
       "title": "Opciones de reinscripción",
@@ -1297,7 +1306,15 @@
       "loadCached": "Cargar vista previa en caché",
       "applyDisabled": "Aplicar deshabilitado mientras el hub está fuera de línea.",
       "noPresets": "No hay plantillas disponibles. Asegúrese de que Cerberus esté habilitado.",
-      "sortBy": "Ordenar presets"
+      "sortBy": "Ordenar presets",
+      "status": {
+        "previewFetched": "Vista previa obtenida del hub",
+        "hubUnavailable": "El hub de CrowdSec no está disponible. Reintente o cargue la copia en caché.",
+        "pullFailed": "No se pudo obtener la vista previa del preajuste",
+        "cachedLoaded": "Vista previa en caché cargada",
+        "cacheLoadFailed": "No se pudo cargar la vista previa en caché",
+        "slugInvalid": "El identificador del preajuste no es válido"
+      }
     },
     "files": {
       "title": "Editar archivos de configuración",
@@ -1366,10 +1383,47 @@
         "title": "Eliminar entrada de la lista blanca",
         "body": "¿Eliminar {{ip}} de la lista blanca? CrowdSec podrá bloquear esta IP si genera alertas.",
         "submit": "Eliminar"
-      }
+      },
+      "addFailed": "No se pudo añadir la entrada"
     },
     "noConfig": "No se encontró la configuración de CrowdSec en el estado de seguridad",
-    "noteText": "CrowdSec se controla mediante el interruptor de la página"
+    "noteText": "CrowdSec se controla mediante el interruptor de la página",
+    "toasts": {
+      "fileSaved": "Archivo guardado",
+      "saveFailed": "No se pudo guardar el archivo",
+      "ipBanned": "La IP {{ip}} ha sido bloqueada",
+      "banFailed": "No se pudo bloquear la IP",
+      "ipUnbanned": "La IP {{ip}} ha sido desbloqueada",
+      "unbanFailed": "No se pudo desbloquear la IP",
+      "ipDetectFailed": "No se pudo detectar su dirección IP",
+      "selectPreset": "Seleccione un preajuste para aplicar",
+      "presetNotCompleted": "La aplicación del preajuste no se completó (estado: {{status}})",
+      "statusUnknown": "desconocido",
+      "presetApplied": "Preajuste aplicado mediante el backend",
+      "presetAppliedReload": "Preajuste aplicado mediante el backend (se requiere recargar)",
+      "presetApplyFailed": "No se pudo aplicar el preajuste",
+      "applyFailed": "Error al aplicar: {{message}}",
+      "applyFailedWithBackup": "Error al aplicar: {{message}}. {{backup}}"
+    },
+    "overlay": {
+      "fetchingPreset": "Obteniendo preajuste...",
+      "fetchingPresetDetail": "Descargando la vista previa del hub de CrowdSec",
+      "loadingPreset": "Cargando preajuste...",
+      "loadingPresetDetail": "Aplicando el preajuste curado con copia de seguridad",
+      "importing": "Invocando al guardián...",
+      "importingDetail": "Importando la configuración de CrowdSec",
+      "saving": "El guardián inscribe...",
+      "savingDetail": "Guardando el archivo de configuración",
+      "banning": "El guardián alza el escudo...",
+      "banningDetail": "Bloqueando la dirección IP",
+      "unbanning": "El guardián baja el escudo...",
+      "unbanningDetail": "Desbloqueando la dirección IP",
+      "updatingList": "El guardián actualiza la lista...",
+      "whitelistAddingDetail": "Añadiendo la IP a la lista blanca",
+      "whitelistRemovingDetail": "Quitando de la lista blanca",
+      "default": "Reforzando la guardia...",
+      "defaultDetail": "Configuración en curso"
+    }
   },
   "smtp": {
     "title": "Configuración de Correo (SMTP)",

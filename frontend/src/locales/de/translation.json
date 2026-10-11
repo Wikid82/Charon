@@ -1235,7 +1235,16 @@
       "lastHeartbeat": "Letzter Heartbeat",
       "privacyNote": "Hinweis: Die Registrierung sendet Heartbeat-Daten und Metriken an CrowdSec. Details finden Sie in der Datenschutzrichtlinie von CrowdSec.",
       "tenantHelper": "Optional: Mandanten-/Organisations-ID angeben, falls Sie ein Multi-Tenant-Setup verwenden",
-      "tokenHelper": "Holen Sie sich Ihr Registrierungstoken aus der CrowdSec Console"
+      "tokenHelper": "Holen Sie sich Ihr Registrierungstoken aus der CrowdSec Console",
+      "tokenStored": "Gespeichert (maskiert)",
+      "tokenNotStored": "Nicht gespeichert",
+      "enrollSubmitted": "Registrierung übermittelt! Bestätigen Sie die Anfrage auf app.crowdsec.net, um sie abzuschließen.",
+      "enrollSent": "Registrierungsanfrage gesendet! Bestätigen Sie die Registrierung auf app.crowdsec.net, um sie abzuschließen.",
+      "errors": {
+        "agentRequired": "Agentenname ist erforderlich",
+        "ackRequired": "Sie müssen den Hinweis zur Datenweitergabe an die Konsole bestätigen",
+        "enrollFailed": "Registrierung bei der Konsole fehlgeschlagen"
+      }
     },
     "reenroll": {
       "title": "Neu-Registrierungsoptionen",
@@ -1295,7 +1304,15 @@
       "loadCached": "Zwischengespeicherte Vorschau laden",
       "applyDisabled": "Anwenden deaktiviert, solange Hub offline ist.",
       "noPresets": "Keine Vorlagen verfügbar. Stellen Sie sicher, dass Cerberus aktiviert ist.",
-      "sortBy": "Presets sortieren"
+      "sortBy": "Presets sortieren",
+      "status": {
+        "previewFetched": "Vorschau vom Hub abgerufen",
+        "hubUnavailable": "CrowdSec-Hub nicht verfügbar. Erneut versuchen oder die zwischengespeicherte Kopie laden.",
+        "pullFailed": "Vorschau der Vorlage konnte nicht abgerufen werden",
+        "cachedLoaded": "Zwischengespeicherte Vorschau geladen",
+        "cacheLoadFailed": "Zwischengespeicherte Vorschau konnte nicht geladen werden",
+        "slugInvalid": "Der Vorlagen-Slug ist ungültig"
+      }
     },
     "files": {
       "title": "Konfigurationsdateien bearbeiten",
@@ -1364,10 +1381,47 @@
         "title": "Whitelist-Eintrag entfernen",
         "body": "{{ip}} von der Whitelist entfernen? CrowdSec kann diese IP dann blockieren, wenn sie Warnungen auslöst.",
         "submit": "Entfernen"
-      }
+      },
+      "addFailed": "Eintrag konnte nicht hinzugefügt werden"
     },
     "noConfig": "CrowdSec-Konfiguration im Sicherheitsstatus nicht gefunden",
-    "noteText": "CrowdSec wird über den Schalter auf der Seite gesteuert:"
+    "noteText": "CrowdSec wird über den Schalter auf der Seite gesteuert:",
+    "toasts": {
+      "fileSaved": "Datei gespeichert",
+      "saveFailed": "Datei konnte nicht gespeichert werden",
+      "ipBanned": "IP {{ip}} wurde gesperrt",
+      "banFailed": "IP konnte nicht gesperrt werden",
+      "ipUnbanned": "Sperre für IP {{ip}} wurde aufgehoben",
+      "unbanFailed": "Sperre der IP konnte nicht aufgehoben werden",
+      "ipDetectFailed": "Ihre IP-Adresse konnte nicht ermittelt werden",
+      "selectPreset": "Wählen Sie eine Vorlage zum Anwenden aus",
+      "presetNotCompleted": "Das Anwenden der Vorlage wurde nicht abgeschlossen (Status: {{status}})",
+      "statusUnknown": "unbekannt",
+      "presetApplied": "Vorlage über das Backend angewendet",
+      "presetAppliedReload": "Vorlage über das Backend angewendet (Neuladen erforderlich)",
+      "presetApplyFailed": "Vorlage konnte nicht angewendet werden",
+      "applyFailed": "Anwenden fehlgeschlagen: {{message}}",
+      "applyFailedWithBackup": "Anwenden fehlgeschlagen: {{message}}. {{backup}}"
+    },
+    "overlay": {
+      "fetchingPreset": "Vorlage wird abgerufen...",
+      "fetchingPresetDetail": "Vorschau wird vom CrowdSec-Hub geladen",
+      "loadingPreset": "Vorlage wird geladen...",
+      "loadingPresetDetail": "Kuratierte Vorlage wird mit Backup angewendet",
+      "importing": "Der Wächter wird gerufen...",
+      "importingDetail": "CrowdSec-Konfiguration wird importiert",
+      "saving": "Der Wächter schreibt...",
+      "savingDetail": "Konfigurationsdatei wird gespeichert",
+      "banning": "Der Wächter hebt den Schild...",
+      "banningDetail": "IP-Adresse wird gesperrt",
+      "unbanning": "Der Wächter senkt den Schild...",
+      "unbanningDetail": "Sperre der IP-Adresse wird aufgehoben",
+      "updatingList": "Der Wächter aktualisiert die Liste...",
+      "whitelistAddingDetail": "IP wird zur Whitelist hinzugefügt",
+      "whitelistRemovingDetail": "Wird von der Whitelist entfernt",
+      "default": "Die Wache wird verstärkt...",
+      "defaultDetail": "Konfiguration läuft"
+    }
   },
   "smtp": {
     "title": "E-Mail (SMTP) Einstellungen",
