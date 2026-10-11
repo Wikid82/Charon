@@ -1,13 +1,13 @@
 /**
  * CrowdSec hub item restore E2E tests (#1545)
  *
- * The E2E container has no hub and no hub links, so installing items cannot be tested end to
- * end. These cases cover what is deterministic:
+ * Installing items cannot be tested end to end (hub reachability of the E2E container is
+ * environment-dependent). These cases cover what is deterministic:
  * - Restore endpoint validation, answered by the real backend before anything runs
  * - The import-result panel, driven by `page.route` mocks of the import and restore endpoints
  *
- * Every case is a `test.fixme` annotated with the commit that implements it:
- * 2.5 restore endpoint, 2.6 import-result panel.
+ * The restore-endpoint cases run against the real backend. The import-result panel cases are
+ * still `test.fixme` until commit 2.6 implements the panel.
  */
 
 import { promises as fs } from 'fs';
@@ -21,6 +21,8 @@ const ADMIN = '/api/v1/admin/crowdsec';
 const RESTORE = `${ADMIN}/hub-items/restore`;
 const MAX_ITEMS = 1000;
 const INVALID_ITEM_MESSAGE = 'invalid hub item';
+const NO_ITEMS_MESSAGE = 'no hub items given';
+const INVALID_REQUEST_MESSAGE = 'invalid request';
 const TOO_LARGE_MESSAGE = 'request too large';
 const ALREADY_RUNNING_MESSAGE = 'a restore is already running';
 const HUB_UNREACHABLE_MESSAGE = 'the CrowdSec hub could not be reached; nothing was installed';
@@ -56,7 +58,7 @@ test.describe('CrowdSec Hub Item Restore @security', () => {
       { title: 'an over-long item name', name: `crowdsecurity/${'a'.repeat(129)}` },
     ];
     for (const { title, name } of INVALID_NAMES) {
-      test.fixme(`commit 2.5: rejects ${title} with 400 and runs nothing`, async ({ request }) => {
+      test(`rejects ${title} with 400 and runs nothing`, async ({ request }) => {
         const response = await restore(request, { items: [{ type: 'collections', name }] });
 
         expect(response.status()).toBe(400);
@@ -64,14 +66,14 @@ test.describe('CrowdSec Hub Item Restore @security', () => {
       });
     }
 
-    test.fixme('commit 2.5: rejects an unknown item type with 400', async ({ request }) => {
+    test('rejects an unknown item type with 400', async ({ request }) => {
       const response = await restore(request, { items: [{ type: 'bouncers', name: 'crowdsecurity/sshd' }] });
 
       expect(response.status()).toBe(400);
       expect((await response.json()).error).toBe(INVALID_ITEM_MESSAGE);
     });
 
-    test.fixme('commit 2.5: rejects one invalid item among valid ones and installs none of them', async ({ request }) => {
+    test('rejects one invalid item among valid ones and installs none of them', async ({ request }) => {
       const response = await restore(request, {
         items: [
           { type: 'collections', name: 'crowdsecurity/sshd' },
@@ -83,7 +85,7 @@ test.describe('CrowdSec Hub Item Restore @security', () => {
       expect((await response.json()).error).toBe(INVALID_ITEM_MESSAGE);
     });
 
-    test.fixme('commit 2.5: rejects more than 1,000 items with 400', async ({ request }) => {
+    test('rejects more than 1,000 items with 400', async ({ request }) => {
       const items = Array.from({ length: MAX_ITEMS + 1 }, (_, i) => ({ type: 'collections', name: `owner/item-${i}` }));
 
       const response = await restore(request, { items });
@@ -92,44 +94,44 @@ test.describe('CrowdSec Hub Item Restore @security', () => {
       expect((await response.json()).error).toBe(INVALID_ITEM_MESSAGE);
     });
 
-    test.fixme('commit 2.5: rejects a body over 1 MiB with 413', async ({ request }) => {
-      const response = await restore(request, { items: [], padding: 'x'.repeat(1024 * 1024 + 1) });
+    test('rejects an empty item list with 400', async ({ request }) => {
+      const response = await restore(request, { items: [] });
+
+      expect(response.status()).toBe(400);
+      expect((await response.json()).error).toBe(NO_ITEMS_MESSAGE);
+    });
+
+    test('rejects malformed JSON with 400', async ({ request }) => {
+      const response = await request.post(RESTORE, {
+        headers: { 'Content-Type': 'application/json' },
+        data: '{"items": [',
+      });
+
+      expect(response.status()).toBe(400);
+      expect((await response.json()).error).toBe(INVALID_REQUEST_MESSAGE);
+    });
+
+    test('rejects a body over 1 MiB with 413', async ({ request }) => {
+      const response = await request.post(RESTORE, {
+        headers: { 'Content-Type': 'application/json' },
+        data: JSON.stringify({ items: [], padding: 'x'.repeat(1024 * 1024 + 1) }),
+      });
 
       expect(response.status()).toBe(413);
       expect((await response.json()).error).toBe(TOO_LARGE_MESSAGE);
     });
 
-    test.fixme('commit 2.5: accepts 1,000 maximum-length items under the body cap', async ({ request }) => {
-      const owner = 'o'.repeat(64);
-      const items = Array.from({ length: MAX_ITEMS }, (_, i) => ({
-        type: 'postoverflows',
-        name: `${owner}/${String(i).padStart(4, '0')}${'n'.repeat(124)}`,
-      }));
+    // Valid requests, the 200 success shape and the 409 "already running" answer are covered by the
+    // Go handler tests with a fake executor, not here: whether the E2E container can reach the
+    // CrowdSec hub depends on its environment, and a successful restore really installs items,
+    // which would change the installed-item set the import manifest specs depend on.
 
-      const response = await restore(request, { items });
-
-      // The container has no hub: the request passes validation and ends in the hub-unreachable
-      // answer, never in a 400 or 413.
-      expect(response.status()).toBe(502);
-      expect((await response.json()).error).toBe(HUB_UNREACHABLE_MESSAGE);
-    });
-
-    test.fixme('commit 2.5: accepts mixed-case names, which reach the hub step', async ({ request }) => {
-      const response = await restore(request, {
-        items: [
-          { type: 'collections', name: 'Azlaroc/sftpgo' },
-          { type: 'collections', name: 'Dominic-Wagner/vaultwarden' },
-          { type: 'scenarios', name: 'crowdsecurity/CVE-2022-26134' },
-        ],
+    test('requires authentication', async ({ baseURL }) => {
+      // An explicit empty storage state: a bare newContext() inherits the project's signed-in one.
+      const anonymous = await playwrightRequest.newContext({
+        baseURL,
+        storageState: { cookies: [], origins: [] },
       });
-
-      // Validation passed; the offline container then reports the hub as unreachable.
-      expect(response.status()).toBe(502);
-      expect((await response.json()).error).toBe(HUB_UNREACHABLE_MESSAGE);
-    });
-
-    test.fixme('commit 2.5: requires authentication', async ({ baseURL }) => {
-      const anonymous = await playwrightRequest.newContext({ baseURL });
       try {
         const response = await anonymous.post(RESTORE, {
           data: { items: [{ type: 'collections', name: 'crowdsecurity/sshd' }] },

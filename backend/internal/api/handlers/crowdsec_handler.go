@@ -87,6 +87,9 @@ type CrowdsecHandler struct {
 	// Lock order is always dataMu first, then HubService.mu.
 	dataMu sync.Mutex
 
+	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
+	restore hubRestoreState
+
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
 
@@ -2396,6 +2399,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/stop", h.Stop)
 	rg.GET("/admin/crowdsec/status", h.Status)
 	rg.POST("/admin/crowdsec/import", h.ImportConfig)
+	rg.POST("/admin/crowdsec/hub-items/restore", h.RestoreHubItems)
 	rg.GET("/admin/crowdsec/export", h.ExportConfig)
 	rg.GET("/admin/crowdsec/files", h.ListFiles)
 	rg.GET("/admin/crowdsec/file", h.ReadFile)
