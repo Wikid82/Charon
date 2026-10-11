@@ -716,6 +716,16 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
+	// Refuse an archive CrowdSec could not start with before taking the lock or changing anything.
+	if err = crowdsec.VerifyImportNotifications(dst); err != nil {
+		var undefined *crowdsec.UndefinedNotificationsError
+		if errors.As(err, &undefined) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "config validation failed: " + undefined.Error()})
+			return
+		}
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec import: notification reference check skipped")
+	}
+
 	// Serialize with preset applies and file writes, then snapshot (copy, never rename) the config.
 	h.dataMu.Lock()
 	defer h.dataMu.Unlock()
@@ -805,15 +815,14 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		// Path traversal protection
-		// #nosec G305 -- Path traversal is explicitly checked below
-		target := filepath.Join(destDir, header.Name)
-		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+		// Path traversal protection, shared with the pre-import inspection so both see the same entry.
+		rel, ok := crowdsec.ArchiveEntryRel(header.Name)
+		if !ok {
 			return fmt.Errorf("invalid file path: %s", header.Name)
 		}
+		target := filepath.Join(destDir, rel)
 		// Server-local state (engine-owned data, stored account details, the hub tree, live symlinks) is
 		// never taken from an upload. This runs only after the containment check above.
-		rel := strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))
 		if skipArchiveEntry(liveDirs, rel, header.Typeflag, keep) {
 			continue
 		}

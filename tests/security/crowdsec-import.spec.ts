@@ -348,13 +348,13 @@ test.describe('CrowdSec Config Import Validation', () => {
     });
   });
 
-  // Commit 2.3 (#1546): an import whose profiles.yaml names a notification that no file defines
-  // would leave CrowdSec unable to start, so it is refused before anything changes.
+  // An import whose profiles.yaml names a notification that no file defines would leave CrowdSec
+  // unable to start, so it is refused before anything changes.
   test.describe('Notification References', () => {
     const missingMessage = (names: string) =>
       `config validation failed: profiles.yaml names notifications that have no matching file: ${names}`;
 
-    test.fixme('commit 2.3: refuses a profiles.yaml naming a notification no file defines and changes nothing', async ({ request }, testInfo) => {
+    test('refuses a profiles.yaml naming a notification no file defines and changes nothing', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['x']) },
         testInfo.outputPath('missing-notification.tar.gz'),
@@ -370,7 +370,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect((await (await request.get(`${ADMIN}/files`)).json()).files as string[]).toEqual(filesBefore);
     });
 
-    test.fixme('commit 2.3: lists every missing notification name in sorted order', async ({ request }, testInfo) => {
+    test('lists every missing notification name in sorted order', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['zeta', 'alpha']) },
         testInfo.outputPath('two-missing.tar.gz'),
@@ -382,7 +382,20 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect((await response.json()).error).toBe(missingMessage('alpha, zeta'));
     });
 
-    test.fixme('commit 2.3: accepts a profiles.yaml whose notification is defined by a notifications file', async ({ request }, testInfo) => {
+    test('lists at most ten missing names and counts the rest', async ({ request }, testInfo) => {
+      const names = Array.from({ length: 12 }, (_, index) => `n${String(index + 1).padStart(2, '0')}`);
+      const archive = await createTarGz(
+        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml([...names].reverse()) },
+        testInfo.outputPath('many-missing.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'many-missing.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(missingMessage(`${names.slice(0, 10).join(', ')}, and 2 more`));
+    });
+
+    test('accepts a profiles.yaml whose notification is defined by a notifications file', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         {
           'config.yaml': VALID_CONFIG,
@@ -399,7 +412,23 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect(await readConfigFile(request, 'notifications/x.yaml')).toBe(notificationYaml('x'));
     });
 
-    test.fixme('commit 2.3: matches by the name field, so a multi-document file defines every name in it', async ({ request }, testInfo) => {
+    test('accepts a notification defined in a .yml file', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        {
+          'config.yaml': VALID_CONFIG,
+          'profiles.yaml': profilesYaml(['x']),
+          'notifications/x.yml': notificationYaml('x'),
+        },
+        testInfo.outputPath('yml-notification.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'yml-notification.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+    });
+
+    test('matches by the name field, so a multi-document file defines every name in it', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         {
           'config.yaml': VALID_CONFIG,
@@ -415,7 +444,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect((await response.json()).status).toBe('imported');
     });
 
-    test.fixme('commit 2.3: refuses a name that only the file name matches', async ({ request }, testInfo) => {
+    test('refuses a name that only the file name matches', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         {
           'config.yaml': VALID_CONFIG,
@@ -431,7 +460,47 @@ test.describe('CrowdSec Config Import Validation', () => {
       expect((await response.json()).error).toBe(missingMessage('a'));
     });
 
-    test.fixme('commit 2.3: accepts an archive whose profiles.yaml names nothing', async ({ request }, testInfo) => {
+    test('accepts a name defined under a different file name', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        {
+          'config.yaml': VALID_CONFIG,
+          'profiles.yaml': profilesYaml(['b']),
+          'notifications/a.yaml': notificationYaml('b'),
+        },
+        testInfo.outputPath('name-field-match.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'name-field-match.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+    });
+
+    // CrowdSec only loads lowercase .yaml/.yml files directly inside notifications/.
+    const ignoredDefinitions = [
+      { title: 'a subdirectory', path: 'notifications/sub/s.yaml' },
+      { title: 'a .txt file', path: 'notifications/s.txt' },
+      { title: 'a .bak file', path: 'notifications/s.bak' },
+      { title: 'an uppercase .YAML file', path: 'notifications/s.YAML' },
+    ];
+    for (const { title, path } of ignoredDefinitions) {
+      test(`refuses a notification defined only in ${title}`, async ({ request }, testInfo) => {
+        const archive = await createTarGz(
+          { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['s']), [path]: notificationYaml('s') },
+          testInfo.outputPath('ignored-definition.tar.gz'),
+        );
+        const filesBefore = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
+
+        const response = await upload(request, archive, 'ignored-definition.tar.gz');
+
+        expect(response.status()).toBe(422);
+        expect((await response.json()).error).toBe(missingMessage('s'));
+        expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
+        expect((await (await request.get(`${ADMIN}/files`)).json()).files as string[]).toEqual(filesBefore);
+      });
+    }
+
+    test('accepts an archive whose profiles.yaml names nothing', async ({ request }, testInfo) => {
       const archive = await createTarGz(
         { 'config.yaml': VALID_CONFIG, 'profiles.yaml': 'name: default_ip_remediation\nnotifications: []\non_success: break\n' },
         testInfo.outputPath('no-notifications.tar.gz'),
@@ -440,6 +509,15 @@ test.describe('CrowdSec Config Import Validation', () => {
       const response = await upload(request, archive, 'no-notifications.tar.gz');
 
       expect(response.status()).toBe(200);
+    });
+
+    test('accepts an archive with no profiles.yaml', async ({ request }, testInfo) => {
+      const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('no-profiles.tar.gz'));
+
+      const response = await upload(request, archive, 'no-profiles.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
     });
   });
 
