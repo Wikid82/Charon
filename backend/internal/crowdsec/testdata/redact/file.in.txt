@@ -1,0 +1,13 @@
+type: file
+name: file_default
+log_level: info
+log_path: /var/log/crowdsec_alerts.log
+rotate:
+  enabled: true
+  max_size: 500
+  max_files: 5
+  max_age: 5
+  compress: true
+  hook: SECRETTOKEN-rotate-hook
+format: |
+  {{range . -}}{{.Value}}{{end -}}

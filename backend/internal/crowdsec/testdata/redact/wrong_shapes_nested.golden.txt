@@ -1,0 +1,18 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: shapes2
+headers: <charon-redacted>
+method: <charon-redacted>
+---
+type: file
+name: shapes3
+log_path: /tmp/x
+rotate: <charon-redacted>
+---
+type: file
+name: shapes4
+log_path: /tmp/x
+rotate:
+  enabled: true
+  unknown_child: <charon-redacted>

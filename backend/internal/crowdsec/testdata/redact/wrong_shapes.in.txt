@@ -1,0 +1,8 @@
+type: email
+name: shapes
+smtp_host: [smtp.example.invalid, SECRETTOKEN-host]
+receiver_emails:
+  - a@example.invalid
+  - nested: SECRETTOKEN-nested
+sender_email:
+  key: SECRETTOKEN-sender

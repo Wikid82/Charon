@@ -1,0 +1,12 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: slack
+name: slack_default
+log_level: info
+webhook: <charon-redacted>
+channel: "#alerts"
+username: charon
+icon_emoji: ":shield:"
+icon_url: <charon-redacted>
+format: |
+  {{range . -}}{{.Message}}{{end -}}

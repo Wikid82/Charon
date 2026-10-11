@@ -1,0 +1,9 @@
+type: sentinel
+name: collapsed
+shared_key:
+  nested: SECRETTOKEN-nested
+  list: [SECRETTOKEN-a, SECRETTOKEN-b]
+customer_id: [SECRETTOKEN-cust]
+future:
+  SECRETTOKEN-key: value
+log_type: crowdsec

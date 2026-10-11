@@ -1,0 +1,10 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: anchors
+url: &a1 <charon-redacted>
+headers: &a2
+  Authorization: &a3 <charon-redacted>
+  Other: <charon-redacted>
+method: &a4 POST
+username: <charon-redacted>

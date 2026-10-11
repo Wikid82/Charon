@@ -1,0 +1,9 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: tags
+url: <charon-redacted>
+headers:
+  X-Token: <charon-redacted>
+timeout: 5s
+method: POST

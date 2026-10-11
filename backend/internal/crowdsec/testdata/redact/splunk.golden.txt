@@ -1,0 +1,9 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: splunk
+name: splunk_default
+log_level: info
+url: <charon-redacted>
+token: <charon-redacted>
+format: |
+  {{.|toJson}}

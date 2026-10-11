@@ -1,0 +1,8 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: slack
+name: alias_in_kept
+webhook: &a1 <charon-redacted>
+channel: &a2 "#alerts"
+username: *a2
+icon_emoji: *a1

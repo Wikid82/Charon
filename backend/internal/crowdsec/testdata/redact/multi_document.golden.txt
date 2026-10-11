@@ -1,0 +1,14 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: first
+url: <charon-redacted>
+---
+type: slack
+name: second
+webhook: <charon-redacted>
+channel: "#two"
+---
+type: dummy
+name: third
+output_file: /tmp/third.json

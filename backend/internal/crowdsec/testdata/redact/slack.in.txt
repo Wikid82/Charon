@@ -1,0 +1,10 @@
+type: slack
+name: slack_default
+log_level: info
+webhook: https://hooks.slack.example.invalid/services/SECRETTOKEN-slack
+channel: "#alerts"
+username: charon
+icon_emoji: ":shield:"
+icon_url: https://img.example.invalid/i.png?token=SECRETTOKEN-icon
+format: |
+  {{range . -}}{{.Message}}{{end -}}

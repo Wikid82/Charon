@@ -1,0 +1,8 @@
+type: sentinel
+name: sentinel_default
+log_level: info
+customer_id: SECRETTOKEN-customer
+shared_key: SECRETTOKEN-shared
+log_type: crowdsec
+format: |
+  {{.|toJson}}

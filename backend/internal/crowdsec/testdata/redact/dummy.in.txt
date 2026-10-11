@@ -1,0 +1,10 @@
+# dummy sink
+type: dummy
+name: dummy_default
+log_level: info
+format: |
+  {{range . -}}
+  {{.Value}}
+  {{end -}}
+output_file: /tmp/crowdsec_alerts.json  # where to write
+extra_secret: SECRETTOKEN-dummy-extra

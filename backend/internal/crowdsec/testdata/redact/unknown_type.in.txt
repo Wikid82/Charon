@@ -1,0 +1,8 @@
+type: carrier_pigeon
+name: pigeon
+url: https://pigeon.example.invalid/SECRETTOKEN-pigeon
+timeout: 5s
+nested:
+  deep:
+    - SECRETTOKEN-list
+    - key: SECRETTOKEN-keyed

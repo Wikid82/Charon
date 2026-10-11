@@ -1,0 +1,8 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: splunk
+name: unknown_key
+url: <charon-redacted>
+token: <charon-redacted>
+future_option: <charon-redacted>
+Token: <charon-redacted>

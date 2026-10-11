@@ -1,0 +1,7 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: merged_list
+headers: &a1
+  A: <charon-redacted>
+<<: [*a1, {url: <charon-redacted>, method: PUT}]

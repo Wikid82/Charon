@@ -1,0 +1,7 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: email
+name: shapes
+smtp_host: <charon-redacted>
+receiver_emails: <charon-redacted>
+sender_email: <charon-redacted>

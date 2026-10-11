@@ -1,0 +1,5 @@
+type: http
+name: merged_list
+headers: &h1
+  A: SECRETTOKEN-one
+<<: [*h1, {url: "https://hooks.example.invalid/SECRETTOKEN-two", method: PUT}]

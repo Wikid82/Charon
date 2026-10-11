@@ -1,0 +1,7 @@
+type: http
+name: merged
+headers: &base
+  Authorization: Bearer SECRETTOKEN-base
+  X-Api-Token: SECRETTOKEN-api
+<<: *base
+method: POST

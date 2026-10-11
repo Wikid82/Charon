@@ -1,0 +1,9 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: merged
+headers: &a1
+  Authorization: <charon-redacted>
+  X-Api-Token: <charon-redacted>
+<<: *a1
+method: POST

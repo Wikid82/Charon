@@ -1,0 +1,6 @@
+type: slack
+name: alias_in_kept
+webhook: &W https://hooks.example.invalid/SECRETTOKEN-hook
+channel: &C "#alerts"
+username: *C
+icon_emoji: *W

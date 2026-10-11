@@ -1,0 +1,11 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: dummy
+name: dummy_default
+log_level: info
+format: |
+  {{range . -}}
+  {{.Value}}
+  {{end -}}
+output_file: /tmp/crowdsec_alerts.json
+extra_secret: <charon-redacted>

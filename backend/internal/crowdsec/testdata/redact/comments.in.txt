@@ -1,0 +1,11 @@
+# head SECRETTOKEN-head
+type: dummy # line SECRETTOKEN-line
+name: comments
+# before key SECRETTOKEN-before
+output_file: /tmp/out.json
+# foot SECRETTOKEN-foot
+---
+# second doc SECRETTOKEN-second
+type: file
+name: comments2
+log_path: /tmp/x.log
