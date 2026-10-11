@@ -17,8 +17,12 @@ func TestIsHubPath(t *testing.T) {
 		"config/hub":           true,
 		"config/hub/x.yaml":    true,
 		"./config/hub/x.yaml":  true,
-		"Hub/x":                false,
-		"config/Hub/x":         false,
+		"Hub/x":                true,
+		"HUB":                  true,
+		"config/Hub/x":         true,
+		"Config/HUB/y":         true,
+		"config/Hubs/x":        false,
+		"nested/Hub/x":         false,
 		"config/hubs/x":        false,
 		"hubs/x":               false,
 		"nested/hub/x":         false,
@@ -59,7 +63,8 @@ func TestIsEngineOwnedPathPidFile(t *testing.T) {
 	t.Parallel()
 	require.True(t, IsEngineOwnedPath("crowdsec.pid"))
 	require.True(t, IsEngineOwnedPath("./crowdsec.pid"))
-	for _, rel := range []string{"a/crowdsec.pid", "config/crowdsec.pid", "crowdsec.pid.bak", "crowdsec.pidx", "my-crowdsec.pid"} {
+	require.True(t, IsEngineOwnedPath("CrowdSec.PID"))
+	for _, rel := range []string{"a/crowdsec.pid", "config/crowdsec.pid", "crowdsec.pid.bak", "crowdsec.pidx", "my-crowdsec.pid", "A/CrowdSec.PID"} {
 		require.False(t, IsEngineOwnedPath(rel), rel)
 	}
 }

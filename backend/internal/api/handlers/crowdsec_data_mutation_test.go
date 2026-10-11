@@ -84,6 +84,27 @@ func assertEngineStateIntact(t *testing.T, dir string) {
 	require.Equal(t, "archive", readTreeFile(t, filepath.Join(dir, "hub_cache", "x", "bundle.tgz")))
 }
 
+func TestImportConfigSkipsMixedCaseEngineOwnedEntries(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedEngineState(t, dir)
+	_, r := newImportRouter(t, dir)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, importRequest(t, map[string]string{
+		"config.yaml":      importableConfig,
+		"Data/crowdsec.db": "evil-lapi",
+		"HUB_CACHE/y":      "evil",
+		"CrowdSec.DB-WAL":  "evil",
+	}))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	assertEngineStateIntact(t, dir)
+	require.NoDirExists(t, filepath.Join(dir, "Data"))
+	require.NoDirExists(t, filepath.Join(dir, "HUB_CACHE"))
+	require.NoFileExists(t, filepath.Join(dir, "CrowdSec.DB-WAL"))
+}
+
 func TestImportConfigReplacesConfigButPreservesEngineStateAndDataDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

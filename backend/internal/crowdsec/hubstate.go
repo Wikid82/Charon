@@ -9,9 +9,9 @@ import (
 // IsHubPath reports whether rel (a slash- or OS-separated path relative to DataDir) lies in the
 // installed hub tree: hub/ at the top level or config/hub/. The tree is a regenerable cache managed by
 // cscli, and installed items are links into it, so it is treated as server-local state. Matching is
-// case-sensitive and a nested directory merely named "hub" stays configuration.
+// case-insensitive and a nested directory merely named "hub" stays configuration.
 func IsHubPath(rel string) bool {
-	slash := filepath.ToSlash(filepath.Clean(rel))
+	slash := strings.ToLower(filepath.ToSlash(filepath.Clean(rel)))
 	if slash == "." || slash == "" {
 		return false
 	}
