@@ -1157,6 +1157,11 @@
     }
   },
   "crowdsecConfig": {
+    "exportSuccess": "CrowdSec 配置已导出",
+    "exportFailed": "导出 CrowdSec 配置失败",
+    "importSuccess": "CrowdSec 配置已导入（已创建备份）",
+    "importFailed": "导入失败",
+    "exportPrompt": "为 CrowdSec 导出文件命名",
     "title": "CrowdSec 配置",
     "checkNow": "立即检查",
     "loading": "正在加载 CrowdSec 配置...",

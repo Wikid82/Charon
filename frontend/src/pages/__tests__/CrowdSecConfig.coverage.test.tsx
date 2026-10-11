@@ -220,6 +220,7 @@ describe('CrowdSecConfig coverage', () => {
     await renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'Export' }))
     await waitFor(() => expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled())
+    expect(exportUtils.promptCrowdsecFilename).toHaveBeenCalledWith(expect.any(Function), expect.any(String))
     expect(exportUtils.downloadCrowdsecExport).toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalledWith('CrowdSec configuration exported')
 

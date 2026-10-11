@@ -1158,6 +1158,11 @@
     }
   },
   "crowdsecConfig": {
+    "exportSuccess": "Configuration CrowdSec exportée",
+    "exportFailed": "Échec de l'exportation de la configuration CrowdSec",
+    "importSuccess": "Configuration CrowdSec importée (sauvegarde créée)",
+    "importFailed": "Échec de l'importation",
+    "exportPrompt": "Nom de l'archive d'exportation CrowdSec",
     "title": "Configuration CrowdSec",
     "checkNow": "Vérifier maintenant",
     "loading": "Chargement de la configuration CrowdSec...",

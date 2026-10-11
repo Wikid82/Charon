@@ -120,11 +120,11 @@ export default function CrowdSecConfig() {
       return await importCrowdsecConfig(file)
     },
     onSuccess: () => {
-      toast.success('CrowdSec config imported (backup created)')
+      toast.success(t('crowdsecConfig.importSuccess'))
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to import')
+      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.importFailed'))
     }
   })
 
@@ -419,15 +419,15 @@ export default function CrowdSecConfig() {
 
   const handleExport = async () => {
     const defaultName = buildCrowdsecExportFilename()
-    const filename = promptCrowdsecFilename(defaultName)
+    const filename = promptCrowdsecFilename(t, defaultName)
     if (!filename) return
 
     try {
       const blob = await exportCrowdsecConfig()
       downloadCrowdsecExport(blob, filename)
-      toast.success('CrowdSec configuration exported')
+      toast.success(t('crowdsecConfig.exportSuccess'))
     } catch {
-      toast.error('Failed to export CrowdSec configuration')
+      toast.error(t('crowdsecConfig.exportFailed'))
     }
   }
 
