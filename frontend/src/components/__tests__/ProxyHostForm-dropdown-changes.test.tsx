@@ -206,7 +206,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('allows changing ACL selection after initial selection', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     render(
@@ -252,7 +252,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('allows removing ACL selection', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     render(
@@ -295,7 +295,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('allows changing Security Headers selection after initial selection', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     render(
@@ -333,7 +333,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('allows removing Security Headers selection', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     render(
@@ -371,7 +371,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('allows editing existing host with ACL and changing it', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     const existingHost: ProxyHost = {
@@ -436,7 +436,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('persists null to value transitions for ACL and security headers in edit flow', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     const existingHostWithNulls: ProxyHost = {
@@ -492,7 +492,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('resets ACL/security header form state when editing target host changes', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     const firstHost: ProxyHost = {
@@ -562,7 +562,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('persists ACL and security header selections with UUID-only option payloads', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     const uuidOnlyAccessLists = [
@@ -626,7 +626,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('submits numeric ACL value when ACL option id is a numeric string', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     const stringIdAccessLists = [
@@ -675,7 +675,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('initializes edit mode from nested ACL and security header UUID references', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     const existingHost = {
@@ -727,7 +727,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('normalizes empty and numeric-string ACL/security references on submit', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     const hostWithStringReferences = {
@@ -777,7 +777,7 @@ describe('ProxyHostForm Dropdown Change Bug Fix', () => {
   })
 
   it('filters out security profiles missing both id and uuid', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const Wrapper = createWrapper()
 
     vi.mocked(useSecurityHeaderProfiles).mockReturnValue({
