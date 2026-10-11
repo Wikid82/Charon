@@ -6,12 +6,13 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems } from '../api/crowdsec'
 import { getFeatureFlags } from '../api/featureFlags'
 import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
 import { getSecurityStatus } from '../api/security'
 import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
+import HubItemsRestorePanel from '../components/crowdsec/HubItemsRestorePanel'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -42,6 +43,8 @@ export default function CrowdSecConfig() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'alpha' | 'type' | 'source'>('alpha')
   const [file, setFile] = useState<File | null>(null)
+  // Hub items the last import reported as missing; the key restarts the panel per import.
+  const [importHubItems, setImportHubItems] = useState<{ key: number; items: ImportHubItems } | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [selectedPresetSlug, setSelectedPresetSlug] = useState<string>('')
@@ -119,12 +122,14 @@ export default function CrowdSecConfig() {
     mutationFn: async (file: File) => {
       return await importCrowdsecConfig(file)
     },
-    onSuccess: () => {
-      toast.success('CrowdSec config imported (backup created)')
+    onSuccess: (result) => {
+      toast.success(t('crowdsecConfig.importSuccess'))
+      const items = result.hub_items
+      setImportHubItems(items && items.missing.length > 0 ? { key: Date.now(), items } : null)
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to import')
+      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.importFailed'))
     }
   })
 
@@ -419,15 +424,15 @@ export default function CrowdSecConfig() {
 
   const handleExport = async () => {
     const defaultName = buildCrowdsecExportFilename()
-    const filename = promptCrowdsecFilename(defaultName)
+    const filename = promptCrowdsecFilename(t, defaultName)
     if (!filename) return
 
     try {
       const blob = await exportCrowdsecConfig()
       downloadCrowdsecExport(blob, filename)
-      toast.success('CrowdSec configuration exported')
+      toast.success(t('crowdsecConfig.exportSuccess'))
     } catch {
-      toast.error('Failed to export CrowdSec configuration')
+      toast.error(t('crowdsecConfig.exportFailed'))
     }
   }
 
@@ -974,11 +979,15 @@ export default function CrowdSecConfig() {
           <p className="text-sm text-gray-400">{t('crowdsecConfig.packages.description')}</p>
           <input
             type="file"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null)
+              setImportHubItems(null)
+            }}
             data-testid="import-file"
             accept=".tar.gz"
             aria-label={t('crowdsecConfig.packages.selectFile')}
           />
+          {importHubItems && <HubItemsRestorePanel key={importHubItems.key} hubItems={importHubItems.items} />}
         </div>
       </Card>
 

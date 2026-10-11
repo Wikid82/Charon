@@ -77,7 +77,8 @@ func checkExportImportable(compressed, uncompressed, maxCompressed int64, maxRat
 // returns the uncompressed byte total. Excluded paths (IsExportExcluded) are left out, directories are
 // skipped with fs.SkipDir only when excluded, and non-regular entries (symlinks, pipes, sockets,
 // devices) are skipped so that nothing is followed or blocks on open. A file that vanishes is skipped;
-// an unreadable directory is logged and skipped; an unreadable regular file, or one whose size changes
+// an unreadable directory is logged and skipped; the installed hub items are listed in a generated
+// ManifestEntryName entry (only when there are any); an unreadable regular file, or one whose size changes
 // while it is copied, fails the export with ErrExportFileUnreadable.
 func WriteExportArchive(ctx context.Context, dataDir string, w io.Writer) (int64, error) {
 	return writeExportArchive(ctx, dataDir, w, MaxImportUncompressedBytes, exportHooks{})
@@ -112,6 +113,11 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 		if d.IsDir() {
 			return nil
 		}
+		if IsManifestPath(rel) {
+			// The name is reserved for the generated hub item list; a live file never takes its place.
+			logger.Log().Warn("skipping a file with the reserved hub item manifest name during export")
+			return nil
+		}
 		if !d.Type().IsRegular() {
 			logger.Log().Warnf("skipping non-regular entry %s during export", util.SanitizeForLog(rel))
 			return nil
@@ -122,6 +128,11 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 	})
 	if walkErr != nil {
 		return total, fmt.Errorf("export walk: %w", walkErr)
+	}
+	n, manifestErr := writeHubManifest(tw, dataDir, total, maxBytes)
+	total += n
+	if manifestErr != nil {
+		return total, fmt.Errorf("export hub item manifest: %w", manifestErr)
 	}
 	if err := tw.Close(); err != nil {
 		return total, fmt.Errorf("close tar writer: %w", err)

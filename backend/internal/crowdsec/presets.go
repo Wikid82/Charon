@@ -3,7 +3,6 @@ package crowdsec
 import (
 	"errors"
 	"fmt"
-	"regexp"
 )
 
 // ErrInvalidPresetDefinition is returned when a curated preset definition fails validation.
@@ -24,7 +23,6 @@ var (
 		"scenarios":     {},
 		"postoverflows": {},
 	}
-	presetItemNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*$`)
 )
 
 // Preset represents a curated CrowdSec preset offered by Charon.
@@ -51,7 +49,7 @@ func (p Preset) Validate() error {
 		if _, ok := allowedPresetItemTypes[item.Type]; !ok {
 			return fmt.Errorf("%w: unsupported item type %q", ErrInvalidPresetDefinition, item.Type)
 		}
-		if !presetItemNamePattern.MatchString(item.Name) {
+		if !ValidPresetItemName(item.Name) {
 			return fmt.Errorf("%w: invalid item name %q", ErrInvalidPresetDefinition, item.Name)
 		}
 	}

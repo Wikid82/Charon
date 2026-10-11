@@ -106,9 +106,11 @@ func TestExportConfigRealLayoutEntryList(t *testing.T) {
 	seedRealLayout(t, dir)
 	_, r := newImportRouter(t, dir)
 
+	// The fixture's hub links are not exported themselves; they are listed in the generated manifest.
 	require.Equal(t, []string{
 		"bouncer_key.bak",
 		"caddy.yaml",
+		crowdsec.ManifestEntryName,
 		"config/acquis.yaml",
 		"config/collections/placeholder.yaml",
 		"config/config.yaml",

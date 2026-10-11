@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import {
@@ -5,6 +6,8 @@ import {
   promptCrowdsecFilename,
   downloadCrowdsecExport,
 } from '../crowdsecExport'
+
+const t = vi.fn((key: string) => `translated:${key}`) as unknown as TFunction
 
 describe('crowdsecExport', () => {
   describe('buildCrowdsecExportFilename', () => {
@@ -54,94 +57,101 @@ describe('crowdsecExport', () => {
       vi.unstubAllGlobals()
     })
 
+    it('should ask the translator for the prompt text', () => {
+      vi.mocked(window.prompt).mockReturnValue('x')
+      promptCrowdsecFilename(t, 'default.tar.gz')
+      expect(t).toHaveBeenCalledWith('crowdsecConfig.exportPrompt')
+      expect(window.prompt).toHaveBeenCalledWith('translated:crowdsecConfig.exportPrompt', 'default.tar.gz')
+    })
+
     it('should return null when user cancels', () => {
       vi.mocked(window.prompt).mockReturnValue(null)
-      const result = promptCrowdsecFilename('default.tar.gz')
+      const result = promptCrowdsecFilename(t, 'default.tar.gz')
       expect(result).toBeNull()
     })
 
     it('should return default filename when user provides empty string', () => {
       vi.mocked(window.prompt).mockReturnValue('   ')
-      const result = promptCrowdsecFilename('default.tar.gz')
+      const result = promptCrowdsecFilename(t, 'default.tar.gz')
       expect(result).toBe('default.tar.gz')
     })
 
     it('should sanitize user input by replacing slashes', () => {
       vi.mocked(window.prompt).mockReturnValue('backup/prod/config')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup-prod-config.tar.gz')
     })
 
     it('should replace spaces with hyphens', () => {
       vi.mocked(window.prompt).mockReturnValue('crowdsec backup 2025')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('crowdsec-backup-2025.tar.gz')
     })
 
     it('should append .tar.gz if missing', () => {
       vi.mocked(window.prompt).mockReturnValue('my-backup')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('my-backup.tar.gz')
     })
 
     it('should not double-append .tar.gz', () => {
       vi.mocked(window.prompt).mockReturnValue('my-backup.tar.gz')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('my-backup.tar.gz')
     })
 
     it('should handle case-insensitive .tar.gz extension', () => {
       vi.mocked(window.prompt).mockReturnValue('my-backup.TAR.GZ')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       // Implementation checks lowercase, so uppercase extension gets .tar.gz appended
       expect(result).toBe('my-backup.TAR.GZ')
     })
 
     it('should trim whitespace from user input', () => {
       vi.mocked(window.prompt).mockReturnValue('  my-backup  ')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('my-backup.tar.gz')
     })
 
     it('should use generated default when no default provided', () => {
       vi.mocked(window.prompt).mockReturnValue('')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toMatch(/^crowdsec-export-.*\.tar\.gz$/)
     })
 
     it('should handle backslashes (Windows paths)', () => {
       vi.mocked(window.prompt).mockReturnValue('backup\\windows\\path')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup-windows-path.tar.gz')
     })
 
     it('should handle multiple consecutive slashes', () => {
       vi.mocked(window.prompt).mockReturnValue('backup///prod')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup-prod.tar.gz')
     })
 
     it('should handle multiple consecutive spaces', () => {
       vi.mocked(window.prompt).mockReturnValue('backup    prod')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup-prod.tar.gz')
     })
 
     it('should handle mixed slashes and spaces', () => {
       vi.mocked(window.prompt).mockReturnValue('backup / prod \\ test')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup---prod---test.tar.gz')
     })
 
     it('should handle special characters', () => {
       vi.mocked(window.prompt).mockReturnValue('backup@prod#2025')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup@prod#2025.tar.gz')
     })
 
     it('should handle undefined return from prompt', () => {
       vi.mocked(window.prompt).mockReturnValue(undefined as unknown as string | null)
-      const result = promptCrowdsecFilename('default.tar.gz')
+      const result = promptCrowdsecFilename(t, 'default.tar.gz')
       expect(result).toBeNull()
     })
   })
@@ -303,49 +313,49 @@ describe('crowdsecExport', () => {
 
     it('should sanitize directory traversal attempts', () => {
       vi.mocked(window.prompt).mockReturnValue('../../etc/passwd')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('..-..-etc-passwd.tar.gz')
       expect(result).not.toContain('../')
     })
 
     it('should handle absolute paths', () => {
       vi.mocked(window.prompt).mockReturnValue('/etc/crowdsec/backup')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('-etc-crowdsec-backup.tar.gz')
       expect(result).not.toMatch(/^\//)
     })
 
     it('should handle Windows absolute paths', () => {
       vi.mocked(window.prompt).mockReturnValue('C:\\Windows\\System32\\backup')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       // Backslashes are replaced with hyphens, but case is preserved
       expect(result).toBe('C:-Windows-System32-backup.tar.gz')
     })
 
     it('should handle null bytes', () => {
       vi.mocked(window.prompt).mockReturnValue('backup\0malicious')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toContain('backup')
       // Null bytes should be handled by sanitization
     })
 
     it('should handle mixed attack vectors', () => {
       vi.mocked(window.prompt).mockReturnValue('../../../etc/passwd\0.tar.gz')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).not.toContain('../')
       expect(result!.endsWith('.tar.gz')).toBe(true)
     })
 
     it('should handle URL-encoded path traversal', () => {
       vi.mocked(window.prompt).mockReturnValue('%2e%2e%2f%2e%2e%2f')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toContain('%2e')
       expect(result!.endsWith('.tar.gz')).toBe(true)
     })
 
     it('should not allow overwriting system files via filename', () => {
       vi.mocked(window.prompt).mockReturnValue('/etc/passwd')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       // After sanitization, leading slash should be replaced
       expect(result).toBe('-etc-passwd.tar.gz')
     })
@@ -363,45 +373,45 @@ describe('crowdsecExport', () => {
     it('should handle very long filenames', () => {
       const longName = 'a'.repeat(300)
       vi.mocked(window.prompt).mockReturnValue(longName)
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toContain('a'.repeat(100)) // Should still work
       expect(result!.endsWith('.tar.gz')).toBe(true)
     })
 
     it('should handle unicode characters', () => {
       vi.mocked(window.prompt).mockReturnValue('backup-日本語-2025')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup-日本語-2025.tar.gz')
     })
 
     it('should handle emoji characters', () => {
       vi.mocked(window.prompt).mockReturnValue('backup-🔒-secure')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup-🔒-secure.tar.gz')
     })
 
     it('should handle only special characters', () => {
       vi.mocked(window.prompt).mockReturnValue('///\\\\\\')
-      const result = promptCrowdsecFilename('default.tar.gz')
+      const result = promptCrowdsecFilename(t, 'default.tar.gz')
       // Slashes become hyphens, resulting in single hyphen after sanitization
       expect(result).toBe('-.tar.gz')
     })
 
     it('should handle filename with only spaces', () => {
       vi.mocked(window.prompt).mockReturnValue('     ')
-      const result = promptCrowdsecFilename('default.tar.gz')
+      const result = promptCrowdsecFilename(t, 'default.tar.gz')
       expect(result).toBe('default.tar.gz')
     })
 
     it('should handle filename with .tar.gz in the middle', () => {
       vi.mocked(window.prompt).mockReturnValue('backup.tar.gz.old')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       expect(result).toBe('backup.tar.gz.old.tar.gz')
     })
 
     it('should handle case variations of .tar.gz', () => {
       vi.mocked(window.prompt).mockReturnValue('backup.Tar.Gz')
-      const result = promptCrowdsecFilename()
+      const result = promptCrowdsecFilename(t)
       // Implementation uses lowercase check, so mixed case doesn't match
       expect(result).toBe('backup.Tar.Gz')
     })
@@ -450,7 +460,7 @@ describe('crowdsecExport', () => {
 
       // 2. User provides custom filename
       promptSpy.mockReturnValue('my-backup')
-      const customFilename = promptCrowdsecFilename(defaultFilename)
+      const customFilename = promptCrowdsecFilename(t, defaultFilename)
       expect(customFilename).toBe('my-backup.tar.gz')
 
       // 3. Download with custom filename
@@ -464,7 +474,7 @@ describe('crowdsecExport', () => {
     it('should handle user cancellation', () => {
       const defaultFilename = buildCrowdsecExportFilename()
       promptSpy.mockReturnValue(null)
-      const result = promptCrowdsecFilename(defaultFilename)
+      const result = promptCrowdsecFilename(t, defaultFilename)
 
       expect(result).toBeNull()
       // Download should not be triggered when user cancels
@@ -473,7 +483,7 @@ describe('crowdsecExport', () => {
     it('should use default filename when user provides empty input', () => {
       const defaultFilename = buildCrowdsecExportFilename()
       promptSpy.mockReturnValue('')
-      const result = promptCrowdsecFilename(defaultFilename)
+      const result = promptCrowdsecFilename(t, defaultFilename)
 
       expect(result).toBe(defaultFilename)
     })

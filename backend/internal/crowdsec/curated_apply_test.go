@@ -511,7 +511,7 @@ func TestVerifyItemNilContextError(t *testing.T) {
 	hub, _ := newCuratedHub(t, &curatedExec{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	require.ErrorIs(t, hub.verifyItem(ctx, PresetItem{Type: "collections", Name: "crowdsecurity/sshd"}), context.Canceled)
+	require.ErrorIs(t, VerifyHubItem(ctx, hub.Exec, "collections", "crowdsecurity/sshd"), context.Canceled)
 }
 
 func TestApplyCuratedRollbackLeavesLiveDatabaseUntouched(t *testing.T) {

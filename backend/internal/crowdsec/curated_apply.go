@@ -2,7 +2,6 @@ package crowdsec
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -75,38 +74,9 @@ func (s *HubService) installAndVerify(ctx context.Context, preset Preset) error 
 		if _, err := s.Exec.Execute(ctx, "cscli", item.Type, "install", item.Name); err != nil {
 			return fmt.Errorf("install %s %s: %w", item.Type, item.Name, err)
 		}
-		if err := s.verifyItem(ctx, item); err != nil {
+		if err := VerifyHubItem(ctx, s.Exec, item.Type, item.Name); err != nil {
 			return fmt.Errorf("verify %s %s: %w", item.Type, item.Name, err)
 		}
-	}
-	return nil
-}
-
-// verifyItem requires `cscli <type> inspect <name> -o json` to report the item as installed and untainted.
-func (s *HubService) verifyItem(ctx context.Context, item PresetItem) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	out, err := s.Exec.Execute(ctx, "cscli", item.Type, "inspect", item.Name, "-o", "json")
-	if err != nil {
-		return err
-	}
-	// Field names follow cscli's `-o json` inspect output (installed, tainted).
-	var state struct {
-		Installed *bool `json:"installed"`
-		Tainted   bool  `json:"tainted"`
-	}
-	if err := json.Unmarshal(out, &state); err != nil {
-		return fmt.Errorf("parse inspect output: %w", err)
-	}
-	if state.Installed == nil {
-		return errors.New("inspect output has no installed field")
-	}
-	if !*state.Installed {
-		return errors.New("item reported as not installed")
-	}
-	if state.Tainted {
-		return errors.New("item reported as tainted")
 	}
 	return nil
 }

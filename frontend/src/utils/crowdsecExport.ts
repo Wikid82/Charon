@@ -1,10 +1,12 @@
+import type { TFunction } from 'i18next'
+
 export const buildCrowdsecExportFilename = (): string => {
   const timestamp = new Date().toISOString().replace(/:/g, '-')
   return `crowdsec-export-${timestamp}.tar.gz`
 }
 
-export const promptCrowdsecFilename = (defaultName = buildCrowdsecExportFilename()): string | null => {
-  const input = window.prompt('Name your CrowdSec export archive', defaultName)
+export const promptCrowdsecFilename = (t: TFunction, defaultName = buildCrowdsecExportFilename()): string | null => {
+  const input = window.prompt(t('crowdsecConfig.exportPrompt'), defaultName)
   if (input === null || typeof input === 'undefined') return null
   const trimmed = typeof input === 'string' ? input.trim() : ''
   const candidate = trimmed || defaultName

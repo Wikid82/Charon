@@ -87,6 +87,9 @@ type CrowdsecHandler struct {
 	// Lock order is always dataMu first, then HubService.mu.
 	dataMu sync.Mutex
 
+	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
+	restore hubRestoreState
+
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
 
@@ -716,6 +719,19 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
+	// One pass over the upload feeds the pre-import checks and the hub item report. Refuse an archive
+	// CrowdSec could not start with before taking the lock or changing anything.
+	info, inspectErr := crowdsec.InspectArchive(dst)
+	if inspectErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(inspectErr.Error())).Warn("crowdsec import: archive inspection skipped")
+	} else if err = crowdsec.VerifyInspectedNotifications(info); err != nil {
+		var undefined *crowdsec.UndefinedNotificationsError
+		if errors.As(err, &undefined) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "config validation failed: " + undefined.Error()})
+			return
+		}
+	}
+
 	// Serialize with preset applies and file writes, then snapshot (copy, never rename) the config.
 	h.dataMu.Lock()
 	defer h.dataMu.Unlock()
@@ -764,7 +780,9 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)})
+	resp := gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)}
+	h.addHubItemsReport(resp, info.HubItems)
+	c.JSON(http.StatusOK, resp)
 }
 
 // pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
@@ -805,15 +823,14 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		// Path traversal protection
-		// #nosec G305 -- Path traversal is explicitly checked below
-		target := filepath.Join(destDir, header.Name)
-		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+		// Path traversal protection, shared with the pre-import inspection so both see the same entry.
+		rel, ok := crowdsec.ArchiveEntryRel(header.Name)
+		if !ok {
 			return fmt.Errorf("invalid file path: %s", header.Name)
 		}
+		target := filepath.Join(destDir, rel)
 		// Server-local state (engine-owned data, stored account details, the hub tree, live symlinks) is
 		// never taken from an upload. This runs only after the containment check above.
-		rel := strings.TrimPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator))
 		if skipArchiveEntry(liveDirs, rel, header.Typeflag, keep) {
 			continue
 		}
@@ -2382,6 +2399,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/stop", h.Stop)
 	rg.GET("/admin/crowdsec/status", h.Status)
 	rg.POST("/admin/crowdsec/import", h.ImportConfig)
+	rg.POST("/admin/crowdsec/hub-items/restore", h.RestoreHubItems)
 	rg.GET("/admin/crowdsec/export", h.ExportConfig)
 	rg.GET("/admin/crowdsec/files", h.ListFiles)
 	rg.GET("/admin/crowdsec/file", h.ReadFile)
@@ -2472,6 +2490,9 @@ func (h *CrowdsecHandler) reloadAfterWhitelistChange(ctx context.Context, action
 // (after the clear step such a directory remains only because it holds kept entries). rel has passed
 // the containment check.
 func skipArchiveEntry(liveDirs map[string]struct{}, rel string, typeflag byte, keep func(rel string) bool) bool {
+	if crowdsec.IsManifestPath(rel) {
+		return true // generated hub item list, read by the pre-import inspection, never written to disk
+	}
 	if crowdsec.KeptOrBeneathKept(keep, rel) {
 		return true
 	}

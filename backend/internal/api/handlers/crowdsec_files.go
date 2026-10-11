@@ -199,31 +199,14 @@ func checkSize(content string) *fileError {
 // document's node, or io.EOF when the stream has no document. With firstOnly set, later documents are
 // never read; otherwise every document must parse.
 func parseYAMLDocuments(r io.Reader, firstOnly bool) (*yaml.Node, error) {
-	dec := yaml.NewDecoder(r)
-	var first *yaml.Node
-	for {
-		var node yaml.Node
-		err := dec.Decode(&node)
-		if errors.Is(err, io.EOF) {
-			if first == nil {
-				return nil, io.EOF
-			}
-			return first, nil
-		}
-		if err != nil {
-			return nil, fmt.Errorf("decode yaml document: %w", err)
-		}
-		var doc any
-		if err := node.Decode(&doc); err != nil {
-			return nil, fmt.Errorf("decode yaml value: %w", err)
-		}
-		if first == nil {
-			first = &node
-		}
-		if firstOnly {
-			return first, nil
-		}
+	docs, err := crowdsec.ParseYAMLDocuments(r, firstOnly)
+	if err != nil {
+		return nil, err
 	}
+	if len(docs) == 0 {
+		return nil, io.EOF
+	}
+	return docs[0], nil
 }
 
 // checkYAML verifies that YAML files parse; other allowed types are not inspected.

@@ -110,7 +110,7 @@ describe('CrowdSecConfig coverage', () => {
     vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
-    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({
       presets: [
         {
@@ -220,6 +220,7 @@ describe('CrowdSecConfig coverage', () => {
     await renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'Export' }))
     await waitFor(() => expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled())
+    expect(exportUtils.promptCrowdsecFilename).toHaveBeenCalledWith(expect.any(Function), expect.any(String))
     expect(exportUtils.downloadCrowdsecExport).toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalledWith('CrowdSec configuration exported')
 

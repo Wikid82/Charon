@@ -265,3 +265,69 @@ export async function listTarGzEntries(archive: Buffer): Promise<string[]> {
   });
   return names;
 }
+
+/** Reads the text content of one entry (matched by exact path) from a tar.gz buffer, or null when absent. */
+export async function readTarGzEntry(archive: Buffer, entryName: string): Promise<string | null> {
+  let content: string | null = null;
+  await new Promise<void>((resolve, reject) => {
+    const parser = new tar.Parser();
+    parser.on('entry', (entry) => {
+      if (entry.path !== entryName) {
+        entry.resume();
+        return;
+      }
+      const chunks: Buffer[] = [];
+      entry.on('data', (chunk: Buffer) => chunks.push(chunk));
+      entry.on('end', () => {
+        content = Buffer.concat(chunks).toString('utf8');
+      });
+    });
+    parser.on('end', resolve);
+    parser.on('error', reject);
+    parser.end(archive);
+  });
+  return content;
+}
+
+/** Name of the hub item manifest that a CrowdSec export carries at the archive root. */
+export const HUB_MANIFEST_NAME = 'charon-hub-items.json';
+
+export interface HubItemRef {
+  type: string;
+  name: string;
+}
+
+/** Serialises a hub item manifest. Pass `version` or raw `items` to build an unsupported or damaged one. */
+export function hubManifest(items: unknown[], version: number = 1): string {
+  return JSON.stringify({ version, items });
+}
+
+/** A minimal profiles.yaml whose single profile names the given notifications. */
+export function profilesYaml(notifications: string[]): string {
+  const list = notifications.map((name) => `  - ${name}`).join('\n');
+  return `name: default_ip_remediation
+filters:
+  - Alert.Remediation == true && Alert.GetScope() == "Ip"
+decisions:
+  - type: ban
+    duration: 4h
+notifications:
+${list}
+on_success: break
+`;
+}
+
+/** A notification plugin config document with a placeholder URL. */
+export function notificationYaml(...names: string[]): string {
+  return names
+    .map(
+      (name) => `type: http
+name: ${name}
+log_level: info
+format: ""
+url: https://notify.example.invalid/hook
+method: POST
+`,
+    )
+    .join('---\n');
+}

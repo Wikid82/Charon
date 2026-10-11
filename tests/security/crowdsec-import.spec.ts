@@ -21,7 +21,12 @@ import {
   createTarGz,
   createZip,
   createZipBomb,
+  HUB_MANIFEST_NAME,
+  hubManifest,
   listTarGzEntries,
+  notificationYaml,
+  profilesYaml,
+  readTarGzEntry,
 } from '../utils/archive-helpers';
 
 const ADMIN = '/api/v1/admin/crowdsec';
@@ -214,6 +219,8 @@ test.describe('CrowdSec Config Import Validation', () => {
       const baseNames = files.map((name) => name.split('/').pop()?.toLowerCase());
 
       expect(files).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+      // The hub item manifest is the one extra root entry, present exactly once.
+      expect(files.filter((name) => name === HUB_MANIFEST_NAME)).toEqual([HUB_MANIFEST_NAME]);
       expect(files.filter((name) => /^(\.\/)?(data|hub_cache)\//.test(name))).toEqual([]);
       expect(files.filter((name) => /\.db(-wal|-shm)?$/.test(name))).toEqual([]);
       expect(baseNames).not.toContain('bouncer_key');
@@ -231,6 +238,25 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       const entries = await listTarGzEntries(body);
       expect(entries).toEqual(expect.arrayContaining([expect.stringMatching(/^(config\/)?config\.yaml$/)]));
+      expect(entries).toContain(HUB_MANIFEST_NAME);
+    });
+
+    test('export carries a sorted version 1 hub item manifest listing the installed collection', async ({ request }) => {
+      const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+      expect(response.status()).toBe(200);
+
+      const manifestText = await readTarGzEntry(await response.body(), HUB_MANIFEST_NAME);
+      expect(manifestText).not.toBeNull();
+      const manifest = JSON.parse(manifestText as string) as { version: number; items: Array<{ type: string; name: string }> };
+
+      expect(manifest.version).toBe(1);
+      expect(Object.keys(manifest).sort()).toEqual(['items', 'version']);
+      expect(manifest.items).toEqual(expect.arrayContaining([{ type: 'collections', name: 'crowdsecurity/caddy' }]));
+      for (const item of manifest.items) {
+        expect(Object.keys(item).sort()).toEqual(['name', 'type']);
+      }
+      const keys = manifest.items.map((item) => `${item.type}\u0000${item.name}`);
+      expect(keys).toEqual([...keys].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))));
     });
 
     test('import accepts an export laid out as config/config.yaml', async ({ request }, testInfo) => {
@@ -264,7 +290,12 @@ test.describe('CrowdSec Config Import Validation', () => {
       });
 
       expect(response.status()).toBe(200);
-      expect((await response.json()).status).toBe('imported');
+      const body = await response.json();
+      expect(body.status).toBe('imported');
+      // Everything the export lists is already installed on the same host.
+      expect(body.hub_items.missing).toEqual([]);
+      expect(body.hub_items.skipped_invalid).toBe(0);
+      expect(body.hub_items.in_export).toBeGreaterThanOrEqual(1);
       expect(await readRegistration()).toBe(registeredBefore);
     });
 
@@ -341,6 +372,305 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(422);
       expect((await response.json()).error).toBe('validation failed: only .tar.gz archives are supported');
+    });
+  });
+
+  // An import whose profiles.yaml names a notification that no file defines would leave CrowdSec
+  // unable to start, so it is refused before anything changes.
+  test.describe('Notification References', () => {
+    const missingMessage = (names: string) =>
+      `config validation failed: profiles.yaml names notifications that have no matching file: ${names}`;
+
+    test('refuses a profiles.yaml naming a notification no file defines and changes nothing', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['x']) },
+        testInfo.outputPath('missing-notification.tar.gz'),
+      );
+      const filesBefore = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
+
+      const response = await upload(request, archive, 'missing-notification.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(missingMessage('x'));
+      expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
+      expect(await readConfigFile(request, 'acquis.yaml')).toBe(BASELINE_ACQUIS);
+      expect((await (await request.get(`${ADMIN}/files`)).json()).files as string[]).toEqual(filesBefore);
+    });
+
+    test('lists every missing notification name in sorted order', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['zeta', 'alpha']) },
+        testInfo.outputPath('two-missing.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'two-missing.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(missingMessage('alpha, zeta'));
+    });
+
+    test('lists at most ten missing names and counts the rest', async ({ request }, testInfo) => {
+      const names = Array.from({ length: 12 }, (_, index) => `n${String(index + 1).padStart(2, '0')}`);
+      const archive = await createTarGz(
+        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml([...names].reverse()) },
+        testInfo.outputPath('many-missing.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'many-missing.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(missingMessage(`${names.slice(0, 10).join(', ')}, and 2 more`));
+    });
+
+    test('accepts a profiles.yaml whose notification is defined by a notifications file', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        {
+          'config.yaml': VALID_CONFIG,
+          'profiles.yaml': profilesYaml(['x']),
+          'notifications/x.yaml': notificationYaml('x'),
+        },
+        testInfo.outputPath('defined-notification.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'defined-notification.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+      expect(await readConfigFile(request, 'notifications/x.yaml')).toBe(notificationYaml('x'));
+    });
+
+    test('accepts a notification defined in a .yml file', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        {
+          'config.yaml': VALID_CONFIG,
+          'profiles.yaml': profilesYaml(['x']),
+          'notifications/x.yml': notificationYaml('x'),
+        },
+        testInfo.outputPath('yml-notification.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'yml-notification.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+    });
+
+    test('matches by the name field, so a multi-document file defines every name in it', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        {
+          'config.yaml': VALID_CONFIG,
+          'profiles.yaml': profilesYaml(['first', 'second']),
+          'notifications/both.yaml': notificationYaml('first', 'second'),
+        },
+        testInfo.outputPath('multi-document.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'multi-document.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+    });
+
+    test('refuses a name that only the file name matches', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        {
+          'config.yaml': VALID_CONFIG,
+          'profiles.yaml': profilesYaml(['a']),
+          'notifications/a.yaml': notificationYaml('b'),
+        },
+        testInfo.outputPath('file-name-match.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'file-name-match.tar.gz');
+
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe(missingMessage('a'));
+    });
+
+    test('accepts a name defined under a different file name', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        {
+          'config.yaml': VALID_CONFIG,
+          'profiles.yaml': profilesYaml(['b']),
+          'notifications/a.yaml': notificationYaml('b'),
+        },
+        testInfo.outputPath('name-field-match.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'name-field-match.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+    });
+
+    // CrowdSec only loads lowercase .yaml/.yml files directly inside notifications/.
+    const ignoredDefinitions = [
+      { title: 'a subdirectory', path: 'notifications/sub/s.yaml' },
+      { title: 'a .txt file', path: 'notifications/s.txt' },
+      { title: 'a .bak file', path: 'notifications/s.bak' },
+      { title: 'an uppercase .YAML file', path: 'notifications/s.YAML' },
+    ];
+    for (const { title, path } of ignoredDefinitions) {
+      test(`refuses a notification defined only in ${title}`, async ({ request }, testInfo) => {
+        const archive = await createTarGz(
+          { 'config.yaml': VALID_CONFIG, 'profiles.yaml': profilesYaml(['s']), [path]: notificationYaml('s') },
+          testInfo.outputPath('ignored-definition.tar.gz'),
+        );
+        const filesBefore = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
+
+        const response = await upload(request, archive, 'ignored-definition.tar.gz');
+
+        expect(response.status()).toBe(422);
+        expect((await response.json()).error).toBe(missingMessage('s'));
+        expect(await readConfigFile(request, 'config.yaml')).toBe(BASELINE_CONFIG);
+        expect((await (await request.get(`${ADMIN}/files`)).json()).files as string[]).toEqual(filesBefore);
+      });
+    }
+
+    test('accepts an archive whose profiles.yaml names nothing', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': VALID_CONFIG, 'profiles.yaml': 'name: default_ip_remediation\nnotifications: []\non_success: break\n' },
+        testInfo.outputPath('no-notifications.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'no-notifications.tar.gz');
+
+      expect(response.status()).toBe(200);
+    });
+
+    test('accepts an archive with no profiles.yaml', async ({ request }, testInfo) => {
+      const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('no-profiles.tar.gz'));
+
+      const response = await upload(request, archive, 'no-profiles.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).status).toBe('imported');
+    });
+  });
+
+  // An export carries charon-hub-items.json (names and types only); an import reports which of
+  // the listed items the target lacks. The manifest is read, never written to disk.
+  test.describe('Hub Item Manifest', () => {
+    const ITEMS = [
+      { type: 'collections', name: 'Azlaroc/sftpgo' },
+      { type: 'parsers', name: 'crowdsecurity/sshd-logs' },
+      { type: 'scenarios', name: 'crowdsecurity/ssh-bf' },
+    ];
+
+    async function importWithManifest(request: APIRequestContext, manifest: string, outputPath: string) {
+      const archive = await createTarGz(
+        { 'config.yaml': VALID_CONFIG, [HUB_MANIFEST_NAME]: manifest },
+        outputPath,
+      );
+      return upload(request, archive, 'with-manifest.tar.gz');
+    }
+
+    test('an archive without a manifest imports with no hub_items field', async ({ request }, testInfo) => {
+      const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('legacy.tar.gz'));
+
+      const response = await upload(request, archive, 'legacy.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect(await response.json()).not.toHaveProperty('hub_items');
+    });
+
+    test('reports the manifest items the target lacks as hub_items.missing', async ({ request }, testInfo) => {
+      const response = await importWithManifest(request, hubManifest(ITEMS), testInfo.outputPath('manifest.tar.gz'));
+
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      expect(body.status).toBe('imported');
+      expect(body.hub_items).toEqual({ in_export: 3, skipped_invalid: 0, missing: ITEMS });
+    });
+
+    test('never writes the manifest to disk or lets it shape a later export', async ({ request }, testInfo) => {
+      const response = await importWithManifest(request, hubManifest(ITEMS), testInfo.outputPath('manifest-disk.tar.gz'));
+      expect(response.status()).toBe(200);
+
+      const files = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
+      expect(files).not.toContain(HUB_MANIFEST_NAME);
+
+      const exported = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+      expect(exported.status()).toBe(200);
+      // The export regenerates its own manifest from the installed links, not from the upload.
+      const manifest = JSON.parse((await readTarGzEntry(await exported.body(), HUB_MANIFEST_NAME)) as string);
+      expect(manifest.items).not.toContainEqual(ITEMS[0]);
+    });
+
+    test('reads a manifest spelled ./charon-hub-items.json and still does not write it', async ({ request }, testInfo) => {
+      const archive = await createRawTarGz(
+        [
+          { name: 'config.yaml', content: VALID_CONFIG },
+          { name: `./${HUB_MANIFEST_NAME}`, content: hubManifest(ITEMS) },
+        ],
+        testInfo.outputPath('dot-slash-manifest.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'dot-slash-manifest.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).hub_items.missing).toEqual(ITEMS);
+      const files = (await (await request.get(`${ADMIN}/files`)).json()).files as string[];
+      expect(files).not.toContain(HUB_MANIFEST_NAME);
+    });
+
+    test('counts individually invalid manifest items in skipped_invalid without naming them', async ({ request }, testInfo) => {
+      const manifest = hubManifest([
+        ITEMS[0],
+        { type: 'collections', name: '--help' },
+        { type: 'nonsense', name: 'crowdsecurity/sshd' },
+        { type: 'parsers', name: 'a/../b' },
+      ]);
+
+      const response = await importWithManifest(request, manifest, testInfo.outputPath('some-invalid.tar.gz'));
+
+      expect(response.status()).toBe(200);
+      expect((await response.json()).hub_items).toEqual({ in_export: 1, skipped_invalid: 3, missing: [ITEMS[0]] });
+    });
+
+    const ignoredManifests: Array<{ title: string; manifest: string }> = [
+      { title: 'is not JSON', manifest: '{not json' },
+      { title: 'has an unknown version', manifest: hubManifest(ITEMS, 2) },
+      { title: 'lists more than 1,000 items', manifest: hubManifest(Array.from({ length: 1001 }, (_, i) => ({ type: 'collections', name: `owner/item-${i}` }))) },
+    ];
+    for (const { title, manifest } of ignoredManifests) {
+      test(`ignores a manifest that ${title} and still imports`, async ({ request }, testInfo) => {
+        const response = await importWithManifest(request, manifest, testInfo.outputPath('ignored-manifest.tar.gz'));
+
+        expect(response.status()).toBe(200);
+        const body = await response.json();
+        expect(body.status).toBe('imported');
+        expect(body).not.toHaveProperty('hub_items');
+      });
+    }
+
+    test('ignores the whole manifest when the archive carries it twice', async ({ request }, testInfo) => {
+      const archive = await createRawTarGz(
+        [
+          { name: 'config.yaml', content: VALID_CONFIG },
+          { name: HUB_MANIFEST_NAME, content: hubManifest(ITEMS) },
+          { name: HUB_MANIFEST_NAME, content: hubManifest(ITEMS.slice(0, 1)) },
+        ],
+        testInfo.outputPath('duplicate-manifest.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'duplicate-manifest.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect(await response.json()).not.toHaveProperty('hub_items');
+    });
+
+    test('extracts a nested file with the manifest name as an ordinary file', async ({ request }, testInfo) => {
+      const archive = await createTarGz(
+        { 'config.yaml': VALID_CONFIG, [`nested/${HUB_MANIFEST_NAME}`]: hubManifest(ITEMS) },
+        testInfo.outputPath('nested-manifest.tar.gz'),
+      );
+
+      const response = await upload(request, archive, 'nested-manifest.tar.gz');
+
+      expect(response.status()).toBe(200);
+      expect(await response.json()).not.toHaveProperty('hub_items');
+      expect(await readConfigFile(request, `nested/${HUB_MANIFEST_NAME}`)).toBe(hubManifest(ITEMS));
     });
   });
 });

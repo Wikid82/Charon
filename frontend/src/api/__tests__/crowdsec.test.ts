@@ -46,6 +46,27 @@ describe('crowdsec API', () => {
     })
   })
 
+  describe('restoreHubItems', () => {
+    it('posts the items with a 330 s timeout override and returns the result', async () => {
+      const result = { installed: [], already_installed: [], failed: [], remaining: 0, skipped_invalid: 0, reloaded: false }
+      vi.mocked(client.post).mockResolvedValue({ data: result })
+      const items = [{ type: 'collections', name: 'crowdsecurity/caddy' }]
+
+      await expect(crowdsec.restoreHubItems(items)).resolves.toEqual(result)
+
+      expect(client.post).toHaveBeenCalledWith(
+        '/admin/crowdsec/hub-items/restore',
+        { items },
+        { timeout: 330_000 },
+      )
+    })
+
+    it('propagates request errors', async () => {
+      vi.mocked(client.post).mockRejectedValue(new Error('boom'))
+      await expect(crowdsec.restoreHubItems([])).rejects.toThrow('boom')
+    })
+  })
+
   describe('importCrowdsecConfig', () => {
     it('should call POST /admin/crowdsec/import with FormData', async () => {
       const mockFile = new File(['content'], 'config.tar.gz', { type: 'application/gzip' })
