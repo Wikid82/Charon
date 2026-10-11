@@ -537,5 +537,5 @@ type testRand struct{ state uint64 }
 
 func (r *testRand) Intn(n int) int {
 	r.state = r.state*6364136223846793005 + 1442695040888963407
-	return int((r.state >> 33) % uint64(n))
+	return int((r.state >> 33) % uint64(n)) //nolint:gosec // G115: n is a small positive slice length in tests
 }

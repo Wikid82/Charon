@@ -2,6 +2,7 @@ package crowdsec
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -11,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -78,7 +81,9 @@ func checkExportImportable(compressed, uncompressed, maxCompressed int64, maxRat
 // skipped with fs.SkipDir only when excluded, and non-regular entries (symlinks, pipes, sockets,
 // devices) are skipped so that nothing is followed or blocks on open. A file that vanishes is skipped;
 // an unreadable directory is logged and skipped; the installed hub items are listed in a generated
-// ManifestEntryName entry (only when there are any); an unreadable regular file, or one whose size changes
+// ManifestEntryName entry (only when there are any); notification settings files have their sensitive
+// values blanked (RedactNotificationFile) or, when that is not possible, are exported empty, and stray
+// non-YAML files in a notification folder are left out; an unreadable regular file, or one whose size changes
 // while it is copied, fails the export with ErrExportFileUnreadable.
 func WriteExportArchive(ctx context.Context, dataDir string, w io.Writer) (int64, error) {
 	return writeExportArchive(ctx, dataDir, w, MaxImportUncompressedBytes, exportHooks{})
@@ -92,6 +97,7 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 	gw := gzip.NewWriter(&limitWriter{w: w, limit: maxCompressed})
 	tw := tar.NewWriter(gw)
 	var total int64
+	dirs := liveNotificationDirs(dataDir)
 
 	walkErr := filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -122,7 +128,7 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 			logger.Log().Warnf("skipping non-regular entry %s during export", util.SanitizeForLog(rel))
 			return nil
 		}
-		n, copyErr := addExportFile(tw, dataDir, rel, total, maxBytes, hooks)
+		n, copyErr := addExportFile(tw, dataDir, rel, total, maxBytes, dirs, hooks)
 		total += n
 		return copyErr
 	})
@@ -158,20 +164,49 @@ func handleExportWalkError(path string, d fs.DirEntry, err error) error {
 	}
 }
 
-// addExportFile copies one regular file into tw and returns the bytes it contributed.
-func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, hooks exportHooks) (int64, error) {
+// addExportFile copies one regular file into tw and returns the bytes it contributed. Files that are
+// notification settings (IsNotificationFile) are rewritten by addRedactedExportFile, or left out.
+func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, dirs []string, hooks exportHooks) (int64, error) {
+	slash := filepath.ToSlash(rel)
+	kind := IsNotificationFile(slash, nil, dirs)
+	if kind == InDirOther {
+		// CrowdSec never reads these, and they cannot be rewritten structurally.
+		logger.Log().Debugf("leaving %s out of the export: not a notification file CrowdSec reads", util.SanitizeForLog(rel))
+		return 0, nil
+	}
+	f, info, err := openExportFile(dataDir, rel, hooks)
+	if f == nil || err != nil {
+		return 0, err
+	}
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warnf("failed to close %s while archiving", util.SanitizeForLog(rel))
+		}
+	}()
+
+	// A YAML file outside the notification folders may still be one (look-alike), so it is read and
+	// probed too, as long as it is small enough to be parsed.
+	if kind == InDirYAML || (hasYAMLExt(slash) && info.Size() <= maxInspectEntryBytes) {
+		return addRedactedExportFile(tw, f, info, rel, kind, dirs, total, maxBytes)
+	}
+	if total+info.Size() > maxBytes {
+		return 0, ErrExportTooLarge
+	}
+	return copyExportFile(tw, f, info, rel)
+}
+
+// openExportFile opens the walked entry rel for reading and verifies that it is still the regular file
+// the walk listed. A nil file with a nil error means the entry is skipped (vanished or swapped for a link).
+func openExportFile(dataDir, rel string, hooks exportHooks) (*os.File, os.FileInfo, error) {
 	path := filepath.Join(dataDir, rel)
 	// Lstat first: the entry came from the directory listing, so a swap to a link or pipe afterwards
 	// must not be opened.
 	info, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return nil, nil, nil
 	}
 	if err != nil || !info.Mode().IsRegular() {
-		return 0, unreadableFile(rel, err)
-	}
-	if total+info.Size() > maxBytes {
-		return 0, ErrExportTooLarge
+		return nil, nil, unreadableFile(rel, err)
 	}
 	if hooks.beforeOpen != nil {
 		hooks.beforeOpen(path)
@@ -181,56 +216,147 @@ func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, h
 	// swapped-in FIFO from blocking while the data lock is held. The opened file is verified below.
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) //nolint:gosec // G304: path is dataDir (Charon-owned) joined with a walked entry; O_NOFOLLOW|O_NONBLOCK plus the fstat identity check below guard against a swap after Lstat
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return nil, nil, nil
 	}
 	if errors.Is(err, syscall.ELOOP) {
 		logger.Log().Warnf("skipping %s during export: replaced by a symlink", util.SanitizeForLog(rel))
-		return 0, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return 0, unreadableFile(rel, err)
+		return nil, nil, unreadableFile(rel, err)
 	}
-	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			logger.Log().WithError(closeErr).Warnf("failed to close %s while archiving", util.SanitizeForLog(rel))
-		}
-	}()
 
 	opened, err := f.Stat()
 	if err != nil {
-		return 0, unreadableFile(rel, err)
+		_ = f.Close()
+		return nil, nil, unreadableFile(rel, err)
 	}
 	if !opened.Mode().IsRegular() {
+		_ = f.Close()
 		logger.Log().Warnf("skipping %s during export: no longer a regular file", util.SanitizeForLog(rel))
-		return 0, nil
+		return nil, nil, nil
 	}
 	if !os.SameFile(info, opened) {
-		return 0, unreadableFile(rel, errors.New("file was replaced while exporting"))
+		_ = f.Close()
+		return nil, nil, unreadableFile(rel, errors.New("file was replaced while exporting"))
 	}
+	return f, info, nil
+}
 
-	hdr := &tar.Header{
-		Name:    filepath.ToSlash(rel),
-		Size:    info.Size(),
-		Mode:    int64(info.Mode().Perm()),
-		ModTime: info.ModTime(),
-	}
-	if err = tw.WriteHeader(hdr); err != nil {
+// copyExportFile streams the opened file into tw byte for byte.
+func copyExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel string) (int64, error) {
+	if err := tw.WriteHeader(exportHeader(rel, info, info.Size())); err != nil {
 		return 0, fmt.Errorf("write tar header: %w", err)
 	}
-	if _, err = io.CopyN(tw, f, info.Size()); err != nil {
+	if _, err := io.CopyN(tw, f, info.Size()); err != nil {
 		if errors.Is(err, io.EOF) {
 			return 0, unreadableFile(rel, fmt.Errorf("file shrank while copying: %w", err))
 		}
 		return 0, fmt.Errorf("copy file into archive: %w", err)
 	}
-	after, err := f.Stat()
-	if err != nil {
-		return 0, unreadableFile(rel, err)
-	}
-	if after.Size() != info.Size() {
-		return 0, unreadableFile(rel, fmt.Errorf("file size changed while copying: %d -> %d", info.Size(), after.Size()))
+	if err := checkUnchanged(f, info, rel); err != nil {
+		return 0, err
 	}
 	return info.Size(), nil
+}
+
+// checkUnchanged fails when the file no longer has the size it had when it was opened.
+func checkUnchanged(f *os.File, info os.FileInfo, rel string) error {
+	after, err := f.Stat()
+	if err != nil {
+		return unreadableFile(rel, err)
+	}
+	if after.Size() != info.Size() {
+		return unreadableFile(rel, fmt.Errorf("file size changed while copying: %d -> %d", info.Size(), after.Size()))
+	}
+	return nil
+}
+
+func exportHeader(rel string, info os.FileInfo, size int64) *tar.Header {
+	return &tar.Header{
+		Name:    filepath.ToSlash(rel),
+		Size:    size,
+		Mode:    int64(info.Mode().Perm()),
+		ModTime: info.ModTime(),
+	}
+}
+
+// writeExportEntry writes data as the content of one archive entry and returns its length.
+func writeExportEntry(tw *tar.Writer, rel string, info os.FileInfo, data []byte) (int64, error) {
+	if err := tw.WriteHeader(exportHeader(rel, info, int64(len(data)))); err != nil {
+		return 0, fmt.Errorf("write tar header: %w", err)
+	}
+	if _, err := tw.Write(data); err != nil {
+		return 0, fmt.Errorf("write file into archive: %w", err)
+	}
+	return int64(len(data)), nil
+}
+
+// addRedactedExportFile writes a notification file with its sensitive values blanked. A file that
+// cannot be rewritten safely (too large, unparsable, anything RedactNotificationFile refuses) is
+// exported as an empty stub instead; the original bytes never reach the archive. The entry size and the
+// running total use the length of what is written.
+func addRedactedExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel string, kind NotificationFileKind, dirs []string, total, maxBytes int64) (int64, error) {
+	var out []byte
+	if info.Size() > maxInspectEntryBytes {
+		out = []byte(RedactStubContent)
+		logStubbed(rel)
+	} else {
+		data, err := io.ReadAll(io.LimitReader(f, maxInspectEntryBytes+1))
+		if err != nil {
+			return 0, unreadableFile(rel, err)
+		}
+		if int64(len(data)) != info.Size() {
+			return 0, unreadableFile(rel, fmt.Errorf("file size changed while copying: %d -> %d", info.Size(), len(data)))
+		}
+		if err := checkUnchanged(f, info, rel); err != nil {
+			return 0, err
+		}
+		if kind == NotAFile && IsNotificationFile(filepath.ToSlash(rel), firstYAMLRoot(data), dirs) == NotAFile {
+			out = data
+		} else if res, redactErr := RedactNotificationFile(data); redactErr != nil {
+			out = []byte(RedactStubContent)
+			logStubbed(rel)
+		} else {
+			out = res.Data
+		}
+	}
+	if total+int64(len(out)) > maxBytes {
+		return 0, ErrExportTooLarge
+	}
+	return writeExportEntry(tw, rel, info, out)
+}
+
+// logStubbed notes, without any file content, that a notification file was exported empty.
+func logStubbed(rel string) {
+	logger.Log().Warnf("exporting %s as an empty file: it could not be read safely", util.SanitizeForLog(rel))
+}
+
+// firstYAMLRoot parses the first document of data within the redactor's bounds; nil when it cannot.
+func firstYAMLRoot(data []byte) *yaml.Node {
+	docs, err := ParseYAMLDocuments(bytes.NewReader(data), true)
+	if err != nil || len(docs) == 0 || countNodes(docs[0]) > maxRedactNodes {
+		return nil
+	}
+	return docs[0]
+}
+
+// liveNotificationDirs returns the notification folders of the live tree, honouring a redirected
+// folder named by the live config.yaml. An unreadable config means the default folders.
+func liveNotificationDirs(dataDir string) []string {
+	for _, rel := range []string{"config/config.yaml", "config.yaml"} {
+		f, info, err := openExportFile(dataDir, filepath.FromSlash(rel), exportHooks{})
+		if err != nil || f == nil {
+			continue
+		}
+		data, readErr := io.ReadAll(io.LimitReader(f, maxInspectEntryBytes+1))
+		_ = f.Close()
+		if readErr != nil || info.Size() > maxInspectEntryBytes || int64(len(data)) > maxInspectEntryBytes {
+			continue
+		}
+		return NotificationDirs(dataDir, data)
+	}
+	return NotificationDirs(dataDir, nil)
 }
 
 // unreadableFile logs the cause with the sanitized relative path and returns the fixed sentinel.

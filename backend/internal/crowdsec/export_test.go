@@ -291,12 +291,12 @@ func TestAddExportFileRefusesWhatLstatRejects(t *testing.T) {
 		"lstat fails (ENOTDIR)": filepath.Join("real.yaml", "child"),
 	}
 	for name, rel := range cases {
-		n, err := addExportFile(tw, dir, rel, 0, MaxImportUncompressedBytes, exportHooks{})
+		n, err := addExportFile(tw, dir, rel, 0, MaxImportUncompressedBytes, nil, exportHooks{})
 		require.ErrorIs(t, err, ErrExportFileUnreadable, name)
 		require.Zero(t, n, name)
 	}
 
-	n, err := addExportFile(tw, dir, "missing.yaml", 0, MaxImportUncompressedBytes, exportHooks{})
+	n, err := addExportFile(tw, dir, "missing.yaml", 0, MaxImportUncompressedBytes, nil, exportHooks{})
 	require.NoError(t, err, "a vanished entry is skipped")
 	require.Zero(t, n)
 }
