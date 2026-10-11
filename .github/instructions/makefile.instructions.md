@@ -175,6 +175,7 @@ CFLAGS = -Wall -O2
 
 ### Splitting Without Adding Whitespace
 
+<!-- markdownlint-disable-next-line MD038 -->
 If you need to split a line without adding whitespace, you can use a special technique: insert `$ ` (dollar-space) followed by a backslash-newline. The `$ ` refers to a variable with a single-space name, which doesn't exist and expands to nothing, effectively joining the lines without inserting a space.
 
 ```makefile

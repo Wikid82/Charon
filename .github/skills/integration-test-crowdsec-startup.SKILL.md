@@ -118,16 +118,20 @@ For use in GitHub Actions workflows:
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All startup tests passed
 
 ### Error Exit Codes
+
 - **1**: One or more tests failed
 - **2**: Startup timeout exceeded
 - **3**: Configuration errors detected
 - **4**: Health check failed
 
 ### Console Output
+
 Example output:
+
 ```
 === Testing CrowdSec Startup Sequence ===
 ✓ LAPI Initialization: Ready in 8s
@@ -233,15 +237,19 @@ SKIP_CLEANUP=true \
 ### Common Errors
 
 #### Error: Startup timeout exceeded
+
 **Solution**: Increase STARTUP_TIMEOUT or check container logs for hangs
 
 #### Error: Database connection failed
+
 **Solution**: Verify database container is running and accessible
 
 #### Error: Configuration validation failed
+
 **Solution**: Check CrowdSec config files for syntax errors
 
 #### Error: Port already in use
+
 **Solution**: Stop conflicting services or change port configuration
 
 ### Debugging

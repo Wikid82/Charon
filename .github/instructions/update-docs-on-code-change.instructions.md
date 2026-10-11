@@ -48,8 +48,10 @@ Before resolving on how to apply a **configurable instruction section**, check t
 default the `apply-condition` for each **configurable property** is unset, but an example of a set
 `apply-condition` could be something like:
 
-    - **apply-condition** :
-      ` this.parent.property = (git.branch == "master") ? this.parent.property = true : this.parent.property = false; `
+```text
+- **apply-condition** :
+  ` this.parent.property = (git.branch == "master") ? this.parent.property = true : this.parent.property = false; `
+```
 
 The sum of all the **constant instructions sections**, and **configurable instruction sections**
 will determine the complete instructions to follow. Call this the **COMPILED INSTRUCTIONS**.
@@ -251,19 +253,19 @@ Maintain these documentation files and update as needed:
 
 **Changelog format:**
 
-    ```markdown
-    ## [Version] - YYYY-MM-DD
+````markdown
+## [Version] - YYYY-MM-DD
 
-    ### Added
-    - New feature description with reference to PR/issue
+### Added
+- New feature description with reference to PR/issue
 
-    ### Changed
-    - **BREAKING**: Description of breaking change
-    - Other changes
+### Changed
+- **BREAKING**: Description of breaking change
+- Other changes
 
-    ### Fixed
-    - Bug fix description
-    ```
+### Fixed
+- Bug fix description
+````
 
 ## Documentation Verification `apply-doc-verification`
 
@@ -313,46 +315,46 @@ If `apply-doc-quality-standard == true`, then apply the following configurable i
 
 ### Code Example Format
 
-    ```markdown
-    ### Example: [Clear description of what example demonstrates]
+````markdown
+### Example: [Clear description of what example demonstrates]
 
-    \`\`\`language
-    // Include necessary imports/setup
-    import { function } from 'package';
+\`\`\`language
+// Include necessary imports/setup
+import { function } from 'package';
 
-    // Complete, runnable example
-    const result = function(parameter);
-    console.log(result);
-    \`\`\`
+// Complete, runnable example
+const result = function(parameter);
+console.log(result);
+\`\`\`
 
-    **Output:**
-    \`\`\`
-    expected output
-    \`\`\`
-    ```
+**Output:**
+\`\`\`
+expected output
+\`\`\`
+````
 
 ### API Documentation Format
 
-    ```markdown
-    ### `functionName(param1, param2)`
+````markdown
+### `functionName(param1, param2)`
 
-    Brief description of what the function does.
+Brief description of what the function does.
 
-    **Parameters:**
-    - `param1` (type): Description of parameter
-    - `param2` (type, optional): Description with default value
+**Parameters:**
+- `param1` (type): Description of parameter
+- `param2` (type, optional): Description with default value
 
-    **Returns:**
-    - `type`: Description of return value
+**Returns:**
+- `type`: Description of return value
 
-    **Example:**
-    \`\`\`language
-    const result = functionName('value', 42);
-    \`\`\`
+**Example:**
+\`\`\`language
+const result = functionName('value', 42);
+\`\`\`
 
-    **Throws:**
-    - `ErrorType`: When and why error is thrown
-    ```
+**Throws:**
+- `ErrorType`: When and why error is thrown
+````
 
 ## Automation and Tooling `apply-automation-tooling`
 
@@ -395,54 +397,54 @@ If `apply-doc-patterns == true`, then apply the following configurable instructi
 
 ### Feature Documentation Template
 
-    ```markdown
-    ## Feature Name
+````markdown
+## Feature Name
 
-    Brief description of the feature.
+Brief description of the feature.
 
-    ### Usage
+### Usage
 
-    Basic usage example with code snippet.
+Basic usage example with code snippet.
 
-    ### Configuration
+### Configuration
 
-    Configuration options with examples.
+Configuration options with examples.
 
-    ### Advanced Usage
+### Advanced Usage
 
-    Complex scenarios and edge cases.
+Complex scenarios and edge cases.
 
-    ### Troubleshooting
+### Troubleshooting
 
-    Common issues and solutions.
-    ```
+Common issues and solutions.
+````
 
 ### API Endpoint Documentation Template
 
-    ```markdown
-    ### `HTTP_METHOD /api/endpoint`
+````markdown
+### `HTTP_METHOD /api/endpoint`
 
-    Description of what the endpoint does.
+Description of what the endpoint does.
 
-    **Request:**
-    \`\`\`json
-    {
-      "param": "value"
-    }
-    \`\`\`
+**Request:**
+\`\`\`json
+{
+  "param": "value"
+}
+\`\`\`
 
-    **Response:**
-    \`\`\`json
-    {
-      "result": "value"
-    }
-    \`\`\`
+**Response:**
+\`\`\`json
+{
+  "result": "value"
+}
+\`\`\`
 
-    **Status Codes:**
-    - 200: Success
-    - 400: Bad request
-    - 401: Unauthorized
-    ```
+**Status Codes:**
+- 200: Success
+- 400: Bad request
+- 401: Unauthorized
+````
 
 ## Best Practices `apply-best-practices`
 

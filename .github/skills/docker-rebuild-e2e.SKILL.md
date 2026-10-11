@@ -70,6 +70,7 @@ metadata:
 Rebuilds the Charon Docker image and restarts the Playwright E2E testing environment with fresh code. This skill handles the complete lifecycle: stopping existing containers, optionally cleaning volumes, rebuilding the image, and starting fresh containers with health check verification.
 
 **Use this skill when:**
+
 - You've made code changes and need to test them in E2E tests
 - E2E tests are failing due to stale container state
 - You need a clean slate for debugging
@@ -216,6 +217,7 @@ curl -sf http://localhost:8080/api/v1/health
 ```
 
 The skill will:
+
 - Wait up to 60 seconds for container to be healthy
 - Check every 5 seconds
 - Report final health status
@@ -226,27 +228,35 @@ The skill will:
 ### Common Issues
 
 #### Docker Build Failed
+
 ```
 Error: docker build failed
 ```
+
 **Solution**: Check Dockerfile syntax, ensure all COPY sources exist
 
 #### Port Already in Use
+
 ```
 Error: bind: address already in use
 ```
+
 **Solution**: Stop conflicting services on port 8080
 
 #### Health Check Timeout
+
 ```
 Error: Container did not become healthy in 60s
 ```
+
 **Solution**: Check container logs with `docker logs charon-playwright`
 
 #### Volume Permission Issues
+
 ```
 Error: permission denied
 ```
+
 **Solution**: Run with `--clean` to recreate volumes with proper permissions
 
 ## Verifying the Environment
@@ -299,5 +309,6 @@ docker exec charon-playwright sqlite3 /app/data/charon.db ".tables"
 **Last Updated**: 2026-01-27
 **Maintained by**: Charon Project Team
 **Compose Files**:
+
 - CI: `.docker/compose/docker-compose.playwright-ci.yml` (uses GitHub Secrets, no .env)
 - Local: `.docker/compose/docker-compose.playwright-local.yml` (uses .env file)

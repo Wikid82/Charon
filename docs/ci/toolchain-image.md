@@ -61,6 +61,7 @@ provenance/SBOM attestations (in `docker-build.yml`) are separate and unaffected
 ### Respond to a `verify-toolchain-pin` PR failure
 
 The message tells you the recomputed key vs the pinned tag. Either:
+
 - your PR legitimately changed a tracked input → `workflow_dispatch`
   `toolchain-image.yml` (or push and let `sync-pin-on-pr` handle it), then bump
   `CHARON_TOOLCHAIN_TAG` / `CHARON_TOOLCHAIN_DIGEST`; or
@@ -79,7 +80,7 @@ identical to before, and the app image content is byte-identical (same recipe).
 - The GHCR package `charon-toolchain` is created on the first publish and is
   **private**. GHCR auto-links packages pushed by Actions to the source repo, so
   same-repo workflows pull it with `GITHUB_TOKEN` + `permissions: packages: read`
-  + an explicit `docker login ghcr.io`. A maintainer may optionally flip it to
+  - an explicit `docker login ghcr.io`. A maintainer may optionally flip it to
   public — not required.
 - `Dockerfile:` `COPY scripts/ /app/scripts/` copies the whole `scripts/`
   directory into the runtime image. The build-only helpers this feature adds —

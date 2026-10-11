@@ -1,7 +1,9 @@
 # Enhanced Dashboard Statistics - Deployment & Warmup Guide
 
 ## Overview
+
 The enhanced statistics feature (Issue #25) adds real-time traffic analysis to the dashboard. When deployed, users will see new widgets:
+
 - **Traffic Volume** - Bytes sent over time
 - **Top Hosts** - Most frequently accessed domains
 - **Status Distribution** - HTTP status code breakdown
@@ -12,12 +14,14 @@ The enhanced statistics feature (Issue #25) adds real-time traffic analysis to t
 When users upgrade to this version, **the statistics widgets will be empty initially**. This is expected behavior, not a bug.
 
 ### Why?
+
 - Request logs are stored in a new `request_logs` database table
 - The table is created automatically on first boot (via GORM AutoMigrate)
 - Historical requests are not retroactively logged
 - Data collection begins immediately after deployment
 
 ### Timeline
+
 Data will populate based on traffic and the selected bucket:
 
 | Bucket | Lookback Window | Time to Full Graph |
@@ -27,6 +31,7 @@ Data will populate based on traffic and the selected bucket:
 | 1d     | 30 days         | ~30 days          |
 
 Users with active proxies will see:
+
 - **First hour**: Initial data points appearing
 - **First day**: Clear traffic patterns emerging
 - **First week**: Comprehensive statistics with trends
@@ -34,6 +39,7 @@ Users with active proxies will see:
 ## For System Administrators
 
 ### Deployment Checklist
+
 1. ✅ Update Charon to latest version
 2. ✅ Restart the backend (AutoMigrate runs automatically)
 3. ✅ Verify LogWatcher started: Check logs for "Security log watcher started - stats collection enabled"
@@ -41,6 +47,7 @@ Users with active proxies will see:
 5. ✅ Check Stats Health endpoint: `GET /api/v1/stats/health` → should show `{"dropped_count": 0}`
 
 ### Verification
+
 After deployment, verify data collection is working:
 
 ```bash
@@ -61,6 +68,7 @@ When you upgrade:
 4. **Full picture takes time** - 30-day view needs 30 days of data
 
 ### Example Timeline
+
 - **Now**: Deploy Charon with stats feature
 - **In 1 hour**: Traffic Volume shows first data points (1h bucket)
 - **In 1 day**: Clear 24h trends visible
@@ -70,6 +78,7 @@ When you upgrade:
 ## Technical Details
 
 ### Data Collection Pipeline
+
 ```
 Caddy Access Logs
     ↓
@@ -85,13 +94,16 @@ Dashboard (displays with appropriate messaging)
 ```
 
 ### No Data Loss
+
 - Requests are batched and flushed every 500ms
 - 100-request batch flush ensures no data loss during shutdown
 - Graceful context cancellation drains remaining entries
 - Database backup includes all request logs
 
 ### UI Messaging
+
 When no data is available:
+
 - Dashboard displays: "No data available yet"
 - Helper text: "Data is being collected. Check back in a few hours..."
 - Tooltip adds: "Data may take several hours to populate depending on traffic volume"
@@ -99,19 +111,23 @@ When no data is available:
 ## Troubleshooting
 
 ### "No data available" persists after 24 hours
+
 1. Check that LogWatcher is running: `curl localhost:5000/api/v1/stats/health`
 2. Verify access log path is correct: Check `CHARON_CADDY_ACCESS_LOG` env var
 3. Confirm Caddy is logging: Check `/var/log/caddy/access.log` has recent entries
 4. Check database: `SELECT COUNT(*) FROM request_logs;` should be > 0
 
 ### Stats ingestion dropping entries
+
 - Check: `GET /api/v1/stats/health` response
 - If `dropped_count > 0`, the ingester channel buffer overflowed
 - Increase `channelBufferSize` in stats_ingester.go or reduce traffic
 - This is rare and indicates extreme load
 
 ### Empty request logs
+
 Verify all components are running:
+
 1. LogWatcher: Logs show "stats collection enabled"
 2. StatsIngester: `Go routines alive, processing incoming entries`
 3. Database: `SELECT COUNT(*) FROM request_logs;` > 0

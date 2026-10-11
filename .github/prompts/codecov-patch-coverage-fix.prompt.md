@@ -29,6 +29,7 @@ The user will provide ONE of the following:
 ### Example Input Formats
 
 **Format 1 - Codecov Comment:**
+
 ```
 Codecov Report
 Attention: Patch coverage is 75.00000% with 4 lines in your changes missing coverage.
@@ -57,6 +58,7 @@ Files with missing coverage:
    - The target coverage (always 100% for patch coverage)
 
 2. **Document Findings**: Create a structured list:
+
    ```
    UNCOVERED FILES:
    - FILE-001: [path/to/file.go] - Lines: [45-48, 62]

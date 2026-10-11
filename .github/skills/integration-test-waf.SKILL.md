@@ -80,9 +80,11 @@ Run the WAF integration tests:
 ## Outputs
 
 ### Success Exit Code
+
 - 0: All WAF integration tests passed
 
 ### Error Exit Codes
+
 - 1: One or more tests failed
 - 2: Docker environment setup failed
 - 3: Container startup timeout

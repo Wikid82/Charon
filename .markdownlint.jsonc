@@ -11,11 +11,16 @@
   "MD036": false, // emphasis used as a heading
   "MD040": false, // fenced code language
   "MD060": false, // table column style
+  "MD010": {
+    "code_blocks": false // tabs are idiomatic in Go/Makefile snippets
+  },
+  "MD029": false, // numbered steps intentionally continue across interleaved code blocks (the rendered numbers are correct)
+  "MD028": false, // adjacent callout blockquotes are separated by a blank line on purpose
   "MD024": {
     "siblings_only": true
   },
   "MD033": {
-    "allowed_elements": ["details", "summary", "br", "sup", "sub", "kbd", "img"]
+    "allowed_elements": ["details", "summary", "br", "sup", "sub", "kbd", "img", "p", "a", "h1", "strong", "em"]
   },
   "MD041": false,
   "MD046": {

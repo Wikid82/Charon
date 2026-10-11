@@ -2,6 +2,7 @@
 docs/reports/
 docs/implementation/
 docs/issues/
+docs/patches/
 docs/plans/archive/
 backend/
 CODEQL_*.md

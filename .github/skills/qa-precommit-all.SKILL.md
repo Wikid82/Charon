@@ -127,6 +127,7 @@ SKIP=prettier,eslint .github/skills/scripts/skill-runner.sh qa-precommit-all
 The following hooks are configured in `.pre-commit-config.yaml`:
 
 ### General Hooks
+
 - **trailing-whitespace**: Remove trailing whitespace
 - **end-of-file-fixer**: Ensure files end with newline
 - **check-yaml**: Validate YAML syntax
@@ -135,24 +136,29 @@ The following hooks are configured in `.pre-commit-config.yaml`:
 - **check-added-large-files**: Prevent committing large files
 
 ### Python Hooks
+
 - **black**: Code formatting
 - **isort**: Import sorting
 - **flake8**: Linting
 - **mypy**: Type checking
 
 ### Go Hooks
+
 - **gofmt**: Code formatting
 - **go-vet**: Static analysis
 - **golangci-lint**: Comprehensive linting
 
 ### JavaScript/TypeScript Hooks
+
 - **prettier**: Code formatting
 - **eslint**: Linting and code quality
 
 ### Markdown Hooks
+
 - **markdownlint**: Markdown linting and formatting
 
 ### Security Hooks
+
 - **detect-private-key**: Prevent committing private keys
 - **detect-aws-credentials**: Prevent committing AWS credentials
 
@@ -167,6 +173,7 @@ source .venv/bin/activate
 ```
 
 Output:
+
 ```
 Trim Trailing Whitespace.....................................Passed
 Fix End of Files.............................................Passed
@@ -225,30 +232,35 @@ SKIP=golangci-lint,mypy .github/skills/scripts/skill-runner.sh qa-precommit-all
 ### Common Issues
 
 **Virtual environment not activated**:
+
 ```bash
 Error: pre-commit not found
 Solution: source .venv/bin/activate
 ```
 
 **Pre-commit not installed**:
+
 ```bash
 Error: pre-commit command not available
 Solution: pip install pre-commit
 ```
 
 **Hooks not installed**:
+
 ```bash
 Error: Run 'pre-commit install'
 Solution: pre-commit install
 ```
 
 **Hook execution failed**:
+
 ```bash
 Hook X failed
 Solution: Review error output and fix reported issues
 ```
 
 **Language tool missing**:
+
 ```bash
 Error: golangci-lint not found
 Solution: Install required language tools
@@ -263,7 +275,9 @@ Solution: Install required language tools
 ## Hook Fixing Strategies
 
 ### Auto-fixable Issues
+
 These hooks automatically fix issues:
+
 - `trailing-whitespace`
 - `end-of-file-fixer`
 - `black`
@@ -274,7 +288,9 @@ These hooks automatically fix issues:
 **Workflow**: Run pre-commit, review changes, commit fixed files
 
 ### Manual Fixes Required
+
 These hooks only report issues:
+
 - `check-yaml`
 - `check-json`
 - `flake8`

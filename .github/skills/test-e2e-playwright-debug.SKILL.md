@@ -95,6 +95,7 @@ Runs Playwright E2E tests in headed/debug mode for troubleshooting. This skill p
 - **Single Test Focus**: Run individual tests or test files
 
 **Use this skill when:**
+
 - Debugging failing E2E tests
 - Understanding test flow and interactions
 - Developing new E2E tests
@@ -180,7 +181,7 @@ Adjust the delay between actions (in milliseconds):
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| PLAYWRIGHT_BASE_URL | No | http://localhost:8080 | Application URL |
+| PLAYWRIGHT_BASE_URL | No | <http://localhost:8080> | Application URL |
 | PWDEBUG | No | "" | Set to "1" for Inspector mode |
 | DEBUG | No | "" | Verbose logging (e.g., "pw:api") |
 
@@ -189,6 +190,7 @@ Adjust the delay between actions (in milliseconds):
 ### Using Playwright Inspector
 
 The Inspector provides:
+
 - **Step-through Execution**: Execute one action at a time
 - **Locator Playground**: Test and refine selectors
 - **Call Log**: View all Playwright API calls
@@ -200,6 +202,7 @@ The Inspector provides:
 ```
 
 In the Inspector:
+
 1. Use **Resume** to continue to next action
 2. Use **Step** to execute one action
 3. Use the **Locator** tab to test selectors
@@ -228,6 +231,7 @@ DEBUG=pw:api .github/skills/scripts/skill-runner.sh test-e2e-playwright-debug
 ### Screenshot on Failure
 
 Tests automatically capture screenshots on failure. Find them in:
+
 ```
 test-results/<test-name>/
 ├── test-failed-1.png
@@ -248,6 +252,7 @@ npx playwright show-trace --port 9322
 ```
 
 Traces include:
+
 - DOM snapshots at each step
 - Network requests/responses
 - Console logs
@@ -314,11 +319,13 @@ npx playwright show-trace test-results/*/trace.zip
 ### No Browser Window Opens
 
 **Linux**: Ensure X11/Wayland display is available
+
 ```bash
 echo $DISPLAY  # Should show :0 or similar
 ```
 
 **Remote/SSH**: Use X11 forwarding or VNC
+
 ```bash
 ssh -X user@host
 ```
@@ -328,6 +335,7 @@ ssh -X user@host
 ### Test Times Out
 
 Increase timeout for debugging:
+
 ```bash
 # In your test file
 test.setTimeout(120000); // 2 minutes
@@ -336,6 +344,7 @@ test.setTimeout(120000); // 2 minutes
 ### Inspector Doesn't Open
 
 Ensure PWDEBUG is set:
+
 ```bash
 PWDEBUG=1 npx playwright test --headed
 ```
@@ -343,11 +352,13 @@ PWDEBUG=1 npx playwright test --headed
 ### Cannot Find Test File
 
 Check the file exists:
+
 ```bash
 ls -la tests/*.spec.ts
 ```
 
 Use relative path from tests/ directory:
+
 ```bash
 --file=login.spec.ts  # Not tests/login.spec.ts
 ```

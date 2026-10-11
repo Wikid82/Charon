@@ -115,6 +115,7 @@ The `docker system prune -f` command removes:
 ## What Gets Preserved
 
 This command **DOES NOT** remove:
+
 - **Running Containers**: Active containers are untouched
 - **Tagged Images**: Images with tags are preserved
 - **Volumes**: Data volumes are never removed
@@ -176,6 +177,7 @@ docker system df -v
 ```
 
 Output shows:
+
 - **Images**: Total size of cached images
 - **Containers**: Size of container writable layers
 - **Local Volumes**: Size of data volumes
@@ -184,6 +186,7 @@ Output shows:
 ## When to Use This Skill
 
 Use this skill when:
+
 - Disk space is running low
 - After development cycles (many builds)
 - After running integration tests
@@ -203,21 +206,27 @@ Use this skill when:
 Common issues and solutions:
 
 ### Permission Denied
+
 ```
 Error: permission denied
 ```
+
 Solution: Add user to docker group or use sudo
 
 ### Daemon Not Running
+
 ```
 Error: Cannot connect to Docker daemon
 ```
+
 Solution: Start Docker service
 
 ### Resource in Use
+
 ```
 Error: resource is in use
 ```
+
 This is normal - only unused resources are removed
 
 ## Advanced Cleanup Options
@@ -261,6 +270,7 @@ docker system prune -a --volumes -f
 ## Disk Space Recovery
 
 Typical space recovery by resource type:
+
 - **Stopped Containers**: 10-100 MB each
 - **Dangling Images**: 100 MB - 2 GB total
 - **Build Cache**: 1-10 GB (if many builds)

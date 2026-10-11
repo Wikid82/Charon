@@ -478,7 +478,7 @@ deploying Charon with a PostgreSQL backend (non-standard configuration) may be e
 database server is untrusted. EPSS score not yet available.
 
 **Planned Remediation**
-Monitor https://github.com/jackc/pgproto3 for a fix release. Upgrade the indirect dependency
+Monitor <https://github.com/jackc/pgproto3> for a fix release. Upgrade the indirect dependency
 once a patched version is available. Pre-existing; not introduced by PR #1031.
 
 Re-verified 2026-07-29 (this entry's original `.trivyignore`/`.grype.yaml` review date had
@@ -649,7 +649,7 @@ coverage — rejected as unacceptable. Forcing the patched `brace-expansion@5.0.
 breaks `minimatch@3.1.5`'s callable-default `require('brace-expansion')(pattern)` usage (5.0.8
 changed the CJS export to a named-export object); forcing `minimatch` itself to the 10.x line
 breaks `eslint-plugin-jsx-a11y`'s compiled `_interopRequireDefault(...).default` usage instead
-(minimatch@10.x's CJS build has no `.default` export). Both verified by direct `require()`
+(`minimatch@10.x`'s CJS build has no `.default` export). Both verified by direct `require()`
 experiments, not just version inspection. Devdependency-only, never shipped, and `minimatch`
 here only processes trusted local source identifiers during linting, not untrusted input.
 

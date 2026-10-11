@@ -182,6 +182,7 @@ This skill uses the **security-and-quality** suite to match CI:
 ```
 
 Output:
+
 ```
 [STEP] CODEQL: Scanning Go code...
 [INFO] Creating database for backend/
@@ -224,18 +225,21 @@ pre-commit run codeql-check-findings --all-files
 ### Common Issues
 
 **CodeQL version too old**:
+
 ```bash
 Error: Extensible predicate API mismatch
 Solution: Upgrade CodeQL CLI: gh codeql set-version latest
 ```
 
 **Query pack not found**:
+
 ```bash
 Error: Could not resolve pack codeql/go-queries
 Solution: codeql pack download codeql/go-queries codeql/javascript-queries
 ```
 
 **Database creation failed**:
+
 ```bash
 Error: No source files found
 Solution: Verify source-root points to correct directory

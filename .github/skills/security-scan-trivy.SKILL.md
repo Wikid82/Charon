@@ -138,20 +138,26 @@ Get results in JSON format for parsing:
 ## Scanner Types
 
 ### Vulnerability Scanner (vuln)
+
 Scans for known CVEs in:
+
 - Go dependencies (go.mod)
 - npm packages (package.json)
 - Docker base images (Dockerfile)
 
 ### Secret Scanner (secret)
+
 Detects exposed secrets:
+
 - API keys
 - Passwords
 - Tokens
 - Private keys
 
 ### Misconfiguration Scanner (misconfig)
+
 Checks configuration files:
+
 - Dockerfile best practices
 - Kubernetes manifests
 - Terraform files
@@ -167,6 +173,7 @@ Checks configuration files:
 ```
 
 Output:
+
 ```
 2025-12-20T10:00:00Z	INFO	Trivy version: 0.48.0
 2025-12-20T10:00:01Z	INFO	Scanning filesystem...
@@ -201,18 +208,21 @@ TRIVY_SEVERITY=CRITICAL .github/skills/scripts/skill-runner.sh security-scan-tri
 ### Common Issues
 
 **Docker not running**:
+
 ```bash
 Error: Cannot connect to Docker daemon
 Solution: Start Docker service
 ```
 
 **Network timeout**:
+
 ```bash
 Error: Failed to download vulnerability database
 Solution: Increase TRIVY_TIMEOUT or check internet connection
 ```
 
 **Vulnerabilities found**:
+
 ```bash
 Exit code: 1
 Solution: Review and remediate reported vulnerabilities
@@ -241,6 +251,7 @@ Solution: Review and remediate reported vulnerabilities
 ## Security Thresholds
 
 **Project Standards**:
+
 - **CRITICAL**: Must fix before release (blocking)
 - **HIGH**: Should fix before release (warning)
 - **MEDIUM**: Fix in next release cycle (informational)

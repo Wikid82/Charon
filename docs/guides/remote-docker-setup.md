@@ -71,6 +71,7 @@ The agent starts in the background and immediately tries to connect to Charon.
 Switch back to your **Charon browser tab** and look at **Remote Agents**. Your agent should show a green **Online** badge within 10–30 seconds.
 
 **Still showing "Pending"?** That means the agent hasn't connected yet. Double-check:
+
 - The `docker-compose.yml` is saved correctly and `docker compose up -d` ran without errors
 - The auth key in the file matches what Charon gave you (no extra spaces or missing characters)
 - The remote machine has outbound internet access

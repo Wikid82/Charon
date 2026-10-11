@@ -63,6 +63,7 @@ This skill is essential for maintaining secure database models and preventing in
 ## When to Use This Skill
 
 Use this skill when:
+
 - ✅ Creating or modifying GORM database models
 - ✅ Reviewing code for security issues before commit
 - ✅ Validating API response DTOs for ID exposure
@@ -87,6 +88,7 @@ Use this skill when:
 **Risk:** Information disclosure, IDOR vulnerability, database enumeration
 
 **Example:**
+
 ```go
 // ❌ BAD: Internal database ID exposed
 type User struct {
@@ -110,6 +112,7 @@ type User struct {
 **Risk:** Credential exposure, unauthorized access
 
 **Example:**
+
 ```go
 // ❌ BAD: API key visible in responses
 type User struct {
@@ -129,6 +132,7 @@ type User struct {
 **Risk:** Unintentional ID exposure through embedding
 
 **Example:**
+
 ```go
 // ❌ BAD: Inherits exposed ID from models.ProxyHost
 type ProxyHostResponse struct {
@@ -276,6 +280,7 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 **Target:** GORM models with numeric IDs exposed in JSON
 
 **Detection Logic:**
+
 1. Find `type XXX struct` declarations
 2. Apply GORM model detection heuristics:
    - File in `internal/models/` directory, OR
@@ -292,6 +297,7 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 **Target:** Response/DTO structs that embed GORM models
 
 **Detection Logic:**
+
 1. Find structs with "Response" or "DTO" in name
 2. Look for embedded model types (from `models` package)
 3. Check if embedded model has exposed ID field
@@ -302,6 +308,7 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 **Target:** API keys, tokens, passwords, secrets with visible JSON tags
 
 **Detection Logic:**
+
 1. Find fields matching: `APIKey`, `Secret`, `Token`, `Password`, `Hash`
 2. Check if JSON tag is NOT `json:"-"`
 3. Flag as **CRITICAL**
@@ -311,6 +318,7 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 **Target:** ID fields without `gorm:"primaryKey"`
 
 **Detection Logic:**
+
 1. Find ID fields with GORM tags
 2. Check if `primaryKey` directive is missing
 3. Flag as **MEDIUM**
@@ -320,6 +328,7 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 **Target:** Foreign key fields without index tags
 
 **Detection Logic:**
+
 1. Find fields ending with `ID` or `Id`
 2. Check if GORM tag lacks `index` directive
 3. Flag as **INFO**
@@ -329,6 +338,7 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 **Target:** Models with exposed IDs but no external identifier
 
 **Detection Logic:**
+
 1. Find models with exposed `json:"id"`
 2. Check if `UUID` field exists
 3. Flag as **HIGH** if missing
@@ -346,6 +356,7 @@ Use inline comments to suppress false positives:
 ### Examples
 
 **External API Response:**
+
 ```go
 // gorm-scanner:ignore External API response, not a GORM model
 type GitHubUser struct {
@@ -354,6 +365,7 @@ type GitHubUser struct {
 ```
 
 **Legacy Code During Migration:**
+
 ```go
 // gorm-scanner:ignore Legacy model, scheduled for refactor in #1234
 type OldModel struct {
@@ -362,6 +374,7 @@ type OldModel struct {
 ```
 
 **Internal Service (Never Serialized):**
+
 ```go
 // gorm-scanner:ignore Internal service struct, never serialized to HTTP
 type InternalProcessorState struct {
@@ -378,6 +391,7 @@ The scanner uses three heuristics to identify GORM models (prevents false positi
 3. **Embedding-based:** Struct embeds `gorm.Model`
 
 **Non-GORM structs are ignored:**
+
 - Docker container info structs
 - External API response structs
 - WebSocket connection tracking
@@ -386,6 +400,7 @@ The scanner uses three heuristics to identify GORM models (prevents false positi
 ## Performance Metrics
 
 **Measured Performance:**
+
 - **Execution Time:** 2.1 seconds (average)
 - **Target:** <5 seconds per full scan
 - **Performance Rating:** ✅ **Excellent** (58% faster than requirement)
@@ -453,24 +468,28 @@ VERBOSE=1 ./scripts/scan-gorm-security.sh --report
 ### Common Issues
 
 **Scanner not found:**
+
 ```bash
 Error: ./scripts/scan-gorm-security.sh not found
 Solution: Ensure script has execute permissions: chmod +x scripts/scan-gorm-security.sh
 ```
 
 **Permission denied:**
+
 ```bash
 Error: Permission denied: backend/internal/models/user.go
 Solution: Check file permissions and current user access
 ```
 
 **No Go files found:**
+
 ```bash
 Warning: No Go files found in backend/
 Solution: Verify you're running from project root
 ```
 
 **False positive on valid code:**
+
 ```bash
 Solution: Add suppression comment: // gorm-scanner:ignore [reason]
 ```
@@ -482,6 +501,7 @@ Solution: Add suppression comment: // gorm-scanner:ignore [reason]
 **Cause:** Non-GORM struct incorrectly flagged
 
 **Solution:**
+
 1. Add suppression comment with reason
 2. Verify struct doesn't match GORM heuristics
 3. Report as enhancement if pattern needs refinement
@@ -491,6 +511,7 @@ Solution: Add suppression comment: // gorm-scanner:ignore [reason]
 **Cause:** Custom MarshalJSON implementation or XML/YAML tags
 
 **Solution:**
+
 1. Manual code review for custom marshaling
 2. Check for `xml:` or `yaml:` tags (not yet supported)
 3. See "Known Limitations" section
@@ -500,6 +521,7 @@ Solution: Add suppression comment: // gorm-scanner:ignore [reason]
 **Cause:** Large codebase or slow filesystem
 
 **Solution:**
+
 1. Run on specific directory: `cd backend && ../scripts/scan-gorm-security.sh`
 2. Use incremental scanning in pre-commit (only changed files)
 3. Check filesystem performance
@@ -529,6 +551,7 @@ Solution: Add suppression comment: // gorm-scanner:ignore [reason]
 ## Security Thresholds
 
 **Project Standards:**
+
 - **🔴 CRITICAL**: Must fix immediately (blocking)
 - **🟡 HIGH**: Should fix before PR merge (warning)
 - **🔵 MEDIUM**: Fix in current sprint (informational)
@@ -614,11 +637,13 @@ type ProxyHostResponse struct {
 ## Report Files
 
 **Recommended Locations:**
+
 - **Development:** `docs/reports/gorm-scan-YYYYMMDD.txt` (dated reports)
 - **CI/CD:** `docs/reports/gorm-scan-ci.txt` (uploaded as artifact)
 - **Pre-Release:** `docs/reports/gorm-scan-release.txt` (audit trail)
 
 **Report Format:**
+
 - Plain text with ANSI color codes (terminal-friendly)
 - Includes severity breakdown and summary metrics
 - Contains file:line references for all issues
@@ -626,6 +651,7 @@ type ProxyHostResponse struct {
 
 **Agent Usage:**
 AI agents can read saved reports instead of parsing terminal output:
+
 ```bash
 # Generate report
 .github/skills/scripts/skill-runner.sh security-scan-gorm --report docs/reports/gorm-scan.txt

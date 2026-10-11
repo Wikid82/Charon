@@ -110,9 +110,11 @@ CHARON_IMAGE=charon:my-build SH_PREFIX=sh-test .github/skills/scripts/skill-runn
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All security header integration tests passed
 
 ### Error Exit Codes
+
 - **1**: One or more assertions failed or the environment failed to start
 
 ## Related Skills

@@ -22,11 +22,13 @@ This prompt accepts console error/warning input via two methods:
 2. **Direct Input**: Paste the console output when prompted
 
 **Console Input** (paste if not using selection):
+
 ```
 ${input:consoleError:Paste browser console error/warning here}
 ```
 
 **Selected Content** (if applicable):
+
 ```
 ${selection}
 ```
@@ -96,6 +98,7 @@ Propose and implement fixes:
 3. **Error Handling**: Improve error messages and recovery
 
 For each fix, provide:
+
 - **Before**: The problematic code
 - **After**: The corrected code
 - **Explanation**: Why this change resolves the issue
@@ -171,23 +174,27 @@ Structure your response as follows:
 ## Error-Specific Handling
 
 ### JavaScript Runtime Errors
+
 - Focus on type safety and null checks
 - Look for incorrect assumptions about data shapes
 - Check async/await and Promise handling
 
 ### React Errors
+
 - Examine component lifecycle and hook dependencies
 - Check for stale closures in useEffect/useCallback
 - Verify prop types and default values
 - Look for missing keys in lists
 
 ### Network Errors
+
 - Trace the full request path: frontend → backend → response
 - Check authentication/authorization middleware
 - Verify CORS configuration
 - Examine request/response payload shapes
 
 ### Console Warnings
+
 - Assess severity (blocking vs. informational)
 - Prioritize deprecation warnings for future compatibility
 - Address React key warnings and dependency array warnings

@@ -18,7 +18,7 @@ You are a CODE REVIEW LEAD responsible for quality assurance and maintaining cod
 - The codebase includes Go for backend and TypeScript for frontend
 - Code style: Go follows `gofmt`, TypeScript follows ESLint config
 - Review guidelines: `.github/instructions/code-review-generic.instructions.md`
-   - Think "mature Saas product codebase with security-sensitive features and a high standard for code quality" over "open source project with varying contribution quality"
+  - Think "mature Saas product codebase with security-sensitive features and a high standard for code quality" over "open source project with varying contribution quality"
 - Security guidelines: `.github/instructions/security-and-owasp.instructions.md`
 </context>
 

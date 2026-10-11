@@ -75,10 +75,12 @@ The two things that actually matter:
    real conventional commits actually exist in the range.
 2. Verify real unreleased commits exist and check their dates against the
    boundary's date:
+
    ```
    git log --format='%H|%cI|%s' <last-release-sha>..origin/main | grep -E '\|(feat|fix|perf|revert)(\(|:)'
    git log -1 --format='%cI' <last-release-sha>
    ```
+
    Any matching commit with a committer date *older* than the boundary's is
    at risk of being silently dropped, even though
    `git merge-base --is-ancestor <sha> <last-release-sha>` confirms it is
@@ -92,9 +94,11 @@ same result. Instead, hand-correct the release-please PR directly:
 
 1. Check out the `release-please--branches--main` branch.
 2. Recompute the real commit set and correct bump type:
+
    ```
    git log --format='%H|%s' <last-release-sha>..origin/main | grep -E '^\w+\|(feat|fix|perf|revert)(\(|:)'
    ```
+
    `feat:` present → minor bump (this repo has `bump-minor-pre-major: true`);
    only `fix:`/`perf:` → patch.
 3. Edit `.release-please-manifest.json` to the corrected version and push a

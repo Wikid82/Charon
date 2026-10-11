@@ -90,12 +90,14 @@ That's it. You can now use this agent when [adding a Remote Server](../guides/re
 **By default, every agent is strictly read-only**, and that default can't be loosened by accident — there's no setting that weakens it globally. Orthrus only ever lets Charon **read** information from your remote Docker unless you take the deliberate, per-agent step described below.
 
 **Every agent, always, CAN:**
+
 - List running containers and their details
 - List images, networks, and volumes
 - Stream container logs (for display in Charon)
 - Report Docker system info
 
 **A default (read-only) agent CANNOT:**
+
 - Start, stop, restart, or delete containers
 - Create or remove networks or volumes
 - Pull images

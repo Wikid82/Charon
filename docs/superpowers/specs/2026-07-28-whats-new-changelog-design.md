@@ -117,9 +117,11 @@ New routes (`internal/api/routes/routes.go`), authenticated, under
 `/api/v1/changelog`:
 
 - `GET /api/v1/changelog/status` →
+
   ```json
   { "show_changelog": true, "versions": [ /* Entry[] */ ] }
   ```
+
   `show_changelog` is `false` when `ChangelogOptOut` is true, when the
   running build is unversioned (`dev`), or when there are no unseen
   entries.
@@ -129,9 +131,11 @@ New routes (`internal/api/routes/routes.go`), authenticated, under
   entries on demand, independent of `LastSeenVersion`.
 
 - `POST /api/v1/changelog/ack` — body:
+
   ```json
   { "action": "dismiss_temporary" | "dismiss_permanent", "opt_out": false }
   ```
+
   - `dismiss_permanent`: sets `LastSeenVersion` to the current running
     `version.Version`.
   - `dismiss_temporary`: no change to `LastSeenVersion` (modal reappears
@@ -201,6 +205,7 @@ existing conventions already in the codebase:
   independent of the real `version.Version` build var.
 
 **Manual pre-merge workflow**:
+
 1. Populate `backend/internal/changelog/data/changelog.json` locally —
    either run `scripts/generate-changelog.sh` against real local git tags,
    or temporarily edit the file with fixture entries for pure UI

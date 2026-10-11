@@ -1153,7 +1153,7 @@ For www.example.com:
 
 If you continue to experience issues:
 
-1. **Check Documentation**: Review [DNS provider-specific guides](#) for configuration details
+1. **Check Documentation**: Review [DNS provider-specific guides](../guides/dns-providers.md) for configuration details
 2. **Review Audit Logs**: Check audit trail for clues about what went wrong
 3. **Test Credentials**: Use credential test feature to isolate API issues
 4. **Enable Debug Logging**: Temporarily enable debug logging for certificate operations

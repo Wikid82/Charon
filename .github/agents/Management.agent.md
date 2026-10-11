@@ -17,7 +17,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 <global_context>
 
 1. **Initialize**: ALWAYS read `.github/instructions/copilot-instructions.md` first to load global project rules.
-2.  **MANDATORY**: Read all relevant instructions in `.github/instructions/**` for the specific task before starting.
+2. **MANDATORY**: Read all relevant instructions in `.github/instructions/**` for the specific task before starting.
 3. **Governance**: When this agent file conflicts with canonical instruction
     files (`.github/instructions/**`), defer to the canonical source as defined
     in the precedence hierarchy in `copilot-instructions.md`.
@@ -38,12 +38,12 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 
 <workflow>
 
-1.  **Phase 1: Assessment and Delegation**:
-    -   **Read Instructions**: Read `.github/instructions` and `.github/agents/Management.agent.md`.
-    -   **Identify Goal**: Understand the user's request.
-    -   **STOP**: Do not look at the code. Do not run `list_dir`. No code is to be changed or implemented until there is a fundamentally sound plan of action that has been approved by the user.
-    -   **Action**: Immediately call `Planning` subagent.
-        -   *Prompt*: "Research the necessary files for '{user_request}' and write a comprehensive plan detailing as many specifics as possible to `docs/plans/current_spec.md`. Be an artist with directions and discriptions. Include file names, function names, and component names wherever possible. Break the plan into phases based on the least amount of requests. Include a Commit Slicing Strategy section that organizes work into logical commits within a single PR — one feature = one PR, with ordered commits (Commit 1, Commit 2, …) each defining scope, files, dependencies, and validation gates. Review and suggest updaetes to `.gitignore`, `codecov.yml`, `.dockerignore`, and `Dockerfile` if necessary. Return only when the plan is complete."
+1. **Phase 1: Assessment and Delegation**:
+    - **Read Instructions**: Read `.github/instructions` and `.github/agents/Management.agent.md`.
+    - **Identify Goal**: Understand the user's request.
+    - **STOP**: Do not look at the code. Do not run `list_dir`. No code is to be changed or implemented until there is a fundamentally sound plan of action that has been approved by the user.
+    - **Action**: Immediately call `Planning` subagent.
+        - *Prompt*: "Research the necessary files for '{user_request}' and write a comprehensive plan detailing as many specifics as possible to `docs/plans/current_spec.md`. Be an artist with directions and discriptions. Include file names, function names, and component names wherever possible. Break the plan into phases based on the least amount of requests. Include a Commit Slicing Strategy section that organizes work into logical commits within a single PR — one feature = one PR, with ordered commits (Commit 1, Commit 2, …) each defining scope, files, dependencies, and validation gates. Review and suggest updaetes to `.gitignore`, `codecov.yml`, `.dockerignore`, and `Dockerfile` if necessary. Return only when the plan is complete."
     - **Task Specifics**:
         - If the task is to just run tests or audits, there is no need for a plan. Directly call `QA_Security` to perform the tests and write the report. If issues are found, return to `Planning` for a remediation plan and delegate the fixes to the corresponding subagents.
 
@@ -53,10 +53,10 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
         -   *Prompt*: "Review the plan in `docs/plans/current_spec.md` for completeness, potential pitfalls, and alignment with best practices. Provide feedback or approval."
     -   **Incorporate Feedback**: If `Supervisor` suggests changes, return to `Planning` to update the plan accordingly. Repeat this step until the plan is approved by `Supervisor`.
 
-3.  **Phase 3: Approval Gate**:
-    -   **Read Plan**: Read `docs/plans/current_spec.md` (You are allowed to read Markdown).
-    -   **Present**: Summarize the plan to the user.
-    -   **Ask**: "Plan created. Shall I authorize the construction?"
+3. **Phase 3: Approval Gate**:
+    - **Read Plan**: Read `docs/plans/current_spec.md` (You are allowed to read Markdown).
+    - **Present**: Summarize the plan to the user.
+    - **Ask**: "Plan created. Shall I authorize the construction?"
 
 4. **Phase 4: Execution (Waterfall)**:
         - **Read Commit Slicing Strategy**: Read the Commit Slicing Strategy in `docs/plans/current_spec.md` to understand the ordered commits.
@@ -88,7 +88,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
             - ✅ DO describe behavior changes, fixes, or intent
             - ✅ DO explain the reason for the change
             - ✅ DO assume the reader cannot see the diff
-
+<!-- markdownlint-disable-next-line MD046 -->
     COMMIT MESSAGE FORMAT:
         ```
         ---
@@ -121,18 +121,22 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 
 ### ❌ What you’re getting now
 ```
+
 chore: update tests
 
 Edited security-suite-integration.spec.ts +10 -2
+
 ```
 
 ### ✅ What you *want*
 ```
+
 fix: harden security suite integration test expectations
 
 - Updated integration test to reflect new authentication error handling
 - Prevents false positives when optional headers are omitted
 - Aligns test behavior with recent proxy validation changes
+
 ```
 
 </workflow>

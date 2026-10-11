@@ -185,6 +185,7 @@ Since Alpine has not released patches for CVE-2025-60876 and CVE-2025-10966:
 
 ### Long-Term Actions (Proactive Security)
 
+<!-- markdownlint-disable-next-line MD024 -->
 ### Long-Term Actions (Proactive Security)
 
 #### 5. Implement Automated Dependency Updates

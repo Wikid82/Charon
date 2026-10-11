@@ -123,18 +123,23 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All tests passed and coverage meets threshold
 
 ### Error Exit Codes
+
 - **1**: Coverage below threshold or coverage file generation failed
 - **Non-zero**: Tests failed or other error occurred
 
 ### Output Files
+
 - **frontend/coverage/coverage-summary.json**: Vitest coverage summary (JSON format)
 - **frontend/coverage/index.html**: HTML coverage report (viewable in browser)
 
 ### Console Output
+
 Example output:
+
 ```
 Computed frontend coverage: 87.5% (minimum required 85%)
 Frontend coverage requirement met
@@ -168,12 +173,15 @@ xdg-open frontend/coverage/index.html  # Linux
 ### Common Errors
 
 #### Error: Coverage summary file not found
+
 **Solution**: Check that Vitest is configured with `--coverage` and `--reporter=json-summary`
 
 #### Error: Frontend coverage X% is below required Y%
+
 **Solution**: Add tests for uncovered components or adjust threshold
 
 #### Error: npm ci failed
+
 **Solution**: Clear node_modules and package-lock.json, then reinstall dependencies
 
 ## Related Skills

@@ -130,6 +130,7 @@ python3 .github/skills/scripts/validate-skills.py
 ### Validation Checks
 
 The validator ensures:
+
 - ✅ Required frontmatter fields are present
 - ✅ Field formats are correct (name, version, description)
 - ✅ Tags meet minimum/maximum requirements
@@ -204,6 +205,7 @@ Brief description of what this skill does.
 
 **Last Updated**: YYYY-MM-DD
 **Maintained by**: Charon Project
+
 ```
 
 ### 3. Create Execution Script
@@ -267,12 +269,14 @@ python3 .github/skills/scripts/validate-skills.py --single .github/skills/{skill
 ## Best Practices
 
 ### Documentation
+
 - Keep SKILL.md under 500 lines
 - Use progressive disclosure (link to extended docs for complex topics)
 - Include practical examples
 - Document all prerequisites and environment variables
 
 ### Scripts
+
 - Always source helper scripts for consistent logging and error handling
 - Validate environment before execution
 - Use `set -euo pipefail` for robust error handling
@@ -280,12 +284,14 @@ python3 .github/skills/scripts/validate-skills.py --single .github/skills/{skill
 - Clean up resources on exit
 
 ### Metadata
+
 - Use accurate `execution_time` values for scheduling
 - Set `ci_cd_safe: false` for skills requiring human oversight
 - Mark `idempotent: true` only if truly safe to run multiple times
 - Include all required dependencies in `requirements`
 
 ### Error Handling
+
 - Use helper functions (`log_error`, `error_exit`, `check_command_exists`)
 - Provide clear error messages with remediation steps
 - Return appropriate exit codes (0 = success, non-zero = failure)
@@ -331,33 +337,43 @@ get_project_root ["marker_file"]             # Find project root directory
 ## Troubleshooting
 
 ### Skill not found
+
 ```
 Error: Skill not found: skill-name
 ```
+
 **Solution**: Verify the skill directory exists in `.github/skills/` and contains a `SKILL.md` file
 
 ### Skill script not executable
+
 ```
 Error: Skill execution script is not executable
 ```
+
 **Solution**: Run `chmod +x .github/skills/{skill-name}/scripts/run.sh`
 
 ### Validation errors
+
 ```
 [ERROR] skill.SKILL.md :: description: Must be 120 characters or less
 ```
+
 **Solution**: Fix the frontmatter field according to the error message and re-validate
 
 ### Command not found in skill
+
 ```
 Error: go is not installed or not in PATH
 ```
+
 **Solution**: Install the required dependency or ensure it's in your PATH
 
 ## Integration Points
 
 ### VS Code Tasks
+
 Skills are integrated in `.vscode/tasks.json`:
+
 ```json
 {
     "label": "Test: Backend with Coverage",
@@ -368,14 +384,18 @@ Skills are integrated in `.vscode/tasks.json`:
 ```
 
 ### GitHub Actions
+
 Skills are referenced in `.github/workflows/`:
+
 ```yaml
 - name: Run Backend Tests with Coverage
   run: .github/skills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 ### Pre-commit Hooks
+
 Skills can be used in `.pre-commit-config.yaml`:
+
 ```yaml
 repos:
   - repo: local
@@ -396,6 +416,7 @@ repos:
 ## Support
 
 For issues, questions, or contributions:
+
 1. Check existing [GitHub Issues](https://github.com/Wikid82/charon/issues)
 2. Review [CONTRIBUTING.md](../../CONTRIBUTING.md)
 3. Create a new issue if needed

@@ -399,36 +399,42 @@ fi
 ### Common Issues
 
 **Docker not running**:
+
 ```bash
 [ERROR] Docker daemon is not running
 Solution: Start Docker Desktop or Docker service
 ```
 
 **Syft not installed**:
+
 ```bash
 [ERROR] Syft not found - install from: https://github.com/anchore/syft
 Solution: Install Syft v1.17.0 using installation instructions above
 ```
 
 **Grype not installed**:
+
 ```bash
 [ERROR] Grype not found - install from: https://github.com/anchore/grype
 Solution: Install Grype v0.107.0 using installation instructions above
 ```
 
 **Build failure**:
+
 ```bash
 [ERROR] Docker build failed with exit code 1
 Solution: Check Dockerfile syntax and dependency availability
 ```
 
 **Network timeout (vulnerability scan)**:
+
 ```bash
 [WARNING] Failed to update Grype vulnerability database
 Solution: Check internet connection or retry later
 ```
 
 **Disk space insufficient**:
+
 ```bash
 [ERROR] No space left on device
 Solution: Clean up Docker images and containers: docker system prune -a

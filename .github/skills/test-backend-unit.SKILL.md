@@ -117,13 +117,17 @@ For use in GitHub Actions or other CI/CD pipelines:
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All tests passed
 
 ### Error Exit Codes
+
 - **Non-zero**: One or more tests failed
 
 ### Console Output
+
 Example output:
+
 ```
 ok      github.com/Wikid82/charon/backend/internal/handlers    0.523s
 ok      github.com/Wikid82/charon/backend/internal/models      0.189s
@@ -167,12 +171,15 @@ ok      github.com/Wikid82/charon/backend/internal/services    0.742s
 ### Common Errors
 
 #### Error: package not found
+
 **Solution**: Verify package path is correct; run `go list ./...` to see available packages
 
 #### Error: build failed
+
 **Solution**: Fix compilation errors; run `go build ./...` to identify issues
 
 #### Error: test timeout
+
 **Solution**: Increase timeout with `-timeout` flag or fix hanging tests
 
 ## Related Skills

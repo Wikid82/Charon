@@ -601,6 +601,7 @@ Use this API to integrate Charon's uptime data with:
 ---
 
 *Monitoring a service on a remote Docker host? See [Connecting a Remote Docker Host](../guides/remote-docker-setup.md).*
+
 - [Security Best Practices](../security.md)
 
 ## Need Help?

@@ -877,6 +877,7 @@ each with its own ordered commit sequence, landing on the *same* existing branch
 original extraction already established (two-repo-two-PR-shaped-as-one-feature, not a new branch).
 
 ### `go_notify_yourself` repo — additional commits (same repo, no PR needed there per its own
+
 ### CLAUDE.md's "direct TDD, no multi-agent roster" note — but still ordered/bisectable commits)
 
 1. **Commit 1** — Registry core: `factory.go` + `factory_test.go` (§3.3, Phase 1). Gate: `go build
@@ -907,6 +908,7 @@ the whole registry addition cleanly since nothing else in the module depended on
 existing before this work.
 
 ### Charon repo — additional commits on the existing `feature/notifications-engine-extraction`
+
 ### branch (same PR #1253)
 
 1. **Commit 1** — Dependency bump: `go.mod`/`go.sum` to `go_notify_yourself v0.2.0`. Gate: `go

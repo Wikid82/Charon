@@ -25,9 +25,9 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
       - The mandatory minimum coverage is 85%, however, CI calculculates a little lower. Shoot for 87%+ to be safe.
 - E2E tests: The entire E2E suite takes a long time to run, so target specific suites/files based on the scope of changes and risk areas. Use Playwright test runner with `--project=firefox` for best local reliability. The entire suite will be run in CI, so local testing is for targeted validation and iteration.
 - Security scanning:
-   - GORM: `.github/skills/security-scan-gorm.SKILL.md`
-   - Trivy: `.github/skills/security-scan-trivy.SKILL.md`
-   - CodeQL: `.github/skills/security-scan-codeql.SKILL.md`
+  - GORM: `.github/skills/security-scan-gorm.SKILL.md`
+  - Trivy: `.github/skills/security-scan-trivy.SKILL.md`
+  - CodeQL: `.github/skills/security-scan-codeql.SKILL.md`
 </context>
 
 <workflow>
@@ -45,7 +45,7 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
    - Review test failure outputs with `test_failure` tool
 
 4. **Security Scanning**:
-   - - Review Security: Read `security.md.instrutctions.md` and `SECURITY.md` to understand the security requirements and best practices for Charon. Ensure that any open concerns or issues are addressed in the QA Audit and `SECURITY.md` is updated accordingly.
+    - Review Security: Read `security.md.instrutctions.md` and `SECURITY.md` to understand the security requirements and best practices for Charon. Ensure that any open concerns or issues are addressed in the QA Audit and `SECURITY.md` is updated accordingly.
     - **Conditional GORM Scan**: When backend model/database-related changes are
        in scope (`backend/internal/models/**`, GORM services, migrations), run
        GORM scanner in check mode and report pass/fail as DoD gate:
@@ -58,10 +58,10 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
        - Tokenized URL query strings (e.g., `?token=...`)
        - Verify URL query parameters are redacted in
           diagnostics/examples/log artifacts
-   - Run Trivy scans on filesystem and container images
-   - Analyze vulnerabilities with `mcp_trivy_mcp_findings_list`
-   - Prioritize by severity (CRITICAL > HIGH > MEDIUM > LOW)
-   - Document remediation steps
+    - Run Trivy scans on filesystem and container images
+    - Analyze vulnerabilities with `mcp_trivy_mcp_findings_list`
+    - Prioritize by severity (CRITICAL > HIGH > MEDIUM > LOW)
+    - Document remediation steps
 
 5. **Test Implementation**:
    - Write unit tests for uncovered code paths
