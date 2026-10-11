@@ -10,6 +10,7 @@
  * - Import Execution (3 tests): import success, error handling, already exists
  */
 
+import type { Page } from '@playwright/test';
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
 import { cleanupBackupsCreatedSince } from '../../utils/backup-cleanup';
 import { waitForLoadingComplete } from '../../utils/wait-helpers';
@@ -295,6 +296,81 @@ test.describe('Import CrowdSec Configuration', () => {
 
       // Button should be enabled again after completion
       await expect(importButton).toBeEnabled();
+    });
+  });
+
+  // =========================================================================
+  // Blanked notification values (pending until the feature is enabled)
+  // =========================================================================
+  test.describe('Notification files that need values', () => {
+    const NEEDS_VALUES_LINE = '[data-testid="import-needs-values"]';
+
+    /** Mocks the backup and import answers, then imports a file through the CrowdSec page. */
+    async function importWithResult(page: Page, result: Record<string, unknown>) {
+      await page.route('**/api/v1/backups', async (route) => {
+        if (route.request().method() === 'POST') {
+          await route.fulfill({
+            status: 201,
+            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
+          });
+        } else {
+          await route.continue();
+        }
+      });
+      await page.route('**/api/v1/admin/crowdsec/import', (route) =>
+        route.fulfill({ status: 200, json: { status: 'imported', backup: 'backup-1', ...result } }),
+      );
+      await page.goto('/security/crowdsec');
+      await waitForLoadingComplete(page);
+      await page.getByTestId('import-file').setInputFiles({
+        name: 'crowdsec-config.tar.gz',
+        mimeType: 'application/gzip',
+        buffer: createMockTarGzBuffer(),
+      });
+      await page.getByTestId('import-btn').click();
+    }
+
+    test.fixme('shows the files that need values inline in the import card', async ({ page, adminUser }) => {
+      await loginUser(page, adminUser);
+
+      await importWithResult(page, { needs_values: ['notifications/http_default.yaml'] });
+
+      const line = page.locator(NEEDS_VALUES_LINE);
+      await expect(line).toBeVisible();
+      await expect(line).toContainText('notifications/http_default.yaml');
+    });
+
+    test.fixme('adds no notification beyond the existing success toast', async ({ page, adminUser }) => {
+      await loginUser(page, adminUser);
+
+      await importWithResult(page, { needs_values: ['notifications/http_default.yaml'] });
+
+      await expect(page.locator(NEEDS_VALUES_LINE)).toBeVisible();
+      await expect(page.locator(SELECTORS.successToast)).toHaveCount(1);
+      await expect(page.getByRole('alert')).toHaveCount(0);
+    });
+
+    test.fixme('shows no line when no file needs values', async ({ page, adminUser }) => {
+      await loginUser(page, adminUser);
+
+      await importWithResult(page, {});
+
+      await expect(page.locator(SELECTORS.successToast)).toBeVisible();
+      await expect(page.locator(NEEDS_VALUES_LINE)).toHaveCount(0);
+    });
+
+    test.fixme('removes the line when another file is chosen', async ({ page, adminUser }) => {
+      await loginUser(page, adminUser);
+      await importWithResult(page, { needs_values: ['notifications/http_default.yaml'] });
+      await expect(page.locator(NEEDS_VALUES_LINE)).toBeVisible();
+
+      await page.getByTestId('import-file').setInputFiles({
+        name: 'other-config.tar.gz',
+        mimeType: 'application/gzip',
+        buffer: createMockTarGzBuffer(),
+      });
+
+      await expect(page.locator(NEEDS_VALUES_LINE)).toHaveCount(0);
     });
   });
 });

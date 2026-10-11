@@ -331,3 +331,48 @@ method: POST
     )
     .join('---\n');
 }
+
+/** The text a CrowdSec export writes in place of a blanked notification value. */
+export const BLANKED_VALUE = '<charon-redacted>';
+
+export interface NotificationValues {
+  /** Address the notification is sent to. */
+  url?: string;
+  /** Value of the Authorization header. */
+  authorization?: string;
+  /** Value of a second custom header. */
+  apiToken?: string;
+  /** Write the headers through a YAML anchor and alias (the file then uses an alias). */
+  aliased?: boolean;
+  /** Add comments to the document. */
+  comments?: boolean;
+}
+
+/**
+ * A notification plugin config document that carries values a CrowdSec export blanks
+ * (the address, header values) next to values it keeps (type, name, log level, method).
+ * Use obviously fake `SECRETTOKEN-` strings for the values.
+ */
+export function notificationYamlWithValues(name: string, values: NotificationValues = {}): string {
+  const url = values.url ?? 'https://notify.example.invalid/hook/SECRETTOKEN-url';
+  const authorization = values.authorization ?? 'Bearer SECRETTOKEN-auth';
+  const apiToken = values.apiToken ?? 'SECRETTOKEN-header';
+  const headers = values.aliased
+    ? `headers: &shared
+  Authorization: ${authorization}
+  X-Api-Token: ${apiToken}
+`
+    : `headers:
+  Authorization: ${authorization}
+  X-Api-Token: ${apiToken}
+`;
+  const aliasLine = values.aliased ? 'extra_headers: *shared\n' : '';
+  const comments = values.comments ? '# SECRETTOKEN-comment\n' : '';
+  return `${comments}type: http
+name: ${name}
+log_level: info
+format: ""
+url: ${url}
+method: POST
+${headers}${aliasLine}`;
+}

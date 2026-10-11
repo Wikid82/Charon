@@ -1,0 +1,205 @@
+/**
+ * CrowdSec export: blanked notification values - E2E (API level)
+ *
+ * An export blanks the passwords, tokens, addresses and header values of notification files and
+ * keeps the structure a profile needs. An import keeps the current values when the notification
+ * already exists, and lists the files that still need values when it does not.
+ *
+ * The cases are pending (test.fixme) until the backend change lands; they are enabled together
+ * with the final end-to-end commit of the feature.
+ */
+
+import { promises as fs } from 'fs';
+import type { APIRequestContext } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import {
+  BLANKED_VALUE,
+  createTarGz,
+  listTarGzEntries,
+  notificationYamlWithValues,
+  profilesYaml,
+  readTarGzEntry,
+} from '../utils/archive-helpers';
+
+const ADMIN = '/api/v1/admin/crowdsec';
+const NOTIFICATION = 'http_default';
+const NOTIFICATION_PATH = `notifications/${NOTIFICATION}.yaml`;
+
+const VALID_CONFIG = `api:
+  server:
+    listen_uri: 0.0.0.0:8080
+    log_level: info
+`;
+
+/** Fake values planted in the live notification file. */
+const PLANTED = {
+  url: 'https://notify.example.invalid/hook/SECRETTOKEN-url',
+  authorization: 'Bearer SECRETTOKEN-auth',
+  apiToken: 'SECRETTOKEN-header',
+};
+const PLANTED_TOKENS = ['SECRETTOKEN-url', 'SECRETTOKEN-auth', 'SECRETTOKEN-header'];
+
+/** The path of a configuration file as the file API lists and reads it. */
+const cfg = (name: string) => `config/${name}`;
+
+async function upload(request: APIRequestContext, archivePath: string, uploadName: string) {
+  return request.post(`${ADMIN}/import`, {
+    multipart: { file: { name: uploadName, mimeType: 'application/gzip', buffer: await fs.readFile(archivePath) } },
+    timeout: 120_000,
+  });
+}
+
+async function readConfigFile(request: APIRequestContext, name: string) {
+  const response = await request.get(`${ADMIN}/file?path=${encodeURIComponent(name)}`);
+  expect(response.status()).toBe(200);
+  return (await response.json()).content as string;
+}
+
+async function exportArchive(request: APIRequestContext) {
+  const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+  expect(response.status()).toBe(200);
+  return response.body();
+}
+
+/** Imports an archive with the notification file (and a profile naming it) and expects success. */
+async function seedNotification(
+  request: APIRequestContext,
+  outputPath: string,
+  notification: string,
+  extraFiles: Record<string, string> = {},
+) {
+  const archive = await createTarGz(
+    {
+      'config/config.yaml': VALID_CONFIG,
+      'config/profiles.yaml': profilesYaml([NOTIFICATION]),
+      [cfg(NOTIFICATION_PATH)]: notification,
+      ...extraFiles,
+    },
+    outputPath,
+  );
+  const response = await upload(request, archive, 'seed.tar.gz');
+  expect(response.status()).toBe(200);
+  return response;
+}
+
+test.describe('CrowdSec export: blanked notification values', () => {
+  test.beforeEach(async ({ request }, testInfo) => {
+    await seedNotification(request, testInfo.outputPath('seed.tar.gz'), notificationYamlWithValues(NOTIFICATION));
+  });
+
+  test.fixme('export blanks the address and header values of a notification file', async ({ request }) => {
+    const entry = await readTarGzEntry(await exportArchive(request), cfg(NOTIFICATION_PATH));
+
+    expect(entry).not.toBeNull();
+    expect(entry).toContain(BLANKED_VALUE);
+    for (const token of PLANTED_TOKENS) {
+      expect(entry).not.toContain(token);
+    }
+  });
+
+  test.fixme('export keeps no planted value anywhere in the archive', async ({ request }) => {
+    const archive = await exportArchive(request);
+
+    const names = await listTarGzEntries(archive);
+    for (const name of names) {
+      const content = (await readTarGzEntry(archive, name)) ?? '';
+      for (const token of PLANTED_TOKENS) {
+        expect(content, `${name} must not hold ${token}`).not.toContain(token);
+        expect(name).not.toContain(token);
+      }
+    }
+  });
+
+  test.fixme('export keeps the keys a profile and the plugin need readable', async ({ request }) => {
+    const entry = (await readTarGzEntry(await exportArchive(request), cfg(NOTIFICATION_PATH))) as string;
+
+    expect(entry).toContain('type: http');
+    expect(entry).toContain(`name: ${NOTIFICATION}`);
+    expect(entry).toContain('log_level: info');
+    expect(entry).toContain('method: POST');
+    // The profile still names a notification the exported archive defines.
+    const profiles = (await readTarGzEntry(await exportArchive(request), cfg('profiles.yaml'))) as string;
+    expect(profiles).toContain(NOTIFICATION);
+  });
+
+  test.fixme('export drops comments from a notification file', async ({ request }, testInfo) => {
+    await seedNotification(
+      request,
+      testInfo.outputPath('seed-comments.tar.gz'),
+      notificationYamlWithValues(NOTIFICATION, { comments: true }),
+    );
+
+    const entry = (await readTarGzEntry(await exportArchive(request), cfg(NOTIFICATION_PATH))) as string;
+
+    expect(entry).not.toContain('SECRETTOKEN-comment');
+  });
+
+  test.fixme('export leaves out stray non-YAML files from the notifications folder', async ({ request }, testInfo) => {
+    await seedNotification(request, testInfo.outputPath('seed-stray.tar.gz'), notificationYamlWithValues(NOTIFICATION), {
+      [cfg(`${NOTIFICATION_PATH}.bak`)]: notificationYamlWithValues(NOTIFICATION),
+    });
+
+    const names = await listTarGzEntries(await exportArchive(request));
+
+    expect(names).toContain(cfg(NOTIFICATION_PATH));
+    expect(names).not.toContain(cfg(`${NOTIFICATION_PATH}.bak`));
+  });
+
+  test.fixme('importing an export on the same system keeps the current values', async ({ request }, testInfo) => {
+    const archivePath = testInfo.outputPath('roundtrip.tar.gz');
+    await fs.writeFile(archivePath, await exportArchive(request));
+
+    const response = await upload(request, archivePath, 'roundtrip.tar.gz');
+
+    expect(response.status()).toBe(200);
+    expect((await response.json()).needs_values).toBeUndefined();
+    const content = await readConfigFile(request, cfg(NOTIFICATION_PATH));
+    expect(content).toContain(PLANTED.url);
+    expect(content).toContain(PLANTED.authorization);
+    expect(content).toContain(PLANTED.apiToken);
+    expect(content).not.toContain(BLANKED_VALUE);
+  });
+
+  test.fixme('a file that uses aliases is listed as needing values and stays as exported', async ({ request }, testInfo) => {
+    await seedNotification(
+      request,
+      testInfo.outputPath('seed-aliased.tar.gz'),
+      notificationYamlWithValues(NOTIFICATION, { aliased: true }),
+    );
+    const exported = await exportArchive(request);
+    const exportedEntry = (await readTarGzEntry(exported, cfg(NOTIFICATION_PATH))) as string;
+    const archivePath = testInfo.outputPath('roundtrip-aliased.tar.gz');
+    await fs.writeFile(archivePath, exported);
+
+    const response = await upload(request, archivePath, 'roundtrip-aliased.tar.gz');
+
+    expect(response.status()).toBe(200);
+    expect((await response.json()).needs_values).toEqual([NOTIFICATION_PATH]);
+    // Excluded from the "values unchanged" comparison: the file comes back exactly as exported.
+    expect(await readConfigFile(request, cfg(NOTIFICATION_PATH))).toBe(exportedEntry);
+  });
+
+  test.fixme('importing a blanked file where the notification does not exist keeps the placeholders and lists it', async ({
+    request,
+  }, testInfo) => {
+    const exported = await exportArchive(request);
+    // A fresh host: replace the live notification with a different one first.
+    await seedNotification(
+      request,
+      testInfo.outputPath('seed-other.tar.gz'),
+      notificationYamlWithValues('http_other'),
+    );
+    const archivePath = testInfo.outputPath('fresh.tar.gz');
+    await fs.writeFile(archivePath, exported);
+
+    const response = await upload(request, archivePath, 'fresh.tar.gz');
+
+    expect(response.status()).toBe(200);
+    expect((await response.json()).needs_values).toEqual([NOTIFICATION_PATH]);
+    const content = await readConfigFile(request, cfg(NOTIFICATION_PATH));
+    expect(content).toContain(BLANKED_VALUE);
+    for (const token of PLANTED_TOKENS) {
+      expect(content).not.toContain(token);
+    }
+  });
+});
