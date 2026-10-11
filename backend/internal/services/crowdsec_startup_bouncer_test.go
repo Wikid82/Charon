@@ -213,7 +213,7 @@ func assertNoSubstring(t *testing.T, channels []string, secret string) {
 	}
 }
 
-func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsOmitCredentials(t *testing.T) {
+func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsRedacted(t *testing.T) {
 	for _, envName := range bouncerKeyEnvNames {
 		t.Run(envName, func(t *testing.T) {
 			h := newBouncerHarness(t)
@@ -243,7 +243,7 @@ func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsOmitCredentials(t *
 	}
 }
 
-func TestEnsureBouncerRegistration_EnvKeyRejected_ShortKeyBannerRedacted(t *testing.T) {
+func TestEnsureBouncerRegistration_EnvKeyRejected_ShortKeyRedacted(t *testing.T) {
 	h := newBouncerHarness(t)
 	const shortKey = "rejected-short"
 	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", shortKey)
@@ -257,7 +257,7 @@ func TestEnsureBouncerRegistration_EnvKeyRejected_ShortKeyBannerRedacted(t *test
 	assert.Contains(t, strings.Join(channels, "\n"), "[REDACTED]")
 }
 
-func TestEnsureBouncerRegistration_RegistrationError_DiagnosticsOmitCredentials(t *testing.T) {
+func TestEnsureBouncerRegistration_RegistrationError_DiagnosticsRedacted(t *testing.T) {
 	h := newBouncerHarness(t)
 	output := testGeneratedKey + " boom"
 	exec := &scriptedBouncerExecutor{addOutput: []byte(output), addErr: errors.New("exit status 1")}

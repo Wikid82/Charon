@@ -367,7 +367,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 		"masked_key": util.MaskAPIKey(newKey),
 	}).Info("CrowdSec bouncer: successfully registered and saved key")
 
-	// Report the replacement without printing any key material.
+	// Report the replacement.
 	if envKey != "" {
 		logger.Log().WithFields(map[string]any{
 			"bouncer":    bouncerName,
