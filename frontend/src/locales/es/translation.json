@@ -1187,6 +1187,7 @@
     },
     "importSuccess": "Configuración de CrowdSec importada (copia de seguridad creada)",
     "importFailed": "Error al importar",
+    "importKeptFiles": "Estos archivos no estaban en el archivo comprimido, por lo que se conservaron los actuales: {{files}}",
     "exportPrompt": "Nombre del archivo de exportación de CrowdSec",
     "title": "Configuración de CrowdSec",
     "checkNow": "Comprobar ahora",

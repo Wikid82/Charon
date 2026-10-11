@@ -1186,6 +1186,7 @@
     },
     "importSuccess": "CrowdSec 配置已导入（已创建备份）",
     "importFailed": "导入失败",
+    "importKeptFiles": "归档中没有这些文件，因此保留了当前的文件：{{files}}",
     "exportPrompt": "为 CrowdSec 导出文件命名",
     "title": "CrowdSec 配置",
     "checkNow": "立即检查",
