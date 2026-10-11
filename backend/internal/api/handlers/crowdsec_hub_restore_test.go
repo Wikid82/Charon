@@ -166,9 +166,11 @@ func decodeRestore(t *testing.T, w *httptest.ResponseRecorder) hubRestoreRespons
 
 func restoreErr(t *testing.T, w *httptest.ResponseRecorder) string {
 	t.Helper()
-	var out map[string]string
+	var out struct {
+		Error string `json:"error"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out), w.Body.String())
-	return out["error"]
+	return out.Error
 }
 
 func TestRestoreHubItemsRejectsInvalidInput(t *testing.T) {
@@ -707,10 +709,106 @@ func TestRestoreHubItemsMaximumRequest(t *testing.T) {
 
 func TestHubItemNotFound(t *testing.T) {
 	t.Parallel()
-	require.True(t, hubItemNotFound([]byte("Error: can't find 'a/b' in collections")))
-	require.True(t, hubItemNotFound([]byte("item NOT FOUND")))
-	require.False(t, hubItemNotFound([]byte("download failed")))
-	require.False(t, hubItemNotFound(nil))
+	// Verbatim cscli v1.8.1 output for an item the hub does not know.
+	for _, typ := range crowdsec.HubItemTypes {
+		it := crowdsec.HubItem{Type: typ, Name: "x/y"}
+		out := []byte("Error: cscli " + typ + " install: can't find 'x/y' in " + typ)
+		require.True(t, hubItemNotFound(out, it), typ)
+	}
+	it := crowdsec.HubItem{Type: "collections", Name: "x/y"}
+	require.False(t, hubItemNotFound([]byte("Error: cscli collections install: can't find 'other/item' in collections"), it), "another item's name")
+	require.False(t, hubItemNotFound([]byte("Error: cscli collections install: can't find 'x/y' in parsers"), it), "another type")
+	require.False(t, hubItemNotFound([]byte("exec: \"cscli\": executable file not found in $PATH"), it))
+	require.False(t, hubItemNotFound([]byte("item NOT FOUND"), it))
+	require.False(t, hubItemNotFound([]byte("download failed"), it))
+	require.False(t, hubItemNotFound(nil, it))
+}
+
+func TestRestoreHubItemsMissingItemOutputIsClassified(t *testing.T) {
+	t.Parallel()
+	hh := newHubHarness(t)
+	hh.exec.install = func(_ context.Context, typ, name string) ([]byte, error) {
+		switch name {
+		case "x/gone":
+			return []byte("Error: cscli " + typ + " install: can't find 'x/gone' in " + typ), errors.New("exit status 1")
+		case "x/nobinary":
+			return []byte("exec: \"cscli\": executable file not found in $PATH"), errors.New("exit status 1")
+		}
+		return nil, nil
+	}
+	w := hh.post(restoreBody(hubItems("collections", "x/gone", "parsers", "x/gone", "scenarios", "x/nobinary")...))
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, []hubRestoreFailure{
+		{"collections", "x/gone", "not_found"},
+		{"parsers", "x/gone", "not_found"},
+		{"scenarios", "x/nobinary", "install_failed"},
+	}, decodeRestore(t, w).Failed)
+}
+
+// breakInstalledScan makes the next read of the installed items fail: "config" becomes a file, so the
+// hub directories below it cannot be scanned.
+func breakInstalledScan(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "config")))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config"), []byte("x"), 0o600))
+}
+
+func TestRestoreHubItemsSecondReadFailureKeepsThePartialResult(t *testing.T) {
+	t.Parallel()
+	hh := newHubHarness(t)
+	hh.exec.noLinkFor = map[string]bool{"x/coll": true}
+	hh.exec.install = func(_ context.Context, typ, _ string) ([]byte, error) {
+		if typ == "collections" {
+			breakInstalledScan(t, hh.dir)
+		}
+		return nil, nil
+	}
+	pre := crowdsec.HubItem{Type: "collections", Name: "x/already"}
+	coll := crowdsec.HubItem{Type: "collections", Name: "x/coll"}
+	linkHubItem(hh.dir, pre)
+
+	w := hh.post(restoreBody(pre, coll, crowdsec.HubItem{Type: "parsers", Name: "x/solo"}))
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	var body struct {
+		Error            string              `json:"error"`
+		Installed        []crowdsec.HubItem  `json:"installed"`
+		AlreadyInstalled []crowdsec.HubItem  `json:"already_installed"`
+		Failed           []hubRestoreFailure `json:"failed"`
+		Reloaded         bool                `json:"reloaded"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, msgRestoreReadFailedPartial, body.Error)
+	require.Equal(t, []crowdsec.HubItem{coll}, body.Installed)
+	require.Equal(t, []crowdsec.HubItem{pre}, body.AlreadyInstalled)
+	require.Empty(t, body.Failed, "no item is reported as not attempted")
+	require.True(t, body.Reloaded, "what pass one installed still takes effect")
+	require.EqualValues(t, 1, hh.signal.Load())
+	require.Equal(t, []string{"cscli collections install x/coll"}, hh.exec.installCalls())
+}
+
+func TestRestoreHubItemsSecondReadFailureWithoutInstallsDoesNotReload(t *testing.T) {
+	t.Parallel()
+	hh := newHubHarness(t)
+	// The collection fails to install and the installed items cannot be read afterwards.
+	hh.exec.install = func(_ context.Context, _, _ string) ([]byte, error) {
+		breakInstalledScan(t, hh.dir)
+		return []byte("Error: download failed"), errors.New("exit status 1")
+	}
+	w := hh.post(restoreBody(hubItems("collections", "x/coll", "parsers", "x/solo")...))
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	require.Equal(t, msgRestoreReadFailedPartial, restoreErr(t, w))
+	require.Zero(t, hh.signal.Load())
+}
+
+func TestRestoreHubItemsFirstReadFailureInstallsNothing(t *testing.T) {
+	t.Parallel()
+	hh := newHubHarness(t)
+	breakInstalledScan(t, hh.dir)
+	w := hh.post(restoreBody(hubItems("collections", "x/coll")...))
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Equal(t, msgRestoreReadFailed, restoreErr(t, w))
+	require.Empty(t, hh.exec.installCalls())
+	require.Zero(t, hh.signal.Load())
 }
 
 func TestHubRestoreLimitsDefaults(t *testing.T) {
