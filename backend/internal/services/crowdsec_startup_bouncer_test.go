@@ -3,6 +3,8 @@ package services
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 const (
@@ -83,7 +86,7 @@ func newBouncerHarness(t *testing.T) *bouncerHarness {
 	}
 
 	lapi := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Api-Key") == testRejectedEnvKey {
+		if strings.HasPrefix(r.Header.Get("X-Api-Key"), "rejected-") {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
@@ -113,6 +116,18 @@ func (h *bouncerHarness) drain() []*logrus.Entry {
 	var out []*logrus.Entry
 	for e := range h.entries {
 		out = append(out, e)
+	}
+	return out
+}
+
+// channels flattens message, data, error field and raw output of every captured entry.
+func (h *bouncerHarness) channels(entries []*logrus.Entry) []string {
+	out := []string{h.buf.String()}
+	for _, e := range entries {
+		out = append(out, e.Message, fmt.Sprint(e.Data))
+		if v, ok := e.Data[logrus.ErrorKey]; ok {
+			out = append(out, fmt.Sprint(v))
+		}
 	}
 	return out
 }
@@ -189,4 +204,71 @@ func TestEnsureBouncerRegistration_KeyDirectoryUnavailable(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create key directory")
+}
+
+func assertNoSubstring(t *testing.T, channels []string, secret string) {
+	t.Helper()
+	for i, ch := range channels {
+		assert.NotContains(t, ch, secret, "channel %d", i)
+	}
+}
+
+func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsOmitCredentials(t *testing.T) {
+	for _, envName := range bouncerKeyEnvNames {
+		t.Run(envName, func(t *testing.T) {
+			h := newBouncerHarness(t)
+			t.Setenv(envName, testRejectedEnvKey)
+			exec := &scriptedBouncerExecutor{addOutput: []byte(testGeneratedKey + "\n")}
+
+			require.NoError(t, ensureBouncerRegistration(h.dataDir, h.keyFile, exec))
+
+			// The generated value is persisted to the key file with restricted permissions.
+			got, err := os.ReadFile(h.keyFile)
+			require.NoError(t, err)
+			require.Equal(t, testGeneratedKey, string(got))
+			info, err := os.Stat(h.keyFile)
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+			entries := h.drain()
+			channels := h.channels(entries)
+			assertNoSubstring(t, channels, testGeneratedKey)
+			assertNoSubstring(t, channels, testRejectedEnvKey)
+
+			joined := strings.Join(channels, "\n")
+			assert.Contains(t, joined, h.keyFile)
+			assert.Contains(t, joined, "0600")
+			assert.Contains(t, joined, util.MaskAPIKey(testRejectedEnvKey))
+		})
+	}
+}
+
+func TestEnsureBouncerRegistration_EnvKeyRejected_ShortKeyBannerRedacted(t *testing.T) {
+	h := newBouncerHarness(t)
+	const shortKey = "rejected-short"
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", shortKey)
+	exec := &scriptedBouncerExecutor{addOutput: []byte(testGeneratedKey)}
+
+	require.NoError(t, ensureBouncerRegistration(h.dataDir, h.keyFile, exec))
+
+	channels := h.channels(h.drain())
+	assertNoSubstring(t, channels, shortKey)
+	assertNoSubstring(t, channels, testGeneratedKey)
+	assert.Contains(t, strings.Join(channels, "\n"), "[REDACTED]")
+}
+
+func TestEnsureBouncerRegistration_RegistrationError_DiagnosticsOmitCredentials(t *testing.T) {
+	h := newBouncerHarness(t)
+	output := testGeneratedKey + " boom"
+	exec := &scriptedBouncerExecutor{addOutput: []byte(output), addErr: errors.New("exit status 1")}
+
+	err := ensureBouncerRegistration(h.dataDir, h.keyFile, exec)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), testGeneratedKey)
+	channels := h.channels(h.drain())
+	assertNoSubstring(t, channels, testGeneratedKey)
+	assert.Contains(t, strings.Join(channels, "\n"), fmt.Sprintf("%d bytes of output omitted", len(output)))
+	_, statErr := os.Stat(h.keyFile)
+	assert.True(t, os.IsNotExist(statErr))
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -3665,56 +3666,6 @@ func TestCrowdsecHandler_ImportConfig_CorruptedArchive(t *testing.T) {
 	require.Contains(t, w.Body.String(), "validation failed")
 }
 
-// TestMaskAPIKey tests the maskAPIKey function with various inputs.
-// Security: Ensures API keys are properly masked to prevent log exposure (CWE-312).
-func TestMaskAPIKey(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "normal key",
-			input:    "abcd1234567890wxyz",
-			expected: "abcd...wxyz",
-		},
-		{
-			name:     "empty key",
-			input:    "",
-			expected: "[empty]",
-		},
-		{
-			name:     "short key under 16 chars",
-			input:    "short123",
-			expected: "[REDACTED]",
-		},
-		{
-			name:     "minimum length key (16 chars)",
-			input:    "1234567890123456",
-			expected: "1234...3456",
-		},
-		{
-			name:     "long key",
-			input:    "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-			expected: "abcd...WXYZ",
-		},
-		{
-			name:     "exactly 15 chars (below minimum)",
-			input:    "123456789012345",
-			expected: "[REDACTED]",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := maskAPIKey(tt.input)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // TestValidateAPIKeyFormat tests the validateAPIKeyFormat function.
 // Security: Ensures API keys meet minimum security standards.
 func TestValidateAPIKeyFormat(t *testing.T) {
@@ -3809,7 +3760,7 @@ func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 
 	// Capture log output (this is a simple test; in production use a proper log capture)
 	// For this test, we'll verify the masking function is called correctly
-	maskedKey := maskAPIKey(testAPIKey)
+	maskedKey := util.MaskAPIKey(testAPIKey)
 
 	// Verify the masked key does not contain the full key
 	require.NotContains(t, maskedKey, testAPIKey)
