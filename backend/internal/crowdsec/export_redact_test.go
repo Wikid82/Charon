@@ -286,15 +286,15 @@ func TestLiveNotificationDirsFallsBackToDefaults(t *testing.T) {
 	defaults := NotificationDirs(t.TempDir(), nil)
 
 	missing := t.TempDir()
-	require.Equal(t, defaults, liveNotificationDirs(missing))
+	require.Equal(t, defaults, treeNotificationDirs(missing))
 
 	oversize := t.TempDir()
 	writeExportTree(t, oversize, map[string]string{"config/config.yaml": strings.Repeat("#", int(maxInspectEntryBytes)+1)})
-	require.Equal(t, defaults, liveNotificationDirs(oversize))
+	require.Equal(t, defaults, treeNotificationDirs(oversize))
 
 	flat := t.TempDir()
 	writeExportTree(t, flat, map[string]string{"config.yaml": "config_paths:\n  notification_dir: " + filepath.Join(flat, "alerts") + "\n"})
-	require.Equal(t, append(append([]string(nil), defaults...), "alerts"), liveNotificationDirs(flat))
+	require.Equal(t, append(append([]string(nil), defaults...), "alerts"), treeNotificationDirs(flat))
 }
 
 // recordingHook keeps the messages of every log entry while enabled.

@@ -97,7 +97,7 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 	gw := gzip.NewWriter(&limitWriter{w: w, limit: maxCompressed})
 	tw := tar.NewWriter(gw)
 	var total int64
-	dirs := liveNotificationDirs(dataDir)
+	dirs := treeNotificationDirs(dataDir)
 
 	walkErr := filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -341,9 +341,10 @@ func firstYAMLRoot(data []byte) *yaml.Node {
 	return docs[0]
 }
 
-// liveNotificationDirs returns the notification folders of the live tree, honouring a redirected
-// folder named by the live config.yaml. An unreadable config means the default folders.
-func liveNotificationDirs(dataDir string) []string {
+// treeNotificationDirs returns the notification folders of the tree below dataDir (the live tree, an
+// extracted archive or a snapshot), honouring a redirected folder named by the tree's own config.yaml.
+// An unreadable config means the default folders. Export, merge and scan all resolve through it.
+func treeNotificationDirs(dataDir string) []string {
 	for _, rel := range []string{"config/config.yaml", "config.yaml"} {
 		f, info, err := openExportFile(dataDir, filepath.FromSlash(rel), exportHooks{})
 		if err != nil || f == nil {
@@ -361,6 +362,6 @@ func liveNotificationDirs(dataDir string) []string {
 
 // unreadableFile logs the cause with the sanitized relative path and returns the fixed sentinel.
 func unreadableFile(rel string, cause error) error {
-	logger.Log().WithError(cause).Warnf("cannot export %s", util.SanitizeForLog(rel))
+	logger.Log().WithError(cause).Warnf("cannot read %s", util.SanitizeForLog(rel))
 	return ErrExportFileUnreadable
 }

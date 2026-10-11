@@ -16,24 +16,9 @@ var ErrSymlinkInPath = errors.New("refusing to write through a symlink")
 // directories. It refuses to proceed if dest or any existing component between root and dest is a
 // symlink, so archive extraction over a live tree can never be redirected outside root.
 func CreateFileNoSymlink(root, dest string, parentMode, fileMode os.FileMode) (*os.File, error) {
-	root = filepath.Clean(root)
-	rel, err := filepath.Rel(root, filepath.Clean(dest))
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return nil, fmt.Errorf("path escapes target: %s", rel)
-	}
-	cur := root
-	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
-		cur = filepath.Join(cur, part)
-		info, lerr := os.Lstat(cur)
-		if errors.Is(lerr, fs.ErrNotExist) {
-			break
-		}
-		if lerr != nil {
-			return nil, fmt.Errorf("inspect %s: %w", rel, withoutPath(lerr))
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("%w: %s", ErrSymlinkInPath, rel)
-		}
+	rel, err := checkNoSymlinkBelow(root, dest)
+	if err != nil {
+		return nil, err
 	}
 	if err = os.MkdirAll(filepath.Dir(dest), parentMode); err != nil { //nolint:gosec // G703: dest verified contained under root and symlink-free above
 		return nil, fmt.Errorf("mkdir parent: %w", withoutPath(err))
@@ -43,4 +28,29 @@ func CreateFileNoSymlink(root, dest string, parentMode, fileMode os.FileMode) (*
 		return nil, fmt.Errorf("open %s: %w", rel, withoutPath(err))
 	}
 	return f, nil
+}
+
+// checkNoSymlinkBelow verifies that dest lies inside root and that no existing component between root and
+// dest is a symlink. It returns dest relative to root.
+func checkNoSymlinkBelow(root, dest string) (string, error) {
+	root = filepath.Clean(root)
+	rel, err := filepath.Rel(root, filepath.Clean(dest))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path escapes target: %s", rel)
+	}
+	cur := root
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		cur = filepath.Join(cur, part)
+		info, lerr := os.Lstat(cur)
+		if errors.Is(lerr, fs.ErrNotExist) {
+			break
+		}
+		if lerr != nil {
+			return "", fmt.Errorf("inspect %s: %w", rel, withoutPath(lerr))
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("%w: %s", ErrSymlinkInPath, rel)
+		}
+	}
+	return rel, nil
 }
