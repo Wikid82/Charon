@@ -238,9 +238,12 @@ func TestPullAcceptsNamespacedIndexEntry(t *testing.T) {
 	})}
 
 	ctx := context.Background()
-	res, err := hub.Pull(ctx, "bot-mitigation-essentials")
+	_, err = hub.Pull(ctx, "bot-mitigation-essentials")
+	require.ErrorContains(t, err, "preset not found in hub", "short names no longer match")
+
+	res, err := hub.Pull(ctx, "crowdsecurity/bot-mitigation-essentials")
 	require.NoError(t, err)
-	require.Equal(t, "bot-mitigation-essentials", res.Meta.Slug)
+	require.Equal(t, "crowdsecurity/bot-mitigation-essentials", res.Meta.Slug)
 	require.Equal(t, "etag-bme", res.Meta.Etag)
 	require.Contains(t, res.Preview, "namespaced preview")
 }

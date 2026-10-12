@@ -82,9 +82,9 @@ func readFixture(t *testing.T, name string) string {
 	return string(data)
 }
 
-func TestFetchIndexPrefersCSCLI(t *testing.T) {
+func TestFetchIndexListsFromCSCLIWhenHubUnreachable(t *testing.T) {
 	t.Parallel()
-	exec := &recordingExec{outputs: map[string][]byte{"cscli hub list -o json": []byte(`{"collections":[{"name":"crowdsecurity/test","description":"desc","version":"1.0"}]}`)}}
+	exec := &recordingExec{outputs: map[string][]byte{"cscli hub list -a -o json": []byte(`{"collections":[{"name":"crowdsecurity/test","description":"desc","version":"1.0"}]}`)}}
 	svc := NewHubService(exec, nil, t.TempDir())
 	svc.HTTPClient = nil
 
@@ -92,14 +92,14 @@ func TestFetchIndexPrefersCSCLI(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, idx.Items, 1)
 	require.Equal(t, "crowdsecurity/test", idx.Items[0].Name)
-	require.Contains(t, exec.calls, "cscli hub list -o json")
+	require.Contains(t, exec.calls, "cscli hub list -a -o json")
 }
 
 func TestFetchIndexFallbackHTTP(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping network I/O test in short mode")
 	}
-	exec := &recordingExec{errors: map[string]error{"cscli hub list -o json": fmt.Errorf("boom")}}
+	exec := &recordingExec{errors: map[string]error{"cscli hub list -a -o json": fmt.Errorf("boom")}}
 	cacheDir := t.TempDir()
 	svc := NewHubService(exec, nil, cacheDir)
 	indexBody := readFixture(t, "hub_index_fixture.json")
@@ -2209,7 +2209,7 @@ func TestFindIndexEntry_ExactMatch(t *testing.T) {
 	require.Equal(t, "crowdsecurity/nginx", entry.Name)
 }
 
-func TestFindIndexEntry_ShortName(t *testing.T) {
+func TestFindIndexEntry_ShortNameDoesNotMatch(t *testing.T) {
 	t.Parallel()
 	idx := HubIndex{
 		Items: []HubIndexEntry{
@@ -2217,9 +2217,8 @@ func TestFindIndexEntry_ShortName(t *testing.T) {
 		},
 	}
 
-	entry, found := findIndexEntry(idx, "nginx")
-	require.True(t, found)
-	require.Equal(t, "crowdsecurity/nginx", entry.Name)
+	_, found := findIndexEntry(idx, "nginx")
+	require.False(t, found)
 }
 
 func TestFindIndexEntry_AmbiguousShortName(t *testing.T) {

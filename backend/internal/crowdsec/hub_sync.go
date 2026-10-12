@@ -200,8 +200,14 @@ func normalizeHubBaseURL(raw string) string {
 	return strings.TrimRight(trimmed, "/")
 }
 
+// hubBaseCandidates lists the hosts to try, in a fixed order. A hub URL configured by the operator comes
+// first; the default hub host answers 404 for the index path, so it is tried last.
 func (s *HubService) hubBaseCandidates() []string {
-	candidates := []string{s.HubBaseURL, s.MirrorBaseURL, defaultHubMirrorBaseURL, defaultHubBaseURL}
+	var candidates []string
+	if s.HubBaseURL != defaultHubBaseURL {
+		candidates = append(candidates, s.HubBaseURL)
+	}
+	candidates = append(candidates, s.MirrorBaseURL, defaultHubMirrorBaseURL, defaultHubBaseURL)
 	return uniqueStrings(candidates)
 }
 
@@ -251,26 +257,30 @@ func buildResourceURLs(explicit, slug, pattern string, bases []string) []string 
 	return uniqueStrings(urls)
 }
 
-// FetchIndex downloads the hub index. If the hub is unreachable, returns ErrCacheMiss.
+// FetchIndex downloads the full hub index over HTTP. Only when no hub endpoint answers does it fall back
+// to the index cscli holds locally (`cscli hub list -a`), which lists every item but carries no download
+// URLs, so it serves listing only.
 func (s *HubService) FetchIndex(ctx context.Context) (HubIndex, error) {
-	if s.Exec != nil {
-		if idx, err := s.fetchIndexCSCLI(ctx); err == nil {
-			return idx, nil
-		} else {
-			logger.Log().WithError(err).Debug("cscli hub index failed, falling back to direct hub fetch")
-		}
+	idx, httpErr := s.fetchIndexHTTP(ctx)
+	if httpErr == nil {
+		return idx, nil
 	}
-	return s.fetchIndexHTTP(ctx)
+	if s.Exec == nil {
+		return HubIndex{}, httpErr
+	}
+	idx, cscliErr := s.fetchIndexCSCLI(ctx)
+	if cscliErr != nil {
+		return HubIndex{}, fmt.Errorf("%w; cscli fallback failed: %v", httpErr, cscliErr)
+	}
+	logger.Log().WithError(httpErr).Debug("hub index unreachable, listing from the local cscli index")
+	return idx, nil
 }
 
 func (s *HubService) fetchIndexCSCLI(ctx context.Context) (HubIndex, error) {
-	if s.Exec == nil {
-		return HubIndex{}, fmt.Errorf("executor missing")
-	}
 	cmdCtx, cancel := context.WithTimeout(ctx, s.PullTimeout)
 	defer cancel()
 
-	output, err := s.Exec.Execute(cmdCtx, "cscli", "hub", "list", "-o", "json")
+	output, err := s.Exec.Execute(cmdCtx, "cscli", "hub", "list", "-a", "-o", "json")
 	if err != nil {
 		return HubIndex{}, err
 	}
@@ -805,52 +815,17 @@ func (s *HubService) refreshCache(ctx context.Context, slug string, metaErr erro
 	return refreshed.Meta, nil
 }
 
+// findIndexEntry returns the entry whose name equals slug exactly. Hub item names are case-sensitive,
+// so neither titles, suffixes nor other case variants match.
 func findIndexEntry(idx HubIndex, slug string) (HubIndexEntry, bool) {
+	if slug == "" {
+		return HubIndexEntry{}, false
+	}
 	for _, i := range idx.Items {
-		if i.Name == slug || i.Title == slug {
+		if i.Name == slug {
 			return i, true
 		}
 	}
-
-	normalized := strings.TrimSpace(slug)
-	if normalized == "" {
-		return HubIndexEntry{}, false
-	}
-
-	if !strings.Contains(normalized, "/") {
-		namespaced := "crowdsecurity/" + normalized
-		var candidate HubIndexEntry
-		found := false
-		for _, i := range idx.Items {
-			if i.Name == namespaced || i.Title == namespaced || strings.HasSuffix(i.Name, "/"+normalized) || strings.HasSuffix(i.Title, "/"+normalized) {
-				if found {
-					return HubIndexEntry{}, false
-				}
-				candidate = i
-				found = true
-			}
-		}
-		if found {
-			return candidate, true
-		}
-	}
-
-	var suffixCandidate HubIndexEntry
-	foundSuffix := false
-	for _, i := range idx.Items {
-		if strings.HasSuffix(i.Name, "/"+normalized) || strings.HasSuffix(i.Title, "/"+normalized) {
-			if foundSuffix {
-				return HubIndexEntry{}, false
-			}
-			suffixCandidate = i
-			foundSuffix = true
-		}
-	}
-
-	if foundSuffix {
-		return suffixCandidate, true
-	}
-
 	return HubIndexEntry{}, false
 }
 

@@ -518,7 +518,6 @@ func TestApplyCuratedPresetCacheKeyIsOptional(t *testing.T) {
 }
 
 func TestApplyCuratedPresetMatchesSlugIgnoringCase(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newCuratedInstallHarness(t)
 
 	code, resp := h.apply(t, "GeoIP-Enrichment", "")

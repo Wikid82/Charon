@@ -152,7 +152,6 @@ func TestPresetItemsNotSerialized(t *testing.T) {
 }
 
 func TestFindPresetIgnoresCase(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	t.Parallel()
 	for _, slug := range []string{"GeoIP-Enrichment", "GEOIP-ENRICHMENT", "geoip-enrichment"} {
 		preset, ok := FindPreset(slug)

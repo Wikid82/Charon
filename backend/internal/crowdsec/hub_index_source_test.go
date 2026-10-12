@@ -68,7 +68,6 @@ func itemNames(idx HubIndex) []string {
 }
 
 func TestFetchIndexListsPresetsThatAreNotInstalled(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	exec := &recordingExec{outputs: map[string][]byte{
 		"cscli hub list -o json": []byte(readCSCLIFixture(t, "hub_list_installed.json")),
 	}}
@@ -88,7 +87,6 @@ func TestFetchIndexListsPresetsThatAreNotInstalled(t *testing.T) {
 }
 
 func TestFetchIndexFallsBackToFullCSCLIListingOffline(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	exec := &recordingExec{outputs: map[string][]byte{
 		"cscli hub list -a -o json": []byte(readCSCLIFixture(t, "hub_list_all.json")),
 	}}
@@ -104,7 +102,6 @@ func TestFetchIndexFallsBackToFullCSCLIListingOffline(t *testing.T) {
 }
 
 func TestFetchIndexTriesRawIndexHostFirst(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	transport := &hubTransport{bodies: map[string]string{rawIndexURL: readCSCLIFixture(t, "hub_index_raw_sample.json")}}
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HTTPClient = &http.Client{Transport: transport}
@@ -115,7 +112,6 @@ func TestFetchIndexTriesRawIndexHostFirst(t *testing.T) {
 }
 
 func TestFetchIndexTriesHostThatAnswersNotFoundLast(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	transport := &hubTransport{
 		status: map[string]int{rawIndexURL: http.StatusServiceUnavailable},
 		bodies: map[string]string{hubDataIndex: `{"items":[{"name":"crowdsecurity/demo","type":"collections","download_url":"https://hub-data.crowdsec.net/demo.yaml"}]}`},
@@ -132,7 +128,6 @@ func TestFetchIndexTriesHostThatAnswersNotFoundLast(t *testing.T) {
 }
 
 func TestFindIndexEntryMatchesExactNameOnly(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	idx := HubIndex{Items: []HubIndexEntry{
 		{Name: "crowdsecurity/sshd", Title: "SSH daemon"},
 		{Name: "Azlaroc/sftpgo", Title: "sftpgo"},
@@ -152,7 +147,6 @@ func TestFindIndexEntryMatchesExactNameOnly(t *testing.T) {
 }
 
 func TestPullFindsPresetsThatAreNotInstalled(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	exec := &recordingExec{outputs: map[string][]byte{
