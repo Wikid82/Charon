@@ -306,7 +306,7 @@ func (s *ConsoleEnrollmentService) ensureCAPIRegistered(ctx context.Context) err
 
 	out, err := s.exec.ExecuteWithEnv(ctx, "cscli", args, nil)
 	if err != nil {
-		return fmt.Errorf("capi register: %s: %w", string(out), err)
+		return fmt.Errorf("capi register: %w (%s)", err, util.DescribeCommandOutput(out))
 	}
 	return nil
 }

@@ -1053,7 +1053,8 @@ func TestEnsureCAPIRegistered_RegisterError(t *testing.T) {
 	err := svc.ensureCAPIRegistered(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "capi register")
-	require.Contains(t, err.Error(), "registration failed")
+	require.Contains(t, err.Error(), "34 bytes of output omitted")
+	require.NotContains(t, err.Error(), "network error")
 	require.Equal(t, 1, exec.callCount())
 }
 

@@ -82,6 +82,9 @@ type CrowdsecHandler struct {
 	// signalProcess delivers a signal to a PID; overridable in tests.
 	signalProcess func(pid int, sig syscall.Signal) error
 
+	// registerScriptPath overrides the bouncer registration script location; overridable in tests.
+	registerScriptPath string
+
 	// mergeNotifications and scanPlaceholders are the import's notification steps; overridable in tests.
 	mergeNotifications func(snapshotDir, dataDir string) error
 	scanPlaceholders   func(dataDir string) ([]string, error)
@@ -108,8 +111,9 @@ type CrowdsecHandler struct {
 
 // Bouncer auto-registration constants.
 const (
-	bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
-	bouncerName    = "caddy-bouncer"
+	bouncerKeyFile               = "/app/data/crowdsec/bouncer_key"
+	bouncerName                  = "caddy-bouncer"
+	defaultRegisterBouncerScript = "/usr/local/bin/register_bouncer.sh"
 )
 
 // resolveLAPIURLValidator returns the handler's validator or the default.
@@ -1533,18 +1537,18 @@ func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string)
 
 		// Check response status
 		if statusCode == http.StatusOK {
-			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
+			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
 			return true
 		}
 
 		// 403 Forbidden = bad key, fail fast (no retries)
 		if statusCode == http.StatusForbidden {
-			logger.Log().WithField("status", statusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
+			logger.Log().WithField("status", statusCode).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
 			return false
 		}
 
 		// Other non-OK status codes
-		logger.Log().WithField("status", statusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
+		logger.Log().WithField("status", statusCode).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
 		return false
 	}
 }
@@ -1570,7 +1574,7 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	// Check for rejected env key first
 	if h.envKeyRejected && h.rejectedEnvKey != "" {
 		response.EnvKeyRejected = true
-		response.RejectedKeyPreview = maskAPIKey(h.rejectedEnvKey)
+		response.RejectedKeyPreview = util.MaskAPIKey(h.rejectedEnvKey)
 		response.Message = "Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but was rejected by LAPI. " +
 			"Either remove it from docker-compose.yml or update it to match the valid key stored in /app/data/crowdsec/bouncer_key."
 	}
@@ -1583,7 +1587,7 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	case envKey != "" && !h.envKeyRejected:
 		// Env key is set and was accepted
 		response.KeySource = "env"
-		response.CurrentKeyPreview = maskAPIKey(envKey)
+		response.CurrentKeyPreview = util.MaskAPIKey(envKey)
 		response.Valid = true
 	case fileKey != "":
 		// Using file key (either because no env key, or env key was rejected)
@@ -1595,7 +1599,7 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 		} else {
 			response.KeySource = "file"
 		}
-		response.CurrentKeyPreview = maskAPIKey(fileKey)
+		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
 		// Verify key is still valid
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
@@ -1624,7 +1628,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 	if envKey != "" {
 		// Test key against LAPI (not just bouncer name)
 		if h.testKeyAgainstLAPI(ctx, envKey) {
-			logger.Log().WithField("source", "environment_variable").WithField("masked_key", maskAPIKey(envKey)).Info("CrowdSec bouncer authentication successful")
+			logger.Log().WithField("source", "environment_variable").WithField("masked_key", util.MaskAPIKey(envKey)).Info("CrowdSec bouncer authentication successful")
 			// Clear any previous rejection state
 			h.envKeyRejected = false
 			h.rejectedEnvKey = ""
@@ -1633,7 +1637,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 		// Track the rejected env key for API status endpoint
 		h.envKeyRejected = true
 		h.rejectedEnvKey = envKey
-		logger.Log().WithField("masked_key", maskAPIKey(envKey)).Warn(
+		logger.Log().WithField("masked_key", util.MaskAPIKey(envKey)).Warn(
 			"Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
 				"Either remove it from docker-compose.yml or update it to match the " +
 				"auto-generated key. A new valid key will be generated and saved.",
@@ -1645,10 +1649,10 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 	if fileKey != "" {
 		// Test key against LAPI (not just bouncer name)
 		if h.testKeyAgainstLAPI(ctx, fileKey) {
-			logger.Log().WithField("source", "file").WithField("file", keyPath).WithField("masked_key", maskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
+			logger.Log().WithField("source", "file").WithField("file", keyPath).WithField("masked_key", util.MaskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
 			return "", nil // Key valid
 		}
-		logger.Log().WithField("file", keyPath).WithField("masked_key", maskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
+		logger.Log().WithField("file", keyPath).WithField("masked_key", util.MaskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
 	}
 
 	// No valid key found - register new bouncer
@@ -1659,11 +1663,9 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 
 	// Warn user if env var is set but doesn't match the new key
 	if envKey != "" && envKey != newKey {
-		logger.Log().WithField("env_key_masked", maskAPIKey(envKey)).WithField("valid_key_masked", maskAPIKey(newKey)).Warn(
-			"IMPORTANT: Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
-				"Either remove it from docker-compose.yml or update it to match the " +
-				"auto-generated key shown above. The valid key has been saved to " +
-				"/app/data/crowdsec/bouncer_key and will be used on future restarts.",
+		logger.Log().WithField("env_key_masked", util.MaskAPIKey(envKey)).WithField("valid_key_masked", util.MaskAPIKey(newKey)).Warn(
+			"The configured CrowdSec API key does not match the registered key and is ignored. " +
+				"The registered key has been saved to the key file and will be used on future restarts.",
 		)
 	}
 
@@ -1717,7 +1719,7 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 
 	output, err := h.CmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
 	if err != nil {
-		return "", fmt.Errorf("bouncer registration failed: %w: %s", err, string(output))
+		return "", fmt.Errorf("bouncer registration failed: %w (%s)", err, util.DescribeCommandOutput(output))
 	}
 
 	apiKey := strings.TrimSpace(string(output))
@@ -1732,19 +1734,6 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 	}
 
 	return apiKey, nil
-}
-
-// maskAPIKey masks an API key for safe logging by showing only first 4 and last 4 characters.
-// Security: Prevents API key exposure in logs (CWE-312, CWE-315, CWE-359).
-// Returns "[empty]" for empty strings, "[REDACTED]" for keys shorter than 16 characters.
-func maskAPIKey(key string) string {
-	if key == "" {
-		return "[empty]"
-	}
-	if len(key) < 16 {
-		return "[REDACTED]"
-	}
-	return fmt.Sprintf("%s...%s", key[:4], key[len(key)-4:])
 }
 
 // validateAPIKeyFormat validates the API key format for security.
@@ -1784,7 +1773,7 @@ Saved To:     %s
 🔄 ROTATE: Change API keys regularly and never commit to version control
 ════════════════════════════════════════════════════════════════════`
 	// Security: Mask API key to prevent cleartext exposure in logs
-	maskedKey := maskAPIKey(apiKey)
+	maskedKey := util.MaskAPIKey(apiKey)
 	logger.Log().Infof(banner, bouncerName, maskedKey, keyPath)
 }
 
@@ -2115,7 +2104,10 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// Check if register_bouncer.sh script exists
-	scriptPath := "/usr/local/bin/register_bouncer.sh"
+	scriptPath := h.registerScriptPath
+	if scriptPath == "" {
+		scriptPath = defaultRegisterBouncerScript
+	}
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "bouncer registration script not found"})
 		return
@@ -2124,8 +2116,8 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 	// Run the registration script
 	output, err := h.CmdExec.Execute(ctx, "bash", scriptPath)
 	if err != nil {
-		logger.Log().WithError(err).WithField("output", string(output)).Warn("Failed to register bouncer")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": string(output)})
+		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Warn("Failed to register bouncer")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": "see server logs"})
 		return
 	}
 

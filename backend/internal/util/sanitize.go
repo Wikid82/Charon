@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+var controlCharsRe = regexp.MustCompile(`[\x00-\x1F\x7F]+`)
+
 // SanitizeForLog removes control characters and newlines from user content before logging.
 func SanitizeForLog(s string) string {
 	if s == "" {
@@ -14,8 +16,7 @@ func SanitizeForLog(s string) string {
 	}
 	s = strings.ReplaceAll(s, "\r\n", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
-	re := regexp.MustCompile(`[\x00-\x1F\x7F]+`)
-	s = re.ReplaceAllString(s, " ")
+	s = controlCharsRe.ReplaceAllString(s, " ")
 	return s
 }
 

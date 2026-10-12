@@ -115,6 +115,34 @@ CrowdSec settings are stored in Charon's database and synchronized with the Secu
 - **State Persistence** — Decisions and configurations survive restarts
 - **Downloaded Data Survives Recreating the Container** — CrowdSec's own database and the lists it downloads (such as blocklists and the location database) are stored in your Charon data folder. If any are missing after an upgrade, Charon re-downloads them on startup. If the CrowdSec Hub is unreachable, a restart with missing data files may take up to about two minutes longer while the refresh times out.
 
+## Managing the CrowdSec bouncer key
+
+The bouncer key is the password Charon's built-in firewall layer uses to talk to CrowdSec. Charon creates and registers it for you the first time CrowdSec starts, so most people never need to touch it.
+
+**Where it lives:** Charon saves the key in a private file at `/app/data/crowdsec/bouncer_key` inside your data folder (readable only by Charon).
+
+**Which key Charon uses:** If that saved file exists, Charon uses it. Only when there is no saved file does Charon fall back to a key you set in your compose file's environment variables. Changing the environment variable does not switch a running setup away from the saved file.
+
+**See it in the UI:** Open the CrowdSec page and look at the **Bouncer API Key** card. It shows a shortened preview of the key, whether it is registered, and where the file is stored.
+
+**Replace the key:**
+
+1. Remove the old registration (the bouncer is named `caddy-bouncer`):
+
+   ```bash
+   docker exec charon cscli bouncers delete caddy-bouncer
+   ```
+
+2. Delete the saved key file so Charon makes a fresh one:
+
+   ```bash
+   docker exec charon rm /app/data/crowdsec/bouncer_key
+   ```
+
+3. Restart Charon. It registers the bouncer again and saves the new key.
+
+Replace `charon` with your container's name if it is different.
+
 ## Troubleshooting Console Enrollment
 
 ### Engine Shows "Offline" in Console

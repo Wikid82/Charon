@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
 
@@ -256,16 +257,23 @@ type CommandExecutor interface {
 	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
+const defaultBouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+
 // ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
 // This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
 // Priority: Validates env var key, then checks file, then auto-generates new key if needed.
 func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor) error {
+	return ensureBouncerRegistration(dataDir, defaultBouncerKeyFile, cmdExec)
+}
+
+// ensureBouncerRegistration implements ensureBouncerRegistrationOnStartup with an explicit key-file path.
+func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandExecutor) error {
 	const (
-		bouncerName    = "caddy-bouncer"
-		bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
-		maxLAPIWait    = 30 * time.Second
-		pollInterval   = 1 * time.Second
+		bouncerName  = "caddy-bouncer"
+		maxLAPIWait  = 30 * time.Second
+		pollInterval = 1 * time.Second
 	)
+	bouncerKeyFile = filepath.Clean(bouncerKeyFile)
 
 	// Wait for LAPI to be ready (poll cscli lapi status)
 	logger.Log().Info("CrowdSec bouncer registration: waiting for LAPI to be ready...")
@@ -298,12 +306,12 @@ func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor)
 	envKey := getBouncerAPIKeyFromEnvStartup()
 	if envKey != "" {
 		if testKeyAgainstLAPIStartup(envKey) {
-			logger.Log().WithField("source", "environment_variable").WithField("masked_key", maskAPIKeyStartup(envKey)).Info("CrowdSec bouncer: env var key validated successfully")
+			logger.Log().WithField("source", "environment_variable").WithField("masked_key", util.MaskAPIKey(envKey)).Info("CrowdSec bouncer: env var key validated successfully")
 			return nil
 		}
-		logger.Log().WithField("masked_key", maskAPIKeyStartup(envKey)).Warn(
-			"Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but rejected by LAPI. " +
-				"A new valid key will be auto-generated. Update your docker-compose.yml with the new key to avoid re-registration on every restart.",
+		logger.Log().WithField("masked_key", util.MaskAPIKey(envKey)).Warn(
+			"The configured CrowdSec API key was rejected by LAPI and will be ignored. " +
+				"A replacement key will be generated and saved to the key file.",
 		)
 	}
 
@@ -311,7 +319,7 @@ func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor)
 	if fileKey, err := os.ReadFile(bouncerKeyFile); err == nil && len(fileKey) > 0 {
 		keyStr := strings.TrimSpace(string(fileKey))
 		if testKeyAgainstLAPIStartup(keyStr) {
-			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", maskAPIKeyStartup(keyStr)).Info("CrowdSec bouncer: file-stored key validated successfully")
+			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", util.MaskAPIKey(keyStr)).Info("CrowdSec bouncer: file-stored key validated successfully")
 			return nil
 		}
 		logger.Log().WithField("file", bouncerKeyFile).Warn("File-stored key rejected by LAPI, will re-register")
@@ -331,7 +339,7 @@ func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor)
 
 	output, err := cmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
 	if err != nil {
-		logger.Log().WithError(err).WithField("output", string(output)).Error("bouncer registration failed")
+		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Error("bouncer registration failed")
 		return fmt.Errorf("bouncer registration failed: %w", err)
 	}
 
@@ -356,22 +364,20 @@ func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor)
 	logger.Log().WithFields(map[string]any{
 		"bouncer":    bouncerName,
 		"key_file":   bouncerKeyFile,
-		"masked_key": maskAPIKeyStartup(newKey),
+		"masked_key": util.MaskAPIKey(newKey),
 	}).Info("CrowdSec bouncer: successfully registered and saved key")
 
-	// Log banner for user to copy key to docker-compose if env var was rejected
+	// Report the replacement.
 	if envKey != "" {
-		logger.Log().Warn("")
-		logger.Log().Warn("╔════════════════════════════════════════════════════════════════════════╗")
-		logger.Log().Warn("║  CROWDSEC BOUNCER KEY MISMATCH                                         ║")
-		logger.Log().Warn("╠════════════════════════════════════════════════════════════════════════╣")
-		logger.Log().WithField("new_key", newKey).Warn("║  Your CHARON_SECURITY_CROWDSEC_API_KEY was rejected by LAPI.          ║")
-		logger.Log().Warn("║  A new valid key has been generated. Update your docker-compose.yml:  ║")
-		logger.Log().Warn("║                                                                        ║")
-		logger.Log().Warnf("║  CHARON_SECURITY_CROWDSEC_API_KEY=%s", newKey)
-		logger.Log().Warn("║                                                                        ║")
-		logger.Log().Warn("╚════════════════════════════════════════════════════════════════════════╝")
-		logger.Log().Warn("")
+		logger.Log().WithFields(map[string]any{
+			"bouncer":    bouncerName,
+			"key_file":   bouncerKeyFile,
+			"masked_key": util.MaskAPIKey(envKey),
+		}).Warn(
+			"CrowdSec API key mismatch: the configured CrowdSec API key was rejected by CrowdSec. " +
+				"A replacement key was generated and saved to the key file (permissions 0600). " +
+				"Charon uses the saved key; no action is required.",
+		)
 	}
 
 	return nil
@@ -426,13 +432,6 @@ func testKeyAgainstLAPIStartup(apiKey string) bool {
 	}()
 
 	return resp.StatusCode == 200
-}
-
-func maskAPIKeyStartup(key string) string {
-	if len(key) < 8 {
-		return "***"
-	}
-	return key[:4] + "..." + key[len(key)-4:]
 }
 
 // simpleCommandExecutor provides minimal command execution for startup registration
