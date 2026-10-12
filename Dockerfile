@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-5e0625fbc54f3423
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:cdfab62cc075c0cf40a0f313968d66b8506400bf6382c021264e31ef32291fdf
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-27637a03129a0a6a
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:118f9dd3ffb9d4820a9d6d08631f8dfd26589e2eb2cc93dba45b72a7129c81c1
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -208,7 +208,7 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb1226db190d0a984118f62ee02a91b77d99448d28264a6 AS xx
 
 # ---- Gosu Builder ----
 # Build gosu from source to avoid CVEs from Debian's pre-compiled version (Go 1.19.8)
