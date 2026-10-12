@@ -147,7 +147,7 @@ Look for a section like this:
 
 ### Providing Your Own Key (Advanced)
 
-If you prefer to use your own pre-registered bouncer key, you still can! Environment variables take priority over auto-generated keys:
+This is optional and not needed for a normal setup, since Charon generates and registers a key for you. If you prefer to use your own pre-registered bouncer key, you can set it as an environment variable. Charon checks it against CrowdSec at startup and generates its own key if CrowdSec rejects it:
 
 ```yaml
 environment:
