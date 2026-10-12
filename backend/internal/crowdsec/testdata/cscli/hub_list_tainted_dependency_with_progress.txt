@@ -1,0 +1,448 @@
+crowdsecurity/nginx is tainted by parsers:crowdsecurity/nginx-logs
+Loaded: 168 parsers, 13 postoverflows, 788 scenarios, 10 contexts, 20 appsec-configs, 229 appsec-rules, 172 collections
+Unmanaged items: 0 local, 2 tainted
+{
+ "appsec-configs": [],
+ "appsec-rules": [],
+ "collections": [
+  {
+   "name": "crowdsecurity/base-http-scenarios",
+   "local_version": "1.4",
+   "local_path": "/etc/crowdsec/collections/base-http-scenarios.yaml",
+   "description": "http common : scanners detection",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-cve",
+   "local_version": "3.0",
+   "local_path": "/etc/crowdsec/collections/http-cve.yaml",
+   "description": "Detect CVE exploitation in http logs",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/nginx",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/collections/nginx.yaml",
+   "description": "nginx support : parser and generic http scenarios",
+   "utf8_status": "⚠️  enabled,tainted",
+   "status": "enabled,tainted"
+  }
+ ],
+ "contexts": [
+  {
+   "name": "crowdsecurity/http_base",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/contexts/http_base.yaml",
+   "description": "",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  }
+ ],
+ "parsers": [
+  {
+   "name": "crowdsecurity/http-logs",
+   "local_version": "1.4",
+   "local_path": "/etc/crowdsec/parsers/s02-enrich/http-logs.yaml",
+   "description": "Parse more Specifically HTTP logs, such as HTTP Code, HTTP path, HTTP args and if its a static ressource",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/nginx-logs",
+   "local_version": "?",
+   "local_path": "/etc/crowdsec/parsers/s01-parse/nginx-logs.yaml",
+   "description": "Parse nginx access and error logs",
+   "utf8_status": "⚠️  enabled,tainted",
+   "status": "enabled,tainted"
+  }
+ ],
+ "postoverflows": [],
+ "scenarios": [
+  {
+   "name": "crowdsecurity/apache_log4j2_cve-2021-44228",
+   "local_version": "0.7",
+   "local_path": "/etc/crowdsec/scenarios/apache_log4j2_cve-2021-44228.yaml",
+   "description": "Detect cve-2021-44228 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2017-9841",
+   "local_version": "0.2",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2017-9841.yaml",
+   "description": "Detect CVE-2017-9841 exploits",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2019-18935",
+   "local_version": "0.2",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2019-18935.yaml",
+   "description": "Detect Telerik CVE-2019-18935 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-26134",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-26134.yaml",
+   "description": "Confluence - RCE (CVE-2022-26134)",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-35914",
+   "local_version": "0.2",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-35914.yaml",
+   "description": "Detect CVE-2022-35914 exploits",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-37042",
+   "local_version": "0.2",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-37042.yaml",
+   "description": "Detect CVE-2022-37042 exploits",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-40684",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-40684.yaml",
+   "description": "Detect cve-2022-40684 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-41082",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-41082.yaml",
+   "description": "Detect CVE-2022-41082 exploits",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-41697",
+   "local_version": "0.2",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-41697.yaml",
+   "description": "Detect CVE-2022-41697 enumeration",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-42889",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-42889.yaml",
+   "description": "Detect CVE-2022-42889 exploits (Text4Shell)",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-44877",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-44877.yaml",
+   "description": "Detect CVE-2022-44877 exploits",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2022-46169",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2022-46169.yaml",
+   "description": "Detect CVE-2022-46169 brute forcing",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2023-22515",
+   "local_version": "0.1",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2023-22515.yaml",
+   "description": "Detect CVE-2023-22515 exploitation",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2023-22518",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2023-22518.yaml",
+   "description": "Detect CVE-2023-22518 exploits",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2023-49103",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2023-49103.yaml",
+   "description": "Detect owncloud CVE-2023-49103 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2024-0012",
+   "local_version": "0.1",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2024-0012.yaml",
+   "description": "Detect CVE-2024-0012 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2024-38475",
+   "local_version": "0.1",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2024-38475.yaml",
+   "description": "Detect CVE-2024-38475 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/CVE-2024-9474",
+   "local_version": "0.1",
+   "local_path": "/etc/crowdsec/scenarios/CVE-2024-9474.yaml",
+   "description": "Detect CVE-2024-9474 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/f5-big-ip-cve-2020-5902",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/f5-big-ip-cve-2020-5902.yaml",
+   "description": "F5 BIG-IP TMUI - RCE (CVE-2020-5902)",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/fortinet-cve-2018-13379",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/fortinet-cve-2018-13379.yaml",
+   "description": "Detect cve-2018-13379 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/grafana-cve-2021-43798",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/grafana-cve-2021-43798.yaml",
+   "description": "Grafana - Arbitrary File Read (CVE-2021-43798)",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-admin-interface-probing",
+   "local_version": "0.5",
+   "local_path": "/etc/crowdsec/scenarios/http-admin-interface-probing.yaml",
+   "description": "Detect generic HTTP admin interface probing",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-backdoors-attempts",
+   "local_version": "0.7",
+   "local_path": "/etc/crowdsec/scenarios/http-backdoors-attempts.yaml",
+   "description": "Detect attempt to common backdoors",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-bad-user-agent",
+   "local_version": "1.2",
+   "local_path": "/etc/crowdsec/scenarios/http-bad-user-agent.yaml",
+   "description": "Detect usage of bad User Agent",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-crawl-non_statics",
+   "local_version": "0.7",
+   "local_path": "/etc/crowdsec/scenarios/http-crawl-non_statics.yaml",
+   "description": "Detect aggressive crawl on non static resources",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-cve-2021-41773",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/http-cve-2021-41773.yaml",
+   "description": "Apache - Path Traversal (CVE-2021-41773)",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-cve-2021-42013",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/http-cve-2021-42013.yaml",
+   "description": "Apache - Path Traversal (CVE-2021-42013)",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-cve-probing",
+   "local_version": "0.6",
+   "local_path": "/etc/crowdsec/scenarios/http-cve-probing.yaml",
+   "description": "Detect generic HTTP cve probing",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-generic-bf",
+   "local_version": "0.9",
+   "local_path": "/etc/crowdsec/scenarios/http-generic-bf.yaml",
+   "description": "Detect generic http brute force",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-generic-test",
+   "local_version": "0.2",
+   "local_path": "/etc/crowdsec/scenarios/http-generic-test.yaml",
+   "description": "Crowdsec Generic Test Scenario: basic HTTP trigger",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-open-proxy",
+   "local_version": "0.5",
+   "local_path": "/etc/crowdsec/scenarios/http-open-proxy.yaml",
+   "description": "Detect scan for open proxy",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-path-traversal-probing",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/http-path-traversal-probing.yaml",
+   "description": "Detect path traversal attempt",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-probing",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/http-probing.yaml",
+   "description": "Detect site scanning/probing from a single ip",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-sap-interface-probing",
+   "local_version": "0.1",
+   "local_path": "/etc/crowdsec/scenarios/http-sap-interface-probing.yaml",
+   "description": "Detect generic HTTP SAP interface probing",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-sensitive-files",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/http-sensitive-files.yaml",
+   "description": "Detect attempt to access to sensitive files (.log, .db ..) or folders (.git)",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-sqli-probing",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/http-sqli-probing.yaml",
+   "description": "A scenario that detects SQL injection probing with minimal false positives",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-technology-probing",
+   "local_version": "0.1",
+   "local_path": "/etc/crowdsec/scenarios/http-technology-probing.yaml",
+   "description": "Detect HTTP technology/vendor probing",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-wordpress-scan",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/http-wordpress-scan.yaml",
+   "description": "Detect exploitation attempts against common WordPress endpoints",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/http-xss-probing",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/http-xss-probing.yaml",
+   "description": "A scenario that detects XSS probing with minimal false positives",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/jira_cve-2021-26086",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/jira_cve-2021-26086.yaml",
+   "description": "Detect Atlassian Jira CVE-2021-26086 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/netgear_rce",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/netgear_rce.yaml",
+   "description": "Detect Netgear RCE DGN1000/DGN220 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/nginx-req-limit-exceeded",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/nginx-req-limit-exceeded.yaml",
+   "description": "Detects IPs which violate nginx's user set request limit.",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/pulse-secure-sslvpn-cve-2019-11510",
+   "local_version": "0.4",
+   "local_path": "/etc/crowdsec/scenarios/pulse-secure-sslvpn-cve-2019-11510.yaml",
+   "description": "Detect cve-2019-11510 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/spring4shell_cve-2022-22965",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/spring4shell_cve-2022-22965.yaml",
+   "description": "Detect cve-2022-22965 probing",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/thinkphp-cve-2018-20062",
+   "local_version": "0.7",
+   "local_path": "/etc/crowdsec/scenarios/thinkphp-cve-2018-20062.yaml",
+   "description": "Detect ThinkPHP CVE-2018-20062 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/vmware-cve-2022-22954",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/vmware-cve-2022-22954.yaml",
+   "description": "Detect Vmware CVE-2022-22954 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/vmware-vcenter-vmsa-2021-0027",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/vmware-vcenter-vmsa-2021-0027.yaml",
+   "description": "Detect VMSA-2021-0027 exploitation attempts",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "ltsich/http-w00tw00t",
+   "local_version": "0.3",
+   "local_path": "/etc/crowdsec/scenarios/http-w00tw00t.yaml",
+   "description": "detect w00tw00t",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  }
+ ]
+}

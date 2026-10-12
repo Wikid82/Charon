@@ -30,16 +30,15 @@ func newValidationCache(t *testing.T) (cache *HubCache, base string) {
 
 func entryDir(base, slug string) string { return filepath.Join(base, filepath.FromSlash(slug)) }
 
-// writeSentinelFile creates a file outside the cache whose content must never be read through it.
-func writeSentinelFile(t *testing.T, content string) string {
+// writeOtherFile creates a file outside the cache directory whose content is not part of any entry.
+func writeOtherFile(t *testing.T, content string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "sentinel.txt")
+	p := filepath.Join(t.TempDir(), "other.txt")
 	require.NoError(t, os.WriteFile(p, []byte(content), 0o600))
 	return p
 }
 
 func TestLoadAcceptsValidCacheEntry(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	cache, base := newValidationCache(t)
 	key := hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
 
@@ -52,7 +51,6 @@ func TestLoadAcceptsValidCacheEntry(t *testing.T) {
 }
 
 func TestLoadRejectsInvalidCacheEntry(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	big := strings.Repeat("a", 70<<10)
 	cases := map[string]func(t *testing.T, base string){
 		"metadata names another slug": func(t *testing.T, base string) {
@@ -75,18 +73,18 @@ func TestLoadRejectsInvalidCacheEntry(t *testing.T) {
 		"oversize item": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: []byte("a: " + strings.Repeat("b", 1<<20) + "\n")})
 		},
-		"item is a link inside the cache": func(t *testing.T, base string) {
+		"item is a link to another entry": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: otherCacheSlug, Item: cacheTestItem})
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
 			item := filepath.Join(entryDir(base, cacheTestSlug), "item.yaml")
 			require.NoError(t, os.Remove(item))
 			require.NoError(t, os.Symlink(filepath.Join(entryDir(base, otherCacheSlug), "item.yaml"), item))
 		},
-		"item is a link outside the cache": func(t *testing.T, base string) {
+		"item is a link": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
 			item := filepath.Join(entryDir(base, cacheTestSlug), "item.yaml")
 			require.NoError(t, os.Remove(item))
-			require.NoError(t, os.Symlink(writeSentinelFile(t, string(cacheTestItem)), item))
+			require.NoError(t, os.Symlink(writeOtherFile(t, string(cacheTestItem)), item))
 		},
 		"item is a directory": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
@@ -98,7 +96,7 @@ func TestLoadRejectsInvalidCacheEntry(t *testing.T) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
 			require.NoError(t, os.WriteFile(filepath.Join(entryDir(base, cacheTestSlug), "item.yaml"), []byte("name: other\n"), 0o600))
 		},
-		"item type outside the supported list": func(t *testing.T, base string) {
+		"unsupported item type": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Type: "links"})
 		},
 		"metadata is not JSON": func(t *testing.T, base string) {
@@ -122,7 +120,6 @@ func TestLoadRejectsInvalidCacheEntry(t *testing.T) {
 }
 
 func TestLoadTreatsEntryWithoutDigestAsMiss(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	cache, base := newValidationCache(t)
 	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Omit: []string{"item_sha256"}})
 
@@ -131,14 +128,9 @@ func TestLoadTreatsEntryWithoutDigestAsMiss(t *testing.T) {
 	require.NoDirExists(t, entryDir(base, cacheTestSlug))
 }
 
-func TestLoadPreviewIgnoresStoredPaths(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
+func TestLoadPreviewIgnoresUnknownMetadataFields(t *testing.T) {
 	cache, base := newValidationCache(t)
-	sentinel := writeSentinelFile(t, "content that is not part of the entry\n")
-	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Extra: map[string]any{
-		"preview_path": sentinel,
-		"archive_path": "/nonexistent/sentinel.txt",
-	}})
+	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Extra: map[string]any{"unused_field": "ignored"}})
 
 	preview, err := cache.LoadPreview(context.Background(), cacheTestSlug)
 	require.NoError(t, err)
@@ -146,23 +138,20 @@ func TestLoadPreviewIgnoresStoredPaths(t *testing.T) {
 }
 
 func TestLoadPreviewRejectsInvalidCacheEntry(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	cache, base := newValidationCache(t)
-	sentinel := writeSentinelFile(t, string(cacheTestItem))
+	otherPath := writeOtherFile(t, string(cacheTestItem))
 	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
 	item := filepath.Join(entryDir(base, cacheTestSlug), "item.yaml")
 	require.NoError(t, os.Remove(item))
-	require.NoError(t, os.Symlink(sentinel, item))
+	require.NoError(t, os.Symlink(otherPath, item))
 
 	_, err := cache.LoadPreview(context.Background(), cacheTestSlug)
 	require.Error(t, err)
 }
 
-func TestPullCacheHitIgnoresStoredPaths(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
+func TestPullCacheHitServesTheEntryItem(t *testing.T) {
 	cache, base := newValidationCache(t)
-	sentinel := writeSentinelFile(t, "content that is not part of the entry\n")
-	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Extra: map[string]any{"preview_path": sentinel}})
+	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Extra: map[string]any{"unused_field": "ignored"}})
 	svc := NewHubService(nil, cache, t.TempDir())
 	svc.HTTPClient = nil // a cache hit needs no network
 
@@ -172,7 +161,6 @@ func TestPullCacheHitIgnoresStoredPaths(t *testing.T) {
 }
 
 func TestListSkipsInvalidCacheEntries(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	cache, base := newValidationCache(t)
 	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
 	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: otherCacheSlug, Item: cacheTestItem, Extra: map[string]any{"slug": "unrelated/entry"}})
@@ -184,7 +172,6 @@ func TestListSkipsInvalidCacheEntries(t *testing.T) {
 }
 
 func TestHubCacheRejectsMalformedSlugs(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	slugs := []string{".", "./", "a/..", "a//b", "-x/y", "ab", "a/b/c", "a/metadata.json", "a/item.yaml", "../x/y", "/abs/x", "a/b c", "a\\b"}
 	for _, slug := range slugs {
 		t.Run(slug, func(t *testing.T) {

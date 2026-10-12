@@ -248,11 +248,13 @@ func TestResponses_ConsoleFailuresReturnFixedMessages(t *testing.T) {
 func TestResponses_PresetCacheReadFailureReturnsFixedMessage(t *testing.T) {
 	dataDir := t.TempDir()
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
-	meta, err := h.Hub.Cache.Store(context.Background(), "demo", "etag", "hub", "preview", []byte("x"))
+	_, err := h.Hub.Cache.Store(context.Background(), "crowdsecurity/demo", "collections", "etag", "hub", []byte("a: 1\n"))
 	require.NoError(t, err)
-	require.NoError(t, os.Remove(meta.PreviewPath))
 
-	w := serveCrowdsec(h, http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/demo")
+	// A request whose context is already canceled cannot read the entry.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	w := getCachedPreset(ctx, h, "crowdsecurity/demo")
 	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
 	requireNoServerPaths(t, w.Body.String(), dataDir)
 	require.JSONEq(t, `{"error":"failed to load preset preview"}`, w.Body.String())

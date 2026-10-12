@@ -25,7 +25,6 @@ import (
 )
 
 const (
-	laterCommitSkip   = "enabled by a later commit in this series"
 	installSlug       = "crowdsecurity/base-http-scenarios"
 	installMarkerFile = "installed-by-cscli.marker"
 )
@@ -221,8 +220,8 @@ func (h *installHarness) requireRolledBack(t *testing.T) {
 	require.Zero(t, h.reloads.Load(), "no reload before the install is verified")
 }
 
-func (h *installHarness) entryExists(slug string) bool {
-	_, err := os.Stat(filepath.Join(h.cacheDir, filepath.FromSlash(slug), "metadata.json"))
+func (h *installHarness) entryExists() bool {
+	_, err := os.Stat(filepath.Join(h.cacheDir, filepath.FromSlash(installSlug), "metadata.json"))
 	return err == nil
 }
 
@@ -234,7 +233,6 @@ func requireNoCSCLIInstall(t *testing.T, calls []string) {
 }
 
 func TestApplyPresetRequiresCacheKey(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newInstallHarness(t, installScript{})
 	h.store(t, nil)
 
@@ -245,7 +243,6 @@ func TestApplyPresetRequiresCacheKey(t *testing.T) {
 }
 
 func TestApplyPresetInstallsPreviewedItem(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newInstallHarness(t, installScript{})
 	key := h.store(t, nil)
 
@@ -265,11 +262,10 @@ func TestApplyPresetInstallsPreviewedItem(t *testing.T) {
 	require.EqualValues(t, len(calls), h.callsAtReload.Load(), "reload runs after verification")
 	require.FileExists(t, filepath.Join(h.dataDir, installMarkerFile))
 	require.Zero(t, h.remoteRequests.Load())
-	require.True(t, h.entryExists(installSlug))
+	require.True(t, h.entryExists())
 }
 
 func TestApplyPresetKeepsHubSlugCase(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	const slug = "Azlaroc/sftpgo"
 	install := "cscli collections install " + slug
 	inspect := "cscli collections inspect " + slug + " -o json"
@@ -288,7 +284,6 @@ func TestApplyPresetKeepsHubSlugCase(t *testing.T) {
 }
 
 func TestApplyRejectsOutdatedCacheEntry(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	unknownKey := installSlug + "-1-" + strings.Repeat("0", 64)
 	cases := map[string]func(h *installHarness, t *testing.T) string{
 		"different key": func(h *installHarness, t *testing.T) string {
@@ -328,7 +323,6 @@ func TestApplyRejectsOutdatedCacheEntry(t *testing.T) {
 }
 
 func TestApplyReportsLocallyEditedItem(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newInstallHarness(t, installScript{replies: map[string][]reply{
 		// A locally edited item makes the install a no-op that still exits with status 0.
 		cmdInstall: {{out: readCSCLIFixture(t, "install_locally_edited_noop.txt")}},
@@ -339,15 +333,34 @@ func TestApplyReportsLocallyEditedItem(t *testing.T) {
 	code, resp := h.apply(t, installSlug, key)
 	require.Equal(t, http.StatusConflict, code, resp)
 	require.Equal(t, "preset_local_modified", resp["error_code"])
+	require.NotEmpty(t, resp["tainted_items"], "the edited top-level item is named")
 	h.requireRolledBack(t)
-	require.True(t, h.entryExists(installSlug), "the cache entry stays")
+	require.True(t, h.entryExists(), "the cache entry stays")
+	for _, c := range h.calls() {
+		require.NotContains(t, c, "--force")
+	}
+}
+
+// The hub list also reports edited nginx items; they are not part of this preset and are not named.
+func TestApplyNamesOnlyEditedItemsOfThePreset(t *testing.T) {
+	h := newInstallHarness(t, installScript{replies: map[string][]reply{
+		// The collection is reported as edited because one of its dependencies was edited.
+		cmdInspect: {{out: readCSCLIFixture(t, "inspect_locally_edited.json")}},
+		cmdHubList: {{out: readCSCLIFixture(t, "hub_list_tainted_dependency_with_progress.txt")}},
+	}})
+	key := h.store(t, nil)
+
+	code, resp := h.apply(t, installSlug, key)
+	require.Equal(t, http.StatusConflict, code, resp)
+	require.Equal(t, "preset_local_modified", resp["error_code"])
+	require.Equal(t, []any{"collections/" + installSlug}, resp["tainted_items"])
+	h.requireRolledBack(t)
 	for _, c := range h.calls() {
 		require.NotContains(t, c, "--force")
 	}
 }
 
 func TestApplyUpgradesOlderInstalledItem(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	// Needs a check against a real cscli: the upgrade step for an older, unmodified item is not verified.
 	h := newInstallHarness(t, installScript{replies: map[string][]reply{
 		cmdInspect: {{out: readCSCLIFixture(t, "inspect_older_version.json")}, {}},
@@ -361,7 +374,6 @@ func TestApplyUpgradesOlderInstalledItem(t *testing.T) {
 }
 
 func TestApplyReportsHubStillUpdating(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newInstallHarness(t, installScript{replies: map[string][]reply{
 		cmdInspect: {{out: readCSCLIFixture(t, "inspect_older_version.json")}}, // the hash never matches
 	}})
@@ -371,11 +383,10 @@ func TestApplyReportsHubStillUpdating(t *testing.T) {
 	require.Equal(t, http.StatusConflict, code, resp)
 	require.Equal(t, "preset_hub_updating", resp["error_code"])
 	h.requireRolledBack(t)
-	require.False(t, h.entryExists(installSlug), "the mismatching entry is evicted")
+	require.False(t, h.entryExists(), "the mismatching entry is evicted")
 }
 
 func TestApplyKeepsNewerCacheEntryOnMismatch(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	var newerKey string
 	h := newInstallHarness(t, installScript{
 		replies: map[string][]reply{cmdInspect: {{out: readCSCLIFixture(t, "inspect_older_version.json")}}},
@@ -394,14 +405,13 @@ func TestApplyKeepsNewerCacheEntryOnMismatch(t *testing.T) {
 	code, resp := h.apply(t, installSlug, key)
 	require.Equal(t, http.StatusConflict, code, resp)
 	require.NotEqual(t, key, newerKey)
-	require.True(t, h.entryExists(installSlug), "the newer entry survives")
+	require.True(t, h.entryExists(), "the newer entry survives")
 	raw, err := os.ReadFile(filepath.Join(h.cacheDir, filepath.FromSlash(installSlug), "metadata.json")) // #nosec G304 -- test path
 	require.NoError(t, err)
 	require.Contains(t, string(raw), newerKey)
 }
 
 func TestApplyReportsStaleWhenItemUnknownToCSCLI(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	for fixture, name := range map[string]string{"install_unknown_item.txt": "unknown item", "install_missing_index.txt": "missing local index"} {
 		t.Run(name, func(t *testing.T) {
 			h := newInstallHarness(t, installScript{replies: map[string][]reply{
@@ -431,7 +441,6 @@ func hubListWith(t *testing.T, section string, mutate func(items []any) []any) [
 }
 
 func TestApplyRefusesMissingDependency(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newInstallHarness(t, installScript{replies: map[string][]reply{
 		// The parser named by the item is not installed.
 		cmdHubList: {{out: hubListWith(t, "parsers", func([]any) []any { return []any{} })}},
@@ -445,7 +454,6 @@ func TestApplyRefusesMissingDependency(t *testing.T) {
 }
 
 func TestApplyWarnsAboutLocallyEditedDependency(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	edited := hubListWith(t, "collections", func(items []any) []any {
 		for _, raw := range items {
 			if item := raw.(map[string]any); item["name"] == "crowdsecurity/http-cve" {
@@ -468,7 +476,6 @@ func TestApplyWarnsAboutLocallyEditedDependency(t *testing.T) {
 }
 
 func TestApplyReportsCSCLIUnavailable(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newInstallHarness(t, installScript{replies: map[string][]reply{
 		cmdVersion: {{err: errors.New("cscli: not found")}},
 	}})
@@ -478,11 +485,10 @@ func TestApplyReportsCSCLIUnavailable(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, code, resp)
 	require.Equal(t, "cscli_unavailable", resp["error_code"])
 	requireNoCSCLIInstall(t, h.calls())
-	require.True(t, h.entryExists(installSlug))
+	require.True(t, h.entryExists())
 }
 
 func TestApplyTimesOutWithoutEvictingEntry(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newInstallHarness(t, installScript{
 		replies: map[string][]reply{cmdInstall: {{err: context.DeadlineExceeded}}},
 		onCommand: func(ctx context.Context, h *installHarness, cmd string) {
@@ -499,11 +505,10 @@ func TestApplyTimesOutWithoutEvictingEntry(t *testing.T) {
 	require.Equal(t, http.StatusGatewayTimeout, code, resp)
 	require.Equal(t, "preset_apply_timeout", resp["error_code"])
 	h.requireRolledBack(t)
-	require.True(t, h.entryExists(installSlug), "a slow server does not evict a good entry")
+	require.True(t, h.entryExists(), "a slow server does not evict a good entry")
 }
 
 func TestApplyCuratedPresetCacheKeyIsOptional(t *testing.T) {
-	t.Skip(laterCommitSkip)
 	h := newCuratedInstallHarness(t)
 
 	code, resp := h.apply(t, "geoip-enrichment", "")

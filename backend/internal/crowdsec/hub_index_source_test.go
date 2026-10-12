@@ -4,13 +4,17 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 //go:embed testdata/cscli
@@ -179,4 +183,46 @@ func TestPullKeepsMixedCaseSlug(t *testing.T) {
 	res, err := svc.Pull(context.Background(), "Azlaroc/sftpgo")
 	require.NoError(t, err)
 	require.Equal(t, "Azlaroc/sftpgo", res.Meta.Slug)
+}
+
+// fieldHook keeps the message and fields of every log entry.
+type fieldHook struct {
+	mu      sync.Mutex
+	entries []*logrus.Entry
+}
+
+func (h *fieldHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h *fieldHook) Fire(e *logrus.Entry) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.entries = append(h.entries, e)
+	return nil
+}
+
+// Not parallel: it switches the shared logger to debug level to see the message.
+func TestIndexParsersCountSkippedNamesWithoutLoggingThem(t *testing.T) {
+	hook := &fieldHook{}
+	logger.Log().Logger.AddHook(hook)
+	previous := logger.Log().Logger.GetLevel()
+	logger.Log().Logger.SetLevel(logrus.DebugLevel)
+	t.Cleanup(func() { logger.Log().Logger.SetLevel(previous) })
+
+	_, err := parseCSCLIIndex([]byte(`{"collections":[{"name":"crowdsecurity/ok"},{"name":"bad name"},{"name":"solo"}]}`))
+	require.NoError(t, err)
+	_, err = parseRawIndex([]byte(`{"collections":{"crowdsecurity/ok":{"path":"p"},"bad name":{"path":"q"}}}`), "https://hub.crowdsec.net")
+	require.NoError(t, err)
+
+	hook.mu.Lock()
+	defer hook.mu.Unlock()
+	got := map[string]any{}
+	for _, e := range hook.entries {
+		if e.Message == "hub index entries with unusable names skipped" {
+			got[e.Data["source"].(string)] = e.Data["dropped"]
+			for _, v := range e.Data {
+				require.NotContains(t, fmt.Sprint(v), "bad name")
+			}
+		}
+	}
+	require.Equal(t, map[string]any{"cscli": 2, "raw": 1}, got)
 }

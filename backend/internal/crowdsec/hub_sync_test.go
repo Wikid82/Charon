@@ -72,7 +72,7 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-//go:embed testdata/hub_index_fixture.json testdata/hub_index_html.html
+//go:embed testdata/hub_index_fixture.json testdata/hub_index_html.html testdata/hub_index_irregular_names.json
 var hubTestFixtures embed.FS
 
 func readFixture(t *testing.T, name string) string {
@@ -220,274 +220,6 @@ func TestFetchIndexFallsBackToMirrorOnForbidden(t *testing.T) {
 	require.Contains(t, calls, defaultHubMirrorBaseURL+"/.index.json")
 }
 
-func TestPullCachesPreview(t *testing.T) {
-	t.Parallel()
-	cacheDir := t.TempDir()
-	dataDir := filepath.Join(t.TempDir(), "crowdsec")
-	cache, err := NewHubCache(cacheDir, time.Hour)
-	require.NoError(t, err)
-
-	archiveBytes := makeTarGz(t, map[string]string{"config.yaml": "value: 1"})
-
-	svc := NewHubService(nil, cache, dataDir)
-	svc.HubBaseURL = "https://hub.crowdsec.net"
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		switch req.URL.String() {
-		case "https://hub.crowdsec.net" + defaultHubIndexPath:
-			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection","etag":"etag1","download_url":"https://hub.crowdsec.net/demo.tgz","preview_url":"https://hub.crowdsec.net/demo.yaml"}]}`), nil
-		case "https://hub.crowdsec.net/demo.yaml":
-			return newResponse(http.StatusOK, "preview-body"), nil
-		case "https://hub.crowdsec.net/demo.tgz":
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archiveBytes)), Header: make(http.Header)}, nil
-		default:
-			return newResponse(http.StatusNotFound, ""), nil
-		}
-	})}
-
-	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
-	require.NoError(t, err)
-	require.Equal(t, "preview-body", res.Preview)
-	require.NotEmpty(t, res.Meta.CacheKey)
-	require.FileExists(t, res.Meta.ArchivePath)
-}
-
-func TestApplyUsesCacheWhenCSCLIFails(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	dataDir := filepath.Join(t.TempDir(), "data")
-
-	archive := makeTarGz(t, map[string]string{"a/b.yaml": "ok: 1"})
-	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", archive)
-	require.NoError(t, err)
-
-	exec := &recordingExec{outputs: map[string][]byte{"cscli version": []byte("v"), "cscli hub update": []byte("ok")}, errors: map[string]error{"cscli hub install crowdsecurity/demo": fmt.Errorf("install failed")}}
-	svc := NewHubService(exec, cache, dataDir)
-
-	res, err := svc.Apply(context.Background(), "crowdsecurity/demo")
-	require.NoError(t, err)
-	require.False(t, res.UsedCSCLI)
-	require.Equal(t, "applied", res.Status)
-	require.FileExists(t, filepath.Join(dataDir, "a", "b.yaml"))
-}
-
-func TestApplyRollsBackOnBadArchive(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	baseDir := filepath.Join(t.TempDir(), "data")
-	// #nosec G301 -- Test data directory needs standard Unix permissions
-	require.NoError(t, os.MkdirAll(baseDir, 0o755))
-	keep := filepath.Join(baseDir, "keep.txt")
-	require.NoError(t, os.WriteFile(keep, []byte("before"), 0o600))
-
-	badArchive := makeTarGz(t, map[string]string{"../evil.txt": "boom"})
-	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", badArchive)
-	require.NoError(t, err)
-
-	svc := NewHubService(nil, cache, baseDir)
-	_, err = svc.Apply(context.Background(), "crowdsecurity/demo")
-	require.Error(t, err)
-
-	// #nosec G304 -- Reading test fixture file with known path
-	content, readErr := os.ReadFile(keep)
-	require.NoError(t, readErr)
-	require.Equal(t, "before", string(content))
-}
-
-func TestApplyUsesCacheWhenCscliMissing(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	dataDir := filepath.Join(t.TempDir(), "data")
-
-	archive := makeTarGz(t, map[string]string{"config.yml": "hello: world"})
-	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", archive)
-	require.NoError(t, err)
-
-	svc := NewHubService(nil, cache, dataDir)
-	res, err := svc.Apply(context.Background(), "crowdsecurity/demo")
-	require.NoError(t, err)
-	require.False(t, res.UsedCSCLI)
-	require.FileExists(t, filepath.Join(dataDir, "config.yml"))
-}
-
-func TestPullReturnsCachedPreviewWithoutNetwork(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-
-	archive := makeTarGz(t, map[string]string{"demo.yaml": "x: 1"})
-	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "cached-preview", archive)
-	require.NoError(t, err)
-
-	svc := NewHubService(nil, cache, t.TempDir())
-	svc.HTTPClient = nil
-
-	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
-	require.NoError(t, err)
-	require.Equal(t, "cached-preview", res.Preview)
-}
-
-func TestPullEvictsExpiredCacheAndRefreshes(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Second)
-	require.NoError(t, err)
-
-	fixed := time.Now().Add(-2 * time.Second)
-	cache.nowFn = func() time.Time { return fixed }
-	archive := makeTarGz(t, map[string]string{"a.yaml": "v: 1"})
-	initial, err := cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "old", archive)
-	require.NoError(t, err)
-
-	cache.nowFn = func() time.Time { return fixed.Add(3 * time.Second) }
-	svc := NewHubService(nil, cache, t.TempDir())
-	svc.HubBaseURL = "https://hub.crowdsec.net"
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		switch req.URL.String() {
-		case "https://hub.crowdsec.net" + defaultHubIndexPath:
-			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection","etag":"etag2","download_url":"https://hub.crowdsec.net/demo.tgz","preview_url":"https://hub.crowdsec.net/demo.yaml"}]}`), nil
-		case "https://hub.crowdsec.net/demo.yaml":
-			return newResponse(http.StatusOK, "fresh-preview"), nil
-		case "https://hub.crowdsec.net/demo.tgz":
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
-		default:
-			return newResponse(http.StatusNotFound, ""), nil
-		}
-	})}
-
-	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
-	require.NoError(t, err)
-	require.NotEqual(t, initial.CacheKey, res.Meta.CacheKey)
-	require.Equal(t, "fresh-preview", res.Preview)
-}
-
-func TestPullFallsBackToArchivePreview(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	archive := makeTarGz(t, map[string]string{"scenarios/demo.yaml": "title: demo"})
-
-	svc := NewHubService(nil, cache, t.TempDir())
-	svc.HubBaseURL = "https://hub.crowdsec.net"
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.String() == "https://hub.crowdsec.net"+defaultHubIndexPath {
-			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","etag":"etag1","download_url":"https://hub.crowdsec.net/demo.tgz","preview_url":"https://hub.crowdsec.net/demo.yaml"}]}`), nil
-		}
-		if req.URL.String() == "https://hub.crowdsec.net/demo.yaml" {
-			return newResponse(http.StatusInternalServerError, ""), nil
-		}
-		if req.URL.String() == "https://hub.crowdsec.net/demo.tgz" {
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
-		}
-		return newResponse(http.StatusNotFound, ""), nil
-	})}
-
-	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
-	require.NoError(t, err)
-	require.Contains(t, res.Preview, "title: demo")
-}
-
-func TestPullFallsBackToMirrorArchiveOnForbidden(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	dataDir := filepath.Join(t.TempDir(), "crowdsec")
-
-	archiveBytes := makeTarGz(t, map[string]string{"config.yml": "foo: bar"})
-	svc := NewHubService(nil, cache, dataDir)
-	svc.HubBaseURL = "https://hub.crowdsec.net"
-	svc.MirrorBaseURL = defaultHubMirrorBaseURL
-
-	calls := make([]string, 0)
-	indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","etag":"etag1","type":"collection"}]}`
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		calls = append(calls, req.URL.String())
-		switch req.URL.String() {
-		case "https://hub.crowdsec.net/api/index.json":
-			resp := newResponse(http.StatusOK, indexBody)
-			resp.Header.Set("Content-Type", "application/json")
-			return resp, nil
-		case "https://hub.crowdsec.net/crowdsecurity/demo.tgz":
-			return newResponse(http.StatusForbidden, ""), nil
-		case "https://hub.crowdsec.net/crowdsecurity/demo.yaml":
-			return newResponse(http.StatusForbidden, ""), nil
-		case defaultHubMirrorBaseURL + "/.index.json":
-			resp := newResponse(http.StatusOK, indexBody)
-			resp.Header.Set("Content-Type", "application/json")
-			return resp, nil
-		case defaultHubMirrorBaseURL + "/crowdsecurity/demo.tgz":
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archiveBytes)), Header: make(http.Header)}, nil
-		case defaultHubMirrorBaseURL + "/crowdsecurity/demo.yaml":
-			return newResponse(http.StatusOK, "mirror-preview"), nil
-		case defaultHubBaseURL + "/api/index.json":
-			return newResponse(http.StatusInternalServerError, ""), nil
-		default:
-			return newResponse(http.StatusNotFound, ""), nil
-		}
-	})}
-
-	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
-	require.NoError(t, err)
-	require.Contains(t, calls, defaultHubMirrorBaseURL+"/crowdsecurity/demo.tgz")
-	require.Equal(t, "mirror-preview", res.Preview)
-	require.FileExists(t, res.Meta.ArchivePath)
-}
-
-func TestFetchWithLimitRejectsLargePayload(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	big := bytes.Repeat([]byte("a"), int(maxArchiveSize+10))
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(big)), Header: make(http.Header)}, nil
-	})}
-
-	_, err := svc.fetchWithLimitFromURL(context.Background(), "https://hub.crowdsec.net/large.tgz")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "payload too large")
-}
-
-func makeSymlinkTar(t *testing.T, linkName string) []byte {
-	t.Helper()
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-	hdr := &tar.Header{Name: linkName, Mode: 0o777, Typeflag: tar.TypeSymlink, Linkname: "target"}
-	require.NoError(t, tw.WriteHeader(hdr))
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-	return buf.Bytes()
-}
-
-func TestExtractTarGzRejectsSymlink(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	archive := makeSymlinkTar(t, "bad.symlink")
-
-	err := svc.extractTarGz(context.Background(), archive, filepath.Join(t.TempDir(), "data"))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "symlinks not allowed")
-}
-
-func TestExtractTarGzRejectsAbsolutePath(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-	hdr := &tar.Header{Name: "/etc/passwd", Mode: 0o644, Size: int64(len("x"))}
-	require.NoError(t, tw.WriteHeader(hdr))
-	_, err := tw.Write([]byte("x"))
-	require.NoError(t, err)
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-
-	err = svc.extractTarGz(context.Background(), buf.Bytes(), filepath.Join(t.TempDir(), "data"))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsafe path")
-}
-
 func TestFetchIndexHTTPError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping network I/O test in short mode")
@@ -521,50 +253,6 @@ func TestPullValidatesSlugAndMissingPreset(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestFetchPreviewRequiresURL(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	_, err := svc.fetchPreview(context.Background(), nil)
-	require.Error(t, err)
-}
-
-func TestFetchWithLimitRequiresClient(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	svc.HTTPClient = nil
-	_, err := svc.fetchWithLimitFromURL(context.Background(), "https://hub.crowdsec.net/demo.tgz")
-	require.Error(t, err)
-}
-
-func TestRunCSCLIRejectsUnsafeSlug(t *testing.T) {
-	t.Parallel()
-	exec := &recordingExec{}
-	svc := NewHubService(exec, nil, t.TempDir())
-
-	err := svc.runCSCLI(context.Background(), "../bad")
-	require.Error(t, err)
-}
-
-func TestApplyUsesCSCLISuccess(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", makeTarGz(t, map[string]string{"config.yml": "val: 1"}))
-	require.NoError(t, err)
-
-	exec := &recordingExec{outputs: map[string][]byte{
-		"cscli version":                        []byte("v1"),
-		"cscli hub update":                     []byte("ok"),
-		"cscli hub install crowdsecurity/demo": []byte("installed"),
-	}}
-
-	svc := NewHubService(exec, cache, t.TempDir())
-	res, applyErr := svc.Apply(context.Background(), "crowdsecurity/demo")
-	require.NoError(t, applyErr)
-	require.True(t, res.UsedCSCLI)
-	require.Equal(t, "applied", res.Status)
-}
-
 func TestFetchIndexCSCLIParseError(t *testing.T) {
 	t.Parallel()
 	exec := &recordingExec{outputs: map[string][]byte{"cscli hub list -o json": []byte("not-json")}}
@@ -576,38 +264,6 @@ func TestFetchIndexCSCLIParseError(t *testing.T) {
 
 	_, err := svc.FetchIndex(context.Background())
 	require.Error(t, err)
-}
-
-func TestFetchWithLimitStatusError(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	svc.HubBaseURL = "https://hub.crowdsec.net"
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		return newResponse(http.StatusNotFound, ""), nil
-	})}
-
-	_, err := svc.fetchWithLimitFromURL(context.Background(), "https://hub.crowdsec.net/demo.tgz")
-	require.Error(t, err)
-}
-
-func TestApplyRollsBackWhenCacheMissing(t *testing.T) {
-	t.Parallel()
-	baseDir := t.TempDir()
-	dataDir := filepath.Join(baseDir, "crowdsec")
-	// #nosec G301 -- Test fixture directory with standard permissions
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("before"), 0o600))
-
-	svc := NewHubService(nil, nil, dataDir)
-	res, err := svc.Apply(context.Background(), "crowdsecurity/demo")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cache unavailable")
-	require.NotEmpty(t, res.BackupPath)
-	require.Equal(t, "failed", res.Status)
-
-	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt")) //nolint:gosec // G304: Test file in temp directory
-	require.NoError(t, readErr)
-	require.Equal(t, "before", string(content))
 }
 
 func TestNormalizeHubBaseURL(t *testing.T) {
@@ -709,44 +365,6 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
-func TestCleanShellArg(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		input string
-		safe  bool
-	}{
-		{"clean slug", "crowdsecurity/demo", true},
-		{"with dash", "crowdsecurity/demo-v1", true},
-		{"with underscore", "crowdsecurity/demo_parser", true},
-		{"with dot", "crowdsecurity/demo.yaml", true},
-		{"path traversal", "../etc/passwd", false},
-		{"absolute path", "/etc/passwd", false},
-		{"backslash converted", "bad\\path", true},
-		{"colon not allowed", "demo:1.0", false},
-		{"semicolon", "foo;rm -rf", false},
-		{"pipe", "foo|bar", false},
-		{"ampersand", "foo&bar", false},
-		{"backtick", "foo`cmd`", false},
-		{"dollar", "foo$var", false},
-		{"parenthesis", "foo()", false},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := cleanShellArg(tt.input)
-			if tt.safe {
-				require.NotEmpty(t, got, "safe input should not be empty")
-				// Note: backslashes are converted to forward slashes by filepath.Clean
-			} else {
-				require.Empty(t, got, "unsafe input should return empty string")
-			}
-		})
-	}
-}
-
 func TestHasCSCLI(t *testing.T) {
 	t.Parallel()
 	t.Run("cscli available", func(t *testing.T) {
@@ -766,68 +384,6 @@ func TestHasCSCLI(t *testing.T) {
 	})
 }
 
-func TestFindPreviewFileFromArchive(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-
-	t.Run("finds yaml in archive", func(t *testing.T) {
-		t.Parallel()
-		archive := makeTarGz(t, map[string]string{
-			"scenarios/test.yaml": "name: test-scenario\ndescription: test",
-		})
-		preview := svc.findPreviewFile(archive)
-		require.Contains(t, preview, "test-scenario")
-	})
-
-	t.Run("returns empty for no yaml", func(t *testing.T) {
-		t.Parallel()
-		archive := makeTarGz(t, map[string]string{
-			"readme.txt": "no yaml here",
-		})
-		preview := svc.findPreviewFile(archive)
-		require.Empty(t, preview)
-	})
-
-	t.Run("returns empty for invalid archive", func(t *testing.T) {
-		t.Parallel()
-		preview := svc.findPreviewFile([]byte("not a gzip archive"))
-		require.Empty(t, preview)
-	})
-}
-
-func TestApplyWithCopyBasedBackup(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-
-	dataDir := filepath.Join(t.TempDir(), "data")
-	require.NoError(t, os.MkdirAll(dataDir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "existing.txt"), []byte("old data"), 0o600))
-
-	// Create subdirectory with files
-	subDir := filepath.Join(dataDir, "subdir")
-	require.NoError(t, os.MkdirAll(subDir, 0o750))
-	// #nosec G306 -- Test fixture file in subdirectory
-	require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o644))
-
-	archive := makeTarGz(t, map[string]string{"new/config.yaml": "new: config"})
-	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", archive)
-	require.NoError(t, err)
-
-	svc := NewHubService(nil, cache, dataDir)
-
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.NoError(t, err)
-	require.Equal(t, "applied", res.Status)
-	require.NotEmpty(t, res.BackupPath)
-
-	// Verify backup was created with copy-based approach
-	require.FileExists(t, filepath.Join(res.BackupPath, "existing.txt"))
-	require.FileExists(t, filepath.Join(res.BackupPath, "subdir", "nested.txt"))
-	// Verify new config was applied
-	require.FileExists(t, filepath.Join(dataDir, "new", "config.yaml"))
-}
-
 func TestIndexURLCandidates_GitHubMirror(t *testing.T) {
 	t.Parallel()
 
@@ -835,15 +391,6 @@ func TestIndexURLCandidates_GitHubMirror(t *testing.T) {
 	require.Len(t, candidates, 2)
 	require.Contains(t, candidates, "https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json")
 	require.Contains(t, candidates, "https://raw.githubusercontent.com/crowdsecurity/hub/master/api/index.json")
-}
-
-func TestBuildResourceURLs_DeduplicatesExplicitAndBases(t *testing.T) {
-	t.Parallel()
-
-	urls := buildResourceURLs("https://hub.crowdsec.net/preset.tgz", "crowdsecurity/demo", "/%s.tgz", []string{"https://hub.crowdsec.net", "https://hub.crowdsec.net"})
-	require.NotEmpty(t, urls)
-	require.Equal(t, "https://hub.crowdsec.net/preset.tgz", urls[0])
-	require.Len(t, urls, 2)
 }
 
 func TestHubHTTPErrorMethods(t *testing.T) {
@@ -1065,38 +612,6 @@ func TestValidateHubURL_HTTPRejectedForProduction(t *testing.T) {
 	}
 }
 
-func TestBuildResourceURLs(t *testing.T) {
-	t.Parallel()
-	t.Run("with explicit URL", func(t *testing.T) {
-		t.Parallel()
-		urls := buildResourceURLs("https://explicit.com/file.tgz", "demo/slug", "/%s.tgz", []string{"https://base1.com", "https://base2.com"})
-		require.Contains(t, urls, "https://explicit.com/file.tgz")
-		require.Contains(t, urls, "https://base1.com/demo/slug.tgz")
-		require.Contains(t, urls, "https://base2.com/demo/slug.tgz")
-	})
-
-	t.Run("without explicit URL", func(t *testing.T) {
-		t.Parallel()
-		urls := buildResourceURLs("", "demo/preset", "/%s.yaml", []string{"https://hub1.com", "https://hub2.com"})
-		require.Len(t, urls, 2)
-		require.Contains(t, urls, "https://hub1.com/demo/preset.yaml")
-		require.Contains(t, urls, "https://hub2.com/demo/preset.yaml")
-	})
-
-	t.Run("removes duplicates", func(t *testing.T) {
-		t.Parallel()
-		urls := buildResourceURLs("", "test", "/%s.tgz", []string{"https://hub.com", "https://hub.com", "https://mirror.com"})
-		require.Len(t, urls, 2)
-	})
-
-	t.Run("handles empty bases", func(t *testing.T) {
-		t.Parallel()
-		urls := buildResourceURLs("", "test", "/%s.tgz", []string{"", "https://hub.com", ""})
-		require.Len(t, urls, 1)
-		require.Equal(t, "https://hub.com/test.tgz", urls[0])
-	})
-}
-
 func TestParseRawIndex(t *testing.T) {
 	t.Parallel()
 	t.Run("parses valid raw index", func(t *testing.T) {
@@ -1174,91 +689,6 @@ func TestFetchIndexHTTPFromURL_HTMLDetection(t *testing.T) {
 	_, err := svc.fetchIndexHTTPFromURL(context.Background(), "https://hub.crowdsec.net/index.json")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "HTML")
-}
-
-func TestHubService_Apply_ArchiveReadBeforeBackup(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-
-	dataDir := t.TempDir()
-	archive := makeTarGz(t, map[string]string{"config.yml": "test: value"})
-	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", archive)
-	require.NoError(t, err)
-
-	svc := NewHubService(nil, cache, dataDir)
-
-	// Apply should read archive before backup to avoid path issues
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.NoError(t, err)
-	require.Equal(t, "applied", res.Status)
-	require.FileExists(t, filepath.Join(dataDir, "config.yml"))
-}
-
-func TestHubService_Apply_CacheRefresh(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Second)
-	require.NoError(t, err)
-
-	dataDir := t.TempDir()
-
-	// Store expired entry
-	fixed := time.Now().Add(-5 * time.Second)
-	cache.nowFn = func() time.Time { return fixed }
-	archive := makeTarGz(t, map[string]string{"config.yml": "old"})
-	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "old-preview", archive)
-	require.NoError(t, err)
-
-	// Reset time to trigger expiration
-	cache.nowFn = time.Now
-
-	indexBody := `{"items":[{"name":"test/preset","title":"Test","etag":"etag2","download_url":"https://hub.crowdsec.net/preset.tgz"}]}`
-	newArchive := makeTarGz(t, map[string]string{"config.yml": "new"})
-
-	svc := NewHubService(nil, cache, dataDir)
-	svc.HubBaseURL = "https://hub.crowdsec.net"
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if strings.Contains(req.URL.String(), "index.json") {
-			return newResponse(http.StatusOK, indexBody), nil
-		}
-		if strings.Contains(req.URL.String(), "preset.tgz") {
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(newArchive)), Header: make(http.Header)}, nil
-		}
-		return newResponse(http.StatusNotFound, ""), nil
-	})}
-
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.NoError(t, err)
-	require.Equal(t, "applied", res.Status)
-
-	// Verify new content was applied
-	content, err := os.ReadFile(filepath.Join(dataDir, "config.yml")) //nolint:gosec // G304: Test file in temp directory
-	require.NoError(t, err)
-	require.Equal(t, "new", string(content))
-}
-
-func TestHubService_Apply_RollbackOnExtractionFailure(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-
-	dataDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "important.txt"), []byte("preserve me"), 0o600))
-
-	// Create archive with path traversal attempt
-	badArchive := makeTarGz(t, map[string]string{"../escape.txt": "evil"})
-	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", badArchive)
-	require.NoError(t, err)
-
-	svc := NewHubService(nil, cache, dataDir)
-
-	_, err = svc.Apply(context.Background(), "test/preset")
-	require.Error(t, err)
-
-	// Verify rollback preserved original file
-	content, err := os.ReadFile(filepath.Join(dataDir, "important.txt")) // #nosec G304 -- test fixture path
-	require.NoError(t, err)
-	require.Equal(t, "preserve me", string(content))
 }
 
 func TestCopyDirAndCopyFile(t *testing.T) {
@@ -1340,113 +770,6 @@ func TestCopyDirAndCopyFile(t *testing.T) {
 		err := copyTree(srcFile, dstDir, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not a directory")
-	})
-}
-
-// ============================================
-// extractTarGz Tests
-// ============================================
-
-func TestExtractTarGz(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-
-	t.Run("extracts valid archive", func(t *testing.T) {
-		t.Parallel()
-		targetDir := t.TempDir()
-		archive := makeTarGz(t, map[string]string{
-			"file1.txt":        "content1",
-			"subdir/file2.txt": "content2",
-		})
-
-		err := svc.extractTarGz(context.Background(), archive, targetDir)
-		require.NoError(t, err)
-
-		require.FileExists(t, filepath.Join(targetDir, "file1.txt"))
-		require.FileExists(t, filepath.Join(targetDir, "subdir", "file2.txt"))
-
-		content1, err := os.ReadFile(filepath.Join(targetDir, "file1.txt")) // #nosec G304 -- test fixture path
-		require.NoError(t, err)
-		require.Equal(t, "content1", string(content1))
-	})
-
-	t.Run("rejects path traversal", func(t *testing.T) {
-		t.Parallel()
-		targetDir := t.TempDir()
-
-		// Create malicious archive with path traversal
-		buf := &bytes.Buffer{}
-		gw := gzip.NewWriter(buf)
-		tw := tar.NewWriter(gw)
-
-		hdr := &tar.Header{Name: "../escape.txt", Mode: 0o644, Size: 7}
-		require.NoError(t, tw.WriteHeader(hdr))
-		_, err := tw.Write([]byte("escaped"))
-		require.NoError(t, err)
-		require.NoError(t, tw.Close())
-		require.NoError(t, gw.Close())
-
-		err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "unsafe path")
-	})
-
-	t.Run("rejects symlinks", func(t *testing.T) {
-		t.Parallel()
-		targetDir := t.TempDir()
-
-		buf := &bytes.Buffer{}
-		gw := gzip.NewWriter(buf)
-		tw := tar.NewWriter(gw)
-
-		hdr := &tar.Header{
-			Name:     "symlink",
-			Mode:     0o777,
-			Size:     0,
-			Typeflag: tar.TypeSymlink,
-			Linkname: "/etc/passwd",
-		}
-		require.NoError(t, tw.WriteHeader(hdr))
-		require.NoError(t, tw.Close())
-		require.NoError(t, gw.Close())
-
-		err := svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "symlinks not allowed")
-	})
-
-	t.Run("handles corrupted gzip", func(t *testing.T) {
-		t.Parallel()
-		targetDir := t.TempDir()
-		err := svc.extractTarGz(context.Background(), []byte("not a gzip"), targetDir)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "gunzip")
-	})
-
-	t.Run("handles context cancellation", func(t *testing.T) {
-		t.Parallel()
-		targetDir := t.TempDir()
-		archive := makeTarGz(t, map[string]string{"file.txt": "content"})
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
-
-		err := svc.extractTarGz(ctx, archive, targetDir)
-		require.Error(t, err)
-		require.ErrorIs(t, err, context.Canceled)
-	})
-
-	t.Run("creates nested directories", func(t *testing.T) {
-		t.Parallel()
-		targetDir := t.TempDir()
-		archive := makeTarGz(t, map[string]string{
-			"a/b/c/deep.txt": "deep content",
-		})
-
-		err := svc.extractTarGz(context.Background(), archive, targetDir)
-		require.NoError(t, err)
-
-		require.FileExists(t, filepath.Join(targetDir, "a", "b", "c", "deep.txt"))
 	})
 }
 
@@ -1552,41 +875,6 @@ func TestHubHTTPErrorCanFallback(t *testing.T) {
 
 		require.False(t, err.CanFallback())
 	})
-}
-
-func TestHubServiceFetchWithFallbackStopsOnNonFallbackError(t *testing.T) {
-	t.Parallel()
-
-	svc := NewHubService(nil, nil, t.TempDir())
-	attempts := 0
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		attempts++
-		return newResponse(http.StatusBadRequest, "bad request"), nil
-	})}
-
-	_, _, err := svc.fetchWithFallback(context.Background(), []string{"https://hub.crowdsec.net/a", "https://raw.githubusercontent.com/crowdsecurity/hub/master/b"})
-	require.Error(t, err)
-	require.Equal(t, 1, attempts)
-}
-
-func TestHubServiceFetchWithFallbackRetriesWhenErrorCanFallback(t *testing.T) {
-	t.Parallel()
-
-	svc := NewHubService(nil, nil, t.TempDir())
-	attempts := 0
-	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		attempts++
-		if attempts == 1 {
-			return newResponse(http.StatusServiceUnavailable, "unavailable"), nil
-		}
-		return newResponse(http.StatusOK, "ok"), nil
-	})}
-
-	data, used, err := svc.fetchWithFallback(context.Background(), []string{"https://hub.crowdsec.net/a", "https://raw.githubusercontent.com/crowdsecurity/hub/master/b"})
-	require.NoError(t, err)
-	require.Equal(t, "ok", string(data))
-	require.Equal(t, "https://raw.githubusercontent.com/crowdsecurity/hub/master/b", used)
-	require.Equal(t, 2, attempts)
 }
 
 // TestValidateHubURL_EdgeCases tests additional edge cases for SSRF protection
@@ -1697,6 +985,7 @@ func TestNewHubService_DefaultTimeouts(t *testing.T) {
 	require.NotNil(t, svc)
 	require.Equal(t, defaultPullTimeout, svc.PullTimeout)
 	require.Equal(t, defaultApplyTimeout, svc.ApplyTimeout)
+	require.Equal(t, 120*time.Second, defaultApplyTimeout)
 	require.NotNil(t, svc.HTTPClient)
 	require.Equal(t, defaultHubBaseURL, svc.HubBaseURL)
 }
@@ -1764,241 +1053,6 @@ func TestNewHubService_CustomMirrorBaseURL(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
 
 	require.Equal(t, "https://hub-data.crowdsec.net", svc.MirrorBaseURL)
-}
-
-// ============================================
-// extractTarGz Security Tests
-// ============================================
-
-func TestExtractTarGz_NestedPathTraversal(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	// Create archive with nested path traversal
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-
-	hdr := &tar.Header{Name: "dir/../../etc/shadow", Mode: 0o644, Size: 7}
-	require.NoError(t, tw.WriteHeader(hdr))
-	_, err := tw.Write([]byte("hacked!"))
-	require.NoError(t, err)
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-
-	err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsafe path")
-}
-
-func TestExtractTarGz_AbsolutePathWithDots(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-
-	hdr := &tar.Header{Name: "/tmp/../etc/passwd", Mode: 0o644, Size: 4}
-	require.NoError(t, tw.WriteHeader(hdr))
-	_, err := tw.Write([]byte("root"))
-	require.NoError(t, err)
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-
-	err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsafe path")
-}
-
-func TestExtractTarGz_EmptyArchive(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	// Create empty tar.gz
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-
-	err := svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
-	require.NoError(t, err)
-
-	// Target directory should exist but be empty
-	require.DirExists(t, targetDir)
-	entries, err := os.ReadDir(targetDir)
-	require.NoError(t, err)
-	require.Empty(t, entries)
-}
-
-func buildSingleEntryTarGz(t *testing.T, hdr *tar.Header, body string) []byte {
-	t.Helper()
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-	require.NoError(t, tw.WriteHeader(hdr))
-	if body != "" {
-		_, err := tw.Write([]byte(body))
-		require.NoError(t, err)
-	}
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-	return buf.Bytes()
-}
-
-func TestExtractTarGz_RejectsBareParentEntry(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	archive := buildSingleEntryTarGz(t, &tar.Header{Name: "..", Typeflag: tar.TypeDir, Mode: 0o755}, "")
-	err := svc.extractTarGz(context.Background(), archive, targetDir)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsafe path")
-}
-
-func TestExtractTarGz_MasksSpecialModeBits(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	// tar.Header.Mode carries the raw unix bits: 0o4000 setuid, 0o2000 setgid, 0o1000 sticky.
-	archive := buildSingleEntryTarGz(t, &tar.Header{Name: "sub", Typeflag: tar.TypeDir, Mode: 0o7755}, "")
-	require.NoError(t, svc.extractTarGz(context.Background(), archive, targetDir))
-
-	info, err := os.Stat(filepath.Join(targetDir, "sub"))
-	require.NoError(t, err)
-	require.True(t, info.IsDir())
-	require.Zero(t, info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky), "special mode bits must be stripped")
-}
-
-func TestExtractTarGz_InvalidTarAfterGzip(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	// Create gzipped data that is not a valid tar
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	_, err := gw.Write([]byte("this is not a tar archive"))
-	require.NoError(t, err)
-	require.NoError(t, gw.Close())
-
-	err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "tar")
-}
-
-func TestExtractTarGz_LargeNestedStructure(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	// Create archive with deeply nested directories
-	files := map[string]string{
-		"a/b/c/d/e/f/g/h/file.txt": "deep file",
-		"x/y/z/file.yaml":          "another file",
-	}
-
-	archive := makeTarGz(t, files)
-
-	err := svc.extractTarGz(context.Background(), archive, targetDir)
-	require.NoError(t, err)
-
-	require.FileExists(t, filepath.Join(targetDir, "a", "b", "c", "d", "e", "f", "g", "h", "file.txt"))
-	require.FileExists(t, filepath.Join(targetDir, "x", "y", "z", "file.yaml"))
-}
-
-func TestExtractTarGz_SpecialCharactersInFilenames(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	files := map[string]string{
-		"file with spaces.txt":      "content 1",
-		"file-with-dashes.yaml":     "content 2",
-		"file_with_underscores.yml": "content 3",
-		"file.multiple.dots.txt":    "content 4",
-	}
-
-	archive := makeTarGz(t, files)
-
-	err := svc.extractTarGz(context.Background(), archive, targetDir)
-	require.NoError(t, err)
-
-	require.FileExists(t, filepath.Join(targetDir, "file with spaces.txt"))
-	require.FileExists(t, filepath.Join(targetDir, "file-with-dashes.yaml"))
-	require.FileExists(t, filepath.Join(targetDir, "file_with_underscores.yml"))
-	require.FileExists(t, filepath.Join(targetDir, "file.multiple.dots.txt"))
-}
-
-func TestExtractTarGz_DirectoriesWithoutFiles(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-
-	// Add directory entry without files
-	hdr := &tar.Header{
-		Name:     "empty-dir/",
-		Mode:     0o755,
-		Typeflag: tar.TypeDir,
-	}
-	require.NoError(t, tw.WriteHeader(hdr))
-
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-
-	err := svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
-	require.NoError(t, err)
-
-	require.DirExists(t, filepath.Join(targetDir, "empty-dir"))
-}
-
-func TestExtractTarGz_SkipsSpecialFileTypes(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	targetDir := t.TempDir()
-
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-
-	// Add a character device (should be skipped)
-	hdr := &tar.Header{
-		Name:     "dev-null",
-		Mode:     0o666,
-		Typeflag: tar.TypeChar,
-	}
-	require.NoError(t, tw.WriteHeader(hdr))
-
-	// Add a regular file
-	regularHdr := &tar.Header{
-		Name: "regular.txt",
-		Mode: 0o644,
-		Size: 7,
-	}
-	require.NoError(t, tw.WriteHeader(regularHdr))
-	_, err := tw.Write([]byte("content"))
-	require.NoError(t, err)
-
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-
-	err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
-	require.NoError(t, err)
-
-	// Special file should not exist
-	require.NoFileExists(t, filepath.Join(targetDir, "dev-null"))
-	// Regular file should exist
-	require.FileExists(t, filepath.Join(targetDir, "regular.txt"))
 }
 
 // ============================================
@@ -2127,71 +1181,6 @@ func TestFetchIndexHTTPFromURL_InvalidJSON(t *testing.T) {
 }
 
 // ============================================
-// isGzip Tests
-// ============================================
-
-func TestIsGzip_ValidGzip(t *testing.T) {
-	t.Parallel()
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	_, err := gw.Write([]byte("test data"))
-	require.NoError(t, err)
-	require.NoError(t, gw.Close())
-
-	require.True(t, isGzip(buf.Bytes()))
-}
-
-func TestIsGzip_NotGzip(t *testing.T) {
-	t.Parallel()
-	require.False(t, isGzip([]byte("plain text")))
-	require.False(t, isGzip([]byte{}))
-	require.False(t, isGzip([]byte{0x00}))
-}
-
-func TestIsGzip_TooShort(t *testing.T) {
-	t.Parallel()
-	require.False(t, isGzip([]byte{0x1f}))
-	require.False(t, isGzip([]byte{}))
-}
-
-// ============================================
-// peekFirstYAML Tests
-// ============================================
-
-func TestPeekFirstYAML_FindsYAML(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	archive := makeTarGz(t, map[string]string{
-		"readme.txt":    "readme content",
-		"aaa.yaml":      "name: test\nversion: 1.0",
-		"zzz-other.yml": "other: config",
-	})
-
-	result := svc.peekFirstYAML(archive)
-	require.NotEmpty(t, result)
-	require.Contains(t, result, "name: test")
-}
-
-func TestPeekFirstYAML_NoYAMLFiles(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	archive := makeTarGz(t, map[string]string{
-		"readme.txt":  "readme",
-		"config.json": "{}",
-	})
-
-	result := svc.peekFirstYAML(archive)
-	require.Empty(t, result)
-}
-
-func TestPeekFirstYAML_InvalidArchive(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	result := svc.peekFirstYAML([]byte("not a gzip archive"))
-	require.Empty(t, result)
-}
-
-// ============================================
 // findIndexEntry Tests
 // ============================================
 
@@ -2258,34 +1247,6 @@ func TestFindIndexEntry_EmptySlug(t *testing.T) {
 	require.False(t, found)
 }
 
-func TestExtractTarGzDotDotNames(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-
-	for _, name := range []string{"..foo", "a/..b", "...", "a/..."} {
-		t.Run("accepts "+name, func(t *testing.T) {
-			t.Parallel()
-			targetDir := t.TempDir()
-			archive := makeTarGz(t, map[string]string{name: "ok"})
-			require.NoError(t, svc.extractTarGz(context.Background(), archive, targetDir))
-			require.FileExists(t, filepath.Join(targetDir, filepath.FromSlash(name)))
-		})
-	}
-
-	for _, name := range []string{"../x", "a/../../x", "/abs", ".."} {
-		t.Run("rejects "+name, func(t *testing.T) {
-			t.Parallel()
-			parent := t.TempDir()
-			targetDir := filepath.Join(parent, "data")
-			archive := makeTarGz(t, map[string]string{name: "bad"})
-			err := svc.extractTarGz(context.Background(), archive, targetDir)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), "unsafe path")
-			require.NoFileExists(t, filepath.Join(parent, "x"))
-		})
-	}
-}
-
 func TestHubBaseCandidates_DistinctRolesKeepOrder(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
@@ -2299,31 +1260,30 @@ func TestHubBaseCandidates_DistinctRolesKeepOrder(t *testing.T) {
 	}, svc.hubBaseCandidates())
 }
 
-func TestExtractTarGzLocalPathEdgeCases(t *testing.T) {
+func TestParseCSCLIIndexKeepsOnlyUsableNames(t *testing.T) {
 	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
+	raw := `{"collections":[
+		{"name":"crowdsecurity/ok","title":"","description":"","version":"1.0","hash":"abc"},
+		{"name":"solo","description":"no owner"},
+		{"name":" crowdsecurity/padded ","title":"Padded","description":"d","etag":"e1","download_url":"https://hub.crowdsec.net/p.yaml","preview_url":"https://hub.crowdsec.net/p.yaml"},
+		{"name":"owner/name+plus"}
+	]}`
+	idx, err := parseCSCLIIndex([]byte(raw))
+	require.NoError(t, err)
+	require.Len(t, idx.Items, 2)
+	byName := map[string]HubIndexEntry{}
+	for _, it := range idx.Items {
+		byName[it.Name] = it
+	}
+	ok := byName["crowdsecurity/ok"]
+	require.Equal(t, "crowdsecurity/ok", ok.Title)
+	require.Equal(t, "crowdsecurity/ok", ok.Description)
+	require.Equal(t, "abc", ok.Etag)
+	require.Equal(t, "collections", ok.Type)
+	require.Equal(t, "Padded", byName["crowdsecurity/padded"].Title)
 
-	t.Run("accepts dot directory entry", func(t *testing.T) {
-		t.Parallel()
-		targetDir := t.TempDir()
-		buf := &bytes.Buffer{}
-		gw := gzip.NewWriter(buf)
-		tw := tar.NewWriter(gw)
-		require.NoError(t, tw.WriteHeader(&tar.Header{Name: "./", Typeflag: tar.TypeDir, Mode: 0o755}))
-		require.NoError(t, tw.WriteHeader(&tar.Header{Name: "./a.txt", Mode: 0o644, Size: 2}))
-		_, err := tw.Write([]byte("ok"))
-		require.NoError(t, err)
-		require.NoError(t, tw.Close())
-		require.NoError(t, gw.Close())
-		require.NoError(t, svc.extractTarGz(context.Background(), buf.Bytes(), targetDir))
-		require.FileExists(t, filepath.Join(targetDir, "a.txt"))
-	})
-
-	t.Run("rejects empty name", func(t *testing.T) {
-		t.Parallel()
-		archive := makeTarGz(t, map[string]string{"": "bad"})
-		err := svc.extractTarGz(context.Background(), archive, t.TempDir())
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "unsafe path")
-	})
+	_, err = parseCSCLIIndex([]byte(`{"collections":[{"name":"solo"}]}`))
+	require.ErrorContains(t, err, "empty cscli index")
+	_, err = parseCSCLIIndex([]byte(`nope`))
+	require.Error(t, err)
 }

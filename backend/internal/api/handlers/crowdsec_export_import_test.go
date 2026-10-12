@@ -40,7 +40,7 @@ func seedRealLayout(t *testing.T, dir string) {
 		"crowdsec.db":                           "live-db",
 		"data/crowdsec.db":                      "lapi-db",
 		"data/GeoLite2-City.mmdb":               "mmdb",
-		"hub_cache/x/bundle.tgz":                "archive",
+		"hub_cache/x/item.yaml":                 "archive",
 		"nested/data/keep.yaml":                 "nested",
 		"nested/crowdsec.db-wal":                "nested-wal",
 		"config/collections/placeholder.yaml":   "real file",
@@ -167,7 +167,7 @@ func TestExportThenImportRealLayoutRoundTrip(t *testing.T) {
 	assertLiveSecretsIntact(t, dst)
 	require.Equal(t, "live-db", readTreeFile(t, filepath.Join(dst, "crowdsec.db")))
 	require.Equal(t, "lapi-db", readTreeFile(t, filepath.Join(dst, "data", "crowdsec.db")))
-	require.Equal(t, "archive", readTreeFile(t, filepath.Join(dst, "hub_cache", "x", "bundle.tgz")))
+	require.Equal(t, "archive", readTreeFile(t, filepath.Join(dst, "hub_cache", "x", "item.yaml")))
 
 	// Installed hub items are server-local: links and the hub tree stay exactly as they were.
 	assertHubStateIntact(t, dst)

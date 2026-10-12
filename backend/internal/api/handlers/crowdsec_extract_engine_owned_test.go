@@ -96,7 +96,7 @@ func TestExtractArchiveIgnoresLinkMembers(t *testing.T) {
 	arc := writeMemberArchive(t, []archiveMember{
 		{name: "linked.yaml", typeflag: tar.TypeLink, linkname: "hub_cache/crowdsecurity/example/metadata.json"},
 		{name: "hub_cache/crowdsecurity/example/other.yaml", typeflag: tar.TypeLink, linkname: "config.yaml"},
-		{name: "symbolic.yaml", typeflag: tar.TypeSymlink, linkname: "/nonexistent/sentinel.txt"},
+		{name: "symbolic.yaml", typeflag: tar.TypeSymlink, linkname: "/nonexistent/other.txt"},
 	})
 	_ = h.extractArchive(arc, dir, crowdsec.ImportKeeper(dir))
 

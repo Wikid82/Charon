@@ -2,7 +2,6 @@ package crowdsec
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -74,7 +73,7 @@ func VerifyHubItem(ctx context.Context, exec CommandExecutor, itemType, name str
 		Installed *bool `json:"installed"`
 		Tainted   bool  `json:"tainted"`
 	}
-	if err := json.Unmarshal(out, &state); err != nil {
+	if err := unmarshalCSCLIJSON(out, &state); err != nil {
 		return fmt.Errorf("parse inspect output: %w", err)
 	}
 	if state.Installed == nil {

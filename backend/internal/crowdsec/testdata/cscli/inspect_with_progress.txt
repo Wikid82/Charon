@@ -1,0 +1,43 @@
+Loaded: 168 parsers, 13 postoverflows, 788 scenarios, 10 contexts, 20 appsec-configs, 229 appsec-rules, 172 collections
+{
+  "type": "collections",
+  "name": "crowdsecurity/nginx",
+  "file_name": "nginx.yaml",
+  "description": "nginx support : parser and generic http scenarios",
+  "path": "collections/crowdsecurity/nginx.yaml",
+  "version": "0.3",
+  "versions": {
+    "0.1": {
+      "digest": "5ef06c9a84fbea5b01d901a6a23d5de8de811da5036e5ec4f6a8d00fb096805b"
+    },
+    "0.2": {
+      "digest": "334f7e5626a83c576af2dec1360b760991d09b6f418590a174748a4ca00bd1e4"
+    },
+    "0.3": {
+      "digest": "65e74a0053aeb172dd797475519f33922c92129a690f2cdf58235ca2aad9e0eb"
+    }
+  },
+  "parsers": [
+    "crowdsecurity/nginx-logs"
+  ],
+  "scenarios": [
+    "crowdsecurity/nginx-req-limit-exceeded"
+  ],
+  "collections": [
+    "crowdsecurity/base-http-scenarios"
+  ],
+  "local_path": "/etc/crowdsec/collections/nginx.yaml",
+  "local_version": "0.3",
+  "local_hash": "65e74a0053aeb172dd797475519f33922c92129a690f2cdf58235ca2aad9e0eb",
+  "installed": true,
+  "downloaded": true,
+  "up_to_date": true,
+  "tainted": false,
+  "local": false,
+  "belongs_to_collections": [
+    "bunkerity/bunkerweb",
+    "crowdsecurity/pfsense",
+    "crowdsecurity/supabase-compose",
+    "crowdsecurity/upsun"
+  ]
+}

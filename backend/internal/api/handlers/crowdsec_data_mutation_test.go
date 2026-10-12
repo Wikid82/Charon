@@ -69,7 +69,7 @@ func seedEngineState(t *testing.T, dir string) {
 		"crowdsec.db-wal":          "wal",
 		"data/crowdsec.db":         "lapi-db",
 		"data/GeoLite2-City.mmdb":  "mmdb",
-		"hub_cache/x/bundle.tgz":   "archive",
+		"hub_cache/x/item.yaml":    "archive",
 		"nested/data/keep.yaml":    "nested",
 		"nested/hub/collection.md": "doc",
 	})
@@ -81,7 +81,7 @@ func assertEngineStateIntact(t *testing.T, dir string) {
 	require.Equal(t, "wal", readTreeFile(t, filepath.Join(dir, "crowdsec.db-wal")))
 	require.Equal(t, "lapi-db", readTreeFile(t, filepath.Join(dir, "data", "crowdsec.db")))
 	require.Equal(t, "mmdb", readTreeFile(t, filepath.Join(dir, "data", "GeoLite2-City.mmdb")))
-	require.Equal(t, "archive", readTreeFile(t, filepath.Join(dir, "hub_cache", "x", "bundle.tgz")))
+	require.Equal(t, "archive", readTreeFile(t, filepath.Join(dir, "hub_cache", "x", "item.yaml")))
 }
 
 func TestImportConfigSkipsMixedCaseEngineOwnedEntries(t *testing.T) {
