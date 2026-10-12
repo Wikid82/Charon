@@ -208,7 +208,7 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb1226db190d0a984118f62ee02a91b77d99448d28264a6 AS xx
 
 # ---- Gosu Builder ----
 # Build gosu from source to avoid CVEs from Debian's pre-compiled version (Go 1.19.8)
