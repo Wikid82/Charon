@@ -168,6 +168,9 @@ scripts/tests/
 scripts/toolchain-key.sh
 scripts/verify-toolchain-pin.sh
 scripts/lib/dockerfile-stage.sh
+scripts/lib/prune-common.sh
+scripts/prune-ghcr.sh
+scripts/prune-dockerhub.sh
 scripts/crowdsec_data_persistence_test.sh
 
 # -----------------------------------------------------------------------------

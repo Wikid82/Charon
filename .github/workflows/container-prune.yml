@@ -13,8 +13,12 @@ on:
         description: 'If true, only logs candidates and does not delete (default: false for active cleanup)'
         required: false
         default: 'false'
+      build_keep_days:
+        description: 'Days to retain per-build tags (build-*, sha256-*, <branch>-<sha>, bare sha)'
+        required: false
+        default: '7'
       keep_last_n:
-        description: 'Keep last N newest images (global)'
+        description: 'Keep last N newest non-build, non-protected images'
         required: false
         default: '30'
 
@@ -36,11 +40,11 @@ jobs:
       OWNER: ${{ github.repository_owner }}
       IMAGE_NAME: ${{ matrix.image }}
       KEEP_DAYS: ${{ github.event.inputs.keep_days || '30' }}
+      BUILD_KEEP_DAYS: ${{ github.event.inputs.build_keep_days || '7' }}
       KEEP_LAST_N: ${{ github.event.inputs.keep_last_n || '30' }}
       DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || github.event.inputs.dry_run || 'false' }}
       PROTECTED_REGEX: '["^v?[0-9]+\\.[0-9]+\\.[0-9]+$","^latest$","^main$","^develop$"]'
       PRUNE_UNTAGGED: 'true'
-      PRUNE_SBOM_TAGS: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -55,6 +59,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # pipefail so the script's exit code is not masked by tee
+          set -o pipefail
           chmod +x scripts/prune-ghcr.sh
           ./scripts/prune-ghcr.sh 2>&1 | tee prune-ghcr-${{ matrix.image }}-${{ github.run_id }}.log
 
@@ -70,36 +76,21 @@ jobs:
         run: |
           set -euo pipefail
           SUMMARY_FILE=prune-summary-ghcr-${{ matrix.image }}.env
-          LOG_FILE=prune-ghcr-${{ matrix.image }}-${{ github.run_id }}.log
-
-          human() {
-            local bytes=${1:-0}
-            if [ -z "$bytes" ] || [ "$bytes" -eq 0 ]; then
-              echo "0 B"
-              return
-            fi
-            awk -v b="$bytes" 'BEGIN { split("B KiB MiB GiB TiB",u," "); i=0; x=b; while(x>1024){x/=1024;i++} printf "%0.2f %s", x, u[i+1] }'
-          }
 
           if [ -f "$SUMMARY_FILE" ]; then
             TOTAL_CANDIDATES=$(grep -E '^TOTAL_CANDIDATES=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
-            TOTAL_CANDIDATES_BYTES=$(grep -E '^TOTAL_CANDIDATES_BYTES=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
             TOTAL_DELETED=$(grep -E '^TOTAL_DELETED=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
-            TOTAL_DELETED_BYTES=$(grep -E '^TOTAL_DELETED_BYTES=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
+            TOTAL_FAILED=$(grep -E '^TOTAL_FAILED=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
 
             {
               echo "## GHCR prune summary — ${{ matrix.image }}"
-              echo "- candidates: ${TOTAL_CANDIDATES} (≈ $(human "${TOTAL_CANDIDATES_BYTES}"))"
-              echo "- deleted: ${TOTAL_DELETED} (≈ $(human "${TOTAL_DELETED_BYTES}"))"
+              echo "- candidates: ${TOTAL_CANDIDATES}"
+              echo "- deleted: ${TOTAL_DELETED}"
+              echo "- failed: ${TOTAL_FAILED}"
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            deleted_bytes=$(grep -oE '\( *approx +[0-9]+ bytes\)' "$LOG_FILE" | sed -E 's/.*approx +([0-9]+) bytes.*/\1/' | awk '{s+=$1} END {print s+0}' || true)
-            deleted_count=$(grep -cE 'deleting |DRY RUN: would delete' "$LOG_FILE" || true)
-
-            {
-              echo "## GHCR prune summary — ${{ matrix.image }}"
-              echo "- deleted (approx): ${deleted_count} (≈ $(human "${deleted_bytes}"))"
-            } >> "$GITHUB_STEP_SUMMARY"
+            echo "## GHCR prune summary — ${{ matrix.image }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- no summary file produced (script aborted early)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload GHCR prune artifacts
@@ -122,6 +113,7 @@ jobs:
       OWNER: ${{ github.repository_owner }}
       IMAGE_NAME: ${{ matrix.image }}
       KEEP_DAYS: ${{ github.event.inputs.keep_days || '30' }}
+      BUILD_KEEP_DAYS: ${{ github.event.inputs.build_keep_days || '7' }}
       KEEP_LAST_N: ${{ github.event.inputs.keep_last_n || '30' }}
       DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || github.event.inputs.dry_run || 'false' }}
       PROTECTED_REGEX: '["^v?[0-9]+\\.[0-9]+\\.[0-9]+$","^latest$","^main$","^develop$"]'
@@ -140,6 +132,8 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
+          # pipefail so the script's exit code is not masked by tee
+          set -o pipefail
           chmod +x scripts/prune-dockerhub.sh
           ./scripts/prune-dockerhub.sh 2>&1 | tee prune-dockerhub-${{ matrix.image }}-${{ github.run_id }}.log
 
@@ -171,11 +165,13 @@ jobs:
             TOTAL_CANDIDATES_BYTES=$(grep -E '^TOTAL_CANDIDATES_BYTES=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
             TOTAL_DELETED=$(grep -E '^TOTAL_DELETED=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
             TOTAL_DELETED_BYTES=$(grep -E '^TOTAL_DELETED_BYTES=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
+            TOTAL_FAILED=$(grep -E '^TOTAL_FAILED=' "$SUMMARY_FILE" | cut -d= -f2 || echo 0)
 
             {
               echo "## Docker Hub prune summary — ${{ matrix.image }}"
               echo "- candidates: ${TOTAL_CANDIDATES} (≈ $(human "${TOTAL_CANDIDATES_BYTES}"))"
               echo "- deleted: ${TOTAL_DELETED} (≈ $(human "${TOTAL_DELETED_BYTES}"))"
+              echo "- failed: ${TOTAL_FAILED}"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             deleted_bytes=$(grep -oE '\( *approx +[0-9]+ bytes\)' "$LOG_FILE" | sed -E 's/.*approx +([0-9]+) bytes.*/\1/' | awk '{s+=$1} END {print s+0}' || true)
@@ -223,7 +219,7 @@ jobs:
           read_field() {
             local file="$1" field="$2"
             if [ -f "$file" ]; then
-              grep -E "^${field}=" "$file" | cut -d= -f2 | head -n1
+              grep -E "^${field}=" "$file" | cut -d= -f2 | head -n1 || true
             else
               echo 0
             fi
@@ -233,12 +229,13 @@ jobs:
           TOTAL_CANDIDATES_BYTES=0
           TOTAL_DELETED=0
           TOTAL_DELETED_BYTES=0
+          TOTAL_FAILED=0
 
           {
             echo "## Combined container prune summary"
             echo ""
-            echo "| Registry | Image | Candidates | Deleted | Space Reclaimed |"
-            echo "|----------|-------|------------|---------|-----------------|"
+            echo "| Registry | Image | Candidates | Deleted | Failed | Space Reclaimed |"
+            echo "|----------|-------|------------|---------|--------|-----------------|"
           } >> "$GITHUB_STEP_SUMMARY"
 
           for registry in ghcr dockerhub; do
@@ -248,25 +245,31 @@ jobs:
               cands_b=$(read_field "$file" TOTAL_CANDIDATES_BYTES)
               dels=$(read_field "$file" TOTAL_DELETED)
               dels_b=$(read_field "$file" TOTAL_DELETED_BYTES)
+              fails=$(read_field "$file" TOTAL_FAILED)
 
-              cands=${cands:-0}; cands_b=${cands_b:-0}; dels=${dels:-0}; dels_b=${dels_b:-0}
+              cands=${cands:-0}; cands_b=${cands_b:-0}; dels=${dels:-0}; dels_b=${dels_b:-0}; fails=${fails:-0}
 
               TOTAL_CANDIDATES=$((TOTAL_CANDIDATES + cands))
               TOTAL_CANDIDATES_BYTES=$((TOTAL_CANDIDATES_BYTES + cands_b))
               TOTAL_DELETED=$((TOTAL_DELETED + dels))
               TOTAL_DELETED_BYTES=$((TOTAL_DELETED_BYTES + dels_b))
+              TOTAL_FAILED=$((TOTAL_FAILED + fails))
 
               registry_label="GHCR"
-              [ "$registry" = "dockerhub" ] && registry_label="Docker Hub"
+              reclaimed="n/a"
+              if [ "$registry" = "dockerhub" ]; then
+                registry_label="Docker Hub"
+                reclaimed=$(human "${dels_b}")
+              fi
 
-              echo "| ${registry_label} | ${image} | ${cands} | ${dels} | $(human "${dels_b}") |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| ${registry_label} | ${image} | ${cands} | ${dels} | ${fails} | ${reclaimed} |" >> "$GITHUB_STEP_SUMMARY"
             done
           done
 
           {
-            echo "| **Total** | — | **${TOTAL_CANDIDATES}** | **${TOTAL_DELETED}** | **$(human "${TOTAL_DELETED_BYTES}")** |"
+            echo "| **Total** | — | **${TOTAL_CANDIDATES}** | **${TOTAL_DELETED}** | **${TOTAL_FAILED}** | **$(human "${TOTAL_DELETED_BYTES}")** (Docker Hub only) |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          printf 'PRUNE_SUMMARY: candidates=%s candidates_bytes=%s deleted=%s deleted_bytes=%s\n' \
-            "${TOTAL_CANDIDATES}" "${TOTAL_CANDIDATES_BYTES}" "${TOTAL_DELETED}" "${TOTAL_DELETED_BYTES}"
+          printf 'PRUNE_SUMMARY: candidates=%s candidates_bytes=%s deleted=%s deleted_bytes=%s failed=%s\n' \
+            "${TOTAL_CANDIDATES}" "${TOTAL_CANDIDATES_BYTES}" "${TOTAL_DELETED}" "${TOTAL_DELETED_BYTES}" "${TOTAL_FAILED}"
           echo "Total space reclaimed: $(human "${TOTAL_DELETED_BYTES}")"
