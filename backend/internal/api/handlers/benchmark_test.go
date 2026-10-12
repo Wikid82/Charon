@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // setupBenchmarkDB creates an in-memory SQLite database for benchmarks
@@ -345,7 +346,7 @@ func BenchmarkSecurityHandler_GetStatus_Parallel(b *testing.B) {
 func BenchmarkSecurityHandler_ListDecisions_Parallel(b *testing.B) {
 	gin.SetMode(gin.ReleaseMode)
 	// Use file-based SQLite with WAL mode for parallel testing
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_journal_mode=WAL"), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(b, "_journal_mode=WAL")), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {

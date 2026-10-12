@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,7 +105,7 @@ func TestRespondPermissionError_NonAdminMappedError(t *testing.T) {
 func TestRespondPermissionError_AdminWithAudit(t *testing.T) {
 	t.Parallel()
 
-	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dbName := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}))
@@ -147,7 +148,7 @@ func TestLogPermissionAudit_NoService(t *testing.T) {
 func TestLogPermissionAudit_ActorFallback(t *testing.T) {
 	t.Parallel()
 
-	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dbName := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}))

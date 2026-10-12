@@ -210,7 +210,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	router.Use(middleware.EmergencyBypass(cfg.Security.ManagementCIDRs, db))
 
 	// Enable gzip compression for API responses (reduces payload size ~70%)
-	router.Use(gzip.Gzip(gzip.DefaultCompression))
+	router.Use(compressionMiddleware())
 
 	// Apply security headers middleware globally
 	// This sets CSP, HSTS, X-Frame-Options, etc.
@@ -1252,4 +1252,14 @@ func logAuthThrottlePolicy(st middleware.AuthRateLimitStatus) {
 		logger.Log().Warnf("auth throttle: disabled by %s=false; sign-in attempts are not limited per client",
 			config.EnvAuthRateLimitEnabled)
 	}
+}
+
+// precompressedPaths lists routes whose handlers already emit a gzip stream (tar.gz downloads).
+// They must bypass the router-wide gzip middleware, otherwise the body is compressed twice
+// and the downloaded archive cannot be extracted.
+var precompressedPaths = []string{"/api/v1/admin/crowdsec/export"}
+
+// compressionMiddleware returns the router-wide gzip middleware, skipping precompressed downloads.
+func compressionMiddleware() gin.HandlerFunc {
+	return gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths(precompressedPaths))
 }

@@ -80,7 +80,7 @@ delivery from scratch each time.
 Charon's notification surface spans four layers, and they are **not** equally coupled:
 
 | Layer | Location | Coupling to Charon |
-|---|---|---|
+| --- | --- | --- |
 | Delivery primitive | `backend/internal/notifications/` | Imports `internal/network` + `internal/security` (SSRF guards) directly. Otherwise pure Go, no GORM, no DB, no Charon config. |
 | Orchestration/business logic | `backend/internal/services/notification_service.go`, `security_notification_service.go`, `enhanced_security_notification_service.go` | Heavily coupled: `*gorm.DB`, `models.NotificationProvider`/`NotificationConfig`, Charon's `Setting` table for feature flags, Charon's `logger`/`util`/`trace` packages, `MailServiceInterface` (Charon SMTP), Charon-branded strings ("[Charon Alert]"), Charon domain concepts (`HostName`, `ServiceCount`, `proxy_host`/`remote_server`/`domain`/`cert`/`uptime`/`security_*` event types). |
 | Persistence | `backend/internal/models/notification*.go` | GORM models with `BeforeCreate` hooks, `gorm:` tags — pure Charon persistence. |
@@ -93,7 +93,7 @@ line, now revised for full provider-layer scope (see the revision note above).
 ### 2.2 `backend/internal/notifications/` package (the current "engine")
 
 | File | LOC | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `engine.go` | 23 | `DeliveryEngine` interface + `DispatchRequest` struct. **Dead code** — grep confirms nothing outside this file implements or references `DeliveryEngine`; `EngineNotifyV1` const is unused elsewhere. |
 | `feature_flags.go` | 15 | String constants naming Charon `Setting`-table keys (e.g. `feature.notifications.service.discord.enabled`). These are Charon policy labels, not engine behavior — the lookup logic lives in `notification_service.go` (`getFeatureFlagValue`), not in this package. |
 | `http_client_executor.go` | 8 | Thin `client.Do` wrapper, exists purely as a test seam. |
@@ -223,7 +223,7 @@ up with **zero** imports of GORM, `models`, or any `github.com/Wikid82/charon/*`
 #### 3.1.1 Moves to the new module — delivery primitive (unchanged from prior draft)
 
 | File | Reason |
-|---|---|
+| --- | --- |
 | `http_wrapper.go` | SSRF-hardened dispatch, retries, header sanitization. Zero Charon-domain knowledge — only needs the two DI seams in §3.2. |
 | `http_wrapper_test.go` | Moves with its subject. |
 | `http_client_executor.go` | Test seam used by `http_wrapper.go`. |
@@ -236,7 +236,7 @@ All of the following are read directly out of `notification_service.go`'s `sendJ
 their destination package. None of these are simple moves — each is genericized per §3.3.
 
 | Current location (`notification_service.go`) | Logic | Destination |
-|---|---|---|
+| --- | --- | --- |
 | `minimalTemplate`/`detailedTemplate` consts (385–386, duplicated 792–793) | Built-in JSON templates | `providers/webhook`, genericized: `.HostName`/`.HostIP`/`.ServiceCount`/`.Services` top-level fields replaced with a single `{{toJSON .Data}}` (see "payload shape change" risk in §7). |
 | Template parse/exec core (388–447, 811–825) — `text/template` + `toJSON` funcmap, 10 KB size cap, 5 s exec timeout | Shared rendering engine | `providers/internal/render` (unexported, shared by all seven provider packages — avoids 7x duplication of the same template plumbing). |
 | `discordWebhookRegex`, `allowedDiscordWebhookHosts`, `normalizeURL`, `validateDiscordWebhookURL`, `validateDiscordProviderURL` (63–127) | Discord webhook URL shape/host validation | `providers/discord` |
@@ -268,7 +268,7 @@ not just a refactor) — called out as a new risk in §7, not silently folded in
 #### 3.1.3 Stays in Charon (per the revision brief) — GORM CRUD, flag gating, event routing
 
 | Function(s) | Reason |
-|---|---|
+| --- | --- |
 | `SendExternal` (215–284) | Event-type filtering against Charon domain concepts (`proxy_host`/`remote_server`/`domain`/`cert`/`uptime`/`security_*`) mapped to `models.NotificationProvider` boolean columns, plus the GORM `Find` query. Becomes the seam: after filtering + flag-check, maps provider row + event data into `notify.Message` + provider `Config`, calls the module's `Sender`, logs the result. |
 | `isDispatchEnabled`, `getFeatureFlagValue` (148–180) | DB-backed feature-flag gating via `models.Setting` — explicitly named as staying in the revision brief. |
 | `emailTemplateForEventType` (360–371) | Charon event-type → HTML template name mapping. Stays; becomes the `TemplateName` selector Charon passes into its `providers/email` adapter (§3.3.4). |
@@ -280,6 +280,7 @@ not just a refactor) — called out as a new risk in §7, not silently folded in
 | `TestProvider`/`TestEmailProvider` (699–753) | Backing logic for Charon's REST "send test notification" handlers. Become thin adapters: build a `notify.Message`, call the module's `Sender`/`email` client, same seam as `SendExternal`. |
 
 **Deleted, not ported (dead code confirmed on this re-read):**
+
 - `isPrivateIP(ip net.IP) bool` (679–683) in `notification_service.go` — a wrapper around
   `network.IsPrivateIP` with **zero call sites within the file itself** (confirmed by reading the
   full 1029 lines; the identically-named functions in `access_list_service.go` and the
@@ -289,7 +290,7 @@ not just a refactor) — called out as a new risk in §7, not silently folded in
 #### 3.1.4 Stays in Charon — unchanged (persistence, security infra, unrelated features)
 
 | File / area | Reason |
-|---|---|
+| --- | --- |
 | `backend/internal/models/notification.go`, `notification_config.go`, `notification_provider.go`, `notification_template.go` | GORM persistence models; a generic module must not depend on GORM. |
 | `backend/internal/services/security_notification_service.go`, `enhanced_security_notification_service.go` + their tests | Charon-specific security event taxonomy (WAF/ACL/rate-limit/CrowdSec) and legacy-config migration logic. Consumers of the engine, not part of it. |
 | `docs/features/notifications.md` | Charon user-facing product documentation; the new module gets its own fresh README. |
@@ -614,7 +615,7 @@ a placeholder `README.md`) — the extraction session scaffolds into it, it does
 repo. The Go package name at the module root is `notify` (see the rev-2 note at the top of this
 document for why that's a deliberate, unproblematic mismatch with the directory/module name).
 
-```
+```text
 go_notify_yourself/                  # existing repo at /projects/go_notify_yourself — see rev-2 note
 ├── go.mod                           # module github.com/Wikid82/go_notify_yourself
 ├── go.sum
@@ -771,6 +772,7 @@ backend-only, cross-repo change with no UI surface. Expanded from the prior 5-ph
 plan to cover the full provider layer.
 
 ### Phase 1: New-repo scaffolding + shared types + transport (new repo)
+
 - Scaffold into the **existing** `/projects/go_notify_yourself` repo (`LICENSE` already present):
   `go.mod` (`module github.com/Wikid82/go_notify_yourself`), CI workflow, GoReleaser config (§3.5).
 - Write `message.go` (`Message`, §3.3.2) and `sender.go` (`Sender`, §3.3.3) at the module root.
@@ -782,6 +784,7 @@ plan to cover the full provider layer.
 - `go test ./...`, `go vet ./...`, `staticcheck ./...` all green.
 
 ### Phase 2: Provider packages (new repo)
+
 - `providers/internal/render`: extract the shared `text/template` + `toJSON` engine (§3.1.2) out of
   `sendJSONPayload`/`RenderTemplate`, generic over `notify.Message`.
 - `providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`,
@@ -796,6 +799,7 @@ plan to cover the full provider layer.
 - Tag `v0.1.0` once all provider packages + transport are green.
 
 ### Phase 3: Charon-side adapters (Charon repo, this repo)
+
 - Add `github.com/Wikid82/go_notify_yourself` to `backend/go.mod`.
 - Write `notify_client_adapter.go` (transport seam, §3.6 step 3).
 - Write `notify_provider_adapter.go` (per-type `Config`/`Sender` factory, §3.6 step 3).
@@ -804,6 +808,7 @@ plan to cover the full provider layer.
   (§3.6 step 6) explicitly, before proceeding to cutover.
 
 ### Phase 4: Charon cutover
+
 - Update `notification_service.go`'s `SendExternal`/`TestProvider`/`TestEmailProvider` to call the
   new adapters (§3.6 step 4), **split per provider per §6** for reviewability rather than one giant
   commit.
@@ -816,11 +821,13 @@ plan to cover the full provider layer.
 - Run full backend test suite + coverage gate (§3.6 step 8).
 
 ### Phase 5: Hardening + docs
+
 - `ARCHITECTURE.md` update (§3.6 step 10).
 - CodeQL/Trivy re-run on Charon (new external dependency, larger surface than the Phase-1 draft).
 - Confirm `go.sum`/supply-chain scan clean for the new module dependency.
 
 ### Phase 6: Deployment
+
 - Tag Charon release per normal Conventional Commits flow. Unlike the Phase-1-only draft, this is
   **not** guaranteed behavior-invisible — the "detailed" template shape decision (Phase 3) and the
   Discord-dispatch consolidation (§3.1.2) are both potential user-visible or operationally-visible
@@ -1021,12 +1028,12 @@ blocks the other six providers' cutover from proceeding.
    rest of `internal/notifications` is deleted (§3.6 step 2) — a style call, not a functional one.
 6. **GoReleaser artifact shape for a pure library**: Charon's existing `.goreleaser.yaml` builds
    binaries/Docker images; a library module needs a much lighter GoReleaser config (just changelog
-   + GitHub release, no build/archive stanzas). This is unaffected by the larger provider-layer
+   - GitHub release, no build/archive stanzas). This is unaffected by the larger provider-layer
    scope — GoReleaser still just tags the whole module regardless of how many packages it contains.
    The extraction session should not copy Charon's `.goreleaser.yaml` wholesale — treat it as a
    reference for style/conventions only.
 7. **CI cost for a single-maintainer module**: recommend the new repo's CI stay to lint + unit test
-   + coverage on PR/push, with release only on tag push — explicitly no CodeQL/Trivy/multi-browser
+   - coverage on PR/push, with release only on tag push — explicitly no CodeQL/Trivy/multi-browser
    E2E apparatus. The coverage surface is now larger (transport + 6 providers + email vs. just the
    wrapper), but the CI *policy* is unchanged — flagging so the extraction session doesn't
    over-engineer CI to match Charon's much larger surface just because the module itself grew.
@@ -1062,6 +1069,7 @@ specifically to stop a future session from "just adding one more" opportunistica
 extraction.
 
 **What this spec deliberately does do, to keep the Apprise path open without building it now:**
+
 - The `Sender` interface (§3.3.3) is uniform across every provider — `Send(ctx, Message) error` —
   regardless of transport (HTTP POST, SMTP) or payload shape. A future registry only needs one
   interface to key off, not per-provider special cases.
@@ -1076,6 +1084,7 @@ extraction.
   the scope constraint is lifted) can reuse it immediately instead of re-solving JSON templating.
 
 **What this spec deliberately does NOT do, to avoid scope creep now:**
+
 - No `notify.Register`/registry type is built in this extraction (§3.3.3's extensibility note) —
   with one consumer and seven known providers, a generic registry today is premature abstraction, not
   a real need.
@@ -1096,6 +1105,7 @@ breaking rework.
 ## Appendix: File-level move list (flat reference)
 
 **Move to new repo (whole files):**
+
 - `backend/internal/notifications/http_wrapper.go`
 - `backend/internal/notifications/http_wrapper_test.go`
 - `backend/internal/notifications/http_client_executor.go`
@@ -1103,6 +1113,7 @@ breaking rework.
 
 **Move to new repo (function-level extraction out of `notification_service.go`, genericized — see
 §3.1.2 for exact line ranges and destination packages; the file itself does not move, it shrinks):**
+
 - Built-in `minimal`/`detailed` JSON templates → `providers/webhook`
 - Template parse/exec engine (`text/template` + `toJSON` funcmap, size/timeout limits) → `providers/internal/render`
 - Discord webhook regex/host validation/normalization → `providers/discord`
@@ -1116,6 +1127,7 @@ breaking rework.
 - `sanitizeForEmail` + `dispatchEmail`'s message composition → `providers/email`
 
 **Delete (dead code, do not port as-is):**
+
 - `backend/internal/notifications/engine.go`
 - `backend/internal/notifications/router.go`
 - `backend/internal/notifications/router_test.go`
@@ -1123,6 +1135,7 @@ breaking rework.
 - `notification_service.go`'s `webhookDoRequestFunc` test hook (superseded by the module's own test seam)
 
 **Stays in Charon, unmodified:**
+
 - `backend/internal/models/notification.go`
 - `backend/internal/models/notification_config.go`
 - `backend/internal/models/notification_provider.go`
@@ -1141,6 +1154,7 @@ breaking rework.
 - `frontend/src/components/SecurityNotificationSettingsModal.tsx` + tests
 
 **Stays in Charon, modified (Charon migration phase, §3.6):**
+
 - `backend/internal/notifications/feature_flags.go` (relocate into `internal/services`, don't extract)
 - `backend/internal/services/notification_service.go` (shrinks substantially — §3.1.3 keeps CRUD/flag-gating/event-routing; §3.1.2's logic is deleted, replaced by thin calls into three new adapter files)
 - `ARCHITECTURE.md` (documentation update)

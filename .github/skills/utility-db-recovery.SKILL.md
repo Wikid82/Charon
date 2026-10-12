@@ -85,9 +85,9 @@ Use the task: **Utility: Database Recovery**
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| --force   | flag | No       | false   | Skip confirmation prompts |
-| -f        | flag | No       | false   | Alias for --force |
+| --- | --- | --- | --- | --- |
+| --force | flag | No | false | Skip confirmation prompts |
+| -f | flag | No | false | Alias for --force |
 
 ## Environment Variables
 
@@ -103,7 +103,7 @@ This skill requires no environment variables. It auto-detects Docker vs local en
 
 ### Success Output Example (Healthy Database)
 
-```
+```text
 ==============================================
   Charon Database Recovery Tool
 ==============================================
@@ -133,7 +133,7 @@ ok
 
 ### Recovery Output Example (Corrupted Database)
 
-```
+```text
 ==============================================
   Integrity Check Results
 ==============================================
@@ -195,6 +195,7 @@ When corruption is detected, the recovery process:
 ## When to Use This Skill
 
 Use this skill when:
+
 - Application fails to start with database errors
 - SQLite reports "database disk image is malformed"
 - Random crashes or data inconsistencies
@@ -212,6 +213,7 @@ Use this skill when:
 ## WAL Mode
 
 The skill ensures Write-Ahead Logging (WAL) is enabled:
+
 - **Benefits**: Better concurrency, atomic commits, crash resistance
 - **Trade-offs**: Multiple files (db, wal, shm) instead of single file
 - **Recommended**: For all production deployments

@@ -72,7 +72,7 @@ jq -r '.runs[].results[] | "\(.level): \(.message.text) (\(.locations[0].physica
 Charon uses the **security-and-quality** suite (GitHub Actions default):
 
 | Suite | Go Queries | JS Queries | Use Case |
-|-------|-----------|-----------|----------|
+| ------- | ----------- | ----------- | ---------- |
 | `security-extended` | 39 | 106 | Security-only, faster |
 | `security-and-quality` | 61 | 204 | Security + quality, comprehensive (CI default) |
 

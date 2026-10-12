@@ -8,7 +8,7 @@ Charon uses Go's plugin system to dynamically load DNS provider implementations.
 
 ### Architecture
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │         Charon Core Process             │
 │  ┌───────────────────────────────────┐  │
@@ -408,7 +408,7 @@ func main() {}
 
 ### Project Layout
 
-```
+```text
 my-provider-plugin/
 ├── go.mod
 ├── go.sum

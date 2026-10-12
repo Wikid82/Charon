@@ -57,9 +57,9 @@ vi.mock('../../utils/toast', () => ({
 
 // The i18n mock in test setup returns the translation key when no translation is found.
 // These constants keep assertions in sync with what the component actually renders.
-const TAB_WHITELIST = 'crowdsecConfig.whitelist.tabLabel'
-const MODAL_TITLE = 'crowdsecConfig.whitelist.deleteModal.title'
-const BTN_REMOVE = 'crowdsecConfig.whitelist.deleteModal.submit'
+const TAB_WHITELIST = 'Whitelist'
+const MODAL_TITLE = 'Remove Whitelist Entry'
+const BTN_REMOVE = 'Remove'
 
 const baseStatus = {
   cerberus: { enabled: true },
@@ -117,7 +117,7 @@ describe('CrowdSecConfig – whitelist tab', () => {
     vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
-    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(crowdsecApi.listWhitelists).mockResolvedValue([])
     vi.mocked(crowdsecApi.addWhitelist).mockResolvedValue({
       uuid: 'uuid-new',

@@ -45,7 +45,7 @@ Click **"Import Caddy Config"** in the sidebar.
 
 Charon shows you a preview:
 
-```
+```text
 Found 3 sites:
 ✅ example.com → localhost:3000
 ✅ api.example.com → localhost:8080

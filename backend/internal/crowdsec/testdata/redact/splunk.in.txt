@@ -1,0 +1,7 @@
+type: splunk
+name: splunk_default
+log_level: info
+url: https://splunk.example.invalid:8088/services/collector
+token: SECRETTOKEN-splunk
+format: |
+  {{.|toJson}}

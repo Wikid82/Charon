@@ -2,9 +2,15 @@
 docs/reports/
 docs/implementation/
 docs/issues/
+docs/patches/
 docs/plans/archive/
 backend/
 CODEQL_*.md
 COVERAGE_*.md
 SECURITY_REMEDIATION_COMPLETE.md
 ISSUE_*.md
+
+# Claude Code instruction files: agent/command definitions use XML-style tags and are
+# edited deliberately, so they are not linted.
+CLAUDE.md
+.claude/

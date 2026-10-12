@@ -15,8 +15,11 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
   - Bare-metal deployments: install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL.
 - HUB_BASE_URL points to a JSON hub endpoint (default: <https://hub-data.crowdsec.net/api/index.json>). Redirects to HTML will be rejected.
   - A loopback hub mirror is no longer reachable from the hub client; RFC 1918 hosts were already blocked.
+  - The hub address must be an `https` address on the official CrowdSec hub hosts. Custom `http`, local, or other mirror addresses are not supported.
 - Proxy env is set when required: HTTP(S)_PROXY and NO_PROXY are respected by the hub client.
 - For slow or proxied networks, increase HUB_PULL_TIMEOUT_SECONDS (default 25) and HUB_APPLY_TIMEOUT_SECONDS (default 45) to avoid premature timeouts.
+- The config file editor hides CrowdSec's account and connection credential files; they remain on disk (see `docker exec charon ls -la /app/data/crowdsec/config`).
+- Backups sit next to the CrowdSec data folder, named `crowdsec.backup.<timestamp>` and `crowdsec.filebackup.<timestamp>`. Acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file. For manual recovery, run `docker exec charon ls -la /app/data` to find them, stop CrowdSec, copy the one you want back, then start it again.
 - Preset workflow: pull from Hub using cache keys/ETags → preview changes → apply with automatic backup and reload flag.
 - Preset pull/apply requires either cscli or cached presets.
 - Offline/curated presets remain available at all times.
@@ -62,13 +65,13 @@ docker exec charon cscli lapi status
 
 **Expected output when ready:**
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
 **If LAPI is not ready yet:**
 
-```
+```text
 ERROR: connection refused
 ```
 
@@ -132,7 +135,7 @@ docker exec charon ps aux | grep crowdsec
 
 **Expected output:**
 
-```
+```text
 crowdsec  203  0.5  2.3  /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
 ```
 
@@ -168,7 +171,7 @@ docker exec charon cscli machines list
 
 **Expected output:**
 
-```
+```text
 Name                     IP Address      Auth Type    Version
 charon-local-machine     127.0.0.1      password     v1.x.x
 ```
@@ -190,6 +193,11 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 - Hub unreachable (503): retry once, then Charon falls back to cached Hub data if available; otherwise stay on curated/offline presets until connectivity returns.
 - Hub returns HTML/redirect: set HUB_BASE_URL to the JSON endpoint above or install cscli so the index is fetched locally.
 - Bad preset slug (400): the slug must match Hub naming; correct the slug before retrying.
+- **"Install missing hub items" says the hub could not be reached**: nothing was installed and nothing was changed. Check that the container has internet access and can resolve names (DNS), then click the button again. Items that were not reached in time can be retried with **Install remaining**.
+- **Import refused because the archive keeps its configuration at the top level**: this CrowdSec reads its settings from the `config/` folder. Export a configuration from the CrowdSec page, or put your files in a `config/` folder inside the archive. Nothing was changed. See the [CrowdSec feature guide](../features/crowdsec.md).
+- **Import refused after saying the current profile was kept**: your archive has no `profiles.yaml`, so Charon kept the current one, but it names notifications your archive has no files for. Add those notification files to the archive, or include your own `profiles.yaml`. Nothing was changed.
+- **Import refused because a profile names notifications that have no matching file**: your imported alert profiles refer to notification names that are not in the archive. Add the missing notification files to the configuration, or remove those names from the profile, then import again. Nothing was changed by the refused import.
+- **An imported notification does not send, or the import card says files "still need values"**: exports blank passwords, tokens and webhook addresses in notification files, and only notifications that already exist on this system with the same type, name and target get their values back. Open each listed file in the config file editor and enter the real values, or import again after adding them. If a file used YAML anchors or aliases and came back blanked on the same system, your earlier values are in the `.backup.` copy Charon made next to your data folder before the import. See the [CrowdSec feature guide](../features/crowdsec.md).
 - Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue.
 - Apply not supported (501): use curated/offline presets; Hub apply will be re-enabled when supported in your environment.
 - **Security Engine Offline**: If your dashboard says "Offline", it means CrowdSec LAPI is not running.
@@ -251,7 +259,7 @@ docker exec charon sqlite3 /app/data/charon.db \
 
 **Expected output:**
 
-```
+```text
 security.crowdsec.enabled|true
 ```
 
@@ -264,14 +272,14 @@ docker exec charon sqlite3 /app/data/charon.db \
 
 **Expected output:**
 
-```
+```text
 default|local|1
 ```
 
 **Mismatch scenarios:**
 
 | Settings | SecurityConfig | Behavior | Fix Needed |
-|----------|----------------|----------|------------|
+| ---------- | ---------------- | ---------- | ------------ |
 | `true` | `local` | ✅ Auto-starts | None |
 | `true` | `disabled` | ❌ Does NOT start | Run Solution 2 |
 | `true` | (missing) | ⚠️ Should auto-create | Run Solution 3 |
@@ -396,14 +404,14 @@ EOF
 
 **Expected output (both enabled):**
 
-```
+```text
 Settings:|true
 SecurityConfig:|local
 ```
 
 **Expected output (both disabled):**
 
-```
+```text
 Settings:|false
 SecurityConfig:|disabled
 ```
@@ -507,7 +515,7 @@ Upgrading from an older version with a **persistent database** may be missing th
 
    **Expected output:**
 
-   ```
+   ```text
    ✓ You can successfully interact with Local API (LAPI)
    ```
 
@@ -565,13 +573,13 @@ Charon now checks LAPI availability before enrollment and retries automatically 
 
    **Expected output when ready:**
 
-   ```
+   ```text
    ✓ You can successfully interact with Local API (LAPI)
    ```
 
    **If LAPI is not running:**
 
-   ```
+   ```text
    ERROR: cannot contact local API
    ```
 

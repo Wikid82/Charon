@@ -7,7 +7,7 @@ This document describes the DNS provider types available in Charon for DNS-01 ch
 Charon supports multiple DNS provider types to accommodate different deployment scenarios:
 
 | Provider Type | Use Case | Security Level |
-|---------------|----------|----------------|
+| --------------- | ---------- | ---------------- |
 | **API-Based** | Cloudflare, Route53, DigitalOcean, etc. | ✅ Recommended |
 | **RFC 2136** | Self-hosted BIND9, PowerDNS, Knot DNS | ✅ Recommended |
 | **Webhook** | Custom DNS APIs, automation platforms | ⚠️ Moderate |
@@ -29,7 +29,7 @@ RFC 2136 Dynamic DNS Update allows Charon to directly update DNS records on auth
 ### Configuration
 
 | Field | Required | Default | Description |
-|-------|----------|---------|-------------|
+| ------- | ---------- | --------- | ------------- |
 | `nameserver` | ✅ | — | DNS server hostname or IP address |
 | `tsig_key_name` | ✅ | — | TSIG key name (e.g., `acme-update.`) |
 | `tsig_key_secret` | ✅ | — | Base64-encoded TSIG key secret |
@@ -40,7 +40,7 @@ RFC 2136 Dynamic DNS Update allows Charon to directly update DNS records on auth
 ### TSIG Algorithms
 
 | Algorithm | Recommendation |
-|-----------|----------------|
+| ----------- | ---------------- |
 | `hmac-sha256` | ✅ **Recommended** — Good balance of security and compatibility |
 | `hmac-sha384` | ✅ Secure — Higher security, wider key |
 | `hmac-sha512` | ✅ Secure — Maximum security |
@@ -97,7 +97,7 @@ The Webhook provider enables integration with custom DNS APIs or automation plat
 ### Configuration
 
 | Field | Required | Default | Description |
-|-------|----------|---------|-------------|
+| ------- | ---------- | --------- | ------------- |
 | `create_url` | ✅ | — | URL to call when creating TXT records |
 | `delete_url` | ✅ | — | URL to call when deleting TXT records |
 | `auth_header` | ❌ | — | HTTP header name for authentication (e.g., `Authorization`) |
@@ -111,7 +111,7 @@ The Webhook provider enables integration with custom DNS APIs or automation plat
 The following variables are available in `create_url` and `delete_url`:
 
 | Variable | Description | Example |
-|----------|-------------|---------|
+| ---------- | ------------- | --------- |
 | `{{fqdn}}` | Full record name | `_acme-challenge.example.com` |
 | `{{domain}}` | Base domain | `example.com` |
 | `{{value}}` | TXT record value | `dGVzdC12YWx1ZQ==` |
@@ -164,7 +164,7 @@ Content-Type: application/json
 ### Expected Responses
 
 | Status Code | Meaning |
-|-------------|---------|
+| ------------- | --------- |
 | `200`, `201`, `204` | Success |
 | `4xx` | Client error — check configuration |
 | `5xx` | Server error — will retry based on `retry_count` |
@@ -187,7 +187,7 @@ PowerDNS is available as a plugin. Enter the address of your PowerDNS API and yo
 ### Which Addresses Work
 
 | Address | Allowed? |
-|---|---|
+| --- | --- |
 | Your server's LAN address (like `192.168.1.20`) or a Docker network address | Yes |
 | Tailscale-style addresses (`100.64.x.x`) | Yes |
 | `localhost`, `127.0.0.1`, `::1` (the Charon host itself) | No — use your server's LAN or Docker network address instead |
@@ -222,7 +222,7 @@ The Script provider executes shell scripts to manage DNS records, enabling integ
 ### Configuration
 
 | Field | Required | Default | Description |
-|-------|----------|---------|-------------|
+| ------- | ---------- | --------- | ------------- |
 | `script_path` | ✅ | — | Path to script (must be in `/scripts/`) |
 | `timeout_seconds` | ❌ | `60` | Maximum script execution time |
 | `env_vars` | ❌ | — | Environment variables (`KEY=VALUE` format) |
@@ -232,7 +232,7 @@ The Script provider executes shell scripts to manage DNS records, enabling integ
 Scripts receive DNS operation details via environment variables:
 
 | Variable | Description | Example |
-|----------|-------------|---------|
+| ---------- | ------------- | --------- |
 | `DNS_ACTION` | Operation type | `create` or `delete` |
 | `DNS_FQDN` | Full record name | `_acme-challenge.example.com` |
 | `DNS_DOMAIN` | Base domain | `example.com` |
@@ -242,7 +242,7 @@ Scripts receive DNS operation details via environment variables:
 **Exit Codes:**
 
 | Code | Meaning |
-|------|---------|
+| ------ | --------- |
 | `0` | Success |
 | `1` | Failure (generic) |
 | `2` | Configuration error |
@@ -292,7 +292,7 @@ esac
 ### Security Requirements
 
 | Requirement | Details |
-|-------------|---------|
+| ------------- | --------- |
 | **Script Location** | Must be in `/scripts/` directory (enforced) |
 | **Permissions** | Script must be executable (`chmod +x`) |
 | **Audit** | Review all scripts before deployment |
@@ -313,7 +313,7 @@ esac
 ## Provider Comparison
 
 | Feature | RFC 2136 | Webhook | Script |
-|---------|----------|---------|--------|
+| --------- | ---------- | --------- | -------- |
 | **Setup Complexity** | Medium | Low | High |
 | **Security** | High (TSIG) | Medium (HTTPS) | Low (shell) |
 | **Flexibility** | DNS servers only | HTTP APIs | Unlimited |

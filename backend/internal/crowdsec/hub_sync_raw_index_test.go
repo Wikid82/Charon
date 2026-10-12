@@ -10,7 +10,7 @@ import (
 
 func TestFetchIndexParsesRawIndexFormat(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
-	svc.HubBaseURL = "http://example.com"
+	svc.HubBaseURL = "https://hub.crowdsec.net"
 
 	// This JSON represents the "raw" index format (map of maps) which has no "items" field.
 	// json.Unmarshal into HubIndex will succeed but result in empty Items.
@@ -33,7 +33,7 @@ func TestFetchIndexParsesRawIndexFormat(t *testing.T) {
 	}`
 
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.String() == "http://example.com"+defaultHubIndexPath {
+		if req.URL.String() == "https://hub.crowdsec.net"+defaultHubIndexPath {
 			resp := newResponse(http.StatusOK, rawIndexBody)
 			resp.Header.Set("Content-Type", "application/json")
 			return resp, nil

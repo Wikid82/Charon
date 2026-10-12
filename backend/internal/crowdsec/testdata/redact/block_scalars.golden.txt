@@ -1,0 +1,10 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: block
+url: <charon-redacted>
+headers:
+  A: <charon-redacted>
+format: >
+  {{.|toJson}} kept
+

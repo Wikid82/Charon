@@ -47,18 +47,78 @@ export async function statusCrowdsec(): Promise<CrowdSecStatus> {
   return resp.data
 }
 
+/** A CrowdSec hub item identified by its type and name. */
+export interface HubItem {
+  type: string
+  name: string
+}
+
+/** Why a hub item was not installed by a restore. */
+export type HubItemFailureReason = 'not_found' | 'install_failed' | 'verify_failed' | 'not_attempted'
+
+/** A hub item the restore could not install. */
+export interface HubItemFailure extends HubItem {
+  reason: HubItemFailureReason
+}
+
+/** Hub item summary returned by an import of an export that lists hub items. */
+export interface ImportHubItems {
+  in_export: number
+  skipped_invalid: number
+  missing: HubItem[]
+}
+
+/** Result of a CrowdSec configuration import. */
+export interface ImportCrowdsecResult {
+  status?: string
+  backup?: string
+  hub_items?: ImportHubItems
+  /** Names of the current files kept because the archive did not contain them. */
+  kept_files?: string[]
+  /** Imported notification files whose blanked values still need to be entered. */
+  needs_values?: string[]
+}
+
+/** Result of a hub item restore. */
+export interface RestoreHubItemsResult {
+  installed: HubItem[]
+  already_installed: HubItem[]
+  failed: HubItemFailure[]
+  remaining: number
+  skipped_invalid: number
+  reloaded: boolean
+}
+
+/** A restore downloads items one by one; the server budget is 5 minutes. */
+const RESTORE_HUB_ITEMS_TIMEOUT_MS = 330_000
+
 /**
  * Imports a CrowdSec configuration file.
  * @param file - The configuration file to import
  * @returns Promise resolving to import result
  * @throws {AxiosError} If import fails or file is invalid
  */
-export async function importCrowdsecConfig(file: File) {
+export async function importCrowdsecConfig(file: File): Promise<ImportCrowdsecResult> {
   const fd = new FormData()
   fd.append('file', file)
-  const resp = await client.post('/admin/crowdsec/import', fd, {
+  const resp = await client.post<ImportCrowdsecResult>('/admin/crowdsec/import', fd, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
+  return resp.data
+}
+
+/**
+ * Installs the given hub items from the official CrowdSec hub.
+ * @param items - The hub items to install
+ * @returns Promise resolving to the per-item outcome
+ * @throws {AxiosError} 409 if a restore is running, 502 if the hub is unreachable
+ */
+export async function restoreHubItems(items: HubItem[]): Promise<RestoreHubItemsResult> {
+  const resp = await client.post<RestoreHubItemsResult>(
+    '/admin/crowdsec/hub-items/restore',
+    { items },
+    { timeout: RESTORE_HUB_ITEMS_TIMEOUT_MS },
+  )
   return resp.data
 }
 
@@ -183,4 +243,4 @@ export const deleteWhitelist = async (uuid: string): Promise<void> => {
   await client.delete(`/admin/crowdsec/whitelist/${uuid}`)
 }
 
-export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, getCrowdsecKeyStatus, listWhitelists, addWhitelist, deleteWhitelist }
+export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, restoreHubItems, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, getCrowdsecKeyStatus, listWhitelists, addWhitelist, deleteWhitelist }

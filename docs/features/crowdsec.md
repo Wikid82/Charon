@@ -54,6 +54,32 @@ Popular presets include:
 - **Bad User-Agents** — Block known malicious bots
 - **CVE Exploits** — Protection against known vulnerabilities
 
+#### Curated Presets
+
+Charon also ships curated presets such as **Honeypot Friendly Defaults** and **GeoIP Enrichment** (`geoip-enrichment`, formerly `geolocation-aware`; it adds IP geolocation data to alerts and does not block by region). Curated presets are installed on the server with `cscli`, after a backup is taken. If the install fails, the backup is rolled back, and Charon shows the server's error instead of a success message. After a preset is applied (and after whitelist changes), Charon signals the CrowdSec process it manages to reload so new rules take effect. If CrowdSec is not running or the reload cannot be confirmed, a "reload required" note appears and the rules load the next time CrowdSec starts or restarts.
+
+#### Safe Applies and Rollback
+
+Hub presets are applied on the server too, with the same safety net: before anything changes, Charon makes a backup copy of your CrowdSec settings. If something goes wrong, your settings are put back exactly as they were, and Charon shows you the error. Your live CrowdSec folder is never moved or emptied along the way.
+
+- Charon keeps the 5 most recent full backups and the 10 most recent single-file backups, and quietly deletes older ones.
+- Only one change runs at a time, so two edits can't collide.
+- The config file editor only accepts common text and settings files (`.yaml`, `.yml`, `.json`, `.txt`, `.conf`) up to 1 MiB, and validates file type, size and YAML.
+- The config file editor does not list CrowdSec's account and connection credential files. They stay safely on disk; an operator can still reach them from the container shell if needed.
+- An exported CrowdSec configuration is meant for moving settings, not for sharing. CrowdSec's account and connection details are not included. In your notification files, passwords, tokens and webhook addresses are blanked and replaced with `<charon-redacted>`, while names, types and other plain settings stay readable. Settings written as `${NAME}` environment references are kept as they are, comments in notification files are not kept, and stray non-YAML files (such as `.bak` or `.txt`) in a notifications folder are left out. Database settings and anything else in the configuration are still included, so keep treating the file as private. When you import one, your running system keeps its own. Its installed hub items and runtime state stay as they are, so an import cannot remove or change them. An exported configuration no longer contains the downloaded hub data; CrowdSec downloads it again when needed. CrowdSec re-creates its local connection details on its own. If you move to a new host and use community blocklists or the CrowdSec Console, re-enable console enrollment there.
+- When you import a blanked export, notifications that already exist on your system with the same type, name and target keep their current values. For any other notification file the placeholders stay, and the import card lists the files that still need values. Open each one in the config file editor and enter the real values. Importing a blanked export with an older version of Charon writes the placeholder into the file as plain text, so edit those values afterwards.
+- A few limits to know about: the `format` message template is kept exactly as written (put secrets in `${NAME}` references, not in the template); the names of settings Charon does not recognize are kept, but their values are blanked; a notification folder you moved outside the data folder is not exported, and the `/etc/crowdsec` shortcut for a moved folder only works with the standard `config/` layout. Files that use YAML anchors, aliases or merge keys are never filled in from your current values, so they come back blanked and are listed on the card. The copy Charon makes of your current settings before an import (the `.backup.` folder next to your data folder) still has the original values.
+- If Charon cannot safely blank a notification file, it exports that file as an empty one. If an alert profile uses a notification that only that file defined, importing the export is refused until you define the notification again.
+- An exported configuration also lists which hub items (collections, parsers, scenarios and so on) were installed on the system it came from. After an import, if some of those items are not installed on this system, the CrowdSec page offers an **Install missing hub items** button. It downloads and installs them from the official CrowdSec hub. This needs an internet connection and can take several minutes. If the hub cannot be reached, nothing is installed and you can simply try again later. If some items were not reached in time, an **Install remaining** button lets you retry just those. Items that are already installed are never removed or changed by an import.
+- Before changing anything, an import checks that every notification name used by your alert profiles exists in the imported configuration. If any are missing, the import is refused and the message lists the missing names.
+- If your CrowdSec already keeps its settings in the `config/` folder (every normal Charon install does), an import must keep them there too. An archive with its settings at the top level is refused with a clear message and nothing changes. Export a configuration from this page, or put the files in a `config/` folder inside the archive, then try again.
+- CrowdSec cannot start without `profiles.yaml`, `simulation.yaml`, `acquis.yaml` and a `patterns/` folder. If your archive leaves any of them out, Charon keeps the current ones and the import card lists which were kept. If a kept `profiles.yaml` names notifications, those notification files are kept too. If they still cannot be matched, the import is refused and nothing changes.
+- Limits: a file or folder is kept only when it is missing entirely. One that is present but incomplete (for example a `patterns/` folder with a single file) is used as it is and is not repaired, so CrowdSec may fail to start. The `acquis.d/` folder is not checked. After a restart, Charon recreates `acquis.yaml` if it is missing, but not the other three.
+- Installing missing hub items now reports an error if CrowdSec's list of installed items cannot be read, and says what was already installed. Trying again is safe. Configuration changes also stop waiting if you cancel or close the request.
+- The export and import messages are translated into your language.
+- The CrowdSec import accepts only `.tar.gz` archives and checks that the main configuration file is valid YAML before applying anything. If it isn't, Charon tells you what's wrong, for example `config.yaml is not valid YAML` or `only .tar.gz archives are supported`.
+- Backups are shown by name and are stored next to the CrowdSec data folder (for example `/app/data/`). Full snapshots are named `crowdsec.backup.<timestamp>`, single-file saves `crowdsec.filebackup.<timestamp>`. Saved acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file instead. To recover by hand, stop CrowdSec, copy the backup you want back into place, and start it again.
+
 ### Console Enrollment
 
 Connect to the CrowdSec Console for centralized management:
@@ -87,6 +113,35 @@ CrowdSec settings are stored in Charon's database and synchronized with the Secu
 - **On Container Start** — CrowdSec launches automatically if previously enabled
 - **Configuration Sync** — Changes in the UI immediately apply to CrowdSec
 - **State Persistence** — Decisions and configurations survive restarts
+- **Downloaded Data Survives Recreating the Container** — CrowdSec's own database and the lists it downloads (such as blocklists and the location database) are stored in your Charon data folder. If any are missing after an upgrade, Charon re-downloads them on startup. If the CrowdSec Hub is unreachable, a restart with missing data files may take up to about two minutes longer while the refresh times out.
+
+## Managing the CrowdSec bouncer key
+
+The bouncer key is the password Charon's built-in firewall layer uses to talk to CrowdSec. Charon creates and registers it for you the first time CrowdSec starts, so most people never need to touch it.
+
+**Where it lives:** Charon saves the key in a private file at `/app/data/crowdsec/bouncer_key` inside your data folder (readable only by Charon).
+
+**Which key Charon uses:** If that saved file exists, Charon uses it. Only when there is no saved file does Charon fall back to a key you set in your compose file's environment variables. Changing the environment variable does not switch a running setup away from the saved file.
+
+**See it in the UI:** Open the CrowdSec page and look at the **Bouncer API Key** card. It shows a shortened preview of the key, whether it is registered, and where the file is stored.
+
+**Replace the key:**
+
+1. Remove the old registration (the bouncer is named `caddy-bouncer`):
+
+   ```bash
+   docker exec charon cscli bouncers delete caddy-bouncer
+   ```
+
+2. Delete the saved key file so Charon makes a fresh one:
+
+   ```bash
+   docker exec charon rm /app/data/crowdsec/bouncer_key
+   ```
+
+3. Restart Charon. It registers the bouncer again and saves the new key.
+
+Replace `charon` with your container's name if it is different.
 
 ## Troubleshooting Console Enrollment
 
@@ -115,7 +170,7 @@ curl http://localhost:8080/api/v1/cerberus/crowdsec/diagnostics/connectivity
 **Common causes and fixes:**
 
 | Cause | Fix |
-|-------|-----|
+| ------- | ----- |
 | Firewall blocking outbound HTTPS | Allow connections to `api.crowdsec.net` on port 443 |
 | DNS resolution failure | Verify `nslookup api.crowdsec.net` works |
 | Proxy not configured | Set `HTTP_PROXY`/`HTTPS_PROXY` environment variables |
@@ -204,9 +259,15 @@ curl -I https://api.crowdsec.net
 **Required outbound connections:**
 
 | Host | Port | Purpose |
-|------|------|---------|
+| --- | --- | --- |
 | `api.crowdsec.net` | 443 | Console API and heartbeats |
 | `hub.crowdsec.net` | 443 | Hub presets download |
+
+### "unable to init data for file" in the CrowdSec Log
+
+**What it means:** CrowdSec looked for one of its downloaded helper lists (like a blocklist or location database) and the file was missing. In older versions this could happen after recreating the container.
+
+**What to do:** Update Charon and restart the container. The missing files are downloaded again automatically (this needs internet access) and the message goes away. Nothing else is needed.
 
 ## Using the Diagnostic Script
 
@@ -243,7 +304,7 @@ The diagnostic script checks CrowdSec connectivity and configuration in one comm
 Access diagnostics programmatically through these API endpoints:
 
 | Endpoint | Method | What It Does |
-|----------|--------|--------------|
+| ---------- | -------- | -------------- |
 | `/api/v1/cerberus/crowdsec/diagnostics/connectivity` | GET | Tests LAPI and CAPI connectivity |
 | `/api/v1/cerberus/crowdsec/diagnostics/config` | GET | Validates enrollment configuration |
 | `/api/v1/cerberus/crowdsec/console/heartbeat` | POST | Forces an immediate heartbeat check |
@@ -274,7 +335,7 @@ curl http://localhost:8080/api/v1/cerberus/crowdsec/diagnostics/connectivity
 Look for these log prefixes when debugging:
 
 | Prefix | What It Means |
-|--------|---------------|
+| -------- | --------------- |
 | `[CROWDSEC_ENROLLMENT]` | Enrollment operations (token validation, CAPI registration) |
 | `[HEARTBEAT_POLLER]` | Background heartbeat service activity |
 | `[CROWDSEC_STARTUP]` | LAPI initialization and startup |
@@ -294,7 +355,7 @@ docker logs charon 2>&1 | grep HEARTBEAT_POLLER
 **Common log patterns:**
 
 | Log Message | Meaning |
-|-------------|---------|
+| ------------- | --------- |
 | `heartbeat sent successfully` | Console communication working |
 | `CAPI registration failed: timeout` | Network issue reaching CrowdSec servers |
 | `enrollment completed` | Console enrollment succeeded |

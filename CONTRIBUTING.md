@@ -73,6 +73,8 @@ The CI-pinned version (currently v2.14.0, see `.github/workflows/quality-checks.
 
 **Note:** Lefthook pre-commit-phase hooks will **BLOCK commits** if golangci-lint finds issues. This is intentional - fix the issues before committing.
 
+Staged `.md` files are also checked by markdownlint on commit (config in `.markdownlint.jsonc`); run `make lint-markdown` to check every tracked markdown file.
+
 ### CI/CD Go Version Management
 
 GitHub Actions workflows automatically use go 1.26.0 via `GOTOOLCHAIN: auto`, which allows the `setup-go` action to download and use the correct Go version even if the CI environment has an older version installed. This ensures consistent builds across all workflows.
@@ -111,7 +113,7 @@ When the project's Go version is updated (usually by Renovate):
 
 Development tools like golangci-lint and gopls are compiled programs. When you upgrade Go, these tools still run on the old version and will break with errors like:
 
-```
+```text
 error: some/file.go:123:4: undefined: runtime.NewlyAddedFunction
 ```
 
@@ -121,7 +123,7 @@ Rebuilding tools with `./scripts/rebuild-go-tools.sh` fixes this by compiling th
 
 Don't worry! The lefthook pre-commit hook will detect the version mismatch and automatically rebuild tools for you. You'll see:
 
-```
+```text
 ⚠️  golangci-lint Go version mismatch:
    golangci-lint: 2.13.0
    system Go:     1.26.0
@@ -181,7 +183,7 @@ npm run dev  # Start frontend dev server
 
 The project uses a three-tier branching model:
 
-```
+```text
 development → nightly → main
    (unstable)    (testing)  (stable)
 ```
@@ -215,7 +217,7 @@ git checkout -b feature/your-feature-name
 
 Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
 
-```
+```text
 <type>(<scope>): <subject>
 
 <body>
@@ -235,7 +237,7 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) specific
 
 **Examples:**
 
-```
+```text
 feat(proxy-hosts): add SSL certificate upload
 
 - Implement certificate upload endpoint
@@ -245,7 +247,7 @@ feat(proxy-hosts): add SSL certificate upload
 Closes #123
 ```
 
-```
+```text
 fix(import): resolve conflict detection bug
 
 When importing Caddyfiles with multiple domains, conflicts
@@ -870,7 +872,7 @@ mkdir -p .github/skills/{skill-name}-scripts
 
 Use the template structure:
 
-```markdown
+````markdown
 ---
 # agentskills.io specification v1.0
 name: "skill-name"
@@ -940,7 +942,7 @@ command example
 **Maintained by**: Charon Project
 **Source**: Original implementation or script path
 
-```
+````
 
 #### 4. Create the Execution Script
 

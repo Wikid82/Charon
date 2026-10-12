@@ -97,7 +97,7 @@ Reduce eye strain during late-night maintenance:
 ### Quick Actions
 
 | Action | How To |
-|--------|--------|
+| -------- | -------- |
 | Add new host | Click **+ Add Host** button |
 | Edit host | Click host row or edit icon |
 | Enable/Disable | Toggle switch in host row |
@@ -107,7 +107,7 @@ Reduce eye strain during late-night maintenance:
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
-|----------|--------|
+| ---------- | -------- |
 | `Ctrl/Cmd + N` | New host |
 | `Ctrl/Cmd + S` | Save current form |
 | `Ctrl/Cmd + F` | Focus search |

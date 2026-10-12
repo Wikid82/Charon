@@ -29,7 +29,7 @@ When you create a proxy host with HTTPS enabled, Charon handles the entire certi
 Navigate to **Settings → Default Settings** to choose your SSL provider:
 
 | Provider | Best For | Rate Limits |
-|----------|----------|-------------|
+| ---------- | ---------- | ------------- |
 | **Auto** | Most users | Caddy selects automatically |
 | **Let's Encrypt (Production)** | Production sites | 50 certs/domain/week |
 | **Let's Encrypt (Staging)** | Testing & development | Unlimited (untrusted certs) |
@@ -67,7 +67,7 @@ This prevents certificate accumulation and keeps your system tidy.
 Over time, expired or unused certificates can pile up in the Certificates list. You can remove them manually:
 
 | Certificate Type | When You Can Delete It |
-|------------------|----------------------|
+| ------------------ | ---------------------- |
 | **Expired Let's Encrypt** | When it's not attached to any proxy host |
 | **Custom (uploaded)** | When it's not attached to any proxy host |
 | **Staging** | When it's not attached to any proxy host |
@@ -84,7 +84,7 @@ You can download a certificate from the Certificates list. If you also want to d
 ## Troubleshooting
 
 | Issue | Solution |
-|-------|----------|
+| ------- | ---------- |
 | Certificate not issued | Ensure ports 80/443 are accessible from the internet |
 | Rate limit exceeded | Switch to Let's Encrypt Staging or ZeroSSL temporarily |
 | Domain validation failed | Verify DNS points to your Charon server |

@@ -159,7 +159,7 @@ docker exec charon cscli lapi status
 
 Expected output:
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
@@ -426,7 +426,7 @@ Charon provides a **3-Tier Break Glass Protocol** for emergency lockout recovery
 ### Overview of the 3-Tier System
 
 | Tier | Method | Use When | Security Layer |
-|------|--------|----------|----------------|
+| ------ | -------- | ---------- | ---------------- |
 | **Tier 1** | Emergency Token (Digital Key) | Application accessible but security blocking | Layer 7 bypass middleware |
 | **Tier 2** | Emergency Server (Sidecar Door) | Caddy/CrowdSec blocking main endpoint | Separate port with minimal security |
 | **Tier 3** | Direct System Access (Physical Key) | Complete system failure | SSH/console access to host |
@@ -474,7 +474,7 @@ Use when all application-level recovery methods fail, or you need to perform sys
 
 ### Diagram: 3-Tier Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                    TIER 1: DIGITAL KEY                  │
 │  Emergency Token → Emergency Bypass Middleware → PASS   │
@@ -606,7 +606,7 @@ head -c 32 /dev/urandom | xxd -p -c 64
 **For organizations with compliance requirements:**
 
 | Environment | Rotation Frequency | Minimum Length | Additional Requirements |
-|-------------|-------------------|----------------|------------------------|
+| ------------- | ------------------- | ---------------- | ------------------------ |
 | Development | 180 days | 32 bytes | Document in dev handbook |
 | Staging | 90 days | 32 bytes | Separate from production |
 | Production | 90 days | 32 bytes | Secrets manager, audit trail |
@@ -822,7 +822,7 @@ Charon logs all emergency access attempts with detailed context:
 **Logged Events:**
 
 | Event | Log Level | Fields Captured |
-|-------|-----------|-----------------|
+| ------- | ----------- | ----------------- |
 | Emergency token attempt (success) | WARN | Timestamp, IP, user-agent, path, token_valid=true |
 | Emergency token attempt (failure) | WARN | Timestamp, IP, user-agent, path, token_valid=false, reason |
 | Emergency token rate limit hit | WARN | Timestamp, IP, user-agent, attempts=6+ |
@@ -831,7 +831,7 @@ Charon logs all emergency access attempts with detailed context:
 
 **Example Log Entries:**
 
-```
+```text
 [WARN] Emergency bypass active: IP=192.168.1.100, path=/api/v1/emergency/security-reset
 [INFO] Emergency token validation: result=success, ip=192.168.1.100, timing=2ms
 [INFO] Security module disabled: module=security.acl.enabled, reason=emergency_reset, ip=192.168.1.100
@@ -945,7 +945,7 @@ docker logs charon --timestamps | grep "emergency" | sort
 
 ### Internal Admin Panels (Router, Pi-hole, etc.)
 
-```
+```text
 Access List: Local Network Only
 ```
 
@@ -953,7 +953,7 @@ Blocks all public internet traffic.
 
 ### Personal Blog or Portfolio
 
-```
+```text
 No access list
 WAF: Enabled
 CrowdSec: Enabled
@@ -963,7 +963,7 @@ Keep it open for visitors, but protect against attacks.
 
 ### Password Manager (Vaultwarden, etc.)
 
-```
+```text
 Access List: IP Whitelist (your home IP)
 Or: Geo Whitelist (your country only)
 ```
@@ -972,7 +972,7 @@ Most restrictive. Only you can access it.
 
 ### Media Server (Plex, Jellyfin)
 
-```
+```text
 Access List: Geo Blacklist (high-risk countries)
 CrowdSec: Enabled
 ```
@@ -1338,7 +1338,7 @@ Charon uses two types of storage:
    - **Caddy Logs**: `/var/log/caddy/` - Access logs monitored by CrowdSec
    - **CrowdSec Logs**: `/var/log/crowdsec/` - Agent and LAPI logs
    - **Runtime Config**: `/config/` - Dynamically generated Caddy JSON configuration
-   - **CrowdSec Runtime**: `/var/lib/crowdsec/` - CrowdSec agent runtime data
+   - **CrowdSec Runtime**: `/var/lib/crowdsec/` - Scratch space only. The CrowdSec database and hub data files (blocklists, GeoIP databases) live on the persistent volume under `/app/data/crowdsec/data`
    - **Temporary Files**: `/tmp/` - Used by CrowdSec hub operations
    - **Runtime State**: `/run/` - PIDs and runtime state files
 
@@ -1537,7 +1537,7 @@ docker exec charon ls -la /app/data
 
 **CrowdSec fails to start:**
 
-- Verify `/var/lib/crowdsec` tmpfs mount exists
+- Verify `/var/lib/crowdsec` tmpfs mount exists (scratch space only; CrowdSec data lives under `/app/data/crowdsec/data` and must be on the volume)
 - Check `/app/data/crowdsec` volume is writable
 - Ensure symlink `/etc/crowdsec -> /app/data/crowdsec/config` is preserved
 
@@ -1630,7 +1630,7 @@ The WAF (Coraza) uses the OWASP Core Rule Set to detect attack patterns. Even if
 
 **Example:** A zero-day SQLi exploit discovered today:
 
-```
+```text
 https://yourapp.com/search?q=' OR '1'='1
 ```
 
@@ -1670,7 +1670,7 @@ https://yourapp.com/search?q=' OR '1'='1
 
 When accessing Charon over HTTP on non-localhost IP addresses (e.g., `http://192.168.1.100:8080`), you may see this browser console warning:
 
-```
+```text
 Cross-Origin-Opener-Policy policy would block the window.closed call.
 ```
 
@@ -1725,7 +1725,7 @@ proxy_set_header X-Real-IP $remote_addr;
 
 Check your browser's developer tools → Network → Response Headers:
 
-```
+```text
 Cross-Origin-Opener-Policy: same-origin-allow-popups
 Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 ```

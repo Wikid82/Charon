@@ -6,7 +6,7 @@ This document explains how the new comprehensive debugging infrastructure helps 
 
 ### BEFORE: Generic Failure Output
 
-```
+```text
   ✗ [chromium] › tests/settings/account-settings.spec.ts › should validate certificate email format
     Timeout 30s exceeded, waiting for expect(locator).toBeDisabled()
        at account-settings.spec.ts:290
@@ -25,7 +25,7 @@ This document explains how the new comprehensive debugging infrastructure helps 
 
 #### 1. **Test Step Logging** (From enhanced global-setup.ts)
 
-```
+```text
 ✅ Global setup complete
 
 🔍 Health Checks:
@@ -41,7 +41,7 @@ This document explains how the new comprehensive debugging infrastructure helps 
 
 #### 2. **Network Activity Logging** (From network.ts interceptor)
 
-```
+```text
 📡 Network Log (automatic)
 ────────────────────────────────────────────────────────────
 Timestamp    │ Method │ URL                         │ Status │ Duration
@@ -57,7 +57,7 @@ Timestamp    │ Method │ URL                         │ Status │ Duration
 
 #### 3. **Locator Matching Logs** (From debug-logger.ts)
 
-```
+```text
 🎯 Locator Actions:
 ────────────────────────────────────────────────────────────
 [03:48:14.123] ✅ getByRole('button', {name: /save certificate/i}) matched [8ms]
@@ -77,7 +77,7 @@ Timestamp    │ Method │ URL                         │ Status │ Duration
 
 #### 4. **Assertion Logging** (From debug-logger.ts)
 
-```
+```text
 ✓ Assert: "button is enabled" PASS          [15ms]
   └─ Expected: enabled=true
   └─ Actual: enabled=true
@@ -96,7 +96,7 @@ Timestamp    │ Method │ URL                         │ Status │ Duration
 
 #### 5. **Timing Analysis** (From debug reporter)
 
-```
+```text
 📊 Test Timeline:
 ────────────────────────────────────────────────────────────
  0ms  │ ✅ Navigate to /account
@@ -126,7 +126,7 @@ The test details page shows:
 
 **Console Logs Section**:
 
-```
+```text
 [debug] 03:48:12.456: Step "Navigate to account settings"
 [debug]   └─ URL transitioned from / to /account
 [debug]   └─ Page loaded in 1234ms
@@ -176,7 +176,7 @@ The video shows:
 
 **Debug Output**:
 
-```
+```text
 ⏱️  Operation Timeline:
   [03:48:14.000] ← Start waiting for locator
   [03:48:14.100]   Network request pending: GET /api/data [+2400ms]
@@ -203,7 +203,7 @@ await expect(locator).toBeVisible({timeout: 10000}); // Increase timeout
 
 **Debug Output**:
 
-```
+```text
 ✋ Assertion failed: toBeDisabled()
   Expected: disabled=true
   Actual: disabled=false
@@ -252,7 +252,7 @@ const isFormValid = !hasValidationErrors;
 
 **Debug Output**:
 
-```
+```text
 🚨 Strict Mode Violation: Multiple elements matched
   Selector: getByRole('button', {name: /save/i})
 
@@ -297,7 +297,7 @@ await page.getByRole('button', {name: /save/i}).click();
 
 **Debug Output**:
 
-```
+```text
 ❌ Network Error
   Request: POST /api/account/email
   Status: 422 Unprocessable Entity
@@ -372,7 +372,7 @@ test('should validate certificate email format', async ({page}) => {
 
 **Debug Output Sequence**:
 
-```
+```text
 1️⃣  Navigate to /account
     ✅ Page loaded [1234ms]
 
@@ -439,7 +439,7 @@ test('should validate certificate email format', async ({page}) => {
 
 After tests complete, you'll see:
 
-```
+```text
 ⏱️  Slow Tests (>5s):
 ────────────────────────────────────────────────────────────
 1. test name [16.25s] ← Takes 16+ seconds to run/timeout

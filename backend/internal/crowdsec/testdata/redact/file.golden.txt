@@ -1,0 +1,15 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: file
+name: file_default
+log_level: info
+log_path: /var/log/crowdsec_alerts.log
+rotate:
+  enabled: true
+  max_size: 500
+  max_files: 5
+  max_age: 5
+  compress: true
+  hook: <charon-redacted>
+format: |
+  {{range . -}}{{.Value}}{{end -}}

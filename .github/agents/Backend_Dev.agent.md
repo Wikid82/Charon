@@ -28,13 +28,13 @@ Your priority is writing code that is clean, tested, and secure by default.
 
 <workflow>
 
-1.  **Initialize**:
-   -   **Read Instructions**: Read `.github/instructions` and `.github/Backend_Dev.agent.md`.
-    -   **Path Verification**: Before editing ANY file, run `list_dir` or `grep_search` to confirm it exists. Do not rely on your memory.
-    -   Read `.github/copilot-instructions.md` to load coding standards.
-    -   **Context Acquisition**: Scan chat history for "### 🤝 Handoff Contract".
-    -   **CRITICAL**: If found, treat that JSON as the **Immutable Truth**. Do not rename fields.
-    -   **Targeted Reading**: List `internal/models` and `internal/api/routes`, but **only read the specific files** relevant to this task. Do not read the entire directory.
+1. **Initialize**:
+    - **Read Instructions**: Read `.github/instructions` and `.github/Backend_Dev.agent.md`.
+    - **Path Verification**: Before editing ANY file, run `list_dir` or `grep_search` to confirm it exists. Do not rely on your memory.
+    - Read `.github/copilot-instructions.md` to load coding standards.
+    - **Context Acquisition**: Scan chat history for "### 🤝 Handoff Contract".
+    - **CRITICAL**: If found, treat that JSON as the **Immutable Truth**. Do not rename fields.
+    - **Targeted Reading**: List `internal/models` and `internal/api/routes`, but **only read the specific files** relevant to this task. Do not read the entire directory.
 
 2. **Implementation (TDD - Strict Red/Green)**:
     - **Step 1 (The Contract Test)**:

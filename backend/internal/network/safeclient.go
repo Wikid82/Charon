@@ -262,10 +262,6 @@ type ClientOptions struct {
 	// Use only for testing or when connecting to known-safe local services.
 	AllowLocalhost bool
 
-	// AllowedDomains restricts requests to specific domains (optional).
-	// If set, only these domains will be allowed (in addition to localhost if AllowLocalhost is true).
-	AllowedDomains []string
-
 	// MaxRedirects sets the maximum number of redirects to follow (default: 0)
 	// Set to 0 to disable redirects entirely.
 	MaxRedirects int
@@ -303,7 +299,6 @@ func defaultOptions() ClientOptions {
 	return ClientOptions{
 		Timeout:        10 * time.Second,
 		AllowLocalhost: false,
-		AllowedDomains: nil,
 		MaxRedirects:   0,
 		DialTimeout:    5 * time.Second,
 	}
@@ -321,14 +316,6 @@ func WithTimeout(timeout time.Duration) Option {
 func WithAllowLocalhost() Option {
 	return func(opts *ClientOptions) {
 		opts.AllowLocalhost = true
-	}
-}
-
-// WithAllowedDomains restricts requests to specific domains.
-// When set, only requests to these domains will be permitted.
-func WithAllowedDomains(domains ...string) Option {
-	return func(opts *ClientOptions) {
-		opts.AllowedDomains = append(opts.AllowedDomains, domains...)
 	}
 }
 

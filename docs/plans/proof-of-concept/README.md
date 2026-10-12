@@ -20,7 +20,7 @@ This directory contains the proof-of-concept deliverables for the Agent Skills m
 ## Contents
 
 | File | Description | Status |
-|------|-------------|--------|
+| ------ | ------------- | -------- |
 | [test-backend-coverage.SKILL.md](./test-backend-coverage.SKILL.md) | Complete, validated SKILL.md example | ✅ Validated |
 | [validate-skills.py](./validate-skills.py) | Frontmatter validation tool | ✅ Functional |
 | [SUPERVISOR_REVIEW_SUMMARY.md](./SUPERVISOR_REVIEW_SUMMARY.md) | Complete review summary for Supervisor | ✅ Complete |
@@ -36,7 +36,7 @@ python3 validate-skills.py --single test-backend-coverage.SKILL.md
 
 Expected output:
 
-```
+```text
 ✓ test-backend-coverage.SKILL.md is valid
 ```
 
@@ -93,7 +93,7 @@ The POC is based on the actual `go-test-coverage.sh` script:
 
 ## Validation Results
 
-```
+```text
 ✓ test-backend-coverage.SKILL.md is valid
 
 Validation Checks Passed:

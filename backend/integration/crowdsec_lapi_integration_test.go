@@ -532,8 +532,6 @@ func TestCrowdSecDiagnosticsConfig(t *testing.T) {
 	optionalFields := []string{
 		"config_valid",
 		"acquis_valid",
-		"config_path",
-		"acquis_path",
 	}
 
 	for _, field := range optionalFields {

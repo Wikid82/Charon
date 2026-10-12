@@ -2,21 +2,25 @@ package handlers
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -29,6 +33,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/util"
 
 	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
 
@@ -74,6 +79,25 @@ type CrowdsecHandler struct {
 	// without mutating package-level state (which causes data races).
 	validateLAPIURL func(string) (*url.URL, error)
 
+	// signalProcess delivers a signal to a PID; overridable in tests.
+	signalProcess func(pid int, sig syscall.Signal) error
+
+	// registerScriptPath overrides the bouncer registration script location; overridable in tests.
+	registerScriptPath string
+
+	// mergeNotifications and scanPlaceholders are the import's notification steps; overridable in tests.
+	mergeNotifications func(snapshotDir, dataDir string) error
+	scanPlaceholders   func(dataDir string) ([]string, error)
+
+	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
+	// and the export build; an export holds it only while writing its temporary file, never while sending.
+	// Lock order is always dataMu first, then HubService.mu.
+	// The wait is abandoned when the request ends (see lockData).
+	dataMu ctxMutex
+
+	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
+	restore hubRestoreState
+
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
 
@@ -87,8 +111,9 @@ type CrowdsecHandler struct {
 
 // Bouncer auto-registration constants.
 const (
-	bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
-	bouncerName    = "caddy-bouncer"
+	bouncerKeyFile               = "/app/data/crowdsec/bouncer_key"
+	bouncerName                  = "caddy-bouncer"
+	defaultRegisterBouncerScript = "/usr/local/bin/register_bouncer.sh"
 )
 
 // resolveLAPIURLValidator returns the handler's validator or the default.
@@ -184,14 +209,13 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 		return fmt.Errorf("archive exceeds maximum size: %d > %d", info.Size(), v.MaxSize)
 	}
 
-	// Detect format
-	format, err := detectArchiveFormat(path)
-	if err != nil {
-		return err
+	// Only tar.gz is supported
+	if formatErr := requireTarGz(path); formatErr != nil {
+		return formatErr
 	}
 
 	// Calculate uncompressed size and check for zip bombs
-	uncompressedSize, err := calculateUncompressedSize(path, format)
+	uncompressedSize, err := calculateUncompressedSize(path)
 	if err != nil {
 		return err
 	}
@@ -207,157 +231,199 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 	}
 
 	// List contents and verify required files
-	contents, err := listArchiveContents(path, format)
+	contents, err := listArchiveContents(path)
 	if err != nil {
 		return err
 	}
 
 	for _, required := range v.RequiredFiles {
-		found := false
-		for _, file := range contents {
-			if filepath.Base(file) == required || file == required {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("required file missing: %s", required)
+		if err := requireArchiveFile(contents, required); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-// detectArchiveFormat detects the archive format (tar.gz or zip).
-func detectArchiveFormat(path string) (string, error) {
-	ext := strings.ToLower(filepath.Ext(path))
-
-	if strings.HasSuffix(strings.ToLower(path), ".tar.gz") {
-		return "tar.gz", nil
+// requireArchiveFile checks that the archive holds file at the top level or in config/, after the same
+// normalisation the extractor applies ("./a", "a//b" and "b/../a" are spelled alike). A copy in any
+// other folder, such as parsers/config.yaml, does not count. An entry that would leave the destination
+// is reported as invalid instead of missing.
+func requireArchiveFile(contents []string, file string) error {
+	var escaped string
+	for _, name := range contents {
+		rel, ok := crowdsec.ArchiveEntryRel(name)
+		if !ok {
+			escaped = name
+			continue
+		}
+		if rel = filepath.ToSlash(rel); rel == file || rel == "config/"+file {
+			return nil
+		}
 	}
-
-	if ext == ".zip" {
-		return "zip", nil
+	if escaped != "" {
+		return fmt.Errorf("invalid file path: %s", escaped)
 	}
-
-	return "", fmt.Errorf("unsupported format: %s", ext)
+	return fmt.Errorf("required file missing: %s", file)
 }
 
-// calculateUncompressedSize calculates the total uncompressed size of the archive.
-func calculateUncompressedSize(path, format string) (int64, error) {
-	switch format {
-	case "tar.gz":
-		// #nosec G304 -- path is validated upstream
-		f, err := os.Open(path)
-		if err != nil {
-			return 0, fmt.Errorf("failed to open archive: %w", err)
-		}
-		defer func() { _ = f.Close() }()
+// errArchiveFormat is the fixed message for any upload that is not a .tar.gz archive.
+var errArchiveFormat = errors.New("only .tar.gz archives are supported")
 
-		gr, err := gzip.NewReader(f)
-		if err != nil {
-			return 0, fmt.Errorf("failed to create gzip reader: %w", err)
-		}
-		defer func() { _ = gr.Close() }()
-
-		tr := tar.NewReader(gr)
-		var total int64
-
-		for {
-			header, err := tr.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return 0, fmt.Errorf("failed to read tar header: %w", err)
-			}
-
-			// Only count regular files
-			if header.Typeflag == tar.TypeReg {
-				total += header.Size
-			}
-		}
-
-		return total, nil
-
-	default:
-		return 0, fmt.Errorf("unsupported format for size calculation: %s", format)
+// requireTarGz rejects every path that does not end in .tar.gz (case-insensitive).
+func requireTarGz(path string) error {
+	if !strings.HasSuffix(strings.ToLower(path), ".tar.gz") {
+		return errArchiveFormat
 	}
+	return nil
 }
 
-// listArchiveContents lists all files in the archive.
-func listArchiveContents(path, format string) ([]string, error) {
-	switch format {
-	case "tar.gz":
-		// #nosec G304 -- path is validated upstream
-		f, err := os.Open(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open archive: %w", err)
-		}
-		defer func() { _ = f.Close() }()
-
-		gr, err := gzip.NewReader(f)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
-		}
-		defer func() { _ = gr.Close() }()
-
-		tr := tar.NewReader(gr)
-		var files []string
-
-		for {
-			header, err := tr.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return nil, fmt.Errorf("failed to read tar header: %w", err)
-			}
-
-			if header.Typeflag == tar.TypeReg {
-				files = append(files, header.Name)
-			}
-		}
-
-		return files, nil
-
-	default:
-		return nil, fmt.Errorf("unsupported format for listing: %s", format)
-	}
-}
-
-// validateYAMLFile validates CrowdSec YAML configuration structure.
-func validateYAMLFile(path string) error {
+// calculateUncompressedSize calculates the total uncompressed size of the tar.gz archive.
+func calculateUncompressedSize(path string) (int64, error) {
 	// #nosec G304 -- path is validated upstream
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open archive: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+	var total int64
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		// Only count regular files
+		if header.Typeflag == tar.TypeReg {
+			total += header.Size
+		}
+	}
+
+	return total, nil
+}
+
+// listArchiveContents lists all regular files in the tar.gz archive.
+func listArchiveContents(path string) ([]string, error) {
+	// #nosec G304 -- path is validated upstream
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open archive: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+	var files []string
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		if header.Typeflag == tar.TypeReg {
+			files = append(files, header.Name)
+		}
+	}
+
+	return files, nil
+}
+
+const (
+	// msgKeptProfileUndefined and msgKeptProfileDuplicate refuse an import without profiles.yaml whose
+	// kept profile no longer matches the notification files. The undefined names follow the prefix.
+	msgKeptProfileUndefined = "the archive has no profiles.yaml, so the current one was kept, but it names notifications the archive has no files for: "
+	msgKeptProfileDuplicate = "the archive has no profiles.yaml, so the current one was kept, but a notification file it needs defines a name the archive already defines"
+)
+
+// msgImportFlatArchive is the fixed message for an archive whose configuration is not in the folder a
+// nested installation reads.
+const msgImportFlatArchive = "the archive keeps its configuration at the top level, but this CrowdSec installation reads it from the config folder; export a configuration from this page, or put the files in a config/ folder inside the archive"
+
+// msgKeepCurrentFiles is the fixed message for an import that could not keep the current files.
+const msgKeepCurrentFiles = "failed to keep the current CrowdSec files"
+
+// errConfigFileNotFound is the fixed message for an import that contains no config.yaml in a
+// location the engine reads (top level or config/).
+var errConfigFileNotFound = errors.New("config.yaml was not found at the top level or in config/")
+
+// crowdsecConfigSections are the top-level keys of CrowdSec's csconfig.Config
+// (pkg/csconfig/config.go). DisableAPI/DisableAgent are command-line flags, not file keys.
+var crowdsecConfigSections = []string{
+	"common", "prometheus", "crowdsec_service", "cscli", "db_config", "api", "config_paths", "plugin_config",
+}
+
+// Fixed config.yaml validation messages. Parser detail is deliberately never surfaced.
+var (
+	errConfigTooLarge = errors.New("config.yaml is too large")
+	errConfigEmpty    = errors.New("config.yaml is empty")
+	errConfigInvalid  = errors.New("config.yaml is not valid YAML")
+	errConfigNotMap   = errors.New("config.yaml must be a YAML mapping")
+	errConfigNoKeys   = errors.New("config.yaml has no CrowdSec configuration sections")
+)
+
+// validateYAMLFile checks that path is a size-bounded YAML mapping holding at least one known
+// CrowdSec top-level section. Nested values are left to CrowdSec. Only the first document of a
+// multi-document file is read, matching the engine. Duplicate mapping keys are rejected on purpose:
+// this is stricter than the engine's own loader, which tolerates some duplicates.
+func validateYAMLFile(path string) error {
+	data, err := readCapped(path)
+	if errors.Is(err, errFileTooLarge) {
+		return errConfigTooLarge
+	}
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Basic YAML syntax check
-	var config map[string]interface{}
-	if err := json.Unmarshal(data, &config); err != nil {
-		// Try basic structure validation - check for key CrowdSec fields
-		content := string(data)
-		if !strings.Contains(content, "api:") && !strings.Contains(content, "server:") {
-			return fmt.Errorf("invalid CrowdSec config structure")
+	root, err := parseYAMLDocuments(bytes.NewReader(data), true)
+	if errors.Is(err, io.EOF) {
+		return errConfigEmpty
+	}
+	if err != nil {
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec config.yaml failed YAML parsing")
+		return errConfigInvalid
+	}
+	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return errConfigNotMap
+	}
+
+	// yaml.v3 coerces scalar keys such as 1 or true into strings when decoding into a map, so key
+	// types are checked on the nodes. Only the top level is inspected; nested content is CrowdSec's.
+	found := false
+	mapping := root.Content[0]
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		key := mapping.Content[i]
+		if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
+			return errConfigInvalid
+		}
+		if slices.Contains(crowdsecConfigSections, key.Value) {
+			found = true
 		}
 	}
-
-	return nil
-}
-
-func ttlRemainingSeconds(now, retrievedAt time.Time, ttl time.Duration) *int64 {
-	if retrievedAt.IsZero() || ttl <= 0 {
+	if found {
 		return nil
 	}
-	remaining := retrievedAt.Add(ttl).Sub(now)
-	if remaining < 0 {
-		var zero int64
-		return &zero
-	}
-	secs := int64(remaining.Seconds())
-	return &secs
+	return errConfigNoKeys
 }
 
 func mapCrowdsecStatus(err error, defaultCode int) int {
@@ -385,17 +451,21 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		consoleSvc = crowdsec.NewConsoleEnrollmentService(db, &crowdsec.SecureCommandExecutor{}, dataDir, consoleSecret)
 	}
 	h := &CrowdsecHandler{
-		DB:              db,
-		Executor:        executor,
-		CmdExec:         &RealCommandExecutor{},
-		BinPath:         binPath,
-		DataDir:         dataDir,
-		Hub:             hubSvc,
-		Console:         consoleSvc,
-		Security:        securitySvc,
-		dashCache:       newDashboardCache(),
-		validateLAPIURL: validateCrowdsecLAPIBaseURLDefault,
+		DB:                 db,
+		Executor:           executor,
+		CmdExec:            &RealCommandExecutor{},
+		BinPath:            binPath,
+		DataDir:            dataDir,
+		Hub:                hubSvc,
+		Console:            consoleSvc,
+		Security:           securitySvc,
+		dashCache:          newDashboardCache(),
+		validateLAPIURL:    validateCrowdsecLAPIBaseURLDefault,
+		signalProcess:      signalOSProcess,
+		mergeNotifications: crowdsec.MergeRedactedNotifications,
+		scanPlaceholders:   crowdsec.ScanPlaceholders,
 	}
+	hubSvc.Reload = h.reloadCrowdSec
 	if db != nil {
 		h.WhitelistSvc = services.NewCrowdSecWhitelistService(db, dataDir)
 	}
@@ -522,7 +592,8 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 			revertSetting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
 			h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(revertSetting).FirstOrCreate(&revertSetting)
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to start crowdsec")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start CrowdSec"})
 		return
 	}
 
@@ -596,7 +667,8 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 func (h *CrowdsecHandler) Stop(c *gin.Context) {
 	ctx := c.Request.Context()
 	if err := h.Executor.Stop(ctx, h.DataDir); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to stop crowdsec")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop CrowdSec"})
 		return
 	}
 
@@ -624,7 +696,8 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 	ctx := c.Request.Context()
 	running, pid, err := h.Executor.Status(ctx, h.DataDir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to read crowdsec status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read CrowdSec status"})
 		return
 	}
 
@@ -648,7 +721,9 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 	})
 }
 
-// ImportConfig accepts a tar.gz or zip upload and extracts into DataDir (backing up existing config).
+// ImportConfig accepts a tar.gz upload and replaces the CrowdSec configuration in DataDir. The previous
+// configuration is snapshotted first and restored on failure; server-local state (live db, data/,
+// hub_cache/, installed hub items) is never replaced and DataDir itself is never renamed.
 func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -659,80 +734,186 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	// Save to temp file
 	tmpDir := os.TempDir()
 	tmpPath := filepath.Join(tmpDir, fmt.Sprintf("crowdsec-import-%d", time.Now().UnixNano()))
-	if err := os.MkdirAll(tmpPath, 0o750); err != nil {
+	if err = os.MkdirAll(tmpPath, 0o750); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp dir"})
 		return
 	}
 	defer func() { _ = os.RemoveAll(tmpPath) }()
 
 	dst := filepath.Join(tmpPath, file.Filename)
-	if err := c.SaveUploadedFile(file, dst); err != nil {
+	if err = c.SaveUploadedFile(file, dst); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save upload"})
 		return
 	}
 
 	// Pre-import validation
 	validator := &ConfigArchiveValidator{
-		MaxSize:             50 * 1024 * 1024,  // 50MB
-		MaxUncompressed:     500 * 1024 * 1024, // 500MB
-		MaxCompressionRatio: 100,               // 100x max ratio
+		MaxSize:             crowdsec.MaxImportCompressedBytes,
+		MaxUncompressed:     crowdsec.MaxImportUncompressedBytes,
+		MaxCompressionRatio: crowdsec.MaxImportCompressionRatio,
 		RequiredFiles:       []string{"config.yaml"},
 	}
 
-	if err := validator.Validate(dst); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", err)})
+	if err = validator.Validate(dst); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
 	}
 
-	// Backup current config
-	var backupDir string
-	if _, err := os.Stat(h.DataDir); err == nil {
-		backupDir = h.DataDir + ".backup." + time.Now().Format("20060102-150405")
-		if err := os.Rename(h.DataDir, backupDir); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
+	// One pass over the upload feeds the pre-import checks and the hub item report. Refuse an archive
+	// CrowdSec could not start with before taking the lock or changing anything.
+	info, inspectErr := crowdsec.InspectArchive(dst)
+	if inspectErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(inspectErr.Error())).Warn("crowdsec import: archive inspection skipped")
+	} else if err = crowdsec.VerifyInspectedNotifications(info); err != nil {
+		var undefined *crowdsec.UndefinedNotificationsError
+		if errors.As(err, &undefined) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "config validation failed: " + undefined.Error()})
 			return
 		}
 	}
 
-	// Create target dir
-	if err := os.MkdirAll(h.DataDir, 0o750); err != nil {
-		// Rollback on failure
-		if backupDir != "" {
-			_ = os.Rename(backupDir, h.DataDir)
+	// Serialize with preset applies and file writes, then snapshot (copy, never rename) the config.
+	if !h.lockData(c, "import") {
+		return
+	}
+	defer h.dataMu.Unlock()
+
+	// A nested installation reads config/config.yaml: refuse an archive that cannot provide it before
+	// anything is snapshotted or changed. When the inspection was skipped the check after extraction
+	// enforces the same rule.
+	liveLayout := crowdsec.DetectLayout(h.DataDir)
+	if inspectErr == nil {
+		if err = crowdsec.CheckImportLayout(liveLayout, info); err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			return
 		}
+	}
+
+	backupDir, err := crowdsec.Snapshot(h.DataDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
+		return
+	}
+	defer h.pruneSnapshots()
+
+	keep := crowdsec.ImportKeeper(h.DataDir)
+
+	// rollback restores the snapshot in place; DataDir itself is never removed or renamed.
+	rollback := func() {
+		if rbErr := crowdsec.RestoreKeeping(backupDir, h.DataDir, keep); rbErr != nil {
+			logger.Log().WithError(rbErr).WithField("backup_path", util.SanitizeForLog(backupDir)).Error("crowdsec import rollback failed; backup retained for manual recovery")
+		}
+	}
+
+	// Replace the configuration but keep server-local state: engine-owned data, stored account details,
+	// the installed hub tree and every symlink in the live tree (installed hub items).
+	if err := crowdsec.ClearConfigKeeping(h.DataDir, keep); err != nil {
+		rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
 		return
 	}
 
 	// Extract archive
-	extractErr := h.extractArchive(dst, h.DataDir)
+	extractErr := h.extractArchive(dst, h.DataDir, keep)
 	if extractErr != nil {
-		// Rollback on extraction failure
-		_ = os.RemoveAll(h.DataDir)
-		if backupDir != "" {
-			_ = os.Rename(backupDir, h.DataDir)
+		logger.Log().WithField("error", sanitizeForLog(extractErr.Error())).Warn("crowdsec import extraction failed")
+		rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "extraction failed"})
+		return
+	}
+
+	if liveLayout == crowdsec.LayoutNested {
+		if _, statErr := os.Stat(filepath.Join(h.DataDir, "config", "config.yaml")); statErr != nil {
+			rollback()
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("extraction failed: %v", extractErr)})
+	}
+
+	// Fill the notification values the exported file blanked from the files being replaced, wherever the
+	// notification still points at the same target.
+	if mergeErr := h.mergeNotifications(backupDir, h.DataDir); mergeErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(mergeErr.Error())).Warn("crowdsec import: keeping the current notification values failed")
+		rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		return
+	}
+
+	// The import cleared every file the archive did not replace: put back the ones CrowdSec cannot start
+	// without, and make sure a kept profile still resolves its notifications.
+	keptFiles, restoreErr := crowdsec.RestoreMissingCompanions(backupDir, h.DataDir, liveConfigPrefix(liveLayout))
+	if restoreErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(restoreErr.Error())).Warn("crowdsec import: restoring the current files failed")
+		rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		return
+	}
+	if verifyErr := crowdsec.VerifyKeptProfile(h.DataDir, keptFiles); verifyErr != nil {
+		rollback()
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": keptProfileRefusal(verifyErr)})
 		return
 	}
 
 	// Validate extracted config
-	configPath := filepath.Join(h.DataDir, "config.yaml")
-	if err := validateYAMLFile(configPath); err != nil {
-		// Rollback on validation failure
-		_ = os.RemoveAll(h.DataDir)
-		if backupDir != "" {
-			_ = os.Rename(backupDir, h.DataDir)
-		}
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", err)})
+	validateErr := errConfigFileNotFound
+	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
+		validateErr = validateYAMLFile(configPath)
+	}
+	if err := validateErr; err != nil {
+		rollback()
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "imported", "backup": backupDir})
+	resp := gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)}
+	h.addHubItemsReport(resp, info.HubItems)
+	if len(keptFiles) > 0 {
+		resp["kept_files"] = keptFiles
+	}
+	if needs := h.placeholderReport(); len(needs) > 0 {
+		resp["needs_values"] = needs
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// placeholderReport lists the notification files of the imported tree that still hold blanked values.
+// The report is informational: when it cannot be made the import still stands and the list is omitted.
+func (h *CrowdsecHandler) placeholderReport() []string {
+	names, err := h.scanPlaceholders(h.DataDir)
+	if err != nil {
+		logger.Log().WithField("reported_files", len(names)).Warn("crowdsec import: could not list the notification files that still need values")
+		return nil
+	}
+	return names
+}
+
+// liveConfigPrefix is the folder below DataDir that holds the configuration CrowdSec reads.
+func liveConfigPrefix(l crowdsec.Layout) string {
+	if l == crowdsec.LayoutNested {
+		return "config"
+	}
+	return ""
+}
+
+// keptProfileRefusal maps a failure of crowdsec.VerifyKeptProfile (an undefined or a duplicate
+// notification) to its fixed 422 message.
+func keptProfileRefusal(err error) string {
+	var undefined *crowdsec.UndefinedNotificationsError
+	if errors.As(err, &undefined) {
+		return msgKeptProfileUndefined + undefined.NameList()
+	}
+	return msgKeptProfileDuplicate
+}
+
+// pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
+func (h *CrowdsecHandler) pruneSnapshots() {
+	if _, err := crowdsec.PruneBackups(h.DataDir, crowdsec.BackupKindSnapshot, crowdsec.DefaultBackupRetention); err != nil {
+		logger.Log().WithError(err).Warn("crowdsec backup prune incomplete")
+	}
 }
 
 // extractArchive extracts a tar.gz archive to the destination directory.
-func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
+func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(rel string) bool) error {
 	// #nosec G304 -- archivePath is validated upstream
 	f, err := os.Open(archivePath)
 	if err != nil {
@@ -748,6 +929,11 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 
 	tr := tar.NewReader(gr)
 
+	liveDirs, err := liveDirSet(destDir)
+	if err != nil {
+		return err
+	}
+
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -757,11 +943,16 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 			return fmt.Errorf("failed to read tar header: %w", err)
 		}
 
-		// Path traversal protection
-		// #nosec G305 -- Path traversal is explicitly checked below
-		target := filepath.Join(destDir, header.Name)
-		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+		// Path traversal protection, shared with the pre-import inspection so both see the same entry.
+		rel, ok := crowdsec.ArchiveEntryRel(header.Name)
+		if !ok {
 			return fmt.Errorf("invalid file path: %s", header.Name)
+		}
+		target := filepath.Join(destDir, rel)
+		// Server-local state (engine-owned data, stored account details, the hub tree, live symlinks) is
+		// never taken from an upload. This runs only after the containment check above.
+		if skipArchiveEntry(liveDirs, rel, header.Typeflag, keep) {
+			continue
 		}
 
 		switch header.Typeflag {
@@ -770,11 +961,6 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeReg:
-			// Ensure parent directory exists
-			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-				return fmt.Errorf("failed to create parent directory: %w", err)
-			}
-
 			// Validate mode is safe before conversion
 			fileMode := os.FileMode(0o640) // Default safe mode
 			if header.Mode > 0 && header.Mode <= 0o777 {
@@ -782,8 +968,7 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 				fileMode = os.FileMode(header.Mode)
 			}
 
-			// #nosec G304 -- target is constructed safely above with path traversal protection
-			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, fileMode)
+			outFile, err := crowdsec.CreateFileNoSymlink(destDir, target, 0o750, fileMode)
 			if err != nil {
 				return fmt.Errorf("failed to create file: %w", err)
 			}
@@ -804,8 +989,9 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string) error {
 	return nil
 }
 
-// ExportConfig creates a tar.gz archive of the CrowdSec data directory and streams it
-// back to the client as a downloadable file.
+// ExportConfig builds a tar.gz archive of the CrowdSec data directory in a temporary file and then
+// sends it. Every failure is reported before the first byte of the download, so a client never receives
+// a truncated archive with a success status.
 func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 	// Ensure DataDir exists
 	if _, err := os.Stat(h.DataDir); os.IsNotExist(err) {
@@ -813,470 +999,94 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		return
 	}
 
-	// Create a gzip writer and tar writer that stream directly to the response
-	c.Header("Content-Type", "application/gzip")
+	tmp, err := os.CreateTemp("", "crowdsec-export-*.tar.gz") // 0600, in os.TempDir()
+	if err != nil {
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export: cannot create temp file")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errExportFailed})
+		return
+	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+
+	size, err := h.buildExport(c.Request.Context(), tmp)
+	if err != nil {
+		h.respondExportError(c, err)
+		return
+	}
+
+	// The lock is released: streaming to a slow client must never block imports or saves.
+	if _, err = tmp.Seek(0, io.SeekStart); err != nil {
+		h.respondExportError(c, fmt.Errorf("rewind export: %w", err))
+		return
+	}
 	filename := fmt.Sprintf("crowdsec-config-%s.tar.gz", time.Now().Format("20060102-150405"))
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
-	gw := gzip.NewWriter(c.Writer)
-	defer func() {
-		if err := gw.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close gzip writer")
-		}
-	}()
-	tw := tar.NewWriter(gw)
-	defer func() {
-		if err := tw.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close tar writer")
-		}
-	}()
-
-	// Walk the DataDir and add files to the archive
-	err := filepath.Walk(h.DataDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			logger.Log().WithError(err).Warnf("failed to access path %s during export walk", path)
-			return nil // Skip files we cannot access
-		}
-		if info.IsDir() {
-			return nil
-		}
-		// Never follow symlinks: filepath.Walk reports them via Lstat, so skip them here.
-		if info.Mode()&os.ModeSymlink != 0 {
-			logger.Log().Warnf("skipping symlink %s during export", util.SanitizeForLog(path))
-			return nil
-		}
-		rel, err := filepath.Rel(h.DataDir, path)
-		if err != nil {
-			return err
-		}
-		// Open file
-		f, err := os.Open(path) //nolint:gosec // G122,G304: symlinks skipped above; DataDir is Charon-owned
-		if err != nil {
-			return err
-		}
-		defer func() {
-			if err := f.Close(); err != nil {
-				logger.Log().WithError(err).Warn("failed to close file while archiving", "path", util.SanitizeForLog(path))
-			}
-		}()
-
-		hdr := &tar.Header{
-			Name:    rel,
-			Size:    info.Size(),
-			Mode:    int64(info.Mode()),
-			ModTime: info.ModTime(),
-		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
-		if _, err := io.Copy(tw, f); err != nil {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		// If any error occurred while creating the archive, return 500
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-}
-
-// ListFiles returns a flat list of files under the CrowdSec DataDir.
-func (h *CrowdsecHandler) ListFiles(c *gin.Context) {
-	files := []string{}
-	if _, err := os.Stat(h.DataDir); os.IsNotExist(err) {
-		c.JSON(http.StatusOK, gin.H{"files": files})
-		return
-	}
-	err := filepath.Walk(h.DataDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			// Permission errors (e.g. lost+found) should not abort the walk
-			if os.IsPermission(err) {
-				logger.Log().WithError(err).WithField("path", path).Debug("Skipping inaccessible path during list")
-				return filepath.SkipDir
-			}
-			return err
-		}
-		if !info.IsDir() {
-			rel, err := filepath.Rel(h.DataDir, path)
-			if err != nil {
-				return err
-			}
-			files = append(files, rel)
-		}
-		return nil
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"files": files})
-}
-
-// ReadFile returns the contents of a specific file under DataDir. Query param 'path' required.
-func (h *CrowdsecHandler) ReadFile(c *gin.Context) {
-	rel := c.Query("path")
-	if rel == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "path required"})
-		return
-	}
-	clean := filepath.Clean(rel)
-	// prevent directory traversal
-	p := filepath.Join(h.DataDir, clean)
-	if !strings.HasPrefix(p, filepath.Clean(h.DataDir)) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
-		return
-	}
-	// #nosec G304 -- p is validated against CrowdSecDataDir by detectFilePath
-	data, err := os.ReadFile(p)
-	if err != nil {
-		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"content": string(data)})
-}
-
-// WriteFile writes content to a file under the CrowdSec DataDir, creating a backup before doing so.
-// JSON body: { "path": "relative/path.conf", "content": "..." }
-func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
-	var payload struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
-		return
-	}
-	if payload.Path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "path required"})
-		return
-	}
-	clean := filepath.Clean(payload.Path)
-	p := filepath.Join(h.DataDir, clean)
-	if !strings.HasPrefix(p, filepath.Clean(h.DataDir)) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
-		return
-	}
-	// Backup existing DataDir
-	backupDir := h.DataDir + ".backup." + time.Now().Format("20060102-150405")
-	if _, err := os.Stat(h.DataDir); err == nil {
-		if err := os.Rename(h.DataDir, backupDir); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
-			return
-		}
-	}
-	// Recreate DataDir and write file
-	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare dir"})
-		return
-	}
-	if err := os.WriteFile(p, []byte(payload.Content), 0o600); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "written", "backup": backupDir})
-}
-
-// ListPresets returns the curated preset catalog when Cerberus is enabled.
-func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
-	if !h.isCerberusEnabled() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
-		return
-	}
-
-	type presetInfo struct {
-		crowdsec.Preset
-		Available           bool       `json:"available"`
-		Cached              bool       `json:"cached"`
-		CacheKey            string     `json:"cache_key,omitempty"`
-		Etag                string     `json:"etag,omitempty"`
-		RetrievedAt         *time.Time `json:"retrieved_at,omitempty"`
-		TTLRemainingSeconds *int64     `json:"ttl_remaining_seconds,omitempty"`
-	}
-
-	result := map[string]*presetInfo{}
-	for _, p := range crowdsec.ListCuratedPresets() {
-		cp := p
-		result[p.Slug] = &presetInfo{Preset: cp, Available: true}
-	}
-
-	// Merge hub index when available
-	if h.Hub != nil {
-		ctx := c.Request.Context()
-		if idx, err := h.Hub.FetchIndex(ctx); err == nil {
-			for _, item := range idx.Items {
-				slug := strings.TrimSpace(item.Name)
-				if slug == "" {
-					continue
-				}
-				if _, ok := result[slug]; !ok {
-					result[slug] = &presetInfo{Preset: crowdsec.Preset{
-						Slug:        slug,
-						Title:       item.Title,
-						Summary:     item.Description,
-						Source:      "hub",
-						Tags:        []string{item.Type},
-						RequiresHub: true,
-					}, Available: true}
-				} else {
-					result[slug].Available = true
-				}
-			}
-		} else {
-			logger.Log().WithError(err).Warn("crowdsec hub index unavailable")
-		}
-	}
-
-	// Merge cache metadata
-	if h.Hub != nil && h.Hub.Cache != nil {
-		ctx := c.Request.Context()
-		if cached, err := h.Hub.Cache.List(ctx); err == nil {
-			cacheTTL := h.Hub.Cache.TTL()
-			now := time.Now().UTC()
-			for _, entry := range cached {
-				if _, ok := result[entry.Slug]; !ok {
-					result[entry.Slug] = &presetInfo{Preset: crowdsec.Preset{Slug: entry.Slug, Title: entry.Slug, Summary: "cached preset", Source: "hub", RequiresHub: true}}
-				}
-				result[entry.Slug].Cached = true
-				result[entry.Slug].CacheKey = entry.CacheKey
-				result[entry.Slug].Etag = entry.Etag
-				if !entry.RetrievedAt.IsZero() {
-					val := entry.RetrievedAt
-					result[entry.Slug].RetrievedAt = &val
-				}
-				result[entry.Slug].TTLRemainingSeconds = ttlRemainingSeconds(now, entry.RetrievedAt, cacheTTL)
-			}
-		} else {
-			logger.Log().WithError(err).Warn("crowdsec hub cache list failed")
-		}
-	}
-
-	list := make([]presetInfo, 0, len(result))
-	for _, v := range result {
-		list = append(list, *v)
-	}
-
-	c.JSON(http.StatusOK, gin.H{"presets": list})
-}
-
-// PullPreset downloads and caches a hub preset while returning a preview.
-func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
-	if !h.isCerberusEnabled() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
-		return
-	}
-
-	var payload struct {
-		Slug string `json:"slug"`
-	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
-		return
-	}
-	slug := strings.TrimSpace(payload.Slug)
-	if slug == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
-		return
-	}
-	if h.Hub == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "hub service unavailable"})
-		return
-	}
-
-	// Check for curated preset that doesn't require hub
-	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
-		c.JSON(http.StatusOK, gin.H{
-			"status":       "pulled",
-			"slug":         preset.Slug,
-			"preview":      "# Curated preset: " + preset.Title + "\n# " + preset.Summary,
-			"cache_key":    "curated-" + preset.Slug,
-			"etag":         "curated",
-			"retrieved_at": time.Now(),
-			"source":       "charon-curated",
-		})
-		return
-	}
-
-	ctx := c.Request.Context()
-	// Log cache directory before pull
-	if h.Hub != nil && h.Hub.Cache != nil {
-		cacheDir := filepath.Join(h.DataDir, "hub_cache")
-		logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to pull preset")
-		if stat, err := os.Stat(cacheDir); err == nil {
-			logger.Log().WithField("cache_dir_mode", stat.Mode()).WithField("cache_dir_writable", stat.Mode().Perm()&0o200 != 0).Debug("cache directory exists")
-		} else {
-			logger.Log().WithError(err).Warn("cache directory stat failed")
-		}
-	}
-
-	res, err := h.Hub.Pull(ctx, slug)
-	if err != nil {
-		status := mapCrowdsecStatus(err, http.StatusBadGateway)
-		// Safe: User input sanitized via util.SanitizeForLog() which removes
-		// control characters (0x00-0x1F, 0x7F) including CRLF
-		// codeql[go/log-injection]
-		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).Warn("crowdsec preset pull failed")
-		c.JSON(status, gin.H{"error": err.Error(), "hub_endpoints": h.hubEndpoints()})
-		return
-	}
-
-	// Verify cache was actually stored
-	// Safe: res.Meta fields are system-generated (cache keys, file paths)
-	// not directly derived from untrusted user input
-	// codeql[go/log-injection]
-	logger.Log().Info("preset pulled and cached successfully")
-
-	// Verify files exist on disk
-	if _, err := os.Stat(res.Meta.ArchivePath); err != nil {
-		// codeql[go/log-injection] Safe: archive_path is system-generated file path
-		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("archive_path", util.SanitizeForLog(res.Meta.ArchivePath)).Error("cached archive file not found after pull")
-	}
-	if _, err := os.Stat(res.Meta.PreviewPath); err != nil {
-		// codeql[go/log-injection] Safe: preview_path is system-generated file path
-		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("preview_path", util.SanitizeForLog(res.Meta.PreviewPath)).Error("cached preview file not found after pull")
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":       "pulled",
-		"slug":         res.Meta.Slug,
-		"preview":      res.Preview,
-		"cache_key":    res.Meta.CacheKey,
-		"etag":         res.Meta.Etag,
-		"retrieved_at": res.Meta.RetrievedAt,
-		"source":       res.Meta.Source,
+	c.DataFromReader(http.StatusOK, size, "application/gzip", tmp, map[string]string{
+		"Content-Disposition": fmt.Sprintf("attachment; filename=%s", filename),
 	})
 }
 
-// ApplyPreset installs a pulled preset from cache or via cscli.
-func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
-	if !h.isCerberusEnabled() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
-		return
-	}
-
-	var payload struct {
-		Slug string `json:"slug"`
-	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
-		return
-	}
-
-	slug := strings.TrimSpace(payload.Slug)
-	if slug == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
-		return
-	}
-	if h.Hub == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "hub service unavailable"})
-		return
-	}
-
-	// Check for curated preset that doesn't require hub
-	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
-		if h.DB != nil {
-			_ = h.DB.Create(&models.CrowdsecPresetEvent{
-				Slug:       slug,
-				Action:     "apply",
-				Status:     "applied",
-				CacheKey:   "curated-" + slug,
-				BackupPath: "",
-			}).Error
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status":      "applied",
-			"backup":      "",
-			"reload_hint": true,
-			"used_cscli":  false,
-			"cache_key":   "curated-" + slug,
-			"slug":        slug,
-		})
-		return
-	}
-
-	ctx := c.Request.Context()
-
-	// Log cache status before apply
-	if h.Hub != nil && h.Hub.Cache != nil {
-		cacheDir := filepath.Join(h.DataDir, "hub_cache")
-		logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to apply preset")
-
-		// Check if cached
-		if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
-			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
-			// Verify files still exist
-			if _, statErr := os.Stat(cached.ArchivePath); statErr != nil {
-				logger.Log().WithError(statErr).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
-			}
-			if _, statErr := os.Stat(cached.PreviewPath); statErr != nil {
-				logger.Log().WithError(statErr).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
-			}
-		} else {
-			logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
-			// List what's actually in the cache
-			if entries, listErr := h.Hub.Cache.List(ctx); listErr == nil {
-				slugs := make([]string, len(entries))
-				for i, e := range entries {
-					slugs[i] = e.Slug
-				}
-				logger.Log().WithField("cached_slugs", slugs).Info("current cache contents")
-			}
-		}
-	}
-
-	res, err := h.Hub.Apply(ctx, slug)
+// buildExport writes the archive into tmp while holding the data lock (local-disk speed only), then
+// checks that an import would accept it. It returns the archive size.
+func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (int64, error) {
+	uncompressed, err := h.writeExportLocked(ctx, tmp)
 	if err != nil {
-		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
-		// Safe: User input (slug) sanitized via util.SanitizeForLog();
-		// backup_path and cache_key are system-generated values
-		// codeql[go/log-injection]
-		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).WithField("cache_key", util.SanitizeForLog(res.CacheKey)).Warn("crowdsec preset apply failed")
-		if h.DB != nil {
-			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error
-		}
-		// Build detailed error response
-		errorMsg := err.Error()
-		// Add actionable guidance based on error type
-		if errors.Is(err, crowdsec.ErrCacheMiss) || strings.Contains(errorMsg, "cache miss") {
-			errorMsg = "Preset cache missing or expired. Pull the preset again, then retry apply."
-		} else if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
-			errorMsg = "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
-		}
-		errorResponse := gin.H{"error": errorMsg, "hub_endpoints": h.hubEndpoints()}
-		if res.BackupPath != "" {
-			errorResponse["backup"] = res.BackupPath
-		}
-		if res.CacheKey != "" {
-			errorResponse["cache_key"] = res.CacheKey
-		}
-		c.JSON(status, errorResponse)
+		return 0, err
+	}
+	if err = tmp.Sync(); err != nil {
+		return 0, fmt.Errorf("sync export: %w", err)
+	}
+	info, err := tmp.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("stat export: %w", err)
+	}
+	if err := crowdsec.CheckExportImportable(info.Size(), uncompressed); err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
+// lockData takes dataMu, giving up when the request ends. On false the lock is NOT held and the request
+// is aborted without a body (the client is gone), so the caller must return before registering its
+// deferred Unlock.
+func (h *CrowdsecHandler) lockData(c *gin.Context, op string) bool {
+	if err := h.dataMu.LockContext(c.Request.Context()); err != nil {
+		logger.Log().WithField("operation", op).WithField("error", sanitizeForLog(err.Error())).Debug("crowdsec: request ended while waiting for the data lock")
+		c.Abort()
+		return false
+	}
+	return true
+}
+
+// writeExportLocked serializes the archive build with every other writer of DataDir.
+func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (int64, error) {
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		return 0, fmt.Errorf("wait for the data lock: %w", err)
+	}
+	defer h.dataMu.Unlock()
+	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
+}
+
+const errExportFailed = "failed to export crowdsec config"
+
+// respondExportError maps an export failure to a fixed, non-revealing JSON message.
+func (h *CrowdsecHandler) respondExportError(c *gin.Context, err error) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		c.Abort() // the client is gone
 		return
 	}
-
-	if h.DB != nil {
-		status := res.Status
-		if status == "" {
-			status = "applied"
-		}
-		slugVal := res.AppliedPreset
-		if slugVal == "" {
-			slugVal = slug
-		}
-		_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slugVal, Action: "apply", Status: status, CacheKey: res.CacheKey, BackupPath: res.BackupPath}).Error
+	logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export failed")
+	msg := errExportFailed
+	switch {
+	case errors.Is(err, crowdsec.ErrExportFileUnreadable):
+		msg = "a file in the CrowdSec folder could not be read; see server logs"
+	case errors.Is(err, crowdsec.ErrExportTooLarge):
+		msg = crowdsec.ErrExportTooLarge.Error()
+	case errors.Is(err, crowdsec.ErrExportNotImportable):
+		msg = crowdsec.ErrExportNotImportable.Error()
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":      res.Status,
-		"backup":      res.BackupPath,
-		"reload_hint": res.ReloadHint,
-		"used_cscli":  res.UsedCSCLI,
-		"cache_key":   res.CacheKey,
-		"slug":        res.AppliedPreset,
-	})
+	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": msg})
 }
 
 // ConsoleEnroll enrolls the local engine with CrowdSec console.
@@ -1320,7 +1130,7 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 		if h.Security != nil {
 			_ = h.Security.LogAudit(&models.SecurityAudit{Actor: auditActor(c), Action: "crowdsec_console_enroll_failed", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, payload.Tenant, payload.AgentName, status.CorrelationID)})
 		}
-		resp := gin.H{"error": err.Error(), "status": status.Status}
+		resp := gin.H{"error": crowdsec.RedactPaths(err.Error()), "status": status.Status}
 		if status.CorrelationID != "" {
 			resp["correlation_id"] = status.CorrelationID
 		}
@@ -1371,52 +1181,11 @@ func (h *CrowdsecHandler) DeleteConsoleEnrollment(c *gin.Context) {
 	ctx := c.Request.Context()
 	if err := h.Console.ClearEnrollment(ctx); err != nil {
 		logger.Log().WithError(err).Warn("failed to clear console enrollment state")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear enrollment state"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "enrollment state cleared"})
-}
-
-// GetCachedPreset returns cached preview for a slug when available.
-func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
-	if !h.isCerberusEnabled() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
-		return
-	}
-	if h.Hub == nil || h.Hub.Cache == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "hub cache unavailable"})
-		return
-	}
-	ctx := c.Request.Context()
-	slug := strings.TrimSpace(c.Param("slug"))
-	if slug == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
-		return
-	}
-	preview, err := h.Hub.Cache.LoadPreview(ctx, slug)
-	if err != nil {
-		if errors.Is(err, crowdsec.ErrCacheMiss) || errors.Is(err, crowdsec.ErrCacheExpired) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "cache miss"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	meta, metaErr := h.Hub.Cache.Load(ctx, slug)
-	if metaErr != nil && !errors.Is(metaErr, crowdsec.ErrCacheMiss) && !errors.Is(metaErr, crowdsec.ErrCacheExpired) {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": metaErr.Error()})
-		return
-	}
-	cacheTTL := h.Hub.Cache.TTL()
-	now := time.Now().UTC()
-	c.JSON(http.StatusOK, gin.H{
-		"preview":               preview,
-		"cache_key":             meta.CacheKey,
-		"etag":                  meta.Etag,
-		"retrieved_at":          meta.RetrievedAt,
-		"ttl_remaining_seconds": ttlRemainingSeconds(now, meta.RetrievedAt, cacheTTL),
-	})
 }
 
 // CrowdSecDecision represents a ban decision from CrowdSec
@@ -1768,18 +1537,18 @@ func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string)
 
 		// Check response status
 		if statusCode == http.StatusOK {
-			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
+			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
 			return true
 		}
 
 		// 403 Forbidden = bad key, fail fast (no retries)
 		if statusCode == http.StatusForbidden {
-			logger.Log().WithField("status", statusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
+			logger.Log().WithField("status", statusCode).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
 			return false
 		}
 
 		// Other non-OK status codes
-		logger.Log().WithField("status", statusCode).WithField("masked_key", maskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
+		logger.Log().WithField("status", statusCode).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
 		return false
 	}
 }
@@ -1805,7 +1574,7 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	// Check for rejected env key first
 	if h.envKeyRejected && h.rejectedEnvKey != "" {
 		response.EnvKeyRejected = true
-		response.RejectedKeyPreview = maskAPIKey(h.rejectedEnvKey)
+		response.RejectedKeyPreview = util.MaskAPIKey(h.rejectedEnvKey)
 		response.Message = "Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but was rejected by LAPI. " +
 			"Either remove it from docker-compose.yml or update it to match the valid key stored in /app/data/crowdsec/bouncer_key."
 	}
@@ -1818,7 +1587,7 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	case envKey != "" && !h.envKeyRejected:
 		// Env key is set and was accepted
 		response.KeySource = "env"
-		response.CurrentKeyPreview = maskAPIKey(envKey)
+		response.CurrentKeyPreview = util.MaskAPIKey(envKey)
 		response.Valid = true
 	case fileKey != "":
 		// Using file key (either because no env key, or env key was rejected)
@@ -1830,7 +1599,7 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 		} else {
 			response.KeySource = "file"
 		}
-		response.CurrentKeyPreview = maskAPIKey(fileKey)
+		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
 		// Verify key is still valid
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
@@ -1859,7 +1628,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 	if envKey != "" {
 		// Test key against LAPI (not just bouncer name)
 		if h.testKeyAgainstLAPI(ctx, envKey) {
-			logger.Log().WithField("source", "environment_variable").WithField("masked_key", maskAPIKey(envKey)).Info("CrowdSec bouncer authentication successful")
+			logger.Log().WithField("source", "environment_variable").WithField("masked_key", util.MaskAPIKey(envKey)).Info("CrowdSec bouncer authentication successful")
 			// Clear any previous rejection state
 			h.envKeyRejected = false
 			h.rejectedEnvKey = ""
@@ -1868,7 +1637,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 		// Track the rejected env key for API status endpoint
 		h.envKeyRejected = true
 		h.rejectedEnvKey = envKey
-		logger.Log().WithField("masked_key", maskAPIKey(envKey)).Warn(
+		logger.Log().WithField("masked_key", util.MaskAPIKey(envKey)).Warn(
 			"Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
 				"Either remove it from docker-compose.yml or update it to match the " +
 				"auto-generated key. A new valid key will be generated and saved.",
@@ -1880,10 +1649,10 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 	if fileKey != "" {
 		// Test key against LAPI (not just bouncer name)
 		if h.testKeyAgainstLAPI(ctx, fileKey) {
-			logger.Log().WithField("source", "file").WithField("file", keyPath).WithField("masked_key", maskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
+			logger.Log().WithField("source", "file").WithField("file", keyPath).WithField("masked_key", util.MaskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
 			return "", nil // Key valid
 		}
-		logger.Log().WithField("file", keyPath).WithField("masked_key", maskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
+		logger.Log().WithField("file", keyPath).WithField("masked_key", util.MaskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
 	}
 
 	// No valid key found - register new bouncer
@@ -1894,11 +1663,9 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 
 	// Warn user if env var is set but doesn't match the new key
 	if envKey != "" && envKey != newKey {
-		logger.Log().WithField("env_key_masked", maskAPIKey(envKey)).WithField("valid_key_masked", maskAPIKey(newKey)).Warn(
-			"IMPORTANT: Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
-				"Either remove it from docker-compose.yml or update it to match the " +
-				"auto-generated key shown above. The valid key has been saved to " +
-				"/app/data/crowdsec/bouncer_key and will be used on future restarts.",
+		logger.Log().WithField("env_key_masked", util.MaskAPIKey(envKey)).WithField("valid_key_masked", util.MaskAPIKey(newKey)).Warn(
+			"The configured CrowdSec API key does not match the registered key and is ignored. " +
+				"The registered key has been saved to the key file and will be used on future restarts.",
 		)
 	}
 
@@ -1952,7 +1719,7 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 
 	output, err := h.CmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
 	if err != nil {
-		return "", fmt.Errorf("bouncer registration failed: %w: %s", err, string(output))
+		return "", fmt.Errorf("bouncer registration failed: %w (%s)", err, util.DescribeCommandOutput(output))
 	}
 
 	apiKey := strings.TrimSpace(string(output))
@@ -1967,19 +1734,6 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 	}
 
 	return apiKey, nil
-}
-
-// maskAPIKey masks an API key for safe logging by showing only first 4 and last 4 characters.
-// Security: Prevents API key exposure in logs (CWE-312, CWE-315, CWE-359).
-// Returns "[empty]" for empty strings, "[REDACTED]" for keys shorter than 16 characters.
-func maskAPIKey(key string) string {
-	if key == "" {
-		return "[empty]"
-	}
-	if len(key) < 16 {
-		return "[REDACTED]"
-	}
-	return fmt.Sprintf("%s...%s", key[:4], key[len(key)-4:])
 }
 
 // validateAPIKeyFormat validates the API key format for security.
@@ -2019,7 +1773,7 @@ Saved To:     %s
 🔄 ROTATE: Change API keys regularly and never commit to version control
 ════════════════════════════════════════════════════════════════════`
 	// Security: Mask API key to prevent cleartext exposure in logs
-	maskedKey := maskAPIKey(apiKey)
+	maskedKey := util.MaskAPIKey(apiKey)
 	logger.Log().Infof(banner, bouncerName, maskedKey, keyPath)
 }
 
@@ -2350,7 +2104,10 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// Check if register_bouncer.sh script exists
-	scriptPath := "/usr/local/bin/register_bouncer.sh"
+	scriptPath := h.registerScriptPath
+	if scriptPath == "" {
+		scriptPath = defaultRegisterBouncerScript
+	}
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "bouncer registration script not found"})
 		return
@@ -2359,8 +2116,8 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 	// Run the registration script
 	output, err := h.CmdExec.Execute(ctx, "bash", scriptPath)
 	if err != nil {
-		logger.Log().WithError(err).WithField("output", string(output)).Warn("Failed to register bouncer")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": string(output)})
+		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Warn("Failed to register bouncer")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": "see server logs"})
 		return
 	}
 
@@ -2411,7 +2168,7 @@ func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
 	content, err := readAcquisitionConfig(acquisPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found", "path": acquisPath})
+			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found"})
 			return
 		}
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to read acquisition config")
@@ -2421,7 +2178,6 @@ func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"content": string(content),
-		"path":    acquisPath,
 	})
 }
 
@@ -2466,7 +2222,7 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "updated",
-		"backup":      backupPath,
+		"backup":      crowdsec.BackupID(backupPath),
 		"reload_hint": true,
 	})
 }
@@ -2495,15 +2251,8 @@ func (h *CrowdsecHandler) DiagnosticsConnectivity(c *gin.Context) {
 	// Check 2: LAPI ready (responds to cscli lapi status)
 	if running {
 		args := []string{"lapi", "status"}
-		configPath := filepath.Join(h.DataDir, "config", "config.yaml")
-		if _, err := os.Stat(configPath); err == nil {
+		if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
 			args = append([]string{"-c", configPath}, args...)
-		} else {
-			// Fallback to root config
-			configPath = filepath.Join(h.DataDir, "config.yaml")
-			if _, err := os.Stat(configPath); err == nil {
-				args = append([]string{"-c", configPath}, args...)
-			}
 		}
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		_, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
@@ -2522,8 +2271,7 @@ func (h *CrowdsecHandler) DiagnosticsConnectivity(c *gin.Context) {
 	// Check 4: CAPI reachable (cscli capi status)
 	if checks["capi_registered"].(bool) {
 		args := []string{"capi", "status"}
-		configPath := filepath.Join(h.DataDir, "config", "config.yaml")
-		if _, err := os.Stat(configPath); err == nil {
+		if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
 			args = append([]string{"-c", configPath}, args...)
 		}
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -2586,22 +2334,18 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 	validationErrs := []string{}
 
 	// Check config.yaml - try config subdirectory first, then root
-	configPath := filepath.Join(h.DataDir, "config", "config.yaml")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		configPath = filepath.Join(h.DataDir, "config.yaml")
+	cleanConfigPath := ""
+	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
+		// Path traversal protection: ensure path is within DataDir
+		cleanConfigPath = filepath.Clean(configPath)
+		if !pathWithin(filepath.Clean(h.DataDir), cleanConfigPath) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config path"})
+			return
+		}
 	}
 
-	// Path traversal protection: ensure path is within DataDir
-	cleanConfigPath := filepath.Clean(configPath)
-	cleanDataDir := filepath.Clean(h.DataDir)
-	if !strings.HasPrefix(cleanConfigPath, cleanDataDir) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config path"})
-		return
-	}
-
-	if _, err := os.Stat(cleanConfigPath); err == nil {
+	if cleanConfigPath != "" {
 		validation["config_exists"] = true
-		validation["config_path"] = cleanConfigPath
 
 		// Read config and check LAPI port
 		// #nosec G304 -- Path validated against DataDir above
@@ -2637,16 +2381,16 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 		acquisPath = filepath.Join(h.DataDir, "acquis.yaml")
 	}
 
+	cleanDataDir := filepath.Clean(h.DataDir)
 	// Path traversal protection
 	cleanAcquisPath := filepath.Clean(acquisPath)
-	if !strings.HasPrefix(cleanAcquisPath, cleanDataDir) {
+	if !pathWithin(cleanDataDir, cleanAcquisPath) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquis path"})
 		return
 	}
 
 	if _, err := os.Stat(cleanAcquisPath); err == nil {
 		validation["acquis_exists"] = true
-		validation["acquis_path"] = cleanAcquisPath
 
 		// Check if it has datasources
 		// #nosec G304 -- Path validated against DataDir above
@@ -2684,7 +2428,8 @@ func (h *CrowdsecHandler) ConsoleHeartbeat(c *gin.Context) {
 	ctx := c.Request.Context()
 	status, err := h.Console.Status(ctx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to read console heartbeat status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read enrollment status"})
 		return
 	}
 
@@ -2741,9 +2486,7 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 		return
 	}
 
-	if _, execErr := h.CmdExec.Execute(c.Request.Context(), "cscli", "hub", "reload"); execErr != nil {
-		logger.Log().WithError(execErr).Warn("cscli hub reload failed after whitelist add (non-fatal)")
-	}
+	h.reloadAfterWhitelistChange(c.Request.Context(), "add")
 
 	c.JSON(http.StatusCreated, entry)
 }
@@ -2767,9 +2510,7 @@ func (h *CrowdsecHandler) DeleteWhitelist(c *gin.Context) {
 		return
 	}
 
-	if _, execErr := h.CmdExec.Execute(c.Request.Context(), "cscli", "hub", "reload"); execErr != nil {
-		logger.Log().WithError(execErr).Warn("cscli hub reload failed after whitelist delete (non-fatal)")
-	}
+	h.reloadAfterWhitelistChange(c.Request.Context(), "delete")
 
 	c.Status(http.StatusNoContent)
 }
@@ -2780,6 +2521,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/stop", h.Stop)
 	rg.GET("/admin/crowdsec/status", h.Status)
 	rg.POST("/admin/crowdsec/import", h.ImportConfig)
+	rg.POST("/admin/crowdsec/hub-items/restore", h.RestoreHubItems)
 	rg.GET("/admin/crowdsec/export", h.ExportConfig)
 	rg.GET("/admin/crowdsec/files", h.ListFiles)
 	rg.GET("/admin/crowdsec/file", h.ReadFile)
@@ -2820,4 +2562,90 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/whitelist", h.ListWhitelists)
 	rg.POST("/admin/crowdsec/whitelist", h.AddWhitelist)
 	rg.DELETE("/admin/crowdsec/whitelist/:uuid", h.DeleteWhitelist)
+}
+
+// signalOSProcess sends sig to the process with the given PID.
+func signalOSProcess(pid int, sig syscall.Signal) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", pid, err)
+	}
+	if err := proc.Signal(sig); err != nil {
+		return fmt.Errorf("signal process %d: %w", pid, err)
+	}
+	return nil
+}
+
+// reloadCrowdSec sends SIGHUP to the CrowdSec process Charon manages (tracked via its PID file)
+// so it reloads parsers, scenarios and whitelists. CrowdSec treats SIGHUP as a reload request
+// (the same signal its systemd unit's ExecReload uses). Returns crowdsec.ErrCrowdSecNotRunning
+// when no managed process is running.
+func (h *CrowdsecHandler) reloadCrowdSec(ctx context.Context) error {
+	if h.Executor == nil {
+		return crowdsec.ErrCrowdSecNotRunning
+	}
+	running, pid, err := h.Executor.Status(ctx, h.DataDir)
+	if err != nil {
+		return fmt.Errorf("crowdsec status: %w", err)
+	}
+	if !running || pid <= 0 {
+		return crowdsec.ErrCrowdSecNotRunning
+	}
+	signal := h.signalProcess
+	if signal == nil {
+		signal = signalOSProcess
+	}
+	return signal(pid, syscall.SIGHUP)
+}
+
+// reloadAfterWhitelistChange reloads CrowdSec best-effort; failures never fail the request.
+func (h *CrowdsecHandler) reloadAfterWhitelistChange(ctx context.Context, action string) {
+	switch err := h.reloadCrowdSec(ctx); {
+	case err == nil, errors.Is(err, crowdsec.ErrCrowdSecNotRunning):
+	default:
+		logger.Log().WithError(err).Warnf("crowdsec reload failed after whitelist %s (non-fatal)", action)
+	}
+}
+
+// skipArchiveEntry reports whether an extracted entry must be ignored: it lies at or beneath a kept
+// path, or it is a non-directory entry whose path is a directory that existed before extraction began
+// (after the clear step such a directory remains only because it holds kept entries). rel has passed
+// the containment check.
+func skipArchiveEntry(liveDirs map[string]struct{}, rel string, typeflag byte, keep func(rel string) bool) bool {
+	if crowdsec.IsManifestPath(rel) {
+		return true // generated hub item list, read by the pre-import inspection, never written to disk
+	}
+	if crowdsec.KeptOrBeneathKept(keep, rel) {
+		return true
+	}
+	if typeflag == tar.TypeDir {
+		return false
+	}
+	_, isLiveDir := liveDirs[filepath.Clean(rel)]
+	return isLiveDir
+}
+
+// liveDirSet lists the directories present under root before extraction starts. After the clear step a
+// directory remains only because it holds kept entries. Symlinks are listed by WalkDir without being
+// followed.
+func liveDirSet(root string) (map[string]struct{}, error) {
+	dirs := map[string]struct{}{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() || path == root {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		dirs[rel] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list live directories: %w", err)
+	}
+	return dirs, nil
 }

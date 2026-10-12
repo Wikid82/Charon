@@ -65,11 +65,11 @@ Last reviewed: 2026-09-02
 
 ### [RESOLVED] GHSA-r277-6w6q-xmqw · kin-openapi Fail-Open Authentication Bypass (bundled CrowdSec)
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | GHSA-r277-6w6q-xmqw (CVSS 9.1); related GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (CVSS 5.3) |
+| Field | Value |
+| --- | --- |
+| **ID** | GHSA-r277-6w6q-xmqw (CVSS 9.1); related GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (CVSS 5.3) |
 | **Severity** | Critical |
-| **Status**   | Resolved — nightly build realigned to CrowdSec v1.8.0 (ships patched `kin-openapi`) |
+| **Status** | Resolved — nightly build realigned to CrowdSec v1.8.0 (ships patched `kin-openapi`) |
 
 **What**
 `github.com/getkin/kin-openapi` before v0.144.0 has a fail-open flaw: when request-validation
@@ -123,11 +123,11 @@ Full analysis: `docs/security/vulnerability-analysis-2026-09-02.md`.
 
 ### [RESOLVED] GHSA-rw47-hm26-6wr7 / CVE-2026-44982 · CrowdSec AppSec Drops HTTP Request Body
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | GHSA-rw47-hm26-6wr7 / CVE-2026-44982 |
+| Field | Value |
+| --- | --- |
+| **ID** | GHSA-rw47-hm26-6wr7 / CVE-2026-44982 |
 | **Severity** | High |
-| **Status**   | Resolved — crowdsec upgraded to v1.7.8 |
+| **Status** | Resolved — crowdsec upgraded to v1.7.8 |
 
 **What**
 The CrowdSec AppSec component silently dropped the HTTP request body for chunked-encoded or
@@ -167,11 +167,11 @@ introduced between v1.6.x and v1.7.8 (`DecisionsListOpts` field types and
 
 ### [RESOLVED] CVE-2026-2673 · OpenSSL TLS 1.3 Key Exchange Group Downgrade
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-2673 |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-2673 |
 | **Severity** | High · 7.5 |
-| **Status**   | Resolved — superseded by Alpine base image package upgrade |
+| **Status** | Resolved — superseded by Alpine base image package upgrade |
 
 **What**
 An OpenSSL TLS 1.3 server may fail to negotiate the intended key exchange group when the
@@ -215,11 +215,11 @@ this entry moving to Resolved.
 
 ### [HIGH] CVE-2026-14456 · OpenSSL QUIC Server Unbounded Memory Allocation
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-14456 (affects `libcrypto3` and `libssl3`) |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-14456 (affects `libcrypto3` and `libssl3`) |
 | **Severity** | High |
-| **Status**   | Awaiting Upstream |
+| **Status** | Awaiting Upstream |
 
 **What**
 OpenSSL's QUIC SERVER implementation, when processing valid QUIC Initial packets for unknown
@@ -266,11 +266,11 @@ Dockerfile.
 
 ### [HIGH] CVE-2026-31790 · OpenSSL Vulnerability in Alpine Base Image
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-31790 (affects `libcrypto3` and `libssl3`) |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-31790 (affects `libcrypto3` and `libssl3`) |
 | **Severity** | High · CVSS pending |
-| **Status**   | Awaiting Upstream |
+| **Status** | Awaiting Upstream |
 
 **What**
 An OpenSSL vulnerability in the Alpine base image system packages `libcrypto3` and `libssl3`.
@@ -308,11 +308,11 @@ Dockerfile.
 
 ### [MEDIUM] CVE-2026-33997 · Docker Off-by-One Plugin Privilege Validation
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-33997 (GHSA-pxq6-2prw-chj9) |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-33997 (GHSA-pxq6-2prw-chj9) |
 | **Severity** | Medium · 6.8 |
-| **Status**   | Awaiting Upstream |
+| **Status** | Awaiting Upstream |
 
 **What**
 An off-by-one error in Docker Engine's plugin privilege validation could allow
@@ -350,11 +350,11 @@ Moby dependency paths.
 
 ### [MEDIUM] CVE-2025-60876 · BusyBox wget HTTP Request Smuggling
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2025-60876 |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2025-60876 |
 | **Severity** | Medium · 6.5 |
-| **Status**   | Awaiting Upstream (suppressed in `.trivyignore` + `.grype.yaml`) |
+| **Status** | Awaiting Upstream (suppressed in `.trivyignore` + `.grype.yaml`) |
 
 **What**
 BusyBox wget through 1.37 accepts raw CR/LF and other C0 control bytes in the HTTP
@@ -395,11 +395,11 @@ remove both entries once a patched APK ships and a rebuild scans clean.
 
 ### ✅ [HIGH] CVE-2026-45135 · Caddy FastCGI Unsafe Unicode Handling in splitPos
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-45135 |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-45135 |
 | **Severity** | High · 8.1 |
-| **Status**   | Fully remediated — `no-cache-filters: caddy-builder,crowdsec-builder` applied to nightly and E2E build workflows |
+| **Status** | Fully remediated — `no-cache-filters: caddy-builder,crowdsec-builder` applied to nightly and E2E build workflows |
 
 **What**
 Caddy v2.11.2 contains unsafe Unicode handling in the FastCGI `splitPos` function. A
@@ -442,11 +442,11 @@ the GHA layer cache for those stages. All other stages continue to benefit from 
 
 ### [HIGH] CVE-2026-32286 · pgproto3 DoS via Negative DataRow Field Length
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-32286 |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-32286 |
 | **Severity** | High · 7.5 |
-| **Status**   | Awaiting Upstream |
+| **Status** | Awaiting Upstream |
 
 **What**
 `github.com/jackc/pgproto3/v2` v2.3.3 — `DataRow.Decode` does not validate field length
@@ -478,7 +478,7 @@ deploying Charon with a PostgreSQL backend (non-standard configuration) may be e
 database server is untrusted. EPSS score not yet available.
 
 **Planned Remediation**
-Monitor https://github.com/jackc/pgproto3 for a fix release. Upgrade the indirect dependency
+Monitor <https://github.com/jackc/pgproto3> for a fix release. Upgrade the indirect dependency
 once a patched version is available. Pre-existing; not introduced by PR #1031.
 
 Re-verified 2026-07-29 (this entry's original `.trivyignore`/`.grype.yaml` review date had
@@ -494,11 +494,11 @@ pgx/v5 has landed upstream. Risk assessment unchanged. Suppression renewed in `.
 
 ### [LOW] CVE-2026-41889 · pgx/v4 Panic via Crafted PostgreSQL Wire Payload
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-41889 (GHSA-j88v-2chj-qfwx) |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-41889 (GHSA-j88v-2chj-qfwx) |
 | **Severity** | Low · 3.7 |
-| **Status**   | Awaiting Upstream |
+| **Status** | Awaiting Upstream |
 
 **What**
 `github.com/jackc/pgx/v4` may panic when decoding a crafted PostgreSQL wire payload,
@@ -533,11 +533,11 @@ present in bundled components.
 
 ### [HIGH] GO-2026-5932 · golang.org/x/crypto/openpgp Unmaintained, Unsafe by Design
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | GO-2026-5932 |
+| Field | Value |
+| --- | --- |
+| **ID** | GO-2026-5932 |
 | **Severity** | Reported Unknown by Go vulndb; Trivy substitutes another vendor's rating |
-| **Status**   | Awaiting Upstream (no fixed version exists) |
+| **Status** | Awaiting Upstream (no fixed version exists) |
 
 **What**
 `golang.org/x/crypto/openpgp` (v0.53.0 when first flagged; v0.55.0 in crowdsec/cscli and
@@ -584,11 +584,11 @@ it). Review 2026-12-04.
 
 ### [HIGH] GHSA-vfj7-8cjw-p6xm · braces DoS via `micromatch` (root dev tooling)
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | GHSA-vfj7-8cjw-p6xm (CVSS 7.5) |
+| Field | Value |
+| --- | --- |
+| **ID** | GHSA-vfj7-8cjw-p6xm (CVSS 7.5) |
 | **Severity** | High |
-| **Status**   | Accepted Risk (no fixed version exists) |
+| **Status** | Accepted Risk (no fixed version exists) |
 
 **What**
 `braces` stack-exhaustion DoS on deeply nested patterns. Every published version (`<= 3.0.3`,
@@ -609,11 +609,11 @@ the latest) is affected and `first_patched_version` is null.
 
 ### [HIGH] GHSA-mh99-v99m-4gvg · brace-expansion DoS via `eslint-plugin-jsx-a11y` (frontend)
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | GHSA-mh99-v99m-4gvg (CVSS 7.5) |
+| Field | Value |
+| --- | --- |
+| **ID** | GHSA-mh99-v99m-4gvg (CVSS 7.5) |
 | **Severity** | High |
-| **Status**   | Accepted Risk (no fixed version exists) |
+| **Status** | Accepted Risk (no fixed version exists) |
 
 **What**
 `brace-expansion` DoS via unbounded expansion length causing an out-of-memory process crash.
@@ -649,7 +649,7 @@ coverage — rejected as unacceptable. Forcing the patched `brace-expansion@5.0.
 breaks `minimatch@3.1.5`'s callable-default `require('brace-expansion')(pattern)` usage (5.0.8
 changed the CJS export to a named-export object); forcing `minimatch` itself to the 10.x line
 breaks `eslint-plugin-jsx-a11y`'s compiled `_interopRequireDefault(...).default` usage instead
-(minimatch@10.x's CJS build has no `.default` export). Both verified by direct `require()`
+(`minimatch@10.x`'s CJS build has no `.default` export). Both verified by direct `require()`
 experiments, not just version inspection. Devdependency-only, never shipped, and `minimatch`
 here only processes trusted local source identifiers during linting, not untrusted input.
 
@@ -666,11 +666,11 @@ not suppress any other high/critical finding, only this exact chain.
 
 ### ✅ [HIGH] CVE-2026-84304 / GHSA-vp52-pcj8-j9qc · gRPC-Go HTTP/2 DATA-Frame Heap Exhaustion (bundled Caddy)
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-84304 / GHSA-vp52-pcj8-j9qc |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-84304 / GHSA-vp52-pcj8-j9qc |
 | **Severity** | High · 8.7 (CVSS 4.0) |
-| **Patched**  | 2026-09-03 (Dockerfile pin) + 2026-09-04 (caddy-builder re-pin + build assertion) |
+| **Patched** | 2026-09-03 (Dockerfile pin) + 2026-09-04 (caddy-builder re-pin + build assertion) |
 
 **What**
 `google.golang.org/grpc` before v1.83.1 stores each fragmented HTTP/2 DATA frame as a separate
@@ -732,11 +732,11 @@ v1.83.0 until this fix; the build assertion now guarantees v1.83.1. Full analysi
 
 ### ✅ [UNKNOWN] GO-2026-6354 / CVE-2026-78662 + GO-2026-6355 / CVE-2026-56855 · golang.org/x/crypto/ssh Channel-Flood Deadlock (bundled CrowdSec)
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | GO-2026-6354 / CVE-2026-78662 · GO-2026-6355 / CVE-2026-56855 |
+| Field | Value |
+| --- | --- |
+| **ID** | GO-2026-6354 / CVE-2026-78662 · GO-2026-6355 / CVE-2026-56855 |
 | **Severity** | Unknown (Go vulndb); DoS class |
-| **Patched**  | 2026-09-04 (Dockerfile pin); image rebuild pending |
+| **Patched** | 2026-09-04 (Dockerfile pin); image rebuild pending |
 
 **What**
 Two `golang.org/x/crypto/ssh` server-side deadlock bugs, both fixed in **v0.56.0**:
@@ -782,11 +782,11 @@ and cannot silently diverge again. The finding clears on the next image build. F
 
 ### ✅ [LOW] GO-2026-5024 / CVE-2026-39824 · golang.org/x/sys in gosu Build Stage
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | GO-2026-5024 / CVE-2026-39824 |
+| Field | Value |
+| --- | --- |
+| **ID** | GO-2026-5024 / CVE-2026-39824 |
 | **Severity** | Low · N/A (no CVSS published) |
-| **Patched**  | 2026-07-16 |
+| **Patched** | 2026-07-16 |
 
 **What**
 Grype/GitHub code scanning flagged `golang.org/x/sys` embedded in `/usr/sbin/gosu`, at version
@@ -835,11 +835,11 @@ worse. Full analysis: [vulnerability-analysis-2026-07-16.md](docs/security/vulne
 
 ### ✅ [HIGH] CVE-2026-34040 · Docker AuthZ Plugin Bypass via Oversized Request Body
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-34040 (GHSA-x744-4wpc-v9h2) |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-34040 (GHSA-x744-4wpc-v9h2) |
 | **Severity** | High · 8.8 |
-| **Patched**  | 2026-04-21 |
+| **Patched** | 2026-04-21 |
 
 **What**
 Docker Engine AuthZ plugins can be bypassed when an API request body exceeds a
@@ -878,11 +878,11 @@ Validation evidence after remediation:
 
 ### ✅ [LOW] CVE-2026-26958 · edwards25519 MultiScalarMult Invalid Results
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-26958 (GHSA-fw7p-63qq-7hpr) |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-26958 (GHSA-fw7p-63qq-7hpr) |
 | **Severity** | Low · 1.7 |
-| **Patched**  | 2026-04-04 |
+| **Patched** | 2026-04-04 |
 
 **What**
 `filippo.io/edwards25519` v1.1.0 `MultiScalarMult` produces invalid results or undefined
@@ -917,11 +917,11 @@ affected version.
 
 ### ✅ [CRITICAL] CVE-2025-68121 · Go Stdlib Critical in CrowdSec Bundled Binaries
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2025-68121 (see also CHARON-2025-001) |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2025-68121 (see also CHARON-2025-001) |
 | **Severity** | Critical |
-| **Patched**  | 2026-03-24 |
+| **Patched** | 2026-03-24 |
 
 **What**
 A critical Go standard library vulnerability affects CrowdSec binaries bundled in the Charon
@@ -956,11 +956,11 @@ CrowdSec binaries now compiled with Go 1.26.1 (was 1.25.6).
 
 ### ✅ [HIGH] CHARON-2025-001 · CrowdSec Bundled Binaries — Go Stdlib CVEs
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CHARON-2025-001 (aliases: CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729, CVE-2026-25679, CVE-2025-61732, CVE-2026-27142, CVE-2026-27139) |
+| Field | Value |
+| --- | --- |
+| **ID** | CHARON-2025-001 (aliases: CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729, CVE-2026-25679, CVE-2025-61732, CVE-2026-27142, CVE-2026-27139) |
 | **Severity** | High · (preliminary, CVSS scores pending upstream confirmation) |
-| **Patched**  | 2026-03-24 |
+| **Patched** | 2026-03-24 |
 
 **What**
 Multiple CVEs in Go standard library packages continue to accumulate in CrowdSec binaries bundled
@@ -998,11 +998,11 @@ CrowdSec binaries now compiled with Go 1.26.1.
 
 ### ✅ [MEDIUM] CVE-2026-27171 · zlib CPU Exhaustion via Infinite Loop in CRC Combine Functions
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2026-27171 |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-27171 |
 | **Severity** | Medium · 5.5 (NVD) / 2.9 (MITRE) |
-| **Patched**  | 2026-03-24 |
+| **Patched** | 2026-03-24 |
 
 **What**
 zlib before 1.3.2 allows unbounded CPU consumption (denial of service) via the `crc32_combine64`
@@ -1038,11 +1038,11 @@ Alpine now ships zlib 1.3.2-r0 (fix threshold was 1.3.2).
 
 ### ✅ [HIGH] CHARON-2026-001 · Debian Base Image CVE Cluster
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CHARON-2026-001 (aliases: CVE-2026-0861, CVE-2025-15281, CVE-2026-0915, CVE-2025-13151, and 2 libtiff HIGH CVEs) |
+| Field | Value |
+| --- | --- |
+| **ID** | CHARON-2026-001 (aliases: CVE-2026-0861, CVE-2025-15281, CVE-2026-0915, CVE-2025-13151, and 2 libtiff HIGH CVEs) |
 | **Severity** | High · 8.4 (highest per CVSS v3.1) |
-| **Patched**  | 2026-03-20 (Alpine base image migration complete) |
+| **Patched** | 2026-03-20 (Alpine base image migration complete) |
 
 **What**
 Seven HIGH-severity CVEs in Debian Trixie base image system libraries (`glibc`, `libtasn1-6`,
@@ -1086,11 +1086,11 @@ Internal remediation; no external reporter.
 
 ### ✅ [HIGH] CVE-2025-68156 · expr-lang/expr ReDoS
 
-| Field        | Value |
-|--------------|-------|
-| **ID**       | CVE-2025-68156 |
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2025-68156 |
 | **Severity** | High · 7.5 |
-| **Patched**  | 2026-01-11 |
+| **Patched** | 2026-01-11 |
 
 **What**
 Regular Expression Denial of Service (ReDoS) vulnerability in the `expr-lang/expr` library used
@@ -1311,7 +1311,7 @@ for developer iteration. Tag-only overrides MUST NOT be used in CI contexts.
 ### Automated Scanning
 
 | Tool | Purpose |
-|------|---------|
+| ------ | --------- |
 | Trivy | Container image vulnerability scanning |
 | CodeQL | Static analysis for Go and JavaScript |
 | Semgrep | Static analysis for security anti-patterns (Go, JS/TS, React, secrets, Dockerfile) |

@@ -34,10 +34,10 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
 
 <workflow>
 
-1.  **Ingest (The Translation Phase)**:
-    -   **Read Instructions**: Read `.github/instructions` and `.github/Doc_Writer.agent.md`.
-    -   **Read the Plan**: Read `docs/plans/current_spec.md` to understand the feature.
-    -   **Ignore the Code**: Do not read the `.go` or `.tsx` files. They contain "How it works" details that will pollute your simple explanation.
+1. **Ingest (The Translation Phase)**:
+    - **Read Instructions**: Read `.github/instructions` and `.github/Doc_Writer.agent.md`.
+    - **Read the Plan**: Read `docs/plans/current_spec.md` to understand the feature.
+    - **Ignore the Code**: Do not read the `.go` or `.tsx` files. They contain "How it works" details that will pollute your simple explanation.
 
 2. **Drafting**:
     - **Marketing**: The `README.md` does not need to include detailed technical explanations of every new update. This is a short and sweet Marketing summery of Charon for new users. Focus on what the user can do with Charon, not how it works under the hood. Leave detailed  explanations for the documentation. `README.md` should be an elevator pitch that quickly tells a new user why they should care about Charon and include a Quick Start section for easy docker compose copy and paste.
@@ -57,4 +57,4 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
 - **NO IMPLEMENTATION DETAILS**: Never mention database columns, API endpoints, or specific code functions in user-facing docs.
 </constraints>
 
-```
+```text

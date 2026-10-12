@@ -101,13 +101,13 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | DOCKER_BUILDKIT | No | 1 | Enable BuildKit for faster builds |
 | SKIP_CLEANUP | No | false | Skip container cleanup after tests |
 | TEST_TIMEOUT | No | 300 | Timeout in seconds for each test |
@@ -115,17 +115,21 @@ For use in GitHub Actions workflows:
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All integration tests passed
 
 ### Error Exit Codes
+
 - **1**: One or more tests failed
 - **2**: Docker environment setup failed
 - **3**: Container startup timeout
 - **4**: Network connectivity issues
 
 ### Console Output
+
 Example output:
-```
+
+```text
 === Running Integration Test Suite ===
 ✓ Cerberus Integration Tests
 ✓ Coraza WAF Integration Tests
@@ -180,15 +184,19 @@ This skill executes the following test suites:
 ### Common Errors
 
 #### Error: Cannot connect to Docker daemon
+
 **Solution**: Ensure Docker is running: `sudo systemctl start docker`
 
 #### Error: Port already in use
+
 **Solution**: Stop conflicting services or run cleanup: `docker compose down`
 
 #### Error: Container startup timeout
+
 **Solution**: Check Docker logs: `docker compose logs`
 
 #### Error: Network connectivity issues
+
 **Solution**: Verify network configuration: `docker network ls`
 
 ### Troubleshooting

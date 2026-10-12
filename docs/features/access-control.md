@@ -83,7 +83,7 @@ Each proxy host can have one Access List assigned. Create multiple lists for dif
 ## Best Practices
 
 | Scenario | Recommendation |
-|----------|----------------|
+| ---------- | ---------------- |
 | Internal admin panels | Allowlist office/VPN IPs only |
 | Public websites | Use geo-blocking for high-risk regions |
 | API endpoints | Combine IP rules with rate limiting |

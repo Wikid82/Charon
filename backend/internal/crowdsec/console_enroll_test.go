@@ -13,10 +13,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 type stubEnvExecutor struct {
@@ -62,9 +62,7 @@ func (s *stubEnvExecutor) lastArgs() []string {
 
 func openConsoleTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	db := testutil.OpenMemoryDB(t)
 	require.NoError(t, db.AutoMigrate(&models.CrowdsecConsoleEnrollment{}))
 	return db
 }
@@ -1055,7 +1053,8 @@ func TestEnsureCAPIRegistered_RegisterError(t *testing.T) {
 	err := svc.ensureCAPIRegistered(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "capi register")
-	require.Contains(t, err.Error(), "registration failed")
+	require.Contains(t, err.Error(), "34 bytes of output omitted")
+	require.NotContains(t, err.Error(), "network error")
 	require.Equal(t, 1, exec.callCount())
 }
 

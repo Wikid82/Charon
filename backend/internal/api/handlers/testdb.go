@@ -1,15 +1,11 @@
 package handlers
 
 import (
-	crand "crypto/rand"
-	"fmt"
-	"math/big"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -74,12 +70,7 @@ func GetTemplateDB() (*gorm.DB, error) {
 // a busy timeout and WAL journal mode to reduce SQLITE locking during parallel tests.
 func OpenTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	// Append a timestamp/random suffix to ensure uniqueness even across parallel runs
-	dsnName := strings.ReplaceAll(t.Name(), "/", "_")
-	// Use crypto/rand for suffix generation in tests to avoid static analysis warnings
-	n, _ := crand.Int(crand.Reader, big.NewInt(10000))
-	uniqueSuffix := fmt.Sprintf("%d%d", time.Now().UnixNano(), n.Int64())
-	dsn := fmt.Sprintf("file:%s_%s?mode=memory&cache=shared&_journal_mode=WAL&_busy_timeout=5000", dsnName, uniqueSuffix)
+	dsn := testutil.MemoryDSN(t, "_journal_mode=WAL", "_busy_timeout=5000")
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})

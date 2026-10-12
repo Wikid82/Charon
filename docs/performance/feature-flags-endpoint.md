@@ -119,7 +119,7 @@ if err := h.DB.Transaction(func(tx *gorm.DB) error {
 ### Improvement Factor
 
 | Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
+| -------- | -------- | ------- | ------------- |
 | GET P99 | 600ms | 200ms | **3x faster** |
 | PUT P99 | 600ms | 200ms | **3x faster** |
 | Query Count (GET) | 3 | 1 | **66% reduction** |

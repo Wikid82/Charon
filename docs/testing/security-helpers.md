@@ -79,7 +79,7 @@ test.describe('ACL Tests', () => {
 ## Functions
 
 | Function | Purpose |
-|----------|---------|
+| ---------- | --------- |
 | `getSecurityStatus` | Fetch current security module states |
 | `setSecurityModuleEnabled` | Toggle a specific module on/off |
 | `captureSecurityState` | Snapshot all module states |
@@ -90,14 +90,14 @@ test.describe('ACL Tests', () => {
 ## API Endpoints Used
 
 | Endpoint | Method | Purpose |
-|----------|--------|---------|
+| --- | --- | --- |
 | `/api/v1/security/status` | GET | Returns current state of all security modules |
 | `/api/v1/settings` | POST | Toggle settings with `{ key: "...", value: "true/false" }` |
 
 ## Settings Keys
 
 | Key | Values | Description |
-|-----|--------|-------------|
+| ----- | -------- | ------------- |
 | `security.acl.enabled` | `"true"` / `"false"` | Toggle ACL enforcement |
 | `security.waf.enabled` | `"true"` / `"false"` | Toggle WAF enforcement |
 | `security.rate_limit.enabled` | `"true"` / `"false"` | Toggle Rate Limiting |

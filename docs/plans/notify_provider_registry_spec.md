@@ -71,7 +71,7 @@ provider today requires a code change in **both** repos.
 ### 2.1 Current state of `go_notify_yourself` (read in full, not assumed)
 
 | File | Finding |
-|---|---|
+| --- | --- |
 | `sender.go` | `Sender` interface: `Send(ctx context.Context, msg Message) error`. Every provider package returns a type implementing this. No registry, no factory type exists anywhere in the repo. |
 | `message.go` | `Message{Title, Body, EventType, Timestamp, Data map[string]any}` + `Normalized()`. Stable, generic, provider-agnostic — no changes needed for the registry. |
 | `providers/discord/discord.go` | `Config{WebhookURL, Template, CustomTemplate}`; `New(cfg Config, w *transport.Wrapper) *Client`. All fields are plain strings — trivially JSON-serializable. |
@@ -200,7 +200,7 @@ schema-driven form rendering today. See §3.6 for how this is flagged as an open
 ### 3.1 Provider `Config` field inventory (all eight packages, read directly)
 
 | Package | `Config` fields | Serializable? |
-|---|---|---|
+| --- | --- | --- |
 | `discord` | `WebhookURL, Template, CustomTemplate` | Yes — all strings |
 | `slack` | `WebhookURL, Template, CustomTemplate` | Yes — all strings |
 | `gotify` | `URL, Token, Template, CustomTemplate` | Yes — all strings |
@@ -740,7 +740,7 @@ structure:
 ### 3.8 Public API surface summary (new/changed in this spec)
 
 | Symbol | Package | Status |
-|---|---|---|
+| --- | --- | --- |
 | `type Factory func(config map[string]any) (Sender, error)` | `notify` (root) | New |
 | `func Register(name string, factory Factory)` | `notify` (root) | New |
 | `func New(name string, config map[string]any) (Sender, error)` | `notify` (root) | New |
@@ -877,6 +877,7 @@ each with its own ordered commit sequence, landing on the *same* existing branch
 original extraction already established (two-repo-two-PR-shaped-as-one-feature, not a new branch).
 
 ### `go_notify_yourself` repo — additional commits (same repo, no PR needed there per its own
+
 ### CLAUDE.md's "direct TDD, no multi-agent roster" note — but still ordered/bisectable commits)
 
 1. **Commit 1** — Registry core: `factory.go` + `factory_test.go` (§3.3, Phase 1). Gate: `go build
@@ -907,6 +908,7 @@ the whole registry addition cleanly since nothing else in the module depended on
 existing before this work.
 
 ### Charon repo — additional commits on the existing `feature/notifications-engine-extraction`
+
 ### branch (same PR #1253)
 
 1. **Commit 1** — Dependency bump: `go.mod`/`go.sum` to `go_notify_yourself v0.2.0`. Gate: `go

@@ -1,17 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems } from '../api/crowdsec'
 import { getFeatureFlags } from '../api/featureFlags'
 import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
 import { getSecurityStatus } from '../api/security'
 import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
+import HubItemsRestorePanel from '../components/crowdsec/HubItemsRestorePanel'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -22,7 +23,20 @@ import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
+import { sanitizeKeptFileName } from '../utils/keptFileNames'
+import { sanitizeSecret } from '../utils/sanitizeSecret'
 import { toast } from '../utils/toast'
+
+/** Prefer the server's `error` message for Axios failures, falling back to the given text. */
+function getServerErrorMessage(err: unknown, fallback: string): string {
+  if (isAxiosError(err)) {
+    const serverError = (err.response?.data as { error?: string } | undefined)?.error
+    return serverError || err.message || fallback
+  }
+  return fallback
+}
+
+const MAX_LISTED_NEEDS_VALUES = 10
 
 const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDashboard'))
 
@@ -32,6 +46,12 @@ export default function CrowdSecConfig() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'alpha' | 'type' | 'source'>('alpha')
   const [file, setFile] = useState<File | null>(null)
+  // Hub items the last import reported as missing; the key restarts the panel per import.
+  const [importHubItems, setImportHubItems] = useState<{ key: number; items: ImportHubItems } | null>(null)
+  const [keptFiles, setKeptFiles] = useState<string[]>([])
+  const [needsValues, setNeedsValues] = useState<string[]>([])
+  const listedNeedsValues = needsValues.slice(0, MAX_LISTED_NEEDS_VALUES).map(sanitizeKeptFileName)
+  const hiddenNeedsValues = needsValues.length - listedNeedsValues.length
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [selectedPresetSlug, setSelectedPresetSlug] = useState<string>('')
@@ -48,6 +68,8 @@ export default function CrowdSecConfig() {
   const [validationError, setValidationError] = useState<string | null>(null)
   const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string } | null>(null)
   const queryClient = useQueryClient()
+  const backupCreatedMessage = (name: string) =>
+    t('crowdsecConfig.presets.backupCreated', { name, location: t('crowdsecConfig.presets.backupLocation') })
   // Read the "CrowdSec is starting" signal broadcast by Security.tsx via the
   // QueryClient cache. No HTTP call is made; this is pure in-memory coordination.
   const { data: crowdsecStartingCache } = useQuery<{ isStarting: boolean; startedAt?: number }>({
@@ -71,8 +93,11 @@ export default function CrowdSecConfig() {
   const [enrollmentToken, setEnrollmentToken] = useState('')
   const [consoleTenant, setConsoleTenant] = useState('')
   const [consoleAgentName, setConsoleAgentName] = useState((typeof window !== 'undefined' && window.location?.hostname) || 'charon-agent')
+  // Tracks manual edits so late-arriving enrollment status never overwrites what the user typed
+  const consoleAgentNameEdited = useRef(false)
+  const consoleTenantEdited = useRef(false)
   const [consoleAck, setConsoleAck] = useState(false)
-  const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; tenant?: string; ack?: string; submit?: string }>({})
+  const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; ack?: string; submit?: string }>({})
   const consoleStatusQuery = useConsoleStatus(consoleEnrollmentEnabled)
   const enrollConsoleMutation = useEnrollConsole()
   const clearEnrollmentMutation = useClearConsoleEnrollment()
@@ -104,18 +129,31 @@ export default function CrowdSecConfig() {
     mutationFn: async (file: File) => {
       return await importCrowdsecConfig(file)
     },
-    onSuccess: () => {
-      toast.success('CrowdSec config imported (backup created)')
+    onSuccess: (result) => {
+      toast.success(t('crowdsecConfig.importSuccess'))
+      const items = result.hub_items
+      setImportHubItems(items && items.missing.length > 0 ? { key: Date.now(), items } : null)
+      setKeptFiles(result.kept_files ?? [])
+      setNeedsValues(result.needs_values ?? [])
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to import')
+      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.importFailed'))
     }
   })
 
   const listMutation = useQuery({ queryKey: ['crowdsec-files'], queryFn: listCrowdsecFiles })
   const readMutation = useMutation({ mutationFn: (path: string) => readCrowdsecFile(path), onSuccess: (data) => setFileContent(data.content) })
-  const writeMutation = useMutation({ mutationFn: async ({ path, content }: { path: string; content: string }) => writeCrowdsecFile(path, content), onSuccess: () => { toast.success('File saved'); queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] }) } })
+  const writeMutation = useMutation({
+    mutationFn: async ({ path, content }: { path: string; content: string }) => writeCrowdsecFile(path, content),
+    onSuccess: () => {
+      toast.success(t('crowdsecConfig.toasts.fileSaved'))
+      queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
+    },
+    onError: (err: unknown) => {
+      toast.error(getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed')))
+    },
+  })
 
   const presetsQuery = useQuery({
     queryKey: ['crowdsec-presets'],
@@ -144,7 +182,6 @@ export default function CrowdSecConfig() {
           slug: preset.slug,
           title: preset.title || local?.title || preset.slug,
           description: local?.description || preset.summary,
-          content: local?.content || '',
           tags: local?.tags || preset.tags,
           warning: local?.warning,
           requiresHub: Boolean(preset.requires_hub),
@@ -157,8 +194,11 @@ export default function CrowdSecConfig() {
         }
       })
     }
+    // Only show the static fallback once the server list failed; otherwise a placeholder
+    // entry would be auto-selected and pulled while the real list is still loading.
+    if (!presetsQuery.isError) return []
     return CROWDSEC_PRESETS.map((preset) => ({ ...preset, requiresHub: false, available: true, cached: false, source: 'charon-curated' }))
-  }, [presetsQuery.data])
+  }, [presetsQuery.data, presetsQuery.isError])
 
   const filteredPresets = useMemo(() => {
     let result = [...presetCatalog]
@@ -196,14 +236,27 @@ export default function CrowdSecConfig() {
     }
   }, [presetCatalog, selectedPresetSlug])
 
+  // Prefer the enrolled identity over the hostname default, unless the user already edited the field
   useEffect(() => {
-    if (consoleStatusQuery.data?.agent_name) {
-      setConsoleAgentName((prev) => prev || consoleStatusQuery.data?.agent_name || prev)
+    const enrolledAgent = consoleStatusQuery.data?.agent_name
+    if (enrolledAgent && !consoleAgentNameEdited.current) {
+      setConsoleAgentName(enrolledAgent)
     }
-    if (consoleStatusQuery.data?.tenant) {
-      setConsoleTenant((prev) => prev || consoleStatusQuery.data?.tenant || prev)
+    const enrolledTenant = consoleStatusQuery.data?.tenant
+    if (enrolledTenant && !consoleTenantEdited.current) {
+      setConsoleTenant(enrolledTenant)
     }
   }, [consoleStatusQuery.data?.agent_name, consoleStatusQuery.data?.tenant])
+
+  const handleConsoleAgentNameChange = (value: string) => {
+    consoleAgentNameEdited.current = true
+    setConsoleAgentName(value)
+  }
+
+  const handleConsoleTenantChange = (value: string) => {
+    consoleTenantEdited.current = true
+    setConsoleTenant(value)
+  }
 
   const selectedPreset = presetCatalog.find((preset) => preset.slug === selectedPresetSlug)
   const selectedPresetRequiresHub = selectedPreset?.requiresHub ?? false
@@ -213,7 +266,7 @@ export default function CrowdSecConfig() {
     onSuccess: (data) => {
       setPresetPreview(data.preview)
       setPresetMeta({ cacheKey: data.cache_key, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
-      setPresetStatusMessage('Preview fetched from hub')
+      setPresetStatusMessage(t('crowdsecConfig.presets.status.previewFetched'))
       setHubUnavailable(false)
       setValidationError(null)
     },
@@ -221,17 +274,17 @@ export default function CrowdSecConfig() {
       setPresetStatusMessage(null)
       if (isAxiosError(err)) {
         if (err.response?.status === 400) {
-          setValidationError(err.response.data?.error || 'Preset slug is invalid')
+          setValidationError(err.response.data?.error || t('crowdsecConfig.presets.status.slugInvalid'))
           return
         }
         if (err.response?.status === 503) {
           setHubUnavailable(true)
-          setPresetStatusMessage('CrowdSec hub unavailable. Retry or load cached copy.')
+          setPresetStatusMessage(t('crowdsecConfig.presets.status.hubUnavailable'))
           return
         }
-        setPresetStatusMessage(err.response?.data?.error || 'Failed to pull preset preview')
+        setPresetStatusMessage(err.response?.data?.error || t('crowdsecConfig.presets.status.pullFailed'))
       } else {
-        setPresetStatusMessage('Failed to pull preset preview')
+        setPresetStatusMessage(t('crowdsecConfig.presets.status.pullFailed'))
       }
     },
   })
@@ -247,7 +300,7 @@ export default function CrowdSecConfig() {
       retrievedAt: selectedPreset.retrievedAt,
       source: selectedPreset.source,
     })
-    setPresetPreview(selectedPreset.content || '')
+    setPresetPreview('')
     pullPresetMutation.mutate(selectedPreset.slug)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when slug changes, not on mutation/preset object identity changes
   }, [selectedPreset?.slug])
@@ -258,10 +311,10 @@ export default function CrowdSecConfig() {
       const cached = await getCrowdsecPresetCache(selectedPreset.slug)
       setPresetPreview(cached.preview)
       setPresetMeta({ cacheKey: cached.cache_key, etag: cached.etag, retrievedAt: selectedPreset.retrievedAt, source: selectedPreset.source })
-      setPresetStatusMessage('Loaded cached preview')
+      setPresetStatusMessage(t('crowdsecConfig.presets.status.cachedLoaded'))
       setHubUnavailable(false)
     } catch (err) {
-      const msg = isAxiosError(err) ? err.response?.data?.error || err.message : 'Failed to load cached preview'
+      const msg = isAxiosError(err) ? err.response?.data?.error || err.message : t('crowdsecConfig.presets.status.cacheLoadFailed')
       toast.error(msg)
     }
   }
@@ -271,42 +324,36 @@ export default function CrowdSecConfig() {
   const isConsolePending = enrollConsoleMutation.isPending || normalizedConsoleStatus === 'enrolling'
   const isConsolePendingAcceptance = normalizedConsoleStatus === 'pending_acceptance'
   const consoleStatusLabel = normalizedConsoleStatus.replace('_', ' ')
-  const consoleTokenState = consoleStatusQuery.data ? (consoleStatusQuery.data.key_present ? 'Stored (masked)' : 'Not stored') : '—'
+  const consoleTokenState = consoleStatusQuery.data ? (consoleStatusQuery.data.key_present ? t('crowdsecConfig.consoleEnrollment.tokenStored') : t('crowdsecConfig.consoleEnrollment.tokenNotStored')) : '—'
   const canRotateKey = normalizedConsoleStatus === 'enrolled' || normalizedConsoleStatus === 'degraded' || isConsolePendingAcceptance
   const consoleDocsHref = 'https://wikid82.github.io/charon/security/'
-
-  const sanitizeSecret = (msg: string) => msg.replace(/\b[A-Za-z0-9]{10,64}\b/g, '***')
 
   const sanitizeErrorMessage = (err: unknown) => {
     if (isAxiosError(err)) {
       return sanitizeSecret(err.response?.data?.error || err.message)
     }
     if (err instanceof Error) return sanitizeSecret(err.message)
-    return 'Console enrollment failed'
+    return t('crowdsecConfig.consoleEnrollment.errors.enrollFailed')
   }
 
-  const validateConsoleEnrollment = (options?: { allowMissingTenant?: boolean; requireAck?: boolean }) => {
-    const nextErrors: { token?: string; agent?: string; tenant?: string; ack?: string } = {}
+  const validateConsoleEnrollment = (options?: { requireAck?: boolean }) => {
+    const nextErrors: { token?: string; agent?: string; ack?: string } = {}
     if (!enrollmentToken.trim()) {
-      nextErrors.token = 'Enrollment token is required'
+      nextErrors.token = t('crowdsecConfig.consoleEnrollment.tokenRequired')
     }
     if (!consoleAgentName.trim()) {
-      nextErrors.agent = 'Agent name is required'
-    }
-    if (!consoleTenant.trim() && !options?.allowMissingTenant) {
-      nextErrors.tenant = 'Tenant / organization is required'
+      nextErrors.agent = t('crowdsecConfig.consoleEnrollment.errors.agentRequired')
     }
     if (options?.requireAck && !consoleAck) {
-      nextErrors.ack = 'You must acknowledge the console data-sharing notice'
+      nextErrors.ack = t('crowdsecConfig.consoleEnrollment.errors.ackRequired')
     }
     setConsoleErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
 
   const submitConsoleEnrollment = async (force = false) => {
-    const allowMissingTenant = force && !consoleTenant.trim()
     const requireAck = normalizedConsoleStatus === 'not_enrolled'
-    if (!validateConsoleEnrollment({ allowMissingTenant, requireAck })) return
+    if (!validateConsoleEnrollment({ requireAck })) return
     const tenantValue = consoleTenant.trim() || consoleStatusQuery.data?.tenant || consoleAgentName || 'charon-agent'
     try {
       await enrollConsoleMutation.mutateAsync({
@@ -323,8 +370,8 @@ export default function CrowdSecConfig() {
       }
       toast.success(
         force
-          ? 'Enrollment submitted! Accept the request on app.crowdsec.net to complete.'
-          : 'Enrollment request sent! Accept the enrollment on app.crowdsec.net to complete registration.'
+          ? t('crowdsecConfig.consoleEnrollment.enrollSubmitted')
+          : t('crowdsecConfig.consoleEnrollment.enrollSent')
       )
     } catch (err) {
       const message = sanitizeErrorMessage(err)
@@ -343,25 +390,25 @@ export default function CrowdSecConfig() {
   const banMutation = useMutation({
     mutationFn: () => banIP(banForm.ip, banForm.duration, banForm.reason),
     onSuccess: () => {
-      toast.success(`IP ${banForm.ip} has been banned`)
+      toast.success(t('crowdsecConfig.toasts.ipBanned', { ip: banForm.ip }))
       queryClient.invalidateQueries({ queryKey: ['crowdsec-decisions'] })
       setShowBanModal(false)
       setBanForm({ ip: '', duration: '24h', reason: '' })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to ban IP')
+      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.toasts.banFailed'))
     },
   })
 
   const unbanMutation = useMutation({
     mutationFn: (ip: string) => unbanIP(ip),
     onSuccess: (_, ip) => {
-      toast.success(`IP ${ip} has been unbanned`)
+      toast.success(t('crowdsecConfig.toasts.ipUnbanned', { ip }))
       queryClient.invalidateQueries({ queryKey: ['crowdsec-decisions'] })
       setConfirmUnban(null)
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to unban IP')
+      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.toasts.unbanFailed'))
     },
   })
 
@@ -372,7 +419,7 @@ export default function CrowdSecConfig() {
   const whitelistInlineError = addWhitelistMutation.error instanceof Error
     ? addWhitelistMutation.error.message
     : addWhitelistMutation.error != null
-    ? 'Failed to add entry'
+    ? t('crowdsecConfig.whitelist.addFailed')
     : null
 
   const handleAddMyIP = async () => {
@@ -380,21 +427,21 @@ export default function CrowdSecConfig() {
       const result = await getMyIP()
       setWhitelistForm((prev) => ({ ...prev, ip_or_cidr: result.ip }))
     } catch {
-      toast.error('Failed to detect your IP address')
+      toast.error(t('crowdsecConfig.toasts.ipDetectFailed'))
     }
   }
 
   const handleExport = async () => {
     const defaultName = buildCrowdsecExportFilename()
-    const filename = promptCrowdsecFilename(defaultName)
+    const filename = promptCrowdsecFilename(t, defaultName)
     if (!filename) return
 
     try {
       const blob = await exportCrowdsecConfig()
       downloadCrowdsecExport(blob, filename)
-      toast.success('CrowdSec configuration exported')
+      toast.success(t('crowdsecConfig.exportSuccess'))
     } catch {
-      toast.error('Failed to export CrowdSec configuration')
+      toast.error(t('crowdsecConfig.exportFailed'))
     }
   }
 
@@ -420,45 +467,13 @@ export default function CrowdSecConfig() {
       await backupMutation.mutateAsync()
       await writeMutation.mutateAsync({ path: selectedPath, content: fileContent })
     } catch {
-      // handled
-    }
-  }
-
-  const applyPresetLocally = async (reason?: string) => {
-    if (!selectedPreset) {
-      toast.error('Select a preset to apply')
-      return
-    }
-
-    const targetPath = selectedPath ?? listMutation.data?.files?.[0]
-    if (!targetPath) {
-      toast.error('Select a configuration file to apply the preset')
-      return
-    }
-
-    const content = presetPreview || selectedPreset.content
-    if (!content) {
-      toast.error('Preset preview is unavailable; retry pulling before applying')
-      return
-    }
-
-    try {
-      await backupMutation.mutateAsync()
-      await writeCrowdsecFile(targetPath, content)
-      queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
-      setSelectedPath(targetPath)
-      setFileContent(content)
-      setApplyInfo({ status: 'applied-locally', cacheKey: presetMeta?.cacheKey })
-      toast.success(reason ? `${reason}: preset applied locally` : 'Preset applied locally (backup created)')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to apply preset locally'
-      toast.error(msg)
+      // Failures are surfaced by the mutations' onError handlers; success toast only fires on onSuccess.
     }
   }
 
   const handleApplyPreset = async () => {
     if (!selectedPreset) {
-      toast.error('Select a preset to apply')
+      toast.error(t('crowdsecConfig.toasts.selectPreset'))
       return
     }
 
@@ -475,51 +490,37 @@ export default function CrowdSecConfig() {
         cacheKey: res.cache_key,
       })
 
-      const reloadNote = res.reload_hint ? ' (reload required)' : ''
-      toast.success(`Preset applied via backend${reloadNote}`)
+      if (res.status !== 'applied') {
+        toast.error(t('crowdsecConfig.toasts.presetNotCompleted', { status: res.status || t('crowdsecConfig.toasts.statusUnknown') }))
+        return
+      }
+
+      toast.success(t(res.reload_hint ? 'crowdsecConfig.toasts.presetAppliedReload' : 'crowdsecConfig.toasts.presetApplied'))
       if (res.backup) {
-        setPresetStatusMessage(`Backup stored at ${res.backup}`)
+        setPresetStatusMessage(backupCreatedMessage(res.backup))
       }
     } catch (err) {
-      if (isAxiosError(err)) {
-        if (err.response?.status === 501) {
-          toast.info('Preset apply is not available on the server; applying locally instead')
-          await applyPresetLocally('Backend apply unavailable')
-          return
-        }
-
-        if (err.response?.status === 400) {
-          setValidationError(err.response?.data?.error || 'Preset validation failed')
-          toast.error('Preset validation failed')
-          return
-        }
-
-        if (err.response?.status === 503) {
-          setHubUnavailable(true)
-          setPresetStatusMessage('CrowdSec hub unavailable. Retry or load cached copy.')
-          toast.error('Hub unavailable; retry pull/apply or use cached copy')
-          return
-        }
-
-        const errorMsg = err.response?.data?.error || err.message
-        const backupPath = (err.response?.data as { backup?: string })?.backup
-
-        // Check if error is due to missing cache
-        if (errorMsg.includes('not cached') || errorMsg.includes('Pull the preset first')) {
-          toast.error(errorMsg)
-          setValidationError('Preset must be pulled before applying. Click "Pull Preview" first.')
-          return
-        }
-
-        if (backupPath) {
-          setApplyInfo({ status: 'failed', backup: backupPath, cacheKey: presetMeta?.cacheKey })
-          toast.error(`Apply failed: ${errorMsg}. Backup created at ${backupPath}`)
-          return
-        }
-        toast.error(`Apply failed: ${errorMsg}`)
-      } else {
-        toast.error('Failed to apply preset')
+      if (!isAxiosError(err)) {
+        toast.error(t('crowdsecConfig.toasts.presetApplyFailed'))
+        return
       }
+      // The server is authoritative for every preset source: surface its message for any
+      // non-2xx response and never write preset content client-side.
+      const status = err.response?.status
+      const backupName = (err.response?.data as { backup?: string } | undefined)?.backup
+      const message = getServerErrorMessage(err, t('crowdsecConfig.toasts.presetApplyFailed'))
+      if (status === 400) {
+        setValidationError(message)
+      }
+      if (status === 503) {
+        setHubUnavailable(true)
+      }
+      setApplyInfo({ status: 'failed', backup: backupName || undefined, cacheKey: presetMeta?.cacheKey })
+      toast.error(
+        backupName
+          ? t('crowdsecConfig.toasts.applyFailedWithBackup', { message, backup: backupCreatedMessage(backupName) })
+          : t('crowdsecConfig.toasts.applyFailed', { message })
+      )
     } finally {
       setIsApplyingPreset(false)
     }
@@ -547,30 +548,30 @@ export default function CrowdSecConfig() {
   // Determine contextual message
   const getMessage = () => {
     if (pullPresetMutation.isPending) {
-      return { message: 'Fetching preset...', submessage: 'Pulling preview from CrowdSec Hub' }
+      return { message: t('crowdsecConfig.overlay.fetchingPreset'), submessage: t('crowdsecConfig.overlay.fetchingPresetDetail') }
     }
     if (isApplyingPreset) {
-      return { message: 'Loading preset...', submessage: 'Applying curated preset with backup' }
+      return { message: t('crowdsecConfig.overlay.loadingPreset'), submessage: t('crowdsecConfig.overlay.loadingPresetDetail') }
     }
     if (importMutation.isPending) {
-      return { message: 'Summoning the guardian...', submessage: 'Importing CrowdSec configuration' }
+      return { message: t('crowdsecConfig.overlay.importing'), submessage: t('crowdsecConfig.overlay.importingDetail') }
     }
     if (writeMutation.isPending) {
-      return { message: 'Guardian inscribes...', submessage: 'Saving configuration file' }
+      return { message: t('crowdsecConfig.overlay.saving'), submessage: t('crowdsecConfig.overlay.savingDetail') }
     }
     if (banMutation.isPending) {
-      return { message: 'Guardian raises shield...', submessage: 'Banning IP address' }
+      return { message: t('crowdsecConfig.overlay.banning'), submessage: t('crowdsecConfig.overlay.banningDetail') }
     }
     if (unbanMutation.isPending) {
-      return { message: 'Guardian lowers shield...', submessage: 'Unbanning IP address' }
+      return { message: t('crowdsecConfig.overlay.unbanning'), submessage: t('crowdsecConfig.overlay.unbanningDetail') }
     }
     if (addWhitelistMutation.isPending) {
-      return { message: 'Guardian updates list...', submessage: 'Adding IP to whitelist' }
+      return { message: t('crowdsecConfig.overlay.updatingList'), submessage: t('crowdsecConfig.overlay.whitelistAddingDetail') }
     }
     if (deleteWhitelistMutation.isPending) {
-      return { message: 'Guardian updates list...', submessage: 'Removing from whitelist' }
+      return { message: t('crowdsecConfig.overlay.updatingList'), submessage: t('crowdsecConfig.overlay.whitelistRemovingDetail') }
     }
-    return { message: 'Strengthening the guard...', submessage: 'Configuration in progress' }
+    return { message: t('crowdsecConfig.overlay.default'), submessage: t('crowdsecConfig.overlay.defaultDetail') }
   }
 
   const { message, submessage } = getMessage()
@@ -663,7 +664,7 @@ export default function CrowdSecConfig() {
                       onClick={() => lapiStatusQuery.refetch()}
                       disabled={lapiStatusQuery.isRefetching}
                     >
-                      Check Now
+                      {t('crowdsecConfig.checkNow')}
                     </Button>
                   </div>
                 </div>
@@ -706,7 +707,7 @@ export default function CrowdSecConfig() {
                       onClick={() => lapiStatusQuery.refetch()}
                       disabled={lapiStatusQuery.isRefetching}
                     >
-                      Check Now
+                      {t('crowdsecConfig.checkNow')}
                     </Button>
                     <Button
                       variant="secondary"
@@ -737,7 +738,7 @@ export default function CrowdSecConfig() {
                 id="console-agent-name"
                 label={t('crowdsecConfig.consoleEnrollment.agentName')}
                 value={consoleAgentName}
-                onChange={(e) => setConsoleAgentName(e.target.value)}
+                onChange={(e) => handleConsoleAgentNameChange(e.target.value)}
                 error={consoleErrors.agent}
                 errorTestId="console-enroll-error"
                 data-testid="console-agent-name"
@@ -746,10 +747,8 @@ export default function CrowdSecConfig() {
                 id="console-tenant"
                 label={t('crowdsecConfig.consoleEnrollment.tenant')}
                 value={consoleTenant}
-                onChange={(e) => setConsoleTenant(e.target.value)}
+                onChange={(e) => handleConsoleTenantChange(e.target.value)}
                 helperText={t('crowdsecConfig.consoleEnrollment.tenantHelper')}
-                error={consoleErrors.tenant}
-                errorTestId="console-enroll-error"
                 data-testid="console-tenant"
               />
             </div>
@@ -892,7 +891,7 @@ export default function CrowdSecConfig() {
                             id="reenroll-agent-name"
                             type="text"
                             value={consoleAgentName}
-                            onChange={(e) => setConsoleAgentName(e.target.value)}
+                            onChange={(e) => handleConsoleAgentNameChange(e.target.value)}
                             placeholder={t('crowdsecConfig.reenroll.agentPlaceholder')}
                           />
                         </div>
@@ -904,7 +903,7 @@ export default function CrowdSecConfig() {
                             id="reenroll-tenant"
                             type="text"
                             value={consoleTenant}
-                            onChange={(e) => setConsoleTenant(e.target.value)}
+                            onChange={(e) => handleConsoleTenantChange(e.target.value)}
                             placeholder={t('crowdsecConfig.reenroll.orgPlaceholder')}
                           />
                         </div>
@@ -992,11 +991,31 @@ export default function CrowdSecConfig() {
           <p className="text-sm text-gray-400">{t('crowdsecConfig.packages.description')}</p>
           <input
             type="file"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null)
+              setImportHubItems(null)
+              setKeptFiles([])
+              setNeedsValues([])
+            }}
             data-testid="import-file"
-            accept=".tar.gz,.zip"
-            aria-label={t('crowdsecConfig.packages.selectFile') || "Select CrowdSec package"}
+            accept=".tar.gz"
+            aria-label={t('crowdsecConfig.packages.selectFile')}
           />
+          {keptFiles.length > 0 && (
+            <p className="text-sm text-gray-400" data-testid="import-kept-files">
+              {t('crowdsecConfig.importKeptFiles', { files: keptFiles.map(sanitizeKeptFileName).join(', ') })}
+            </p>
+          )}
+          {needsValues.length > 0 && (
+            <p className="text-sm text-gray-400" data-testid="import-needs-values">
+              {t('crowdsecConfig.importNeedsValues', {
+                files: hiddenNeedsValues > 0
+                  ? [...listedNeedsValues, t('crowdsecConfig.importNeedsValuesMore', { count: hiddenNeedsValues })].join(', ')
+                  : listedNeedsValues.join(', '),
+              })}
+            </p>
+          )}
+          {importHubItems && <HubItemsRestorePanel key={importHubItems.key} hubItems={importHubItems.items} />}
         </div>
       </Card>
 
@@ -1021,7 +1040,7 @@ export default function CrowdSecConfig() {
             </div>
             <select
               value={sortBy}
-              aria-label={t('crowdsecConfig.presets.sortBy') || "Sort presets"}
+              aria-label={t('crowdsecConfig.presets.sortBy')}
               onChange={(e) => setSortBy(e.target.value as 'alpha' | 'type' | 'source')}
               className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
             >
@@ -1135,14 +1154,14 @@ export default function CrowdSecConfig() {
                   className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm text-gray-200 whitespace-pre-wrap"
                   data-testid="preset-preview"
                 >
-                  {presetPreview || selectedPreset.content || t('crowdsecConfig.presets.previewUnavailable')}
+                  {presetPreview || t('crowdsecConfig.presets.previewUnavailable')}
                 </pre>
               </div>
 
               {applyInfo && (
                 <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3 text-xs text-gray-200" data-testid="preset-apply-info">
                   <p>{t('common.status')}: {applyInfo.status || t('crowdsecConfig.presets.applied')}</p>
-                  {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup}</p>}
+                  {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup} ({t('crowdsecConfig.presets.backupLocation')})</p>}
                   {applyInfo.reloadHint && <p>{t('crowdsecConfig.presets.reload')}: {t('crowdsecConfig.presets.required')}</p>}
                   {applyInfo.usedCscli !== undefined && <p>{t('crowdsecConfig.presets.method')}: {applyInfo.usedCscli ? 'cscli' : t('crowdsecConfig.presets.filesystem')}</p>}
                 </div>
@@ -1190,7 +1209,7 @@ export default function CrowdSecConfig() {
             onChange={(e) => setFileContent(e.target.value)}
             rows={12}
             className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white"
-            aria-label={t('crowdsecConfig.files.content') || "File content"}
+            aria-label={t('crowdsecConfig.files.content')}
           />
           <div className="flex gap-2">
             <Button onClick={handleSaveFile} isLoading={writeMutation.isPending || backupMutation.isPending}>{t('common.save')}</Button>
@@ -1572,7 +1591,7 @@ export default function CrowdSecConfig() {
               {t('crowdsecConfig.whitelist.deleteModal.title', 'Remove Whitelist Entry')}
             </h2>
             <p className="text-sm text-gray-300 mb-4">
-              {t('crowdsecConfig.whitelist.deleteModal.body', 'Remove {{ip}} from the whitelist? CrowdSec may then block this IP if it triggers alerts.', { ip: confirmDeleteWhitelist.ip_or_cidr })}
+              {t('crowdsecConfig.whitelist.deleteModal.body', { ip: confirmDeleteWhitelist.ip_or_cidr })}
             </p>
             <div className="flex justify-end gap-3">
               <Button

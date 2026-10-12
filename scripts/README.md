@@ -30,7 +30,7 @@ Or use the VS Code task: `Ctrl+Shift+P` → `Tasks: Run Task` → `Coraza: Run I
 
 **Expected output:**
 
-```
+```text
 ✓ httpbin backend is ready
 ✓ Coraza WAF blocked payload as expected (HTTP 403) in BLOCK mode
 ✓ Coraza WAF in MONITOR mode allowed payload through (HTTP 200) as expected

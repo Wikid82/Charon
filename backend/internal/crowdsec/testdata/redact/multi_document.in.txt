@@ -1,0 +1,12 @@
+type: http
+name: first
+url: https://one.example.invalid/SECRETTOKEN-one
+---
+type: slack
+name: second
+webhook: https://two.example.invalid/SECRETTOKEN-two
+channel: "#two"
+---
+type: dummy
+name: third
+output_file: /tmp/third.json

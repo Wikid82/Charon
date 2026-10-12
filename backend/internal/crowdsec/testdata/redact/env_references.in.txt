@@ -1,0 +1,9 @@
+type: http
+name: env_refs
+url: ${HOOK_URL}
+headers:
+  Authorization: Bearer ${API_TOKEN}
+  X-Basic: Basic $BASIC
+  X-Token: token ${T}
+  X-Mixed: https://hooks.example.invalid/${PART}/SECRETTOKEN-mixed
+  X-Spaced: Bearer  ${DOUBLE}

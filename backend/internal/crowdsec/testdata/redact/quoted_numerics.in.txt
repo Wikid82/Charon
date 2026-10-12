@@ -1,0 +1,8 @@
+type: email
+name: "quoted"
+smtp_host: "smtp.example.invalid"
+smtp_port: "587"
+smtp_username: "12345678"
+smtp_password: 12345678
+receiver_emails: ["a@example.invalid"]
+connect_timeout: 10

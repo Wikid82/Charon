@@ -31,7 +31,7 @@ CHARON_PLUGIN_SIGNATURES='{"pluginname": "sha256:..."}'
 ### Behavior Matrix
 
 | `CHARON_PLUGIN_SIGNATURES` Value | Behavior |
-|----------------------------------|----------|
+| ---------------------------------- | ---------- |
 | Unset or empty (`""`) | **Permissive mode** — All plugins are loaded (backward compatible) |
 | Set to `{}` | **Strict block-all** — No external plugins are loaded |
 | Set with entries | **Allowlist mode** — Only listed plugins with matching signatures are loaded |
@@ -71,7 +71,7 @@ sha256sum myplugin.so | awk '{print "sha256:" $1}'
 
 **Example output**:
 
-```
+```text
 sha256:a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0e1f2
 ```
 
@@ -141,7 +141,7 @@ USER charon
 Plugin directories must **not** be world-writable. Charon enforces this at startup.
 
 | Permission | Result |
-|------------|--------|
+| --- | --- |
 | `0755` or stricter | ✅ Allowed |
 | `0777` (world-writable) | ❌ Rejected — plugin loading disabled |
 
@@ -222,14 +222,14 @@ docker compose logs charon | grep -i plugin
 
 **Expected success output**:
 
-```
+```text
 INFO Loaded DNS provider plugin type=powerdns name="PowerDNS" version="1.0.0"
 INFO Loaded 1 external DNS provider plugins (0 failed)
 ```
 
 **If using allowlist**:
 
-```
+```text
 INFO Plugin signature allowlist enabled with 2 entries
 ```
 
@@ -350,7 +350,7 @@ chown charon:charon /path/to/plugins/*.so
 Plugins run **in-process** with Charon and have access to:
 
 | Resource | Access Level |
-|----------|--------------|
+| ---------- | -------------- |
 | System memory | Full read/write |
 | Database credentials | Full access |
 | API tokens and secrets | Full access |
@@ -360,7 +360,7 @@ Plugins run **in-process** with Charon and have access to:
 ### Risk Assessment
 
 | Risk | Mitigation |
-|------|------------|
+| ------ | ------------ |
 | Malicious plugin code | Signature allowlisting, code review |
 | Plugin replacement attack | Read-only mounts, atomic updates |
 | World-writable directory | Automatic permission verification |

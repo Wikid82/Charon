@@ -18,13 +18,14 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // --- Delete UUID path with backup service ---
 
 func TestDelete_UUID_WithBackup_Success(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -50,7 +51,7 @@ func TestDelete_UUID_WithBackup_Success(t *testing.T) {
 
 func TestDelete_UUID_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -70,7 +71,7 @@ func TestDelete_UUID_NotFound(t *testing.T) {
 
 func TestDelete_UUID_InUse(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -94,7 +95,7 @@ func TestDelete_UUID_InUse(t *testing.T) {
 
 func TestDelete_UUID_BackupLowSpace(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -119,7 +120,7 @@ func TestDelete_UUID_BackupLowSpace(t *testing.T) {
 
 func TestDelete_UUID_BackupSpaceCheckError(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -146,7 +147,7 @@ func TestDelete_UUID_BackupSpaceCheckError(t *testing.T) {
 
 func TestDelete_UUID_BackupCreateError(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -174,7 +175,7 @@ func TestDelete_UUID_BackupCreateError(t *testing.T) {
 
 func TestDelete_UUID_WithNotification(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.Setting{}, &models.Notification{}, &models.NotificationProvider{}))
 
@@ -199,7 +200,7 @@ func TestDelete_UUID_WithNotification(t *testing.T) {
 
 func TestValidate_Success(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -230,7 +231,7 @@ func TestValidate_Success(t *testing.T) {
 
 func TestValidate_InvalidCert(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -259,7 +260,7 @@ func TestValidate_InvalidCert(t *testing.T) {
 
 func TestValidate_NoCertFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -279,7 +280,7 @@ func TestValidate_NoCertFile(t *testing.T) {
 
 func TestValidate_WithKeyAndChain(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
@@ -323,7 +324,7 @@ func TestValidate_WithKeyAndChain(t *testing.T) {
 // --- Get handler DB error (non-NotFound) ---
 
 func TestGet_DBError(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	// Deliberately don't migrate - any query will fail with "no such table"
 
@@ -345,7 +346,7 @@ func TestGet_DBError(t *testing.T) {
 
 func TestExport_IncludeKey_MissingPassword(t *testing.T) {
 	tmpDir := t.TempDir()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
@@ -367,7 +368,7 @@ func TestExport_IncludeKey_MissingPassword(t *testing.T) {
 
 func TestExport_CertNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
@@ -388,7 +389,7 @@ func TestExport_CertNotFound(t *testing.T) {
 
 func TestExport_ServiceError(t *testing.T) {
 	tmpDir := t.TempDir()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
@@ -416,7 +417,7 @@ func TestExport_ServiceError(t *testing.T) {
 
 func TestDelete_NumericID_UsageCheckError(t *testing.T) {
 	tmpDir := t.TempDir()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{})) // no ProxyHost → IsCertificateInUse fails
@@ -436,7 +437,7 @@ func TestDelete_NumericID_UsageCheckError(t *testing.T) {
 
 func TestDelete_NumericID_LowDiskSpace(t *testing.T) {
 	tmpDir := t.TempDir()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
@@ -463,7 +464,7 @@ func TestDelete_NumericID_LowDiskSpace(t *testing.T) {
 
 func TestDelete_NumericID_BackupError(t *testing.T) {
 	tmpDir := t.TempDir()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
@@ -490,7 +491,7 @@ func TestDelete_NumericID_BackupError(t *testing.T) {
 
 func TestDelete_NumericID_DeleteError(t *testing.T) {
 	tmpDir := t.TempDir()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.SSLCertificate{}))
@@ -513,7 +514,7 @@ func TestDelete_NumericID_DeleteError(t *testing.T) {
 
 func TestDelete_UUID_UsageCheckInternalError(t *testing.T) {
 	tmpDir := t.TempDir()
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{})) // no ProxyHost → IsCertificateInUse fails
@@ -538,7 +539,7 @@ func TestDelete_UUID_UsageCheckInternalError(t *testing.T) {
 // --- sendDeleteNotification: rate limit ---
 
 func TestSendDeleteNotification_RateLimit(t *testing.T) {
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
@@ -574,7 +575,7 @@ func TestUpdate_EmptyUUID(t *testing.T) {
 // --- Update: DB error (non-ErrCertNotFound) → lines 223-225 ---
 
 func TestUpdate_DBError(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	// Deliberately no AutoMigrate → ssl_certificates table absent → "no such table" error
 

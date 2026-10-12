@@ -3,7 +3,6 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/ratelimit"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // fakePasswordGuard records calls and denies with the standard 429 when allow is false.
@@ -102,7 +102,7 @@ func TestUserHandler_UpdateProfile_PasswordGuardAllows(t *testing.T) {
 
 func exportRouter(t *testing.T, guard PasswordAttemptGuard) *gin.Engine {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(testutil.MemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}))
 	h := NewCertificateHandler(services.NewCertificateService(t.TempDir(), db, nil), nil, nil)

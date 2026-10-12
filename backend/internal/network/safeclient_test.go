@@ -150,33 +150,6 @@ func TestSafeDialer_AllowsLocalhost(t *testing.T) {
 	_ = conn.Close()
 }
 
-func TestSafeDialer_AllowedDomains(t *testing.T) {
-	t.Parallel()
-	opts := &ClientOptions{
-		AllowLocalhost: false,
-		AllowedDomains: []string{"app.crowdsec.net", "hub.crowdsec.net"},
-		DialTimeout:    time.Second,
-	}
-	dialer := safeDialer(opts)
-
-	// Test that allowed domain passes validation (we can't actually connect)
-	// This is a structural test - we're verifying the domain check passes
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	// This will fail to connect (no server) but should NOT fail validation
-	_, err := dialer(ctx, "tcp", "app.crowdsec.net:443")
-	if err != nil {
-		// Check it's a connection error, not a validation error
-		if _, ok := err.(*net.OpError); !ok {
-			// Context deadline exceeded is also acceptable (DNS/connection timeout)
-			if err != context.DeadlineExceeded {
-				t.Logf("Got expected error type for allowed domain: %T: %v", err, err)
-			}
-		}
-	}
-}
-
 func TestNewSafeHTTPClient_DefaultOptions(t *testing.T) {
 	t.Parallel()
 	client := NewSafeHTTPClient()
@@ -286,21 +259,6 @@ func TestNewSafeHTTPClient_WithMaxRedirects(t *testing.T) {
 		defer func() { _ = resp.Body.Close() }()
 		t.Error("expected redirect limit to be enforced")
 	}
-}
-
-func TestNewSafeHTTPClient_WithAllowedDomains(t *testing.T) {
-	t.Parallel()
-	client := NewSafeHTTPClient(
-		WithTimeout(2*time.Second),
-		WithAllowedDomains("example.com"),
-	)
-
-	if client == nil {
-		t.Fatal("NewSafeHTTPClient() returned nil")
-	}
-
-	// We can't actually connect, but we verify the client is created
-	// with the correct configuration
 }
 
 func TestClientOptions_Defaults(t *testing.T) {
@@ -846,7 +804,6 @@ func TestClientOptions_AllFunctionalOptions(t *testing.T) {
 	client := NewSafeHTTPClient(
 		WithTimeout(15*time.Second),
 		WithAllowLocalhost(),
-		WithAllowedDomains("example.com", "api.example.com"),
 		WithMaxRedirects(5),
 		WithDialTimeout(3*time.Second),
 	)

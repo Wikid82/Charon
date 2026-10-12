@@ -1,0 +1,5 @@
+type: http
+name: bin
+url: !!binary U0VDUkVUVE9LRU4tYmluYXJ5
+headers:
+  A: !!binary U0VDUkVUVE9LRU4tYmluYXJ5

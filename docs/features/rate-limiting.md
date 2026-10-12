@@ -39,7 +39,7 @@ Key concepts:
 ### Parameters
 
 | Parameter | Description | Example |
-|-----------|-------------|---------|
+| ----------- | ------------- | --------- |
 | **Requests/Second** | Sustained rate limit | `10` = 10 requests per second |
 | **Burst Limit** | Temporary spike allowance | `50` = allow 50 rapid requests |
 | **Time Window** | Reset period in seconds | `60` = limits reset every minute |
@@ -61,7 +61,7 @@ This allows legitimate traffic spikes (page loads with many assets) while preven
 ### Recommended Configurations
 
 | Use Case | RPS | Burst | Window |
-|----------|-----|-------|--------|
+| ---------- | ----- | ------- | -------- |
 | Public website | 20 | 100 | 60s |
 | Login endpoint | 5 | 10 | 60s |
 | API endpoint | 30 | 60 | 60s |

@@ -384,8 +384,17 @@
           "24h": "24h",
           "7d": "7d",
           "30d": "30d"
-        }
-      }
+        },
+        "timeRangeLabel": "Plage de temps"
+      },
+      "bouncerApiKey": "Clé API du bouncer",
+      "keyCopied": "Clé API copiée dans le presse-papiers",
+      "keyStoredAt": "Clé stockée dans",
+      "noKeyConfigured": "Aucune clé de bouncer configurée. Activez CrowdSec pour l'enregistrement automatique.",
+      "notRegistered": "Non enregistré",
+      "registered": "Enregistré",
+      "sourceEnvVar": "Depuis une variable d'environnement",
+      "sourceFile": "Depuis un fichier"
     },
     "acl": {
       "title": "Contrôle d'Accès",
@@ -1060,7 +1069,7 @@
   },
   "importCrowdSec": {
     "title": "Paquets de Configuration CrowdSec",
-    "description": "Téléversez un paquet tar.gz ou zip. Une sauvegarde est créée avant l'importation pour vous permettre de revenir en arrière si nécessaire. Exportez le paquet actuel depuis le tableau de bord Cerberus ou la page de configuration CrowdSec.",
+    "description": "Téléversez un paquet tar.gz. Une sauvegarde est créée avant l'importation pour vous permettre de revenir en arrière si nécessaire. Exportez le paquet actuel depuis le tableau de bord Cerberus ou la page de configuration CrowdSec.",
     "import": "Importer",
     "configImported": "Configuration CrowdSec importée",
     "importFailed": "Échec de l'importation : {{error}}",
@@ -1149,7 +1158,41 @@
     }
   },
   "crowdsecConfig": {
+    "exportSuccess": "Configuration CrowdSec exportée",
+    "exportFailed": "Échec de l'exportation de la configuration CrowdSec",
+    "hubItems": {
+      "title": "Installer les éléments du hub manquants",
+      "description": "Cet export utilisait des éléments du hub qui ne sont pas installés sur cet hôte. Ils sont téléchargés depuis le hub officiel de CrowdSec.",
+      "missingLabel": "Éléments manquants",
+      "install": "Installer les éléments du hub manquants",
+      "installRemaining": "Installer les restants",
+      "installing": "Installation des éléments du hub. Cela peut prendre plusieurs minutes.",
+      "summary": "{{installed}} installés, {{alreadyInstalled}} déjà installés, {{failed}} en échec.",
+      "remaining": "{{count}} éléments n'ont pas été traités avant la limite de temps.",
+      "installedLabel": "Installés",
+      "alreadyInstalledLabel": "Déjà installés",
+      "failedLabel": "Non installés",
+      "skippedInvalid": "{{count}} entrées de l'export n'ont pas pu être utilisées.",
+      "reasons": {
+        "not_found": "Introuvable dans le hub",
+        "install_failed": "Échec de l'installation",
+        "verify_failed": "Installé, mais la vérification a échoué",
+        "not_attempted": "Pas encore tenté"
+      },
+      "errors": {
+        "hubUnreachable": "Le hub CrowdSec est injoignable. Rien n'a été installé. Vérifiez la connexion Internet et réessayez.",
+        "alreadyRunning": "Une restauration est déjà en cours. Réessayez lorsqu'elle sera terminée.",
+        "generic": "Les éléments du hub n'ont pas pu être installés. Réessayez."
+      }
+    },
+    "importSuccess": "Configuration CrowdSec importée (sauvegarde créée)",
+    "importFailed": "Échec de l'importation",
+    "importKeptFiles": "Ces fichiers n'étaient pas dans l'archive, les fichiers actuels ont donc été conservés : {{files}}",
+    "importNeedsValues": "Certaines valeurs de ces fichiers de notification ont été vidées lors de l'export de la configuration ; il faut les saisir pour qu'elles fonctionnent : {{files}}",
+    "importNeedsValuesMore": "et {{count}} de plus",
+    "exportPrompt": "Nom de l'archive d'exportation CrowdSec",
     "title": "Configuration CrowdSec",
+    "checkNow": "Vérifier maintenant",
     "loading": "Chargement de la configuration CrowdSec...",
     "loadError": "Erreur lors du chargement du statut CrowdSec",
     "noStatus": "Statut CrowdSec non disponible",
@@ -1169,7 +1212,7 @@
       "goToSecurity": "Aller au tableau de bord de sécurité",
       "enrollmentToken": "Jeton d'inscription",
       "tokenPlaceholder": "Collez votre jeton d'inscription de la Console CrowdSec",
-      "agentName": "Nom de l'agent (optionnel)",
+      "agentName": "Nom de l'agent",
       "agentPlaceholder": "mon-instance-charon",
       "tenant": "Locataire/Organisation (optionnel)",
       "tenantPlaceholder": "id-org-de-console",
@@ -1188,7 +1231,24 @@
       "tenantLabel": "Locataire",
       "lastAttempt": "Dernière tentative",
       "enrolledAt": "Inscrit",
-      "correlationId": "ID de corrélation"
+      "correlationId": "ID de corrélation",
+      "lastError": "Dernière erreur",
+      "ackText": "Je comprends que cela renouvellera mes identifiants LAPI si je suis déjà inscrit",
+      "description": "Connectez votre LAPI CrowdSec à la console CrowdSec pour une gestion centralisée et des alertes.",
+      "enrollToken": "Jeton d'inscription",
+      "lastHeartbeat": "Dernier signal de vie",
+      "privacyNote": "Remarque : l'inscription envoie des signaux de vie et des métriques à CrowdSec. Consultez la politique de confidentialité de CrowdSec pour plus de détails.",
+      "tenantHelper": "Facultatif : indiquez l'ID du locataire/de l'organisation si vous utilisez une configuration multi-locataire",
+      "tokenHelper": "Obtenez votre jeton d'inscription depuis la console CrowdSec",
+      "tokenStored": "Enregistré (masqué)",
+      "tokenNotStored": "Non enregistré",
+      "enrollSubmitted": "Inscription envoyée ! Acceptez la demande sur app.crowdsec.net pour la finaliser.",
+      "enrollSent": "Demande d'inscription envoyée ! Acceptez l'inscription sur app.crowdsec.net pour finaliser l'enregistrement.",
+      "errors": {
+        "agentRequired": "Le nom de l'agent est obligatoire",
+        "ackRequired": "Vous devez accepter l'avis de partage de données avec la console",
+        "enrollFailed": "Échec de l'inscription à la console"
+      }
     },
     "reenroll": {
       "title": "Options de réinscription",
@@ -1204,14 +1264,16 @@
       "reenrolling": "Réinscription...",
       "clearState": "Effacer l'état d'inscription",
       "clearing": "Effacement...",
-      "clearConfirm": "Cela effacera l'état d'inscription local. Vous devrez peut-être vous réinscrire. Continuer ?"
+      "clearConfirm": "Cela effacera l'état d'inscription local. Vous devrez peut-être vous réinscrire. Continuer ?",
+      "clearFailed": "Impossible d'effacer l'état d'inscription : {{message}}"
     },
     "packages": {
       "title": "Paquets de configuration",
-      "description": "Exportez ou importez des paquets de configuration CrowdSec (tar.gz/zip). Une sauvegarde est créée avant l'importation.",
+      "description": "Exportez ou importez des paquets de configuration CrowdSec (tar.gz). Une sauvegarde est créée avant l'importation. Les mots de passe, jetons et adresses de webhook des fichiers de notification sont vidés dans les exports.",
       "export": "Exporter",
       "import": "Importer",
-      "importing": "Importation..."
+      "importing": "Importation...",
+      "selectFile": "Sélectionner le fichier de paquet CrowdSec"
     },
     "presets": {
       "title": "Préréglages",
@@ -1237,18 +1299,30 @@
       "previewUnavailable": "Aperçu non disponible",
       "applied": "Appliqué",
       "backup": "Sauvegarde",
+      "backupCreated": "Sauvegarde créée : {{name}} ({{location}})",
+      "backupLocation": "stockée à côté du répertoire de données CrowdSec",
       "reload": "Recharger",
       "required": "Requis",
       "method": "Méthode",
       "filesystem": "Système de fichiers",
       "loadCached": "Charger l'aperçu en cache",
       "applyDisabled": "Application désactivée tant que le hub est hors ligne.",
-      "noPresets": "Aucun préréglage disponible. Assurez-vous que Cerberus est activé."
+      "noPresets": "Aucun préréglage disponible. Assurez-vous que Cerberus est activé.",
+      "sortBy": "Trier les préréglages",
+      "status": {
+        "previewFetched": "Aperçu récupéré depuis le hub",
+        "hubUnavailable": "Hub CrowdSec indisponible. Réessayez ou chargez la copie en cache.",
+        "pullFailed": "Échec de la récupération de l'aperçu du préréglage",
+        "cachedLoaded": "Aperçu en cache chargé",
+        "cacheLoadFailed": "Échec du chargement de l'aperçu en cache",
+        "slugInvalid": "L'identifiant du préréglage n'est pas valide"
+      }
     },
     "files": {
       "title": "Modifier les fichiers de configuration",
       "selectFile": "Sélectionner un fichier...",
-      "refresh": "Actualiser"
+      "refresh": "Actualiser",
+      "content": "Contenu du fichier"
     },
     "bannedIps": {
       "title": "IPs bannies",
@@ -1283,6 +1357,74 @@
       "title": "Confirmer le débannissement",
       "confirm": "Êtes-vous sûr de vouloir débannir",
       "submit": "Débannir"
+    },
+    "lapiInitializing": "CrowdSec est en cours d'exécution, mais l'API locale est encore en cours d'initialisation.",
+    "lapiInitializingDesc": "L'inscription à la console sera disponible dès que l'API locale sera prête. Cela peut prendre jusqu'à une minute après le démarrage de CrowdSec.",
+    "checkingAgain": "(nouvelle vérification...)",
+    "notRunning": "CrowdSec n'est pas en cours d'exécution",
+    "notRunningDesc": "Démarrez CrowdSec avant de vous inscrire à la console.",
+    "starting": "Démarrage de CrowdSec...",
+    "startFailed": "Échec du démarrage de CrowdSec",
+    "startCrowdsec": "Démarrer CrowdSec",
+    "goToSecurity": "Aller à Sécurité",
+    "whitelist": {
+      "tabLabel": "Liste blanche",
+      "title": "Liste blanche d'IP",
+      "description": "Les IP et CIDR de la liste blanche ne sont jamais bloqués par CrowdSec, même s'ils déclenchent des alertes.",
+      "ipLabel": "IP ou CIDR",
+      "reasonLabel": "Raison",
+      "reasonPlaceholder": "Raison facultative",
+      "addMyIp": "Ajouter mon IP",
+      "none": "Aucune entrée dans la liste blanche",
+      "columnIp": "IP / CIDR",
+      "columnReason": "Raison",
+      "columnAdded": "Ajoutée",
+      "deleteAriaLabel": "Supprimer l'entrée de la liste blanche pour",
+      "delete": "Supprimer",
+      "deleteModal": {
+        "title": "Supprimer l'entrée de la liste blanche",
+        "body": "Supprimer {{ip}} de la liste blanche ? CrowdSec pourra alors bloquer cette IP si elle déclenche des alertes.",
+        "submit": "Supprimer"
+      },
+      "addFailed": "Échec de l'ajout de l'entrée"
+    },
+    "noConfig": "Configuration de CrowdSec introuvable dans l'état de sécurité",
+    "noteText": "CrowdSec est contrôlé via l'interrupteur de la page",
+    "toasts": {
+      "fileSaved": "Fichier enregistré",
+      "saveFailed": "Échec de l'enregistrement du fichier",
+      "ipBanned": "L'IP {{ip}} a été bannie",
+      "banFailed": "Échec du bannissement de l'IP",
+      "ipUnbanned": "L'IP {{ip}} a été débannie",
+      "unbanFailed": "Échec du débannissement de l'IP",
+      "ipDetectFailed": "Échec de la détection de votre adresse IP",
+      "selectPreset": "Sélectionnez un préréglage à appliquer",
+      "presetNotCompleted": "L'application du préréglage n'a pas abouti (statut : {{status}})",
+      "statusUnknown": "inconnu",
+      "presetApplied": "Préréglage appliqué via le backend",
+      "presetAppliedReload": "Préréglage appliqué via le backend (rechargement requis)",
+      "presetApplyFailed": "Échec de l'application du préréglage",
+      "applyFailed": "Échec de l'application : {{message}}",
+      "applyFailedWithBackup": "Échec de l'application : {{message}}. {{backup}}"
+    },
+    "overlay": {
+      "fetchingPreset": "Récupération du préréglage...",
+      "fetchingPresetDetail": "Téléchargement de l'aperçu depuis le hub CrowdSec",
+      "loadingPreset": "Chargement du préréglage...",
+      "loadingPresetDetail": "Application du préréglage sélectionné avec sauvegarde",
+      "importing": "Invocation du gardien...",
+      "importingDetail": "Importation de la configuration CrowdSec",
+      "saving": "Le gardien inscrit...",
+      "savingDetail": "Enregistrement du fichier de configuration",
+      "banning": "Le gardien lève son bouclier...",
+      "banningDetail": "Bannissement de l'adresse IP",
+      "unbanning": "Le gardien baisse son bouclier...",
+      "unbanningDetail": "Débannissement de l'adresse IP",
+      "updatingList": "Le gardien met à jour la liste...",
+      "whitelistAddingDetail": "Ajout de l'IP à la liste blanche",
+      "whitelistRemovingDetail": "Retrait de la liste blanche",
+      "default": "Renforcement de la garde...",
+      "defaultDetail": "Configuration en cours"
     }
   },
   "smtp": {

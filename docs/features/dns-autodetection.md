@@ -50,7 +50,7 @@ DNS auto-detection uses a simple but powerful process:
 
 **Example Detection Flow:**
 
-```
+```text
 User enters: *.example.com
 ↓
 DNS Lookup: example.com NS records
@@ -71,7 +71,7 @@ Result: ✓ Cloudflare detected (High confidence)
 Charon has built-in detection for these major DNS providers:
 
 | Provider | Detection Pattern | Example Nameserver |
-|----------|------------------|-------------------|
+| ---------- | ------------------ | ------------------- |
 | **Cloudflare** | `cloudflare.com` | ns1.cloudflare.com |
 | **Amazon Route 53** | `awsdns` | ns-123.awsdns-45.com |
 | **DigitalOcean** | `digitalocean.com` | ns1.digitalocean.com |
@@ -112,7 +112,7 @@ Charon has built-in detection for these major DNS providers:
 
    **High Confidence Example:**
 
-   ```
+   ```text
    ✓ Cloudflare detected (High confidence)
 
    Nameservers:
@@ -124,7 +124,7 @@ Charon has built-in detection for these major DNS providers:
 
    **Medium/Low Confidence Example:**
 
-   ```
+   ```text
    ⚠ DigitalOcean detected (Medium confidence)
 
    Nameservers:
@@ -138,7 +138,7 @@ Charon has built-in detection for these major DNS providers:
 
    **No Detection Example:**
 
-   ```
+   ```text
    ✗ DNS provider not detected
 
    Nameservers:
@@ -435,7 +435,7 @@ nslookup -type=NS example.com
 
 Expected output:
 
-```
+```text
 ns1.cloudflare.com.
 ns2.cloudflare.com.
 ```
@@ -535,7 +535,7 @@ Compare with detected nameservers in Charon's result.
 **Confidence Levels Explained:**
 
 | Level | Score | Meaning | Action |
-|-------|-------|---------|--------|
+| ------- | ------- | --------- | -------- |
 | **High** | ≥80% | Strong, unambiguous match | Safe to auto-select |
 | **Medium** | 50-79% | Probable match, some uncertainty | Verify before using |
 | **Low** | 1-49% | Weak match, high uncertainty | Manual selection recommended |
@@ -563,7 +563,7 @@ Compare with detected nameservers in Charon's result.
 
 **Example:**
 
-```
+```text
 ⚠ DigitalOcean detected (Medium confidence)
 
 Nameservers:
@@ -660,7 +660,7 @@ Content-Type: application/json
 **Request Body:**
 
 | Field | Type | Required | Description |
-|-------|------|----------|-------------|
+| --- | --- | --- | --- |
 | `domain` | string | Yes | Domain to detect (with or without `*.` wildcard) |
 
 **Valid Domain Formats:**
@@ -695,7 +695,7 @@ Content-Type: application/json
 **Response Fields:**
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------- | ------ | ------------- |
 | `domain` | string | Base domain that was checked |
 | `detected` | boolean | `true` if provider was identified, `false` otherwise |
 | `provider_type` | string | Provider type identifier (e.g., `"cloudflare"`, `"route53"`) |
@@ -926,7 +926,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Performance Factors:**
 
 | Factor | Impact | Notes |
-|--------|--------|-------|
+| -------- | -------- | ------- |
 | DNS server latency | 50-150ms | External dependency |
 | Pattern matching | <1ms | In-memory operation |
 | Database lookup | 1-5ms | Optional, for provider suggestion |
@@ -947,7 +947,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Cache Configuration:**
 
 | Setting | Value | Rationale |
-|---------|-------|-----------|
+| --------- | ------- | ----------- |
 | **Success TTL** | 1 hour | Nameservers rarely change |
 | **Failed TTL** | 5 minutes | Allow quick retry after transient failures |
 | **Storage** | In-memory | Fast access, automatic cleanup |
@@ -987,7 +987,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **System Limits:**
 
 | Metric | Limit | Notes |
-|--------|-------|-------|
+| -------- | ------- | ------- |
 | Concurrent detections | ~100s | Limited by DNS resolver |
 | Cache size | Unbounded | In-memory, grows with unique domains |
 | Memory per entry | ~1-2 KB | Includes result + metadata |
@@ -1084,7 +1084,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Potential Threats:**
 
 | Threat | Mitigation | Risk Level |
-|--------|------------|-----------|
+| -------- | ------------ | ----------- |
 | DNS spoofing | Use trusted DNS resolvers | Low |
 | Cache poisoning | 1-hour TTL limits impact | Low |
 | DoS via slow DNS | 10-second timeout | Low |
@@ -1241,7 +1241,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 
 **Example Review Checklist:**
 
-```
+```text
 ✓ Provider name: "Cloudflare" ← Correct?
 ✓ Nameservers: ns1.cloudflare.com ← Recognized?
 ✓ Confidence: "High" ← Acceptable?
@@ -1257,7 +1257,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 **Confidence Guidelines:**
 
 | Environment | Minimum Confidence | Action |
-|-------------|-------------------|--------|
+| ------------- | ------------------- | -------- |
 | Production | High (≥80%) | Auto-select OK |
 | Staging | Medium (≥50%) | Verify first |
 | Development | Low/Any | Manual verify |
@@ -1281,7 +1281,7 @@ curl https://charon.example.com/api/v1/dns-providers/detection-patterns \
 
 **UI Pattern:**
 
-```
+```text
 ✓ Cloudflare detected (High confidence)
 [✓ Use Cloudflare]  [Select Manually]  ← Keep both options!
 ```
@@ -1332,7 +1332,7 @@ curl -X POST https://charon-dev.internal/api/v1/dns-providers/detect \
 
 **Example Monitoring:**
 
-```
+```text
 Detection Stats (Last 7 Days):
 - Total detections: 1,234
 - Successful (high confidence): 987 (80%)

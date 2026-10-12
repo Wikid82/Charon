@@ -1,0 +1,11 @@
+type: http
+name: block
+url: |
+  https://hooks.example.invalid/SECRETTOKEN-literal
+headers:
+  A: >
+    folded SECRETTOKEN-folded
+    text
+format: >
+  {{.|toJson}}
+  kept

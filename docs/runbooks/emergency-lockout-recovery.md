@@ -88,7 +88,7 @@ curl -X POST http://localhost:2020/emergency/security-reset \
 **Environment Variable Reference:**
 
 | Environment | Max Attempts | Window | Use Case |
-|-------------|--------------|--------|----------|
+| ------------- | -------------- | -------- | ---------- |
 | `production` (default) | 5 | 5 minutes | Production deployments |
 | `test` | 50 | 1 minute | Unit/integration tests |
 | `e2e` | 50 | 1 minute | E2E test suites |

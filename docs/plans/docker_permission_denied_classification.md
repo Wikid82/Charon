@@ -35,10 +35,11 @@ Add message-text-based classification for moby v0.5.1's permission-denied connec
 
 `grep -n -i "permission denied\|EACCES\|EPERM"` and a direct timestamp-window search both confirm 4 distinct incident pairs inside and around the 2026-07-30 13:37–14:12 window (all `-04:00`), each an `error`-level service log immediately followed by a `500`-status GIN access log for the same `request_id` on `path":"/api/v1/docker/containers"`:
 
-```
+```text
 33154: {"error":"failed to list containers: permission denied while trying to connect to the docker API at unix:///var/run/docker.sock","host":"local","level":"error","msg":"failed to list containers","request_id":"f06ce27f-...","server_id":"","time":"2026-07-30T13:37:14-04:00"}
 33155: {"client":"172.19.0.1","latency":"17.578502ms",...,"path":"/api/v1/docker/containers","status":500,"time":"2026-07-30T13:37:14-04:00"}
 ```
+
 (repeated at 13:37:15, 13:39:42, 13:39:43, 13:42:23, 13:42:24, 14:12:06, 14:12:07 — 8 occurrences total, all with the identical error string and all `status:500`, all latencies 1.9ms–17.6ms).
 
 This is **fast** (single-digit/low-double-digit milliseconds) and textually distinct from the unrelated timeout bug's `"context canceled"` / 30s-duration evidence (documented in `docs/plans/current_spec.md` §1.1) — confirming these are two genuinely separate incidents. No `context canceled`/`context deadline exceeded` text appears anywhere near this window's permission-denied lines.
@@ -60,6 +61,7 @@ if err != nil {
     return
 }
 ```
+
 The log evidence's `"level":"error"` + `"msg":"failed to list containers"` matches **line 119** verbatim — the non-`DockerUnavailableError` fallback branch — not line 111's `Warn`/503 branch. This proves the permission-denied error in production was **not** classified as a `DockerUnavailableError` and fell through to the generic 500.
 
 **C. Vendored moby client source** (`$(go env GOMODCACHE)/github.com/moby/moby/client@v0.5.1/`, confirmed as the actual pinned version via `backend/go.mod:15` and `go.sum:119-120` — `github.com/moby/moby/client v0.5.1`):
@@ -88,7 +90,7 @@ func (e errConnectionFailed) Unwrap() error { return e.error }   // <-- line 24-
 
 **D. Behavioral reproduction** (executed against the real, unmodified pinned client — not just reasoned about): a standalone Go program mirroring `errConnectionFailed` + the exact `request.go:171` construction, run against `isDockerConnectivityError`'s exact logic copied from `docker_service.go:196-251`, confirmed:
 
-```
+```text
 err.Error(): permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
 errors.As(err, &errno): false
 errors.Is(err, os.ErrPermission): false
@@ -104,12 +106,14 @@ A supervisor review of this plan independently re-ran this reproduction against 
 ### 2.2 Scope note (what is NOT affected)
 
 Reading `request.go:173-178`, the sibling `os.ErrNotExist` branch (missing-socket case) **does** use `%w` and re-references the unwrapped original error:
+
 ```go
 if errors.Is(err, os.ErrNotExist) {
     err = errors.Unwrap(err)
     return nil, errConnectionFailed{fmt.Errorf("failed to connect to the docker API at %v; check if the path is correct and if the daemon is running: %w", cli.host, err)}
 }
 ```
+
 so `ENOENT` remains reachable via `errors.As`/`isDockerConnectivityError`'s existing syscall-walk — this path is **not** broken, consistent with `TestDockerService_ListContainers_LocalConnectivityError` (`docker_service_test.go:577-594`, which already exercises a real nonexistent-socket path end-to-end and passes today). The gap is isolated specifically to the `os.ErrPermission` branch (`request.go:168-172`) — i.e., only `EACCES`/`EPERM` connection-time failures are affected, not `ENOENT`.
 
 ### 2.3 Existing classifier structure (context for the fix)
@@ -135,6 +139,7 @@ if strings.Contains(msg, "cannot connect to the docker daemon") ||
 This is checked before the `errors.Is`/`errors.As` walks (unchanged ordering), so it correctly routes this error to the existing `DockerUnavailableError` / `buildLocalDockerUnavailableDetails` path (503, with the existing permissions-group-hint messaging — see `TestBuildLocalDockerUnavailableDetails_PermissionDeniedIncludesGroupHint`), instead of the generic 500.
 
 Add an explanatory comment directly above the new line citing this investigation:
+
 ```go
 // "permission denied while trying to connect to the docker api" matches the
 // message produced by github.com/moby/moby/client@v0.5.1's doRequest()
@@ -153,7 +158,7 @@ Add an explanatory comment directly above the new line citing this investigation
 
 ### 3.3 Data flow (before/after)
 
-```
+```text
 cli.ContainerList(ctx, ...) returns moby v0.5.1's os.ErrPermission-branch error
    │
    ▼
@@ -179,7 +184,7 @@ No new or modified Playwright spec is required: this fix only changes which of t
 `backend/internal/services/docker_service_test.go`:
 
 | Test | Purpose | Mechanism |
-|---|---|---|
+| --- | --- | --- |
 | `TestIsDockerConnectivityError` (extend existing table, ~line 86-104) | Add case: `{"moby permission-denied message, no errno in chain", errors.New("permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"), true}` | Plain `errors.New` — table-test style already used for every other case in this table. |
 | `TestIsDockerConnectivityError_MobyPermissionDeniedMessageShape` (new) | Confirms the classifier match is robust against the *actual* wrapped error shape moby produces, not just a bare string. | Defines a small local type mirroring moby's unexported `errConnectionFailed` (embeds `error`, implements `Unwrap()`) wrapping the exact `request.go:171` construction (`fmt.Errorf("permission denied while trying to connect to the docker API at %v", host)`). Asserts (a) `errors.As(err, &syscall.Errno{})` is `false` (sanity check that the reproduction is faithful — the errno really is unreachable), and (b) `isDockerConnectivityError(err)` is `true` after the fix. |
 | `TestDockerService_ListContainers_LocalPermissionDeniedMessageShape` (new, end-to-end at the `ListContainers` level) | Proves the fix closes the gap at the full `ListContainers` call boundary, through the real, unmodified pinned `client.Client` — not a hand-rolled fake error type. | See concrete injection mechanism below (required — do not substitute an ad hoc fake or a real-filesystem `chmod 000` approach). |
@@ -206,8 +211,8 @@ No handler-level test addition is required (§3.2).
 **Decision**: Single PR, single commit — this fix is small enough (one new substring branch, one comment, three tests, all confined to one file plus its test file) that further slicing would add process overhead without improving reviewability. This PR has no dependency on, and is not sequenced relative to, any other PR (see §7).
 
 | Commit | Scope | Files | Depends on | Validation gate |
-|---|---|---|---|---|
-| **Commit 1** — Fix: classify moby v0.5.1's permission-denied connection-failed message as a connectivity error, plus full test coverage | Add the new substring check to `isDockerConnectivityError` (§3.1); add the explanatory comment; add all three tests from §4.2 (`TestIsDockerConnectivityError` new table case, `TestIsDockerConnectivityError_MobyPermissionDeniedMessageShape`, `TestDockerService_ListContainers_LocalPermissionDeniedMessageShape`). | `backend/internal/services/docker_service.go`, `backend/internal/services/docker_service_test.go` | None | `go build ./...`; `go test ./internal/services/... -run "DockerConnectivity|PermissionDenied" -v`; confirm all pre-existing `TestIsDockerConnectivityError*` and `TestListContainers_*`/`TestDockerService_ListContainers_*` tests still pass unmodified (regression proof — this must not change behavior for `ENOENT`, `ECONNREFUSED`, or the daemon-not-running message paths); `make lint-fast`; full `go test ./...` for repo-wide regression confirmation |
+| --- | --- | --- | --- | --- |
+| **Commit 1** — Fix: classify moby v0.5.1's permission-denied connection-failed message as a connectivity error, plus full test coverage | Add the new substring check to `isDockerConnectivityError` (§3.1); add the explanatory comment; add all three tests from §4.2 (`TestIsDockerConnectivityError` new table case, `TestIsDockerConnectivityError_MobyPermissionDeniedMessageShape`, `TestDockerService_ListContainers_LocalPermissionDeniedMessageShape`). | `backend/internal/services/docker_service.go`, `backend/internal/services/docker_service_test.go` | None | `go build ./...`; `go test ./internal/services/... -run "DockerConnectivity\|PermissionDenied" -v`; confirm all pre-existing `TestIsDockerConnectivityError*` and `TestListContainers_*`/`TestDockerService_ListContainers_*` tests still pass unmodified (regression proof — this must not change behavior for `ENOENT`, `ECONNREFUSED`, or the daemon-not-running message paths); `make lint-fast`; full `go test ./...` for repo-wide regression confirmation |
 
 If review feedback surfaces additional scope (e.g. the reviewer wants the handler-layer log message adjusted, or wants a `docs/features.md` note on this error state), that is a small addition to Commit 1 rather than a new commit — the fix's total surface area does not warrant a second functional commit. A trailing validation-only step (full DoD sweep: coverage, patch report, lefthook, Playwright regression subset) is expected before merge but does not need its own commit if Commit 1's own validation gate already passes clean.
 

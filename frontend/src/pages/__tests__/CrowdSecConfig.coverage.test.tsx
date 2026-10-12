@@ -10,7 +10,7 @@ import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
-import { CROWDSEC_PRESETS } from '../../data/crowdsecPresets'
+import { HUB_PRESET_FIXTURES } from '../../test-utils/crowdsecPresetFixtures'
 import { renderWithQueryClient, createTestQueryClient } from '../../test-utils/renderWithQueryClient'
 import * as exportUtils from '../../utils/crowdsecExport'
 import { toast } from '../../utils/toast'
@@ -79,7 +79,7 @@ const disabledStatus = {
   crowdsec: { ...baseStatus.crowdsec, enabled: true, mode: 'disabled' as const },
 }
 
-const presetFromCatalog = CROWDSEC_PRESETS[0]
+const presetFromCatalog = HUB_PRESET_FIXTURES[0]
 
 const axiosError = (status: number, message: string, data?: Record<string, unknown>) =>
   new AxiosError(message, undefined, undefined, undefined, {
@@ -110,7 +110,7 @@ describe('CrowdSecConfig coverage', () => {
     vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
-    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({
       presets: [
         {
@@ -138,7 +138,7 @@ describe('CrowdSecConfig coverage', () => {
     })
     vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({
       status: 'applied',
-      backup: '/tmp/backup.tar.gz',
+      backup: 'crowdsec.backup.20260101-000000.000000',
       reload_hint: true,
       used_cscli: true,
       cache_key: 'cache-123',
@@ -220,6 +220,7 @@ describe('CrowdSecConfig coverage', () => {
     await renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'Export' }))
     await waitFor(() => expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled())
+    expect(exportUtils.promptCrowdsecFilename).toHaveBeenCalledWith(expect.any(Function), expect.any(String))
     expect(exportUtils.downloadCrowdsecExport).toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalledWith('CrowdSec configuration exported')
 
@@ -286,16 +287,16 @@ describe('CrowdSecConfig coverage', () => {
   it('sets apply info on backend success', async () => {
     await renderPage()
     await userEvent.click(screen.getByTestId('apply-preset-btn'))
-    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Backup: /tmp/backup.tar.gz'))
+    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Backup: crowdsec.backup.20260101-000000.000000 (stored next to the CrowdSec data directory)'))
   })
 
   it('supports keyboard selection for preset cards (Enter and Space)', async () => {
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValueOnce({
       presets: [
         {
-          slug: CROWDSEC_PRESETS[0].slug,
-          title: CROWDSEC_PRESETS[0].title,
-          summary: CROWDSEC_PRESETS[0].description,
+          slug: HUB_PRESET_FIXTURES[0].slug,
+          title: HUB_PRESET_FIXTURES[0].title,
+          summary: HUB_PRESET_FIXTURES[0].description,
           source: 'hub',
           requires_hub: false,
           available: true,
@@ -303,9 +304,9 @@ describe('CrowdSecConfig coverage', () => {
           cache_key: 'cache-a',
         },
         {
-          slug: CROWDSEC_PRESETS[1].slug,
-          title: CROWDSEC_PRESETS[1].title,
-          summary: CROWDSEC_PRESETS[1].description,
+          slug: HUB_PRESET_FIXTURES[1].slug,
+          title: HUB_PRESET_FIXTURES[1].title,
+          summary: HUB_PRESET_FIXTURES[1].description,
           source: 'hub',
           requires_hub: false,
           available: true,
@@ -317,8 +318,8 @@ describe('CrowdSecConfig coverage', () => {
 
     await renderPage()
 
-    const firstCard = await screen.findByRole('button', { name: new RegExp(CROWDSEC_PRESETS[0].title, 'i') })
-    const secondCard = await screen.findByRole('button', { name: new RegExp(CROWDSEC_PRESETS[1].title, 'i') })
+    const firstCard = await screen.findByRole('button', { name: new RegExp(HUB_PRESET_FIXTURES[0].title, 'i') })
+    const secondCard = await screen.findByRole('button', { name: new RegExp(HUB_PRESET_FIXTURES[1].title, 'i') })
 
     firstCard.focus()
     await userEvent.keyboard('{Enter}')
@@ -328,33 +329,33 @@ describe('CrowdSecConfig coverage', () => {
     await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledTimes(2))
   })
 
-  it('falls back to local apply on 501 and covers validation/hub/offline branches', async () => {
-    vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({})
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(501, 'not implemented'))
+  it('surfaces the server message for 501 hub apply without writing, and covers validation/hub/offline branches', async () => {
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(501, 'not implemented', { error: 'apply unsupported' }))
     await renderPage()
+    await waitFor(() => expect(screen.getByTestId('preset-preview')).toHaveTextContent('crowdsecurity/http-cve'))
     const applyBtn = screen.getByTestId('apply-preset-btn')
     await userEvent.click(applyBtn)
-    await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Preset apply is not available on the server; applying locally instead'))
-    await waitFor(() => expect(crowdsecApi.writeCrowdsecFile).toHaveBeenCalled())
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Apply failed: apply unsupported'))
+    expect(crowdsecApi.writeCrowdsecFile).not.toHaveBeenCalled()
+    expect(toast.info).not.toHaveBeenCalled()
 
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(400, 'bad', { error: 'validation failed' }))
     await userEvent.click(applyBtn)
     await waitFor(() => expect(screen.getByTestId('preset-validation-error')).toHaveTextContent('validation failed'))
 
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(503, 'hub'))
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(503, 'hub', { error: 'hub down' }))
     await userEvent.click(applyBtn)
     expect(await screen.findByTestId('preset-hub-unavailable')).toBeInTheDocument()
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Apply failed: hub down'))
 
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(500, 'not cached', { error: 'Pull the preset first' }))
-    await userEvent.click(applyBtn)
-    await waitFor(() => expect(screen.getByTestId('preset-validation-error')).toHaveTextContent('Preset must be pulled'))
+    expect(crowdsecApi.writeCrowdsecFile).not.toHaveBeenCalled()
   })
 
   it('records backup info on apply failure and generic errors', async () => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(500, 'failed', { error: 'boom', backup: '/tmp/backup' }))
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(500, 'failed', { error: 'boom', backup: 'crowdsec.backup.20260101-000000.000000' }))
     await renderPage()
     await userEvent.click(screen.getByTestId('apply-preset-btn'))
-    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('/tmp/backup'))
+    await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('crowdsec.backup.20260101-000000.000000'))
 
     cleanup()
 
@@ -386,59 +387,36 @@ describe('CrowdSecConfig coverage', () => {
     expect((screen.getByTestId('apply-preset-btn') as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('guards local apply prerequisites and succeeds when content exists', async () => {
-    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValueOnce({ files: [] })
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(501, 'not implemented'))
-    await renderPage()
-    await userEvent.click(screen.getByTestId('apply-preset-btn'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Select a configuration file to apply the preset'))
-
-    cleanup()
-  vi.mocked(toast.error).mockClear()
-
-    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: ['acquis.yaml'] })
-    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({
-      presets: [
-        {
-          slug: 'custom-empty',
-          title: 'Empty',
-          summary: 'empty preset',
-          source: 'hub',
-          requires_hub: false,
-          available: true,
-          cached: false,
-          cache_key: 'cache-empty',
-          etag: 'etag-empty',
-        },
-      ],
-    })
-    vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
-      status: 'pulled',
-      slug: 'custom-empty',
-      preview: '',
-      cache_key: 'cache-empty',
-    })
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(501, 'not implemented'))
+  it('shows the server error for 413 and 400 on file save and no success toast', async () => {
     await renderPage()
     await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
-    await userEvent.click(screen.getByTestId('apply-preset-btn'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Preset preview is unavailable; retry pulling before applying'))
+    await waitFor(() => expect(crowdsecApi.readCrowdsecFile).toHaveBeenCalledWith('acquis.yaml'))
+    await waitFor(() => expect(screen.getAllByRole('textbox').some((el) => el.tagName.toLowerCase() === 'textarea')).toBe(true))
 
-    cleanup()
-  vi.mocked(toast.error).mockClear()
+    vi.mocked(crowdsecApi.writeCrowdsecFile).mockRejectedValueOnce(axiosError(413, 'too large', { error: 'content too large' }))
+    await userEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('content too large'))
 
-    vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
-      status: 'pulled',
-      slug: presetFromCatalog.slug,
-      preview: 'content',
-      cache_key: 'cache-123',
-    })
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(501, 'not implemented'))
-    vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({})
+    vi.mocked(crowdsecApi.writeCrowdsecFile).mockRejectedValueOnce(axiosError(400, 'bad', { error: 'symlink target refused' }))
+    await userEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('symlink target refused'))
+
+    vi.mocked(crowdsecApi.writeCrowdsecFile).mockRejectedValueOnce(new Error('network'))
+    await userEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to save file'))
+
+    expect(toast.success).not.toHaveBeenCalledWith('File saved')
+  })
+
+  it('saves successfully when the write response has an empty backup', async () => {
+    vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({ status: 'written', backup: '' })
     await renderPage()
     await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
-    await userEvent.click(screen.getByTestId('apply-preset-btn'))
-    await waitFor(() => expect(crowdsecApi.writeCrowdsecFile).toHaveBeenCalled())
+    await waitFor(() => expect(crowdsecApi.readCrowdsecFile).toHaveBeenCalledWith('acquis.yaml'))
+    await waitFor(() => expect(screen.getAllByRole('textbox').some((el) => el.tagName.toLowerCase() === 'textarea')).toBe(true))
+    await userEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('File saved'))
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('reads, edits, saves, and closes files', async () => {

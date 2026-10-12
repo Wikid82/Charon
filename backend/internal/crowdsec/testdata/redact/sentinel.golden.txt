@@ -1,0 +1,10 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: sentinel
+name: sentinel_default
+log_level: info
+customer_id: <charon-redacted>
+shared_key: <charon-redacted>
+log_type: crowdsec
+format: |
+  {{.|toJson}}

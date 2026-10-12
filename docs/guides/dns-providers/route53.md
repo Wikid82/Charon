@@ -139,7 +139,7 @@ Default: Yes
 The IAM user needs the following Route 53 permissions:
 
 | Action | Resource | Purpose |
-|--------|----------|---------|
+| -------- | ---------- | --------- |
 | `route53:ListHostedZones` | `*` | List available hosted zones |
 | `route53:GetChange` | `*` | Check status of DNS changes |
 | `route53:ChangeResourceRecordSets` | `arn:aws:route53:::hostedzone/*` | Create/delete TXT records for challenges |

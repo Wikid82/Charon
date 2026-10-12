@@ -12,7 +12,7 @@ During Docker image security scanning, 7 HIGH severity CVEs were identified in t
 ## Affected CVEs
 
 | CVE | CVSS | Package | Status |
-|-----|------|---------|--------|
+| ----- | ------ | --------- | -------- |
 | CVE-2026-0861 | 8.4 | libc6 | No fix available |
 | CVE-2025-13151 | 7.5 | libtasn1-6 | No fix available |
 | CVE-2025-15281 | 7.5 | libc6 | No fix available |

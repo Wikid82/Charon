@@ -2,8 +2,6 @@ package crowdsec
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -218,13 +216,5 @@ func (p *HeartbeatPoller) isEnrolledOutput(output string) bool {
 
 // findConfigPath returns the path to the CrowdSec config file.
 func (p *HeartbeatPoller) findConfigPath() string {
-	configPath := filepath.Join(p.dataDir, "config", "config.yaml")
-	if _, err := os.Stat(configPath); err == nil {
-		return configPath
-	}
-	configPath = filepath.Join(p.dataDir, "config.yaml")
-	if _, err := os.Stat(configPath); err == nil {
-		return configPath
-	}
-	return ""
+	return FindConfigFile(p.dataDir)
 }

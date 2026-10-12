@@ -19,7 +19,7 @@ The output should be a complete implementation plan in Markdown format, saved to
 
 Folder and file structure for both front-end and back-end repositories following Epoch's monorepo structure:
 
-```
+```text
 apps/
   [app-name]/
 services/
@@ -56,7 +56,8 @@ Create a comprehensive system architecture diagram using Mermaid that shows how 
 Use subgraphs to organize these layers clearly. Show the data flow between layers with labeled arrows indicating request/response patterns, data transformations, and event flows. Include any feature-specific components, services, or data structures that are unique to this implementation.
 
 - **Technology Stack Selection**: Document choice rationale for each layer
-```
+
+```text
 
 - **Technology Stack Selection**: Document choice rationale for each layer
 - **Integration Points**: Define clear boundaries and communication protocols
@@ -89,6 +90,7 @@ The component structure will leverage the `shadcn/ui` library for a consistent a
 **Layout Structure:**
 
 ```
+
 Recipe Library Page
 ├── Header Section (shadcn: Card)
 │   ├── Title (shadcn: Typography `h1`)
@@ -109,7 +111,8 @@ Recipe Library Page
 │           ├── Recipe Title (shadcn: Typography `h3`)
 │           ├── Recipe Tags (shadcn: Badge)
 │           └── Quick Actions (shadcn: Button - View, Edit)
-```
+
+```text
 
 - **State Flow Diagram**: Component state management using Mermaid
 - Reusable component library specifications

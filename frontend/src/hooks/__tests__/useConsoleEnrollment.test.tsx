@@ -3,11 +3,13 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import * as consoleEnrollmentApi from '../../api/consoleEnrollment'
-import { useConsoleStatus, useEnrollConsole } from '../useConsoleEnrollment'
+import { toast } from '../../utils/toast'
+import { useClearConsoleEnrollment, useConsoleStatus, useEnrollConsole } from '../useConsoleEnrollment'
 
 import type { ConsoleEnrollmentStatus, ConsoleEnrollPayload } from '../../api/consoleEnrollment'
 
 vi.mock('../../api/consoleEnrollment')
+vi.mock('../../utils/toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 describe('useConsoleEnrollment hooks', () => {
   let queryClient: QueryClient
@@ -526,6 +528,30 @@ describe('useConsoleEnrollment hooks', () => {
       expect(result.current.data).toEqual(minimalStatus)
       expect(result.current.data?.tenant).toBeUndefined()
       expect(result.current.data?.agent_name).toBeUndefined()
+    })
+  })
+
+  describe('useClearConsoleEnrollment', () => {
+    it('invalidates console status on success', async () => {
+      vi.mocked(consoleEnrollmentApi.clearConsoleEnrollment).mockResolvedValue(undefined)
+      const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useClearConsoleEnrollment(), { wrapper })
+      result.current.mutate()
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['crowdsec-console-status'] })
+      expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it('shows an error toast when clearing fails', async () => {
+      vi.mocked(consoleEnrollmentApi.clearConsoleEnrollment).mockRejectedValue(new Error('backend unavailable'))
+
+      const { result } = renderHook(() => useClearConsoleEnrollment(), { wrapper })
+      result.current.mutate()
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(toast.error).toHaveBeenCalledWith('Failed to clear enrollment state: backend unavailable')
     })
   })
 })

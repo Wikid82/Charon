@@ -22,7 +22,7 @@ post_date: "2026-02-19"
 The exact chain may vary by Caddy/plugin version, but these are the most plausible paths.
 
 | Hypothesis | Why Plausible | Confirmability Checks | What Would Falsify It |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | H1: `caddy-security` path pulls `smallstep/certificates` which pulls `nebula` | Caddy builder includes `github.com/greenpau/caddy-security`; prior logs mention `smallstep/certificates` compile failures against `nebula` API changes | Rebuild only Caddy stage and inspect generated module graph and `go mod graph` | No `smallstep/certificates` in generated graph |
 | H2: `caddy-crowdsec-bouncer` path pulls `ipstore` which pulls `nebula` | Builder includes crowdsec bouncer; prior scan artifacts and historical reports show `bouncer -> ipstore -> nebula` | Inspect generated module graph from xcaddy temp build and grep for `hslatman/ipstore` and `slackhq/nebula` | `ipstore` absent from graph or no path to `nebula` |
 | H3: stale artifact mismatch between current Dockerfile and scan metadata | Dockerfile currently references newer plugin/version combinations than some older reports | Regenerate SBOM and scan from a clean build, compare package versions and chains | Fresh SBOM/scan matches old chain exactly |
@@ -100,7 +100,7 @@ rg -n "NebulaCAPool|NewCAPoolFromBytes|UnmarshalNebulaCertificate|nebula" backen
 ## Decision Matrix
 
 | Option | Security Impact | Build/Runtime Risk | Effort | Time-to-implement | CI policy impact | Recommendation |
-|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- |
 | O1: Force `nebula@1.10.3` now (direct override) | High positive if successful | High (known compile break risk) | Medium | Short for attempt, uncertain for success | Keeps strict block if works; currently causes failures | **Not recommended now** |
 | O2: Temporary exception with compensating controls + expiry | Medium (risk accepted, bounded) | Low-to-medium | Low | Fast | Requires scoped allow/exception in PR1 gate | **Recommended short-term** |
 | O3: Remove/disable chain-inducing plugin(s) | Medium-to-high (if chain removed) | Medium (feature/security behavior change risk) | Medium | Medium | Could restore strict block if finding removed | Conditional backup option |

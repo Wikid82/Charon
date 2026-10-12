@@ -1,0 +1,11 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: env_refs
+url: ${HOOK_URL}
+headers:
+  Authorization: Bearer ${API_TOKEN}
+  X-Basic: Basic $BASIC
+  X-Token: token ${T}
+  X-Mixed: <charon-redacted>
+  X-Spaced: <charon-redacted>

@@ -1,0 +1,7 @@
+type: dummy
+name: comments
+output_file: /tmp/out.json
+---
+type: file
+name: comments2
+log_path: /tmp/x.log

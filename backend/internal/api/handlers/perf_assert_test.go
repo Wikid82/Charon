@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 // quick helper to form float ms from duration
@@ -25,7 +26,7 @@ func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000.0 }
 // setupPerfDB - uses a file-backed sqlite to avoid concurrency panics in parallel tests
 func setupPerfDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	path := ":memory:?cache=shared&_journal_mode=WAL"
+	path := testutil.MemoryDSN(t, "_journal_mode=WAL")
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityDecision{}, &models.SecurityRuleSet{}, &models.SecurityConfig{}))

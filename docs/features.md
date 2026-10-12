@@ -103,6 +103,10 @@ Control your security modules with a single click. The Security Dashboard provid
 
 Protect your applications using behavior-based threat detection powered by a global community of security data. Bad actors get blocked automatically before they can cause harm.
 
+Preset changes are backed up first and rolled back automatically if anything goes wrong, and CrowdSec's downloaded data now survives container recreation.
+
+The CrowdSec file editor no longer lists CrowdSec's account and connection credential files, and backups are shown by name.
+
 → [Learn More](features/crowdsec.md) • [Setup Guide](guides/crowdsec-setup.md)
 
 ---

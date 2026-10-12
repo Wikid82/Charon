@@ -1,45 +1,54 @@
-# QA Report - fix/harden-backend-consistency-checks
+# QA and Security Report: fix/diagnostics-sensitive-values
 
-Date: 2026-10-06. Scope: 12 commits, `bb787410..HEAD` (HEAD 95d31201). Backend only, no frontend changes.
-Verdict: **PASS, no blocking findings.**
+Date: 2026-10-12
+Scope: full diff `origin/development...HEAD` (3 branch commits plus the 2 QA commits listed below) against `SECURITY.md`, `CLAUDE.md` (Definition of Done) and the approved spec. The branch hardens how sensitive values are handled in diagnostic output (logs, returned errors and API responses) for the CrowdSec bouncer registration and enrollment paths, consolidates the display-masking helper into `util.MaskAPIKey`, adds `util.DescribeCommandOutput`, and adds a short operator guide.
 
-> Security-sensitive detail (specific weaknesses, residual risks, and re-test considerations) has been
-> intentionally redacted from this public report. It is tracked privately per `SECURITY.md`.
+## Verdict: PASS (no blocking findings)
 
-## Definition of Done
+No critical, high or medium findings. Two low findings and two informational notes are listed; none blocks the merge. No model, migration or GORM query file is in the diff, so the GORM scan was not required.
 
-| # | Item | Result | Evidence |
-|---|------|--------|----------|
-| 1 | Targeted Playwright E2E, firefox only | PASS | E2E image rebuilt with the `docker-rebuild-e2e` skill. Final HEAD: 11 spec files covering first-run onboarding, proxy hosts, redirection hosts, certificates (delete, bulk delete, list) and the Caddyfile/NPM/JSON import flows. 178 passed, 1 skipped, 1 flaky-under-load failure (`caddy-import-gaps` 4.2, a session-resume test that depends on leftover import-session state from earlier specs in the same run). It passes in isolation and the whole `caddy-import-gaps` file passes 12/12 when re-run. A prior run on the first eight commits had 0 failures. |
-| 1.5 | GORM security scan | PASS | `scan-gorm-security.sh --check`: 0 CRITICAL, 0 HIGH, 0 MEDIUM. |
-| 2 | Local patch coverage | PASS | Backend/overall patch coverage 96.7% (264 of 273 changed lines; thresholds 90 overall, 85 backend). Uncovered changed lines are defensive database-error branches. |
-| 3 | Backend coverage | PASS | `scripts/go-test-coverage.sh` on the first eight commits: statements 92.6%, lines 89.8% (gate 87%). Package coverage at final HEAD: handlers 90.5%, services 91.0%. Frontend coverage, type-check and build skipped: the frontend is untouched. |
-| 4 | Lint / static analysis | PASS | `make lint-fast`: 0 issues (backend and agent). `lefthook run pre-commit --all-files`: all hooks passed, semgrep 0 findings. |
-| 5 | Build and full test run | PASS | `go build ./...` OK (backend and agent). `go test ./... -race -count=1` passes with zero failures. |
-| 6 | Vulnerability scans | PASS | `govulncheck`: 0 vulnerabilities affecting the code. CodeQL and Trivy are deferred to CI per `CLAUDE.md` for a `fix:`-only branch. |
+## Definition of Done evidence
 
-## Review summary
+| Check | Command | Result |
+|---|---|---|
+| Build | `cd backend && go build ./...` | pass (no frontend files changed) |
+| golangci-lint | `cd backend && golangci-lint run --config .golangci.yml ./...` | 0 issues |
+| Race run | `go test -race -timeout 60m ./internal/services/... ./internal/util/... ./internal/api/handlers/... ./internal/crowdsec/... ./internal/caddy/...` | pass (services 578 s, crowdsec 109 s) |
+| Backend tests and coverage | `scripts/go-test-coverage.sh` | 0 failing tests; statements 91.7%, lines 90.7% (gate 87%) |
+| Patch coverage | `bash scripts/local-patch-report.sh` (strict; empty frontend lcov placeholder because no frontend file changed, removed afterwards) | overall 98.2% (55/56), backend 98.2%, frontend n/a (0 changed lines); artifacts `test-results/local-patch-report.{md,json}` produced |
+| CodeQL Go | `scripts/pre-commit-hooks/codeql-go-scan.sh` (CLI 2.27.2) | 4 results, all in files outside this diff (`remote_server_handler.go`, `uptime_service.go`, `auth_handler.go`); no clear-text-logging or sensitive-data result |
+| Trivy | `trivy fs --severity HIGH,CRITICAL --scanners vuln,secret` | no findings |
+| Markdown lint | `make lint-markdown` | 0 issues |
+| GORM scan | not run | no model, migration or GORM query file in the diff |
+| E2E | not run | no UI or E2E spec depends on the changed `details` field or key previews (searched `tests/` and `frontend/src`) |
 
-- Concurrency-sensitive writes now run inside a shared write-locked transaction helper. All callers were reviewed for correct transaction-handle use. The concurrency tests use multi-connection databases, which is a stronger scenario than production's single-connection pool.
-- Domain handling is consolidated into shared helpers used by the proxy host, redirection host and import code paths. No remaining non-test callers of the removed helpers were found.
-- Error responses on the changed paths are generic, with detail logged server-side.
-- Commit subjects for `(security)` commits are intentionally generic. No session identifiers or links appear in commit messages or the diff.
-- Dead code identified in review was removed in this branch.
+## Security review
+
+1. Raw key and command output: `registerAndSaveBouncer`, the startup registration, `RegisterBouncer` and the enrollment registration step now report only a byte count of command output (`util.DescribeCommandOutput`); the `RegisterBouncer` error response carries a fixed `details` string. All key log fields and API previews go through `util.MaskAPIKey`. Tests capture log output, the broadcast hook entries (message, data, error and raw fields) and the returned errors, and assert that planted values never appear.
+2. Sibling sweep (`backend/`, `agent/`, `scripts/`, `configs/`): remaining `Warn/Info/Error/WithField/WithError` calls near key, token, secret, password or output either log masked values, counts or names, or concern non-credential output. No remaining path found that logs a credential or credential-producing output.
+3. `util.MaskAPIKey`: empty gives `[empty]`; below 24 bytes gives `[REDACTED]`; 24 or more shows 4 + 4 characters. Boundary tests at 15, 16, 23 and 24 pass. The length is in bytes, so a multi-byte key reveals at most four bytes at each end, and a cut inside a multi-byte character only affects display. `util.DescribeCommandOutput` reports empty or length only; tests cover nil, empty, short, multi-line and 100 kB input.
+4. Admin gating: the bouncer key, key-status and registration routes are mounted under the admin-only group in `routes.go`; the new test registers the real routes behind `RequireRole(admin)` and asserts a user-role request gets 403.
+5. Tests are not vacuous: they use distinct planted values, assert both the replacement text and absence of the planted value across every output channel, and check the saved key file keeps the full value with mode 0600.
+6. Public wording: commit subjects and bodies, docs, code comments and test names were checked; the only `(security)` subject is `fix(security): tighten handling of sensitive values in diagnostics`, which is generic. Three test names and one code comment that hinted at the previous behaviour were reworded (commit below). No session id or link appears in any message.
 
 ## Findings
 
-### Blocking
-None.
+No critical, high or medium findings.
 
-### Non-blocking
-Several low-severity, non-blocking items were identified during review. The in-scope ones were fixed in this
-branch (dead-code removal, input normalization, reference validation inside the write transaction, and
-certificate-handler status codes). The remainder are tracked privately or as plain follow-ups and are not
-listed here.
+### Low
 
-## Not verified / limits
+- **L1 (pre-existing, unchanged scope).** `RegisterBouncer` still returns an 8-character preview of the registered key in its success response (admin only). Consider aligning it with `util.MaskAPIKey`.
+- **L2 (pre-existing wording).** Operator-facing text still advises removing or updating the compose environment variable although the saved key file takes precedence at runtime:
+  - `backend/internal/api/handlers/crowdsec_handler.go` line 1579 (key-status message), line 1641 (log message), lines 1771-1772 (registration banner tip)
+  - `frontend/src/locales/*/translation.json` key `keyWarning` (all locales)
+  Recommended: one generic low issue after merge.
 
-- Per-commit buildability (bisect) was not checked. HEAD builds and passes everything.
-- CodeQL and Trivy were not run locally, by policy. CI runs them.
-- Concurrency behavior was judged from the code and the multi-connection tests; no live-database stress run beyond the test suite was performed.
-- The security review and full QA pass were done on the first eight commits. The four later commits (cleanup, input normalization, reference validation, test fixture) were verified by build, full `-race` test run, lint, GORM scan, patch coverage and the targeted E2E re-run above, but did not get a second full manual review.
+### Informational
+
+- **I1.** Pre-existing CodeQL log-injection results (4) remain in untouched files.
+- **I2.** `GetBouncerKey` intentionally returns the full key to administrators.
+
+## Commits added by this review
+
+- `chore: neutralize wording in diagnostics tests` (renames three tests and trims one comment; no behaviour change).
+- `docs: update QA report for the diagnostics hardening` (this report).

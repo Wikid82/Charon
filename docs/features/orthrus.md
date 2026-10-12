@@ -55,7 +55,7 @@ Copy the key somewhere safe — a password manager, a note, anything. Once you c
 Charon gives you a ready-made install snippet. Pick the method that fits your setup:
 
 | Method | Best For |
-|---|---|
+| --- | --- |
 | Docker Compose | Servers already running Docker |
 | systemd | Bare-metal Linux servers |
 | Kubernetes | K8s clusters — deploys as a DaemonSet |
@@ -78,7 +78,7 @@ That's it. You can now use this agent when [adding a Remote Server](../guides/re
 ## Agent Status Reference
 
 | Status | Meaning | What To Do |
-|---|---|---|
+| --- | --- | --- |
 | ✅ Online | Connected and healthy | Nothing — you're good |
 | ❌ Offline | Lost connection or not started | Check the agent is running on the remote machine |
 | 🟡 Pending | Registered but never connected yet | Run the install snippet on the remote machine |
@@ -90,12 +90,14 @@ That's it. You can now use this agent when [adding a Remote Server](../guides/re
 **By default, every agent is strictly read-only**, and that default can't be loosened by accident — there's no setting that weakens it globally. Orthrus only ever lets Charon **read** information from your remote Docker unless you take the deliberate, per-agent step described below.
 
 **Every agent, always, CAN:**
+
 - List running containers and their details
 - List images, networks, and volumes
 - Stream container logs (for display in Charon)
 - Report Docker system info
 
 **A default (read-only) agent CANNOT:**
+
 - Start, stop, restart, or delete containers
 - Create or remove networks or volumes
 - Pull images
@@ -153,7 +155,7 @@ Some tools like to talk to Docker directly instead of going through Charon's scr
 
 **Connecting your tool:** point it at:
 
-```
+```text
 tcp://<host>:<port>
 ```
 
@@ -176,7 +178,7 @@ One note on that last item: read-only here means the proxy can't change anything
 ## Troubleshooting
 
 | Problem | Likely Cause | Fix |
-|---|---|---|
+| --- | --- | --- |
 | Agent stays **Pending** | Snippet not run yet | Run it on the remote machine |
 | Agent shows **Offline** | Agent process stopped | Restart the agent service or container |
 | Agent goes **Offline** after reboot | Not set to start automatically | Use the systemd snippet, or add `restart: always` to Docker Compose |

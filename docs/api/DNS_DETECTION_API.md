@@ -165,7 +165,7 @@ Returns the list of all built-in nameserver patterns used for detection.
 The detection system recognizes these DNS providers:
 
 | Provider | Pattern Examples |
-|----------|------------------|
+| ---------- | ------------------ |
 | **Cloudflare** | `ns1.cloudflare.com`, `ns2.cloudflare.com` |
 | **AWS Route 53** | `ns-123.awsdns-45.com`, `ns-456.awsdns-78.net` |
 | **DigitalOcean** | `ns1.digitalocean.com`, `ns2.digitalocean.com` |

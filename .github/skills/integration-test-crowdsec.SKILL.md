@@ -97,31 +97,35 @@ For use in GitHub Actions workflows:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| verbose   | boolean | No    | false   | Enable verbose output |
+| --- | --- | --- | --- | --- |
+| verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| ---------- | ---------- | --------- | ------------- |
 | CROWDSEC_API_KEY | No | auto | Bouncer API key (auto-generated if not set) |
-| CROWDSEC_LAPI_URL | No | http://crowdsec:8080 | CrowdSec LAPI endpoint |
+| CROWDSEC_LAPI_URL | No | <http://crowdsec:8080> | CrowdSec LAPI endpoint |
 | BOUNCER_SYNC_INTERVAL | No | 60 | Decision sync interval in seconds |
 
 ## Outputs
 
 ### Success Exit Code
+
 - **0**: All CrowdSec integration tests passed
 
 ### Error Exit Codes
+
 - **1**: One or more tests failed
 - **2**: CrowdSec LAPI not accessible
 - **3**: Bouncer authentication failed
 - **4**: Decision synchronization failed
 
 ### Console Output
+
 Example output:
-```
+
+```text
 === Testing CrowdSec Bouncer Integration ===
 ✓ LAPI Connection: Successful
 ✓ Bouncer Authentication: Valid API Key
@@ -179,15 +183,19 @@ BOUNCER_SYNC_INTERVAL=30 VERBOSE=1 \
 ### Common Errors
 
 #### Error: Cannot connect to LAPI
+
 **Solution**: Verify LAPI container is running: `docker ps | grep crowdsec`
 
 #### Error: Authentication failed
+
 **Solution**: Check API key is valid: `docker exec crowdsec cscli bouncers list`
 
 #### Error: No decisions retrieved
+
 **Solution**: Create test decisions: `docker exec crowdsec cscli decisions add --ip 1.2.3.4`
 
 #### Error: Blocking not working
+
 **Solution**: Check bouncer logs: `docker logs charon-app | grep crowdsec`
 
 ### Debugging

@@ -57,7 +57,7 @@ export function DashboardTimeRangeSelector({ value, onChange }: DashboardTimeRan
   return (
     <div
       role="radiogroup"
-      aria-label={t('security.crowdsec.dashboard.timeRange', 'Time range')}
+      aria-label={t('security.crowdsec.dashboard.timeRangeLabel')}
       className="inline-flex rounded-lg border border-gray-700 bg-gray-900 p-1"
     >
       {RANGES.map((range, i) => (

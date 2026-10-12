@@ -49,10 +49,11 @@ sync by release-please itself.
 
 5. **Container tags are published** (via `.github/workflows/docker-build.yml`,
    triggered on the branch push, not the tag):
-  - `v1.0.0` (exact version)
-  - `1.0` (minor version)
-  - `1` (major version)
-  - `latest` (for non-prerelease on main branch)
+
+- `v1.0.0` (exact version)
+- `1.0` (minor version)
+- `1` (major version)
+- `latest` (for non-prerelease on main branch)
 
 **Do not manually push `v*` tags.** A manually-created tag desyncs
 `.release-please-manifest.json` (which release-please treats as its

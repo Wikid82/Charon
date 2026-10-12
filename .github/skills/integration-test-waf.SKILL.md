@@ -68,21 +68,23 @@ Run the WAF integration tests:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
+| --- | --- | --- | --- | --- |
 | verbose | boolean | No | false | Enable verbose output |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | WAF_MODE | No | (script default) | Override WAF mode |
 
 ## Outputs
 
 ### Success Exit Code
+
 - 0: All WAF integration tests passed
 
 ### Error Exit Codes
+
 - 1: One or more tests failed
 - 2: Docker environment setup failed
 - 3: Container startup timeout

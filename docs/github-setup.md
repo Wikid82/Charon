@@ -53,7 +53,7 @@ Your documentation will be published to GitHub Pages (not the wiki). Pages is be
 
 Once enabled, your docs will be live at:
 
-```
+```text
 https://wikid82.github.io/charon/
 ```
 

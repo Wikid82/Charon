@@ -10,12 +10,21 @@ echo "Installing CrowdSec hub items for Charon..."
 # Hub index update is handled by the entrypoint before this script is called.
 # Do not duplicate it here — a redundant update adds ~3s to startup for no benefit.
 
+# Helper: succeeds only when the hub item is really installed.
+# `cscli <type> inspect` exits 0 for items that are known to the hub index but not
+# installed (it prints "installed": false), and can exit non-zero for installed items
+# whose data files are missing, so the exit code is not a usable signal. Decide on the
+# JSON "installed" flag instead (jq is not available in the image).
+is_installed() {
+    cscli "$1" inspect "$2" -o json 2>/dev/null | grep -q '"installed": *true'
+}
+
 # Helper: only install if not already present (avoids 5-10s per cscli call on rebuilds)
 install_if_missing() {
     type="$1"   # parsers | scenarios | collections
     name="$2"
     label="${3:-$name}"
-    if cscli "${type}" inspect "${name}" >/dev/null 2>&1; then
+    if is_installed "${type}" "${name}"; then
         echo "  ✓ ${label} already installed, skipping"
     else
         echo "  Installing ${label}..."

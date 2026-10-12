@@ -70,6 +70,7 @@ metadata:
 Rebuilds the Charon Docker image and restarts the Playwright E2E testing environment with fresh code. This skill handles the complete lifecycle: stopping existing containers, optionally cleaning volumes, rebuilding the image, and starting fresh containers with health check verification.
 
 **Use this skill when:**
+
 - You've made code changes and need to test them in E2E tests
 - E2E tests are failing due to stale container state
 - You need a clean slate for debugging
@@ -135,15 +136,15 @@ Enable MailHog for email testing:
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| no-cache  | boolean | No | false | Force rebuild without Docker cache |
-| clean     | boolean | No | false | Remove test volumes for fresh state |
-| profile   | string | No | "" | Docker Compose profile to enable |
+| --- | --- | --- | --- | --- |
+| no-cache | boolean | No | false | Force rebuild without Docker cache |
+| clean | boolean | No | false | Remove test volumes for fresh state |
+| profile | string | No | "" | Docker Compose profile to enable |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
+| --- | --- | --- | --- |
 | DOCKER_NO_CACHE | No | false | Force rebuild without cache |
 | SKIP_VOLUME_CLEANUP | No | false | Preserve test data volumes |
 
@@ -167,7 +168,7 @@ This skill uses `.docker/compose/docker-compose.playwright-ci.yml` which include
 ### Volumes Created
 
 | Volume | Purpose |
-|--------|---------|
+| -------- | --------- |
 | playwright_data | Application data and SQLite database |
 | playwright_caddy_data | Caddy server data |
 | playwright_caddy_config | Caddy configuration |
@@ -216,6 +217,7 @@ curl -sf http://localhost:8080/api/v1/health
 ```
 
 The skill will:
+
 - Wait up to 60 seconds for container to be healthy
 - Check every 5 seconds
 - Report final health status
@@ -226,27 +228,35 @@ The skill will:
 ### Common Issues
 
 #### Docker Build Failed
-```
+
+```text
 Error: docker build failed
 ```
+
 **Solution**: Check Dockerfile syntax, ensure all COPY sources exist
 
 #### Port Already in Use
-```
+
+```text
 Error: bind: address already in use
 ```
+
 **Solution**: Stop conflicting services on port 8080
 
 #### Health Check Timeout
-```
+
+```text
 Error: Container did not become healthy in 60s
 ```
+
 **Solution**: Check container logs with `docker logs charon-playwright`
 
 #### Volume Permission Issues
-```
+
+```text
 Error: permission denied
 ```
+
 **Solution**: Run with `--clean` to recreate volumes with proper permissions
 
 ## Verifying the Environment
@@ -278,7 +288,7 @@ docker exec charon-playwright sqlite3 /app/data/charon.db ".tables"
 ## Key File Locations
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `Dockerfile` | Main application Dockerfile |
 | `.docker/compose/docker-compose.playwright-ci.yml` | CI E2E test compose config |
 | `.docker/compose/docker-compose.playwright-local.yml` | Local E2E test compose config |
@@ -299,5 +309,6 @@ docker exec charon-playwright sqlite3 /app/data/charon.db ".tables"
 **Last Updated**: 2026-01-27
 **Maintained by**: Charon Project Team
 **Compose Files**:
+
 - CI: `.docker/compose/docker-compose.playwright-ci.yml` (uses GitHub Secrets, no .env)
 - Local: `.docker/compose/docker-compose.playwright-local.yml` (uses .env file)

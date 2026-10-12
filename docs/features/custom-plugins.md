@@ -116,7 +116,7 @@ sha256sum powerdns.so
 
    Expected output:
 
-   ```
+   ```text
    INFO Loaded DNS provider plugin type=powerdns name="PowerDNS" version="1.0.0"
    INFO Loaded 1 external DNS provider plugins (0 failed)
    ```
@@ -188,7 +188,7 @@ curl https://charon.example.com/api/v1/dns-providers/types \
 **Key fields:**
 
 | Field | Description |
-|-------|-------------|
+| --- | --- |
 | `is_built_in` | `true` = compiled into Charon, `false` = external plugin |
 | `fields` | Credential field specifications for the UI form |
 

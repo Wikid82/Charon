@@ -83,7 +83,7 @@ describe('Notifications', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupMocks()
-    user = userEvent.setup()
+    user = userEvent.setup({ delay: null })
   })
 
   afterEach(() => {
@@ -103,7 +103,7 @@ describe('Notifications', () => {
   })
 
   it('rejects malformed URLs', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -116,7 +116,7 @@ describe('Notifications', () => {
   })
 
   it('accepts a valid https URL', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -134,7 +134,7 @@ describe('Notifications', () => {
   })
 
   it('accepts a valid http URL', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -152,7 +152,7 @@ describe('Notifications', () => {
   })
 
   it('shows supported provider type options', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -166,7 +166,7 @@ describe('Notifications', () => {
   })
 
   it('associates provider type label with select control', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -200,7 +200,7 @@ describe('Notifications', () => {
   it('shows and hides the update indicator after save', async () => {
     setupMocks([baseProvider])
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
@@ -226,7 +226,7 @@ describe('Notifications', () => {
     setupMocks([baseProvider])
 
     const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const { unmount } = renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
@@ -250,7 +250,7 @@ describe('Notifications', () => {
     }
 
     setupMocks([providerWithDisabledEvents])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId(`provider-row-${providerWithDisabledEvents.id}`)
@@ -307,7 +307,7 @@ describe('Notifications', () => {
     vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
     await user.click(await screen.findByRole('button', { name: 'notificationProviders.manageTemplates' }))
 
@@ -336,7 +336,7 @@ describe('Notifications', () => {
   })
 
   it('shows security event subscription controls in provider form', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -347,7 +347,7 @@ describe('Notifications', () => {
   })
 
   it('keeps add-provider guidance aligned with Discord webhook UX', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
     await user.click(await screen.findByTestId('add-provider-btn'))
 
@@ -358,7 +358,7 @@ describe('Notifications', () => {
   })
 
   it('submits gotify token on create for gotify provider mode', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -387,7 +387,7 @@ describe('Notifications', () => {
 
     setupMocks([gotifyProvider])
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId('provider-row-provider-gotify')
@@ -414,7 +414,7 @@ describe('Notifications', () => {
     vi.mocked(notificationsApi.deleteExternalTemplate).mockResolvedValue()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
     await user.click(await screen.findByRole('button', { name: 'notificationProviders.manageTemplates' }))
 
@@ -460,7 +460,7 @@ describe('Notifications', () => {
     vi.mocked(notificationsApi.testProvider).mockResolvedValue()
     setupMocks([baseProvider])
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
@@ -482,7 +482,7 @@ describe('Notifications', () => {
       parsed: undefined,
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -516,7 +516,7 @@ describe('Notifications', () => {
     setupMocks([baseProvider])
     vi.mocked(notificationsApi.testProvider).mockResolvedValue()
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
@@ -543,7 +543,7 @@ describe('Notifications', () => {
 
     setupMocks([gotifyProviderWithToken])
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId('provider-row-provider-gotify-has-token')
@@ -566,7 +566,7 @@ describe('Notifications', () => {
 
     setupMocks([gotifyProviderNoToken])
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId('provider-row-provider-gotify-no-token')
@@ -582,7 +582,7 @@ describe('Notifications', () => {
     vi.mocked(notificationsApi.testProvider).mockRejectedValue(new Error('Connection refused'))
     setupMocks([baseProvider])
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
@@ -596,7 +596,7 @@ describe('Notifications', () => {
   })
 
   it('disables test button when provider is new (unsaved) and not email type', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -605,7 +605,7 @@ describe('Notifications', () => {
   })
 
   it('shows JSON template selector for gotify provider', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -615,7 +615,7 @@ describe('Notifications', () => {
   })
 
   it('shows JSON template selector for webhook provider', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -625,7 +625,7 @@ describe('Notifications', () => {
   })
 
   it('shows token field when slack type selected', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -635,7 +635,7 @@ describe('Notifications', () => {
   })
 
   it('hides token field when switching from slack to discord', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -647,7 +647,7 @@ describe('Notifications', () => {
   })
 
   it('submits slack provider with token as webhook URL', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -666,7 +666,7 @@ describe('Notifications', () => {
   })
 
   it('does not require URL for slack', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -683,7 +683,7 @@ describe('Notifications', () => {
   })
 
   it('renders pushover form with API Token field and User Key placeholder', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     await user.click(await screen.findByTestId('add-provider-btn'))
@@ -704,7 +704,7 @@ describe('Notifications', () => {
 
     setupMocks([webpushProvider])
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     renderWithQueryClient(<Notifications />)
 
     const row = await screen.findByTestId('provider-row-provider-webpush')

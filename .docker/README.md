@@ -80,7 +80,7 @@ This unified architecture simplifies deployment, updates, and data management.
 Persist your data by mounting these volumes:
 
 | Host Path | Container Path | Description |
-|-----------|----------------|-------------|
+| ----------- | ---------------- | ------------- |
 | `./data` | `/app/data` | **Critical**. Stores the SQLite database (default `charon.db`, `cpm.db` fallback) and application logs. |
 | `./caddy_data` | `/data` | **Critical**. Stores Caddy's SSL certificates and keys. |
 | `./caddy_config` | `/config` | Stores Caddy's autosave configuration. |
@@ -90,7 +90,7 @@ Persist your data by mounting these volumes:
 Configure the application via `docker-compose.yml`:
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| ---------- | --------- | ------------- |
 | `CHARON_ENV` | `production` | Set to `development` for verbose logging (`CPM_ENV` supported for backward compatibility). |
 | `CHARON_HTTP_PORT` | `8080` | Port for the Web UI (`CPM_HTTP_PORT` supported for backward compatibility). |
 | `CHARON_DB_PATH` | `/app/data/charon.db` | Path to the SQLite database (`CPM_DB_PATH` supported for backward compatibility). |

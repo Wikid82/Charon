@@ -61,7 +61,7 @@ This means it protects the management API but does not directly inspect traffic 
 ### What Cerberus Protects
 
 | Threat Category | CrowdSec | ACL | WAF | Rate Limit |
-|-----------------|----------|-----|-----|------------|
+| ----------------- | ---------- | ----- | ----- | ------------ |
 | Known attackers (IP reputation) | ✅ | ❌ | ❌ | ❌ |
 | Geo-based attacks | ❌ | ✅ | ❌ | ❌ |
 | SQL Injection (SQLi) | ❌ | ❌ | ✅ | ❌ |
@@ -102,7 +102,7 @@ The WAF provides **pattern-based detection** for zero-day exploits:
 
 ## Request Processing Pipeline
 
-```
+```text
 1. [CrowdSec]      Check IP reputation → Block if known attacker
 2. [ACL]           Check IP/Geo rules → Block if not allowed
 3. [WAF]           Inspect request payload → Block if malicious pattern
@@ -211,7 +211,7 @@ Manage via `/api/v1/security/rulesets`.
 
 ### Prometheus Metrics
 
-```
+```text
 charon_waf_requests_total{mode="block|monitor"} — Total requests evaluated
 charon_waf_blocked_total{mode="block"} — Requests blocked
 charon_waf_monitored_total{mode="monitor"} — Requests logged but not blocked
@@ -390,7 +390,7 @@ docker exec charon cscli lapi status
 
 Expected output:
 
-```
+```text
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
@@ -474,7 +474,7 @@ This handles most race conditions where LAPI is still initializing after CrowdSe
 **This matches the pattern used by other security features:**
 
 | Feature | Control Method | Status Endpoint | Lifecycle Handler |
-|---------|---------------|-----------------|-------------------|
+| --------- | --------------- | ----------------- | ------------------- |
 | **Cerberus** | GUI Toggle | `/security/status` | N/A (master switch) |
 | **WAF** | GUI Toggle | `/security/status` | Config regeneration |
 | **ACL** | GUI Toggle | `/security/status` | Config regeneration |
@@ -511,7 +511,7 @@ LAPI must be fully initialized before enrollment. Even with automatic retries, t
 
    Expected output:
 
-   ```
+   ```text
    crowdsec  203  0.5  2.3  /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
    ```
 
@@ -523,13 +523,13 @@ LAPI must be fully initialized before enrollment. Even with automatic retries, t
 
    Expected output:
 
-   ```
+   ```text
    ✓ You can successfully interact with Local API (LAPI)
    ```
 
    If not ready:
 
-   ```
+   ```text
    ERROR: cannot contact local API
    ```
 
@@ -553,7 +553,7 @@ LAPI must be fully initialized before enrollment. Even with automatic retries, t
 
    Expected output:
 
-   ```
+   ```text
    Name                     IP Address      Auth Type    Version
    charon-local-machine     127.0.0.1      password     v1.x.x
    ```
@@ -870,7 +870,7 @@ annotations:
 ## Development Roadmap
 
 | Phase | Feature | Status |
-|-------|---------|--------|
+| ------- | --------- | -------- |
 | 1 | WAF placeholder + metrics | ✅ Complete |
 | 2 | ACL implementation | ✅ Complete |
 | 3 | Break-glass token | ✅ Complete |

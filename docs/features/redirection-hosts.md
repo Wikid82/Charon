@@ -19,7 +19,7 @@ A **Redirection Host** tells Charon: "when someone visits this domain, immediate
 This is different from a **Proxy Host**, which is what you use for most sites in Charon:
 
 | | Proxy Host | Redirection Host |
-|---|---|---|
+| --- | --- | --- |
 | What it does | Fetches content from a backend app/server and hands it to the visitor, through Charon | Tells the visitor's browser "go here instead" |
 | Use it when | You're running an actual app or service you want to make available under a domain | You've moved a site/domain and want the old address to forward to the new one |
 | Example | `myapp.example.com` → your Docker container running the app | `old-blog.example.com` → `https://newblog.example.com` |
@@ -71,7 +71,7 @@ Fill in at minimum a domain and a target URL, then click **Save**.
 A "status code" is just a short numeric signal the web server sends along with the redirect, telling the visitor's browser (and search engines) what kind of move this is. Charon offers four choices:
 
 | Code | Plain-language meaning | Pick this when... |
-|---|---|---|
+| --- | --- | --- |
 | **301 — Permanent** | "This has moved for good." | You're moving a site permanently and want search engines to update their listings to the new address over time. This is the right choice for most people. |
 | **302 — Temporary** | "This has moved for now, but might move back." | The move is temporary — e.g. you're doing maintenance on the new site or aren't sure the new address is final yet. Search engines will keep the old address in their index. |
 | **307 — Temporary (preserve method)** | Same as 302, but also makes sure that if the visitor's browser was submitting a form or sending data, it keeps sending it the same way to the new address. | You need a temporary redirect for something more than a simple page visit — for example, an app or script that's sending data (not just browsing) to the old domain. |
@@ -87,7 +87,7 @@ Turn on **Preserve Path** and Charon carries over whatever specific page (and an
 
 A visitor goes to `old-blog.example.com/posts/my-favorite-recipe?ref=newsletter`. With Target URL set to `https://newblog.example.com`, they land on:
 
-```
+```text
 https://newblog.example.com/posts/my-favorite-recipe?ref=newsletter
 ```
 
@@ -95,7 +95,7 @@ https://newblog.example.com/posts/my-favorite-recipe?ref=newsletter
 
 The same visitor instead lands on exactly:
 
-```
+```text
 https://newblog.example.com
 ```
 

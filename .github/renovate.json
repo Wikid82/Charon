@@ -417,6 +417,19 @@
     },
     {
       "customType": "regex",
+      "description": "Track golang.org/x/mod version ARG in Dockerfile",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=golang\\.org/x/mod\\s*\\nARG XMOD_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "golang.org/x/mod",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "description": "Track golang.org/x/crypto version ARG in Dockerfile",
       "managerFilePatterns": [
         "/^Dockerfile$/"

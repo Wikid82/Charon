@@ -55,7 +55,7 @@ Development tools like golangci-lint are compiled programs. They were built with
 
 Renovate (our automated dependency manager) will open a PR titled something like:
 
-```
+```text
 chore(deps): update golang to v1.26.0
 ```
 
@@ -114,7 +114,7 @@ This rebuilds:
 
 **Output:** You'll see:
 
-```
+```text
 🔧 Rebuilding Go development tools...
 Current Go version: go version go1.26.0 linux/amd64
 
@@ -360,7 +360,7 @@ The rebuild script bridges that gap.
 
 **Example:**
 
-```
+```text
 go.work says: "Use Go 1.26.0 or newer"
 go.mod says: "I'm part of the workspace, use its Go version"
 Your machine: "I have Go 1.26.0 installed"
@@ -386,7 +386,7 @@ Charon's pre-commit hook automatically detects and fixes tool version mismatches
 
 2. **Detect mismatch:**
 
-   ```
+   ```text
    ⚠️  golangci-lint Go version mismatch:
       golangci-lint: 1.25.6
       system Go:     1.26.0
@@ -394,7 +394,7 @@ Charon's pre-commit hook automatically detects and fixes tool version mismatches
 
 3. **Auto-rebuild:**
 
-   ```
+   ```text
    🔧 Rebuilding golangci-lint with current Go version...
    ✅ golangci-lint rebuilt successfully
    ```

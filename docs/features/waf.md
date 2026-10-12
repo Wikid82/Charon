@@ -38,7 +38,7 @@ Protected attack types include:
 ### Operating Modes
 
 | Mode | Behavior | Use Case |
-|------|----------|----------|
+| --- | --- | --- |
 | **Monitor** | Logs threats but allows traffic | Testing rules, reducing false positives |
 | **Block** | Actively blocks malicious requests | Production protection |
 
@@ -67,7 +67,7 @@ Charon includes the latest CRS version and receives updates through container im
 The WAF protects **HTTP and HTTPS traffic only**:
 
 | Traffic Type | Protected |
-|--------------|-----------|
+| -------------- | ----------- |
 | HTTP/HTTPS Proxy Hosts | ✅ Yes |
 | TCP/UDP Streams | ❌ No |
 | Non-HTTP protocols | ❌ No |
@@ -77,7 +77,7 @@ For TCP/UDP protection, use [CrowdSec](./crowdsec.md) or network-level firewalls
 ## Troubleshooting
 
 | Issue | Solution |
-|-------|----------|
+| ------- | ---------- |
 | Legitimate requests blocked | Switch to Monitor mode and review logs |
 | High latency | Check if complex rules are triggering; consider rule tuning |
 | WAF not activating | Verify the proxy host has WAF enabled in Security tab |

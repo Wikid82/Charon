@@ -10,8 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestApplyWithOpenFileHandles simulates the "device or resource busy" scenario
-// where the data directory has open file handles (e.g., from cache operations)
+// TestApplyWithOpenFileHandles covers a data dir with open file handles (the old "device or resource
+// busy" case): the copy-based snapshot works, DataDir itself is never renamed, and the engine-owned
+// hub_cache stays untouched.
 func TestApplyWithOpenFileHandles(t *testing.T) {
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
@@ -20,55 +21,45 @@ func TestApplyWithOpenFileHandles(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dataDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte("original"), 0o600))
 
-	// Create a subdirectory with nested files (similar to hub_cache)
 	subDir := filepath.Join(dataDir, "hub_cache")
 	require.NoError(t, os.MkdirAll(subDir, 0o750))
 	cacheFile := filepath.Join(subDir, "cache.json")
 	require.NoError(t, os.WriteFile(cacheFile, []byte(`{"test": "data"}`), 0o600))
 
-	// Open a file handle to simulate an in-use directory
-	// This would cause os.Rename to fail with "device or resource busy" on some systems
-	f, err := os.Open(cacheFile) // #nosec G304 -- Test opens test cache file // #nosec G304 -- Test opens test cache file
+	f, err := os.Open(cacheFile) // #nosec G304 -- Test opens test cache file
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
 
-	// Create and cache a preset
+	before, err := os.Stat(dataDir)
+	require.NoError(t, err)
+
 	archive := makeTarGz(t, map[string]string{"new/preset.yaml": "new: preset"})
 	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", archive)
 	require.NoError(t, err)
 
 	svc := NewHubService(nil, cache, dataDir)
 
-	// Apply should succeed using copy-based backup even with open file handles
 	res, err := svc.Apply(context.Background(), "test/preset")
 	require.NoError(t, err)
 	require.Equal(t, "applied", res.Status)
 	require.NotEmpty(t, res.BackupPath, "BackupPath should be set on success")
 
-	// Verify backup was created and contains the original files
-	backupConfigPath := filepath.Join(res.BackupPath, "config.txt")
-	backupCachePath := filepath.Join(res.BackupPath, "hub_cache", "cache.json")
+	after, err := os.Stat(dataDir)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after), "DataDir must never be renamed or replaced")
 
-	// The backup should exist
-	require.FileExists(t, backupConfigPath)
-	require.FileExists(t, backupCachePath)
-
-	// Verify original content was preserved in backup
-	// #nosec G304 -- Test reads from known backup paths created by test
-	content, err := os.ReadFile(backupConfigPath)
+	// The snapshot holds the original config but not the regenerable hub cache.
+	// #nosec G304 -- Test reads from known backup path created by test
+	content, err := os.ReadFile(filepath.Join(res.BackupPath, "config.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "original", string(content))
+	require.NoDirExists(t, filepath.Join(res.BackupPath, "hub_cache"))
 
-	// #nosec G304 -- Test reads from known backup paths created by test
-	cacheContent, err := os.ReadFile(backupCachePath)
-	require.NoError(t, err)
-	require.Contains(t, string(cacheContent), "test")
-
-	// Verify new preset was applied
-	newPresetPath := filepath.Join(dataDir, "new", "preset.yaml")
-	require.FileExists(t, newPresetPath)
+	// The live cache file is still in place and the preset was applied on top of the live tree.
+	require.FileExists(t, cacheFile)
+	require.FileExists(t, filepath.Join(dataDir, "config.txt"))
 	// #nosec G304 -- Test reads from known preset path in test dataDir
-	newContent, err := os.ReadFile(newPresetPath)
+	newContent, err := os.ReadFile(filepath.Join(dataDir, "new", "preset.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(newContent), "new: preset")
 }

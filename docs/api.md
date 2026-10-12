@@ -9,7 +9,7 @@ Charon REST API documentation. All endpoints return JSON and use standard HTTP s
 
 ## Base URL
 
-```
+```text
 http://localhost:8080/api/v1
 ```
 
@@ -51,7 +51,7 @@ Audit entries record the actor as `user:<id>` for signed-in users, `emergency` f
 ## Status Codes
 
 | Code | Description |
-|------|-------------|
+| ------ | ------------- |
 | 200 | Success |
 | 201 | Created |
 | 204 | No Content (successful deletion) |

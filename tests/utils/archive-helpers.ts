@@ -2,6 +2,8 @@ import { promises as fs } from 'fs';
 import * as tar from 'tar';
 import * as path from 'path';
 import { createWriteStream } from 'fs';
+import { randomBytes } from 'crypto';
+import { gzipSync } from 'zlib';
 
 export interface ArchiveOptions {
   format: 'tar.gz' | 'zip';
@@ -179,10 +181,7 @@ export async function createOversizedArchive(
     for (let i = 0; i < Math.ceil(sizeBytes / chunkSize); i++) {
       const remainingBytes = Math.min(chunkSize, sizeBytes - (i * chunkSize));
       // Use random data to prevent compression
-      const chunk = Buffer.from(
-        Array.from({ length: remainingBytes }, () => Math.floor(Math.random() * 256))
-      );
-      writeStream.write(chunk);
+      writeStream.write(randomBytes(remainingBytes));
     }
 
     await new Promise((resolve) => writeStream.end(resolve));
@@ -202,4 +201,190 @@ export async function createOversizedArchive(
     // Clean up temp directory
     await fs.rm(tempDir, { recursive: true, force: true });
   }
+}
+
+/** One entry of a hand-built tar archive. The name is written to the header exactly as given. */
+export interface RawTarEntry {
+  name: string;
+  content: string;
+}
+
+function tarHeader(name: string, size: number): Buffer {
+  const header = Buffer.alloc(512);
+  header.write(name, 0, 100, 'utf-8');
+  header.write('0000644\0', 100, 'ascii'); // mode
+  header.write('0000000\0', 108, 'ascii'); // uid
+  header.write('0000000\0', 116, 'ascii'); // gid
+  header.write(`${size.toString(8).padStart(11, '0')}\0`, 124, 'ascii'); // size
+  header.write('00000000000\0', 136, 'ascii'); // mtime
+  header.write('        ', 148, 'ascii'); // checksum placeholder (spaces)
+  header.write('0', 156, 'ascii'); // regular file
+  header.write('ustar\0', 257, 'ascii');
+  header.write('00', 263, 'ascii');
+
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
+  return header;
+}
+
+/**
+ * Create a tar.gz whose entry names are written verbatim, in order. node-tar normalises
+ * names such as "../../etc/passwd", so archives that must carry a literal traversal entry
+ * are built block by block here.
+ * @returns Absolute path to the created archive
+ */
+export async function createRawTarGz(entries: RawTarEntry[], outputPath: string): Promise<string> {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+
+  const blocks: Buffer[] = [];
+  for (const { name, content } of entries) {
+    const data = Buffer.from(content, 'utf-8');
+    blocks.push(tarHeader(name, data.length), data, Buffer.alloc((512 - (data.length % 512)) % 512));
+  }
+  blocks.push(Buffer.alloc(1024)); // end-of-archive marker
+
+  await fs.writeFile(outputPath, gzipSync(Buffer.concat(blocks)));
+  return outputPath;
+}
+
+/**
+ * List the entry names of a tar.gz archive held in memory, in archive order.
+ * Directory entries keep their trailing slash so callers can tell them apart.
+ */
+export async function listTarGzEntries(archive: Buffer): Promise<string[]> {
+  const names: string[] = [];
+  await new Promise<void>((resolve, reject) => {
+    const parser = new tar.Parser();
+    parser.on('entry', (entry) => {
+      names.push(entry.type === 'Directory' && !entry.path.endsWith('/') ? `${entry.path}/` : entry.path);
+      entry.resume();
+    });
+    parser.on('end', resolve);
+    parser.on('error', reject);
+    parser.end(archive);
+  });
+  return names;
+}
+
+/** Reads the text content of one entry (matched by exact path) from a tar.gz buffer, or null when absent. */
+export async function readTarGzEntry(archive: Buffer, entryName: string): Promise<string | null> {
+  let content: string | null = null;
+  await new Promise<void>((resolve, reject) => {
+    const parser = new tar.Parser();
+    parser.on('entry', (entry) => {
+      if (entry.path !== entryName) {
+        entry.resume();
+        return;
+      }
+      const chunks: Buffer[] = [];
+      entry.on('data', (chunk: Buffer) => chunks.push(chunk));
+      entry.on('end', () => {
+        content = Buffer.concat(chunks).toString('utf8');
+      });
+    });
+    parser.on('end', resolve);
+    parser.on('error', reject);
+    parser.end(archive);
+  });
+  return content;
+}
+
+/** Name of the hub item manifest that a CrowdSec export carries at the archive root. */
+export const HUB_MANIFEST_NAME = 'charon-hub-items.json';
+
+export interface HubItemRef {
+  type: string;
+  name: string;
+}
+
+/** Serialises a hub item manifest. Pass `version` or raw `items` to build an unsupported or damaged one. */
+export function hubManifest(items: unknown[], version: number = 1): string {
+  return JSON.stringify({ version, items });
+}
+
+/** A minimal profiles.yaml whose single profile names the given notifications. */
+export function profilesYaml(notifications: string[]): string {
+  const list = notifications.map((name) => `  - ${name}`).join('\n');
+  return `name: default_ip_remediation
+filters:
+  - Alert.Remediation == true && Alert.GetScope() == "Ip"
+decisions:
+  - type: ban
+    duration: 4h
+notifications:
+${list}
+on_success: break
+`;
+}
+
+/** A notification plugin config document with a placeholder URL. */
+export function notificationYaml(...names: string[]): string {
+  return names
+    .map(
+      (name) => `type: http
+name: ${name}
+log_level: info
+format: ""
+url: https://notify.example.invalid/hook
+method: POST
+`,
+    )
+    .join('---\n');
+}
+
+/** The text a CrowdSec export writes in place of a blanked notification value. */
+export const BLANKED_VALUE = '<charon-redacted>';
+
+export interface NotificationValues {
+  /** Address the notification is sent to. */
+  url?: string;
+  /** Value of the Authorization header. */
+  authorization?: string;
+  /** Value of a second custom header. */
+  apiToken?: string;
+  /** Write the headers under a YAML anchor that nothing refers to (the export keeps no alias). */
+  anchored?: boolean;
+  /** Add comments to the document. */
+  comments?: boolean;
+}
+
+/**
+ * A notification plugin config document that carries values a CrowdSec export blanks
+ * (the address, header values) next to values it keeps (type, name, log level, method).
+ * Use obviously fake `SECRETTOKEN-` strings for the values.
+ */
+export function notificationYamlWithValues(name: string, values: NotificationValues = {}): string {
+  const url = values.url ?? 'https://notify.example.invalid/hook/SECRETTOKEN-url';
+  const authorization = values.authorization ?? 'Bearer SECRETTOKEN-auth';
+  const apiToken = values.apiToken ?? 'SECRETTOKEN-header';
+  const headers = values.anchored
+    ? `headers: &shared
+  Authorization: ${authorization}
+  X-Api-Token: ${apiToken}
+`
+    : `headers:
+  Authorization: ${authorization}
+  X-Api-Token: ${apiToken}
+`;
+  const comments = values.comments ? '# SECRETTOKEN-comment\n' : '';
+  return `${comments}type: http
+name: ${name}
+log_level: info
+format: ""
+url: ${url}
+method: POST
+${headers}`;
+}
+
+/**
+ * A Slack notification file that reuses a kept value (the channel) through an anchor and an alias,
+ * so an export of it still holds an alias.
+ */
+export function slackNotificationYamlWithAlias(name: string): string {
+  return `type: slack
+name: ${name}
+webhook: https://hooks.example.invalid/SECRETTOKEN-url
+channel: &c ops
+username: *c
+`;
 }

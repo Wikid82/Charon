@@ -1,0 +1,5 @@
+// Inherit the repo config; these files wrap prompt sections in XML-style tags (<context>, <workflow>, ...), which MD033 would flag.
+{
+  "extends": "../../.markdownlint.jsonc",
+  "MD033": false
+}

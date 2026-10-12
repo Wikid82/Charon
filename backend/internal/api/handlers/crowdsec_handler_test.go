@@ -22,6 +22,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -377,43 +378,48 @@ func TestExportConfigSkipsSymlinks(t *testing.T) {
 	require.Equal(t, []string{"config.yaml"}, names)
 }
 
-func TestWriteFileCreatesBackup(t *testing.T) {
+// TestWriteFileNeverRenamesDataDir is the regression test for the destructive rename: writing one
+// file must leave DataDir and every unrelated file in place.
+func TestWriteFileNeverRenamesDataDir(t *testing.T) {
 	t.Parallel()
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
-	// create existing config dir with a marker file
-	_ = os.MkdirAll(tmpDir, 0o750)                                                // #nosec G301 -- test directory
-	_ = os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o600) // #nosec G306 -- test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "existing.conf"), []byte("v1"), 0o600)) // #nosec G306 -- test fixture
+	before, err := os.Stat(tmpDir)
+	require.NoError(t, err)
 
-	fe := &fakeExec{}
-	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", tmpDir)
-
+	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
-	// write content to new file
 	payload := map[string]string{"path": "conf.d/new.conf", "content": "hello world"}
 	b, _ := json.Marshal(payload)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/file", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("write expected 200 got %d body=%s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	// ensure backup directory was created
-	entries, err := os.ReadDir(filepath.Dir(tmpDir))
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Empty(t, resp["backup"], "a new file has nothing to back up")
+
+	after, err := os.Stat(tmpDir)
 	require.NoError(t, err)
-	foundBackup := false
-	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), filepath.Base(tmpDir)+".backup.") {
-			foundBackup = true
-			break
-		}
-	}
-	require.True(t, foundBackup, "expected backup directory to be created")
+	require.True(t, os.SameFile(before, after), "DataDir must not be renamed")
+	// #nosec G304 -- test reads fixture paths
+	kept, err := os.ReadFile(filepath.Join(tmpDir, "existing.conf"))
+	require.NoError(t, err)
+	require.Equal(t, "v1", string(kept))
+	// #nosec G304 -- test reads fixture paths
+	written, err := os.ReadFile(filepath.Join(tmpDir, "conf.d", "new.conf"))
+	require.NoError(t, err)
+	require.Equal(t, "hello world", string(written))
+
+	matches, err := filepath.Glob(tmpDir + ".*")
+	require.NoError(t, err)
+	require.Empty(t, matches, "no backup directories are created for a new file")
 }
 
 func TestListPresetsCerberusDisabled(t *testing.T) {
@@ -1077,7 +1083,7 @@ labels:
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, acquisPath, resp["path"])
+	require.NotContains(t, resp, "path")
 	require.Equal(t, acquisContent, resp["content"])
 }
 
@@ -1318,7 +1324,7 @@ func TestCrowdsecHandler_Status_Error(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "status check failed")
+	require.Contains(t, w.Body.String(), "failed to read CrowdSec status")
 }
 
 func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
@@ -1337,7 +1343,7 @@ func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "failed to start process")
+	require.Contains(t, w.Body.String(), "failed to start CrowdSec")
 }
 
 func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {
@@ -2818,9 +2824,9 @@ func TestCrowdsecHandler_ExportConfig_PermissionsDenied(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Export should fail when encountering unreadable files
-	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusInternalServerError,
-		"Expected 200 or 500 for permission error, got %d", w.Code)
+	// Export fails cleanly (JSON error, no partial archive) when it meets an unreadable file
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.False(t, bytes.HasPrefix(w.Body.Bytes(), []byte{0x1f, 0x8b}))
 }
 
 func TestCrowdsecHandler_ExportConfig_SuccessValidation(t *testing.T) {
@@ -3227,7 +3233,7 @@ func TestCrowdsecHandler_WriteFile_BackupCreation(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	body := map[string]string{
-		"path":    "test.conf",
+		"path":    "existing.conf",
 		"content": "new content",
 	}
 	b, _ := json.Marshal(body)
@@ -3244,12 +3250,20 @@ func TestCrowdsecHandler_WriteFile_BackupCreation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Contains(t, resp, "backup")
 
-	backupPath := resp["backup"].(string)
-	require.NotEmpty(t, backupPath)
+	backupName := resp["backup"].(string)
+	require.True(t, strings.HasPrefix(backupName, filepath.Base(tmpDir)+".filebackup."), backupName)
+	require.Equal(t, filepath.Base(backupName), backupName, "response carries a name, not a path")
+	backupPath := filepath.Join(filepath.Dir(tmpDir), backupName)
 
-	// Verify backup directory exists
-	_, err := os.Stat(backupPath)
+	// Only the replaced file is backed up, with its previous content; DataDir stays in place.
+	// #nosec G304 -- test reads a path it just created
+	old, err := os.ReadFile(filepath.Join(backupPath, "existing.conf"))
 	require.NoError(t, err)
+	require.Equal(t, "old content", string(old))
+	// #nosec G304 -- test reads a path it just created
+	cur, err := os.ReadFile(existingFile)
+	require.NoError(t, err)
+	require.Equal(t, "new content", string(cur))
 }
 
 // Test ReadFile with path traversal protection
@@ -3652,56 +3666,6 @@ func TestCrowdsecHandler_ImportConfig_CorruptedArchive(t *testing.T) {
 	require.Contains(t, w.Body.String(), "validation failed")
 }
 
-// TestMaskAPIKey tests the maskAPIKey function with various inputs.
-// Security: Ensures API keys are properly masked to prevent log exposure (CWE-312).
-func TestMaskAPIKey(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "normal key",
-			input:    "abcd1234567890wxyz",
-			expected: "abcd...wxyz",
-		},
-		{
-			name:     "empty key",
-			input:    "",
-			expected: "[empty]",
-		},
-		{
-			name:     "short key under 16 chars",
-			input:    "short123",
-			expected: "[REDACTED]",
-		},
-		{
-			name:     "minimum length key (16 chars)",
-			input:    "1234567890123456",
-			expected: "1234...3456",
-		},
-		{
-			name:     "long key",
-			input:    "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-			expected: "abcd...WXYZ",
-		},
-		{
-			name:     "exactly 15 chars (below minimum)",
-			input:    "123456789012345",
-			expected: "[REDACTED]",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := maskAPIKey(tt.input)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // TestValidateAPIKeyFormat tests the validateAPIKeyFormat function.
 // Security: Ensures API keys meet minimum security standards.
 func TestValidateAPIKeyFormat(t *testing.T) {
@@ -3796,7 +3760,7 @@ func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 
 	// Capture log output (this is a simple test; in production use a proper log capture)
 	// For this test, we'll verify the masking function is called correctly
-	maskedKey := maskAPIKey(testAPIKey)
+	maskedKey := util.MaskAPIKey(testAPIKey)
 
 	// Verify the masked key does not contain the full key
 	require.NotContains(t, maskedKey, testAPIKey)

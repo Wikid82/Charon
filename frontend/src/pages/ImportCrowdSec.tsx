@@ -55,7 +55,7 @@ export default function ImportCrowdSec() {
       <Card className="p-6">
         <div className="space-y-4">
           <p className="text-sm text-gray-400">{t('importCrowdSec.description')}</p>
-          <input type="file" onChange={handleFile} accept=".tar.gz,.zip" data-testid="crowdsec-import-file" />
+          <input type="file" onChange={handleFile} accept=".tar.gz" data-testid="crowdsec-import-file" />
           <div className="flex gap-2" data-testid="import-progress">
             <Button onClick={() => handleImport()} isLoading={backupMutation.isPending || importMutation.isPending} disabled={!file}>{t('importCrowdSec.import')}</Button>
           </div>

@@ -51,24 +51,24 @@ func TestPullThenApplyFlow(t *testing.T) {
 
 	// Create hub service with mock HTTP client
 	hub := NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.String() {
-			case "http://test.example.com/api/index.json":
-				body := `{"items":[{"name":"test/preset","title":"Test Preset","description":"Test","etag":"etag123","download_url":"http://test.example.com/test.tgz","preview_url":"http://test.example.com/test.yaml"}]}`
+			case "https://hub.crowdsec.net/api/index.json":
+				body := `{"items":[{"name":"test/preset","title":"Test Preset","description":"Test","etag":"etag123","download_url":"https://hub.crowdsec.net/test.tgz","preview_url":"https://hub.crowdsec.net/test.yaml"}]}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(strings.NewReader(body)),
 					Header:     make(http.Header),
 				}, nil
-			case "http://test.example.com/test.yaml":
+			case "https://hub.crowdsec.net/test.yaml":
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(strings.NewReader("test: preview\nkey: value")),
 					Header:     make(http.Header),
 				}, nil
-			case "http://test.example.com/test.tgz":
+			case "https://hub.crowdsec.net/test.tgz":
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(bytes.NewReader(archive)),
@@ -141,15 +141,15 @@ func TestApplyRepullsOnCacheMissAfterCSCLIFailure(t *testing.T) {
 
 	exec := &stubExec{responses: map[string]error{"install": fmt.Errorf("install failed")}}
 	hub := NewHubService(exec, cache, dataDir)
-	hub.HubBaseURL = "http://test.example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case "http://test.example.com/api/index.json":
+		case "https://hub.crowdsec.net/api/index.json":
 			body := `{"items":[{"name":"test/preset","title":"Test","etag":"e1"}]}`
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
-		case "http://test.example.com/test/preset.yaml":
+		case "https://hub.crowdsec.net/test/preset.yaml":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("preview")), Header: make(http.Header)}, nil
-		case "http://test.example.com/test/preset.tgz":
+		case "https://hub.crowdsec.net/test/preset.tgz":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 		default:
 			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
@@ -187,15 +187,15 @@ func TestApplyRepullsOnCacheExpired(t *testing.T) {
 	cache.nowFn = func() time.Time { return time.Now().Add(2 * time.Hour) }
 
 	hub := NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case "http://test.example.com/api/index.json":
+		case "https://hub.crowdsec.net/api/index.json":
 			body := `{"items":[{"name":"expired/preset","title":"Expired","etag":"e2"}]}`
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
-		case "http://test.example.com/expired/preset.yaml":
+		case "https://hub.crowdsec.net/expired/preset.yaml":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("preview new")), Header: make(http.Header)}, nil
-		case "http://test.example.com/expired/preset.tgz":
+		case "https://hub.crowdsec.net/expired/preset.tgz":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 		default:
 			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
@@ -222,15 +222,15 @@ func TestPullAcceptsNamespacedIndexEntry(t *testing.T) {
 	archive := makeTestArchive(t, map[string]string{"config.yaml": "test: namespaced"})
 
 	hub := NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case "http://test.example.com/api/index.json":
+		case "https://hub.crowdsec.net/api/index.json":
 			body := `{"items":[{"name":"crowdsecurity/bot-mitigation-essentials","title":"Bot Mitigation Essentials","etag":"etag-bme"}]}`
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
-		case "http://test.example.com/crowdsecurity/bot-mitigation-essentials.yaml":
+		case "https://hub.crowdsec.net/crowdsecurity/bot-mitigation-essentials.yaml":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("namespaced preview")), Header: make(http.Header)}, nil
-		case "http://test.example.com/crowdsecurity/bot-mitigation-essentials.tgz":
+		case "https://hub.crowdsec.net/crowdsecurity/bot-mitigation-essentials.tgz":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 		default:
 			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
@@ -254,22 +254,22 @@ func TestHubFallbackToMirrorOnForbidden(t *testing.T) {
 	archive := makeTestArchive(t, map[string]string{"config.yaml": "mirror"})
 
 	hub := NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://primary.example.com"
-	hub.MirrorBaseURL = "http://mirror.example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
+	hub.MirrorBaseURL = "https://hub-data.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
-		case "http://primary.example.com/api/index.json":
+		case "https://hub.crowdsec.net/api/index.json":
 			return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader("blocked")), Header: make(http.Header)}, nil
-		case "http://mirror.example.com/api/index.json":
+		case "https://hub-data.crowdsec.net/api/index.json":
 			body := `{"items":[{"name":"fallback/preset","title":"Fallback","etag":"etag-mirror"}]}`
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
-		case "http://primary.example.com/fallback/preset.yaml":
+		case "https://hub.crowdsec.net/fallback/preset.yaml":
 			return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader("blocked")), Header: make(http.Header)}, nil
-		case "http://mirror.example.com/fallback/preset.yaml":
+		case "https://hub-data.crowdsec.net/fallback/preset.yaml":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("mirror preview")), Header: make(http.Header)}, nil
-		case "http://primary.example.com/fallback/preset.tgz":
+		case "https://hub.crowdsec.net/fallback/preset.tgz":
 			return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader("blocked")), Header: make(http.Header)}, nil
-		case "http://mirror.example.com/fallback/preset.tgz":
+		case "https://hub-data.crowdsec.net/fallback/preset.tgz":
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 		default:
 			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
@@ -293,7 +293,7 @@ func TestApplyWithoutPullFails(t *testing.T) {
 
 	// Create hub service without cscli (nil executor) and empty cache
 	hub := NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
 	})}
@@ -344,16 +344,16 @@ func TestCacheListAfterPull(t *testing.T) {
 	archive := makeTestArchive(t, map[string]string{"test.yaml": "content"})
 
 	hub := NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.String() {
-			case "http://test.example.com/api/index.json":
+			case "https://hub.crowdsec.net/api/index.json":
 				body := `{"items":[{"name":"preset1","title":"Preset 1","etag":"e1"}]}`
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
-			case "http://test.example.com/preset1.yaml":
+			case "https://hub.crowdsec.net/preset1.yaml":
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("preview1")), Header: make(http.Header)}, nil
-			case "http://test.example.com/preset1.tgz":
+			case "https://hub.crowdsec.net/preset1.tgz":
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
 			default:
 				return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
@@ -451,7 +451,7 @@ func TestApplyReadsArchiveBeforeBackup(t *testing.T) {
 
 	// Create hub service WITHOUT cscli (nil executor) to force cache fallback path
 	hub := NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "http://test.example.com"
+	hub.HubBaseURL = "https://hub.crowdsec.net"
 	// HTTP client that fails everything - we don't want to hit network
 	hub.HTTPClient = &http.Client{
 		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {

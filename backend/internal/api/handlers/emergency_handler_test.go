@@ -21,6 +21,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 func TestIsTransientSQLiteError(t *testing.T) {
@@ -75,7 +76,7 @@ func jsonReader(data interface{}) io.Reader {
 }
 
 func setupEmergencyTestDB(t *testing.T) *gorm.DB {
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	dsn := testutil.MemoryDSN(t)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 

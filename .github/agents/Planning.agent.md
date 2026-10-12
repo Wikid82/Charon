@@ -45,7 +45,7 @@ You are a PRINCIPAL ARCHITECT responsible for technical planning and system desi
    - Include acceptance criteria
    - Break down into implementable tasks using examples, diagrams, and tables
    - Estimate complexity for each component
-    - Add a **Commit Slicing Strategy** section with:
+   - Add a **Commit Slicing Strategy** section with:
        - Decision: single PR with ordered logical commits (one feature = one PR)
        - Trigger reasons (scope, risk, cross-domain changes, review size)
        - Ordered commits (`Commit 1`, `Commit 2`, ...), each with scope, files, dependencies, and validation gates
@@ -97,4 +97,4 @@ You are a PRINCIPAL ARCHITECT responsible for technical planning and system desi
 - **SLICE FOR SPEED**: Prefer multiple small PRs when it improves review quality, delivery speed, or rollback safety
 </constraints>
 
-```
+```text

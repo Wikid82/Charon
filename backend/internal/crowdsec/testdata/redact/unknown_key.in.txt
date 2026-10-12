@@ -1,0 +1,6 @@
+type: splunk
+name: unknown_key
+url: https://splunk.example.invalid/SECRETTOKEN-url
+token: SECRETTOKEN-token
+future_option: SECRETTOKEN-future
+Token: SECRETTOKEN-case

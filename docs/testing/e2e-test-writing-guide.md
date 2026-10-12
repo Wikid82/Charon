@@ -43,7 +43,7 @@ await scriptPath.fill('/path/to/script.sh');
 
 **Error (Firefox/WebKit)**:
 
-```
+```text
 TimeoutError: locator.fill: Timeout 5000ms exceeded.
 =========================== logs ===========================
 waiting for getByLabel(/script.*path/i)
@@ -188,13 +188,13 @@ if (alreadyMatches(currentState, expectedFlags)) {
 
 **Cache Key Format**:
 
-```
+```text
 [worker_index]:[sorted_flags_json]
 ```
 
 **Example**:
 
-```
+```text
 Worker 0: "0:{\"feature.cerberus.enabled\":false,\"feature.crowdsec.enabled\":false}"
 Worker 1: "1:{\"feature.cerberus.enabled\":false,\"feature.crowdsec.enabled\":false}"
 ```
@@ -327,7 +327,7 @@ test('Test B', async ({ page }) => {
 
 ### Cleanup Order of Operations
 
-```
+```text
 1. Test A runs → modifies state
 2. Test A finishes → afterEach runs → restores defaults
 3. Test B runs → starts from defaults
@@ -492,7 +492,7 @@ test.afterEach(async ({ request }) => {
 ### Helper Functions
 
 | Helper | Purpose | File |
-|--------|---------|------|
+| -------- | --------- | ------ |
 | `getFormFieldByLabel()` | Cross-browser form field locator | `tests/utils/ui-helpers.ts` |
 | `clickSwitch()` | Reliable switch/toggle interaction | `tests/utils/ui-helpers.ts` |
 | `expectSwitchState()` | Assert switch checked state | `tests/utils/ui-helpers.ts` |

@@ -1,0 +1,19 @@
+# Sensitive values were replaced by Charon when this configuration was exported.
+
+type: http
+name: http_default
+log_level: info
+url: <charon-redacted>
+method: POST
+unix_socket: /var/run/hook.sock
+skip_tls_verification: false
+ca_cert_path: /etc/crowdsec/ca.pem
+cert_path: /etc/crowdsec/cert.pem
+key_path: /etc/crowdsec/key.pem
+headers:
+  Authorization: <charon-redacted>
+  X-Api-Token: <charon-redacted>
+  authorization: <charon-redacted>
+  Content-Type: <charon-redacted>
+format: |
+  {{.|toJson}}

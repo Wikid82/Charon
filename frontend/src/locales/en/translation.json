@@ -488,7 +488,8 @@
           "24h": "24h",
           "7d": "7d",
           "30d": "30d"
-        }
+        },
+        "timeRangeLabel": "Time range"
       }
     },
     "acl": {
@@ -1253,7 +1254,7 @@
   },
   "importCrowdSec": {
     "title": "CrowdSec Configuration Packages",
-    "description": "Upload a tar.gz or zip package. A backup is created before importing so you can roll back if needed. Export the current package from the Cerberus dashboard or CrowdSec config page.",
+    "description": "Upload a tar.gz package. A backup is created before importing so you can roll back if needed. Export the current package from the Cerberus dashboard or CrowdSec config page.",
     "import": "Import",
     "configImported": "CrowdSec config imported",
     "importFailed": "Import failed: {{error}}",
@@ -1476,7 +1477,41 @@
     }
   },
   "crowdsecConfig": {
+    "exportSuccess": "CrowdSec configuration exported",
+    "exportFailed": "Failed to export CrowdSec configuration",
+    "hubItems": {
+      "title": "Install missing hub items",
+      "description": "This export used hub items that are not installed on this host. They are downloaded from the official CrowdSec hub.",
+      "missingLabel": "Missing items",
+      "install": "Install missing hub items",
+      "installRemaining": "Install remaining",
+      "installing": "Installing hub items. This can take several minutes.",
+      "summary": "{{installed}} installed, {{alreadyInstalled}} already installed, {{failed}} failed.",
+      "remaining": "{{count}} items were not attempted before the time limit.",
+      "installedLabel": "Installed",
+      "alreadyInstalledLabel": "Already installed",
+      "failedLabel": "Not installed",
+      "skippedInvalid": "{{count}} entries in the export could not be used.",
+      "reasons": {
+        "not_found": "Not found in the hub",
+        "install_failed": "Installation failed",
+        "verify_failed": "Installed but failed verification",
+        "not_attempted": "Not attempted yet"
+      },
+      "errors": {
+        "hubUnreachable": "The CrowdSec hub could not be reached. Nothing was installed. Check the internet connection and try again.",
+        "alreadyRunning": "A restore is already running. Try again when it has finished.",
+        "generic": "The hub items could not be installed. Try again."
+      }
+    },
+    "importSuccess": "CrowdSec config imported (backup created)",
+    "importFailed": "Failed to import",
+    "importKeptFiles": "These files were not in the archive, so the current ones were kept: {{files}}",
+    "importNeedsValues": "Some values in these notification files were blanked when the configuration was exported, so they need to be entered before they work: {{files}}",
+    "importNeedsValuesMore": "and {{count}} more",
+    "exportPrompt": "Name your CrowdSec export archive",
     "title": "CrowdSec Configuration",
+    "checkNow": "Check Now",
     "loading": "Loading CrowdSec configuration...",
     "loadError": "Error loading CrowdSec status",
     "noStatus": "CrowdSec status unavailable",
@@ -1505,7 +1540,7 @@
       "goToSecurity": "Go to Security Dashboard",
       "enrollmentToken": "Enrollment Token",
       "tokenPlaceholder": "Paste your enrollment token from CrowdSec Console",
-      "agentName": "Agent Name (optional)",
+      "agentName": "Agent Name",
       "agentPlaceholder": "my-charon-instance",
       "tenant": "Tenant/Organization (optional)",
       "tenantPlaceholder": "org-id-from-console",
@@ -1524,7 +1559,17 @@
       "tenantLabel": "Tenant",
       "lastAttempt": "Last attempt",
       "enrolledAt": "Enrolled",
-      "correlationId": "Correlation ID"
+      "correlationId": "Correlation ID",
+      "lastError": "Last error",
+      "tokenStored": "Stored (masked)",
+      "tokenNotStored": "Not stored",
+      "enrollSubmitted": "Enrollment submitted! Accept the request on app.crowdsec.net to complete.",
+      "enrollSent": "Enrollment request sent! Accept the enrollment on app.crowdsec.net to complete registration.",
+      "errors": {
+        "agentRequired": "Agent name is required",
+        "ackRequired": "You must acknowledge the console data-sharing notice",
+        "enrollFailed": "Console enrollment failed"
+      }
     },
     "reenroll": {
       "title": "Re-enrollment Options",
@@ -1540,14 +1585,16 @@
       "reenrolling": "Re-enrolling...",
       "clearState": "Clear enrollment state",
       "clearing": "Clearing...",
-      "clearConfirm": "This will clear local enrollment state. You may need to re-enroll. Continue?"
+      "clearConfirm": "This will clear local enrollment state. You may need to re-enroll. Continue?",
+      "clearFailed": "Failed to clear enrollment state: {{message}}"
     },
     "packages": {
       "title": "Configuration Packages",
-      "description": "Export or import CrowdSec configuration packages (tar.gz/zip). A backup is created before importing.",
+      "description": "Export or import CrowdSec configuration packages (tar.gz). A backup is created before importing. Passwords, tokens and webhook addresses in notification files are blanked in exports.",
       "export": "Export",
       "import": "Import",
-      "importing": "Importing..."
+      "importing": "Importing...",
+      "selectFile": "Select CrowdSec package file"
     },
     "presets": {
       "title": "Presets",
@@ -1573,18 +1620,30 @@
       "previewUnavailable": "Preview unavailable",
       "applied": "Applied",
       "backup": "Backup",
+      "backupCreated": "Backup created: {{name}} ({{location}})",
+      "backupLocation": "stored next to the CrowdSec data directory",
       "reload": "Reload",
       "required": "Required",
       "method": "Method",
       "filesystem": "Filesystem",
       "loadCached": "Load cached preview",
       "applyDisabled": "Apply disabled while hub is offline.",
-      "noPresets": "No presets available. Ensure Cerberus is enabled."
+      "noPresets": "No presets available. Ensure Cerberus is enabled.",
+      "sortBy": "Sort presets",
+      "status": {
+        "previewFetched": "Preview fetched from hub",
+        "hubUnavailable": "CrowdSec hub unavailable. Retry or load cached copy.",
+        "pullFailed": "Failed to pull preset preview",
+        "cachedLoaded": "Loaded cached preview",
+        "cacheLoadFailed": "Failed to load cached preview",
+        "slugInvalid": "Preset slug is invalid"
+      }
     },
     "files": {
       "title": "Edit Configuration Files",
       "selectFile": "Select a file...",
-      "refresh": "Refresh"
+      "refresh": "Refresh",
+      "content": "File content"
     },
     "bannedIps": {
       "title": "Banned IPs",
@@ -1619,6 +1678,72 @@
       "title": "Confirm Unban",
       "confirm": "Are you sure you want to unban",
       "submit": "Unban"
+    },
+    "lapiInitializing": "CrowdSec is running, but the Local API is still initializing.",
+    "lapiInitializingDesc": "Console enrollment will be available once the Local API is ready. This can take up to a minute after CrowdSec starts.",
+    "checkingAgain": "(checking again...)",
+    "notRunning": "CrowdSec is not running",
+    "notRunningDesc": "Start CrowdSec before enrolling in the Console.",
+    "starting": "Starting CrowdSec...",
+    "startFailed": "Failed to start CrowdSec",
+    "startCrowdsec": "Start CrowdSec",
+    "goToSecurity": "Go to Security",
+    "whitelist": {
+      "tabLabel": "Whitelist",
+      "title": "IP Whitelist",
+      "description": "Whitelisted IPs and CIDRs are never blocked by CrowdSec, even if they trigger alerts.",
+      "ipLabel": "IP or CIDR",
+      "reasonLabel": "Reason",
+      "reasonPlaceholder": "Optional reason",
+      "addMyIp": "Add My IP",
+      "none": "No whitelist entries",
+      "columnIp": "IP / CIDR",
+      "columnReason": "Reason",
+      "columnAdded": "Added",
+      "deleteAriaLabel": "Remove whitelist entry for",
+      "delete": "Delete",
+      "deleteModal": {
+        "title": "Remove Whitelist Entry",
+        "body": "Remove {{ip}} from the whitelist? CrowdSec may then block this IP if it triggers alerts.",
+        "submit": "Remove"
+      },
+      "addFailed": "Failed to add entry"
+    },
+    "toasts": {
+      "fileSaved": "File saved",
+      "saveFailed": "Failed to save file",
+      "ipBanned": "IP {{ip}} has been banned",
+      "banFailed": "Failed to ban IP",
+      "ipUnbanned": "IP {{ip}} has been unbanned",
+      "unbanFailed": "Failed to unban IP",
+      "ipDetectFailed": "Failed to detect your IP address",
+      "selectPreset": "Select a preset to apply",
+      "presetNotCompleted": "Preset apply did not complete (status: {{status}})",
+      "statusUnknown": "unknown",
+      "presetApplied": "Preset applied via backend",
+      "presetAppliedReload": "Preset applied via backend (reload required)",
+      "presetApplyFailed": "Failed to apply preset",
+      "applyFailed": "Apply failed: {{message}}",
+      "applyFailedWithBackup": "Apply failed: {{message}}. {{backup}}"
+    },
+    "overlay": {
+      "fetchingPreset": "Fetching preset...",
+      "fetchingPresetDetail": "Pulling preview from CrowdSec Hub",
+      "loadingPreset": "Loading preset...",
+      "loadingPresetDetail": "Applying curated preset with backup",
+      "importing": "Summoning the guardian...",
+      "importingDetail": "Importing CrowdSec configuration",
+      "saving": "Guardian inscribes...",
+      "savingDetail": "Saving configuration file",
+      "banning": "Guardian raises shield...",
+      "banningDetail": "Banning IP address",
+      "unbanning": "Guardian lowers shield...",
+      "unbanningDetail": "Unbanning IP address",
+      "updatingList": "Guardian updates list...",
+      "whitelistAddingDetail": "Adding IP to whitelist",
+      "whitelistRemovingDetail": "Removing from whitelist",
+      "default": "Strengthening the guard...",
+      "defaultDetail": "Configuration in progress"
     }
   },
   "smtp": {

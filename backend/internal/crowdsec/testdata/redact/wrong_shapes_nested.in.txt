@@ -1,0 +1,16 @@
+type: http
+name: shapes2
+headers: SECRETTOKEN-notmap
+method: [POST]
+---
+type: file
+name: shapes3
+log_path: /tmp/x
+rotate: SECRETTOKEN-rotate
+---
+type: file
+name: shapes4
+log_path: /tmp/x
+rotate:
+  enabled: true
+  unknown_child: SECRETTOKEN-child
