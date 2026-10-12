@@ -238,34 +238,6 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// Log cache status before apply
-	if h.Hub != nil && h.Hub.Cache != nil {
-		cacheDir := filepath.Join(h.DataDir, "hub_cache")
-		logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to apply preset")
-
-		// Check if cached
-		if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
-			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
-			// Verify files still exist
-			if _, statErr := os.Stat(cached.ArchivePath); statErr != nil {
-				logger.Log().WithError(statErr).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
-			}
-			if _, statErr := os.Stat(cached.PreviewPath); statErr != nil {
-				logger.Log().WithError(statErr).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
-			}
-		} else {
-			logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
-			// List what's actually in the cache
-			if entries, listErr := h.Hub.Cache.List(ctx); listErr == nil {
-				slugs := make([]string, len(entries))
-				for i, e := range entries {
-					slugs[i] = e.Slug
-				}
-				logger.Log().WithField("cached_slugs", slugs).Info("current cache contents")
-			}
-		}
-	}
-
 	res, err := h.Hub.Apply(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusInternalServerError)

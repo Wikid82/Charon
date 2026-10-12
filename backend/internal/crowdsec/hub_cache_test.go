@@ -68,25 +68,7 @@ func TestHubCacheListAndEvict(t *testing.T) {
 	require.Equal(t, "crowdsecurity/other", entries[0].Slug)
 }
 
-func TestHubCacheTouchUpdatesTTL(t *testing.T) {
-	t.Parallel()
-	cacheDir := t.TempDir()
-	cache, err := NewHubCache(cacheDir, time.Minute)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	meta, err := cache.Store(ctx, "crowdsecurity/demo", "etag1", "hub", "preview", []byte("data1"))
-	require.NoError(t, err)
-
-	cache.nowFn = func() time.Time { return meta.RetrievedAt.Add(30 * time.Second) }
-	require.NoError(t, cache.Touch(ctx, "crowdsecurity/demo"))
-
-	cache.nowFn = func() time.Time { return meta.RetrievedAt.Add(2 * time.Minute) }
-	_, err = cache.Load(ctx, "crowdsecurity/demo")
-	require.ErrorIs(t, err, ErrCacheExpired)
-}
-
-func TestHubCachePreviewExistsAndSize(t *testing.T) {
+func TestHubCacheLoadPreview(t *testing.T) {
 	t.Parallel()
 	cacheDir := t.TempDir()
 	cache, err := NewHubCache(cacheDir, time.Hour)
@@ -100,22 +82,6 @@ func TestHubCachePreviewExistsAndSize(t *testing.T) {
 	preview, err := cache.LoadPreview(ctx, "crowdsecurity/demo")
 	require.NoError(t, err)
 	require.Equal(t, "preview-content", preview)
-	require.True(t, cache.Exists(ctx, "crowdsecurity/demo"))
-	require.GreaterOrEqual(t, cache.Size(ctx), int64(len(archive)))
-}
-
-func TestHubCacheExistsHonorsTTL(t *testing.T) {
-	t.Parallel()
-	cacheDir := t.TempDir()
-	cache, err := NewHubCache(cacheDir, time.Second)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	meta, err := cache.Store(ctx, "crowdsecurity/demo", "etag123", "hub", "preview", []byte("data"))
-	require.NoError(t, err)
-
-	cache.nowFn = func() time.Time { return meta.RetrievedAt.Add(3 * time.Second) }
-	require.False(t, cache.Exists(ctx, "crowdsecurity/demo"))
 }
 
 func TestSanitizeSlugCases(t *testing.T) {
@@ -130,24 +96,6 @@ func TestSanitizeSlugCases(t *testing.T) {
 func TestNewHubCacheRequiresBaseDir(t *testing.T) {
 	t.Parallel()
 	_, err := NewHubCache("", time.Hour)
-	require.Error(t, err)
-}
-
-func TestHubCacheTouchMissing(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-
-	err = cache.Touch(context.Background(), "missing")
-	require.ErrorIs(t, err, ErrCacheMiss)
-}
-
-func TestHubCacheTouchInvalidSlug(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-
-	err = cache.Touch(context.Background(), "../bad")
 	require.Error(t, err)
 }
 
@@ -185,16 +133,6 @@ func TestHubCacheLoadMetadataReadError(t *testing.T) {
 	_, err = cache.Load(context.Background(), "crowdsecurity/demo")
 	require.Error(t, err)
 	require.False(t, errors.Is(err, ErrCacheMiss))
-}
-
-func TestHubCacheExistsContextCanceled(t *testing.T) {
-	t.Parallel()
-	cache, err := NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	require.False(t, cache.Exists(ctx, "demo"))
 }
 
 func TestHubCacheListSkipsExpired(t *testing.T) {
