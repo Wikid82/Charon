@@ -102,6 +102,7 @@ cd "$BACKEND_DIR"
 # These are entrypoints and initialization code that don't benefit from unit tests
 EXCLUDE_PACKAGES=(
     "github.com/Wikid82/charon/backend/internal/trace"
+    "github.com/Wikid82/charon/backend/internal/crowdsec/hubcachetest"
     "github.com/Wikid82/charon/backend/integration"
 )
 

@@ -1,0 +1,20 @@
+{
+ "collections": [
+  {
+   "name": "crowdsecurity/base-http-scenarios",
+   "local_version": "1.4",
+   "local_path": "/etc/crowdsec/collections/base-http-scenarios.yaml",
+   "description": "http common : scanners detection",
+   "utf8_status": "✔️  enabled",
+   "status": "enabled"
+  },
+  {
+   "name": "crowdsecurity/sshd",
+   "local_version": "",
+   "local_path": "",
+   "description": "sshd support : parser and brute-force detection",
+   "utf8_status": "🚫  disabled,update-available",
+   "status": "disabled,update-available"
+  }
+ ]
+}

@@ -1,0 +1,33 @@
+{
+  "collections": {
+    "crowdsecurity/base-http-scenarios": {
+      "path": "collections/crowdsecurity/base-http-scenarios.yaml",
+      "version": "1.4",
+      "versions": {
+        "1.4": {"digest": "e35b4e692c87bf485b897e8351496ce4e18a6639614d26bb8f24cd65bd3944a3"}
+      },
+      "type": "collections",
+      "name": "crowdsecurity/base-http-scenarios",
+      "author": "crowdsecurity",
+      "description": "http common : scanners detection"
+    },
+    "crowdsecurity/sshd": {
+      "path": "collections/crowdsecurity/sshd.yaml",
+      "version": "0.2",
+      "type": "collections",
+      "name": "crowdsecurity/sshd",
+      "author": "crowdsecurity",
+      "description": "sshd support : parser and brute-force detection"
+    }
+  },
+  "parsers": {
+    "crowdsecurity/http-logs": {
+      "path": "parsers/s02-enrich/crowdsecurity/http-logs.yaml",
+      "version": "1.4",
+      "type": "parsers",
+      "name": "crowdsecurity/http-logs",
+      "author": "crowdsecurity",
+      "description": "Parse more Specifically HTTP logs"
+    }
+  }
+}
