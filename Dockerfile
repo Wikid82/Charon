@@ -60,7 +60,7 @@ ARG XMOD_VERSION=0.42.0
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
 # renovate: datasource=go depName=github.com/klauspost/compress
-ARG KLAUSPOST_COMPRESS_VERSION=1.20.1
+ARG KLAUSPOST_COMPRESS_VERSION=1.20.3
 # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS fix (CVE-2026-84304), matching how
 # golang.org/x/crypto and klauspost/compress are patched above: pinned here so the Caddy
 # and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
