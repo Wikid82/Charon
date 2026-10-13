@@ -141,7 +141,7 @@ ARG CADDY_DNS_DNSIMPLE_VERSION=0.0.0-20260303131243-0433343c5610
 # renovate: datasource=go depName=github.com/caddy-dns/ovh
 ARG CADDY_DNS_OVH_VERSION=1.1.0
 # renovate: datasource=go depName=github.com/caddy-dns/gandi
-ARG CADDY_DNS_GANDI_VERSION=1.1.0
+ARG CADDY_DNS_GANDI_VERSION=1.2.1
 # renovate: datasource=go depName=github.com/caddy-dns/linode
 ARG CADDY_DNS_LINODE_VERSION=0.8.0
 # renovate: datasource=go depName=github.com/caddy-dns/porkbun
