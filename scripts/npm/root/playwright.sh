@@ -14,5 +14,6 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm install @playwright/test --save-dev
+    rm -rf node_modules package-lock.json
+    npm install playwright @playwright/test --save-dev
 done
