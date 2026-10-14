@@ -13,5 +13,6 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
+    rm -rf node_modules package-lock.json
     npm install @radix-ui/react-checkbox @radix-ui/react-progress @radix-ui/react-select @radix-ui/react-tabs @radix-ui/react-tooltip @radix-ui/react-dialog
 done
