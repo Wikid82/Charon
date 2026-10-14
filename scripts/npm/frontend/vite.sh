@@ -18,5 +18,6 @@ for MODULE in "${NPM_MODULES[@]}"; do
     # Keep the plugin-react override range in lockstep with the vite devDependency.
     VITE_RANGE="$(node -p "require('./package.json').devDependencies.vite")"
     npm pkg set "overrides.@vitejs/plugin-react.vite=${VITE_RANGE}"
+    rm -rf node_modules package-lock.json
     npm install
 done
