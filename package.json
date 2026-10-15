@@ -9,6 +9,9 @@
     "e2e:report": "npx playwright show-report",
     "lint:md": "markdownlint-cli2 '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'",
     "lint:md:fix": "markdownlint-cli2 --fix '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'"
+   },
+  "engines": {
+    "node": "24.22.0"
   },
   "overrides": {
     "smol-toml": "^1.9.1",
