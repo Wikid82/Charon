@@ -21,7 +21,7 @@
     "katex": "^0.19.0"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
+    "@axe-core/playwright": "^4.14.0",
     "@bgotink/playwright-coverage": "^0.3.2",
     "@playwright/test": "^1.64.1",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",
