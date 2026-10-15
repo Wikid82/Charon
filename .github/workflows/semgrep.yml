@@ -31,7 +31,7 @@ jobs:
       pull-requests: read
     container:
       # renovate: datasource=docker depName=semgrep/semgrep
-      image: semgrep/semgrep:1.180.0@sha256:dffc9caeecc924370d30f9187b6edf10949600d3ef5f69ef5c359074d8fc7d2d
+      image: semgrep/semgrep:1.181.0@sha256:c47e426f7f0cfa19af6d7877560d0a7135f683b8090ad0efc97c4ec7810dc435
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
