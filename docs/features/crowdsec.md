@@ -48,6 +48,8 @@ Access pre-built security configurations from the CrowdSec Hub:
 3. Search for specific parsers, scenarios, or collections
 4. Click **Install** to add to your configuration
 
+Hub presets are installed in two steps. First click **Pull** to download and preview the preset. Then click **Apply** to install exactly what you previewed, using the `cscli` tool that ships with Charon (it also installs anything the preset depends on). If the preview has gone out of date, Charon asks you to pull the preset again. Most installs finish in a few seconds. Charon waits up to 120 seconds, then stops, rolls everything back and keeps your preview. Very large collections (hundreds of items) can take longer because their items are downloaded one at a time; for those, install with `docker exec charon cscli collections install <name>` instead. You can apply an already-downloaded preview without internet access if its items are already on the server; otherwise the apply fails and is rolled back, and pulling a preset you never downloaded needs internet access. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#hub-preset-messages) if you see a message.
+
 Popular presets include:
 
 - **HTTP Probing** — Detect reconnaissance and scanning

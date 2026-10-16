@@ -17,11 +17,10 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
   - A loopback hub mirror is no longer reachable from the hub client; RFC 1918 hosts were already blocked.
   - The hub address must be an `https` address on the official CrowdSec hub hosts. Custom `http`, local, or other mirror addresses are not supported.
 - Proxy env is set when required: HTTP(S)_PROXY and NO_PROXY are respected by the hub client.
-- For slow or proxied networks, increase HUB_PULL_TIMEOUT_SECONDS (default 25) and HUB_APPLY_TIMEOUT_SECONDS (default 45) to avoid premature timeouts.
+- For slow or proxied networks, increase HUB_PULL_TIMEOUT_SECONDS (default 25) and HUB_APPLY_TIMEOUT_SECONDS (default 120) to avoid premature timeouts.
 - The config file editor hides CrowdSec's account and connection credential files; they remain on disk (see `docker exec charon ls -la /app/data/crowdsec/config`).
 - Backups sit next to the CrowdSec data folder, named `crowdsec.backup.<timestamp>` and `crowdsec.filebackup.<timestamp>`. Acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file. For manual recovery, run `docker exec charon ls -la /app/data` to find them, stop CrowdSec, copy the one you want back, then start it again.
-- Preset workflow: pull from Hub using cache keys/ETags → preview changes → apply with automatic backup and reload flag.
-- Preset pull/apply requires either cscli or cached presets.
+- Preset workflow: pull a hub preset to preview it, then apply it. Apply installs exactly the item you previewed, with an automatic backup and rollback. Applying a hub preset needs `cscli` (the Docker image includes it).
 - Offline/curated presets remain available at all times.
 
 ## LAPI Initialization and Timing
@@ -203,6 +202,18 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 - **Security Engine Offline**: If your dashboard says "Offline", it means CrowdSec LAPI is not running.
   - **Fix**: Ensure CrowdSec is **enabled via GUI toggle** in the Security dashboard. Do NOT use environment variables.
   - **Action**: Go to Security dashboard, toggle CrowdSec ON, wait 15 seconds, verify status shows "Active".
+
+## Hub preset messages
+
+Applying a hub preset shows one of these messages when it cannot finish or needs your attention. When an apply fails, your CrowdSec settings are put back as they were.
+
+- **"The preview is out of date. Pull the preset again, then apply it."**: the preview is too old or was replaced. Click **Pull** again, then **Apply**.
+- **"The hub is still updating, try again later."**: the hub is still publishing a newer version of this item. Wait a while, pull the preset again, then apply it.
+- **"This item was edited on this server and was left unchanged. Reset it before applying the preset."**: you (or a script) changed this item's file on this server, and Charon will not overwrite your edit. The message lists the edited items ("Edited items: ..."). A plain install or upgrade does nothing for an edited item, so reset it with `cscli <type> install <name> --force` (Docker users run it as `docker exec charon cscli ...`), for example `docker exec charon cscli parsers install crowdsecurity/apache2-logs --force`. If a collection reports an edited item inside it, run `cscli collections install <collection> --force`, which also restores that item. This replaces your edit with the original hub version, so your local change is lost. Then reload CrowdSec, pull the preset again and apply it.
+- **"The preset install took too long and was rolled back. Try again."**: the install did not finish within 120 seconds (typical installs take 1-5 seconds; the slowest common collection takes about a minute on a first download). Try again, or raise `HUB_APPLY_TIMEOUT_SECONDS` on a slow connection (the web interface stops waiting after 130 seconds, so values above about 125 only help when you run the install yourself with `cscli`). Very large collections (hundreds of items, such as `sigmahq/windows_proc_creation`) can take several minutes because items are downloaded one by one; install those directly with `docker exec charon cscli collections install <name>`.
+- **"cscli unavailable or not responding"**: Charon could not run `cscli`. The Docker image includes it; restart the container and try again.
+- **"cscli unavailable or not responding" offline**: an already-downloaded preview can be applied if its items are already on the server; otherwise the apply fails and is rolled back. Pulling a preset that was never downloaded needs internet access.
+- **A note that some dependencies were edited on this server**: the preset was applied, and those edited dependencies were left unchanged.
 
 ## CrowdSec Not Starting After Container Restart
 
