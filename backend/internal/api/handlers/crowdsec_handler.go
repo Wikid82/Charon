@@ -2572,7 +2572,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/presets", h.ListPresets)
 	rg.POST("/admin/crowdsec/presets/pull", h.PullPreset)
 	rg.POST("/admin/crowdsec/presets/apply", h.ApplyPreset)
-	rg.GET("/admin/crowdsec/presets/cache/:slug", h.GetCachedPreset)
+	rg.GET("/admin/crowdsec/presets/cache/*slug", h.GetCachedPreset)
 	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
 	rg.DELETE("/admin/crowdsec/console/enrollment", h.DeleteConsoleEnrollment)

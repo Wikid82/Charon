@@ -45,7 +45,6 @@ func cacheTreeListing(t *testing.T, dir string) []string {
 }
 
 func TestCachedPresetRouteServesOwnerNameSlugs(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	r, _, key := cacheRouter(t)
 
 	for _, path := range []string{"crowdsecurity/demo", "crowdsecurity%2Fdemo"} {
@@ -68,7 +67,6 @@ func TestCachedPresetRouteServesOwnerNameSlugs(t *testing.T) {
 }
 
 func TestCachedPresetRouteAnswersOddSlugsWithoutTouchingTheCache(t *testing.T) {
-	t.Skip("enabled by a later commit in this series")
 	r, cacheDir, _ := cacheRouter(t)
 	before := cacheTreeListing(t, cacheDir)
 
@@ -94,4 +92,16 @@ func TestCachedPresetRouteAnswersOddSlugsWithoutTouchingTheCache(t *testing.T) {
 		})
 	}
 	require.Equal(t, before, cacheTreeListing(t, cacheDir))
+}
+
+func TestCachedPresetCatchAllLeavesSiblingPresetRoutesAlone(t *testing.T) {
+	r, _, _ := cacheRouter(t)
+
+	for _, path := range []string{"/api/v1/admin/crowdsec/presets/pull", "/api/v1/admin/crowdsec/presets/apply"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, path, http.NoBody))
+
+		// An empty body reaches the handler and is refused there; the router does not 404 it.
+		require.Equal(t, http.StatusBadRequest, w.Code, path+": "+w.Body.String())
+	}
 }
