@@ -1,10 +1,7 @@
 package crowdsec
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -57,7 +54,7 @@ func seedPersistentTree(t *testing.T) string {
 	writeFile(t, filepath.Join(dir, "config", "crowdsec.db"), "nested-db")
 	writeFile(t, filepath.Join(dir, "data", "crowdsec.db"), "lapi-db")
 	writeFile(t, filepath.Join(dir, "data", "GeoLite2-City.mmdb"), "mmdb")
-	writeFile(t, filepath.Join(dir, "hub_cache", "test", "bundle.tgz"), "archive")
+	writeFile(t, filepath.Join(dir, "hub_cache", "test", "item.yaml"), "archive")
 	require.NoError(t, os.Symlink("../hub/x.yaml", filepath.Join(dir, "config", "link.yaml")))
 	return dir
 }
@@ -191,7 +188,7 @@ func TestRestoreReplacesConfigAndLeavesEngineOwnedStateUntouched(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "config", "link.yaml"), "dereferenced")
 	writeFile(t, filepath.Join(dir, "crowdsec.db"), "newer-live-db")
 	writeFile(t, filepath.Join(dir, "data", "crowdsec.db"), "newer-lapi-db")
-	writeFile(t, filepath.Join(dir, "hub_cache", "test", "bundle.tgz"), "newer-archive")
+	writeFile(t, filepath.Join(dir, "hub_cache", "test", "item.yaml"), "newer-archive")
 
 	require.NoError(t, svc.restore(path))
 
@@ -211,7 +208,7 @@ func TestRestoreReplacesConfigAndLeavesEngineOwnedStateUntouched(t *testing.T) {
 	require.Equal(t, "nested-db", readFile(t, filepath.Join(dir, "config", "crowdsec.db")))
 	require.Equal(t, "newer-lapi-db", readFile(t, filepath.Join(dir, "data", "crowdsec.db")))
 	require.Equal(t, "mmdb", readFile(t, filepath.Join(dir, "data", "GeoLite2-City.mmdb")))
-	require.Equal(t, "newer-archive", readFile(t, filepath.Join(dir, "hub_cache", "test", "bundle.tgz")))
+	require.Equal(t, "newer-archive", readFile(t, filepath.Join(dir, "hub_cache", "test", "item.yaml")))
 
 	after, err := os.Stat(dir)
 	require.NoError(t, err)
@@ -463,233 +460,13 @@ func TestPruneBackupsReportsRemovalErrors(t *testing.T) {
 	_ = old
 }
 
-// ---- HubService.Apply flows ----
-
-type funcExec func(ctx context.Context, cmd string) ([]byte, error)
-
-func (f funcExec) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return f(ctx, strings.Join(append([]string{name}, args...), " "))
-}
-
-// applyFixture builds a persistent-tree HubService whose cache lives inside DataDir/hub_cache,
-// as in production, with one cached preset archive.
-func applyFixture(t *testing.T, exec CommandExecutor, archive []byte) (svc *HubService, dir string) {
-	t.Helper()
-	dir = seedPersistentTree(t)
-	cache, err := NewHubCache(filepath.Join(dir, "hub_cache"), time.Hour)
-	require.NoError(t, err)
-	if archive != nil {
-		_, err = cache.Store(context.Background(), "test/preset", "etag", "hub", "preview", archive)
-		require.NoError(t, err)
-	}
-	svc = NewHubService(exec, cache, dir)
-	svc.ApplyTimeout = 5 * time.Second
-	return svc, dir
-}
+// ---- HubService.Apply helpers ----
 
 func countBackups(t *testing.T, dir string) int {
 	t.Helper()
 	m, err := filepath.Glob(dir + ".backup.*")
 	require.NoError(t, err)
 	return len(m)
-}
-
-func TestApplyCSCLISuccessKeepsDataDirAndPrunes(t *testing.T) {
-	t.Parallel()
-	exec := funcExec(func(_ context.Context, _ string) ([]byte, error) { return []byte("ok"), nil })
-	svc, dir := applyFixture(t, exec, nil)
-	reloads := 0
-	svc.Reload = func(context.Context) error { reloads++; return nil }
-	before, err := os.Stat(dir)
-	require.NoError(t, err)
-
-	for range DefaultBackupRetention + 2 {
-		res, applyErr := svc.Apply(context.Background(), "test/preset")
-		require.NoError(t, applyErr)
-		require.Equal(t, "applied", res.Status)
-		require.True(t, res.UsedCSCLI)
-		require.False(t, res.ReloadHint, "reload succeeded")
-		require.DirExists(t, res.BackupPath)
-	}
-
-	after, err := os.Stat(dir)
-	require.NoError(t, err)
-	require.True(t, os.SameFile(before, after), "DataDir must never be renamed")
-	require.Equal(t, DefaultBackupRetention, countBackups(t, dir))
-	require.Equal(t, DefaultBackupRetention+2, reloads)
-	require.Equal(t, "live-db", readFile(t, filepath.Join(dir, "crowdsec.db")))
-}
-
-func TestApplyCSCLIFailureRestoresThenExtractsCachedArchive(t *testing.T) {
-	t.Parallel()
-	var svc *HubService
-	var dir string
-	exec := funcExec(func(_ context.Context, cmd string) ([]byte, error) {
-		switch {
-		case strings.Contains(cmd, "hub install"):
-			// cscli half-installs, then fails.
-			writeFile(t, filepath.Join(dir, "config", "cscli-leftover.yaml"), "partial")
-			writeFile(t, filepath.Join(dir, "config", "config.yaml"), "original: false\n")
-			return nil, errors.New("install failed")
-		default:
-			return []byte("ok"), nil
-		}
-	})
-	archive := makeTarGz(t, map[string]string{
-		"config/from-archive.yaml": "archive: true",
-		"crowdsec.db":              "evil-db",
-		"data/evil":                "evil",
-		"hub_cache/evil":           "evil",
-	})
-	svc, dir = applyFixture(t, exec, archive)
-
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.NoError(t, err)
-	require.Equal(t, "applied", res.Status)
-	require.False(t, res.UsedCSCLI)
-	require.True(t, res.ReloadHint, "no reloader configured")
-
-	require.Equal(t, "archive: true", readFile(t, filepath.Join(dir, "config", "from-archive.yaml")))
-	require.Equal(t, "original: true\n", readFile(t, filepath.Join(dir, "config", "config.yaml")), "snapshot restored before extract")
-	require.NoFileExists(t, filepath.Join(dir, "config", "cscli-leftover.yaml"))
-	require.Equal(t, "live-db", readFile(t, filepath.Join(dir, "crowdsec.db")), "archive cannot overwrite engine state")
-	require.NoFileExists(t, filepath.Join(dir, "data", "evil"))
-	require.NoFileExists(t, filepath.Join(dir, "hub_cache", "evil"))
-	require.FileExists(t, filepath.Join(dir, "hub_cache", "test", "preset", "bundle.tgz"), "cached archive survives the restore")
-}
-
-func TestApplyCSCLIAndExtractFailureRestoresSnapshot(t *testing.T) {
-	t.Parallel()
-	var dir string
-	exec := funcExec(func(_ context.Context, cmd string) ([]byte, error) {
-		if strings.Contains(cmd, "hub install") {
-			writeFile(t, filepath.Join(dir, "config", "cscli-leftover.yaml"), "partial")
-			return nil, errors.New("install failed")
-		}
-		return []byte("ok"), nil
-	})
-	// A symlink entry makes extraction fail after files were already written.
-	svc, d := applyFixture(t, exec, makeTarGzWithSymlink(t))
-	dir = d
-
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.ErrorContains(t, err, "extract")
-	require.Equal(t, "failed", res.Status)
-	require.NotEmpty(t, res.BackupPath)
-
-	require.Equal(t, "original: true\n", readFile(t, filepath.Join(dir, "config", "config.yaml")))
-	require.NoFileExists(t, filepath.Join(dir, "config", "cscli-leftover.yaml"))
-	require.NoFileExists(t, filepath.Join(dir, "partial-before-symlink.yaml"))
-	require.DirExists(t, res.BackupPath, "failed apply keeps its snapshot")
-}
-
-func TestApplyCacheMissAndRefreshFailureRestoresSnapshot(t *testing.T) {
-	t.Parallel()
-	var dir string
-	exec := funcExec(func(_ context.Context, cmd string) ([]byte, error) {
-		if strings.Contains(cmd, "hub install") {
-			writeFile(t, filepath.Join(dir, "config", "cscli-leftover.yaml"), "partial")
-			return nil, errors.New("install failed")
-		}
-		return []byte("ok"), nil
-	})
-	svc, d := applyFixture(t, exec, nil) // nothing cached
-	dir = d
-	svc.HubBaseURL = "http://127.0.0.1:1"
-	svc.MirrorBaseURL = "http://127.0.0.1:1"
-
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.ErrorContains(t, err, "load cache")
-	require.Equal(t, "failed", res.Status)
-	require.NotEmpty(t, res.BackupPath)
-	require.NotEmpty(t, res.ErrorMessage)
-	require.NoFileExists(t, filepath.Join(dir, "config", "cscli-leftover.yaml"))
-	require.Equal(t, "original: true\n", readFile(t, filepath.Join(dir, "config", "config.yaml")))
-}
-
-func TestApplyPrunesAfterFailureAndKeepsTheFailedSnapshot(t *testing.T) {
-	t.Parallel()
-	svc, dir := applyFixture(t, nil, nil) // no cscli, nothing cached: every apply fails
-	svc.HubBaseURL = "http://127.0.0.1:1"
-	svc.MirrorBaseURL = "http://127.0.0.1:1"
-	for i := 1; i <= DefaultBackupRetention+3; i++ {
-		mkBackupDir(t, dir, "backup", fmt.Sprintf("2025010%d-000000.000000", i))
-	}
-
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.Error(t, err)
-	require.DirExists(t, res.BackupPath, "the failed apply's snapshot is the newest and always kept")
-	require.Equal(t, DefaultBackupRetention, countBackups(t, dir))
-}
-
-func TestApplyRestoreFailureIsReported(t *testing.T) {
-	t.Parallel()
-	var dir string
-	var svc *HubService
-	exec := funcExec(func(_ context.Context, cmd string) ([]byte, error) {
-		if strings.Contains(cmd, "hub install") {
-			// Make the restore itself fail: DataDir is replaced by a regular file mid-apply.
-			require.NoError(t, os.RemoveAll(dir))
-			writeFile(t, dir, "not a dir")
-			return nil, errors.New("install failed")
-		}
-		return []byte("ok"), nil
-	})
-	svc, dir = applyFixture(t, exec, nil)
-
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.ErrorContains(t, err, "rollback failed")
-	require.ErrorContains(t, err, "backup retained, see server logs")
-	require.NotContains(t, err.Error(), res.BackupPath, "the backup location stays in server logs")
-	require.NotContains(t, err.Error(), dir)
-}
-
-func TestApplySnapshotFailureChangesNothing(t *testing.T) {
-	t.Parallel()
-	called := false
-	exec := funcExec(func(_ context.Context, _ string) ([]byte, error) { called = true; return []byte("ok"), nil })
-	svc := NewHubService(exec, nil, filepath.Join(t.TempDir(), "missing-parent", "crowdsec"))
-
-	res, err := svc.Apply(context.Background(), "test/preset")
-	require.ErrorContains(t, err, "backup")
-	require.Empty(t, res.BackupPath)
-	require.False(t, called, "cscli must not run when no snapshot exists")
-}
-
-func TestApplyUnreadableCachedArchiveTriggersRefreshFailure(t *testing.T) {
-	t.Parallel()
-	svc, dir := applyFixture(t, nil, makeTarGz(t, map[string]string{"x.yaml": "x"}))
-	svc.HubBaseURL = "http://127.0.0.1:1"
-	svc.MirrorBaseURL = "http://127.0.0.1:1"
-	require.NoError(t, os.Remove(filepath.Join(dir, "hub_cache", "test", "preset", "bundle.tgz")))
-
-	_, err := svc.Apply(context.Background(), "test/preset")
-	require.ErrorContains(t, err, "load cache")
-}
-
-func TestExtractTarGzOverlaysWithoutWipingAndSkipsEngineOwnedEntries(t *testing.T) {
-	t.Parallel()
-	dir := seedPersistentTree(t)
-	svc := NewHubService(nil, nil, dir)
-	archive := makeTarGz(t, map[string]string{
-		"config/new.yaml":  "new",
-		"crowdsec.db":      "evil",
-		"data/x":           "evil",
-		"hub_cache/y":      "evil",
-		"Data/crowdsec.db": "evil",
-		"HUB_CACHE/z":      "evil",
-		"CrowdSec.DB-WAL":  "evil",
-	})
-
-	require.NoError(t, svc.extractTarGz(context.Background(), archive, dir))
-	require.Equal(t, "new", readFile(t, filepath.Join(dir, "config", "new.yaml")))
-	require.Equal(t, "original: true\n", readFile(t, filepath.Join(dir, "config", "config.yaml")), "existing files are not wiped")
-	require.Equal(t, "live-db", readFile(t, filepath.Join(dir, "crowdsec.db")))
-	require.NoFileExists(t, filepath.Join(dir, "data", "x"))
-	require.NoFileExists(t, filepath.Join(dir, "hub_cache", "y"))
-	require.NoDirExists(t, filepath.Join(dir, "Data"))
-	require.NoDirExists(t, filepath.Join(dir, "HUB_CACHE"))
-	require.NoFileExists(t, filepath.Join(dir, "CrowdSec.DB-WAL"))
 }
 
 func TestRollbackFailureWrapsCause(t *testing.T) {
@@ -700,22 +477,6 @@ func TestRollbackFailureWrapsCause(t *testing.T) {
 	require.ErrorContains(t, err, "see server logs")
 	require.NotContains(t, err.Error(), "restore broke")
 	require.NotContains(t, err.Error(), "/b")
-}
-
-// makeTarGzWithSymlink returns an archive that writes one file and then hits a symlink entry.
-func makeTarGzWithSymlink(t *testing.T) []byte {
-	t.Helper()
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-	body := "partial"
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "partial-before-symlink.yaml", Mode: 0o644, Size: int64(len(body))}))
-	_, err := tw.Write([]byte(body))
-	require.NoError(t, err)
-	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd", Mode: 0o777}))
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-	return buf.Bytes()
 }
 
 func TestBackupFileCopiesOnlyTheTargetAndPrunesIndependently(t *testing.T) {

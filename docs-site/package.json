@@ -24,13 +24,16 @@
     "@mdx-js/react": "^3.1.1",
     "clsx": "^2.1.1",
     "prism-react-renderer": "^2.4.1",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.4",
+    "react-router-hash-link": "^2.4.3"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.10.2",
     "@docusaurus/tsconfig": "3.10.2",
     "@docusaurus/types": "3.10.2",
+    "@testing-library/user-event": "^14.6.8",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "audit-ci": "^7.1.0",
@@ -46,7 +49,7 @@
     "tinypool": "^2.2.0"
   },
   "engines": {
-    "node": "^24.21.0"
+    "node": "^24.22.0"
   },
   "browserslist": {
     "production": [

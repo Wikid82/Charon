@@ -1,0 +1,17 @@
+name: crowdsecurity/base-http-scenarios
+parsers:
+  - crowdsecurity/http-logs
+scenarios:
+  - crowdsecurity/http-crawl-non_statics
+  - crowdsecurity/http-probing
+  - crowdsecurity/http-bad-user-agent
+collections:
+  - crowdsecurity/http-cve
+contexts:
+  - crowdsecurity/http_base
+description: "http common : scanners detection"
+labels:
+  label: "HTTP - Generic Protection"
+author: crowdsecurity
+tags:
+  - http

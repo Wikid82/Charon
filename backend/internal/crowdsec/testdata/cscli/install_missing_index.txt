@@ -1,0 +1,1 @@
+Error: cscli collections install: invalid hub index: unable to read index file: open /etc/crowdsec/hub/.index.json: no such file or directory. Run 'sudo cscli hub update' to download the index again

@@ -1,0 +1,1 @@
+Error: cscli collections install: can't find 'crowdsecurity/no-such-item' in collections, did you mean 'crowdsecurity/openbsd'?

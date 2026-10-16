@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-5e0625fbc54f3423
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:cdfab62cc075c0cf40a0f313968d66b8506400bf6382c021264e31ef32291fdf
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-6e84578898648106
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:c4964b2189a8eefc5671184dd4e1297485e88209dc29237678dc44dc03365f05
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -38,7 +38,7 @@ ARG ALPINE_IMAGE=alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda9
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.8.1
+ARG CROWDSEC_VERSION=1.8.2-rc1
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
@@ -60,7 +60,7 @@ ARG XMOD_VERSION=0.42.0
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
 # renovate: datasource=go depName=github.com/klauspost/compress
-ARG KLAUSPOST_COMPRESS_VERSION=1.20.1
+ARG KLAUSPOST_COMPRESS_VERSION=1.20.3
 # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS fix (CVE-2026-84304), matching how
 # golang.org/x/crypto and klauspost/compress are patched above: pinned here so the Caddy
 # and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
@@ -72,7 +72,7 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.1
 # renovate: datasource=go depName=google.golang.org/grpc
 ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.2.0
+ARG NPM_VERSION=12.2.1
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -141,7 +141,7 @@ ARG CADDY_DNS_DNSIMPLE_VERSION=0.0.0-20260303131243-0433343c5610
 # renovate: datasource=go depName=github.com/caddy-dns/ovh
 ARG CADDY_DNS_OVH_VERSION=1.1.0
 # renovate: datasource=go depName=github.com/caddy-dns/gandi
-ARG CADDY_DNS_GANDI_VERSION=1.1.0
+ARG CADDY_DNS_GANDI_VERSION=1.2.1
 # renovate: datasource=go depName=github.com/caddy-dns/linode
 ARG CADDY_DNS_LINODE_VERSION=0.8.0
 # renovate: datasource=go depName=github.com/caddy-dns/porkbun
@@ -208,7 +208,7 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb1226db190d0a984118f62ee02a91b77d99448d28264a6 AS xx
 
 # ---- Gosu Builder ----
 # Build gosu from source to avoid CVEs from Debian's pre-compiled version (Go 1.19.8)
@@ -273,7 +273,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.21.0-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.22.0-alpine3.24@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -907,13 +907,17 @@ RUN set -e; \
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.2.0; \
-    # kin-openapi: CrowdSec v1.8.0 already ships v0.147.0 natively (its go.mod baseline),
-    # which is past the GHSA-r277-6w6q-xmqw (ValidationHandler.Load() fail-open auth bypass,
-    # fixed v0.144.0) and GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (DoS panic) fixes. This explicit
-    # pin is a defense-in-depth floor and a Renovate anchor so an accidental MVS downgrade or a
-    # CrowdSec version regression cannot reintroduce a pre-v0.147.0 (vulnerable) resolution.
+    # kin-openapi: CrowdSec ships v0.147.0 natively (its go.mod baseline), which is past
+    # GHSA-r277-6w6q-xmqw (ValidationHandler.Load() fail-open auth bypass, fixed v0.144.0) and
+    # GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (DoS panic), but still vulnerable to:
+    #   - GHSA-rj39-cv6w-8wv7 / CVE-2026-100352 (YAML NaN/Inf panic via OAS 3.1 validation; fixed v0.148.0)
+    #   - GHSA-g8cf-rcjf-c8cf / CVE-2026-100354 (unbounded recursion on circular allOf/anyOf/oneOf,
+    #     fatal stack overflow; fixed v0.149.0)
+    #   - GHSA-vrcc-3ch7-hppw / CVE-2026-100353 (nil-Items panic paths in openapi3filter; fixed v0.149.0)
+    # Pinned to v0.151.0 (no known advisories). Also acts as a floor/Renovate anchor so a CrowdSec
+    # version regression or MVS downgrade cannot reintroduce a vulnerable resolution.
     # renovate: datasource=go depName=github.com/getkin/kin-openapi
-    _retry go get github.com/getkin/kin-openapi@v0.147.0; \
+    _retry go get github.com/getkin/kin-openapi@v0.151.0; \
     # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod

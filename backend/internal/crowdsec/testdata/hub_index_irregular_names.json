@@ -1,0 +1,24 @@
+{
+  "collections": {
+    "crowdsecurity/demo": {
+      "path": "collections/crowdsecurity/demo.yaml",
+      "version": "1.0",
+      "description": "Regular name"
+    },
+    "solo": {
+      "path": "collections/solo.yaml",
+      "version": "1.0",
+      "description": "Name without an owner"
+    },
+    "owner/name+extra": {
+      "path": "collections/owner/name+extra.yaml",
+      "version": "1.0",
+      "description": "Name with a plus sign"
+    },
+    "owner/team/deep": {
+      "path": "collections/owner/team/deep.yaml",
+      "version": "1.0",
+      "description": "Name with three components"
+    }
+  }
+}

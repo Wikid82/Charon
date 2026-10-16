@@ -150,3 +150,16 @@ func TestPresetItemsNotSerialized(t *testing.T) {
 		t.Fatalf("items must not be serialized")
 	}
 }
+
+func TestFindPresetIgnoresCase(t *testing.T) {
+	t.Parallel()
+	for _, slug := range []string{"GeoIP-Enrichment", "GEOIP-ENRICHMENT", "geoip-enrichment"} {
+		preset, ok := FindPreset(slug)
+		if !ok {
+			t.Fatalf("expected %q to find the curated preset", slug)
+		}
+		if preset.Slug != "geoip-enrichment" {
+			t.Fatalf("expected the canonical slug, got %q", preset.Slug)
+		}
+	}
+}

@@ -1,0 +1,33 @@
+{
+  "type": "collections",
+  "name": "crowdsecurity/base-http-scenarios",
+  "file_name": "base-http-scenarios.yaml",
+  "description": "http common : scanners detection",
+  "path": "collections/crowdsecurity/base-http-scenarios.yaml",
+  "version": "1.4",
+  "versions": {
+    "1.3": {
+      "digest": "1e09dd9ec002d6dae6106d968acf6421a449d5241f4135fbc102049b9bde3164"
+    },
+    "1.4": {
+      "digest": "e35b4e692c87bf485b897e8351496ce4e18a6639614d26bb8f24cd65bd3944a3"
+    }
+  },
+  "parsers": [
+    "crowdsecurity/http-logs"
+  ],
+  "collections": [
+    "crowdsecurity/http-cve"
+  ],
+  "contexts": [
+    "crowdsecurity/http_base"
+  ],
+  "local_path": "/etc/crowdsec/collections/base-http-scenarios.yaml",
+  "local_version": "1.4",
+  "local_hash": "e35b4e692c87bf485b897e8351496ce4e18a6639614d26bb8f24cd65bd3944a3",
+  "installed": true,
+  "downloaded": true,
+  "up_to_date": true,
+  "tainted": false,
+  "local": false
+}

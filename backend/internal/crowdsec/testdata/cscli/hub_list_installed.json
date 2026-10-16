@@ -1,0 +1,69 @@
+{
+  "appsec-configs": [],
+  "appsec-rules": [],
+  "collections": [
+    {
+      "name": "crowdsecurity/base-http-scenarios",
+      "local_version": "1.4",
+      "local_path": "/etc/crowdsec/collections/base-http-scenarios.yaml",
+      "description": "http common : scanners detection",
+      "utf8_status": "✔️  enabled",
+      "status": "enabled"
+    },
+    {
+      "name": "crowdsecurity/http-cve",
+      "local_version": "3.0",
+      "local_path": "/etc/crowdsec/collections/http-cve.yaml",
+      "description": "Detect known CVE requests in http logs",
+      "utf8_status": "✔️  enabled",
+      "status": "enabled"
+    }
+  ],
+  "contexts": [
+    {
+      "name": "crowdsecurity/http_base",
+      "local_version": "0.3",
+      "local_path": "/etc/crowdsec/contexts/http_base.yaml",
+      "description": "",
+      "utf8_status": "✔️  enabled",
+      "status": "enabled"
+    }
+  ],
+  "parsers": [
+    {
+      "name": "crowdsecurity/http-logs",
+      "local_version": "1.4",
+      "local_path": "/etc/crowdsec/parsers/s02-enrich/http-logs.yaml",
+      "description": "Parse more Specifically HTTP logs",
+      "utf8_status": "✔️  enabled",
+      "status": "enabled"
+    }
+  ],
+  "postoverflows": [],
+  "scenarios": [
+    {
+      "name": "crowdsecurity/http-crawl-non_statics",
+      "local_version": "0.7",
+      "local_path": "/etc/crowdsec/scenarios/http-crawl-non_statics.yaml",
+      "description": "Detect aggressive crawl from multiple ips",
+      "utf8_status": "✔️  enabled",
+      "status": "enabled"
+    },
+    {
+      "name": "crowdsecurity/http-probing",
+      "local_version": "0.4",
+      "local_path": "/etc/crowdsec/scenarios/http-probing.yaml",
+      "description": "Detect site scanning/probing from a single ip",
+      "utf8_status": "✔️  enabled",
+      "status": "enabled"
+    },
+    {
+      "name": "crowdsecurity/http-bad-user-agent",
+      "local_version": "1.2",
+      "local_path": "/etc/crowdsec/scenarios/http-bad-user-agent.yaml",
+      "description": "Detect bad user-agents",
+      "utf8_status": "✔️  enabled",
+      "status": "enabled"
+    }
+  ]
+}

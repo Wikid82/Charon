@@ -31,14 +31,3 @@ func TestRedactPaths(t *testing.T) {
 	require.Equal(t, "GET (/api/v1/admin/crowdsec) failed", RedactPaths("GET (/api/v1/admin/crowdsec) failed"))
 	require.Equal(t, "see https://hub.crowdsec.net//a and a/b/c", RedactPaths("see https://hub.crowdsec.net//a and a/b/c"))
 }
-
-func TestExtractTarGzErrorsOmitAbsolutePaths(t *testing.T) {
-	t.Parallel()
-	// A file entry colliding with a later nested entry forces a mkdir failure.
-	target := t.TempDir()
-	svc := NewHubService(nil, nil, target)
-	require.NoError(t, svc.extractTarGz(t.Context(), makeTarGz(t, map[string]string{"a": "file"}), target))
-	err := svc.extractTarGz(t.Context(), makeTarGz(t, map[string]string{"a/b": "nested"}), target)
-	require.Error(t, err)
-	require.NotContains(t, err.Error(), target)
-}

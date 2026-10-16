@@ -147,22 +147,3 @@ func TestRestoreKeepingLeavesLiveSecretsAlone(t *testing.T) {
 		require.Equal(t, "live-key", readFile(t, filepath.Join(dir, "bouncer_key")))
 	})
 }
-
-func TestExtractTarGzSkipsProtectedNamesAndKeepsSiblings(t *testing.T) {
-	t.Parallel()
-	dir := seedSecretTree(t)
-	svc := NewHubService(nil, nil, dir)
-	archive := makeTarGz(t, map[string]string{
-		"config/new.yaml":                    "new",
-		"config/local_api_credentials.yaml":  "overlay",
-		"config/online_api_credentials.yaml": "overlay",
-		"bouncer_key":                        "overlay",
-		"bouncer_key/x":                      "overlay",
-	})
-
-	require.NoError(t, svc.extractTarGz(t.Context(), archive, dir))
-	require.Equal(t, "new", readFile(t, filepath.Join(dir, "config", "new.yaml")))
-	require.Equal(t, "live-lapi", readFile(t, filepath.Join(dir, "config", "local_api_credentials.yaml")))
-	require.Equal(t, "live-capi", readFile(t, filepath.Join(dir, "config", "online_api_credentials.yaml")))
-	require.Equal(t, "live-key", readFile(t, filepath.Join(dir, "bouncer_key")))
-}

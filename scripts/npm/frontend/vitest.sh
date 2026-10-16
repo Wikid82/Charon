@@ -13,5 +13,6 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
+    rm -rf node_modules package-lock.json
     npm install vitest @vitest/ui @vitest/coverage-istanbul @vitest/coverage-v8 --save-dev
 done

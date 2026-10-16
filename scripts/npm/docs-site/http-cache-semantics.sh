@@ -27,5 +27,6 @@ for MODULE in "${NPM_MODULES[@]}"; do
     PREFIX="$(echo "$CURRENT" | grep -o '^[\^~]' || true)"
     LATEST="$(npm view "$PACKAGE" version)"
     npm pkg set "overrides.$PACKAGE=${PREFIX}${LATEST}"
+    rm -rf node_modules package-lock.json
     npm install
 done

@@ -1636,7 +1636,14 @@
         "pullFailed": "Failed to pull preset preview",
         "cachedLoaded": "Loaded cached preview",
         "cacheLoadFailed": "Failed to load cached preview",
-        "slugInvalid": "Preset slug is invalid"
+        "slugInvalid": "Preset slug is invalid",
+        "applyStale": "The preview is out of date. Pull the preset again, then apply it.",
+        "applyHubUpdating": "The hub is still updating, try again later.",
+        "applyLocalModified": "This item was edited on this server and was left unchanged. Reset it before applying the preset.",
+        "editedItems": "Edited items: {{items}}",
+        "applyTimeout": "The preset install took too long and was rolled back. Try again.",
+        "cscliUnavailable": "cscli unavailable or not responding",
+        "applyDependencyNote": "Some items this preset depends on were edited on this server and were left unchanged."
       }
     },
     "files": {

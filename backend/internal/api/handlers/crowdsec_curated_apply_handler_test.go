@@ -222,10 +222,11 @@ func TestApplyPresetEventPersistenceFailureDoesNotChangeOutcome(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		slug string
+		key  string
 		code int
 	}{
-		{"curated success", "geoip-enrichment", http.StatusOK},
-		{"hub path failure", "unknown/hub-preset", http.StatusInternalServerError},
+		{"curated success", "geoip-enrichment", "", http.StatusOK},
+		{"hub path failure", "unknown/hub-preset", "some-key", http.StatusConflict},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -241,7 +242,7 @@ func TestApplyPresetEventPersistenceFailureDoesNotChangeOutcome(t *testing.T) {
 			r := gin.New()
 			h.RegisterRoutes(r.Group("/api/v1"))
 
-			body, _ := json.Marshal(map[string]string{"slug": tc.slug})
+			body, _ := json.Marshal(map[string]string{"slug": tc.slug, "cache_key": tc.key})
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
@@ -261,7 +262,7 @@ func TestApplyCuratedPresetOldGeolocationSlugNeverSucceeds(t *testing.T) {
 
 // failHubInstall mimics cscli rejecting an item that is not in the hub.
 func failHubInstall(_ context.Context, cmd string) ([]byte, error) {
-	if strings.HasPrefix(cmd, "cscli hub install") {
+	if strings.Contains(cmd, " install unknown/") {
 		return nil, errors.New("unknown item")
 	}
 	return nil, nil

@@ -4,8 +4,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 NPM_MODULES=(
-        "$REPO_ROOT"
         "$REPO_ROOT/frontend"
+        "$REPO_ROOT/docs-site"
     )
 
 for MODULE in "${NPM_MODULES[@]}"; do
@@ -14,5 +14,7 @@ for MODULE in "${NPM_MODULES[@]}"; do
     echo "============================================================================"
 
     cd "$MODULE" || exit 1
-    npm install @playwright/test --save-dev
+    rm -rf node_modules package-lock.json
+    npm install react react-dom react-router-dom react-router-hash-link
+
 done

@@ -1,0 +1,2 @@
+level=warning msg="collections:crowdsecurity/base-http-scenarios is tainted, use '--force' to overwrite"
+Nothing to install or remove.

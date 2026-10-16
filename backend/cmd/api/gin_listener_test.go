@@ -33,7 +33,9 @@ func TestGin_RunListenerServesOnABoundListener(t *testing.T) {
 
 	require.NoError(t, ln.Close())
 	select {
-	case <-served:
+	case serveErr := <-served:
+		// Serve always returns a non-nil error once the listener is closed.
+		assert.Error(t, serveErr)
 	case <-time.After(5 * time.Second):
 		t.Fatal("RunListener did not return after the listener was closed")
 	}

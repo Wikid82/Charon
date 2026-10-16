@@ -2368,15 +2368,15 @@ func TestCrowdsecHandler_ApplyPreset_MissingPresetFile(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	// Try to apply a preset that was never pulled (cache miss)
-	body := `{"slug": "nonexistent-preset"}`
+	body := `{"slug": "crowdsecurity/nonexistent-preset", "cache_key": "some-key"}`
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
-	// Should return error about missing cache
-	require.True(t, w.Code == http.StatusInternalServerError || w.Code == http.StatusGatewayTimeout,
-		"Expected 500 or 504 for cache miss, got %d", w.Code)
+	// Should return a stale-cache conflict that tells the user to pull again
+	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "preset_cache_stale")
 	require.Contains(t, w.Body.String(), "cache")
 }
 

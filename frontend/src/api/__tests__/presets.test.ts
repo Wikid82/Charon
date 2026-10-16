@@ -1,3 +1,4 @@
+import { AxiosError } from 'axios'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import client from '../client'
@@ -204,7 +205,7 @@ describe('presets API', () => {
 
       const result = await presets.applyCrowdsecPreset(payload)
 
-      expect(client.post).toHaveBeenCalledWith('/admin/crowdsec/presets/apply', payload)
+      expect(client.post).toHaveBeenCalledWith('/admin/crowdsec/presets/apply', payload, { timeout: 130_000 })
       expect(result).toEqual(mockResponse)
       expect(result.status).toBe('success')
       expect(result.backup).toBeDefined()
@@ -224,7 +225,7 @@ describe('presets API', () => {
 
       const result = await presets.applyCrowdsecPreset(payload)
 
-      expect(client.post).toHaveBeenCalledWith('/admin/crowdsec/presets/apply', payload)
+      expect(client.post).toHaveBeenCalledWith('/admin/crowdsec/presets/apply', payload, { timeout: 130_000 })
       expect(result.status).toBe('success')
       expect(result.used_cscli).toBe(true)
     })
@@ -293,6 +294,46 @@ describe('presets API', () => {
       const result = await presets.applyCrowdsecPreset(payload)
 
       expect(result.status).toBe('success')
+    })
+  })
+
+  describe('applyCrowdsecPreset request options', () => {
+    it('allows longer than the server apply deadline (90 s) and the default client timeout', () => {
+      expect(presets.APPLY_CROWDSEC_PRESET_TIMEOUT_MS).toBeGreaterThan(120_000)
+    })
+
+    it('returns warnings from the response', async () => {
+      vi.mocked(client.post).mockResolvedValue({ data: { status: 'applied', warnings: ['dependency a/b was edited locally'] } })
+      const result = await presets.applyCrowdsecPreset({ slug: 'owner/name', cache_key: 'k' })
+      expect(result.warnings).toEqual(['dependency a/b was edited locally'])
+    })
+  })
+
+  describe('getCrowdsecPresetErrorCode', () => {
+    const failure = (data: unknown) => new AxiosError('failed', undefined, undefined, undefined, { status: 409, statusText: '', headers: {}, config: {}, data } as never)
+
+    it.each([...presets.PRESET_ERROR_CODES])('returns %s', (code) => {
+      expect(presets.getCrowdsecPresetErrorCode(failure({ error: 'x', error_code: code }))).toBe(code)
+    })
+
+    it('ignores unknown codes, missing codes and non-HTTP errors', () => {
+      expect(presets.getCrowdsecPresetErrorCode(failure({ error: 'x', error_code: 'something_else' }))).toBeUndefined()
+      expect(presets.getCrowdsecPresetErrorCode(failure({ error: 'x' }))).toBeUndefined()
+      expect(presets.getCrowdsecPresetErrorCode(new Error('network'))).toBeUndefined()
+    })
+  })
+
+  describe('getCrowdsecPresetTaintedItems', () => {
+    const failure = (data: unknown) => new AxiosError('failed', undefined, undefined, undefined, { status: 409, statusText: '', headers: {}, config: {}, data } as never)
+
+    it('returns the string names the server sent', () => {
+      expect(presets.getCrowdsecPresetTaintedItems(failure({ tainted_items: ['parsers/a/b', 7, 'collections/a/c'] }))).toEqual(['parsers/a/b', 'collections/a/c'])
+    })
+
+    it('returns an empty list when missing, malformed or not an HTTP error', () => {
+      expect(presets.getCrowdsecPresetTaintedItems(failure({ error: 'x' }))).toEqual([])
+      expect(presets.getCrowdsecPresetTaintedItems(failure({ tainted_items: 'parsers/a/b' }))).toEqual([])
+      expect(presets.getCrowdsecPresetTaintedItems(new Error('network'))).toEqual([])
     })
   })
 

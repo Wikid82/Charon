@@ -17,7 +17,7 @@ permissions:
 
 env:
   GO_VERSION: '1.27.2'
-  NODE_VERSION: '24.21.0'
+  NODE_VERSION: '24.22.0'
   GOTOOLCHAIN: auto
 
 jobs:
@@ -103,6 +103,30 @@ jobs:
 
       - name: bats
         run: bats scripts/tests/check-codecov-trigger-parity.bats
+
+  container-prune-tests:
+    name: Container registry prune scripts (bats)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install bats + shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck jq
+
+      - name: shellcheck (shell severity=error)
+        run: |
+          shellcheck --severity=error \
+            scripts/prune-ghcr.sh \
+            scripts/prune-dockerhub.sh \
+            scripts/lib/prune-common.sh
+
+      - name: bats
+        run: bats scripts/tests/prune-ghcr.bats scripts/tests/prune-dockerhub.bats
 
   toolchain-key-tests:
     name: Toolchain key / freshness-guard scripts (bats)
@@ -396,7 +420,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.14.0
+          version: v2.15.0
           working-directory: backend
           args: --timeout=5m
 
@@ -471,7 +495,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
-          version: v2.14.0
+          version: v2.15.0
           working-directory: agent
           args: --config ../backend/.golangci.yml --timeout=5m
 

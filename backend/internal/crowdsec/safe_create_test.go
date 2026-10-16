@@ -75,18 +75,3 @@ func TestCreateFileNoSymlink(t *testing.T) {
 		require.Error(t, err)
 	})
 }
-
-func TestExtractTarGzRefusesSymlinkedDestination(t *testing.T) {
-	t.Parallel()
-	svc := NewHubService(nil, nil, t.TempDir())
-	target, outside := t.TempDir(), t.TempDir()
-	victim := filepath.Join(outside, "victim")
-	require.NoError(t, os.WriteFile(victim, []byte("untouched"), 0o600))
-	require.NoError(t, os.Symlink(victim, filepath.Join(target, "config.yaml")))
-
-	err := svc.extractTarGz(t.Context(), makeTarGz(t, map[string]string{"config.yaml": "overwritten"}), target)
-	require.ErrorIs(t, err, ErrSymlinkInPath)
-	got, rerr := os.ReadFile(victim) // #nosec G304 -- test path
-	require.NoError(t, rerr)
-	require.Equal(t, "untouched", string(got))
-}
