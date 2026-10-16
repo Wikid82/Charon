@@ -633,7 +633,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v4
-        _retry go get github.com/go-jose/go-jose/v4@v4.1.4; \
+        _retry go get github.com/go-jose/go-jose/v4@v4.1.6; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
         _retry go get go.opentelemetry.io/otel/sdk@v1.47.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
