@@ -16,8 +16,14 @@ name: Toolchain Image — Build & Publish
 #   workflow_call               -> heavier scan/report pass from
 #                                  security-weekly-rebuild.yml
 #
-# The sync-pin-on-pr / open-bump-pr jobs (which move the Dockerfile digest pin)
-# are added in a later commit, once the freshness guard is a required check.
+# The sync-pin-on-pr / open-bump-pr jobs move the Dockerfile digest pin. Both
+# push with the TOOLCHAIN_BOT_TOKEN secret (a fine-grained PAT, no Workflows
+# permission) so that the resulting commit / bot PR starts checks; GitHub never
+# starts workflow runs for events caused by GITHUB_TOKEN. The secret is used
+# only for the checkout/push (sync-pin-on-pr) and the create-pull-request step
+# (open-bump-pr) and never in a step that builds or runs PR code. If it is
+# unset the jobs fall back to GITHUB_TOKEN with a warning. See
+# docs/ci/toolchain-image.md.
 
 on:
   schedule:
@@ -381,11 +387,21 @@ jobs:
     # check the PR author, and refuse any protected head ref outright. A genuine
     # key move on `development` is handled by `open-bump-pr` (a reviewed bot PR),
     # not by this in-place sync.
+    #
+    # Loop guard (TOOLCHAIN_BOT_TOKEN): the pin push is now made with a PAT, so
+    # it DOES start a new pull_request run on the new head. That run recomputes
+    # the same key, finds the pin fresh, and exits without pushing (see the
+    # sync step). If the pin is somehow still stale on a head that is already
+    # the bot's own sync commit, the step fails instead of pushing again.
+    # Bot digest-bump PRs (now authored by the PAT owner, so the
+    # `user.login` check above no longer excludes them) are skipped by head ref.
+    # Fork PRs never reach this job (same-repo guard) and never receive secrets.
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'github-actions[bot]' &&
       github.event.pull_request.user.login != 'github-actions[bot]' &&
+      !startsWith(github.event.pull_request.head.ref, 'bot/bump-toolchain-image') &&
       github.event.pull_request.head.ref != 'main' &&
       github.event.pull_request.head.ref != 'development' &&
       github.event.pull_request.head.ref != 'nightly' &&
@@ -393,13 +409,23 @@ jobs:
       needs.build-toolchain.outputs.digest != ''
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write   # GITHUB_TOKEN fallback push only; the PAT carries its own scopes
     steps:
+      - name: Check bot token
+        env:
+          BOT_TOKEN: ${{ secrets.TOOLCHAIN_BOT_TOKEN }}
+        run: |
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "::warning title=TOOLCHAIN_BOT_TOKEN missing::Falling back to GITHUB_TOKEN. The pin commit will be pushed but checks will NOT retrigger; re-run 'verify-toolchain-pin' by hand. See docs/ci/toolchain-image.md."
+          fi
+
+      # Only checks out and edits two Dockerfile lines; no PR-supplied code runs
+      # in this job. persist-credentials: false keeps the token off disk.
       - name: Checkout PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.TOOLCHAIN_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           persist-credentials: false
 
       - name: Sync ARG CHARON_TOOLCHAIN_TAG / DIGEST if stale
@@ -407,7 +433,8 @@ jobs:
           KEY: ${{ needs.build-toolchain.outputs.key }}
           DIGEST: ${{ needs.build-toolchain.outputs.digest }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUSH_TOKEN: ${{ secrets.TOOLCHAIN_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          HAVE_BOT_TOKEN: ${{ secrets.TOOLCHAIN_BOT_TOKEN != '' }}
         run: |
           set -euo pipefail
           cur_tag="$(grep -E '^ARG CHARON_TOOLCHAIN_TAG=' Dockerfile | cut -d= -f2)"
@@ -415,6 +442,14 @@ jobs:
           if [[ "$cur_tag" == "$KEY" && "$cur_digest" == "$DIGEST" ]]; then
             echo "Toolchain pin already fresh ($KEY @ $DIGEST) — nothing to sync."
             exit 0
+          fi
+          # Loop guard: the head is already the bot's own sync commit yet the
+          # pin is still stale, so a further bump would loop. Stop loudly.
+          head_author="$(git log -1 --format=%an)"
+          head_subject="$(git log -1 --format=%s)"
+          if [[ "$head_author" == "github-actions[bot]" && "$head_subject" == "chore(docker): sync toolchain image pin"* ]]; then
+            echo "::error::Head is already the bot's pin-sync commit but the pin ($cur_tag) still differs from the recomputed key ($KEY). Refusing to push again; the toolchain build is not reproducing a stable key/digest."
+            exit 1
           fi
           sed -i "s|^ARG CHARON_TOOLCHAIN_TAG=.*|ARG CHARON_TOOLCHAIN_TAG=${KEY}|" Dockerfile
           sed -i "s|^ARG CHARON_TOOLCHAIN_DIGEST=.*|ARG CHARON_TOOLCHAIN_DIGEST=${DIGEST}|" Dockerfile
@@ -430,7 +465,11 @@ jobs:
           AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
           echo "::add-mask::${AUTH_HEADER#AUTHORIZATION: basic }"
           git -c http.https://github.com/.extraheader="$AUTH_HEADER" push origin "HEAD:${HEAD_REF}"
-          echo "::notice::Toolchain pin synced to ${KEY} @ ${DIGEST}. Re-run the 'Toolchain pin freshness' check (GITHUB_TOKEN pushes do not auto-retrigger PR checks)."
+          if [[ "$HAVE_BOT_TOKEN" == "true" ]]; then
+            echo "::notice::Toolchain pin synced to ${KEY} @ ${DIGEST}. The push uses TOOLCHAIN_BOT_TOKEN, so checks start on the new head automatically."
+          else
+            echo "::warning::Toolchain pin synced to ${KEY} @ ${DIGEST} with GITHUB_TOKEN; checks do NOT retrigger. Re-run 'verify-toolchain-pin' by hand."
+          fi
 
   # Off the PR path only: if the rebuilt digest differs from the Dockerfile pin,
   # open a bot PR bumping it (modelled on update-geolite2.yml). Targets
@@ -446,10 +485,18 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.event_name == 'push')
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
+      contents: write        # GITHUB_TOKEN fallback only; the PAT carries its own scopes
+      pull-requests: write   # GITHUB_TOKEN fallback + failure-issue step
       issues: write
     steps:
+      - name: Check bot token
+        env:
+          BOT_TOKEN: ${{ secrets.TOOLCHAIN_BOT_TOKEN }}
+        run: |
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "::warning title=TOOLCHAIN_BOT_TOKEN missing::Falling back to GITHUB_TOKEN. The bot PR will open but checks will NOT start on it. See docs/ci/toolchain-image.md."
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -504,6 +551,10 @@ jobs:
         if: steps.moved.outputs.moved == 'true'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
+          # PAT so the branch push and PR start checks (GITHUB_TOKEN events do
+          # not). The only step in this job that receives the secret; the
+          # preceding `docker build --check` runs with no token.
+          token: ${{ secrets.TOOLCHAIN_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           base: ${{ steps.target.outputs.branch }}
           branch: bot/bump-toolchain-image-${{ steps.target.outputs.branch }}
           delete-branch: true

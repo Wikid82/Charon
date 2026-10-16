@@ -36,7 +36,7 @@ provenance/SBOM attestations (in `docker-build.yml`) are separate and unaffected
 | --- | --- |
 | `schedule` (daily 06:00 UTC) | `--no-cache --pull` deterministic rebuild + blocking Trivy CRITICAL/HIGH gate + `:trivy-toolchain` SARIF. If the digest moved → opens `bot/bump-toolchain-image` (base `development`). |
 | `workflow_dispatch` (`force_rebuild=true` default) | Same as `schedule`. Use this for an urgent out-of-band refresh. |
-| `pull_request` touching a tracked input | **Skip-if-already-published:** if `:$KEY` already exists in GHCR, reuse that digest and do not rebuild. Same-repo PRs that genuinely moved a pin get the two-line `TAG`/`DIGEST` bump pushed onto the PR branch by `sync-pin-on-pr` (then re-run the `verify-toolchain-pin` check — `GITHUB_TOKEN` pushes don't auto-retrigger). Forks build `cacheonly` (recipe-compile validation only). |
+| `pull_request` touching a tracked input | **Skip-if-already-published:** if `:$KEY` already exists in GHCR, reuse that digest and do not rebuild. Same-repo PRs that genuinely moved a pin get the two-line `TAG`/`DIGEST` bump pushed onto the PR branch by `sync-pin-on-pr`; the push uses `TOOLCHAIN_BOT_TOKEN`, so checks (including `verify-toolchain-pin`) start on the new head automatically. Forks build `cacheonly` (recipe-compile validation only). |
 | `workflow_call` (from `security-weekly-rebuild.yml`) | Forced deterministic rebuild + full report. |
 
 ## Common tasks
@@ -46,8 +46,8 @@ provenance/SBOM attestations (in `docker-build.yml`) are separate and unaffected
 1. Bump the relevant `ARG` in the `Dockerfile` (this changes `toolchain-key.sh`).
 2. `gh workflow run toolchain-image.yml -f force_rebuild=true` — publishes
    `:<newkey>` and (off the PR path) opens `bot/bump-toolchain-image`.
-3. Merge the bot PR (or, on your own PR, let `sync-pin-on-pr` bump the pin and
-   re-run the freshness check).
+3. Merge the bot PR (or, on your own PR, let `sync-pin-on-pr` bump the pin; the
+   freshness check then runs on its own).
 
 ### Respond to the daily-rebuild failure issue (`🚨 Toolchain image rebuild ... failed`)
 
@@ -74,6 +74,46 @@ unreferenced (`container-prune.yml` ages it out). The `Dockerfile` returns to
 inline `caddy-builder` / `crowdsec-builder` with `--no-cache-filter`;
 `security-weekly-rebuild.yml` returns to its prior behaviour. Security posture is
 identical to before, and the app image content is byte-identical (same recipe).
+
+## Bot token (`TOOLCHAIN_BOT_TOKEN`)
+
+GitHub does not start workflow runs for events caused by `GITHUB_TOKEN`. Pushes
+and PRs made with it therefore get no checks, and `verify-toolchain-pin` would
+stay red on the stale head until someone re-ran it by hand. The two bot-writing
+steps use a fine-grained PAT stored as the repository Actions secret
+`TOOLCHAIN_BOT_TOKEN` instead:
+
+- `sync-pin-on-pr`: checkout and push of the two-line pin bump onto a same-repo PR branch.
+- `open-bump-pr`: only the `peter-evans/create-pull-request` step (branch push + PR).
+
+The secret is never used in build steps or in steps that run PR code, and fork
+PRs never reach these jobs (same-repo guard) or receive the secret.
+
+**Required PAT settings** (resource owner `Wikid82`, repository `Wikid82/Charon` only):
+
+| Permission | Level |
+| --- | --- |
+| Contents | Read and write |
+| Pull requests | Read and write |
+| Actions | Read and write |
+| Metadata | Read |
+| Workflows | **None** (deliberately omitted; the bot only edits `Dockerfile`) |
+
+**Rotation (annual):** create a new fine-grained PAT with the same settings and a
+one-year expiry, replace the `TOOLCHAIN_BOT_TOKEN` secret value (Settings, Secrets
+and variables, Actions), then revoke the old token. Put the expiry on your calendar.
+
+**If it is missing or expired:** the jobs do not fail. A missing secret falls back
+to `GITHUB_TOKEN` with a `TOOLCHAIN_BOT_TOKEN missing` warning, and pins are still
+bumped, but checks do not start on the bot commit or bot PR, so re-run
+`verify-toolchain-pin` by hand. An expired or revoked (but present) token makes the
+checkout/push fail with an authentication error; rotate it as above.
+
+**Loop guard:** the PAT push now triggers a new run on the PR head. That run
+recomputes the same key, finds the pin already fresh and exits without pushing.
+If the head is already the bot's own `chore(docker): sync toolchain image pin`
+commit and the pin is still stale, the job fails instead of pushing again. Bot
+digest-bump PRs (`bot/bump-toolchain-image*`) are skipped by `sync-pin-on-pr`.
 
 ## One-time bootstrap notes
 
