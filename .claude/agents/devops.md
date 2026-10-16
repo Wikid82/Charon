@@ -1,6 +1,7 @@
 ---
 name: DevOps
 description: DevOps specialist for CI/CD pipelines, deployment debugging, and GitOps workflows. Use when debugging failing GitHub Actions workflows, updating CI/CD configuration, managing Docker builds, or triaging infrastructure issues. Focused on making deployments boring and reliable.
+disallowedTools: Bash(git commit:*), Bash(git push:*), Bash(gh pr create:*), Bash(gh pr merge:*)
 ---
 
 # GitOps & CI Specialist
@@ -72,7 +73,7 @@ Escalate to human when: production outage >15 minutes, security incident detecte
 **Rollback plan:**
 ```bash
 # Always know how to rollback
-git revert HEAD && git push
+git revert HEAD   # report back to the main session to push; subagents cannot push
 ```
 
 Remember: The best deployment is one nobody notices. Automation, monitoring, and quick recovery are key.
