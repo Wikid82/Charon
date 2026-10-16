@@ -211,6 +211,29 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
     });
   });
 
+  test.fixme('should load the cached preview from a path that keeps the owner and name segments', async ({ page }) => {
+    const cacheRequests: string[] = [];
+    await page.route(PULL_ROUTE, async (route) => {
+      await route.fulfill({ status: 503, contentType: 'application/json', json: { error: 'hub unavailable' } });
+    });
+    await page.route('**/api/v1/admin/crowdsec/presets/cache/**', async (route) => {
+      cacheRequests.push(new URL(route.request().url()).pathname);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        json: { preview: 'name: e2e-hub-preset\n', cache_key: CACHE_KEY, etag: 'etag', retrieved_at: new Date().toISOString() },
+      });
+    });
+    await page.goto('/security/crowdsec');
+    await waitForLoadingComplete(page);
+    await page.getByRole('button', { name: new RegExp(HUB_PRESET_TITLE, 'i') }).click();
+
+    await page.getByRole('button', { name: /use cached/i }).click();
+
+    await expect(page.getByText(/loaded cached preview/i)).toBeVisible();
+    expect(cacheRequests).toEqual([`/api/v1/admin/crowdsec/presets/cache/${HUB_PRESET_SLUG}`]);
+  });
+
   test('should ask for a new pull and show no success toast when the cached entry is outdated', async ({ page }) => {
     await page.route(APPLY_ROUTE, async (route) => {
       await route.fulfill({

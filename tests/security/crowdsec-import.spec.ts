@@ -422,6 +422,19 @@ test.describe('CrowdSec Config Import Validation', () => {
     });
   });
 
+  test.describe('Error codes', () => {
+    test.fixme('carries a stable error code next to the unchanged message', async ({ request }, testInfo) => {
+      const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('flat-code.tar.gz'));
+
+      const response = await upload(request, archive, 'flat-code.tar.gz');
+
+      expect(response.status()).toBe(422);
+      const body = await response.json();
+      expect(body.error).toBe(FLAT_ARCHIVE_MESSAGE);
+      expect(body.error_code).toBe('import_flat_archive');
+    });
+  });
+
   // An archive that omits profiles.yaml, simulation.yaml, acquis.yaml or patterns/ must not leave
   // CrowdSec without them: the current files are kept and reported.
   test.describe('Kept Files', () => {
