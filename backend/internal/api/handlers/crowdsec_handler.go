@@ -1010,7 +1010,7 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		_ = os.Remove(tmp.Name())
 	}()
 
-	size, err := h.buildExport(c.Request.Context(), tmp)
+	size, omitted, err := h.buildExport(c.Request.Context(), tmp)
 	if err != nil {
 		h.respondExportError(c, err)
 		return
@@ -1022,29 +1022,49 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		return
 	}
 	filename := fmt.Sprintf("crowdsec-config-%s.tar.gz", time.Now().Format("20060102-150405"))
-	c.DataFromReader(http.StatusOK, size, "application/gzip", tmp, map[string]string{
-		"Content-Disposition": fmt.Sprintf("attachment; filename=%s", filename),
-	})
+	headers := map[string]string{"Content-Disposition": fmt.Sprintf("attachment; filename=%s", filename)}
+	if list := omittedFilesHeader(omitted); list != "" {
+		headers[omittedFilesHeaderName] = list
+	}
+	c.DataFromReader(http.StatusOK, size, "application/gzip", tmp, headers)
+}
+
+// omittedFilesHeaderName carries the private key files an export left out, as a JSON array of paths.
+const omittedFilesHeaderName = "X-Charon-Omitted-Files"
+
+// maxOmittedFilesListed bounds the header; the server log carries the full count.
+const maxOmittedFilesListed = 50
+
+// omittedFilesHeader encodes the omitted paths for the response header, or "" when there are none.
+func omittedFilesHeader(omitted []string) string {
+	if len(omitted) == 0 {
+		return ""
+	}
+	if len(omitted) > maxOmittedFilesListed {
+		omitted = omitted[:maxOmittedFilesListed]
+	}
+	encoded, _ := json.Marshal(omitted) // a slice of strings always encodes
+	return string(encoded)
 }
 
 // buildExport writes the archive into tmp while holding the data lock (local-disk speed only), then
-// checks that an import would accept it. It returns the archive size.
-func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (int64, error) {
-	uncompressed, err := h.writeExportLocked(ctx, tmp)
+// checks that an import would accept it. It returns the archive size and the private key files left out.
+func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (size int64, omitted []string, err error) {
+	uncompressed, omitted, err := h.writeExportLocked(ctx, tmp)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if err = tmp.Sync(); err != nil {
-		return 0, fmt.Errorf("sync export: %w", err)
+		return 0, nil, fmt.Errorf("sync export: %w", err)
 	}
 	info, err := tmp.Stat()
 	if err != nil {
-		return 0, fmt.Errorf("stat export: %w", err)
+		return 0, nil, fmt.Errorf("stat export: %w", err)
 	}
 	if err := crowdsec.CheckExportImportable(info.Size(), uncompressed); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return info.Size(), nil
+	return info.Size(), omitted, nil
 }
 
 // lockData takes dataMu, giving up when the request ends. On false the lock is NOT held and the request
@@ -1060,9 +1080,9 @@ func (h *CrowdsecHandler) lockData(c *gin.Context, op string) bool {
 }
 
 // writeExportLocked serializes the archive build with every other writer of DataDir.
-func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (int64, error) {
+func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (total int64, omitted []string, err error) {
 	if err := h.dataMu.LockContext(ctx); err != nil {
-		return 0, fmt.Errorf("wait for the data lock: %w", err)
+		return 0, nil, fmt.Errorf("wait for the data lock: %w", err)
 	}
 	defer h.dataMu.Unlock()
 	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)

@@ -69,7 +69,7 @@ func TestWriteExportArchiveContentsAndTotal(t *testing.T) {
 	require.NoError(t, os.Symlink("/etc/nowhere", filepath.Join(dir, "config", "link.yaml")))
 
 	var buf bytes.Buffer
-	total, err := WriteExportArchive(context.Background(), dir, &buf)
+	total, _, err := WriteExportArchive(context.Background(), dir, &buf)
 	require.NoError(t, err)
 	require.Equal(t, []string{"a.yaml", "config/aaa.yaml", "config/config.yaml", "config/sub/z.yaml", "config/zzz.yaml", "zz.yaml"},
 		exportNames(t, buf.Bytes()))
@@ -81,7 +81,7 @@ func TestWriteExportArchiveWriterFailure(t *testing.T) {
 	dir := t.TempDir()
 	writeExportTree(t, dir, map[string]string{"a.yaml": "a"})
 	sentinel := errors.New("disk full")
-	_, err := WriteExportArchive(context.Background(), dir, failingWriter{err: sentinel})
+	_, _, err := WriteExportArchive(context.Background(), dir, failingWriter{err: sentinel})
 	require.ErrorIs(t, err, sentinel)
 }
 
@@ -91,7 +91,7 @@ func TestWriteExportArchiveCancelledContext(t *testing.T) {
 	writeExportTree(t, dir, map[string]string{"a.yaml": "a", "b.yaml": "b"})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := WriteExportArchive(ctx, dir, io.Discard)
+	_, _, err := WriteExportArchive(ctx, dir, io.Discard)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -106,7 +106,7 @@ func TestWriteExportArchiveUnreadableFileFails(t *testing.T) {
 	require.NoError(t, os.Chmod(p, 0o000)) // #nosec G302 -- intentional test permission
 	t.Cleanup(func() { _ = os.Chmod(p, 0o600) })
 
-	_, err := WriteExportArchive(context.Background(), dir, io.Discard)
+	_, _, err := WriteExportArchive(context.Background(), dir, io.Discard)
 	require.ErrorIs(t, err, ErrExportFileUnreadable)
 	require.NotContains(t, err.Error(), dir)
 }
@@ -123,7 +123,7 @@ func TestWriteExportArchiveUnreadableDirectorySkipped(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) // #nosec G302 -- restore test directory
 
 	var buf bytes.Buffer
-	_, err := WriteExportArchive(context.Background(), dir, &buf)
+	_, _, err := WriteExportArchive(context.Background(), dir, &buf)
 	require.NoError(t, err)
 	require.Equal(t, []string{"a.yaml", "z.yaml"}, exportNames(t, buf.Bytes()))
 }
@@ -137,7 +137,7 @@ func TestWriteExportArchiveSkipsFIFO(t *testing.T) {
 	done := make(chan error, 1)
 	var buf bytes.Buffer
 	go func() {
-		_, err := WriteExportArchive(context.Background(), dir, &buf)
+		_, _, err := WriteExportArchive(context.Background(), dir, &buf)
 		done <- err
 	}()
 	select {
@@ -166,7 +166,7 @@ func TestWriteExportArchiveFileChangedWhileCopying(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			writeExportTree(t, dir, map[string]string{"a.yaml": "abcdef"})
-			_, err := writeExportArchive(context.Background(), dir, io.Discard, MaxImportUncompressedBytes,
+			_, _, err := writeExportArchive(context.Background(), dir, io.Discard, MaxImportUncompressedBytes,
 				exportHooks{beforeOpen: mutate})
 			require.ErrorIs(t, err, ErrExportFileUnreadable)
 		})
@@ -178,7 +178,7 @@ func TestWriteExportArchiveVanishedFileSkipped(t *testing.T) {
 	dir := t.TempDir()
 	writeExportTree(t, dir, map[string]string{"a.yaml": "a", "gone.yaml": "g", "z.yaml": "z"})
 	var buf bytes.Buffer
-	total, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
+	total, _, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
 		beforeOpen: func(path string) {
 			if filepath.Base(path) == "gone.yaml" {
 				_ = os.Remove(path)
@@ -194,13 +194,13 @@ func TestWriteExportArchiveSizeCap(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeExportTree(t, dir, map[string]string{"a.yaml": "12345", "b.yaml": "12345"})
-	_, err := writeExportArchive(context.Background(), dir, io.Discard, 8, exportHooks{})
+	_, _, err := writeExportArchive(context.Background(), dir, io.Discard, 8, exportHooks{})
 	require.ErrorIs(t, err, ErrExportTooLarge)
 }
 
 func TestWriteExportArchiveMissingRoot(t *testing.T) {
 	t.Parallel()
-	_, err := WriteExportArchive(context.Background(), filepath.Join(t.TempDir(), "absent"), io.Discard)
+	_, _, err := WriteExportArchive(context.Background(), filepath.Join(t.TempDir(), "absent"), io.Discard)
 	require.NoError(t, err) // a vanished root has nothing to export; the handler checks existence first
 }
 
@@ -232,14 +232,14 @@ func (w *afterNWriter) Write(p []byte) (int, error) {
 func TestWriteExportArchiveTarCloseFailure(t *testing.T) {
 	t.Parallel()
 	// No files: the first write into gzip is the tar trailer, which forces the gzip header out and fails.
-	_, err := WriteExportArchive(context.Background(), t.TempDir(), &afterNWriter{err: errors.New("disk full")})
+	_, _, err := WriteExportArchive(context.Background(), t.TempDir(), &afterNWriter{err: errors.New("disk full")})
 	require.ErrorContains(t, err, "close tar writer")
 }
 
 func TestWriteExportArchiveGzipCloseFailure(t *testing.T) {
 	t.Parallel()
 	// The gzip header is written; the compressed trailer is flushed only by Close and fails there.
-	_, err := WriteExportArchive(context.Background(), t.TempDir(), &afterNWriter{n: 1, err: errors.New("disk full")})
+	_, _, err := WriteExportArchive(context.Background(), t.TempDir(), &afterNWriter{n: 1, err: errors.New("disk full")})
 	require.ErrorContains(t, err, "close gzip writer")
 }
 
@@ -251,7 +251,7 @@ func TestWriteExportArchiveCopyFailureIsNotMaskedAsUnreadable(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "big.bin"), buf, 0o600))
 
-	_, err = WriteExportArchive(context.Background(), dir, &afterNWriter{n: 1, err: errors.New("disk full")})
+	_, _, err = WriteExportArchive(context.Background(), dir, &afterNWriter{n: 1, err: errors.New("disk full")})
 	require.ErrorContains(t, err, "copy file into archive")
 	require.NotErrorIs(t, err, ErrExportFileUnreadable)
 }
@@ -310,7 +310,7 @@ func swapAndExport(t *testing.T, swap func(path string)) (names []string, err er
 	var buf bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
-		_, exportErr := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
+		_, _, exportErr := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
 			beforeOpen: func(path string) {
 				if filepath.Base(path) == "a.yaml" {
 					swap(path)
@@ -347,7 +347,7 @@ func TestWriteExportArchiveFileSwappedForSymlinkIsNotFollowed(t *testing.T) {
 	dir := t.TempDir()
 	writeExportTree(t, dir, map[string]string{"a.yaml": "abcdef"})
 	var buf bytes.Buffer
-	_, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
+	_, _, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
 		beforeOpen: func(path string) {
 			require.NoError(t, os.Remove(path))
 			require.NoError(t, os.Symlink(secret, path))
@@ -384,7 +384,7 @@ func TestWriteExportArchiveAbortsOnceCompressedLimitIsPassed(t *testing.T) {
 	}
 	var sink bytes.Buffer
 	const limit = 100 << 10
-	_, err = writeExportArchive(context.Background(), dir, &sink, MaxImportUncompressedBytes,
+	_, _, err = writeExportArchive(context.Background(), dir, &sink, MaxImportUncompressedBytes,
 		exportHooks{maxCompressed: limit})
 	require.ErrorIs(t, err, ErrExportTooLarge)
 	require.LessOrEqual(t, sink.Len(), limit, "nothing past the limit may reach the destination")

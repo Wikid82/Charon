@@ -31,7 +31,6 @@ func exportWithKeyFiles(t *testing.T) *httptest.ResponseRecorder {
 
 func TestExportConfigListsTheFilesItLeftOut(t *testing.T) {
 	t.Parallel()
-	t.Skip("enabled by a later commit in this series")
 
 	w := exportWithKeyFiles(t)
 
@@ -53,4 +52,18 @@ func TestExportConfigWithoutKeyFilesSendsNoList(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Empty(t, w.Header().Values(keyFilesHeader))
+}
+
+func TestOmittedFilesHeader(t *testing.T) {
+	t.Parallel()
+	require.Empty(t, omittedFilesHeader(nil))
+	require.Equal(t, `["a b","c\"d"]`, omittedFilesHeader([]string{"a b", `c"d`}))
+
+	many := make([]string, maxOmittedFilesListed+10)
+	for i := range many {
+		many[i] = "f"
+	}
+	var listed []string
+	require.NoError(t, json.Unmarshal([]byte(omittedFilesHeader(many)), &listed))
+	require.Len(t, listed, maxOmittedFilesListed)
 }

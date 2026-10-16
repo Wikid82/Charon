@@ -240,7 +240,7 @@ test.describe('CrowdSec export: private key files', () => {
     });
   });
 
-  test.fixme('export leaves out the key_path file and key-armored files but keeps certificates', async ({ request }) => {
+  test('export leaves out the key_path file and key-armored files but keeps certificates', async ({ request }) => {
     const archive = await exportArchive(request);
 
     const names = await listTarGzEntries(archive);
@@ -251,7 +251,7 @@ test.describe('CrowdSec export: private key files', () => {
     expect(names).toContain(cfg(NOTIFICATION_PATH));
   });
 
-  test.fixme('export lists the files it left out in a response header', async ({ request }) => {
+  test('export lists the files it left out in a response header', async ({ request }) => {
     const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
 
     expect(response.status()).toBe(200);

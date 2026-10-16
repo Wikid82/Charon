@@ -3,6 +3,7 @@ package crowdsec
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +11,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
-
-const skipKeyFiles = "enabled by a later commit in this series"
 
 const (
 	pemCert      = "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUY2VydC1ib2R5\n-----END CERTIFICATE-----\n"
@@ -45,7 +44,6 @@ func httpPlugin(extra string) string {
 
 func TestExportArchiveLeavesOutFilesNamedByKeyPath(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	dir := t.TempDir()
 	absolute := filepath.Join(dir, "certs", "absolute.pem")
 	writeExportTree(t, dir, map[string]string{
@@ -73,7 +71,6 @@ func TestExportArchiveLeavesOutFilesNamedByKeyPath(t *testing.T) {
 
 func TestExportArchiveLeavesOutKeyPathTargetsOfSuffixedSettings(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	entries := exportedKeyTree(t, map[string]string{
 		"config/notifications/http_default.yaml": httpPlugin("client_key_path: /etc/crowdsec/ssl/suffixed.pem\ncert_path: /etc/crowdsec/ssl/cert-only.pem\n"),
 		"config/ssl/suffixed.pem":                "opaque\n",
@@ -86,7 +83,6 @@ func TestExportArchiveLeavesOutKeyPathTargetsOfSuffixedSettings(t *testing.T) {
 
 func TestExportArchiveKeyPathThroughLinkLeavesOutTheTarget(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	dir := t.TempDir()
 	writeExportTree(t, dir, map[string]string{
 		"config/config.yaml":                     "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
@@ -103,7 +99,6 @@ func TestExportArchiveKeyPathThroughLinkLeavesOutTheTarget(t *testing.T) {
 
 func TestExportArchiveLeavesOutKeyArmorAnywhereInTheFirstWindow(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	armors := map[string]string{
 		"rsa":        pemRSA,
 		"ec":         keyArmor("EC PRIVATE KEY"),
@@ -129,7 +124,6 @@ func TestExportArchiveLeavesOutKeyArmorAnywhereInTheFirstWindow(t *testing.T) {
 
 func TestExportArchiveLeavesOutKeyAfterALongCertificateChain(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	chain := strings.Repeat(pemCert, 100) // about 9 KiB, well inside the window
 	entries := exportedKeyTree(t, map[string]string{
 		"config/ssl/bundle.pem": chain + pemRSA,
@@ -164,7 +158,6 @@ func TestExportArchiveOnlyLooksAtTheFirstWindowForKeyArmor(t *testing.T) {
 
 func TestExportArchiveLeavesOutKeyFilesByName(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	entries := exportedKeyTree(t, map[string]string{
 		"config/ssl/client.key":       "opaque 1\n",
 		"config/ssl/CLIENT2.KEY":      "opaque 2\n",
@@ -185,7 +178,6 @@ func TestExportArchiveLeavesOutKeyFilesByName(t *testing.T) {
 
 func TestExportArchiveLeavesOutYAMLWithAnInlineKey(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	inline := "tls:\n  cert: |\n" + indent(pemCert) + "  key: |\n" + indent(pemRSA)
 	entries := exportedKeyTree(t, map[string]string{
 		"config/extra/tls.yaml":   inline,
@@ -206,7 +198,6 @@ func indent(block string) string {
 
 func TestExportArchiveUnparsableNotificationFallsBackToTheContentRule(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	entries := exportedKeyTree(t, map[string]string{
 		"config/notifications/broken.yaml": "type: http\nkey_path: [unterminated\n",
 		"config/ssl/key-in-pem.txt":        pemRSA,
@@ -219,13 +210,12 @@ func TestExportArchiveUnparsableNotificationFallsBackToTheContentRule(t *testing
 
 func TestExportArchiveContentRuleReadsTheOpenedFile(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipKeyFiles)
 	dir := t.TempDir()
 	clean := strings.Repeat("a", len(pemRSA))
 	writeExportTree(t, dir, map[string]string{"a.txt": clean, "z.txt": "z"})
 	var buf bytes.Buffer
 
-	_, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
+	_, _, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
 		beforeOpen: func(path string) {
 			if filepath.Base(path) == "a.txt" {
 				require.NoError(t, os.WriteFile(path, []byte(pemRSA), 0o600))
@@ -235,4 +225,78 @@ func TestExportArchiveContentRuleReadsTheOpenedFile(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"z.txt"}, exportNames(t, buf.Bytes()), "a file turned into a key after the listing is still left out")
+}
+
+func TestWriteExportArchiveReportsTheFilesItLeftOut(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{
+		"config/config.yaml":                     "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config/notifications/http_default.yaml": httpPlugin("key_path: /etc/crowdsec/ssl/client.pem\n"),
+		"config/ssl/client.pem":                  "opaque private material\n",
+		"config/ssl/armored.txt":                 pemRSA,
+		"config/ssl/named.p12":                   "opaque\n",
+		"config/ssl/server.crt":                  pemCert,
+	})
+	var buf bytes.Buffer
+
+	_, omitted, err := WriteExportArchive(context.Background(), dir, &buf)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"config/ssl/armored.txt", "config/ssl/client.pem", "config/ssl/named.p12"}, omitted)
+	require.NotContains(t, exportNames(t, buf.Bytes()), "config/ssl/client.pem")
+}
+
+func TestWriteExportArchiveReportsNothingWithoutKeyFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{"config/config.yaml": "a: 1\n", "config/ssl/server.crt": pemCert})
+
+	_, omitted, err := WriteExportArchive(context.Background(), dir, io.Discard)
+
+	require.NoError(t, err)
+	require.Empty(t, omitted)
+}
+
+func TestWriteExportArchiveKeyPathScanStopsWhenCancelled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{"config/config.yaml": "a: 1\n"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := WriteExportArchive(ctx, dir, io.Discard)
+
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestKeyPathTargetsSkipsWhatCannotBeRead(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{
+		"config/config.yaml":                   "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config/notifications/dollar.yaml":     httpPlugin("key_path: $KEY_FILE\n"),
+		"config/notifications/relative.yaml":   httpPlugin("key_path: ssl/relative.pem\n"),
+		"config/notifications/outside.yaml":    httpPlugin("key_path: /var/lib/other/key.pem\n"),
+		"config/notifications/not_scalar.yaml": httpPlugin("key_path: [a, b]\n"),
+		"config/notifications/two.yaml":        httpPlugin("key_path: /etc/crowdsec/ssl/a.pem\n") + "---\n" + httpPlugin("key_path: /etc/crowdsec/ssl/b.pem\n"),
+		"config/notifications/broken.yaml":     "key_path: [unterminated\n",
+		"config/notifications/notes.txt":       "key_path: /etc/crowdsec/ssl/text.pem\n",
+	})
+
+	targets, err := keyPathTargets(context.Background(), dir, NotificationDirs(dir, nil))
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]struct{}{"config/ssl/a.pem": {}, "config/ssl/b.pem": {}}, targets)
+}
+
+func TestHoldsKeyArmorReportsReadFailures(t *testing.T) {
+	t.Parallel()
+	dir, err := os.Open(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dir.Close() })
+
+	_, err = holdsKeyArmor(dir)
+
+	require.ErrorContains(t, err, "read file head")
 }
