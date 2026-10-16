@@ -221,3 +221,53 @@ test.describe('CrowdSec export: blanked notification values', () => {
     }
   });
 });
+
+test.describe('CrowdSec export: private key files', () => {
+  const KEY_ARMOR = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----\n';
+  const CERT_ARMOR = '-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUY2VydA==\n-----END CERTIFICATE-----\n';
+  const KEY_PATH = 'config/ssl/client.pem';
+  const ARMORED_PATH = 'config/ssl/other.txt';
+  const CERT_PATH = 'config/ssl/client.crt';
+
+  test.beforeEach(async ({ request }, testInfo) => {
+    const notification =
+      notificationYamlWithValues(NOTIFICATION) +
+      'cert_path: /etc/crowdsec/ssl/client.crt\nkey_path: /etc/crowdsec/ssl/client.pem\n';
+    await seedNotification(request, testInfo.outputPath('seed-keys.tar.gz'), notification, {
+      [KEY_PATH]: 'opaque private material\n',
+      [ARMORED_PATH]: KEY_ARMOR,
+      [CERT_PATH]: CERT_ARMOR,
+    });
+  });
+
+  test('export leaves out the key_path file and key-armored files but keeps certificates', async ({ request }) => {
+    const archive = await exportArchive(request);
+
+    const names = await listTarGzEntries(archive);
+
+    expect(names).not.toContain(KEY_PATH);
+    expect(names).not.toContain(ARMORED_PATH);
+    expect(names).toContain(CERT_PATH);
+    expect(names).toContain(cfg(NOTIFICATION_PATH));
+  });
+
+  test('export lists the files it left out in a response header', async ({ request }) => {
+    const response = await request.get(`${ADMIN}/export`, { timeout: 120_000 });
+
+    expect(response.status()).toBe(200);
+    const omitted = JSON.parse(response.headers()['x-charon-omitted-files'] ?? '[]') as string[];
+    expect(omitted).toEqual(expect.arrayContaining([KEY_PATH, ARMORED_PATH]));
+  });
+
+  test('importing an export on the same system keeps the current key files', async ({ request }, testInfo) => {
+    const archivePath = testInfo.outputPath('roundtrip-keys.tar.gz');
+    await fs.writeFile(archivePath, await exportArchive(request));
+
+    const response = await upload(request, archivePath, 'roundtrip-keys.tar.gz');
+
+    expect(response.status()).toBe(200);
+    expect((await response.json()).kept_files).toEqual(expect.arrayContaining([KEY_PATH, ARMORED_PATH]));
+    expect(await readConfigFile(request, KEY_PATH)).toBe('opaque private material\n');
+    expect(await readConfigFile(request, ARMORED_PATH)).toBe(KEY_ARMOR);
+  });
+});

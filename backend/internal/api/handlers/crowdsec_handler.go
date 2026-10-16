@@ -363,6 +363,28 @@ const msgImportFlatArchive = "the archive keeps its configuration at the top lev
 // msgKeepCurrentFiles is the fixed message for an import that could not keep the current files.
 const msgKeepCurrentFiles = "failed to keep the current CrowdSec files"
 
+// Stable error_code values of the import refusals, next to the English error text. The UI translates
+// them; the codes are part of the API and must not be renamed.
+const (
+	// codeImportFlatArchive: the archive keeps its configuration at the top level (msgImportFlatArchive).
+	codeImportFlatArchive = "import_flat_archive"
+	// codeImportProfileNamesUndefined: the archive's profiles.yaml names notifications no file defines
+	// ("config validation failed: profiles.yaml names ..."); carries names.
+	codeImportProfileNamesUndefined = "import_profile_names_undefined"
+	// codeImportKeptProfileUndefined: the kept profiles.yaml names notifications the archive has no files
+	// for (msgKeptProfileUndefined); carries names.
+	codeImportKeptProfileUndefined = "import_kept_profile_undefined"
+	// codeImportKeptProfileDuplicate: a restored notification file defines a name the archive defines.
+	codeImportKeptProfileDuplicate = "import_kept_profile_duplicate"
+	// codeImportKeepCurrentFailed: the current files could not be kept (msgKeepCurrentFiles).
+	codeImportKeepCurrentFailed = "import_keep_current_failed"
+	// codeImportConfigNotFound: the archive has no config.yaml the engine reads.
+	codeImportConfigNotFound = "import_config_not_found"
+)
+
+// maxRefusalNames bounds the names list of an import refusal.
+const maxRefusalNames = 50
+
 // errConfigFileNotFound is the fixed message for an import that contains no config.yaml in a
 // location the engine reads (top level or config/).
 var errConfigFileNotFound = errors.New("config.yaml was not found at the top level or in config/")
@@ -767,7 +789,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	} else if err = crowdsec.VerifyInspectedNotifications(info); err != nil {
 		var undefined *crowdsec.UndefinedNotificationsError
 		if errors.As(err, &undefined) {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "config validation failed: " + undefined.Error()})
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportProfileNamesUndefined, "config validation failed: "+undefined.Error(), gin.H{"names": undefined.SafeNames(maxRefusalNames)})
 			return
 		}
 	}
@@ -784,7 +806,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	liveLayout := crowdsec.DetectLayout(h.DataDir)
 	if inspectErr == nil {
 		if err = crowdsec.CheckImportLayout(liveLayout, info); err != nil {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportFlatArchive, msgImportFlatArchive, nil)
 			return
 		}
 	}
@@ -825,7 +847,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if liveLayout == crowdsec.LayoutNested {
 		if _, statErr := os.Stat(filepath.Join(h.DataDir, "config", "config.yaml")); statErr != nil {
 			rollback()
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportFlatArchive, msgImportFlatArchive, nil)
 			return
 		}
 	}
@@ -835,7 +857,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if mergeErr := h.mergeNotifications(backupDir, h.DataDir); mergeErr != nil {
 		logger.Log().WithField("error", sanitizeForLog(mergeErr.Error())).Warn("crowdsec import: keeping the current notification values failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
 		return
 	}
 
@@ -845,14 +867,25 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if restoreErr != nil {
 		logger.Log().WithField("error", sanitizeForLog(restoreErr.Error())).Warn("crowdsec import: restoring the current files failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
 		return
 	}
 	if verifyErr := crowdsec.VerifyKeptProfile(h.DataDir, keptFiles); verifyErr != nil {
 		rollback()
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": keptProfileRefusal(verifyErr)})
+		respondKeptProfileRefusal(c, verifyErr)
 		return
 	}
+
+	// Exports leave private key files out, so an import on the same host would delete the live ones: put
+	// back those the archive did not provide, before the configuration is validated.
+	keptKeys, keyErr := crowdsec.RestoreKeyFiles(backupDir, h.DataDir)
+	if keyErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(keyErr.Error())).Warn("crowdsec import: keeping the current key files failed")
+		rollback()
+		respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
+		return
+	}
+	keptFiles = append(keptFiles, keptKeys...)
 
 	// Validate extracted config
 	validateErr := errConfigFileNotFound
@@ -861,7 +894,12 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 	if err := validateErr; err != nil {
 		rollback()
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", crowdsec.RedactPaths(err.Error()))})
+		msg := fmt.Sprintf("config validation failed: %v", crowdsec.RedactPaths(err.Error()))
+		if errors.Is(err, errConfigFileNotFound) {
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportConfigNotFound, msg, nil)
+			return
+		}
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msg})
 		return
 	}
 
@@ -895,14 +933,15 @@ func liveConfigPrefix(l crowdsec.Layout) string {
 	return ""
 }
 
-// keptProfileRefusal maps a failure of crowdsec.VerifyKeptProfile (an undefined or a duplicate
-// notification) to its fixed 422 message.
-func keptProfileRefusal(err error) string {
+// respondKeptProfileRefusal answers a failure of crowdsec.VerifyKeptProfile (an undefined or a
+// duplicate notification) with its fixed 422 message and code; undefined names are listed as an array.
+func respondKeptProfileRefusal(c *gin.Context, err error) {
 	var undefined *crowdsec.UndefinedNotificationsError
 	if errors.As(err, &undefined) {
-		return msgKeptProfileUndefined + undefined.NameList()
+		respondCoded(c, http.StatusUnprocessableEntity, codeImportKeptProfileUndefined, msgKeptProfileUndefined+undefined.NameList(), gin.H{"names": undefined.SafeNames(maxRefusalNames)})
+		return
 	}
-	return msgKeptProfileDuplicate
+	respondCoded(c, http.StatusUnprocessableEntity, codeImportKeptProfileDuplicate, msgKeptProfileDuplicate, nil)
 }
 
 // pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
@@ -1010,7 +1049,7 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		_ = os.Remove(tmp.Name())
 	}()
 
-	size, err := h.buildExport(c.Request.Context(), tmp)
+	size, omitted, err := h.buildExport(c.Request.Context(), tmp)
 	if err != nil {
 		h.respondExportError(c, err)
 		return
@@ -1022,29 +1061,66 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		return
 	}
 	filename := fmt.Sprintf("crowdsec-config-%s.tar.gz", time.Now().Format("20060102-150405"))
-	c.DataFromReader(http.StatusOK, size, "application/gzip", tmp, map[string]string{
-		"Content-Disposition": fmt.Sprintf("attachment; filename=%s", filename),
-	})
+	headers := map[string]string{"Content-Disposition": fmt.Sprintf("attachment; filename=%s", filename)}
+	if list := omittedFilesHeader(omitted); list != "" {
+		headers[omittedFilesHeaderName] = list
+	}
+	c.DataFromReader(http.StatusOK, size, "application/gzip", tmp, headers)
+}
+
+// omittedFilesHeaderName carries the private key files an export left out, as a JSON array of paths.
+const omittedFilesHeaderName = "X-Charon-Omitted-Files"
+
+// maxOmittedFilesListed bounds the number of paths in the header; the server log carries the full count.
+const maxOmittedFilesListed = 50
+
+// maxOmittedHeaderBytes bounds the encoded header size: many reverse proxies reject response headers
+// beyond 4-8 KiB, and the count cap alone does not limit long paths.
+const maxOmittedHeaderBytes = 2048
+
+// omittedFilesHeader encodes the omitted paths for the response header as a JSON array of strings, or ""
+// when there are none. Paths are added until the count or byte budget is reached; a last "+N more" entry
+// then says how many were left out of the list.
+func omittedFilesHeader(omitted []string) string {
+	if len(omitted) == 0 {
+		return ""
+	}
+	listed := make([]string, 0, min(len(omitted), maxOmittedFilesListed)+1)
+	size := 2 // brackets
+	for _, p := range omitted {
+		enc, _ := json.Marshal(p) // a string always encodes
+		cost := len(enc) + 1      // separating comma
+		if len(listed) >= maxOmittedFilesListed || size+cost > maxOmittedHeaderBytes {
+			break
+		}
+		listed = append(listed, p)
+		size += cost
+	}
+	if more := len(omitted) - len(listed); more > 0 {
+		listed = append(listed, fmt.Sprintf("+%d more", more))
+	}
+	encoded, _ := json.Marshal(listed) // a slice of strings always encodes
+	return string(encoded)
 }
 
 // buildExport writes the archive into tmp while holding the data lock (local-disk speed only), then
-// checks that an import would accept it. It returns the archive size.
-func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (int64, error) {
-	uncompressed, err := h.writeExportLocked(ctx, tmp)
+// checks that an import would accept it. It returns the archive size and the private key files left out.
+func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (size int64, omitted []string, err error) {
+	uncompressed, omitted, err := h.writeExportLocked(ctx, tmp)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if err = tmp.Sync(); err != nil {
-		return 0, fmt.Errorf("sync export: %w", err)
+		return 0, nil, fmt.Errorf("sync export: %w", err)
 	}
 	info, err := tmp.Stat()
 	if err != nil {
-		return 0, fmt.Errorf("stat export: %w", err)
+		return 0, nil, fmt.Errorf("stat export: %w", err)
 	}
 	if err := crowdsec.CheckExportImportable(info.Size(), uncompressed); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return info.Size(), nil
+	return info.Size(), omitted, nil
 }
 
 // lockData takes dataMu, giving up when the request ends. On false the lock is NOT held and the request
@@ -1060,9 +1136,9 @@ func (h *CrowdsecHandler) lockData(c *gin.Context, op string) bool {
 }
 
 // writeExportLocked serializes the archive build with every other writer of DataDir.
-func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (int64, error) {
+func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (total int64, omitted []string, err error) {
 	if err := h.dataMu.LockContext(ctx); err != nil {
-		return 0, fmt.Errorf("wait for the data lock: %w", err)
+		return 0, nil, fmt.Errorf("wait for the data lock: %w", err)
 	}
 	defer h.dataMu.Unlock()
 	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
@@ -2128,12 +2204,7 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 		// Look for lines that appear to be an API key (long alphanumeric string)
 		line = strings.TrimSpace(line)
 		if len(line) >= 32 && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
-			// Found what looks like an API key, show preview
-			if len(line) > 8 {
-				apiKeyPreview = line[:8] + "..."
-			} else {
-				apiKeyPreview = line + "..."
-			}
+			apiKeyPreview = util.MaskAPIKey(line)
 			break
 		}
 	}
@@ -2529,7 +2600,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/presets", h.ListPresets)
 	rg.POST("/admin/crowdsec/presets/pull", h.PullPreset)
 	rg.POST("/admin/crowdsec/presets/apply", h.ApplyPreset)
-	rg.GET("/admin/crowdsec/presets/cache/:slug", h.GetCachedPreset)
+	rg.GET("/admin/crowdsec/presets/cache/*slug", h.GetCachedPreset)
 	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
 	rg.DELETE("/admin/crowdsec/console/enrollment", h.DeleteConsoleEnrollment)

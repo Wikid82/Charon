@@ -2236,8 +2236,8 @@ func TestCrowdsecHandler_GetCachedPreset_EmptySlug(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Empty slug should result in 404 (route not matched) or 400
-	require.True(t, w.Code == http.StatusNotFound || w.Code == http.StatusBadRequest)
+	// The catch-all route reaches the handler, which rejects an empty slug
+	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestCrowdsecHandler_Start_StatusCode tests starting CrowdSec returns 200 status
@@ -2552,8 +2552,8 @@ func TestCrowdsecHandler_GetCachedPreset_InvalidSlug(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Empty slug should be rejected (404 because route requires :slug parameter)
-	require.Equal(t, http.StatusNotFound, w.Code)
+	// The catch-all route reaches the handler, which rejects an empty slug
+	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestCrowdsecHandler_GetCachedPreset_CacheMiss verifies cache miss handling

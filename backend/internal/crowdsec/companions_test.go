@@ -614,3 +614,20 @@ func TestWriteNotificationFileCannotCreateInReadOnlyFolder(t *testing.T) {
 	require.Error(t, err)
 	require.False(t, wrote)
 }
+
+func TestUndefinedNotificationsErrorSafeNames(t *testing.T) {
+	t.Parallel()
+	names := make([]string, 60)
+	for i := range names {
+		names[i] = "n"
+	}
+	names[0] = "bad\nname"
+	names[1] = strings.Repeat("x", 500)
+
+	got := (&UndefinedNotificationsError{Names: names}).SafeNames(50)
+
+	require.Len(t, got, 50)
+	require.Equal(t, "bad name", got[0])
+	require.LessOrEqual(t, len([]rune(got[1])), maxListedNameLen+3)
+	require.Len(t, (&UndefinedNotificationsError{Names: []string{"a"}}).SafeNames(50), 1)
+}

@@ -118,7 +118,7 @@ var realLayoutItems = []HubItem{
 func exportToFile(t *testing.T, dir string) (archivePath string, raw []byte) {
 	t.Helper()
 	var buf bytes.Buffer
-	_, err := WriteExportArchive(context.Background(), dir, &buf)
+	_, _, err := WriteExportArchive(context.Background(), dir, &buf)
 	require.NoError(t, err)
 	archivePath = filepath.Join(t.TempDir(), "export.tar.gz")
 	require.NoError(t, os.WriteFile(archivePath, buf.Bytes(), 0o600))
@@ -200,17 +200,17 @@ func TestExportManifestFailureModes(t *testing.T) {
 	t.Run("size cap counts the manifest", func(t *testing.T) {
 		t.Parallel()
 		dir := realLayoutTree(t)
-		_, err := writeExportArchive(context.Background(), dir, io.Discard, 20, exportHooks{})
+		_, _, err := writeExportArchive(context.Background(), dir, io.Discard, 20, exportHooks{})
 		require.ErrorIs(t, err, ErrExportTooLarge)
 	})
 	t.Run("manifest fits when only it is left", func(t *testing.T) {
 		t.Parallel()
 		dir := realLayoutTree(t)
-		total, err := writeExportArchive(context.Background(), dir, io.Discard, MaxImportUncompressedBytes, exportHooks{})
+		total, _, err := writeExportArchive(context.Background(), dir, io.Discard, MaxImportUncompressedBytes, exportHooks{})
 		require.NoError(t, err)
-		_, err = writeExportArchive(context.Background(), dir, io.Discard, total-1, exportHooks{})
+		_, _, err = writeExportArchive(context.Background(), dir, io.Discard, total-1, exportHooks{})
 		require.ErrorIs(t, err, ErrExportTooLarge)
-		_, err = writeExportArchive(context.Background(), dir, io.Discard, total, exportHooks{})
+		_, _, err = writeExportArchive(context.Background(), dir, io.Discard, total, exportHooks{})
 		require.NoError(t, err)
 	})
 	t.Run("unreadable type directory omits the manifest", func(t *testing.T) {
@@ -226,7 +226,7 @@ func TestExportManifestFailureModes(t *testing.T) {
 	t.Run("tar write failure", func(t *testing.T) {
 		t.Parallel()
 		dir := realLayoutTree(t)
-		_, err := WriteExportArchive(context.Background(), dir, failingWriter{err: errors.New("disk full")})
+		_, _, err := WriteExportArchive(context.Background(), dir, failingWriter{err: errors.New("disk full")})
 		require.Error(t, err)
 	})
 }

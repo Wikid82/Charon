@@ -42,7 +42,7 @@ func TestImportConfigRefusesFlatArchiveForNestedInstall(t *testing.T) {
 			w := importStatus(t, r, files)
 
 			require.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
-			require.JSONEq(t, `{"error":"`+msgImportFlatArchive+`"}`, w.Body.String())
+			require.JSONEq(t, `{"error":"`+msgImportFlatArchive+`","error_code":"`+codeImportFlatArchive+`"}`, w.Body.String())
 			require.Equal(t, before, treeState(t, dir))
 			requireNoSnapshots(t, dir)
 		})
@@ -106,7 +106,7 @@ func TestImportConfigNestedGuardAfterExtraction(t *testing.T) {
 	w := importStatus(t, r, map[string]string{"config/config.yaml": importableConfig})
 
 	require.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
-	require.JSONEq(t, `{"error":"`+msgImportFlatArchive+`"}`, w.Body.String())
+	require.JSONEq(t, `{"error":"`+msgImportFlatArchive+`","error_code":"`+codeImportFlatArchive+`"}`, w.Body.String())
 	require.Equal(t, before, treeState(t, target))
 	require.NoFileExists(t, filepath.Join(target, "config.yaml"))
 }

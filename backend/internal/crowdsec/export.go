@@ -74,27 +74,32 @@ func checkExportImportable(compressed, uncompressed, maxCompressed int64, maxRat
 }
 
 // WriteExportArchive writes the portable configuration below dataDir to w as a tar.gz archive and
-// returns the uncompressed byte total. Excluded paths (IsExportExcluded) are left out, directories are
+// returns the uncompressed byte total and the slash paths of the private key files it left out. Excluded paths (IsExportExcluded) are left out, directories are
 // skipped with fs.SkipDir only when excluded, and non-regular entries (symlinks, pipes, sockets,
 // devices) are skipped so that nothing is followed or blocks on open. A file that vanishes is skipped;
 // an unreadable directory is logged and skipped; the installed hub items are listed in a generated
 // ManifestEntryName entry (only when there are any); notification settings files have their sensitive
 // values blanked (RedactNotificationFile) or, when that is not possible, are exported empty, and stray
 // non-YAML files in a notification folder are left out; an unreadable regular file, or one whose size changes
-// while it is copied, fails the export with ErrExportFileUnreadable.
-func WriteExportArchive(ctx context.Context, dataDir string, w io.Writer) (int64, error) {
+// while it is copied, fails the export with ErrExportFileUnreadable. Private key files stay on the host:
+// the files notification settings name as key_path, files named *.key, *.p12 or *.pfx, and files whose
+// first 64 KiB hold private key armor.
+func WriteExportArchive(ctx context.Context, dataDir string, w io.Writer) (total int64, omitted []string, err error) {
 	return writeExportArchive(ctx, dataDir, w, MaxImportUncompressedBytes, exportHooks{})
 }
 
-func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxBytes int64, hooks exportHooks) (int64, error) {
+func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxBytes int64, hooks exportHooks) (total int64, omitted []string, err error) {
 	maxCompressed := hooks.maxCompressed
 	if maxCompressed <= 0 {
 		maxCompressed = MaxImportCompressedBytes
 	}
 	gw := gzip.NewWriter(&limitWriter{w: w, limit: maxCompressed})
 	tw := tar.NewWriter(gw)
-	var total int64
 	dirs := treeNotificationDirs(dataDir)
+	keyTargets, err := keyPathTargets(ctx, dataDir, dataDir, dirs)
+	if err != nil {
+		return 0, nil, err
+	}
 
 	walkErr := filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -125,25 +130,37 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 			logger.Log().Warnf("skipping non-regular entry %s during export", util.SanitizeForLog(rel))
 			return nil
 		}
+		slash := filepath.ToSlash(rel)
+		if namesKeyFile(keyTargets, slash) {
+			omitted = append(omitted, slash)
+			return nil
+		}
 		n, copyErr := addExportFile(tw, dataDir, rel, total, maxBytes, dirs, hooks)
+		if errors.Is(copyErr, errKeyFileOmitted) {
+			omitted = append(omitted, slash)
+			return nil
+		}
 		total += n
 		return copyErr
 	})
 	if walkErr != nil {
-		return total, fmt.Errorf("export walk: %w", walkErr)
+		return total, nil, fmt.Errorf("export walk: %w", walkErr)
 	}
 	n, manifestErr := writeHubManifest(tw, dataDir, total, maxBytes)
 	total += n
 	if manifestErr != nil {
-		return total, fmt.Errorf("export hub item manifest: %w", manifestErr)
+		return total, nil, fmt.Errorf("export hub item manifest: %w", manifestErr)
 	}
 	if err := tw.Close(); err != nil {
-		return total, fmt.Errorf("close tar writer: %w", err)
+		return total, nil, fmt.Errorf("close tar writer: %w", err)
 	}
 	if err := gw.Close(); err != nil {
-		return total, fmt.Errorf("close gzip writer: %w", err)
+		return total, nil, fmt.Errorf("close gzip writer: %w", err)
 	}
-	return total, nil
+	if len(omitted) > 0 {
+		logger.Log().Infof("left %d private key file(s) out of the export; supply them again after restoring", len(omitted))
+	}
+	return total, omitted, nil
 }
 
 // handleExportWalkError applies the single walk-error rule: a vanished entry is skipped, a permission
@@ -180,6 +197,20 @@ func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, d
 			logger.Log().WithError(closeErr).Warnf("failed to close %s while archiving", util.SanitizeForLog(rel))
 		}
 	}()
+
+	// The content rule runs on the descriptor that is copied next, so a file swapped after the walk is
+	// judged by what is actually archived.
+	if isEngineFile(slash) {
+		logger.Log().Debugf("not sniffing %s for key armor: engine file exported as written", util.SanitizeForLog(rel))
+	} else {
+		armored, armorErr := holdsKeyArmor(f)
+		if armorErr != nil {
+			return 0, unreadableFile(rel, armorErr)
+		}
+		if armored {
+			return 0, errKeyFileOmitted
+		}
+	}
 
 	// A YAML file outside the notification folders may still be one (look-alike), so it is read and
 	// probed too, as long as it is small enough to be parsed.

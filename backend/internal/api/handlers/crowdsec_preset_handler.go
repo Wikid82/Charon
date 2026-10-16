@@ -399,7 +399,8 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	slug := strings.TrimSpace(c.Param("slug"))
+	// The route is a catch-all so owner/name slugs match; the param keeps its leading slash.
+	slug := strings.TrimSpace(strings.TrimPrefix(c.Param("slug"), "/"))
 	if slug == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
 		return

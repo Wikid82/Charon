@@ -191,9 +191,21 @@ func configuredNotificationDir(configYAML []byte) (string, bool) {
 	return node.Value, true
 }
 
-// resolveNotificationDir maps a configured folder to a slash path below dataDir. Nothing is expanded
-// (a "$" anywhere means it cannot be resolved statically) and no link is followed.
+// resolveNotificationDir maps a configured folder to a slash path below dataDir, refusing the config
+// folder itself and the content directories.
 func resolveNotificationDir(dataDir, value string) (string, bool) {
+	rel, ok := treeRelPath(dataDir, value)
+	if !ok || rel == "config" || rel == "" || isContentDirPath(rel) {
+		return "", false
+	}
+	return rel, true
+}
+
+// treeRelPath maps an absolute path named by a configuration value to a slash path below dataDir: a path
+// inside the data folder, or one under /etc/crowdsec when the tree uses the nested layout (the
+// container's view of the config folder). Nothing is expanded (a "$" anywhere means it cannot be
+// resolved statically) and no link is followed.
+func treeRelPath(dataDir, value string) (string, bool) {
 	if value == "" || strings.ContainsRune(value, 0) || strings.Contains(value, "$") {
 		return "", false
 	}
@@ -208,21 +220,16 @@ func resolveNotificationDir(dataDir, value string) (string, bool) {
 	}
 	value = path.Clean(value)
 	root := path.Clean(filepath.ToSlash(filepath.Clean(dataDir)))
-	var rel string
 	switch {
 	case value == root:
 		return "", false
 	case strings.HasPrefix(value, root+"/"):
-		rel = strings.TrimPrefix(value, root+"/")
+		return strings.TrimPrefix(value, root+"/"), true
 	case (value == "/etc/crowdsec" || strings.HasPrefix(value, "/etc/crowdsec/")) && DetectLayout(dataDir) == LayoutNested:
-		rel = "config" + strings.TrimPrefix(value, "/etc/crowdsec")
+		return "config" + strings.TrimPrefix(value, "/etc/crowdsec"), true
 	default:
 		return "", false
 	}
-	if rel == "config" || rel == "" || isContentDirPath(rel) {
-		return "", false
-	}
-	return rel, true
 }
 
 // isContentDirPath reports whether rel is at or below a CrowdSec content directory, directly below the

@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError } from '../api/crowdsec'
 import { getFeatureFlags } from '../api/featureFlags'
 import {
   listCrowdsecPresets,
@@ -145,7 +145,7 @@ export default function CrowdSecConfig() {
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.importFailed'))
+      toast.error(importFailureMessage(err))
     }
   })
 
@@ -483,6 +483,29 @@ export default function CrowdSecConfig() {
     const listed = names.slice(0, MAX_LISTED_NAMES).map(sanitizeKeptFileName)
     const hidden = names.length - listed.length
     return (hidden > 0 ? [...listed, t('crowdsecConfig.importNeedsValuesMore', { count: hidden })] : listed).join(', ')
+  }
+
+  /** Translated text for a refused import; unknown or missing codes keep the server's text. */
+  const importFailureMessage = (err: unknown): string => {
+    const fallback = err instanceof Error ? err.message : t('crowdsecConfig.importFailed')
+    const refusal = getCrowdsecImportError(err)
+    const names = refusal ? formatNameList(refusal.names) : ''
+    switch (refusal?.code) {
+      case 'import_flat_archive':
+        return t('crowdsecConfig.importErrorFlatArchive')
+      case 'import_profile_names_undefined':
+        return names ? t('crowdsecConfig.importErrorProfileNamesUndefined', { names }) : fallback
+      case 'import_kept_profile_undefined':
+        return names ? t('crowdsecConfig.importErrorKeptProfileUndefined', { names }) : fallback
+      case 'import_kept_profile_duplicate':
+        return t('crowdsecConfig.importErrorKeptProfileDuplicate')
+      case 'import_keep_current_failed':
+        return t('crowdsecConfig.importErrorKeepCurrentFailed')
+      case 'import_config_not_found':
+        return t('crowdsecConfig.importErrorConfigNotFound')
+      default:
+        return fallback
+    }
   }
 
   /** Translated text for an apply outcome reported by the server. */
