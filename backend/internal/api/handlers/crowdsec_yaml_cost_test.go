@@ -19,8 +19,6 @@ func overComplexYAML() string {
 }
 
 func TestYAMLCostFailsClosedForConfigValidation(t *testing.T) {
-	t.Parallel()
-	t.Skip("enabled by a later commit in this series")
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(overComplexYAML()), 0o600))
 
@@ -28,8 +26,6 @@ func TestYAMLCostFailsClosedForConfigValidation(t *testing.T) {
 }
 
 func TestYAMLCostFailsClosedForFileEdits(t *testing.T) {
-	t.Parallel()
-	t.Skip("enabled by a later commit in this series")
 
 	require.NotNil(t, checkYAML("config/extra.yaml", overComplexYAML()))
 }
