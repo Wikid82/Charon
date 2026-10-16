@@ -721,6 +721,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         cp -r "${BOUNCER_CACHE}/." "${BOUNCER_LOCAL}/"; \
         chmod -R +w "${BOUNCER_LOCAL}"; \
         sed -i "s/IPEquals: &value,/IPEquals: value,/g" "${BOUNCER_LOCAL}/internal/bouncer/live.go"; \
+        # go-cs-lib >= v0.0.25 (pulled in by crowdsec >= v1.8) made version.DetectOS return
+        # three values; caddy-crowdsec-bouncer v0.12.1 still destructures two. Keep ipstore
+        # at v0.5.0+ so MVS does not silently downgrade the bouncer to v0.11.0 (which masked this).
+        sed -i "s/osName, osVersion := version.DetectOS()/osName, osVersion, _ := version.DetectOS()/g" "${BOUNCER_LOCAL}/internal/metrics/metrics.go"; \
         echo "Patched caddy-crowdsec-bouncer at ${BOUNCER_LOCAL}"; \
         go mod edit -replace "github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1=${BOUNCER_LOCAL}"; \
         GO_CS_CACHE="${_GOMC}/github.com/crowdsecurity/go-cs-bouncer@v0.0.14"; \
