@@ -13,7 +13,7 @@ lint_major_version() {
 
 install_v2_linter() {
     echo "🔧 Installing golangci-lint v2 with current Go toolchain..."
-    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 }
 
 resolve_v2_linter() {
