@@ -877,11 +877,8 @@ RUN set -e; \
     # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
     _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
-    # CVE-2026-40898 (GHSA-vvgj-x9jq-8cj9): quic-go HTTP/3 QPACK Trailer Expansion Memory Exhaustion.
-    # Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli (CrowdSec embeds quic-go v0.57.0).
-    # Fix available at v0.59.1. Caddy already resolves v0.59.1 through its own graph.
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    _retry go get github.com/quic-go/quic-go@v0.60.0; \
+    _retry go get github.com/quic-go/quic-go@v0.64.0; \
     # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
