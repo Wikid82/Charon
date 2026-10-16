@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-6e84578898648106
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:c4964b2189a8eefc5671184dd4e1297485e88209dc29237678dc44dc03365f05
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-c57efdc8d009a2c9
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:bd93c72f18eaa4c5c7d70734a9876579c3254a991a803a97b1bfc2f891775a7c
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -721,6 +721,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         cp -r "${BOUNCER_CACHE}/." "${BOUNCER_LOCAL}/"; \
         chmod -R +w "${BOUNCER_LOCAL}"; \
         sed -i "s/IPEquals: &value,/IPEquals: value,/g" "${BOUNCER_LOCAL}/internal/bouncer/live.go"; \
+        # go-cs-lib >= v0.0.25 (pulled in by crowdsec >= v1.8) made version.DetectOS return
+        # three values; caddy-crowdsec-bouncer v0.12.1 still destructures two. Keep ipstore
+        # at v0.5.0+ so MVS does not silently downgrade the bouncer to v0.11.0 (which masked this).
+        sed -i "s/osName, osVersion := version.DetectOS()/osName, osVersion, _ := version.DetectOS()/g" "${BOUNCER_LOCAL}/internal/metrics/metrics.go"; \
         echo "Patched caddy-crowdsec-bouncer at ${BOUNCER_LOCAL}"; \
         go mod edit -replace "github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1=${BOUNCER_LOCAL}"; \
         GO_CS_CACHE="${_GOMC}/github.com/crowdsecurity/go-cs-bouncer@v0.0.14"; \
