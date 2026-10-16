@@ -102,6 +102,7 @@ ignore:
 
   # Backend non-source files
   - "backend/cmd/seed/**"
+  - "backend/internal/crowdsec/hubcachetest/**"
   - "backend/data/**"
   - "backend/coverage/**"
   - "backend/bin/**"

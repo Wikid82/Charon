@@ -3,6 +3,7 @@ package crowdsec
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrInvalidPresetDefinition is returned when a curated preset definition fails validation.
@@ -100,10 +101,10 @@ func ListCuratedPresets() []Preset {
 	return out
 }
 
-// FindPreset returns a preset by slug.
+// FindPreset returns a curated preset by slug, ignoring case.
 func FindPreset(slug string) (Preset, bool) {
 	for _, p := range curatedPresets {
-		if p.Slug == slug {
+		if strings.EqualFold(p.Slug, slug) {
 			return p, true
 		}
 	}

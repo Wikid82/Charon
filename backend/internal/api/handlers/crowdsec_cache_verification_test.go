@@ -25,8 +25,7 @@ func TestListPresetsShowsCachedStatus(t *testing.T) {
 
 	// Cache a preset
 	ctx := context.Background()
-	archive := []byte("archive")
-	_, err = cache.Store(ctx, "test/cached", "etag", "hub", "preview", archive)
+	_, err = cache.Store(ctx, "test/cached", "collections", "etag", "hub", []byte("name: test/cached\n"))
 	require.NoError(t, err)
 
 	// Setup handler
@@ -75,8 +74,7 @@ func TestCacheKeyPersistence(t *testing.T) {
 
 	// Store a preset
 	ctx := context.Background()
-	archive := []byte("test archive")
-	meta, err := cache.Store(ctx, "test/preset", "etag123", "hub", "preview text", archive)
+	meta, err := cache.Store(ctx, "test/preset", "collections", "etag123", "hub", []byte("name: test/preset\n"))
 	require.NoError(t, err)
 
 	originalCacheKey := meta.CacheKey

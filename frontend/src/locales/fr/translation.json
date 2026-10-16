@@ -1315,7 +1315,14 @@
         "pullFailed": "Échec de la récupération de l'aperçu du préréglage",
         "cachedLoaded": "Aperçu en cache chargé",
         "cacheLoadFailed": "Échec du chargement de l'aperçu en cache",
-        "slugInvalid": "L'identifiant du préréglage n'est pas valide"
+        "slugInvalid": "L'identifiant du préréglage n'est pas valide",
+        "applyStale": "L'aperçu est périmé. Récupérez à nouveau le préréglage, puis appliquez-le.",
+        "applyHubUpdating": "Le hub est encore en cours de mise à jour, réessayez plus tard.",
+        "applyLocalModified": "Cet élément a été modifié sur ce serveur et a été laissé tel quel. Réinitialisez-le avant d'appliquer le préréglage.",
+        "editedItems": "Éléments modifiés : {{items}}",
+        "applyTimeout": "L'installation du préréglage a pris trop de temps et a été annulée. Réessayez.",
+        "cscliUnavailable": "cscli indisponible ou ne répond pas",
+        "applyDependencyNote": "Certains éléments dont dépend ce préréglage ont été modifiés sur ce serveur et ont été laissés tels quels."
       }
     },
     "files": {

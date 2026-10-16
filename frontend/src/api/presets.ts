@@ -1,4 +1,32 @@
+import { isAxiosError } from 'axios'
+
 import client from './client'
+
+/**
+ * Per-request timeout for applying a preset. The server allows up to 120 s for
+ * the install, which is longer than the default client timeout (30 s).
+ */
+export const APPLY_CROWDSEC_PRESET_TIMEOUT_MS = 130_000
+
+/** Machine-readable outcomes the server reports when a preset apply does not succeed. */
+export const PRESET_ERROR_CODES = [
+  'preset_cache_key_required',
+  'preset_cache_stale',
+  'preset_hub_updating',
+  'preset_local_modified',
+  'preset_apply_timeout',
+  'cscli_unavailable',
+] as const
+
+export type CrowdsecPresetErrorCode = (typeof PRESET_ERROR_CODES)[number]
+
+/** Error body returned by the preset endpoints. */
+export interface CrowdsecPresetApiError {
+  error: string
+  error_code?: CrowdsecPresetErrorCode
+  /** `type/name` of each edited item behind a `preset_local_modified` outcome. */
+  tainted_items?: string[]
+}
 
 /** Summary of an available CrowdSec preset. */
 export interface CrowdsecPresetSummary {
@@ -34,6 +62,8 @@ export interface ApplyCrowdsecPresetResponse {
   used_cscli?: boolean
   cache_key?: string
   slug?: string
+  /** Passive notes, e.g. a dependency that was edited on this server. */
+  warnings?: string[]
 }
 
 /** Cached CrowdSec preset preview data. */
@@ -75,13 +105,36 @@ export async function pullCrowdsecPreset(slug: string) {
 
 /**
  * Applies a CrowdSec preset to the configuration.
- * @param payload - Object with preset slug and optional cache_key
+ * @param payload - The canonical preset slug returned by pull and the cache_key of the previewed copy.
+ *   `cache_key` is required for hub presets and optional for curated ones.
  * @returns Promise resolving to ApplyCrowdsecPresetResponse
- * @throws {AxiosError} If application fails
+ * @throws {AxiosError} If application fails; the body is a CrowdsecPresetApiError
  */
 export async function applyCrowdsecPreset(payload: { slug: string; cache_key?: string }) {
-  const resp = await client.post<ApplyCrowdsecPresetResponse>('/admin/crowdsec/presets/apply', payload)
+  const resp = await client.post<ApplyCrowdsecPresetResponse>('/admin/crowdsec/presets/apply', payload, {
+    timeout: APPLY_CROWDSEC_PRESET_TIMEOUT_MS,
+  })
   return resp.data
+}
+
+/**
+ * Reads the machine-readable outcome from a failed preset request.
+ * @returns The error code, or undefined for other failures
+ */
+export function getCrowdsecPresetErrorCode(err: unknown): CrowdsecPresetErrorCode | undefined {
+  if (!isAxiosError<Partial<CrowdsecPresetApiError>>(err)) return undefined
+  const code = err.response?.data?.error_code
+  return code !== undefined && PRESET_ERROR_CODES.includes(code) ? code : undefined
+}
+
+/**
+ * Reads the edited item names from a failed preset request.
+ * @returns The names, or an empty list when the server sent none
+ */
+export function getCrowdsecPresetTaintedItems(err: unknown): string[] {
+  if (!isAxiosError<Partial<CrowdsecPresetApiError>>(err)) return []
+  const items = err.response?.data?.tainted_items
+  return Array.isArray(items) ? items.filter((item): item is string => typeof item === 'string') : []
 }
 
 /**

@@ -74,6 +74,16 @@ If you see these, CrowdSec is running properly.
 
 ---
 
+## Installing a Hub Preset (Optional)
+
+1. Go to **Settings → Security → Hub Presets** and pick a preset.
+2. Click **Pull** to download and preview it.
+3. Click **Apply**. Charon installs exactly what you previewed.
+
+Most installs take a few seconds. Charon takes a backup first and puts everything back if the install fails or takes longer than 120 seconds. If you see a message you do not understand, check [Hub preset messages](../troubleshooting/crowdsec.md#hub-preset-messages). More details are in the [CrowdSec feature guide](../features/crowdsec.md#hub-presets).
+
+---
+
 ## Understanding "Bouncers" (Important!)
 
 A **bouncer** is like a security guard at a nightclub door. It checks each visitor's ID against a list of banned people and either lets them in or turns them away.

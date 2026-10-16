@@ -1313,7 +1313,14 @@
         "pullFailed": "Vorschau der Vorlage konnte nicht abgerufen werden",
         "cachedLoaded": "Zwischengespeicherte Vorschau geladen",
         "cacheLoadFailed": "Zwischengespeicherte Vorschau konnte nicht geladen werden",
-        "slugInvalid": "Der Vorlagen-Slug ist ungültig"
+        "slugInvalid": "Der Vorlagen-Slug ist ungültig",
+        "applyStale": "Die Vorschau ist veraltet. Rufen Sie das Preset erneut ab und wenden Sie es dann an.",
+        "applyHubUpdating": "Der Hub wird noch aktualisiert. Versuchen Sie es später erneut.",
+        "applyLocalModified": "Dieses Element wurde auf diesem Server bearbeitet und blieb unverändert. Setzen Sie es zurück, bevor Sie das Preset anwenden.",
+        "editedItems": "Bearbeitete Elemente: {{items}}",
+        "applyTimeout": "Die Installation des Presets hat zu lange gedauert und wurde zurückgesetzt. Versuchen Sie es erneut.",
+        "cscliUnavailable": "cscli nicht verfügbar oder antwortet nicht",
+        "applyDependencyNote": "Einige Elemente, von denen dieses Preset abhängt, wurden auf diesem Server bearbeitet und blieben unverändert."
       }
     },
     "files": {

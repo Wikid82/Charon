@@ -1,0 +1,20 @@
+Action plan:
+📥 download
+ collections: crowdsecurity/base-http-scenarios (1.4), crowdsecurity/http-cve (3.0)
+ contexts: crowdsecurity/http_base (0.3)
+ parsers: crowdsecurity/http-logs (1.4)
+✅ enable
+ collections: crowdsecurity/base-http-scenarios, crowdsecurity/http-cve
+ contexts: crowdsecurity/http_base
+ parsers: crowdsecurity/http-logs
+
+downloading parsers:crowdsecurity/http-logs
+downloading contexts:crowdsecurity/http_base
+downloading collections:crowdsecurity/http-cve
+downloading collections:crowdsecurity/base-http-scenarios
+enabling parsers:crowdsecurity/http-logs
+enabling contexts:crowdsecurity/http_base
+enabling collections:crowdsecurity/http-cve
+enabling collections:crowdsecurity/base-http-scenarios
+
+Run 'sudo systemctl reload crowdsec' for the new configuration to be effective.

@@ -163,6 +163,10 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 
 	res, err := h.Hub.Pull(ctx, slug)
 	if err != nil {
+		if errors.Is(err, crowdsec.ErrInvalidSlug) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slug"})
+			return
+		}
 		status := mapCrowdsecStatus(err, http.StatusBadGateway)
 		// Safe: User input sanitized via util.SanitizeForLog() which removes
 		// control characters (0x00-0x1F, 0x7F) including CRLF
@@ -172,21 +176,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		return
 	}
 
-	// Verify cache was actually stored
-	// Safe: res.Meta fields are system-generated (cache keys, file paths)
-	// not directly derived from untrusted user input
-	// codeql[go/log-injection]
 	logger.Log().Info("preset pulled and cached successfully")
-
-	// Verify files exist on disk
-	if _, err := os.Stat(res.Meta.ArchivePath); err != nil {
-		// codeql[go/log-injection] Safe: archive_path is system-generated file path
-		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("archive_path", util.SanitizeForLog(res.Meta.ArchivePath)).Error("cached archive file not found after pull")
-	}
-	if _, err := os.Stat(res.Meta.PreviewPath); err != nil {
-		// codeql[go/log-injection] Safe: preview_path is system-generated file path
-		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("preview_path", util.SanitizeForLog(res.Meta.PreviewPath)).Error("cached preview file not found after pull")
-	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":       "pulled",
@@ -199,7 +189,28 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 	})
 }
 
-// ApplyPreset installs a pulled preset from cache or via cscli.
+// Error codes returned next to the English error text of a failed preset apply.
+const (
+	codePresetCacheKeyRequired = "preset_cache_key_required"
+	codePresetCacheStale       = "preset_cache_stale"
+	codePresetHubUpdating      = "preset_hub_updating"
+	codePresetLocalModified    = "preset_local_modified"
+	codePresetApplyTimeout     = "preset_apply_timeout"
+	codeCSCLIUnavailable       = "cscli_unavailable"
+)
+
+// respondCoded writes an error response that carries a stable error_code next to the English text.
+// extra fields are merged into the body.
+func respondCoded(c *gin.Context, status int, code, msg string, extra gin.H) {
+	body := gin.H{"error": msg, "error_code": code}
+	for k, v := range extra {
+		body[k] = v
+	}
+	c.JSON(status, body)
+}
+
+// ApplyPreset installs a pulled preset: a curated preset through cscli, a hub preset by installing the
+// pulled item with cscli and verifying the result.
 func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	if !h.isCerberusEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
@@ -207,7 +218,8 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	}
 
 	var payload struct {
-		Slug string `json:"slug"`
+		Slug     string `json:"slug"`
+		CacheKey string `json:"cache_key"`
 	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
@@ -215,6 +227,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	}
 
 	slug := strings.TrimSpace(payload.Slug)
+	cacheKey := strings.TrimSpace(payload.CacheKey)
 	if slug == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
 		return
@@ -224,72 +237,71 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	}
 
+	curated, isCurated := crowdsec.FindPreset(slug)
+	isCurated = isCurated && !curated.RequiresHub
+	switch {
+	case isCurated && cacheKey != "" && cacheKey != "curated-"+curated.Slug:
+		respondCoded(c, http.StatusConflict, codePresetCacheStale, msgPresetStale, nil)
+		return
+	case !isCurated && cacheKey == "":
+		respondCoded(c, http.StatusBadRequest, codePresetCacheKeyRequired, "Pull the preset first, then apply it.", nil)
+		return
+	case !isCurated && !crowdsec.ValidCacheSlug(slug):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slug"})
+		return
+	}
+
 	// One mutation of DataDir at a time across preset apply, config import and file writes.
 	if !h.lockData(c, "preset apply") {
 		return
 	}
 	defer h.dataMu.Unlock()
 
-	// Check for curated preset that doesn't require hub
-	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
-		h.applyCuratedPreset(c, preset)
+	if isCurated {
+		h.applyCuratedPreset(c, curated)
 		return
 	}
 
-	ctx := c.Request.Context()
-
-	// Log cache status before apply
-	if h.Hub != nil && h.Hub.Cache != nil {
-		cacheDir := filepath.Join(h.DataDir, "hub_cache")
-		logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to apply preset")
-
-		// Check if cached
-		if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
-			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
-			// Verify files still exist
-			if _, statErr := os.Stat(cached.ArchivePath); statErr != nil {
-				logger.Log().WithError(statErr).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
-			}
-			if _, statErr := os.Stat(cached.PreviewPath); statErr != nil {
-				logger.Log().WithError(statErr).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
-			}
-		} else {
-			logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
-			// List what's actually in the cache
-			if entries, listErr := h.Hub.Cache.List(ctx); listErr == nil {
-				slugs := make([]string, len(entries))
-				for i, e := range entries {
-					slugs[i] = e.Slug
-				}
-				logger.Log().WithField("cached_slugs", slugs).Info("current cache contents")
-			}
-		}
-	}
-
-	res, err := h.Hub.Apply(ctx, slug)
+	res, err := h.Hub.Apply(c.Request.Context(), slug, cacheKey)
 	if err != nil {
-		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
-		// Safe: User input (slug) sanitized via util.SanitizeForLog();
-		// backup_path and cache_key are system-generated values
+		// Safe: slug is validated against the hub item name pattern; backup_path and cache_key are system-generated values
 		// codeql[go/log-injection]
-		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).WithField("cache_key", util.SanitizeForLog(res.CacheKey)).Warn("crowdsec preset apply failed")
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("backup_path", util.SanitizeForLog(res.BackupPath)).WithField("cache_key", util.SanitizeForLog(res.CacheKey)).Warn("crowdsec preset apply failed")
 		h.recordPresetEvent(slug, res, err)
-		// Build detailed error response
-		errorMsg := crowdsec.RedactPaths(err.Error())
-		// Add actionable guidance based on error type
-		if errors.Is(err, crowdsec.ErrCacheMiss) || strings.Contains(errorMsg, "cache miss") {
-			errorMsg = "Preset cache missing or expired. Pull the preset again, then retry apply."
-		} else if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
-			errorMsg = "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
-		}
-		errorResponse := applyFailureBody(errorMsg, res)
-		errorResponse["hub_endpoints"] = h.hubEndpoints()
-		c.JSON(status, errorResponse)
+		h.respondApplyError(c, err, res)
 		return
 	}
 
 	h.recordPresetEvent(slug, res, nil)
 	respondApplySuccess(c, res)
+}
+
+const msgPresetStale = "The cached preset is outdated or missing. Pull the preset again, then apply it."
+
+// respondApplyError maps a failed hub preset apply to its status and error code.
+func (h *CrowdsecHandler) respondApplyError(c *gin.Context, err error, res crowdsec.ApplyResult) {
+	extra := applyFailureBody("", res)
+	delete(extra, "error")
+	switch {
+	case errors.Is(err, crowdsec.ErrPresetCacheStale):
+		respondCoded(c, http.StatusConflict, codePresetCacheStale, msgPresetStale, extra)
+	case errors.Is(err, crowdsec.ErrPresetHubUpdating):
+		respondCoded(c, http.StatusConflict, codePresetHubUpdating, "The hub is still updating. Try again later.", extra)
+	case errors.Is(err, crowdsec.ErrPresetLocalModified):
+		var modified *crowdsec.LocalModifiedError
+		if errors.As(err, &modified) {
+			extra["tainted_items"] = modified.Items
+		}
+		respondCoded(c, http.StatusConflict, codePresetLocalModified, "This preset was edited on this server, so it was not replaced. Reset it before applying.", extra)
+	case errors.Is(err, crowdsec.ErrPresetApplyTimeout):
+		respondCoded(c, http.StatusGatewayTimeout, codePresetApplyTimeout, "The preset install took too long and was rolled back. Try again.", extra)
+	case errors.Is(err, crowdsec.ErrCSCLIUnavailable):
+		respondCoded(c, http.StatusServiceUnavailable, codeCSCLIUnavailable, "cscli unavailable or not responding", extra)
+	default:
+		body := applyFailureBody(crowdsec.RedactPaths(err.Error()), res)
+		body["hub_endpoints"] = h.hubEndpoints()
+		c.JSON(mapCrowdsecStatus(err, http.StatusInternalServerError), body)
+	}
 }
 
 // applyCuratedPreset installs a Charon-defined preset through cscli and reports the true outcome.
@@ -362,14 +374,18 @@ func applyFailureBody(msg string, res crowdsec.ApplyResult) gin.H {
 
 // respondApplySuccess writes the 200 payload for a completed preset apply.
 func respondApplySuccess(c *gin.Context, res crowdsec.ApplyResult) {
-	c.JSON(http.StatusOK, gin.H{
+	body := gin.H{
 		"status":      res.Status,
 		"backup":      crowdsec.BackupID(res.BackupPath),
 		"reload_hint": res.ReloadHint,
 		"used_cscli":  res.UsedCSCLI,
 		"cache_key":   res.CacheKey,
 		"slug":        res.AppliedPreset,
-	})
+	}
+	if len(res.Warnings) > 0 {
+		body["warnings"] = res.Warnings
+	}
+	c.JSON(http.StatusOK, body)
 }
 
 // GetCachedPreset returns cached preview for a slug when available.
@@ -388,9 +404,9 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
 		return
 	}
-	preview, err := h.Hub.Cache.LoadPreview(ctx, slug)
+	meta, item, err := h.Hub.Cache.LoadItem(ctx, slug)
 	if err != nil {
-		if errors.Is(err, crowdsec.ErrCacheMiss) || errors.Is(err, crowdsec.ErrCacheExpired) {
+		if errors.Is(err, crowdsec.ErrInvalidSlug) || errors.Is(err, crowdsec.ErrCacheMiss) || errors.Is(err, crowdsec.ErrCacheExpired) || errors.Is(err, crowdsec.ErrCacheInvalid) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "cache miss"})
 			return
 		}
@@ -398,16 +414,10 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load preset preview"})
 		return
 	}
-	meta, metaErr := h.Hub.Cache.Load(ctx, slug)
-	if metaErr != nil && !errors.Is(metaErr, crowdsec.ErrCacheMiss) && !errors.Is(metaErr, crowdsec.ErrCacheExpired) {
-		logger.Log().WithField("error", util.SanitizeForLog(metaErr.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to load crowdsec preset cache metadata")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load preset cache metadata"})
-		return
-	}
 	cacheTTL := h.Hub.Cache.TTL()
 	now := time.Now().UTC()
 	c.JSON(http.StatusOK, gin.H{
-		"preview":               preview,
+		"preview":               string(item),
 		"cache_key":             meta.CacheKey,
 		"etag":                  meta.Etag,
 		"retrieved_at":          meta.RetrievedAt,

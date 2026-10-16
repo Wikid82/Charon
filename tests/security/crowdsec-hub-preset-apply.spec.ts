@@ -192,4 +192,39 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
       expect(fileWrites.count()).toBe(0);
     });
   });
+
+  test('should send the pulled cache key when applying a hub preset', async ({ page }) => {
+    let applyBody: Record<string, unknown> | undefined;
+    await page.route(APPLY_ROUTE, async (route) => {
+      applyBody = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        json: { status: 'applied', used_cscli: true, reload_hint: false, cache_key: CACHE_KEY },
+      });
+    });
+
+    await openPageAndApplyHubPreset(page);
+
+    await test.step('Verify the request names the previewed entry', async () => {
+      await expect.poll(() => applyBody).toMatchObject({ slug: HUB_PRESET_SLUG, cache_key: CACHE_KEY });
+    });
+  });
+
+  test('should ask for a new pull and show no success toast when the cached entry is outdated', async ({ page }) => {
+    await page.route(APPLY_ROUTE, async (route) => {
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        json: { error: 'preset cache is outdated', error_code: 'preset_cache_stale' },
+      });
+    });
+
+    await openPageAndApplyHubPreset(page);
+
+    await test.step('Verify the pull-again message is shown and nothing is reported as applied', async () => {
+      await expect(page.getByText(/pull the preset again/i).first()).toBeVisible();
+      await expect(page.getByText(/preset applied/i)).toHaveCount(0);
+    });
+  });
 });

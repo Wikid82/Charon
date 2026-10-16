@@ -1,9 +1,7 @@
 package handlers
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
-	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 type presetRoundTripper func(*http.Request) (*http.Response, error)
@@ -29,26 +26,10 @@ func (p presetRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	return p(req)
 }
 
-func makePresetTar(t *testing.T, files map[string]string) []byte {
-	t.Helper()
-	buf := &bytes.Buffer{}
-	gw := gzip.NewWriter(buf)
-	tw := tar.NewWriter(gw)
-	for name, content := range files {
-		hdr := &tar.Header{Name: name, Mode: 0o644, Size: int64(len(content))}
-		require.NoError(t, tw.WriteHeader(hdr))
-		_, err := tw.Write([]byte(content))
-		require.NoError(t, err)
-	}
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-	return buf.Bytes()
-}
-
 func TestListPresetsIncludesCacheAndIndex(t *testing.T) {
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
-	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", []byte("archive"))
+	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "collections", "etag1", "hub", []byte("name: crowdsecurity/demo\n"))
 	require.NoError(t, err)
 
 	hub := crowdsec.NewHubService(nil, cache, t.TempDir())
@@ -88,98 +69,6 @@ func TestListPresetsIncludesCacheAndIndex(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-}
-
-func TestPullPresetHandlerSuccess(t *testing.T) {
-	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	dataDir := filepath.Join(t.TempDir(), "crowdsec")
-	archive := makePresetTar(t, map[string]string{"config.yaml": "key: value"})
-
-	hub := crowdsec.NewHubService(nil, cache, dataDir)
-	hub.HubBaseURL = "https://hub.crowdsec.net"
-	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
-		switch req.URL.String() {
-		case "https://hub.crowdsec.net/api/index.json":
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","etag":"e1","download_url":"https://hub.crowdsec.net/demo.tgz","preview_url":"https://hub.crowdsec.net/demo.yaml"}]}`)), Header: make(http.Header)}, nil
-		case "https://hub.crowdsec.net/demo.yaml":
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("preview")), Header: make(http.Header)}, nil
-		case "https://hub.crowdsec.net/demo.tgz":
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
-		default:
-			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
-		}
-	})}
-
-	handler := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dataDir)
-	handler.Hub = hub
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	handler.RegisterRoutes(g)
-
-	body, _ := json.Marshal(map[string]string{"slug": "crowdsecurity/demo"})
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/pull", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Body.String(), "cache_key")
-	require.Contains(t, w.Body.String(), "preview")
-}
-
-func TestApplyPresetHandlerAudits(t *testing.T) {
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.CrowdsecPresetEvent{}))
-
-	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	dataDir := filepath.Join(t.TempDir(), "crowdsec")
-	archive := makePresetTar(t, map[string]string{"conf.yaml": "v: 1"})
-	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", archive)
-	require.NoError(t, err)
-
-	hub := crowdsec.NewHubService(nil, cache, dataDir)
-
-	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
-	handler.Hub = hub
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	handler.RegisterRoutes(g)
-
-	body, _ := json.Marshal(map[string]string{"slug": "crowdsecurity/demo"})
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
-
-	var events []models.CrowdsecPresetEvent
-	require.NoError(t, db.Find(&events).Error)
-	require.Len(t, events, 1)
-	require.Equal(t, "applied", events[0].Status)
-
-	// Failure path
-	badCache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	badArchive := makePresetTar(t, map[string]string{"../bad.txt": "x"})
-	_, err = badCache.Store(context.Background(), "crowdsecurity/demo", "etag1", "hub", "preview", badArchive)
-	require.NoError(t, err)
-
-	badHub := crowdsec.NewHubService(nil, badCache, filepath.Join(t.TempDir(), "crowdsec2"))
-	handler.Hub = badHub
-
-	w2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader(body))
-	req2.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w2, req2)
-	require.Equal(t, http.StatusInternalServerError, w2.Code)
-
-	require.NoError(t, db.Find(&events).Error)
-	require.Len(t, events, 2)
-	require.Equal(t, "failed", events[1].Status)
 }
 
 func TestPullPresetHandlerHubError(t *testing.T) {
@@ -269,53 +158,6 @@ func TestGetCachedPresetServiceUnavailable(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
-func TestApplyPresetHandlerBackupFailure(t *testing.T) {
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.CrowdsecPresetEvent{}))
-
-	baseDir := t.TempDir()
-	dataDir := filepath.Join(baseDir, "crowdsec")
-	require.NoError(t, os.MkdirAll(dataDir, 0o750))                                               // #nosec G301 -- test directory
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("before"), 0o600)) // #nosec G306 -- test fixture
-
-	hub := crowdsec.NewHubService(nil, nil, dataDir)
-	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
-	h.Hub = hub
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	body, _ := json.Marshal(map[string]string{"slug": "crowdsecurity/demo"})
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-
-	// Verify response includes backup path for traceability
-	var response map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-	_, hasBackup := response["backup"]
-	require.True(t, hasBackup, "Response should include 'backup' field for diagnostics")
-
-	// Verify error message is present
-	errorMsg, ok := response["error"].(string)
-	require.True(t, ok, "error field should be a string")
-	require.Contains(t, errorMsg, "cache", "error should indicate cache is unavailable")
-
-	var events []models.CrowdsecPresetEvent
-	require.NoError(t, db.Find(&events).Error)
-	require.Len(t, events, 1)
-	require.Equal(t, "failed", events[0].Status)
-	require.NotEmpty(t, events[0].BackupPath)
-
-	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt")) //nolint:gosec // G304: Test file in temp directory
-	require.NoError(t, readErr)
-	require.Equal(t, "before", string(content))
-}
-
 func TestListPresetsMergesCuratedAndHub(t *testing.T) {
 
 	hub := crowdsec.NewHubService(nil, nil, t.TempDir())
@@ -369,8 +211,8 @@ func TestGetCachedPresetSuccess(t *testing.T) {
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
-	const slug = "demo"
-	_, err = cache.Store(context.Background(), slug, "etag123", "hub", "preview-body", []byte("tgz"))
+	const slug = "crowdsecurity/demo"
+	_, err = cache.Store(context.Background(), slug, "collections", "etag123", "hub", []byte("preview: body\n"))
 	require.NoError(t, err)
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
@@ -378,17 +220,12 @@ func TestGetCachedPresetSuccess(t *testing.T) {
 	require.True(t, h.isCerberusEnabled())
 	preview, err := h.Hub.Cache.LoadPreview(context.Background(), slug)
 	require.NoError(t, err)
-	require.Equal(t, "preview-body", preview)
+	require.Equal(t, "preview: body\n", preview)
 
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/"+slug, http.NoBody)
-	r.ServeHTTP(w, req)
+	w := getCachedPreset(context.Background(), h, slug)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Contains(t, w.Body.String(), "preview-body")
+	require.Contains(t, w.Body.String(), "preview: body")
 	require.Contains(t, w.Body.String(), "etag123")
 }
 
@@ -417,25 +254,20 @@ func TestGetCachedPresetPreviewError(t *testing.T) {
 	cacheDir := t.TempDir()
 	cache, err := crowdsec.NewHubCache(cacheDir, time.Hour)
 	require.NoError(t, err)
-	const slug = "broken"
-	meta, err := cache.Store(context.Background(), slug, "etag999", "hub", "will-remove", []byte("tgz"))
+	const slug = "crowdsecurity/broken"
+	_, err = cache.Store(context.Background(), slug, "collections", "etag999", "hub", []byte("a: 1\n"))
 	require.NoError(t, err)
-	// Remove preview to force LoadPreview read error.
-	require.NoError(t, os.Remove(meta.PreviewPath))
+	// Change the item so it no longer matches the recorded digest.
+	require.NoError(t, os.WriteFile(filepath.Join(cacheDir, "crowdsecurity", "broken", "item.yaml"), []byte("a: 2\n"), 0o600))
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = crowdsec.NewHubService(nil, cache, t.TempDir())
 
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
+	w := getCachedPreset(context.Background(), h, slug)
 
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/"+slug, http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "failed to load preset preview")
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "cache miss")
+	require.NoDirExists(t, filepath.Join(cacheDir, "crowdsecurity", "broken"), "an invalid entry is removed")
 }
 
 func TestPullCuratedPresetSkipsHub(t *testing.T) {
@@ -475,4 +307,15 @@ func TestPullCuratedPresetSkipsHub(t *testing.T) {
 	require.Contains(t, resp["preview"], "Curated preset")
 	require.Contains(t, resp["preview"], "collections: crowdsecurity/sshd")
 	require.Contains(t, resp["preview"], "parsers: crowdsecurity/whitelists")
+}
+
+// getCachedPreset calls GetCachedPreset with the slug as the route parameter. The route's single path
+// segment cannot carry a slug that contains a slash, so tests bypass the router.
+func getCachedPreset(ctx context.Context, h *CrowdsecHandler, slug string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody).WithContext(ctx)
+	c.Params = gin.Params{{Key: "slug", Value: slug}}
+	h.GetCachedPreset(c)
+	return w
 }
