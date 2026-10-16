@@ -649,12 +649,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/stdout/stdoutlog
         _retry go get go.opentelemetry.io/otel/exporters/stdout/stdoutlog@v0.23.0; \
-        # Kept on the same v1.45.0 release train as otel/sdk above for a coherent,
-        # mutually-compatible module set.
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.45.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.47.0; \
         # CVE-2026-41889: SQL Injection via placeholder confusion with dollar quoted string literals
         # renovate: datasource=go depName=github.com/jackc/pgx/v5
         _retry go get github.com/jackc/pgx/v5@v5.11.0; \
