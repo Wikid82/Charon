@@ -363,6 +363,28 @@ const msgImportFlatArchive = "the archive keeps its configuration at the top lev
 // msgKeepCurrentFiles is the fixed message for an import that could not keep the current files.
 const msgKeepCurrentFiles = "failed to keep the current CrowdSec files"
 
+// Stable error_code values of the import refusals, next to the English error text. The UI translates
+// them; the codes are part of the API and must not be renamed.
+const (
+	// codeImportFlatArchive: the archive keeps its configuration at the top level (msgImportFlatArchive).
+	codeImportFlatArchive = "import_flat_archive"
+	// codeImportProfileNamesUndefined: the archive's profiles.yaml names notifications no file defines
+	// ("config validation failed: profiles.yaml names ..."); carries names.
+	codeImportProfileNamesUndefined = "import_profile_names_undefined"
+	// codeImportKeptProfileUndefined: the kept profiles.yaml names notifications the archive has no files
+	// for (msgKeptProfileUndefined); carries names.
+	codeImportKeptProfileUndefined = "import_kept_profile_undefined"
+	// codeImportKeptProfileDuplicate: a restored notification file defines a name the archive defines.
+	codeImportKeptProfileDuplicate = "import_kept_profile_duplicate"
+	// codeImportKeepCurrentFailed: the current files could not be kept (msgKeepCurrentFiles).
+	codeImportKeepCurrentFailed = "import_keep_current_failed"
+	// codeImportConfigNotFound: the archive has no config.yaml the engine reads.
+	codeImportConfigNotFound = "import_config_not_found"
+)
+
+// maxRefusalNames bounds the names list of an import refusal.
+const maxRefusalNames = 50
+
 // errConfigFileNotFound is the fixed message for an import that contains no config.yaml in a
 // location the engine reads (top level or config/).
 var errConfigFileNotFound = errors.New("config.yaml was not found at the top level or in config/")
@@ -767,7 +789,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	} else if err = crowdsec.VerifyInspectedNotifications(info); err != nil {
 		var undefined *crowdsec.UndefinedNotificationsError
 		if errors.As(err, &undefined) {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "config validation failed: " + undefined.Error()})
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportProfileNamesUndefined, "config validation failed: "+undefined.Error(), gin.H{"names": undefined.SafeNames(maxRefusalNames)})
 			return
 		}
 	}
@@ -784,7 +806,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	liveLayout := crowdsec.DetectLayout(h.DataDir)
 	if inspectErr == nil {
 		if err = crowdsec.CheckImportLayout(liveLayout, info); err != nil {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportFlatArchive, msgImportFlatArchive, nil)
 			return
 		}
 	}
@@ -825,7 +847,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if liveLayout == crowdsec.LayoutNested {
 		if _, statErr := os.Stat(filepath.Join(h.DataDir, "config", "config.yaml")); statErr != nil {
 			rollback()
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msgImportFlatArchive})
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportFlatArchive, msgImportFlatArchive, nil)
 			return
 		}
 	}
@@ -835,7 +857,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if mergeErr := h.mergeNotifications(backupDir, h.DataDir); mergeErr != nil {
 		logger.Log().WithField("error", sanitizeForLog(mergeErr.Error())).Warn("crowdsec import: keeping the current notification values failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
 		return
 	}
 
@@ -845,12 +867,12 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if restoreErr != nil {
 		logger.Log().WithField("error", sanitizeForLog(restoreErr.Error())).Warn("crowdsec import: restoring the current files failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
 		return
 	}
 	if verifyErr := crowdsec.VerifyKeptProfile(h.DataDir, keptFiles); verifyErr != nil {
 		rollback()
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": keptProfileRefusal(verifyErr)})
+		respondKeptProfileRefusal(c, verifyErr)
 		return
 	}
 
@@ -860,7 +882,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if keyErr != nil {
 		logger.Log().WithField("error", sanitizeForLog(keyErr.Error())).Warn("crowdsec import: keeping the current key files failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
 		return
 	}
 	keptFiles = append(keptFiles, keptKeys...)
@@ -872,7 +894,12 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 	if err := validateErr; err != nil {
 		rollback()
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("config validation failed: %v", crowdsec.RedactPaths(err.Error()))})
+		msg := fmt.Sprintf("config validation failed: %v", crowdsec.RedactPaths(err.Error()))
+		if errors.Is(err, errConfigFileNotFound) {
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportConfigNotFound, msg, nil)
+			return
+		}
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msg})
 		return
 	}
 
@@ -906,14 +933,15 @@ func liveConfigPrefix(l crowdsec.Layout) string {
 	return ""
 }
 
-// keptProfileRefusal maps a failure of crowdsec.VerifyKeptProfile (an undefined or a duplicate
-// notification) to its fixed 422 message.
-func keptProfileRefusal(err error) string {
+// respondKeptProfileRefusal answers a failure of crowdsec.VerifyKeptProfile (an undefined or a
+// duplicate notification) with its fixed 422 message and code; undefined names are listed as an array.
+func respondKeptProfileRefusal(c *gin.Context, err error) {
 	var undefined *crowdsec.UndefinedNotificationsError
 	if errors.As(err, &undefined) {
-		return msgKeptProfileUndefined + undefined.NameList()
+		respondCoded(c, http.StatusUnprocessableEntity, codeImportKeptProfileUndefined, msgKeptProfileUndefined+undefined.NameList(), gin.H{"names": undefined.SafeNames(maxRefusalNames)})
+		return
 	}
-	return msgKeptProfileDuplicate
+	respondCoded(c, http.StatusUnprocessableEntity, codeImportKeptProfileDuplicate, msgKeptProfileDuplicate, nil)
 }
 
 // pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.

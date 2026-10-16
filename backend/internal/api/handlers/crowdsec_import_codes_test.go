@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const skipImportCodes = "enabled by a later commit in this series"
-
 type importRefusal struct {
 	Error     string   `json:"error"`
 	ErrorCode string   `json:"error_code"`
@@ -30,7 +28,6 @@ func decodeRefusal(t *testing.T, w *httptest.ResponseRecorder) importRefusal {
 
 func TestImportRefusalFlatArchiveCarriesACode(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipImportCodes)
 	dir := t.TempDir()
 	seedRealLayout(t, dir)
 	_, r := newImportRouter(t, dir)
@@ -45,7 +42,6 @@ func TestImportRefusalFlatArchiveCarriesACode(t *testing.T) {
 
 func TestImportRefusalKeptProfileUndefinedListsNamesAsAnArray(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipImportCodes)
 	dir := t.TempDir()
 	seedRealLayout(t, dir)
 	writeTree(t, dir, map[string]string{"config/profiles.yaml": strings.Replace(importProfilesNaming, "%s", "ghost", 1)})
@@ -62,7 +58,6 @@ func TestImportRefusalKeptProfileUndefinedListsNamesAsAnArray(t *testing.T) {
 
 func TestImportRefusalKeptProfileDuplicateCarriesACode(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipImportCodes)
 	dir := t.TempDir()
 	seedRealLayout(t, dir)
 	writeTree(t, dir, map[string]string{
@@ -85,7 +80,6 @@ func TestImportRefusalKeptProfileDuplicateCarriesACode(t *testing.T) {
 
 func TestImportRefusalKeepCurrentFailedCarriesACode(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipImportCodes)
 	dir := t.TempDir()
 	seedRealLayout(t, dir)
 	h, r := newImportRouter(t, dir)
@@ -101,7 +95,6 @@ func TestImportRefusalKeepCurrentFailedCarriesACode(t *testing.T) {
 
 func TestImportRefusalConfigNotFoundCarriesACode(t *testing.T) {
 	t.Parallel()
-	t.Skip(skipImportCodes)
 	dir := t.TempDir()
 	// A dangling link keeps the archive's config.yaml from being written and leaves nothing to read.
 	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "missing.yaml"), filepath.Join(dir, "config.yaml")))

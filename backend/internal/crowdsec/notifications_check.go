@@ -30,6 +30,30 @@ type UndefinedNotificationsError struct {
 	Names []string
 }
 
+// safeName makes a notification name safe to log or show: control characters become spaces and an
+// over-long name is cut.
+func safeName(n string) string {
+	n = util.SanitizeForLog(n)
+	if r := []rune(n); len(r) > maxListedNameLen {
+		n = string(r[:maxListedNameLen]) + "..."
+	}
+	return n
+}
+
+// SafeNames returns at most limit of the undefined names, each sanitised and length-bounded, for a
+// machine-readable list in an API response.
+func (e *UndefinedNotificationsError) SafeNames(limit int) []string {
+	listed := e.Names
+	if len(listed) > limit {
+		listed = listed[:limit]
+	}
+	safe := make([]string, len(listed))
+	for i, n := range listed {
+		safe[i] = safeName(n)
+	}
+	return safe
+}
+
 // NameList spells out the undefined names, bounded in count and length and safe to log or show.
 func (e *UndefinedNotificationsError) NameList() string {
 	listed := e.Names
@@ -40,11 +64,7 @@ func (e *UndefinedNotificationsError) NameList() string {
 	}
 	safe := make([]string, len(listed))
 	for i, n := range listed {
-		n = util.SanitizeForLog(n)
-		if r := []rune(n); len(r) > maxListedNameLen {
-			n = string(r[:maxListedNameLen]) + "..."
-		}
-		safe[i] = n
+		safe[i] = safeName(n)
 	}
 	msg := strings.Join(safe, ", ")
 	if more > 0 {

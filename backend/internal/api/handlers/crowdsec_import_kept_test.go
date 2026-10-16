@@ -3,12 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -220,8 +222,23 @@ func requireSameTree(t *testing.T, before map[string]string, dir string) {
 
 func TestKeptProfileRefusal(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, msgKeptProfileDuplicate, keptProfileRefusal(crowdsec.ErrDuplicateNotifications))
-	require.Equal(t, msgKeptProfileUndefined+"a, b", keptProfileRefusal(&crowdsec.UndefinedNotificationsError{Names: []string{"a", "b"}}))
+	respond := func(err error) (code int, body importRefusal) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		respondKeptProfileRefusal(c, err)
+		return w.Code, decodeRefusal(t, w)
+	}
+
+	code, body := respond(crowdsec.ErrDuplicateNotifications)
+	require.Equal(t, http.StatusUnprocessableEntity, code)
+	require.Equal(t, codeImportKeptProfileDuplicate, body.ErrorCode)
+	require.Equal(t, msgKeptProfileDuplicate, body.Error)
+
+	code, body = respond(&crowdsec.UndefinedNotificationsError{Names: []string{"a", "b"}})
+	require.Equal(t, http.StatusUnprocessableEntity, code)
+	require.Equal(t, codeImportKeptProfileUndefined, body.ErrorCode)
+	require.Equal(t, msgKeptProfileUndefined+"a, b", body.Error)
+	require.Equal(t, []string{"a", "b"}, body.Names)
 }
 
 func TestLiveConfigPrefix(t *testing.T) {

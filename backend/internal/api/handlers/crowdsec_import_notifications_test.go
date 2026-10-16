@@ -46,9 +46,11 @@ func treeState(t *testing.T, root string) map[string]string {
 
 func importNotificationBody(t *testing.T, w *httptest.ResponseRecorder) string {
 	t.Helper()
-	var body map[string]string
+	var body struct {
+		Error string `json:"error"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body["error"]
+	return body.Error
 }
 
 func TestImportConfigRefusesUndefinedNotificationsBeforeAnyChange(t *testing.T) {
@@ -74,6 +76,9 @@ func TestImportConfigRefusesUndefinedNotificationsBeforeAnyChange(t *testing.T) 
 
 	require.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
 	require.Equal(t, "config validation failed: profiles.yaml names notifications that have no matching file: x", importNotificationBody(t, w))
+	body := decodeRefusal(t, w)
+	require.Equal(t, "import_profile_names_undefined", body.ErrorCode)
+	require.Equal(t, []string{"x"}, body.Names)
 	require.Equal(t, before, treeState(t, dir), "the live tree must be byte-identical")
 	require.Equal(t, parentBefore, treeState(t, parent), "no snapshot may be created")
 	require.True(t, h.dataMu.TryLock(), "the data lock must not be held")
