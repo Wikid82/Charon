@@ -196,12 +196,12 @@ security-scan-deps:
 lint-backend:
 	@echo "Running golangci-lint (full config) on backend..."
 	@# renovate: datasource=github-releases depName=golangci/golangci-lint
-	docker run --rm -v $(PWD):/app -w /app/backend golangci/golangci-lint:v2.14.0 golangci-lint run -v --timeout=5m ./...
+	docker run --rm -v $(PWD):/app -w /app/backend golangci/golangci-lint:v2.15.0 golangci-lint run -v --timeout=5m ./...
 
 lint-agent:
 	@echo "Running golangci-lint (full config, shared from backend/) on agent..."
 	@# renovate: datasource=github-releases depName=golangci/golangci-lint
-	docker run --rm -v $(PWD):/app -w /app/agent golangci/golangci-lint:v2.14.0 golangci-lint run -v --timeout=5m --config ../backend/.golangci.yml ./...
+	docker run --rm -v $(PWD):/app -w /app/agent golangci/golangci-lint:v2.15.0 golangci-lint run -v --timeout=5m --config ../backend/.golangci.yml ./...
 
 lint-fast:
 	@echo "Running fast linters (staticcheck, govet, errcheck, ineffassign, unused) — backend + agent..."
