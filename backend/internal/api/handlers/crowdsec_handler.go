@@ -2176,12 +2176,7 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 		// Look for lines that appear to be an API key (long alphanumeric string)
 		line = strings.TrimSpace(line)
 		if len(line) >= 32 && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
-			// Found what looks like an API key, show preview
-			if len(line) > 8 {
-				apiKeyPreview = line[:8] + "..."
-			} else {
-				apiKeyPreview = line + "..."
-			}
+			apiKeyPreview = util.MaskAPIKey(line)
 			break
 		}
 	}

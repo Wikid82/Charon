@@ -35,7 +35,6 @@ func registerBouncerPreview(t *testing.T, scriptOutput string) string {
 
 func TestRegisterBouncerPreviewUsesTheSharedMask(t *testing.T) {
 	t.Parallel()
-	t.Skip("enabled by a later commit in this series")
 
 	preview := registerBouncerPreview(t, "Bouncer registered successfully\nabcd0123456789ABCDEFGHIJKLMNwxyz\n")
 
