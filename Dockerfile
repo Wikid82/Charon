@@ -907,13 +907,17 @@ RUN set -e; \
     # Fix available at v1.2.0.
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.2.0; \
-    # kin-openapi: CrowdSec v1.8.0 already ships v0.147.0 natively (its go.mod baseline),
-    # which is past the GHSA-r277-6w6q-xmqw (ValidationHandler.Load() fail-open auth bypass,
-    # fixed v0.144.0) and GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (DoS panic) fixes. This explicit
-    # pin is a defense-in-depth floor and a Renovate anchor so an accidental MVS downgrade or a
-    # CrowdSec version regression cannot reintroduce a pre-v0.147.0 (vulnerable) resolution.
+    # kin-openapi: CrowdSec ships v0.147.0 natively (its go.mod baseline), which is past
+    # GHSA-r277-6w6q-xmqw (ValidationHandler.Load() fail-open auth bypass, fixed v0.144.0) and
+    # GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (DoS panic), but still vulnerable to:
+    #   - GHSA-rj39-cv6w-8wv7 / CVE-2026-100352 (YAML NaN/Inf panic via OAS 3.1 validation; fixed v0.148.0)
+    #   - GHSA-g8cf-rcjf-c8cf / CVE-2026-100354 (unbounded recursion on circular allOf/anyOf/oneOf,
+    #     fatal stack overflow; fixed v0.149.0)
+    #   - GHSA-vrcc-3ch7-hppw / CVE-2026-100353 (nil-Items panic paths in openapi3filter; fixed v0.149.0)
+    # Pinned to v0.151.0 (no known advisories). Also acts as a floor/Renovate anchor so a CrowdSec
+    # version regression or MVS downgrade cannot reintroduce a vulnerable resolution.
     # renovate: datasource=go depName=github.com/getkin/kin-openapi
-    _retry go get github.com/getkin/kin-openapi@v0.147.0; \
+    _retry go get github.com/getkin/kin-openapi@v0.151.0; \
     # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
