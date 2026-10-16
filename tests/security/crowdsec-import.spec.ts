@@ -428,7 +428,7 @@ test.describe('CrowdSec Config Import Validation', () => {
   });
 
   test.describe('Error codes', () => {
-    test.fixme('carries a stable error code next to the unchanged message', async ({ request }, testInfo) => {
+    test('carries a stable error code next to the unchanged message', async ({ request }, testInfo) => {
       const archive = await createTarGz({ 'config.yaml': VALID_CONFIG }, testInfo.outputPath('flat-code.tar.gz'));
 
       const response = await upload(request, archive, 'flat-code.tar.gz');

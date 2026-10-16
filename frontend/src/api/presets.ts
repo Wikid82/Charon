@@ -1,6 +1,7 @@
 import { isAxiosError } from 'axios'
 
 import client from './client'
+import { getApiErrorCode } from './errorBody'
 
 /**
  * Per-request timeout for applying a preset. The server allows up to 120 s for
@@ -122,9 +123,7 @@ export async function applyCrowdsecPreset(payload: { slug: string; cache_key?: s
  * @returns The error code, or undefined for other failures
  */
 export function getCrowdsecPresetErrorCode(err: unknown): CrowdsecPresetErrorCode | undefined {
-  if (!isAxiosError<Partial<CrowdsecPresetApiError>>(err)) return undefined
-  const code = err.response?.data?.error_code
-  return code !== undefined && PRESET_ERROR_CODES.includes(code) ? code : undefined
+  return getApiErrorCode(err, PRESET_ERROR_CODES)
 }
 
 /**
@@ -144,7 +143,7 @@ export function getCrowdsecPresetTaintedItems(err: unknown): string[] {
  * @throws {AxiosError} If not cached or request fails
  */
 export async function getCrowdsecPresetCache(slug: string) {
-  const resp = await client.get<CachedCrowdsecPresetPreview>(`/admin/crowdsec/presets/cache/${encodeURIComponent(slug)}`)
+  const resp = await client.get<CachedCrowdsecPresetPreview>(`/admin/crowdsec/presets/cache/${slug.split('/').map(encodeURIComponent).join('/')}`)
   return resp.data
 }
 

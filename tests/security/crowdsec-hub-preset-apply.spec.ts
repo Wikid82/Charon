@@ -211,7 +211,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
     });
   });
 
-  test.fixme('should load the cached preview from a path that keeps the owner and name segments', async ({ page }) => {
+  test('should load the cached preview from a path that keeps the owner and name segments', async ({ page }) => {
     const cacheRequests: string[] = [];
     await page.route(PULL_ROUTE, async (route) => {
       await route.fulfill({ status: 503, contentType: 'application/json', json: { error: 'hub unavailable' } });

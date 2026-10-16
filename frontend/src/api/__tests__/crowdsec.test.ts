@@ -1,3 +1,4 @@
+import { AxiosError, type AxiosResponse } from 'axios'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import client from '../client'
@@ -271,4 +272,31 @@ describe('crowdsec API', () => {
     })
   })
 
+})
+
+describe('getCrowdsecImportError', () => {
+  const failure = (data: unknown) =>
+    new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, { status: 422, data } as AxiosResponse)
+
+  it('returns the code and names of a known refusal', () => {
+    expect(
+      crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'import_kept_profile_undefined', names: ['a', 'b'] })),
+    ).toEqual({ code: 'import_kept_profile_undefined', names: ['a', 'b'] })
+  })
+
+  it('returns an empty list when no names are sent and drops non-strings', () => {
+    expect(crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'import_flat_archive' }))).toEqual({
+      code: 'import_flat_archive',
+      names: [],
+    })
+    expect(
+      crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'import_profile_names_undefined', names: ['a', 1] })),
+    ).toEqual({ code: 'import_profile_names_undefined', names: ['a'] })
+  })
+
+  it('returns undefined for a missing or unknown code and for non-HTTP errors', () => {
+    expect(crowdsec.getCrowdsecImportError(failure({ error: 'e' }))).toBeUndefined()
+    expect(crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'other' }))).toBeUndefined()
+    expect(crowdsec.getCrowdsecImportError(new Error('x'))).toBeUndefined()
+  })
 })

@@ -366,7 +366,7 @@ describe('presets API', () => {
       await presets.getCrowdsecPresetCache('custom/preset with spaces')
 
       expect(client.get).toHaveBeenCalledWith(
-        '/admin/crowdsec/presets/cache/custom%2Fpreset%20with%20spaces'
+        '/admin/crowdsec/presets/cache/custom/preset%20with%20spaces'
       )
     })
 

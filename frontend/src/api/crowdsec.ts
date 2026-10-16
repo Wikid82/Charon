@@ -1,4 +1,7 @@
+import { isAxiosError } from 'axios'
+
 import client from './client'
+import { getApiErrorCode } from './errorBody'
 
 /** Represents a CrowdSec decision (ban/captcha). */
 export interface CrowdSecDecision {
@@ -79,6 +82,26 @@ export interface ImportCrowdsecResult {
   needs_values?: string[]
 }
 
+/** Machine-readable reasons the server gives for refusing an import. */
+export const IMPORT_ERROR_CODES = [
+  'import_flat_archive',
+  'import_profile_names_undefined',
+  'import_kept_profile_undefined',
+  'import_kept_profile_duplicate',
+  'import_keep_current_failed',
+  'import_config_not_found',
+] as const
+
+export type CrowdsecImportErrorCode = (typeof IMPORT_ERROR_CODES)[number]
+
+/** Error body of a refused import; refusals without a code carry only the English `error`. */
+export interface CrowdsecImportApiError {
+  error: string
+  error_code?: CrowdsecImportErrorCode
+  /** Notification names behind the two "undefined" refusals (sanitised, at most 50). */
+  names?: string[]
+}
+
 /** Result of a hub item restore. */
 export interface RestoreHubItemsResult {
   installed: HubItem[]
@@ -87,6 +110,17 @@ export interface RestoreHubItemsResult {
   remaining: number
   skipped_invalid: number
   reloaded: boolean
+}
+
+/**
+ * Reads the machine-readable refusal reason from a failed import request.
+ * @returns The code and the notification names, or undefined for an unknown or missing code
+ */
+export function getCrowdsecImportError(err: unknown): { code: CrowdsecImportErrorCode; names: string[] } | undefined {
+  const code = getApiErrorCode(err, IMPORT_ERROR_CODES)
+  if (!code || !isAxiosError<Partial<CrowdsecImportApiError>>(err)) return undefined
+  const names = err.response?.data?.names
+  return { code, names: Array.isArray(names) ? names.filter((n): n is string => typeof n === 'string') : [] }
 }
 
 /** A restore downloads items one by one; the server budget is 5 minutes. */
