@@ -300,3 +300,142 @@ func TestHoldsKeyArmorReportsReadFailures(t *testing.T) {
 
 	require.ErrorContains(t, err, "read file head")
 }
+
+func TestExportArchiveKeepsEngineFilesThatMentionKeyArmor(t *testing.T) {
+	t.Parallel()
+	mention := "# a key looks like " + "-----BEGIN " + "RSA PRIVATE KEY-----\n"
+	dir := t.TempDir()
+	tree := map[string]string{
+		"config/config.yaml":     mention + "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config/profiles.yaml":   mention + "name: default\n",
+		"config/simulation.yaml": mention + "simulation: false\n",
+		"config/acquis.yaml":     mention + "source: file\n",
+		"config/other.yaml":      mention + "a: 1\n",
+		"config/sub/config.yaml": mention + "a: 1\n",
+	}
+	writeExportTree(t, dir, tree)
+	var buf bytes.Buffer
+
+	_, omitted, err := WriteExportArchive(context.Background(), dir, &buf)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"config/other.yaml", "config/sub/config.yaml"}, omitted)
+	names := exportNames(t, buf.Bytes())
+	for _, name := range []string{"config/config.yaml", "config/profiles.yaml", "config/simulation.yaml", "config/acquis.yaml"} {
+		require.Contains(t, names, name)
+	}
+
+	archive := filepath.Join(t.TempDir(), "export.tar.gz")
+	require.NoError(t, os.WriteFile(archive, buf.Bytes(), 0o600))
+	info, err := InspectArchive(archive)
+	require.NoError(t, err)
+	require.True(t, info.HasNestedConfig)
+	require.Contains(t, info.Files, "config/config.yaml")
+}
+
+func TestExportArchiveKeepsFlatEngineFilesThatMentionKeyArmor(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{"config.yaml": "# " + keyArmor("EC PRIVATE KEY") + "a: 1\n"})
+	var buf bytes.Buffer
+
+	_, omitted, err := WriteExportArchive(context.Background(), dir, &buf)
+
+	require.NoError(t, err)
+	require.Empty(t, omitted)
+	require.Equal(t, []string{"config.yaml"}, exportNames(t, buf.Bytes()))
+}
+
+func TestExportArchiveEngineFileNamedByKeyPathStaysHome(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{
+		"config/config.yaml":                     "a: 1\n",
+		"config/profiles.yaml":                   "name: default\n",
+		"config/notifications/http_default.yaml": httpPlugin("key_path: /etc/crowdsec/profiles.yaml\n"),
+	})
+
+	_, omitted, err := WriteExportArchive(context.Background(), dir, io.Discard)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"config/profiles.yaml"}, omitted)
+}
+
+func TestKeyPathTargetsCleansDotSegmentsInAbsoluteValues(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cases := map[string]struct {
+		value string
+		want  []string
+	}{
+		"dot dot inside data folder": {filepath.ToSlash(dir) + "/certs/../ssl/a.pem", []string{"ssl/a.pem"}},
+		"etc alias with dot dot":     {"/etc/crowdsec/ssl/../ssl/b.pem", []string{"config/ssl/b.pem"}},
+		"escapes the data folder":    {filepath.ToSlash(dir) + "/../outside.pem", nil},
+		"escapes through etc":        {"/etc/crowdsec/../passwd", nil},
+		"relative is skipped":        {"ssl/c.pem", nil},
+		"relative dot dot":           {"../ssl/c.pem", nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			d := t.TempDir()
+			value := strings.ReplaceAll(tc.value, filepath.ToSlash(dir), filepath.ToSlash(d))
+			writeExportTree(t, d, map[string]string{
+				"config/config.yaml":                     "a: 1\n",
+				"config/notifications/http_default.yaml": httpPlugin("key_path: " + value + "\n"),
+			})
+
+			got := keyPathsOf(d, d, "config/notifications/http_default.yaml")
+
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestKeyPathsOfReadsMergeKeysAndAliases(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	content := "type: http\nname: http_default\nurl: https://hooks.example.invalid/n\n" +
+		"base: &base\n  key_path: /etc/crowdsec/ssl/merged.pem\n" +
+		"other: &other\n  client_key_path: /etc/crowdsec/ssl/second.pem\n" +
+		"shared: &shared /etc/crowdsec/ssl/aliased.pem\n" +
+		"key_path: *shared\n" +
+		"<<: [*base, *other]\n"
+	writeExportTree(t, dir, map[string]string{
+		"config/config.yaml":                     "a: 1\n",
+		"config/notifications/http_default.yaml": content,
+	})
+
+	got := keyPathsOf(dir, dir, "config/notifications/http_default.yaml")
+
+	require.ElementsMatch(t, []string{"config/ssl/aliased.pem", "config/ssl/merged.pem", "config/ssl/second.pem"}, got)
+}
+
+func TestKeyPathsOfMergeCycleAndOddMergeValuesTerminate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	content := "type: http\nname: n\nloop: &loop\n  <<: *loop\n  key_path: /etc/crowdsec/ssl/x.pem\n" +
+		"<<: [*loop, 5]\n"
+	writeExportTree(t, dir, map[string]string{
+		"config/config.yaml":                     "a: 1\n",
+		"config/notifications/http_default.yaml": content + "extra:\n  <<: 7\n",
+	})
+
+	require.NotPanics(t, func() {
+		_ = keyPathsOf(dir, dir, "config/notifications/http_default.yaml")
+	})
+}
+
+func TestKeyPathsOfVisitsARepeatedMergeSourceOnce(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	content := "type: http\nname: n\nbase: &base\n  key_path: /etc/crowdsec/ssl/x.pem\n<<: [*base, *base]\nextra:\n  <<: *base\n"
+	writeExportTree(t, dir, map[string]string{
+		"config/config.yaml":                     "a: 1\n",
+		"config/notifications/http_default.yaml": content,
+	})
+
+	got := keyPathsOf(dir, dir, "config/notifications/http_default.yaml")
+
+	require.Equal(t, []string{"config/ssl/x.pem"}, got)
+}

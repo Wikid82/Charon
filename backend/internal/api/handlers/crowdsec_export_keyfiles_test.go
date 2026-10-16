@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -65,5 +67,44 @@ func TestOmittedFilesHeader(t *testing.T) {
 	}
 	var listed []string
 	require.NoError(t, json.Unmarshal([]byte(omittedFilesHeader(many)), &listed))
-	require.Len(t, listed, maxOmittedFilesListed)
+	require.Len(t, listed, maxOmittedFilesListed+1)
+}
+
+func TestOmittedFilesHeaderStaysWithinTheByteBudget(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("d/", 100) + "key.pem"
+	omitted := make([]string, 40)
+	for i := range omitted {
+		omitted[i] = fmt.Sprintf("%02d/%s", i, long)
+	}
+
+	header := omittedFilesHeader(omitted)
+
+	require.LessOrEqual(t, len(header), maxOmittedHeaderBytes+len(`,"+40 more"`))
+	var listed []string
+	require.NoError(t, json.Unmarshal([]byte(header), &listed))
+	require.Greater(t, len(listed), 1)
+	require.Less(t, len(listed), len(omitted))
+	require.Equal(t, fmt.Sprintf("+%d more", len(omitted)-(len(listed)-1)), listed[len(listed)-1])
+	require.Equal(t, omitted[0], listed[0])
+}
+
+func TestOmittedFilesHeaderMarksTheCountCap(t *testing.T) {
+	t.Parallel()
+	many := make([]string, maxOmittedFilesListed+10)
+	for i := range many {
+		many[i] = "f"
+	}
+
+	var listed []string
+	require.NoError(t, json.Unmarshal([]byte(omittedFilesHeader(many)), &listed))
+
+	require.Equal(t, "+10 more", listed[maxOmittedFilesListed])
+}
+
+func TestOmittedFilesHeaderOversizedFirstPathIsOnlyCounted(t *testing.T) {
+	t.Parallel()
+	var listed []string
+	require.NoError(t, json.Unmarshal([]byte(omittedFilesHeader([]string{strings.Repeat("x", 5000)})), &listed))
+	require.Equal(t, []string{"+1 more"}, listed)
 }

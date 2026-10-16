@@ -200,12 +200,16 @@ func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, d
 
 	// The content rule runs on the descriptor that is copied next, so a file swapped after the walk is
 	// judged by what is actually archived.
-	armored, err := holdsKeyArmor(f)
-	if err != nil {
-		return 0, unreadableFile(rel, err)
-	}
-	if armored {
-		return 0, errKeyFileOmitted
+	if isEngineFile(slash) {
+		logger.Log().Debugf("not sniffing %s for key armor: engine file exported as written", util.SanitizeForLog(rel))
+	} else {
+		armored, armorErr := holdsKeyArmor(f)
+		if armorErr != nil {
+			return 0, unreadableFile(rel, armorErr)
+		}
+		if armored {
+			return 0, errKeyFileOmitted
+		}
 	}
 
 	// A YAML file outside the notification folders may still be one (look-alike), so it is read and

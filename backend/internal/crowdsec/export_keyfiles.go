@@ -123,15 +123,68 @@ func keyPathsOf(dataDir, refDir, rel string) []string {
 		if m == nil {
 			continue
 		}
-		for i := 0; i+1 < len(m.Content); i += 2 {
-			k, v := m.Content[i], resolveAlias(m.Content[i+1])
+		forEachMappingPair(m, map[*yaml.Node]struct{}{}, func(k, v *yaml.Node) {
 			if k.Kind != yaml.ScalarNode || !isKeyPathSetting(k.Value) || v.Kind != yaml.ScalarNode || v.Tag != "!!str" {
-				continue
+				return
 			}
-			if target, ok := treeRelPath(refDir, v.Value); ok {
+			if target, ok := keyPathTarget(refDir, v.Value); ok {
 				paths = append(paths, target)
+			}
+		})
+	}
+	return paths
+}
+
+// keyPathTarget maps a key_path value to a tree path. Only absolute values count: CrowdSec hands the
+// configured path to the OS as given, so a relative value depends on the process working directory and
+// names no file in the tree (the name and armor rules still cover such a file). Dot segments in an
+// absolute value are cleaned first, as the OS would resolve them; the result must still lie in the tree.
+func keyPathTarget(refDir, value string) (string, bool) {
+	value = filepath.ToSlash(value)
+	if strings.HasPrefix(value, "/") {
+		value = path.Clean(value)
+	}
+	return treeRelPath(refDir, value)
+}
+
+// forEachMappingPair calls fn for every key/value pair of m, including the pairs a merge key (<<)
+// pulls in from other mappings, with aliased values resolved. Merged pairs are visited too even when the
+// mapping sets the same key itself: the export errs on the side of keeping a possible key file home.
+func forEachMappingPair(m *yaml.Node, seen map[*yaml.Node]struct{}, fn func(k, v *yaml.Node)) {
+	if _, dup := seen[m]; dup {
+		return
+	}
+	seen[m] = struct{}{}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k, v := m.Content[i], resolveAlias(m.Content[i+1])
+		if k.Tag != "!!merge" {
+			fn(k, v)
+			continue
+		}
+		switch v.Kind {
+		case yaml.MappingNode:
+			forEachMappingPair(v, seen, fn)
+		case yaml.SequenceNode:
+			for _, item := range v.Content {
+				if mm := resolveAlias(item); mm.Kind == yaml.MappingNode {
+					forEachMappingPair(mm, seen, fn)
+				}
 			}
 		}
 	}
-	return paths
+}
+
+// engineFiles are the top-level files CrowdSec itself reads at startup. An export without them cannot
+// be imported, so the armor sniff does not apply to them: they are exported as written, as before
+// (a comment that merely mentions a key header must not drop the whole file). The name rule cannot
+// match them, and key_path targets are still honoured.
+var engineFiles = map[string]struct{}{
+	"config.yaml": {}, "profiles.yaml": {}, "simulation.yaml": {}, "acquis.yaml": {},
+}
+
+// isEngineFile reports whether the slash path is one of the engine files in the live locations
+// (the data folder itself or its config folder).
+func isEngineFile(slash string) bool {
+	_, ok := engineFiles[strings.TrimPrefix(slash, "config/")]
+	return ok
 }

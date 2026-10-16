@@ -1043,18 +1043,35 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 // omittedFilesHeaderName carries the private key files an export left out, as a JSON array of paths.
 const omittedFilesHeaderName = "X-Charon-Omitted-Files"
 
-// maxOmittedFilesListed bounds the header; the server log carries the full count.
+// maxOmittedFilesListed bounds the number of paths in the header; the server log carries the full count.
 const maxOmittedFilesListed = 50
 
-// omittedFilesHeader encodes the omitted paths for the response header, or "" when there are none.
+// maxOmittedHeaderBytes bounds the encoded header size: many reverse proxies reject response headers
+// beyond 4-8 KiB, and the count cap alone does not limit long paths.
+const maxOmittedHeaderBytes = 2048
+
+// omittedFilesHeader encodes the omitted paths for the response header as a JSON array of strings, or ""
+// when there are none. Paths are added until the count or byte budget is reached; a last "+N more" entry
+// then says how many were left out of the list.
 func omittedFilesHeader(omitted []string) string {
 	if len(omitted) == 0 {
 		return ""
 	}
-	if len(omitted) > maxOmittedFilesListed {
-		omitted = omitted[:maxOmittedFilesListed]
+	listed := make([]string, 0, min(len(omitted), maxOmittedFilesListed)+1)
+	size := 2 // brackets
+	for _, p := range omitted {
+		enc, _ := json.Marshal(p) // a string always encodes
+		cost := len(enc) + 1      // separating comma
+		if len(listed) >= maxOmittedFilesListed || size+cost > maxOmittedHeaderBytes {
+			break
+		}
+		listed = append(listed, p)
+		size += cost
 	}
-	encoded, _ := json.Marshal(omitted) // a slice of strings always encodes
+	if more := len(omitted) - len(listed); more > 0 {
+		listed = append(listed, fmt.Sprintf("+%d more", more))
+	}
+	encoded, _ := json.Marshal(listed) // a slice of strings always encodes
 	return string(encoded)
 }
 
