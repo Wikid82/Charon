@@ -8,7 +8,15 @@ import { useNavigate, Link } from 'react-router'
 import { createBackup } from '../api/backups'
 import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems } from '../api/crowdsec'
 import { getFeatureFlags } from '../api/featureFlags'
-import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
+import {
+  listCrowdsecPresets,
+  pullCrowdsecPreset,
+  applyCrowdsecPreset,
+  getCrowdsecPresetCache,
+  getCrowdsecPresetErrorCode,
+  getCrowdsecPresetTaintedItems,
+  type CrowdsecPresetErrorCode,
+} from '../api/presets'
 import { getSecurityStatus } from '../api/security'
 import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
@@ -36,7 +44,8 @@ function getServerErrorMessage(err: unknown, fallback: string): string {
   return fallback
 }
 
-const MAX_LISTED_NEEDS_VALUES = 10
+const MAX_LISTED_NAMES = 10
+const WORD_SEPARATOR = ' '
 
 const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDashboard'))
 
@@ -50,8 +59,6 @@ export default function CrowdSecConfig() {
   const [importHubItems, setImportHubItems] = useState<{ key: number; items: ImportHubItems } | null>(null)
   const [keptFiles, setKeptFiles] = useState<string[]>([])
   const [needsValues, setNeedsValues] = useState<string[]>([])
-  const listedNeedsValues = needsValues.slice(0, MAX_LISTED_NEEDS_VALUES).map(sanitizeKeptFileName)
-  const hiddenNeedsValues = needsValues.length - listedNeedsValues.length
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [selectedPresetSlug, setSelectedPresetSlug] = useState<string>('')
@@ -62,11 +69,11 @@ export default function CrowdSecConfig() {
   const [confirmDeleteWhitelist, setConfirmDeleteWhitelist] = useState<CrowdSecWhitelistEntry | null>(null)
   const [isApplyingPreset, setIsApplyingPreset] = useState(false)
   const [presetPreview, setPresetPreview] = useState<string>('')
-  const [presetMeta, setPresetMeta] = useState<{ cacheKey?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
+  const [presetMeta, setPresetMeta] = useState<{ slug?: string; cacheKey?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
   const [presetStatusMessage, setPresetStatusMessage] = useState<string | null>(null)
   const [hubUnavailable, setHubUnavailable] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
-  const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string } | null>(null)
+  const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string; warnings?: string[] } | null>(null)
   const queryClient = useQueryClient()
   const backupCreatedMessage = (name: string) =>
     t('crowdsecConfig.presets.backupCreated', { name, location: t('crowdsecConfig.presets.backupLocation') })
@@ -265,7 +272,7 @@ export default function CrowdSecConfig() {
     mutationFn: (slug: string) => pullCrowdsecPreset(slug),
     onSuccess: (data) => {
       setPresetPreview(data.preview)
-      setPresetMeta({ cacheKey: data.cache_key, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
+      setPresetMeta({ slug: data.slug, cacheKey: data.cache_key, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
       setPresetStatusMessage(t('crowdsecConfig.presets.status.previewFetched'))
       setHubUnavailable(false)
       setValidationError(null)
@@ -471,6 +478,35 @@ export default function CrowdSecConfig() {
     }
   }
 
+  /** Comma-separated, sanitised names: the first MAX_LISTED_NAMES, then "and N more". */
+  const formatNameList = (names: string[]): string => {
+    const listed = names.slice(0, MAX_LISTED_NAMES).map(sanitizeKeptFileName)
+    const hidden = names.length - listed.length
+    return (hidden > 0 ? [...listed, t('crowdsecConfig.importNeedsValuesMore', { count: hidden })] : listed).join(', ')
+  }
+
+  /** Translated text for an apply outcome reported by the server. */
+  const applyOutcomeMessage = (code: CrowdsecPresetErrorCode, editedItems: string[]): string => {
+    switch (code) {
+      case 'preset_cache_key_required':
+      case 'preset_cache_stale':
+        return t('crowdsecConfig.presets.status.applyStale')
+      case 'preset_hub_updating':
+        return t('crowdsecConfig.presets.status.applyHubUpdating')
+      case 'preset_local_modified':
+        return editedItems.length > 0
+          ? [
+              t('crowdsecConfig.presets.status.applyLocalModified'),
+              t('crowdsecConfig.presets.status.editedItems', { items: formatNameList(editedItems) }),
+            ].join(WORD_SEPARATOR)
+          : t('crowdsecConfig.presets.status.applyLocalModified')
+      case 'preset_apply_timeout':
+        return t('crowdsecConfig.presets.status.applyTimeout')
+      case 'cscli_unavailable':
+        return t('crowdsecConfig.presets.status.cscliUnavailable')
+    }
+  }
+
   const handleApplyPreset = async () => {
     if (!selectedPreset) {
       toast.error(t('crowdsecConfig.toasts.selectPreset'))
@@ -480,14 +516,17 @@ export default function CrowdSecConfig() {
     setIsApplyingPreset(true)
     setApplyInfo(null)
     setValidationError(null)
+    setPresetStatusMessage(null)
     try {
-      const res = await applyCrowdsecPreset({ slug: selectedPreset.slug, cache_key: presetMeta?.cacheKey })
+      // Apply the exact entry that was previewed: the canonical slug from pull and its cache key.
+      const res = await applyCrowdsecPreset({ slug: presetMeta?.slug ?? selectedPreset.slug, cache_key: presetMeta?.cacheKey })
       setApplyInfo({
         status: res.status,
         backup: res.backup,
         reloadHint: res.reload_hint,
         usedCscli: res.used_cscli,
         cacheKey: res.cache_key,
+        warnings: res.warnings,
       })
 
       if (res.status !== 'applied') {
@@ -506,6 +545,17 @@ export default function CrowdSecConfig() {
       }
       // The server is authoritative for every preset source: surface its message for any
       // non-2xx response and never write preset content client-side.
+      const outcomeCode = getCrowdsecPresetErrorCode(err)
+      if (outcomeCode) {
+        // The stored copy is gone or out of date: drop the preview so the user pulls it again.
+        if (outcomeCode === 'preset_cache_key_required' || outcomeCode === 'preset_cache_stale' || outcomeCode === 'preset_hub_updating') {
+          setPresetMeta(null)
+          setPresetPreview('')
+        }
+        setPresetStatusMessage(applyOutcomeMessage(outcomeCode, getCrowdsecPresetTaintedItems(err)))
+        setApplyInfo({ status: 'failed' })
+        return
+      }
       const status = err.response?.status
       const backupName = (err.response?.data as { backup?: string } | undefined)?.backup
       const message = getServerErrorMessage(err, t('crowdsecConfig.toasts.presetApplyFailed'))
@@ -531,7 +581,7 @@ export default function CrowdSecConfig() {
     isApplyingPreset ||
     backupMutation.isPending ||
     pullPresetMutation.isPending ||
-    (selectedPresetRequiresHub && hubUnavailable)
+    (selectedPresetRequiresHub && (hubUnavailable || !presetMeta?.cacheKey))
 
   // Determine if any operation is in progress
   const isApplyingConfig =
@@ -1008,11 +1058,7 @@ export default function CrowdSecConfig() {
           )}
           {needsValues.length > 0 && (
             <p className="text-sm text-gray-400" data-testid="import-needs-values">
-              {t('crowdsecConfig.importNeedsValues', {
-                files: hiddenNeedsValues > 0
-                  ? [...listedNeedsValues, t('crowdsecConfig.importNeedsValuesMore', { count: hiddenNeedsValues })].join(', ')
-                  : listedNeedsValues.join(', '),
-              })}
+              {t('crowdsecConfig.importNeedsValues', { files: formatNameList(needsValues) })}
             </p>
           )}
           {importHubItems && <HubItemsRestorePanel key={importHubItems.key} hubItems={importHubItems.items} />}
@@ -1163,6 +1209,16 @@ export default function CrowdSecConfig() {
                   <p>{t('common.status')}: {applyInfo.status || t('crowdsecConfig.presets.applied')}</p>
                   {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup} ({t('crowdsecConfig.presets.backupLocation')})</p>}
                   {applyInfo.reloadHint && <p>{t('crowdsecConfig.presets.reload')}: {t('crowdsecConfig.presets.required')}</p>}
+                  {applyInfo.warnings && applyInfo.warnings.length > 0 && (
+                    <div className="mt-1 text-yellow-300" data-testid="preset-apply-warnings">
+                      <p>{t('crowdsecConfig.presets.status.applyDependencyNote')}</p>
+                      <ul className="list-disc pl-4">
+                        {applyInfo.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {applyInfo.usedCscli !== undefined && <p>{t('crowdsecConfig.presets.method')}: {applyInfo.usedCscli ? 'cscli' : t('crowdsecConfig.presets.filesystem')}</p>}
                 </div>
               )}

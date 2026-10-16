@@ -1315,7 +1315,14 @@
         "pullFailed": "No se pudo obtener la vista previa del preajuste",
         "cachedLoaded": "Vista previa en caché cargada",
         "cacheLoadFailed": "No se pudo cargar la vista previa en caché",
-        "slugInvalid": "El identificador del preajuste no es válido"
+        "slugInvalid": "El identificador del preajuste no es válido",
+        "applyStale": "La vista previa está desactualizada. Vuelva a obtener el preajuste y luego aplíquelo.",
+        "applyHubUpdating": "El hub aún se está actualizando, inténtelo de nuevo más tarde.",
+        "applyLocalModified": "Este elemento se editó en este servidor y se dejó sin cambios. Restablézcalo antes de aplicar el preajuste.",
+        "editedItems": "Elementos editados: {{items}}",
+        "applyTimeout": "La instalación del preajuste tardó demasiado y se revirtió. Inténtelo de nuevo.",
+        "cscliUnavailable": "cscli no disponible o no responde",
+        "applyDependencyNote": "Algunos elementos de los que depende este preajuste se editaron en este servidor y se dejaron sin cambios."
       }
     },
     "files": {

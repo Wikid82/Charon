@@ -193,7 +193,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
     });
   });
 
-  test.fixme('should send the pulled cache key when applying a hub preset', async ({ page }) => {
+  test('should send the pulled cache key when applying a hub preset', async ({ page }) => {
     let applyBody: Record<string, unknown> | undefined;
     await page.route(APPLY_ROUTE, async (route) => {
       applyBody = route.request().postDataJSON() as Record<string, unknown>;
@@ -211,7 +211,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
     });
   });
 
-  test.fixme('should ask for a new pull and show no success toast when the cached entry is outdated', async ({ page }) => {
+  test('should ask for a new pull and show no success toast when the cached entry is outdated', async ({ page }) => {
     await page.route(APPLY_ROUTE, async (route) => {
       await route.fulfill({
         status: 409,
