@@ -1,0 +1,15 @@
+[
+  {
+    "created_at": "2026-10-16T23:15:33.945139578Z",
+    "updated_at": "2026-10-16T23:15:33.945142352Z",
+    "name": "caddy-bouncer",
+    "revoked": false,
+    "ip_address": "",
+    "type": "",
+    "version": "",
+    "last_pull": null,
+    "auth_type": "api-key",
+    "os": "?",
+    "auto_created": false
+  }
+]

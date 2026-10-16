@@ -1,0 +1,1 @@
+Error: cscli capi status: the Central API (CAPI) must be configured with 'cscli capi register'
