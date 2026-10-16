@@ -2033,7 +2033,8 @@ func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 
 // ListDecisions calls cscli to get current decisions (banned IPs)
 func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
-	ctx := c.Request.Context()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), cscliDecisionsListTimeout)
+	defer cancel()
 	args := []string{"decisions", "list", "-o", "json"}
 	if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
 		args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
@@ -2042,42 +2043,25 @@ func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 	if err != nil {
 		// If cscli is not available or returns error, return empty list with warning
 		logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
-		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": "cscli not available or failed"})
+		msg := "cscli not available or failed"
+		if cscliDecisionsTimedOut(ctx, err) {
+			msg = "cscli decisions list timed out; the CrowdSec local API may be stopped"
+		}
+		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": msg})
 		return
 	}
 
-	// Handle empty output (no decisions)
-	if len(output) == 0 || string(output) == "null" || string(output) == "null\n" {
-		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "total": 0})
-		return
-	}
-
-	// Parse JSON output
-	var rawDecisions []cscliDecision
-	if err := json.Unmarshal(output, &rawDecisions); err != nil {
-		logger.Log().WithError(err).WithField("output", string(output)).Warn("Failed to parse cscli decisions output")
+	decisions, skipped, truncated, err := parseCSCLIDecisions(output)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to parse cscli decisions output")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse decisions"})
 		return
 	}
-
-	// Convert to our format
-	decisions := make([]CrowdSecDecision, 0, len(rawDecisions))
-	for _, d := range rawDecisions {
-		var createdAt time.Time
-		if d.CreatedAt != "" {
-			createdAt, _ = time.Parse(time.RFC3339, d.CreatedAt)
-		}
-		decisions = append(decisions, CrowdSecDecision{
-			ID:        d.ID,
-			Origin:    d.Origin,
-			Type:      d.Type,
-			Scope:     d.Scope,
-			Value:     d.Value,
-			Duration:  d.Duration,
-			Scenario:  d.Scenario,
-			CreatedAt: createdAt,
-			Until:     d.Until,
-		})
+	if skipped > 0 {
+		logger.Log().WithField("skipped", skipped).Warn("Skipped cscli decisions without a value")
+	}
+	if truncated {
+		logger.Log().WithField("limit", maxCSCLIDecisions).Warn("cscli decisions list exceeds the row limit; further decisions are not listed")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions)})

@@ -147,7 +147,6 @@ func TestCSCLIContract_ListDecisions_RecordedOutput(t *testing.T) {
 
 	t.Run("alert-shaped entries show every decision field", func(t *testing.T) {
 		t.Parallel()
-		t.Skip("enabled by a later commit in this series")
 		fx := newFixtureCmdExec(t, map[string]string{cmd: "decisions_list_json"})
 		code, resp, _ := listDecisionsVia(t, fx, t.TempDir())
 		require.Equal(t, http.StatusOK, code)
@@ -171,7 +170,6 @@ func TestCSCLIContract_ListDecisions_RecordedOutput(t *testing.T) {
 
 	t.Run("list after a deletion and run without a config path", func(t *testing.T) {
 		t.Parallel()
-		t.Skip("enabled by a later commit in this series")
 		for _, name := range []string{"decisions_list_json_afterdel", "decisions_list_nocfg_json"} {
 			fx := newFixtureCmdExec(t, map[string]string{cmd: name})
 			code, resp, _ := listDecisionsVia(t, fx, t.TempDir())
@@ -213,7 +211,6 @@ func TestCSCLIContract_ListDecisions_RecordedOutput(t *testing.T) {
 
 	t.Run("older and empty spellings of no decisions", func(t *testing.T) {
 		t.Parallel()
-		t.Skip("enabled by a later commit in this series")
 		for name, out := range map[string]string{"null": "null", "null newline": "null\n", "empty": "", "blank": "\n", "empty array newline": "[]\n"} {
 			code, resp, raw := listDecisionsVia(t, &rawOutputExec{out: []byte(out)}, t.TempDir())
 			require.Equal(t, http.StatusOK, code, name)
@@ -259,7 +256,6 @@ func TestCSCLIContract_ListDecisions_RecordedOutput(t *testing.T) {
 
 func TestCSCLIContract_ListDecisions_SkipsRowsWithoutValue(t *testing.T) {
 	t.Parallel()
-	t.Skip("enabled by a later commit in this series")
 	alerts := `[
 	 {"id":1,"scenario":"s1","created_at":"2026-10-16T23:15:34Z","decisions":[
 	   {"id":1,"origin":"cscli","type":"ban","scope":"Ip","value":"192.0.2.10","duration":"1h"},
@@ -289,12 +285,11 @@ func TestCSCLIContract_ListDecisions_SkipsRowsWithoutValue(t *testing.T) {
 
 func TestCSCLIContract_ListDecisions_BoundedInput(t *testing.T) {
 	t.Parallel()
-	t.Skip("enabled by a later commit in this series")
 
 	t.Run("number of rows", func(t *testing.T) {
 		t.Parallel()
-		// The cap is chosen by the implementation; no listing may be larger than this ceiling.
-		const ceiling = 100_000
+		// No listing may be larger than the cap.
+		const ceiling = maxCSCLIDecisions
 		const rows = ceiling + 20_000
 		var b strings.Builder
 		b.WriteString("[")
@@ -421,7 +416,6 @@ func TestCSCLIContract_GetLAPIDecisions_RecordedResponse(t *testing.T) {
 
 	t.Run("a refused key falls back to the cscli listing", func(t *testing.T) {
 		t.Parallel()
-		t.Skip("enabled by a later commit in this series")
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
 		t.Cleanup(srv.Close)
 		fx := newFixtureCmdExec(t, map[string]string{"decisions list -o json": "decisions_list_json"})
