@@ -638,9 +638,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get go.opentelemetry.io/otel/sdk@v1.47.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.23.0; \
-        # CVE-2026-81871: Log gRPC exporter ignores env TLS certs, bypassing mTLS/pinning
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.23.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/stdout/stdoutlog
         _retry go get go.opentelemetry.io/otel/exporters/stdout/stdoutlog@v0.23.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
