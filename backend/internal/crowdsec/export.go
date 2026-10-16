@@ -96,7 +96,7 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 	gw := gzip.NewWriter(&limitWriter{w: w, limit: maxCompressed})
 	tw := tar.NewWriter(gw)
 	dirs := treeNotificationDirs(dataDir)
-	keyTargets, err := keyPathTargets(ctx, dataDir, dirs)
+	keyTargets, err := keyPathTargets(ctx, dataDir, dataDir, dirs)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -131,7 +131,7 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 			return nil
 		}
 		slash := filepath.ToSlash(rel)
-		if _, named := keyTargets[slash]; named || hasKeyFileName(slash) {
+		if namesKeyFile(keyTargets, slash) {
 			omitted = append(omitted, slash)
 			return nil
 		}

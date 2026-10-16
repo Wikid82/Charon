@@ -284,7 +284,7 @@ func TestKeyPathTargetsSkipsWhatCannotBeRead(t *testing.T) {
 		"config/notifications/notes.txt":       "key_path: /etc/crowdsec/ssl/text.pem\n",
 	})
 
-	targets, err := keyPathTargets(context.Background(), dir, NotificationDirs(dir, nil))
+	targets, err := keyPathTargets(context.Background(), dir, dir, NotificationDirs(dir, nil))
 
 	require.NoError(t, err)
 	require.Equal(t, map[string]struct{}{"config/ssl/a.pem": {}, "config/ssl/b.pem": {}}, targets)

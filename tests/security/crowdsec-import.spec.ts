@@ -92,6 +92,11 @@ async function readConfigFile(request: APIRequestContext, name: string) {
   return (await response.json()).content as string;
 }
 
+/** The kept companion names, without key files a previous spec left in the instance (those are listed by path). */
+function keptCompanions(kept: string[] | undefined): string[] {
+  return (kept ?? []).filter((name) => !name.includes('/'));
+}
+
 test.describe('CrowdSec Config Import Validation', () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const baseline = await createTarGz(
@@ -448,7 +453,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(200);
       // The archive's own profiles.yaml wins and is not listed. The E2E tree also carries the default patterns/ folder.
-      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'patterns', 'simulation.yaml']);
+      expect(keptCompanions((await response.json()).kept_files)).toEqual(['acquis.yaml', 'patterns', 'simulation.yaml']);
       expect(await readConfigFile(request, cfg('profiles.yaml'))).toContain('archive_profile');
       expect(await readConfigFile(request, cfg('acquis.yaml'))).toBe(BASELINE_ACQUIS);
       expect(await readConfigFile(request, cfg('simulation.yaml'))).toBe(BASELINE_SIMULATION);
@@ -460,7 +465,7 @@ test.describe('CrowdSec Config Import Validation', () => {
       const response = await upload(request, archive, 'no-profiles-kept.tar.gz');
 
       expect(response.status()).toBe(200);
-      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'patterns', 'profiles.yaml', 'simulation.yaml']);
+      expect(keptCompanions((await response.json()).kept_files)).toEqual(['acquis.yaml', 'patterns', 'profiles.yaml', 'simulation.yaml']);
       expect(await readConfigFile(request, cfg('profiles.yaml'))).toBe(BASELINE_PROFILES);
     });
 
@@ -679,7 +684,7 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       expect(response.status()).toBe(200);
       // The archive supplies its own profiles.yaml, so only the files it omits are kept.
-      expect((await response.json()).kept_files).toEqual(['acquis.yaml', 'patterns', 'simulation.yaml']);
+      expect(keptCompanions((await response.json()).kept_files)).toEqual(['acquis.yaml', 'patterns', 'simulation.yaml']);
       expect(await readConfigFile(request, cfg('profiles.yaml'))).toContain('notifications: []');
     });
 

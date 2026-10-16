@@ -27,6 +27,12 @@ var privateKeyArmor = regexp.MustCompile(`-{5}BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-
 // errKeyFileOmitted tells the export walk that a file holds private key material and stays on the host.
 var errKeyFileOmitted = errors.New("private key file left out of the export")
 
+// namesKeyFile reports whether the slash path is a key_path target or has a private key file name.
+func namesKeyFile(targets map[string]struct{}, slash string) bool {
+	_, named := targets[slash]
+	return named || hasKeyFileName(slash)
+}
+
 // hasKeyFileName reports whether the file name marks a private key container (*.key, *.p12, *.pfx).
 func hasKeyFileName(rel string) bool {
 	switch strings.ToLower(path.Ext(rel)) {
@@ -54,10 +60,12 @@ func isKeyPathSetting(name string) bool {
 	return name == "key_path" || strings.HasSuffix(name, "_key_path")
 }
 
-// keyPathTargets returns the slash paths below dataDir that the notification files of the tree name as
-// key_path (or *_key_path) settings. Files that cannot be read or parsed contribute nothing: the content
-// and name rules of the export still apply to the key files themselves.
-func keyPathTargets(ctx context.Context, dataDir string, dirs []string) (map[string]struct{}, error) {
+// keyPathTargets returns the slash paths that the notification files below dataDir name as key_path
+// (or *_key_path) settings. Absolute values are resolved against refDir, the folder the settings were
+// written for (dataDir itself, or the live folder when dataDir is a snapshot of it). Files that
+// cannot be read or parsed contribute nothing: the content and name rules of the export still
+// apply to the key files themselves.
+func keyPathTargets(ctx context.Context, dataDir, refDir string, dirs []string) (map[string]struct{}, error) {
 	targets := map[string]struct{}{}
 	err := filepath.WalkDir(dataDir, func(p string, d fs.DirEntry, walkErr error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -79,7 +87,7 @@ func keyPathTargets(ctx context.Context, dataDir string, dirs []string) (map[str
 		if d.IsDir() || !d.Type().IsRegular() || IsNotificationFile(filepath.ToSlash(rel), nil, dirs) != InDirYAML {
 			return nil
 		}
-		for _, target := range keyPathsOf(dataDir, rel) {
+		for _, target := range keyPathsOf(dataDir, refDir, rel) {
 			targets[target] = struct{}{}
 		}
 		return nil
@@ -92,7 +100,7 @@ func keyPathTargets(ctx context.Context, dataDir string, dirs []string) (map[str
 
 // keyPathsOf reads one notification file the way the export does and returns the tree paths of its
 // key_path settings.
-func keyPathsOf(dataDir, rel string) []string {
+func keyPathsOf(dataDir, refDir, rel string) []string {
 	f, info, err := openExportFile(dataDir, rel, exportHooks{})
 	if f == nil || err != nil {
 		return nil
@@ -120,7 +128,7 @@ func keyPathsOf(dataDir, rel string) []string {
 			if k.Kind != yaml.ScalarNode || !isKeyPathSetting(k.Value) || v.Kind != yaml.ScalarNode || v.Tag != "!!str" {
 				continue
 			}
-			if target, ok := treeRelPath(dataDir, v.Value); ok {
+			if target, ok := treeRelPath(refDir, v.Value); ok {
 				paths = append(paths, target)
 			}
 		}

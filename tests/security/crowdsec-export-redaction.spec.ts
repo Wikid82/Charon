@@ -258,4 +258,16 @@ test.describe('CrowdSec export: private key files', () => {
     const omitted = JSON.parse(response.headers()['x-charon-omitted-files'] ?? '[]') as string[];
     expect(omitted).toEqual(expect.arrayContaining([KEY_PATH, ARMORED_PATH]));
   });
+
+  test('importing an export on the same system keeps the current key files', async ({ request }, testInfo) => {
+    const archivePath = testInfo.outputPath('roundtrip-keys.tar.gz');
+    await fs.writeFile(archivePath, await exportArchive(request));
+
+    const response = await upload(request, archivePath, 'roundtrip-keys.tar.gz');
+
+    expect(response.status()).toBe(200);
+    expect((await response.json()).kept_files).toEqual(expect.arrayContaining([KEY_PATH, ARMORED_PATH]));
+    expect(await readConfigFile(request, KEY_PATH)).toBe('opaque private material\n');
+    expect(await readConfigFile(request, ARMORED_PATH)).toBe(KEY_ARMOR);
+  });
 });

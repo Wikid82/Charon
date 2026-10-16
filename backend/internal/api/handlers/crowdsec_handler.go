@@ -854,6 +854,17 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
+	// Exports leave private key files out, so an import on the same host would delete the live ones: put
+	// back those the archive did not provide, before the configuration is validated.
+	keptKeys, keyErr := crowdsec.RestoreKeyFiles(backupDir, h.DataDir)
+	if keyErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(keyErr.Error())).Warn("crowdsec import: keeping the current key files failed")
+		rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgKeepCurrentFiles})
+		return
+	}
+	keptFiles = append(keptFiles, keptKeys...)
+
 	// Validate extracted config
 	validateErr := errConfigFileNotFound
 	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
