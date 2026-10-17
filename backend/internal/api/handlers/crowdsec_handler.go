@@ -55,7 +55,7 @@ type RealCommandExecutor struct{}
 // Execute runs a command and returns its combined output (stdout/stderr)
 func (r *RealCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: executor interface; all callers pass the literal "cscli"
-	return cmd.CombinedOutput()
+	return crowdsec.CombinedOutputLimited(cmd)
 }
 
 // CrowdsecHandler manages CrowdSec process and config imports.

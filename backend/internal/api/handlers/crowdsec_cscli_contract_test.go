@@ -767,7 +767,6 @@ func TestRealCommandExecutor_Execute_OutputLimit(t *testing.T) {
 	for _, stream := range []string{"stdout", "stderr"} {
 		t.Run("output beyond the cap on "+stream+" stops the command with a clear error", func(t *testing.T) {
 			t.Parallel()
-			t.Skip("enabled by a later commit in this series")
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
 			start := time.Now()

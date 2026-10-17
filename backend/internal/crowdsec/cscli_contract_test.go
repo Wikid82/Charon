@@ -151,7 +151,6 @@ func TestSecureCommandExecutor_ExecuteWithEnv_OutputLimit(t *testing.T) {
 		redirect := tc.redirect
 		t.Run("output beyond the cap on "+tc.name+" stops the command with a clear error", func(t *testing.T) {
 			t.Parallel()
-			t.Skip("enabled by a later commit in this series")
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
 			start := time.Now()
