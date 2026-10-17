@@ -89,7 +89,6 @@ func hasName(names []string, base string) bool {
 }
 
 func TestExportConfigRouteBlanksDatabaseCredentials(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	for _, fixture := range []string{"mysql.yaml", "postgres.yaml"} {
 		t.Run(fixture, func(t *testing.T) {
@@ -123,7 +122,6 @@ func TestExportConfigRouteKeepsAConfigWithoutSecretsAsWritten(t *testing.T) {
 }
 
 func TestExportConfigRouteNamesAConfigItCouldNotRedact(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	for _, fixture := range []string{"anchors_alias.yaml", "anchors_alias_value.yaml"} {
 		t.Run(fixture, func(t *testing.T) {
@@ -176,7 +174,6 @@ func TestImportConfigRestoresBlankedConfigValuesOnTheSameHost(t *testing.T) {
 
 // On another host there is nothing to restore from: the placeholders stay and the files are reported.
 func TestImportConfigReportsBlankedConfigValuesOnAnotherHost(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	cases := map[string]struct {
 		files map[string]string

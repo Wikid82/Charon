@@ -88,8 +88,9 @@ type CrowdsecHandler struct {
 	// registerScriptTimeout bounds the bouncer registration script; 0 means registerScriptTimeoutDefault. Overridable in tests.
 	registerScriptTimeout time.Duration
 
-	// mergeNotifications and scanPlaceholders are the import's notification steps; overridable in tests.
+	// mergeNotifications, mergeConfig and scanPlaceholders are the import's steps for blanked values; overridable in tests.
 	mergeNotifications func(snapshotDir, dataDir string) error
+	mergeConfig        func(snapshotDir, dataDir string) error
 	scanPlaceholders   func(dataDir string) ([]string, error)
 
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
@@ -508,6 +509,7 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		validateLAPIURL:    validateCrowdsecLAPIBaseURLDefault,
 		signalProcess:      signalOSProcess,
 		mergeNotifications: crowdsec.MergeRedactedNotifications,
+		mergeConfig:        crowdsec.MergeRedactedConfig,
 		scanPlaceholders:   crowdsec.ScanPlaceholders,
 	}
 	hubSvc.Reload = h.reloadCrowdSec
@@ -862,13 +864,15 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		}
 	}
 
-	// Fill the notification values the exported file blanked from the files being replaced, wherever the
-	// notification still points at the same target.
-	if mergeErr := h.mergeNotifications(backupDir, h.DataDir); mergeErr != nil {
-		logger.Log().WithField("error", sanitizeForLog(mergeErr.Error())).Warn("crowdsec import: keeping the current notification values failed")
-		rollback()
-		respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
-		return
+	// Fill the notification and configuration values the exported files blanked from the files being
+	// replaced, wherever they still point at the same target.
+	for _, merge := range []func(snapshotDir, dataDir string) error{h.mergeNotifications, h.mergeConfig} {
+		if mergeErr := merge(backupDir, h.DataDir); mergeErr != nil {
+			logger.Log().WithField("error", sanitizeForLog(mergeErr.Error())).Warn("crowdsec import: keeping the current blanked values failed")
+			rollback()
+			respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
+			return
+		}
 	}
 
 	// The import cleared every file the archive did not replace: put back the ones CrowdSec cannot start

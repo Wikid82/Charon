@@ -32,7 +32,7 @@ const (
 
 // ErrRedactUnsafe is returned when a notification file cannot be rewritten safely. It carries no
 // file content.
-var ErrRedactUnsafe = errors.New("notification file cannot be redacted safely")
+var ErrRedactUnsafe = errors.New("file cannot be redacted safely")
 
 // RedactResult is the rewritten file.
 type RedactResult struct {
@@ -184,13 +184,24 @@ func countNodes(n *yaml.Node) int {
 	return total
 }
 
+// countPlaceholders counts the scalars that are the placeholder.
 func countPlaceholders(n *yaml.Node) int {
+	return countScalarsWhere(n, func(v string) bool { return v == RedactedPlaceholder })
+}
+
+// countConfigPlaceholders counts the scalars that hold the placeholder: whole (a blanked value) or inside
+// a URL whose password was blanked.
+func countConfigPlaceholders(n *yaml.Node) int {
+	return countScalarsWhere(n, func(v string) bool { return strings.Contains(v, RedactedPlaceholder) })
+}
+
+func countScalarsWhere(n *yaml.Node, match func(string) bool) int {
 	total := 0
-	if n.Kind == yaml.ScalarNode && n.Value == RedactedPlaceholder {
+	if n.Kind == yaml.ScalarNode && match(n.Value) {
 		total++
 	}
 	for _, c := range n.Content {
-		total += countPlaceholders(c)
+		total += countScalarsWhere(c, match)
 	}
 	return total
 }

@@ -97,7 +97,6 @@ func TestExportConfigWithoutSecretsIsByteIdentical(t *testing.T) {
 
 // A database password and user, the registration token and URL passwords never reach the archive.
 func TestExportConfigBlanksDatabaseCredentials(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	for _, fixture := range []string{"mysql.yaml", "postgres.yaml"} {
 		for _, loc := range configLocations {
@@ -123,7 +122,6 @@ func TestExportConfigBlanksDatabaseCredentials(t *testing.T) {
 }
 
 func TestExportConfigBlanksTheRegistrationToken(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	original := configFixture(t, "auto_registration_token.yaml")
 	for _, loc := range configLocations {
@@ -141,7 +139,6 @@ func TestExportConfigBlanksTheRegistrationToken(t *testing.T) {
 }
 
 func TestExportConfigBlanksTheURLPassword(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	original := configFixture(t, "url_userinfo.yaml")
 	entries, _, archive := exportTree(t, map[string]string{"config/config.yaml": original})
@@ -154,7 +151,6 @@ func TestExportConfigBlanksTheURLPassword(t *testing.T) {
 }
 
 func TestExportConfigBlanksTheGenericSecretKeys(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	original := configFixture(t, "extra_secret_keys.yaml")
 	entries, _, archive := exportTree(t, map[string]string{"config/config.yaml": original})
@@ -175,7 +171,6 @@ func TestExportConfigBlanksTheGenericSecretKeys(t *testing.T) {
 
 // A config whose secret keys cannot be read safely is left out of the export and named in the omitted list.
 func TestExportConfigLeavesOutWhatItCannotRedact(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	contents := map[string]string{
 		"merge key at the credentials": configFixture(t, "anchors_alias.yaml"),

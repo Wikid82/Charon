@@ -336,7 +336,7 @@ func TestExportArchiveKeepsEngineFilesThatMentionKeyArmor(t *testing.T) {
 func TestExportArchiveKeepsFlatEngineFilesThatMentionKeyArmor(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeExportTree(t, dir, map[string]string{"config.yaml": "# " + keyArmor("EC PRIVATE KEY") + "a: 1\n"})
+	writeExportTree(t, dir, map[string]string{"config.yaml": "# " + strings.ReplaceAll(keyArmor("EC PRIVATE KEY"), "\n", "\n# ") + "\na: 1\n"})
 	var buf bytes.Buffer
 
 	_, omitted, err := WriteExportArchive(context.Background(), dir, &buf)

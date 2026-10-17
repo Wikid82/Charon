@@ -80,7 +80,9 @@ func checkExportImportable(compressed, uncompressed, maxCompressed int64, maxRat
 // an unreadable directory is logged and skipped; the installed hub items are listed in a generated
 // ManifestEntryName entry (only when there are any); notification settings files have their sensitive
 // values blanked (RedactNotificationFile) or, when that is not possible, are exported empty, and stray
-// non-YAML files in a notification folder are left out; an unreadable regular file, or one whose size changes
+// non-YAML files in a notification folder are left out; the engine configuration (config.yaml and
+// config.yaml.local) has its credentials blanked (RedactConfigFile) or, when that is not possible, is
+// left out and named in the returned list; an unreadable regular file, or one whose size changes
 // while it is copied, fails the export with ErrExportFileUnreadable. Private key files stay on the host:
 // the files notification settings name as key_path, files named *.key, *.p12 or *.pfx, and files whose
 // first 64 KiB hold private key armor.
@@ -136,7 +138,7 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 			return nil
 		}
 		n, copyErr := addExportFile(tw, dataDir, rel, total, maxBytes, dirs, hooks)
-		if errors.Is(copyErr, errKeyFileOmitted) {
+		if errors.Is(copyErr, errFileOmitted) {
 			omitted = append(omitted, slash)
 			return nil
 		}
@@ -158,7 +160,7 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 		return total, nil, fmt.Errorf("close gzip writer: %w", err)
 	}
 	if len(omitted) > 0 {
-		logger.Log().Infof("left %d private key file(s) out of the export; supply them again after restoring", len(omitted))
+		logger.Log().Infof("left %d file(s) out of the export (private keys, or configuration that could not be blanked safely); supply them again after restoring", len(omitted))
 	}
 	return total, omitted, nil
 }
@@ -208,8 +210,12 @@ func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, d
 			return 0, unreadableFile(rel, armorErr)
 		}
 		if armored {
-			return 0, errKeyFileOmitted
+			return 0, errFileOmitted
 		}
+	}
+
+	if isConfigFile(slash) {
+		return addConfigExportFile(tw, f, info, rel, total, maxBytes)
 	}
 
 	// A YAML file outside the notification folders may still be one (look-alike), so it is read and
@@ -330,14 +336,8 @@ func addRedactedExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel str
 		out = []byte(RedactStubContent)
 		logStubbed(rel)
 	} else {
-		data, err := io.ReadAll(io.LimitReader(f, maxInspectEntryBytes+1))
+		data, err := readStableExportFile(f, info, rel)
 		if err != nil {
-			return 0, unreadableFile(rel, err)
-		}
-		if int64(len(data)) != info.Size() {
-			return 0, unreadableFile(rel, fmt.Errorf("file size changed while copying: %d -> %d", info.Size(), len(data)))
-		}
-		if err := checkUnchanged(f, info, rel); err != nil {
 			return 0, err
 		}
 		if kind == NotAFile && IsNotificationFile(filepath.ToSlash(rel), LookAlikeDocuments(data), dirs) == NotAFile {
@@ -353,6 +353,50 @@ func addRedactedExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel str
 		return 0, ErrExportTooLarge
 	}
 	return writeExportEntry(tw, rel, info, out)
+}
+
+// readStableExportFile reads the whole opened file (at most maxInspectEntryBytes) and verifies that it did
+// not change size while it was read.
+func readStableExportFile(f *os.File, info os.FileInfo, rel string) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(f, maxInspectEntryBytes+1))
+	if err != nil {
+		return nil, unreadableFile(rel, err)
+	}
+	if int64(len(data)) != info.Size() {
+		return nil, unreadableFile(rel, fmt.Errorf("file size changed while copying: %d -> %d", info.Size(), len(data)))
+	}
+	if err := checkUnchanged(f, info, rel); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// addConfigExportFile writes the engine configuration with its credentials blanked (RedactConfigFile); a
+// file without credentials is written as it is. A file that cannot be redacted safely is left out of the
+// archive (errFileOmitted) and reported to the caller, never exported as written.
+func addConfigExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel string, total, maxBytes int64) (int64, error) {
+	if info.Size() > maxInspectEntryBytes {
+		logLeftOut(rel)
+		return 0, errFileOmitted
+	}
+	data, err := readStableExportFile(f, info, rel)
+	if err != nil {
+		return 0, err
+	}
+	res, redactErr := RedactConfigFile(data)
+	if redactErr != nil {
+		logLeftOut(rel)
+		return 0, errFileOmitted
+	}
+	if total+int64(len(res.Data)) > maxBytes {
+		return 0, ErrExportTooLarge
+	}
+	return writeExportEntry(tw, rel, info, res.Data)
+}
+
+// logLeftOut notes, without any file content, that a configuration file stays out of the export.
+func logLeftOut(rel string) {
+	logger.Log().Warnf("leaving %s out of the export: its credentials could not be blanked safely", util.SanitizeForLog(rel))
 }
 
 // logStubbed notes, without any file content, that a notification file was exported empty.

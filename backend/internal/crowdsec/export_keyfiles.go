@@ -24,8 +24,9 @@ const keySniffBytes = 64 << 10
 // optionally BLOCK, five dashes.
 var privateKeyArmor = regexp.MustCompile(`-{5}BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-{5}`)
 
-// errKeyFileOmitted tells the export walk that a file holds private key material and stays on the host.
-var errKeyFileOmitted = errors.New("private key file left out of the export")
+// errFileOmitted tells the export walk that a file stays on the host: it holds private key material or
+// its credentials cannot be blanked safely.
+var errFileOmitted = errors.New("file left out of the export")
 
 // namesKeyFile reports whether the slash path is a key_path target or has a private key file name.
 func namesKeyFile(targets map[string]struct{}, slash string) bool {
