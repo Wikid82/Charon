@@ -1364,7 +1364,8 @@
       "durationPermanent": "Permanente",
       "reasonLabel": "Razón",
       "reasonPlaceholder": "Razón para bloquear esta IP...",
-      "submit": "Bloquear IP"
+      "submit": "Bloquear IP",
+      "ipHint": "Una sola dirección o un rango como 192.0.2.0/24."
     },
     "unbanModal": {
       "title": "Confirmar desbloqueo",
@@ -1438,6 +1439,13 @@
       "whitelistRemovingDetail": "Quitando de la lista blanca",
       "default": "Reforzando la guardia...",
       "defaultDetail": "Configuración en curso"
+    },
+    "banErrors": {
+      "invalidIp": "Introduce una dirección IPv4 o IPv6 válida, o un rango como 192.0.2.0/24.",
+      "invalidDuration": "Elige una duración entre 1 minuto y 365 días, por ejemplo 4h, 30m o 1d.",
+      "invalidReason": "El motivo puede tener como máximo 200 caracteres.",
+      "decisionNotFound": "Ninguna decisión activa coincide con esta dirección o rango.",
+      "timeout": "CrowdSec no respondió a tiempo. Inténtalo de nuevo."
     }
   },
   "smtp": {

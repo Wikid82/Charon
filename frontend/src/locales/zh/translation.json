@@ -1363,7 +1363,8 @@
       "durationPermanent": "永久",
       "reasonLabel": "原因",
       "reasonPlaceholder": "封禁此 IP 的原因...",
-      "submit": "封禁 IP"
+      "submit": "封禁 IP",
+      "ipHint": "单个地址，或类似 192.0.2.0/24 的地址范围。"
     },
     "unbanModal": {
       "title": "确认解封",
@@ -1437,6 +1438,13 @@
       "whitelistRemovingDetail": "正在从白名单中移除",
       "default": "正在加强守卫...",
       "defaultDetail": "配置进行中"
+    },
+    "banErrors": {
+      "invalidIp": "请输入有效的 IPv4 或 IPv6 地址，或类似 192.0.2.0/24 的地址范围。",
+      "invalidDuration": "请选择 1 分钟到 365 天之间的时长，例如 4h、30m 或 1d。",
+      "invalidReason": "原因最多可包含 200 个字符。",
+      "decisionNotFound": "没有与此地址或范围匹配的有效封禁决策。",
+      "timeout": "CrowdSec 未能及时响应。请重试。"
     }
   },
   "smtp": {

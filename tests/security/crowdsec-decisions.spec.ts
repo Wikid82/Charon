@@ -233,8 +233,7 @@ test.describe('CrowdSec Banned IPs Management', () => {
       expect(stubs.bans).toEqual([{ ip: 'not-an-ip', duration: '24h', reason: '' }]);
     });
 
-    // Enabled by the ban validation and UI message commits of the CrowdSec cscli pages series.
-    test.fixme('should ban an address range with the range sent as entered', async ({ page }) => {
+    test('should ban an address range with the range sent as entered', async ({ page }) => {
       const stubs = await openBannedIps(page);
 
       await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
@@ -247,7 +246,7 @@ test.describe('CrowdSec Banned IPs Management', () => {
       expect(stubs.bans).toEqual([{ ip: '198.51.100.0/24', duration: '24h', reason: '' }]);
     });
 
-    test.fixme('should explain an invalid address or range in plain words and keep the dialog open', async ({ page }) => {
+    test('should explain an invalid address or range in plain words and keep the dialog open', async ({ page }) => {
       const stubs = await openBannedIps(page, { banApi: { banFailure: { failWith: 400, errorCode: 'invalid_ip' } } });
 
       await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
@@ -255,8 +254,8 @@ test.describe('CrowdSec Banned IPs Management', () => {
       await dialog.getByLabel('IP Address').fill('not-an-ip');
       await dialog.getByRole('button', { name: 'Ban IP', exact: true }).click();
 
-      // The final wording is set with the UI message commit; it names both accepted forms.
-      await expect(errorToast(page, /valid IP address or range/i)).toBeVisible();
+      // The message sits beside the field and names both accepted forms.
+      await expect(dialog.getByText('Enter a valid IPv4 or IPv6 address, or a range such as 192.0.2.0/24.')).toBeVisible();
       await expect(errorToast(page, 'ban rejected')).toHaveCount(0);
       await expect(dialog).toBeVisible();
       await expect(dialog.getByLabel('IP Address')).toHaveValue('not-an-ip');
@@ -334,7 +333,7 @@ test.describe('CrowdSec Banned IPs Management', () => {
       expect(stubs.unbans).toEqual(['203.0.113.7']);
     });
 
-    test.fixme('should unban an address range through the encoded route', async ({ page }) => {
+    test('should unban an address range through the encoded route', async ({ page }) => {
       const stubs = await openBannedIps(page, {
         decisions: [
           crowdsecFixtures.decision({ id: 'decision-range', ip: '198.51.100.0/24', reason: 'e2e range', duration: '24h', source: 'crowdsec' }),
@@ -348,14 +347,13 @@ test.describe('CrowdSec Banned IPs Management', () => {
       expect(stubs.unbans).toEqual(['198.51.100.0/24']);
     });
 
-    test.fixme('should say so when the ban to remove no longer exists', async ({ page }) => {
+    test('should say so when the ban to remove no longer exists', async ({ page }) => {
       const stubs = await openBannedIps(page, { banApi: { unbanFailure: { failWith: 404, errorCode: 'decision_not_found' } } });
 
       await decisionRow(page, '203.0.113.7').getByRole('button', { name: 'Unban' }).click();
       await unbanDialog(page).getByRole('button', { name: 'Unban', exact: true }).click();
 
-      // The final wording is set with the UI message commit.
-      await expect(errorToast(page, /no longer|not found|no active ban/i)).toBeVisible();
+      await expect(errorToast(page, 'No active decision matches this address or range.')).toBeVisible();
       await expect(errorToast(page, 'unban rejected')).toHaveCount(0);
       expect(stubs.unbans).toEqual(['203.0.113.7']);
     });

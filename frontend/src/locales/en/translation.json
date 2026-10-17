@@ -1685,7 +1685,8 @@
       "durationPermanent": "Permanent",
       "reasonLabel": "Reason",
       "reasonPlaceholder": "Reason for banning this IP...",
-      "submit": "Ban IP"
+      "submit": "Ban IP",
+      "ipHint": "A single address or a range such as 192.0.2.0/24."
     },
     "unbanModal": {
       "title": "Confirm Unban",
@@ -1757,6 +1758,13 @@
       "whitelistRemovingDetail": "Removing from whitelist",
       "default": "Strengthening the guard...",
       "defaultDetail": "Configuration in progress"
+    },
+    "banErrors": {
+      "invalidIp": "Enter a valid IPv4 or IPv6 address, or a range such as 192.0.2.0/24.",
+      "invalidDuration": "Choose a duration between 1 minute and 365 days, for example 4h, 30m or 1d.",
+      "invalidReason": "The reason can be at most 200 characters.",
+      "decisionNotFound": "No active decision matches this address or range.",
+      "timeout": "CrowdSec did not answer in time. Try again."
     }
   },
   "smtp": {

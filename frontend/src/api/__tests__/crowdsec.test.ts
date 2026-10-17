@@ -184,6 +184,34 @@ describe('crowdsec API', () => {
 
       expect(client.delete).toHaveBeenCalledWith('/admin/crowdsec/ban/%3A%3A1')
     })
+
+    it('should keep the slash of a range and encode each path component', async () => {
+      vi.mocked(client.delete).mockResolvedValue({})
+
+      await crowdsec.unbanIP('198.51.100.0/24')
+      await crowdsec.unbanIP('2001:db8::/32')
+
+      expect(client.delete).toHaveBeenNthCalledWith(1, '/admin/crowdsec/ban/198.51.100.0/24')
+      expect(client.delete).toHaveBeenNthCalledWith(2, '/admin/crowdsec/ban/2001%3Adb8%3A%3A/32')
+    })
+  })
+
+  describe('getCrowdsecBanError', () => {
+    const failure = (error_code?: string) =>
+      new AxiosError('english', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 400,
+        data: { error: 'english', error_code },
+      } as AxiosResponse)
+
+    it.each(crowdsec.BAN_ERROR_CODES)('reads %s', (code) => {
+      expect(crowdsec.getCrowdsecBanError(failure(code))).toBe(code)
+    })
+
+    it('ignores unknown, missing and non-request errors', () => {
+      expect(crowdsec.getCrowdsecBanError(failure('future_code'))).toBeUndefined()
+      expect(crowdsec.getCrowdsecBanError(failure())).toBeUndefined()
+      expect(crowdsec.getCrowdsecBanError(new Error('boom'))).toBeUndefined()
+    })
   })
 
   describe('getCrowdsecKeyStatus', () => {

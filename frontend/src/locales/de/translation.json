@@ -1362,7 +1362,8 @@
       "durationPermanent": "Permanent",
       "reasonLabel": "Grund",
       "reasonPlaceholder": "Grund für die Sperrung dieser IP...",
-      "submit": "IP sperren"
+      "submit": "IP sperren",
+      "ipHint": "Eine einzelne Adresse oder ein Bereich wie 192.0.2.0/24."
     },
     "unbanModal": {
       "title": "Entsperrung bestätigen",
@@ -1436,6 +1437,13 @@
       "whitelistRemovingDetail": "Wird von der Whitelist entfernt",
       "default": "Die Wache wird verstärkt...",
       "defaultDetail": "Konfiguration läuft"
+    },
+    "banErrors": {
+      "invalidIp": "Geben Sie eine gültige IPv4- oder IPv6-Adresse oder einen Bereich wie 192.0.2.0/24 ein.",
+      "invalidDuration": "Wählen Sie eine Dauer zwischen 1 Minute und 365 Tagen, zum Beispiel 4h, 30m oder 1d.",
+      "invalidReason": "Der Grund darf höchstens 200 Zeichen lang sein.",
+      "decisionNotFound": "Keine aktive Entscheidung passt zu dieser Adresse oder diesem Bereich.",
+      "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut."
     }
   },
   "smtp": {
