@@ -2062,11 +2062,9 @@ func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 // failed, timed out or printed more output than the limits allow.
 func (h *CrowdsecHandler) respondDecisionsUnavailable(c *gin.Context, err error) {
 	logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
-	msg := msgCSCLIFailed
-	if isCSCLITimeout(c.Request.Context(), err) {
-		msg = msgDecisionsTimedOut
-	}
-	c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": msg})
+	body := gin.H{"decisions": []CrowdSecDecision{}}
+	classifySoftListError(c.Request.Context(), err, msgDecisionsTimedOut).apply(body)
+	c.JSON(http.StatusOK, body)
 }
 
 // BanIPRequest represents the request body for banning an IP or a range

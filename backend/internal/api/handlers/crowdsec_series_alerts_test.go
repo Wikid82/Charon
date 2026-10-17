@@ -150,7 +150,6 @@ func TestListAlerts_OffsetSlicesTheFetchedList(t *testing.T) {
 
 // A failed listing is still a 200 with an empty list and the English text, now with a stable code.
 func TestSoftListErrorsCarryAnErrorCode(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	over := append([]byte("[]\n"), make([]byte, pr4OverCap)...)
 	for i := 3; i < len(over); i++ {
@@ -200,4 +199,28 @@ func TestSoftListErrorsCarryAnErrorCode(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Output that is not valid JSON is an unavailable cscli for the alerts listing.
+func TestAlertsListUnparsableOutputCarriesTheUnavailableCode(t *testing.T) {
+	t.Parallel()
+	ex := &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return []byte("not json"), nil }}
+
+	w := pr4ServeCtx(context.Background(), pr4Router(pr4Handler(t, ex, t.TempDir())), http.MethodGet, alertsURL, "")
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "cscli_unavailable", pr4Body(t, w)["error_code"])
+}
+
+// A successful listing carries neither an error nor a code.
+func TestAlertsListSuccessOmitsTheErrorCode(t *testing.T) {
+	t.Parallel()
+	ex := &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return []byte("[]\n"), nil }}
+
+	w := pr4ServeCtx(context.Background(), pr4Router(pr4Handler(t, ex, t.TempDir())), http.MethodGet, alertsURL, "")
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := pr4Body(t, w)
+	assert.NotContains(t, body, "error")
+	assert.NotContains(t, body, "error_code")
 }

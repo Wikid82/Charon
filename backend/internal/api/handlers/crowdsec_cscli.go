@@ -26,8 +26,9 @@ const (
 	msgDecisionsTimedOut = "cscli decisions list timed out; the CrowdSec local API may be stopped"
 	msgAlertsTimedOut    = "cscli alerts list timed out; the CrowdSec local API may be stopped"
 
-	codeCSCLITimeout = "cscli_timeout"
-	msgCSCLITimeout  = "CrowdSec did not answer in time"
+	codeCSCLITimeout        = "cscli_timeout"
+	codeCSCLIOutputTooLarge = "cscli_output_too_large"
+	msgCSCLITimeout         = "CrowdSec did not answer in time"
 )
 
 // runCSCLI runs one cscli command under its own deadline. It puts the configuration file the engine reads
@@ -56,4 +57,30 @@ func isCSCLITimeout(ctx context.Context, err error) bool {
 // respondCSCLITimeout writes the coded 504 for a cscli command that ran out of time.
 func respondCSCLITimeout(c *gin.Context) {
 	respondCoded(c, http.StatusGatewayTimeout, codeCSCLITimeout, msgCSCLITimeout, nil)
+}
+
+// softListError is the text and stable code a listing answers with, next to an empty list and a 200, when
+// cscli failed. The text stays as the fallback for clients that do not know the code.
+type softListError struct {
+	msg  string
+	code string
+}
+
+// classifySoftListError maps a failed cscli listing to its soft error. timedOutMsg is the text for the
+// listing that ran out of time; ctx is the caller's context, whose own expiry counts as a timeout.
+func classifySoftListError(ctx context.Context, err error, timedOutMsg string) *softListError {
+	switch {
+	case isCSCLITimeout(ctx, err):
+		return &softListError{msg: timedOutMsg, code: codeCSCLITimeout}
+	case errors.Is(err, crowdsec.ErrOutputLimit), errors.Is(err, crowdsec.ErrCSCLIOutputTooLarge):
+		return &softListError{msg: msgCSCLIFailed, code: codeCSCLIOutputTooLarge}
+	default:
+		return &softListError{msg: msgCSCLIFailed, code: codeCSCLIUnavailable}
+	}
+}
+
+// apply adds the error and its code to a listing response.
+func (e softListError) apply(body gin.H) {
+	body["error"] = e.msg
+	body["error_code"] = e.code
 }
