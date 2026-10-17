@@ -20,6 +20,7 @@ import {
 import { getSecurityStatus } from '../api/security'
 import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
+import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
 import HubItemsRestorePanel from '../components/crowdsec/HubItemsRestorePanel'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
@@ -1351,6 +1352,10 @@ export default function CrowdSecConfig() {
               {t('crowdsecConfig.bannedIps.banIp')}
             </Button>
           </div>
+
+          {status.crowdsec.mode !== 'disabled' && (
+            <ListErrorNote error={decisionsQuery.data?.error} error_code={decisionsQuery.data?.error_code} />
+          )}
 
           {status.crowdsec.mode === 'disabled' ? (
             <p className="text-sm text-gray-500">{t('crowdsecConfig.bannedIps.enableFirst')}</p>

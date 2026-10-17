@@ -363,6 +363,11 @@
         "recentAlerts": "Alertas Recientes",
         "alertsCount": "{{count}} en total",
         "alertsError": "Error al cargar alertas.",
+        "listErrors": {
+          "cscli_timeout": "El servicio de decisiones tardó demasiado en responder, por lo que esta lista puede estar incompleta. Se actualizará sola.",
+          "cscli_output_too_large": "El servicio de decisiones devolvió más datos de los que se pueden mostrar, por lo que esta lista puede estar incompleta.",
+          "cscli_unavailable": "El servicio de decisiones no está disponible en este momento, por lo que esta lista puede estar incompleta."
+        },
         "noAlerts": "Sin alertas para el período seleccionado.",
         "colTime": "Hora",
         "colEvents": "Eventos",

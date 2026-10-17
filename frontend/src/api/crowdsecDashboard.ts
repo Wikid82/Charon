@@ -1,5 +1,7 @@
 import client from './client'
 
+import type { CrowdsecListSoftError } from './crowdsec'
+
 export type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d'
 
 export interface DashboardSummary {
@@ -66,7 +68,7 @@ export interface CrowdSecAlert {
   origin: string
 }
 
-export interface AlertsData {
+export interface AlertsData extends CrowdsecListSoftError {
   alerts: CrowdSecAlert[]
   total: number
   source: string

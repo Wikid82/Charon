@@ -84,6 +84,32 @@ describe('AlertsList', () => {
     expect(screen.getByText('2 total')).toBeInTheDocument()
   })
 
+  it('shows a passive note above the alerts when the response carries an error', () => {
+    mockUseAlerts.mockReturnValue({
+      ...mockAlerts,
+      data: { ...mockAlerts.data, error: 'cscli timed out', error_code: 'cscli_timeout' },
+    } as never)
+
+    renderWithQueryClient(<AlertsList range="24h" />)
+
+    expect(screen.getByTestId('crowdsec-list-error-note')).toBeInTheDocument()
+    expect(screen.getByText('192.168.1.100')).toBeInTheDocument()
+  })
+
+  it('shows the note on an empty list and no note when there is no error', () => {
+    mockUseAlerts.mockReturnValue({
+      ...mockAlerts,
+      data: { ...mockAlerts.data, alerts: [], total: 0, error: 'cscli unavailable', error_code: 'cscli_unavailable' },
+    } as never)
+    const { unmount } = renderWithQueryClient(<AlertsList range="24h" />)
+    expect(screen.getByTestId('crowdsec-list-error-note')).toBeInTheDocument()
+    unmount()
+
+    mockUseAlerts.mockReturnValue(mockAlerts)
+    renderWithQueryClient(<AlertsList range="24h" />)
+    expect(screen.queryByTestId('crowdsec-list-error-note')).not.toBeInTheDocument()
+  })
+
   it('shows loading skeleton when isLoading', () => {
     mockUseAlerts.mockReturnValue({ data: undefined, isLoading: true, isError: false })
 

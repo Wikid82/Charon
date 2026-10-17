@@ -363,6 +363,11 @@
         "recentAlerts": "Letzte Warnungen",
         "alertsCount": "{{count}} gesamt",
         "alertsError": "Fehler beim Laden der Warnungen.",
+        "listErrors": {
+          "cscli_timeout": "Der Entscheidungsdienst hat zu lange für die Antwort gebraucht, daher ist diese Liste möglicherweise unvollständig. Sie wird automatisch aktualisiert.",
+          "cscli_output_too_large": "Der Entscheidungsdienst hat mehr Daten geliefert, als angezeigt werden können, daher ist diese Liste möglicherweise unvollständig.",
+          "cscli_unavailable": "Der Entscheidungsdienst ist derzeit nicht verfügbar, daher ist diese Liste möglicherweise unvollständig."
+        },
         "noAlerts": "Keine Warnungen für den ausgewählten Zeitraum.",
         "colTime": "Zeit",
         "colEvents": "Ereignisse",

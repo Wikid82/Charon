@@ -467,6 +467,11 @@
         "recentAlerts": "Recent Alerts",
         "alertsCount": "{{count}} total",
         "alertsError": "Failed to load alerts.",
+        "listErrors": {
+          "cscli_timeout": "The decision service took too long to answer, so this list may be incomplete. It will refresh on its own.",
+          "cscli_output_too_large": "The decision service returned more data than can be shown, so this list may be incomplete.",
+          "cscli_unavailable": "The decision service is not available right now, so this list may be incomplete."
+        },
         "noAlerts": "No alerts for the selected period.",
         "colTime": "Time",
         "colEvents": "Events",

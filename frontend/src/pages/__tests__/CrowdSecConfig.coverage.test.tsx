@@ -437,6 +437,25 @@ describe('CrowdSecConfig coverage', () => {
     expect((screen.getByTestId('crowdsec-file-select') as HTMLSelectElement).value).toBe('')
   })
 
+  it('shows a passive note for a soft decisions-list error and none otherwise', async () => {
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(baseStatus)
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({
+      decisions: [],
+      error: 'cscli timed out',
+      error_code: 'cscli_timeout',
+    })
+    await renderPage()
+    expect(await screen.findByTestId('crowdsec-list-error-note')).toBeInTheDocument()
+    expect(await screen.findByText('No banned IPs')).toBeInTheDocument()
+
+    cleanup()
+
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({ decisions: [] })
+    await renderPage()
+    expect(await screen.findByText('No banned IPs')).toBeInTheDocument()
+    expect(screen.queryByTestId('crowdsec-list-error-note')).not.toBeInTheDocument()
+  })
+
   it('shows decisions table, handles loading/error/empty states, and unban errors', async () => {
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(disabledStatus)
     await renderPage()

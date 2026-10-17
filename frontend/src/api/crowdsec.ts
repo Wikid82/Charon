@@ -13,6 +13,21 @@ export interface CrowdSecDecision {
   source: string
 }
 
+/** Why a list came back without data; sent beside the English `error` text. */
+export const CROWDSEC_LIST_ERROR_CODES = ['cscli_timeout', 'cscli_output_too_large', 'cscli_unavailable'] as const
+
+export type CrowdsecListErrorCode = (typeof CROWDSEC_LIST_ERROR_CODES)[number]
+
+/** Soft error fields shared by the decisions and alerts list responses; absent when the list loaded. */
+export interface CrowdsecListSoftError {
+  error?: string
+  error_code?: CrowdsecListErrorCode
+}
+
+export interface CrowdsecDecisionsResponse extends CrowdsecListSoftError {
+  decisions: CrowdSecDecision[]
+}
+
 /**
  * Starts the CrowdSec security service.
  * @returns Promise resolving to status with process ID and LAPI readiness
@@ -204,8 +219,8 @@ export async function writeCrowdsecFile(path: string, content: string) {
  * @returns Promise resolving to object containing decisions array
  * @throws {AxiosError} If listing fails
  */
-export async function listCrowdsecDecisions(): Promise<{ decisions: CrowdSecDecision[] }> {
-  const resp = await client.get<{ decisions: CrowdSecDecision[] }>('/admin/crowdsec/decisions')
+export async function listCrowdsecDecisions(): Promise<CrowdsecDecisionsResponse> {
+  const resp = await client.get<CrowdsecDecisionsResponse>('/admin/crowdsec/decisions')
   return resp.data
 }
 

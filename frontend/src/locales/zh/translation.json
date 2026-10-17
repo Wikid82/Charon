@@ -363,6 +363,11 @@
         "recentAlerts": "最近警报",
         "alertsCount": "共 {{count}} 条",
         "alertsError": "加载警报失败。",
+        "listErrors": {
+          "cscli_timeout": "决策服务响应时间过长，此列表可能不完整。它将自动刷新。",
+          "cscli_output_too_large": "决策服务返回的数据过多，无法全部显示，此列表可能不完整。",
+          "cscli_unavailable": "决策服务当前不可用，此列表可能不完整。"
+        },
         "noAlerts": "所选时段无警报。",
         "colTime": "时间",
         "colEvents": "事件",
