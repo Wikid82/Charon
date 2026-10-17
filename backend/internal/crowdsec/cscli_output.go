@@ -48,3 +48,9 @@ func unmarshalCSCLIJSON(out []byte, v any) error {
 	}
 	return nil
 }
+
+// UnmarshalCSCLIOutput decodes the JSON document in the combined stdout/stderr of a cscli command into v,
+// ignoring the progress lines cscli prints before it.
+func UnmarshalCSCLIOutput(out []byte, v any) error {
+	return unmarshalCSCLIJSON(out, v)
+}

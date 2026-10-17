@@ -1,0 +1,3 @@
+{"level":"error","msg":"while performing request: dial tcp 127.0.0.1:8085: connect: connection refused; 4 retries left","time":"2026-10-16T23:19:00Z"}
+{"level":"error","msg":"while performing request: dial tcp 127.0.0.1:8085: connect: connection refused; 3 retries left","time":"2026-10-16T23:19:23Z"}
+Error: cscli decisions list: unable to retrieve decisions: performing request: context canceled

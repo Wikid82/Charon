@@ -1,0 +1,1 @@
+[{"duration":"1h59m35s","id":3,"origin":"cscli","scenario":"manual ban: range","scope":"Range","type":"ban","value":"198.51.100.0/24"},{"duration":"23h59m35s","id":1,"origin":"cscli","scenario":"manual ban: example","scope":"Ip","type":"ban","value":"192.0.2.10"}]

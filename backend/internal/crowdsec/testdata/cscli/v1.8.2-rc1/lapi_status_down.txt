@@ -1,0 +1,3 @@
+Loaded credentials from /etc/crowdsec/local_api_credentials.yaml
+Trying to authenticate with username "testlocal" on http://127.0.0.1:8085/
+Error: cscli lapi status: failed to authenticate to Local API (LAPI): Post "http://127.0.0.1:8085/v1/watchers/login": dial tcp 127.0.0.1:8085: connect: connection refused

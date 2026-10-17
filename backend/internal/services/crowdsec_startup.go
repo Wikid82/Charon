@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -440,5 +441,5 @@ type simpleCommandExecutor struct{}
 func (e *simpleCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: command is from internal allowlist, not user input
 	cmd.Env = os.Environ()
-	return cmd.CombinedOutput()
+	return crowdsec.CombinedOutputLimited(cmd)
 }

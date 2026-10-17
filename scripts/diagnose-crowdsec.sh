@@ -275,7 +275,7 @@ check_config_yaml() {
 
         # Try to validate
         if check_command cscli; then
-            if timeout 10s cscli -c "$config_path" config check &>/dev/null; then
+            if timeout 10s cscli -c "$config_path" config show &>/dev/null; then
                 RESULTS["config_valid"]="true"
                 log_success "config.yaml is valid"
             else
