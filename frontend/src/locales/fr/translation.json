@@ -1284,7 +1284,9 @@
       "export": "Exporter",
       "import": "Importer",
       "importing": "Importation...",
-      "selectFile": "Sélectionner le fichier de paquet CrowdSec"
+      "selectFile": "Sélectionner le fichier de paquet CrowdSec",
+      "omittedNote": "Omis de cet export ({{count}}) : {{names}}. Fournissez à nouveau ces fichiers après la restauration sur un autre hôte.",
+      "omittedMore": " (et {{count}} de plus)"
     },
     "presets": {
       "title": "Préréglages",

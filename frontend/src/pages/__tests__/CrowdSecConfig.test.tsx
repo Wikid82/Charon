@@ -100,7 +100,7 @@ describe('CrowdSecConfig', () => {
             { id: '1', ip: '1.2.3.4', reason: 'ssh-bf', duration: '23h', created_at: '2023-01-01', source: 'local' }
         ]
     })
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({ blob: new Blob(['data']), omitted: [], omittedMore: 0 })
     vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(crowdsecApi.banIP).mockResolvedValue()
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue()

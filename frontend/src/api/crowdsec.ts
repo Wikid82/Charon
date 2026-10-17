@@ -171,14 +171,55 @@ export async function restoreHubItems(items: HubItem[]): Promise<RestoreHubItems
   return resp.data
 }
 
+/** An export archive plus the files the server left out of it. */
+export interface ExportCrowdsecResult {
+  blob: Blob
+  /** Paths left out (private key files, an unredacted-able config); the server lists at most 50. */
+  omitted: string[]
+  /** Files left out beyond the ones named in `omitted`. */
+  omittedMore: number
+}
+
+const OMITTED_FILES_HEADER = 'x-charon-omitted-files'
+const OMITTED_MORE_PATTERN = /^\+(\d+) more$/
+
+// HTTP header bytes reach the browser as Latin-1; the server sends UTF-8, so non-ASCII names must be re-decoded.
+function decodeHeaderUtf8(value: string): string {
+  try {
+    const bytes = Uint8Array.from(value, (ch) => ch.charCodeAt(0))
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return value
+  }
+}
+
+/**
+ * Reads the JSON array the server puts in X-Charon-Omitted-Files. A trailing "+N more" entry counts the
+ * names that did not fit. A missing or malformed header means nothing is reported.
+ */
+function parseOmittedHeader(raw: unknown): Pick<ExportCrowdsecResult, 'omitted' | 'omittedMore'> {
+  if (typeof raw !== 'string' || raw === '') return { omitted: [], omittedMore: 0 }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decodeHeaderUtf8(raw))
+  } catch {
+    return { omitted: [], omittedMore: 0 }
+  }
+  if (!Array.isArray(parsed)) return { omitted: [], omittedMore: 0 }
+  const entries = parsed.filter((e): e is string => typeof e === 'string')
+  const more = entries.length > 0 ? OMITTED_MORE_PATTERN.exec(entries[entries.length - 1]) : null
+  if (more) return { omitted: entries.slice(0, -1), omittedMore: Number(more[1]) }
+  return { omitted: entries, omittedMore: 0 }
+}
+
 /**
  * Exports the current CrowdSec configuration.
- * @returns Promise resolving to configuration blob for download
+ * @returns Promise resolving to the archive and the files the server left out of it
  * @throws {AxiosError} If export fails
  */
-export async function exportCrowdsecConfig() {
-  const resp = await client.get('/admin/crowdsec/export', { responseType: 'blob' })
-  return resp.data
+export async function exportCrowdsecConfig(): Promise<ExportCrowdsecResult> {
+  const resp = await client.get<Blob>('/admin/crowdsec/export', { responseType: 'blob' })
+  return { blob: resp.data, ...parseOmittedHeader(resp.headers?.[OMITTED_FILES_HEADER]) }
 }
 
 /**

@@ -52,6 +52,7 @@ function getServerErrorMessage(err: unknown, fallback: string): string {
 }
 
 const MAX_LISTED_NAMES = 10
+const OMITTED_NAMES_SHOWN = 5
 const WORD_SEPARATOR = ' '
 
 const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDashboard'))
@@ -62,6 +63,7 @@ export default function CrowdSecConfig() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'alpha' | 'type' | 'source'>('alpha')
   const [file, setFile] = useState<File | null>(null)
+  const [omittedExport, setOmittedExport] = useState<{ names: string[]; more: number } | null>(null)
   // Hub items the last import reported as missing; the key restarts the panel per import.
   const [importHubItems, setImportHubItems] = useState<{ key: number; items: ImportHubItems } | null>(null)
   const [keptFiles, setKeptFiles] = useState<string[]>([])
@@ -493,14 +495,18 @@ export default function CrowdSecConfig() {
     }
   }
 
+  const omittedTotal = omittedExport ? omittedExport.names.length + omittedExport.more : 0
+
   const handleExport = async () => {
     const defaultName = buildCrowdsecExportFilename()
     const filename = promptCrowdsecFilename(t, defaultName)
     if (!filename) return
 
+    setOmittedExport(null)
     try {
-      const blob = await exportCrowdsecConfig()
+      const { blob, omitted, omittedMore } = await exportCrowdsecConfig()
       downloadCrowdsecExport(blob, filename)
+      setOmittedExport({ names: omitted, more: omittedMore })
       toast.success(t('crowdsecConfig.exportSuccess'))
     } catch {
       toast.error(t('crowdsecConfig.exportFailed'))
@@ -1121,6 +1127,16 @@ export default function CrowdSecConfig() {
             </div>
           </div>
           <p className="text-sm text-gray-400">{t('crowdsecConfig.packages.description')}</p>
+          {omittedTotal > 0 && omittedExport && (
+            <p className="text-sm text-gray-400" data-testid="export-omitted-note">
+              {t('crowdsecConfig.packages.omittedNote', {
+                count: omittedTotal,
+                names: omittedExport.names.slice(0, OMITTED_NAMES_SHOWN).join(', '),
+              })}
+              {omittedTotal > OMITTED_NAMES_SHOWN &&
+                t('crowdsecConfig.packages.omittedMore', { count: omittedTotal - OMITTED_NAMES_SHOWN })}
+            </p>
+          )}
           <input
             type="file"
             onChange={(e) => {

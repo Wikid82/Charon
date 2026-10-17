@@ -1283,7 +1283,9 @@
       "export": "导出",
       "import": "导入",
       "importing": "正在导入...",
-      "selectFile": "选择 CrowdSec 软件包文件"
+      "selectFile": "选择 CrowdSec 软件包文件",
+      "omittedNote": "此导出中遗漏的文件（{{count}}）：{{names}}。在其他主机上还原后，请重新提供这些文件。",
+      "omittedMore": "（另有 {{count}} 个）"
     },
     "presets": {
       "title": "预设",

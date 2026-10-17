@@ -65,7 +65,7 @@ describe('Security Page - QA Security Audit', () => {
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
     vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({ blob: new Blob(), omitted: [], omittedMore: 0 })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     vi.spyOn(window, 'prompt').mockReturnValue('crowdsec-export.tar.gz')
   })

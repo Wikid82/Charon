@@ -1284,7 +1284,9 @@
       "export": "Exportar",
       "import": "Importar",
       "importing": "Importando...",
-      "selectFile": "Seleccionar archivo de paquete de CrowdSec"
+      "selectFile": "Seleccionar archivo de paquete de CrowdSec",
+      "omittedNote": "Omitidos en esta exportación ({{count}}): {{names}}. Vuelva a proporcionar estos archivos después de restaurar en otro host.",
+      "omittedMore": " (y {{count}} más)"
     },
     "presets": {
       "title": "Plantillas",

@@ -1605,7 +1605,9 @@
       "export": "Export",
       "import": "Import",
       "importing": "Importing...",
-      "selectFile": "Select CrowdSec package file"
+      "selectFile": "Select CrowdSec package file",
+      "omittedNote": "Left out of this export ({{count}}): {{names}}. Supply these files again after restoring on another host.",
+      "omittedMore": " (and {{count}} more)"
     },
     "presets": {
       "title": "Presets",

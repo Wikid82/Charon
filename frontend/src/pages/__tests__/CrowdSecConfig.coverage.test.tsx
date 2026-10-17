@@ -109,7 +109,7 @@ describe('CrowdSecConfig coverage', () => {
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
     vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({ blob: new Blob(['data']), omitted: [], omittedMore: 0 })
     vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({
       presets: [
@@ -228,6 +228,36 @@ describe('CrowdSecConfig coverage', () => {
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockRejectedValueOnce(new Error('fail'))
     await userEvent.click(screen.getByRole('button', { name: 'Export' }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to export CrowdSec configuration'))
+  })
+
+  it('shows a passive note listing the first five files an export left out', async () => {
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({
+      blob: new Blob(['data']),
+      omitted: ['a.key', 'b.key', 'c.key', 'd.key', 'e.key', 'f.key'],
+      omittedMore: 2,
+    })
+    await renderPage()
+    expect(screen.queryByTestId('export-omitted-note')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+    const note = await screen.findByTestId('export-omitted-note')
+    expect(note).toHaveTextContent('Left out of this export (8): a.key, b.key, c.key, d.key, e.key.')
+    expect(note).toHaveTextContent('(and 3 more)')
+    expect(note).not.toHaveTextContent('f.key')
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('shows a redacted config file and clears it on the next export', async () => {
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValueOnce({
+      blob: new Blob(['data']),
+      omitted: ['config.yaml'],
+      omittedMore: 0,
+    })
+    await renderPage()
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+    expect(await screen.findByTestId('export-omitted-note')).toHaveTextContent('Left out of this export (1): config.yaml.')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+    await waitFor(() => expect(screen.queryByTestId('export-omitted-note')).not.toBeInTheDocument())
   })
 
   it('auto-selects first preset and pulls preview', async () => {

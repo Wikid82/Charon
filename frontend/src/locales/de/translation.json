@@ -1282,7 +1282,9 @@
       "export": "Exportieren",
       "import": "Importieren",
       "importing": "Importiere...",
-      "selectFile": "CrowdSec-Paketdatei auswählen"
+      "selectFile": "CrowdSec-Paketdatei auswählen",
+      "omittedNote": "Aus diesem Export ausgelassen ({{count}}): {{names}}. Stellen Sie diese Dateien nach der Wiederherstellung auf einem anderen Host erneut bereit.",
+      "omittedMore": " (und {{count}} weitere)"
     },
     "presets": {
       "title": "Vorlagen",
