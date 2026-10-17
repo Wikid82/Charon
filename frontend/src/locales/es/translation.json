@@ -1456,7 +1456,7 @@
       "invalidIp": "Introduce una dirección IPv4 o IPv6 válida, o un rango como 192.0.2.0/24.",
       "invalidDuration": "Elige una duración entre 1 minuto y 365 días, por ejemplo 4h, 30m o 1d.",
       "invalidReason": "El motivo puede tener como máximo 200 caracteres.",
-      "decisionNotFound": "Ninguna decisión activa coincide con esta dirección o rango.",
+      "decisionNotFound": "Ninguna decisión con exactamente esta dirección o rango. Al desbloquear solo se elimina una coincidencia exacta; un rango que la cubra no libera las direcciones que contiene.",
       "timeout": "CrowdSec no respondió a tiempo. Inténtalo de nuevo."
     }
   },

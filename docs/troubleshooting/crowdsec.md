@@ -215,7 +215,7 @@ These appear when you ban or unban an address on the Live Decisions page. Nothin
 - **"Enter a valid IPv4 or IPv6 address, or a range such as 192.0.2.0/24."**: the address is not valid. Check for typos, spaces or a leading dash.
 - **"Choose a duration between 1 minute and 365 days, for example 4h, 30m or 1d."**: use `m` (minutes), `h` (hours) or `d` (days). Weeks (`1w`) and capital letters (`4H`) are not accepted.
 - **"The reason can be at most 200 characters."**: shorten the reason.
-- **"No active decision matches this address or range."**: nothing is blocked under that exact address or range, perhaps because it already expired or was unbanned. Refresh the list and use the value exactly as shown.
+- **"No decision with exactly this address or range."**: nothing is blocked under that exact address or range, perhaps because it already expired or was unbanned. Unbanning removes only an exact match: a range does not clear single addresses banned inside it, and an address does not clear a range that covers it. Refresh the list and use the value exactly as shown.
 - **"CrowdSec did not answer in time. Try again."** (also shown as "CrowdSec did not answer in time" on other CrowdSec pages): CrowdSec's local service is stopped or too slow. Check that it is running (see [Verifying LAPI Status](#verifying-lapi-status)), wait a moment, then try again.
 
 ## Hub preset messages

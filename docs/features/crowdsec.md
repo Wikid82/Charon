@@ -116,7 +116,7 @@ You can block an address by hand from the Live Decisions page.
 - **What you can ban**: a single address (IPv4 or IPv6), or a whole range such as `192.0.2.0/24`.
 - **How long**: from 1 minute to 365 days. Write it like `30m`, `4h` or `1d`.
 - **Reason**: optional, up to 200 characters.
-- **Unban**: works for single addresses and ranges. If nothing matches what you typed, Charon tells you instead of saying it worked.
+- **Unban**: works for single addresses and ranges, and removes only a decision with exactly the address or range you typed. Unbanning a range does not clear single addresses banned inside it, and unbanning an address does not clear a range that covers it. If nothing matches, Charon tells you instead of saying it worked. Each unban is added to the decision history.
 - **Active decisions count**: the number on the dashboard uses Charon's saved bouncer key, so it shows a real number instead of "N/A".
 - **Alerts**: the alerts list shows only the details the page uses.
 

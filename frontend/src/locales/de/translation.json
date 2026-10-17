@@ -1454,7 +1454,7 @@
       "invalidIp": "Geben Sie eine gültige IPv4- oder IPv6-Adresse oder einen Bereich wie 192.0.2.0/24 ein.",
       "invalidDuration": "Wählen Sie eine Dauer zwischen 1 Minute und 365 Tagen, zum Beispiel 4h, 30m oder 1d.",
       "invalidReason": "Der Grund darf höchstens 200 Zeichen lang sein.",
-      "decisionNotFound": "Keine aktive Entscheidung passt zu dieser Adresse oder diesem Bereich.",
+      "decisionNotFound": "Keine Entscheidung mit genau dieser Adresse oder diesem Bereich. Beim Aufheben wird nur eine exakte Übereinstimmung entfernt; ein umfassender Bereich gibt die darin liegenden Adressen nicht frei.",
       "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut."
     }
   },

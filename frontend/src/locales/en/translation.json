@@ -1775,7 +1775,7 @@
       "invalidIp": "Enter a valid IPv4 or IPv6 address, or a range such as 192.0.2.0/24.",
       "invalidDuration": "Choose a duration between 1 minute and 365 days, for example 4h, 30m or 1d.",
       "invalidReason": "The reason can be at most 200 characters.",
-      "decisionNotFound": "No active decision matches this address or range.",
+      "decisionNotFound": "No decision with exactly this address or range. Unbanning removes an exact match only; a covering range does not clear the addresses inside it.",
       "timeout": "CrowdSec did not answer in time. Try again."
     }
   },

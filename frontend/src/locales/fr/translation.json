@@ -1456,7 +1456,7 @@
       "invalidIp": "Saisissez une adresse IPv4 ou IPv6 valide, ou une plage telle que 192.0.2.0/24.",
       "invalidDuration": "Choisissez une durée comprise entre 1 minute et 365 jours, par exemple 4h, 30m ou 1d.",
       "invalidReason": "Le motif ne peut pas dépasser 200 caractères.",
-      "decisionNotFound": "Aucune décision active ne correspond à cette adresse ou à cette plage.",
+      "decisionNotFound": "Aucune décision avec exactement cette adresse ou cette plage. Le débannissement ne retire qu'une correspondance exacte ; une plage plus large ne libère pas les adresses qu'elle contient.",
       "timeout": "CrowdSec n'a pas répondu à temps. Réessayez."
     }
   },

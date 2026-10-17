@@ -1455,7 +1455,7 @@
       "invalidIp": "请输入有效的 IPv4 或 IPv6 地址，或类似 192.0.2.0/24 的地址范围。",
       "invalidDuration": "请选择 1 分钟到 365 天之间的时长，例如 4h、30m 或 1d。",
       "invalidReason": "原因最多可包含 200 个字符。",
-      "decisionNotFound": "没有与此地址或范围匹配的有效封禁决策。",
+      "decisionNotFound": "没有与此地址或范围完全一致的决策。解除封禁只会移除完全匹配的决策；包含该地址的更大范围不会解除其中各个地址。",
       "timeout": "CrowdSec 未能及时响应。请重试。"
     }
   },

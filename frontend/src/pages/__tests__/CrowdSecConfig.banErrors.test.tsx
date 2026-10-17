@@ -24,7 +24,7 @@ const TEXT = {
   invalid_ip: 'Enter a valid IPv4 or IPv6 address, or a range such as 192.0.2.0/24.',
   invalid_duration: 'Choose a duration between 1 minute and 365 days, for example 4h, 30m or 1d.',
   invalid_reason: 'The reason can be at most 200 characters.',
-  decision_not_found: 'No active decision matches this address or range.',
+  decision_not_found: 'No decision with exactly this address or range. Unbanning removes an exact match only; a covering range does not clear the addresses inside it.',
   cscli_timeout: 'CrowdSec did not answer in time. Try again.',
 }
 

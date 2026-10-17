@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // Cache TTL constants for dashboard endpoints.
@@ -134,11 +135,13 @@ func (h *CrowdsecHandler) DashboardSummary(c *gin.Context) {
 	// Historical metrics from SQLite
 	var totalDecisions int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Count(&totalDecisions)
 
 	var uniqueIPs int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Distinct("ip").Count(&uniqueIPs)
 
@@ -159,6 +162,7 @@ func (h *CrowdsecHandler) DashboardSummary(c *gin.Context) {
 	previousSince := since.Add(-duration)
 	var previousCount int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ? AND created_at < ?", "crowdsec", previousSince, since).
 		Count(&previousCount)
 
@@ -304,6 +308,15 @@ func (h *CrowdsecHandler) DashboardTimeline(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// decisionActionUnblock marks the audit row written when an operator lifts a ban by hand.
+const decisionActionUnblock = "unblock"
+
+// excludeUnblocks leaves out the audit rows of manual unbans: they record a lifted ban, not an attack, so
+// they must not count toward the attack totals, unique addresses, trend or top addresses.
+func excludeUnblocks(db *gorm.DB) *gorm.DB {
+	return db.Where("action <> ?", decisionActionUnblock)
+}
+
 // DashboardTopIPs returns top attacking IPs ranked by decision count.
 func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 	rangeStr := normalizeRange(c.Query("range"))
@@ -337,6 +350,7 @@ func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 	var rows []ipRow
 
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Select("ip, COUNT(*) as count, MAX(created_at) as last_seen, MAX(country) as country").
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Group("ip").

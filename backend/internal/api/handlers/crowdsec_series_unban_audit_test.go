@@ -24,7 +24,6 @@ func decisionRows(t *testing.T, h *CrowdsecHandler) []models.SecurityDecision {
 
 // A successful unban leaves an audit row, like a ban does.
 func TestUnbanIP_WritesAnAuditRow(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	cases := []struct {
 		name, target, fixture, want string
@@ -74,7 +73,6 @@ func TestUnbanIP_WritesNoAuditRowWhenNothingWasRemoved(t *testing.T) {
 
 // Exact matching: a covering range is not removed by its address and the answer says so.
 func TestUnbanIP_NotFoundTextExplainsExactMatching(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	h := pr4Handler(t, pr4Answer(t, "decisions_delete_range_absent"), t.TempDir())
 
@@ -143,7 +141,6 @@ func TestSecurityDecisionsShowCIDRValues(t *testing.T) {
 
 // The unban row is exported with its action.
 func TestUnbanRowAppearsInTheExport(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	h := pr4Handler(t, pr4Answer(t, "decisions_delete_range_r"), t.TempDir())
 	r := pr4Router(h)
@@ -157,4 +154,43 @@ func TestUnbanRowAppearsInTheExport(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Equal(t, "unblock", rows[0].Action)
 	assert.Equal(t, "198.51.100.0/24", rows[0].IP)
+}
+
+// An unban row records a lifted ban, so the attack totals and the top addresses leave it out.
+func TestDashboardLeavesOutUnbanRows(t *testing.T) {
+	t.Parallel()
+	h := pr4Handler(t, pr4Answer(t, "decisions_delete"), t.TempDir())
+	r := pr4Router(h)
+	require.NoError(t, h.DB.Create(&models.SecurityDecision{
+		UUID: "22222222-2222-4222-8222-222222222222", IP: "192.0.2.11", Action: "block", Source: "crowdsec",
+		Scenario: "manual", CreatedAt: time.Now(),
+	}).Error)
+	require.Equal(t, http.StatusOK, pr4Serve(r, http.MethodDelete, pr4BanURL+"/192.0.2.11", "").Code)
+	require.Len(t, decisionRows(t, h), 2)
+
+	t.Run("top IPs", func(t *testing.T) {
+		w := pr4Serve(r, http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h", "")
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var body struct {
+			IPs []struct {
+				IP    string `json:"ip"`
+				Count int64  `json:"count"`
+			} `json:"ips"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.Len(t, body.IPs, 1)
+		assert.Equal(t, int64(1), body.IPs[0].Count)
+	})
+
+	t.Run("summary", func(t *testing.T) {
+		w := pr4Serve(r, http.MethodGet, "/api/v1/admin/crowdsec/dashboard/summary?range=24h", "")
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var body struct {
+			Total  int64 `json:"total_decisions"`
+			Unique int64 `json:"unique_ips"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		assert.Equal(t, int64(1), body.Total, w.Body.String())
+		assert.Equal(t, int64(1), body.Unique)
+	})
 }

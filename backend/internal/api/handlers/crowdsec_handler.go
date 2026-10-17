@@ -2139,7 +2139,8 @@ func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	h.dashCache.Invalidate("dashboard")
 }
 
-// UnbanIP removes the decisions for an address or a CIDR range. The route is a catch-all so that a range
+// UnbanIP removes the decisions that match an address or a CIDR range exactly: cscli compares the scope, so
+// a covering range does not remove the single addresses inside it. The route is a catch-all so that a range
 // written as 10.0.0.0/24 or 10.0.0.0%2F24 reaches the handler; the value arrives with a leading slash.
 func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	raw := strings.TrimPrefix(c.Param("value"), "/")
@@ -2173,6 +2174,18 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+
+	// Log to security_decisions so the history shows who lifted a ban, like a ban shows who set one
+	if h.Security != nil {
+		if err := h.Security.LogDecision(&models.SecurityDecision{
+			IP:     target.value,
+			Action: decisionActionUnblock,
+			Source: "crowdsec",
+			RuleID: "manual unban",
+		}); err != nil {
+			logger.Log().WithError(err).WithField("ip", target.value).Warn("Failed to record the manual unban in the security decisions")
+		}
+	}
 	h.dashCache.Invalidate("dashboard")
 }
 
