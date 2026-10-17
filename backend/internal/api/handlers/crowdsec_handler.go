@@ -2415,16 +2415,29 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 			}
 		}
 
-		// Validate using cscli config check
-		checkArgs := []string{"-c", cleanConfigPath, "config", "check"}
+		// Validate with "cscli config show": it parses the whole configuration and exits non-zero
+		// when it cannot be loaded. Only the exit status decides; the output is not parsed.
+		checkArgs := []string{"-c", cleanConfigPath, "config", "show"}
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		out, err := h.CmdExec.Execute(checkCtx, "cscli", checkArgs...)
+		timedOut := errors.Is(checkCtx.Err(), context.DeadlineExceeded)
 		cancel()
-		if err == nil {
+		if err != nil && ctx.Err() != nil {
+			// The request itself ended (client disconnected): the command was killed, so nothing is known
+			// about the configuration and there is nobody left to answer.
+			return
+		}
+		switch {
+		case err == nil:
 			validation["config_valid"] = true
-		} else {
+		case cscliUnavailable(err) || timedOut:
+			// The validity is unknown, not bad: config_valid stays false (the field is a plain
+			// boolean) but the message must not claim the configuration is invalid.
 			validation["config_valid"] = false
-			validationErrs = append(validationErrs, fmt.Sprintf("config.yaml validation failed: %s", strings.TrimSpace(string(out))))
+			validationErrs = append(validationErrs, "config.yaml could not be checked: cscli unavailable or not responding")
+		default:
+			validation["config_valid"] = false
+			validationErrs = append(validationErrs, "config.yaml validation failed: "+cscliFailureReason(out))
 		}
 	} else {
 		validationErrs = append(validationErrs, "config.yaml not found")
@@ -2703,4 +2716,32 @@ func liveDirSet(root string) (map[string]struct{}, error) {
 		return nil, fmt.Errorf("list live directories: %w", err)
 	}
 	return dirs, nil
+}
+
+// maxCSCLIReasonLen bounds the cscli output line echoed back in diagnostics.
+const maxCSCLIReasonLen = 200
+
+// cscliUnavailable reports whether err means the cscli binary could not be started at all
+// (as opposed to cscli running and exiting non-zero).
+func cscliUnavailable(err error) bool {
+	var execErr *exec.Error
+	return errors.As(err, &execErr) || errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission)
+}
+
+// cscliFailureReason reduces cscli's combined output to a single safe line: the first line that
+// is not blank or a "level=" log line, without a leading "Error:", paths redacted, length bounded.
+func cscliFailureReason(out []byte) string {
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(strings.TrimPrefix(line, "Error:"))
+		if line == "" || strings.HasPrefix(line, "level=") {
+			continue
+		}
+		line = crowdsec.RedactPaths(line)
+		if r := []rune(line); len(r) > maxCSCLIReasonLen {
+			line = string(r[:maxCSCLIReasonLen]) + "..."
+		}
+		return line
+	}
+	return "cscli reported an error"
 }

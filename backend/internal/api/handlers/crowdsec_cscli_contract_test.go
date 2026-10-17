@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -491,7 +492,6 @@ func errorStrings(t *testing.T, out map[string]any) []string {
 
 func TestCSCLIContract_DiagnosticsConfig_ConfigShow(t *testing.T) {
 	t.Parallel()
-	t.Skip("enabled by a later commit in this series")
 	// The old command ("config check") does not exist; it is answered with the recorded usage text and exit status 1.
 	const show = "config show"
 	oldCheck := "config check"
@@ -779,4 +779,67 @@ func TestRealCommandExecutor_Execute_OutputLimit(t *testing.T) {
 			assert.Less(t, len(out), 40_000_000, "the output kept is bounded")
 		})
 	}
+}
+
+func TestCSCLIFailureReason(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "cscli reported an error", cscliFailureReason(nil))
+	assert.Equal(t, "cscli reported an error", cscliFailureReason([]byte("\n  \nlevel=info msg=x\n")))
+	assert.Equal(t, "real problem in <path>", cscliFailureReason([]byte("level=info msg=x\nError: real problem in /etc/crowdsec/x.yaml\n")))
+	long := cscliFailureReason([]byte(strings.Repeat("a", 500)))
+	assert.Len(t, long, maxCSCLIReasonLen+3)
+	assert.True(t, strings.HasSuffix(long, "..."))
+}
+
+func TestCSCLIUnavailable(t *testing.T) {
+	t.Parallel()
+	assert.True(t, cscliUnavailable(&exec.Error{Name: "cscli", Err: exec.ErrNotFound}))
+	assert.True(t, cscliUnavailable(fmt.Errorf("start: %w", fs.ErrPermission)))
+	assert.False(t, cscliUnavailable(exitStatusError(t, 1)))
+}
+
+// blockingExec waits for the command context to expire, like a hung cscli.
+type blockingExec struct{}
+
+func (blockingExec) Execute(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+	<-ctx.Done()
+	return nil, errors.New("signal: killed")
+}
+
+func TestDiagnosticsConfig_CSCLITimeoutIsNotReportedAsInvalid(t *testing.T) {
+	t.Parallel()
+	out, _ := diagnosticsConfigVia(t, blockingExec{})
+	assert.Equal(t, false, out["config_valid"])
+	msgs := errorStrings(t, out)
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0], "cscli unavailable or not responding")
+	assert.NotContains(t, strings.ToLower(msgs[0]), "validation failed")
+}
+
+func TestDiagnosticsConfig_OtherExitFailureIsInvalid(t *testing.T) {
+	t.Parallel()
+	out, _ := diagnosticsConfigVia(t, &rawOutputExec{err: errors.New("exit status 1")})
+	msgs := errorStrings(t, out)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "config.yaml validation failed: cscli reported an error", msgs[0])
+}
+
+// A client that disconnects cancels the request context and kills the command. That says nothing about the
+// configuration, so no verdict is produced.
+func TestDiagnosticsConfig_ClientDisconnectReportsNothing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{"config/config.yaml": importableConfig, "config/acquis.yaml": "source: file\nfilenames:\n  - /var/log/example.log\n"})
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", dir)
+	h.CmdExec = &rawOutputExec{err: errors.New("signal: killed")}
+	r := gin.New()
+	r.GET("/d", h.DiagnosticsConfig)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, "/d", http.NoBody))
+
+	assert.NotContains(t, w.Body.String(), "validation failed")
+	assert.NotContains(t, w.Body.String(), "config_valid")
 }
