@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -392,50 +391,5 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 	assert.True(t, response["healthy"].(bool))
 	if note, ok := response["note"].(string); ok {
 		assert.Contains(t, note, "decisions endpoint")
-	}
-}
-
-// TestGetLAPIKey_AllEnvVars tests that getLAPIKey checks all environment variable names
-func TestGetLAPIKey_AllEnvVars(t *testing.T) {
-	envVars := []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-
-	// Clean up all env vars first
-	originals := make(map[string]string)
-	for _, key := range envVars {
-		originals[key] = os.Getenv(key)
-		_ = os.Unsetenv(key)
-	}
-	defer func() {
-		for key, val := range originals {
-			if val != "" {
-				_ = os.Setenv(key, val)
-			}
-		}
-	}()
-
-	// Test each env var in order of priority
-	for i, envVar := range envVars {
-		t.Run(envVar, func(t *testing.T) {
-			// Clear all vars
-			for _, key := range envVars {
-				_ = os.Unsetenv(key)
-			}
-
-			// Set only this env var
-			testValue := "test-key-" + envVar
-			_ = os.Setenv(envVar, testValue)
-
-			key := getLAPIKey()
-			if i == 0 || key == testValue {
-				// First one should always be found, others only if earlier ones not set
-				assert.Equal(t, testValue, key)
-			}
-		})
 	}
 }

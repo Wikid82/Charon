@@ -395,24 +395,4 @@ func TestUpdateAcquisitionConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// TestGetLAPIKey tests the getLAPIKey helper
-func TestGetLAPIKey(t *testing.T) {
-	t.Setenv("CROWDSEC_API_KEY", "")
-	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
-	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
-
-	assert.Equal(t, "", getLAPIKey())
-
-	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "fallback-key")
-	assert.Equal(t, "fallback-key", getLAPIKey())
-
-	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "priority-key")
-	assert.Equal(t, "priority-key", getLAPIKey())
-
-	t.Setenv("CROWDSEC_API_KEY", "top-priority-key")
-	assert.Equal(t, "top-priority-key", getLAPIKey())
-}
-
 // NOTE: Removed duplicate TestIsCerberusEnabled - covered by existing test files

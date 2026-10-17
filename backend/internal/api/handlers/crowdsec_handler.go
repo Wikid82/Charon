@@ -134,6 +134,26 @@ func (h *CrowdsecHandler) bouncerKeyPath() string {
 	return bouncerKeyFile
 }
 
+// lapiKey returns the key for direct local API calls: the saved bouncer key file first,
+// then the same environment variable order the proxy config uses.
+func (h *CrowdsecHandler) lapiKey() string {
+	if key := readKeyFromFile(h.bouncerKeyPath()); key != "" {
+		return key
+	}
+	for _, name := range []string{
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	} {
+		if val := os.Getenv(name); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
 func getAcquisitionConfigPath() string {
 	if path := strings.TrimSpace(os.Getenv("CHARON_CROWDSEC_ACQUIS_PATH")); path != "" {
 		return path
@@ -1341,7 +1361,7 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	reqURL := endpoint.String()
 
 	// Get API key
-	apiKey := getLAPIKey()
+	apiKey := h.lapiKey()
 
 	// Create HTTP request with timeout
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
@@ -1439,23 +1459,6 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions), "source": "lapi"})
-}
-
-// getLAPIKey retrieves the LAPI API key from environment variables.
-func getLAPIKey() string {
-	envVars := []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-	for _, key := range envVars {
-		if val := os.Getenv(key); val != "" {
-			return val
-		}
-	}
-	return ""
 }
 
 // BouncerInfo represents the bouncer key information for UI display.

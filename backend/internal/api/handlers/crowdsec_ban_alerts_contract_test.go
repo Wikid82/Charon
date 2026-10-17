@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -819,7 +820,7 @@ func pr4WriteKeyFile(t *testing.T, h *CrowdsecHandler, content string) {
 	require.NoError(t, os.WriteFile(filepath.Join(h.DataDir, "bouncer_key"), []byte(content), 0o600))
 }
 
-// pr4KeyUses are the three places the key is used: the decisions call, the dashboard count and the alerts call.
+// pr4KeyUses are the two places the key is used: the decisions call and the dashboard count.
 var pr4KeyUses = map[string]struct {
 	target string
 	body   func(t *testing.T) []byte
@@ -841,20 +842,11 @@ var pr4KeyUses = map[string]struct {
 			assert.Equal(t, float64(2), pr4Body(t, w)["active_decisions"])
 		},
 	},
-	"alerts": {
-		target: "/api/v1/admin/crowdsec/alerts?limit=50",
-		body:   func(t *testing.T) []byte { return lapiFixture(t, "lapi_v1_alerts") },
-		check: func(t *testing.T, w *httptest.ResponseRecorder) {
-			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-			assert.Equal(t, "lapi", pr4Body(t, w)["source"])
-		},
-	},
 }
 
 func TestLAPIKey_SavedKeyFileFirst(t *testing.T) {
 	for name, use := range pr4KeyUses {
 		t.Run(name, func(t *testing.T) {
-			skipUntilLaterCommit(t)
 			pr4ClearKeyEnv(t)
 			t.Setenv("CROWDSEC_API_KEY", "env-key-not-used")
 			t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "charon-env-key-not-used")
@@ -892,9 +884,6 @@ func TestLAPIKey_EnvironmentInRuntimeOrder(t *testing.T) {
 	// The runtime (caddy/config.go) reads CHARON_SECURITY_CROWDSEC_API_KEY first.
 	for i, first := range pr4KeyEnvInRuntimeOrder {
 		t.Run("first set is "+first, func(t *testing.T) {
-			if i == 0 {
-				skipUntilLaterCommit(t)
-			}
 			pr4ClearKeyEnv(t)
 			for _, name := range pr4KeyEnvInRuntimeOrder[i:] {
 				t.Setenv(name, "key-of-"+name)
@@ -1050,58 +1039,19 @@ func TestAlertsEndpoint_TypedView(t *testing.T) {
 		pr4RequireTypedAlert(t, alerts[0])
 	})
 
-	t.Run("local API path", func(t *testing.T) {
-		t.Parallel()
-		skipUntilLaterCommit(t)
-		srv, _ := pr4KeyServer(t, "*", lapiFixture(t, "lapi_v1_alerts"))
-		h := pr4LAPIHandler(t, srv.URL, &pr4Exec{})
-		alerts := pr4AlertList(t, pr4Serve(pr4Router(h), http.MethodGet, "/api/v1/admin/crowdsec/alerts?limit=50", ""))
-		require.Len(t, alerts, 2)
-		for _, a := range alerts {
-			pr4RequireTypedAlert(t, a)
-			for _, f := range pr4AlertFields {
-				assert.Contains(t, a, f)
-			}
-		}
-		assert.Equal(t, "manual-ban", alerts[0]["scenario"])
-		assert.Equal(t, "ban", alerts[0]["type"])
-		assert.Equal(t, "cscli", alerts[0]["origin"])
-	})
-
-	t.Run("local API path: ipv6 source", func(t *testing.T) {
-		t.Parallel()
-		skipUntilLaterCommit(t)
-		srv, _ := pr4KeyServer(t, "*", lapiFixture(t, "lapi_v1_alerts_ipv6"))
-		h := pr4LAPIHandler(t, srv.URL, &pr4Exec{})
-		alerts := pr4AlertList(t, pr4Serve(pr4Router(h), http.MethodGet, "/api/v1/admin/crowdsec/alerts", ""))
-		require.Len(t, alerts, 1)
-		assert.Equal(t, "2001:db8::1", alerts[0]["ip"])
-		pr4RequireTypedAlert(t, alerts[0])
-	})
-
-	t.Run("empty answers", func(t *testing.T) {
-		t.Parallel()
-		srv, _ := pr4KeyServer(t, "*", lapiFixture(t, "lapi_v1_alerts_empty"))
-		h := pr4LAPIHandler(t, srv.URL, &pr4Exec{})
-		w := pr4Serve(pr4Router(h), http.MethodGet, "/api/v1/admin/crowdsec/alerts", "")
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-		body := pr4Body(t, w)
-		assert.Equal(t, float64(0), body["total"])
-		assert.Empty(t, body["alerts"])
-	})
 }
 
-func TestAlertsEndpoint_RealLocalAPIRefusesABouncerKey(t *testing.T) {
+func TestAlertsEndpoint_ServesFromCscliWithoutDirectRequest(t *testing.T) {
 	t.Parallel()
-	// Recorded: GET /v1/alerts needs a machine login; a bouncer key gets 401. The endpoint then falls back to
-	// cscli, so the alerts always come from the cscli path against a real local API.
+	// Recorded: GET /v1/alerts needs a machine login; a bouncer key gets 401. The endpoint therefore does not
+	// call the local API at all and serves alerts from cscli.
 	recorded := string(cscliFixture(t, "lapi_v1_alerts_bouncer_key"))
 	require.Contains(t, recorded, "401 Unauthorized")
 
+	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		requests.Add(1)
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"code":401,"message":"cookie token is empty"}`))
 	}))
 	t.Cleanup(srv.Close)
 	ex := newFixtureCmdExec(t, map[string]string{"alerts list -o json -l 50": "alerts_list_json"})
@@ -1111,6 +1061,7 @@ func TestAlertsEndpoint_RealLocalAPIRefusesABouncerKey(t *testing.T) {
 	body := pr4Body(t, w)
 	assert.Equal(t, "cscli", body["source"])
 	assert.Equal(t, float64(3), body["total"])
+	assert.Zero(t, requests.Load())
 }
 
 func TestAlertsEndpoint_CscliFlagsAndFailures(t *testing.T) {

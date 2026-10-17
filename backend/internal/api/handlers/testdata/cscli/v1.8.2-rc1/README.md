@@ -15,7 +15,7 @@ Full output: `version.txt`.
 - `<name>.txt`: stdout and stderr of the command combined, exactly as the executors in Charon read it.
 - `<name>.exit`: the exit status.
 - `lapi_v1_*.body.json`: bodies of `GET /v1/decisions` on the local API (bouncer key authenticated; flat decision objects, `null` when nothing matches; no key is stored here). Without a valid key the local API answers `403` with an empty body.
-- `lapi_v1_alerts*.body.json`: bodies of `GET /v1/alerts` on the local API, read with a machine login (the alert objects are the same nested shape `cscli alerts list -o json` prints). `lapi_v1_alerts_bouncer_key.txt` is the raw HTTP answer to the same request with a bouncer key: `401`, because the endpoint needs a machine login. The login and its token are not stored.
+- `lapi_v1_alerts_bouncer_key.txt`: the raw HTTP answer of `GET /v1/alerts` on the local API with a bouncer key: `401`, because the endpoint needs a machine login.
 
 Names follow the command, for example `decisions_list_json` is `cscli -c <config> decisions list -o json`.
 All addresses are documentation addresses (192.0.2.0/24, 198.51.100.0/24). `bouncers_add_raw.txt` holds a placeholder: the real command prints only the generated key, with no trailing newline, and keys are never recorded.
