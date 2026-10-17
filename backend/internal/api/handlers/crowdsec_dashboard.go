@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
@@ -213,7 +212,7 @@ func (h *CrowdsecHandler) fetchActiveDecisionCount(ctx context.Context) int64 {
 	endpoint := baseURL.ResolveReference(&url.URL{Path: "/v1/decisions"})
 	reqURL := endpoint.String()
 
-	apiKey := getLAPIKey()
+	apiKey := h.lapiKey()
 
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -424,7 +423,7 @@ func (h *CrowdsecHandler) DashboardScenarios(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// ListAlerts wraps the CrowdSec LAPI /v1/alerts endpoint.
+// ListAlerts lists CrowdSec alerts through cscli (the local API needs a machine login for alerts, not a bouncer key).
 func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 	rangeStr := normalizeRange(c.Query("range"))
 	scenario := strings.TrimSpace(c.Query("scenario"))
@@ -449,121 +448,55 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 		return
 	}
 
-	since, tErr := parseTimeRange(rangeStr)
-	if tErr != nil {
+	if _, tErr := parseTimeRange(rangeStr); tErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": tErr.Error()})
 		return
 	}
 
-	alerts, total, source := h.fetchLAPIAlerts(c.Request.Context(), since, scenario, limit, offset)
+	ctx := c.Request.Context()
+	alerts, total, errMsg := h.fetchAlertsCscli(ctx, scenario, limit)
 
 	result := gin.H{
 		"alerts": alerts,
 		"total":  total,
-		"source": source,
+		"source": "cscli",
 		"cached": false,
+	}
+	if errMsg != "" {
+		// a failed listing is not cached, so the next request asks cscli again
+		result["error"] = errMsg
+		c.JSON(http.StatusOK, result)
+		return
 	}
 
 	h.dashCache.Set(cacheKey, result, dashAlertsTTL)
 	c.JSON(http.StatusOK, result)
 }
 
-// fetchLAPIAlerts attempts to get alerts from LAPI, falling back to cscli.
-func (h *CrowdsecHandler) fetchLAPIAlerts(ctx context.Context, since time.Time, scenario string, limit, offset int) (alerts []interface{}, total int, source string) {
-	lapiURL := "http://127.0.0.1:8085"
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
-
-	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
-	if err != nil {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-
-	q := url.Values{}
-	q.Set("since", since.Format(time.RFC3339))
-	if scenario != "" {
-		q.Set("scenario", scenario)
-	}
-	q.Set("limit", strconv.Itoa(limit))
-
-	endpoint := baseURL.ResolveReference(&url.URL{Path: "/v1/alerts"})
-	endpoint.RawQuery = q.Encode()
-	reqURL := endpoint.String()
-
-	apiKey := getLAPIKey()
-
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodGet, reqURL, http.NoBody)
-	if reqErr != nil {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-	if apiKey != "" {
-		req.Header.Set("X-Api-Key", apiKey)
-	}
-	req.Header.Set("Accept", "application/json")
-
-	client := network.NewInternalServiceHTTPClient(10 * time.Second)
-	resp, doErr := client.Do(req)
-	if doErr != nil {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-
-	var rawAlerts []interface{}
-	if decErr := json.NewDecoder(resp.Body).Decode(&rawAlerts); decErr != nil {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-
-	// Capture full count before slicing for correct pagination semantics
-	fullTotal := len(rawAlerts)
-
-	// Apply offset for pagination
-	if offset > 0 && offset < len(rawAlerts) {
-		rawAlerts = rawAlerts[offset:]
-	} else if offset >= len(rawAlerts) {
-		rawAlerts = nil
-	}
-
-	if limit < len(rawAlerts) {
-		rawAlerts = rawAlerts[:limit]
-	}
-
-	return rawAlerts, fullTotal, "lapi"
-}
-
-// fetchAlertsCscli falls back to using cscli to list alerts.
-func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []interface{}, total int) {
+// fetchAlertsCscli lists alerts through cscli and returns the fields the UI reads, at most limit of them.
+// errMsg is empty on success; otherwise it tells why the list is empty (cscli failed, timed out or printed too much).
+func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []alertView, total int, errMsg string) {
 	args := []string{"alerts", "list", "-o", "json"}
 	if scenario != "" {
 		args = append(args, "-s", scenario)
 	}
 	args = append(args, "-l", strconv.Itoa(limit))
 
-	output, err := h.CmdExec.Execute(ctx, "cscli", args...)
+	output, err := h.runCSCLI(ctx, cscliListTimeout, args...)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to list alerts via cscli")
-		return []interface{}{}, 0
+		if isCSCLITimeout(ctx, err) {
+			return []alertView{}, 0, msgAlertsTimedOut
+		}
+		return []alertView{}, 0, msgCSCLIFailed
 	}
 
-	if jErr := crowdsec.UnmarshalCSCLIOutput(output, &alerts); jErr != nil {
-		return []interface{}{}, 0
+	alerts, err = parseCSCLIAlerts(output, limit)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to parse cscli alerts output")
+		return []alertView{}, 0, msgCSCLIFailed
 	}
-	return alerts, len(alerts)
+	return alerts, len(alerts), ""
 }
 
 // ExportDecisions exports decisions as downloadable CSV or JSON.

@@ -220,13 +220,33 @@ export async function banIP(ip: string, duration: string, reason: string): Promi
   await client.post('/admin/crowdsec/ban', { ip, duration, reason })
 }
 
+/** Machine-readable reasons the server gives for refusing a ban or unban. */
+export const BAN_ERROR_CODES = [
+  'invalid_ip',
+  'invalid_duration',
+  'invalid_reason',
+  'decision_not_found',
+  'cscli_timeout',
+] as const
+
+export type CrowdsecBanErrorCode = (typeof BAN_ERROR_CODES)[number]
+
+/**
+ * Reads the machine-readable reason from a failed ban or unban request.
+ * @returns The code, or undefined for an unknown or missing code
+ */
+export function getCrowdsecBanError(err: unknown): CrowdsecBanErrorCode | undefined {
+  return getApiErrorCode(err, BAN_ERROR_CODES)
+}
+
 /**
  * Removes a ban for an IP address.
- * @param ip - The IP address to unban
+ * @param ip - The IP address or range to unban
  * @throws {AxiosError} If unban fails
  */
 export async function unbanIP(ip: string): Promise<void> {
-  await client.delete(`/admin/crowdsec/ban/${encodeURIComponent(ip)}`)
+  // A range such as 192.0.2.0/24 is several path segments; the route takes them all.
+  await client.delete(`/admin/crowdsec/ban/${ip.split('/').map(encodeURIComponent).join('/')}`)
 }
 
 /** CrowdSec API key status information for key rejection notifications. */

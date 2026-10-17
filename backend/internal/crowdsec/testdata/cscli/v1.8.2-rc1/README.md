@@ -32,3 +32,5 @@ All addresses are documentation addresses (192.0.2.0/24, 198.51.100.0/24). `boun
 Start a throwaway container from the image with its own volume, create a machine and start the local API
 (`cscli machines add <name> --auto`, `crowdsec -no-cs`), then rerun each command with `-c /etc/crowdsec/config.yaml`,
 redirecting `2>&1` and saving the exit status. Replace any key with a placeholder before committing.
+
+- `console_status_json_enrolled_synthetic.txt` is **synthetic**, not recorded: the enrolled output needs an installation registered with the central API, which cannot be done offline. It is `console_status_json.txt` with `registered`, `authenticated`, `enrolled` and `decision_management` set to `true` and `plan` set to `community`.

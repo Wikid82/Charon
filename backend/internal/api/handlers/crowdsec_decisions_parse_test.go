@@ -108,7 +108,7 @@ func TestListDecisions_RunsUnderADeadline(t *testing.T) {
 	code, resp, _ := listDecisionsVia(t, fx, t.TempDir())
 	require.Equal(t, http.StatusOK, code)
 	require.True(t, fx.has)
-	assert.WithinDuration(t, start.Add(cscliDecisionsListTimeout), fx.deadline, 5*time.Second)
+	assert.WithinDuration(t, start.Add(cscliListTimeout), fx.deadline, 5*time.Second)
 	assert.Empty(t, resp.Decisions)
 	assert.Contains(t, resp.Error, "timed out")
 }
@@ -117,9 +117,9 @@ func TestCSCLIDecisionsTimedOut(t *testing.T) {
 	t.Parallel()
 	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
-	assert.True(t, cscliDecisionsTimedOut(expired, errors.New("signal: killed")))
-	assert.True(t, cscliDecisionsTimedOut(context.Background(), context.DeadlineExceeded))
-	assert.False(t, cscliDecisionsTimedOut(context.Background(), errors.New("exit status 1")))
+	assert.True(t, isCSCLITimeout(expired, errors.New("signal: killed")))
+	assert.True(t, isCSCLITimeout(context.Background(), context.DeadlineExceeded))
+	assert.False(t, isCSCLITimeout(context.Background(), errors.New("exit status 1")))
 }
 
 func TestParseCSCLIDecisions_Truncation(t *testing.T) {

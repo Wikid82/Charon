@@ -1,0 +1,1 @@
+level=info msg="1 decision(s) deleted"

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,10 +13,6 @@ import (
 
 // maxCSCLIDecisions bounds how many decisions one listing returns; further decisions are left out.
 const maxCSCLIDecisions = 100_000
-
-// cscliDecisionsListTimeout bounds `cscli decisions list`. With the local API down cscli retries for minutes
-// before it exits, which would otherwise hold the request open.
-const cscliDecisionsListTimeout = 30 * time.Second
 
 // cscliDecisionEntry is one element of the `cscli decisions list -o json` array. Current cscli prints alerts
 // that carry their decisions in "decisions"; older cscli and the local API print the decisions directly. The
@@ -132,10 +127,4 @@ func parseCSCLIDecisions(raw []byte) (decisions []CrowdSecDecision, skipped int,
 		}
 	}
 	return c.decisions, c.skipped, c.truncated, nil
-}
-
-// cscliDecisionsTimedOut reports whether a failed `cscli decisions list` ran out of time. A command killed
-// by its context returns a generic exit error, so the context is checked as well.
-func cscliDecisionsTimedOut(ctx context.Context, err error) bool {
-	return errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded)
 }

@@ -175,44 +175,6 @@ func TestCheckLAPIHealthRequest(t *testing.T) {
 	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusServiceUnavailable || w.Code == http.StatusInternalServerError)
 }
 
-// TestGetLAPIKeyFromEnv tests environment variable lookup
-func TestGetLAPIKeyLookup(t *testing.T) {
-	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
-	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
-	// Test that getLAPIKey checks multiple env vars
-	// Set one and verify it's found
-	t.Setenv("CROWDSEC_API_KEY", "test-key-123")
-
-	key := getLAPIKey()
-	require.Equal(t, "test-key-123", key)
-}
-
-// TestGetLAPIKeyEmpty tests no env vars set
-func TestGetLAPIKeyEmpty(t *testing.T) {
-	t.Setenv("CROWDSEC_API_KEY", "")
-	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
-	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
-
-	key := getLAPIKey()
-	require.Equal(t, "", key)
-}
-
-// TestGetLAPIKeyAlternative tests alternative env var
-func TestGetLAPIKeyAlternative(t *testing.T) {
-	t.Setenv("CROWDSEC_API_KEY", "")
-	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key-456")
-
-	key := getLAPIKey()
-	require.Equal(t, "bouncer-key-456", key)
-}
-
 // TestStatusContextTimeout tests context handling
 func TestStatusRequest(t *testing.T) {
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())

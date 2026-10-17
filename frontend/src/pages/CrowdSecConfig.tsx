@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError, getCrowdsecBanError, type CrowdsecBanErrorCode } from '../api/crowdsec'
 import { getFeatureFlags } from '../api/featureFlags'
 import {
   listCrowdsecPresets,
@@ -64,6 +64,7 @@ export default function CrowdSecConfig() {
   const [selectedPresetSlug, setSelectedPresetSlug] = useState<string>('')
   const [showBanModal, setShowBanModal] = useState(false)
   const [banForm, setBanForm] = useState({ ip: '', duration: '24h', reason: '' })
+  const [banFieldErrors, setBanFieldErrors] = useState<{ ip?: string; duration?: string; reason?: string }>({})
   const [confirmUnban, setConfirmUnban] = useState<CrowdSecDecision | null>(null)
   const [whitelistForm, setWhitelistForm] = useState<{ ip_or_cidr: string; reason: string }>({ ip_or_cidr: '', reason: '' })
   const [confirmDeleteWhitelist, setConfirmDeleteWhitelist] = useState<CrowdSecWhitelistEntry | null>(null)
@@ -394,8 +395,25 @@ export default function CrowdSecConfig() {
     enabled: isLocalMode,
   })
 
+  /** Translated text for a refused ban or unban; unknown or missing codes keep the server's text. */
+  const banFailureMessage = (err: unknown, fallback: string): string => {
+    const messages: Record<CrowdsecBanErrorCode, string> = {
+      invalid_ip: t('crowdsecConfig.banErrors.invalidIp'),
+      invalid_duration: t('crowdsecConfig.banErrors.invalidDuration'),
+      invalid_reason: t('crowdsecConfig.banErrors.invalidReason'),
+      decision_not_found: t('crowdsecConfig.banErrors.decisionNotFound'),
+      cscli_timeout: t('crowdsecConfig.banErrors.timeout'),
+    }
+    const code = getCrowdsecBanError(err)
+    if (code) return messages[code]
+    return err instanceof Error ? err.message : fallback
+  }
+
   const banMutation = useMutation({
-    mutationFn: () => banIP(banForm.ip, banForm.duration, banForm.reason),
+    mutationFn: () => {
+      setBanFieldErrors({})
+      return banIP(banForm.ip, banForm.duration, banForm.reason)
+    },
     onSuccess: () => {
       toast.success(t('crowdsecConfig.toasts.ipBanned', { ip: banForm.ip }))
       queryClient.invalidateQueries({ queryKey: ['crowdsec-decisions'] })
@@ -403,7 +421,21 @@ export default function CrowdSecConfig() {
       setBanForm({ ip: '', duration: '24h', reason: '' })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.toasts.banFailed'))
+      const message = banFailureMessage(err, t('crowdsecConfig.toasts.banFailed'))
+      // Field problems are shown beside the field so the dialog can be corrected in place.
+      switch (getCrowdsecBanError(err)) {
+        case 'invalid_ip':
+          setBanFieldErrors({ ip: message })
+          break
+        case 'invalid_duration':
+          setBanFieldErrors({ duration: message })
+          break
+        case 'invalid_reason':
+          setBanFieldErrors({ reason: message })
+          break
+        default:
+          toast.error(message)
+      }
     },
   })
 
@@ -415,7 +447,8 @@ export default function CrowdSecConfig() {
       setConfirmUnban(null)
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.toasts.unbanFailed'))
+      const message = banFailureMessage(err, t('crowdsecConfig.toasts.unbanFailed'))
+      toast.error(message)
     },
   })
 
@@ -1307,7 +1340,10 @@ export default function CrowdSecConfig() {
             </div>
             <Button
               data-testid="ban-ip-trigger"
-              onClick={() => setShowBanModal(true)}
+              onClick={() => {
+                setBanFieldErrors({})
+                setShowBanModal(true)
+              }}
               disabled={status.crowdsec.mode === 'disabled'}
               size="sm"
             >
@@ -1538,7 +1574,13 @@ export default function CrowdSecConfig() {
                 label={t('crowdsecConfig.banModal.ipLabel')}
                 placeholder="192.168.1.100"
                 value={banForm.ip}
-                onChange={(e) => setBanForm({ ...banForm, ip: e.target.value })}
+                onChange={(e) => {
+                  setBanForm({ ...banForm, ip: e.target.value })
+                  setBanFieldErrors((prev) => ({ ...prev, ip: undefined }))
+                }}
+                error={banFieldErrors.ip}
+                errorTestId="ban-ip-error"
+                helperText={t('crowdsecConfig.banModal.ipHint')}
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -1553,8 +1595,12 @@ export default function CrowdSecConfig() {
                   id="ban-duration"
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={banForm.duration}
-                  onChange={(e) => setBanForm({ ...banForm, duration: e.target.value })}
+                  onChange={(e) => {
+                    setBanForm({ ...banForm, duration: e.target.value })
+                    setBanFieldErrors((prev) => ({ ...prev, duration: undefined }))
+                  }}
                   aria-label={t('crowdsecConfig.banModal.durationLabel')}
+                  aria-describedby={banFieldErrors.duration ? 'ban-duration-error' : undefined}
                 >
                   <option value="1h">{t('crowdsecConfig.banModal.duration1h')}</option>
                   <option value="4h">{t('crowdsecConfig.banModal.duration4h')}</option>
@@ -1563,6 +1609,9 @@ export default function CrowdSecConfig() {
                   <option value="30d">{t('crowdsecConfig.banModal.duration30d')}</option>
                   <option value="permanent">{t('crowdsecConfig.banModal.durationPermanent')}</option>
                 </select>
+                {banFieldErrors.duration && (
+                  <p id="ban-duration-error" className="mt-1.5 text-sm text-error" role="alert">{banFieldErrors.duration}</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5" htmlFor="ban-reason">{t('crowdsecConfig.banModal.reasonLabel')}</label>
@@ -1572,7 +1621,11 @@ export default function CrowdSecConfig() {
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                   value={banForm.reason}
-                  onChange={(e) => setBanForm({ ...banForm, reason: e.target.value })}
+                  onChange={(e) => {
+                    setBanForm({ ...banForm, reason: e.target.value })
+                    setBanFieldErrors((prev) => ({ ...prev, reason: undefined }))
+                  }}
+                  aria-describedby={banFieldErrors.reason ? 'ban-reason-error' : undefined}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -1581,6 +1634,9 @@ export default function CrowdSecConfig() {
                   }}
                   aria-label={t('crowdsecConfig.banModal.reasonLabel')}
                 />
+                {banFieldErrors.reason && (
+                  <p id="ban-reason-error" className="mt-1.5 text-sm text-error" role="alert">{banFieldErrors.reason}</p>
+                )}
               </div>
             </div>
             <div className="flex gap-3 justify-end mt-6">

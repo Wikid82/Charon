@@ -1,0 +1,113 @@
+[
+ {
+  "capacity": 0,
+  "created_at": "2026-10-17T07:15:47Z",
+  "decisions": [
+   {
+    "duration": "59m35s",
+    "id": 22,
+    "origin": "cscli",
+    "scenario": "manual 'ban' from 'testlocal'",
+    "scope": "Ip",
+    "simulated": false,
+    "type": "ban",
+    "value": "192.0.2.152"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 22,
+  "kind": "cscli",
+  "labels": null,
+  "leakspeed": "0",
+  "machine_id": "testlocal",
+  "message": "manual 'ban' from 'testlocal'",
+  "remediation": true,
+  "scenario": "manual 'ban' from 'testlocal'",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "192.0.2.152",
+   "scope": "Ip",
+   "value": "192.0.2.152"
+  },
+  "start_at": "2026-10-17T07:15:47Z",
+  "stop_at": "2026-10-17T07:15:47Z",
+  "uuid": "0e44f5c8-82f9-43ab-aa37-9f064cb72a29"
+ },
+ {
+  "capacity": 0,
+  "created_at": "2026-10-17T07:15:47Z",
+  "decisions": [
+   {
+    "duration": "59m35s",
+    "id": 21,
+    "origin": "cscli",
+    "scenario": "x",
+    "scope": "Ip",
+    "simulated": false,
+    "type": "captcha",
+    "value": "192.0.2.151"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 21,
+  "kind": "cscli",
+  "labels": null,
+  "leakspeed": "0",
+  "machine_id": "testlocal",
+  "message": "x",
+  "remediation": true,
+  "scenario": "x",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "192.0.2.151",
+   "scope": "Ip",
+   "value": "192.0.2.151"
+  },
+  "start_at": "2026-10-17T07:15:47Z",
+  "stop_at": "2026-10-17T07:15:47Z",
+  "uuid": "4aa28bd6-91f3-4e0d-acaa-a292291db647"
+ },
+ {
+  "capacity": 0,
+  "created_at": "2026-10-17T07:15:47Z",
+  "decisions": [
+   {
+    "duration": "3h59m35s",
+    "id": 20,
+    "origin": "cscli",
+    "scenario": "manual-ban",
+    "scope": "Ip",
+    "simulated": false,
+    "type": "ban",
+    "value": "192.0.2.150"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 20,
+  "kind": "cscli",
+  "labels": null,
+  "leakspeed": "0",
+  "machine_id": "testlocal",
+  "message": "manual-ban",
+  "remediation": true,
+  "scenario": "manual-ban",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "192.0.2.150",
+   "scope": "Ip",
+   "value": "192.0.2.150"
+  },
+  "start_at": "2026-10-17T07:15:47Z",
+  "stop_at": "2026-10-17T07:15:47Z",
+  "uuid": "3cb90fe9-ff48-4491-ab0c-ec50671ea4f8"
+ }
+]

@@ -1364,7 +1364,8 @@
       "durationPermanent": "Permanent",
       "reasonLabel": "Raison",
       "reasonPlaceholder": "Raison du bannissement de cette IP...",
-      "submit": "Bannir IP"
+      "submit": "Bannir IP",
+      "ipHint": "Une seule adresse ou une plage telle que 192.0.2.0/24."
     },
     "unbanModal": {
       "title": "Confirmer le débannissement",
@@ -1438,6 +1439,13 @@
       "whitelistRemovingDetail": "Retrait de la liste blanche",
       "default": "Renforcement de la garde...",
       "defaultDetail": "Configuration en cours"
+    },
+    "banErrors": {
+      "invalidIp": "Saisissez une adresse IPv4 ou IPv6 valide, ou une plage telle que 192.0.2.0/24.",
+      "invalidDuration": "Choisissez une durée comprise entre 1 minute et 365 jours, par exemple 4h, 30m ou 1d.",
+      "invalidReason": "Le motif ne peut pas dépasser 200 caractères.",
+      "decisionNotFound": "Aucune décision active ne correspond à cette adresse ou à cette plage.",
+      "timeout": "CrowdSec n'a pas répondu à temps. Réessayez."
     }
   },
   "smtp": {

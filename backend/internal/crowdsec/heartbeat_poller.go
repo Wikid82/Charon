@@ -150,8 +150,8 @@ func (p *HeartbeatPoller) checkHeartbeat(ctx context.Context) {
 		return
 	}
 
-	// Run `cscli console status` to check connectivity
-	args := []string{"console", "status"}
+	// Run `cscli console status -o json` to check connectivity
+	args := []string{"console", "status", "-o", "json"}
 	configPath := p.findConfigPath()
 	if configPath != "" {
 		args = append([]string{"-c", configPath}, args...)
@@ -163,12 +163,9 @@ func (p *HeartbeatPoller) checkHeartbeat(ctx context.Context) {
 		return
 	}
 
-	output := string(out)
 	now := time.Now().UTC()
 
-	// Check if the output indicates successful enrollment/connection
-	// CrowdSec console status output typically contains "enrolled" and "connected" when healthy
-	if p.isEnrolledOutput(output) {
+	if p.isEnrolled(out) {
 		// Update heartbeat timestamp
 		enrollment.LastHeartbeatAt = &now
 
@@ -185,6 +182,23 @@ func (p *HeartbeatPoller) checkHeartbeat(ctx context.Context) {
 			logger.Log().Debug("console heartbeat updated")
 		}
 	}
+}
+
+// isEnrolled decides from the output of `cscli console status -o json` whether the engine is enrolled. The
+// "enrolled" field of a JSON document with a "console" object decides, and only a boolean true counts: a missing,
+// null or non-boolean field means not enrolled. Output that is not such a document (an older cscli, or text) is
+// judged by isEnrolledOutput.
+func (p *HeartbeatPoller) isEnrolled(out []byte) bool {
+	var doc struct {
+		Console *struct {
+			Enrolled any `json:"enrolled"`
+		} `json:"console"`
+	}
+	if err := UnmarshalCSCLIOutput(out, &doc); err == nil && doc.Console != nil {
+		enrolled, _ := doc.Console.Enrolled.(bool)
+		return enrolled
+	}
+	return p.isEnrolledOutput(string(out))
 }
 
 // isEnrolledOutput checks if the cscli console status output indicates successful enrollment.

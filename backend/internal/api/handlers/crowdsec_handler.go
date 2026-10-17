@@ -85,6 +85,9 @@ type CrowdsecHandler struct {
 	// registerScriptPath overrides the bouncer registration script location; overridable in tests.
 	registerScriptPath string
 
+	// registerScriptTimeout bounds the bouncer registration script; 0 means registerScriptTimeoutDefault. Overridable in tests.
+	registerScriptTimeout time.Duration
+
 	// mergeNotifications and scanPlaceholders are the import's notification steps; overridable in tests.
 	mergeNotifications func(snapshotDir, dataDir string) error
 	scanPlaceholders   func(dataDir string) ([]string, error)
@@ -132,6 +135,26 @@ func (h *CrowdsecHandler) bouncerKeyPath() string {
 		return path
 	}
 	return bouncerKeyFile
+}
+
+// lapiKey returns the key for direct local API calls: the saved bouncer key file first,
+// then the same environment variable order the proxy config uses.
+func (h *CrowdsecHandler) lapiKey() string {
+	if key := readKeyFromFile(h.bouncerKeyPath()); key != "" {
+		return key
+	}
+	for _, name := range []string{
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	} {
+		if val := os.Getenv(name); val != "" {
+			return val
+		}
+	}
+	return ""
 }
 
 func getAcquisitionConfigPath() string {
@@ -633,14 +656,7 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 
 	for time.Now().Before(deadline) {
 		// Check LAPI status using cscli
-		args := []string{"lapi", "status"}
-		if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
-			args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
-		}
-
-		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		_, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
-		cancel()
+		_, err := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
 
 		if err == nil {
 			lapiReady = true
@@ -726,13 +742,7 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 	// Check LAPI connectivity if process is running
 	lapiReady := false
 	if running {
-		args := []string{"lapi", "status"}
-		if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
-			args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
-		}
-		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		_, checkErr := h.CmdExec.Execute(checkCtx, "cscli", args...)
-		cancel()
+		_, checkErr := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
 		lapiReady = (checkErr == nil)
 	}
 
@@ -1354,7 +1364,7 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	reqURL := endpoint.String()
 
 	// Get API key
-	apiKey := getLAPIKey()
+	apiKey := h.lapiKey()
 
 	// Create HTTP request with timeout
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
@@ -1452,23 +1462,6 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions), "source": "lapi"})
-}
-
-// getLAPIKey retrieves the LAPI API key from environment variables.
-func getLAPIKey() string {
-	envVars := []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-	for _, key := range envVars {
-		if val := os.Getenv(key); val != "" {
-			return val
-		}
-	}
-	return ""
 }
 
 // BouncerInfo represents the bouncer key information for UI display.
@@ -2033,25 +2026,19 @@ func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 
 // ListDecisions calls cscli to get current decisions (banned IPs)
 func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), cscliDecisionsListTimeout)
-	defer cancel()
-	args := []string{"decisions", "list", "-o", "json"}
-	if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
-		args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
-	}
-	output, err := h.CmdExec.Execute(ctx, "cscli", args...)
+	ctx := c.Request.Context()
+	output, err := h.runCSCLI(ctx, cscliListTimeout, "decisions", "list", "-o", "json")
 	if err != nil {
-		// If cscli is not available or returns error, return empty list with warning
-		logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
-		msg := "cscli not available or failed"
-		if cscliDecisionsTimedOut(ctx, err) {
-			msg = "cscli decisions list timed out; the CrowdSec local API may be stopped"
-		}
-		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": msg})
+		h.respondDecisionsUnavailable(c, err)
 		return
 	}
 
 	decisions, skipped, truncated, err := parseCSCLIDecisions(output)
+	if errors.Is(err, crowdsec.ErrCSCLIOutputTooLarge) {
+		// the parser limit answers like the executor limit
+		h.respondDecisionsUnavailable(c, err)
+		return
+	}
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to parse cscli decisions output")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse decisions"})
@@ -2067,94 +2054,123 @@ func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions)})
 }
 
-// BanIPRequest represents the request body for banning an IP
+// respondDecisionsUnavailable answers the decisions listing with an empty list and a warning when cscli
+// failed, timed out or printed more output than the limits allow.
+func (h *CrowdsecHandler) respondDecisionsUnavailable(c *gin.Context, err error) {
+	logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
+	msg := msgCSCLIFailed
+	if isCSCLITimeout(c.Request.Context(), err) {
+		msg = msgDecisionsTimedOut
+	}
+	c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": msg})
+}
+
+// BanIPRequest represents the request body for banning an IP or a range
 type BanIPRequest struct {
-	IP       string `json:"ip" binding:"required"`
+	IP       string `json:"ip"`
 	Duration string `json:"duration"`
 	Reason   string `json:"reason"`
 }
 
-// BanIP adds a manual ban for an IP address
+// BanIP adds a manual ban for an address or a CIDR range. The request is validated before cscli runs.
 func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	var req BanIPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip is required"})
+		respondCoded(c, http.StatusBadRequest, codeInvalidIP, msgIPRequired, nil)
 		return
 	}
 
-	// Validate IP format (basic check)
-	ip := strings.TrimSpace(req.IP)
-	if ip == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip cannot be empty"})
+	target, err := parseBanTarget(req.IP, true)
+	if err != nil {
+		respondInvalidBanTarget(c, req.IP, true)
 		return
 	}
 
-	// Default duration to 24h if not specified
 	duration := req.Duration
 	if duration == "" {
-		duration = "24h"
+		duration = defaultBanDuration
+	}
+	parsedDur, err := parseBanDuration(duration)
+	if err != nil {
+		respondCoded(c, http.StatusBadRequest, codeInvalidDuration, msgDurationInvalid, nil)
+		return
 	}
 
-	// Build reason string
+	cleanReason, ok := cleanBanReason(req.Reason)
+	if !ok {
+		respondCoded(c, http.StatusBadRequest, codeInvalidReason, msgReasonTooLong, nil)
+		return
+	}
 	reason := "manual ban"
-	if req.Reason != "" {
-		reason = fmt.Sprintf("manual ban: %s", req.Reason)
+	if cleanReason != "" {
+		reason = fmt.Sprintf("manual ban: %s", cleanReason)
 	}
 
 	ctx := c.Request.Context()
-	args := []string{"decisions", "add", "-i", ip, "-d", duration, "-R", reason, "-t", "ban"}
-	if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
-		args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
-	}
-	_, err := h.CmdExec.Execute(ctx, "cscli", args...)
+	out, err := h.runCSCLI(ctx, cscliChangeTimeout, "decisions", "add", target.flag(), target.value, "-d", duration, "-R", reason, "-t", "ban")
 	if err != nil {
-		logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions add")
+		if isCSCLITimeout(ctx, err) {
+			respondCSCLITimeout(c)
+			return
+		}
+		logger.Log().WithError(err).WithField("ip", target.value).WithField("cscli_output", firstCscliLine(out)).Warn("Failed to execute cscli decisions add")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ban IP"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "banned", "ip": ip, "duration": duration})
+	c.JSON(http.StatusOK, gin.H{"status": "banned", "ip": target.value, "duration": duration})
 
 	// Log to security_decisions for dashboard aggregation
 	if h.Security != nil {
-		parsedDur, _ := time.ParseDuration(duration)
 		expiry := time.Now().Add(parsedDur)
-		_ = h.Security.LogDecision(&models.SecurityDecision{
-			IP:        ip,
+		if err := h.Security.LogDecision(&models.SecurityDecision{
+			IP:        target.value,
 			Action:    "block",
 			Source:    "crowdsec",
 			RuleID:    reason,
 			Scenario:  "manual",
 			ExpiresAt: &expiry,
-		})
+		}); err != nil {
+			logger.Log().WithError(err).WithField("ip", target.value).Warn("Failed to record the manual ban in the security decisions")
+		}
 	}
 	h.dashCache.Invalidate("dashboard")
 }
 
-// UnbanIP removes a ban for an IP address
+// UnbanIP removes the decisions for an address or a CIDR range. The route is a catch-all so that a range
+// written as 10.0.0.0/24 or 10.0.0.0%2F24 reaches the handler; the value arrives with a leading slash.
 func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
-	ip := c.Param("ip")
-	if ip == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip parameter required"})
+	raw := strings.TrimPrefix(c.Param("value"), "/")
+	target, err := parseBanTarget(raw, false)
+	if err != nil {
+		respondInvalidBanTarget(c, raw, false)
 		return
 	}
 
-	// Sanitize IP
-	ip = strings.TrimSpace(ip)
-
 	ctx := c.Request.Context()
-	args := []string{"decisions", "delete", "-i", ip}
-	if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
-		args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
-	}
-	_, err := h.CmdExec.Execute(ctx, "cscli", args...)
+	out, err := h.runCSCLI(ctx, cscliChangeTimeout, "decisions", "delete", target.flag(), target.value)
 	if err != nil {
-		logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions delete")
+		if isCSCLITimeout(ctx, err) {
+			respondCSCLITimeout(c)
+			return
+		}
+		logger.Log().WithError(err).WithField("ip", target.value).WithField("cscli_output", firstCscliLine(out)).Warn("Failed to execute cscli decisions delete")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unban IP"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "ip": ip})
+	// cscli exits 0 when nothing matched; its count line tells the difference. Without a count line the
+	// command is taken to have succeeded.
+	resp := gin.H{"status": "unbanned", "ip": target.value}
+	if deleted, found := deletedDecisionCount(out); found {
+		if deleted == 0 {
+			respondCoded(c, http.StatusNotFound, codeDecisionNotFound, msgDecisionNotFound, nil)
+			return
+		}
+		resp["deleted"] = deleted
+	}
+
+	c.JSON(http.StatusOK, resp)
 	h.dashCache.Invalidate("dashboard")
 }
 
@@ -2173,9 +2189,21 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 		return
 	}
 
-	// Run the registration script
-	output, err := h.CmdExec.Execute(ctx, "bash", scriptPath)
+	// Run the registration script under its own deadline
+	scriptTimeout := h.registerScriptTimeout
+	if scriptTimeout <= 0 {
+		scriptTimeout = registerScriptTimeoutDefault
+	}
+	scriptCtx, cancelScript := context.WithTimeout(ctx, scriptTimeout)
+	output, err := h.CmdExec.Execute(scriptCtx, "bash", scriptPath)
+	timedOut := isCSCLITimeout(scriptCtx, err)
+	cancelScript()
 	if err != nil {
+		if timedOut {
+			logger.Log().WithError(err).Warn("Bouncer registration script timed out")
+			respondCSCLITimeout(c)
+			return
+		}
 		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Warn("Failed to register bouncer")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": "see server logs"})
 		return
@@ -2194,7 +2222,7 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 	}
 
 	// Check if bouncer is actually registered by querying cscli
-	checkOutput, checkErr := h.CmdExec.Execute(ctx, "cscli", "bouncers", "list", "-o", "json")
+	checkOutput, checkErr := h.runCSCLI(ctx, cscliListTimeout, "bouncers", "list", "-o", "json")
 	registered := false
 	if checkErr == nil && len(checkOutput) > 0 && string(checkOutput) != "null" {
 		if strings.Contains(string(checkOutput), "caddy-bouncer") {
@@ -2305,13 +2333,7 @@ func (h *CrowdsecHandler) DiagnosticsConnectivity(c *gin.Context) {
 
 	// Check 2: LAPI ready (responds to cscli lapi status)
 	if running {
-		args := []string{"lapi", "status"}
-		if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
-			args = append([]string{"-c", configPath}, args...)
-		}
-		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		_, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
-		cancel()
+		_, err := h.runCSCLI(ctx, 5*time.Second, "lapi", "status")
 		checks["lapi_ready"] = (err == nil)
 	}
 
@@ -2325,13 +2347,7 @@ func (h *CrowdsecHandler) DiagnosticsConnectivity(c *gin.Context) {
 
 	// Check 4: CAPI reachable (cscli capi status)
 	if checks["capi_registered"].(bool) {
-		args := []string{"capi", "status"}
-		if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
-			args = append([]string{"-c", configPath}, args...)
-		}
-		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		out, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
-		cancel()
+		out, err := h.runCSCLI(ctx, 5*time.Second, "capi", "status")
 		checks["capi_reachable"] = (err == nil)
 		if err == nil {
 			checks["capi_status_output"] = strings.TrimSpace(string(out))
@@ -2417,11 +2433,8 @@ func (h *CrowdsecHandler) DiagnosticsConfig(c *gin.Context) {
 
 		// Validate with "cscli config show": it parses the whole configuration and exits non-zero
 		// when it cannot be loaded. Only the exit status decides; the output is not parsed.
-		checkArgs := []string{"-c", cleanConfigPath, "config", "show"}
-		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		out, err := h.CmdExec.Execute(checkCtx, "cscli", checkArgs...)
-		timedOut := errors.Is(checkCtx.Err(), context.DeadlineExceeded)
-		cancel()
+		out, err := h.runCSCLI(ctx, 5*time.Second, "config", "show")
+		timedOut := errors.Is(err, context.DeadlineExceeded)
 		if err != nil && ctx.Err() != nil {
 			// The request itself ended (client disconnected): the command was killed, so nothing is known
 			// about the configuration and there is nobody left to answer.
@@ -2610,7 +2623,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/decisions/lapi", h.GetLAPIDecisions)
 	rg.GET("/admin/crowdsec/lapi/health", h.CheckLAPIHealth)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
-	rg.DELETE("/admin/crowdsec/ban/:ip", h.UnbanIP)
+	rg.DELETE("/admin/crowdsec/ban/*value", h.UnbanIP)
 	// Bouncer management endpoints (auto-registration)
 	rg.GET("/admin/crowdsec/bouncer", h.GetBouncerInfo)
 	rg.GET("/admin/crowdsec/bouncer/key", h.GetBouncerKey)
