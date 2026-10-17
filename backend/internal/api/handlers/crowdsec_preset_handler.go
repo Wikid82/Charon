@@ -203,6 +203,11 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 			respondCoded(c, http.StatusConflict, codePresetTypeAmbiguous, msgPresetTypeAmbiguous, gin.H{"types": ambiguous.Types})
 			return
 		}
+		if errors.Is(err, crowdsec.ErrHubUnreachable) {
+			logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("crowdsec preset pull failed: hub unreachable")
+			respondCoded(c, http.StatusServiceUnavailable, codeHubUnreachable, msgHubUnreachable, gin.H{"hub_endpoints": h.hubEndpoints()})
+			return
+		}
 		status := mapCrowdsecStatus(err, http.StatusBadGateway)
 		// Safe: User input sanitized via util.SanitizeForLog() which removes
 		// control characters (0x00-0x1F, 0x7F) including CRLF
@@ -234,6 +239,7 @@ const (
 	codePresetLocalModified    = "preset_local_modified"
 	codePresetApplyTimeout     = "preset_apply_timeout"
 	codePresetTypeAmbiguous    = "preset_type_ambiguous"
+	codeHubUnreachable         = "hub_unreachable"
 	codeCSCLIUnavailable       = "cscli_unavailable"
 )
 
@@ -319,6 +325,9 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	respondApplySuccess(c, res)
 }
 
+// msgHubUnreachable is fixed on purpose: the network detail (addresses, resolver text) stays in the log.
+const msgHubUnreachable = "CrowdSec could not reach the hub. Check the network connection and try again."
+
 const msgPresetTypeAmbiguous = "This name exists in several hub sections. Choose which item to use."
 
 const msgPresetStale = "The cached preset is outdated or missing. Pull the preset again, then apply it."
@@ -340,6 +349,8 @@ func (h *CrowdsecHandler) respondApplyError(c *gin.Context, err error, res crowd
 		respondCoded(c, http.StatusConflict, codePresetLocalModified, "This preset was edited on this server, so it was not replaced. Reset it before applying.", extra)
 	case errors.Is(err, crowdsec.ErrPresetApplyTimeout):
 		respondCoded(c, http.StatusGatewayTimeout, codePresetApplyTimeout, "The preset install took too long and was rolled back. Try again.", extra)
+	case errors.Is(err, crowdsec.ErrHubUnreachable):
+		respondCoded(c, http.StatusServiceUnavailable, codeHubUnreachable, msgHubUnreachable, extra)
 	case errors.Is(err, crowdsec.ErrCSCLIUnavailable):
 		respondCoded(c, http.StatusServiceUnavailable, codeCSCLIUnavailable, "cscli unavailable or not responding", extra)
 	default:

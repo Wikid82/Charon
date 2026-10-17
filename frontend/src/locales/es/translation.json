@@ -1335,6 +1335,7 @@
         "applyLocalModified": "Este elemento se editó en este servidor y se dejó sin cambios. Restablézcalo antes de aplicar el preajuste.",
         "editedItems": "Elementos editados: {{items}}",
         "applyTimeout": "La instalación del preajuste tardó demasiado y se revirtió. Inténtelo de nuevo.",
+        "applyHubUnreachable": "CrowdSec no pudo conectar con el hub. Compruebe la conexión de red e inténtelo de nuevo.",
         "cscliUnavailable": "cscli no disponible o no responde",
         "applyDependencyNote": "Algunos elementos de los que depende este preajuste se editaron en este servidor y se dejaron sin cambios."
       }

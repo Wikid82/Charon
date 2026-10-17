@@ -1333,6 +1333,7 @@
         "applyLocalModified": "Dieses Element wurde auf diesem Server bearbeitet und blieb unverändert. Setzen Sie es zurück, bevor Sie das Preset anwenden.",
         "editedItems": "Bearbeitete Elemente: {{items}}",
         "applyTimeout": "Die Installation des Presets hat zu lange gedauert und wurde zurückgesetzt. Versuchen Sie es erneut.",
+        "applyHubUnreachable": "CrowdSec konnte den Hub nicht erreichen. Prüfen Sie die Netzwerkverbindung und versuchen Sie es erneut.",
         "cscliUnavailable": "cscli nicht verfügbar oder antwortet nicht",
         "applyDependencyNote": "Einige Elemente, von denen dieses Preset abhängt, wurden auf diesem Server bearbeitet und blieben unverändert."
       }

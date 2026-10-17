@@ -582,6 +582,8 @@ export default function CrowdSecConfig() {
         return t('crowdsecConfig.presets.status.applyTimeout')
       case 'preset_type_ambiguous':
         return t('crowdsecConfig.presets.status.typeAmbiguous')
+      case 'hub_unreachable':
+        return t('crowdsecConfig.presets.status.applyHubUnreachable')
       case 'cscli_unavailable':
         return t('crowdsecConfig.presets.status.cscliUnavailable')
     }

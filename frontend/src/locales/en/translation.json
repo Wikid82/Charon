@@ -1656,6 +1656,7 @@
         "applyLocalModified": "This item was edited on this server and was left unchanged. Reset it before applying the preset.",
         "editedItems": "Edited items: {{items}}",
         "applyTimeout": "The preset install took too long and was rolled back. Try again.",
+        "applyHubUnreachable": "CrowdSec could not reach the hub. Check the network connection and try again.",
         "cscliUnavailable": "cscli unavailable or not responding",
         "applyDependencyNote": "Some items this preset depends on were edited on this server and were left unchanged."
       }

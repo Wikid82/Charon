@@ -271,7 +271,12 @@ func (s *HubService) FetchIndex(ctx context.Context) (HubIndex, error) {
 	}
 	idx, cscliErr := s.fetchIndexCSCLI(ctx)
 	if cscliErr != nil {
-		return HubIndex{}, fmt.Errorf("%w; cscli fallback failed: %v", httpErr, cscliErr)
+		failure := fmt.Errorf("%w; cscli fallback failed: %v", httpErr, cscliErr)
+		if ctx.Err() != nil {
+			return HubIndex{}, failure
+		}
+		// Neither the hub nor the local index answered; callers show a fixed message and the detail stays in the log.
+		return HubIndex{}, fmt.Errorf("%w: %w", ErrHubUnreachable, failure)
 	}
 	logger.Log().WithError(httpErr).Debug("hub index unreachable, listing from the local cscli index")
 	idx.offline = true

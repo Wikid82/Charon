@@ -1335,6 +1335,7 @@
         "applyLocalModified": "Cet élément a été modifié sur ce serveur et a été laissé tel quel. Réinitialisez-le avant d'appliquer le préréglage.",
         "editedItems": "Éléments modifiés : {{items}}",
         "applyTimeout": "L'installation du préréglage a pris trop de temps et a été annulée. Réessayez.",
+        "applyHubUnreachable": "CrowdSec n'a pas pu joindre le hub. Vérifiez la connexion réseau et réessayez.",
         "cscliUnavailable": "cscli indisponible ou ne répond pas",
         "applyDependencyNote": "Certains éléments dont dépend ce préréglage ont été modifiés sur ce serveur et ont été laissés tels quels."
       }

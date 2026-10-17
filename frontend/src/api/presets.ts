@@ -17,6 +17,7 @@ export const PRESET_ERROR_CODES = [
   'preset_local_modified',
   'preset_apply_timeout',
   'preset_type_ambiguous',
+  'hub_unreachable',
   'cscli_unavailable',
 ] as const
 

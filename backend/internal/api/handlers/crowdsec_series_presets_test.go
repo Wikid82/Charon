@@ -255,7 +255,6 @@ func TestPullPreset_SweepsCacheEntriesOfTheOldLayout(t *testing.T) {
 const msgHubUnreachableWords = "could not reach the hub"
 
 func TestPullPreset_OfflineAnswersHubUnreachable(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	offline := func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("dial tcp: lookup hub.crowdsec.net on 127.0.0.11:53: no such host")
@@ -305,7 +304,6 @@ func TestPullPreset_ANameMissingFromAReachableHubIsNotAnOutage(t *testing.T) {
 
 // An install that fails because the hub cannot be reached is a 503 with its own code, and the tree is restored.
 func TestApplyPreset_OfflineInstallAnswersHubUnreachable(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	recorded := []string{}
 	for _, kind := range []string{"offline", "internal"} {
@@ -347,7 +345,6 @@ func TestApplyPreset_OfflineInstallAnswersHubUnreachable(t *testing.T) {
 }
 
 func TestApplyPreset_NetworkMarkersMeanUnreachable(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	for _, marker := range []string{"dial tcp", "lookup", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request"} {
 		t.Run(marker, func(t *testing.T) {

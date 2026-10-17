@@ -1334,6 +1334,7 @@
         "applyLocalModified": "此项目已在本服务器上被编辑，已保持不变。请先将其重置，再应用该预设。",
         "editedItems": "已编辑的项目：{{items}}",
         "applyTimeout": "预设安装耗时过长，已回滚。请重试。",
+        "applyHubUnreachable": "CrowdSec 无法连接到 Hub。请检查网络连接后重试。",
         "cscliUnavailable": "cscli 不可用或无响应",
         "applyDependencyNote": "此预设依赖的部分项目已在本服务器上被编辑，已保持不变。"
       }

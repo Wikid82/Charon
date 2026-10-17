@@ -26,6 +26,8 @@ var (
 	ErrPresetLocalModified = errors.New("the preset was edited on this server and was not replaced")
 	// ErrPresetApplyTimeout is returned when the apply deadline passed; the configuration is restored.
 	ErrPresetApplyTimeout = errors.New("the preset install took too long and was rolled back")
+	// ErrHubUnreachable is returned when the hub cannot be reached over the network, for a pull or an install.
+	ErrHubUnreachable = errors.New("the hub could not be reached")
 	// ErrPresetTypeAmbiguous is returned when a hub name exists in several sections and no type was given.
 	ErrPresetTypeAmbiguous = errors.New("the preset name exists in several hub sections; choose a type")
 )
@@ -198,11 +200,30 @@ func (s *HubService) updateHubIndex(ctx context.Context) {
 	}
 }
 
-// installFailure classifies a failed install: an item the local index does not know is a stale preset.
+// networkFailureMarkers are the output fragments of a failed network request (cscli's own text and the Go resolver
+// and dialer errors it passes on).
+var networkFailureMarkers = []string{"dial tcp", "lookup", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request"}
+
+// hasNetworkFailure reports whether cscli output describes a failed network request.
+func hasNetworkFailure(text string) bool {
+	text = strings.ToLower(text)
+	for _, marker := range networkFailureMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// installFailure classifies a failed install: an item the local index does not know is a stale preset, and a failed
+// network request means the hub could not be reached.
 func installFailure(meta CachedPreset, out []byte, err error) error {
 	text := string(out) + " " + err.Error()
 	if strings.Contains(text, "can't find") || strings.Contains(text, "invalid hub index") {
 		return ErrPresetCacheStale
+	}
+	if hasNetworkFailure(text) {
+		return fmt.Errorf("install %s %s: %w: %w", meta.Type, meta.Name, ErrHubUnreachable, err)
 	}
 	return fmt.Errorf("install %s %s: %w", meta.Type, meta.Name, err)
 }

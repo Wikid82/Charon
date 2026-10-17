@@ -241,6 +241,14 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
     expect(screen.getByTestId('preset-preview')).toHaveTextContent('base-http-scenarios')
   })
 
+  it('shows the unreachable-hub message and keeps the preview', async () => {
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(coded(503, 'hub_unreachable'))
+    await selectHubAndApply()
+    expect(await screen.findByTestId('preset-status')).toHaveTextContent('CrowdSec could not reach the hub. Check the network connection and try again.')
+    expect(screen.getByTestId('preset-preview')).toHaveTextContent('base-http-scenarios')
+    expect(screen.queryByTestId('preset-hub-unavailable')).not.toBeInTheDocument()
+  })
+
   it('shows the cscli message without marking the hub offline', async () => {
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(coded(503, 'cscli_unavailable'))
     await selectHubAndApply()
