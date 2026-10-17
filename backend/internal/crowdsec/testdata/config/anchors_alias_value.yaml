@@ -1,0 +1,8 @@
+helper:
+  secret_value: &pw FAKE-alias-value-0006
+db_config:
+  type: postgres
+  db_name: crowdsec
+  host: 192.0.2.50
+  user: fakeuser
+  password: *pw

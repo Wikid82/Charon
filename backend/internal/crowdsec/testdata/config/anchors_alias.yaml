@@ -1,0 +1,15 @@
+# secret values reached through YAML anchors, aliases and merge keys
+common:
+  log_level: info
+shared_creds: &creds
+  user: fakeuser
+  password: FAKE-anchor-password-0005
+db_config:
+  type: mysql
+  db_name: crowdsec
+  host: 192.0.2.50
+  port: 3306
+  <<: *creds
+api:
+  server:
+    listen_uri: 127.0.0.1:8085

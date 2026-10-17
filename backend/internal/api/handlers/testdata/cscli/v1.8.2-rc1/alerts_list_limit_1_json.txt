@@ -1,0 +1,37 @@
+[
+ {
+  "capacity": 0,
+  "created_at": "2026-10-17T14:34:16Z",
+  "decisions": [
+   {
+    "duration": "3h59m43s",
+    "id": 2,
+    "origin": "cscli",
+    "scenario": "manual/new-alert",
+    "scope": "Ip",
+    "simulated": false,
+    "type": "ban",
+    "value": "198.51.100.20"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 2,
+  "labels": null,
+  "leakspeed": "0s",
+  "machine_id": "fixture-machine",
+  "message": "manual/new-alert",
+  "scenario": "manual/new-alert",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "198.51.100.20",
+   "scope": "Ip",
+   "value": "198.51.100.20"
+  },
+  "start_at": "2026-10-17T14:34:16Z",
+  "stop_at": "2026-10-17T14:34:16Z",
+  "uuid": "1c2fccea-291c-4c28-926a-952305ea4ed4"
+ }
+]

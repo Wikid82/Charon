@@ -1,0 +1,122 @@
+{
+  "appsec-configs": {
+    "crowdsecurity/crs": {
+      "path": "appsec-configs/crowdsecurity/crs.yaml",
+      "version": "0.3",
+      "versions": {
+        "0.1": {
+          "digest": "e9cbc67cae76d60468e40f54db62c97157e203bc06c412239695c843ef98f987"
+        },
+        "0.2": {
+          "digest": "fd41693ebf881d1cb561cd6a163c9da47c50c480829efe4ddca74f6ec3847855"
+        },
+        "0.3": {
+          "digest": "55530ee07c4c13a8bf54ba65693365b9f66df329662e5a7392fad03fe8452408"
+        },
+        "0.4": {
+          "digest": "507698dfa2d7df5d6f93a4934cdc57dfc50eadd5499862cdd786e6fd7aaf8c58"
+        }
+      }
+    }
+  },
+  "appsec-rules": {
+    "crowdsecurity/crs": {
+      "path": "appsec-rules/crowdsecurity/crs.yaml",
+      "version": "0.6",
+      "versions": {
+        "0.1": {
+          "digest": "786fe3341c0f0a813eb57b7780620181686081e0f181515509290f2e8c042f0b"
+        },
+        "0.2": {
+          "digest": "19d216b68b3de8a9c03e4d6644f578520b3673096ef55da6d77bf40902a36cab"
+        },
+        "0.3": {
+          "digest": "cdbc73bed015a54c9b47c90ff636ecaea095a954e0e0f4b0e47cafd19d1fd1c6"
+        },
+        "0.4": {
+          "digest": "d1e1f48413ff3bca7a13260b2dd111a8a3acc0b5df5a4acc47c3181d3f291b43"
+        },
+        "0.5": {
+          "digest": "ae9d574f041c01105be127d7db8937bfe50e2656f24e3dece69c91780fde0087"
+        },
+        "0.6": {
+          "digest": "3113c9bed6998ad60c22fcf1a983a2444744b024770f9e9972b9fadf6744e270"
+        }
+      }
+    }
+  },
+  "collections": {
+    "crowdsecurity/k8s-audit": {
+      "description": "Kubernetes audit log support: detect security sensitive events in a cluster",
+      "parsers": [
+        "crowdsecurity/k8s-audit"
+      ],
+      "path": "collections/crowdsecurity/k8s-audit.yaml",
+      "scenarios": [
+        "crowdsecurity/k8s-audit-anonymous-access",
+        "crowdsecurity/k8s-audit-api-server-bruteforce",
+        "crowdsecurity/k8s-audit-pod-host-network",
+        "crowdsecurity/k8s-audit-pod-exec",
+        "crowdsecurity/k8s-audit-pod-host-path-volume",
+        "crowdsecurity/k8s-audit-privileged-pod-creation",
+        "crowdsecurity/k8s-audit-service-account-access-denied"
+      ],
+      "version": "0.2",
+      "versions": {
+        "0.1": {
+          "digest": "b1f61b14b0f5411d78d1737375a01790e6c3b45feec2fbcb35595a39f17ecadd"
+        },
+        "0.2": {
+          "digest": "ec683d5fedc00475acc4e36759b8646fce6b32102908c3ed7107daadb3acf30d"
+        }
+      }
+    },
+    "crowdsecurity/nginx": {
+      "collections": [
+        "crowdsecurity/base-http-scenarios"
+      ],
+      "description": "nginx support : parser and generic http scenarios",
+      "parsers": [
+        "crowdsecurity/nginx-logs"
+      ],
+      "path": "collections/crowdsecurity/nginx.yaml",
+      "scenarios": [
+        "crowdsecurity/nginx-req-limit-exceeded"
+      ],
+      "version": "0.3",
+      "versions": {
+        "0.1": {
+          "digest": "5ef06c9a84fbea5b01d901a6a23d5de8de811da5036e5ec4f6a8d00fb096805b"
+        },
+        "0.2": {
+          "digest": "334f7e5626a83c576af2dec1360b760991d09b6f418590a174748a4ca00bd1e4"
+        },
+        "0.3": {
+          "digest": "65e74a0053aeb172dd797475519f33922c92129a690f2cdf58235ca2aad9e0eb"
+        }
+      }
+    }
+  },
+  "parsers": {
+    "crowdsecurity/k8s-audit": {
+      "description": "Parse Kubernetes audit logs",
+      "path": "parsers/s01-parse/crowdsecurity/k8s-audit.yaml",
+      "stage": "s01-parse",
+      "version": "0.4",
+      "versions": {
+        "0.1": {
+          "digest": "f6eacd85ee1d51aadda5394edda6a4b0a8672418ee64440926cfab554140ef26"
+        },
+        "0.2": {
+          "digest": "e76674c085b19f6be7c1c90e15451d3252a38edc0ae554e47446986699031e84"
+        },
+        "0.3": {
+          "digest": "c5b9c5e3e29019ca67a8e7323b2dea49e77edee4a9c2c8af5c4ca91d2a59395c"
+        },
+        "0.4": {
+          "digest": "f8e939f05bb591a0770d909440f65bcc1a05e58e96036f06b0fce535aac3af50"
+        }
+      }
+    }
+  }
+}
