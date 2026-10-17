@@ -41,7 +41,7 @@ list and an `error` code: `cscli_timeout`, `cscli_output_too_large` or
 | `cscli version` | Exit status only (is `cscli` present). |
 | `cscli hub list [-a] -o json` | Parsed for installed items and the hub index. |
 | `cscli hub update` | Exit status only. |
-| `cscli <type> inspect <name> -o json` | Parsed for the item's state. |
+| `cscli <type> inspect <name> -o json` | Parsed for the item's state. `path` is the item's own file relative to the hub directory (for example `collections/crowdsecurity/nginx.yaml`) and is what a preset apply saves before an in-place upgrade; `local_path` is the installed link in the configuration and is only a fallback. |
 | `cscli <type> install <name>` | Exit status. **`cscli hub install` does not exist**; items are installed per type (`collections`, `parsers`, ...). |
 | `cscli <type> upgrade <name>` | Exit status. |
 
