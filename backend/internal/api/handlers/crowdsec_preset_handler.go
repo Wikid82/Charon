@@ -148,8 +148,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		Slug string `json:"slug"`
 		Type string `json:"type"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
 	}
 	slug := strings.TrimSpace(payload.Slug)
@@ -266,8 +265,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		Type     string `json:"type"`
 		CacheKey string `json:"cache_key"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
 	}
 

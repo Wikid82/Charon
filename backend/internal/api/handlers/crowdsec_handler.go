@@ -1196,8 +1196,7 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 		AgentName     string `json:"agent_name"`
 		Force         bool   `json:"force"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
 	}
 
@@ -2077,8 +2076,7 @@ type BanIPRequest struct {
 // BanIP adds a manual ban for an address or a CIDR range. The request is validated before cscli runs.
 func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	var req BanIPRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondCoded(c, http.StatusBadRequest, codeInvalidIP, msgIPRequired, nil)
+	if !bindSmallJSON(c, &req, func() { respondCoded(c, http.StatusBadRequest, codeInvalidIP, msgIPRequired, nil) }) {
 		return
 	}
 
@@ -2285,8 +2283,7 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 	var payload struct {
 		Content string `json:"content" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
+	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"}) }) {
 		return
 	}
 
@@ -2563,8 +2560,7 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 		IPOrCIDR string `json:"ip_or_cidr" binding:"required"`
 		Reason   string `json:"reason"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip_or_cidr is required"})
+	if !bindSmallJSON(c, &req, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "ip_or_cidr is required"}) }) {
 		return
 	}
 

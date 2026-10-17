@@ -13,7 +13,6 @@ import (
 
 // Every CrowdSec endpoint that reads a small JSON body refuses one above 64 KiB with a 413 before it does any work.
 func TestCrowdsecJSONEndpointsLimitTheRequestBody(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	const limit = 64 << 10
 	endpoints := []struct {
