@@ -15,6 +15,9 @@ import vitest from '@vitest/eslint-plugin';
 import css from '@eslint/css';
 import json from '@eslint/json';
 import markdown from '@eslint/markdown';
+import { fixupPluginRules } from '@eslint/compat';
+import i18nJson from 'eslint-plugin-i18n-json';
+import path from 'node:path';
 
 export default tseslint.config(
   { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
@@ -181,11 +184,37 @@ export default tseslint.config(
   // ── JSON files ────────────────────────────────────────────────────────
   {
     files: ['**/*.json'],
-    ignores: ['package-lock.json', 'tsconfig*.json'],
+    ignores: ['package-lock.json', 'tsconfig*.json', 'src/locales/**'],
     language: 'json/json',
     plugins: { json },
     rules: {
       'json/no-duplicate-keys': 'error',
+    },
+  },
+
+  // ── Locale files (i18n-json uses its own processor, so they are excluded above) ──
+  {
+    files: ['src/locales/**/*.json'],
+    // eslint-plugin-i18n-json still calls context.getFilename(), removed in ESLint 10
+    plugins: { 'i18n-json': fixupPluginRules(i18nJson) },
+    processor: {
+      meta: { name: '.json' },
+      ...i18nJson.processors['.json'],
+    },
+    rules: {
+      'i18n-json/valid-json': 'error',
+      // i18next interpolates {{var}}, which is not ICU syntax
+      'i18n-json/valid-message-syntax': ['error', { syntax: 'non-empty-string' }],
+      // en is the source of truth. Missing keys are expected until Crowdin catches up
+      // (i18next falls back to en), so identical-keys only warns; placeholders must always match.
+      'i18n-json/identical-keys': [
+        'warn',
+        { filePath: path.resolve(import.meta.dirname, 'src/locales/en/translation.json') },
+      ],
+      'i18n-json/identical-placeholders': [
+        'error',
+        { filePath: path.resolve(import.meta.dirname, 'src/locales/en/translation.json') },
+      ],
     },
   },
 

@@ -2176,6 +2176,7 @@
       "manageAgents": "Manage agents ({{count}})",
       "hideAgentManager": "Hide agent manager"
     },
+    "stateConnected": "Connected",
     "stateConnecting": "Connecting",
     "stateError": "Error",
     "stateStopped": "Stopped",
