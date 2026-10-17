@@ -1746,10 +1746,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 
 // validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
 func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
-	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	output, err := h.CmdExec.Execute(checkCtx, "cscli", "bouncers", "list", "-o", "json")
+	output, err := h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "list", "-o", "json")
 	if err != nil {
 		logger.Log().WithError(err).Debug("Failed to list bouncers")
 		return false
@@ -1781,15 +1778,10 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 	keyPath := h.bouncerKeyPath()
 
 	// Delete existing bouncer if present (stale registration)
-	deleteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	_, _ = h.CmdExec.Execute(deleteCtx, "cscli", "bouncers", "delete", bouncerName)
-	cancel()
+	_, _ = h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "delete", bouncerName)
 
 	// Register new bouncer
-	regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer regCancel()
-
-	output, err := h.CmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
+	output, err := h.runCSCLI(ctx, bouncerRegisterTimeout, "bouncers", "add", bouncerName, "-o", "raw")
 	if err != nil {
 		return "", fmt.Errorf("bouncer registration failed: %w (%s)", err, util.DescribeCommandOutput(output))
 	}

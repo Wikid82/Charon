@@ -18,6 +18,9 @@ const (
 	cscliListTimeout = 30 * time.Second
 	// cscliChangeTimeout bounds the cscli commands that add or delete a decision.
 	cscliChangeTimeout = 15 * time.Second
+	// bouncerCheckTimeout bounds the bouncer list and delete commands; bouncerRegisterTimeout bounds the add.
+	bouncerCheckTimeout    = 5 * time.Second
+	bouncerRegisterTimeout = 10 * time.Second
 	// registerScriptTimeoutDefault bounds the bouncer registration script, which runs several cscli commands.
 	registerScriptTimeoutDefault = 30 * time.Second
 

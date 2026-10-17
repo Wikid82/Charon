@@ -18,7 +18,6 @@ import (
 // Handlers start cscli through runCSCLI only: it adds the configuration file and the deadline. A handler that
 // calls CmdExec.Execute("cscli", ...) itself is listed here.
 func TestHandlersRunCSCLIOnlyThroughTheHelper(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	files, err := filepath.Glob("*.go")
 	require.NoError(t, err)
@@ -61,7 +60,6 @@ func TestHandlersRunCSCLIOnlyThroughTheHelper(t *testing.T) {
 
 // The bouncer key check and the bouncer registration pass the engine's configuration file to cscli.
 func TestBouncerCalls_PassTheConfigFile(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config", "config.yaml")
