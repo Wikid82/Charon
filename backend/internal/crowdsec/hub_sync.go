@@ -580,7 +580,8 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 	}
 	if entry.DownloadURL == "" {
 		if idx.offline {
-			return PullResult{}, fmt.Errorf("hub index has no download location for this preset (index unreachable)")
+			// The index came from cscli because the hub could not be reached, and cscli's index has no download location.
+			return PullResult{}, fmt.Errorf("hub index has no download location for this preset: %w", ErrHubUnreachable)
 		}
 		return PullResult{}, fmt.Errorf("hub index has no download location for this preset")
 	}
@@ -724,8 +725,15 @@ func (s *HubService) hasCSCLI(ctx context.Context) bool {
 	return true
 }
 
-// copyFile copies a single file.
-func copyFile(src, dst string) error {
+// copyFile copies a single file, replacing dst when it exists.
+func copyFile(src, dst string) error { return copyFileFlag(src, dst, os.O_TRUNC) }
+
+// copyFileExclusive copies a single file to a path that must not exist yet: a file or link already there makes
+// it fail instead of being written through.
+func copyFileExclusive(src, dst string) error { return copyFileFlag(src, dst, os.O_EXCL) }
+
+// copyFileFlag copies src to dst, opened with O_CREATE|O_WRONLY and the given extra flag.
+func copyFileFlag(src, dst string, flag int) error {
 	srcFile, err := os.Open(src) // #nosec G304 -- Source path from copyDir recursive call // #nosec G304 -- Source path from copyDir recursive call
 	if err != nil {
 		return fmt.Errorf("open src: %w", err)
@@ -741,7 +749,7 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("stat src: %w", err)
 	}
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode()) // #nosec G304 -- Dst path from copyFile internal call
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|flag, srcInfo.Mode()) // #nosec G304 -- Dst path from copyFile internal call
 	if err != nil {
 		return fmt.Errorf("create dst: %w", err)
 	}

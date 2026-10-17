@@ -26,6 +26,7 @@ const TEXT = {
   invalid_reason: 'The reason can be at most 200 characters.',
   decision_not_found: 'No decision with exactly this address or range. Unbanning removes an exact match only; a covering range does not clear the addresses inside it.',
   cscli_timeout: 'CrowdSec did not answer in time. Try again.',
+  request_too_large: 'The request was too large. Shorten the text and try again.',
 }
 
 /** Builds the error the shared client produces: the server's English text becomes the message. */
@@ -123,9 +124,17 @@ describe('CrowdSecConfig ban and unban refusals', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(TEXT.cscli_timeout))
   })
 
+  it('shows a translated message when the ban request is too large', async () => {
+    vi.mocked(crowdsecApi.banIP).mockRejectedValue(refusal(413, 'english', 'request_too_large'))
+    await openBanDialog()
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(TEXT.request_too_large))
+  })
+
   it.each([
     ['decision_not_found', 404],
     ['cscli_timeout', 504],
+    ['request_too_large', 413],
   ])('translates %s for an unban', async (code, status) => {
     expect(await unbanFailing(refusal(status, 'english server text', code))).toBe(TEXT[code as keyof typeof TEXT])
   })

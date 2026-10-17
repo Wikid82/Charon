@@ -377,14 +377,19 @@ func TestMergeRedactedConfigIgnoresEntriesThatAreNotRegularFiles(t *testing.T) {
 	}
 }
 
-func TestExportLeavesOutAConfigAboveTheInspectLimit(t *testing.T) {
+// A config above the inspect limit cannot be checked for credentials, and an archive without it could not be
+// imported, so the export fails.
+func TestExportFailsForAConfigAboveTheInspectLimit(t *testing.T) {
 	t.Parallel()
-	huge := "# " + strings.Repeat("x", int(maxInspectEntryBytes)) + "\na: 1\n"
-	entries, omitted, _ := exportTree(t, map[string]string{"config/config.yaml": huge, "config/acquis.yaml": "filenames: [x]\n"})
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{
+		"config/config.yaml": "# " + strings.Repeat("x", int(maxInspectEntryBytes)) + "\na: 1\n",
+		"config/acquis.yaml": "filenames: [x]\n",
+	})
 
-	require.NotContains(t, entries, "config/config.yaml")
-	require.Equal(t, []string{"config/config.yaml"}, omitted)
-	require.Contains(t, entries, "config/acquis.yaml")
+	_, _, err := WriteExportArchive(context.Background(), dir, io.Discard)
+
+	require.ErrorIs(t, err, ErrExportConfigUnsafe)
 }
 
 func TestExportConfigAppliesTheSizeLimitToTheRedactedLength(t *testing.T) {
@@ -446,4 +451,66 @@ func TestConfigMergeAndScanFailWhenAPathCannotBeRead(t *testing.T) {
 
 		require.ErrorIs(t, err, ErrExportFileUnreadable)
 	})
+}
+
+// Compound names that end in, or contain, a credential word are blanked wherever they appear.
+func TestRedactConfigFileBlanksCompoundCredentialNames(t *testing.T) {
+	t.Parallel()
+	//nolint:gosec // G101: fake fixture values
+	src := `integration:
+  db_password: FAKE-a-0001
+  SMTP_PASSWD: FAKE-b-0002
+  client_secret: FAKE-c-0003
+  webhook_token: FAKE-d-0004
+  aws_secret_key: FAKE-e-0005
+  service_apikey: FAKE-f-0006
+  signing_api_key: FAKE-g-0007
+  tls_private_key: FAKE-h-0008
+  token_value: FAKE-i-0009
+  password_hash: FAKE-j-0010
+  admin_password_plain: FAKE-k-0011
+`
+	res, err := RedactConfigFile([]byte(src))
+
+	require.NoError(t, err)
+	out := string(res.Data)
+	got := yamlMap(t, out)
+	for _, key := range []string{"db_password", "SMTP_PASSWD", "client_secret", "webhook_token", "aws_secret_key", "service_apikey", "signing_api_key", "tls_private_key", "admin_password_plain"} {
+		require.Equal(t, RedactedPlaceholder, nested(t, got, "integration", key), key)
+	}
+	for _, key := range []string{"password_hash", "token_value"} {
+		require.NotEqual(t, RedactedPlaceholder, nested(t, got, "integration", key), "only the listed word positions count: "+key)
+	}
+	require.Equal(t, 9, res.Redacted)
+}
+
+// Settings that merely mention a credential word stay as they are.
+func TestRedactConfigFileKeepsBenignKeys(t *testing.T) {
+	t.Parallel()
+	src := `limits:
+  tokens_per_minute: 600
+  token_path: /etc/crowdsec/token
+  db_password_file: /run/secrets/db
+  auth_token_path: /etc/crowdsec/auth
+  secret_dir: /etc/crowdsec/secrets
+  require_password: true
+  max_tokens: 5
+  tokens: 5
+  password_policy: strict
+`
+	res, err := RedactConfigFile([]byte(src))
+
+	require.NoError(t, err)
+	require.Equal(t, src, string(res.Data), "nothing to blank, so the file is returned as written")
+	require.Zero(t, res.Redacted)
+}
+
+func TestIsCredentialLikeName(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"db_password", "x_passwd", "client_secret", "bot_token", "my_secret_key", "an_apikey", "a_api_key", "ssh_private_key", "x_token_y", "x_password_y"} {
+		require.True(t, isCredentialLikeName(name), name)
+	}
+	for _, name := range []string{"tokens_per_minute", "token_path", "x_token_file", "x_password_dir", "max_tokens", "password_policy", "retries", ""} {
+		require.False(t, isCredentialLikeName(name), name)
+	}
 }

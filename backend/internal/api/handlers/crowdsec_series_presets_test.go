@@ -153,7 +153,7 @@ func typesOf(v any) []string {
 	return out
 }
 
-// --- a name that exists in several sections (#1594) ---
+// --- a name that exists in several sections ---
 
 func TestListPresets_OneEntryPerTypeAndName(t *testing.T) {
 	t.Parallel()
@@ -250,7 +250,7 @@ func TestPullPreset_SweepsCacheEntriesOfTheOldLayout(t *testing.T) {
 	assert.FileExists(t, filepath.Join(e.cacheDir, "collections", "crowdsecurity", "nginx", "item.yaml"))
 }
 
-// --- an unreachable hub (#1595) ---
+// --- an unreachable hub ---
 
 const msgHubUnreachableWords = "could not reach the hub"
 
@@ -290,6 +290,29 @@ func TestPullPreset_OfflineAnswersHubUnreachable(t *testing.T) {
 			assert.NotEmpty(t, body["hub_endpoints"], "the endpoints stay for troubleshooting")
 		})
 	}
+}
+
+// The cscli index fallback works, but the preset is not cached and the fallback has no download location for it.
+func TestPullPreset_OfflineWithAWorkingIndexFallbackAnswersHubUnreachable(t *testing.T) {
+	t.Parallel()
+	index, err := os.ReadFile(filepath.Join("..", "..", "crowdsec", "testdata", "cscli", "hub_list_all.json"))
+	require.NoError(t, err)
+	e := newPresetEnv(t)
+	e.network = func(*http.Request) (*http.Response, error) { return nil, errors.New("dial tcp: no such host") }
+	e.cscli = func(cmd string) ([]byte, error) {
+		if strings.HasPrefix(cmd, "hub list") {
+			return index, nil
+		}
+		return nil, nil
+	}
+
+	w, body := e.post("/pull", map[string]string{"slug": "crowdsecurity/sshd"})
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	assert.Equal(t, "hub_unreachable", body["error_code"])
+	msg, _ := body["error"].(string)
+	assert.Contains(t, msg, msgHubUnreachableWords)
+	assert.NotContains(t, msg, "download location")
 }
 
 func TestPullPreset_ANameMissingFromAReachableHubIsNotAnOutage(t *testing.T) {
@@ -346,7 +369,7 @@ func TestApplyPreset_OfflineInstallAnswersHubUnreachable(t *testing.T) {
 
 func TestApplyPreset_NetworkMarkersMeanUnreachable(t *testing.T) {
 	t.Parallel()
-	for _, marker := range []string{"dial tcp", "lookup", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request"} {
+	for _, marker := range []string{"dial tcp", "lookup hub-data.crowdsec.net on 127.0.0.11:53", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request", "unable to retrieve latest crowdsec version"} {
 		t.Run(marker, func(t *testing.T) {
 			t.Parallel()
 			e := newPresetEnv(t)
@@ -399,7 +422,7 @@ func TestApplyPreset_OtherInstallFailuresKeepTheirAnswers(t *testing.T) {
 	}
 }
 
-// --- previewing a cached item by type (#1594) ---
+// --- previewing a cached item by type ---
 
 func (e *presetEnv) getCached(slug, query string) (w *httptest.ResponseRecorder, body map[string]any) {
 	e.t.Helper()

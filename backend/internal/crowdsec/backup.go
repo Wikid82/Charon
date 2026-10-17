@@ -48,8 +48,9 @@ func isLiveDBFile(name string) bool {
 // IsEngineOwnedPath reports whether rel (a slash- or OS-separated path relative to DataDir) is state
 // the running engine owns and that snapshots, restores and archive imports must never touch: a live
 // db file at any depth, the top-level crowdsec.pid (written by the executor, owned by the running
-// process), or anything under the top-level data/ (LAPI db and hub data files) or
-// hub_cache/ (regenerable download cache). Only the top-level directories are excluded; a nested
+// process), or anything under the top-level data/ (LAPI db and hub data files), hub_cache/ (regenerable
+// download cache) or the snapshot sidecar directory (only a light snapshot writes it, so a configuration
+// holding such an entry can never pass for one). Only the top-level directories are excluded; a nested
 // directory with the same name stays part of the configuration. Matching is case-insensitive.
 func IsEngineOwnedPath(rel string) bool {
 	rel = strings.ToLower(filepath.ToSlash(filepath.Clean(rel)))
@@ -60,15 +61,15 @@ func IsEngineOwnedPath(rel string) bool {
 		return true
 	}
 	top, _, _ := strings.Cut(rel, "/")
-	return top == "data" || top == "hub_cache" || rel == "crowdsec.pid"
+	return top == "data" || top == "hub_cache" || top == snapshotSidecarDir || rel == "crowdsec.pid"
 }
 
 // snapshot copies DataDir into a new <DataDir>.backup.<ts> directory; see Snapshot.
 func (s *HubService) snapshot() (string, error) { return Snapshot(s.DataDir) }
 
 // snapshotWithoutHub is the snapshot of a hub apply: the hub tree is described, not copied; see snapshotWithoutHub.
-func (s *HubService) snapshotWithoutHub(itemFile string) (string, error) {
-	return snapshotWithoutHub(s.DataDir, itemFile)
+func (s *HubService) snapshotWithoutHub(item itemState) (string, error) {
+	return snapshotWithoutHub(s.DataDir, item)
 }
 
 // Snapshot copies dataDir (symlinks preserved, engine-owned state excluded) into a new

@@ -169,24 +169,28 @@ func TestExportConfigBlanksTheGenericSecretKeys(t *testing.T) {
 	require.Equal(t, "info", nested(t, got, "common", "log_level"))
 }
 
-// A config whose secret keys cannot be read safely is left out of the export and named in the omitted list.
-func TestExportConfigLeavesOutWhatItCannotRedact(t *testing.T) {
+// A config whose secret keys cannot be read safely fails the export: leaving it out would give an archive that an
+// import refuses, and exporting it as written would carry the credentials.
+func TestExportConfigFailsWhenItCannotBeRedacted(t *testing.T) {
 	t.Parallel()
 	contents := map[string]string{
 		"merge key at the credentials": configFixture(t, "anchors_alias.yaml"),
 		"alias as the value":           configFixture(t, "anchors_alias_value.yaml"),
 		"unparseable":                  "api: [unclosed\ndb_config:\n  password: FAKE-broken-0013\n",
+		"too large":                    "db_config:\n  password: FAKE-large-0014\nfiller: " + strings.Repeat("x", int(maxInspectEntryBytes)) + "\n",
 	}
 	for name, content := range contents {
 		for _, loc := range configLocations {
 			t.Run(name+"/"+loc, func(t *testing.T) {
 				t.Parallel()
-				entries, omitted, archive := exportTree(t, map[string]string{loc: content, "config/acquis.yaml": "filenames: [x]\n"})
+				dir := t.TempDir()
+				writeExportTree(t, dir, map[string]string{loc: content, "config/acquis.yaml": "filenames: [x]\n"})
+				var buf bytes.Buffer
 
-				requireNoFakeSecret(t, archive)
-				require.NotContains(t, entries, loc)
-				require.Contains(t, omitted, loc)
-				require.Contains(t, entries, "config/acquis.yaml", "the other files are exported")
+				_, _, err := WriteExportArchive(context.Background(), dir, &buf)
+
+				require.ErrorIs(t, err, ErrExportConfigUnsafe)
+				require.NotContains(t, err.Error(), "FAKE-")
 			})
 		}
 	}

@@ -29,6 +29,10 @@ var (
 	ErrExportTooLarge = errors.New("crowdsec config is too large to export")
 	// ErrExportNotImportable reports an export whose compression ratio an import would reject.
 	ErrExportNotImportable = errors.New("crowdsec config cannot be exported in an importable form")
+	// ErrExportConfigUnsafe reports an engine configuration whose credentials cannot be blanked safely (too
+	// large, unparsable, or sharing credential nodes through anchors). Leaving it out would produce an archive
+	// that an import refuses, so the export fails instead.
+	ErrExportConfigUnsafe = errors.New("the CrowdSec configuration cannot be exported safely")
 	// ErrExportFileUnreadable reports a regular file that could not be read or changed while it was copied.
 	ErrExportFileUnreadable = errors.New("a file in the CrowdSec folder could not be read")
 )
@@ -81,8 +85,8 @@ func checkExportImportable(compressed, uncompressed, maxCompressed int64, maxRat
 // ManifestEntryName entry (only when there are any); notification settings files have their sensitive
 // values blanked (RedactNotificationFile) or, when that is not possible, are exported empty, and stray
 // non-YAML files in a notification folder are left out; the engine configuration (config.yaml and
-// config.yaml.local) has its credentials blanked (RedactConfigFile) or, when that is not possible, is
-// left out and named in the returned list; an unreadable regular file, or one whose size changes
+// config.yaml.local) has its credentials blanked (RedactConfigFile) or, when that is not possible, fails the
+// export with ErrExportConfigUnsafe; an unreadable regular file, or one whose size changes
 // while it is copied, fails the export with ErrExportFileUnreadable. Private key files stay on the host:
 // the files notification settings name as key_path, files named *.key, *.p12 or *.pfx, and files whose
 // first 64 KiB hold private key armor.
@@ -160,7 +164,7 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 		return total, nil, fmt.Errorf("close gzip writer: %w", err)
 	}
 	if len(omitted) > 0 {
-		logger.Log().Infof("left %d file(s) out of the export (private keys, or configuration that could not be blanked safely); supply them again after restoring", len(omitted))
+		logger.Log().Infof("left %d private key file(s) out of the export; supply them again after restoring", len(omitted))
 	}
 	return total, omitted, nil
 }
@@ -372,12 +376,12 @@ func readStableExportFile(f *os.File, info os.FileInfo, rel string) ([]byte, err
 }
 
 // addConfigExportFile writes the engine configuration with its credentials blanked (RedactConfigFile); a
-// file without credentials is written as it is. A file that cannot be redacted safely is left out of the
-// archive (errFileOmitted) and reported to the caller, never exported as written.
+// file without credentials is written as it is. A file that cannot be redacted safely is never exported as
+// written and is not left out either, since an archive without it could not be imported: the export fails
+// with ErrExportConfigUnsafe.
 func addConfigExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel string, total, maxBytes int64) (int64, error) {
 	if info.Size() > maxInspectEntryBytes {
-		logLeftOut(rel)
-		return 0, errFileOmitted
+		return 0, unsafeConfig(rel)
 	}
 	data, err := readStableExportFile(f, info, rel)
 	if err != nil {
@@ -385,8 +389,7 @@ func addConfigExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel strin
 	}
 	res, redactErr := RedactConfigFile(data)
 	if redactErr != nil {
-		logLeftOut(rel)
-		return 0, errFileOmitted
+		return 0, unsafeConfig(rel)
 	}
 	if total+int64(len(res.Data)) > maxBytes {
 		return 0, ErrExportTooLarge
@@ -394,9 +397,10 @@ func addConfigExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel strin
 	return writeExportEntry(tw, rel, info, res.Data)
 }
 
-// logLeftOut notes, without any file content, that a configuration file stays out of the export.
-func logLeftOut(rel string) {
-	logger.Log().Warnf("leaving %s out of the export: its credentials could not be blanked safely", util.SanitizeForLog(rel))
+// unsafeConfig logs, without any file content, which configuration file blocked the export.
+func unsafeConfig(rel string) error {
+	logger.Log().Warnf("cannot export %s: its credentials could not be blanked safely", util.SanitizeForLog(rel))
+	return ErrExportConfigUnsafe
 }
 
 // logStubbed notes, without any file content, that a notification file was exported empty.

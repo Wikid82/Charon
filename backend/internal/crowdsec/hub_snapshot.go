@@ -52,15 +52,15 @@ func keepForLightRestore(rel string) bool {
 }
 
 // snapshotWithoutHub is Snapshot for a hub apply: the hub tree is left out and described by a manifest, and
-// itemFile (the top-level item's own hub file, as cscli reports it; may be empty) is saved next to it.
-func snapshotWithoutHub(dataDir, itemFile string) (string, error) {
+// the top-level item's own hub file (located from item, may be absent) is saved next to it.
+func snapshotWithoutHub(dataDir string, item itemState) (string, error) {
 	return snapshotTree(dataDir, keepForLightRestore, func(path string) error {
-		return writeSnapshotSidecar(dataDir, path, itemFile)
+		return writeSnapshotSidecar(dataDir, path, item)
 	})
 }
 
 // writeSnapshotSidecar records the hub manifest and the item file in the snapshot directory path.
-func writeSnapshotSidecar(dataDir, path, itemFile string) error {
+func writeSnapshotSidecar(dataDir, path string, item itemState) error {
 	sidecar := filepath.Join(path, snapshotSidecarDir)
 	if err := os.Mkdir(sidecar, 0o700); err != nil {
 		return fmt.Errorf("mkdir snapshot sidecar: %w", err)
@@ -76,7 +76,7 @@ func writeSnapshotSidecar(dataDir, path, itemFile string) error {
 	if err := os.WriteFile(filepath.Join(sidecar, hubManifestName), data, 0o600); err != nil {
 		return fmt.Errorf("write hub manifest: %w", err)
 	}
-	rel, ok := hubFileRel(dataDir, itemFile)
+	rel, ok := hubFileRel(dataDir, item)
 	if !ok {
 		return nil
 	}
@@ -84,24 +84,36 @@ func writeSnapshotSidecar(dataDir, path, itemFile string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return fmt.Errorf("mkdir saved item path: %w", err)
 	}
-	return copyFile(filepath.Join(dataDir, rel), dst)
+	return copyFileExclusive(filepath.Join(dataDir, rel), dst)
 }
 
-// hubFileRel returns the path of file relative to dataDir when it names an existing regular file inside the hub
-// tree. Anything else (empty, outside the data directory, a link, missing) yields false.
-func hubFileRel(dataDir, file string) (string, bool) {
-	if file == "" {
+// hubFileRel returns the path, relative to dataDir, of the item's own file inside the hub tree. cscli reports
+// that file as `path`, relative to the hub directory, while `local_path` is the installed link in the
+// configuration; so the file is looked up below each hub root first and `local_path` is only a fallback for a
+// reply without `path`. Only an existing regular file (never a link) counts; anything else yields false.
+func hubFileRel(dataDir string, item itemState) (string, bool) {
+	if item.Path != "" && filepath.IsLocal(item.Path) {
+		for _, root := range hubRoots {
+			rel := filepath.Join(root, filepath.FromSlash(item.Path))
+			if isRegularFile(filepath.Join(dataDir, rel)) {
+				return rel, true
+			}
+		}
+	}
+	if item.LocalPath == "" {
 		return "", false
 	}
-	rel, err := filepath.Rel(filepath.Clean(dataDir), filepath.Clean(file))
-	if err != nil || !filepath.IsLocal(rel) || !IsHubPath(rel) {
-		return "", false
-	}
-	info, err := os.Lstat(filepath.Join(dataDir, rel))
-	if err != nil || !info.Mode().IsRegular() {
+	rel, err := filepath.Rel(filepath.Clean(dataDir), filepath.Clean(item.LocalPath))
+	if err != nil || !filepath.IsLocal(rel) || !IsHubPath(rel) || !isRegularFile(filepath.Join(dataDir, rel)) {
 		return "", false
 	}
 	return rel, true
+}
+
+// isRegularFile reports whether path is a regular file that is not a symlink.
+func isRegularFile(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // listHubTrees lists every entry of the hub trees below dataDir.
@@ -152,8 +164,7 @@ func restoreWithoutHub(snapshotPath, dataDir string) error {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return fmt.Errorf("parse hub manifest: %w", err)
 	}
-	keep := func(rel string) bool { return keepForLightRestore(rel) || rel == snapshotSidecarDir }
-	if err := RestoreKeeping(snapshotPath, dataDir, keep); err != nil {
+	if err := RestoreKeeping(snapshotPath, dataDir, keepForLightRestore); err != nil {
 		return err
 	}
 	if err := pruneHubToManifest(dataDir, manifest); err != nil {
@@ -225,7 +236,7 @@ func restoreSavedItem(snapshotPath, dataDir string) error {
 		if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("replace saved item: %w", err)
 		}
-		if err := copyFile(src, dst); err != nil {
+		if err := copyFileExclusive(src, dst); err != nil {
 			return fmt.Errorf("restore saved item: %w", err)
 		}
 	}

@@ -298,12 +298,11 @@ func (h *CrowdsecHandler) installHubItem(ctx context.Context, itemLimit time.Dur
 	if ctx.Err() != nil || limit <= 0 {
 		return hubReasonNotAttempted
 	}
-	ictx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
+	deadline := time.Now().Add(limit)
 
 	// Literal binary, no shell, one item per call; type and name passed ValidHubItem checks and cannot
 	// read as a flag.
-	out, err := h.runCSCLI(ictx, limit, it.Type, "install", it.Name)
+	out, err := h.runCSCLI(ctx, limit, it.Type, "install", it.Name)
 	if err != nil {
 		logger.Log().
 			WithField("type", hubLogDetail(it.Type)).WithField("name", hubLogDetail(it.Name)).
@@ -314,7 +313,10 @@ func (h *CrowdsecHandler) installHubItem(ctx context.Context, itemLimit time.Dur
 		}
 		return hubReasonInstallFail
 	}
-	if err := crowdsec.VerifyHubItem(ictx, h.CmdExec, it.Type, it.Name); err != nil {
+	// Verification shares the item's budget with the install.
+	vctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	if err := crowdsec.VerifyHubItem(vctx, h.CmdExec, it.Type, it.Name); err != nil {
 		logger.Log().
 			WithField("type", hubLogDetail(it.Type)).WithField("name", hubLogDetail(it.Name)).
 			WithField("error", hubLogDetail(err.Error())).

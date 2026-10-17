@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError, getCrowdsecBanError, type CrowdsecBanErrorCode } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError, getCrowdsecBanError, getCrowdsecExportError, type CrowdsecBanErrorCode } from '../api/crowdsec'
 import { getFeatureFlags } from '../api/featureFlags'
 import {
   listCrowdsecPresets,
@@ -37,12 +37,12 @@ import { sanitizeKeptFileName } from '../utils/keptFileNames'
 import { sanitizeSecret } from '../utils/sanitizeSecret'
 import { toast } from '../utils/toast'
 
-/** Prefer the server's `error` message for Axios failures, falling back to the given text. */
 /** Identity of a hub item in the preset list: its section and name. */
 function presetKey(preset: { type?: string; slug: string }): string {
   return preset.type ? `${preset.type}/${preset.slug}` : preset.slug
 }
 
+/** Prefer the server's `error` message for Axios failures, falling back to the given text. */
 function getServerErrorMessage(err: unknown, fallback: string): string {
   if (isAxiosError(err)) {
     const serverError = (err.response?.data as { error?: string } | undefined)?.error
@@ -427,6 +427,7 @@ export default function CrowdSecConfig() {
       invalid_reason: t('crowdsecConfig.banErrors.invalidReason'),
       decision_not_found: t('crowdsecConfig.banErrors.decisionNotFound'),
       cscli_timeout: t('crowdsecConfig.banErrors.timeout'),
+      request_too_large: t('crowdsecConfig.banErrors.requestTooLarge'),
     }
     const code = getCrowdsecBanError(err)
     if (code) return messages[code]
@@ -508,8 +509,8 @@ export default function CrowdSecConfig() {
       downloadCrowdsecExport(blob, filename)
       setOmittedExport({ names: omitted, more: omittedMore })
       toast.success(t('crowdsecConfig.exportSuccess'))
-    } catch {
-      toast.error(t('crowdsecConfig.exportFailed'))
+    } catch (err) {
+      toast.error(getCrowdsecExportError(err) ? t('crowdsecConfig.exportConfigUnsafe') : t('crowdsecConfig.exportFailed'))
     }
   }
 

@@ -28,6 +28,45 @@ var credentialKeyNames = map[string]struct{}{
 	"password": {}, "passwd": {}, "secret": {}, "token": {}, "api_key": {}, "apikey": {}, "private_key": {},
 }
 
+// credentialKeySuffixes and credentialKeyParts widen the exact names to compound ones such as db_password,
+// webhook_token or client_secret_key: a lower-cased key that ends in a suffix or contains a part is a credential.
+var (
+	credentialKeySuffixes = []string{"password", "passwd", "secret", "token", "secret_key", "apikey", "api_key", "private_key"}
+	credentialKeyParts    = []string{"_password", "_token"}
+)
+
+// benignKeySuffixes and benignKeyNames exclude keys that look like credentials but hold something else: where a
+// credential lives (a path, file or folder), or a limit. Without them a rule such as "contains _token" would
+// blank settings like token_path or tokens_per_minute.
+var (
+	benignKeySuffixes = []string{"_path", "_file", "_dir", "_folder", "_url", "_uri", "_ttl", "_len", "_length", "_count", "_per_minute", "_per_second", "_enabled"}
+	benignKeyNames    = map[string]struct{}{"tokens_per_minute": {}, "tokens_per_second": {}, "max_tokens": {}}
+)
+
+// isCredentialLikeName reports whether a lower-cased key name is a compound credential name that the exact
+// list does not cover and that is not a known benign setting.
+func isCredentialLikeName(name string) bool {
+	if _, ok := benignKeyNames[name]; ok {
+		return false
+	}
+	for _, suffix := range benignKeySuffixes {
+		if strings.HasSuffix(name, suffix) {
+			return false
+		}
+	}
+	for _, suffix := range credentialKeySuffixes {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	for _, part := range credentialKeyParts {
+		if strings.Contains(name, part) {
+			return true
+		}
+	}
+	return false
+}
+
 // credentialPaths are the keys that are credentials only below one parent (the dotted lower-case path of
 // the parent): the database user and the registration token. The other credential names of the database
 // block are covered by credentialKeyNames.
@@ -52,7 +91,7 @@ func isCredentialKey(parentPath, name string) bool {
 			return true
 		}
 	}
-	return false
+	return isCredentialLikeName(name)
 }
 
 // configRedactor blanks credential values of a configuration tree in place and counts them. Nothing is
@@ -64,7 +103,7 @@ type configRedactor struct {
 
 // RedactConfigFile blanks the credentials of a CrowdSec engine configuration (config.yaml or its local
 // override): the database user and password, the registration token, any value under a credential key
-// name (credentialKeyNames) and the password part of a URL with userinfo. Everything else is kept (a
+// name (credentialKeyNames) or compound credential name (isCredentialLikeName) and the password part of a URL with userinfo. Everything else is kept (a
 // denylist, because the file holds dozens of settings that must stay). A file without a credential value
 // is returned as it is, comments included; the rewrite drops comments, so it only happens when it must.
 // A file that cannot be rewritten safely (it does not parse, is too large or complex, or shares
@@ -206,14 +245,15 @@ func subtreeHasKey(n *yaml.Node, names map[string]struct{}) bool {
 	return false
 }
 
-// credential blanks the value of a credential key. Kept as they are: an empty or null value, a
-// placeholder already present and a pure environment reference.
+// credential blanks the value of a credential key. Kept as they are: an empty or null value, a boolean (a
+// switch such as require_password is not a secret), a placeholder already present and a pure environment
+// reference.
 func (c *configRedactor) credential(v *yaml.Node) error {
 	switch v.Kind {
 	case yaml.AliasNode:
 		return unsafeRedact("alias at a credential")
 	case yaml.ScalarNode:
-		if v.Value == "" || v.Tag == "!!null" || IsPlaceholder(v) || IsEnvReference(v.Value) {
+		if v.Value == "" || v.Tag == "!!null" || v.Tag == "!!bool" || IsPlaceholder(v) || IsEnvReference(v.Value) {
 			return nil
 		}
 	default:

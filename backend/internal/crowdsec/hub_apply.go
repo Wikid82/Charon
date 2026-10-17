@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -110,7 +111,7 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 	if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
 		return result, fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
 	}
-	backupPath, err := s.snapshotWithoutHub(before.LocalPath)
+	backupPath, err := s.snapshotWithoutHub(before)
 	if err != nil {
 		return result, fmt.Errorf("backup: %w", err)
 	}
@@ -210,8 +211,20 @@ func (s *HubService) updateHubIndex(ctx context.Context) {
 }
 
 // networkFailureMarkers are the output fragments of a failed network request (cscli's own text and the Go resolver
-// and dialer errors it passes on).
-var networkFailureMarkers = []string{"dial tcp", "lookup", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request"}
+// and dialer errors it passes on). Each one is specific enough not to match an item or file name.
+var networkFailureMarkers = []string{
+	"dial tcp",
+	"no such host",
+	"network is unreachable",
+	"connection refused",
+	"i/o timeout",
+	"unable to send request",
+	"unable to retrieve latest crowdsec version",
+}
+
+// dnsLookupFailure matches the Go resolver's "lookup <host> on <server>" text, which a bare "lookup" would not
+// tell apart from an item name.
+var dnsLookupFailure = regexp.MustCompile(`lookup \S+ on \S`)
 
 // hasNetworkFailure reports whether cscli output describes a failed network request.
 func hasNetworkFailure(text string) bool {
@@ -221,7 +234,7 @@ func hasNetworkFailure(text string) bool {
 			return true
 		}
 	}
-	return false
+	return dnsLookupFailure.MatchString(text)
 }
 
 // installFailure classifies a failed install: an item the local index does not know is a stale preset, and a failed
@@ -243,7 +256,10 @@ type itemState struct {
 	Tainted   bool   `json:"tainted"`
 	UpToDate  *bool  `json:"up_to_date"`
 	LocalHash string `json:"local_hash"`
-	// LocalPath is where cscli keeps the item's own hub file.
+	// Path is the item's own hub file, relative to the hub directory (for example collections/acme/nginx.yaml).
+	Path string `json:"path"`
+	// LocalPath is where the item is installed (a link into the hub tree); it only serves as a fallback to find
+	// the hub file when Path is missing.
 	LocalPath string `json:"local_path"`
 }
 
@@ -269,7 +285,7 @@ func parseItemState(out []byte) (itemState, error) {
 
 // preflight inspects the top-level item before the install and refuses what the install cannot change: an item
 // the local index does not know (stale preset) and an item edited on this server. Any other inspect problem is
-// left to the checks after the install. The returned state carries the item's own hub file for the snapshot.
+// left to the checks after the install. The returned state locates the item's own hub file for the snapshot.
 func (s *HubService) preflight(ctx context.Context, meta CachedPreset) (itemState, error) {
 	out, err := s.Exec.Execute(ctx, "cscli", meta.Type, "inspect", meta.Name, "-o", "json")
 	if err != nil {

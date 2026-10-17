@@ -53,8 +53,9 @@ type applyEnv struct {
 }
 
 func (e *applyEnv) healthyInspect() []byte {
-	itemFile := filepath.Join(e.dir, "config", "hub", "collections", "test", "preset.yaml")
-	return fmt.Appendf(nil, `{"installed":true,"tainted":false,"up_to_date":true,"local_hash":%q,"local_path":%q}`, e.meta.ItemSHA256, itemFile)
+	// The shape cscli reports: `path` is the item's file below the hub directory, `local_path` the installed link.
+	link := filepath.Join(e.dir, "config", "collections", "preset.yaml")
+	return fmt.Appendf(nil, `{"installed":true,"tainted":false,"up_to_date":true,"local_hash":%q,"path":"collections/test/preset.yaml","local_path":%q}`, e.meta.ItemSHA256, link)
 }
 
 func inspectReply(installed, tainted, upToDate bool, hash string) *cscliReply {

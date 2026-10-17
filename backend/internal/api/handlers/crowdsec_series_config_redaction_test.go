@@ -121,21 +121,25 @@ func TestExportConfigRouteKeepsAConfigWithoutSecretsAsWritten(t *testing.T) {
 	assert.Empty(t, omittedHeader(t, w))
 }
 
-func TestExportConfigRouteNamesAConfigItCouldNotRedact(t *testing.T) {
+func TestExportConfigRouteRefusesAConfigItCouldNotRedact(t *testing.T) {
 	t.Parallel()
-	for _, fixture := range []string{"anchors_alias.yaml", "anchors_alias_value.yaml"} {
-		t.Run(fixture, func(t *testing.T) {
+	cases := map[string]string{
+		"anchors_alias.yaml":       crowdsecConfigFixture(t, "anchors_alias.yaml"),
+		"anchors_alias_value.yaml": crowdsecConfigFixture(t, "anchors_alias_value.yaml"),
+		"unparsable":               "api: [unclosed\ndb_config:\n  password: FAKE-broken-0001\n",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, w := exportTreeWith(t, t.TempDir(), map[string]string{"config/config.yaml": crowdsecConfigFixture(t, fixture)})
-			require.Equal(t, http.StatusOK, w.Code)
+			_, w := exportTreeWith(t, t.TempDir(), map[string]string{"config/config.yaml": content})
 
-			entries := entriesOf(t, w.Body.Bytes())
-
-			assert.NotContains(t, entries, "config/config.yaml")
-			assert.Contains(t, omittedHeader(t, w), "config/config.yaml")
-			for name, body := range entries {
-				assert.NotContains(t, body, "FAKE-", name)
-			}
+			require.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			assert.Equal(t, "export_config_unsafe", body["error_code"])
+			assert.NotEmpty(t, body["error"])
+			assert.NotContains(t, w.Body.String(), "FAKE-")
+			assert.Empty(t, omittedHeader(t, w))
 		})
 	}
 }

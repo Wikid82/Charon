@@ -1164,6 +1164,7 @@
   "crowdsecConfig": {
     "exportSuccess": "CrowdSec 配置已导出",
     "exportFailed": "导出 CrowdSec 配置失败",
+    "exportConfigUnsafe": "配置文件包含无法可靠隐藏的凭据（文件超过 1 MiB、无法读取，或通过 YAML 锚点共享值），因此未导出任何内容。请简化该文件后重试。",
     "hubItems": {
       "title": "安装缺失的 Hub 项目",
       "description": "此导出使用了本主机上未安装的 Hub 项目。它们将从 CrowdSec 官方 Hub 下载。",
@@ -1456,7 +1457,8 @@
       "invalidDuration": "请选择 1 分钟到 365 天之间的时长，例如 4h、30m 或 1d。",
       "invalidReason": "原因最多可包含 200 个字符。",
       "decisionNotFound": "没有与此地址或范围完全一致的决策。解除封禁只会移除完全匹配的决策；包含该地址的更大范围不会解除其中各个地址。",
-      "timeout": "CrowdSec 未能及时响应。请重试。"
+      "timeout": "CrowdSec 未能及时响应。请重试。",
+      "requestTooLarge": "请求过大。请缩短文本后重试。"
     }
   },
   "smtp": {

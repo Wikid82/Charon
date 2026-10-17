@@ -279,3 +279,46 @@ func TestApplySuccessKeepsTheHubTree(t *testing.T) {
 	require.Equal(t, "name: test/preset\nversion: new\n", readFile(t, filepath.Join(e.dir, "config", "hub", "collections", "test", "preset.yaml")))
 	require.FileExists(t, filepath.Join(e.dir, "config", "hub", "scenarios", "bulk", "s00000.yaml"))
 }
+
+// The pre-flight answer is the text cscli really prints (progress line included), adapted to the test item.
+func realInspectFor(t *testing.T, e *applyEnv) []byte {
+	t.Helper()
+	text := readCSCLIFixture(t, "inspect_with_progress.txt")
+	text = strings.ReplaceAll(text, "collections/crowdsecurity/nginx.yaml", "collections/test/preset.yaml")
+	text = strings.ReplaceAll(text, "/etc/crowdsec/collections/nginx.yaml", filepath.Join(e.dir, "config", "collections", "preset.yaml"))
+	return []byte(strings.ReplaceAll(text, "65e74a0053aeb172dd797475519f33922c92129a690f2cdf58235ca2aad9e0eb", e.meta.ItemSHA256))
+}
+
+func TestParseItemStateReadsThePathAndLocalPathOfARealInspect(t *testing.T) {
+	t.Parallel()
+
+	state, err := parseItemState([]byte(readCSCLIFixture(t, "inspect_with_progress.txt")))
+
+	require.NoError(t, err)
+	require.Equal(t, "collections/crowdsecurity/nginx.yaml", state.Path)
+	require.Equal(t, "/etc/crowdsec/collections/nginx.yaml", state.LocalPath)
+}
+
+// An install that overwrites the item's own hub file in place and then fails puts the earlier content back, when
+// cscli describes the item the way it really does (`local_path` is the installed link, `path` the hub file).
+func TestApplyRestoresTheItemHubFileInPlaceWithARealInspectShape(t *testing.T) {
+	t.Parallel()
+	e := newApplyEnv(t)
+	hubTreeFiles(t, e.dir, 1)
+	hubFile := filepath.Join(e.dir, "config", "hub", "collections", "test", "preset.yaml")
+	e.script = func(_ context.Context, cmd string, n int) *cscliReply {
+		switch {
+		case cmd == applyInspect && n == 0:
+			return &cscliReply{out: realInspectFor(t, e)}
+		case cmd == applyInstall:
+			writeFile(t, hubFile, "name: test/preset\nversion: new\n")
+			return &cscliReply{err: errors.New("exit status 1")}
+		}
+		return nil
+	}
+
+	_, err := e.apply()
+
+	require.Error(t, err)
+	require.Equal(t, "name: test/preset\nversion: old\n", readFile(t, hubFile))
+}

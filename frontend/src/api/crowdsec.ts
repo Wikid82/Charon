@@ -174,7 +174,7 @@ export async function restoreHubItems(items: HubItem[]): Promise<RestoreHubItems
 /** An export archive plus the files the server left out of it. */
 export interface ExportCrowdsecResult {
   blob: Blob
-  /** Paths left out (private key files, an unredacted-able config); the server lists at most 50. */
+  /** Paths of private key files left out; the server lists at most 50. */
   omitted: string[]
   /** Files left out beyond the ones named in `omitted`. */
   omittedMore: number
@@ -218,8 +218,40 @@ function parseOmittedHeader(raw: unknown): Pick<ExportCrowdsecResult, 'omitted' 
  * @throws {AxiosError} If export fails
  */
 export async function exportCrowdsecConfig(): Promise<ExportCrowdsecResult> {
-  const resp = await client.get<Blob>('/admin/crowdsec/export', { responseType: 'blob' })
-  return { blob: resp.data, ...parseOmittedHeader(resp.headers?.[OMITTED_FILES_HEADER]) }
+  try {
+    const resp = await client.get<Blob>('/admin/crowdsec/export', { responseType: 'blob' })
+    return { blob: resp.data, ...parseOmittedHeader(resp.headers?.[OMITTED_FILES_HEADER]) }
+  } catch (err) {
+    throw await withReadableBody(err)
+  }
+}
+
+/** Machine-readable reasons the server gives for refusing an export. */
+export const EXPORT_ERROR_CODES = ['export_config_unsafe'] as const
+
+export type CrowdsecExportErrorCode = (typeof EXPORT_ERROR_CODES)[number]
+
+/**
+ * Reads the machine-readable reason from a failed export request.
+ * @returns The code, or undefined for an unknown or missing code
+ */
+export function getCrowdsecExportError(err: unknown): CrowdsecExportErrorCode | undefined {
+  return getApiErrorCode(err, EXPORT_ERROR_CODES)
+}
+
+/**
+ * The export asks for a blob, so a failure body arrives as a blob too. Replaces it with the parsed JSON so the
+ * error code can be read; a body that is not JSON is left as it is.
+ */
+async function withReadableBody(err: unknown): Promise<unknown> {
+  if (isAxiosError(err) && err.response?.data instanceof Blob) {
+    try {
+      err.response.data = JSON.parse(await err.response.data.text())
+    } catch {
+      // Not a JSON error body: the caller falls back to its generic message.
+    }
+  }
+  return err
 }
 
 /**
@@ -283,6 +315,7 @@ export const BAN_ERROR_CODES = [
   'invalid_reason',
   'decision_not_found',
   'cscli_timeout',
+  'request_too_large',
 ] as const
 
 export type CrowdsecBanErrorCode = (typeof BAN_ERROR_CODES)[number]

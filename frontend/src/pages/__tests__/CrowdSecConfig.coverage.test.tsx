@@ -230,6 +230,18 @@ describe('CrowdSecConfig coverage', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to export CrowdSec configuration'))
   })
 
+  it('explains an export refused because the configuration cannot be exported safely', async () => {
+    vi.mocked(exportUtils.promptCrowdsecFilename).mockReturnValueOnce('crowdsec.tar.gz')
+    vi.mocked(crowdsecApi.getCrowdsecExportError).mockReturnValueOnce('export_config_unsafe')
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockRejectedValueOnce(new Error('refused'))
+    await renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('cannot be hidden reliably')))
+    expect(exportUtils.downloadCrowdsecExport).not.toHaveBeenCalled()
+  })
+
   it('shows a passive note listing the first five files an export left out', async () => {
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({
       blob: new Blob(['data']),

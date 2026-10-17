@@ -1163,6 +1163,7 @@
   "crowdsecConfig": {
     "exportSuccess": "CrowdSec-Konfiguration exportiert",
     "exportFailed": "Export der CrowdSec-Konfiguration fehlgeschlagen",
+    "exportConfigUnsafe": "Die Konfigurationsdatei enthält Zugangsdaten, die sich nicht zuverlässig ausblenden lassen (sie ist größer als 1 MiB, nicht lesbar oder teilt Werte über YAML-Anker), daher wurde nichts exportiert. Vereinfachen Sie die Datei und versuchen Sie es erneut.",
     "hubItems": {
       "title": "Fehlende Hub-Elemente installieren",
       "description": "Dieser Export verwendete Hub-Elemente, die auf diesem Host nicht installiert sind. Sie werden vom offiziellen CrowdSec-Hub heruntergeladen.",
@@ -1455,7 +1456,8 @@
       "invalidDuration": "Wählen Sie eine Dauer zwischen 1 Minute und 365 Tagen, zum Beispiel 4h, 30m oder 1d.",
       "invalidReason": "Der Grund darf höchstens 200 Zeichen lang sein.",
       "decisionNotFound": "Keine Entscheidung mit genau dieser Adresse oder diesem Bereich. Beim Aufheben wird nur eine exakte Übereinstimmung entfernt; ein umfassender Bereich gibt die darin liegenden Adressen nicht frei.",
-      "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut."
+      "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut.",
+      "requestTooLarge": "Die Anfrage war zu groß. Kürzen Sie den Text und versuchen Sie es erneut."
     }
   },
   "smtp": {

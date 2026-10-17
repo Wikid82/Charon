@@ -134,6 +134,24 @@ describe('crowdsec API', () => {
       expect((await exportWithHeader('[1,"a.key"]')).omitted).toEqual(['a.key'])
     })
 
+    it('makes the error code of a failed export readable from the blob body', async () => {
+      const body = new Blob([JSON.stringify({ error: 'english', error_code: 'export_config_unsafe' })], { type: 'application/json' })
+      vi.mocked(client.get).mockRejectedValue(new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, { status: 422, data: body } as AxiosResponse))
+
+      const err = await crowdsec.exportCrowdsecConfig().catch((e: unknown) => e)
+
+      expect(crowdsec.getCrowdsecExportError(err)).toBe('export_config_unsafe')
+    })
+
+    it('leaves a failed export with a body that is not JSON unchanged', async () => {
+      const body = new Blob(['<html>'], { type: 'text/html' })
+      vi.mocked(client.get).mockRejectedValue(new AxiosError('x', 'ERR_BAD_RESPONSE', undefined, undefined, { status: 502, data: body } as AxiosResponse))
+
+      const err = await crowdsec.exportCrowdsecConfig().catch((e: unknown) => e)
+
+      expect(crowdsec.getCrowdsecExportError(err)).toBeUndefined()
+    })
+
     it('tolerates a response without headers', async () => {
       vi.mocked(client.get).mockResolvedValue({ data: mockBlob })
       expect((await crowdsec.exportCrowdsecConfig()).omitted).toEqual([])

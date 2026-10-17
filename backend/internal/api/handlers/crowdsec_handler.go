@@ -1158,7 +1158,12 @@ func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (t
 	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
 }
 
-const errExportFailed = "failed to export crowdsec config"
+const (
+	errExportFailed = "failed to export crowdsec config"
+
+	codeExportConfigUnsafe = "export_config_unsafe"
+	msgExportConfigUnsafe  = "The CrowdSec configuration file could not be exported safely: its credentials cannot be hidden reliably. Simplify the file (no anchors or merge keys around credentials, under 1 MiB) and try again."
+)
 
 // respondExportError maps an export failure to a fixed, non-revealing JSON message.
 func (h *CrowdsecHandler) respondExportError(c *gin.Context, err error) {
@@ -1167,6 +1172,11 @@ func (h *CrowdsecHandler) respondExportError(c *gin.Context, err error) {
 		return
 	}
 	logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export failed")
+	if errors.Is(err, crowdsec.ErrExportConfigUnsafe) {
+		c.Abort()
+		respondCoded(c, http.StatusUnprocessableEntity, codeExportConfigUnsafe, msgExportConfigUnsafe, nil)
+		return
+	}
 	msg := errExportFailed
 	switch {
 	case errors.Is(err, crowdsec.ErrExportFileUnreadable):

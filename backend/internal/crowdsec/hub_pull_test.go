@@ -191,6 +191,8 @@ func TestPullStopsOnCanceledContext(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+// The index fallback worked, but the preset is not cached and the fallback cannot say where to download it: that is
+// an unreachable hub, not a missing preset.
 func TestPullOfflineIndexHasNoDownloadLocation(t *testing.T) {
 	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
@@ -202,7 +204,8 @@ func TestPullOfflineIndexHasNoDownloadLocation(t *testing.T) {
 	})}
 
 	_, err = svc.Pull(context.Background(), "crowdsecurity/sshd", "")
-	require.ErrorContains(t, err, "no download location for this preset (index unreachable)")
+	require.ErrorIs(t, err, ErrHubUnreachable)
+	require.ErrorContains(t, err, "no download location for this preset")
 }
 
 func TestPullDifferentContentInTheSameSecondGetsDifferentKeys(t *testing.T) {
