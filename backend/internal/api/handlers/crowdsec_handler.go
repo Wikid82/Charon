@@ -2026,17 +2026,16 @@ func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 	ctx := c.Request.Context()
 	output, err := h.runCSCLI(ctx, cscliListTimeout, "decisions", "list", "-o", "json")
 	if err != nil {
-		// If cscli is not available or returns error, return empty list with warning
-		logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
-		msg := "cscli not available or failed"
-		if isCSCLITimeout(ctx, err) {
-			msg = "cscli decisions list timed out; the CrowdSec local API may be stopped"
-		}
-		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": msg})
+		h.respondDecisionsUnavailable(c, err)
 		return
 	}
 
 	decisions, skipped, truncated, err := parseCSCLIDecisions(output)
+	if errors.Is(err, crowdsec.ErrCSCLIOutputTooLarge) {
+		// the parser limit answers like the executor limit
+		h.respondDecisionsUnavailable(c, err)
+		return
+	}
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to parse cscli decisions output")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse decisions"})
@@ -2050,6 +2049,17 @@ func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions)})
+}
+
+// respondDecisionsUnavailable answers the decisions listing with an empty list and a warning when cscli
+// failed, timed out or printed more output than the limits allow.
+func (h *CrowdsecHandler) respondDecisionsUnavailable(c *gin.Context, err error) {
+	logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
+	msg := "cscli not available or failed"
+	if isCSCLITimeout(c.Request.Context(), err) {
+		msg = "cscli decisions list timed out; the CrowdSec local API may be stopped"
+	}
+	c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": msg})
 }
 
 // BanIPRequest represents the request body for banning an IP or a range

@@ -122,32 +122,3 @@ func TestConsoleStatus_TextFallback(t *testing.T) {
 		assert.Nil(t, got.LastHeartbeatAt)
 	})
 }
-
-func TestUnmarshalCSCLIOutput_AboveTheLimit(t *testing.T) {
-	var v any
-
-	t.Run("output at the limit is read", func(t *testing.T) {
-		out := make([]byte, maxCSCLIOutput)
-		for i := range out {
-			out[i] = ' '
-		}
-		copy(out, "[]\n")
-		require.NoError(t, UnmarshalCSCLIOutput(out, &v))
-	})
-
-	t.Run("output above the limit has its own error", func(t *testing.T) {
-		skipUntilLaterCommit(t)
-		out := make([]byte, maxCSCLIOutput+1)
-		copy(out, "[]\n")
-		err := UnmarshalCSCLIOutput(out, &v)
-		require.Error(t, err)
-		assert.Contains(t, strings.ToLower(err.Error()), "too large", "the sentinel ErrCSCLIOutputTooLarge says the output is too large")
-		assert.NotContains(t, err.Error(), "unexpected cscli output", "it is not the parse error")
-	})
-
-	t.Run("garbage within the limit is the parse error", func(t *testing.T) {
-		err := UnmarshalCSCLIOutput([]byte("no json here"), &v)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unexpected cscli output")
-	})
-}

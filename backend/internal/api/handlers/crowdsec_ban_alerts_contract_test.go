@@ -923,7 +923,6 @@ func TestOversizedCscliOutput_SameSoftError(t *testing.T) {
 
 	t.Run("decisions list: output above the parser limit gives the executor-cap answer", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		capped := decisions(t, &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return []byte("[]\n"), crowdsec.ErrOutputLimit }})
 		require.Equal(t, http.StatusOK, capped.Code, capped.Body.String())
 		require.NotEmpty(t, pr4Body(t, capped)["error"])
