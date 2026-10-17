@@ -2,7 +2,6 @@ package crowdsec
 
 import (
 	"context"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -18,16 +17,6 @@ import (
 // as the fallback. The not-registered output is recorded from the real cscli; the enrolled output cannot be
 // recorded offline (it needs a registered central API account), so console_status_json_enrolled_synthetic is the
 // recorded not-registered document with the console fields set.
-
-// skipUntilLaterCommit skips a test whose behavior a later commit in this series adds. Set
-// CHARON_RUN_PENDING_TESTS=1 to run the skipped tests anyway.
-func skipUntilLaterCommit(t *testing.T) {
-	t.Helper()
-	if os.Getenv("CHARON_RUN_PENDING_TESTS") != "" {
-		return
-	}
-	t.Skip("enabled by a later commit in this series")
-}
 
 // consoleStatusExec answers every command with out and records the arguments.
 type consoleStatusExec struct {
@@ -59,7 +48,6 @@ func heartbeatAfter(t *testing.T, status string, out []byte) (*models.CrowdsecCo
 }
 
 func TestConsoleStatus_AskedAsJSON(t *testing.T) {
-	skipUntilLaterCommit(t)
 	_, exec := heartbeatAfter(t, consoleStatusEnrolled, contractFixture(t, "console_status_json_enrolled_synthetic"))
 	require.Len(t, exec.calls, 1)
 	args := exec.calls[0]
@@ -69,7 +57,6 @@ func TestConsoleStatus_AskedAsJSON(t *testing.T) {
 
 func TestConsoleStatus_JSONDecidesEnrollment(t *testing.T) {
 	t.Run("recorded output of an installation that is not registered", func(t *testing.T) {
-		skipUntilLaterCommit(t)
 		// The document has an "enrolled" key and a "console" key, so a text match would call it enrolled.
 		got, _ := heartbeatAfter(t, consoleStatusEnrolled, contractFixture(t, "console_status_json"))
 		assert.Nil(t, got.LastHeartbeatAt, "enrolled is false")
@@ -83,7 +70,6 @@ func TestConsoleStatus_JSONDecidesEnrollment(t *testing.T) {
 	})
 
 	t.Run("enrolled false wins over words in other fields", func(t *testing.T) {
-		skipUntilLaterCommit(t)
 		doc := `{"console":{"authenticated":true,"decision_management":true,"enrolled":false,"plan":"enrolled and connected console","registered":true}}`
 		got, _ := heartbeatAfter(t, consoleStatusEnrolled, []byte(doc))
 		assert.Nil(t, got.LastHeartbeatAt)

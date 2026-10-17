@@ -25,18 +25,7 @@ import (
 )
 
 // Contract tests for the CrowdSec ban, unban, alerts and dashboard behavior. Commands are answered with output
-// recorded from the real bundled cscli (testdata/cscli/v1.8.2-rc1). Tests that describe behavior added later in
-// this series call skipUntilLaterCommit; the commit that adds the behavior removes the call.
-
-// skipUntilLaterCommit skips a test whose behavior a later commit in this series adds. Set
-// CHARON_RUN_PENDING_TESTS=1 to run the skipped tests anyway.
-func skipUntilLaterCommit(t *testing.T) {
-	t.Helper()
-	if os.Getenv("CHARON_RUN_PENDING_TESTS") != "" {
-		return
-	}
-	t.Skip("enabled by a later commit in this series")
-}
+// recorded from the real bundled cscli (testdata/cscli/v1.8.2-rc1).
 
 const (
 	// pr4OverCap is above the parser limit (32 MiB) and below the executor limit (33 MiB).
