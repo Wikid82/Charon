@@ -291,22 +291,18 @@ func TestBanIP_FlagPerKind(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name, ip, flag, value string
-		pending               bool
 	}{
 		{name: "ipv4 address", ip: "192.0.2.10", flag: "-i", value: "192.0.2.10"},
 		{name: "ipv6 address", ip: "2001:db8::1", flag: "-i", value: "2001:db8::1"},
-		{name: "ipv4 range", ip: "198.51.100.0/24", flag: "-r", value: "198.51.100.0/24", pending: true},
-		{name: "ipv6 range", ip: "2001:db8:1::/48", flag: "-r", value: "2001:db8:1::/48", pending: true},
-		{name: "range is sent masked", ip: "192.0.2.77/24", flag: "-r", value: "192.0.2.0/24", pending: true},
-		{name: "surrounding spaces are removed", ip: "  198.51.100.0/24 ", flag: "-r", value: "198.51.100.0/24", pending: true},
+		{name: "ipv4 range", ip: "198.51.100.0/24", flag: "-r", value: "198.51.100.0/24"},
+		{name: "ipv6 range", ip: "2001:db8:1::/48", flag: "-r", value: "2001:db8:1::/48"},
+		{name: "range is sent masked", ip: "192.0.2.77/24", flag: "-r", value: "192.0.2.0/24"},
+		{name: "surrounding spaces are removed", ip: "  198.51.100.0/24 ", flag: "-r", value: "198.51.100.0/24"},
 		{name: "surrounding spaces are removed from an address", ip: " 192.0.2.10\t", flag: "-i", value: "192.0.2.10"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if tc.pending {
-				skipUntilLaterCommit(t)
-			}
 			ex := pr4Answer(t, "decisions_add_ban")
 			w := pr4Serve(pr4Router(pr4Handler(t, ex, t.TempDir())), http.MethodPost, pr4BanURL, pr4BanBody(t, tc.ip, "4h", "example"))
 			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -357,7 +353,6 @@ func TestBanIP_InvalidValueIsRefusedBeforeCscli(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			skipUntilLaterCommit(t)
 			ex := pr4Answer(t, "decisions_add_ban")
 			w := pr4Serve(pr4Router(pr4Handler(t, ex, t.TempDir())), http.MethodPost, pr4BanURL, pr4BanBody(t, tc.ip, "4h", ""))
 			require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
@@ -371,7 +366,6 @@ func TestBanIP_InvalidValueIsRefusedBeforeCscli(t *testing.T) {
 
 	t.Run("the English text of an empty value is kept", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		w := pr4Serve(pr4Router(pr4Handler(t, &pr4Exec{}, t.TempDir())), http.MethodPost, pr4BanURL, pr4BanBody(t, "   ", "", ""))
 		require.Equal(t, http.StatusBadRequest, w.Code)
 		body := pr4Body(t, w)
@@ -402,7 +396,6 @@ func TestBanIP_DurationForms(t *testing.T) {
 	for _, d := range refused {
 		t.Run("refuses "+d, func(t *testing.T) {
 			t.Parallel()
-			skipUntilLaterCommit(t)
 			ex := pr4Answer(t, "decisions_add_ban")
 			w := pr4Serve(pr4Router(pr4Handler(t, ex, t.TempDir())), http.MethodPost, pr4BanURL, pr4BanBody(t, "192.0.2.10", d, ""))
 			require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
@@ -438,7 +431,6 @@ func TestBanIP_Reason(t *testing.T) {
 
 	t.Run("longer than 200 characters is refused", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		for name, reason := range map[string]string{"ascii": strings.Repeat("a", 201), "multibyte": strings.Repeat("é", 201)} {
 			ex := pr4Answer(t, "decisions_add_ban")
 			w := pr4Serve(pr4Router(pr4Handler(t, ex, t.TempDir())), http.MethodPost, pr4BanURL, pr4BanBody(t, "192.0.2.10", "1h", reason))
@@ -452,7 +444,6 @@ func TestBanIP_Reason(t *testing.T) {
 
 	t.Run("control characters are removed", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		ex := pr4Answer(t, "decisions_add_ban")
 		w := pr4Serve(pr4Router(pr4Handler(t, ex, t.TempDir())), http.MethodPost, pr4BanURL, pr4BanBody(t, "192.0.2.10", "1h", "line1\nline2\x00\x1b[31m\ttab"))
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -514,18 +505,14 @@ func TestBanIP_CscliFailureAndAuditRow(t *testing.T) {
 	for _, tc := range []struct {
 		duration string
 		want     time.Duration
-		pending  bool
 	}{
-		{"4h", 4 * time.Hour, false},
-		{"90s", 90 * time.Second, false},
-		{"1d", 24 * time.Hour, true},
-		{"365d", 365 * 24 * time.Hour, true},
+		{"4h", 4 * time.Hour},
+		{"90s", 90 * time.Second},
+		{"1d", 24 * time.Hour},
+		{"365d", 365 * 24 * time.Hour},
 	} {
 		t.Run("expiry from "+tc.duration, func(t *testing.T) {
 			t.Parallel()
-			if tc.pending {
-				skipUntilLaterCommit(t)
-			}
 			h := pr4Handler(t, pr4Answer(t, "decisions_add_ban"), t.TempDir())
 			start := time.Now()
 			w := pr4Serve(pr4Router(h), http.MethodPost, pr4BanURL, pr4BanBody(t, "192.0.2.10", tc.duration, ""))
@@ -539,7 +526,6 @@ func TestBanIP_CscliFailureAndAuditRow(t *testing.T) {
 
 	t.Run("a range is recorded as given", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		h := pr4Handler(t, pr4Answer(t, "decisions_add_range_r"), t.TempDir())
 		w := pr4Serve(pr4Router(h), http.MethodPost, pr4BanURL, pr4BanBody(t, "198.51.100.0/24", "4h", ""))
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -561,24 +547,20 @@ func TestUnbanIP_Route(t *testing.T) {
 	cases := []struct {
 		name, target, flag, value, fixture string
 		deleted                            float64
-		pending                            bool
 	}{
-		{name: "single address", target: "192.0.2.11", flag: "-i", value: "192.0.2.11", fixture: "decisions_delete", deleted: 1, pending: true},
-		{name: "ipv6 address plain", target: "2001:db8::1", flag: "-i", value: "2001:db8::1", fixture: "decisions_delete_ipv6", deleted: 1, pending: true},
-		{name: "ipv6 address encoded", target: url.PathEscape("2001:db8::1"), flag: "-i", value: "2001:db8::1", fixture: "decisions_delete_ipv6", deleted: 1, pending: true},
-		{name: "range encoded", target: "198.51.100.0%2F24", flag: "-r", value: "198.51.100.0/24", fixture: "decisions_delete_range_r", deleted: 1, pending: true},
-		{name: "range plain", target: "198.51.100.0/24", flag: "-r", value: "198.51.100.0/24", fixture: "decisions_delete_range_r", deleted: 1, pending: true},
-		{name: "ipv6 range encoded", target: "2001%3Adb8%3A1%3A%3A%2F48", flag: "-r", value: "2001:db8:1::/48", fixture: "decisions_delete_range_v6", deleted: 1, pending: true},
-		{name: "ipv6 range plain", target: "2001:db8:1::/48", flag: "-r", value: "2001:db8:1::/48", fixture: "decisions_delete_range_v6", deleted: 1, pending: true},
-		{name: "range is sent masked", target: "192.0.2.77%2F24", flag: "-r", value: "192.0.2.0/24", fixture: "decisions_delete_range_r", deleted: 1, pending: true},
-		{name: "several decisions removed", target: "192.0.2.201", flag: "-i", value: "192.0.2.201", fixture: "decisions_delete_two_for_one", deleted: 3, pending: true},
+		{name: "single address", target: "192.0.2.11", flag: "-i", value: "192.0.2.11", fixture: "decisions_delete", deleted: 1},
+		{name: "ipv6 address plain", target: "2001:db8::1", flag: "-i", value: "2001:db8::1", fixture: "decisions_delete_ipv6", deleted: 1},
+		{name: "ipv6 address encoded", target: url.PathEscape("2001:db8::1"), flag: "-i", value: "2001:db8::1", fixture: "decisions_delete_ipv6", deleted: 1},
+		{name: "range encoded", target: "198.51.100.0%2F24", flag: "-r", value: "198.51.100.0/24", fixture: "decisions_delete_range_r", deleted: 1},
+		{name: "range plain", target: "198.51.100.0/24", flag: "-r", value: "198.51.100.0/24", fixture: "decisions_delete_range_r", deleted: 1},
+		{name: "ipv6 range encoded", target: "2001%3Adb8%3A1%3A%3A%2F48", flag: "-r", value: "2001:db8:1::/48", fixture: "decisions_delete_range_v6", deleted: 1},
+		{name: "ipv6 range plain", target: "2001:db8:1::/48", flag: "-r", value: "2001:db8:1::/48", fixture: "decisions_delete_range_v6", deleted: 1},
+		{name: "range is sent masked", target: "192.0.2.77%2F24", flag: "-r", value: "192.0.2.0/24", fixture: "decisions_delete_range_r", deleted: 1},
+		{name: "several decisions removed", target: "192.0.2.201", flag: "-i", value: "192.0.2.201", fixture: "decisions_delete_two_for_one", deleted: 3},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if tc.pending {
-				skipUntilLaterCommit(t)
-			}
 			ex := pr4Answer(t, tc.fixture)
 			w := del(pr4Router(pr4Handler(t, ex, t.TempDir())), tc.target)
 			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -592,7 +574,6 @@ func TestUnbanIP_Route(t *testing.T) {
 
 	t.Run("nothing deleted is a 404 with a code", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		for name, tc := range map[string]struct{ target, fixture string }{
 			"address":    {"192.0.2.250", "decisions_delete_missing"},
 			"ipv6":       {"2001:db8::99", "decisions_delete_missing_v6"},
@@ -609,7 +590,6 @@ func TestUnbanIP_Route(t *testing.T) {
 
 	t.Run("invalid values are refused before cscli", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		for name, target := range map[string]string{
 			"not an address":     "notanip",
 			"flag lookalike":     "-x",

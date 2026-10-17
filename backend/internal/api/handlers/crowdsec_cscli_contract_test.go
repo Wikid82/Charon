@@ -583,12 +583,11 @@ func TestCSCLIContract_BanAndUnban(t *testing.T) {
 		assert.Equal(t, "level=info msg=\"Decision successfully added\"\n", string(cscliFixture(t, "decisions_add_ban")))
 	})
 
-	t.Run("cscli refusing the address is an error", func(t *testing.T) {
+	t.Run("an address cscli would refuse is refused before cscli runs", func(t *testing.T) {
 		t.Parallel()
-		fx := newFixtureCmdExec(t, map[string]string{"decisions add -i notanip -d 1h -R manual ban -t ban": "decisions_add_badip"})
-		w := ban(newRouter(t, fx), `{"ip":"notanip","duration":"1h"}`)
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.JSONEq(t, `{"error":"failed to ban IP"}`, w.Body.String())
+		w := ban(newRouter(t, newFixtureCmdExec(t, nil)), `{"ip":"notanip","duration":"1h"}`)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.JSONEq(t, `{"error":"ip must be a valid IPv4 or IPv6 address or a CIDR range","error_code":"invalid_ip"}`, w.Body.String())
 	})
 
 	t.Run("unban uses flags the bundled cscli accepts", func(t *testing.T) {
@@ -597,7 +596,7 @@ func TestCSCLIContract_BanAndUnban(t *testing.T) {
 		w := httptest.NewRecorder()
 		newRouter(t, fx).ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/ban/192.0.2.11", http.NoBody))
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-		assert.JSONEq(t, `{"status":"unbanned","ip":"192.0.2.11"}`, w.Body.String())
+		assert.JSONEq(t, `{"status":"unbanned","ip":"192.0.2.11","deleted":1}`, w.Body.String())
 	})
 }
 

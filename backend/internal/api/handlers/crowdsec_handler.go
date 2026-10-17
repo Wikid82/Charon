@@ -2049,94 +2049,112 @@ func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions)})
 }
 
-// BanIPRequest represents the request body for banning an IP
+// BanIPRequest represents the request body for banning an IP or a range
 type BanIPRequest struct {
-	IP       string `json:"ip" binding:"required"`
+	IP       string `json:"ip"`
 	Duration string `json:"duration"`
 	Reason   string `json:"reason"`
 }
 
-// BanIP adds a manual ban for an IP address
+// BanIP adds a manual ban for an address or a CIDR range. The request is validated before cscli runs.
 func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	var req BanIPRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip is required"})
+		respondCoded(c, http.StatusBadRequest, codeInvalidIP, msgIPRequired, nil)
 		return
 	}
 
-	// Validate IP format (basic check)
-	ip := strings.TrimSpace(req.IP)
-	if ip == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip cannot be empty"})
+	target, err := parseBanTarget(req.IP, true)
+	if err != nil {
+		respondInvalidBanTarget(c, req.IP, true)
 		return
 	}
 
-	// Default duration to 24h if not specified
 	duration := req.Duration
 	if duration == "" {
-		duration = "24h"
+		duration = defaultBanDuration
+	}
+	parsedDur, err := parseBanDuration(duration)
+	if err != nil {
+		respondCoded(c, http.StatusBadRequest, codeInvalidDuration, msgDurationInvalid, nil)
+		return
 	}
 
-	// Build reason string
+	cleanReason, ok := cleanBanReason(req.Reason)
+	if !ok {
+		respondCoded(c, http.StatusBadRequest, codeInvalidReason, msgReasonTooLong, nil)
+		return
+	}
 	reason := "manual ban"
-	if req.Reason != "" {
-		reason = fmt.Sprintf("manual ban: %s", req.Reason)
+	if cleanReason != "" {
+		reason = fmt.Sprintf("manual ban: %s", cleanReason)
 	}
 
 	ctx := c.Request.Context()
-	_, err := h.runCSCLI(ctx, cscliChangeTimeout, "decisions", "add", "-i", ip, "-d", duration, "-R", reason, "-t", "ban")
+	out, err := h.runCSCLI(ctx, cscliChangeTimeout, "decisions", "add", target.flag(), target.value, "-d", duration, "-R", reason, "-t", "ban")
 	if err != nil {
 		if isCSCLITimeout(ctx, err) {
 			respondCSCLITimeout(c)
 			return
 		}
-		logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions add")
+		logger.Log().WithError(err).WithField("ip", target.value).WithField("cscli_output", firstCscliLine(out)).Warn("Failed to execute cscli decisions add")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ban IP"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "banned", "ip": ip, "duration": duration})
+	c.JSON(http.StatusOK, gin.H{"status": "banned", "ip": target.value, "duration": duration})
 
 	// Log to security_decisions for dashboard aggregation
 	if h.Security != nil {
-		parsedDur, _ := time.ParseDuration(duration)
 		expiry := time.Now().Add(parsedDur)
-		_ = h.Security.LogDecision(&models.SecurityDecision{
-			IP:        ip,
+		if err := h.Security.LogDecision(&models.SecurityDecision{
+			IP:        target.value,
 			Action:    "block",
 			Source:    "crowdsec",
 			RuleID:    reason,
 			Scenario:  "manual",
 			ExpiresAt: &expiry,
-		})
+		}); err != nil {
+			logger.Log().WithError(err).WithField("ip", target.value).Warn("Failed to record the manual ban in the security decisions")
+		}
 	}
 	h.dashCache.Invalidate("dashboard")
 }
 
-// UnbanIP removes a ban for an IP address
+// UnbanIP removes the decisions for an address or a CIDR range. The route is a catch-all so that a range
+// written as 10.0.0.0/24 or 10.0.0.0%2F24 reaches the handler; the value arrives with a leading slash.
 func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
-	ip := c.Param("ip")
-	if ip == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip parameter required"})
+	raw := strings.TrimPrefix(c.Param("value"), "/")
+	target, err := parseBanTarget(raw, false)
+	if err != nil {
+		respondInvalidBanTarget(c, raw, false)
 		return
 	}
 
-	// Sanitize IP
-	ip = strings.TrimSpace(ip)
-
 	ctx := c.Request.Context()
-	_, err := h.runCSCLI(ctx, cscliChangeTimeout, "decisions", "delete", "-i", ip)
+	out, err := h.runCSCLI(ctx, cscliChangeTimeout, "decisions", "delete", target.flag(), target.value)
 	if err != nil {
 		if isCSCLITimeout(ctx, err) {
 			respondCSCLITimeout(c)
 			return
 		}
-		logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions delete")
+		logger.Log().WithError(err).WithField("ip", target.value).WithField("cscli_output", firstCscliLine(out)).Warn("Failed to execute cscli decisions delete")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unban IP"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "ip": ip})
+	// cscli exits 0 when nothing matched; its count line tells the difference. Without a count line the
+	// command is taken to have succeeded.
+	resp := gin.H{"status": "unbanned", "ip": target.value}
+	if deleted, found := deletedDecisionCount(out); found {
+		if deleted == 0 {
+			respondCoded(c, http.StatusNotFound, codeDecisionNotFound, msgDecisionNotFound, nil)
+			return
+		}
+		resp["deleted"] = deleted
+	}
+
+	c.JSON(http.StatusOK, resp)
 	h.dashCache.Invalidate("dashboard")
 }
 
@@ -2577,7 +2595,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/decisions/lapi", h.GetLAPIDecisions)
 	rg.GET("/admin/crowdsec/lapi/health", h.CheckLAPIHealth)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
-	rg.DELETE("/admin/crowdsec/ban/:ip", h.UnbanIP)
+	rg.DELETE("/admin/crowdsec/ban/*value", h.UnbanIP)
 	// Bouncer management endpoints (auto-registration)
 	rg.GET("/admin/crowdsec/bouncer", h.GetBouncerInfo)
 	rg.GET("/admin/crowdsec/bouncer/key", h.GetBouncerKey)
