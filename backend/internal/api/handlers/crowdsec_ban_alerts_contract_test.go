@@ -654,36 +654,30 @@ func TestCscliCalls_ConfigArgument(t *testing.T) {
 	calls := map[string]struct {
 		run     func(r *gin.Engine) *httptest.ResponseRecorder
 		fixture string
-		// pendingFor lists the layouts whose current behavior differs from the wanted one.
-		pendingFor map[string]bool
 	}{
 		"ban": {
 			run: func(r *gin.Engine) *httptest.ResponseRecorder {
 				return pr4Serve(r, http.MethodPost, pr4BanURL, `{"ip":"192.0.2.10","duration":"4h"}`)
 			},
-			fixture:    "decisions_add_ban",
-			pendingFor: map[string]bool{"config in the config directory": true},
+			fixture: "decisions_add_ban",
 		},
 		"unban": {
 			run: func(r *gin.Engine) *httptest.ResponseRecorder {
 				return pr4Serve(r, http.MethodDelete, pr4BanURL+"/192.0.2.11", "")
 			},
-			fixture:    "decisions_delete",
-			pendingFor: map[string]bool{"config in the config directory": true},
+			fixture: "decisions_delete",
 		},
 		"decisions list": {
 			run: func(r *gin.Engine) *httptest.ResponseRecorder {
 				return pr4Serve(r, http.MethodGet, "/api/v1/admin/crowdsec/decisions", "")
 			},
-			fixture:    "decisions_list_empty_json",
-			pendingFor: map[string]bool{"config in the config directory": true},
+			fixture: "decisions_list_empty_json",
 		},
 		"alerts list": {
 			run: func(r *gin.Engine) *httptest.ResponseRecorder {
 				return pr4Serve(r, http.MethodGet, "/api/v1/admin/crowdsec/alerts?limit=50", "")
 			},
-			fixture:    "alerts_list_json",
-			pendingFor: map[string]bool{"config in the data directory": true, "config in the config directory": true},
+			fixture: "alerts_list_json",
 		},
 	}
 
@@ -691,9 +685,6 @@ func TestCscliCalls_ConfigArgument(t *testing.T) {
 		for layoutName, rel := range layouts {
 			t.Run(callName+"/"+layoutName, func(t *testing.T) {
 				t.Parallel()
-				if call.pendingFor[layoutName] {
-					skipUntilLaterCommit(t)
-				}
 				dir := t.TempDir()
 				cfg := filepath.Join(dir, rel)
 				require.NoError(t, os.MkdirAll(filepath.Dir(cfg), 0o750))
@@ -722,7 +713,6 @@ func TestCscliCalls_ConfigArgument(t *testing.T) {
 
 	t.Run("the config directory wins when both exist", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		dir := t.TempDir()
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, "config"), 0o750))
 		for _, p := range []string{filepath.Join(dir, "config.yaml"), filepath.Join(dir, "config", "config.yaml")} {
@@ -742,27 +732,23 @@ func TestCscliCalls_RunUnderADeadline(t *testing.T) {
 		run     func(r *gin.Engine) *httptest.ResponseRecorder
 		fixture string
 		max     time.Duration
-		pending bool
 	}{
 		{"ban", func(r *gin.Engine) *httptest.ResponseRecorder {
 			return pr4Serve(r, http.MethodPost, pr4BanURL, `{"ip":"192.0.2.10","duration":"1h"}`)
-		}, "decisions_add_ban", pr4EditDeadline, true},
+		}, "decisions_add_ban", pr4EditDeadline},
 		{"unban", func(r *gin.Engine) *httptest.ResponseRecorder {
 			return pr4Serve(r, http.MethodDelete, pr4BanURL+"/192.0.2.11", "")
-		}, "decisions_delete", pr4EditDeadline, true},
+		}, "decisions_delete", pr4EditDeadline},
 		{"decisions list", func(r *gin.Engine) *httptest.ResponseRecorder {
 			return pr4Serve(r, http.MethodGet, "/api/v1/admin/crowdsec/decisions", "")
-		}, "decisions_list_empty_json", pr4ListDeadline, false},
+		}, "decisions_list_empty_json", pr4ListDeadline},
 		{"alerts list", func(r *gin.Engine) *httptest.ResponseRecorder {
 			return pr4Serve(r, http.MethodGet, "/api/v1/admin/crowdsec/alerts", "")
-		}, "alerts_list_json", pr4ListDeadline, true},
+		}, "alerts_list_json", pr4ListDeadline},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if tc.pending {
-				skipUntilLaterCommit(t)
-			}
 			ex := pr4Answer(t, tc.fixture)
 			h := pr4Handler(t, ex, t.TempDir())
 			h.validateLAPIURL = func(string) (*url.URL, error) { return nil, errors.New("blocked in test") }
@@ -793,7 +779,6 @@ func TestBanAndUnban_DeadlineGivesCodedTimeout(t *testing.T) {
 			}
 			t.Run(label, func(t *testing.T) {
 				t.Parallel()
-				skipUntilLaterCommit(t)
 				ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 				defer cancel()
 				start := time.Now()

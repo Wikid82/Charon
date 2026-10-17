@@ -554,7 +554,7 @@ func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string,
 	}
 	args = append(args, "-l", strconv.Itoa(limit))
 
-	output, err := h.CmdExec.Execute(ctx, "cscli", args...)
+	output, err := h.runCSCLI(ctx, cscliListTimeout, args...)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to list alerts via cscli")
 		return []interface{}{}, 0
