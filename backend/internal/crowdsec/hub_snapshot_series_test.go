@@ -75,7 +75,6 @@ func snapshotsOf(t *testing.T, dir string) []string {
 
 // The snapshot of a preset apply leaves out the hub tree: it is a cache that cscli can download again.
 func TestApplySnapshotLeavesOutTheHubTree(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	e := newApplyEnv(t)
 	hubTreeFiles(t, e.dir, 5)
@@ -99,7 +98,6 @@ func TestApplySnapshotLeavesOutTheHubTree(t *testing.T) {
 
 // What a snapshot costs does not grow with the hub: the same entries are copied whatever the hub holds.
 func TestApplySnapshotSizeDoesNotDependOnTheHub(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	small, large := newApplyEnv(t), newApplyEnv(t)
 	hubTreeFiles(t, small.dir, 0)
@@ -116,7 +114,6 @@ func TestApplySnapshotSizeDoesNotDependOnTheHub(t *testing.T) {
 
 // Refusals that depend only on the state before the install cost no snapshot at all.
 func TestApplyRefusesBeforeTheSnapshotWhenTheInspectShowsAProblem(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	cases := map[string]struct {
 		reply *cscliReply
@@ -154,7 +151,6 @@ func TestApplyRefusesBeforeTheSnapshotWhenTheInspectShowsAProblem(t *testing.T) 
 
 // The inspect that decides runs after the hub index update and before the install.
 func TestApplyInspectsAfterTheHubUpdateAndBeforeTheInstall(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	e := newApplyEnv(t)
 

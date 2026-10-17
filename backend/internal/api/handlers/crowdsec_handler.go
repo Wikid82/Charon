@@ -958,7 +958,7 @@ func respondKeptProfileRefusal(c *gin.Context, err error) {
 	respondCoded(c, http.StatusUnprocessableEntity, codeImportKeptProfileDuplicate, msgKeptProfileDuplicate, nil)
 }
 
-// pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
+// pruneSnapshots bounds the snapshots kept next to DataDir; failures are logged only.
 func (h *CrowdsecHandler) pruneSnapshots() {
 	if _, err := crowdsec.PruneBackups(h.DataDir, crowdsec.BackupKindSnapshot, crowdsec.DefaultBackupRetention); err != nil {
 		logger.Log().WithError(err).Warn("crowdsec backup prune incomplete")

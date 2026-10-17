@@ -253,7 +253,7 @@ func TestApplyPresetInstallsPreviewedItem(t *testing.T) {
 	require.Equal(t, installSlug, resp["slug"])
 
 	calls := h.calls()
-	require.Equal(t, []string{cmdVersion, cmdUpdate, cmdInstall, cmdInspect, cmdHubList}, calls)
+	require.Equal(t, []string{cmdVersion, cmdUpdate, cmdInspect, cmdInstall, cmdInspect, cmdHubList}, calls)
 	for _, c := range calls {
 		require.NotContains(t, c, "hub install")
 		require.NotContains(t, c, "--force")
@@ -363,13 +363,13 @@ func TestApplyNamesOnlyEditedItemsOfThePreset(t *testing.T) {
 func TestApplyUpgradesOlderInstalledItem(t *testing.T) {
 	// Needs a check against a real cscli: the upgrade step for an older, unmodified item is not verified.
 	h := newInstallHarness(t, installScript{replies: map[string][]reply{
-		cmdInspect: {{out: readCSCLIFixture(t, "inspect_older_version.json")}, {}},
+		cmdInspect: {{}, {out: readCSCLIFixture(t, "inspect_older_version.json")}, {}}, // pre-flight, after the install, after the upgrade
 	}})
 	key := h.store(t, nil)
 
 	code, resp := h.apply(t, installSlug, key)
 	require.Equal(t, http.StatusOK, code, resp)
-	require.Equal(t, []string{cmdVersion, cmdUpdate, cmdInstall, cmdInspect, cmdUpgrade, cmdInspect, cmdHubList}, h.calls())
+	require.Equal(t, []string{cmdVersion, cmdUpdate, cmdInspect, cmdInstall, cmdInspect, cmdUpgrade, cmdInspect, cmdHubList}, h.calls())
 	require.EqualValues(t, 1, h.reloads.Load())
 }
 

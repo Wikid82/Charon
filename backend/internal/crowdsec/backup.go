@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	// DefaultBackupRetention is how many full-tree snapshots (<DataDir>.backup.*) are kept.
+	// DefaultBackupRetention is how many snapshots (<DataDir>.backup.*) are kept.
 	DefaultBackupRetention = 5
 	// DefaultFileBackupRetention is how many single-file edit backups (<DataDir>.filebackup.*) are kept.
 	DefaultFileBackupRetention = 10
@@ -66,9 +66,20 @@ func IsEngineOwnedPath(rel string) bool {
 // snapshot copies DataDir into a new <DataDir>.backup.<ts> directory; see Snapshot.
 func (s *HubService) snapshot() (string, error) { return Snapshot(s.DataDir) }
 
+// snapshotWithoutHub is the snapshot of a hub apply: the hub tree is described, not copied; see snapshotWithoutHub.
+func (s *HubService) snapshotWithoutHub(itemFile string) (string, error) {
+	return snapshotWithoutHub(s.DataDir, itemFile)
+}
+
 // Snapshot copies dataDir (symlinks preserved, engine-owned state excluded) into a new
 // <dataDir>.backup.<ts> directory and returns its path. dataDir is never modified.
 func Snapshot(dataDir string) (string, error) {
+	return snapshotTree(dataDir, IsEngineOwnedPath, nil)
+}
+
+// snapshotTree creates the <dataDir>.backup.<ts> directory, copies dataDir into it except the entries skip
+// selects, and then lets extra add to it. The directory is removed again when any step fails.
+func snapshotTree(dataDir string, skip func(rel string) bool, extra func(path string) error) (string, error) {
 	parent, base := filepath.Split(filepath.Clean(dataDir))
 	var path string
 	var mkErr error
@@ -82,9 +93,15 @@ func Snapshot(dataDir string) (string, error) {
 		return "", fmt.Errorf("mkdir backup: %w", mkErr)
 	}
 	if _, err := os.Stat(dataDir); err == nil {
-		if cpErr := copyTree(dataDir, path, IsEngineOwnedPath); cpErr != nil {
+		if cpErr := copyTree(dataDir, path, skip); cpErr != nil {
 			_ = os.RemoveAll(path)
 			return "", fmt.Errorf("copy backup: %w", cpErr)
+		}
+		if extra != nil {
+			if exErr := extra(path); exErr != nil {
+				_ = os.RemoveAll(path)
+				return "", fmt.Errorf("copy backup: %w", exErr)
+			}
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		_ = os.RemoveAll(path)
@@ -97,8 +114,12 @@ func Snapshot(dataDir string) (string, error) {
 func (s *HubService) restore(path string) error { return Restore(path, s.DataDir) }
 
 // Restore replaces the contents of dataDir with the snapshot while keeping dataDir itself (and the
-// engine-owned entries inside it) in place.
+// engine-owned entries inside it) in place. A snapshot taken without the hub tree (see snapshotWithoutHub)
+// is restored the light way: the hub tree stays and is trimmed back to what it held.
 func Restore(snapshotPath, dataDir string) error {
+	if isLightSnapshot(snapshotPath) {
+		return restoreWithoutHub(snapshotPath, dataDir)
+	}
 	return RestoreKeeping(snapshotPath, dataDir, IsEngineOwnedPath)
 }
 
@@ -220,7 +241,7 @@ func copyTreeRel(src, dst, rel string, skip func(rel string) bool) error {
 	return nil
 }
 
-// pruneAfterApply prunes full-tree snapshots, logging (never returning) any failure.
+// pruneAfterApply prunes snapshots, logging (never returning) any failure.
 func (s *HubService) pruneAfterApply() {
 	if removed, err := PruneBackups(s.DataDir, BackupKindSnapshot, DefaultBackupRetention); err != nil {
 		logger.Log().WithError(err).WithField("removed", len(removed)).Warn("crowdsec backup prune incomplete")

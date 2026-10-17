@@ -52,8 +52,9 @@ type applyEnv struct {
 	onInstall func()
 }
 
-func healthyInspect(hash string) []byte {
-	return fmt.Appendf(nil, `{"installed":true,"tainted":false,"up_to_date":true,"local_hash":%q}`, hash)
+func (e *applyEnv) healthyInspect() []byte {
+	itemFile := filepath.Join(e.dir, "config", "hub", "collections", "test", "preset.yaml")
+	return fmt.Appendf(nil, `{"installed":true,"tainted":false,"up_to_date":true,"local_hash":%q,"local_path":%q}`, e.meta.ItemSHA256, itemFile)
 }
 
 func inspectReply(installed, tainted, upToDate bool, hash string) *cscliReply {
@@ -89,7 +90,7 @@ func (e *applyEnv) Execute(ctx context.Context, name string, args ...string) ([]
 		}
 		return []byte("installed"), nil
 	case applyInspect:
-		return healthyInspect(e.meta.ItemSHA256), nil
+		return e.healthyInspect(), nil
 	case applyList:
 		return []byte(healthyHubList), nil
 	default:
@@ -147,7 +148,7 @@ func TestApplyInstallsAndVerifies(t *testing.T) {
 	require.Equal(t, e.meta.CacheKey, res.CacheKey)
 	require.Empty(t, res.Warnings)
 	require.DirExists(t, res.BackupPath)
-	require.Equal(t, []string{applyVersion, applyUpdate, applyInstall, applyInspect, applyList}, e.commands())
+	require.Equal(t, []string{applyVersion, applyUpdate, applyInspect, applyInstall, applyInspect, applyList}, e.commands())
 	require.Equal(t, 1, e.reloads)
 	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml"), "a successful apply keeps the cache entry")
 }
@@ -296,7 +297,7 @@ func TestApplySnapshotFailureChangesNothing(t *testing.T) {
 	res, err := svc.Apply(context.Background(), applyTestSlug, "collections", meta.CacheKey)
 	require.ErrorContains(t, err, "backup")
 	require.Empty(t, res.BackupPath)
-	require.Equal(t, []string{applyVersion}, e.commands(), "nothing but the version probe runs when no snapshot exists")
+	require.Equal(t, []string{applyVersion, applyUpdate, applyInspect}, e.commands(), "nothing is installed when no snapshot exists")
 }
 
 func TestApplyInstallFailureRestoresSnapshot(t *testing.T) {
@@ -409,7 +410,7 @@ func TestApplyUpgradesOlderInstalledItem(t *testing.T) {
 	t.Parallel()
 	e := newApplyEnv(t)
 	e.script = func(_ context.Context, cmd string, n int) *cscliReply {
-		if cmd == applyInspect && n == 0 {
+		if cmd == applyInspect && n == 1 { // the first inspect is the pre-flight check
 			return inspectReply(true, false, false, strings.Repeat("1", 64))
 		}
 		return nil
@@ -418,7 +419,7 @@ func TestApplyUpgradesOlderInstalledItem(t *testing.T) {
 	res, err := e.apply()
 	require.NoError(t, err)
 	require.Equal(t, "applied", res.Status)
-	require.Equal(t, []string{applyVersion, applyUpdate, applyInstall, applyInspect, applyUpgrade, applyInspect, applyList}, e.commands())
+	require.Equal(t, []string{applyVersion, applyUpdate, applyInspect, applyInstall, applyInspect, applyUpgrade, applyInspect, applyList}, e.commands())
 }
 
 func TestApplyUpgradeFailures(t *testing.T) {

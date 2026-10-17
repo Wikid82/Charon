@@ -47,8 +47,8 @@ var dependencySections = []string{"collections", "parsers", "scenarios", "postov
 const maxDependencies = 1000
 
 // Apply installs the previewed hub item with cscli and verifies that what cscli installed is the item that
-// was pulled. DataDir is never renamed: a copy-based snapshot is taken first and restored in place on
-// failure. Apply never contacts the hub to refresh the cache; an entry that is missing, expired or has a
+// was pulled. DataDir is never renamed: a snapshot of the configuration (not of the hub tree, see
+// snapshotWithoutHub) is taken first and restored in place on failure. Apply never contacts the hub to refresh the cache; an entry that is missing, expired or has a
 // different cacheKey is reported as stale. itemType names the hub section of the pulled item; when it is empty,
 // the section is taken from the cache entry that carries cacheKey.
 func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string) (ApplyResult, error) {
@@ -99,7 +99,18 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 	if !s.hasCSCLI(applyCtx) {
 		return result, fmt.Errorf("%w or not responding", ErrCSCLIUnavailable)
 	}
-	backupPath, err := s.snapshot()
+
+	// The hub index is refreshed and the item inspected before anything is snapshotted, so a refusal that
+	// depends only on the state before the install costs no snapshot.
+	s.updateHubIndex(applyCtx)
+	before, err := s.preflight(applyCtx, meta)
+	if err != nil {
+		return result, err
+	}
+	if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
+		return result, fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
+	}
+	backupPath, err := s.snapshotWithoutHub(before.LocalPath)
 	if err != nil {
 		return result, fmt.Errorf("backup: %w", err)
 	}
@@ -113,8 +124,6 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 		}
 		return result, s.restoreAfter(cause, backupPath, slug)
 	}
-
-	s.updateHubIndex(applyCtx)
 
 	installOut, err := s.Exec.Execute(applyCtx, "cscli", meta.Type, "install", meta.Name)
 	if err != nil {
@@ -234,6 +243,8 @@ type itemState struct {
 	Tainted   bool   `json:"tainted"`
 	UpToDate  *bool  `json:"up_to_date"`
 	LocalHash string `json:"local_hash"`
+	// LocalPath is where cscli keeps the item's own hub file.
+	LocalPath string `json:"local_path"`
 }
 
 func (s *HubService) inspectItem(ctx context.Context, itemType, name string) (itemState, error) {
@@ -241,12 +252,40 @@ func (s *HubService) inspectItem(ctx context.Context, itemType, name string) (it
 	if err != nil {
 		return itemState{}, fmt.Errorf("inspect %s %s: %w", itemType, name, err)
 	}
+	return parseItemState(out)
+}
+
+// parseItemState reads the `cscli <type> inspect -o json` answer.
+func parseItemState(out []byte) (itemState, error) {
 	var state itemState
 	if err := unmarshalCSCLIJSON(out, &state); err != nil {
 		return itemState{}, fmt.Errorf("parse inspect output: %w", err)
 	}
 	if state.Installed == nil {
 		return itemState{}, errors.New("inspect output has no installed field")
+	}
+	return state, nil
+}
+
+// preflight inspects the top-level item before the install and refuses what the install cannot change: an item
+// the local index does not know (stale preset) and an item edited on this server. Any other inspect problem is
+// left to the checks after the install. The returned state carries the item's own hub file for the snapshot.
+func (s *HubService) preflight(ctx context.Context, meta CachedPreset) (itemState, error) {
+	out, err := s.Exec.Execute(ctx, "cscli", meta.Type, "inspect", meta.Name, "-o", "json")
+	if err != nil {
+		if strings.Contains(string(out)+" "+err.Error(), "can't find") {
+			return itemState{}, ErrPresetCacheStale
+		}
+		logger.Log().WithError(err).Warn("preset pre-flight inspect failed; continuing")
+		return itemState{}, nil
+	}
+	state, err := parseItemState(out)
+	if err != nil {
+		logger.Log().WithError(err).Warn("preset pre-flight inspect unreadable; continuing")
+		return itemState{}, nil
+	}
+	if state.Tainted {
+		return itemState{}, s.localModified(ctx, meta)
 	}
 	return state, nil
 }
