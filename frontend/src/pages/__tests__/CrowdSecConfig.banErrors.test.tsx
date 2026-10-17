@@ -148,4 +148,29 @@ describe('CrowdSecConfig ban and unban refusals', () => {
   it('uses the generic message when a non-Error is thrown', async () => {
     expect(await unbanFailing('boom')).toBe('Failed to unban IP')
   })
+
+  it('offers a one-year maximum instead of a permanent option and sends 365d', async () => {
+    vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
+    renderWithQueryClient(<CrowdSecConfig />)
+    await screen.findByText('CrowdSec Configuration')
+    await userEvent.click(await screen.findByRole('button', { name: /Ban IP/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Ban IP Address' })
+    const select = within(dialog).getByLabelText('Duration')
+
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '1 hour',
+      '4 hours',
+      '24 hours',
+      '7 days',
+      '30 days',
+      'Up to one year (365 days)',
+    ])
+    expect(within(dialog).queryByText(/permanent/i)).not.toBeInTheDocument()
+    expect(within(dialog).getByText('CrowdSec bans are limited to one year.')).toBeInTheDocument()
+
+    await userEvent.selectOptions(select, '365d')
+    await userEvent.type(within(dialog).getByLabelText('IP Address'), '203.0.113.9')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Ban IP' }))
+    await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledWith('203.0.113.9', '365d', ''))
+  })
 })

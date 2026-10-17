@@ -158,7 +158,7 @@ test.describe('CrowdSec Banned IPs Management', () => {
         '24 hours',
         '7 days',
         '30 days',
-        'Permanent',
+        'Up to one year (365 days)',
       ]);
       await expect(dialog.getByLabel('Reason')).toHaveValue('');
       await expect(dialog.getByRole('button', { name: 'Ban IP', exact: true })).toBeDisabled();

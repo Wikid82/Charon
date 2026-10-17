@@ -1600,15 +1600,16 @@ export default function CrowdSecConfig() {
                     setBanFieldErrors((prev) => ({ ...prev, duration: undefined }))
                   }}
                   aria-label={t('crowdsecConfig.banModal.durationLabel')}
-                  aria-describedby={banFieldErrors.duration ? 'ban-duration-error' : undefined}
+                  aria-describedby={banFieldErrors.duration ? 'ban-duration-error ban-duration-help' : 'ban-duration-help'}
                 >
                   <option value="1h">{t('crowdsecConfig.banModal.duration1h')}</option>
                   <option value="4h">{t('crowdsecConfig.banModal.duration4h')}</option>
                   <option value="24h">{t('crowdsecConfig.banModal.duration24h')}</option>
                   <option value="7d">{t('crowdsecConfig.banModal.duration7d')}</option>
                   <option value="30d">{t('crowdsecConfig.banModal.duration30d')}</option>
-                  <option value="permanent">{t('crowdsecConfig.banModal.durationPermanent')}</option>
+                  <option value="365d">{t('crowdsecConfig.banModal.duration365d')}</option>
                 </select>
+                <p id="ban-duration-help" className="mt-1.5 text-xs text-gray-400">{t('crowdsecConfig.banModal.durationHelp')}</p>
                 {banFieldErrors.duration && (
                   <p id="ban-duration-error" className="mt-1.5 text-sm text-error" role="alert">{banFieldErrors.duration}</p>
                 )}
