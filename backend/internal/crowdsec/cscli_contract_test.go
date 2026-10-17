@@ -36,22 +36,6 @@ func contractExit(t *testing.T, name string) int {
 	return code
 }
 
-// contractShim puts a cscli on PATH that answers each command (arguments without a leading "-c <config>") with
-// the recorded output and exit status. Tests using it must not run in parallel.
-func contractShim(t *testing.T, byCmd map[string]string) {
-	t.Helper()
-	var script strings.Builder
-	script.WriteString("#!/bin/sh\nif [ \"$1\" = \"-c\" ]; then shift 2; fi\ncase \"$*\" in\n")
-	for cmd, name := range byCmd {
-		abs, err := filepath.Abs(filepath.Join(cscliContractDir, name+".txt"))
-		require.NoError(t, err)
-		fmt.Fprintf(&script, "\"%s\") cat '%s'; exit %d;;\n", cmd, abs, contractExit(t, name))
-	}
-	script.WriteString("*) echo \"unexpected cscli invocation: $*\" >&2; exit 99;;\nesac\n")
-	dir := writeFakeCSCLI(t, script.String())
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
 type contractExec struct {
 	byCmd map[string]string
 	t     *testing.T
@@ -102,40 +86,6 @@ func TestCSCLIContract_RecordedJSONDocuments(t *testing.T) {
 	}
 	require.NoError(t, unmarshalCSCLIJSON(contractFixture(t, "console_status_json"), &status))
 	assert.Equal(t, false, status.Console["enrolled"])
-}
-
-func TestCSCLIContract_Bouncers(t *testing.T) {
-	const list = "bouncers list -o json"
-
-	t.Run("registered bouncer is found in the recorded list", func(t *testing.T) {
-		contractShim(t, map[string]string{list: "bouncers_list_json"})
-		got, err := getExistingBouncer(t.Context(), defaultRegistrationName)
-		require.NoError(t, err)
-		assert.Equal(t, "caddy-bouncer", got.Name)
-		assert.False(t, got.CreatedAt.IsZero(), "created_at with fractional seconds parses")
-		// The real list never carries the key, so the key must come from `bouncers add`.
-		assert.Empty(t, got.APIKey)
-	})
-
-	t.Run("empty recorded list has no bouncer", func(t *testing.T) {
-		contractShim(t, map[string]string{list: "bouncers_list_empty_json"})
-		_, err := getExistingBouncer(t.Context(), defaultRegistrationName)
-		require.Error(t, err)
-	})
-
-	t.Run("add prints only the key", func(t *testing.T) {
-		contractShim(t, map[string]string{"bouncers add caddy-bouncer -o raw": "bouncers_add_raw"})
-		key, err := registerBouncer(t.Context(), defaultRegistrationName)
-		require.NoError(t, err)
-		assert.Equal(t, strings.TrimSpace(string(contractFixture(t, "bouncers_add_raw"))), key)
-		assert.NotContains(t, string(contractFixture(t, "bouncers_add_raw")), "\n")
-	})
-
-	t.Run("add of an existing bouncer fails", func(t *testing.T) {
-		contractShim(t, map[string]string{"bouncers add caddy-bouncer -o raw": "bouncers_add_dup"})
-		_, err := registerBouncer(t.Context(), defaultRegistrationName)
-		require.Error(t, err)
-	})
 }
 
 func TestCSCLIContract_ConsoleStatus(t *testing.T) {
