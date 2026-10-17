@@ -13,6 +13,7 @@ import {
   pullCrowdsecPreset,
   applyCrowdsecPreset,
   getCrowdsecPresetCache,
+  getCrowdsecPresetAmbiguousTypes,
   getCrowdsecPresetErrorCode,
   getCrowdsecPresetTaintedItems,
   type CrowdsecPresetErrorCode,
@@ -37,6 +38,11 @@ import { sanitizeSecret } from '../utils/sanitizeSecret'
 import { toast } from '../utils/toast'
 
 /** Prefer the server's `error` message for Axios failures, falling back to the given text. */
+/** Identity of a hub item in the preset list: its section and name. */
+function presetKey(preset: { type?: string; slug: string }): string {
+  return preset.type ? `${preset.type}/${preset.slug}` : preset.slug
+}
+
 function getServerErrorMessage(err: unknown, fallback: string): string {
   if (isAxiosError(err)) {
     const serverError = (err.response?.data as { error?: string } | undefined)?.error
@@ -62,7 +68,11 @@ export default function CrowdSecConfig() {
   const [needsValues, setNeedsValues] = useState<string[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
-  const [selectedPresetSlug, setSelectedPresetSlug] = useState<string>('')
+  // A selection is a hub item: the same name can exist in several sections, so the section is part of the key.
+  const [selectedPresetKey, setSelectedPresetKey] = useState<string>('')
+  // Sections offered when the server cannot tell which item a name means; chosenType is the user's pick.
+  const [ambiguousTypes, setAmbiguousTypes] = useState<string[]>([])
+  const [chosenType, setChosenType] = useState('')
   const [showBanModal, setShowBanModal] = useState(false)
   const [banForm, setBanForm] = useState({ ip: '', duration: '24h', reason: '' })
   const [banFieldErrors, setBanFieldErrors] = useState<{ ip?: string; duration?: string; reason?: string }>({})
@@ -71,7 +81,7 @@ export default function CrowdSecConfig() {
   const [confirmDeleteWhitelist, setConfirmDeleteWhitelist] = useState<CrowdSecWhitelistEntry | null>(null)
   const [isApplyingPreset, setIsApplyingPreset] = useState(false)
   const [presetPreview, setPresetPreview] = useState<string>('')
-  const [presetMeta, setPresetMeta] = useState<{ slug?: string; cacheKey?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
+  const [presetMeta, setPresetMeta] = useState<{ slug?: string; type?: string; cacheKey?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
   const [presetStatusMessage, setPresetStatusMessage] = useState<string | null>(null)
   const [hubUnavailable, setHubUnavailable] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -179,6 +189,7 @@ export default function CrowdSecConfig() {
     etag?: string
     retrievedAt?: string
     source?: string
+    type?: string
   }
 
   const presetCatalog: PresetCatalogEntry[] = useMemo(() => {
@@ -189,6 +200,7 @@ export default function CrowdSecConfig() {
         const local = localMap.get(preset.slug)
         return {
           slug: preset.slug,
+          type: preset.type,
           title: preset.title || local?.title || preset.slug,
           description: local?.description || preset.summary,
           tags: local?.tags || preset.tags,
@@ -240,10 +252,10 @@ export default function CrowdSecConfig() {
 
   useEffect(() => {
     if (!presetCatalog.length) return
-    if (!selectedPresetSlug || !presetCatalog.some((preset) => preset.slug === selectedPresetSlug)) {
-      setSelectedPresetSlug(presetCatalog[0].slug)
+    if (!selectedPresetKey || !presetCatalog.some((preset) => presetKey(preset) === selectedPresetKey)) {
+      setSelectedPresetKey(presetKey(presetCatalog[0]))
     }
-  }, [presetCatalog, selectedPresetSlug])
+  }, [presetCatalog, selectedPresetKey])
 
   // Prefer the enrolled identity over the hostname default, unless the user already edited the field
   useEffect(() => {
@@ -267,21 +279,28 @@ export default function CrowdSecConfig() {
     setConsoleTenant(value)
   }
 
-  const selectedPreset = presetCatalog.find((preset) => preset.slug === selectedPresetSlug)
+  const selectedPreset = presetCatalog.find((preset) => presetKey(preset) === selectedPresetKey)
+  const selectedType = selectedPreset?.type || chosenType || undefined
   const selectedPresetRequiresHub = selectedPreset?.requiresHub ?? false
 
   const pullPresetMutation = useMutation({
-    mutationFn: (slug: string) => pullCrowdsecPreset(slug),
+    mutationFn: ({ slug, type }: { slug: string; type?: string }) => pullCrowdsecPreset(slug, type),
     onSuccess: (data) => {
       setPresetPreview(data.preview)
-      setPresetMeta({ slug: data.slug, cacheKey: data.cache_key, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
+      setPresetMeta({ slug: data.slug, type: data.type, cacheKey: data.cache_key, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
       setPresetStatusMessage(t('crowdsecConfig.presets.status.previewFetched'))
       setHubUnavailable(false)
       setValidationError(null)
+      setAmbiguousTypes([])
     },
     onError: (err: unknown) => {
       setPresetStatusMessage(null)
       if (isAxiosError(err)) {
+        if (getCrowdsecPresetErrorCode(err) === 'preset_type_ambiguous') {
+          setAmbiguousTypes(getCrowdsecPresetAmbiguousTypes(err))
+          setPresetStatusMessage(t('crowdsecConfig.presets.status.typeAmbiguous'))
+          return
+        }
         if (err.response?.status === 400) {
           setValidationError(err.response.data?.error || t('crowdsecConfig.presets.status.slugInvalid'))
           return
@@ -303,6 +322,8 @@ export default function CrowdSecConfig() {
     setValidationError(null)
     setPresetStatusMessage(null)
     setApplyInfo(null)
+    setAmbiguousTypes([])
+    setChosenType('')
     setPresetMeta({
       cacheKey: selectedPreset.cacheKey,
       etag: selectedPreset.etag,
@@ -310,14 +331,14 @@ export default function CrowdSecConfig() {
       source: selectedPreset.source,
     })
     setPresetPreview('')
-    pullPresetMutation.mutate(selectedPreset.slug)
+    pullPresetMutation.mutate({ slug: selectedPreset.slug, type: selectedPreset.type })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when slug changes, not on mutation/preset object identity changes
-  }, [selectedPreset?.slug])
+  }, [selectedPresetKey])
 
   const loadCachedPreview = async () => {
     if (!selectedPreset) return
     try {
-      const cached = await getCrowdsecPresetCache(selectedPreset.slug)
+      const cached = await getCrowdsecPresetCache(selectedPreset.slug, selectedType)
       setPresetPreview(cached.preview)
       setPresetMeta({ cacheKey: cached.cache_key, etag: cached.etag, retrievedAt: selectedPreset.retrievedAt, source: selectedPreset.source })
       setPresetStatusMessage(t('crowdsecConfig.presets.status.cachedLoaded'))
@@ -559,6 +580,8 @@ export default function CrowdSecConfig() {
           : t('crowdsecConfig.presets.status.applyLocalModified')
       case 'preset_apply_timeout':
         return t('crowdsecConfig.presets.status.applyTimeout')
+      case 'preset_type_ambiguous':
+        return t('crowdsecConfig.presets.status.typeAmbiguous')
       case 'cscli_unavailable':
         return t('crowdsecConfig.presets.status.cscliUnavailable')
     }
@@ -576,7 +599,7 @@ export default function CrowdSecConfig() {
     setPresetStatusMessage(null)
     try {
       // Apply the exact entry that was previewed: the canonical slug from pull and its cache key.
-      const res = await applyCrowdsecPreset({ slug: presetMeta?.slug ?? selectedPreset.slug, cache_key: presetMeta?.cacheKey })
+      const res = await applyCrowdsecPreset({ slug: presetMeta?.slug ?? selectedPreset.slug, type: presetMeta?.type ?? selectedType, cache_key: presetMeta?.cacheKey })
       setApplyInfo({
         status: res.status,
         backup: res.backup,
@@ -1156,19 +1179,19 @@ export default function CrowdSecConfig() {
             {filteredPresets.length > 0 ? (
               filteredPresets.map((preset) => (
                 <div
-                  key={preset.slug}
-                  onClick={() => setSelectedPresetSlug(preset.slug)}
+                  key={presetKey(preset)}
+                  onClick={() => setSelectedPresetKey(presetKey(preset))}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      setSelectedPresetSlug(preset.slug)
+                      setSelectedPresetKey(presetKey(preset))
                     }
                   }}
-                  aria-pressed={selectedPresetSlug === preset.slug}
+                  aria-pressed={selectedPresetKey === presetKey(preset)}
                   className={`p-3 cursor-pointer hover:bg-gray-800 border-b border-gray-800 last:border-0 outline-none focus-visible:bg-gray-800 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
-                    selectedPresetSlug === preset.slug ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
+                    selectedPresetKey === presetKey(preset) ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
                   }`}
                 >
                   <div className="flex justify-between items-start mb-1">
@@ -1181,6 +1204,7 @@ export default function CrowdSecConfig() {
                       </span>
                     )}
                   </div>
+                  {preset.type && <p className="text-xs text-gray-500" data-testid="preset-type">{preset.type}</p>}
                   <p className="text-xs text-gray-400 line-clamp-1">{preset.description}</p>
                 </div>
               ))
@@ -1192,7 +1216,7 @@ export default function CrowdSecConfig() {
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <Button
               variant="secondary"
-              onClick={() => selectedPreset && pullPresetMutation.mutate(selectedPreset.slug)}
+              onClick={() => selectedPreset && pullPresetMutation.mutate({ slug: selectedPreset.slug, type: selectedType })}
               disabled={!selectedPreset || pullPresetMutation.isPending}
               isLoading={pullPresetMutation.isPending}
             >
@@ -1216,13 +1240,33 @@ export default function CrowdSecConfig() {
             <p className="text-sm text-yellow-300" data-testid="preset-status">{presetStatusMessage}</p>
           )}
 
+          {ambiguousTypes.length > 0 && selectedPreset && (
+            <div className="flex flex-wrap gap-2 items-center text-sm" data-testid="preset-type-picker">
+              <label htmlFor="preset-type-select" className="text-gray-300">{t('crowdsecConfig.presets.typeLabel')}</label>
+              <select
+                id="preset-type-select"
+                value={chosenType}
+                onChange={(e) => {
+                  setChosenType(e.target.value)
+                  if (e.target.value) pullPresetMutation.mutate({ slug: selectedPreset.slug, type: e.target.value })
+                }}
+                className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white"
+              >
+                <option value="">{t('crowdsecConfig.presets.typePlaceholder')}</option>
+                {ambiguousTypes.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {hubUnavailable && (
             <div className="flex flex-wrap gap-2 items-center text-sm text-red-300" data-testid="preset-hub-unavailable">
               <span>{t('crowdsecConfig.presets.hubUnreachable')}</span>
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => selectedPreset && pullPresetMutation.mutate(selectedPreset.slug)}
+                onClick={() => selectedPreset && pullPresetMutation.mutate({ slug: selectedPreset.slug, type: selectedType })}
                 disabled={pullPresetMutation.isPending}
               >
                 {t('crowdsecConfig.presets.retry')}

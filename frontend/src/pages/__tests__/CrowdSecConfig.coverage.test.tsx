@@ -233,7 +233,7 @@ describe('CrowdSecConfig coverage', () => {
   it('auto-selects first preset and pulls preview', async () => {
     await renderPage()
     // Component auto-selects first preset from the list on render
-    await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith(presetFromCatalog.slug))
+    await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith(presetFromCatalog.slug, undefined))
     const previewText = screen.getByTestId('preset-preview').textContent?.replace(/\s+/g, ' ')
     expect(previewText).toContain('crowdsecurity/http-cve')
     expect(screen.getByTestId('preset-meta')).toHaveTextContent('cache-123')

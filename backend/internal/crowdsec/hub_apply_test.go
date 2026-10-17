@@ -120,7 +120,7 @@ func newApplyEnv(t *testing.T) *applyEnv {
 
 func (e *applyEnv) apply() (ApplyResult, error) {
 	e.t.Helper()
-	return e.svc.Apply(context.Background(), applyTestSlug, e.meta.CacheKey)
+	return e.svc.Apply(context.Background(), applyTestSlug, "collections", e.meta.CacheKey)
 }
 
 func (e *applyEnv) requireRolledBack() {
@@ -149,7 +149,7 @@ func TestApplyInstallsAndVerifies(t *testing.T) {
 	require.DirExists(t, res.BackupPath)
 	require.Equal(t, []string{applyVersion, applyUpdate, applyInstall, applyInspect, applyList}, e.commands())
 	require.Equal(t, 1, e.reloads)
-	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "test", "preset", "item.yaml"), "a successful apply keeps the cache entry")
+	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml"), "a successful apply keeps the cache entry")
 }
 
 func TestApplyKeepsDataDirAndPrunesBackups(t *testing.T) {
@@ -169,7 +169,7 @@ func TestApplyKeepsDataDirAndPrunesBackups(t *testing.T) {
 	require.True(t, os.SameFile(before, after), "DataDir must never be renamed")
 	require.Equal(t, DefaultBackupRetention, countBackups(t, e.dir))
 	require.Equal(t, "live-db", readFile(t, filepath.Join(e.dir, "crowdsec.db")))
-	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "test", "preset", "item.yaml"))
+	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml"))
 }
 
 func TestApplyReportsReloadHintWithoutReloader(t *testing.T) {
@@ -187,14 +187,14 @@ func TestApplyRefusesBadInput(t *testing.T) {
 	e := newApplyEnv(t)
 	ctx := context.Background()
 
-	_, err := e.svc.Apply(ctx, "../bad", "key")
+	_, err := e.svc.Apply(ctx, "../bad", "collections", "key")
 	require.ErrorIs(t, err, ErrInvalidSlug)
-	_, err = e.svc.Apply(ctx, applyTestSlug, "")
+	_, err = e.svc.Apply(ctx, applyTestSlug, "collections", "")
 	require.ErrorIs(t, err, ErrPresetCacheKeyRequired)
 	require.Empty(t, e.commands())
 
 	e.svc.Cache = nil
-	_, err = e.svc.Apply(ctx, applyTestSlug, "key")
+	_, err = e.svc.Apply(ctx, applyTestSlug, "collections", "key")
 	require.ErrorContains(t, err, "cache unavailable")
 	require.Empty(t, e.commands())
 }
@@ -204,7 +204,7 @@ func TestApplyReportsOutdatedCacheEntry(t *testing.T) {
 	cases := map[string]func(e *applyEnv) string{
 		"different key": func(e *applyEnv) string { return applyTestSlug + "-1-" + strings.Repeat("0", 64) },
 		"no entry": func(e *applyEnv) string {
-			require.NoError(e.t, e.cache.Evict(context.Background(), applyTestSlug))
+			require.NoError(e.t, e.cache.Evict(context.Background(), "collections", applyTestSlug))
 			return e.meta.CacheKey
 		},
 		"expired entry": func(e *applyEnv) string {
@@ -212,11 +212,11 @@ func TestApplyReportsOutdatedCacheEntry(t *testing.T) {
 			return e.meta.CacheKey
 		},
 		"entry without a digest": func(e *applyEnv) string {
-			writeFile(e.t, filepath.Join(e.dir, "hub_cache", "test", "preset", "metadata.json"), `{"slug":"test/preset"}`)
+			writeFile(e.t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "metadata.json"), `{"slug":"test/preset"}`)
 			return e.meta.CacheKey
 		},
 		"content differs from the digest": func(e *applyEnv) string {
-			writeFile(e.t, filepath.Join(e.dir, "hub_cache", "test", "preset", "item.yaml"), "name: other\n")
+			writeFile(e.t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml"), "name: other\n")
 			return e.meta.CacheKey
 		},
 	}
@@ -226,7 +226,7 @@ func TestApplyReportsOutdatedCacheEntry(t *testing.T) {
 			e := newApplyEnv(t)
 			key := prepare(e)
 
-			res, err := e.svc.Apply(context.Background(), applyTestSlug, key)
+			res, err := e.svc.Apply(context.Background(), applyTestSlug, "collections", key)
 			require.ErrorIs(t, err, ErrPresetCacheStale)
 			require.Empty(t, e.commands(), "no cscli command runs for an outdated entry")
 			require.Empty(t, res.BackupPath)
@@ -238,7 +238,7 @@ func TestApplyReportsOutdatedCacheEntry(t *testing.T) {
 func TestApplyNeverContactsTheHub(t *testing.T) {
 	t.Parallel()
 	e := newApplyEnv(t)
-	require.NoError(t, e.cache.Evict(context.Background(), applyTestSlug))
+	require.NoError(t, e.cache.Evict(context.Background(), "collections", applyTestSlug))
 	e.svc.HubBaseURL = "http://127.0.0.1:1"
 	e.svc.MirrorBaseURL = "http://127.0.0.1:1"
 	e.svc.HTTPClient = nil
@@ -253,7 +253,7 @@ func TestApplyReturnsCacheReadErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := e.svc.Apply(ctx, applyTestSlug, e.meta.CacheKey)
+	_, err := e.svc.Apply(ctx, applyTestSlug, "collections", e.meta.CacheKey)
 	require.ErrorIs(t, err, context.Canceled)
 	require.NotErrorIs(t, err, ErrPresetCacheStale)
 }
@@ -293,7 +293,7 @@ func TestApplySnapshotFailureChangesNothing(t *testing.T) {
 	require.NoError(t, err)
 	svc := NewHubService(e, cache, filepath.Join(t.TempDir(), "missing-parent", "crowdsec"))
 
-	res, err := svc.Apply(context.Background(), applyTestSlug, meta.CacheKey)
+	res, err := svc.Apply(context.Background(), applyTestSlug, "collections", meta.CacheKey)
 	require.ErrorContains(t, err, "backup")
 	require.Empty(t, res.BackupPath)
 	require.Equal(t, []string{applyVersion}, e.commands(), "nothing but the version probe runs when no snapshot exists")
@@ -317,7 +317,7 @@ func TestApplyInstallFailureRestoresSnapshot(t *testing.T) {
 	require.Equal(t, "failed", res.Status)
 	require.DirExists(t, res.BackupPath, "a failed apply keeps its snapshot")
 	e.requireRolledBack()
-	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "test", "preset", "item.yaml"), "the cache entry survives the restore")
+	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml"), "the cache entry survives the restore")
 }
 
 func TestApplyReportsItemUnknownToCSCLIAsOutdated(t *testing.T) {
@@ -399,7 +399,7 @@ func TestApplyReportsLocallyEditedItem(t *testing.T) {
 	_, err := e.apply()
 	require.ErrorIs(t, err, ErrPresetLocalModified)
 	e.requireRolledBack()
-	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "test", "preset", "item.yaml"), "the entry stays")
+	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml"), "the entry stays")
 	for _, c := range e.commands() {
 		require.NotContains(t, c, "--force")
 	}
@@ -475,7 +475,7 @@ func TestApplyUpgradeFailures(t *testing.T) {
 			_, err := e.apply()
 			tc.check(t, err)
 			e.requireRolledBack()
-			require.FileExists(t, filepath.Join(e.dir, "hub_cache", "test", "preset", "item.yaml"))
+			require.FileExists(t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml"))
 		})
 	}
 }
@@ -506,7 +506,7 @@ func TestApplyHashMismatchEvictsEntry(t *testing.T) {
 			_, err := e.apply()
 			require.ErrorIs(t, err, ErrPresetHubUpdating)
 			e.requireRolledBack()
-			require.NoDirExists(t, filepath.Join(e.dir, "hub_cache", "test", "preset"), "the mismatching entry is evicted")
+			require.NoDirExists(t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset"), "the mismatching entry is evicted")
 		})
 	}
 }
@@ -530,7 +530,7 @@ func TestApplyKeepsNewerEntryOnMismatch(t *testing.T) {
 
 	_, err := e.apply()
 	require.ErrorIs(t, err, ErrPresetHubUpdating)
-	loaded, err := e.cache.Load(context.Background(), applyTestSlug)
+	loaded, err := e.cache.Load(context.Background(), "collections", applyTestSlug)
 	require.NoError(t, err, "the newer entry survives")
 	require.Equal(t, newer.CacheKey, loaded.CacheKey)
 }
@@ -643,7 +643,7 @@ func TestApplyTimeoutRestoresSnapshotAndKeepsEntry(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Equal(t, "failed", res.Status)
 	e.requireRolledBack()
-	_, loadErr := e.cache.Load(context.Background(), applyTestSlug)
+	_, loadErr := e.cache.Load(context.Background(), "collections", applyTestSlug)
 	require.NoError(t, loadErr, "a slow server does not evict a good entry")
 }
 
@@ -661,7 +661,7 @@ func TestApplyTimeoutDuringVerificationDoesNotEvict(t *testing.T) {
 
 	_, err := e.apply()
 	require.ErrorIs(t, err, ErrPresetApplyTimeout)
-	_, loadErr := e.cache.Load(context.Background(), applyTestSlug)
+	_, loadErr := e.cache.Load(context.Background(), "collections", applyTestSlug)
 	require.NoError(t, loadErr)
 	require.Zero(t, e.reloads)
 }
@@ -739,7 +739,7 @@ func TestApplyPrunesAfterFailureAndKeepsTheFailedSnapshot(t *testing.T) {
 func TestApplyWithOpenFileHandles(t *testing.T) {
 	t.Parallel()
 	e := newApplyEnv(t)
-	cacheFile := filepath.Join(e.dir, "hub_cache", "test", "preset", "item.yaml")
+	cacheFile := filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml")
 	f, err := os.Open(cacheFile) // #nosec G304 -- test path
 	require.NoError(t, err)
 	defer func() { _ = f.Close() }()
@@ -782,7 +782,7 @@ func TestPullAndApplyShareOneCache(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 5 {
-				if _, err := e.svc.Pull(context.Background(), applyTestSlug); err != nil {
+				if _, err := e.svc.Pull(context.Background(), applyTestSlug, ""); err != nil {
 					errs <- err
 				}
 			}
@@ -792,7 +792,7 @@ func TestPullAndApplyShareOneCache(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 5 {
-			_, err := e.svc.Apply(context.Background(), applyTestSlug, e.meta.CacheKey)
+			_, err := e.svc.Apply(context.Background(), applyTestSlug, "collections", e.meta.CacheKey)
 			if err != nil && !errors.Is(err, ErrPresetCacheStale) {
 				errs <- err
 			}
@@ -965,11 +965,11 @@ func TestApplyClientCancelIsNotReportedAsTimeout(t *testing.T) {
 		return nil
 	}
 
-	_, err := e.svc.Apply(ctx, applyTestSlug, e.meta.CacheKey)
+	_, err := e.svc.Apply(ctx, applyTestSlug, "collections", e.meta.CacheKey)
 	require.ErrorIs(t, err, context.Canceled)
 	require.NotErrorIs(t, err, ErrPresetApplyTimeout)
 	e.requireRolledBack()
-	_, loadErr := e.cache.Load(context.Background(), applyTestSlug)
+	_, loadErr := e.cache.Load(context.Background(), "collections", applyTestSlug)
 	require.NoError(t, loadErr, "a cancelled request does not evict the entry")
 }
 
@@ -1013,6 +1013,6 @@ func TestRollBackMismatchReportsDeadlineAsTimeout(t *testing.T) {
 
 	_, err = e.svc.rollBackMismatch(ctx, ApplyResult{}, backup, e.meta)
 	require.ErrorIs(t, err, ErrPresetApplyTimeout)
-	_, loadErr := e.cache.Load(context.Background(), applyTestSlug)
+	_, loadErr := e.cache.Load(context.Background(), "collections", applyTestSlug)
 	require.NoError(t, loadErr, "a deadline does not evict the entry")
 }

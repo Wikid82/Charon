@@ -53,7 +53,7 @@ func TestPullStoresRawItem(t *testing.T) {
 	t.Parallel()
 	svc, _ := pullService(t, demoEntry("collections", "https://hub.crowdsec.net/demo.yaml"), yamlResponse(pullDemoItem))
 
-	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	res, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.NoError(t, err)
 	require.Equal(t, pullDemoItem, res.Preview)
 	require.Equal(t, "crowdsecurity/demo", res.Meta.Slug)
@@ -62,7 +62,7 @@ func TestPullStoresRawItem(t *testing.T) {
 	require.Equal(t, "hub", res.Meta.Source)
 	require.NotEmpty(t, res.Meta.ItemSHA256)
 
-	cached, item, err := svc.Cache.LoadItem(context.Background(), "crowdsecurity/demo")
+	cached, item, err := svc.Cache.LoadItem(context.Background(), "collections", "crowdsecurity/demo")
 	require.NoError(t, err)
 	require.Equal(t, res.Meta.CacheKey, cached.CacheKey)
 	require.Equal(t, pullDemoItem, string(item))
@@ -71,11 +71,11 @@ func TestPullStoresRawItem(t *testing.T) {
 func TestPullReturnsValidCacheEntryWithoutNetwork(t *testing.T) {
 	t.Parallel()
 	svc, downloads := pullService(t, demoEntry("collections", "https://hub.crowdsec.net/demo.yaml"), yamlResponse(pullDemoItem))
-	first, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	first, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.NoError(t, err)
 	svc.HTTPClient = nil
 
-	second, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	second, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.NoError(t, err)
 	require.Equal(t, first.Meta.CacheKey, second.Meta.CacheKey)
 	require.Equal(t, int32(1), downloads.Load())
@@ -85,11 +85,11 @@ func TestPullEvictsExpiredEntryAndRefreshes(t *testing.T) {
 	t.Parallel()
 	svc, downloads := pullService(t, demoEntry("collections", "https://hub.crowdsec.net/demo.yaml"), yamlResponse(pullDemoItem))
 	svc.Cache.ttl = time.Second
-	first, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	first, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.NoError(t, err)
 	svc.Cache.nowFn = func() time.Time { return time.Now().Add(time.Minute) }
 
-	second, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	second, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.NoError(t, err)
 	require.Equal(t, int32(2), downloads.Load())
 	require.Equal(t, first.Meta.ItemSHA256, second.Meta.ItemSHA256)
@@ -103,7 +103,7 @@ func TestPullRedownloadsLegacyEntry(t *testing.T) {
 	writeFile(t, dir+"/metadata.json", `{"slug":"crowdsecurity/demo","cache_key":"crowdsecurity/demo-1","retrieved_at":"2099-01-01T00:00:00Z"}`)
 	writeFile(t, dir+"/bundle.tgz", "archive")
 
-	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	res, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.NoError(t, err)
 	require.Equal(t, int32(1), downloads.Load())
 	require.Contains(t, res.Meta.CacheKey, res.Meta.ItemSHA256)
@@ -140,7 +140,7 @@ func TestPullRefusesUnusablePayloads(t *testing.T) {
 			t.Parallel()
 			svc, _ := pullService(t, tc.entry, tc.item)
 
-			_, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+			_, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 			require.ErrorContains(t, err, tc.message)
 			entries, listErr := svc.Cache.List(context.Background())
 			require.NoError(t, listErr)
@@ -157,7 +157,7 @@ func TestPullRefusesMalformedSlugsWithoutNetwork(t *testing.T) {
 		return nil, errors.New("no network expected")
 	})}
 	for _, slug := range []string{"", " ", "solo", "owner/name+extra", "owner/team/deep", "../x/y", "a//b", "a/metadata.json"} {
-		_, err := svc.Pull(context.Background(), slug)
+		_, err := svc.Pull(context.Background(), slug, "")
 		require.ErrorIs(t, err, ErrInvalidSlug, slug)
 	}
 	require.Zero(t, downloads.Load())
@@ -165,20 +165,20 @@ func TestPullRefusesMalformedSlugsWithoutNetwork(t *testing.T) {
 
 func TestPullRequiresCache(t *testing.T) {
 	t.Parallel()
-	_, err := NewHubService(nil, nil, t.TempDir()).Pull(context.Background(), "crowdsecurity/demo")
+	_, err := NewHubService(nil, nil, t.TempDir()).Pull(context.Background(), "crowdsecurity/demo", "")
 	require.ErrorContains(t, err, "cache unavailable")
 }
 
 func TestPullReportsUnknownPresetAndIndexErrors(t *testing.T) {
 	t.Parallel()
 	svc, _ := pullService(t, demoEntry("collections", "https://hub.crowdsec.net/demo.yaml"), yamlResponse(pullDemoItem))
-	_, err := svc.Pull(context.Background(), "crowdsecurity/missing")
+	_, err := svc.Pull(context.Background(), "crowdsecurity/missing", "")
 	require.ErrorContains(t, err, "preset not found in hub")
 
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 		return newResponse(http.StatusServiceUnavailable, ""), nil
 	})}
-	_, err = svc.Pull(context.Background(), "crowdsecurity/demo")
+	_, err = svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.Error(t, err)
 }
 
@@ -187,7 +187,7 @@ func TestPullStopsOnCanceledContext(t *testing.T) {
 	svc, _ := pullService(t, demoEntry("collections", "https://hub.crowdsec.net/demo.yaml"), yamlResponse(pullDemoItem))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := svc.Pull(ctx, "crowdsecurity/demo")
+	_, err := svc.Pull(ctx, "crowdsecurity/demo", "")
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -201,7 +201,7 @@ func TestPullOfflineIndexHasNoDownloadLocation(t *testing.T) {
 		return nil, errors.New("network unreachable")
 	})}
 
-	_, err = svc.Pull(context.Background(), "crowdsecurity/sshd")
+	_, err = svc.Pull(context.Background(), "crowdsecurity/sshd", "")
 	require.ErrorContains(t, err, "no download location for this preset (index unreachable)")
 }
 
@@ -212,11 +212,11 @@ func TestPullDifferentContentInTheSameSecondGetsDifferentKeys(t *testing.T) {
 	fixed := time.Now()
 	svc.Cache.nowFn = func() time.Time { return fixed }
 
-	first, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	first, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.NoError(t, err)
-	require.NoError(t, svc.Cache.Evict(context.Background(), "crowdsecurity/demo"))
+	require.NoError(t, svc.Cache.Evict(context.Background(), "collections", "crowdsecurity/demo"))
 	body = "name: crowdsecurity/demo\ndescription: changed\n"
-	second, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	second, err := svc.Pull(context.Background(), "crowdsecurity/demo", "")
 	require.NoError(t, err)
 	require.NotEqual(t, first.Meta.CacheKey, second.Meta.CacheKey)
 }
@@ -251,7 +251,7 @@ func TestIndexFixtureNamesFollowTheSlugRule(t *testing.T) {
 		if ValidCacheSlug(n) {
 			continue
 		}
-		_, err := svc.Pull(context.Background(), n)
+		_, err := svc.Pull(context.Background(), n, "")
 		require.ErrorIs(t, err, ErrInvalidSlug, n)
 	}
 	require.Zero(t, downloads.Load())

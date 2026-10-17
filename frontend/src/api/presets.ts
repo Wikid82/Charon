@@ -16,6 +16,7 @@ export const PRESET_ERROR_CODES = [
   'preset_hub_updating',
   'preset_local_modified',
   'preset_apply_timeout',
+  'preset_type_ambiguous',
   'cscli_unavailable',
 ] as const
 
@@ -27,6 +28,8 @@ export interface CrowdsecPresetApiError {
   error_code?: CrowdsecPresetErrorCode
   /** `type/name` of each edited item behind a `preset_local_modified` outcome. */
   tainted_items?: string[]
+  /** Hub sections that hold the name behind a `preset_type_ambiguous` outcome. */
+  types?: string[]
 }
 
 /** Summary of an available CrowdSec preset. */
@@ -35,6 +38,8 @@ export interface CrowdsecPresetSummary {
   title: string
   summary: string
   source: string
+  /** Hub section of the item. One hub name can have an entry per section. */
+  type?: string
   tags?: string[]
   requires_hub: boolean
   available: boolean
@@ -48,6 +53,8 @@ export interface CrowdsecPresetSummary {
 export interface PullCrowdsecPresetResponse {
   status: string
   slug: string
+  /** Hub section of the pulled item. */
+  type?: string
   preview: string
   cache_key: string
   etag?: string
@@ -63,6 +70,8 @@ export interface ApplyCrowdsecPresetResponse {
   used_cscli?: boolean
   cache_key?: string
   slug?: string
+  /** Hub section of the installed item. */
+  type?: string
   /** Passive notes, e.g. a dependency that was edited on this server. */
   warnings?: string[]
 }
@@ -70,6 +79,7 @@ export interface ApplyCrowdsecPresetResponse {
 /** Cached CrowdSec preset preview data. */
 export interface CachedCrowdsecPresetPreview {
   preview: string
+  type?: string
   cache_key: string
   etag?: string
 }
@@ -96,22 +106,23 @@ export async function getCrowdsecPresets() {
 /**
  * Pulls a CrowdSec preset from the remote source.
  * @param slug - The preset slug identifier
+ * @param type - Hub section; required only when the name exists in several sections
  * @returns Promise resolving to PullCrowdsecPresetResponse with preview
  * @throws {AxiosError} If pull fails or preset not found
  */
-export async function pullCrowdsecPreset(slug: string) {
-  const resp = await client.post<PullCrowdsecPresetResponse>('/admin/crowdsec/presets/pull', { slug })
+export async function pullCrowdsecPreset(slug: string, type?: string) {
+  const resp = await client.post<PullCrowdsecPresetResponse>('/admin/crowdsec/presets/pull', type ? { slug, type } : { slug })
   return resp.data
 }
 
 /**
  * Applies a CrowdSec preset to the configuration.
- * @param payload - The canonical preset slug returned by pull and the cache_key of the previewed copy.
+ * @param payload - The canonical preset slug and hub section returned by pull and the cache_key of the previewed copy.
  *   `cache_key` is required for hub presets and optional for curated ones.
  * @returns Promise resolving to ApplyCrowdsecPresetResponse
  * @throws {AxiosError} If application fails; the body is a CrowdsecPresetApiError
  */
-export async function applyCrowdsecPreset(payload: { slug: string; cache_key?: string }) {
+export async function applyCrowdsecPreset(payload: { slug: string; type?: string; cache_key?: string }) {
   const resp = await client.post<ApplyCrowdsecPresetResponse>('/admin/crowdsec/presets/apply', payload, {
     timeout: APPLY_CROWDSEC_PRESET_TIMEOUT_MS,
   })
@@ -137,13 +148,27 @@ export function getCrowdsecPresetTaintedItems(err: unknown): string[] {
 }
 
 /**
+ * Reads the hub sections behind a `preset_type_ambiguous` outcome.
+ * @returns The section names, or an empty list when the server sent none
+ */
+export function getCrowdsecPresetAmbiguousTypes(err: unknown): string[] {
+  if (!isAxiosError<Partial<CrowdsecPresetApiError>>(err)) return []
+  const types = err.response?.data?.types
+  return Array.isArray(types) ? types.filter((item): item is string => typeof item === 'string') : []
+}
+
+/**
  * Gets a cached CrowdSec preset preview.
  * @param slug - The preset slug identifier
+ * @param type - Hub section; required only when the name is cached in several sections
  * @returns Promise resolving to CachedCrowdsecPresetPreview
  * @throws {AxiosError} If not cached or request fails
  */
-export async function getCrowdsecPresetCache(slug: string) {
-  const resp = await client.get<CachedCrowdsecPresetPreview>(`/admin/crowdsec/presets/cache/${slug.split('/').map(encodeURIComponent).join('/')}`)
+export async function getCrowdsecPresetCache(slug: string, type?: string) {
+  const resp = await client.get<CachedCrowdsecPresetPreview>(
+    `/admin/crowdsec/presets/cache/${slug.split('/').map(encodeURIComponent).join('/')}`,
+    { params: { type } },
+  )
   return resp.data
 }
 

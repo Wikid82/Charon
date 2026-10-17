@@ -10,6 +10,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,6 +78,8 @@ type ApplyResult struct {
 	CacheKey      string `json:"cache_key"`
 	ErrorMessage  string `json:"error,omitempty"`
 	AppliedPreset string `json:"slug"`
+	// Type is the hub section of the installed item; empty for a curated bundle.
+	Type string `json:"type,omitempty"`
 	// Warnings lists non-fatal findings, such as a dependency that was edited on this server.
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -515,8 +518,9 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 }
 
 // Pull downloads a hub item, validates it and stores the raw item in the cache. It never changes hub state
-// and holds the cache lock only while storing.
-func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) {
+// and holds the cache lock only while storing. A name that exists in several hub sections needs itemType;
+// without it Pull answers an *AmbiguousTypeError listing the sections.
+func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResult, error) {
 	if s.Cache == nil {
 		return PullResult{}, fmt.Errorf("cache unavailable")
 	}
@@ -524,26 +528,48 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 	if !ValidCacheSlug(slug) {
 		return PullResult{}, ErrInvalidSlug
 	}
-
-	// Serve a valid, unexpired cache entry first.
-	cachedMeta, cachedItem, err := s.Cache.LoadItem(ctx, slug)
-	switch {
-	case err == nil:
-		return PullResult{Meta: cachedMeta, Preview: string(cachedItem)}, nil
-	case errors.Is(err, ErrCacheExpired):
-		_ = s.Cache.Evict(ctx, slug)
-	case ctx.Err() != nil:
-		return PullResult{}, ctx.Err()
+	if itemType != "" && !IsCacheItemType(itemType) {
+		return PullResult{}, ErrInvalidItemType
+	}
+	if err := s.Cache.RemoveLegacyEntries(ctx); err != nil {
+		logger.Log().WithError(err).Warn("failed to remove cache entries of the old layout")
 	}
 
 	pullCtx, cancel := context.WithTimeout(ctx, s.PullTimeout)
 	defer cancel()
 
-	idx, err := s.FetchIndex(pullCtx)
-	if err != nil {
-		return PullResult{}, err
+	var idx HubIndex
+	haveIndex := false
+	if itemType == "" {
+		// Only the index knows whether the name exists in more than one section.
+		var err error
+		if idx, err = s.FetchIndex(pullCtx); err == nil {
+			haveIndex = true
+			if itemType, err = resolveItemType(idx, slug); err != nil {
+				return PullResult{}, err
+			}
+		} else if itemType = s.onlyCachedType(ctx, slug); itemType == "" {
+			return PullResult{}, err
+		}
 	}
-	entry, ok := findIndexEntry(idx, slug)
+
+	// Serve a valid, unexpired cache entry first.
+	cachedMeta, cachedItem, err := s.Cache.LoadItem(ctx, itemType, slug)
+	switch {
+	case err == nil:
+		return PullResult{Meta: cachedMeta, Preview: string(cachedItem)}, nil
+	case errors.Is(err, ErrCacheExpired):
+		_ = s.Cache.Evict(ctx, itemType, slug)
+	case ctx.Err() != nil:
+		return PullResult{}, ctx.Err()
+	}
+
+	if !haveIndex {
+		if idx, err = s.FetchIndex(pullCtx); err != nil {
+			return PullResult{}, err
+		}
+	}
+	entry, ok := findIndexEntry(idx, itemType, slug)
 	if !ok {
 		return PullResult{}, fmt.Errorf("preset not found in hub")
 	}
@@ -552,9 +578,6 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 			return PullResult{}, fmt.Errorf("hub index has no download location for this preset (index unreachable)")
 		}
 		return PullResult{}, fmt.Errorf("hub index has no download location for this preset")
-	}
-	if !IsCacheItemType(entry.Type) {
-		return PullResult{}, fmt.Errorf("unsupported hub item type")
 	}
 
 	item, err := s.fetchWithLimitFromURL(pullCtx, entry.DownloadURL, maxCacheItemBytes)
@@ -565,12 +588,49 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 		return PullResult{}, checkErr
 	}
 
-	stored, err := s.Cache.Store(pullCtx, slug, entry.Type, entry.Etag, "hub", item)
+	stored, err := s.Cache.Store(pullCtx, slug, itemType, entry.Etag, "hub", item)
 	if err != nil {
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Error("failed to store preset in cache")
 		return PullResult{}, fmt.Errorf("cache store: %w", err)
 	}
 	return PullResult{Meta: stored, Preview: string(item)}, nil
+}
+
+// onlyCachedType returns the section of the single valid cache entry of slug, or "" when there is none or
+// several. It lets a pull without a type be served from the cache while the hub index is unreachable.
+func (s *HubService) onlyCachedType(ctx context.Context, slug string) string {
+	cached, err := s.Cache.ListSlug(ctx, slug)
+	if err != nil || len(cached) != 1 {
+		return ""
+	}
+	return cached[0].Type
+}
+
+// resolveItemType returns the one section of the index that holds slug. A name in no section is not found; a
+// name in several sections is ambiguous.
+func resolveItemType(idx HubIndex, slug string) (string, error) {
+	var types []string
+	found := false
+	for _, i := range idx.Items {
+		if i.Name != slug {
+			continue
+		}
+		found = true
+		if IsCacheItemType(i.Type) && !slices.Contains(types, i.Type) {
+			types = append(types, i.Type)
+		}
+	}
+	switch len(types) {
+	case 0:
+		if found {
+			return "", fmt.Errorf("unsupported hub item type")
+		}
+		return "", fmt.Errorf("preset not found in hub")
+	case 1:
+		return types[0], nil
+	}
+	slices.Sort(types)
+	return "", &AmbiguousTypeError{Types: types}
 }
 
 // checkHubItem requires a hub download to be one raw YAML mapping. Archives, HTML pages and other
@@ -620,14 +680,15 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string, limi
 	return data, nil
 }
 
-// findIndexEntry returns the entry whose name equals slug exactly. Hub item names are case-sensitive,
-// so neither titles, suffixes nor other case variants match.
-func findIndexEntry(idx HubIndex, slug string) (HubIndexEntry, bool) {
+// findIndexEntry returns the entry of section itemType whose name equals slug exactly. Hub item names are
+// case-sensitive, so neither titles, suffixes nor other case variants match, and the same name in another
+// section is a different item.
+func findIndexEntry(idx HubIndex, itemType, slug string) (HubIndexEntry, bool) {
 	if slug == "" {
 		return HubIndexEntry{}, false
 	}
 	for _, i := range idx.Items {
-		if i.Name == slug {
+		if i.Name == slug && i.Type == itemType {
 			return i, true
 		}
 	}

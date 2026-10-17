@@ -126,6 +126,9 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
     vi.mocked(presetsApi.getCrowdsecPresetErrorCode).mockImplementation(
       (err) => (err as { response?: { data?: { error_code?: never } } }).response?.data?.error_code,
     )
+    vi.mocked(presetsApi.getCrowdsecPresetAmbiguousTypes).mockImplementation(
+      (err) => (err as { response?: { data?: { types?: string[] } } }).response?.data?.types ?? [],
+    )
     vi.mocked(presetsApi.getCrowdsecPresetTaintedItems).mockImplementation(
       (err) => (err as { response?: { data?: { tainted_items?: string[] } } }).response?.data?.tainted_items ?? [],
     )
@@ -265,5 +268,57 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
     await selectHubAndApply()
     await waitFor(() => expect(toast.success).toHaveBeenCalled())
     expect(screen.queryByTestId('preset-apply-warnings')).not.toBeInTheDocument()
+  })
+
+  describe('a name that exists in several hub sections', () => {
+    const crs = (type: string) => ({ ...hubPreset, slug: 'crowdsecurity/crs', title: `crs ${type}`, type, cache_key: undefined, cached: false })
+
+    it('lists each section as its own item and sends the type of the selected one', async () => {
+      vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [crs('appsec-rules'), crs('appsec-configs')] })
+      await renderPage()
+      await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith('crowdsecurity/crs', 'appsec-rules'))
+
+      await userEvent.click(screen.getByText('crs appsec-configs'))
+
+      await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith('crowdsecurity/crs', 'appsec-configs'))
+      expect(screen.getAllByTestId('preset-type').map((el) => el.textContent).sort()).toEqual(['appsec-configs', 'appsec-rules'])
+    })
+
+    it('applies the type that was pulled', async () => {
+      vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [crs('appsec-rules')] })
+      vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({ ...pulled, slug: 'crowdsecurity/crs', type: 'appsec-rules' })
+      await renderPage()
+      await waitFor(() => expect(screen.getByTestId('apply-preset-btn')).toBeEnabled())
+      await userEvent.click(screen.getByTestId('apply-preset-btn'))
+
+      await waitFor(() =>
+        expect(presetsApi.applyCrowdsecPreset).toHaveBeenCalledWith({
+          slug: 'crowdsecurity/crs',
+          type: 'appsec-rules',
+          cache_key: 'cache-pulled',
+        }),
+      )
+    })
+
+    it('asks which section to use when the server cannot tell, then pulls that one', async () => {
+      vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [{ ...crs('x'), type: undefined }] })
+      vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValueOnce(
+        axiosError(409, 'Request failed', { error: 'x', error_code: 'preset_type_ambiguous', types: ['appsec-configs', 'appsec-rules'] }),
+      )
+      await renderPage()
+      expect(await screen.findByTestId('preset-status')).toHaveTextContent('several hub sections')
+      const picker = await screen.findByLabelText('Item type')
+
+      await userEvent.selectOptions(picker, 'appsec-rules')
+
+      await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenLastCalledWith('crowdsecurity/crs', 'appsec-rules'))
+      await waitFor(() => expect(screen.queryByTestId('preset-type-picker')).not.toBeInTheDocument())
+    })
+
+    it('says the choice is needed when an apply reports the ambiguity', async () => {
+      vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(coded(409, 'preset_type_ambiguous'))
+      await selectHubAndApply()
+      expect(await screen.findByTestId('preset-status')).toHaveTextContent('several hub sections')
+    })
   })
 })

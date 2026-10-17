@@ -28,7 +28,9 @@ func newValidationCache(t *testing.T) (cache *HubCache, base string) {
 	return cache, base
 }
 
-func entryDir(base, slug string) string { return filepath.Join(base, filepath.FromSlash(slug)) }
+func testEntryDir(base, slug string) string {
+	return filepath.Join(base, "collections", filepath.FromSlash(slug))
+}
 
 // writeOtherFile creates a file outside the cache directory whose content is not part of any entry.
 func writeOtherFile(t *testing.T, content string) string {
@@ -42,10 +44,10 @@ func TestLoadAcceptsValidCacheEntry(t *testing.T) {
 	cache, base := newValidationCache(t)
 	key := hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
 
-	meta, err := cache.Load(context.Background(), cacheTestSlug)
+	meta, err := cache.Load(context.Background(), "collections", cacheTestSlug)
 	require.NoError(t, err)
 	require.Equal(t, key, meta.CacheKey)
-	preview, err := cache.LoadPreview(context.Background(), cacheTestSlug)
+	preview, err := cache.LoadPreview(context.Background(), "collections", cacheTestSlug)
 	require.NoError(t, err)
 	require.Equal(t, string(cacheTestItem), preview)
 }
@@ -58,8 +60,8 @@ func TestLoadRejectsInvalidCacheEntry(t *testing.T) {
 		},
 		"entry directory links to another entry": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: otherCacheSlug, Item: cacheTestItem})
-			require.NoError(t, os.MkdirAll(filepath.Dir(entryDir(base, cacheTestSlug)), 0o700))
-			require.NoError(t, os.Symlink(entryDir(base, otherCacheSlug), entryDir(base, cacheTestSlug)))
+			require.NoError(t, os.MkdirAll(filepath.Dir(testEntryDir(base, cacheTestSlug)), 0o700))
+			require.NoError(t, os.Symlink(testEntryDir(base, otherCacheSlug), testEntryDir(base, cacheTestSlug)))
 		},
 		"cache key with a non-hex suffix": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Extra: map[string]any{"cache_key": cacheTestSlug + "-1-" + strings.Repeat("z", 64)}})
@@ -76,32 +78,32 @@ func TestLoadRejectsInvalidCacheEntry(t *testing.T) {
 		"item is a link to another entry": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: otherCacheSlug, Item: cacheTestItem})
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
-			item := filepath.Join(entryDir(base, cacheTestSlug), "item.yaml")
+			item := filepath.Join(testEntryDir(base, cacheTestSlug), "item.yaml")
 			require.NoError(t, os.Remove(item))
-			require.NoError(t, os.Symlink(filepath.Join(entryDir(base, otherCacheSlug), "item.yaml"), item))
+			require.NoError(t, os.Symlink(filepath.Join(testEntryDir(base, otherCacheSlug), "item.yaml"), item))
 		},
 		"item is a link": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
-			item := filepath.Join(entryDir(base, cacheTestSlug), "item.yaml")
+			item := filepath.Join(testEntryDir(base, cacheTestSlug), "item.yaml")
 			require.NoError(t, os.Remove(item))
 			require.NoError(t, os.Symlink(writeOtherFile(t, string(cacheTestItem)), item))
 		},
 		"item is a directory": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
-			item := filepath.Join(entryDir(base, cacheTestSlug), "item.yaml")
+			item := filepath.Join(testEntryDir(base, cacheTestSlug), "item.yaml")
 			require.NoError(t, os.Remove(item))
 			require.NoError(t, os.Mkdir(item, 0o700))
 		},
 		"content differs from the recorded digest": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
-			require.NoError(t, os.WriteFile(filepath.Join(entryDir(base, cacheTestSlug), "item.yaml"), []byte("name: other\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(testEntryDir(base, cacheTestSlug), "item.yaml"), []byte("name: other\n"), 0o600))
 		},
 		"unsupported item type": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Type: "links"})
 		},
 		"metadata is not JSON": func(t *testing.T, base string) {
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
-			require.NoError(t, os.WriteFile(filepath.Join(entryDir(base, cacheTestSlug), "metadata.json"), []byte("{"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(testEntryDir(base, cacheTestSlug), "metadata.json"), []byte("{"), 0o600))
 		},
 	}
 	for name, prepare := range cases {
@@ -109,11 +111,11 @@ func TestLoadRejectsInvalidCacheEntry(t *testing.T) {
 			cache, base := newValidationCache(t)
 			prepare(t, base)
 
-			_, err := cache.Load(context.Background(), cacheTestSlug)
+			_, err := cache.Load(context.Background(), "collections", cacheTestSlug)
 			require.Error(t, err)
-			require.NoDirExists(t, entryDir(base, cacheTestSlug), "an invalid entry is evicted")
+			require.NoDirExists(t, testEntryDir(base, cacheTestSlug), "an invalid entry is evicted")
 			if name == "entry directory links to another entry" {
-				require.DirExists(t, entryDir(base, otherCacheSlug), "the entry behind the link survives")
+				require.DirExists(t, testEntryDir(base, otherCacheSlug), "the entry behind the link survives")
 			}
 		})
 	}
@@ -123,16 +125,16 @@ func TestLoadTreatsEntryWithoutDigestAsMiss(t *testing.T) {
 	cache, base := newValidationCache(t)
 	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Omit: []string{"item_sha256"}})
 
-	_, err := cache.Load(context.Background(), cacheTestSlug)
+	_, err := cache.Load(context.Background(), "collections", cacheTestSlug)
 	require.ErrorIs(t, err, ErrCacheMiss)
-	require.NoDirExists(t, entryDir(base, cacheTestSlug))
+	require.NoDirExists(t, testEntryDir(base, cacheTestSlug))
 }
 
 func TestLoadPreviewIgnoresUnknownMetadataFields(t *testing.T) {
 	cache, base := newValidationCache(t)
 	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem, Extra: map[string]any{"unused_field": "ignored"}})
 
-	preview, err := cache.LoadPreview(context.Background(), cacheTestSlug)
+	preview, err := cache.LoadPreview(context.Background(), "collections", cacheTestSlug)
 	require.NoError(t, err)
 	require.Equal(t, string(cacheTestItem), preview)
 }
@@ -141,11 +143,11 @@ func TestLoadPreviewRejectsInvalidCacheEntry(t *testing.T) {
 	cache, base := newValidationCache(t)
 	otherPath := writeOtherFile(t, string(cacheTestItem))
 	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: cacheTestSlug, Item: cacheTestItem})
-	item := filepath.Join(entryDir(base, cacheTestSlug), "item.yaml")
+	item := filepath.Join(testEntryDir(base, cacheTestSlug), "item.yaml")
 	require.NoError(t, os.Remove(item))
 	require.NoError(t, os.Symlink(otherPath, item))
 
-	_, err := cache.LoadPreview(context.Background(), cacheTestSlug)
+	_, err := cache.LoadPreview(context.Background(), "collections", cacheTestSlug)
 	require.Error(t, err)
 }
 
@@ -155,7 +157,7 @@ func TestPullCacheHitServesTheEntryItem(t *testing.T) {
 	svc := NewHubService(nil, cache, t.TempDir())
 	svc.HTTPClient = nil // a cache hit needs no network
 
-	res, err := svc.Pull(context.Background(), cacheTestSlug)
+	res, err := svc.Pull(context.Background(), cacheTestSlug, "")
 	require.NoError(t, err)
 	require.Equal(t, string(cacheTestItem), res.Preview)
 }
@@ -178,11 +180,11 @@ func TestHubCacheRejectsMalformedSlugs(t *testing.T) {
 			cache, base := newValidationCache(t)
 			hubcachetest.Write(t, base, hubcachetest.Entry{Slug: "ab/cd", Item: cacheTestItem})
 
-			_, loadErr := cache.Load(context.Background(), slug)
+			_, loadErr := cache.Load(context.Background(), "collections", slug)
 			require.Error(t, loadErr)
-			require.Error(t, cache.Evict(context.Background(), slug))
+			require.Error(t, cache.Evict(context.Background(), "collections", slug))
 			require.DirExists(t, base, "the cache root stays intact")
-			require.DirExists(t, entryDir(base, "ab/cd"), "other entries stay intact")
+			require.DirExists(t, testEntryDir(base, "ab/cd"), "other entries stay intact")
 		})
 	}
 }
@@ -191,7 +193,7 @@ func TestHubCacheAcceptsMixedCaseSlug(t *testing.T) {
 	cache, base := newValidationCache(t)
 	hubcachetest.Write(t, base, hubcachetest.Entry{Slug: "Azlaroc/sftpgo", Item: []byte("name: Azlaroc/sftpgo\n")})
 
-	meta, err := cache.Load(context.Background(), "Azlaroc/sftpgo")
+	meta, err := cache.Load(context.Background(), "collections", "Azlaroc/sftpgo")
 	require.NoError(t, err)
 	require.Equal(t, "Azlaroc/sftpgo", meta.Slug)
 }

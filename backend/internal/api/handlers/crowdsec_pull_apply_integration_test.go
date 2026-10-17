@@ -91,7 +91,7 @@ func TestPullThenApplyIntegration(t *testing.T) {
 	key, _ := pulled["cache_key"].(string)
 	require.NotEmpty(t, key)
 
-	cached, err := cache.Load(context.Background(), "test/preset")
+	cached, err := cache.Load(context.Background(), "collections", "test/preset")
 	require.NoError(t, err)
 	require.Equal(t, key, cached.CacheKey)
 
@@ -135,7 +135,7 @@ func TestPullPresetRefusesNonYAMLDownload(t *testing.T) {
 
 	w := postPresetJSON(r, "/api/v1/admin/crowdsec/presets/pull", map[string]string{"slug": "test/preset"})
 	require.Equal(t, http.StatusBadGateway, w.Code, w.Body.String())
-	_, err := cache.Load(context.Background(), "test/preset")
+	_, err := cache.Load(context.Background(), "collections", "test/preset")
 	require.ErrorIs(t, err, crowdsec.ErrCacheMiss)
 }
 

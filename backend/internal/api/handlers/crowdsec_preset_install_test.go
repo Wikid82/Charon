@@ -221,7 +221,7 @@ func (h *installHarness) requireRolledBack(t *testing.T) {
 }
 
 func (h *installHarness) entryExists() bool {
-	_, err := os.Stat(filepath.Join(h.cacheDir, filepath.FromSlash(installSlug), "metadata.json"))
+	_, err := os.Stat(filepath.Join(h.cacheDir, "collections", filepath.FromSlash(installSlug), "metadata.json"))
 	return err == nil
 }
 
@@ -299,7 +299,7 @@ func TestApplyRejectsOutdatedCacheEntry(t *testing.T) {
 		},
 		"content differs from recorded digest": func(h *installHarness, t *testing.T) string {
 			key := h.store(t, nil)
-			require.NoError(t, os.WriteFile(filepath.Join(h.cacheDir, filepath.FromSlash(installSlug), "item.yaml"), []byte("name: other\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(h.cacheDir, "collections", filepath.FromSlash(installSlug), "item.yaml"), []byte("name: other\n"), 0o600))
 			return key
 		},
 	}
@@ -406,7 +406,7 @@ func TestApplyKeepsNewerCacheEntryOnMismatch(t *testing.T) {
 	require.Equal(t, http.StatusConflict, code, resp)
 	require.NotEqual(t, key, newerKey)
 	require.True(t, h.entryExists(), "the newer entry survives")
-	raw, err := os.ReadFile(filepath.Join(h.cacheDir, filepath.FromSlash(installSlug), "metadata.json")) // #nosec G304 -- test path
+	raw, err := os.ReadFile(filepath.Join(h.cacheDir, "collections", filepath.FromSlash(installSlug), "metadata.json")) // #nosec G304 -- test path
 	require.NoError(t, err)
 	require.Contains(t, string(raw), newerKey)
 }

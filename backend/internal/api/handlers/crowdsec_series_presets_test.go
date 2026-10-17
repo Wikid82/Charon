@@ -156,7 +156,6 @@ func typesOf(v any) []string {
 // --- a name that exists in several sections (#1594) ---
 
 func TestListPresets_OneEntryPerTypeAndName(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	e := newPresetEnv(t)
 
@@ -179,7 +178,6 @@ func TestListPresets_OneEntryPerTypeAndName(t *testing.T) {
 }
 
 func TestPullPreset_AmbiguousNameAsksForTheType(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	e := newPresetEnv(t)
 
@@ -192,7 +190,6 @@ func TestPullPreset_AmbiguousNameAsksForTheType(t *testing.T) {
 }
 
 func TestPullPreset_WithATypePullsThatItem(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	e := newPresetEnv(t)
 	want := map[string]string{"appsec-rules": itemCRSRules, "appsec-configs": itemCRSConfigs}
@@ -208,7 +205,6 @@ func TestPullPreset_WithATypePullsThatItem(t *testing.T) {
 }
 
 func TestApplyPreset_InstallsTheTypeThatWasPulled(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	e := newPresetEnv(t)
 	_, pulled := e.post("/pull", map[string]string{"slug": "crowdsecurity/crs", "type": "appsec-rules"})
@@ -235,7 +231,6 @@ func TestPullPreset_UnambiguousNameNeedsNoType(t *testing.T) {
 
 // Entries of the old cache layout (no type folder) are a miss and are removed by the next pull.
 func TestPullPreset_SweepsCacheEntriesOfTheOldLayout(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	e := newPresetEnv(t)
 	item := []byte("name: legacy/old\n")
@@ -404,5 +399,80 @@ func TestApplyPreset_OtherInstallFailuresKeepTheirAnswers(t *testing.T) {
 			assert.Equal(t, tc.status, w.Code, w.Body.String())
 			assert.Equal(t, tc.code, func() string { s, _ := body["error_code"].(string); return s }())
 		})
+	}
+}
+
+// --- previewing a cached item by type (#1594) ---
+
+func (e *presetEnv) getCached(slug, query string) (w *httptest.ResponseRecorder, body map[string]any) {
+	e.t.Helper()
+	w = httptest.NewRecorder()
+	e.r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, presetsURL+"/cache/"+slug+query, http.NoBody))
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	return w, body
+}
+
+func TestGetCachedPreset_TypeSelectsTheSection(t *testing.T) {
+	t.Parallel()
+	e := newPresetEnv(t)
+	for _, typ := range []string{"appsec-rules", "appsec-configs"} {
+		w, _ := e.post("/pull", map[string]string{"slug": "crowdsecurity/crs", "type": typ})
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	}
+
+	w, body := e.getCached("crowdsecurity/crs", "?type=appsec-configs")
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "appsec-configs", body["type"])
+	assert.Equal(t, itemCRSConfigs, body["preview"])
+}
+
+func TestGetCachedPreset_SeveralSectionsNeedAType(t *testing.T) {
+	t.Parallel()
+	e := newPresetEnv(t)
+	for _, typ := range []string{"appsec-rules", "appsec-configs"} {
+		e.post("/pull", map[string]string{"slug": "crowdsecurity/crs", "type": typ})
+	}
+
+	w, body := e.getCached("crowdsecurity/crs", "")
+
+	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	assert.Equal(t, "preset_type_ambiguous", body["error_code"])
+	assert.ElementsMatch(t, []string{"appsec-configs", "appsec-rules"}, typesOf(body["types"]))
+}
+
+func TestGetCachedPreset_OnlyEntryNeedsNoType(t *testing.T) {
+	t.Parallel()
+	e := newPresetEnv(t)
+	e.post("/pull", map[string]string{"slug": "crowdsecurity/nginx"})
+
+	w, body := e.getCached("crowdsecurity/nginx", "")
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "collections", body["type"])
+	assert.Equal(t, itemNginx, body["preview"])
+}
+
+func TestGetCachedPreset_MissAndBadType(t *testing.T) {
+	t.Parallel()
+	e := newPresetEnv(t)
+
+	w, _ := e.getCached("crowdsecurity/nginx", "")
+	assert.Equal(t, http.StatusNotFound, w.Code, "nothing cached")
+	w, _ = e.getCached("crowdsecurity/nginx", "?type=collections")
+	assert.Equal(t, http.StatusNotFound, w.Code, "nothing cached for the type")
+	w, _ = e.getCached("crowdsecurity/nginx", "?type=links")
+	assert.Equal(t, http.StatusBadRequest, w.Code, "not a hub section")
+	w, _ = e.getCached("a..b", "")
+	assert.Equal(t, http.StatusNotFound, w.Code, "malformed slug")
+}
+
+func TestPullAndApplyPreset_RejectAnUnknownType(t *testing.T) {
+	t.Parallel()
+	e := newPresetEnv(t)
+	for _, path := range []string{"/pull", "/apply"} {
+		w, body := e.post(path, map[string]string{"slug": "crowdsecurity/nginx", "type": "links", "cache_key": "k"})
+		require.Equal(t, http.StatusBadRequest, w.Code, path+" "+w.Body.String())
+		assert.Equal(t, "invalid type", body["error"])
 	}
 }
