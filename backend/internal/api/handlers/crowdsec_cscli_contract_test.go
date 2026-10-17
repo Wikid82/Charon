@@ -823,6 +823,35 @@ func TestDiagnosticsConfig_OtherExitFailureIsInvalid(t *testing.T) {
 	assert.Equal(t, "config.yaml validation failed: cscli reported an error", msgs[0])
 }
 
+// A progress line printed before the JSON document must not change what the listings parse.
+func TestCSCLIContract_ListingsTolerateProgressLines(t *testing.T) {
+	t.Parallel()
+	const progress = "level=info msg=\"Loaded: 168 parsers, 62 scenarios\"\n"
+	h := func(t *testing.T, out []byte) *CrowdsecHandler {
+		t.Helper()
+		hh := newTestCrowdsecHandler(t, setupCrowdDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+		hh.CmdExec = &rawOutputExec{out: out}
+		return hh
+	}
+
+	t.Run("bouncers list", func(t *testing.T) {
+		t.Parallel()
+		out := append([]byte(progress), cscliFixture(t, "bouncers_list_json")...)
+		assert.True(t, h(t, out).validateBouncerKey(t.Context()))
+		empty := append([]byte(progress), cscliFixture(t, "bouncers_list_empty_json")...)
+		assert.False(t, h(t, empty).validateBouncerKey(t.Context()))
+	})
+	t.Run("alerts list", func(t *testing.T) {
+		t.Parallel()
+		clean, cleanTotal := h(t, cscliFixture(t, "alerts_list_json")).fetchAlertsCscli(t.Context(), "", 50)
+		out := append([]byte(progress), cscliFixture(t, "alerts_list_json")...)
+		alerts, total := h(t, out).fetchAlertsCscli(t.Context(), "", 50)
+		assert.Equal(t, 3, total)
+		assert.Equal(t, cleanTotal, total)
+		assert.Equal(t, clean, alerts)
+	})
+}
+
 // A client that disconnects cancels the request context and kills the command. That says nothing about the
 // configuration, so no verdict is produced.
 func TestDiagnosticsConfig_ClientDisconnectReportsNothing(t *testing.T) {

@@ -1767,7 +1767,7 @@ func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
 	var bouncers []struct {
 		Name string `json:"name"`
 	}
-	if err := json.Unmarshal(output, &bouncers); err != nil {
+	if err := crowdsec.UnmarshalCSCLIOutput(output, &bouncers); err != nil {
 		logger.Log().WithError(err).Debug("Failed to parse bouncers list")
 		return false
 	}

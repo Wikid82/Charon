@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
@@ -559,7 +560,7 @@ func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string,
 		return []interface{}{}, 0
 	}
 
-	if jErr := json.Unmarshal(output, &alerts); jErr != nil {
+	if jErr := crowdsec.UnmarshalCSCLIOutput(output, &alerts); jErr != nil {
 		return []interface{}{}, 0
 	}
 	return alerts, len(alerts)
