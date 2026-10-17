@@ -1012,7 +1012,6 @@ func TestAlertsEndpoint_TypedView(t *testing.T) {
 
 	t.Run("cscli path", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		ex := newFixtureCmdExec(t, map[string]string{"alerts list -o json -l 50": "alerts_list_json"})
 		h := pr4Handler(t, ex, t.TempDir())
 		h.validateLAPIURL = func(string) (*url.URL, error) { return nil, errors.New("blocked in test") }
@@ -1026,7 +1025,6 @@ func TestAlertsEndpoint_TypedView(t *testing.T) {
 
 	t.Run("cscli path: alert with ipv6 source and no decisions", func(t *testing.T) {
 		t.Parallel()
-		skipUntilLaterCommit(t)
 		raw := `[{"id":9,"scenario":"s","message":"m","events_count":4,"machine_id":"testlocal","uuid":"u","decisions":null,"created_at":"2026-10-16T23:15:34Z","start_at":"2026-10-16T23:15:00Z","stop_at":"2026-10-16T23:15:30Z","source":{"ip":"2001:db8::1","scope":"Ip","value":"2001:db8::1"}}]`
 		h := pr4Handler(t, &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return []byte(raw), nil }}, t.TempDir())
 		h.validateLAPIURL = func(string) (*url.URL, error) { return nil, errors.New("blocked in test") }

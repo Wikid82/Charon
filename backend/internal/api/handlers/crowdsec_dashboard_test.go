@@ -1052,7 +1052,7 @@ func TestFetchAlertsCscli_ValidJSON(t *testing.T) {
 	h := &CrowdsecHandler{
 		DB:        db,
 		Executor:  &fakeExec{},
-		CmdExec:   &mockCmdExecutor{output: []byte(`[{"id":"1"},{"id":"2"}]`), err: nil},
+		CmdExec:   &mockCmdExecutor{output: []byte(`[{"id":1},{"id":2}]`), err: nil},
 		BinPath:   "/bin/false",
 		DataDir:   t.TempDir(),
 		dashCache: newDashboardCache(),

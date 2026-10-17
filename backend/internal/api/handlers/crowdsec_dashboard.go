@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
@@ -467,8 +466,8 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// fetchAlertsCscli falls back to using cscli to list alerts.
-func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []interface{}, total int) {
+// fetchAlertsCscli lists alerts through cscli and returns the fields the UI reads, at most limit of them.
+func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []alertView, total int) {
 	args := []string{"alerts", "list", "-o", "json"}
 	if scenario != "" {
 		args = append(args, "-s", scenario)
@@ -478,11 +477,13 @@ func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string,
 	output, err := h.runCSCLI(ctx, cscliListTimeout, args...)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to list alerts via cscli")
-		return []interface{}{}, 0
+		return []alertView{}, 0
 	}
 
-	if jErr := crowdsec.UnmarshalCSCLIOutput(output, &alerts); jErr != nil {
-		return []interface{}{}, 0
+	alerts, err = parseCSCLIAlerts(output, limit)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to parse cscli alerts output")
+		return []alertView{}, 0
 	}
 	return alerts, len(alerts)
 }

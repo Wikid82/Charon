@@ -666,10 +666,8 @@ func TestCSCLIContract_AlertsList(t *testing.T) {
 		alerts, total := h(t, fx).fetchAlertsCscli(t.Context(), "", 50)
 		assert.Equal(t, 3, total)
 		require.Len(t, alerts, 3)
-		first, ok := alerts[0].(map[string]any)
-		require.True(t, ok)
-		assert.Equal(t, "manual ban: range", first["scenario"])
-		assert.NotNil(t, first["decisions"])
+		assert.Equal(t, "manual ban: range", alerts[0].Scenario)
+		assert.Equal(t, "ban", alerts[0].Type)
 	})
 	t.Run("recorded empty list", func(t *testing.T) {
 		t.Parallel()
