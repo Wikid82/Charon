@@ -216,7 +216,16 @@ These appear when you ban or unban an address on the Live Decisions page. Nothin
 - **"Choose a duration between 1 minute and 365 days, for example 4h, 30m or 1d."**: use `m` (minutes), `h` (hours) or `d` (days). Weeks (`1w`) and capital letters (`4H`) are not accepted.
 - **"The reason can be at most 200 characters."**: shorten the reason.
 - **"No decision with exactly this address or range."**: nothing is blocked under that exact address or range, perhaps because it already expired or was unbanned. Unbanning removes only an exact match: a range does not clear single addresses banned inside it, and an address does not clear a range that covers it. Refresh the list and use the value exactly as shown.
+- **A "request too large" error** (HTTP 413, `request_too_large`): CrowdSec requests are limited to 64 KiB. Shorten the text you sent.
 - **"CrowdSec did not answer in time. Try again."** (also shown as "CrowdSec did not answer in time" on other CrowdSec pages): CrowdSec's local service is stopped or too slow. Check that it is running (see [Verifying LAPI Status](#verifying-lapi-status)), wait a moment, then try again.
+
+## List notes
+
+The Live Decisions, dashboard and alerts lists show a short note instead of an error when CrowdSec could not supply the list. The list is empty or partial, and it refreshes on its own, so no action is needed unless the note stays.
+
+- **"The decision service took too long to answer, so this list may be incomplete."** (`cscli_timeout`): CrowdSec's local service is slow or stopped. See [Verifying LAPI Status](#verifying-lapi-status).
+- **"The decision service returned more data than can be shown, so this list may be incomplete."** (`cscli_output_too_large`): there are too many entries to show at once. Pick a shorter time range.
+- **"The decision service is not available right now, so this list may be incomplete."** (`cscli_unavailable`): Charon could not run `cscli`. Restart the container.
 
 ## Hub preset messages
 
@@ -226,6 +235,8 @@ Applying a hub preset shows one of these messages when it cannot finish or needs
 - **"The hub is still updating, try again later."**: the hub is still publishing a newer version of this item. Wait a while, pull the preset again, then apply it.
 - **"This item was edited on this server and was left unchanged. Reset it before applying the preset."**: you (or a script) changed this item's file on this server, and Charon will not overwrite your edit. The message lists the edited items ("Edited items: ..."). A plain install or upgrade does nothing for an edited item, so reset it with `cscli <type> install <name> --force` (Docker users run it as `docker exec charon cscli ...`), for example `docker exec charon cscli parsers install crowdsecurity/apache2-logs --force`. If a collection reports an edited item inside it, run `cscli collections install <collection> --force`, which also restores that item. This replaces your edit with the original hub version, so your local change is lost. Then reload CrowdSec, pull the preset again and apply it.
 - **"The preset install took too long and was rolled back. Try again."**: the install did not finish within 120 seconds (typical installs take 1-5 seconds; the slowest common collection takes about a minute on a first download). Try again, or raise `HUB_APPLY_TIMEOUT_SECONDS` on a slow connection (the web interface stops waiting after 130 seconds, so values above about 125 only help when you run the install yourself with `cscli`). Very large collections (hundreds of items, such as `sigmahq/windows_proc_creation`) can take several minutes because items are downloaded one by one; install those directly with `docker exec charon cscli collections install <name>`.
+- **"CrowdSec could not reach the hub. Check the network connection and try again."** (HTTP 503, `hub_unreachable`): the server has no route to the CrowdSec hub. Nothing was installed and your settings are unchanged. Check the container's internet and DNS access, then try again.
+- **"This name exists in several hub sections. Choose which item to use."** (HTTP 409, `preset_type_ambiguous`): pick the item type in the list that appears, then pull again.
 - **"cscli unavailable or not responding"**: Charon could not run `cscli`. The Docker image includes it; restart the container and try again.
 - **"cscli unavailable or not responding" offline**: an already-downloaded preview can be applied if its items are already on the server; otherwise the apply fails and is rolled back. Pulling a preset that was never downloaded needs internet access.
 - **A note that some dependencies were edited on this server**: the preset was applied, and those edited dependencies were left unchanged.
