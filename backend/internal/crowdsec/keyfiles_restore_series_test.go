@@ -70,7 +70,6 @@ func TestRestoreKeyFilesStillCountsAbsentFilesTowardTheScanLimit(t *testing.T) {
 
 // The import keeps the private keys the export left out, including one whose header straddles a window boundary.
 func TestRestoreKeyFilesFindsArmorAcrossTheFirstWindowBoundary(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	snapDir, liveDir := companionTrees(t,
 		map[string]string{

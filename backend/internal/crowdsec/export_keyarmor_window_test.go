@@ -27,7 +27,6 @@ func armorAt(offset, size int) string {
 // A key header that straddles the end of the first 64 KiB window, or any later window, is still found in files
 // up to the 1 MiB inspect cap.
 func TestExportKeyArmorIsFoundAcrossWindowBoundaries(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	const headerLen = 31
 	cases := map[string]string{}
@@ -60,7 +59,6 @@ func TestExportKeyArmorIsFoundAcrossWindowBoundaries(t *testing.T) {
 // A header that ends exactly at the window end is found today; one that starts right after it is found once the
 // whole file below the cap is searched.
 func TestExportKeyArmorNextToTheFirstBoundaryIsFound(t *testing.T) {
-	skipUntilLaterCommit(t)
 	t.Parallel()
 	entries := exportedKeyTree(t, map[string]string{
 		"config/ssl/inside.txt": armorAt(sniffHead-31, sniffHead+100),

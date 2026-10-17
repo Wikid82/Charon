@@ -16,7 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// keySniffBytes is how much of the start of a file is searched for private key armor.
+// keySniffBytes is the size of one private key armor search window.
 const keySniffBytes = 64 << 10
 
 // privateKeyArmor matches the header line of a PEM or PGP private key block (RSA, EC, OPENSSH,
@@ -43,17 +43,39 @@ func hasKeyFileName(rel string) bool {
 	return false
 }
 
-// holdsKeyArmor reports whether the first keySniffBytes of the opened file contain private key armor
-// and leaves the file positioned at its start.
+// keySniffOverlap is how many bytes consecutive search windows share, so a header cannot straddle a
+// window boundary unseen (the longest header, "-----BEGIN ENCRYPTED PRIVATE KEY BLOCK-----", is 43 bytes).
+const keySniffOverlap = 128
+
+// holdsKeyArmor reports whether the opened file contains private key armor and leaves the file positioned
+// at its start. Files up to maxInspectEntryBytes are searched completely, in keySniffBytes windows that
+// overlap by keySniffOverlap bytes. Larger files are too big to inspect: only their first keySniffBytes
+// are searched (documented limit), so armor further in goes unseen.
 func holdsKeyArmor(f *os.File) (bool, error) {
-	head, err := io.ReadAll(io.LimitReader(f, keySniffBytes))
+	info, err := f.Stat()
 	if err != nil {
-		return false, fmt.Errorf("read file head: %w", err)
+		return false, fmt.Errorf("stat file: %w", err)
+	}
+	limit := info.Size()
+	if limit > maxInspectEntryBytes {
+		limit = keySniffBytes
+	}
+	buf := make([]byte, keySniffBytes)
+	var found bool
+	for off := int64(0); off < limit && !found; off += keySniffBytes - keySniffOverlap {
+		n, readErr := f.ReadAt(buf[:min(int64(len(buf)), limit-off)], off)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return false, fmt.Errorf("read file window: %w", readErr)
+		}
+		found = privateKeyArmor.Match(buf[:n])
+		if n < keySniffBytes {
+			break
+		}
 	}
 	if _, err = f.Seek(0, io.SeekStart); err != nil {
 		return false, fmt.Errorf("rewind file: %w", err)
 	}
-	return privateKeyArmor.Match(head), nil
+	return found, nil
 }
 
 // isKeyPathSetting reports whether a notification setting names a private key file.
