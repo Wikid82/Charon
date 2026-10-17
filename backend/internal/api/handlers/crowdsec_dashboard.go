@@ -454,7 +454,7 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	alerts, total, errMsg := h.fetchAlertsCscli(ctx, scenario, limit)
+	alerts, total, errMsg := h.fetchAlertsCscli(ctx, scenario, rangeStr, limit, offset)
 
 	result := gin.H{
 		"alerts": alerts,
@@ -473,14 +473,21 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// fetchAlertsCscli lists alerts through cscli and returns the fields the UI reads, at most limit of them.
+// maxAlertsFetch caps how many alerts one request asks cscli for (limit + offset).
+const maxAlertsFetch = 1000
+
+// fetchAlertsCscli lists the alerts that started within rangeStr (cscli --since, validated by the caller)
+// through cscli and returns the fields the UI reads, at most limit of them after skipping offset.
+// cscli has no offset flag, so limit+offset alerts (at most maxAlertsFetch) are fetched and the first offset
+// are dropped here; paging is best-effort, and total is the number of alerts fetched, not of all stored ones.
 // errMsg is empty on success; otherwise it tells why the list is empty (cscli failed, timed out or printed too much).
-func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []alertView, total int, errMsg string) {
-	args := []string{"alerts", "list", "-o", "json"}
+func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario, rangeStr string, limit, offset int) (alerts []alertView, total int, errMsg string) {
+	fetch := min(limit+offset, maxAlertsFetch)
+	args := []string{"alerts", "list", "-o", "json", "--since", rangeStr}
 	if scenario != "" {
 		args = append(args, "-s", scenario)
 	}
-	args = append(args, "-l", strconv.Itoa(limit))
+	args = append(args, "-l", strconv.Itoa(fetch))
 
 	output, err := h.runCSCLI(ctx, cscliListTimeout, args...)
 	if err != nil {
@@ -491,12 +498,14 @@ func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string,
 		return []alertView{}, 0, msgCSCLIFailed
 	}
 
-	alerts, err = parseCSCLIAlerts(output, limit)
+	alerts, err = parseCSCLIAlerts(output, fetch)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to parse cscli alerts output")
 		return []alertView{}, 0, msgCSCLIFailed
 	}
-	return alerts, len(alerts), ""
+	total = len(alerts)
+	alerts = alerts[min(offset, total):]
+	return alerts[:min(limit, len(alerts))], total, ""
 }
 
 // ExportDecisions exports decisions as downloadable CSV or JSON.

@@ -1002,7 +1002,7 @@ func TestAlertsEndpoint_TypedView(t *testing.T) {
 
 	t.Run("cscli path", func(t *testing.T) {
 		t.Parallel()
-		ex := newFixtureCmdExec(t, map[string]string{"alerts list -o json -l 50": "alerts_list_json"})
+		ex := newFixtureCmdExec(t, map[string]string{"alerts list -o json --since 24h -l 50": "alerts_list_json"})
 		h := pr4Handler(t, ex, t.TempDir())
 		h.validateLAPIURL = func(string) (*url.URL, error) { return nil, errors.New("blocked in test") }
 		alerts := pr4AlertList(t, pr4Serve(pr4Router(h), http.MethodGet, "/api/v1/admin/crowdsec/alerts?limit=50", ""))
@@ -1041,7 +1041,7 @@ func TestAlertsEndpoint_ServesFromCscliWithoutDirectRequest(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	t.Cleanup(srv.Close)
-	ex := newFixtureCmdExec(t, map[string]string{"alerts list -o json -l 50": "alerts_list_json"})
+	ex := newFixtureCmdExec(t, map[string]string{"alerts list -o json --since 24h -l 50": "alerts_list_json"})
 	h := pr4LAPIHandler(t, srv.URL, ex)
 	w := pr4Serve(pr4Router(h), http.MethodGet, "/api/v1/admin/crowdsec/alerts?limit=50", "")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -1056,7 +1056,7 @@ func TestAlertsEndpoint_CscliFlagsAndFailures(t *testing.T) {
 
 	t.Run("scenario and limit reach cscli", func(t *testing.T) {
 		t.Parallel()
-		ex := newFixtureCmdExec(t, map[string]string{"alerts list -o json -s manual ban -l 2": "alerts_list_flags_json"})
+		ex := newFixtureCmdExec(t, map[string]string{"alerts list -o json --since 24h -s manual ban -l 2": "alerts_list_flags_json"})
 		h := pr4Handler(t, ex, t.TempDir())
 		h.validateLAPIURL = func(string) (*url.URL, error) { return nil, errors.New("blocked in test") }
 		w := pr4Serve(pr4Router(h), http.MethodGet, "/api/v1/admin/crowdsec/alerts?limit=2&scenario="+url.QueryEscape("manual ban"), "")
