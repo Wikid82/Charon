@@ -1,0 +1,1 @@
+Error: cscli decisions add: fe80::1%eth0 is not a valid ip

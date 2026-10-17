@@ -25,7 +25,7 @@ export const CROWDSEC_ROUTES = {
   alerts: new RegExp(`${ADMIN}/alerts${END}`),
   decisionsExport: new RegExp(`${ADMIN}/decisions/export${END}`),
   ban: new RegExp(`${ADMIN}/ban${END}`),
-  unban: new RegExp(`${ADMIN}/ban/[^/?]+${END}`),
+  unban: new RegExp(`${ADMIN}/ban/[^?]+${END}`),
   featureFlags: new RegExp(String.raw`/api/v1/feature-flags${END}`),
   status: new RegExp(`${ADMIN}/status${END}`),
   decisions: new RegExp(`${ADMIN}/decisions${END}`),
@@ -193,7 +193,7 @@ export interface CrowdSecStubOptions {
   /** Body for GET /decisions/export (any format); a failure status is also accepted. */
   decisionsExport?: { body: string; contentType: string } | StubFailure;
   /** Stubs POST /ban and DELETE /ban/:ip, recording what the UI sent. */
-  banApi?: { banFailure?: StubFailure; unbanFailure?: StubFailure };
+  banApi?: { banFailure?: StubFailure & { errorCode?: string }; unbanFailure?: StubFailure & { errorCode?: string } };
   /** File names returned by GET /files. */
   files?: string[];
   /** Map of file path to content for GET /file?path=. Unknown paths get 404. */
@@ -218,7 +218,7 @@ export interface CrowdSecStubRecorder {
   alertQueries: Record<string, string>[];
   /** JSON bodies of POST /ban requests. */
   bans: unknown[];
-  /** IPs of DELETE /ban/:ip requests (decoded). */
+  /** IPs or ranges of DELETE /ban/<value> requests (decoded). */
   unbans: string[];
 }
 
@@ -364,15 +364,15 @@ export async function stubCrowdSecApi(
       if (route.request().method() !== 'POST') return route.fallback();
       recorder.bans.push(route.request().postDataJSON());
       return banFailure
-        ? fulfillJson(route, { error: 'ban rejected' }, banFailure.failWith)
+        ? fulfillJson(route, { error: 'ban rejected', ...(banFailure.errorCode ? { error_code: banFailure.errorCode } : {}) }, banFailure.failWith)
         : fulfillJson(route, { status: 'banned' });
     });
     await page.route(CROWDSEC_ROUTES.unban, (route) => {
       if (route.request().method() !== 'DELETE') return route.fallback();
-      const ip = new URL(route.request().url()).pathname.split('/').pop() ?? '';
-      recorder.unbans.push(decodeURIComponent(ip));
+      const value = new URL(route.request().url()).pathname.split('/ban/').slice(1).join('/ban/');
+      recorder.unbans.push(decodeURIComponent(value));
       return unbanFailure
-        ? fulfillJson(route, { error: 'unban rejected' }, unbanFailure.failWith)
+        ? fulfillJson(route, { error: 'unban rejected', ...(unbanFailure.errorCode ? { error_code: unbanFailure.errorCode } : {}) }, unbanFailure.failWith)
         : fulfillJson(route, { status: 'unbanned' });
     });
   }
