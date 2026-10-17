@@ -85,6 +85,9 @@ type CrowdsecHandler struct {
 	// registerScriptPath overrides the bouncer registration script location; overridable in tests.
 	registerScriptPath string
 
+	// registerScriptTimeout bounds the bouncer registration script; 0 means registerScriptTimeoutDefault. Overridable in tests.
+	registerScriptTimeout time.Duration
+
 	// mergeNotifications and scanPlaceholders are the import's notification steps; overridable in tests.
 	mergeNotifications func(snapshotDir, dataDir string) error
 	scanPlaceholders   func(dataDir string) ([]string, error)
@@ -2055,9 +2058,9 @@ func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 // failed, timed out or printed more output than the limits allow.
 func (h *CrowdsecHandler) respondDecisionsUnavailable(c *gin.Context, err error) {
 	logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
-	msg := "cscli not available or failed"
+	msg := msgCSCLIFailed
 	if isCSCLITimeout(c.Request.Context(), err) {
-		msg = "cscli decisions list timed out; the CrowdSec local API may be stopped"
+		msg = msgDecisionsTimedOut
 	}
 	c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": msg})
 }
@@ -2186,9 +2189,21 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 		return
 	}
 
-	// Run the registration script
-	output, err := h.CmdExec.Execute(ctx, "bash", scriptPath)
+	// Run the registration script under its own deadline
+	scriptTimeout := h.registerScriptTimeout
+	if scriptTimeout <= 0 {
+		scriptTimeout = registerScriptTimeoutDefault
+	}
+	scriptCtx, cancelScript := context.WithTimeout(ctx, scriptTimeout)
+	output, err := h.CmdExec.Execute(scriptCtx, "bash", scriptPath)
+	timedOut := isCSCLITimeout(scriptCtx, err)
+	cancelScript()
 	if err != nil {
+		if timedOut {
+			logger.Log().WithError(err).Warn("Bouncer registration script timed out")
+			respondCSCLITimeout(c)
+			return
+		}
 		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Warn("Failed to register bouncer")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": "see server logs"})
 		return
@@ -2207,7 +2222,7 @@ func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
 	}
 
 	// Check if bouncer is actually registered by querying cscli
-	checkOutput, checkErr := h.CmdExec.Execute(ctx, "cscli", "bouncers", "list", "-o", "json")
+	checkOutput, checkErr := h.runCSCLI(ctx, cscliListTimeout, "bouncers", "list", "-o", "json")
 	registered := false
 	if checkErr == nil && len(checkOutput) > 0 && string(checkOutput) != "null" {
 		if strings.Contains(string(checkOutput), "caddy-bouncer") {

@@ -663,7 +663,7 @@ func TestCSCLIContract_AlertsList(t *testing.T) {
 	t.Run("recorded alerts", func(t *testing.T) {
 		t.Parallel()
 		fx := newFixtureCmdExec(t, map[string]string{"alerts list -o json -l 50": "alerts_list_json"})
-		alerts, total := h(t, fx).fetchAlertsCscli(t.Context(), "", 50)
+		alerts, total, _ := h(t, fx).fetchAlertsCscli(t.Context(), "", 50)
 		assert.Equal(t, 3, total)
 		require.Len(t, alerts, 3)
 		assert.Equal(t, "manual ban: range", alerts[0].Scenario)
@@ -672,7 +672,7 @@ func TestCSCLIContract_AlertsList(t *testing.T) {
 	t.Run("recorded empty list", func(t *testing.T) {
 		t.Parallel()
 		fx := newFixtureCmdExec(t, map[string]string{"alerts list -o json -l 50": "alerts_list_empty_json"})
-		alerts, total := h(t, fx).fetchAlertsCscli(t.Context(), "", 50)
+		alerts, total, _ := h(t, fx).fetchAlertsCscli(t.Context(), "", 50)
 		assert.Equal(t, 0, total)
 		assert.Empty(t, alerts)
 	})
@@ -683,10 +683,10 @@ func TestCSCLIContract_AlertsList(t *testing.T) {
 			"alerts list -o json -s nomatch -l 5":    "alerts_list_flags_nomatch_json",
 		})
 		hh := h(t, fx)
-		alerts, total := hh.fetchAlertsCscli(t.Context(), "manual ban", 2)
+		alerts, total, _ := hh.fetchAlertsCscli(t.Context(), "manual ban", 2)
 		assert.Equal(t, 1, total, "the recorded run asked for the alerts of one scenario")
 		require.Len(t, alerts, 1)
-		alerts, total = hh.fetchAlertsCscli(t.Context(), "nomatch", 5)
+		alerts, total, _ = hh.fetchAlertsCscli(t.Context(), "nomatch", 5)
 		assert.Equal(t, 0, total)
 		assert.Empty(t, alerts)
 	})
@@ -840,9 +840,9 @@ func TestCSCLIContract_ListingsTolerateProgressLines(t *testing.T) {
 	})
 	t.Run("alerts list", func(t *testing.T) {
 		t.Parallel()
-		clean, cleanTotal := h(t, cscliFixture(t, "alerts_list_json")).fetchAlertsCscli(t.Context(), "", 50)
+		clean, cleanTotal, _ := h(t, cscliFixture(t, "alerts_list_json")).fetchAlertsCscli(t.Context(), "", 50)
 		out := append([]byte(progress), cscliFixture(t, "alerts_list_json")...)
-		alerts, total := h(t, out).fetchAlertsCscli(t.Context(), "", 50)
+		alerts, total, _ := h(t, out).fetchAlertsCscli(t.Context(), "", 50)
 		assert.Equal(t, 3, total)
 		assert.Equal(t, cleanTotal, total)
 		assert.Equal(t, clean, alerts)

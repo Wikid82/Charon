@@ -453,7 +453,8 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 		return
 	}
 
-	alerts, total := h.fetchAlertsCscli(c.Request.Context(), scenario, limit)
+	ctx := c.Request.Context()
+	alerts, total, errMsg := h.fetchAlertsCscli(ctx, scenario, limit)
 
 	result := gin.H{
 		"alerts": alerts,
@@ -461,13 +462,20 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 		"source": "cscli",
 		"cached": false,
 	}
+	if errMsg != "" {
+		// a failed listing is not cached, so the next request asks cscli again
+		result["error"] = errMsg
+		c.JSON(http.StatusOK, result)
+		return
+	}
 
 	h.dashCache.Set(cacheKey, result, dashAlertsTTL)
 	c.JSON(http.StatusOK, result)
 }
 
 // fetchAlertsCscli lists alerts through cscli and returns the fields the UI reads, at most limit of them.
-func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []alertView, total int) {
+// errMsg is empty on success; otherwise it tells why the list is empty (cscli failed, timed out or printed too much).
+func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []alertView, total int, errMsg string) {
 	args := []string{"alerts", "list", "-o", "json"}
 	if scenario != "" {
 		args = append(args, "-s", scenario)
@@ -477,15 +485,18 @@ func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string,
 	output, err := h.runCSCLI(ctx, cscliListTimeout, args...)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to list alerts via cscli")
-		return []alertView{}, 0
+		if isCSCLITimeout(ctx, err) {
+			return []alertView{}, 0, msgAlertsTimedOut
+		}
+		return []alertView{}, 0, msgCSCLIFailed
 	}
 
 	alerts, err = parseCSCLIAlerts(output, limit)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to parse cscli alerts output")
-		return []alertView{}, 0
+		return []alertView{}, 0, msgCSCLIFailed
 	}
-	return alerts, len(alerts)
+	return alerts, len(alerts), ""
 }
 
 // ExportDecisions exports decisions as downloadable CSV or JSON.

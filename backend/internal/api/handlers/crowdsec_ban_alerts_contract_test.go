@@ -941,6 +941,7 @@ func TestOversizedCscliOutput_SameSoftError(t *testing.T) {
 		body := pr4Body(t, w)
 		assert.Equal(t, float64(0), body["total"])
 		assert.Empty(t, body["alerts"])
+		assert.Equal(t, "cscli not available or failed", body["error"])
 	})
 
 	t.Run("bouncer check: oversized output is not a registered bouncer", func(t *testing.T) {
@@ -1072,5 +1073,6 @@ func TestAlertsEndpoint_CscliFlagsAndFailures(t *testing.T) {
 		body := pr4Body(t, w)
 		assert.Equal(t, float64(0), body["total"])
 		assert.Empty(t, body["alerts"])
+		assert.Equal(t, "cscli not available or failed", body["error"])
 	})
 }

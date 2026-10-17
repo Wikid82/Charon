@@ -18,6 +18,13 @@ const (
 	cscliListTimeout = 30 * time.Second
 	// cscliChangeTimeout bounds the cscli commands that add or delete a decision.
 	cscliChangeTimeout = 15 * time.Second
+	// registerScriptTimeoutDefault bounds the bouncer registration script, which runs several cscli commands.
+	registerScriptTimeoutDefault = 30 * time.Second
+
+	// msgCSCLIFailed is the soft error of a listing when cscli failed or printed more than the limits allow.
+	msgCSCLIFailed       = "cscli not available or failed"
+	msgDecisionsTimedOut = "cscli decisions list timed out; the CrowdSec local API may be stopped"
+	msgAlertsTimedOut    = "cscli alerts list timed out; the CrowdSec local API may be stopped"
 
 	codeCSCLITimeout = "cscli_timeout"
 	msgCSCLITimeout  = "CrowdSec did not answer in time"
