@@ -215,7 +215,7 @@ func TestApplyJobMapsEachFailureToStateAndCode(t *testing.T) {
 		{"edited locally", &LocalModifiedError{Items: []string{"parsers/x"}}, jobFailed, "preset_local_modified"},
 		{"cscli missing", ErrCSCLIUnavailable, jobFailed, "cscli_unavailable"},
 		{"deadline", fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded), jobTimedOut, "preset_apply_timeout"},
-		{"cancelled", errPresetApplyCancelledPending, jobCancelled, ""},
+		{"cancelled", ErrPresetApplyCancelled, jobCancelled, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
