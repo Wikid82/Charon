@@ -22,15 +22,15 @@ import (
 // setBackgroundInstallActive with the real hook and removes its t.Skip.
 
 const (
-	pendingBusySkip  = "pending background install implementation"
-	busyJobID        = "00000000-0000-4000-8000-000000000001"
-	codeCrowdsecBusy = "crowdsec_busy"
+	pendingAsyncApplySkip = "pending the async preset apply route (PR 6 commit 6)"
+	busyJobID             = "00000000-0000-4000-8000-000000000001"
 )
 
-// setBackgroundInstallActive makes h behave as if install job jobID were running.
-func setBackgroundInstallActive(t *testing.T, _ *CrowdsecHandler, _ string) {
+// setBackgroundInstallActive makes h behave as if install job busyJobID were running.
+func setBackgroundInstallActive(t *testing.T, h *CrowdsecHandler) {
 	t.Helper()
-	t.Skip(pendingBusySkip)
+	require.True(t, h.ApplyJobs().TryAcquire(busyJobID))
+	t.Cleanup(h.ApplyJobs().Release)
 }
 
 type busyFixture struct {
@@ -186,7 +186,7 @@ func TestMutatingHandlersAnswerBusyWhileAnInstallRuns(t *testing.T) {
 	for route, bc := range busyCases {
 		t.Run(route, func(t *testing.T) {
 			f := newBusyFixture(t)
-			setBackgroundInstallActive(t, f.h, busyJobID)
+			setBackgroundInstallActive(t, f.h)
 			method, path, body, ct := bc.request(t, f)
 
 			w := f.do(method, path, body, ct)
@@ -211,7 +211,7 @@ func TestDuplicateStartAnswersBusyNotAlreadyRunningWhileAnInstallRuns(t *testing
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "already_running")
 
-	setBackgroundInstallActive(t, f.h, busyJobID)
+	setBackgroundInstallActive(t, f.h)
 	f.exec.statusCalls = 0
 	w = f.do(http.MethodPost, "/admin/crowdsec/start", nil, "")
 	require.Equal(t, http.StatusConflict, w.Code, "a reload during an install could interrupt it")
@@ -221,7 +221,7 @@ func TestDuplicateStartAnswersBusyNotAlreadyRunningWhileAnInstallRuns(t *testing
 func TestReadsStayOpenWhileAnInstallRuns(t *testing.T) {
 	f := newBusyFixture(t)
 	require.NoError(t, os.WriteFile(filepath.Join(f.dir, "readme.txt"), []byte("x"), 0o600))
-	setBackgroundInstallActive(t, f.h, busyJobID)
+	setBackgroundInstallActive(t, f.h)
 
 	for _, path := range []string{
 		"/admin/crowdsec/status",
@@ -241,7 +241,7 @@ func TestReadsStayOpenWhileAnInstallRuns(t *testing.T) {
 
 func TestNonBusyRoutesStayOpenWhileAnInstallRuns(t *testing.T) {
 	f := newBusyFixture(t)
-	setBackgroundInstallActive(t, f.h, busyJobID)
+	setBackgroundInstallActive(t, f.h)
 
 	for route, c := range mutatingCrowdsecRoutes {
 		if c.class == routeBusyChecked {
@@ -255,8 +255,8 @@ func TestNonBusyRoutesStayOpenWhileAnInstallRuns(t *testing.T) {
 }
 
 func TestHubItemsRestoreInProgressRefusesAnInstallJob(t *testing.T) {
+	t.Skip(pendingAsyncApplySkip)
 	f := newBusyFixture(t)
-	setBackgroundInstallActive(t, f.h, "") // only to skip until the async apply exists
 	f.h.restore.running.Store(true)
 	defer f.h.restore.running.Store(false)
 
@@ -272,18 +272,27 @@ func TestHubItemsRestoreInProgressRefusesAnInstallJob(t *testing.T) {
 }
 
 // endBackgroundInstall makes h behave as if the running job finished.
-func endBackgroundInstall(t *testing.T, _ *CrowdsecHandler) {
+func endBackgroundInstall(t *testing.T, h *CrowdsecHandler) {
 	t.Helper()
-	t.Skip(pendingBusySkip)
+	h.ApplyJobs().Release()
 }
 
 func TestBusyFlagIsReleasedWhenAJobEnds(t *testing.T) {
 	f := newBusyFixture(t)
-	setBackgroundInstallActive(t, f.h, busyJobID)
+	setBackgroundInstallActive(t, f.h)
 	write := []byte(`{"path":"a.txt","content":"x"}`)
 	require.Equal(t, http.StatusConflict, f.do(http.MethodPost, "/admin/crowdsec/file", write, "application/json").Code)
 
 	endBackgroundInstall(t, f.h)
 
 	require.Equal(t, http.StatusOK, f.do(http.MethodPost, "/admin/crowdsec/file", write, "application/json").Code, "writes work again after the job ended")
+}
+
+func TestHubItemsRestoreRunningBlocksTheBusyFlag(t *testing.T) {
+	f := newBusyFixture(t)
+	f.h.restore.running.Store(true)
+	require.False(t, f.h.ApplyJobs().TryAcquire(busyJobID), "no job may start while a restore runs")
+	f.h.restore.running.Store(false)
+	require.True(t, f.h.ApplyJobs().TryAcquire(busyJobID))
+	f.h.ApplyJobs().Release()
 }

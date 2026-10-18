@@ -350,6 +350,9 @@ func (h *CrowdsecHandler) ReadFile(c *gin.Context) {
 // the file-backup namespace. DataDir itself is never renamed or emptied.
 // JSON body: { "path": "relative/path.conf", "content": "..." }
 func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCrowdsecWriteBodyBytes)
 	var payload struct {
 		Path    string `json:"path"`
@@ -378,6 +381,9 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		return
 	}
 	defer h.dataMu.Unlock()
+	if h.refuseIfBusy(c) {
+		return
+	}
 
 	target, ferr := resolveWritable(h.DataDir, rel)
 	if ferr != nil {

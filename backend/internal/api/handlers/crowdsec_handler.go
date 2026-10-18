@@ -95,7 +95,10 @@ type CrowdsecHandler struct {
 
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
 	// and the export build; an export holds it only while writing its temporary file, never while sending.
-	// Lock order is always dataMu first, then HubService.mu.
+	// Lock order is always restore.running -> dataMu -> HubService.mu. The background install busy flag
+	// (ApplyJobs) is not a lock: handlers test it without waiting, at the top of the request and again right
+	// after taking dataMu, and a job start takes dataMu briefly to set it, so a handler that passed the check
+	// under dataMu is never overlapped by a job. The restore flag and the busy flag exclude each other.
 	// The wait is abandoned when the request ends (see lockData).
 	dataMu ctxMutex
 
@@ -105,6 +108,10 @@ type CrowdsecHandler struct {
 
 	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
 	restore hubRestoreState
+
+	// applyJobsOnce lazily builds applyJobs; ApplyJobs is the only reader.
+	applyJobsOnce sync.Once
+	applyJobs     *crowdsec.ApplyJobManager
 
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
@@ -591,6 +598,9 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 
 // Start starts the CrowdSec process and waits for LAPI to be ready.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	ctx := c.Request.Context()
 
 	// Read the status first so a failure here leaves the persisted config untouched.
@@ -732,6 +742,9 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 
 // Stop stops the CrowdSec process.
 func (h *CrowdsecHandler) Stop(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	ctx := c.Request.Context()
 	if err := h.Executor.Stop(ctx, h.DataDir); err != nil {
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to stop crowdsec")
@@ -786,6 +799,9 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 // configuration is snapshotted first and restored on failure; server-local state (live db, data/,
 // hub_cache/, installed hub items) is never replaced and DataDir itself is never renamed.
 func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
@@ -838,6 +854,9 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 	defer h.dataMu.Unlock()
+	if h.refuseIfBusy(c) {
+		return
+	}
 
 	// A nested installation reads config/config.yaml: refuse an archive that cannot provide it before
 	// anything is snapshotted or changed. When the inspection was skipped the check after extraction
@@ -1218,6 +1237,9 @@ func (h *CrowdsecHandler) respondExportError(c *gin.Context, err error) {
 
 // ConsoleEnroll enrolls the local engine with CrowdSec console.
 func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	if !h.isConsoleEnrollmentEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
 		return
@@ -2585,6 +2607,9 @@ func (h *CrowdsecHandler) ListWhitelists(c *gin.Context) {
 
 // AddWhitelist adds a new IP or CIDR to the CrowdSec whitelist.
 func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	var req struct {
 		IPOrCIDR string `json:"ip_or_cidr" binding:"required"`
 		Reason   string `json:"reason"`
@@ -2614,6 +2639,9 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 
 // DeleteWhitelist removes a whitelist entry by UUID.
 func (h *CrowdsecHandler) DeleteWhitelist(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	id := c.Param("uuid")
 	if id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid is required"})
@@ -2797,4 +2825,29 @@ func cscliFailureReason(out []byte) string {
 		return line
 	}
 	return "cscli reported an error"
+}
+
+// ApplyJobs returns the background install busy flag. It refuses to start a job while a hub item restore
+// runs.
+func (h *CrowdsecHandler) ApplyJobs() *crowdsec.ApplyJobManager {
+	h.applyJobsOnce.Do(func() {
+		h.applyJobs = crowdsec.NewApplyJobManager(h.restore.running.Load)
+	})
+	return h.applyJobs
+}
+
+const (
+	codeCrowdsecBusy = "crowdsec_busy"
+	msgCrowdsecBusy  = "CrowdSec is busy installing a preset; try again when it finishes"
+)
+
+// refuseIfBusy answers 409 crowdsec_busy, naming the active job, while a background install holds the busy
+// flag, and reports whether it did. It never waits, so call it before touching the executor or any config.
+func (h *CrowdsecHandler) refuseIfBusy(c *gin.Context) bool {
+	jobID, busy := h.ApplyJobs().Busy()
+	if !busy {
+		return false
+	}
+	respondCoded(c, http.StatusConflict, codeCrowdsecBusy, msgCrowdsecBusy, gin.H{"job_id": jobID})
+	return true
 }
