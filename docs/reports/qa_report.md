@@ -1,54 +1,55 @@
-# QA / Security Report: PR 5 (`fix/crowdsec-robustness-batch`, 15 commits)
+# QA Report: #1644 CrowdSec process tracking fix
 
-Date: 2026-10-17. Scope: CrowdSec exports, imports, presets, alerts, bans (spec rev 8, batch 5).
+Branch: `fix/crowdsec-process-tracking` (2 commits over `development`). Date: 2026-10-18.
 
 ## Gate results
 
-| Gate | Result |
-|---|---|
-| Backend `go build ./...` + `go test -race -timeout 60m ./...` | PASS (all packages ok) |
-| golangci-lint (`backend/.golangci.yml`, `.golangci-fast.yml`) | PASS (0 issues each) |
-| GORM scan | N/A (no models/migrations changed) |
-| Backend coverage script | PASS 92.0% statements / 91.0% lines (min 87%) |
-| Frontend `type-check` | PASS |
-| Frontend `build` | PASS (first attempt hit an `npm ci` race: "vite: not found"; rerun clean) |
-| Frontend coverage script | PASS lines 91.66% (min 87%) |
-| `scripts/local-patch-report.sh` | PASS overall 92.2% (backend 91.8%, frontend 98.5%). Lowest: `hub_snapshot.go` 75.7% (error branches), `backup.go` 76.9% |
-| Playwright `crowdsec-decisions.spec.ts --project=security-tests` | PASS 27/27 (changelog.json restored; tree clean) |
-| CodeQL Go + JS (CLI 2.27.2, no reinstall needed) | PASS 0 error/warning results. Go has 4 pre-existing notes (`go/cookie-secure-not-set`, `go/log-injection` x3) in files untouched by this PR. Generated db/sarif removed |
-| Real-cscli gate (v1.8.2-rc1, throwaway container) | PARTIAL, see below |
+| Gate | Result | Detail |
+|---|---|---|
+| `go build ./...` | PASS | clean |
+| `go test -race -timeout 60m ./...` | PASS | 42 packages ok, no FAIL, no data races |
+| golangci-lint (`backend/.golangci.yml`) | PASS | 0 issues |
+| golangci-lint (`.golangci-fast.yml`) | PASS | 0 issues |
+| Backend coverage (`scripts/go-test-coverage.sh`) | PASS | 92.1% statements, 91.0% lines (gate 87%) |
+| Local patch report | PASS | backend patch 93.2% (82/88). Uncovered: `crowdsec_exec.go` 66-67, 126-127, 179, 183 (error branches). The script needs `frontend/coverage/lcov.info`; an empty temporary file was used and removed (backend-only change). |
+| Real-process gate (container built from branch, fresh volume) | PASS | see below |
 
-## Real-cscli gate
+## Real-process gate (throwaway container, all artifacts deleted)
 
 | Check | Result |
 |---|---|
-| `alerts --since` with an old (3 d) and a new alert | PASS: 1h/24h return only the new one, 7d/30d both; `limit=1&offset=1` returns the older; `total` = fetched count |
-| Export with postgres and mysql `db_config` | PASS: user/password replaced by placeholders, no fixture value anywhere in the archive; special-char password (`$ : #`) handled |
-| Same-host import restores values | PASS: host's current values kept, `cscli config show` parses them; import onto a host without them returns `needs_values:["config.yaml"]` |
-| Offline apply | PASS: 503 `hub_unreachable`, translated text, tree restored (hub file list identical, no leftover cscli) |
-| Offline pull | FAIL (see M1) |
-| Pull of name shared by several sections (`crowdsecurity/crs`) | PASS: 409 `preset_type_ambiguous` with `types`; pull with type works; apply with the cache key (and with explicit type) installs `appsec-rules` |
-| Light snapshot with ~93 MB hub (97.5 MB) | PASS: snapshot dir ~0.5 MB (full import snapshot of same tree 98 MB, 2.9 s). Apply 0.55 s without filler vs 2.1 s with it; the increase is cscli's own hub scan (`cscli hub list` 169 ms -> 796 ms with the filler), not Charon's snapshot. Direct snapshot-only timing not measured (would need a Go test inside the package; app code not modified) |
-| Rollback leaves no orphans | PASS: forced via `HUB_APPLY_TIMEOUT_SECONDS=3` on `sigmahq/windows_proc_creation`: 504 `preset_apply_timeout`; hub file and dir lists, non-hub config checksums and `cscli hub list` output identical before/after; no cscli processes left |
-| List errors show codes | PASS: LAPI down gives 200 with `error_code:"cscli_timeout"` for decisions and alerts (30 s) |
+| Clean start | PASS: `started`, pid 468, pid file 468, status running |
+| Duplicate Start | PASS: HTTP 200 `already_running`, pid 468, pid file still 468, engine untouched |
+| Status | PASS: `running:true` with live pid |
+| Stop | PASS: process gone, pid file removed, status `running:false` |
+| Engine started via `docker exec` (no pid file) | PASS: Status adopts it (pid 588, pid file rewritten), Stop kills it and removes the file |
+| Container restart then Start | PASS: boot re-launched the engine, Start returned `already_running`; Stop then Start gave a fresh engine with correct pid file |
+| Stale pid file pointing at unrelated live `sleep` (no engine) | PASS: Status `running:false`, Stop did not signal `sleep` (still alive), stale file removed |
+| Same stale file while an untracked engine runs | PASS: engine adopted and stopped, `sleep` untouched |
+
+Note: JWTs are invalidated by a container restart, so a re-login was needed. This is existing behaviour and unrelated to the fix.
+
+## /proc scan security review
+
+`findProcess` walks `/proc`, requires `cmdline` to contain `crowdsec` and one argument to equal exactly `<configDir>/config/config.yaml`. It does not follow symlinks or read beyond `cmdline`, and `procPath` is a trusted constant. A process using a different config dir is not matched (verified with `other.yaml`).
 
 ## Findings
 
-### M1 (major): offline pull returns a generic 502 instead of `hub_unreachable` in the normal state
+### Blocker
+None.
 
-- Where: `backend/internal/crowdsec/hub_sync.go:572-586` (`Pull`) with `FetchIndex` (:265-283).
-- Evidence: container with no network but with the hub previously fetched (the usual state): pull of an uncached slug returns `502 {"error":"hub index has no download location for this preset (index unreachable)","hub_endpoints":[...]}`, no `error_code`. `FetchIndex` falls back to the local cscli index, so it does not return `ErrHubUnreachable`; `Pull` then sees `idx.offline` with an empty `DownloadURL` and returns a plain error. `ErrHubUnreachable` is only produced when the cscli fallback also fails (what `hub_unreachable_test.go` covers).
-- Impact: the spec acceptance line "offline pull/apply answer `hub_unreachable` with a translated message" is not met for pull; users see untranslated English text. Apply is fine.
-- Fix: in `Pull`, when `idx.offline && entry.DownloadURL == ""` return an error wrapping `ErrHubUnreachable` (and add a test with a working cscli fallback).
-- (Cached presets still pull fine offline, e.g. `crowdsecurity/crs` was served from the cache.)
+### Major
+None.
 
-### Minor / notes
+### Minor
+1. **Process match is too loose (verified).** `isCrowdSecProcess` only checks that the cmdline contains the substring `crowdsec` anywhere, and the config path itself (`.../crowdsec/config/config.yaml`) contains it. Any process that has that config file as an argument is therefore adopted by Status and SIGTERM/SIGKILLed by Stop. Reproduced with `tail -f /app/data/crowdsec/config/config.yaml`: Status reported `running:true` with its pid, and Stop killed it. Exploitability is low, since it needs the ability to exec in the container as the same user, but it can kill an unrelated helper (editor, `cat`, a backup tool). Suggested fix in `crowdsec_exec.go`: require `filepath.Base(args[0]) == "crowdsec"` (or `args[0]` ending in `/crowdsec`) in `findProcess`, and ideally in `isCrowdSecProcess` too.
+2. **Start has a check-then-act race.** Two concurrent Start requests can both see `running:false` and both spawn, which recreates the original symptom, though only for simultaneous calls. Suggested fix: serialise Start/Stop with a mutex on the handler or executor.
+3. **Uncovered error branches** (patch report lines above) are low risk. Optional extra tests.
 
-- m1: `hub_snapshot.go` patch coverage 75.7% (error branches of the sidecar writer/manifest walker); acceptable, add error-injection tests if cheap.
-- m2 (not in this PR's scope, CrowdSec): in my throwaway container the API `stop` reported `stopped` while the entrypoint-started crowdsec process kept running, and `start` reported a different pid. Likely an artifact of the container restart with persisted config (process not tracked by the handler); worth a look when touching lifecycle code. No issue filed (CrowdSec items go to the spec).
-- m3: backup directories (`crowdsec.backup.*`) accumulate per apply; light ones are ~0.5 MB, full import ones ~98 MB at this hub size. Existing retention behavior, unchanged.
-- Test harness notes: login is rate limited (retry after ~60 s) and a request whose client half-closes the connection cancels the request context (made my first offline-pull probe misleading; redone with the connection held open).
+No GORM, model or migration changes, so the GORM scan does not apply. This is a `fix:`, so local CodeQL/Trivy were skipped and deferred to CI per policy.
+
+## Cleanup
+Container `qa1644-c`, volume `qa1644-vol` and image `qa1644-img:test` were removed, and temp files deleted. Container `charon` was not touched (still up/healthy). The git working tree is clean apart from this report, which is uncommitted.
 
 ## Verdict
-
-No blockers and no security findings. One major functional gap (M1) against the stated acceptance criteria; everything else passes. Cleanup done: throwaway container, volume, network and image tag removed; working tree clean (`git status` empty); only this file is new (uncommitted).
+Mergeable. Minor 1 is worth a quick follow-up in this PR since it is a one-line tightening.

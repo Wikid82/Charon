@@ -10,6 +10,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if isStubCrowdsec() {
+		runStubCrowdsec()
+	}
 	gin.SetMode(gin.TestMode)
 	database.SyncIntegrityCheckForTesting()
 	os.Exit(tmpguard.Run(m))
