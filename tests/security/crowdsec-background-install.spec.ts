@@ -11,15 +11,16 @@
  * - failed, interrupted and succeeded final states
  * - passive UI: no banner, no alert, no toast per poll
  *
- * All specs are `test.fixme` until the UI lands (PR 6 commit 7); commit 8 enables them.
- * Accessible names below are the intended copy; the i18n key each one maps to is noted beside it
- * and the exact English strings must be reconciled with the locale file when the fixme is lifted.
+ * Time never passes in these specs: the elapsed text comes from the `elapsed_seconds` the mocked job
+ * view reports. The poll delay is 2 s while a job is under 30 s old, so every sequence keeps its
+ * `elapsed_seconds` small, and waits are auto-retrying assertions. The i18n key behind each copy
+ * is noted beside it (crowdsecConfig.presets.installProgress.* and crowdsecConfig.busy).
  */
 
 import type { Page, Route } from '@playwright/test';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
-import { CROWDSEC_ROUTES, stubCrowdSecApi } from '../utils/crowdsec-stubs';
+import { crowdsecFixtures, stubCrowdSecApi } from '../utils/crowdsec-stubs';
 
 const ADMIN = String.raw`/api/v1/admin/crowdsec`;
 const END = String.raw`(?:\?.*)?$`;
@@ -27,8 +28,8 @@ const END = String.raw`(?:\?.*)?$`;
 const PRESETS_ROUTE = '**/api/v1/admin/crowdsec/presets';
 const PULL_ROUTE = '**/api/v1/admin/crowdsec/presets/pull';
 const APPLY_ROUTE = new RegExp(`${ADMIN}/presets/apply${END}`);
-const JOB_CURRENT_ROUTE = new RegExp(`${ADMIN}/presets/apply/jobs/current${END}`);
-const JOB_BY_ID_ROUTE = new RegExp(`${ADMIN}/presets/apply/jobs/(?!current)[^/?]+${END}`);
+const JOB_CURRENT_ROUTE = new RegExp(`${ADMIN}/presets/jobs/current${END}`);
+const JOB_BY_ID_ROUTE = new RegExp(`${ADMIN}/presets/jobs/(?!current)[^/?]+${END}`);
 const START_ROUTE = new RegExp(`${ADMIN}/start${END}`);
 const IMPORT_ROUTE = new RegExp(`${ADMIN}/import${END}`);
 
@@ -47,28 +48,30 @@ interface JobStatusOptions {
   itemsInstalled?: number;
   elapsedSeconds?: number;
   errorCode?: string | null;
-  messageCode?: string | null;
-  result?: Record<string, unknown> | null;
+  warnings?: string[];
+  cancelRequested?: boolean;
 }
 
-/** Builds a job status body shaped like `GET /admin/crowdsec/presets/apply/jobs/:id` (spec 8.2). */
+/** Builds a job status body shaped like `GET /admin/crowdsec/presets/jobs/:id` . */
 function jobStatus(options: JobStatusOptions): Record<string, unknown> {
   const terminal = ['succeeded', 'failed', 'timed_out', 'cancelled'].includes(options.state);
   return {
     job_id: JOB_ID,
     slug: HUB_PRESET_SLUG,
+    item_type: 'collections',
     cache_key: CACHE_KEY,
     state: options.state,
     phase: options.phase ?? 'install',
+    error_code: options.errorCode ?? '',
+    error: '',
+    warnings: options.warnings ?? [],
     items_installed: options.itemsInstalled ?? 0,
     items_total: null,
+    cancel_requested: options.cancelRequested ?? false,
     elapsed_seconds: options.elapsedSeconds ?? 0,
+    created_at: STARTED_AT,
     started_at: STARTED_AT,
     finished_at: terminal ? '2026-10-18T10:06:00Z' : null,
-    message_code: options.messageCode ?? null,
-    message: '',
-    result: options.result ?? null,
-    error_code: options.errorCode ?? null,
   };
 }
 
@@ -92,7 +95,8 @@ async function stubHubPreset(page: Page): Promise<void> {
           source: 'hub',
           requires_hub: true,
           available: true,
-          cached: false,
+          cached: true,
+          cache_key: CACHE_KEY,
         },
       ],
     });
@@ -108,10 +112,10 @@ async function stubHubPreset(page: Page): Promise<void> {
   });
 }
 
-/** Answers `GET jobs/current` with 404 (no active or recent job) unless a test overrides it. */
+/** Answers `GET jobs/current` with `{ job: null }` (no active or recent job) unless a test overrides it. */
 async function stubNoCurrentJob(page: Page): Promise<void> {
   await page.route(JOB_CURRENT_ROUTE, async (route) => {
-    await fulfillJson(route, 404, { error: 'no job', error_code: 'job_not_found' });
+    await fulfillJson(route, 200, { job: null });
   });
 }
 
@@ -135,13 +139,7 @@ async function stubAsyncApply(page: Page): Promise<Array<Record<string, unknown>
   const bodies: Array<Record<string, unknown>> = [];
   await page.route(APPLY_ROUTE, async (route) => {
     bodies.push(route.request().postDataJSON() as Record<string, unknown>);
-    await fulfillJson(route, 202, {
-      job_id: JOB_ID,
-      state: 'queued',
-      slug: HUB_PRESET_SLUG,
-      cache_key: CACHE_KEY,
-      started_at: STARTED_AT,
-    });
+    await fulfillJson(route, 202, jobStatus({ state: 'queued', phase: 'preflight' }));
   });
   return bodies;
 }
@@ -154,11 +152,12 @@ async function loadPage(page: Page): Promise<void> {
 /** Selects the hub preset, pulls the preview and clicks Apply. */
 async function startApply(page: Page): Promise<void> {
   await page.getByRole('button', { name: new RegExp(HUB_PRESET_TITLE, 'i') }).click();
-  await expect(page.getByText('Preview fetched from hub')).toBeVisible();
-  await page.getByRole('button', { name: /apply preset/i }).click();
+  const apply = page.getByRole('button', { name: /apply preset/i });
+  await expect(apply).toBeEnabled();
+  await apply.click();
 }
 
-/** The inline progress row; intended i18n: crowdsecConfig.presets.installProgress.* */
+/** The inline progress row; i18n: crowdsecConfig.presets.installProgress.label */
 function progressRow(page: Page) {
   return page.getByRole('status', { name: /installing preset/i });
 }
@@ -170,7 +169,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await stubHubPreset(page);
   });
 
-  test.fixme('should start the install asynchronously and show a passive progress row', async ({ page }) => {
+  test('should start the install asynchronously and show a passive progress row', async ({ page }) => {
     const applyBodies = await stubAsyncApply(page);
     await stubNoCurrentJob(page);
     await stubJobPolls(page, [
@@ -189,11 +188,11 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await test.step('Verify the progress row shows the phase, item count and elapsed time', async () => {
       const row = progressRow(page);
       await expect(row).toBeVisible();
-      // phases: crowdsecConfig.presets.installProgress.phase.{preflight,snapshot,install,verify,reload,rollback}
+      // phase: installProgress.phase.install
       await expect(row).toContainText(/installing/i);
-      // item count (ICU plural): crowdsecConfig.presets.installProgress.items
-      await expect(row).toContainText(/12 items/i);
-      // elapsed time: crowdsecConfig.presets.installProgress.elapsed
+      // item count: installProgress.itemsSoFar
+      await expect(row).toContainText(/12 items so far/i);
+      // elapsed time: installProgress.elapsed
       await expect(row).toContainText(/3 min 20 s/i);
       await expect(page.getByRole('button', { name: /cancel/i })).toBeVisible();
     });
@@ -204,7 +203,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
     });
   });
 
-  test.fixme('should show the running phases in order as polls advance', async ({ page }) => {
+  test('should show the running phases in order as polls advance', async ({ page }) => {
     await stubAsyncApply(page);
     await stubNoCurrentJob(page);
     await stubJobPolls(page, [
@@ -220,66 +219,52 @@ test.describe('CrowdSec background hub preset install @security', () => {
 
     const row = progressRow(page);
     await expect(row).toContainText(/preparing/i);
-    await expect(row).toContainText(/snapshot/i);
+    await expect(row).toContainText(/saving a snapshot/i);
     await expect(row).toContainText(/installing/i);
     await expect(row).toContainText(/verifying/i);
-    await expect(row).toContainText(/reloading/i);
+    await expect(row).toContainText(/reloading crowdsec/i);
   });
 
-  test.fixme('should poll until a terminal state, then stop polling and show the result once', async ({ page }) => {
+  test('should poll until a terminal state, then stop polling and show the result once', async ({ page }) => {
+    // Installed before any navigation so the elapsed polling timers can be fast-forwarded.
+    await page.clock.install();
     await stubAsyncApply(page);
     await stubNoCurrentJob(page);
     const jobPolls = await stubJobPolls(page, [
       jobStatus({ state: 'running', phase: 'install', itemsInstalled: 5, elapsedSeconds: 4 }),
-      jobStatus({
-        state: 'succeeded',
-        phase: 'reload',
-        itemsInstalled: 41,
-        elapsedSeconds: 360,
-        result: {
-          status: 'applied',
-          backup: '/data/backups/pre-apply',
-          reload_hint: true,
-          used_cscli: true,
-          cache_key: CACHE_KEY,
-          slug: HUB_PRESET_SLUG,
-          warnings: [],
-        },
-      }),
+      jobStatus({ state: 'succeeded', phase: 'reload', itemsInstalled: 41, elapsedSeconds: 360 }),
     ]);
 
     await loadPage(page);
     await startApply(page);
 
     await test.step('Verify the succeeded state replaces the progress row', async () => {
-      // crowdsecConfig.presets.installProgress.succeeded
-      await expect(page.getByText(/preset applied/i)).toBeVisible();
-      await expect(progressRow(page)).toBeHidden();
+      // installProgress.succeeded + installProgress.itemsInstalled
+      await expect(page.getByText(/preset applied\. 41 items installed/i)).toBeVisible();
+      await expect(progressRow(page)).toHaveCount(0);
       await expect(page.getByRole('button', { name: /apply preset/i })).toBeEnabled();
     });
 
     await test.step('Verify no further polls are issued after the terminal state', async () => {
       const pollsAtTerminal = jobPolls.polls();
-      // A terminal job must not be polled again; poll count settles and stays put.
-      await expect.poll(() => jobPolls.polls(), { timeout: 3000 }).toBe(pollsAtTerminal);
+      // Ten minutes of fake time would trigger many slow-cadence polls if the loop were still running.
+      await page.clock.fastForward('10:00');
+      expect(jobPolls.polls()).toBe(pollsAtTerminal);
+      await expect(page.getByText(/preset applied\. 41 items installed/i)).toBeVisible();
     });
   });
 
-  test.fixme('should resume the progress row after a page reload from the current job', async ({ page }) => {
+  test('should resume the progress row after a page reload from the current job', async ({ page }) => {
     await stubAsyncApply(page);
-    let currentRequests = 0;
+    let reloaded = false;
     await page.route(JOB_CURRENT_ROUTE, async (route) => {
-      currentRequests += 1;
-      // Before Apply there is no job; once started (and after the reload) the job is active.
+      // Before the reload there is no job; after it the job is active.
       await fulfillJson(
         route,
-        currentRequests === 1 ? 404 : 200,
-        currentRequests === 1 ? { error: 'no job', error_code: 'job_not_found' } : jobStatus({
-          state: 'running',
-          phase: 'install',
-          itemsInstalled: 18,
-          elapsedSeconds: 95,
-        }),
+        200,
+        !reloaded ? { job: null } : {
+          job: jobStatus({ state: 'running', phase: 'install', itemsInstalled: 18, elapsedSeconds: 95 }),
+        },
       );
     });
     await stubJobPolls(page, [
@@ -287,50 +272,35 @@ test.describe('CrowdSec background hub preset install @security', () => {
     ]);
 
     await loadPage(page);
-    await expect(progressRow(page)).toBeHidden();
+    await expect(progressRow(page)).toHaveCount(0);
 
     await test.step('Reload and verify the active job is resumed without restarting it', async () => {
+      reloaded = true;
       await page.reload();
       await waitForLoadingComplete(page);
       const row = progressRow(page);
       await expect(row).toBeVisible();
-      await expect(row).toContainText(/18 items/i);
+      await expect(row).toContainText(/18 items so far/i);
       await expect(row).toContainText(/1 min 35 s/i);
       await expect(page.getByRole('button', { name: /cancel/i })).toBeVisible();
     });
   });
 
-  test.fixme('should show a recently finished job once on load', async ({ page }) => {
+  test('should show a recently finished job once on load', async ({ page }) => {
     await page.route(JOB_CURRENT_ROUTE, async (route) => {
-      await fulfillJson(
-        route,
-        200,
-        jobStatus({
-          state: 'succeeded',
-          phase: 'reload',
-          itemsInstalled: 41,
-          elapsedSeconds: 360,
-          result: {
-            status: 'applied',
-            backup: '/data/backups/pre-apply',
-            reload_hint: true,
-            used_cscli: true,
-            cache_key: CACHE_KEY,
-            slug: HUB_PRESET_SLUG,
-            warnings: [],
-          },
-        }),
-      );
+      await fulfillJson(route, 200, {
+        job: jobStatus({ state: 'succeeded', phase: 'reload', itemsInstalled: 41, elapsedSeconds: 360 }),
+      });
     });
 
     await loadPage(page);
 
-    await expect(page.getByText(/preset applied/i)).toBeVisible();
-    await expect(progressRow(page)).toBeHidden();
+    await expect(page.getByText(/preset applied\. 41 items installed/i)).toBeVisible();
+    await expect(progressRow(page)).toHaveCount(0);
     await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
   });
 
-  test.fixme('should cancel a running install and show the cancelled state with a rollback note', async ({ page }) => {
+  test('should cancel a running install and show the cancelled state with a rollback note', async ({ page }) => {
     await stubAsyncApply(page);
     await stubNoCurrentJob(page);
     let cancelled = false;
@@ -340,15 +310,15 @@ test.describe('CrowdSec background hub preset install @security', () => {
       if (method === 'DELETE') {
         cancelRequests += 1;
         cancelled = true;
-        await fulfillJson(route, 202, { job_id: JOB_ID, state: 'running' });
+        await fulfillJson(route, 202, jobStatus({ state: 'running', phase: 'install', itemsInstalled: 9, elapsedSeconds: 10, cancelRequested: true }));
         return;
       }
       await fulfillJson(
         route,
         200,
         cancelled
-          ? jobStatus({ state: 'cancelled', phase: 'rollback', itemsInstalled: 0, elapsedSeconds: 60, messageCode: 'cancelled' })
-          : jobStatus({ state: 'running', phase: 'install', itemsInstalled: 9, elapsedSeconds: 30 }),
+          ? jobStatus({ state: 'cancelled', phase: 'rollback', itemsInstalled: 0, elapsedSeconds: 60, errorCode: 'cancelled' })
+          : jobStatus({ state: 'running', phase: 'install', itemsInstalled: 9, elapsedSeconds: 10 }),
       );
     });
 
@@ -357,7 +327,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await expect(progressRow(page)).toContainText(/installing/i);
 
     await test.step('Click Cancel and verify one DELETE is sent', async () => {
-      await page.getByRole('button', { name: /cancel/i }).click();
+      await page.getByRole('button', { name: /^cancel$/i }).click();
       await expect.poll(() => cancelRequests).toBe(1);
     });
 
@@ -370,7 +340,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
     });
   });
 
-  test.fixme('should show the failure text and rollback note when the install fails', async ({ page }) => {
+  test('should show the failure text and rollback note when the install fails', async ({ page }) => {
     await stubAsyncApply(page);
     await stubNoCurrentJob(page);
     await stubJobPolls(page, [
@@ -381,46 +351,42 @@ test.describe('CrowdSec background hub preset install @security', () => {
         itemsInstalled: 0,
         elapsedSeconds: 40,
         errorCode: 'preset_local_modified',
-        messageCode: 'preset_local_modified',
       }),
     ]);
 
     await loadPage(page);
     await startApply(page);
 
-    // crowdsecConfig.presets.installProgress.failed + the existing preset_local_modified error text
-    await expect(page.getByText(/install failed/i)).toBeVisible();
+    // installProgress.failed + the preset_local_modified outcome text
+    await expect(page.getByText(/install failed\./i)).toBeVisible();
     await expect(page.getByText(/previous configuration was restored/i)).toBeVisible();
     await expect(page.getByText(/preset applied/i)).toHaveCount(0);
     await expect(progressRow(page)).toBeHidden();
     await expect(page.getByRole('button', { name: /apply preset/i })).toBeEnabled();
   });
 
-  test.fixme('should show the interrupted state when the server restarted mid-install', async ({ page }) => {
+  test('should show the interrupted state when the server restarted mid-install', async ({ page }) => {
     await stubAsyncApply(page);
     await page.route(JOB_CURRENT_ROUTE, async (route) => {
-      await fulfillJson(
-        route,
-        200,
-        jobStatus({
+      await fulfillJson(route, 200, {
+        job: jobStatus({
           state: 'failed',
           phase: 'rollback',
           elapsedSeconds: 120,
           errorCode: 'interrupted',
-          messageCode: 'interrupted',
         }),
-      );
+      });
     });
 
     await loadPage(page);
 
     // crowdsecConfig.presets.installProgress.interrupted
-    await expect(page.getByText(/install was interrupted/i)).toBeVisible();
+    await expect(page.getByText(/install was interrupted by a restart/i)).toBeVisible();
     await expect(page.getByText(/previous configuration was restored/i)).toBeVisible();
     await expect(progressRow(page)).toBeHidden();
   });
 
-  test.fixme('should show the timed out state with a rollback note', async ({ page }) => {
+  test('should show the timed out state with a rollback note', async ({ page }) => {
     await stubAsyncApply(page);
     await stubNoCurrentJob(page);
     await stubJobPolls(page, [
@@ -429,7 +395,6 @@ test.describe('CrowdSec background hub preset install @security', () => {
         phase: 'rollback',
         elapsedSeconds: 1800,
         errorCode: 'preset_apply_timeout',
-        messageCode: 'preset_apply_timeout',
       }),
     ]);
 
@@ -441,7 +406,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await expect(page.getByText(/previous configuration was restored/i)).toBeVisible();
   });
 
-  test.fixme('should show "waiting for the server" and recover when status polls fail', async ({ page }) => {
+  test('should show "waiting for the server" and recover when status polls fail', async ({ page }) => {
     await stubAsyncApply(page);
     await stubNoCurrentJob(page);
     let polls = 0;
@@ -463,7 +428,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
-  test.fixme('should answer a second apply with the busy text and show the active job', async ({ page }) => {
+  test('should answer a second apply with the busy text and show the active job', async ({ page }) => {
     await stubNoCurrentJob(page);
     await page.route(APPLY_ROUTE, async (route) => {
       await fulfillJson(route, 409, {
@@ -480,22 +445,29 @@ test.describe('CrowdSec background hub preset install @security', () => {
     // translateApiError: errors.crowdsec_busy
     await expect(page.getByText(/crowdsec is busy installing a preset/i)).toBeVisible();
     await expect(page.getByText(/preset applied/i)).toHaveCount(0);
+    // The refusal names the running job, so its progress row is shown.
+    await expect(progressRow(page)).toContainText(/4 items so far/i);
   });
 
   test.describe('while a job is active', () => {
+    let recorder: Awaited<ReturnType<typeof stubCrowdSecApi>>;
+
     test.beforeEach(async ({ page }) => {
-      await stubCrowdSecApi(page, {});
+      recorder = await stubCrowdSecApi(page, {
+        consoleEnrollmentEnabled: true,
+        consoleStatus: crowdsecFixtures.notEnrolled(),
+        status: crowdsecFixtures.runningStatus({ running: false, pid: 0, lapi_ready: false }),
+        exportBody: Buffer.from('e2e-archive'),
+      });
       await page.route(JOB_CURRENT_ROUTE, async (route) => {
-        await fulfillJson(
-          route,
-          200,
-          jobStatus({ state: 'running', phase: 'install', itemsInstalled: 11, elapsedSeconds: 70 }),
-        );
+        await fulfillJson(route, 200, {
+          job: jobStatus({ state: 'running', phase: 'install', itemsInstalled: 11, elapsedSeconds: 70 }),
+        });
       });
       await stubJobPolls(page, [jobStatus({ state: 'running', phase: 'install', itemsInstalled: 11, elapsedSeconds: 70 })]);
     });
 
-    test.fixme('should show the busy text when starting CrowdSec during a job', async ({ page }) => {
+    test('should show the busy text when starting CrowdSec during a job', async ({ page }) => {
       let startRequests = 0;
       await page.route(START_ROUTE, async (route) => {
         startRequests += 1;
@@ -509,7 +481,8 @@ test.describe('CrowdSec background hub preset install @security', () => {
       await loadPage(page);
       await expect(progressRow(page)).toBeVisible();
 
-      await page.getByRole('button', { name: /^start$/i }).click();
+      // The not-running banner appears only after the page's 3 second start-up grace period.
+      await page.getByRole('button', { name: 'Start CrowdSec' }).click({ timeout: 15_000 });
 
       await test.step('Verify the translated busy message and no extra polling or banner', async () => {
         await expect(page.getByText(/crowdsec is busy installing a preset/i)).toBeVisible();
@@ -519,7 +492,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
       });
     });
 
-    test.fixme('should show the busy text when importing a configuration during a job', async ({ page }) => {
+    test('should show the busy text when importing a configuration during a job', async ({ page }) => {
       await page.route(IMPORT_ROUTE, async (route) => {
         await fulfillJson(route, 409, {
           error: 'CrowdSec is busy',
@@ -531,8 +504,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
       await loadPage(page);
       await expect(progressRow(page)).toBeVisible();
 
-      // Hidden file input behind the "Import" control; role-based fallback is the labelled input.
-      await page.getByLabel(/import/i).setInputFiles({
+      await page.getByLabel('Select CrowdSec package file').setInputFiles({
         name: 'crowdsec-config.tar.gz',
         mimeType: 'application/gzip',
         buffer: Buffer.from('e2e-archive'),
@@ -542,18 +514,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
       await expect(page.getByText(/crowdsec is busy installing a preset/i)).toBeVisible();
     });
 
-    test.fixme('should keep read-only views usable during a job', async ({ page }) => {
-      let exportRequests = 0;
-      await page.route(CROWDSEC_ROUTES.export, async (route) => {
-        exportRequests += 1;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/gzip',
-          headers: { 'content-disposition': 'attachment; filename="crowdsec-config.tar.gz"' },
-          body: Buffer.from('e2e-archive'),
-        });
-      });
-
+    test('should keep read-only views usable during a job', async ({ page }) => {
       await loadPage(page);
       await expect(progressRow(page)).toBeVisible();
 
@@ -563,10 +524,11 @@ test.describe('CrowdSec background hub preset install @security', () => {
       });
 
       await test.step('Verify export is not blocked by the busy flag', async () => {
+        page.once('dialog', (dialog) => void dialog.accept('crowdsec-config.tar.gz'));
         const download = page.waitForEvent('download');
-        await page.getByRole('button', { name: /export/i }).click();
+        await page.getByRole('button', { name: /^export$/i }).click();
         await download;
-        expect(exportRequests).toBe(1);
+        expect(recorder.exportRequests).toBe(1);
       });
     });
   });
