@@ -27,7 +27,7 @@ const (
 func setBackgroundInstallActive(t *testing.T, h *CrowdsecHandler) {
 	t.Helper()
 	require.True(t, h.ApplyJobs().TryAcquire(busyJobID))
-	t.Cleanup(h.ApplyJobs().Release)
+	t.Cleanup(func() { h.ApplyJobs().Release(busyJobID) })
 }
 
 type busyFixture struct {
@@ -272,7 +272,7 @@ func TestHubItemsRestoreInProgressRefusesAnInstallJob(t *testing.T) {
 // endBackgroundInstall makes h behave as if the running job finished.
 func endBackgroundInstall(t *testing.T, h *CrowdsecHandler) {
 	t.Helper()
-	h.ApplyJobs().Release()
+	h.ApplyJobs().Release(busyJobID)
 }
 
 func TestBusyFlagIsReleasedWhenAJobEnds(t *testing.T) {
@@ -292,5 +292,5 @@ func TestHubItemsRestoreRunningBlocksTheBusyFlag(t *testing.T) {
 	require.False(t, f.h.ApplyJobs().TryAcquire(busyJobID), "no job may start while a restore runs")
 	f.h.restore.running.Store(false)
 	require.True(t, f.h.ApplyJobs().TryAcquire(busyJobID))
-	f.h.ApplyJobs().Release()
+	f.h.ApplyJobs().Release(busyJobID)
 }

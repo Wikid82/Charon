@@ -151,31 +151,34 @@ func (r *ApplyJobRepository) ListRecent(ctx context.Context, limit int) ([]model
 	return jobs, nil
 }
 
-// MarkRunningAsInterrupted fails every active job with the interrupted code (the process that ran them is
-// gone) and returns the affected jobs as they were before, so the caller can restore their backups.
-func (r *ApplyJobRepository) MarkRunningAsInterrupted(ctx context.Context) ([]models.CrowdsecApplyJob, error) {
+// ActiveJobs returns every job still in an active state, oldest first.
+func (r *ApplyJobRepository) ActiveJobs(ctx context.Context) ([]models.CrowdsecApplyJob, error) {
 	var jobs []models.CrowdsecApplyJob
-	if err := r.db.WithContext(ctx).Where("state IN ?", activeApplyStates).Find(&jobs).Error; err != nil {
-		return nil, fmt.Errorf("find interrupted crowdsec apply jobs: %w", err)
+	if err := r.db.WithContext(ctx).Where("state IN ?", activeApplyStates).Order("created_at ASC").Find(&jobs).Error; err != nil {
+		return nil, fmt.Errorf("find active crowdsec apply jobs: %w", err)
 	}
-	if len(jobs) == 0 {
-		return nil, nil
-	}
+	return jobs, nil
+}
+
+// MarkInterrupted fails the still-active job id with the interrupted code (the process that ran it is gone),
+// storing warnings (may be empty) in the same write. A job that is no longer active is left alone.
+func (r *ApplyJobRepository) MarkInterrupted(ctx context.Context, id, warnings string) error {
 	now := r.now()
-	ids := make([]string, len(jobs))
-	for i := range jobs {
-		ids[i] = jobs[i].ID
-	}
-	err := r.db.WithContext(ctx).Model(&models.CrowdsecApplyJob{}).Where("id IN ?", ids).Updates(map[string]any{
+	cols := map[string]any{
 		"state":       models.CrowdsecApplyJobFailed,
 		"error_code":  models.CrowdsecApplyErrInterrupted,
 		"finished_at": now,
 		"updated_at":  now,
-	}).Error
-	if err != nil {
-		return nil, fmt.Errorf("mark crowdsec apply jobs interrupted: %w", err)
 	}
-	return jobs, nil
+	if warnings != "" {
+		cols["warnings"] = warnings
+	}
+	err := r.db.WithContext(ctx).Model(&models.CrowdsecApplyJob{}).
+		Where("id = ? AND state IN ?", id, activeApplyStates).Updates(cols).Error
+	if err != nil {
+		return fmt.Errorf("mark crowdsec apply job interrupted: %w", err)
+	}
+	return nil
 }
 
 // Prune deletes finished jobs beyond the newest keepFinished that are also older than maxAge. Active jobs

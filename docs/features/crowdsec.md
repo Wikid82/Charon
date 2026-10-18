@@ -66,7 +66,8 @@ Big presets (hundreds of items) can take many minutes, so Charon installs them i
 - **Other CrowdSec changes wait.** While an install runs, starting or stopping CrowdSec, importing a configuration, saving a file, changing the whitelist, enrolling in the Console and installing missing hub items are paused. Charon shows a "busy" message; try again when the install finishes.
 - **If Charon restarts mid-install,** your previous settings are restored automatically and the job is shown as interrupted. Just start the install again.
 - **Time limit.** An install is stopped and rolled back after 30 minutes.
-- **History.** Charon remembers your latest 20 installs, for up to 7 days, so you can see how the last ones ended.
+- **History.** Charon keeps the newest 20 finished installs no matter how old they are, plus any that finished less than 7 days ago, so you can see how the last ones ended.
+- **Exports keep working.** You can still export your configuration while an install runs, but that export can contain a partly installed hub tree. Export again after the install finishes if you want a clean copy.
 
 #### Curated Presets
 
@@ -349,8 +350,8 @@ Routes live under `/api/v1/admin/crowdsec/presets/` and need an admin login.
 | Endpoint | Method | What It Does |
 | ---------- | -------- | -------------- |
 | `.../apply` | POST | Installs a pulled preset. Send `"async": true` to start a background job; the reply is `202` with the job. Without it the install is synchronous, which is deprecated for large presets |
-| `.../jobs/current` | GET | The running job, or the most recently finished one |
-| `.../jobs` | GET | Recent jobs (latest 20, up to 7 days) |
+| `.../jobs/current` | GET | The running job, or the job that finished within the last 30 minutes (otherwise `{"job": null}`) |
+| `.../jobs` | GET | Recent jobs (newest first; retention keeps the newest 20 finished jobs regardless of age, plus any younger than 7 days) |
 | `.../jobs/:id` | GET | One job |
 | `.../jobs/:id` | DELETE | Cancels a running job and rolls back |
 

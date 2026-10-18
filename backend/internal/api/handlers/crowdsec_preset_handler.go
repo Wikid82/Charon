@@ -260,9 +260,6 @@ func respondCoded(c *gin.Context, status int, code, msg string, extra gin.H) {
 // crowdsec_apply_jobs_handler.go); curated presets are quick and always apply synchronously. The synchronous
 // path is bounded by the 120 s apply timeout and is deprecated for large hub presets, which can take minutes.
 func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
-	if h.refuseIfBusy(c) {
-		return
-	}
 	if !h.isCerberusEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
 		return
@@ -306,6 +303,12 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	case !isCurated && !crowdsec.ValidCacheSlug(slug):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slug"})
+		return
+	}
+
+	// The cheap gates above answer first (a malformed request is a 400 whether or not a job runs); the lock-free
+	// busy check spares a refused request the wait for dataMu, and the recheck below is the authoritative one.
+	if h.refuseIfBusy(c) {
 		return
 	}
 

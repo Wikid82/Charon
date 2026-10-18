@@ -109,11 +109,11 @@ func TestApplyJobRepoCurrentAndList(t *testing.T) {
 	require.Len(t, list, 2)
 }
 
-func TestApplyJobRepoMarkRunningAsInterrupted(t *testing.T) {
+func TestApplyJobRepoActiveJobsAndMarkInterrupted(t *testing.T) {
 	ctx := context.Background()
 	repo, _, now := newJobRepo(t)
 
-	none, err := repo.MarkRunningAsInterrupted(ctx)
+	none, err := repo.ActiveJobs(ctx)
 	require.NoError(t, err)
 	require.Empty(t, none)
 
@@ -124,14 +124,24 @@ func TestApplyJobRepoMarkRunningAsInterrupted(t *testing.T) {
 	backup := "/data/backup.tar.gz"
 	require.NoError(t, repo.Update(ctx, r.ID, ApplyJobUpdate{BackupPath: &backup}))
 
-	affected, err := repo.MarkRunningAsInterrupted(ctx)
+	active, err := repo.ActiveJobs(ctx)
 	require.NoError(t, err)
-	require.Len(t, affected, 3)
-	for _, a := range affected {
+	require.Len(t, active, 3)
+	for _, a := range active {
 		if a.ID == r.ID {
 			require.Equal(t, backup, a.BackupPath, "caller gets the backup path to restore")
 		}
+		require.NotEqual(t, done.ID, a.ID)
 	}
+	// Listing marks nothing: a crash before MarkInterrupted must leave the jobs active for the next start.
+	_, err = repo.Current(ctx)
+	require.NoError(t, err)
+
+	warnings := `["w"]`
+	require.NoError(t, repo.MarkInterrupted(ctx, r.ID, warnings))
+	require.NoError(t, repo.MarkInterrupted(ctx, q.ID, ""))
+	require.NoError(t, repo.MarkInterrupted(ctx, v.ID, ""))
+	require.NoError(t, repo.MarkInterrupted(ctx, done.ID, `["x"]`), "a finished job is left alone")
 	for _, id := range []string{q.ID, r.ID, v.ID} {
 		got, gerr := repo.Get(ctx, id)
 		require.NoError(t, gerr)
@@ -139,9 +149,13 @@ func TestApplyJobRepoMarkRunningAsInterrupted(t *testing.T) {
 		require.Equal(t, models.CrowdsecApplyErrInterrupted, got.ErrorCode)
 		require.NotNil(t, got.FinishedAt)
 	}
-	got, err := repo.Get(ctx, done.ID)
+	got, err := repo.Get(ctx, r.ID)
+	require.NoError(t, err)
+	require.Equal(t, warnings, got.Warnings)
+	got, err = repo.Get(ctx, done.ID)
 	require.NoError(t, err)
 	require.Equal(t, models.CrowdsecApplyJobSucceeded, got.State)
+	require.Empty(t, got.Warnings)
 	_, err = repo.Current(ctx)
 	require.ErrorIs(t, err, ErrApplyJobNotFound)
 }
@@ -226,7 +240,9 @@ func TestApplyJobRepoErrorsOnClosedDB(t *testing.T) {
 	require.Error(t, err)
 	_, err = repo.ListRecent(ctx, 1)
 	require.Error(t, err)
-	_, err = repo.MarkRunningAsInterrupted(ctx)
+	_, err = repo.ActiveJobs(ctx)
+	require.Error(t, err)
+	err = repo.MarkInterrupted(ctx, "id", "")
 	require.Error(t, err)
 	_, err = repo.Prune(ctx, 1, time.Hour)
 	require.Error(t, err)

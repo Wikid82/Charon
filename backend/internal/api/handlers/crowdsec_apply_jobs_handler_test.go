@@ -300,3 +300,65 @@ func TestShutdownApplyJobsCancelsTheRunningJobAndRollsBack(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, models.CrowdsecApplyJobCancelled, job.State)
 }
+
+func TestCancelOfAnActiveRowThisServerDoesNotRunAnswers409NotActive(t *testing.T) {
+	f := newBusyFixture(t)
+	f.h.DB.Create(&models.CrowdsecApplyJob{ID: "00000000-0000-4000-8000-0000000000bb", Slug: "x", State: models.CrowdsecApplyJobRunning})
+	useJobApply(t, f, func(context.Context, crowdsec.ApplyRequest) (crowdsec.ApplyResult, error) {
+		return crowdsec.ApplyResult{Status: "applied"}, nil
+	})
+
+	w := f.do(http.MethodDelete, applyJobsBase+"/00000000-0000-4000-8000-0000000000bb", nil, "")
+
+	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	require.Equal(t, codeJobNotActive, decodeBody(t, w)["error_code"])
+}
+
+func TestAsyncApplyAfterShutdownAnswers503(t *testing.T) {
+	f := newBusyFixture(t)
+	useJobApply(t, f, func(context.Context, crowdsec.ApplyRequest) (crowdsec.ApplyResult, error) {
+		return crowdsec.ApplyResult{Status: "applied"}, nil
+	})
+	f.h.ShutdownApplyJobs()
+
+	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json")
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	require.Equal(t, codeCrowdsecUnavailable, decodeBody(t, w)["error_code"])
+	_, busy := f.h.ApplyJobs().Busy()
+	require.False(t, busy)
+}
+
+// The cheap gates answer before the busy check, so a malformed or disabled request is never reported as busy.
+func TestCheapGatesAnswerBeforeTheBusyCheck(t *testing.T) {
+	t.Run("apply with a bad payload", func(t *testing.T) {
+		f := newBusyFixture(t)
+		setBackgroundInstallActive(t, f.h)
+		require.Equal(t, http.StatusBadRequest, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", []byte(`{"slug":""}`), "application/json").Code)
+		require.Equal(t, http.StatusBadRequest, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", []byte(`not json`), "application/json").Code)
+	})
+	t.Run("apply with cerberus disabled", func(t *testing.T) {
+		f := newBusyFixture(t)
+		t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
+		setBackgroundInstallActive(t, f.h)
+		require.Equal(t, http.StatusNotFound, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json").Code)
+	})
+	t.Run("enroll with the console disabled", func(t *testing.T) {
+		f := newBusyFixture(t)
+		t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "false")
+		setBackgroundInstallActive(t, f.h)
+		require.Equal(t, http.StatusNotFound, f.do(http.MethodPost, "/admin/crowdsec/console/enroll", []byte(`{}`), "application/json").Code)
+	})
+	t.Run("enroll with a bad payload", func(t *testing.T) {
+		f := newBusyFixture(t)
+		setBackgroundInstallActive(t, f.h)
+		require.Equal(t, http.StatusBadRequest, f.do(http.MethodPost, "/admin/crowdsec/console/enroll", []byte(`not json`), "application/json").Code)
+	})
+	t.Run("start and stop still answer busy before the executor", func(t *testing.T) {
+		f := newBusyFixture(t)
+		setBackgroundInstallActive(t, f.h)
+		require.Equal(t, http.StatusConflict, f.do(http.MethodPost, "/admin/crowdsec/start", nil, "").Code)
+		require.Equal(t, http.StatusConflict, f.do(http.MethodPost, "/admin/crowdsec/stop", nil, "").Code)
+		require.Zero(t, f.exec.statusCalls)
+	})
+}
