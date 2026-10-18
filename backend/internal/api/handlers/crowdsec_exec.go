@@ -36,12 +36,16 @@ type DefaultCrowdsecExecutor struct {
 	procPath string
 	// stopTimeout is how long Stop waits after SIGTERM before sending SIGKILL
 	stopTimeout time.Duration
+	// kill delivers a signal to a process; tests replace it to exercise
+	// signalling failures without privileges.
+	kill func(pid int, sig syscall.Signal) error
 }
 
 func NewDefaultCrowdsecExecutor() *DefaultCrowdsecExecutor {
 	return &DefaultCrowdsecExecutor{
 		procPath:    "/proc",
 		stopTimeout: defaultStopTimeout,
+		kill:        syscall.Kill,
 	}
 }
 
@@ -229,7 +233,7 @@ func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) er
 		return nil
 	}
 
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	if err := e.kill(pid, syscall.SIGTERM); err != nil {
 		if errors.Is(err, syscall.ESRCH) {
 			_ = os.Remove(pidFilePath)
 			return nil
@@ -242,7 +246,7 @@ func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) er
 			return fmt.Errorf("waiting for crowdsec to exit: %w", err)
 		}
 		logger.Log().WithField("pid", pid).Warn("CrowdSec did not exit after SIGTERM, sending SIGKILL")
-		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		if err := e.kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 			return fmt.Errorf("kill crowdsec: %w", err)
 		}
 		if !e.waitForExit(ctx, pid, e.stopTimeout) {

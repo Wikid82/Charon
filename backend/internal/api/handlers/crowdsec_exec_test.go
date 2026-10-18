@@ -576,3 +576,79 @@ func newStubExecutor(t *testing.T) (e *DefaultCrowdsecExecutor, binPath, configD
 	e.stopTimeout = 2 * time.Second
 	return e, binPath, t.TempDir()
 }
+
+// stopFixture returns an executor on a fake /proc with a live engine-looking
+// process whose signals are intercepted by kill, so Stop's failure branches
+// can be driven deterministically. The returned slice records every signal.
+func stopFixture(t *testing.T, kill func(sig syscall.Signal) error) (e *DefaultCrowdsecExecutor, dir string, signals *[]syscall.Signal) {
+	t.Helper()
+	e, proc, dir := newProcExecutor(t)
+	e.stopTimeout = 20 * time.Millisecond
+	pid := spawnSleeper(t)
+	writeFakeProc(t, proc, pid, "crowdsec", "-c", configFile(dir))
+	require.NoError(t, e.writePidFile(dir, pid))
+	signals = &[]syscall.Signal{}
+	e.kill = func(_ int, sig syscall.Signal) error {
+		*signals = append(*signals, sig)
+		return kill(sig)
+	}
+	return e, dir, signals
+}
+
+func TestDefaultCrowdsecExecutor_Stop_ProcessGoneBeforeSigterm(t *testing.T) {
+	e, dir, signals := stopFixture(t, func(syscall.Signal) error { return syscall.ESRCH })
+
+	require.NoError(t, e.Stop(context.Background(), dir))
+	assert.Equal(t, []syscall.Signal{syscall.SIGTERM}, *signals)
+	_, statErr := os.Stat(e.pidFile(dir))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestDefaultCrowdsecExecutor_Stop_SigtermFailure(t *testing.T) {
+	e, dir, _ := stopFixture(t, func(syscall.Signal) error { return syscall.EPERM })
+
+	err := e.Stop(context.Background(), dir)
+	require.ErrorIs(t, err, syscall.EPERM)
+	assert.Contains(t, err.Error(), "signal crowdsec")
+	_, statErr := os.Stat(e.pidFile(dir))
+	assert.NoError(t, statErr, "pid file must be kept when the engine could not be signalled")
+}
+
+func TestDefaultCrowdsecExecutor_Stop_SigkillFailure(t *testing.T) {
+	e, dir, signals := stopFixture(t, func(sig syscall.Signal) error {
+		if sig == syscall.SIGKILL {
+			return syscall.EPERM
+		}
+		return nil
+	})
+
+	err := e.Stop(context.Background(), dir)
+	require.ErrorIs(t, err, syscall.EPERM)
+	assert.Contains(t, err.Error(), "kill crowdsec")
+	assert.Equal(t, []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL}, *signals)
+}
+
+func TestDefaultCrowdsecExecutor_Stop_SurvivesSigkill(t *testing.T) {
+	// SIGKILL reports ESRCH (tolerated) yet the process is still alive.
+	e, dir, _ := stopFixture(t, func(sig syscall.Signal) error {
+		if sig == syscall.SIGKILL {
+			return syscall.ESRCH
+		}
+		return nil
+	})
+
+	err := e.Stop(context.Background(), dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "still running after SIGKILL")
+	_, statErr := os.Stat(e.pidFile(dir))
+	assert.NoError(t, statErr, "pid file must be kept while the engine is still running")
+}
+
+func TestDefaultCrowdsecExecutor_findProcess_UnreadableProcDir(t *testing.T) {
+	e := NewDefaultCrowdsecExecutor()
+	e.procPath = filepath.Join(t.TempDir(), "missing")
+
+	pid, found := e.findProcess(t.TempDir())
+	assert.False(t, found)
+	assert.Zero(t, pid)
+}
