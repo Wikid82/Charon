@@ -30,8 +30,8 @@ jobs:
           download_translations: true
           localization_branch_name: l10n_crowdin_translations
           create_pull_request: true
-          commit_message: 'chore(i18n): update translations'
-          pull_request_title: 'chore(i18n): update translations'
+          commit_message: 'fix(i18n): update Crowdin translations'
+          pull_request_title: 'fix(i18n): update Crowdin translations'
           pull_request_body: 'New Crowdin translations by [Crowdin GH Action](https://github.com/crowdin/github-action)'
           # The localization branch is cut from development, so the PR must target it too;
           # targeting main would pull every unpromoted development commit into the diff.
