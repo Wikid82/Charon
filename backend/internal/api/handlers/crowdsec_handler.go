@@ -99,6 +99,10 @@ type CrowdsecHandler struct {
 	// The wait is abandoned when the request ends (see lockData).
 	dataMu ctxMutex
 
+	// acquisMu serializes UpdateAcquisitionConfig. It is separate from dataMu because the acquisition file is
+	// outside DataDir; it is a leaf lock (nothing else is taken while holding it), so no ordering applies.
+	acquisMu ctxMutex
+
 	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
 	restore hubRestoreState
 
@@ -2319,23 +2323,18 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 		return
 	}
 
-	// Create backup of existing config if it exists
-	var backupPath string
-	if _, err := os.Stat(acquisPath); err == nil {
-		backupPath = crowdsec.BackupFilePath(acquisPath, time.Now())
-		if err := os.Rename(acquisPath, backupPath); err != nil {
-			logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to backup acquisition config")
-			// Continue anyway - we'll try to write the new config
-		}
+	// acquisMu, not dataMu: the acquisition file lives outside DataDir (/etc/crowdsec), so a PUT must not
+	// queue behind long DataDir work such as an export or preset apply.
+	if err = h.acquisMu.LockContext(c.Request.Context()); err != nil {
+		logger.Log().WithField("operation", "update_acquisition").WithField("error", sanitizeForLog(err.Error())).Debug("crowdsec: request ended while waiting for the acquisition lock")
+		c.Abort()
+		return
 	}
+	defer h.acquisMu.Unlock()
 
-	// Write new config
-	if err := os.WriteFile(acquisPath, []byte(payload.Content), 0o600); err != nil {
+	backupPath, err := replaceAcquisitionConfig(acquisPath, payload.Content, time.Now())
+	if err != nil {
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to write acquisition config")
-		// Try to restore backup if it exists
-		if backupPath != "" {
-			_ = os.Rename(backupPath, acquisPath)
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write acquisition config"})
 		return
 	}

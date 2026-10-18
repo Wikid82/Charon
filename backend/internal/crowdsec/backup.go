@@ -268,9 +268,9 @@ func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) 
 }
 
 // BackupFilePath names the single-file backup of path taken at at: <path>.backup.<timestamp>, with a
-// one-second timestamp. PruneBackupFiles recognises exactly this naming.
+// microsecond timestamp. PruneBackupFiles recognises exactly this naming.
 func BackupFilePath(path string, at time.Time) string {
-	return backupFileStem(path) + "." + at.Format(legacyBackupTimeFormat)
+	return backupFileStem(path) + "." + at.Format(backupTimeFormat)
 }
 
 // backupFileStem is the shared prefix (without the trailing dot) of the single-file backups of path.
