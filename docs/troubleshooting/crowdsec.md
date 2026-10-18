@@ -54,6 +54,10 @@ When you toggle CrowdSec ON in the Security dashboard:
    - ✅ "CrowdSec started and LAPI is ready" — You can immediately enroll in Console
    - ⚠️ "CrowdSec started but LAPI is still initializing" — Wait before enrolling
 
+### Starting CrowdSec While It Is Already Running
+
+Starting CrowdSec when it is already running does nothing. Charon reports it as already running and leaves the existing process alone. If Charon lost track of a running CrowdSec process (for example, the process-tracking file was removed), Status and Stop find it again and take it over, and Stop waits for it to exit before reporting success.
+
 ### Verifying LAPI Status
 
 **Check if LAPI is running:**
