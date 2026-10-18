@@ -1305,6 +1305,34 @@ POST /remote-servers/:uuid/test
 
 ---
 
+### Docker Status
+
+#### Local Docker Availability
+
+```http
+GET /docker/status
+```
+
+Reports whether the local Docker socket is usable. Requires a signed-in user with management access (passthrough users get 403). Takes no parameters. An unavailable Docker is a normal answer, so this endpoint returns 200 in every case.
+
+**Response 200:**
+
+```json
+{
+  "available": false,
+  "reason": "socket_missing",
+  "message": "No Docker socket is mounted into Charon."
+}
+```
+
+- `available` - `true` when the local daemon answered, or answered too slowly to tell (`slow`)
+- `reason` - One of: `ok`, `socket_missing`, `permission_denied`, `unreachable`, `slow`
+- `message` - Short, safe description. It never includes paths, user IDs or group IDs.
+
+The probe gives up after 2 seconds. A timeout reports `available: true` with reason `slow`, so a busy daemon is not treated as missing.
+
+---
+
 ### Live Logs & Notifications
 
 #### Stream Live Logs (WebSocket)

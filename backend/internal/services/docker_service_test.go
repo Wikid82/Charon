@@ -778,3 +778,152 @@ func TestDockerService_ListContainers_DefaultTimeoutUsedWhenUnset(t *testing.T) 
 	require.NoError(t, err, "a fast-responding daemon must succeed well within the default timeout")
 	assert.NotNil(t, containers)
 }
+
+func newUnixStatusService(t *testing.T, socketPath string) *DockerService {
+	t.Helper()
+	host := "unix://" + socketPath
+	cli, err := client.New(client.WithHost(host))
+	require.NoError(t, err, "client.New is lazy and must succeed for any unix path")
+	t.Cleanup(func() { _ = cli.Close() })
+	return &DockerService{client: cli, localHost: host}
+}
+
+func assertLocalStatus(t *testing.T, got LocalDockerStatus, available bool, reason string) {
+	t.Helper()
+	assert.Equal(t, available, got.Available)
+	assert.Equal(t, reason, got.Reason)
+	assert.NotEmpty(t, got.Message)
+	assert.NotContains(t, got.Message, "/")
+	assert.NotContains(t, strings.ToLower(got.Message), "uid")
+	assert.NotContains(t, strings.ToLower(got.Message), "gid")
+}
+
+func TestDockerService_LocalStatus_OK(t *testing.T) {
+	svc := &DockerService{client: newContainerListClient(t, "")}
+
+	assertLocalStatus(t, svc.LocalStatus(context.Background()), true, LocalStatusOK)
+}
+
+func TestDockerService_LocalStatus_NonexistentSocketIsMissing(t *testing.T) {
+	svc := newUnixStatusService(t, filepath.Join(shortTempDir(t), "no-docker.sock"))
+
+	assertLocalStatus(t, svc.LocalStatus(context.Background()), false, LocalStatusSocketMissing)
+}
+
+func TestDockerService_LocalStatus_RegularFileIsNotMissing(t *testing.T) {
+	path := filepath.Join(shortTempDir(t), "not-a-socket")
+	require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+	svc := newUnixStatusService(t, path)
+
+	assertLocalStatus(t, svc.LocalStatus(context.Background()), false, LocalStatusUnreachable)
+}
+
+func TestDockerService_LocalStatus_StaleSocketIsUnreachable(t *testing.T) {
+	// A unix socket file whose listener is gone yields ECONNREFUSED.
+	path := filepath.Join(shortTempDir(t), "d.sock")
+	l, err := net.Listen("unix", path)
+	require.NoError(t, err)
+	l.(*net.UnixListener).SetUnlinkOnClose(false)
+	require.NoError(t, l.Close())
+	svc := newUnixStatusService(t, path)
+
+	assertLocalStatus(t, svc.LocalStatus(context.Background()), false, LocalStatusUnreachable)
+}
+
+func TestDockerService_LocalStatus_PermissionDenied(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root bypasses socket permission checks")
+	}
+	path := filepath.Join(shortTempDir(t), "d.sock")
+	l, err := net.Listen("unix", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+	require.NoError(t, os.Chmod(path, 0o000))
+	svc := newUnixStatusService(t, path)
+
+	assertLocalStatus(t, svc.LocalStatus(context.Background()), false, LocalStatusPermissionDenied)
+}
+
+func TestDockerService_LocalStatus_SlowFailsOpen(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+	cli, err := client.New(client.WithHost("tcp://" + server.Listener.Addr().String()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+	svc := &DockerService{client: cli, localStatusTimeout: 50 * time.Millisecond}
+
+	start := time.Now()
+	got := svc.LocalStatus(context.Background())
+
+	assertLocalStatus(t, got, true, LocalStatusSlow)
+	assert.Less(t, time.Since(start), 2*time.Second)
+}
+
+func TestDockerService_LocalStatus_DefaultTimeoutUsedWhenUnset(t *testing.T) {
+	svc := &DockerService{client: newContainerListClient(t, "")}
+	assert.Zero(t, svc.localStatusTimeout)
+	assertLocalStatus(t, svc.LocalStatus(context.Background()), true, LocalStatusOK)
+}
+
+func TestDockerService_LocalStatus_InitErrIsMissing(t *testing.T) {
+	svc := &DockerService{initErr: errors.New("boom")}
+
+	assertLocalStatus(t, svc.LocalStatus(context.Background()), false, LocalStatusSocketMissing)
+}
+
+func TestDockerService_LocalStatus_NilClientIsMissing(t *testing.T) {
+	assertLocalStatus(t, (&DockerService{}).LocalStatus(context.Background()), false, LocalStatusSocketMissing)
+}
+
+func TestDockerService_LocalStatus_ParentCancelIsUnreachable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+	cli, err := client.New(client.WithHost("tcp://" + server.Listener.Addr().String()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cli.Close() })
+	svc := &DockerService{client: cli}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assertLocalStatus(t, svc.LocalStatus(ctx), false, LocalStatusUnreachable)
+}
+
+func TestClassifyLocalStatusError(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"enoent", &url.Error{Err: &net.OpError{Err: &os.SyscallError{Err: syscall.ENOENT}}}, LocalStatusSocketMissing},
+		{"eacces", &os.SyscallError{Err: syscall.EACCES}, LocalStatusPermissionDenied},
+		{"eperm", &os.SyscallError{Err: syscall.EPERM}, LocalStatusPermissionDenied},
+		{"econnrefused", &os.SyscallError{Err: syscall.ECONNREFUSED}, LocalStatusUnreachable},
+		{"os not exist", fmt.Errorf("wrapped: %w", os.ErrNotExist), LocalStatusSocketMissing},
+		{"moby permission message", errors.New("Permission denied while trying to connect to the Docker API at unix:///x"), LocalStatusPermissionDenied},
+		{"generic", errors.New("boom"), LocalStatusUnreachable},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, classifyLocalStatusError(ctx, ctx, tc.err))
+		})
+	}
+}
+
+func TestLocalStatusFor_UnknownReasonFallsBackToUnreachable(t *testing.T) {
+	assertLocalStatus(t, localStatusFor("bogus"), false, LocalStatusUnreachable)
+}
+
+// shortTempDir returns a short temp dir: unix socket paths are limited to ~108
+// bytes, which t.TempDir() can exceed for long test names.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "chst")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
