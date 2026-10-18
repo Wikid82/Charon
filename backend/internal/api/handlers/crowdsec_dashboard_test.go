@@ -1148,3 +1148,41 @@ func TestFormatLastSeen(t *testing.T) {
 		assert.Equal(t, want, formatLastSeen(in), in)
 	}
 }
+
+// The newest row per address is chosen by instant, not by text order: a row written with a +05:30 offset sorts
+// after a UTC row as text even when it is older.
+func TestDashboardTopIPs_LastSeenMixedZones(t *testing.T) {
+	t.Parallel()
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
+	h := &CrowdsecHandler{DB: db, dashCache: newDashboardCache()}
+	engine := gin.New()
+	h.RegisterRoutes(engine.Group("/api/v1"))
+
+	newest := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	older := newest.Add(-10 * time.Minute)
+	ist := time.FixedZone("IST", 5*3600+1800)
+	layouts := map[string]string{
+		"utc-T-Z":      newest.Format(time.RFC3339),
+		"ist-space":    older.In(ist).Format("2006-01-02 15:04:05-07:00"),
+		"utc-space-ms": older.Add(-time.Minute).Format("2006-01-02 15:04:05.000"),
+	}
+	for name, text := range layouts {
+		d := models.SecurityDecision{UUID: uuid.NewString(), Source: "crowdsec", Action: "block", IP: "10.9.9.9", CreatedAt: newest}
+		require.NoError(t, db.Create(&d).Error, name)
+		require.NoError(t, db.Model(&models.SecurityDecision{}).Where("uuid = ?", d.UUID).UpdateColumn("created_at", text).Error, name)
+	}
+
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h", http.NoBody))
+	require.Equal(t, http.StatusOK, w.Code)
+	var body struct {
+		IPs []struct {
+			IP       string `json:"ip"`
+			LastSeen string `json:"last_seen"`
+		} `json:"ips"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.IPs, 1)
+	assert.Equal(t, newest.Format(time.RFC3339), body.IPs[0].LastSeen)
+}

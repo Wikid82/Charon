@@ -267,10 +267,21 @@ func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) 
 	return pruneSiblings(filepath.Clean(dataDir)+"."+kind, keep, fs.FileInfo.IsDir)
 }
 
+// BackupFilePath names the single-file backup of path taken at at: <path>.backup.<timestamp>, with a
+// one-second timestamp. PruneBackupFiles recognises exactly this naming.
+func BackupFilePath(path string, at time.Time) string {
+	return backupFileStem(path) + "." + at.Format(legacyBackupTimeFormat)
+}
+
+// backupFileStem is the shared prefix (without the trailing dot) of the single-file backups of path.
+func backupFileStem(path string) string {
+	return filepath.Clean(path) + "." + BackupKindSnapshot
+}
+
 // PruneBackupFiles is PruneBackups for single-file backups named <path>.backup.<timestamp> (for example
 // the acquisition config rename-backups): only regular files are considered, the newest `keep` survive.
 func PruneBackupFiles(path string, keep int) (removed []string, err error) {
-	return pruneSiblings(filepath.Clean(path)+"."+BackupKindSnapshot, keep, func(info fs.FileInfo) bool { return info.Mode().IsRegular() })
+	return pruneSiblings(backupFileStem(path), keep, func(info fs.FileInfo) bool { return info.Mode().IsRegular() })
 }
 
 // pruneSiblings removes all but the newest `keep` entries named <stem>.<timestamp> that wanted accepts;

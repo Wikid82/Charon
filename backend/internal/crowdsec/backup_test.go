@@ -726,3 +726,18 @@ func TestSnapshotCreatorsPruneToRetentionKeepingNewest(t *testing.T) {
 	require.Len(t, matches, DefaultBackupRetention)
 	require.DirExists(t, last)
 }
+
+func TestBackupFilePathMatchesWhatPruneBackupFilesKeeps(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "acquis.yaml")
+	at := time.Date(2026, 10, 18, 9, 8, 7, 999, time.UTC)
+	require.Equal(t, path+".backup.20261018-090807", BackupFilePath(path, at))
+
+	for i := range 3 {
+		require.NoError(t, os.WriteFile(BackupFilePath(path, at.Add(time.Duration(i)*time.Second)), []byte("x"), 0o600))
+	}
+	removed, err := PruneBackupFiles(path, 2)
+	require.NoError(t, err)
+	require.Len(t, removed, 1)
+	require.NoFileExists(t, BackupFilePath(path, at))
+}

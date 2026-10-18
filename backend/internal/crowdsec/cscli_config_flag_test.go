@@ -32,8 +32,9 @@ func TestVerifyHubItemPassesTheConfigFileToCSCLI(t *testing.T) {
 //     broken or missing engine configuration must not make it report cscli as absent.
 var cscliProbesWithoutConfig = map[string]bool{"hasCSCLI": true}
 
-// Every function of this package that starts cscli passes the configuration file with -c. The calls are found by
-// their literal "cscli" argument, so the check needs no change when a new call is added.
+// Every cscli start in this package builds its arguments with withConfigFlag, so cscli gets `-c <file>`. The
+// calls are found by their literal "cscli" argument, so the check needs no change when a new call is added; a
+// function with several cscli starts needs a withConfigFlag call for each.
 func TestCrowdSecPackageRunsCSCLIOnlyWithTheConfigFile(t *testing.T) {
 	t.Parallel()
 	files, err := filepath.Glob("*.go")
@@ -53,7 +54,7 @@ func TestCrowdSecPackageRunsCSCLIOnlyWithTheConfigFile(t *testing.T) {
 			if !ok || fn.Body == nil {
 				continue
 			}
-			if callsCSCLI(fn.Body) && !cscliProbesWithoutConfig[fn.Name.Name] && !hasStringLiteral(fn.Body, `"-c"`) {
+			if n := countCSCLICalls(fn.Body); n > 0 && !cscliProbesWithoutConfig[fn.Name.Name] && countCalls(fn.Body, "withConfigFlag") < n {
 				offenders = append(offenders, name+": "+fn.Name.Name)
 			}
 		}
@@ -70,9 +71,9 @@ func stripConfigFlag(args []string) []string {
 	return args
 }
 
-// callsCSCLI reports whether body calls an Execute method with the literal "cscli" as the command.
-func callsCSCLI(body *ast.BlockStmt) bool {
-	found := false
+// countCSCLICalls counts the Execute and ExecuteWithEnv calls in body that run the literal "cscli" command.
+func countCSCLICalls(body *ast.BlockStmt) int {
+	count := 0
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -84,22 +85,25 @@ func callsCSCLI(body *ast.BlockStmt) bool {
 		}
 		for _, arg := range call.Args {
 			if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING && lit.Value == `"cscli"` {
-				found = true
+				count++
+				break
 			}
 		}
-		return !found
+		return true
 	})
-	return found
+	return count
 }
 
-// hasStringLiteral reports whether body contains the string literal lit (quotes included).
-func hasStringLiteral(body *ast.BlockStmt, lit string) bool {
-	found := false
+// countCalls counts the calls of the plain function name in body.
+func countCalls(body *ast.BlockStmt, name string) int {
+	count := 0
 	ast.Inspect(body, func(n ast.Node) bool {
-		if b, ok := n.(*ast.BasicLit); ok && b.Kind == token.STRING && b.Value == lit {
-			found = true
+		if call, ok := n.(*ast.CallExpr); ok {
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == name {
+				count++
+			}
 		}
-		return !found
+		return true
 	})
-	return found
+	return count
 }

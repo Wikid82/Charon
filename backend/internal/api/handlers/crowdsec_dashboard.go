@@ -341,8 +341,9 @@ func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 		return
 	}
 
-	// last_seen is scanned as text: SQLite returns the MAX of a time column as a string, which cannot be
-	// scanned into a time.Time and would abort the scan before the country column.
+	// last_seen is scanned as text: SQLite returns an aggregated time column as a string, which cannot be
+	// scanned into a time.Time. The newest row is chosen by julian day, not by text order, because stored
+	// layouts differ (T or space separator, Z or numeric offset) and text order would mis-rank them.
 	type ipRow struct {
 		IP       string
 		Count    int64
@@ -353,7 +354,7 @@ func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 
 	if err := h.DB.Model(&models.SecurityDecision{}).
 		Scopes(excludeUnblocks).
-		Select("ip, COUNT(*) as count, MAX(created_at) as last_seen, MAX(country) as country").
+		Select("ip, COUNT(*) as count, COALESCE(strftime('%Y-%m-%dT%H:%M:%SZ', MAX(julianday(created_at))), '') as last_seen, MAX(country) as country").
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Group("ip").
 		Order("count DESC").

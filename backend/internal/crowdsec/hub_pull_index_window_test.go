@@ -155,3 +155,78 @@ func TestLegacySweepRunsOncePerProcess(t *testing.T) {
 	require.NoError(t, err)
 	require.DirExists(t, legacy, "later pulls do not sweep")
 }
+
+func TestLegacySweepRetriesAfterAFailedFirstRun(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cache, err := NewHubCache(dir, time.Hour)
+	require.NoError(t, err)
+	svc := NewHubService(nil, cache, t.TempDir())
+	ctx := context.Background()
+
+	require.NoError(t, os.RemoveAll(dir))
+	svc.sweepLegacyCache(ctx) // fails: the cache root is gone
+	require.False(t, svc.legacySweepDone, "a failed sweep must not consume the run")
+
+	legacy := filepath.Join(dir, "legacy-entry")
+	require.NoError(t, os.MkdirAll(legacy, 0o750))
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	svc.sweepLegacyCache(canceled) // a cancelled caller does not abort the sweep
+	require.True(t, svc.legacySweepDone)
+	require.NoDirExists(t, legacy)
+
+	require.NoError(t, os.MkdirAll(legacy, 0o750))
+	svc.sweepLegacyCache(ctx)
+	require.DirExists(t, legacy, "never runs again after success")
+}
+
+func TestFreshCachedTypeRefusesAnIndexThatDisagreesWithTheCache(t *testing.T) {
+	t.Parallel()
+	svc, _ := countingIndexService(t, demoEntry("collections", "https://hub.crowdsec.net/demo.yaml"))
+	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
+	svc.now = clk.Now
+	ctx := context.Background()
+	const slug = "crowdsecurity/demo"
+
+	_, err := svc.Pull(ctx, slug, "")
+	require.NoError(t, err)
+	typ, ok := svc.freshCachedType(ctx, slug)
+	require.True(t, ok)
+	require.Equal(t, "collections", typ)
+
+	// The retained index no longer lists the name.
+	svc.lastIndex = HubIndex{Items: []HubIndexEntry{{Name: "crowdsecurity/other", Type: "collections"}}}
+	_, ok = svc.freshCachedType(ctx, slug)
+	require.False(t, ok, "name gone from the index")
+
+	// The retained index moved the name to a different section than the cached one.
+	svc.lastIndex = HubIndex{Items: []HubIndexEntry{{Name: slug, Type: "parsers"}}}
+	_, ok = svc.freshCachedType(ctx, slug)
+	require.False(t, ok, "section moved")
+}
+
+func TestUntypedPullReportsNotFoundWhenTheFreshIndexDropsTheName(t *testing.T) {
+	t.Parallel()
+	var entries atomic.Value
+	entries.Store(demoEntry("collections", "https://hub.crowdsec.net/demo.yaml"))
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+	svc := NewHubService(nil, cache, t.TempDir())
+	svc.HubBaseURL = "https://hub.crowdsec.net"
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() == "https://hub.crowdsec.net/demo.yaml" {
+			return newResponse(http.StatusOK, pullDemoItem), nil
+		}
+		return newResponse(http.StatusOK, `{"items":[`+entries.Load().(string)+`]}`), nil
+	})}
+	ctx := context.Background()
+
+	_, err = svc.Pull(ctx, "crowdsecurity/demo", "")
+	require.NoError(t, err)
+	entries.Store(`{"name":"crowdsecurity/other","type":"collections","etag":"e","download_url":"https://hub.crowdsec.net/demo.yaml"}`)
+	svc.lastIndex = HubIndex{Items: []HubIndexEntry{{Name: "crowdsecurity/other", Type: "collections"}}}
+
+	_, err = svc.Pull(ctx, "crowdsecurity/demo", "")
+	require.ErrorContains(t, err, "preset not found")
+}

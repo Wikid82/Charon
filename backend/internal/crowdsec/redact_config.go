@@ -43,7 +43,7 @@ var (
 // credential lives (a path, file or folder), or a limit. Without them a rule such as "contains _token" would
 // blank settings like token_path or tokens_per_minute.
 var (
-	benignKeySuffixes = []string{"_path", "_file", "_dir", "_folder", "_url", "_uri", "_ttl", "_len", "_length", "_count", "_per_minute", "_per_second", "_enabled"}
+	benignKeySuffixes = []string{"_path", "_file", "_dir", "_folder", "_url", "_uri", "_ttl", "_len", "_length", "_count", "_per_minute", "_per_second", "_enabled", "_expiry", "_seconds", "_interval", "_timeout"}
 	benignKeyNames    = map[string]struct{}{"tokens_per_minute": {}, "tokens_per_second": {}, "max_tokens": {}}
 )
 

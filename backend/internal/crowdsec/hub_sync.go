@@ -115,8 +115,9 @@ type HubService struct {
 	lastIndexAt time.Time
 	// now is the clock for the index window; nil means time.Now. Test-only override.
 	now func() time.Time
-	// legacySweep makes the old-layout cache sweep run once per process.
-	legacySweep sync.Once
+	// legacySweepMu guards legacySweepDone, which is set once the old-layout cache sweep has succeeded.
+	legacySweepMu   sync.Mutex
+	legacySweepDone bool
 }
 
 // validateHubURL validates a hub URL for security (SSRF protection - HIGH-001).
@@ -549,11 +550,7 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 	if itemType != "" && !IsCacheItemType(itemType) {
 		return PullResult{}, ErrInvalidItemType
 	}
-	s.legacySweep.Do(func() {
-		if err := s.Cache.RemoveLegacyEntries(ctx); err != nil {
-			logger.Log().WithError(err).Warn("failed to remove cache entries of the old layout")
-		}
-	})
+	s.sweepLegacyCache(ctx)
 
 	pullCtx, cancel := context.WithTimeout(ctx, s.PullTimeout)
 	defer cancel()
@@ -653,11 +650,10 @@ func (s *HubService) freshCachedType(ctx context.Context, slug string) (string, 
 	if cachedType == "" {
 		return "", false
 	}
-	if _, err := resolveItemType(idx, slug); err != nil {
-		var ambiguous *AmbiguousTypeError
-		if errors.As(err, &ambiguous) {
-			return "", false // refetch so the caller receives the ambiguity from the index
-		}
+	// Any error (ambiguous, not found, unsupported) or a different section means the retained index disagrees
+	// with the cache: refetch so the caller receives the real answer from a current index.
+	if indexType, err := resolveItemType(idx, slug); err != nil || indexType != cachedType {
+		return "", false
 	}
 	return cachedType, true
 }
@@ -824,4 +820,19 @@ func copyFileFlag(src, dst string, flag int) error {
 	}
 
 	return dstFile.Sync()
+}
+
+// sweepLegacyCache removes cache entries of the old layout. It runs detached from ctx cancellation and is
+// marked done only on success, so a failed or cancelled first attempt is retried on the next pull.
+func (s *HubService) sweepLegacyCache(ctx context.Context) {
+	s.legacySweepMu.Lock()
+	defer s.legacySweepMu.Unlock()
+	if s.legacySweepDone {
+		return
+	}
+	if err := s.Cache.RemoveLegacyEntries(context.WithoutCancel(ctx)); err != nil {
+		logger.Log().WithError(err).Warn("failed to remove cache entries of the old layout")
+		return
+	}
+	s.legacySweepDone = true
 }

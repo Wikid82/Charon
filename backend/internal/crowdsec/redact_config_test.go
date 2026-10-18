@@ -510,7 +510,19 @@ func TestIsCredentialLikeName(t *testing.T) {
 	for _, name := range []string{"db_password", "x_passwd", "client_secret", "bot_token", "my_secret_key", "an_apikey", "a_api_key", "ssh_private_key", "x_token_y", "x_password_y"} {
 		require.True(t, isCredentialLikeName(name), name)
 	}
-	for _, name := range []string{"tokens_per_minute", "token_path", "x_token_file", "x_password_dir", "max_tokens", "password_policy", "retries", ""} {
+	for _, name := range []string{"tokens_per_minute", "token_path", "x_token_file", "x_password_dir", "max_tokens", "password_policy", "retries", "token_expiry_seconds", "x_token_expiry", "password_check_interval", "api_token_timeout", ""} {
 		require.False(t, isCredentialLikeName(name), name)
 	}
+}
+
+// A token's lifetime setting stays readable while the token itself is blanked.
+func TestRedactConfigFileKeepsTokenLifetimeSettings(t *testing.T) {
+	t.Parallel()
+	res, err := RedactConfigFile([]byte("auth:\n  api_token: abc123\n  token_expiry_seconds: 3600\n  token_refresh_interval: 30\n"))
+
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Redacted)
+	require.Contains(t, string(res.Data), "token_expiry_seconds: 3600")
+	require.Contains(t, string(res.Data), "token_refresh_interval: 30")
+	require.NotContains(t, string(res.Data), "abc123")
 }
