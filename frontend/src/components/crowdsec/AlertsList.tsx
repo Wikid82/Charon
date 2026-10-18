@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useAlerts } from '../../hooks/useCrowdsecDashboard'
+import { formatAbsoluteTime, formatRelativeTime } from '../../utils/formatRelativeTime'
 import { Skeleton } from '../ui'
 
 import { ListErrorNote } from './ListErrorNote'
@@ -14,25 +15,6 @@ interface AlertsListProps {
 }
 
 const PAGE_SIZE = 10
-
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now()
-  const then = new Date(dateStr).getTime()
-  const diffMs = now - then
-  if (diffMs < 0) return 'just now'
-
-  const seconds = Math.floor(diffMs / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 export function AlertsList({ range }: AlertsListProps) {
   const { t } = useTranslation()
@@ -139,7 +121,7 @@ export function AlertsList({ range }: AlertsListProps) {
                   {alert.scenario.split('/').pop()}
                 </td>
                 <td className="py-2 px-3 text-gray-400 whitespace-nowrap tabular-nums">
-                  <time dateTime={alert.created_at} title={new Date(alert.created_at).toLocaleString()}>
+                  <time dateTime={alert.created_at} title={formatAbsoluteTime(alert.created_at)}>
                     {formatRelativeTime(alert.created_at)}
                   </time>
                 </td>

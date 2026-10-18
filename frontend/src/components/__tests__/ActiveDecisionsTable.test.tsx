@@ -117,4 +117,27 @@ describe('ActiveDecisionsTable', () => {
 
     expect(screen.getByText('3h ago')).toBeInTheDocument()
   })
+
+  it.each(['', 'not-a-date'])('shows a dash and no tooltip for last_seen %j', (lastSeen) => {
+    render(
+      <ActiveDecisionsTable
+        data={[{ ip: '1.2.3.4', count: 3, last_seen: lastSeen, country: 'US' }]}
+        isLoading={false}
+        isError={false}
+      />,
+    )
+
+    const time = document.querySelector('time')
+    expect(time).toHaveTextContent('—')
+    expect(time).not.toHaveAttribute('title')
+    expect(screen.queryByText(/NaN|Invalid Date/)).not.toBeInTheDocument()
+  })
+
+  it('shows relative time and a tooltip for a valid last_seen', () => {
+    render(<ActiveDecisionsTable data={mockTopIPs} isLoading={false} isError={false} />)
+
+    const time = document.querySelector('time')
+    expect(time).toHaveTextContent(/ago$/)
+    expect(time).toHaveAttribute('title')
+  })
 })
