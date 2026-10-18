@@ -57,6 +57,10 @@ type presetEnv struct {
 }
 
 func (e *presetEnv) Execute(_ context.Context, _ string, args ...string) ([]byte, error) {
+	// The scripted commands are written without the `-c <config>` pair the hub service puts in front.
+	if len(args) >= 2 && args[0] == "-c" {
+		args = args[2:]
+	}
 	cmd := strings.Join(args, " ")
 	e.mu.Lock()
 	e.calls = append(e.calls, cmd)

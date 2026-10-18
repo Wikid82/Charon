@@ -287,7 +287,7 @@ func (s *HubService) fetchIndexCSCLI(ctx context.Context) (HubIndex, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, s.PullTimeout)
 	defer cancel()
 
-	output, err := s.Exec.Execute(cmdCtx, "cscli", "hub", "list", "-a", "-o", "json")
+	output, err := s.runCSCLI(cmdCtx, "hub", "list", "-a", "-o", "json")
 	if err != nil {
 		return HubIndex{}, err
 	}

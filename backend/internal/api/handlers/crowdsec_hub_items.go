@@ -316,7 +316,7 @@ func (h *CrowdsecHandler) installHubItem(ctx context.Context, itemLimit time.Dur
 	// Verification shares the item's budget with the install.
 	vctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	if err := crowdsec.VerifyHubItem(vctx, h.CmdExec, it.Type, it.Name); err != nil {
+	if err := crowdsec.VerifyHubItem(vctx, h.CmdExec, crowdsec.FindConfigFile(h.DataDir), it.Type, it.Name); err != nil {
 		logger.Log().
 			WithField("type", hubLogDetail(it.Type)).WithField("name", hubLogDetail(it.Name)).
 			WithField("error", hubLogDetail(err.Error())).

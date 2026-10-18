@@ -28,7 +28,7 @@ type curatedExec struct {
 }
 
 func (e *curatedExec) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := strings.Join(append([]string{name}, args...), " ")
+	cmd := strings.Join(append([]string{name}, stripConfigFlag(args)...), " ")
 	e.mu.Lock()
 	e.calls = append(e.calls, cmd)
 	hook := e.hook
@@ -511,7 +511,7 @@ func TestVerifyItemNilContextError(t *testing.T) {
 	hub, _ := newCuratedHub(t, &curatedExec{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	require.ErrorIs(t, VerifyHubItem(ctx, hub.Exec, "collections", "crowdsecurity/sshd"), context.Canceled)
+	require.ErrorIs(t, VerifyHubItem(ctx, hub.Exec, "", "collections", "crowdsecurity/sshd"), context.Canceled)
 }
 
 func TestApplyCuratedRollbackLeavesLiveDatabaseUntouched(t *testing.T) {

@@ -70,7 +70,7 @@ func withMembers(extra string) *cscliReply {
 const healthyHubList = `{"collections":[{"name":"test/preset","status":"enabled"},{"name":"test/dep","status":"enabled"}],"parsers":[{"name":"test/parser","status":"enabled"}]}`
 
 func (e *applyEnv) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := strings.Join(append([]string{name}, args...), " ")
+	cmd := strings.Join(append([]string{name}, stripConfigFlag(args)...), " ")
 	e.mu.Lock()
 	e.calls = append(e.calls, cmd)
 	n := e.counts[cmd]

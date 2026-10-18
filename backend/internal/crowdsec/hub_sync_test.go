@@ -34,7 +34,7 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func (r *recordingExec) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := name + " " + strings.Join(args, " ")
+	cmd := name + " " + strings.Join(stripConfigFlag(args), " ")
 	r.calls = append(r.calls, cmd)
 	if err, ok := r.errors[cmd]; ok {
 		return nil, err

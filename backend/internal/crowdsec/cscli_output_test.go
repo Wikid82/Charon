@@ -70,7 +70,7 @@ func TestInspectParsesOutputWithProgressLine(t *testing.T) {
 	t.Parallel()
 	exec := &fixedExecutor{out: []byte(readCSCLIFixture(t, "inspect_with_progress.txt"))}
 
-	require.NoError(t, VerifyHubItem(context.Background(), exec, "collections", "crowdsecurity/nginx"))
+	require.NoError(t, VerifyHubItem(context.Background(), exec, "", "collections", "crowdsecurity/nginx"))
 
 	svc := &HubService{Exec: exec}
 	state, err := svc.inspectItem(context.Background(), "collections", "crowdsecurity/nginx")
@@ -83,7 +83,7 @@ func TestInspectParsesOutputWithProgressLine(t *testing.T) {
 func TestInspectRejectsOutputWithoutDocument(t *testing.T) {
 	t.Parallel()
 	exec := &fixedExecutor{out: []byte(progressLine)}
-	err := VerifyHubItem(context.Background(), exec, "collections", "crowdsecurity/nginx")
+	err := VerifyHubItem(context.Background(), exec, "", "collections", "crowdsecurity/nginx")
 	require.ErrorIs(t, err, errCSCLIOutput)
 	require.NotContains(t, err.Error(), "Loaded")
 

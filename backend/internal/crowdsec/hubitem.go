@@ -59,12 +59,13 @@ func compareHubItems(a, b HubItem) int {
 }
 
 // VerifyHubItem requires `cscli <type> inspect <name> -o json` to report the item as installed and
-// untainted. Callers validate itemType and name first.
-func VerifyHubItem(ctx context.Context, exec CommandExecutor, itemType, name string) error {
+// untainted. configPath is the engine configuration file passed to cscli with -c ("" for none). Callers validate
+// itemType and name first.
+func VerifyHubItem(ctx context.Context, exec CommandExecutor, configPath, itemType, name string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("verify %s %s: %w", itemType, name, err)
 	}
-	out, err := exec.Execute(ctx, "cscli", itemType, "inspect", name, "-o", "json")
+	out, err := RunCSCLI(ctx, exec, configPath, itemType, "inspect", name, "-o", "json")
 	if err != nil {
 		return err
 	}
