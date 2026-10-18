@@ -203,10 +203,7 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 	}
 
 	// Add config path
-	configPath := s.findConfigPath()
-	if configPath != "" {
-		args = append([]string{"-c", configPath}, args...)
-	}
+	args = withConfigFlag(s.findConfigPath(), args)
 
 	// Token is the last positional argument
 	args = append(args, token)
@@ -258,11 +255,8 @@ func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error
 
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
-		args := []string{"lapi", "status"}
 		configPath := s.findConfigPath()
-		if configPath != "" {
-			args = append([]string{"-c", configPath}, args...)
-		}
+		args := withConfigFlag(configPath, []string{"lapi", "status"})
 
 		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		out, err := s.exec.ExecuteWithEnv(checkCtx, "cscli", args, nil)
@@ -299,10 +293,7 @@ func (s *ConsoleEnrollmentService) ensureCAPIRegistered(ctx context.Context) err
 
 	logger.Log().Info("registering with crowdsec capi")
 	args := []string{"capi", "register"}
-	configPath := s.findConfigPath()
-	if configPath != "" {
-		args = append([]string{"-c", configPath}, args...)
-	}
+	args = withConfigFlag(s.findConfigPath(), args)
 
 	out, err := s.exec.ExecuteWithEnv(ctx, "cscli", args, nil)
 	if err != nil {

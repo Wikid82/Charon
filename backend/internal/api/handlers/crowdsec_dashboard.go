@@ -341,29 +341,36 @@ func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 		return
 	}
 
+	// last_seen is scanned as text: SQLite returns an aggregated time column as a string, which cannot be
+	// scanned into a time.Time. The newest row is chosen by julian day, not by text order, because stored
+	// layouts differ (T or space separator, Z or numeric offset) and text order would mis-rank them.
 	type ipRow struct {
 		IP       string
 		Count    int64
-		LastSeen time.Time
+		LastSeen string
 		Country  string
 	}
 	var rows []ipRow
 
-	h.DB.Model(&models.SecurityDecision{}).
+	if err := h.DB.Model(&models.SecurityDecision{}).
 		Scopes(excludeUnblocks).
-		Select("ip, COUNT(*) as count, MAX(created_at) as last_seen, MAX(country) as country").
+		Select("ip, COUNT(*) as count, COALESCE(strftime('%Y-%m-%dT%H:%M:%SZ', MAX(julianday(created_at))), '') as last_seen, MAX(country) as country").
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Group("ip").
 		Order("count DESC").
 		Limit(limit).
-		Scan(&rows)
+		Scan(&rows).Error; err != nil {
+		logger.Log().WithError(err).Error("Failed to query the CrowdSec top addresses")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load top addresses"})
+		return
+	}
 
 	ips := make([]gin.H, 0, len(rows))
 	for _, r := range rows {
 		ips = append(ips, gin.H{
 			"ip":        r.IP,
 			"count":     r.Count,
-			"last_seen": r.LastSeen.UTC().Format(time.RFC3339),
+			"last_seen": formatLastSeen(r.LastSeen),
 			"country":   r.Country,
 		})
 	}
@@ -589,4 +596,24 @@ func (h *CrowdsecHandler) ExportDecisions(c *gin.Context) {
 		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 		c.JSON(http.StatusOK, decisions)
 	}
+}
+
+// sqliteTimeLayouts are the layouts a time column can come back in when it is read as text.
+var sqliteTimeLayouts = []string{
+	time.RFC3339Nano,
+	"2006-01-02 15:04:05.999999999-07:00",
+	"2006-01-02 15:04:05.999999999",
+	"2006-01-02 15:04:05",
+}
+
+// formatLastSeen turns an aggregated time column read as text into an RFC 3339 UTC string. An unreadable
+// value yields an empty string rather than a misleading zero time.
+func formatLastSeen(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, layout := range sqliteTimeLayouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC().Format(time.RFC3339)
+		}
+	}
+	return ""
 }

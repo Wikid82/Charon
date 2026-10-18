@@ -39,12 +39,9 @@ const (
 // time returns an error that wraps context.DeadlineExceeded, whether the process was killed or reported the
 // context error itself.
 func (h *CrowdsecHandler) runCSCLI(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
-	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
-		args = append([]string{"-c", configPath}, args...)
-	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := h.CmdExec.Execute(runCtx, "cscli", args...)
+	out, err := crowdsec.RunCSCLI(runCtx, h.CmdExec, crowdsec.FindConfigFile(h.DataDir), args...)
 	if err != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
 		err = fmt.Errorf("cscli did not finish in time: %w: %w", context.DeadlineExceeded, err)
 	}

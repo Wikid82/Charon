@@ -2322,7 +2322,7 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 	// Create backup of existing config if it exists
 	var backupPath string
 	if _, err := os.Stat(acquisPath); err == nil {
-		backupPath = fmt.Sprintf("%s.backup.%s", acquisPath, time.Now().Format("20060102-150405"))
+		backupPath = crowdsec.BackupFilePath(acquisPath, time.Now())
 		if err := os.Rename(acquisPath, backupPath); err != nil {
 			logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to backup acquisition config")
 			// Continue anyway - we'll try to write the new config
@@ -2338,6 +2338,11 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write acquisition config"})
 		return
+	}
+
+	// The new backup is the newest, so it always survives; failures are logged only.
+	if _, err := crowdsec.PruneBackupFiles(acquisPath, crowdsec.DefaultBackupRetention); err != nil {
+		logger.Log().WithError(err).Warn("crowdsec acquisition backup prune incomplete")
 	}
 
 	c.JSON(http.StatusOK, gin.H{

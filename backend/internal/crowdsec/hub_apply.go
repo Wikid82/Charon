@@ -126,7 +126,7 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 		return result, s.restoreAfter(cause, backupPath, slug)
 	}
 
-	installOut, err := s.Exec.Execute(applyCtx, "cscli", meta.Type, "install", meta.Name)
+	installOut, err := s.runCSCLI(applyCtx, meta.Type, "install", meta.Name)
 	if err != nil {
 		return rollBack(installFailure(meta, installOut, err))
 	}
@@ -145,7 +145,7 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 			return s.rollBackMismatch(applyCtx, result, backupPath, meta)
 		}
 		// An older, unmodified version was already installed and install left it alone.
-		if _, upErr := s.Exec.Execute(applyCtx, "cscli", meta.Type, "upgrade", meta.Name); upErr != nil {
+		if _, upErr := s.runCSCLI(applyCtx, meta.Type, "upgrade", meta.Name); upErr != nil {
 			return rollBack(fmt.Errorf("upgrade %s %s: %w", meta.Type, meta.Name, upErr))
 		}
 		if installed, err = s.inspectItem(applyCtx, meta.Type, meta.Name); err != nil {
@@ -205,7 +205,7 @@ func (s *HubService) updateHubIndex(ctx context.Context) {
 	}
 	updateCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	if _, err := s.Exec.Execute(updateCtx, "cscli", "hub", "update"); err != nil {
+	if _, err := s.runCSCLI(updateCtx, "hub", "update"); err != nil {
 		logger.Log().WithError(err).Warn("cscli hub update failed; continuing with the local hub index")
 	}
 }
@@ -264,7 +264,7 @@ type itemState struct {
 }
 
 func (s *HubService) inspectItem(ctx context.Context, itemType, name string) (itemState, error) {
-	out, err := s.Exec.Execute(ctx, "cscli", itemType, "inspect", name, "-o", "json")
+	out, err := s.runCSCLI(ctx, itemType, "inspect", name, "-o", "json")
 	if err != nil {
 		return itemState{}, fmt.Errorf("inspect %s %s: %w", itemType, name, err)
 	}
@@ -287,7 +287,7 @@ func parseItemState(out []byte) (itemState, error) {
 // the local index does not know (stale preset) and an item edited on this server. Any other inspect problem is
 // left to the checks after the install. The returned state locates the item's own hub file for the snapshot.
 func (s *HubService) preflight(ctx context.Context, meta CachedPreset) (itemState, error) {
-	out, err := s.Exec.Execute(ctx, "cscli", meta.Type, "inspect", meta.Name, "-o", "json")
+	out, err := s.runCSCLI(ctx, meta.Type, "inspect", meta.Name, "-o", "json")
 	if err != nil {
 		if strings.Contains(string(out)+" "+err.Error(), "can't find") {
 			return itemState{}, ErrPresetCacheStale
@@ -309,7 +309,7 @@ func (s *HubService) preflight(ctx context.Context, meta CachedPreset) (itemStat
 // hubListStatus runs one `cscli hub list -o json` and returns the status of every installed item, keyed
 // "section/name".
 func (s *HubService) hubListStatus(ctx context.Context) (map[string]string, error) {
-	out, err := s.Exec.Execute(ctx, "cscli", "hub", "list", "-o", "json")
+	out, err := s.runCSCLI(ctx, "hub", "list", "-o", "json")
 	if err != nil {
 		return nil, fmt.Errorf("list installed hub items: %w", err)
 	}
@@ -386,7 +386,7 @@ func (s *HubService) presetScope(ctx context.Context, meta CachedPreset) map[str
 // itemMembers returns the well-formed items an inspected item lists as its members, or nil when the
 // inspection fails.
 func (s *HubService) itemMembers(ctx context.Context, item HubItem) []HubItem {
-	out, err := s.Exec.Execute(ctx, "cscli", item.Type, "inspect", item.Name, "-o", "json")
+	out, err := s.runCSCLI(ctx, item.Type, "inspect", item.Name, "-o", "json")
 	if err != nil {
 		return nil
 	}

@@ -28,6 +28,9 @@ type scriptedHubExec struct {
 }
 
 func (e *scriptedHubExec) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if len(args) >= 2 && args[0] == "-c" { // the hub service puts the configuration file in front when one exists
+		args = args[2:]
+	}
 	cmd := strings.Join(append([]string{name}, args...), " ")
 	e.mu.Lock()
 	e.calls = append(e.calls, cmd)

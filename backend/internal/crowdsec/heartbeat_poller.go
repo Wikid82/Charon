@@ -152,10 +152,7 @@ func (p *HeartbeatPoller) checkHeartbeat(ctx context.Context) {
 
 	// Run `cscli console status -o json` to check connectivity
 	args := []string{"console", "status", "-o", "json"}
-	configPath := p.findConfigPath()
-	if configPath != "" {
-		args = append([]string{"-c", configPath}, args...)
-	}
+	args = withConfigFlag(p.findConfigPath(), args)
 
 	out, err := p.exec.ExecuteWithEnv(checkCtx, "cscli", args, nil)
 	if err != nil {

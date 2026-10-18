@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { formatAbsoluteTime, formatRelativeTime } from '../../utils/formatRelativeTime'
 import { Skeleton } from '../ui'
 
 import type { TopIP } from '../../api/crowdsecDashboard'
@@ -15,25 +16,6 @@ interface ActiveDecisionsTableProps {
 
 type SortKey = 'ip' | 'count' | 'last_seen' | 'country'
 type SortDir = 'asc' | 'desc'
-
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now()
-  const then = new Date(dateStr).getTime()
-  const diffMs = now - then
-  if (diffMs < 0) return 'just now'
-
-  const seconds = Math.floor(diffMs / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisionsTableProps) {
   const { t } = useTranslation()
@@ -89,12 +71,16 @@ export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisio
     )
   }
 
-  const columns: { key: SortKey; label: string }[] = [
+  // The backend does not always populate country; hide the column when no row has one.
+  const hasCountry = sorted.some((row) => Boolean(row.country))
+
+  const allColumns: { key: SortKey; label: string }[] = [
     { key: 'ip', label: t('security.crowdsec.dashboard.colIP', 'IP') },
     { key: 'count', label: t('security.crowdsec.dashboard.colCount', 'Alerts') },
     { key: 'last_seen', label: t('security.crowdsec.dashboard.colLastSeen', 'Last Seen') },
     { key: 'country', label: t('security.crowdsec.dashboard.colCountry', 'Country') },
   ]
+  const columns = hasCountry ? allColumns : allColumns.filter((col) => col.key !== 'country')
 
   return (
     <div className="rounded-lg border border-gray-700 bg-gray-900 p-4">
@@ -140,11 +126,11 @@ export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisio
                 <td className="py-2 px-3 font-mono text-gray-300 whitespace-nowrap">{row.ip}</td>
                 <td className="py-2 px-3 text-gray-400 tabular-nums">{row.count}</td>
                 <td className="py-2 px-3 text-gray-400 whitespace-nowrap tabular-nums">
-                  <time dateTime={row.last_seen} title={new Date(row.last_seen).toLocaleString()}>
+                  <time dateTime={row.last_seen || undefined} title={formatAbsoluteTime(row.last_seen)}>
                     {formatRelativeTime(row.last_seen)}
                   </time>
                 </td>
-                <td className="py-2 px-3 text-gray-400">{row.country || '—'}</td>
+                {hasCountry && <td className="py-2 px-3 text-gray-400">{row.country || '—'}</td>}
               </tr>
             ))}
           </tbody>
