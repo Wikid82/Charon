@@ -26,6 +26,7 @@ const (
 	CrowdsecApplyErrHubUpdating      = "preset_hub_updating"
 	CrowdsecApplyErrLocalModified    = "preset_local_modified"
 	CrowdsecApplyErrCSCLIUnavailable = "cscli_unavailable"
+	CrowdsecApplyErrHubUnreachable   = "hub_unreachable"
 )
 
 // Limits on the free-text columns of CrowdsecApplyJob.
