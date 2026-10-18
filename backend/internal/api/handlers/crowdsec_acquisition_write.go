@@ -27,13 +27,14 @@ var renameFile = os.Rename
 // A rename over a bind-mounted single file (or across devices, or onto a read-only mount) fails with
 // EBUSY/EXDEV/EROFS; then the content is written in place instead and the backup is kept as the safety net.
 func replaceAcquisitionConfig(path, content string, now time.Time) (backupPath string, err error) {
+	path = filepath.Clean(path)
 	mode := fs.FileMode(0o644)
 	var createdBackup string // separate from the named return: `return "", err` zeroes backupPath before defers run
 	info, statErr := os.Stat(path)
 	switch {
 	case statErr == nil:
 		mode = info.Mode().Perm()
-		old, readErr := os.ReadFile(path)
+		old, readErr := os.ReadFile(path) //nolint:gosec // G304: acquisition path is operator config (CHARON_CROWDSEC_ACQUIS_PATH), validated by resolveAcquisitionConfigPath and cleaned above
 		if readErr != nil {
 			return "", fmt.Errorf("read acquisition config: %w", readErr)
 		}
@@ -135,6 +136,6 @@ func isRenameUnsupported(err error) bool {
 
 func removeIfSet(path string) {
 	if path != "" {
-		_ = os.Remove(path)
+		_ = os.Remove(path) //nolint:gosec // G703: removes only the temp/backup file this function created
 	}
 }

@@ -40,7 +40,7 @@ func newAcquisitionRouter(t *testing.T) http.Handler {
 func TestUpdateAcquisitionConfigConcurrentPutsStayConsistent(t *testing.T) {
 	dir := t.TempDir()
 	acquis := filepath.Join(dir, "acquis.yaml")
-	require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o640))
+	require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o640)) //nolint:gosec // G306: deliberate 0640 to verify mode preservation
 	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquis)
 	r := newAcquisitionRouter(t)
 
@@ -61,7 +61,7 @@ func TestUpdateAcquisitionConfigConcurrentPutsStayConsistent(t *testing.T) {
 		require.Equal(t, http.StatusOK, code)
 	}
 
-	got, err := os.ReadFile(acquis)
+	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Contains(t, payloads, string(got))
 
@@ -88,13 +88,13 @@ func TestUpdateAcquisitionConfigKeepsPreviousFileOnFailure(t *testing.T) {
 	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquis)
 	r := newAcquisitionRouter(t)
 
-	require.NoError(t, os.Chmod(dir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	require.NoError(t, os.Chmod(dir, 0o500))       //nolint:gosec // G302: read-only directory is the failure under test
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // G302: restore directory so TempDir cleanup works
 
 	w := putAcquisition(r, "new\n")
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 
-	got, err := os.ReadFile(acquis)
+	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "original\n", string(got))
 }
@@ -106,7 +106,7 @@ func TestUpdateAcquisitionConfigCreatesFileWithoutBackupWhenAbsent(t *testing.T)
 
 	require.Equal(t, http.StatusOK, putAcquisition(r, "fresh\n").Code)
 
-	got, err := os.ReadFile(acquis)
+	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "fresh\n", string(got))
 	backups, err := filepath.Glob(acquis + ".backup.*")
@@ -131,7 +131,7 @@ func TestReplaceAcquisitionConfigFallsBackInPlaceOnBusyRename(t *testing.T) {
 		t.Run(errno.Error(), func(t *testing.T) {
 			dir := t.TempDir()
 			acquis := filepath.Join(dir, "acquis.yaml")
-			require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o640))
+			require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o640)) //nolint:gosec // G306: deliberate 0640 to verify mode preservation
 			orig := renameFile
 			renameFile = func(oldpath, newpath string) error {
 				return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: errno}
@@ -143,10 +143,10 @@ func TestReplaceAcquisitionConfigFallsBackInPlaceOnBusyRename(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, crowdsec.BackupFilePath(acquis, now), backup)
 
-			got, err := os.ReadFile(acquis)
+			got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 			require.NoError(t, err)
 			require.Equal(t, "new\n", string(got))
-			saved, err := os.ReadFile(backup)
+			saved, err := os.ReadFile(backup) //nolint:gosec // G304: t.TempDir-derived path
 			require.NoError(t, err)
 			require.Equal(t, "original\n", string(saved))
 			requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backup))
@@ -189,7 +189,7 @@ func TestUpdateAcquisitionConfigFailedReplaceLeaksNoFiles(t *testing.T) {
 	w := putAcquisition(r, "new\n")
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 
-	got, err := os.ReadFile(acquis)
+	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "original\n", string(got))
 	requireOnlyEntries(t, dir, "acquis.yaml")
@@ -207,10 +207,10 @@ func TestReplaceAcquisitionConfigBackupNameCollisionAdvances(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, crowdsec.BackupFilePath(acquis, now.Add(time.Microsecond)), backup)
 
-	kept, err := os.ReadFile(taken)
+	kept, err := os.ReadFile(taken) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "older backup\n", string(kept), "an existing backup must never be overwritten")
-	saved, err := os.ReadFile(backup)
+	saved, err := os.ReadFile(backup) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "original\n", string(saved))
 }
@@ -231,7 +231,7 @@ func TestReplaceAcquisitionConfigBackupCollisionExhausted(t *testing.T) {
 	require.ErrorContains(t, err, "write acquisition backup")
 	require.Empty(t, backup)
 	requireOnlyEntries(t, dir, names...)
-	got, err := os.ReadFile(acquis)
+	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "original\n", string(got))
 }
@@ -277,7 +277,7 @@ func TestUpdateAcquisitionConfigCancelledRequestDoesNotWrite(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Empty(t, w.Body.String(), "an aborted request writes no response body")
-	got, err := os.ReadFile(acquis)
+	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "original\n", string(got))
 	requireOnlyEntries(t, dir, "acquis.yaml")
