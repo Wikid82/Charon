@@ -1,0 +1,289 @@
+package handlers
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+// These tests describe how the handlers behave while a background hub install job runs (#1615, PR 6). They
+// compile against the current code and skip until commit 3 of PR 6 (the busy flag) replaces
+// setBackgroundInstallActive with the real hook and removes its t.Skip.
+
+const (
+	pendingBusySkip  = "pending background install implementation"
+	busyJobID        = "00000000-0000-4000-8000-000000000001"
+	codeCrowdsecBusy = "crowdsec_busy"
+)
+
+// setBackgroundInstallActive makes h behave as if install job jobID were running.
+func setBackgroundInstallActive(t *testing.T, _ *CrowdsecHandler, _ string) {
+	t.Helper()
+	t.Skip(pendingBusySkip)
+}
+
+type busyFixture struct {
+	h    *CrowdsecHandler
+	r    *gin.Engine
+	dir  string
+	exec *countingExec
+}
+
+func newBusyFixture(t *testing.T) *busyFixture {
+	t.Helper()
+	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.CrowdSecWhitelist{}, &models.CrowdsecConsoleEnrollment{}))
+	dir := t.TempDir()
+	ce := &countingExec{running: true}
+	h := newTestCrowdsecHandler(t, db, ce, "/bin/false", dir)
+	h.WhitelistSvc = services.NewCrowdSecWhitelistService(db, dir)
+	h.Console = crowdsec.NewConsoleEnrollmentService(db, &mockEnvExecutor{}, dir, "test-secret")
+	cache, err := crowdsec.NewHubCache(filepath.Join(dir, "hub_cache"), 0)
+	require.NoError(t, err)
+	h.Hub = crowdsec.NewHubService(&fastCmdExec{}, cache, dir)
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+	return &busyFixture{h: h, r: r, dir: dir, exec: ce}
+}
+
+func (f *busyFixture) do(method, path string, body []byte, contentType string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, "/api/v1"+path, bytes.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	w := httptest.NewRecorder()
+	f.r.ServeHTTP(w, req)
+	return w
+}
+
+// busyCase is one busy-checked route: a request that would be accepted without a job and the proof that it
+// changed nothing while the job runs.
+type busyCase struct {
+	request func(t *testing.T, f *busyFixture) (method, path string, body []byte, contentType string)
+	// untouched asserts the request had no effect (nil when the 409 itself is the whole proof).
+	untouched func(t *testing.T, f *busyFixture)
+}
+
+// busyCases has one entry per busy-checked route of mutatingCrowdsecRoutes.
+var busyCases = map[string]busyCase{
+	"POST /admin/crowdsec/start": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			return http.MethodPost, "/admin/crowdsec/start", nil, ""
+		},
+		untouched: func(t *testing.T, f *busyFixture) {
+			require.Zero(t, f.exec.startCalls)
+			require.Zero(t, f.exec.statusCalls, "the busy check runs before the executor, so a 409 never waits on its mutex")
+		},
+	},
+	"POST /admin/crowdsec/stop": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			return http.MethodPost, "/admin/crowdsec/stop", nil, ""
+		},
+		untouched: func(t *testing.T, f *busyFixture) {
+			require.Zero(t, f.exec.statusCalls, "the busy check runs before the executor")
+		},
+	},
+	"POST /admin/crowdsec/import": {
+		request: func(t *testing.T, _ *busyFixture) (string, string, []byte, string) {
+			req := importRequest(t, map[string]string{"config.yaml": importableConfig})
+			body := new(bytes.Buffer)
+			_, _ = body.ReadFrom(req.Body)
+			return http.MethodPost, "/admin/crowdsec/import", body.Bytes(), req.Header.Get("Content-Type")
+		},
+		untouched: func(t *testing.T, f *busyFixture) {
+			require.NoFileExists(t, filepath.Join(f.dir, "config.yaml"), "the import extracted nothing")
+		},
+	},
+	"POST /admin/crowdsec/hub-items/restore": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			return http.MethodPost, "/admin/crowdsec/hub-items/restore",
+				restoreBody(crowdsec.HubItem{Type: "scenarios", Name: "a/one"}), "application/json"
+		},
+		untouched: func(t *testing.T, f *busyFixture) {
+			require.False(t, f.h.restore.running.Load(), "the restore flag was never taken")
+		},
+	},
+	"POST /admin/crowdsec/file": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			return http.MethodPost, "/admin/crowdsec/file",
+				[]byte(`{"path":"busy.txt","content":"x"}`), "application/json"
+		},
+		untouched: func(t *testing.T, f *busyFixture) {
+			require.NoFileExists(t, filepath.Join(f.dir, "busy.txt"))
+		},
+	},
+	"POST /admin/crowdsec/presets/apply": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			curated := curatedPresetSlug()
+			return http.MethodPost, "/admin/crowdsec/presets/apply",
+				[]byte(`{"slug":"` + curated + `","cache_key":"curated-` + curated + `"}`), "application/json"
+		},
+	},
+	"POST /admin/crowdsec/console/enroll": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			return http.MethodPost, "/admin/crowdsec/console/enroll",
+				[]byte(`{"enrollment_key":"abcdefghijklmnop","agent_name":"agent"}`), "application/json"
+		},
+		untouched: func(t *testing.T, f *busyFixture) {
+			var n int64
+			require.NoError(t, f.h.DB.Model(&models.CrowdsecConsoleEnrollment{}).Count(&n).Error)
+			require.Zero(t, n, "no enrollment attempt was recorded")
+		},
+	},
+	"POST /admin/crowdsec/whitelist": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			return http.MethodPost, "/admin/crowdsec/whitelist", []byte(`{"ip_or_cidr":"192.0.2.10"}`), "application/json"
+		},
+		untouched: func(t *testing.T, f *busyFixture) {
+			var n int64
+			require.NoError(t, f.h.DB.Model(&models.CrowdSecWhitelist{}).Count(&n).Error)
+			require.Zero(t, n, "the entry was not stored")
+			require.NoFileExists(t, filepath.Join(f.dir, "config", "parsers", "s02-enrich", "charon-whitelist.yaml"))
+		},
+	},
+	"DELETE /admin/crowdsec/whitelist/:uuid": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			return http.MethodDelete, "/admin/crowdsec/whitelist/00000000-0000-4000-8000-0000000000aa", nil, ""
+		},
+	},
+}
+
+func curatedPresetSlug() string {
+	for _, p := range crowdsec.ListCuratedPresets() {
+		if !p.RequiresHub {
+			return p.Slug
+		}
+	}
+	return ""
+}
+
+// TestBusyCasesCoverEveryBusyCheckedRoute runs today: the busy table and the route classification cannot drift.
+func TestBusyCasesCoverEveryBusyCheckedRoute(t *testing.T) {
+	t.Parallel()
+	for route, c := range mutatingCrowdsecRoutes {
+		if c.class == routeBusyChecked {
+			require.Contains(t, busyCases, route, "a busy-checked route needs a case in busyCases")
+		} else {
+			require.NotContains(t, busyCases, route, "only busy-checked routes belong in busyCases")
+		}
+	}
+}
+
+func TestMutatingHandlersAnswerBusyWhileAnInstallRuns(t *testing.T) {
+	for route, bc := range busyCases {
+		t.Run(route, func(t *testing.T) {
+			f := newBusyFixture(t)
+			setBackgroundInstallActive(t, f.h, busyJobID)
+			method, path, body, ct := bc.request(t, f)
+
+			w := f.do(method, path, body, ct)
+
+			require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+			require.Equal(t, codeCrowdsecBusy, resp["error_code"])
+			require.Equal(t, busyJobID, resp["job_id"], "the active job is named so the UI can resume it")
+			if bc.untouched != nil {
+				bc.untouched(t, f)
+			}
+		})
+	}
+}
+
+func TestDuplicateStartAnswersBusyNotAlreadyRunningWhileAnInstallRuns(t *testing.T) {
+	f := newBusyFixture(t)
+
+	// Without a job a second Start is the idempotent 200 (runs today).
+	w := f.do(http.MethodPost, "/admin/crowdsec/start", nil, "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "already_running")
+
+	setBackgroundInstallActive(t, f.h, busyJobID)
+	f.exec.statusCalls = 0
+	w = f.do(http.MethodPost, "/admin/crowdsec/start", nil, "")
+	require.Equal(t, http.StatusConflict, w.Code, "a reload during an install could interrupt it")
+	require.Zero(t, f.exec.statusCalls)
+}
+
+func TestReadsStayOpenWhileAnInstallRuns(t *testing.T) {
+	f := newBusyFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(f.dir, "readme.txt"), []byte("x"), 0o600))
+	setBackgroundInstallActive(t, f.h, busyJobID)
+
+	for _, path := range []string{
+		"/admin/crowdsec/status",
+		"/admin/crowdsec/files",
+		"/admin/crowdsec/file?path=readme.txt",
+		"/admin/crowdsec/export",
+		"/admin/crowdsec/presets",
+		"/admin/crowdsec/whitelist",
+		"/admin/crowdsec/console/status",
+		"/admin/crowdsec/acquisition",
+	} {
+		w := f.do(http.MethodGet, path, nil, "")
+		require.NotEqual(t, http.StatusConflict, w.Code, "%s must stay available: %s", path, w.Body.String())
+		require.False(t, strings.Contains(w.Body.String(), codeCrowdsecBusy), path)
+	}
+}
+
+func TestNonBusyRoutesStayOpenWhileAnInstallRuns(t *testing.T) {
+	f := newBusyFixture(t)
+	setBackgroundInstallActive(t, f.h, busyJobID)
+
+	for route, c := range mutatingCrowdsecRoutes {
+		if c.class == routeBusyChecked {
+			continue
+		}
+		method, path, _ := strings.Cut(route, " ")
+		path = strings.NewReplacer("*value", "192.0.2.1", ":uuid", "x").Replace(path)
+		w := f.do(method, path, []byte(`{}`), "application/json")
+		require.NotEqual(t, http.StatusConflict, w.Code, "%s (%s) must not be blocked: %s", route, c.class, w.Body.String())
+	}
+}
+
+func TestHubItemsRestoreInProgressRefusesAnInstallJob(t *testing.T) {
+	f := newBusyFixture(t)
+	setBackgroundInstallActive(t, f.h, "") // only to skip until the async apply exists
+	f.h.restore.running.Store(true)
+	defer f.h.restore.running.Store(false)
+
+	curated := curatedPresetSlug()
+	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply",
+		[]byte(`{"slug":"`+curated+`","cache_key":"curated-`+curated+`","async":true}`), "application/json")
+
+	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, codeCrowdsecBusy, resp["error_code"])
+	require.NotContains(t, resp, "job_id", "no job exists, so none is named")
+}
+
+// endBackgroundInstall makes h behave as if the running job finished.
+func endBackgroundInstall(t *testing.T, _ *CrowdsecHandler) {
+	t.Helper()
+	t.Skip(pendingBusySkip)
+}
+
+func TestBusyFlagIsReleasedWhenAJobEnds(t *testing.T) {
+	f := newBusyFixture(t)
+	setBackgroundInstallActive(t, f.h, busyJobID)
+	write := []byte(`{"path":"a.txt","content":"x"}`)
+	require.Equal(t, http.StatusConflict, f.do(http.MethodPost, "/admin/crowdsec/file", write, "application/json").Code)
+
+	endBackgroundInstall(t, f.h)
+
+	require.Equal(t, http.StatusOK, f.do(http.MethodPost, "/admin/crowdsec/file", write, "application/json").Code, "writes work again after the job ended")
+}
