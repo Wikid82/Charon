@@ -34,6 +34,9 @@ const (
 	defaultHubIndexPath     = "/api/index.json"
 	maxArchiveSize          = int64(25 * 1024 * 1024) // 25MiB safety cap for the hub index
 	defaultPullTimeout      = 25 * time.Second
+	// indexFreshTTL is how long after a successful index fetch an untyped pull of a single cached section
+	// skips the index request.
+	indexFreshTTL = 10 * time.Minute
 	// defaultApplyTimeout covers cscli version, hub update, the typed install (which downloads the item and its
 	// dependencies), inspect, an optional upgrade with a second inspect, and one hub list. Timed against a real
 	// hub: typical installs take 1-5 s, a collection with about 200 dependencies about 22 s, and the largest
@@ -104,6 +107,16 @@ type HubService struct {
 
 	// mu serializes Apply and ApplyCurated so backup/rollback cycles never interleave.
 	mu sync.Mutex
+
+	// indexMu guards lastIndex and lastIndexAt.
+	indexMu sync.Mutex
+	// lastIndex is the index of the last successful fetch, taken at lastIndexAt.
+	lastIndex   HubIndex
+	lastIndexAt time.Time
+	// now is the clock for the index window; nil means time.Now. Test-only override.
+	now func() time.Time
+	// legacySweep makes the old-layout cache sweep run once per process.
+	legacySweep sync.Once
 }
 
 // validateHubURL validates a hub URL for security (SSRF protection - HIGH-001).
@@ -536,9 +549,11 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 	if itemType != "" && !IsCacheItemType(itemType) {
 		return PullResult{}, ErrInvalidItemType
 	}
-	if err := s.Cache.RemoveLegacyEntries(ctx); err != nil {
-		logger.Log().WithError(err).Warn("failed to remove cache entries of the old layout")
-	}
+	s.legacySweep.Do(func() {
+		if err := s.Cache.RemoveLegacyEntries(ctx); err != nil {
+			logger.Log().WithError(err).Warn("failed to remove cache entries of the old layout")
+		}
+	})
 
 	pullCtx, cancel := context.WithTimeout(ctx, s.PullTimeout)
 	defer cancel()
@@ -548,7 +563,9 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 	if itemType == "" {
 		// Only the index knows whether the name exists in more than one section.
 		var err error
-		if idx, err = s.FetchIndex(pullCtx); err == nil {
+		if cachedType, ok := s.freshCachedType(ctx, slug); ok {
+			itemType = cachedType
+		} else if idx, err = s.fetchIndexRecorded(pullCtx); err == nil {
 			haveIndex = true
 			if itemType, err = resolveItemType(idx, slug); err != nil {
 				return PullResult{}, err
@@ -570,7 +587,7 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 	}
 
 	if !haveIndex {
-		if idx, err = s.FetchIndex(pullCtx); err != nil {
+		if idx, err = s.fetchIndexRecorded(pullCtx); err != nil {
 			return PullResult{}, err
 		}
 	}
@@ -600,6 +617,49 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 		return PullResult{}, fmt.Errorf("cache store: %w", err)
 	}
 	return PullResult{Meta: stored, Preview: string(item)}, nil
+}
+
+// fetchIndexRecorded fetches the index and, on success, remembers it with the time of the fetch. A failed
+// fetch leaves the previous record untouched.
+func (s *HubService) fetchIndexRecorded(ctx context.Context) (HubIndex, error) {
+	idx, err := s.FetchIndex(ctx)
+	if err != nil {
+		return idx, err
+	}
+	s.indexMu.Lock()
+	s.lastIndex, s.lastIndexAt = idx, s.clock()
+	s.indexMu.Unlock()
+	return idx, nil
+}
+
+func (s *HubService) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+// freshCachedType returns the section of slug when the index request can be skipped: the slug has exactly one
+// valid cached section, the index was fetched within indexFreshTTL, and that index does not list the name in
+// another section. A name the retained index shows in several sections stays ambiguous.
+func (s *HubService) freshCachedType(ctx context.Context, slug string) (string, bool) {
+	s.indexMu.Lock()
+	idx, at := s.lastIndex, s.lastIndexAt
+	s.indexMu.Unlock()
+	if at.IsZero() || s.clock().Sub(at) >= indexFreshTTL {
+		return "", false
+	}
+	cachedType := s.onlyCachedType(ctx, slug)
+	if cachedType == "" {
+		return "", false
+	}
+	if _, err := resolveItemType(idx, slug); err != nil {
+		var ambiguous *AmbiguousTypeError
+		if errors.As(err, &ambiguous) {
+			return "", false // refetch so the caller receives the ambiguity from the index
+		}
+	}
+	return cachedType, true
 }
 
 // onlyCachedType returns the section of the single valid cache entry of slug, or "" when there is none or
