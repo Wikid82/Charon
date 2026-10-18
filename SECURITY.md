@@ -1209,7 +1209,8 @@ attackers from using the application to access internal resources or cloud metad
 - **Non-root by default**: Charon runs as an unprivileged user (`charon`, uid 1000) inside the
   container. Docker socket access is granted via a minimal supplemental group matching the host
   socket's GID — never by running as root. If the socket GID is `0` (root group), Charon requires
-  explicit opt-in before granting access.
+  explicit opt-in before granting access. Connecting Docker through Orthrus (recommended) avoids mounting
+  the socket into Charon at all; the direct mount remains supported.
 - **Container isolation**: Docker-based deployment
 - **Minimal attack surface**: Alpine Linux base image
 - **Dependency scanning**: Regular Trivy and govulncheck scans
@@ -1380,6 +1381,7 @@ services:
       - LOG_LEVEL=info
     volumes:
       - ./charon-data:/app/data:rw
+      # Optional. Orthrus is the recommended, more secure way to connect Docker (no socket mount in Charon).
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - charon-internal

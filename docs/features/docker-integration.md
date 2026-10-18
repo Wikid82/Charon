@@ -6,7 +6,7 @@ category: integration
 
 # Docker Auto-Discovery
 
-Already running apps in Docker? Charon automatically finds your containers and offers one-click proxy setup. Supports both local Docker installations and remote Docker servers.
+Already running apps in Docker? Charon automatically finds your containers and offers one-click proxy setup. Works with Docker on the same machine or on other machines. The recommended way to connect is [Orthrus](orthrus.md); mounting the Docker socket directly is still supported.
 
 ## Overview
 
@@ -14,7 +14,7 @@ Docker auto-discovery eliminates manual IP address hunting and port memorization
 
 ### How It Works
 
-1. Charon connects to Docker via socket or TCP
+1. Charon connects to Docker through an Orthrus agent, a mounted socket, or a socket proxy
 2. Queries running containers and their exposed ports
 3. Displays container list with network details
 4. You select a container and assign a domain
@@ -42,9 +42,23 @@ Docker auto-discovery eliminates manual IP address hunting and port memorization
 
 ## Configuration
 
-### Docker Socket Mounting
+Charon needs a way to ask Docker "what is running?". There are three ways to give it that, listed from most to least recommended for security.
 
-For Charon to discover containers, it needs Docker API access.
+### Recommended: Orthrus
+
+Orthrus is a tiny helper that sits next to Docker and answers Charon's questions. Because the helper holds the Docker socket, **Charon itself never touches it**. If someone ever broke into Charon, they would still not have a direct line to your whole Docker setup.
+
+Orthrus works on a different machine and on the same machine as Charon.
+
+1. In Charon, open **Remote Agents** and add an agent. Copy the one-time key.
+2. Run the ready-made install snippet next to your containers.
+3. When the agent shows **Online**, add a Source for it and pick it in the **Source** dropdown of the Proxy Host form.
+
+New to this? Follow the [Orthrus guide](orthrus.md), including [Using Orthrus on the same server as Charon](orthrus.md#using-orthrus-on-the-same-server-as-charon).
+
+### Simple: Mount the Docker Socket Directly
+
+Mounting the socket straight into Charon is still fully supported. It is the quickest way to get started because there is no extra container to run.
 
 **Docker Compose:**
 
@@ -62,29 +76,34 @@ services:
 docker run -v /var/run/docker.sock:/var/run/docker.sock:ro charon
 ```
 
-> **Security Note**: The socket grants significant access. Use read-only mode (`:ro`) and consider Docker socket proxies for production.
+> **Security Note**: The socket grants significant access, and the `:ro` flag does not change that. If you prefer this method, consider the socket proxy below. If you would rather not mount the socket at all, use Orthrus.
 
-### Remote Docker Server Support
+### Hardened Middle Ground: Socket Proxy
 
-Connect to Docker hosts over TCP:
+A socket proxy lets Charon see your containers while blocking everything else. It is a good fit if you want to keep the direct approach but with fewer risks. See [Limiting Socket Access with a Proxy](#limiting-socket-access-with-a-proxy) below.
 
-1. Go to **Settings** → **Docker**
-2. Click **Add Remote Host**
-3. Enter connection details:
-   - **Name**: Friendly identifier
-   - **Host**: IP or hostname
-   - **Port**: Docker API port (default: 2375/2376)
-   - **TLS**: Enable for secure connections
-4. Upload TLS certificates if required
-5. Click **Test Connection**, then **Save**
+### When the Local Option Is Greyed Out
+
+In the Proxy Host form, the **Source** dropdown has an option called **Local (Docker Socket)**. If Charon cannot use the Docker socket (for example, none is mounted), that option is greyed out and a short message explains why. Nothing is broken: pick an Orthrus Source instead, or mount the socket if you prefer the simple method.
+
+### Connecting to Docker on Another Machine
+
+For a Docker machine other than the one Charon runs on, the easiest and safest choice is Orthrus (see [Remote Docker Setup](../guides/remote-docker-setup.md)). You can also add a Source that points straight at the machine's Docker address:
+
+1. In the sidebar, open **Hecate** → **Sources**
+2. Click **Add Source**
+3. Enter a **Name**, set **Provider** to **Docker**, and fill in the host and port
+4. Click **Save**
+
+> **Heads up**: Docker's network port is unencrypted unless you set up TLS on that machine. Keep it on a private network only.
 
 ## Container Selection Workflow
 
 ### Viewing Available Containers
 
-1. Navigate to **Hosts** → **Add Host**
-2. Click **Select from Docker**
-3. Choose Docker host (local or remote)
+1. Navigate to **Proxy Hosts** → **Add Proxy Host**
+2. Open the **Source** dropdown and choose where your containers live (**Local (Docker Socket)** or one of your Sources)
+3. Pick a container from the list
 4. Browse running containers
 
 ### Container List Display
@@ -135,7 +154,8 @@ Override the auto-detected port:
 
 | Issue | Cause | Solution |
 | ------- | ------- | ---------- |
-| No containers shown | Socket not mounted | Add Docker socket volume |
+| No containers shown | No Docker connection set up | Connect Docker with [Orthrus](orthrus.md) (recommended), or mount the Docker socket |
+| "Local (Docker Socket)" is greyed out in the Source dropdown | No Docker socket is mounted, or Charon cannot read it | Use an Orthrus Source, or mount the socket (and see [Getting Started](../getting-started.md#docker-socket-access-important) if Charon cannot read it) |
 | Connection refused | Remote Docker not configured | Enable TCP API on Docker host |
 | Container not proxied | Container not running | Start the container |
 | Wrong IP resolved | Multi-network container | Specify network in advanced settings |
@@ -143,8 +163,8 @@ Override the auto-detected port:
 
 ## Security Considerations
 
-- **Socket Access**: The Docker socket grants broad system access — the `:ro` flag prevents deleting the socket file, but does **not** restrict which Docker API calls can be made. If you don't need container auto-discovery, skip the socket mount entirely. For production, use a socket proxy (see below).
-- **Remote Connections**: Always use TLS for remote Docker hosts.
+- **Socket Access**: The Docker socket grants broad system access. The `:ro` flag stops the socket file from being deleted, but does **not** limit which Docker actions can be taken. The safest choice is [Orthrus](orthrus.md), so Charon never holds the socket. If you mount it directly, that is still supported; a socket proxy (below) narrows what is allowed.
+- **Remote Connections**: Prefer Orthrus for other machines. If you connect straight to a remote Docker address, keep it on a private network and use TLS.
 - **Network Isolation**: Use Docker networks to segment container communication.
 
 ### Limiting Socket Access with a Proxy

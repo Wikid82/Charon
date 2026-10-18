@@ -83,6 +83,7 @@ services:
       # size is the backstop when a run is interrupted.
       - /app/data:size=512M,mode=1777
     volumes:
+      # Test fixture: container discovery in E2E tests needs this mount. Not a recommended production setup.
       - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     labels:
       - "dockhand.update=false"

@@ -71,7 +71,7 @@ Charon gives you a ready-made install snippet. Pick the method that fits your se
 
 Back in Charon → **Remote Agents**, your agent should flip to **Online** within 10–30 seconds.
 
-That's it. You can now use this agent when [adding a Remote Server](../guides/remote-docker-setup.md).
+That's it. You can now use this agent when [adding a Source](../guides/remote-docker-setup.md). Running Charon and Docker on the same machine? See [Using Orthrus on the same server as Charon](#using-orthrus-on-the-same-server-as-charon).
 
 ---
 
@@ -82,6 +82,35 @@ That's it. You can now use this agent when [adding a Remote Server](../guides/re
 | ✅ Online | Connected and healthy | Nothing — you're good |
 | ❌ Offline | Lost connection or not started | Check the agent is running on the remote machine |
 | 🟡 Pending | Registered but never connected yet | Run the install snippet on the remote machine |
+
+---
+
+## Using Orthrus on the Same Server as Charon
+
+Orthrus is not just for faraway machines. Running it beside Charon on the same server is the **recommended way** to see your containers, because Charon itself no longer needs the Docker socket. (Mounting the socket straight into Charon is still supported if you prefer it.)
+
+The socket is still mounted somewhere: into the small Orthrus agent instead of into Charon. The agent is read-only by default, and write access is an explicit per-agent opt-in (see [What Orthrus Can (and Cannot) Do](#what-orthrus-can-and-cannot-do)).
+
+1. **Register an agent.** In Charon, open **Remote Agents**, click **Add Agent**, and copy the one-time auth key.
+2. **Run the agent next to Charon.** Use the Docker Compose snippet from the **Install** tab and set `ORTHRUS_SERVER_URL` to **any address the agent can reach Charon on** (see the list below).
+3. **Remove the socket from Charon.** Delete the `/var/run/docker.sock` line (and any `group_add` entry) from Charon's compose file. Keep the socket only on the agent.
+4. **Wait for Online.** When the agent shows **Online** under **Remote Agents**, open **Hecate** → **Sources** and add a Source with the **Docker** provider and the **Orthrus** connection, pointing at your agent.
+5. **Use it.** In the Proxy Host form, your new Source now appears in the **Source** dropdown.
+
+### Which Server URL Should I Use?
+
+The agent only needs an address it can use to reach Charon. The path (`/api/v1/ws/orthrus/connect`) is added for you if you leave it off. Pick whichever of these fits your setup:
+
+- **Your server's VPN (Tailscale) address.** For example `ws://100.x.y.z:8080`, where `100.x.y.z` is the machine's Tailscale IP. This has been tested and works: the agent dials that Tailscale address to reach Charon.
+- **A shared Docker network.** Put Charon and the agent on the same Compose network and use `ws://charon:8080` (use your Charon container's name). Do not use `localhost` here: inside the agent's container, `localhost` means the agent itself, not Charon.
+- **Host networking.** If the agent runs with `network_mode: host`, use `ws://localhost:8080`.
+- **Your public address.** If Charon is behind HTTPS, use your normal `wss://` address, for example `wss://charon.example.com`.
+
+> **Is plain `ws://` safe?** Over a private, encrypted link such as Tailscale or WireGuard, yes. The link itself is encrypted. Over a network you do not trust, no: use `wss://` instead. The agent logs a warning when it connects over `ws://` to any address other than `localhost`, so seeing that warning on a private link is expected.
+
+### Local Option Greyed Out?
+
+If no Docker socket is mounted into Charon, the **Local (Docker Socket)** choice in the Proxy Host form's **Source** dropdown is greyed out, with a short note pointing you to Orthrus. That is expected once you follow the steps above: choose your Orthrus Source instead.
 
 ---
 
@@ -188,4 +217,4 @@ One note on that last item: read-only here means the proxy can't change anything
 
 ---
 
-*Ready to connect your first remote server? Follow the [Remote Docker Setup Guide](../guides/remote-docker-setup.md).*
+*Ready to connect your first Docker source? Follow the [Remote Docker Setup Guide](../guides/remote-docker-setup.md).*

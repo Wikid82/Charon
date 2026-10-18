@@ -113,6 +113,12 @@ docker run -d \
 
 **Open <http://localhost:8080>** in your browser!
 
+### Recommended: Connect Docker with Orthrus
+
+For the most secure setup, skip the Docker socket mount above and connect Docker through **Orthrus** instead. Orthrus is a small helper that holds the Docker socket for you, so Charon itself never touches it. It works on the same server as Charon or on a different one. See the [Orthrus guide](features/orthrus.md#using-orthrus-on-the-same-server-as-charon).
+
+Mounting the socket directly (as shown here) is still fully supported and is the simplest way to start. If you mount nothing, the **Local (Docker Socket)** choice in the Proxy Host form's **Source** dropdown is greyed out. That is normal.
+
 ### Docker Socket Access (Important)
 
 Charon runs as a non-root user inside the container. To discover your other Docker containers, it needs permission to read the Docker socket. Without this, you'll see a "Docker Connection Failed" message in the UI.
@@ -151,7 +157,7 @@ docker run -d \
 
 **Why is this needed?** The Docker socket is owned by a specific group on your host machine. Adding that group lets Charon read the socket without running as root—keeping your setup secure.
 
-> **Security Note:** The `:ro` flag on the socket mount prevents the socket file from being deleted, but does not restrict what the Docker API can do. If you want to reduce the trust surface, consider using a Docker socket proxy instead — see [Docker Auto-Discovery](features/docker-integration.md#limiting-socket-access-with-a-proxy) for setup instructions.
+> **Security Note:** The `:ro` flag on the socket mount prevents the socket file from being deleted, but does not restrict what the Docker API can do. To avoid mounting the socket into Charon at all, use [Orthrus](features/orthrus.md) (recommended). To keep the direct mount but reduce the trust surface, consider using a Docker socket proxy instead — see [Docker Auto-Discovery](features/docker-integration.md#limiting-socket-access-with-a-proxy) for setup instructions.
 
 ---
 

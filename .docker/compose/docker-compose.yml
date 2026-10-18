@@ -48,6 +48,8 @@ services:
       - caddy_config:/config
       - crowdsec_data:/app/data/crowdsec
       - plugins_data:/app/plugins:ro # Read-only in production for security
+      # Optional: only needed for direct local container discovery. Orthrus (docs/features/orthrus.md)
+      # is the recommended, more secure way to connect Docker; remove this line if you use it.
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       # Mount your existing Caddyfile for automatic import (optional)
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro

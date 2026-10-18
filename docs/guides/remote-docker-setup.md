@@ -23,6 +23,10 @@ Make sure you have:
 
 ---
 
+> **Same server as Charon?** Orthrus works there too and is the recommended way to avoid mounting the Docker socket into Charon. Follow the steps below, then see [Using Orthrus on the same server as Charon](../features/orthrus.md#using-orthrus-on-the-same-server-as-charon) for which server address to use.
+
+---
+
 ## Step 1 — Register an Agent in Charon
 
 <!-- screenshot: Charon sidebar with "Remote Agents" highlighted -->
@@ -93,33 +97,32 @@ Not sure which option applies to you? The [Hecate guide](../features/hecate.md) 
 
 ---
 
-## Step 5 — Add the Remote Machine as a Docker Host
+## Step 5 — Add the Machine as a Source
 
-<!-- screenshot: Settings → Docker → Add Remote Host dialog -->
+<!-- screenshot: Hecate → Sources → Add Source dialog -->
 
-1. Go to **Settings → Docker** (you may also find this under **Remote Servers**)
-2. Click **Add Remote Host**
-3. Set **Connection Mode** to **Agent**
-4. In the **Agent** dropdown, choose the agent you just registered
+1. In the sidebar, open **Hecate** → **Sources**
+2. Click **Add Source**
+3. Give it a name and set **Provider** to **Docker**
+4. Set **Connection Type** to **Orthrus**, then choose the agent you just registered
 5. Click **Test Connection**
 
-If you see a green success message, Charon can reach your remote Docker. Click **Save**.
+If you see a green success message, Charon can reach your Docker. Click **Save**.
 
 If the test fails, check that the agent still shows **Online** in Remote Agents.
 
 ---
 
-## Step 6 — Use Your Remote Containers
+## Step 6 — Use Your Containers
 
-<!-- screenshot: "Select from Docker" dropdown showing remote host option -->
+<!-- screenshot: Source dropdown showing the new Source -->
 
-Your remote machine now appears as a Docker source anywhere Charon asks "which container?".
+Your machine now appears in the **Source** dropdown anywhere Charon asks "which container?".
 
-1. Go to **Hosts → Add Host**
-2. Click **Select from Docker**
-3. In the host dropdown, select your remote machine (it'll show the name you gave it)
-4. Browse the containers running there and pick one
-5. Fill in your domain name and click **Save**
+1. Go to **Proxy Hosts → Add Proxy Host**
+2. Open the **Source** dropdown and select your machine (it shows the name you gave it)
+3. Browse the containers running there and pick one
+4. Fill in your domain name and click **Save**
 
 Charon now proxies traffic through the Orthrus tunnel to reach that container. From the visitor's point of view, it's just a normal website with HTTPS.
 

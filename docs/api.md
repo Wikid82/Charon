@@ -1133,6 +1133,8 @@ DELETE /proxy-hosts/:uuid
 
 ### Remote Servers
 
+> These endpoints manage what the web interface calls **Sources**. The URL paths and field names keep the original `remote-servers` wording.
+
 #### List All Remote Servers
 
 ```http

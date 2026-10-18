@@ -368,7 +368,7 @@ fork/offline fallback.
 
 - **ProxyService:** CRUD operations for proxy hosts, validation logic
 - **CertificateService:** ACME certificate provisioning and renewal
-- **DockerService:** Container discovery and monitoring
+- **DockerService:** Container discovery and monitoring; also exposes a lightweight local-socket availability probe (`GET /docker/status`) that the Proxy Host form uses to grey out the "Local (Docker Socket)" source when no usable socket is mounted
 - **MailService:** SMTP transport and branded HTML templates for certificate-expiry and other system emails
 - **NotificationService:** GORM CRUD for providers/templates, event-type-to-provider routing, and feature-flag gating (`internal/services/notification_service.go`); outbound dispatch for all eight provider types (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push) plus email is delegated to the external `github.com/Wikid82/go_notify_yourself` module (`v0.3.0+`) through three Charon-supplied adapters — `notify_client_adapter.go` (SSRF-safe HTTP client/URL validation, wired to `internal/network`/`internal/security`), `notify_provider_adapter.go`, and `notify_email_adapter.go` (wraps `MailService` behind the module's `Mailer`/`TemplateRenderer` interfaces). `notify_provider_adapter.go`'s `buildNotifySender` maps a `NotificationProvider` row into a `map[string]any` config (`providerConfigMap`) and constructs the `Sender` by calling the module's self-registering provider factory registry (`notify.New(provider.Type, config)`) rather than a hardcoded per-provider switch/constructor call — `notify_providers_import.go` hand-picks the blank imports (`providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`, `providers/telegram`, `providers/webhook`, `providers/webpush`, `providers/email`) that register those factories at `init()` time, deliberately not importing `providers/all`. Charon's own supported-provider allowlist (`isSupportedNotificationProviderType`, `notification_service.go`) remains independently hardcoded and is not derived from the registry; a unit test asserts it stays a subset of `notify.RegisteredTypes()`. The formerly in-repo delivery engine (`internal/notifications/`) has been removed.
   - **Web Push** is the one provider type that isn't a single destination: one `NotificationProvider` row (`Type = "webpush"`, a DB-enforced singleton) holds the shared VAPID application identity, while each subscribed browser/device is a row in a separate `WebPushSubscription` model (`internal/models/webpush_subscription.go`) — FK'd to that provider row, with its own `notify_webpush_adapter.go` fan-out path that sends to every subscription individually and auto-prunes rows the push service reports as gone.
@@ -417,7 +417,7 @@ The stats subsystem collects, aggregates, and broadcasts request metrics for the
 
 #### Uptime Subsystem (`internal/services/uptime_*`, `internal/api/handlers/uptime_*`)
 
-Monitors the availability of proxy hosts and remote servers at per-monitor
+Monitors the availability of proxy hosts and Sources (remote servers) at per-monitor
 intervals and serves the Uptime page. Rebuilt for scale (target ~500 monitors on
 one instance) by mirroring the Stats subsystem's buffered-write / cached-read
 split. Replaces the former global 1-minute `CheckAll()` + `checkAllHosts()`
@@ -1382,7 +1382,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | Container Path | Purpose | Required |
 | --- | --- | --- |
 | `/app/data` | Database, certificates, backups | **Yes** |
-| `/var/run/docker.sock` | Docker container discovery | Optional |
+| `/var/run/docker.sock` | Docker container discovery | Optional; Orthrus recommended |
 
 ### Environment Variables
 
@@ -1423,6 +1423,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./data:/app/data
+      # Optional: direct local discovery. Orthrus is the recommended, more secure alternative (no socket mount in Charon).
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
@@ -2111,7 +2112,7 @@ curl -X POST https://your-charon-instance/api/v1/backups/backup_2026-01-27_03-00
     - Prior versions had ID leakage in Settings queries
 
 2. **Docker Discovery:**
-   - Requires `docker.sock` mount (security trade-off)
+   - Direct local discovery requires a `docker.sock` mount (security trade-off); Orthrus is the recommended way to avoid mounting it, and the direct mount remains supported
    - Only discovers containers on same Docker host
    - **Mitigation:** Use remote Docker API or Kubernetes
 
