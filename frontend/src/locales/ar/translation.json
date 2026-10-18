@@ -467,6 +467,11 @@
         "recentAlerts": "Recent Alerts",
         "alertsCount": "{{count}} total",
         "alertsError": "Failed to load alerts.",
+        "listErrors": {
+          "cscli_timeout": "The decision service took too long to answer, so this list may be incomplete. It will refresh on its own.",
+          "cscli_output_too_large": "The decision service returned more data than can be shown, so this list may be incomplete.",
+          "cscli_unavailable": "The decision service is not available right now, so this list may be incomplete."
+        },
         "noAlerts": "No alerts for the selected period.",
         "colTime": "Time",
         "colEvents": "Events",
@@ -1479,6 +1484,7 @@
   "crowdsecConfig": {
     "exportSuccess": "CrowdSec configuration exported",
     "exportFailed": "Failed to export CrowdSec configuration",
+    "exportConfigUnsafe": "The configuration file contains credentials that cannot be hidden reliably (it is over 1 MiB, cannot be read, or shares values through YAML anchors), so nothing was exported. Simplify the file and try again.",
     "hubItems": {
       "title": "Install missing hub items",
       "description": "This export used hub items that are not installed on this host. They are downloaded from the official CrowdSec hub.",
@@ -1600,7 +1606,9 @@
       "export": "Export",
       "import": "Import",
       "importing": "Importing...",
-      "selectFile": "Select CrowdSec package file"
+      "selectFile": "Select CrowdSec package file",
+      "omittedNote": "Left out of this export ({{count}}): {{names}}. Supply these files again after restoring on another host.",
+      "omittedMore": " (and {{count}} more)"
     },
     "presets": {
       "title": "Presets",
@@ -1616,6 +1624,8 @@
       "hubUnreachable": "CrowdSec Hub unreachable. Hub presets may not work.",
       "retry": "Retry",
       "useCached": "Use Cached",
+      "typeLabel": "Item type",
+      "typePlaceholder": "Choose a type",
       "targetFile": "Target file",
       "selectFileBelow": "(select a config file below)",
       "cacheKey": "Cache Key",
@@ -1645,9 +1655,11 @@
         "slugInvalid": "Preset slug is invalid",
         "applyStale": "The preview is out of date. Pull the preset again, then apply it.",
         "applyHubUpdating": "The hub is still updating, try again later.",
+        "typeAmbiguous": "This name exists in several hub sections. Choose which item to use.",
         "applyLocalModified": "This item was edited on this server and was left unchanged. Reset it before applying the preset.",
         "editedItems": "Edited items: {{items}}",
         "applyTimeout": "The preset install took too long and was rolled back. Try again.",
+        "applyHubUnreachable": "CrowdSec could not reach the hub. Check the network connection and try again.",
         "cscliUnavailable": "cscli unavailable or not responding",
         "applyDependencyNote": "Some items this preset depends on were edited on this server and were left unchanged."
       }
@@ -1682,7 +1694,8 @@
       "duration24h": "24 hours",
       "duration7d": "7 days",
       "duration30d": "30 days",
-      "durationPermanent": "Permanent",
+      "duration365d": "Up to one year (365 days)",
+      "durationHelp": "CrowdSec bans are limited to one year.",
       "reasonLabel": "Reason",
       "reasonPlaceholder": "Reason for banning this IP...",
       "submit": "Ban IP",
@@ -1763,8 +1776,9 @@
       "invalidIp": "Enter a valid IPv4 or IPv6 address, or a range such as 192.0.2.0/24.",
       "invalidDuration": "Choose a duration between 1 minute and 365 days, for example 4h, 30m or 1d.",
       "invalidReason": "The reason can be at most 200 characters.",
-      "decisionNotFound": "No active decision matches this address or range.",
-      "timeout": "CrowdSec did not answer in time. Try again."
+      "decisionNotFound": "No decision with exactly this address or range. Unbanning removes an exact match only; a covering range does not clear the addresses inside it.",
+      "timeout": "CrowdSec did not answer in time. Try again.",
+      "requestTooLarge": "The request was too large. Shorten the text and try again."
     }
   },
   "smtp": {
@@ -2162,6 +2176,7 @@
       "manageAgents": "Manage agents ({{count}})",
       "hideAgentManager": "Hide agent manager"
     },
+    "stateConnected": "Connected",
     "stateConnecting": "Connecting",
     "stateError": "Error",
     "stateStopped": "Stopped",
