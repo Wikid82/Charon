@@ -730,8 +730,8 @@ func TestSnapshotCreatorsPruneToRetentionKeepingNewest(t *testing.T) {
 func TestBackupFilePathMatchesWhatPruneBackupFilesKeeps(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "acquis.yaml")
-	at := time.Date(2026, 10, 18, 9, 8, 7, 999, time.UTC)
-	require.Equal(t, path+".backup.20261018-090807", BackupFilePath(path, at))
+	at := time.Date(2026, 10, 18, 9, 8, 7, 123456000, time.UTC)
+	require.Equal(t, path+".backup.20261018-090807.123456", BackupFilePath(path, at))
 
 	for i := range 3 {
 		require.NoError(t, os.WriteFile(BackupFilePath(path, at.Add(time.Duration(i)*time.Second)), []byte("x"), 0o600))
@@ -740,4 +740,37 @@ func TestBackupFilePathMatchesWhatPruneBackupFilesKeeps(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, removed, 1)
 	require.NoFileExists(t, BackupFilePath(path, at))
+}
+
+func TestBackupFilePathSameSecondNamesAreDistinctAndSurvivePrune(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "acquis.yaml")
+	at := time.Date(2026, 10, 18, 9, 8, 7, 100000000, time.UTC)
+	first, second := BackupFilePath(path, at), BackupFilePath(path, at.Add(time.Microsecond))
+	require.NotEqual(t, first, second)
+	require.NoError(t, os.WriteFile(first, []byte("a"), 0o600))
+	require.NoError(t, os.WriteFile(second, []byte("b"), 0o600))
+
+	removed, err := PruneBackupFiles(path, DefaultBackupRetention)
+	require.NoError(t, err)
+	require.Empty(t, removed)
+	require.FileExists(t, first)
+	require.FileExists(t, second)
+}
+
+func TestPruneBackupFilesOrdersLegacyAndMicrosecondNames(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "acquis.yaml")
+	legacy := path + ".backup.20261018-090807"
+	older := path + ".backup.20261018-090806"
+	newest := path + ".backup.20261018-090807.500000"
+	for _, p := range []string{legacy, older, newest} {
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
+	}
+
+	removed, err := PruneBackupFiles(path, 2)
+	require.NoError(t, err)
+	require.Equal(t, []string{older}, removed)
+	require.FileExists(t, legacy)
+	require.FileExists(t, newest)
 }

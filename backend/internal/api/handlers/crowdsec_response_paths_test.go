@@ -124,7 +124,7 @@ func TestResponses_AcquisitionUpdateCarriesBackupNameOnly(t *testing.T) {
 	requireNoServerPaths(t, w.Body.String(), dir)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Regexp(t, `^acquis\.yaml\.backup\.\d{8}-\d{6}$`, resp["backup"])
+	require.Regexp(t, `^acquis\.yaml\.backup\.\d{8}-\d{6}\.\d{6}$`, resp["backup"])
 	require.FileExists(t, filepath.Join(dir, resp["backup"].(string)))
 }
 
