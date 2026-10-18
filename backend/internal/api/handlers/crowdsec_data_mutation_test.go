@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -368,4 +369,36 @@ func TestPruneSnapshotsLogsAndToleratesFailure(t *testing.T) {
 	h, _ := newImportRouter(t, filepath.Join(blocker, "crowdsec"))
 	// The parent of DataDir is a regular file, so listing snapshots fails; pruning is best effort.
 	require.NotPanics(t, h.pruneSnapshots)
+}
+
+func TestUpdateAcquisitionConfigPrunesBackupsToRetentionKeepingNewest(t *testing.T) {
+	dir := t.TempDir()
+	acquis := filepath.Join(dir, "acquis.yaml")
+	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquis)
+	require.NoError(t, os.WriteFile(acquis, []byte("# live"), 0o600))
+	for i := 1; i <= crowdsec.DefaultBackupRetention+2; i++ {
+		require.NoError(t, os.WriteFile(fmt.Sprintf("%s.backup.2025010%d-000000", acquis, i), []byte("old"), 0o600))
+	}
+
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/crowdsec/acquisition", strings.NewReader(`{"content":"# new"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var resp struct {
+		Backup string `json:"backup"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.Backup)
+	require.FileExists(t, filepath.Join(dir, resp.Backup), "the just-created backup survives")
+
+	matches, err := filepath.Glob(acquis + ".backup.*")
+	require.NoError(t, err)
+	require.Len(t, matches, crowdsec.DefaultBackupRetention)
+	require.NoFileExists(t, acquis+".backup.20250101-000000")
+	require.NoFileExists(t, acquis+".backup.20250102-000000")
 }

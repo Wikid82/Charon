@@ -2340,6 +2340,11 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 		return
 	}
 
+	// The new backup is the newest, so it always survives; failures are logged only.
+	if _, err := crowdsec.PruneBackupFiles(acquisPath, crowdsec.DefaultBackupRetention); err != nil {
+		logger.Log().WithError(err).Warn("crowdsec acquisition backup prune incomplete")
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"status":      "updated",
 		"backup":      crowdsec.BackupID(backupPath),

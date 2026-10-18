@@ -264,14 +264,26 @@ func backupTimestamp(suffix string) (time.Time, bool) {
 // from file times. Entries that are not real directories or whose names do not parse are ignored.
 // Individual removal errors are aggregated and returned alongside the paths that were removed.
 func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) {
+	return pruneSiblings(filepath.Clean(dataDir)+"."+kind, keep, fs.FileInfo.IsDir)
+}
+
+// PruneBackupFiles is PruneBackups for single-file backups named <path>.backup.<timestamp> (for example
+// the acquisition config rename-backups): only regular files are considered, the newest `keep` survive.
+func PruneBackupFiles(path string, keep int) (removed []string, err error) {
+	return pruneSiblings(filepath.Clean(path)+"."+BackupKindSnapshot, keep, func(info fs.FileInfo) bool { return info.Mode().IsRegular() })
+}
+
+// pruneSiblings removes all but the newest `keep` entries named <stem>.<timestamp> that wanted accepts;
+// stem is a cleaned path without the trailing dot. See PruneBackups for the ordering and error contract.
+func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool) (removed []string, err error) {
 	if keep < 1 {
 		keep = 1
 	}
-	parent, base := filepath.Split(filepath.Clean(dataDir))
+	parent, base := filepath.Split(stem)
 	if parent == "" {
 		parent = "."
 	}
-	prefix := base + "." + kind + "."
+	prefix := base + "."
 
 	entries, readErr := os.ReadDir(parent)
 	if readErr != nil {
@@ -297,7 +309,7 @@ func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) 
 		}
 		path := filepath.Join(parent, name)
 		info, lerr := os.Lstat(path)
-		if lerr != nil || !info.IsDir() {
+		if lerr != nil || !wanted(info) {
 			continue
 		}
 		found = append(found, candidate{path: path, ts: ts})
