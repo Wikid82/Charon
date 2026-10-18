@@ -19,8 +19,6 @@ import (
 
 const applyJobsBase = "/admin/crowdsec/presets/jobs"
 
-var hubPresetBody = []byte(`{"slug":"crowdsecurity/sshd","type":"collections","cache_key":"k","async":true}`)
-
 func decodeBody(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -61,7 +59,7 @@ func TestAsyncApplyStartsAJobAndAnswers202(t *testing.T) {
 		return crowdsec.ApplyResult{Status: "applied", BackupPath: "/secret/backup/path"}, nil
 	})
 
-	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json")
+	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json")
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	body := decodeBody(t, w)
 	id, _ := body["job_id"].(string)
@@ -72,7 +70,7 @@ func TestAsyncApplyStartsAJobAndAnswers202(t *testing.T) {
 	require.Equal(t, "crowdsecurity/sshd", body["slug"])
 
 	// While it runs: a second start is busy and names the job, and writes are refused.
-	w = f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json")
+	w = f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json")
 	require.Equal(t, http.StatusConflict, w.Code)
 	resp := decodeBody(t, w)
 	require.Equal(t, codeCrowdsecBusy, resp["error_code"])
@@ -89,8 +87,10 @@ func TestAsyncApplyStartsAJobAndAnswers202(t *testing.T) {
 
 func TestAsyncApplyFailureCarriesTheSharedErrorCode(t *testing.T) {
 	f := newBusyFixture(t)
-	// The real hub service with an empty cache fails fast with a stale-cache error.
-	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json")
+	useJobApply(t, f, func(context.Context, crowdsec.ApplyRequest) (crowdsec.ApplyResult, error) {
+		return crowdsec.ApplyResult{Status: "failed"}, crowdsec.ErrPresetCacheStale
+	})
+	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json")
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	id := decodeBody(t, w)["job_id"].(string)
 
@@ -141,7 +141,7 @@ func TestSyncApplyIsUnchangedWithoutAsync(t *testing.T) {
 func TestAsyncApplyWithoutHubOrDBAnswers503(t *testing.T) {
 	f := newBusyFixture(t)
 	f.h.Hub = nil
-	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json")
+	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json")
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 
 	for _, path := range []string{applyJobsBase + "/current", applyJobsBase, applyJobsBase + "/" + busyJobID} {
@@ -154,7 +154,7 @@ func TestAsyncApplyWithoutHubOrDBAnswers503(t *testing.T) {
 func TestAsyncApplyFailsCleanlyWhenTheJobTableIsMissing(t *testing.T) {
 	f := newBusyFixture(t)
 	require.NoError(t, f.h.DB.Migrator().DropTable(&models.CrowdsecApplyJob{}))
-	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json")
+	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json")
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	_, busy := f.h.ApplyJobs().Busy()
 	require.False(t, busy, "the flag is released when the job row cannot be stored")
@@ -173,7 +173,7 @@ func TestCurrentJobEndpoint(t *testing.T) {
 		<-release
 		return crowdsec.ApplyResult{Status: "applied"}, nil
 	})
-	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json"))["job_id"]
+	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json"))["job_id"]
 	job := decodeBody(t, f.do(http.MethodGet, applyJobsBase+"/current", nil, ""))["job"].(map[string]any)
 	require.Equal(t, id, job["job_id"])
 
@@ -210,7 +210,7 @@ func TestJobEndpointsStayOpenWhileAJobRuns(t *testing.T) {
 		<-release
 		return crowdsec.ApplyResult{Status: "applied"}, nil
 	})
-	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json"))["job_id"].(string)
+	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json"))["job_id"].(string)
 	for _, p := range []string{"/current", "", "/" + id} {
 		require.Equal(t, http.StatusOK, f.do(http.MethodGet, applyJobsBase+p, nil, "").Code, p)
 	}
@@ -226,7 +226,7 @@ func TestCancelJobEndpoint(t *testing.T) {
 		<-ctx.Done()
 		return crowdsec.ApplyResult{Status: "failed"}, crowdsec.ErrPresetApplyCancelled
 	})
-	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json"))["job_id"].(string)
+	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json"))["job_id"].(string)
 	<-started
 
 	w := f.do(http.MethodDelete, applyJobsBase+"/"+id, nil, "")
@@ -291,7 +291,7 @@ func TestShutdownApplyJobsCancelsTheRunningJobAndRollsBack(t *testing.T) {
 		<-ctx.Done()
 		return crowdsec.ApplyResult{Status: "failed"}, errors.Join(crowdsec.ErrPresetApplyCancelled, ctx.Err())
 	})
-	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json"))["job_id"].(string)
+	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json"))["job_id"].(string)
 	<-started
 
 	f.h.ShutdownApplyJobs()
@@ -321,7 +321,7 @@ func TestAsyncApplyAfterShutdownAnswers503(t *testing.T) {
 	})
 	f.h.ShutdownApplyJobs()
 
-	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json")
+	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json")
 
 	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
 	require.Equal(t, codeCrowdsecUnavailable, decodeBody(t, w)["error_code"])
@@ -341,7 +341,7 @@ func TestCheapGatesAnswerBeforeTheBusyCheck(t *testing.T) {
 		f := newBusyFixture(t)
 		t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 		setBackgroundInstallActive(t, f.h)
-		require.Equal(t, http.StatusNotFound, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json").Code)
+		require.Equal(t, http.StatusNotFound, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json").Code)
 	})
 	t.Run("enroll with the console disabled", func(t *testing.T) {
 		f := newBusyFixture(t)

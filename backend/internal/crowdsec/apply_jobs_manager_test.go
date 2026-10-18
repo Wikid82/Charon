@@ -64,6 +64,7 @@ type pendingJobConfig struct {
 	DataDir          string
 	Apply            pendingApplyFunc
 	CountItems       func() int // stands in for the InstalledHubItems scan
+	CountDownloaded  func() int // stands in for the hub file count
 	ProgressInterval time.Duration
 	MaxDuration      time.Duration
 	Now              func() time.Time
@@ -107,7 +108,7 @@ func newPendingJobManager(t *testing.T, cfg pendingJobConfig) pendingJobManager 
 	}
 	mgr := NewApplyJobManager(nil)
 	mgr.Configure(ApplyJobConfig{
-		Repo: repo, CountItems: cfg.CountItems, ProgressInterval: cfg.ProgressInterval, MaxDuration: cfg.MaxDuration, Now: cfg.Now,
+		Repo: repo, CountItems: cfg.CountItems, CountDownloaded: cfg.CountDownloaded, ProgressInterval: cfg.ProgressInterval, MaxDuration: cfg.MaxDuration, Now: cfg.Now,
 		Apply: func(ctx context.Context, req ApplyRequest) (ApplyResult, error) {
 			return apply(ctx, req.Slug, req.Type, req.CacheKey, func(p string) { req.OnPhase(Phase(p)) })
 		},

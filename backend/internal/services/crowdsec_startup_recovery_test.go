@@ -104,3 +104,24 @@ func TestRecoverInterruptedInstalls_SkipsWhenThereIsNoJobTableOrDB(t *testing.T)
 	recoverInterruptedInstalls(nil, t.TempDir())
 	recoverInterruptedInstalls(setupCrowdsecTestDB(t), t.TempDir()) // no crowdsec_apply_jobs table yet (first start after an upgrade)
 }
+
+func TestRecoverInterruptedInstalls_PrunesOldSnapshotsAfterRecovery(t *testing.T) {
+	db := recoveryDB(t, "disabled")
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
+	var snaps []string
+	for _, ts := range []string{"20260101-000001.000000", "20260101-000002.000000", "20260101-000003.000000", "20260101-000004.000000", "20260101-000005.000000", "20260101-000006.000000", "20260101-000007.000000"} {
+		p := dataDir + "." + crowdsec.BackupKindSnapshot + "." + ts
+		require.NoError(t, os.MkdirAll(p, 0o750))
+		snaps = append(snaps, p)
+	}
+	// A recovery that cannot complete (the snapshot is not valid) keeps its oldest snapshot for manual recovery.
+	seedRunningJob(t, db, snaps[0])
+
+	recoverInterruptedInstalls(db, dataDir)
+
+	assert.DirExists(t, snaps[0], "the snapshot of the unrecovered job is protected")
+	assert.NoDirExists(t, snaps[1])
+	assert.DirExists(t, snaps[2])
+	assert.DirExists(t, snaps[6])
+}
