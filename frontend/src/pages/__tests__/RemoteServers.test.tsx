@@ -262,7 +262,7 @@ describe('RemoteServers', () => {
   it('opens server form when Add button is clicked', async () => {
     render(<RemoteServers />)
 
-    const addBtn = screen.getByRole('button', { name: /add.*server|new.*server/i })
+    const addBtn = screen.getByRole('button', { name: /add.*source|new.*source/i })
     await userEvent.click(addBtn)
 
     await waitFor(() => {

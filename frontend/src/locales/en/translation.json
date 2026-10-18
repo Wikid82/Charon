@@ -108,7 +108,7 @@
     "source": {
       "local": "Local (Docker Socket)",
       "localUnavailable": "unavailable",
-      "localUnavailableHint": "The local Docker socket is not available to Charon. Use an Orthrus agent instead (see Remote Agents)."
+      "localUnavailableHint": "The local Docker socket is not available to Charon. Use an Orthrus agent instead (see Hecate → Agent)."
     },
     "addHost": "Add Proxy Host",
     "editHost": "Edit Proxy Host",
@@ -761,8 +761,8 @@
   "remoteServers": {
     "title": "Sources",
     "description": "Manage where your proxy hosts get their containers and backends",
-    "addServer": "Add Server",
-    "editServer": "Edit Server",
+    "addServer": "Add Source",
+    "editServer": "Edit Source",
     "deleteServer": "Delete Source",
     "noServers": "No Sources",
     "noServersDescription": "Add servers to quickly select backends when creating proxy hosts",

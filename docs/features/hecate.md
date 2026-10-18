@@ -48,7 +48,7 @@ Your remote machine is already connected to a VPN service like NetBird, Tailscal
 
 ## Viewing Your Agents
 
-Go to **Remote Agents** in the sidebar to see all your Orthrus agents at a glance. Each one shows a live status badge:
+Open **Hecate** → **Agent** in the sidebar (admins only) to see all your Orthrus agents at a glance. Each one shows a live status badge:
 
 | Badge | Meaning |
 | --- | --- |
@@ -83,7 +83,7 @@ To add a provider: **Settings → Tunnel Providers → Add Provider** → choose
 
 If your agent is on a VPN, you can tell Charon exactly where on that network it lives. After you do this, Charon remembers the address — so the next time you add a Source using this agent, everything fills in automatically.
 
-1. Go to **Remote Agents** and open the agent
+1. Go to **Hecate** → **Agent** and open the agent
 2. Under **Network Assignment**, pick your Provider and the Device that represents your remote machine
 3. Click **Save**
 

@@ -50,7 +50,7 @@ Orthrus is a tiny helper that sits next to Docker and answers Charon's questions
 
 Orthrus works on a different machine and on the same machine as Charon.
 
-1. In Charon, open **Remote Agents** and add an agent. Copy the one-time key.
+1. In Charon, open **Hecate** → **Agent** (admins only) and add an agent. Copy the one-time key.
 2. Run the ready-made install snippet next to your containers.
 3. When the agent shows **Online**, add a Source for it and pick it in the **Source** dropdown of the Proxy Host form.
 

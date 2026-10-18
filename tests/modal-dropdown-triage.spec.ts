@@ -281,16 +281,16 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
       await page.waitForURL(/remote-servers|login/i)
     })
 
-    await test.step('Click "Add Server" button', async () => {
-      const addButton = page.getByRole('button', { name: /^add server$/i }).first()
+    await test.step('Click "Add Source" button', async () => {
+      const addButton = page.getByRole('button', { name: /^add source$/i }).first()
       if (await addButton.isVisible()) {
         await addButton.click()
         addServerModalVisible = await page.getByRole('dialog').first().isVisible({ timeout: 3000 }).catch(() => false)
         if (!addServerModalVisible) {
-          console.log('⚠️ RemoteServerForm: Add Server did not open a dialog in this environment')
+          console.log('⚠️ RemoteServerForm: Add Source did not open a dialog in this environment')
         }
       } else {
-        console.log('⚠️ Add Server button not found')
+        console.log('⚠️ Add Source button not found')
         return
       }
     })

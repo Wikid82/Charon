@@ -8,7 +8,6 @@
  *
  * The Playwright containers mount the Docker socket, so "no socket" is
  * produced by intercepting the status endpoint.
- *
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';

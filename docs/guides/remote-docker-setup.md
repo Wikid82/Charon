@@ -29,9 +29,9 @@ Make sure you have:
 
 ## Step 1 — Register an Agent in Charon
 
-<!-- screenshot: Charon sidebar with "Remote Agents" highlighted -->
+<!-- screenshot: Charon sidebar with "Agent" under Hecate highlighted -->
 
-1. In the Charon sidebar, click **Remote Agents**
+1. In the Charon sidebar, open **Hecate** → **Agent** (admins only)
 2. Click **Add Agent**
 3. Type a name for this machine — something like "HomeLab" or "NAS Box"
 4. Click **Create**
@@ -70,9 +70,9 @@ The agent starts in the background and immediately tries to connect to Charon.
 
 ## Step 3 — Verify the Agent Is Online
 
-<!-- screenshot: Remote Agents list showing "Online" status badge -->
+<!-- screenshot: Agent page showing "Online" status badge -->
 
-Switch back to your **Charon browser tab** and look at **Remote Agents**. Your agent should show a green **Online** badge within 10–30 seconds.
+Switch back to your **Charon browser tab** and look at **Hecate** → **Agent**. Your agent should show a green **Online** badge within 10–30 seconds.
 
 **Still showing "Pending"?** That means the agent hasn't connected yet. Double-check:
 
@@ -89,7 +89,7 @@ Switch back to your **Charon browser tab** and look at **Remote Agents**. Your a
 If your remote machine is behind a NAT (no public IP) **and** you also use a VPN like NetBird or Tailscale, you can tell Hecate which VPN device is your remote machine. This lets Charon resolve the address automatically.
 
 1. First, add your VPN provider credentials: **Settings → Tunnel Providers → Add Provider**
-2. Then open your agent in **Remote Agents**
+2. Then open your agent in **Hecate** → **Agent**
 3. Under **Network Assignment**, pick your provider and the device that represents the remote machine
 4. Click **Save**
 
@@ -104,12 +104,12 @@ Not sure which option applies to you? The [Hecate guide](../features/hecate.md) 
 1. In the sidebar, open **Hecate** → **Sources**
 2. Click **Add Source**
 3. Give it a name and set **Provider** to **Docker**
-4. Set **Connection Type** to **Orthrus**, then choose the agent you just registered
+4. Set **Connection Type** to **Orthrus Agent**, then choose the agent you just registered
 5. Click **Test Connection**
 
 If you see a green success message, Charon can reach your Docker. Click **Save**.
 
-If the test fails, check that the agent still shows **Online** in Remote Agents.
+If the test fails, check that the agent still shows **Online** in Hecate → Agent.
 
 ---
 
@@ -130,11 +130,11 @@ Charon now proxies traffic through the Orthrus tunnel to reach that container. F
 
 ## Step 7 — (Optional) Let Another Tool Talk to Your Agent's Docker API
 
-<!-- screenshot: gear icon next to an agent in Remote Agents, with the External Proxy port field visible -->
+<!-- screenshot: gear icon next to an agent on the Agent page, with the External Proxy port field visible -->
 
 **Skip this step** unless you use a third-party tool — like an update-checker (Dockhand, Diun) or a monitoring dashboard — that wants to talk to your remote machine's Docker API directly.
 
-1. Go to **Remote Agents**
+1. Go to **Hecate** → **Agent**
 2. Click the **gear icon** next to your agent
 3. Set a port (any number from 1024 to 65535) and click **Save**
 4. In your third-party tool, use the connection string `tcp://<host>:<port>` — Charon fills in `<host>` for you automatically, so just plug in the port you chose

@@ -145,7 +145,7 @@ test.describe('Hecate Tunnel Manager', () => {
     });
   });
 
-  test.describe('Add Server Form - Connection Type Selector', () => {
+  test.describe('Add Source Form - Connection Type Selector', () => {
     test.beforeEach(async ({ page }) => {
       await page.route(REMOTE_SERVERS_API, (route) => {
         route.fulfill({ json: [] });
@@ -158,12 +158,12 @@ test.describe('Hecate Tunnel Manager', () => {
       });
     });
 
-    test('should open Add Server form when Add Server button is clicked', async ({ page }) => {
+    test('should open Add Source form when Add Source button is clicked', async ({ page }) => {
       await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
-      await test.step('Click Add Server button', async () => {
-        const addButton = page.getByRole('button', { name: /add server/i }).first();
+      await test.step('Click Add Source button', async () => {
+        const addButton = page.getByRole('button', { name: /add source/i }).first();
         await expect(addButton).toBeVisible({ timeout: 10000 });
         await addButton.click();
       });
@@ -186,8 +186,8 @@ test.describe('Hecate Tunnel Manager', () => {
       await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
-      await test.step('Open Add Server form', async () => {
-        const addButton = page.getByRole('button', { name: /add server/i }).first();
+      await test.step('Open Add Source form', async () => {
+        const addButton = page.getByRole('button', { name: /add source/i }).first();
         await addButton.click();
         await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible({ timeout: 5000 });
       });
@@ -210,8 +210,8 @@ test.describe('Hecate Tunnel Manager', () => {
       await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
-      await test.step('Open Add Server form', async () => {
-        await page.getByRole('button', { name: /add server/i }).first().click();
+      await test.step('Open Add Source form', async () => {
+        await page.getByRole('button', { name: /add source/i }).first().click();
         await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible({ timeout: 5000 });
       });
 
@@ -234,8 +234,8 @@ test.describe('Hecate Tunnel Manager', () => {
       await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
-      await test.step('Open Add Server form', async () => {
-        await page.getByRole('button', { name: /add server/i }).first().click();
+      await test.step('Open Add Source form', async () => {
+        await page.getByRole('button', { name: /add source/i }).first().click();
         await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible({ timeout: 5000 });
       });
 
@@ -254,8 +254,8 @@ test.describe('Hecate Tunnel Manager', () => {
       await page.goto('/hecate/remote-servers');
       await waitForLoadingComplete(page);
 
-      await test.step('Open Add Server form', async () => {
-        await page.getByRole('button', { name: /add server/i }).first().click();
+      await test.step('Open Add Source form', async () => {
+        await page.getByRole('button', { name: /add source/i }).first().click();
         await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible({ timeout: 5000 });
       });
 
@@ -376,8 +376,8 @@ test.describe('Hecate Tunnel Manager', () => {
         await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       });
 
-      await test.step('Verify Add Server button is accessible', async () => {
-        const addButton = page.getByRole('button', { name: /add server/i }).first();
+      await test.step('Verify Add Source button is accessible', async () => {
+        const addButton = page.getByRole('button', { name: /add source/i }).first();
         await expect(addButton).toBeVisible();
       });
     });

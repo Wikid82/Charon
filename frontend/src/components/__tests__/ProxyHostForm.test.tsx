@@ -126,7 +126,7 @@ vi.mock('react-i18next', () => {
   const strings: Record<string, string> = {
     'proxyHosts.source.local': 'Local (Docker Socket)',
     'proxyHosts.source.localUnavailable': 'unavailable',
-    'proxyHosts.source.localUnavailableHint': 'Use an Orthrus agent instead (see Remote Agents).',
+    'proxyHosts.source.localUnavailableHint': 'Use an Orthrus agent instead (see Hecate → Agent).',
   }
   return {
     useTranslation: () => ({ t: (key: string) => strings[key] ?? key }),

@@ -5,7 +5,7 @@
  * route stays /hecate/remote-servers, and the legacy /remote-servers path
  * keeps redirecting.
  *
- * Enabled in C4 alongside the rename.
+ * These specs cover the Sources naming in the sidebar and page heading.
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
