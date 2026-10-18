@@ -67,6 +67,12 @@ describe('CrowdSecConfig import refusals', () => {
     expect(await importFailing(refusal(status, { error: 'english server text', error_code: code }))).toBe(text)
   })
 
+  it('shows the busy text while a preset install runs', async () => {
+    expect(await importFailing(refusal(409, { error: 'busy', error_code: 'crowdsec_busy' }))).toBe(
+      'CrowdSec is busy installing a preset. Try again when it finishes.',
+    )
+  })
+
   it('lists the undefined notification names of a profiles.yaml in the archive', async () => {
     const message = await importFailing(
       refusal(422, { error: 'server text', error_code: 'import_profile_names_undefined', names: ['slack', 'http'] }),

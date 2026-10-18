@@ -208,7 +208,7 @@ describe('CrowdSecConfig curated preset apply', () => {
       cache_key: hubPreset.cache_key,
       source: 'hub',
     })
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(axiosError(status, 'Request failed', { error: message }))
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(axiosError(status, 'Request failed', { error: message }))
     await renderPage()
     await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
     await waitFor(() => expect(screen.getByTestId('preset-preview')).toHaveTextContent('base-http-scenarios'))
