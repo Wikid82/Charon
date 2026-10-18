@@ -19,6 +19,13 @@ export interface DockerContainer {
   ports: DockerPort[]
 }
 
+/** Reachability of the local Docker socket as reported by the backend. */
+export interface DockerStatus {
+  available: boolean
+  reason: 'ok' | 'socket_missing' | 'permission_denied' | 'unreachable' | 'slow'
+  message: string
+}
+
 /** Docker API client for container operations. */
 export const dockerApi = {
   /**
@@ -34,6 +41,16 @@ export const dockerApi = {
     if (serverId) params.server_id = serverId
 
     const response = await client.get<DockerContainer[]>('/docker/containers', { params })
+    return response.data
+  },
+
+  /**
+   * Reports whether the local Docker socket is usable.
+   * @returns Promise resolving to the DockerStatus
+   * @throws {AxiosError} If the status request fails
+   */
+  getStatus: async (): Promise<DockerStatus> => {
+    const response = await client.get<DockerStatus>('/docker/status')
     return response.data
   },
 }

@@ -94,4 +94,22 @@ describe('dockerApi', () => {
       await expect(dockerApi.listContainers()).rejects.toThrow('Network error');
     });
   });
+
+  describe('getStatus', () => {
+    it('fetches the local Docker status', async () => {
+      const status = { available: false, reason: 'socket_missing', message: 'no socket' };
+      vi.mocked(client.get).mockResolvedValue({ data: status });
+
+      const result = await dockerApi.getStatus();
+
+      expect(client.get).toHaveBeenCalledWith('/docker/status');
+      expect(result).toEqual(status);
+    });
+
+    it('propagates request errors', async () => {
+      vi.mocked(client.get).mockRejectedValue(new Error('Network error'));
+
+      await expect(dockerApi.getStatus()).rejects.toThrow('Network error');
+    });
+  });
 });

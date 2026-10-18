@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "Proxy Hosts",
     "description": "Manage your reverse proxy configurations",
+    "source": {
+      "local": "Local (Docker Socket)",
+      "localUnavailable": "unavailable",
+      "localUnavailableHint": "The local Docker socket is not available to Charon. Use an Orthrus agent instead (see Remote Agents)."
+    },
     "addHost": "Add Proxy Host",
     "editHost": "Edit Proxy Host",
     "deleteHost": "Delete Proxy Host",

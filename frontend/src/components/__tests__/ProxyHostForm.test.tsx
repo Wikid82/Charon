@@ -5,6 +5,7 @@ import { act } from 'react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 import { testProxyHostConnection, type ProxyHost  } from '../../api/proxyHosts'
+import { useDockerStatus } from '../../hooks/useDockerStatus'
 import { mockRemoteServers } from '../../test/mockData'
 import ProxyHostForm from '../ProxyHostForm'
 
@@ -40,6 +41,10 @@ vi.mock('../../hooks/useDocker', () => ({
     error: null,
     refetch: vi.fn(),
   })),
+}))
+
+vi.mock('../../hooks/useDockerStatus', () => ({
+  useDockerStatus: vi.fn(() => ({ data: undefined, isLoading: true, error: null })),
 }))
 
 vi.mock('../../hooks/useDomains', () => ({
@@ -116,9 +121,17 @@ vi.mock('../../hooks/useDNSProviders', () => ({
   })),
 }))
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
-}))
+vi.mock('react-i18next', () => {
+  // Only the Source select strings are asserted on; every other key echoes back.
+  const strings: Record<string, string> = {
+    'proxyHosts.source.local': 'Local (Docker Socket)',
+    'proxyHosts.source.localUnavailable': 'unavailable',
+    'proxyHosts.source.localUnavailableHint': 'Use an Orthrus agent instead (see Remote Agents).',
+  }
+  return {
+    useTranslation: () => ({ t: (key: string) => strings[key] ?? key }),
+  }
+})
 
 vi.mock('../../hooks/useSecurity', () => ({
   useAuthPolicies: vi.fn(() => ({
@@ -175,11 +188,17 @@ const selectComboboxOption = async (label: string | RegExp, optionText: string) 
 }
 
 
+type DockerStatusResult = ReturnType<typeof useDockerStatus>
+
+const mockDockerStatus = (result: Partial<DockerStatusResult>) =>
+  vi.mocked(useDockerStatus).mockReturnValue(result as DockerStatusResult)
+
 describe('ProxyHostForm', () => {
   const mockOnSubmit = vi.fn(() => Promise.resolve())
   const mockOnCancel = vi.fn()
 
   beforeEach(() => {
+    mockDockerStatus({ data: undefined, isLoading: true, error: null })
     // Default fetch mock for health endpoint
     mockFetch.mockResolvedValue({
       json: () => Promise.resolve({ internal_ip: '192.168.1.50' }),
@@ -1688,6 +1707,60 @@ describe('ProxyHostForm', () => {
 
       const retryButton = screen.getByRole('button', { name: /retrying/i })
       expect(retryButton).toBeDisabled()
+    })
+  })
+
+  describe('Local Docker source availability', () => {
+    const openSource = async () => {
+      await userEvent.click(screen.getByRole('combobox', { name: 'Source' }))
+    }
+    const unavailable = {
+      data: { available: false, reason: 'socket_missing', message: 'no socket' },
+      isLoading: false,
+      error: null,
+    } as const
+
+    it('keeps Local enabled while the status is loading', async () => {
+      await renderWithClientAct(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      await openSource()
+      expect(await screen.findByRole('option', { name: 'Local (Docker Socket)' })).not.toHaveAttribute('aria-disabled', 'true')
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('disables Local and shows the Orthrus hint on available:false', async () => {
+      mockDockerStatus(unavailable)
+      await renderWithClientAct(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      expect(screen.getByRole('status')).toHaveTextContent(/Orthrus/)
+      await openSource()
+      expect(await screen.findByRole('option', { name: /Local \(Docker Socket\) \(unavailable\)/ })).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it.each([
+      ['available', { data: { available: true, reason: 'ok', message: '' }, isLoading: false, error: null }],
+      ['slow', { data: { available: true, reason: 'slow', message: 'slow' }, isLoading: false, error: null }],
+      ['error', { data: undefined, isLoading: false, error: new Error('404') }],
+    ])('keeps Local enabled when status is %s', async (_name, result) => {
+      mockDockerStatus(result as Partial<DockerStatusResult>)
+      await renderWithClientAct(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      await openSource()
+      expect(await screen.findByRole('option', { name: 'Local (Docker Socket)' })).not.toHaveAttribute('aria-disabled', 'true')
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('resets a selected Local source to Custom when it becomes unavailable', async () => {
+      const { rerender } = renderWithClient(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      await selectComboboxOption('Source', 'Local (Docker Socket)')
+      expect(screen.getByRole('combobox', { name: 'Source' })).toHaveTextContent('Local (Docker Socket)')
+
+      mockDockerStatus(unavailable)
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+        </QueryClientProvider>
+      )
+      await waitFor(() => {
+        expect(screen.getByRole('combobox', { name: 'Source' })).toHaveTextContent('Custom / Manual')
+      })
     })
   })
 })

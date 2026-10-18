@@ -14,6 +14,7 @@ import { syncMonitors } from '../api/uptime'
 import { useCertificates } from '../hooks/useCertificates'
 import { useDetectDNSProvider } from '../hooks/useDNSDetection'
 import { useDocker } from '../hooks/useDocker'
+import { useDockerStatus } from '../hooks/useDockerStatus'
 import { useDomains } from '../hooks/useDomains'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
@@ -406,6 +407,16 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     connectionSource !== 'local' && connectionSource !== 'custom' ? connectionSource : undefined
   )
 
+  // Fail open: only a definite `available: false` disables the local source.
+  const { data: dockerStatus } = useDockerStatus()
+  const localDockerUnavailable = dockerStatus?.available === false
+
+  useEffect(() => {
+    if (localDockerUnavailable) {
+      setConnectionSource(current => (current === 'local' ? 'custom' : current))
+    }
+  }, [localDockerUnavailable])
+
   const [selectedDomain, setSelectedDomain] = useState('')
   const [selectedContainerId, setSelectedContainerId] = useState<string>('')
 
@@ -762,7 +773,10 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="custom">Custom / Manual</SelectItem>
-                  <SelectItem value="local">Local (Docker Socket)</SelectItem>
+                  <SelectItem value="local" disabled={localDockerUnavailable}>
+                    {t('proxyHosts.source.local')}
+                    {localDockerUnavailable && ` (${t('proxyHosts.source.localUnavailable')})`}
+                  </SelectItem>
                   {safeRemoteServers
                     .filter(s => s.provider === 'docker' && s.enabled)
                     .map(server => (
@@ -773,6 +787,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                   }
                 </SelectContent>
               </Select>
+              {localDockerUnavailable && (
+                <p role="status" className="mt-1 text-xs text-gray-400">
+                  {t('proxyHosts.source.localUnavailableHint')}
+                </p>
+              )}
             </div>
 
             <div>

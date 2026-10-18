@@ -9,8 +9,6 @@
  * The Playwright containers mount the Docker socket, so "no socket" is
  * produced by intercepting the status endpoint.
  *
- * Written as `test.fixme` in C1; enabled once the status endpoint and the
- * form behavior exist (C3).
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
@@ -37,7 +35,7 @@ test.describe('Proxy Host form - local Docker source availability', () => {
     await loginUser(page, adminUser);
   });
 
-  test.fixme('disables the Local option with an Orthrus hint when the socket is unavailable', async ({ page }) => {
+  test('disables the Local option with an Orthrus hint when the socket is unavailable', async ({ page }) => {
     await page.route(DOCKER_STATUS_API, (route) =>
       route.fulfill({ json: { available: false, reason: 'socket_missing' } }),
     );
@@ -49,11 +47,11 @@ test.describe('Proxy Host form - local Docker source availability', () => {
     });
 
     await test.step('Orthrus hint is visible', async () => {
-      await expect(dialog.getByText(/orthrus/i).first()).toBeVisible();
+      await expect(dialog.getByText(/Use an Orthrus agent instead/)).toBeVisible();
     });
   });
 
-  test.fixme('keeps the Local option enabled and selectable when the socket is available', async ({ page }) => {
+  test('keeps the Local option enabled and selectable when the socket is available', async ({ page }) => {
     await page.route(DOCKER_STATUS_API, (route) =>
       route.fulfill({ json: { available: true } }),
     );
@@ -71,7 +69,7 @@ test.describe('Proxy Host form - local Docker source availability', () => {
     });
   });
 
-  test.fixme('fails open when the status endpoint returns 500', async ({ page }) => {
+  test('fails open when the status endpoint returns 500', async ({ page }) => {
     await page.route(DOCKER_STATUS_API, (route) =>
       route.fulfill({ status: 500, json: { error: 'internal error' } }),
     );
@@ -80,7 +78,7 @@ test.describe('Proxy Host form - local Docker source availability', () => {
     await expect(page.getByRole('option', { name: /Local \(Docker Socket\)/i })).toBeEnabled();
   });
 
-  test.fixme('fails open when the status endpoint returns 404', async ({ page }) => {
+  test('fails open when the status endpoint returns 404', async ({ page }) => {
     await page.route(DOCKER_STATUS_API, (route) =>
       route.fulfill({ status: 404, json: { error: 'not found' } }),
     );
@@ -89,7 +87,7 @@ test.describe('Proxy Host form - local Docker source availability', () => {
     await expect(page.getByRole('option', { name: /Local \(Docker Socket\)/i })).toBeEnabled();
   });
 
-  test.fixme('keeps the Local option enabled while the status response is still loading', async ({ page }) => {
+  test('keeps the Local option enabled while the status response is still loading', async ({ page }) => {
     let releaseStatus: () => void = () => {};
     const gate = new Promise<void>((resolve) => {
       releaseStatus = resolve;
