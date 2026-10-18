@@ -254,6 +254,10 @@ func respondCoded(c *gin.Context, status int, code, msg string, extra gin.H) {
 
 // ApplyPreset installs a pulled preset: a curated preset through cscli, a hub preset by installing the
 // pulled item with cscli and verifying the result.
+//
+// With "async": true a hub preset is installed as a background job (202 with the job, see
+// crowdsec_apply_jobs_handler.go); curated presets are quick and always apply synchronously. The synchronous
+// path is bounded by the 120 s apply timeout and is deprecated for large hub presets, which can take minutes.
 func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	if h.refuseIfBusy(c) {
 		return
@@ -267,6 +271,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		Slug     string `json:"slug"`
 		Type     string `json:"type"`
 		CacheKey string `json:"cache_key"`
+		Async    bool   `json:"async"`
 	}
 	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
@@ -312,6 +317,11 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 
 	if isCurated {
 		h.applyCuratedPreset(c, curated)
+		return
+	}
+
+	if payload.Async {
+		h.startApplyJob(c, slug, itemType, cacheKey)
 		return
 	}
 
