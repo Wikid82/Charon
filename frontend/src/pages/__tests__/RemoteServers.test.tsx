@@ -256,7 +256,7 @@ describe('RemoteServers', () => {
     render(<RemoteServers />)
 
     // The empty state renders a heading
-    expect(screen.getByRole('heading', { name: /no remote servers/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /no sources/i })).toBeInTheDocument()
   })
 
   it('opens server form when Add button is clicked', async () => {

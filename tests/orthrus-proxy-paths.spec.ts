@@ -57,7 +57,7 @@ test.describe('Orthrus Docker Proxy Paths', () => {
   });
 
   test.describe('ProxyHostForm Docker source panel', () => {
-    test('Source dropdown includes Orthrus remote server when provider is docker', async ({
+    test('Source dropdown includes Orthrus source when provider is docker', async ({
       page,
     }) => {
       await page.route(REMOTE_SERVERS_API, (route) =>

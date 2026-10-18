@@ -644,11 +644,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
         toast.success(`Using container name "${container.names[0]}" for stable addressing`, { duration: 3000 })
       }
 
-      // If using a Remote Server, try to use the Host IP and Mapped Public Port
+      // If using a Source, try to use the Host IP and Mapped Public Port
       if (connectionSource !== 'local' && connectionSource !== 'custom') {
         const server = safeRemoteServers.find(s => s.uuid === connectionSource)
         if (server) {
-          // Use the Remote Server's Host IP (e.g. public/tailscale IP)
+          // Use the Source's Host IP (e.g. public/tailscale IP)
           host = server.host
 
           // Find a mapped public port

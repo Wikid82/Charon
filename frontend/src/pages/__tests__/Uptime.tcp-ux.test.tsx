@@ -18,7 +18,7 @@ vi.mock('react-i18next', () => ({
         'uptime.addMonitor': 'Add Monitor',
         'uptime.autoRefreshing': 'Auto-refreshing every 30s',
         'uptime.proxyHosts': 'Proxy Hosts',
-        'uptime.remoteServers': 'Remote Servers',
+        'uptime.remoteServers': 'Sources',
         'uptime.otherMonitors': 'Other Monitors',
         'uptime.latency': 'Latency',
         'uptime.lastCheck': 'Last Check',

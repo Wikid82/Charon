@@ -5,7 +5,7 @@
  * route stays /hecate/remote-servers, and the legacy /remote-servers path
  * keeps redirecting.
  *
- * Written as `test.fixme` in C1; enabled once the rename lands (C4).
+ * Enabled in C4 alongside the rename.
  */
 
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
@@ -18,7 +18,7 @@ test.describe('Sources navigation', () => {
     await waitForLoadingComplete(page);
   });
 
-  test.fixme('sidebar "Sources" link navigates to /hecate/remote-servers with a Sources heading', async ({ page }) => {
+  test('sidebar "Sources" link navigates to /hecate/remote-servers with a Sources heading', async ({ page }) => {
     await test.step('Expand the Hecate group', async () => {
       const hecateGroup = page
         .getByRole('button', { name: /hecate/i })
@@ -41,7 +41,7 @@ test.describe('Sources navigation', () => {
     });
   });
 
-  test.fixme('legacy /remote-servers still redirects to /hecate/remote-servers', async ({ page }) => {
+  test('legacy /remote-servers still redirects to /hecate/remote-servers', async ({ page }) => {
     await page.goto('/remote-servers');
     await waitForLoadingComplete(page);
     await expect(page).toHaveURL(/\/hecate\/remote-servers/i);

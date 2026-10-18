@@ -163,7 +163,7 @@ export const createMonitor = async (data: {
 };
 
 /**
- * Syncs monitors with proxy hosts and remote servers.
+ * Syncs monitors with proxy hosts and sources.
  * @param body - Optional configuration for sync (interval, max_retries)
  * @returns Promise resolving to sync result with message; `enqueued` / `dropped`
  *   are populated when the sync fans work through the bounded worker pool and

@@ -169,7 +169,7 @@ test.describe('Hecate Tunnel Manager', () => {
       });
 
       await test.step('Verify form heading is visible', async () => {
-        const formHeading = page.getByRole('heading', { name: /add remote server/i });
+        const formHeading = page.getByRole('heading', { name: /add source/i });
         await expect(formHeading).toBeVisible({ timeout: 5000 });
       });
 
@@ -189,7 +189,7 @@ test.describe('Hecate Tunnel Manager', () => {
       await test.step('Open Add Server form', async () => {
         const addButton = page.getByRole('button', { name: /add server/i }).first();
         await addButton.click();
-        await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
+        await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Verify host and port fields are visible for direct type', async () => {
@@ -212,7 +212,7 @@ test.describe('Hecate Tunnel Manager', () => {
 
       await test.step('Open Add Server form', async () => {
         await page.getByRole('button', { name: /add server/i }).first().click();
-        await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
+        await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Select Agent radio', async () => {
@@ -236,7 +236,7 @@ test.describe('Hecate Tunnel Manager', () => {
 
       await test.step('Open Add Server form', async () => {
         await page.getByRole('button', { name: /add server/i }).first().click();
-        await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
+        await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Select Provider radio', async () => {
@@ -256,7 +256,7 @@ test.describe('Hecate Tunnel Manager', () => {
 
       await test.step('Open Add Server form', async () => {
         await page.getByRole('button', { name: /add server/i }).first().click();
-        await expect(page.getByRole('heading', { name: /add remote server/i })).toBeVisible({ timeout: 5000 });
+        await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Verify connection mode fieldset accessibility', async () => {
@@ -361,7 +361,7 @@ test.describe('Hecate Tunnel Manager', () => {
   });
 
   test.describe('Page Accessibility', () => {
-    test('Remote Servers page has proper heading structure', async ({ page }) => {
+    test('Sources page has proper heading structure', async ({ page }) => {
       await page.route(REMOTE_SERVERS_API, (route) => {
         route.fulfill({ json: [] });
       });
@@ -382,7 +382,7 @@ test.describe('Hecate Tunnel Manager', () => {
       });
     });
 
-    test('Remote Servers page with mixed server types has accessible connection badges', async ({ page }) => {
+    test('Sources page with mixed server types has accessible connection badges', async ({ page }) => {
       await page.route(REMOTE_SERVERS_API, (route) => {
         route.fulfill({ json: [DIRECT_SERVER, ORTHRUS_SERVER] });
       });

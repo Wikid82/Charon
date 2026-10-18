@@ -1448,7 +1448,7 @@ describe('ProxyHostForm', () => {
     })
   })
 
-  describe('Remote Server Container Mapping', () => {
+  describe('Source Container Mapping', () => {
     it('allows selecting a remote docker source option', async () => {
       await renderWithClientAct(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />

@@ -158,7 +158,7 @@ describe('Layout', () => {
 
     // Expand Hecate to see nested items
     await user.click(await screen.findByRole('button', { name: /hecate/i }))
-    expect(await screen.findByText('Remote Servers')).toBeInTheDocument()
+    expect(await screen.findByText('Sources')).toBeInTheDocument()
     expect(await screen.findByText('Tunnels')).toBeInTheDocument()
     expect(await screen.findByText('Providers')).toBeInTheDocument()
     expect(await screen.findByText('Agent')).toBeInTheDocument()
@@ -544,10 +544,10 @@ describe('Layout', () => {
         expect(screen.getByText('Certificates')).toBeInTheDocument()
       })
 
-      // Remote Servers is now nested under Hecate — expand to verify
+      // Sources is now nested under Hecate — expand to verify
       const hecateBtn = await screen.findByRole('button', { name: /hecate/i })
       await userEvent.setup().click(hecateBtn)
-      expect(await screen.findByText('Remote Servers')).toBeInTheDocument()
+      expect(await screen.findByText('Sources')).toBeInTheDocument()
     })
   })
 
@@ -625,7 +625,7 @@ describe('Layout', () => {
       )
 
       await user.click(await screen.findByRole('button', { name: /hecate/i }))
-      const link = await screen.findByRole('link', { name: 'Remote Servers' })
+      const link = await screen.findByRole('link', { name: 'Sources' })
       expect(link).toHaveAttribute('aria-current', 'page')
     })
 
@@ -640,7 +640,7 @@ describe('Layout', () => {
       )
 
       await user.click(await screen.findByRole('button', { name: /hecate/i }))
-      const link = await screen.findByRole('link', { name: 'Remote Servers' })
+      const link = await screen.findByRole('link', { name: 'Sources' })
       expect(link).not.toHaveAttribute('aria-current')
     })
 

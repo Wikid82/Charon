@@ -201,7 +201,7 @@ describe('Uptime page', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled())
   })
 
-  it('separates monitors into Proxy Hosts, Remote Servers and Other sections', async () => {
+  it('separates monitors into Proxy Hosts, Sources and Other sections', async () => {
     vi.mocked(uptimeApi.getMonitorsSummary).mockResolvedValue([
       mkSummary({ id: 'm9', name: 'ProxyMon', proxy_host_id: 1 }),
       mkSummary({ id: 'm10', name: 'RemoteMon', remote_server_id: 2 }),
@@ -210,7 +210,7 @@ describe('Uptime page', () => {
 
     renderWithProviders(<Uptime />)
     expect(await screen.findByText('Proxy Hosts')).toBeInTheDocument()
-    expect(screen.getByText('Remote Servers')).toBeInTheDocument()
+    expect(screen.getByText('Sources')).toBeInTheDocument()
     expect(screen.getByText('Other Monitors')).toBeInTheDocument()
     expect(screen.getByText('ProxyMon')).toBeInTheDocument()
     expect(screen.getByText('RemoteMon')).toBeInTheDocument()
