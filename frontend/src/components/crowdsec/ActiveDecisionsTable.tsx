@@ -17,34 +17,46 @@ interface ActiveDecisionsTableProps {
 type SortKey = 'ip' | 'count' | 'last_seen' | 'country'
 type SortDir = 'asc' | 'desc'
 
+const DEFAULT_SORT_KEY: SortKey = 'count'
+const DEFAULT_SORT_DIR: SortDir = 'desc'
+
 export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisionsTableProps) {
   const { t } = useTranslation()
-  const [sortKey, setSortKey] = useState<SortKey>('count')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT_KEY)
+  const [sortDir, setSortDir] = useState<SortDir>(DEFAULT_SORT_DIR)
+
+  // The backend does not always populate country; hide the column when no row has one.
+  const hasCountry = useMemo(() => (data ?? []).some((row) => Boolean(row.country)), [data])
+
+  // A hidden Country column cannot be the active sort; fall back to the default sort
+  // without discarding the user's selection (it re-applies if countries reappear).
+  const hiddenSort = sortKey === 'country' && !hasCountry
+  const effectiveSortKey: SortKey = hiddenSort ? DEFAULT_SORT_KEY : sortKey
+  const effectiveSortDir: SortDir = hiddenSort ? DEFAULT_SORT_DIR : sortDir
 
   const toggleSort = useCallback((key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    if (effectiveSortKey === key) {
+      setSortDir(effectiveSortDir === 'asc' ? 'desc' : 'asc')
     } else {
       setSortKey(key)
       setSortDir('desc')
     }
-  }, [sortKey])
+  }, [effectiveSortKey, effectiveSortDir])
 
   const sorted = useMemo(() => {
     if (!data) return []
     return [...data].sort((a, b) => {
-      const aVal = a[sortKey]
-      const bVal = b[sortKey]
+      const aVal = a[effectiveSortKey]
+      const bVal = b[effectiveSortKey]
       let cmp: number
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         cmp = aVal - bVal
       } else {
         cmp = String(aVal ?? '').localeCompare(String(bVal ?? ''), undefined, { numeric: true })
       }
-      return sortDir === 'asc' ? cmp : -cmp
+      return effectiveSortDir === 'asc' ? cmp : -cmp
     })
-  }, [data, sortKey, sortDir])
+  }, [data, effectiveSortKey, effectiveSortDir])
 
   if (isLoading) {
     return (
@@ -71,9 +83,6 @@ export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisio
     )
   }
 
-  // The backend does not always populate country; hide the column when no row has one.
-  const hasCountry = sorted.some((row) => Boolean(row.country))
-
   const allColumns: { key: SortKey; label: string }[] = [
     { key: 'ip', label: t('security.crowdsec.dashboard.colIP', 'IP') },
     { key: 'count', label: t('security.crowdsec.dashboard.colCount', 'Alerts') },
@@ -92,8 +101,8 @@ export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisio
           <thead>
             <tr className="border-b border-gray-700">
               {columns.map((col) => {
-                const isSorted = sortKey === col.key
-                const ariaSortValue = isSorted ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+                const isSorted = effectiveSortKey === col.key
+                const ariaSortValue = isSorted ? (effectiveSortDir === 'asc' ? 'ascending' : 'descending') : 'none'
                 return (
                   <th
                     key={col.key}
@@ -109,7 +118,7 @@ export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisio
                     >
                       {col.label}
                       {isSorted
-                        ? sortDir === 'asc'
+                        ? effectiveSortDir === 'asc'
                           ? <ArrowUp className="h-3 w-3" aria-hidden="true" />
                           : <ArrowDown className="h-3 w-3" aria-hidden="true" />
                         : <ArrowUpDown className="h-3 w-3 text-gray-600" aria-hidden="true" />

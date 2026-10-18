@@ -140,4 +140,33 @@ describe('ActiveDecisionsTable', () => {
     expect(time).toHaveTextContent(/ago$/)
     expect(time).toHaveAttribute('title')
   })
+
+  it('falls back to the default sort when the sorted Country column becomes hidden', async () => {
+    const user = userEvent.setup()
+    const now = new Date().toISOString()
+    const withCountry: TopIP[] = [
+      { ip: '1.1.1.1', count: 5, last_seen: now, country: 'AA' },
+      { ip: '2.2.2.2', count: 50, last_seen: now, country: 'ZZ' },
+      { ip: '3.3.3.3', count: 20, last_seen: now, country: 'MM' },
+    ]
+    const { rerender } = render(
+      <ActiveDecisionsTable data={withCountry} isLoading={false} isError={false} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Sort by Country' }))
+    expect(screen.getByRole('columnheader', { name: /Country/ })).toHaveAttribute('aria-sort', 'descending')
+    const ipsOf = () => screen.getAllByRole('row').slice(1).map((r) => r.querySelector('td')?.textContent)
+    expect(ipsOf()).toEqual(['2.2.2.2', '3.3.3.3', '1.1.1.1'])
+
+    const noCountry = withCountry.map((r) => ({ ...r, country: '' }))
+    rerender(<ActiveDecisionsTable data={noCountry} isLoading={false} isError={false} />)
+
+    expect(screen.queryByRole('columnheader', { name: /Country/ })).not.toBeInTheDocument()
+    expect(ipsOf()).toEqual(['2.2.2.2', '3.3.3.3', '1.1.1.1'].sort((a, b) => {
+      const c = (ip: string) => noCountry.find((r) => r.ip === ip)!.count
+      return c(b) - c(a)
+    }))
+    expect(screen.getByRole('columnheader', { name: /Alerts/ })).toHaveAttribute('aria-sort', 'descending')
+    expect(screen.getByRole('columnheader', { name: /^IP/ })).toHaveAttribute('aria-sort', 'none')
+  })
 })
