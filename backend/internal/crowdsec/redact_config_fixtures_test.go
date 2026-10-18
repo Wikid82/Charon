@@ -98,12 +98,13 @@ func TestRedactedFixturesRoundTripThroughTheMerge(t *testing.T) {
 	}
 }
 
-// Credential-looking key names that the denylist does not cover yet. The gap is in redact_config.go
-// (credentialKeySuffixes); the fix lands in the next commit of the batch.
+// Credential key names beyond the common ones (passphrase, cloud access keys, auth headers, DSNs) are blanked.
 func TestRedactConfigFileBlanksLessCommonCredentialKeys(t *testing.T) {
-	t.Skip("pending fix in next commit")
 	t.Parallel()
-	for _, key := range []string{"passphrase", "access_key", "secret_access_key", "authorization", "pwd"} {
+	for _, key := range []string{
+		"passphrase", "access_key", "secret_access_key", "authorization", "pwd", "bearer", "signing_key",
+		"encryption_key", "psk", "dsn", "connection_string", "db_pwd", "key_passphrase", "wifi_psk", "primary_dsn",
+	} {
 		t.Run(key, func(t *testing.T) {
 			t.Parallel()
 			original := "extra:\n  " + key + ": FAKE-value-0100\n  note: kept\n"
@@ -112,6 +113,23 @@ func TestRedactConfigFileBlanksLessCommonCredentialKeys(t *testing.T) {
 
 			require.NotContains(t, redacted, "FAKE-value-0100")
 			require.Contains(t, redacted, "note: kept")
+		})
+	}
+}
+
+// Names that look like credentials but hold paths, limits or switches stay untouched.
+func TestRedactConfigFileKeepsBenignKeyNames(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{
+		"key_path", "ca_cert_path", "signing_key_file", "encryption_key_path", "passphrase_file", "access_key_id",
+		"authorization_enabled", "dsn_file", "psk_path", "pwd_dir", "max_tokens", "keyboard", "dsn_count",
+	} {
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			original := "extra:\n  " + key + ": plain-value-0100\n"
+
+			require.False(t, isCredentialKey("extra", key))
+			require.Equal(t, original, blankedConfig(t, original))
 		})
 	}
 }

@@ -25,14 +25,18 @@ func isConfigFile(slash string) bool {
 // credentialKeyNames are the key names whose scalar value is a credential wherever they appear (compared
 // case-insensitively).
 var credentialKeyNames = map[string]struct{}{
-	"password": {}, "passwd": {}, "secret": {}, "token": {}, "api_key": {}, "apikey": {}, "private_key": {},
+	"password": {}, "passwd": {}, "pwd": {}, "passphrase": {}, "secret": {}, "token": {}, "api_key": {}, "apikey": {}, "private_key": {},
+	"authorization": {}, "bearer": {}, "psk": {}, "dsn": {}, "connection_string": {},
 }
 
 // credentialKeySuffixes and credentialKeyParts widen the exact names to compound ones such as db_password,
 // webhook_token or client_secret_key: a lower-cased key that ends in a suffix or contains a part is a credential.
 var (
-	credentialKeySuffixes = []string{"password", "passwd", "secret", "token", "secret_key", "apikey", "api_key", "private_key"}
-	credentialKeyParts    = []string{"_password", "_token"}
+	credentialKeySuffixes = []string{
+		"password", "passwd", "secret", "token", "secret_key", "apikey", "api_key", "private_key",
+		"passphrase", "access_key", "signing_key", "encryption_key", "_pwd", "_psk", "_dsn", "_connection_string",
+	}
+	credentialKeyParts = []string{"_password", "_token"}
 )
 
 // benignKeySuffixes and benignKeyNames exclude keys that look like credentials but hold something else: where a
