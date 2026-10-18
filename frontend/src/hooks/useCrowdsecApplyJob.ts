@@ -10,6 +10,7 @@ import {
   getApplyJobErrorCode,
   getCrowdsecBusyJobId,
   getCurrentApplyJob,
+  type ApplyCrowdsecPresetRequest,
   type CrowdsecApplyJob,
 } from '../api/presets'
 import { isApplyJobTerminal } from '../utils/crowdsecApplyJob'
@@ -30,12 +31,6 @@ const MAX_BACKOFF_MS = 30_000
 export function applyJobPollDelayMs(elapsedSeconds: number, consecutiveFailures: number): number {
   const steady = elapsedSeconds < FAST_POLL_WINDOW_S ? FAST_POLL_MS : elapsedSeconds < MEDIUM_POLL_WINDOW_S ? MEDIUM_POLL_MS : SLOW_POLL_MS
   return consecutiveFailures > 0 ? Math.min(FAST_POLL_MS * 2 ** (consecutiveFailures - 1), MAX_BACKOFF_MS) : steady
-}
-
-export interface ApplyJobRequest {
-  slug: string
-  type?: string
-  cache_key?: string
 }
 
 interface TrackedJob {
@@ -117,7 +112,7 @@ export function useCrowdsecApplyJob(options: { enabled?: boolean } = {}) {
   }, [queryClient])
 
   const startMutation = useMutation({
-    mutationFn: (request: ApplyJobRequest) => applyPresetAsync(request),
+    mutationFn: (request: ApplyCrowdsecPresetRequest) => applyPresetAsync(request),
     onSuccess: follow,
     onError: (err: unknown) => {
       // The refusal names the job that holds the lock, so the row can show it.
@@ -150,6 +145,7 @@ export function useCrowdsecApplyJob(options: { enabled?: boolean } = {}) {
     isStarting: startMutation.isPending,
     cancel: cancelMutation.mutate,
     isCancelling: cancelMutation.isPending,
+    cancelFailed: cancelMutation.isError,
     dismiss,
   }
 }

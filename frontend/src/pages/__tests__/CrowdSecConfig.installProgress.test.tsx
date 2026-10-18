@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AxiosError } from 'axios'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -84,6 +84,7 @@ describe('CrowdSecConfig background preset install', () => {
       slug: hubPreset.slug,
       preview: 'name: base-http-scenarios\n',
       cache_key: 'cache-pulled',
+      item_sha256: 'sha-pulled',
       source: 'hub',
     })
     vi.mocked(presetsApi.getCurrentApplyJob).mockResolvedValue(null)
@@ -103,10 +104,10 @@ describe('CrowdSecConfig background preset install', () => {
     await startApply()
 
     const row = await progressRow()
-    expect(presetsApi.applyPresetAsync).toHaveBeenCalledWith(expect.objectContaining({ slug: hubPreset.slug, cache_key: 'cache-pulled' }))
+    expect(presetsApi.applyPresetAsync).toHaveBeenCalledWith(expect.objectContaining({ slug: hubPreset.slug, cache_key: 'cache-pulled', item_sha256: 'sha-pulled' }))
     expect(presetsApi.applyCrowdsecPreset).not.toHaveBeenCalled()
     await waitFor(() => expect(row).toHaveTextContent('Installing, 12 items so far, 3 min 20 s'))
-    expect(within(row).getByRole('button', { name: 'Cancel' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     expect(screen.getByTestId('apply-preset-btn')).toBeDisabled()
@@ -121,12 +122,31 @@ describe('CrowdSecConfig background preset install', () => {
   it('cancels the running job from the row', async () => {
     vi.mocked(presetsApi.cancelApplyJob).mockResolvedValue(job({ cancel_requested: true, phase: 'rollback' }))
     await startApply()
-    const row = await progressRow()
+    await progressRow()
 
-    await userEvent.click(within(row).getByRole('button', { name: 'Cancel' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
     await waitFor(() => expect(vi.mocked(presetsApi.cancelApplyJob).mock.calls[0][0]).toBe('job-1'))
-    await waitFor(() => expect(within(row).getByRole('button', { name: 'Cancelling...' })).toBeDisabled())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancelling...' })).toBeDisabled())
+  })
+
+  it('keeps the ticking numbers out of the announced text', async () => {
+    await startApply()
+    const row = await progressRow()
+    expect(row).toHaveTextContent('Installing, 12 items so far, 3 min 20 s')
+    expect(screen.getByText(', 12 items so far, 3 min 20 s')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByText('Installing')).not.toHaveAttribute('aria-hidden')
+  })
+
+  it('says so inline when cancelling fails', async () => {
+    vi.mocked(presetsApi.cancelApplyJob).mockRejectedValue(new Error('network'))
+    await startApply()
+    await progressRow()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(await screen.findByText('Could not cancel the install. Try again.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('resumes an active job after a reload without starting a new one', async () => {
@@ -158,7 +178,9 @@ describe('CrowdSecConfig background preset install', () => {
 
     const result = await screen.findByTestId('preset-install-result')
     expect(result).toHaveTextContent('Preset applied. 41 items installed')
-    expect(screen.queryByRole('status', { name: 'Installing preset' })).not.toBeInTheDocument()
+    // The same live region announces the result.
+    expect(screen.getByRole('status', { name: 'Installing preset' })).toHaveTextContent('Preset applied.')
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
     expect(screen.getByTestId('apply-preset-btn')).toBeEnabled()
   })
 

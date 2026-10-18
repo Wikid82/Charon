@@ -1685,6 +1685,7 @@
         "waitingForServer": "En attente du serveur...",
         "cancel": "Annuler",
         "cancelling": "Annulation...",
+        "cancelFailed": "Impossible d'annuler l'installation. Réessayez.",
         "succeeded": "Preset appliqué.",
         "failed": "L'installation a échoué.",
         "failedGeneric": "Le preset n'a pas pu être installé.",

@@ -1690,6 +1690,7 @@
         "waitingForServer": "Waiting for the server...",
         "cancel": "Cancel",
         "cancelling": "Cancelling...",
+        "cancelFailed": "Could not cancel the install. Try again.",
         "succeeded": "Preset applied.",
         "failed": "Install failed.",
         "failedGeneric": "The preset could not be installed.",
