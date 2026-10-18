@@ -19,7 +19,11 @@ arguments when the engine's config file exists and runs the command under a dead
 **30 s** for listings (`cscliListTimeout`) and **15 s** for add and delete
 (`cscliChangeTimeout`). A command that runs out of time becomes a coded 504
 (`cscli_timeout`, "CrowdSec did not answer in time"). The output we read is stdout and
-stderr combined.
+stderr combined. Every handler call goes through the helper, including bouncer key
+validation and registration (5 s and 10 s deadlines); a test fails if a handler calls
+`CmdExec.Execute("cscli"` outside it. Listing endpoints answer soft errors with an empty
+list and an `error` code: `cscli_timeout`, `cscli_output_too_large` or
+`cscli_unavailable`; the UI shows a passive note.
 
 | Command | How the result is used |
 | --- | --- |
@@ -37,7 +41,7 @@ stderr combined.
 | `cscli version` | Exit status only (is `cscli` present). |
 | `cscli hub list [-a] -o json` | Parsed for installed items and the hub index. |
 | `cscli hub update` | Exit status only. |
-| `cscli <type> inspect <name> -o json` | Parsed for the item's state. |
+| `cscli <type> inspect <name> -o json` | Parsed for the item's state. `path` is the item's own file relative to the hub directory (for example `collections/crowdsecurity/nginx.yaml`) and is what a preset apply saves before an in-place upgrade; `local_path` is the installed link in the configuration and is only a fallback. |
 | `cscli <type> install <name>` | Exit status. **`cscli hub install` does not exist**; items are installed per type (`collections`, `parsers`, ...). |
 | `cscli <type> upgrade <name>` | Exit status. |
 
@@ -74,9 +78,15 @@ Recorded against `v1.8.2-rc1` (`decisions_add_*`, `decisions_delete_*`):
   `cscli`. `cscli` also accepts `0` and negative values; Charon refuses them and allows
   only 1 minute to 365 days.
 - `decisions delete` prints `N decision(s) deleted` and exits 0 even when `N` is 0.
-  Charon reads that count: 0 becomes a "not found" answer.
+  Charon reads that count: 0 becomes a "not found" answer. Unban matches the exact value
+  only. A successful unban writes a `security_decisions` row with action `unblock`, which
+  the top-IPs and summary queries exclude.
 
 ## Alerts
+
+Charon passes the requested range as `--since <range>`. `cscli` has no offset flag, so
+Charon fetches `limit + offset` alerts (at most 1000) and drops the first `offset` itself;
+paging is best-effort and the total is the number fetched.
 
 `cscli alerts list -o json` returns a list of alerts. Each has a nested `source` (with
 `ip` and `value`) and a nested `decisions` list (with `duration`, `type`, `origin`).

@@ -116,7 +116,7 @@ describe('CrowdSecConfig – whitelist tab', () => {
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
     vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({ blob: new Blob(['data']), omitted: [], omittedMore: 0 })
     vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(crowdsecApi.listWhitelists).mockResolvedValue([])
     vi.mocked(crowdsecApi.addWhitelist).mockResolvedValue({

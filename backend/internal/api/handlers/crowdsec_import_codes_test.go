@@ -107,3 +107,23 @@ func TestImportRefusalConfigNotFoundCarriesACode(t *testing.T) {
 	require.Equal(t, "import_config_not_found", body.ErrorCode)
 	require.Contains(t, body.Error, "config.yaml was not found")
 }
+
+func TestImportRefusalConfigMergeFailureRollsBack(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRealLayout(t, dir)
+	live := filepath.Join(dir, "config", "config.yaml")
+	before, err := os.ReadFile(live) //nolint:gosec // G304: path inside the test directory
+	require.NoError(t, err)
+	h, r := newImportRouter(t, dir)
+	h.mergeConfig = func(string, string) error { return errors.New("disk problem") }
+
+	w := importStatus(t, r, map[string]string{"config/config.yaml": importableConfig})
+
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	body := decodeRefusal(t, w)
+	require.Equal(t, "import_keep_current_failed", body.ErrorCode)
+	after, err := os.ReadFile(live) //nolint:gosec // G304: path inside the test directory
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after), "the current configuration is restored")
+}

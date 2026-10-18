@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next'
 import { useAlerts } from '../../hooks/useCrowdsecDashboard'
 import { Skeleton } from '../ui'
 
+import { ListErrorNote } from './ListErrorNote'
+
 import type { TimeRange } from '../../api/crowdsecDashboard'
 
 interface AlertsListProps {
@@ -86,6 +88,7 @@ export function AlertsList({ range }: AlertsListProps) {
         className="rounded-lg border border-gray-700 bg-gray-900 p-4 text-center text-gray-400 py-12"
         data-testid="alerts-list"
       >
+        <div className="mb-4 text-left"><ListErrorNote error={data?.error} error_code={data?.error_code} /></div>
         <AlertTriangle className="mx-auto h-8 w-8 mb-2 text-gray-500" aria-hidden="true" />
         <p>{t('security.crowdsec.dashboard.noAlerts', 'No alerts for the selected period.')}</p>
       </div>
@@ -102,6 +105,8 @@ export function AlertsList({ range }: AlertsListProps) {
           {t('security.crowdsec.dashboard.alertsCount', '{{count}} total', { count: data?.total ?? 0 })}
         </span>
       </div>
+
+      <div className="mb-3"><ListErrorNote error={data?.error} error_code={data?.error_code} /></div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-left">

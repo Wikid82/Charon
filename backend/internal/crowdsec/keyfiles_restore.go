@@ -18,8 +18,12 @@ import (
 )
 
 const (
-	// maxKeyRestoreScan bounds how many snapshot entries are looked at for private key files.
+	// maxKeyRestoreScan bounds how many snapshot files that need work (the destination is absent) are looked
+	// at for private key files. Files the new tree already holds are not counted.
 	maxKeyRestoreScan = 20000
+	// maxKeyRestoreWalk bounds how many snapshot entries (files and folders) the walk visits at all, so that a
+	// pathological tree fails closed even when most of it is present in the new tree.
+	maxKeyRestoreWalk = 500_000
 	// maxKeyRestoreFiles bounds how many key files are put back.
 	maxKeyRestoreFiles = 64
 	// maxKeyRestoreBytes bounds the size of one key file that is put back.
@@ -37,6 +41,18 @@ var ErrKeyRestoreLimit = errors.New("too many files to check for private keys")
 // and nothing is written through a link or into a non-directory. Files keep their mode, capped at
 // 0600, and are created exclusively. It returns the sorted slash paths below dataDir that were restored.
 func RestoreKeyFiles(snapshotDir, dataDir string) ([]string, error) {
+	return restoreKeyFiles(snapshotDir, dataDir, keyRestoreLimits{scan: maxKeyRestoreScan, walk: maxKeyRestoreWalk})
+}
+
+// keyRestoreLimits holds the two tree bounds of a restore; tests pass small ones.
+type keyRestoreLimits struct {
+	scan int // snapshot files that need work
+	walk int // snapshot entries visited
+}
+
+// restoreKeyFiles is RestoreKeyFiles with the tree bounds given: scan counts only the snapshot files whose
+// destination is absent, walk counts every entry visited.
+func restoreKeyFiles(snapshotDir, dataDir string, limits keyRestoreLimits) ([]string, error) {
 	snapshotDir, dataDir = filepath.Clean(snapshotDir), filepath.Clean(dataDir)
 	dirs := treeNotificationDirs(snapshotDir)
 	targets, err := keyPathTargets(context.Background(), snapshotDir, dataDir, dirs)
@@ -44,10 +60,14 @@ func RestoreKeyFiles(snapshotDir, dataDir string) ([]string, error) {
 		return nil, fmt.Errorf("scan snapshot key settings: %w", err)
 	}
 	var restored []string
-	scanned := 0
+	scanned, walked := 0, 0
 	walkErr := filepath.WalkDir(snapshotDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk snapshot: %w", withoutPath(err))
+		}
+		walked++
+		if walked > limits.walk {
+			return ErrKeyRestoreLimit
 		}
 		rel, relErr := filepath.Rel(snapshotDir, p)
 		if relErr != nil {
@@ -62,16 +82,24 @@ func RestoreKeyFiles(snapshotDir, dataDir string) ([]string, error) {
 		if d.IsDir() || !d.Type().IsRegular() {
 			return nil
 		}
+		slash := filepath.ToSlash(rel)
+		present, presentErr := keyDestinationPresent(dataDir, slash)
+		if presentErr != nil {
+			return presentErr
+		}
+		if present {
+			return nil // present in any form: the archive's file or a kept link wins, and it needs no work
+		}
 		scanned++
-		if scanned > maxKeyRestoreScan {
+		if scanned > limits.scan {
 			return ErrKeyRestoreLimit
 		}
-		ok, restoreErr := restoreKeyFile(snapshotDir, dataDir, filepath.ToSlash(rel), targets, dirs, len(restored))
+		ok, restoreErr := restoreKeyFile(snapshotDir, dataDir, slash, targets, dirs, len(restored))
 		if restoreErr != nil {
 			return restoreErr
 		}
 		if ok {
-			restored = append(restored, filepath.ToSlash(rel))
+			restored = append(restored, slash)
 		}
 		return nil
 	})
@@ -82,6 +110,19 @@ func RestoreKeyFiles(snapshotDir, dataDir string) ([]string, error) {
 	return restored, nil
 }
 
+// keyDestinationPresent reports whether the slash path below dataDir exists in any form. A file in the
+// parent chain counts as absent here; restoring below it is refused later.
+func keyDestinationPresent(dataDir, slash string) (bool, error) {
+	_, err := os.Lstat(filepath.Join(dataDir, filepath.FromSlash(slash)))
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect %s: %w", util.SanitizeForLog(slash), withoutPath(err))
+}
+
 // restoreKeyFile restores one snapshot file when it is a key file the new tree lacks. It reports
 // whether the file was written.
 func restoreKeyFile(snapshotDir, dataDir, slash string, targets map[string]struct{}, dirs []string, already int) (bool, error) {
@@ -90,11 +131,6 @@ func restoreKeyFile(snapshotDir, dataDir, slash string, targets map[string]struc
 		return false, nil
 	}
 	dest := filepath.Join(dataDir, filepath.FromSlash(slash))
-	if _, err := os.Lstat(dest); err == nil {
-		return false, nil // present in any form: the archive's file or a kept link wins
-	} else if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) { // a file in the parent chain is refused below
-		return false, fmt.Errorf("inspect %s: %w", util.SanitizeForLog(slash), withoutPath(err))
-	}
 	f, info, err := openExportFile(snapshotDir, filepath.FromSlash(slash), exportHooks{})
 	if err != nil || f == nil {
 		return false, err

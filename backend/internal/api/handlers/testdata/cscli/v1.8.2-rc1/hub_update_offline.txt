@@ -1,0 +1,3 @@
+level=warning msg="Failed to check last modified: failed to make HEAD request for https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json: Head \"https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json\": dial tcp: lookup cdn-hub.crowdsec.net on 8.8.4.4:53: dial udp 8.8.4.4:53: connect: network is unreachable" url="https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json"
+Downloading /etc/crowdsec/hub/.index.json
+Error: cscli hub update: failed to update hub: failed http request for https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json: Get "https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json": dial tcp: lookup cdn-hub.crowdsec.net on 8.8.4.4:53: dial udp 8.8.4.4:53: connect: network is unreachable

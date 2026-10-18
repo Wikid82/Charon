@@ -1,0 +1,2 @@
+# Fake credential fixtures for the CrowdSec config redaction tests
+backend/internal/crowdsec/testdata/config/

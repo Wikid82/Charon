@@ -29,7 +29,7 @@ const (
 	msgReasonTooLong    = "reason must be at most 200 characters"
 	msgIPTooBroad       = "that address range is too broad to ban"
 	msgIPNotBannable    = "that address cannot be banned: unspecified and loopback addresses are not allowed"
-	msgDecisionNotFound = "no active decision matches this address or range"
+	msgDecisionNotFound = "no decision with exactly this address or range"
 
 	defaultBanDuration = "24h"
 	minBanDuration     = time.Minute

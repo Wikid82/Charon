@@ -1,0 +1,9 @@
+Action plan:
+📥 download
+ parsers: crowdsecurity/nginx-logs (2.0)
+✅ enable
+ parsers: crowdsecurity/nginx-logs
+
+downloading parsers:crowdsecurity/nginx-logs
+level=warning msg="Failed to check last modified: failed to make HEAD request for https://cdn-hub.crowdsec.net/crowdsecurity/master/parsers/s01-parse/crowdsecurity/nginx-logs.yaml: Head \"https://cdn-hub.crowdsec.net/crowdsecurity/master/parsers/s01-parse/crowdsecurity/nginx-logs.yaml\": dial tcp: lookup cdn-hub.crowdsec.net on 8.8.4.4:53: dial udp 8.8.4.4:53: connect: network is unreachable" url=
+Error: cscli parsers install: parsers:crowdsecurity/nginx-logs: failed http request for https://cdn-hub.crowdsec.net/crowdsecurity/master/parsers/s01-parse/crowdsecurity/nginx-logs.yaml: Get "https://cdn-hub.crowdsec.net/crowdsecurity/master/parsers/s01-parse/crowdsecurity/nginx-logs.yaml": dial tcp: lookup cdn-hub.crowdsec.net on 8.8.4.4:53: dial udp 8.8.4.4:53: connect: network is unreachable

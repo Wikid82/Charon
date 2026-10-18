@@ -883,12 +883,25 @@ configuration, and saving a file in the config editor never rename or empty the
 live CrowdSec directory. Each operation first takes a copy-based snapshot
 (`<DataDir>.backup.<timestamp>`, newest 5 kept; the live database, the
 top-level `data/` directory, `hub_cache/`, and runtime state are skipped to keep
-snapshots small) and restores it if the operation fails. Single-file edits keep their own
+snapshots small) and restores it if the operation fails. A hub apply takes a light
+snapshot: the installed hub tree is not copied, only a manifest of its paths and
+sizes plus the one item file `cscli upgrade` can overwrite (located from the `path`
+field of `cscli <type> inspect`, below the hub directory); rollback restores the
+configuration and item file and deletes hub files not in the manifest. Only a light
+snapshot writes its `.charon-apply` sidecar; that name is engine-owned, so full
+snapshots, exports and import extraction skip it. The preset
+cache is laid out as `hub_cache/<type>/<owner>/<name>/` (a name shared by several
+types answers 409 `preset_type_ambiguous`; an unreachable hub, for a pull or an apply, answers 503
+`hub_unreachable`). Every `cscli` call runs through the `runCSCLI` helper with a
+deadline, and CrowdSec JSON request bodies are capped at 64 KiB (413
+`request_too_large`). Single-file edits keep their own
 backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). Import and rollback leave
 server-local state untouched: the installed hub tree and its links, runtime
 state, and the proxy/bouncer registration. Export is built in a temporary file
 under the data lock and sent only after it is complete and within the
-importable limits; otherwise a clean error is returned. The export also carries
+importable limits; otherwise a clean error is returned. A `config.yaml` whose
+credentials cannot be blanked safely fails the export (422 `export_config_unsafe`)
+rather than yielding an archive an import would refuse. The export also carries
 a small manifest listing the installed hub items by name, and an import verifies
 that the profiles' notification references resolve before it changes anything.
 Installing missing hub items is a separate action: it takes the data lock for

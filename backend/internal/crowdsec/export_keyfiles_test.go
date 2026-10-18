@@ -147,13 +147,13 @@ func TestExportArchiveKeepsCertificatesAndPublicKeys(t *testing.T) {
 	require.Contains(t, entries, "config/ssl/notes.txt", "the words alone are not key armor")
 }
 
-func TestExportArchiveOnlyLooksAtTheFirstWindowForKeyArmor(t *testing.T) {
+func TestExportArchiveSearchesTheWholeFileForKeyArmorUpToTheInspectCap(t *testing.T) {
 	t.Parallel()
 	entries := exportedKeyTree(t, map[string]string{
 		"config/ssl/late.pem": strings.Repeat("#", 64<<10) + pemRSA,
 	})
 
-	require.Contains(t, entries, "config/ssl/late.pem", "armor that starts after the window is not looked for")
+	require.NotContains(t, entries, "config/ssl/late.pem", "armor after the first window is found in files up to the cap")
 }
 
 func TestExportArchiveLeavesOutKeyFilesByName(t *testing.T) {
@@ -298,7 +298,47 @@ func TestHoldsKeyArmorReportsReadFailures(t *testing.T) {
 
 	_, err = holdsKeyArmor(dir)
 
-	require.ErrorContains(t, err, "read file head")
+	require.ErrorContains(t, err, "read file window")
+}
+
+func TestHoldsKeyArmorReportsStatFailures(t *testing.T) {
+	t.Parallel()
+	f, err := os.Open(filepath.Join(t.TempDir(), "x"))
+	require.Error(t, err)
+
+	_, err = holdsKeyArmor(f)
+
+	require.ErrorContains(t, err, "stat file")
+}
+
+func TestHoldsKeyArmorFindsHeadersAtWindowEdgesAndRewinds(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		content string
+		want    bool
+	}{
+		"empty":             {"", false},
+		"header in head":    {armorAt(10, 4096), true},
+		"header at the end": {armorAt(inspectCap-32, inspectCap), true},
+		"no header":         {strings.Repeat("#", 3*sniffHead), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			p := filepath.Join(t.TempDir(), "f")
+			require.NoError(t, os.WriteFile(p, []byte(tc.content), 0o600))
+			f, err := os.Open(p) //nolint:gosec // G304: test file in a temp directory
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = f.Close() })
+
+			got, err := holdsKeyArmor(f)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+			pos, err := f.Seek(0, io.SeekCurrent)
+			require.NoError(t, err)
+			require.Zero(t, pos, "the file is left at its start")
+		})
+	}
 }
 
 func TestExportArchiveKeepsEngineFilesThatMentionKeyArmor(t *testing.T) {
@@ -336,7 +376,7 @@ func TestExportArchiveKeepsEngineFilesThatMentionKeyArmor(t *testing.T) {
 func TestExportArchiveKeepsFlatEngineFilesThatMentionKeyArmor(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeExportTree(t, dir, map[string]string{"config.yaml": "# " + keyArmor("EC PRIVATE KEY") + "a: 1\n"})
+	writeExportTree(t, dir, map[string]string{"config.yaml": "# " + strings.ReplaceAll(keyArmor("EC PRIVATE KEY"), "\n", "\n# ") + "\na: 1\n"})
 	var buf bytes.Buffer
 
 	_, omitted, err := WriteExportArchive(context.Background(), dir, &buf)

@@ -37,6 +37,8 @@ type notificationFile struct {
 	rel  string // slash path below the tree root
 	docs []*yaml.Node
 	mode os.FileMode
+	// engine marks an engine configuration file, whose placeholders may also sit inside URLs.
+	engine bool
 }
 
 // MergeRedactedNotifications fills placeholders in the freshly extracted notification files of dataDir
@@ -95,12 +97,18 @@ func MergeRedactedNotifications(snapshotDir, dataDir string) error {
 
 // ScanPlaceholders returns the notification files of the final tree below dataDir that still hold
 // placeholders, named by their path below dataDir (a leading "config/" is removed in the nested layout,
-// as for kept files): sorted, de-duplicated and capped at 50. It selects files exactly like the merge.
+// as for kept files): sorted, de-duplicated and capped at 50. It selects files exactly like the merges, so the
+// engine configuration files (config.yaml, config.yaml.local) are included.
 func ScanPlaceholders(dataDir string) ([]string, error) {
 	files, err := collectNotificationFiles(dataDir, treeNotificationDirs(dataDir))
 	if err != nil {
 		return nil, fmt.Errorf("scan notification files: %w", err)
 	}
+	configs, err := collectConfigFiles(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("scan configuration files: %w", err)
+	}
+	files = append(files, configs...)
 	nested := DetectLayout(dataDir) == LayoutNested
 	seen := map[string]struct{}{}
 	for _, f := range files {
@@ -174,35 +182,52 @@ func collectNotificationFiles(root string, dirs []string) ([]notificationFile, e
 // readNotificationFile reads and parses one candidate file. It reports false for a file that is gone,
 // too large, unparsable, or (outside the notification folders) not shaped like a notification.
 func readNotificationFile(root, rel string, kind NotificationFileKind, dirs []string) (notificationFile, bool, error) {
-	f, info, err := openExportFile(root, filepath.FromSlash(rel), exportHooks{})
-	if f == nil { // err is nil when the file vanished or was swapped for a link
+	data, info, err := readBoundedYAML(root, rel)
+	if data == nil {
 		return notificationFile{}, false, err
-	}
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, maxInspectEntryBytes+1))
-	if err != nil {
-		return notificationFile{}, false, unreadableFile(rel, err)
-	}
-	if int64(len(data)) > maxInspectEntryBytes {
-		logger.Log().Debugf("crowdsec import: %s is too large to examine", util.SanitizeForLog(rel))
-		return notificationFile{}, false, nil
 	}
 	if kind == NotAFile && IsNotificationFile(rel, LookAlikeDocuments(data), dirs) != LookAlikeYAML {
 		return notificationFile{}, false, nil
 	}
+	docs, ok := parseBoundedYAML(rel, data)
+	if !ok {
+		return notificationFile{}, false, nil
+	}
+	return notificationFile{rel: rel, docs: docs, mode: info.Mode().Perm() & 0o600}, true, nil
+}
+
+// readBoundedYAML reads the file rel of the tree root for parsing. A nil result with a nil error means
+// there is nothing to examine: the file vanished, was swapped for a link or is too large.
+func readBoundedYAML(root, rel string) (data []byte, _ os.FileInfo, err error) {
+	f, info, err := openExportFile(root, filepath.FromSlash(rel), exportHooks{})
+	if f == nil { // err is nil when the file vanished or was swapped for a link
+		return nil, nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err = io.ReadAll(io.LimitReader(f, maxInspectEntryBytes+1))
+	if err != nil {
+		return nil, nil, unreadableFile(rel, err)
+	}
+	if int64(len(data)) > maxInspectEntryBytes {
+		logger.Log().Debugf("crowdsec import: %s is too large to examine", util.SanitizeForLog(rel))
+		return nil, nil, nil
+	}
+	return data, info, nil
+}
+
+// parseBoundedYAML parses data within the redactor's node bound; ok is false for a file that does not
+// parse or is too complex, which is then left alone.
+func parseBoundedYAML(rel string, data []byte) ([]*yaml.Node, bool) {
 	docs, parseErr := ParseYAMLDocuments(bytes.NewReader(data), false)
 	if parseErr != nil {
 		logger.Log().Debugf("crowdsec import: %s does not parse; leaving it alone", util.SanitizeForLog(rel))
-		return notificationFile{}, false, nil
+		return nil, false
 	}
 	nodes := 0
 	for _, d := range docs {
 		nodes += countNodes(d)
 	}
-	if nodes > maxRedactNodes {
-		return notificationFile{}, false, nil
-	}
-	return notificationFile{rel: rel, docs: docs, mode: info.Mode().Perm() & 0o600}, true, nil
+	return docs, nodes <= maxRedactNodes
 }
 
 // liveDocument is a root mapping of the snapshot with the mode of the file it came from.
@@ -315,7 +340,12 @@ func hasAliasOrMerge(n *yaml.Node) bool {
 // cleanup or number/string equivalence, because any such rule would make two different targets compare
 // equal. It runs on the archive values as extracted, before anything is filled in.
 func sameTarget(archive, live *yaml.Node) bool {
-	for _, key := range targetKeysOf(archive, live) {
+	return sameTargetOn(archive, live, targetKeysOf(archive, live))
+}
+
+// sameTargetOn is sameTarget for an explicit list of keys.
+func sameTargetOn(archive, live *yaml.Node, keys []string) bool {
+	for _, key := range keys {
 		a, l := rawValue(archive, key), rawValue(live, key)
 		switch {
 		case a == nil && l == nil:
@@ -362,8 +392,13 @@ func fillPlaceholders(a, l *yaml.Node) bool {
 	changed := false
 	switch a.Kind {
 	case yaml.ScalarNode:
-		if IsPlaceholder(a) && l.Kind == yaml.ScalarNode && !IsPlaceholder(l) {
+		switch {
+		case l.Kind != yaml.ScalarNode || IsPlaceholder(l):
+		case IsPlaceholder(a):
 			a.Value, a.Tag, a.Style = l.Value, l.Tag, l.Style
+			changed = true
+		case isBlankedURL(a.Value, l.Value):
+			a.Value, a.Style = l.Value, l.Style
 			changed = true
 		}
 	case yaml.MappingNode:
@@ -386,9 +421,13 @@ func fillPlaceholders(a, l *yaml.Node) bool {
 }
 
 func filePlaceholders(f notificationFile) int {
+	count := countPlaceholders
+	if f.engine {
+		count = countConfigPlaceholders
+	}
 	total := 0
 	for _, d := range f.docs {
-		total += countPlaceholders(d)
+		total += count(d)
 	}
 	return total
 }

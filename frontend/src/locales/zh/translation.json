@@ -363,6 +363,11 @@
         "recentAlerts": "最近警报",
         "alertsCount": "共 {{count}} 条",
         "alertsError": "加载警报失败。",
+        "listErrors": {
+          "cscli_timeout": "决策服务响应时间过长，此列表可能不完整。它将自动刷新。",
+          "cscli_output_too_large": "决策服务返回的数据过多，无法全部显示，此列表可能不完整。",
+          "cscli_unavailable": "决策服务当前不可用，此列表可能不完整。"
+        },
         "noAlerts": "所选时段无警报。",
         "colTime": "时间",
         "colEvents": "事件",
@@ -1159,6 +1164,7 @@
   "crowdsecConfig": {
     "exportSuccess": "CrowdSec 配置已导出",
     "exportFailed": "导出 CrowdSec 配置失败",
+    "exportConfigUnsafe": "配置文件包含无法可靠隐藏的凭据（文件超过 1 MiB、无法读取，或通过 YAML 锚点共享值），因此未导出任何内容。请简化该文件后重试。",
     "hubItems": {
       "title": "安装缺失的 Hub 项目",
       "description": "此导出使用了本主机上未安装的 Hub 项目。它们将从 CrowdSec 官方 Hub 下载。",
@@ -1277,8 +1283,10 @@
       "description": "导出或导入 CrowdSec 配置包（tar.gz）。导入前会创建备份。导出时，通知文件中的密码、令牌和 Webhook 地址会被清空。",
       "export": "导出",
       "import": "导入",
-      "importing": "正在导入……",
-      "selectFile": "选择 CrowdSec 软件包文件"
+      "importing": "正在导入...",
+      "selectFile": "选择 CrowdSec 软件包文件",
+      "omittedNote": "此导出中遗漏的文件（{{count}}）：{{names}}。在其他主机上还原后，请重新提供这些文件。",
+      "omittedMore": "（另有 {{count}} 个）"
     },
     "presets": {
       "title": "预设",
@@ -1294,6 +1302,8 @@
       "hubUnreachable": "无法访问 CrowdSec Hub。Hub 预设可能无法使用。",
       "retry": "重试",
       "useCached": "使用缓存",
+      "typeLabel": "项目类型",
+      "typePlaceholder": "选择类型",
       "targetFile": "目标文件",
       "selectFileBelow": "（在下方选择配置文件）",
       "cacheKey": "缓存键",
@@ -1323,9 +1333,11 @@
         "slugInvalid": "预设标识无效",
         "applyStale": "预览已过期。请重新拉取该预设，然后再应用。",
         "applyHubUpdating": "Hub 仍在更新，请稍后再试。",
+        "typeAmbiguous": "此名称存在于多个 Hub 分区中。请选择要使用的项目。",
         "applyLocalModified": "此项目已在本服务器上被编辑，已保持不变。请先将其重置，再应用该预设。",
         "editedItems": "已编辑的项目：{{items}}",
         "applyTimeout": "预设安装耗时过长，已回滚。请重试。",
+        "applyHubUnreachable": "CrowdSec 无法连接到 Hub。请检查网络连接后重试。",
         "cscliUnavailable": "cscli 不可用或无响应",
         "applyDependencyNote": "此预设依赖的部分项目已在本服务器上被编辑，已保持不变。"
       }
@@ -1360,7 +1372,8 @@
       "duration24h": "24 小时",
       "duration7d": "7 天",
       "duration30d": "30 天",
-      "durationPermanent": "永久",
+      "duration365d": "最长一年（365 天）",
+      "durationHelp": "CrowdSec 封禁最长为一年。",
       "reasonLabel": "原因",
       "reasonPlaceholder": "封禁此 IP 的原因……",
       "submit": "封禁 IP",
@@ -1443,8 +1456,9 @@
       "invalidIp": "请输入有效的 IPv4 或 IPv6 地址，或类似 192.0.2.0/24 的地址范围。",
       "invalidDuration": "请选择 1 分钟到 365 天之间的时长，例如 4h、30m 或 1d。",
       "invalidReason": "原因最多可包含 200 个字符。",
-      "decisionNotFound": "没有与此地址或范围匹配的有效封禁决策。",
-      "timeout": "CrowdSec 未能及时响应。请重试。"
+      "decisionNotFound": "没有与此地址或范围完全一致的决策。解除封禁只会移除完全匹配的决策；包含该地址的更大范围不会解除其中各个地址。",
+      "timeout": "CrowdSec 未能及时响应。请重试。",
+      "requestTooLarge": "请求过大。请缩短文本后重试。"
     }
   },
   "smtp": {

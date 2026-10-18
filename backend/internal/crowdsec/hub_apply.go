@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -26,7 +27,20 @@ var (
 	ErrPresetLocalModified = errors.New("the preset was edited on this server and was not replaced")
 	// ErrPresetApplyTimeout is returned when the apply deadline passed; the configuration is restored.
 	ErrPresetApplyTimeout = errors.New("the preset install took too long and was rolled back")
+	// ErrHubUnreachable is returned when the hub cannot be reached over the network, for a pull or an install.
+	ErrHubUnreachable = errors.New("the hub could not be reached")
+	// ErrPresetTypeAmbiguous is returned when a hub name exists in several sections and no type was given.
+	ErrPresetTypeAmbiguous = errors.New("the preset name exists in several hub sections; choose a type")
 )
+
+// AmbiguousTypeError names the hub sections that hold the requested preset name.
+type AmbiguousTypeError struct{ Types []string }
+
+func (e *AmbiguousTypeError) Error() string {
+	return fmt.Sprintf("%s: %s", ErrPresetTypeAmbiguous, strings.Join(e.Types, ", "))
+}
+
+func (e *AmbiguousTypeError) Unwrap() error { return ErrPresetTypeAmbiguous }
 
 // dependencySections are the item YAML keys that name other hub items, keyed to the cscli item type.
 var dependencySections = []string{"collections", "parsers", "scenarios", "postoverflows", "contexts"}
@@ -34,13 +48,17 @@ var dependencySections = []string{"collections", "parsers", "scenarios", "postov
 const maxDependencies = 1000
 
 // Apply installs the previewed hub item with cscli and verifies that what cscli installed is the item that
-// was pulled. DataDir is never renamed: a copy-based snapshot is taken first and restored in place on
-// failure. Apply never contacts the hub to refresh the cache; an entry that is missing, expired or has a
-// different cacheKey is reported as stale.
-func (s *HubService) Apply(ctx context.Context, slug, cacheKey string) (ApplyResult, error) {
+// was pulled. DataDir is never renamed: a snapshot of the configuration (not of the hub tree, see
+// snapshotWithoutHub) is taken first and restored in place on failure. Apply never contacts the hub to refresh the cache; an entry that is missing, expired or has a
+// different cacheKey is reported as stale. itemType names the hub section of the pulled item; when it is empty,
+// the section is taken from the cache entry that carries cacheKey.
+func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string) (ApplyResult, error) {
 	result := ApplyResult{AppliedPreset: slug, Status: "failed"}
 	if !ValidCacheSlug(slug) {
 		return result, ErrInvalidSlug
+	}
+	if itemType != "" && !IsCacheItemType(itemType) {
+		return result, ErrInvalidItemType
 	}
 	if cacheKey == "" {
 		return result, ErrPresetCacheKeyRequired
@@ -53,7 +71,16 @@ func (s *HubService) Apply(ctx context.Context, slug, cacheKey string) (ApplyRes
 	applyCtx, cancel := context.WithTimeout(ctx, s.ApplyTimeout)
 	defer cancel()
 
-	meta, item, err := s.Cache.LoadItem(applyCtx, slug)
+	if itemType == "" {
+		if itemType = s.cachedTypeOfKey(applyCtx, slug, cacheKey); itemType == "" {
+			if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
+				return result, fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
+			}
+			// No valid entry carries this key, so there is nothing to apply.
+			return result, ErrPresetCacheStale
+		}
+	}
+	meta, item, err := s.Cache.LoadItem(applyCtx, itemType, slug)
 	if err != nil {
 		if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
 			return result, fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
@@ -68,11 +95,23 @@ func (s *HubService) Apply(ctx context.Context, slug, cacheKey string) (ApplyRes
 		return result, ErrPresetCacheStale
 	}
 	result.CacheKey = meta.CacheKey
+	result.Type = meta.Type
 
 	if !s.hasCSCLI(applyCtx) {
 		return result, fmt.Errorf("%w or not responding", ErrCSCLIUnavailable)
 	}
-	backupPath, err := s.snapshot()
+
+	// The hub index is refreshed and the item inspected before anything is snapshotted, so a refusal that
+	// depends only on the state before the install costs no snapshot.
+	s.updateHubIndex(applyCtx)
+	before, err := s.preflight(applyCtx, meta)
+	if err != nil {
+		return result, err
+	}
+	if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
+		return result, fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
+	}
+	backupPath, err := s.snapshotWithoutHub(before)
 	if err != nil {
 		return result, fmt.Errorf("backup: %w", err)
 	}
@@ -86,8 +125,6 @@ func (s *HubService) Apply(ctx context.Context, slug, cacheKey string) (ApplyRes
 		}
 		return result, s.restoreAfter(cause, backupPath, slug)
 	}
-
-	s.updateHubIndex(applyCtx)
 
 	installOut, err := s.Exec.Execute(applyCtx, "cscli", meta.Type, "install", meta.Name)
 	if err != nil {
@@ -143,7 +180,7 @@ func (s *HubService) rollBackMismatch(ctx context.Context, result ApplyResult, b
 	case ctx.Err() != nil:
 		return result, s.restoreAfter(ctx.Err(), backupPath, meta.Slug)
 	}
-	if err := s.Cache.EvictIfKey(ctx, meta.Slug, meta.CacheKey); err != nil {
+	if err := s.Cache.EvictIfKey(ctx, meta.Type, meta.Slug, meta.CacheKey); err != nil {
 		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(meta.Slug)).Warn("failed to evict outdated cache entry")
 	}
 	return result, s.restoreAfter(ErrPresetHubUpdating, backupPath, meta.Slug)
@@ -173,11 +210,42 @@ func (s *HubService) updateHubIndex(ctx context.Context) {
 	}
 }
 
-// installFailure classifies a failed install: an item the local index does not know is a stale preset.
+// networkFailureMarkers are the output fragments of a failed network request (cscli's own text and the Go resolver
+// and dialer errors it passes on). Each one is specific enough not to match an item or file name.
+var networkFailureMarkers = []string{
+	"dial tcp",
+	"no such host",
+	"network is unreachable",
+	"connection refused",
+	"i/o timeout",
+	"unable to send request",
+	"unable to retrieve latest crowdsec version",
+}
+
+// dnsLookupFailure matches the Go resolver's "lookup <host> on <server>" text, which a bare "lookup" would not
+// tell apart from an item name.
+var dnsLookupFailure = regexp.MustCompile(`lookup \S+ on \S`)
+
+// hasNetworkFailure reports whether cscli output describes a failed network request.
+func hasNetworkFailure(text string) bool {
+	text = strings.ToLower(text)
+	for _, marker := range networkFailureMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return dnsLookupFailure.MatchString(text)
+}
+
+// installFailure classifies a failed install: an item the local index does not know is a stale preset, and a failed
+// network request means the hub could not be reached.
 func installFailure(meta CachedPreset, out []byte, err error) error {
 	text := string(out) + " " + err.Error()
 	if strings.Contains(text, "can't find") || strings.Contains(text, "invalid hub index") {
 		return ErrPresetCacheStale
+	}
+	if hasNetworkFailure(text) {
+		return fmt.Errorf("install %s %s: %w: %w", meta.Type, meta.Name, ErrHubUnreachable, err)
 	}
 	return fmt.Errorf("install %s %s: %w", meta.Type, meta.Name, err)
 }
@@ -188,6 +256,11 @@ type itemState struct {
 	Tainted   bool   `json:"tainted"`
 	UpToDate  *bool  `json:"up_to_date"`
 	LocalHash string `json:"local_hash"`
+	// Path is the item's own hub file, relative to the hub directory (for example collections/acme/nginx.yaml).
+	Path string `json:"path"`
+	// LocalPath is where the item is installed (a link into the hub tree); it only serves as a fallback to find
+	// the hub file when Path is missing.
+	LocalPath string `json:"local_path"`
 }
 
 func (s *HubService) inspectItem(ctx context.Context, itemType, name string) (itemState, error) {
@@ -195,12 +268,40 @@ func (s *HubService) inspectItem(ctx context.Context, itemType, name string) (it
 	if err != nil {
 		return itemState{}, fmt.Errorf("inspect %s %s: %w", itemType, name, err)
 	}
+	return parseItemState(out)
+}
+
+// parseItemState reads the `cscli <type> inspect -o json` answer.
+func parseItemState(out []byte) (itemState, error) {
 	var state itemState
 	if err := unmarshalCSCLIJSON(out, &state); err != nil {
 		return itemState{}, fmt.Errorf("parse inspect output: %w", err)
 	}
 	if state.Installed == nil {
 		return itemState{}, errors.New("inspect output has no installed field")
+	}
+	return state, nil
+}
+
+// preflight inspects the top-level item before the install and refuses what the install cannot change: an item
+// the local index does not know (stale preset) and an item edited on this server. Any other inspect problem is
+// left to the checks after the install. The returned state locates the item's own hub file for the snapshot.
+func (s *HubService) preflight(ctx context.Context, meta CachedPreset) (itemState, error) {
+	out, err := s.Exec.Execute(ctx, "cscli", meta.Type, "inspect", meta.Name, "-o", "json")
+	if err != nil {
+		if strings.Contains(string(out)+" "+err.Error(), "can't find") {
+			return itemState{}, ErrPresetCacheStale
+		}
+		logger.Log().WithError(err).Warn("preset pre-flight inspect failed; continuing")
+		return itemState{}, nil
+	}
+	state, err := parseItemState(out)
+	if err != nil {
+		logger.Log().WithError(err).Warn("preset pre-flight inspect unreadable; continuing")
+		return itemState{}, nil
+	}
+	if state.Tainted {
+		return itemState{}, s.localModified(ctx, meta)
 	}
 	return state, nil
 }
@@ -385,4 +486,18 @@ func itemDependencies(item []byte) ([]itemDependency, error) {
 		return nil, fmt.Errorf("item names too many dependencies: %w", ErrPresetCacheStale)
 	}
 	return deps, nil
+}
+
+// cachedTypeOfKey returns the section of the cache entry of slug that carries cacheKey, or "" when none does.
+func (s *HubService) cachedTypeOfKey(ctx context.Context, slug, cacheKey string) string {
+	cached, err := s.Cache.ListSlug(ctx, slug)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range cached {
+		if entry.CacheKey == cacheKey {
+			return entry.Type
+		}
+	}
+	return ""
 }

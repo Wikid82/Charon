@@ -158,7 +158,7 @@ test.describe('CrowdSec Banned IPs Management', () => {
         '24 hours',
         '7 days',
         '30 days',
-        'Permanent',
+        'Up to one year (365 days)',
       ]);
       await expect(dialog.getByLabel('Reason')).toHaveValue('');
       await expect(dialog.getByRole('button', { name: 'Ban IP', exact: true })).toBeDisabled();
@@ -353,7 +353,7 @@ test.describe('CrowdSec Banned IPs Management', () => {
       await decisionRow(page, '203.0.113.7').getByRole('button', { name: 'Unban' }).click();
       await unbanDialog(page).getByRole('button', { name: 'Unban', exact: true }).click();
 
-      await expect(errorToast(page, 'No active decision matches this address or range.')).toBeVisible();
+      await expect(errorToast(page, 'No decision with exactly this address or range. Unbanning removes an exact match only; a covering range does not clear the addresses inside it.')).toBeVisible();
       await expect(errorToast(page, 'unban rejected')).toHaveCount(0);
       expect(stubs.unbans).toEqual(['203.0.113.7']);
     });

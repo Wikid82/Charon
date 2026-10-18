@@ -363,6 +363,11 @@
         "recentAlerts": "Alertes Récentes",
         "alertsCount": "{{count}} au total",
         "alertsError": "Échec du chargement des alertes.",
+        "listErrors": {
+          "cscli_timeout": "Le service de décisions a mis trop de temps à répondre ; cette liste peut être incomplète. Elle s'actualisera d'elle-même.",
+          "cscli_output_too_large": "Le service de décisions a renvoyé plus de données qu'il n'est possible d'afficher ; cette liste peut être incomplète.",
+          "cscli_unavailable": "Le service de décisions est indisponible pour le moment ; cette liste peut être incomplète."
+        },
         "noAlerts": "Aucune alerte pour la période sélectionnée.",
         "colTime": "Heure",
         "colEvents": "Événements",
@@ -1160,6 +1165,7 @@
   "crowdsecConfig": {
     "exportSuccess": "Configuration CrowdSec exportée",
     "exportFailed": "Échec de l'exportation de la configuration CrowdSec",
+    "exportConfigUnsafe": "Le fichier de configuration contient des identifiants qui ne peuvent pas être masqués de façon fiable (il dépasse 1 Mio, est illisible ou partage des valeurs via des ancres YAML) ; rien n'a donc été exporté. Simplifiez le fichier et réessayez.",
     "hubItems": {
       "title": "Installer les éléments du hub manquants",
       "description": "Cet export utilisait des éléments du hub qui ne sont pas installés sur cet hôte. Ils sont téléchargés depuis le hub officiel de CrowdSec.",
@@ -1279,7 +1285,9 @@
       "export": "Exporter",
       "import": "Importer",
       "importing": "Importation...",
-      "selectFile": "Sélectionner le fichier de paquet CrowdSec"
+      "selectFile": "Sélectionner le fichier de paquet CrowdSec",
+      "omittedNote": "Omis de cet export ({{count}}) : {{names}}. Fournissez à nouveau ces fichiers après la restauration sur un autre hôte.",
+      "omittedMore": " (et {{count}} de plus)"
     },
     "presets": {
       "title": "Préréglages",
@@ -1295,6 +1303,8 @@
       "hubUnreachable": "Hub CrowdSec inaccessible. Les préréglages du hub peuvent ne pas fonctionner.",
       "retry": "Réessayer",
       "useCached": "Utiliser le cache",
+      "typeLabel": "Type d'élément",
+      "typePlaceholder": "Choisir un type",
       "targetFile": "Fichier cible",
       "selectFileBelow": "(sélectionnez un fichier de configuration ci-dessous)",
       "cacheKey": "Clé de cache",
@@ -1324,9 +1334,11 @@
         "slugInvalid": "L'identifiant du préréglage n'est pas valide",
         "applyStale": "L'aperçu est périmé. Récupérez à nouveau le préréglage, puis appliquez-le.",
         "applyHubUpdating": "Le hub est encore en cours de mise à jour, réessayez plus tard.",
+        "typeAmbiguous": "Ce nom existe dans plusieurs sections du hub. Choisissez l'élément à utiliser.",
         "applyLocalModified": "Cet élément a été modifié sur ce serveur et a été laissé tel quel. Réinitialisez-le avant d'appliquer le préréglage.",
         "editedItems": "Éléments modifiés : {{items}}",
         "applyTimeout": "L'installation du préréglage a pris trop de temps et a été annulée. Réessayez.",
+        "applyHubUnreachable": "CrowdSec n'a pas pu joindre le hub. Vérifiez la connexion réseau et réessayez.",
         "cscliUnavailable": "cscli indisponible ou ne répond pas",
         "applyDependencyNote": "Certains éléments dont dépend ce préréglage ont été modifiés sur ce serveur et ont été laissés tels quels."
       }
@@ -1361,7 +1373,8 @@
       "duration24h": "24 heures",
       "duration7d": "7 jours",
       "duration30d": "30 jours",
-      "durationPermanent": "Permanent",
+      "duration365d": "Jusqu'à un an (365 jours)",
+      "durationHelp": "Les bannissements CrowdSec sont limités à un an.",
       "reasonLabel": "Raison",
       "reasonPlaceholder": "Raison du bannissement de cette IP...",
       "submit": "Bannir IP",
@@ -1444,8 +1457,9 @@
       "invalidIp": "Saisissez une adresse IPv4 ou IPv6 valide, ou une plage telle que 192.0.2.0/24.",
       "invalidDuration": "Choisissez une durée comprise entre 1 minute et 365 jours, par exemple 4h, 30m ou 1d.",
       "invalidReason": "Le motif ne peut pas dépasser 200 caractères.",
-      "decisionNotFound": "Aucune décision active ne correspond à cette adresse ou à cette plage.",
-      "timeout": "CrowdSec n'a pas répondu à temps. Réessayez."
+      "decisionNotFound": "Aucune décision avec exactement cette adresse ou cette plage. Le débannissement ne retire qu'une correspondance exacte ; une plage plus large ne libère pas les adresses qu'elle contient.",
+      "timeout": "CrowdSec n'a pas répondu à temps. Réessayez.",
+      "requestTooLarge": "La requête était trop volumineuse. Raccourcissez le texte et réessayez."
     }
   },
   "smtp": {

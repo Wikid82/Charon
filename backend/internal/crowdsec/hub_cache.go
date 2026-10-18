@@ -32,6 +32,8 @@ var (
 	ErrCacheLegacy = fmt.Errorf("%w: entry has no digest", ErrCacheMiss)
 	// ErrInvalidSlug is returned for a slug that is not in owner/name form.
 	ErrInvalidSlug = errors.New("invalid slug")
+	// ErrInvalidItemType is returned for an item type that is not a hub section.
+	ErrInvalidItemType = errors.New("invalid item type")
 )
 
 const (
@@ -72,7 +74,7 @@ func ValidCacheSlug(slug string) bool {
 	return true
 }
 
-// CachedPreset captures metadata about a pulled preset. File locations are derived from the slug.
+// CachedPreset captures metadata about a pulled preset. File locations are derived from the type and the slug.
 type CachedPreset struct {
 	Slug        string    `json:"slug"`
 	CacheKey    string    `json:"cache_key"`
@@ -85,8 +87,9 @@ type CachedPreset struct {
 	SizeBytes   int64     `json:"size_bytes"`
 }
 
-// HubCache persists pulled hub items on disk with TTL-based eviction. One instance must be shared by every
-// caller that uses the same directory: the lock lives in the instance.
+// HubCache persists pulled hub items on disk with TTL-based eviction. An entry lives at
+// <type>/<owner>/<name>/ because one hub name can exist in several sections. One instance must be shared by
+// every caller that uses the same directory: the lock lives in the instance.
 type HubCache struct {
 	baseDir string
 	ttl     time.Duration
@@ -110,6 +113,17 @@ func (c *HubCache) TTL() time.Duration {
 	return c.ttl
 }
 
+// checkEntryKey validates the (type, slug) pair that addresses an entry.
+func checkEntryKey(itemType, slug string) error {
+	if !IsCacheItemType(itemType) {
+		return ErrInvalidItemType
+	}
+	if !ValidCacheSlug(slug) {
+		return ErrInvalidSlug
+	}
+	return nil
+}
+
 // Store writes the raw item and its metadata and returns the cache metadata. The cache key carries the
 // sha256 of the item, so two stores of different content never share a key. The item is written first
 // and the metadata last, each through a temporary file and a rename.
@@ -117,11 +131,8 @@ func (c *HubCache) Store(ctx context.Context, slug, itemType, etag, source strin
 	if err := ctx.Err(); err != nil {
 		return CachedPreset{}, err
 	}
-	if !ValidCacheSlug(slug) {
-		return CachedPreset{}, ErrInvalidSlug
-	}
-	if !IsCacheItemType(itemType) {
-		return CachedPreset{}, fmt.Errorf("unsupported item type")
+	if err := checkEntryKey(itemType, slug); err != nil {
+		return CachedPreset{}, err
 	}
 	if len(item) == 0 || len(item) > maxCacheItemBytes {
 		return CachedPreset{}, fmt.Errorf("item size out of range")
@@ -146,6 +157,7 @@ func (c *HubCache) Store(ctx context.Context, slug, itemType, etag, source strin
 		return CachedPreset{}, fmt.Errorf("marshal metadata: %w", err)
 	}
 
+	dir := entryDir(itemType, slug)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	root, err := os.OpenRoot(c.baseDir)
@@ -153,29 +165,32 @@ func (c *HubCache) Store(ctx context.Context, slug, itemType, etag, source strin
 		return CachedPreset{}, fmt.Errorf("open cache: %w", err)
 	}
 	defer closeQuietly(root)
-	if err := root.MkdirAll(slug, 0o700); err != nil {
+	if err := root.MkdirAll(dir, 0o700); err != nil {
 		return CachedPreset{}, fmt.Errorf("create cache entry dir: %w", withoutPath(err))
 	}
-	removeTempFiles(root, slug)
-	if err := writeFileAtomic(root, path.Join(slug, cacheItemFile), item); err != nil {
+	removeTempFiles(root, dir)
+	if err := writeFileAtomic(root, path.Join(dir, cacheItemFile), item); err != nil {
 		return CachedPreset{}, fmt.Errorf("write item: %w", err)
 	}
-	if err := writeFileAtomic(root, path.Join(slug, cacheMetaFile), raw); err != nil {
+	if err := writeFileAtomic(root, path.Join(dir, cacheMetaFile), raw); err != nil {
 		return CachedPreset{}, fmt.Errorf("write metadata: %w", err)
 	}
-	logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", util.SanitizeForLog(meta.CacheKey)).Info("preset stored in cache")
+	logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("type", util.SanitizeForLog(itemType)).WithField("cache_key", util.SanitizeForLog(meta.CacheKey)).Info("preset stored in cache")
 	return meta, nil
 }
 
+// entryDir is the path of an entry below the cache root.
+func entryDir(itemType, slug string) string { return path.Join(itemType, slug) }
+
 // Load returns cached preset metadata, enforcing validation and TTL.
-func (c *HubCache) Load(ctx context.Context, slug string) (CachedPreset, error) {
-	meta, _, err := c.LoadItem(ctx, slug)
+func (c *HubCache) Load(ctx context.Context, itemType, slug string) (CachedPreset, error) {
+	meta, _, err := c.LoadItem(ctx, itemType, slug)
 	return meta, err
 }
 
 // LoadPreview returns the item contents of a cached preset.
-func (c *HubCache) LoadPreview(ctx context.Context, slug string) (string, error) {
-	_, item, err := c.LoadItem(ctx, slug)
+func (c *HubCache) LoadPreview(ctx context.Context, itemType, slug string) (string, error) {
+	_, item, err := c.LoadItem(ctx, itemType, slug)
 	if err != nil {
 		return "", err
 	}
@@ -184,21 +199,21 @@ func (c *HubCache) LoadPreview(ctx context.Context, slug string) (string, error)
 
 // LoadItem returns the metadata and the raw item of a valid, unexpired entry. An invalid or legacy entry is
 // removed (after it is read again under the write lock) and reported as ErrCacheInvalid or ErrCacheLegacy.
-func (c *HubCache) LoadItem(ctx context.Context, slug string) (CachedPreset, []byte, error) {
+func (c *HubCache) LoadItem(ctx context.Context, itemType, slug string) (CachedPreset, []byte, error) {
 	if err := ctx.Err(); err != nil {
 		return CachedPreset{}, nil, err
 	}
-	if !ValidCacheSlug(slug) {
-		return CachedPreset{}, nil, ErrInvalidSlug
+	if err := checkEntryKey(itemType, slug); err != nil {
+		return CachedPreset{}, nil, err
 	}
 	c.mu.RLock()
-	meta, item, hasTemp, err := c.readEntry(slug)
+	meta, item, hasTemp, err := c.readEntry(itemType, slug)
 	c.mu.RUnlock()
 	if hasTemp {
-		c.sweepTemp(slug)
+		c.sweepTemp(itemType, slug)
 	}
 	if errors.Is(err, ErrCacheInvalid) || errors.Is(err, ErrCacheLegacy) {
-		meta, item, err = c.evictInvalid(slug)
+		meta, item, err = c.evictInvalid(itemType, slug)
 	}
 	if err != nil {
 		return CachedPreset{}, nil, err
@@ -216,11 +231,11 @@ func (c *HubCache) List(ctx context.Context) ([]CachedPreset, error) {
 		return nil, err
 	}
 	results := make([]CachedPreset, 0)
-	for _, slug := range c.entrySlugs() {
+	for _, key := range c.entryKeys() {
 		if ctx.Err() != nil {
 			break
 		}
-		meta, err := c.Load(ctx, slug)
+		meta, err := c.Load(ctx, key.itemType, key.slug)
 		if err != nil {
 			continue
 		}
@@ -229,72 +244,124 @@ func (c *HubCache) List(ctx context.Context) ([]CachedPreset, error) {
 	return results, ctx.Err()
 }
 
-// entrySlugs lists the owner/name directories that could hold an entry.
-func (c *HubCache) entrySlugs() []string {
+// ListSlug returns the valid, unexpired entries of one slug: one per hub section that holds it.
+func (c *HubCache) ListSlug(ctx context.Context, slug string) ([]CachedPreset, error) {
+	if !ValidCacheSlug(slug) {
+		return nil, ErrInvalidSlug
+	}
+	var found []CachedPreset
+	for _, itemType := range cacheItemTypes {
+		if meta, err := c.Load(ctx, itemType, slug); err == nil {
+			found = append(found, meta)
+		} else if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	return found, nil
+}
+
+// entryKey addresses one cache entry.
+type entryKey struct{ itemType, slug string }
+
+// entryKeys lists the <type>/<owner>/<name> directories that could hold an entry.
+func (c *HubCache) entryKeys() []entryKey {
 	root, err := os.OpenRoot(c.baseDir)
 	if err != nil {
 		return nil
 	}
 	defer closeQuietly(root)
-	var slugs []string
-	owners, _ := fs.ReadDir(root.FS(), ".")
-	for _, owner := range owners {
-		if !owner.IsDir() {
-			continue
-		}
-		names, _ := fs.ReadDir(root.FS(), owner.Name())
-		for _, name := range names {
-			if slug := owner.Name() + "/" + name.Name(); ValidCacheSlug(slug) {
-				slugs = append(slugs, slug)
+	var keys []entryKey
+	for _, itemType := range cacheItemTypes {
+		owners, _ := fs.ReadDir(root.FS(), itemType)
+		for _, owner := range owners {
+			if !owner.IsDir() {
+				continue
+			}
+			names, _ := fs.ReadDir(root.FS(), path.Join(itemType, owner.Name()))
+			for _, name := range names {
+				if slug := owner.Name() + "/" + name.Name(); ValidCacheSlug(slug) {
+					keys = append(keys, entryKey{itemType, slug})
+				}
 			}
 		}
 	}
-	return slugs
+	return keys
 }
 
-// Evict removes cached data for the given slug.
-func (c *HubCache) Evict(ctx context.Context, slug string) error {
+// RemoveLegacyEntries deletes everything below the cache root that is not a type directory. Entries written
+// before the cache was keyed by type live at <owner>/<name>/ and are never served; the cache is regenerable.
+func (c *HubCache) RemoveLegacyEntries(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !ValidCacheSlug(slug) {
-		return ErrInvalidSlug
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	root, err := os.OpenRoot(c.baseDir)
+	if err != nil {
+		return fmt.Errorf("open cache: %w", withoutPath(err))
+	}
+	defer closeQuietly(root)
+	top, err := fs.ReadDir(root.FS(), ".")
+	if err != nil {
+		return fmt.Errorf("list cache: %w", withoutPath(err))
+	}
+	var errs []error
+	for _, e := range top {
+		if IsCacheItemType(e.Name()) && e.IsDir() {
+			continue
+		}
+		if rmErr := root.RemoveAll(e.Name()); rmErr != nil {
+			errs = append(errs, fmt.Errorf("remove legacy cache entry: %w", withoutPath(rmErr)))
+			continue
+		}
+		logger.Log().WithField("entry", util.SanitizeForLog(e.Name())).Info("removed cache entry of the old layout")
+	}
+	return errors.Join(errs...)
+}
+
+// Evict removes cached data for the given entry.
+func (c *HubCache) Evict(ctx context.Context, itemType, slug string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := checkEntryKey(itemType, slug); err != nil {
+		return err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.removeEntry(slug)
+	return c.removeEntry(itemType, slug)
 }
 
 // EvictIfKey removes the entry only when it still carries cacheKey (or no longer validates). An entry that
 // a concurrent pull replaced in the meantime is left alone.
-func (c *HubCache) EvictIfKey(ctx context.Context, slug, cacheKey string) error {
+func (c *HubCache) EvictIfKey(ctx context.Context, itemType, slug, cacheKey string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !ValidCacheSlug(slug) {
-		return ErrInvalidSlug
+	if err := checkEntryKey(itemType, slug); err != nil {
+		return err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	meta, _, _, err := c.readEntry(slug)
+	meta, _, _, err := c.readEntry(itemType, slug)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return nil
 	case err == nil && meta.CacheKey != cacheKey:
 		return nil
 	}
-	return c.removeEntry(slug)
+	return c.removeEntry(itemType, slug)
 }
 
 // evictInvalid removes an entry that failed validation, but only after reading it again under the write
 // lock: a good entry written in the meantime must survive. It returns the result of that second read.
-func (c *HubCache) evictInvalid(slug string) (CachedPreset, []byte, error) {
+func (c *HubCache) evictInvalid(itemType, slug string) (CachedPreset, []byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	meta, item, _, err := c.readEntry(slug)
+	meta, item, _, err := c.readEntry(itemType, slug)
 	if errors.Is(err, ErrCacheInvalid) || errors.Is(err, ErrCacheLegacy) {
-		logger.Log().WithField("slug", util.SanitizeForLog(slug)).Info("removing unusable cache entry")
-		if rmErr := c.removeEntry(slug); rmErr != nil {
+		logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("type", util.SanitizeForLog(itemType)).Info("removing unusable cache entry")
+		if rmErr := c.removeEntry(itemType, slug); rmErr != nil {
 			logger.Log().WithError(rmErr).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to remove unusable cache entry")
 		}
 	}
@@ -302,7 +369,7 @@ func (c *HubCache) evictInvalid(slug string) (CachedPreset, []byte, error) {
 }
 
 // sweepTemp removes temporary files a crashed store left in the entry directory.
-func (c *HubCache) sweepTemp(slug string) {
+func (c *HubCache) sweepTemp(itemType, slug string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	root, err := os.OpenRoot(c.baseDir)
@@ -310,12 +377,12 @@ func (c *HubCache) sweepTemp(slug string) {
 		return
 	}
 	defer closeQuietly(root)
-	removeTempFiles(root, slug)
+	removeTempFiles(root, entryDir(itemType, slug))
 }
 
-// removeEntry deletes the entry directory. A link in place of the owner or entry directory is removed as
-// a link; its target is never touched. The caller holds the write lock.
-func (c *HubCache) removeEntry(slug string) error {
+// removeEntry deletes the entry directory. A link in place of the type, owner or entry directory is removed
+// as a link; its target is never touched. The caller holds the write lock.
+func (c *HubCache) removeEntry(itemType, slug string) error {
 	root, err := os.OpenRoot(c.baseDir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -324,8 +391,9 @@ func (c *HubCache) removeEntry(slug string) error {
 		return fmt.Errorf("open cache: %w", withoutPath(err))
 	}
 	defer closeQuietly(root)
-	owner := path.Dir(slug)
-	for _, p := range []string{owner, slug} {
+	dir := entryDir(itemType, slug)
+	owner := path.Dir(dir)
+	for _, p := range []string{itemType, owner, dir} {
 		info, lerr := root.Lstat(p)
 		if errors.Is(lerr, fs.ErrNotExist) {
 			return nil
@@ -340,23 +408,26 @@ func (c *HubCache) removeEntry(slug string) error {
 			return nil
 		}
 	}
-	if err := root.RemoveAll(slug); err != nil {
+	if err := root.RemoveAll(dir); err != nil {
 		return fmt.Errorf("remove cache entry: %w", withoutPath(err))
 	}
-	_ = root.Remove(owner) // only succeeds when no other entry lives below it
+	// Each removal only succeeds when nothing else lives below the directory.
+	_ = root.Remove(owner)
+	_ = root.Remove(itemType)
 	return nil
 }
 
 // readEntry reads and validates the entry. The caller holds the lock. A missing entry yields an error that
 // satisfies errors.Is(fs.ErrNotExist) and ErrCacheMiss; hasTemp reports leftover temporary files.
-func (c *HubCache) readEntry(slug string) (meta CachedPreset, item []byte, hasTemp bool, err error) {
+func (c *HubCache) readEntry(itemType, slug string) (meta CachedPreset, item []byte, hasTemp bool, err error) {
 	root, err := os.OpenRoot(c.baseDir)
 	if err != nil {
 		return CachedPreset{}, nil, false, fmt.Errorf("%w: %w", ErrCacheMiss, fs.ErrNotExist)
 	}
 	defer closeQuietly(root)
 
-	entries, readErr := fs.ReadDir(root.FS(), slug)
+	dir := entryDir(itemType, slug)
+	entries, readErr := fs.ReadDir(root.FS(), dir)
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
 		return CachedPreset{}, nil, false, invalidEntry("entry directory")
 	}
@@ -366,7 +437,7 @@ func (c *HubCache) readEntry(slug string) (meta CachedPreset, item []byte, hasTe
 		}
 	}
 
-	raw, err := readCapped(root, path.Join(slug, cacheMetaFile), maxCacheMetaBytes)
+	raw, err := readCapped(root, path.Join(dir, cacheMetaFile), maxCacheMetaBytes)
 	if errors.Is(err, fs.ErrNotExist) {
 		return CachedPreset{}, nil, hasTemp, fmt.Errorf("%w: %w", ErrCacheMiss, fs.ErrNotExist)
 	}
@@ -382,21 +453,21 @@ func (c *HubCache) readEntry(slug string) (meta CachedPreset, item []byte, hasTe
 	if meta.ItemSHA256 == "" {
 		return CachedPreset{}, nil, hasTemp, ErrCacheLegacy
 	}
-	item, err = readCapped(root, path.Join(slug, cacheItemFile), maxCacheItemBytes)
+	item, err = readCapped(root, path.Join(dir, cacheItemFile), maxCacheItemBytes)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return CachedPreset{}, nil, hasTemp, invalidEntry("item")
 		}
 		return CachedPreset{}, nil, hasTemp, err
 	}
-	if err := c.validateMeta(meta, item); err != nil {
+	if err := c.validateMeta(meta, itemType, item); err != nil {
 		return CachedPreset{}, nil, hasTemp, err
 	}
 	return meta, item, hasTemp, nil
 }
 
-// validateMeta checks the stored metadata against the entry slug and the item that was read.
-func (c *HubCache) validateMeta(meta CachedPreset, item []byte) error {
+// validateMeta checks the stored metadata against the entry address and the item that was read.
+func (c *HubCache) validateMeta(meta CachedPreset, itemType string, item []byte) error {
 	sum := sha256.Sum256(item)
 	digest := hex.EncodeToString(sum[:])
 	switch {
@@ -408,7 +479,7 @@ func (c *HubCache) validateMeta(meta CachedPreset, item []byte) error {
 		return invalidEntry("digest")
 	case meta.SizeBytes != int64(len(item)):
 		return invalidEntry("size")
-	case !IsCacheItemType(meta.Type):
+	case meta.Type != itemType:
 		return invalidEntry("item type")
 	case !printableText(meta.Etag) || !printableText(meta.Source):
 		return invalidEntry("text field")

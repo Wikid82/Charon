@@ -16,6 +16,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// presetItemType trims the optional hub section of a request. It answers 400 and reports false when the value
+// is not a hub section.
+func presetItemType(c *gin.Context, raw string) (string, bool) {
+	itemType := strings.TrimSpace(raw)
+	if itemType != "" && !crowdsec.IsCacheItemType(itemType) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid type"})
+		return "", false
+	}
+	return itemType, true
+}
+
 func ttlRemainingSeconds(now, retrievedAt time.Time, ttl time.Duration) *int64 {
 	if retrievedAt.IsZero() || ttl <= 0 {
 		return nil
@@ -38,6 +49,8 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 
 	type presetInfo struct {
 		crowdsec.Preset
+		// Type is the hub section of the item. One hub name can have an entry per section.
+		Type                string     `json:"type,omitempty"`
 		Available           bool       `json:"available"`
 		Cached              bool       `json:"cached"`
 		CacheKey            string     `json:"cache_key,omitempty"`
@@ -51,6 +64,21 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 		cp := p
 		result[p.Slug] = &presetInfo{Preset: cp, Available: true}
 	}
+	// entryFor returns the entry of a hub item, creating it with create when it is new. A hub-backed curated
+	// preset keeps its own entry and takes the type of the first item with its name; every other item is keyed
+	// by type and name, so a name in several sections yields one entry per section.
+	entryFor := func(slug, itemType string, create func() *presetInfo) *presetInfo {
+		key := itemType + "/" + slug
+		if p, ok := result[slug]; ok && p.RequiresHub && (p.Type == "" || p.Type == itemType) {
+			p.Type = itemType
+			return p
+		}
+		if _, ok := result[key]; !ok {
+			result[key] = create()
+			result[key].Type = itemType
+		}
+		return result[key]
+	}
 
 	// Merge hub index when available
 	if h.Hub != nil {
@@ -61,18 +89,16 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 				if slug == "" {
 					continue
 				}
-				if _, ok := result[slug]; !ok {
-					result[slug] = &presetInfo{Preset: crowdsec.Preset{
+				entryFor(slug, item.Type, func() *presetInfo {
+					return &presetInfo{Preset: crowdsec.Preset{
 						Slug:        slug,
 						Title:       item.Title,
 						Summary:     item.Description,
 						Source:      "hub",
 						Tags:        []string{item.Type},
 						RequiresHub: true,
-					}, Available: true}
-				} else {
-					result[slug].Available = true
-				}
+					}}
+				}).Available = true
 			}
 		} else {
 			logger.Log().WithError(err).Warn("crowdsec hub index unavailable")
@@ -86,17 +112,17 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 			cacheTTL := h.Hub.Cache.TTL()
 			now := time.Now().UTC()
 			for _, entry := range cached {
-				if _, ok := result[entry.Slug]; !ok {
-					result[entry.Slug] = &presetInfo{Preset: crowdsec.Preset{Slug: entry.Slug, Title: entry.Slug, Summary: "cached preset", Source: "hub", RequiresHub: true}}
-				}
-				result[entry.Slug].Cached = true
-				result[entry.Slug].CacheKey = entry.CacheKey
-				result[entry.Slug].Etag = entry.Etag
+				info := entryFor(entry.Slug, entry.Type, func() *presetInfo {
+					return &presetInfo{Preset: crowdsec.Preset{Slug: entry.Slug, Title: entry.Slug, Summary: "cached preset", Source: "hub", RequiresHub: true}}
+				})
+				info.Cached = true
+				info.CacheKey = entry.CacheKey
+				info.Etag = entry.Etag
 				if !entry.RetrievedAt.IsZero() {
 					val := entry.RetrievedAt
-					result[entry.Slug].RetrievedAt = &val
+					info.RetrievedAt = &val
 				}
-				result[entry.Slug].TTLRemainingSeconds = ttlRemainingSeconds(now, entry.RetrievedAt, cacheTTL)
+				info.TTLRemainingSeconds = ttlRemainingSeconds(now, entry.RetrievedAt, cacheTTL)
 			}
 		} else {
 			logger.Log().WithError(err).Warn("crowdsec hub cache list failed")
@@ -120,12 +146,16 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 
 	var payload struct {
 		Slug string `json:"slug"`
+		Type string `json:"type"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
 	}
 	slug := strings.TrimSpace(payload.Slug)
+	itemType, ok := presetItemType(c, payload.Type)
+	if !ok {
+		return
+	}
 	if slug == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
 		return
@@ -161,10 +191,20 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		}
 	}
 
-	res, err := h.Hub.Pull(ctx, slug)
+	res, err := h.Hub.Pull(ctx, slug, itemType)
 	if err != nil {
 		if errors.Is(err, crowdsec.ErrInvalidSlug) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid slug"})
+			return
+		}
+		var ambiguous *crowdsec.AmbiguousTypeError
+		if errors.As(err, &ambiguous) {
+			respondCoded(c, http.StatusConflict, codePresetTypeAmbiguous, msgPresetTypeAmbiguous, gin.H{"types": ambiguous.Types})
+			return
+		}
+		if errors.Is(err, crowdsec.ErrHubUnreachable) {
+			logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("crowdsec preset pull failed: hub unreachable")
+			respondCoded(c, http.StatusServiceUnavailable, codeHubUnreachable, msgHubUnreachable, gin.H{"hub_endpoints": h.hubEndpoints()})
 			return
 		}
 		status := mapCrowdsecStatus(err, http.StatusBadGateway)
@@ -181,6 +221,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":       "pulled",
 		"slug":         res.Meta.Slug,
+		"type":         res.Meta.Type,
 		"preview":      res.Preview,
 		"cache_key":    res.Meta.CacheKey,
 		"etag":         res.Meta.Etag,
@@ -196,6 +237,8 @@ const (
 	codePresetHubUpdating      = "preset_hub_updating"
 	codePresetLocalModified    = "preset_local_modified"
 	codePresetApplyTimeout     = "preset_apply_timeout"
+	codePresetTypeAmbiguous    = "preset_type_ambiguous"
+	codeHubUnreachable         = "hub_unreachable"
 	codeCSCLIUnavailable       = "cscli_unavailable"
 )
 
@@ -219,15 +262,19 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 
 	var payload struct {
 		Slug     string `json:"slug"`
+		Type     string `json:"type"`
 		CacheKey string `json:"cache_key"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
 	}
 
 	slug := strings.TrimSpace(payload.Slug)
 	cacheKey := strings.TrimSpace(payload.CacheKey)
+	itemType, ok := presetItemType(c, payload.Type)
+	if !ok {
+		return
+	}
 	if slug == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
 		return
@@ -262,7 +309,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	}
 
-	res, err := h.Hub.Apply(c.Request.Context(), slug, cacheKey)
+	res, err := h.Hub.Apply(c.Request.Context(), slug, itemType, cacheKey)
 	if err != nil {
 		// Safe: slug is validated against the hub item name pattern; backup_path and cache_key are system-generated values
 		// codeql[go/log-injection]
@@ -275,6 +322,11 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	h.recordPresetEvent(slug, res, nil)
 	respondApplySuccess(c, res)
 }
+
+// msgHubUnreachable is fixed on purpose: the network detail (addresses, resolver text) stays in the log.
+const msgHubUnreachable = "CrowdSec could not reach the hub. Check the network connection and try again."
+
+const msgPresetTypeAmbiguous = "This name exists in several hub sections. Choose which item to use."
 
 const msgPresetStale = "The cached preset is outdated or missing. Pull the preset again, then apply it."
 
@@ -295,6 +347,8 @@ func (h *CrowdsecHandler) respondApplyError(c *gin.Context, err error, res crowd
 		respondCoded(c, http.StatusConflict, codePresetLocalModified, "This preset was edited on this server, so it was not replaced. Reset it before applying.", extra)
 	case errors.Is(err, crowdsec.ErrPresetApplyTimeout):
 		respondCoded(c, http.StatusGatewayTimeout, codePresetApplyTimeout, "The preset install took too long and was rolled back. Try again.", extra)
+	case errors.Is(err, crowdsec.ErrHubUnreachable):
+		respondCoded(c, http.StatusServiceUnavailable, codeHubUnreachable, msgHubUnreachable, extra)
 	case errors.Is(err, crowdsec.ErrCSCLIUnavailable):
 		respondCoded(c, http.StatusServiceUnavailable, codeCSCLIUnavailable, "cscli unavailable or not responding", extra)
 	default:
@@ -382,6 +436,9 @@ func respondApplySuccess(c *gin.Context, res crowdsec.ApplyResult) {
 		"cache_key":   res.CacheKey,
 		"slug":        res.AppliedPreset,
 	}
+	if res.Type != "" {
+		body["type"] = res.Type
+	}
 	if len(res.Warnings) > 0 {
 		body["warnings"] = res.Warnings
 	}
@@ -405,7 +462,32 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
 		return
 	}
-	meta, item, err := h.Hub.Cache.LoadItem(ctx, slug)
+	itemType, ok := presetItemType(c, c.Query("type"))
+	if !ok {
+		return
+	}
+	if itemType == "" {
+		// Without a type the entry is the slug's only cached one; several sections need a choice.
+		cached, listErr := h.Hub.Cache.ListSlug(ctx, slug)
+		switch {
+		case errors.Is(listErr, crowdsec.ErrInvalidSlug) || (listErr == nil && len(cached) == 0):
+			c.JSON(http.StatusNotFound, gin.H{"error": "cache miss"})
+			return
+		case listErr != nil:
+			logger.Log().WithField("error", util.SanitizeForLog(listErr.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("failed to load crowdsec preset preview")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load preset preview"})
+			return
+		case len(cached) > 1:
+			types := make([]string, 0, len(cached))
+			for _, entry := range cached {
+				types = append(types, entry.Type)
+			}
+			respondCoded(c, http.StatusConflict, codePresetTypeAmbiguous, msgPresetTypeAmbiguous, gin.H{"types": types})
+			return
+		}
+		itemType = cached[0].Type
+	}
+	meta, item, err := h.Hub.Cache.LoadItem(ctx, itemType, slug)
 	if err != nil {
 		if errors.Is(err, crowdsec.ErrInvalidSlug) || errors.Is(err, crowdsec.ErrCacheMiss) || errors.Is(err, crowdsec.ErrCacheExpired) || errors.Is(err, crowdsec.ErrCacheInvalid) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "cache miss"})
@@ -419,6 +501,7 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 	now := time.Now().UTC()
 	c.JSON(http.StatusOK, gin.H{
 		"preview":               string(item),
+		"type":                  meta.Type,
 		"cache_key":             meta.CacheKey,
 		"etag":                  meta.Etag,
 		"retrieved_at":          meta.RetrievedAt,

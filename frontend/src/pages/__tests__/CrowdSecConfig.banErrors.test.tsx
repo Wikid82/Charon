@@ -24,8 +24,9 @@ const TEXT = {
   invalid_ip: 'Enter a valid IPv4 or IPv6 address, or a range such as 192.0.2.0/24.',
   invalid_duration: 'Choose a duration between 1 minute and 365 days, for example 4h, 30m or 1d.',
   invalid_reason: 'The reason can be at most 200 characters.',
-  decision_not_found: 'No active decision matches this address or range.',
+  decision_not_found: 'No decision with exactly this address or range. Unbanning removes an exact match only; a covering range does not clear the addresses inside it.',
   cscli_timeout: 'CrowdSec did not answer in time. Try again.',
+  request_too_large: 'The request was too large. Shorten the text and try again.',
 }
 
 /** Builds the error the shared client produces: the server's English text becomes the message. */
@@ -123,9 +124,17 @@ describe('CrowdSecConfig ban and unban refusals', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(TEXT.cscli_timeout))
   })
 
+  it('shows a translated message when the ban request is too large', async () => {
+    vi.mocked(crowdsecApi.banIP).mockRejectedValue(refusal(413, 'english', 'request_too_large'))
+    await openBanDialog()
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(TEXT.request_too_large))
+  })
+
   it.each([
     ['decision_not_found', 404],
     ['cscli_timeout', 504],
+    ['request_too_large', 413],
   ])('translates %s for an unban', async (code, status) => {
     expect(await unbanFailing(refusal(status, 'english server text', code))).toBe(TEXT[code as keyof typeof TEXT])
   })
@@ -147,5 +156,30 @@ describe('CrowdSecConfig ban and unban refusals', () => {
 
   it('uses the generic message when a non-Error is thrown', async () => {
     expect(await unbanFailing('boom')).toBe('Failed to unban IP')
+  })
+
+  it('offers a one-year maximum instead of a permanent option and sends 365d', async () => {
+    vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
+    renderWithQueryClient(<CrowdSecConfig />)
+    await screen.findByText('CrowdSec Configuration')
+    await userEvent.click(await screen.findByRole('button', { name: /Ban IP/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Ban IP Address' })
+    const select = within(dialog).getByLabelText('Duration')
+
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '1 hour',
+      '4 hours',
+      '24 hours',
+      '7 days',
+      '30 days',
+      'Up to one year (365 days)',
+    ])
+    expect(within(dialog).queryByText(/permanent/i)).not.toBeInTheDocument()
+    expect(within(dialog).getByText('CrowdSec bans are limited to one year.')).toBeInTheDocument()
+
+    await userEvent.selectOptions(select, '365d')
+    await userEvent.type(within(dialog).getByLabelText('IP Address'), '203.0.113.9')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Ban IP' }))
+    await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledWith('203.0.113.9', '365d', ''))
   })
 })

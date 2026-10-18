@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // Cache TTL constants for dashboard endpoints.
@@ -134,11 +135,13 @@ func (h *CrowdsecHandler) DashboardSummary(c *gin.Context) {
 	// Historical metrics from SQLite
 	var totalDecisions int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Count(&totalDecisions)
 
 	var uniqueIPs int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Distinct("ip").Count(&uniqueIPs)
 
@@ -159,6 +162,7 @@ func (h *CrowdsecHandler) DashboardSummary(c *gin.Context) {
 	previousSince := since.Add(-duration)
 	var previousCount int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ? AND created_at < ?", "crowdsec", previousSince, since).
 		Count(&previousCount)
 
@@ -304,6 +308,15 @@ func (h *CrowdsecHandler) DashboardTimeline(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// decisionActionUnblock marks the audit row written when an operator lifts a ban by hand.
+const decisionActionUnblock = "unblock"
+
+// excludeUnblocks leaves out the audit rows of manual unbans: they record a lifted ban, not an attack, so
+// they must not count toward the attack totals, unique addresses, trend or top addresses.
+func excludeUnblocks(db *gorm.DB) *gorm.DB {
+	return db.Where("action <> ?", decisionActionUnblock)
+}
+
 // DashboardTopIPs returns top attacking IPs ranked by decision count.
 func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 	rangeStr := normalizeRange(c.Query("range"))
@@ -337,6 +350,7 @@ func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 	var rows []ipRow
 
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Select("ip, COUNT(*) as count, MAX(created_at) as last_seen, MAX(country) as country").
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Group("ip").
@@ -454,7 +468,7 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-	alerts, total, errMsg := h.fetchAlertsCscli(ctx, scenario, limit)
+	alerts, total, failure := h.fetchAlertsCscli(ctx, scenario, rangeStr, limit, offset)
 
 	result := gin.H{
 		"alerts": alerts,
@@ -462,9 +476,9 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 		"source": "cscli",
 		"cached": false,
 	}
-	if errMsg != "" {
+	if failure != nil {
 		// a failed listing is not cached, so the next request asks cscli again
-		result["error"] = errMsg
+		failure.apply(result)
 		c.JSON(http.StatusOK, result)
 		return
 	}
@@ -473,30 +487,36 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// fetchAlertsCscli lists alerts through cscli and returns the fields the UI reads, at most limit of them.
-// errMsg is empty on success; otherwise it tells why the list is empty (cscli failed, timed out or printed too much).
-func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []alertView, total int, errMsg string) {
-	args := []string{"alerts", "list", "-o", "json"}
+// maxAlertsFetch caps how many alerts one request asks cscli for (limit + offset).
+const maxAlertsFetch = 1000
+
+// fetchAlertsCscli lists the alerts that started within rangeStr (cscli --since, validated by the caller)
+// through cscli and returns the fields the UI reads, at most limit of them after skipping offset.
+// cscli has no offset flag, so limit+offset alerts (at most maxAlertsFetch) are fetched and the first offset
+// are dropped here; paging is best-effort, and total is the number of alerts fetched, not of all stored ones.
+// failure is nil on success; otherwise it tells why the list is empty (cscli failed, timed out or printed too much).
+func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario, rangeStr string, limit, offset int) (alerts []alertView, total int, failure *softListError) {
+	fetch := min(limit+offset, maxAlertsFetch)
+	args := []string{"alerts", "list", "-o", "json", "--since", rangeStr}
 	if scenario != "" {
 		args = append(args, "-s", scenario)
 	}
-	args = append(args, "-l", strconv.Itoa(limit))
+	args = append(args, "-l", strconv.Itoa(fetch))
 
 	output, err := h.runCSCLI(ctx, cscliListTimeout, args...)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to list alerts via cscli")
-		if isCSCLITimeout(ctx, err) {
-			return []alertView{}, 0, msgAlertsTimedOut
-		}
-		return []alertView{}, 0, msgCSCLIFailed
+		return []alertView{}, 0, classifySoftListError(ctx, err, msgAlertsTimedOut)
 	}
 
-	alerts, err = parseCSCLIAlerts(output, limit)
+	alerts, err = parseCSCLIAlerts(output, fetch)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to parse cscli alerts output")
-		return []alertView{}, 0, msgCSCLIFailed
+		return []alertView{}, 0, classifySoftListError(ctx, err, msgAlertsTimedOut)
 	}
-	return alerts, len(alerts), ""
+	total = len(alerts)
+	alerts = alerts[min(offset, total):]
+	return alerts[:min(limit, len(alerts))], total, nil
 }
 
 // ExportDecisions exports decisions as downloadable CSV or JSON.

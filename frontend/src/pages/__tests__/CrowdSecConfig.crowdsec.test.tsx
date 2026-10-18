@@ -110,7 +110,7 @@ describe('CrowdSecConfig — isStartingUp banner suppression', () => {
     vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 123, lapi_ready: true })
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({ blob: new Blob(), omitted: [], omittedMore: 0 })
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [] })
   })
 

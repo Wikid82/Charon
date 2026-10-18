@@ -36,7 +36,7 @@ func TestListPresetsIncludesCacheAndIndex(t *testing.T) {
 	hub.HubBaseURL = "https://hub.crowdsec.net"
 	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
 		if req.URL.String() == "https://hub.crowdsec.net/api/index.json" {
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection"}]}`)), Header: make(http.Header)}, nil
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collections"}]}`)), Header: make(http.Header)}, nil
 		}
 		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
 	})}
@@ -218,7 +218,7 @@ func TestGetCachedPresetSuccess(t *testing.T) {
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = crowdsec.NewHubService(nil, cache, t.TempDir())
 	require.True(t, h.isCerberusEnabled())
-	preview, err := h.Hub.Cache.LoadPreview(context.Background(), slug)
+	preview, err := h.Hub.Cache.LoadPreview(context.Background(), "collections", slug)
 	require.NoError(t, err)
 	require.Equal(t, "preview: body\n", preview)
 
@@ -258,7 +258,7 @@ func TestGetCachedPresetPreviewError(t *testing.T) {
 	_, err = cache.Store(context.Background(), slug, "collections", "etag999", "hub", []byte("a: 1\n"))
 	require.NoError(t, err)
 	// Change the item so it no longer matches the recorded digest.
-	require.NoError(t, os.WriteFile(filepath.Join(cacheDir, "crowdsecurity", "broken", "item.yaml"), []byte("a: 2\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(cacheDir, "collections", "crowdsecurity", "broken", "item.yaml"), []byte("a: 2\n"), 0o600))
 
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.Hub = crowdsec.NewHubService(nil, cache, t.TempDir())
@@ -267,7 +267,7 @@ func TestGetCachedPresetPreviewError(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, w.Code)
 	require.Contains(t, w.Body.String(), "cache miss")
-	require.NoDirExists(t, filepath.Join(cacheDir, "crowdsecurity", "broken"), "an invalid entry is removed")
+	require.NoDirExists(t, filepath.Join(cacheDir, "collections", "crowdsecurity", "broken"), "an invalid entry is removed")
 }
 
 func TestPullCuratedPresetSkipsHub(t *testing.T) {

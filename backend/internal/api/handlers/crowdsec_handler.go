@@ -88,8 +88,9 @@ type CrowdsecHandler struct {
 	// registerScriptTimeout bounds the bouncer registration script; 0 means registerScriptTimeoutDefault. Overridable in tests.
 	registerScriptTimeout time.Duration
 
-	// mergeNotifications and scanPlaceholders are the import's notification steps; overridable in tests.
+	// mergeNotifications, mergeConfig and scanPlaceholders are the import's steps for blanked values; overridable in tests.
 	mergeNotifications func(snapshotDir, dataDir string) error
+	mergeConfig        func(snapshotDir, dataDir string) error
 	scanPlaceholders   func(dataDir string) ([]string, error)
 
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
@@ -508,6 +509,7 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		validateLAPIURL:    validateCrowdsecLAPIBaseURLDefault,
 		signalProcess:      signalOSProcess,
 		mergeNotifications: crowdsec.MergeRedactedNotifications,
+		mergeConfig:        crowdsec.MergeRedactedConfig,
 		scanPlaceholders:   crowdsec.ScanPlaceholders,
 	}
 	hubSvc.Reload = h.reloadCrowdSec
@@ -862,13 +864,15 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		}
 	}
 
-	// Fill the notification values the exported file blanked from the files being replaced, wherever the
-	// notification still points at the same target.
-	if mergeErr := h.mergeNotifications(backupDir, h.DataDir); mergeErr != nil {
-		logger.Log().WithField("error", sanitizeForLog(mergeErr.Error())).Warn("crowdsec import: keeping the current notification values failed")
-		rollback()
-		respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
-		return
+	// Fill the notification and configuration values the exported files blanked from the files being
+	// replaced, wherever they still point at the same target.
+	for _, merge := range []func(snapshotDir, dataDir string) error{h.mergeNotifications, h.mergeConfig} {
+		if mergeErr := merge(backupDir, h.DataDir); mergeErr != nil {
+			logger.Log().WithField("error", sanitizeForLog(mergeErr.Error())).Warn("crowdsec import: keeping the current blanked values failed")
+			rollback()
+			respondCoded(c, http.StatusInternalServerError, codeImportKeepCurrentFailed, msgKeepCurrentFiles, nil)
+			return
+		}
 	}
 
 	// The import cleared every file the archive did not replace: put back the ones CrowdSec cannot start
@@ -954,7 +958,7 @@ func respondKeptProfileRefusal(c *gin.Context, err error) {
 	respondCoded(c, http.StatusUnprocessableEntity, codeImportKeptProfileDuplicate, msgKeptProfileDuplicate, nil)
 }
 
-// pruneSnapshots bounds the full-tree snapshots kept next to DataDir; failures are logged only.
+// pruneSnapshots bounds the snapshots kept next to DataDir; failures are logged only.
 func (h *CrowdsecHandler) pruneSnapshots() {
 	if _, err := crowdsec.PruneBackups(h.DataDir, crowdsec.BackupKindSnapshot, crowdsec.DefaultBackupRetention); err != nil {
 		logger.Log().WithError(err).Warn("crowdsec backup prune incomplete")
@@ -1154,7 +1158,12 @@ func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (t
 	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
 }
 
-const errExportFailed = "failed to export crowdsec config"
+const (
+	errExportFailed = "failed to export crowdsec config"
+
+	codeExportConfigUnsafe = "export_config_unsafe"
+	msgExportConfigUnsafe  = "The CrowdSec configuration file could not be exported safely: its credentials cannot be hidden reliably. Simplify the file (no anchors or merge keys around credentials, under 1 MiB) and try again."
+)
 
 // respondExportError maps an export failure to a fixed, non-revealing JSON message.
 func (h *CrowdsecHandler) respondExportError(c *gin.Context, err error) {
@@ -1163,6 +1172,11 @@ func (h *CrowdsecHandler) respondExportError(c *gin.Context, err error) {
 		return
 	}
 	logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec export failed")
+	if errors.Is(err, crowdsec.ErrExportConfigUnsafe) {
+		c.Abort()
+		respondCoded(c, http.StatusUnprocessableEntity, codeExportConfigUnsafe, msgExportConfigUnsafe, nil)
+		return
+	}
 	msg := errExportFailed
 	switch {
 	case errors.Is(err, crowdsec.ErrExportFileUnreadable):
@@ -1192,8 +1206,7 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 		AgentName     string `json:"agent_name"`
 		Force         bool   `json:"force"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
 	}
 
@@ -1743,10 +1756,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 
 // validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
 func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
-	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	output, err := h.CmdExec.Execute(checkCtx, "cscli", "bouncers", "list", "-o", "json")
+	output, err := h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "list", "-o", "json")
 	if err != nil {
 		logger.Log().WithError(err).Debug("Failed to list bouncers")
 		return false
@@ -1778,15 +1788,10 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 	keyPath := h.bouncerKeyPath()
 
 	// Delete existing bouncer if present (stale registration)
-	deleteCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	_, _ = h.CmdExec.Execute(deleteCtx, "cscli", "bouncers", "delete", bouncerName)
-	cancel()
+	_, _ = h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "delete", bouncerName)
 
 	// Register new bouncer
-	regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer regCancel()
-
-	output, err := h.CmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
+	output, err := h.runCSCLI(ctx, bouncerRegisterTimeout, "bouncers", "add", bouncerName, "-o", "raw")
 	if err != nil {
 		return "", fmt.Errorf("bouncer registration failed: %w (%s)", err, util.DescribeCommandOutput(output))
 	}
@@ -2058,11 +2063,9 @@ func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 // failed, timed out or printed more output than the limits allow.
 func (h *CrowdsecHandler) respondDecisionsUnavailable(c *gin.Context, err error) {
 	logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
-	msg := msgCSCLIFailed
-	if isCSCLITimeout(c.Request.Context(), err) {
-		msg = msgDecisionsTimedOut
-	}
-	c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": msg})
+	body := gin.H{"decisions": []CrowdSecDecision{}}
+	classifySoftListError(c.Request.Context(), err, msgDecisionsTimedOut).apply(body)
+	c.JSON(http.StatusOK, body)
 }
 
 // BanIPRequest represents the request body for banning an IP or a range
@@ -2075,8 +2078,7 @@ type BanIPRequest struct {
 // BanIP adds a manual ban for an address or a CIDR range. The request is validated before cscli runs.
 func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	var req BanIPRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondCoded(c, http.StatusBadRequest, codeInvalidIP, msgIPRequired, nil)
+	if !bindSmallJSON(c, &req, func() { respondCoded(c, http.StatusBadRequest, codeInvalidIP, msgIPRequired, nil) }) {
 		return
 	}
 
@@ -2137,7 +2139,8 @@ func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	h.dashCache.Invalidate("dashboard")
 }
 
-// UnbanIP removes the decisions for an address or a CIDR range. The route is a catch-all so that a range
+// UnbanIP removes the decisions that match an address or a CIDR range exactly: cscli compares the scope, so
+// a covering range does not remove the single addresses inside it. The route is a catch-all so that a range
 // written as 10.0.0.0/24 or 10.0.0.0%2F24 reaches the handler; the value arrives with a leading slash.
 func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	raw := strings.TrimPrefix(c.Param("value"), "/")
@@ -2171,6 +2174,18 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+
+	// Log to security_decisions so the history shows who lifted a ban, like a ban shows who set one
+	if h.Security != nil {
+		if err := h.Security.LogDecision(&models.SecurityDecision{
+			IP:     target.value,
+			Action: decisionActionUnblock,
+			Source: "crowdsec",
+			RuleID: "manual unban",
+		}); err != nil {
+			logger.Log().WithError(err).WithField("ip", target.value).Warn("Failed to record the manual unban in the security decisions")
+		}
+	}
 	h.dashCache.Invalidate("dashboard")
 }
 
@@ -2270,8 +2285,7 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 	var payload struct {
 		Content string `json:"content" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
+	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"}) }) {
 		return
 	}
 
@@ -2548,8 +2562,7 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 		IPOrCIDR string `json:"ip_or_cidr" binding:"required"`
 		Reason   string `json:"reason"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip_or_cidr is required"})
+	if !bindSmallJSON(c, &req, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "ip_or_cidr is required"}) }) {
 		return
 	}
 

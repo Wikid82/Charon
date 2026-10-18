@@ -221,7 +221,7 @@ func (h *installHarness) requireRolledBack(t *testing.T) {
 }
 
 func (h *installHarness) entryExists() bool {
-	_, err := os.Stat(filepath.Join(h.cacheDir, filepath.FromSlash(installSlug), "metadata.json"))
+	_, err := os.Stat(filepath.Join(h.cacheDir, "collections", filepath.FromSlash(installSlug), "metadata.json"))
 	return err == nil
 }
 
@@ -253,7 +253,7 @@ func TestApplyPresetInstallsPreviewedItem(t *testing.T) {
 	require.Equal(t, installSlug, resp["slug"])
 
 	calls := h.calls()
-	require.Equal(t, []string{cmdVersion, cmdUpdate, cmdInstall, cmdInspect, cmdHubList}, calls)
+	require.Equal(t, []string{cmdVersion, cmdUpdate, cmdInspect, cmdInstall, cmdInspect, cmdHubList}, calls)
 	for _, c := range calls {
 		require.NotContains(t, c, "hub install")
 		require.NotContains(t, c, "--force")
@@ -299,7 +299,7 @@ func TestApplyRejectsOutdatedCacheEntry(t *testing.T) {
 		},
 		"content differs from recorded digest": func(h *installHarness, t *testing.T) string {
 			key := h.store(t, nil)
-			require.NoError(t, os.WriteFile(filepath.Join(h.cacheDir, filepath.FromSlash(installSlug), "item.yaml"), []byte("name: other\n"), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(h.cacheDir, "collections", filepath.FromSlash(installSlug), "item.yaml"), []byte("name: other\n"), 0o600))
 			return key
 		},
 	}
@@ -363,13 +363,13 @@ func TestApplyNamesOnlyEditedItemsOfThePreset(t *testing.T) {
 func TestApplyUpgradesOlderInstalledItem(t *testing.T) {
 	// Needs a check against a real cscli: the upgrade step for an older, unmodified item is not verified.
 	h := newInstallHarness(t, installScript{replies: map[string][]reply{
-		cmdInspect: {{out: readCSCLIFixture(t, "inspect_older_version.json")}, {}},
+		cmdInspect: {{}, {out: readCSCLIFixture(t, "inspect_older_version.json")}, {}}, // pre-flight, after the install, after the upgrade
 	}})
 	key := h.store(t, nil)
 
 	code, resp := h.apply(t, installSlug, key)
 	require.Equal(t, http.StatusOK, code, resp)
-	require.Equal(t, []string{cmdVersion, cmdUpdate, cmdInstall, cmdInspect, cmdUpgrade, cmdInspect, cmdHubList}, h.calls())
+	require.Equal(t, []string{cmdVersion, cmdUpdate, cmdInspect, cmdInstall, cmdInspect, cmdUpgrade, cmdInspect, cmdHubList}, h.calls())
 	require.EqualValues(t, 1, h.reloads.Load())
 }
 
@@ -406,7 +406,7 @@ func TestApplyKeepsNewerCacheEntryOnMismatch(t *testing.T) {
 	require.Equal(t, http.StatusConflict, code, resp)
 	require.NotEqual(t, key, newerKey)
 	require.True(t, h.entryExists(), "the newer entry survives")
-	raw, err := os.ReadFile(filepath.Join(h.cacheDir, filepath.FromSlash(installSlug), "metadata.json")) // #nosec G304 -- test path
+	raw, err := os.ReadFile(filepath.Join(h.cacheDir, "collections", filepath.FromSlash(installSlug), "metadata.json")) // #nosec G304 -- test path
 	require.NoError(t, err)
 	require.Contains(t, string(raw), newerKey)
 }

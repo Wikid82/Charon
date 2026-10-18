@@ -363,6 +363,11 @@
         "recentAlerts": "Letzte Warnungen",
         "alertsCount": "{{count}} gesamt",
         "alertsError": "Fehler beim Laden der Warnungen.",
+        "listErrors": {
+          "cscli_timeout": "Der Entscheidungsdienst hat zu lange für die Antwort gebraucht, daher ist diese Liste möglicherweise unvollständig. Sie wird automatisch aktualisiert.",
+          "cscli_output_too_large": "Der Entscheidungsdienst hat mehr Daten geliefert, als angezeigt werden können, daher ist diese Liste möglicherweise unvollständig.",
+          "cscli_unavailable": "Der Entscheidungsdienst ist derzeit nicht verfügbar, daher ist diese Liste möglicherweise unvollständig."
+        },
         "noAlerts": "Keine Warnungen für den ausgewählten Zeitraum.",
         "colTime": "Zeit",
         "colEvents": "Ereignisse",
@@ -1158,6 +1163,7 @@
   "crowdsecConfig": {
     "exportSuccess": "CrowdSec-Konfiguration exportiert",
     "exportFailed": "Export der CrowdSec-Konfiguration fehlgeschlagen",
+    "exportConfigUnsafe": "Die Konfigurationsdatei enthält Zugangsdaten, die sich nicht zuverlässig ausblenden lassen (sie ist größer als 1 MiB, nicht lesbar oder teilt Werte über YAML-Anker), daher wurde nichts exportiert. Vereinfachen Sie die Datei und versuchen Sie es erneut.",
     "hubItems": {
       "title": "Fehlende Hub-Elemente installieren",
       "description": "Dieser Export verwendete Hub-Elemente, die auf diesem Host nicht installiert sind. Sie werden vom offiziellen CrowdSec-Hub heruntergeladen.",
@@ -1277,7 +1283,9 @@
       "export": "Exportieren",
       "import": "Importieren",
       "importing": "Importiere...",
-      "selectFile": "CrowdSec-Paketdatei auswählen"
+      "selectFile": "CrowdSec-Paketdatei auswählen",
+      "omittedNote": "Aus diesem Export ausgelassen ({{count}}): {{names}}. Stellen Sie diese Dateien nach der Wiederherstellung auf einem anderen Host erneut bereit.",
+      "omittedMore": " (und {{count}} weitere)"
     },
     "presets": {
       "title": "Vorlagen",
@@ -1293,6 +1301,8 @@
       "hubUnreachable": "CrowdSec Hub nicht erreichbar. Hub-Vorlagen funktionieren möglicherweise nicht.",
       "retry": "Wiederholen",
       "useCached": "Zwischengespeichert verwenden",
+      "typeLabel": "Elementtyp",
+      "typePlaceholder": "Typ auswählen",
       "targetFile": "Zieldatei",
       "selectFileBelow": "(Wählen Sie unten eine Konfigurationsdatei)",
       "cacheKey": "Cache-Schlüssel",
@@ -1322,9 +1332,11 @@
         "slugInvalid": "Der Vorlagen-Slug ist ungültig",
         "applyStale": "Die Vorschau ist veraltet. Rufen Sie das Preset erneut ab und wenden Sie es dann an.",
         "applyHubUpdating": "Der Hub wird noch aktualisiert. Versuchen Sie es später erneut.",
+        "typeAmbiguous": "Dieser Name existiert in mehreren Hub-Bereichen. Wählen Sie das gewünschte Element.",
         "applyLocalModified": "Dieses Element wurde auf diesem Server bearbeitet und blieb unverändert. Setzen Sie es zurück, bevor Sie das Preset anwenden.",
         "editedItems": "Bearbeitete Elemente: {{items}}",
         "applyTimeout": "Die Installation des Presets hat zu lange gedauert und wurde zurückgesetzt. Versuchen Sie es erneut.",
+        "applyHubUnreachable": "CrowdSec konnte den Hub nicht erreichen. Prüfen Sie die Netzwerkverbindung und versuchen Sie es erneut.",
         "cscliUnavailable": "cscli nicht verfügbar oder antwortet nicht",
         "applyDependencyNote": "Einige Elemente, von denen dieses Preset abhängt, wurden auf diesem Server bearbeitet und blieben unverändert."
       }
@@ -1359,7 +1371,8 @@
       "duration24h": "24 Stunden",
       "duration7d": "7 Tage",
       "duration30d": "30 Tage",
-      "durationPermanent": "Permanent",
+      "duration365d": "Bis zu einem Jahr (365 Tage)",
+      "durationHelp": "CrowdSec-Sperren sind auf ein Jahr begrenzt.",
       "reasonLabel": "Grund",
       "reasonPlaceholder": "Grund für die Sperrung dieser IP...",
       "submit": "IP sperren",
@@ -1442,8 +1455,9 @@
       "invalidIp": "Geben Sie eine gültige IPv4- oder IPv6-Adresse oder einen Bereich wie 192.0.2.0/24 ein.",
       "invalidDuration": "Wählen Sie eine Dauer zwischen 1 Minute und 365 Tagen, zum Beispiel 4h, 30m oder 1d.",
       "invalidReason": "Der Grund darf höchstens 200 Zeichen lang sein.",
-      "decisionNotFound": "Keine aktive Entscheidung passt zu dieser Adresse oder diesem Bereich.",
-      "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut."
+      "decisionNotFound": "Keine Entscheidung mit genau dieser Adresse oder diesem Bereich. Beim Aufheben wird nur eine exakte Übereinstimmung entfernt; ein umfassender Bereich gibt die darin liegenden Adressen nicht frei.",
+      "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut.",
+      "requestTooLarge": "Die Anfrage war zu groß. Kürzen Sie den Text und versuchen Sie es erneut."
     }
   },
   "smtp": {

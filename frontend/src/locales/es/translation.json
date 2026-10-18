@@ -363,6 +363,11 @@
         "recentAlerts": "Alertas Recientes",
         "alertsCount": "{{count}} en total",
         "alertsError": "Error al cargar alertas.",
+        "listErrors": {
+          "cscli_timeout": "El servicio de decisiones tardó demasiado en responder, por lo que esta lista puede estar incompleta. Se actualizará sola.",
+          "cscli_output_too_large": "El servicio de decisiones devolvió más datos de los que se pueden mostrar, por lo que esta lista puede estar incompleta.",
+          "cscli_unavailable": "El servicio de decisiones no está disponible en este momento, por lo que esta lista puede estar incompleta."
+        },
         "noAlerts": "Sin alertas para el período seleccionado.",
         "colTime": "Hora",
         "colEvents": "Eventos",
@@ -1160,6 +1165,7 @@
   "crowdsecConfig": {
     "exportSuccess": "Configuración de CrowdSec exportada",
     "exportFailed": "No se pudo exportar la configuración de CrowdSec",
+    "exportConfigUnsafe": "El archivo de configuración contiene credenciales que no se pueden ocultar de forma fiable (supera 1 MiB, no se puede leer o comparte valores mediante anclas YAML), por lo que no se exportó nada. Simplifica el archivo e inténtalo de nuevo.",
     "hubItems": {
       "title": "Instalar elementos del hub que faltan",
       "description": "Esta exportación usaba elementos del hub que no están instalados en este host. Se descargan del hub oficial de CrowdSec.",
@@ -1279,7 +1285,9 @@
       "export": "Exportar",
       "import": "Importar",
       "importing": "Importando...",
-      "selectFile": "Seleccionar archivo de paquete de CrowdSec"
+      "selectFile": "Seleccionar archivo de paquete de CrowdSec",
+      "omittedNote": "Omitidos en esta exportación ({{count}}): {{names}}. Vuelva a proporcionar estos archivos después de restaurar en otro host.",
+      "omittedMore": " (y {{count}} más)"
     },
     "presets": {
       "title": "Plantillas",
@@ -1295,6 +1303,8 @@
       "hubUnreachable": "Hub de CrowdSec inalcanzable. Las plantillas del hub pueden no funcionar.",
       "retry": "Reintentar",
       "useCached": "Usar en caché",
+      "typeLabel": "Tipo de elemento",
+      "typePlaceholder": "Elija un tipo",
       "targetFile": "Archivo destino",
       "selectFileBelow": "(seleccione un archivo de configuración abajo)",
       "cacheKey": "Clave de caché",
@@ -1324,9 +1334,11 @@
         "slugInvalid": "El identificador del preajuste no es válido",
         "applyStale": "La vista previa está desactualizada. Vuelva a obtener el preajuste y luego aplíquelo.",
         "applyHubUpdating": "El hub aún se está actualizando, inténtelo de nuevo más tarde.",
+        "typeAmbiguous": "Este nombre existe en varias secciones del hub. Elija qué elemento usar.",
         "applyLocalModified": "Este elemento se editó en este servidor y se dejó sin cambios. Restablézcalo antes de aplicar el preajuste.",
         "editedItems": "Elementos editados: {{items}}",
         "applyTimeout": "La instalación del preajuste tardó demasiado y se revirtió. Inténtelo de nuevo.",
+        "applyHubUnreachable": "CrowdSec no pudo conectar con el hub. Compruebe la conexión de red e inténtelo de nuevo.",
         "cscliUnavailable": "cscli no disponible o no responde",
         "applyDependencyNote": "Algunos elementos de los que depende este preajuste se editaron en este servidor y se dejaron sin cambios."
       }
@@ -1361,7 +1373,8 @@
       "duration24h": "24 horas",
       "duration7d": "7 días",
       "duration30d": "30 días",
-      "durationPermanent": "Permanente",
+      "duration365d": "Hasta un año (365 días)",
+      "durationHelp": "Los bloqueos de CrowdSec están limitados a un año.",
       "reasonLabel": "Razón",
       "reasonPlaceholder": "Razón para bloquear esta IP...",
       "submit": "Bloquear IP",
@@ -1444,8 +1457,9 @@
       "invalidIp": "Introduce una dirección IPv4 o IPv6 válida, o un rango como 192.0.2.0/24.",
       "invalidDuration": "Elige una duración entre 1 minuto y 365 días, por ejemplo 4h, 30m o 1d.",
       "invalidReason": "El motivo puede tener como máximo 200 caracteres.",
-      "decisionNotFound": "Ninguna decisión activa coincide con esta dirección o rango.",
-      "timeout": "CrowdSec no respondió a tiempo. Inténtalo de nuevo."
+      "decisionNotFound": "Ninguna decisión con exactamente esta dirección o rango. Al desbloquear solo se elimina una coincidencia exacta; un rango que la cubra no libera las direcciones que contiene.",
+      "timeout": "CrowdSec no respondió a tiempo. Inténtalo de nuevo.",
+      "requestTooLarge": "La solicitud era demasiado grande. Acorta el texto e inténtalo de nuevo."
     }
   },
   "smtp": {

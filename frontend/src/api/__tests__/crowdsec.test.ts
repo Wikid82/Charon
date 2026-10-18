@@ -86,14 +86,75 @@ describe('crowdsec API', () => {
   })
 
   describe('exportCrowdsecConfig', () => {
-    it('should call GET /admin/crowdsec/export with blob responseType', async () => {
-      const mockBlob = new Blob(['data'], { type: 'application/gzip' })
-      vi.mocked(client.get).mockResolvedValue({ data: mockBlob })
+    const mockBlob = new Blob(['data'], { type: 'application/gzip' })
+    const exportWithHeader = async (header?: string) => {
+      vi.mocked(client.get).mockResolvedValue({
+        data: mockBlob,
+        headers: header === undefined ? {} : { 'x-charon-omitted-files': header },
+      })
+      return crowdsec.exportCrowdsecConfig()
+    }
 
-      const result = await crowdsec.exportCrowdsecConfig()
+    it('should call GET /admin/crowdsec/export with blob responseType', async () => {
+      const result = await exportWithHeader()
 
       expect(client.get).toHaveBeenCalledWith('/admin/crowdsec/export', { responseType: 'blob' })
-      expect(result).toEqual(mockBlob)
+      expect(result).toEqual({ blob: mockBlob, omitted: [], omittedMore: 0 })
+    })
+
+    it('treats an empty header as nothing omitted', async () => {
+      expect((await exportWithHeader('')).omitted).toEqual([])
+    })
+
+    it('reads the omitted file names', async () => {
+      const result = await exportWithHeader('["certs/a.key","config.yaml"]')
+      expect(result.omitted).toEqual(['certs/a.key', 'config.yaml'])
+      expect(result.omittedMore).toBe(0)
+    })
+
+    it('re-decodes UTF-8 names that arrive as Latin-1', async () => {
+      const latin1 = String.fromCharCode(...new TextEncoder().encode('["clés/é.key"]'))
+      expect((await exportWithHeader(latin1)).omitted).toEqual(['clés/é.key'])
+    })
+
+    it('keeps a name as is when it is not valid UTF-8 bytes', async () => {
+      expect((await exportWithHeader('["caf\u00e9.key"]')).omitted).toEqual(['caf\u00e9.key'])
+    })
+
+    it('splits the trailing "+N more" entry of a capped list', async () => {
+      const names = Array.from({ length: 50 }, (_, i) => `k${i}.key`)
+      const result = await exportWithHeader(JSON.stringify([...names, '+12 more']))
+      expect(result.omitted).toHaveLength(50)
+      expect(result.omittedMore).toBe(12)
+    })
+
+    it('ignores a malformed or non-array header', async () => {
+      expect((await exportWithHeader('not json')).omitted).toEqual([])
+      expect((await exportWithHeader('{"a":1}')).omitted).toEqual([])
+      expect((await exportWithHeader('[1,"a.key"]')).omitted).toEqual(['a.key'])
+    })
+
+    it('makes the error code of a failed export readable from the blob body', async () => {
+      const body = new Blob([JSON.stringify({ error: 'english', error_code: 'export_config_unsafe' })], { type: 'application/json' })
+      vi.mocked(client.get).mockRejectedValue(new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, { status: 422, data: body } as AxiosResponse))
+
+      const err = await crowdsec.exportCrowdsecConfig().catch((e: unknown) => e)
+
+      expect(crowdsec.getCrowdsecExportError(err)).toBe('export_config_unsafe')
+    })
+
+    it('leaves a failed export with a body that is not JSON unchanged', async () => {
+      const body = new Blob(['<html>'], { type: 'text/html' })
+      vi.mocked(client.get).mockRejectedValue(new AxiosError('x', 'ERR_BAD_RESPONSE', undefined, undefined, { status: 502, data: body } as AxiosResponse))
+
+      const err = await crowdsec.exportCrowdsecConfig().catch((e: unknown) => e)
+
+      expect(crowdsec.getCrowdsecExportError(err)).toBeUndefined()
+    })
+
+    it('tolerates a response without headers', async () => {
+      vi.mocked(client.get).mockResolvedValue({ data: mockBlob })
+      expect((await crowdsec.exportCrowdsecConfig()).omitted).toEqual([])
     })
   })
 

@@ -35,17 +35,17 @@ func TestHubCacheStoreLoadAndExpire(t *testing.T) {
 	require.Contains(t, meta.CacheKey, "crowdsecurity/demo-")
 	require.True(t, strings.HasSuffix(meta.CacheKey, meta.ItemSHA256))
 
-	loaded, err := cache.Load(ctx, "crowdsecurity/demo")
+	loaded, err := cache.Load(ctx, "collections", "crowdsecurity/demo")
 	require.NoError(t, err)
 	require.Equal(t, meta.CacheKey, loaded.CacheKey)
-	preview, err := cache.LoadPreview(ctx, "crowdsecurity/demo")
+	preview, err := cache.LoadPreview(ctx, "collections", "crowdsecurity/demo")
 	require.NoError(t, err)
 	require.Equal(t, "name: demo\n", preview)
 
 	cache.nowFn = func() time.Time { return time.Now().Add(2 * time.Minute) }
-	_, err = cache.Load(ctx, "crowdsecurity/demo")
+	_, err = cache.Load(ctx, "collections", "crowdsecurity/demo")
 	require.ErrorIs(t, err, ErrCacheExpired)
-	_, err = cache.LoadPreview(ctx, "crowdsecurity/demo")
+	_, err = cache.LoadPreview(ctx, "collections", "crowdsecurity/demo")
 	require.ErrorIs(t, err, ErrCacheExpired)
 }
 
@@ -53,9 +53,9 @@ func TestHubCacheMissingEntryIsAMiss(t *testing.T) {
 	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
-	_, err = cache.Load(context.Background(), "crowdsecurity/none")
+	_, err = cache.Load(context.Background(), "collections", "crowdsecurity/none")
 	require.ErrorIs(t, err, ErrCacheMiss)
-	_, err = cache.LoadPreview(context.Background(), "crowdsecurity/none")
+	_, err = cache.LoadPreview(context.Background(), "collections", "crowdsecurity/none")
 	require.ErrorIs(t, err, ErrCacheMiss)
 }
 
@@ -80,10 +80,10 @@ func TestHubCacheStoreRejectsBadInput(t *testing.T) {
 	cancel()
 	_, err = cache.Store(canceled, "a/b", "collections", "e", "hub", []byte("a: 1\n"))
 	require.ErrorIs(t, err, context.Canceled)
-	_, err = cache.Load(canceled, "a/b")
+	_, err = cache.Load(canceled, "collections", "a/b")
 	require.ErrorIs(t, err, context.Canceled)
-	require.ErrorIs(t, cache.Evict(canceled, "a/b"), context.Canceled)
-	require.ErrorIs(t, cache.EvictIfKey(canceled, "a/b", "k"), context.Canceled)
+	require.ErrorIs(t, cache.Evict(canceled, "collections", "a/b"), context.Canceled)
+	require.ErrorIs(t, cache.EvictIfKey(canceled, "collections", "a/b", "k"), context.Canceled)
 	_, err = cache.List(canceled)
 	require.ErrorIs(t, err, context.Canceled)
 }
@@ -110,15 +110,15 @@ func TestHubCacheListAndEvict(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 2)
 
-	require.NoError(t, cache.Evict(ctx, "crowdsecurity/demo"))
+	require.NoError(t, cache.Evict(ctx, "collections", "crowdsecurity/demo"))
 	entries, err = cache.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	require.Equal(t, "crowdsecurity/other", entries[0].Slug)
 
-	require.NoError(t, cache.Evict(ctx, "crowdsecurity/none"), "evicting an absent entry is not an error")
-	require.NoError(t, cache.Evict(ctx, "crowdsecurity/other"))
-	require.NoDirExists(t, filepath.Join(cache.baseDir, "crowdsecurity"), "an empty owner directory is removed")
+	require.NoError(t, cache.Evict(ctx, "collections", "crowdsecurity/none"), "evicting an absent entry is not an error")
+	require.NoError(t, cache.Evict(ctx, "collections", "crowdsecurity/other"))
+	require.NoDirExists(t, filepath.Join(cache.baseDir, "collections", "crowdsecurity"), "an empty owner directory is removed")
 }
 
 func TestHubCacheListSkipsExpiredAndUnrelatedFiles(t *testing.T) {
@@ -146,9 +146,9 @@ func TestHubCacheListWithRemovedBaseDir(t *testing.T) {
 	entries, err := cache.List(context.Background())
 	require.NoError(t, err)
 	require.Empty(t, entries)
-	_, err = cache.Load(context.Background(), "a/b")
+	_, err = cache.Load(context.Background(), "collections", "a/b")
 	require.ErrorIs(t, err, ErrCacheMiss)
-	require.NoError(t, cache.Evict(context.Background(), "a/b"))
+	require.NoError(t, cache.Evict(context.Background(), "collections", "a/b"))
 	_, err = cache.Store(context.Background(), "a/b", "collections", "e", "hub", []byte("a: 1\n"))
 	require.Error(t, err)
 }
@@ -164,7 +164,7 @@ func TestHubCacheTTL(t *testing.T) {
 	require.NoError(t, err)
 	storeItem(t, cache, "a/b", []byte("a: 1\n"))
 	cache.nowFn = func() time.Time { return time.Now().Add(1000 * time.Hour) }
-	_, err = cache.Load(context.Background(), "a/b")
+	_, err = cache.Load(context.Background(), "collections", "a/b")
 	require.NoError(t, err, "a zero TTL never expires")
 }
 
@@ -195,7 +195,7 @@ func TestHubCacheStoreCleansUpAfterFailure(t *testing.T) {
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	first := storeItem(t, cache, "crowdsecurity/demo", []byte("a: 1\n"))
-	dir := filepath.Join(cache.baseDir, "crowdsecurity", "demo")
+	dir := filepath.Join(cache.baseDir, "collections", "crowdsecurity", "demo")
 
 	// The metadata cannot be replaced while a directory occupies its name; the item rename already happened.
 	require.NoError(t, os.Remove(filepath.Join(dir, "metadata.json")))
@@ -215,7 +215,7 @@ func TestHubCacheStoreFailsWhenItemCannotBeReplaced(t *testing.T) {
 	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
-	dir := filepath.Join(cache.baseDir, "crowdsecurity", "demo")
+	dir := filepath.Join(cache.baseDir, "collections", "crowdsecurity", "demo")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "item.yaml", "child"), 0o700))
 
 	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "collections", "e", "hub", []byte("a: 1\n"))
@@ -229,14 +229,14 @@ func TestHubCacheRemovesTemporaryFilesFromACrashedStore(t *testing.T) {
 	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
-	dir := filepath.Join(cache.baseDir, "crowdsecurity", "demo")
+	dir := filepath.Join(cache.baseDir, "collections", "crowdsecurity", "demo")
 
 	t.Run("Load of a finished entry", func(t *testing.T) {
 		storeItem(t, cache, "crowdsecurity/demo", []byte("a: 1\n"))
 		leftover := filepath.Join(dir, cacheTempPrefix+"1234")
 		require.NoError(t, os.WriteFile(leftover, []byte("partial"), 0o600))
 
-		_, err := cache.Load(context.Background(), "crowdsecurity/demo")
+		_, err := cache.Load(context.Background(), "collections", "crowdsecurity/demo")
 		require.NoError(t, err)
 		require.NoFileExists(t, leftover)
 	})
@@ -246,7 +246,7 @@ func TestHubCacheRemovesTemporaryFilesFromACrashedStore(t *testing.T) {
 		leftover := filepath.Join(dir, cacheTempPrefix+"abcd")
 		require.NoError(t, os.WriteFile(leftover, []byte("partial"), 0o600))
 
-		_, err := cache.Load(context.Background(), "crowdsecurity/demo")
+		_, err := cache.Load(context.Background(), "collections", "crowdsecurity/demo")
 		require.ErrorIs(t, err, ErrCacheMiss)
 		require.NoFileExists(t, leftover)
 	})
@@ -265,12 +265,12 @@ func TestHubCacheCrashLeftoverIsInvalid(t *testing.T) {
 	require.NoError(t, err)
 	storeItem(t, cache, "crowdsecurity/demo", []byte("a: 1\n"))
 	// A crash between the two renames leaves a new item next to the old metadata.
-	item := filepath.Join(cache.baseDir, "crowdsecurity", "demo", "item.yaml")
+	item := filepath.Join(cache.baseDir, "collections", "crowdsecurity", "demo", "item.yaml")
 	require.NoError(t, os.WriteFile(item, []byte("a: 2\n"), 0o600))
 
-	_, err = cache.Load(context.Background(), "crowdsecurity/demo")
+	_, err = cache.Load(context.Background(), "collections", "crowdsecurity/demo")
 	require.ErrorIs(t, err, ErrCacheInvalid)
-	require.NoDirExists(t, filepath.Join(cache.baseDir, "crowdsecurity", "demo"))
+	require.NoDirExists(t, filepath.Join(cache.baseDir, "collections", "crowdsecurity", "demo"))
 }
 
 func TestHubCacheEvictInvalidKeepsEntryRewrittenMeanwhile(t *testing.T) {
@@ -280,11 +280,11 @@ func TestHubCacheEvictInvalidKeepsEntryRewrittenMeanwhile(t *testing.T) {
 	// The entry was invalid when it was read, but a writer replaced it before the write lock was taken.
 	meta := storeItem(t, cache, "crowdsecurity/demo", []byte("a: 1\n"))
 
-	got, item, err := cache.evictInvalid("crowdsecurity/demo")
+	got, item, err := cache.evictInvalid("collections", "crowdsecurity/demo")
 	require.NoError(t, err)
 	require.Equal(t, meta.CacheKey, got.CacheKey)
 	require.Equal(t, "a: 1\n", string(item))
-	require.DirExists(t, filepath.Join(cache.baseDir, "crowdsecurity", "demo"))
+	require.DirExists(t, filepath.Join(cache.baseDir, "collections", "crowdsecurity", "demo"))
 }
 
 func TestHubCacheEvictIfKey(t *testing.T) {
@@ -295,30 +295,30 @@ func TestHubCacheEvictIfKey(t *testing.T) {
 
 	t.Run("matching key removes the entry", func(t *testing.T) {
 		meta := storeItem(t, cache, "crowdsecurity/demo", []byte("a: 1\n"))
-		require.NoError(t, cache.EvictIfKey(ctx, "crowdsecurity/demo", meta.CacheKey))
-		require.NoDirExists(t, filepath.Join(cache.baseDir, "crowdsecurity", "demo"))
+		require.NoError(t, cache.EvictIfKey(ctx, "collections", "crowdsecurity/demo", meta.CacheKey))
+		require.NoDirExists(t, filepath.Join(cache.baseDir, "collections", "crowdsecurity", "demo"))
 	})
 	t.Run("a newer entry stays", func(t *testing.T) {
 		old := storeItem(t, cache, "crowdsecurity/demo", []byte("a: 1\n"))
 		newer := storeItem(t, cache, "crowdsecurity/demo", []byte("a: 2\n"))
 		require.NotEqual(t, old.CacheKey, newer.CacheKey, "different content gives a different key within the same second")
 
-		require.NoError(t, cache.EvictIfKey(ctx, "crowdsecurity/demo", old.CacheKey))
-		loaded, err := cache.Load(ctx, "crowdsecurity/demo")
+		require.NoError(t, cache.EvictIfKey(ctx, "collections", "crowdsecurity/demo", old.CacheKey))
+		loaded, err := cache.Load(ctx, "collections", "crowdsecurity/demo")
 		require.NoError(t, err)
 		require.Equal(t, newer.CacheKey, loaded.CacheKey)
 	})
 	t.Run("an absent entry is not an error", func(t *testing.T) {
-		require.NoError(t, cache.EvictIfKey(ctx, "crowdsecurity/none", "key"))
+		require.NoError(t, cache.EvictIfKey(ctx, "collections", "crowdsecurity/none", "key"))
 	})
 	t.Run("an invalid entry is removed", func(t *testing.T) {
 		storeItem(t, cache, "crowdsecurity/broken", []byte("a: 1\n"))
-		require.NoError(t, os.WriteFile(filepath.Join(cache.baseDir, "crowdsecurity", "broken", "item.yaml"), []byte("x"), 0o600))
-		require.NoError(t, cache.EvictIfKey(ctx, "crowdsecurity/broken", "other-key"))
-		require.NoDirExists(t, filepath.Join(cache.baseDir, "crowdsecurity", "broken"))
+		require.NoError(t, os.WriteFile(filepath.Join(cache.baseDir, "collections", "crowdsecurity", "broken", "item.yaml"), []byte("x"), 0o600))
+		require.NoError(t, cache.EvictIfKey(ctx, "collections", "crowdsecurity/broken", "other-key"))
+		require.NoDirExists(t, filepath.Join(cache.baseDir, "collections", "crowdsecurity", "broken"))
 	})
 	t.Run("a malformed slug is refused", func(t *testing.T) {
-		require.ErrorIs(t, cache.EvictIfKey(ctx, "..", "k"), ErrInvalidSlug)
+		require.ErrorIs(t, cache.EvictIfKey(ctx, "collections", "..", "k"), ErrInvalidSlug)
 	})
 }
 
@@ -329,17 +329,17 @@ func TestHubCacheEvictRemovesLinksNotTargets(t *testing.T) {
 	storeItem(t, cache, "other/entry", []byte("a: 1\n"))
 
 	t.Run("entry directory link", func(t *testing.T) {
-		require.NoError(t, os.MkdirAll(filepath.Join(cache.baseDir, "linked"), 0o700))
-		require.NoError(t, os.Symlink(filepath.Join(cache.baseDir, "other", "entry"), filepath.Join(cache.baseDir, "linked", "entry")))
-		require.NoError(t, cache.Evict(context.Background(), "linked/entry"))
-		require.NoFileExists(t, filepath.Join(cache.baseDir, "linked", "entry"))
-		require.DirExists(t, filepath.Join(cache.baseDir, "other", "entry"))
+		require.NoError(t, os.MkdirAll(filepath.Join(cache.baseDir, "collections", "linked"), 0o700))
+		require.NoError(t, os.Symlink(filepath.Join(cache.baseDir, "collections", "other", "entry"), filepath.Join(cache.baseDir, "collections", "linked", "entry")))
+		require.NoError(t, cache.Evict(context.Background(), "collections", "linked/entry"))
+		require.NoFileExists(t, filepath.Join(cache.baseDir, "collections", "linked", "entry"))
+		require.DirExists(t, filepath.Join(cache.baseDir, "collections", "other", "entry"))
 	})
 	t.Run("owner directory link", func(t *testing.T) {
-		require.NoError(t, os.Symlink(filepath.Join(cache.baseDir, "other"), filepath.Join(cache.baseDir, "alias")))
-		require.NoError(t, cache.Evict(context.Background(), "alias/entry"))
-		require.DirExists(t, filepath.Join(cache.baseDir, "other", "entry"), "the entry behind a linked owner directory survives")
-		_, err := os.Lstat(filepath.Join(cache.baseDir, "alias"))
+		require.NoError(t, os.Symlink(filepath.Join(cache.baseDir, "collections", "other"), filepath.Join(cache.baseDir, "collections", "alias")))
+		require.NoError(t, cache.Evict(context.Background(), "collections", "alias/entry"))
+		require.DirExists(t, filepath.Join(cache.baseDir, "collections", "other", "entry"), "the entry behind a linked owner directory survives")
+		_, err := os.Lstat(filepath.Join(cache.baseDir, "collections", "alias"))
 		require.True(t, os.IsNotExist(err))
 	})
 }
@@ -350,11 +350,12 @@ func TestHubCacheRejectsLinkedOwnerDirectory(t *testing.T) {
 	require.NoError(t, err)
 	outside := t.TempDir()
 	hubcachetest.Write(t, outside, hubcachetest.Entry{Slug: "x/y", Item: []byte("a: 1\n")})
-	require.NoError(t, os.Symlink(filepath.Join(outside, "x"), filepath.Join(cache.baseDir, "x")))
+	require.NoError(t, os.MkdirAll(filepath.Join(cache.baseDir, "collections"), 0o700))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "collections", "x"), filepath.Join(cache.baseDir, "collections", "x")))
 
-	_, err = cache.Load(context.Background(), "x/y")
+	_, err = cache.Load(context.Background(), "collections", "x/y")
 	require.ErrorIs(t, err, ErrCacheInvalid)
-	require.DirExists(t, filepath.Join(outside, "x", "y"), "the linked directory is left untouched")
+	require.DirExists(t, filepath.Join(outside, "collections", "x", "y"), "the linked directory is left untouched")
 }
 
 func TestHubCacheRejectsInvalidMetadataFields(t *testing.T) {
@@ -376,9 +377,9 @@ func TestHubCacheRejectsInvalidMetadataFields(t *testing.T) {
 			require.NoError(t, err)
 			hubcachetest.Write(t, cache.baseDir, entry)
 
-			_, err = cache.Load(context.Background(), "a/b")
+			_, err = cache.Load(context.Background(), "collections", "a/b")
 			require.ErrorIs(t, err, ErrCacheInvalid)
-			require.NoDirExists(t, filepath.Join(cache.baseDir, "a", "b"))
+			require.NoDirExists(t, filepath.Join(cache.baseDir, "collections", "a", "b"))
 		})
 	}
 }
@@ -388,9 +389,9 @@ func TestHubCacheMissingItemFileIsInvalid(t *testing.T) {
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	storeItem(t, cache, "a/b", []byte("a: 1\n"))
-	require.NoError(t, os.Remove(filepath.Join(cache.baseDir, "a", "b", "item.yaml")))
+	require.NoError(t, os.Remove(filepath.Join(cache.baseDir, "collections", "a", "b", "item.yaml")))
 
-	_, err = cache.Load(context.Background(), "a/b")
+	_, err = cache.Load(context.Background(), "collections", "a/b")
 	require.ErrorIs(t, err, ErrCacheInvalid)
 }
 
@@ -402,7 +403,7 @@ func TestHubCacheStoreNormalizesDisplayText(t *testing.T) {
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(meta.Etag), maxCacheTextBytes)
 	require.True(t, printableText(meta.Etag))
-	_, err = cache.Load(context.Background(), "a/b")
+	_, err = cache.Load(context.Background(), "collections", "a/b")
 	require.NoError(t, err)
 }
 
@@ -439,7 +440,7 @@ func TestHubCacheConcurrentUseOfOneInstance(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 50 {
-				_, item, err := cache.LoadItem(ctx, slug)
+				_, item, err := cache.LoadItem(ctx, "collections", slug)
 				if err != nil && !errors.Is(err, ErrCacheMiss) {
 					report(err)
 				}
@@ -456,10 +457,10 @@ func TestHubCacheConcurrentUseOfOneInstance(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 20 {
-			if err := cache.Evict(ctx, slug); err != nil {
+			if err := cache.Evict(ctx, "collections", slug); err != nil {
 				report(err)
 			}
-			if err := cache.EvictIfKey(ctx, slug, "unknown-key"); err != nil {
+			if err := cache.EvictIfKey(ctx, "collections", slug, "unknown-key"); err != nil {
 				report(err)
 			}
 		}
@@ -477,14 +478,14 @@ func TestHubCacheStoreFailsInUnwritableEntryDir(t *testing.T) {
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	storeItem(t, cache, "crowdsecurity/demo", []byte("a: 1\n"))
-	dir := filepath.Join(cache.baseDir, "crowdsecurity", "demo")
+	dir := filepath.Join(cache.baseDir, "collections", "crowdsecurity", "demo")
 	require.NoError(t, os.Chmod(dir, 0o500))       //nolint:gosec // G302: test needs a read-only dir
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // G302: restore access so cleanup can remove the dir
 
 	_, err = cache.Store(context.Background(), "crowdsecurity/demo", "collections", "e", "hub", []byte("a: 2\n"))
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), cache.baseDir, "no server paths in the error")
-	loaded, err := cache.Load(context.Background(), "crowdsecurity/demo")
+	loaded, err := cache.Load(context.Background(), "collections", "crowdsecurity/demo")
 	require.NoError(t, err)
 	require.Equal(t, hubcachetest.SHA256Hex([]byte("a: 1\n")), loaded.ItemSHA256, "the previous entry is unchanged")
 }
@@ -493,10 +494,11 @@ func TestHubCacheEvictReportsUnusableOwnerDirectory(t *testing.T) {
 	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(cache.baseDir, "owner"), []byte("file"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(cache.baseDir, "collections"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(cache.baseDir, "collections", "owner"), []byte("file"), 0o600))
 
-	require.Error(t, cache.Evict(context.Background(), "owner/name"))
-	_, err = cache.Load(context.Background(), "owner/name")
+	require.Error(t, cache.Evict(context.Background(), "collections", "owner/name"))
+	_, err = cache.Load(context.Background(), "collections", "owner/name")
 	require.Error(t, err)
 }
 
