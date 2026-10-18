@@ -1685,6 +1685,7 @@
         "waitingForServer": "正在等待服务器...",
         "cancel": "取消",
         "cancelling": "正在取消...",
+        "cancelFailed": "无法取消安装，请重试。",
         "succeeded": "预设已应用。",
         "failed": "安装失败。",
         "failedGeneric": "无法安装该预设。",

@@ -58,9 +58,20 @@ export interface PullCrowdsecPresetResponse {
   type?: string
   preview: string
   cache_key: string
+  /** Digest of the pulled item; sent back on apply so a changed cache entry is refused as stale. */
+  item_sha256?: string
   etag?: string
   retrieved_at?: string
   source?: string
+}
+
+/** Body of a preset apply request. */
+export interface ApplyCrowdsecPresetRequest {
+  slug: string
+  type?: string
+  cache_key?: string
+  /** Digest from pull; the server refuses the apply when the cached item no longer matches. */
+  item_sha256?: string
 }
 
 /** Response from applying a CrowdSec preset. */
@@ -118,12 +129,12 @@ export async function pullCrowdsecPreset(slug: string, type?: string) {
 
 /**
  * Applies a CrowdSec preset to the configuration.
- * @param payload - The canonical preset slug and hub section returned by pull and the cache_key of the previewed copy.
+ * @param payload - The canonical preset slug and hub section returned by pull, plus the cache_key and item_sha256 of the previewed copy.
  *   `cache_key` is required for hub presets and optional for curated ones.
  * @returns Promise resolving to ApplyCrowdsecPresetResponse
  * @throws {AxiosError} If application fails; the body is a CrowdsecPresetApiError
  */
-export async function applyCrowdsecPreset(payload: { slug: string; type?: string; cache_key?: string }) {
+export async function applyCrowdsecPreset(payload: ApplyCrowdsecPresetRequest) {
   const resp = await client.post<ApplyCrowdsecPresetResponse>('/admin/crowdsec/presets/apply', payload, {
     timeout: APPLY_CROWDSEC_PRESET_TIMEOUT_MS,
   })
@@ -228,7 +239,7 @@ export function getCrowdsecBusyJobId(err: unknown): string | undefined {
  * @returns The queued job (HTTP 202)
  * @throws {AxiosError} 409 `crowdsec_busy` while another install or a data change runs
  */
-export async function applyPresetAsync(payload: { slug: string; type?: string; cache_key?: string }) {
+export async function applyPresetAsync(payload: ApplyCrowdsecPresetRequest) {
   const resp = await client.post<CrowdsecApplyJob>('/admin/crowdsec/presets/apply', { ...payload, async: true })
   return resp.data
 }

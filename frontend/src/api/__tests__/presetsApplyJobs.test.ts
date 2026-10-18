@@ -31,6 +31,14 @@ const axiosError = (status: number, data: Record<string, unknown>) =>
 describe('preset apply job API', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('sends the pulled item digest with an async apply', async () => {
+    vi.mocked(client.post).mockResolvedValue({ data: job({ state: 'queued' }) })
+
+    await presets.applyPresetAsync({ slug: 's', cache_key: 'k', item_sha256: 'abc' })
+
+    expect(client.post).toHaveBeenCalledWith('/admin/crowdsec/presets/apply', { slug: 's', cache_key: 'k', item_sha256: 'abc', async: true })
+  })
+
   it('starts an async apply with the default timeout', async () => {
     vi.mocked(client.post).mockResolvedValue({ data: job({ state: 'queued' }) })
 

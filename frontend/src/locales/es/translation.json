@@ -1685,6 +1685,7 @@
         "waitingForServer": "Esperando al servidor...",
         "cancel": "Cancelar",
         "cancelling": "Cancelando...",
+        "cancelFailed": "No se pudo cancelar la instalación. Inténtalo de nuevo.",
         "succeeded": "Preset aplicado.",
         "failed": "La instalación falló.",
         "failedGeneric": "No se pudo instalar el preset.",

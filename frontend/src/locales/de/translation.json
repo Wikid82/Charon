@@ -1685,6 +1685,7 @@
         "waitingForServer": "Warten auf den Server...",
         "cancel": "Abbrechen",
         "cancelling": "Wird abgebrochen...",
+        "cancelFailed": "Der Installationsabbruch ist fehlgeschlagen. Bitte erneut versuchen.",
         "succeeded": "Preset angewendet.",
         "failed": "Installation fehlgeschlagen.",
         "failedGeneric": "Das Preset konnte nicht installiert werden.",
