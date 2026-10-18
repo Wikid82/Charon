@@ -162,6 +162,19 @@ function progressRow(page: Page) {
   return page.getByRole('status', { name: /installing preset/i });
 }
 
+/**
+ * The running-state container (phase text, Cancel button). The live region keeps the same
+ * accessible name after the job ends, so "running UI gone" is asserted on this container.
+ */
+function runningPanel(page: Page) {
+  return page.getByTestId('preset-install-progress');
+}
+
+/** The terminal-state container holding the result text; same persistent live region inside. */
+function resultPanel(page: Page) {
+  return page.getByTestId('preset-install-result');
+}
+
 test.describe('CrowdSec background hub preset install @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
@@ -241,7 +254,8 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await test.step('Verify the succeeded state replaces the progress row', async () => {
       // installProgress.succeeded + installProgress.itemsInstalled
       await expect(page.getByText(/preset applied\. 41 items installed/i)).toBeVisible();
-      await expect(progressRow(page)).toHaveCount(0);
+      await expect(resultPanel(page).getByRole('status', { name: /installing preset/i })).toContainText(/preset applied\. 41 items installed/i);
+      await expect(runningPanel(page)).toHaveCount(0);
       await expect(page.getByRole('button', { name: /apply preset/i })).toBeEnabled();
     });
 
@@ -296,7 +310,8 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await loadPage(page);
 
     await expect(page.getByText(/preset applied\. 41 items installed/i)).toBeVisible();
-    await expect(progressRow(page)).toHaveCount(0);
+    await expect(resultPanel(page)).toContainText(/preset applied\. 41 items installed/i);
+    await expect(runningPanel(page)).toHaveCount(0);
     await expect(page.getByRole('button', { name: /cancel/i })).toHaveCount(0);
   });
 
@@ -335,7 +350,9 @@ test.describe('CrowdSec background hub preset install @security', () => {
       // crowdsecConfig.presets.installProgress.cancelled
       await expect(page.getByText(/install cancelled/i)).toBeVisible();
       await expect(page.getByText(/previous configuration was restored/i)).toBeVisible();
-      await expect(progressRow(page)).toBeHidden();
+      await expect(resultPanel(page)).toContainText(/install cancelled/i);
+      await expect(runningPanel(page)).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /^cancel$/i })).toHaveCount(0);
       await expect(page.getByRole('button', { name: /apply preset/i })).toBeEnabled();
     });
   });
@@ -361,7 +378,8 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await expect(page.getByText(/install failed\./i)).toBeVisible();
     await expect(page.getByText(/previous configuration was restored/i)).toBeVisible();
     await expect(page.getByText(/preset applied/i)).toHaveCount(0);
-    await expect(progressRow(page)).toBeHidden();
+    await expect(resultPanel(page)).toContainText(/install failed\./i);
+    await expect(runningPanel(page)).toHaveCount(0);
     await expect(page.getByRole('button', { name: /apply preset/i })).toBeEnabled();
   });
 
@@ -383,7 +401,8 @@ test.describe('CrowdSec background hub preset install @security', () => {
     // crowdsecConfig.presets.installProgress.interrupted
     await expect(page.getByText(/install was interrupted by a restart/i)).toBeVisible();
     await expect(page.getByText(/previous configuration was restored/i)).toBeVisible();
-    await expect(progressRow(page)).toBeHidden();
+    await expect(resultPanel(page)).toContainText(/install was interrupted by a restart/i);
+    await expect(runningPanel(page)).toHaveCount(0);
   });
 
   test('should show the timed out state with a rollback note', async ({ page }) => {
