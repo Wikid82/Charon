@@ -2,7 +2,9 @@
 #
 # Puts a stub `curl` first on PATH. The stub answers from a routes file
 # ($PF_DIR/routes), one rule per line:  METHOD|URL glob|HTTP status|body file
-# The first matching rule wins; no match answers 404. Every call is appended to
+# The first matching rule wins; no match answers 404. A status written as
+# "401x1" answers that status for the first N matching calls, then the rule is
+# skipped so a later rule can answer (e.g. an expired token that works on retry). Every call is appended to
 # $PF_DIR/calls as "METHOD URL" so tests can assert what was (not) deleted.
 
 pf_setup() {
@@ -27,10 +29,18 @@ while (( $# )); do
 done
 echo "$method $url" >> "$PF_DIR/calls"
 code=404 body='{"message":"no route"}'
+n=0
 while IFS='|' read -r m glob c f; do
+  n=$((n + 1))
   [[ -z "$m" ]] && continue
   # shellcheck disable=SC2053
   if [[ "$m" == "$method" && "$url" == $glob ]]; then
+    if [[ "$c" == *x* ]]; then
+      hits=$(cat "$PF_DIR/hits.$n" 2>/dev/null || echo 0)
+      if (( hits >= ${c#*x} )); then continue; fi
+      echo $((hits + 1)) > "$PF_DIR/hits.$n"
+      c="${c%x*}"
+    fi
     code="$c"
     if [[ -n "$f" ]]; then body=$(cat "$f"); else body=''; fi
     break

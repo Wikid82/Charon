@@ -111,12 +111,29 @@ human_readable() {
 # already gone, which is the state we wanted. Everything else (401/403/5xx or
 # a transport error) is logged and counted in TOTAL_FAILED. Headers are never
 # logged, so tokens cannot leak.
+#
+# Registries that issue short-lived tokens can set two optional hooks:
+#   REGISTRY_AUTH_HEADER_FN - prints the auth header ("Name: value") for each attempt
+#   REGISTRY_REAUTH_FN      - refreshes the credential; on a 401 it runs once and
+#                             the DELETE is retried with a freshly built header
 registry_delete() {
   local desc="$1" bytes="${2:-0}" url="$3"
   shift 3
-  local body_file code snippet
+  local body_file code snippet attempt
+  local -a headers
   body_file=$(mktemp)
-  code=$(curl -sS -o "$body_file" -w '%{http_code}' -X DELETE "$@" "$url") || code=000
+  for attempt in 1 2; do
+    headers=("$@")
+    if [[ -n "${REGISTRY_AUTH_HEADER_FN:-}" ]]; then
+      headers+=(-H "$("$REGISTRY_AUTH_HEADER_FN")")
+    fi
+    code=$(curl -sS -o "$body_file" -w '%{http_code}' -X DELETE "${headers[@]}" "$url") || code=000
+    if [[ "$code" == "401" && "$attempt" == "1" && -n "${REGISTRY_REAUTH_FN:-}" ]]; then
+      echo "$LOG_PREFIX credential rejected (http=401); re-authenticating and retrying $desc"
+      "$REGISTRY_REAUTH_FN" && continue
+    fi
+    break
+  done
   if [[ "$code" =~ ^2[0-9][0-9]$ ]] || [[ "$code" == "404" ]]; then
     TOTAL_DELETED=$((TOTAL_DELETED + 1))
     TOTAL_DELETED_BYTES=$((TOTAL_DELETED_BYTES + bytes))
