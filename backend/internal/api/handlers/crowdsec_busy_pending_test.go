@@ -17,13 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests describe how the handlers behave while a background hub install job runs (#1615, PR 6). They
-// compile against the current code and skip until commit 3 of PR 6 (the busy flag) replaces
-// setBackgroundInstallActive with the real hook and removes its t.Skip.
+// These tests cover how the handlers behave while a background hub install job runs (#1615, PR 6).
 
 const (
-	pendingAsyncApplySkip = "pending the async preset apply route (PR 6 commit 6)"
-	busyJobID             = "00000000-0000-4000-8000-000000000001"
+	busyJobID = "00000000-0000-4000-8000-000000000001"
 )
 
 // setBackgroundInstallActive makes h behave as if install job busyJobID were running.
@@ -45,7 +42,10 @@ func newBusyFixture(t *testing.T) *busyFixture {
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.CrowdSecWhitelist{}, &models.CrowdsecConsoleEnrollment{}))
+	sqlDB, dbErr := db.DB()
+	require.NoError(t, dbErr)
+	sqlDB.SetMaxOpenConns(1) // shared-cache SQLite answers concurrent connections with "table is locked"
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.CrowdSecWhitelist{}, &models.CrowdsecConsoleEnrollment{}, &models.CrowdsecApplyJob{}))
 	dir := t.TempDir()
 	ce := &countingExec{running: true}
 	h := newTestCrowdsecHandler(t, db, ce, "/bin/false", dir)
@@ -248,21 +248,19 @@ func TestNonBusyRoutesStayOpenWhileAnInstallRuns(t *testing.T) {
 			continue
 		}
 		method, path, _ := strings.Cut(route, " ")
-		path = strings.NewReplacer("*value", "192.0.2.1", ":uuid", "x").Replace(path)
+		path = strings.NewReplacer("*value", "192.0.2.1", ":uuid", "x", ":id", "00000000-0000-4000-8000-000000000002").Replace(path)
 		w := f.do(method, path, []byte(`{}`), "application/json")
 		require.NotEqual(t, http.StatusConflict, w.Code, "%s (%s) must not be blocked: %s", route, c.class, w.Body.String())
 	}
 }
 
 func TestHubItemsRestoreInProgressRefusesAnInstallJob(t *testing.T) {
-	t.Skip(pendingAsyncApplySkip)
 	f := newBusyFixture(t)
 	f.h.restore.running.Store(true)
 	defer f.h.restore.running.Store(false)
 
-	curated := curatedPresetSlug()
 	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply",
-		[]byte(`{"slug":"`+curated+`","cache_key":"curated-`+curated+`","async":true}`), "application/json")
+		[]byte(`{"slug":"crowdsecurity/sshd","type":"collections","cache_key":"k","async":true}`), "application/json")
 
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	var resp map[string]any

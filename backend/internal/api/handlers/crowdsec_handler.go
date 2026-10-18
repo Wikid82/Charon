@@ -113,6 +113,10 @@ type CrowdsecHandler struct {
 	applyJobsOnce sync.Once
 	applyJobs     *crowdsec.ApplyJobManager
 
+	// applyJobsCfgMu guards applyJobsHub, the hub service the manager was last configured with.
+	applyJobsCfgMu sync.Mutex
+	applyJobsHub   *crowdsec.HubService
+
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
 
@@ -2678,6 +2682,10 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/presets", h.ListPresets)
 	rg.POST("/admin/crowdsec/presets/pull", h.PullPreset)
 	rg.POST("/admin/crowdsec/presets/apply", h.ApplyPreset)
+	rg.GET("/admin/crowdsec/presets/jobs/current", h.GetCurrentApplyJob)
+	rg.GET("/admin/crowdsec/presets/jobs", h.ListApplyJobs)
+	rg.GET("/admin/crowdsec/presets/jobs/:id", h.GetApplyJob)
+	rg.DELETE("/admin/crowdsec/presets/jobs/:id", h.CancelApplyJob)
 	rg.GET("/admin/crowdsec/presets/cache/*slug", h.GetCachedPreset)
 	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)

@@ -47,6 +47,8 @@ var mutatingCrowdsecRoutes = map[string]routeClassification{
 		"writes only hub_cache, which is engine-owned (IsEngineOwnedPath) and never snapshotted or restored; Apply tolerates a newer entry via EvictIfKey"},
 	"POST /admin/crowdsec/presets/apply": {routeBusyChecked,
 		"synchronous and curated apply mutate the hub tree; the async variant starts the job and answers 409 with the active job id"},
+	"DELETE /admin/crowdsec/presets/jobs/:id": {routeOutsideDataDir,
+		"asks the running install job to stop; the job itself rolls back from its snapshot, and the request must work while the job holds the busy flag"},
 	"POST /admin/crowdsec/console/enroll": {routeBusyChecked,
 		"cscli console enrol (and capi register) write online_api_credentials.yaml below DataDir/config, which a rollback restore would revert"},
 	"DELETE /admin/crowdsec/console/enrollment": {routeOutsideDataDir,

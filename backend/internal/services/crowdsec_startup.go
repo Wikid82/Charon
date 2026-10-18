@@ -77,6 +77,10 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		return
 	}
 
+	// An install job the previous process left running died half way; put the pre-install snapshot back before
+	// anything (including the engine) reads the configuration. This runs whatever the CrowdSec mode is.
+	recoverInterruptedInstalls(db, dataDir)
+
 	// Check if SecurityConfig table exists and has a record with CrowdSecMode = "local"
 	if !db.Migrator().HasTable(&models.SecurityConfig{}) {
 		logger.Log().Warn("CrowdSec reconciliation skipped: SecurityConfig table not found - run 'charon migrate' to fix")
@@ -442,4 +446,32 @@ func (e *simpleCommandExecutor) Execute(ctx context.Context, name string, args .
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: command is from internal allowlist, not user input
 	cmd.Env = os.Environ()
 	return crowdsec.CombinedOutputLimited(cmd)
+}
+
+// installRecoveryTimeout bounds the database work of recoverInterruptedInstalls; the restore itself is local
+// file copying and is not bounded.
+const installRecoveryTimeout = 30 * time.Second
+
+// recoverInterruptedInstalls fails every background preset install job a previous process left active and
+// restores the snapshot it took before installing, because the cscli child died with the process and the
+// tree may be half installed. A missing or unrestorable snapshot is recorded as a warning on the job and never
+// touches the configuration. Nothing here can stop the start.
+func recoverInterruptedInstalls(db *gorm.DB, dataDir string) {
+	if db == nil || !db.Migrator().HasTable(&models.CrowdsecApplyJob{}) {
+		return
+	}
+	m := crowdsec.NewApplyJobManager(nil)
+	m.Configure(crowdsec.ApplyJobConfig{Repo: crowdsec.NewApplyJobRepository(db)})
+	ctx, cancel := context.WithTimeout(context.Background(), installRecoveryTimeout)
+	defer cancel()
+	err := m.RecoverInterrupted(ctx, func(backupPath string) error {
+		return crowdsec.Restore(backupPath, dataDir)
+	})
+	if err != nil {
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).Warn("CrowdSec reconciliation: recovering interrupted preset installs failed")
+		return
+	}
+	if err := m.Prune(ctx); err != nil {
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).Warn("CrowdSec reconciliation: pruning preset install jobs failed")
+	}
 }
