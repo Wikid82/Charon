@@ -25,6 +25,10 @@ validation and registration (5 s and 10 s deadlines); a test fails if a handler 
 list and an `error` code: `cscli_timeout`, `cscli_output_too_large` or
 `cscli_unavailable`; the UI shows a passive note.
 
+Every `cscli` call, including hub `inspect` and verify, passes `-c <engine config>` so it
+reads the same configuration and hub as the running engine. The one exception is the
+`cscli version` presence probe, which needs no configuration.
+
 | Command | How the result is used |
 | --- | --- |
 | `cscli decisions list -o json` | Parsed as a list of alerts, each with nested `decisions`; the decisions table shows one row per nested decision. Empty output, `null` and `[]` mean "no decisions". |

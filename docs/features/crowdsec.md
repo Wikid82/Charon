@@ -48,7 +48,7 @@ Access pre-built security configurations from the CrowdSec Hub:
 3. Search for specific parsers, scenarios, or collections
 4. Click **Install** to add to your configuration
 
-Hub presets are installed in two steps. First click **Pull** to download and preview the preset (a pulled preview can be shown again without downloading it again). Then click **Apply** to install exactly what you previewed, using the `cscli` tool that ships with Charon (it also installs anything the preset depends on). If the preview has gone out of date, Charon asks you to pull the preset again. Most installs finish in a few seconds. Charon waits up to 120 seconds, then stops, rolls everything back and keeps your preview. Very large collections (hundreds of items) can take longer because their items are downloaded one at a time; for those, install with `docker exec charon cscli collections install <name>` instead. You can apply an already-downloaded preview without internet access if its items are already on the server; otherwise the apply fails and is rolled back, and pulling a preset you never downloaded needs internet access. If a name exists in more than one hub section (for example a parser and a collection with the same name), Charon asks you to choose which one you mean. If the hub cannot be reached, nothing is installed and Charon says so. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#hub-preset-messages) if you see a message.
+Hub presets are installed in two steps. First click **Pull** to download and preview the preset (a pulled preview can be shown again without downloading it again, and pulling a preset without picking a section reuses a recently fetched hub list for 10 minutes when only one section is saved on the server). Then click **Apply** to install exactly what you previewed, using the `cscli` tool that ships with Charon (it also installs anything the preset depends on). If the preview has gone out of date, Charon asks you to pull the preset again. Most installs finish in a few seconds. Charon waits up to 120 seconds, then stops, rolls everything back and keeps your preview. Very large collections (hundreds of items) can take longer because their items are downloaded one at a time; for those, install with `docker exec charon cscli collections install <name>` instead. You can apply an already-downloaded preview without internet access if its items are already on the server; otherwise the apply fails and is rolled back, and pulling a preset you never downloaded needs internet access. If a name exists in more than one hub section (for example a parser and a collection with the same name), Charon asks you to choose which one you mean. If the hub cannot be reached, nothing is installed and Charon says so. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#hub-preset-messages) if you see a message.
 
 Popular presets include:
 
@@ -65,7 +65,7 @@ Charon also ships curated presets such as **Honeypot Friendly Defaults** and **G
 Hub presets are applied on the server too, with the same safety net: before anything changes, Charon makes a backup copy of your CrowdSec settings. If something goes wrong, your settings are put back exactly as they were, and Charon shows you the error. Your live CrowdSec folder is never moved or emptied along the way.
 
 - The backup taken before a hub preset is applied is a light one: it does not copy CrowdSec's downloaded hub files, so it stays small and quick however large the hub grows. If the apply fails, your settings are put back and any hub files the failed apply added are removed.
-- Charon keeps the 5 most recent full backups and the 10 most recent single-file backups, and quietly deletes older ones.
+- Charon keeps the 5 most recent full backups and the 10 most recent single-file backups, and quietly deletes older ones. Backups of your acquisition settings (`acquis.yaml.backup.<timestamp>`) are kept to the latest 5 as well.
 - Only one change runs at a time, so two edits can't collide.
 - The config file editor only accepts common text and settings files (`.yaml`, `.yml`, `.json`, `.txt`, `.conf`) up to 1 MiB, and validates file type, size and YAML. Extremely large or deeply nested YAML files are refused with an "invalid YAML" message.
 - The config file editor does not list CrowdSec's account and connection credential files. They stay safely on disk; an operator can still reach them from the container shell if needed.
@@ -105,7 +105,7 @@ View active blocks in real-time:
 
 1. Navigate to **Security → Live Decisions**
 2. See all currently blocked IPs with:
-   - IP address and origin country
+   - IP address and origin country (the country column stays hidden until country data is available)
    - Reason for block (scenario triggered)
    - Duration remaining
    - Option to manually unban
@@ -121,6 +121,7 @@ You can block an address by hand from the Live Decisions page.
 - **Active decisions count**: the number on the dashboard uses Charon's saved bouncer key, so it shows a real number instead of "N/A".
 - **Alerts**: the alerts list shows only the details the page uses. It follows the time range you pick and pages through up to the 1,000 most recent matching alerts.
 - **Lists that cannot load**: if CrowdSec is slow, unavailable or returns too much data, the list shows a short note that it may be incomplete and refreshes on its own. Nothing needs to be done.
+- **Top addresses**: the list shows when each address was last seen. The Country column only appears once country information exists for at least one address.
 - **Dashboard totals**: unbans you make by hand are kept in the history, but they are not counted as blocked attackers in the top addresses or the summary.
 - **Request size**: CrowdSec requests larger than 64 KiB are refused.
 
