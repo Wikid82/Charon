@@ -89,12 +89,16 @@ export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisio
     )
   }
 
-  const columns: { key: SortKey; label: string }[] = [
+  // The backend does not always populate country; hide the column when no row has one.
+  const hasCountry = sorted.some((row) => Boolean(row.country))
+
+  const allColumns: { key: SortKey; label: string }[] = [
     { key: 'ip', label: t('security.crowdsec.dashboard.colIP', 'IP') },
     { key: 'count', label: t('security.crowdsec.dashboard.colCount', 'Alerts') },
     { key: 'last_seen', label: t('security.crowdsec.dashboard.colLastSeen', 'Last Seen') },
     { key: 'country', label: t('security.crowdsec.dashboard.colCountry', 'Country') },
   ]
+  const columns = hasCountry ? allColumns : allColumns.filter((col) => col.key !== 'country')
 
   return (
     <div className="rounded-lg border border-gray-700 bg-gray-900 p-4">
@@ -144,7 +148,7 @@ export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisio
                     {formatRelativeTime(row.last_seen)}
                   </time>
                 </td>
-                <td className="py-2 px-3 text-gray-400">{row.country || '—'}</td>
+                {hasCountry && <td className="py-2 px-3 text-gray-400">{row.country || '—'}</td>}
               </tr>
             ))}
           </tbody>

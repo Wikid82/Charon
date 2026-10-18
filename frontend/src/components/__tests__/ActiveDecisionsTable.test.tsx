@@ -84,10 +84,37 @@ describe('ActiveDecisionsTable', () => {
     expect(ipHeader).toHaveAttribute('aria-sort', 'ascending')
   })
 
-  it('shows dash for missing country', () => {
-    const data: TopIP[] = [{ ip: '1.2.3.4', count: 1, last_seen: new Date().toISOString(), country: '' }]
+  it('shows dash for empty country when another row has one', () => {
+    const data: TopIP[] = [
+      { ip: '1.2.3.4', count: 1, last_seen: new Date().toISOString(), country: '' },
+      { ip: '5.6.7.8', count: 2, last_seen: new Date().toISOString(), country: 'FR' },
+    ]
     render(<ActiveDecisionsTable data={data} isLoading={false} isError={false} />)
 
+    expect(screen.getByRole('button', { name: /Sort by Country/i })).toBeInTheDocument()
+    expect(screen.getByText('FR')).toBeInTheDocument()
     expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  it('hides the country column when every row has an empty country', () => {
+    const data: TopIP[] = [
+      { ip: '1.2.3.4', count: 1, last_seen: new Date().toISOString(), country: '' },
+      { ip: '5.6.7.8', count: 2, last_seen: new Date().toISOString(), country: '' },
+    ]
+    render(<ActiveDecisionsTable data={data} isLoading={false} isError={false} />)
+
+    expect(screen.queryByRole('button', { name: /Sort by Country/i })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('columnheader')).toHaveLength(3)
+    expect(screen.queryByText('—')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('cell')).toHaveLength(6)
+  })
+
+  it('renders the last seen time', () => {
+    const data: TopIP[] = [
+      { ip: '1.2.3.4', count: 1, last_seen: new Date(Date.now() - 3 * 3600_000).toISOString(), country: '' },
+    ]
+    render(<ActiveDecisionsTable data={data} isLoading={false} isError={false} />)
+
+    expect(screen.getByText('3h ago')).toBeInTheDocument()
   })
 })
