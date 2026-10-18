@@ -250,6 +250,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.UserPermittedHost{}, // Join table for user permissions
 		&models.CrowdsecPresetEvent{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.CrowdsecApplyJob{},
 		&models.DNSProvider{},
 		&models.DNSProviderCredential{}, // Multi-credential support (Phase 3)
 		&models.Plugin{},                // Phase 5: DNS provider plugins
