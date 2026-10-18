@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 
@@ -155,17 +155,14 @@ describe('ActiveDecisionsTable', () => {
 
     await user.click(screen.getByRole('button', { name: 'Sort by Country' }))
     expect(screen.getByRole('columnheader', { name: /Country/ })).toHaveAttribute('aria-sort', 'descending')
-    const ipsOf = () => screen.getAllByRole('row').slice(1).map((r) => r.querySelector('td')?.textContent)
+    const ipsOf = () => screen.getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell')[0].textContent)
     expect(ipsOf()).toEqual(['2.2.2.2', '3.3.3.3', '1.1.1.1'])
 
     const noCountry = withCountry.map((r) => ({ ...r, country: '' }))
     rerender(<ActiveDecisionsTable data={noCountry} isLoading={false} isError={false} />)
 
     expect(screen.queryByRole('columnheader', { name: /Country/ })).not.toBeInTheDocument()
-    expect(ipsOf()).toEqual(['2.2.2.2', '3.3.3.3', '1.1.1.1'].sort((a, b) => {
-      const c = (ip: string) => noCountry.find((r) => r.ip === ip)!.count
-      return c(b) - c(a)
-    }))
+    expect(ipsOf()).toEqual(['2.2.2.2', '3.3.3.3', '1.1.1.1'])
     expect(screen.getByRole('columnheader', { name: /Alerts/ })).toHaveAttribute('aria-sort', 'descending')
     expect(screen.getByRole('columnheader', { name: /^IP/ })).toHaveAttribute('aria-sort', 'none')
   })
