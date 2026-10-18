@@ -47,6 +47,9 @@ type ApplyJobConfig struct {
 	MaxDuration      time.Duration
 	// Now overrides the clock of the repository (tests).
 	Now func() time.Time
+	// OnFinish, when set, is called with the stored final job after its last write and before the busy flag is
+	// released. A panic in it is logged and never affects the job.
+	OnFinish func(job models.CrowdsecApplyJob)
 }
 
 // HubApplyConfig returns the production configuration: svc.ApplyWith and a scan of the installed hub items.
@@ -69,6 +72,8 @@ type ApplyJobRequest struct {
 	Slug     string
 	Type     string
 	CacheKey string
+	// ItemSHA256 is the optional digest the caller saw at pull time.
+	ItemSHA256 string
 }
 
 // activeApplyJob is the in-memory side of the job that holds the busy flag.
@@ -253,11 +258,32 @@ func (m *ApplyJobManager) run(ctx context.Context, cfg ApplyJobConfig, a *active
 
 	upd := m.finalUpdate(cfg, a, res, err, panicked)
 	m.update(cfg, a.id, upd)
+	m.finish(cfg, a.id)
 	m.Release()
 
 	pruneCtx, cancel := dbContext()
 	defer cancel()
 	m.prune(pruneCtx, cfg)
+}
+
+// finish reads the final job row and hands it to OnFinish; a failure or panic is only logged.
+func (m *ApplyJobManager) finish(cfg ApplyJobConfig, id string) {
+	if cfg.OnFinish == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			logger.Log().WithField("job_id", id).WithField("panic", util.SanitizeForLog(fmt.Sprint(rec))).Error("crowdsec apply job finish hook panicked")
+		}
+	}()
+	ctx, cancel := dbContext()
+	defer cancel()
+	job, err := cfg.Repo.Get(ctx, id)
+	if err != nil {
+		logger.Log().WithField("job_id", id).WithField("error", util.SanitizeForLog(err.Error())).Warn("reading the finished crowdsec apply job failed")
+		return
+	}
+	cfg.OnFinish(*job)
 }
 
 // execute runs the apply and turns a panic into an error so the caller always reaches the final write.
@@ -270,7 +296,7 @@ func (m *ApplyJobManager) execute(ctx context.Context, cfg ApplyJobConfig, a *ac
 		}
 	}()
 	res, err = cfg.Apply(ctx, ApplyRequest{
-		Slug: req.Slug, Type: req.Type, CacheKey: req.CacheKey, Timeout: cfg.MaxDuration,
+		Slug: req.Slug, Type: req.Type, CacheKey: req.CacheKey, ItemSHA256: req.ItemSHA256, Timeout: cfg.MaxDuration,
 		OnPhase: func(p Phase) { m.onPhase(cfg, a, p) },
 		OnSnapshot: func(path string) {
 			backupPath = path

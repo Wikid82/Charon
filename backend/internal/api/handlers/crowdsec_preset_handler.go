@@ -224,6 +224,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		"type":         res.Meta.Type,
 		"preview":      res.Preview,
 		"cache_key":    res.Meta.CacheKey,
+		"item_sha256":  res.Meta.ItemSHA256,
 		"etag":         res.Meta.Etag,
 		"retrieved_at": res.Meta.RetrievedAt,
 		"source":       res.Meta.Source,
@@ -271,7 +272,9 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		Slug     string `json:"slug"`
 		Type     string `json:"type"`
 		CacheKey string `json:"cache_key"`
-		Async    bool   `json:"async"`
+		// ItemSHA256 is optional; when sent it must equal the digest of the cached item or the apply is refused as stale.
+		ItemSHA256 string `json:"item_sha256"`
+		Async      bool   `json:"async"`
 	}
 	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
@@ -321,11 +324,11 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	}
 
 	if payload.Async {
-		h.startApplyJob(c, slug, itemType, cacheKey)
+		h.startApplyJob(c, crowdsec.ApplyJobRequest{Slug: slug, Type: itemType, CacheKey: cacheKey, ItemSHA256: strings.TrimSpace(payload.ItemSHA256)})
 		return
 	}
 
-	res, err := h.Hub.Apply(c.Request.Context(), slug, itemType, cacheKey)
+	res, err := h.Hub.ApplyWith(c.Request.Context(), crowdsec.ApplyRequest{Slug: slug, Type: itemType, CacheKey: cacheKey, ItemSHA256: strings.TrimSpace(payload.ItemSHA256)})
 	if err != nil {
 		// Safe: slug is validated against the hub item name pattern; backup_path and cache_key are system-generated values
 		// codeql[go/log-injection]

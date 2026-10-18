@@ -88,7 +88,9 @@ func (h *CrowdsecHandler) jobManager(c *gin.Context) (*crowdsec.ApplyJobManager,
 	m := h.ApplyJobs()
 	h.applyJobsCfgMu.Lock()
 	if h.applyJobsHub != h.Hub {
-		m.Configure(crowdsec.HubApplyConfig(h.Hub, crowdsec.NewApplyJobRepository(h.DB)))
+		cfg := crowdsec.HubApplyConfig(h.Hub, crowdsec.NewApplyJobRepository(h.DB))
+		cfg.OnFinish = h.recordApplyJobEvent
+		m.Configure(cfg)
 		h.applyJobsHub = h.Hub
 	}
 	h.applyJobsCfgMu.Unlock()
@@ -103,12 +105,12 @@ func (h *CrowdsecHandler) ShutdownApplyJobs() {
 
 // startApplyJob starts a background install of a hub preset and answers 202 with the queued job. The caller
 // holds dataMu, so no data-changing handler is between its busy check and its work while the flag is taken.
-func (h *CrowdsecHandler) startApplyJob(c *gin.Context, slug, itemType, cacheKey string) {
+func (h *CrowdsecHandler) startApplyJob(c *gin.Context, req crowdsec.ApplyJobRequest) {
 	m, ok := h.jobManager(c)
 	if !ok {
 		return
 	}
-	job, err := m.Start(crowdsec.ApplyJobRequest{Slug: slug, Type: itemType, CacheKey: cacheKey})
+	job, err := m.Start(req)
 	switch {
 	case errors.Is(err, crowdsec.ErrApplyJobBusy):
 		// The id is empty when the hub item restore, not a job, holds the other side of the exclusion.
@@ -246,4 +248,20 @@ func (h *CrowdsecHandler) CancelApplyJob(c *gin.Context) {
 		job = fresh
 	}
 	c.JSON(http.StatusAccepted, newApplyJobView(job, time.Now().UTC()))
+}
+
+// recordApplyJobEvent writes the preset history row of a finished background install, the same row the
+// synchronous apply writes: "applied" on success and "failed" with the error text for every other end
+// (failed, cancelled, timed out).
+func (h *CrowdsecHandler) recordApplyJobEvent(job models.CrowdsecApplyJob) {
+	res := crowdsec.ApplyResult{Status: "applied", AppliedPreset: job.Slug, CacheKey: job.CacheKey, BackupPath: job.BackupPath}
+	var applyErr error
+	if job.State != models.CrowdsecApplyJobSucceeded {
+		msg := job.Error
+		if msg == "" {
+			msg = "install " + job.State
+		}
+		applyErr = errors.New(msg)
+	}
+	h.recordPresetEvent(job.Slug, res, applyErr)
 }
