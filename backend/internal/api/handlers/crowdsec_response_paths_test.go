@@ -209,7 +209,8 @@ func TestResponses_LifecycleFailuresReturnFixedMessages(t *testing.T) {
 	cases := []struct {
 		name, method, target, want string
 	}{
-		{"start", http.MethodPost, "/api/v1/admin/crowdsec/start", "failed to start CrowdSec"},
+		// Start reads Status first, which pathErrExec fails.
+		{"start", http.MethodPost, "/api/v1/admin/crowdsec/start", "failed to read CrowdSec status"},
 		{"stop", http.MethodPost, "/api/v1/admin/crowdsec/stop", "failed to stop CrowdSec"},
 		{"status", http.MethodGet, "/api/v1/admin/crowdsec/status", "failed to read CrowdSec status"},
 	}

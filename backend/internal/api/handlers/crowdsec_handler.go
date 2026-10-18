@@ -627,6 +627,25 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
 	}
 
+	// A second spawn cannot bind LAPI and would clobber the pid file of the engine
+	// that is already running, so report the existing process instead.
+	running, runningPid, statusErr := h.Executor.Status(ctx, h.DataDir)
+	if statusErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(statusErr.Error())).Warn("failed to read crowdsec status before start")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read CrowdSec status"})
+		return
+	}
+	if running {
+		_, lapiErr := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
+		logger.Log().WithField("pid", runningPid).Info("CrowdSec start requested but it is already running")
+		c.JSON(http.StatusOK, gin.H{
+			"status":     "already_running",
+			"pid":        runningPid,
+			"lapi_ready": lapiErr == nil,
+		})
+		return
+	}
+
 	// Start the process
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
