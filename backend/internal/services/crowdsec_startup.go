@@ -321,7 +321,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	}
 
 	// Priority 2: Check file-stored key
-	if fileKey, err := os.ReadFile(bouncerKeyFile); err == nil && len(fileKey) > 0 {
+	if fileKey, err := os.ReadFile(bouncerKeyFile); err == nil && len(fileKey) > 0 { // #nosec G304 -- bouncerKeyFile is the fixed key path chosen by the caller, cleaned above, never user input
 		keyStr := strings.TrimSpace(string(fileKey))
 		if testKeyAgainstLAPIStartup(keyStr) {
 			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", util.MaskAPIKey(keyStr)).Info("CrowdSec bouncer: file-stored key validated successfully")

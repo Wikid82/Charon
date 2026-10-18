@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -348,6 +349,23 @@ func parseCSCLIIndex(raw []byte) (HubIndex, error) {
 	return HubIndex{Items: items}, nil
 }
 
+// validIndexPath reports whether an index item path is safe to append to the hub base URL: a relative path
+// without a scheme, a leading double slash, backslashes, control characters or ".." segments.
+func validIndexPath(p string) bool {
+	if strings.HasPrefix(p, "//") || strings.ContainsAny(p, "\\") || strings.Contains(p, "://") {
+		return false
+	}
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	if u, err := neturl.Parse(p); err != nil || u.Scheme != "" || u.Host != "" {
+		return false
+	}
+	return !slices.Contains(strings.Split(p, "/"), "..")
+}
+
 func parseRawIndex(raw []byte, baseURL string) (HubIndex, error) {
 	bucket := map[string]map[string]struct {
 		Path        string `json:"path"`
@@ -364,6 +382,11 @@ func parseRawIndex(raw []byte, baseURL string) (HubIndex, error) {
 		for name, obj := range list {
 			cleanName := strings.TrimSpace(name)
 			if !ValidCacheSlug(cleanName) {
+				dropped++
+				continue
+			}
+
+			if !validIndexPath(obj.Path) {
 				dropped++
 				continue
 			}
@@ -788,9 +811,14 @@ func copyFile(src, dst string) error { return copyFileFlag(src, dst, os.O_TRUNC)
 // it fail instead of being written through.
 func copyFileExclusive(src, dst string) error { return copyFileFlag(src, dst, os.O_EXCL) }
 
-// copyFileFlag copies src to dst, opened with O_CREATE|O_WRONLY and the given extra flag.
+// errNotRegularFile is returned when a copy source is a link, directory or device.
+var errNotRegularFile = errors.New("source is not a regular file")
+
+// copyFileFlag copies src to dst, opened with O_CREATE|O_WRONLY and the given extra flag. The source is
+// opened without following a final symlink and must be a regular file, checked on the open descriptor so a
+// swap after the open cannot change what is read.
 func copyFileFlag(src, dst string, flag int) error {
-	srcFile, err := os.Open(src) // #nosec G304 -- Source path from copyDir recursive call // #nosec G304 -- Source path from copyDir recursive call
+	srcFile, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) // #nosec G304 -- callers pass paths under Charon-owned data or snapshot folders; O_NOFOLLOW and the regular-file check below refuse links and special files
 	if err != nil {
 		return fmt.Errorf("open src: %w", err)
 	}
@@ -804,8 +832,11 @@ func copyFileFlag(src, dst string, flag int) error {
 	if err != nil {
 		return fmt.Errorf("stat src: %w", err)
 	}
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("open src: %w", errNotRegularFile)
+	}
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|flag, srcInfo.Mode()) // #nosec G304 -- Dst path from copyFile internal call
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|flag, srcInfo.Mode()) // #nosec G304 -- dst is built by the callers below their own data or snapshot folder; O_EXCL (copyFileExclusive) refuses an existing entry
 	if err != nil {
 		return fmt.Errorf("create dst: %w", err)
 	}

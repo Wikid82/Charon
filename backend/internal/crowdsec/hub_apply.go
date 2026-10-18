@@ -77,7 +77,9 @@ type ApplyRequest struct {
 	Slug     string
 	Type     string
 	CacheKey string
-	Timeout  time.Duration
+	// ItemSHA256, when set, must equal the digest of the cached item; a different value is a stale cache.
+	ItemSHA256 string
+	Timeout    time.Duration
 	// OnPhase, when set, is called synchronously as each phase starts. It must return quickly; a panic in it
 	// is logged and never fails the apply.
 	OnPhase func(Phase)
@@ -186,7 +188,7 @@ func (s *HubService) ApplyWith(ctx context.Context, req ApplyRequest) (ApplyResu
 		}
 		return result, fmt.Errorf("load cache for %s: %w", slug, err)
 	}
-	if meta.CacheKey != cacheKey {
+	if meta.CacheKey != cacheKey || (req.ItemSHA256 != "" && !strings.EqualFold(req.ItemSHA256, meta.ItemSHA256)) {
 		return result, ErrPresetCacheStale
 	}
 	result.CacheKey = meta.CacheKey
