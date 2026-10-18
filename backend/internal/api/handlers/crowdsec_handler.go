@@ -589,6 +589,17 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 func (h *CrowdsecHandler) Start(c *gin.Context) {
 	ctx := c.Request.Context()
 
+	// Read the status first so a failure here leaves the persisted config untouched.
+	// A second spawn cannot bind LAPI and would clobber the pid file of the engine
+	// that is already running, so an existing process is reported instead. Status
+	// can rewrite the pid file when it adopts an engine the file did not track.
+	running, runningPid, statusErr := h.Executor.Status(ctx, h.DataDir)
+	if statusErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(statusErr.Error())).Warn("failed to read crowdsec status before start")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read CrowdSec status"})
+		return
+	}
+
 	// UPDATE SecurityConfig to persist user's intent
 	var cfg models.SecurityConfig
 	if err := h.DB.First(&cfg).Error; err != nil {
@@ -627,14 +638,6 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
 	}
 
-	// A second spawn cannot bind LAPI and would clobber the pid file of the engine
-	// that is already running, so report the existing process instead.
-	running, runningPid, statusErr := h.Executor.Status(ctx, h.DataDir)
-	if statusErr != nil {
-		logger.Log().WithField("error", sanitizeForLog(statusErr.Error())).Warn("failed to read crowdsec status before start")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read CrowdSec status"})
-		return
-	}
 	if running {
 		_, lapiErr := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
 		logger.Log().WithField("pid", runningPid).Info("CrowdSec start requested but it is already running")
@@ -646,7 +649,8 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		return
 	}
 
-	// Start the process
+	// Start the process. The executor re-checks under its own lock, so a
+	// concurrent Start that wins the race hands back the existing pid.
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
 		// Revert config on failure

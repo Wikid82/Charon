@@ -1407,11 +1407,21 @@ func TestCrowdsecHandler_Start_StatusErrorDoesNotSpawn(t *testing.T) {
 	t.Parallel()
 
 	ce := &countingExec{statusErr: errors.New("boom")}
-	w := postStart(t, ce)
+	db := setupCrowdDB(t)
+	h := newTestCrowdsecHandler(t, db, ce, "/bin/false", t.TempDir())
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody))
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	require.Contains(t, w.Body.String(), "failed to read CrowdSec status")
 	require.Equal(t, 0, ce.startCalls)
+
+	// The failed status read must leave no persisted "CrowdSec enabled" state.
+	var count int64
+	require.NoError(t, db.Model(&models.SecurityConfig{}).Count(&count).Error)
+	require.Zero(t, count)
 }
 
 func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {

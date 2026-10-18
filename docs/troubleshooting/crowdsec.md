@@ -56,7 +56,9 @@ When you toggle CrowdSec ON in the Security dashboard:
 
 ### Starting CrowdSec While It Is Already Running
 
-Starting CrowdSec when it is already running does nothing. Charon reports it as already running and leaves the existing process alone. If Charon lost track of a running CrowdSec process (for example, the process-tracking file was removed), Status and Stop find it again and take it over, and Stop waits for it to exit before reporting success.
+Starting CrowdSec when it is already running does nothing. Charon answers the start request with the status `already_running` (plus the process ID and whether the Local API is ready) and leaves the existing process alone. If Charon lost track of a running CrowdSec process (for example, the process-tracking file was removed), Status and Stop find it again and take it over, and Stop waits for it to exit before reporting success. Charon recognises the engine by its executable name and its configuration file, so other programs that merely mention that file, such as `cscli` or `tail`, are never taken over or stopped.
+
+When stopping, Charon first asks CrowdSec to shut down (SIGTERM) and waits up to 5 seconds. If the process is still running after that, Charon forces it to end (SIGKILL). If the process still cannot be ended, or the request is cancelled while Charon is waiting, Stop reports an error and keeps the process-tracking file so you can try again.
 
 ### Verifying LAPI Status
 
