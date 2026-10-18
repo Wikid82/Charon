@@ -1072,3 +1072,43 @@ func TestFetchAlertsCscli_ValidJSON(t *testing.T) {
 	assert.Equal(t, "cscli", body["source"])
 	assert.Equal(t, float64(2), body["total"])
 }
+
+// Rows that carry a country and a time come back with both filled: the country of the decisions of the IP and
+// the time of the newest one.
+func TestDashboardTopIPs_ReturnsCountryAndLastSeen(t *testing.T) {
+	t.Skip("pending #1634 fix")
+	t.Parallel()
+	r := setupDashboardHandler(t)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body struct {
+		IPs []struct {
+			IP       string `json:"ip"`
+			Count    int64  `json:"count"`
+			LastSeen string `json:"last_seen"`
+			Country  string `json:"country"`
+		} `json:"ips"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.IPs, 4, "the 48h-old row and the non-crowdsec row are outside the list")
+
+	byIP := map[string]string{}
+	for _, row := range body.IPs {
+		byIP[row.IP] = row.Country
+		lastSeen, err := time.Parse(time.RFC3339, row.LastSeen)
+		require.NoError(t, err, row.IP)
+		assert.WithinDuration(t, time.Now().UTC(), lastSeen, 24*time.Hour, row.IP)
+		assert.False(t, lastSeen.IsZero(), row.IP)
+	}
+	assert.Equal(t, map[string]string{"10.0.0.1": "US", "10.0.0.2": "DE", "10.0.0.3": "FR", "10.0.0.4": ""}, byIP)
+
+	first := body.IPs[0]
+	assert.Equal(t, "10.0.0.1", first.IP)
+	lastSeen, err := time.Parse(time.RFC3339, first.LastSeen)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().UTC().Add(-1*time.Hour), lastSeen, 2*time.Minute, "the newest of the two decisions")
+}
