@@ -219,13 +219,12 @@ func TestDashboardTopIPs_OK(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 
 	ips := body["ips"].([]interface{})
-	assert.LessOrEqual(t, len(ips), 3)
+	require.Len(t, ips, 3)
 	// 10.0.0.1 has 2 hits, should be first
-	if len(ips) > 0 {
-		first := ips[0].(map[string]interface{})
-		assert.Equal(t, "10.0.0.1", first["ip"])
-		assert.Equal(t, float64(2), first["count"])
-	}
+	first := ips[0].(map[string]interface{})
+	assert.Equal(t, "10.0.0.1", first["ip"])
+	assert.Equal(t, float64(2), first["count"])
+	assert.NotEmpty(t, first["last_seen"])
 }
 
 func TestDashboardTopIPs_LimitCap(t *testing.T) {
@@ -1076,7 +1075,6 @@ func TestFetchAlertsCscli_ValidJSON(t *testing.T) {
 // Rows that carry a country and a time come back with both filled: the country of the decisions of the IP and
 // the time of the newest one.
 func TestDashboardTopIPs_ReturnsCountryAndLastSeen(t *testing.T) {
-	t.Skip("pending #1634 fix")
 	t.Parallel()
 	r := setupDashboardHandler(t)
 
@@ -1111,4 +1109,42 @@ func TestDashboardTopIPs_ReturnsCountryAndLastSeen(t *testing.T) {
 	lastSeen, err := time.Parse(time.RFC3339, first.LastSeen)
 	require.NoError(t, err)
 	assert.WithinDuration(t, time.Now().UTC().Add(-1*time.Hour), lastSeen, 2*time.Minute, "the newest of the two decisions")
+}
+
+// A failed query is reported as a structured 500 instead of an empty list.
+func TestDashboardTopIPs_QueryError(t *testing.T) {
+	t.Parallel()
+
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
+	require.NoError(t, db.Migrator().DropTable(&models.SecurityDecision{}))
+	h := &CrowdsecHandler{DB: db, dashCache: newDashboardCache()}
+
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "failed to load top addresses", body["error"])
+}
+
+func TestFormatLastSeen(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"2026-10-18T10:00:00Z":          "2026-10-18T10:00:00Z",
+		"2026-10-18 10:00:00":           "2026-10-18T10:00:00Z",
+		"2026-10-18 10:00:00.123456789": "2026-10-18T10:00:00Z",
+		"2026-10-18 12:00:00.5+02:00":   "2026-10-18T10:00:00Z",
+		"  2026-10-18T10:00:00.25Z  ":   "2026-10-18T10:00:00Z",
+		"":                              "",
+		"not a time":                    "",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, formatLastSeen(in), in)
+	}
 }
