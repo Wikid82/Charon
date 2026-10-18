@@ -133,3 +133,15 @@ func TestRedactConfigFileKeepsBenignKeyNames(t *testing.T) {
 		})
 	}
 }
+
+// An access key id is an identifier and stays readable next to the blanked secret it pairs with.
+func TestRedactConfigFileKeepsAccessKeyIDWhileBlankingSecret(t *testing.T) {
+	t.Parallel()
+	original := "extra:\n  access_key_id: AKIAFAKE0100\n  secret_access_key: FAKE-secret-0100\n"
+
+	redacted := blankedConfig(t, original)
+
+	require.Contains(t, redacted, "access_key_id: AKIAFAKE0100")
+	require.NotContains(t, redacted, "FAKE-secret-0100")
+	require.Contains(t, redacted, "secret_access_key")
+}
