@@ -1662,6 +1662,37 @@
         "applyHubUnreachable": "CrowdSec 无法连接到 Hub。请检查网络连接后重试。",
         "cscliUnavailable": "cscli 不可用或无响应",
         "applyDependencyNote": "此预设依赖的部分项目已在本服务器上被编辑，已保持不变。"
+      },
+      "installProgress": {
+        "label": "正在安装预设",
+        "starting": "正在启动",
+        "phase": {
+          "preflight": "正在准备",
+          "snapshot": "正在保存当前配置的快照",
+          "install": "正在安装",
+          "verify": "正在验证",
+          "reload": "正在重新加载 CrowdSec",
+          "rollback": "正在恢复之前的配置"
+        },
+        "itemsSoFar_one": "目前已安装 {{count}} 项",
+        "itemsSoFar_other": "目前已安装 {{count}} 项",
+        "itemsSoFar": "目前已安装 {{count}} 项",
+        "itemsInstalled_one": "已安装 {{count}} 项",
+        "itemsInstalled_other": "已安装 {{count}} 项",
+        "itemsInstalled": "已安装 {{count}} 项",
+        "elapsed": "{{minutes}} 分 {{seconds}} 秒",
+        "elapsedSeconds": "{{seconds}} 秒",
+        "waitingForServer": "正在等待服务器...",
+        "cancel": "取消",
+        "cancelling": "正在取消...",
+        "cancelFailed": "无法取消安装，请重试。",
+        "succeeded": "预设已应用。",
+        "failed": "安装失败。",
+        "failedGeneric": "无法安装该预设。",
+        "cancelled": "安装已取消。",
+        "interrupted": "安装因重启而中断。",
+        "timedOut": "安装耗时过长，已停止。",
+        "rollbackNote": "已恢复之前的配置。"
       }
     },
     "files": {
@@ -1779,7 +1810,8 @@
       "decisionNotFound": "没有与此地址或范围完全一致的决策。解除封禁只会移除完全匹配的决策；包含该地址的更大范围不会解除其中各个地址。",
       "timeout": "CrowdSec 未能及时响应。请重试。",
       "requestTooLarge": "请求过大。请缩短文本后重试。"
-    }
+    },
+    "busy": "CrowdSec 正在安装预设。请在安装完成后重试。"
   },
   "smtp": {
     "title": "电子邮件 (SMTP) 设置",

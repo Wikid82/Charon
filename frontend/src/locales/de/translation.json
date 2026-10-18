@@ -1662,6 +1662,37 @@
         "applyHubUnreachable": "CrowdSec konnte den Hub nicht erreichen. Prüfen Sie die Netzwerkverbindung und versuchen Sie es erneut.",
         "cscliUnavailable": "cscli nicht verfügbar oder antwortet nicht",
         "applyDependencyNote": "Einige Elemente, von denen dieses Preset abhängt, wurden auf diesem Server bearbeitet und blieben unverändert."
+      },
+      "installProgress": {
+        "label": "Preset wird installiert",
+        "starting": "Wird gestartet",
+        "phase": {
+          "preflight": "Vorbereitung",
+          "snapshot": "Sicherung der aktuellen Konfiguration wird erstellt",
+          "install": "Installation läuft",
+          "verify": "Überprüfung läuft",
+          "reload": "CrowdSec wird neu geladen",
+          "rollback": "Vorherige Konfiguration wird wiederhergestellt"
+        },
+        "itemsSoFar_one": "bisher {{count}} Element",
+        "itemsSoFar_other": "bisher {{count}} Elemente",
+        "itemsSoFar": "bisher {{count}} Elemente",
+        "itemsInstalled_one": "{{count}} Element installiert",
+        "itemsInstalled_other": "{{count}} Elemente installiert",
+        "itemsInstalled": "{{count}} Elemente installiert",
+        "elapsed": "{{minutes}} Min. {{seconds}} s",
+        "elapsedSeconds": "{{seconds}} s",
+        "waitingForServer": "Warten auf den Server...",
+        "cancel": "Abbrechen",
+        "cancelling": "Wird abgebrochen...",
+        "cancelFailed": "Der Installationsabbruch ist fehlgeschlagen. Bitte erneut versuchen.",
+        "succeeded": "Preset angewendet.",
+        "failed": "Installation fehlgeschlagen.",
+        "failedGeneric": "Das Preset konnte nicht installiert werden.",
+        "cancelled": "Installation abgebrochen.",
+        "interrupted": "Die Installation wurde durch einen Neustart unterbrochen.",
+        "timedOut": "Die Installation hat zu lange gedauert und wurde beendet.",
+        "rollbackNote": "Die vorherige Konfiguration wurde wiederhergestellt."
       }
     },
     "files": {
@@ -1779,7 +1810,8 @@
       "decisionNotFound": "Keine Entscheidung mit genau dieser Adresse oder diesem Bereich. Beim Aufheben wird nur eine exakte Übereinstimmung entfernt; ein umfassender Bereich gibt die darin liegenden Adressen nicht frei.",
       "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut.",
       "requestTooLarge": "Die Anfrage war zu groß. Kürzen Sie den Text und versuchen Sie es erneut."
-    }
+    },
+    "busy": "CrowdSec ist gerade mit der Installation eines Presets beschäftigt. Versuchen Sie es erneut, wenn sie abgeschlossen ist."
   },
   "smtp": {
     "title": "E-Mail (SMTP) Einstellungen",

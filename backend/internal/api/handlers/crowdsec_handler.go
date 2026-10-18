@@ -95,8 +95,17 @@ type CrowdsecHandler struct {
 
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
 	// and the export build; an export holds it only while writing its temporary file, never while sending.
-	// Lock order is always dataMu first, then HubService.mu.
-	// The wait is abandoned when the request ends (see lockData).
+	// Lock order is always restore.running -> dataMu -> HubService.mu. The background install busy flag
+	// (ApplyJobs) is not a lock: handlers test it without waiting. ImportConfig, WriteFile and ApplyPreset test
+	// it once before and again right after taking dataMu, and ApplyPreset starts a job while holding dataMu,
+	// so once past the recheck those three are never overlapped by a job. RestoreHubItems excludes jobs through
+	// restore.running (the flag and the busy flag exclude each other) and rechecks after taking it.
+	// Start, Stop, ConsoleEnroll, AddWhitelist and DeleteWhitelist check the flag lock-free only, on purpose:
+	// Start and Stop must answer 409 at once, and dataMu can be held for minutes by a synchronous preset apply,
+	// an import or an export build, so waiting for it would stall them. The residual window is that a job
+	// acquiring the flag in the instant after one of these handlers passed its check overlaps that one call
+	// (an engine start or stop, a console enrollment, a whitelist change and its reload).
+	// The wait for dataMu is abandoned when the request ends (see lockData).
 	dataMu ctxMutex
 
 	// acquisMu serializes UpdateAcquisitionConfig. It is separate from dataMu because the acquisition file is
@@ -105,6 +114,14 @@ type CrowdsecHandler struct {
 
 	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
 	restore hubRestoreState
+
+	// applyJobsOnce lazily builds applyJobs; ApplyJobs is the only reader.
+	applyJobsOnce sync.Once
+	applyJobs     *crowdsec.ApplyJobManager
+
+	// applyJobsCfgMu guards applyJobsHub, the hub service the manager was last configured with.
+	applyJobsCfgMu sync.Mutex
+	applyJobsHub   *crowdsec.HubService
 
 	// registrationMutex protects concurrent bouncer registration attempts
 	registrationMutex sync.Mutex
@@ -591,6 +608,9 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 
 // Start starts the CrowdSec process and waits for LAPI to be ready.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	ctx := c.Request.Context()
 
 	// Read the status first so a failure here leaves the persisted config untouched.
@@ -732,6 +752,9 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 
 // Stop stops the CrowdSec process.
 func (h *CrowdsecHandler) Stop(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	ctx := c.Request.Context()
 	if err := h.Executor.Stop(ctx, h.DataDir); err != nil {
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to stop crowdsec")
@@ -786,6 +809,9 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 // configuration is snapshotted first and restored on failure; server-local state (live db, data/,
 // hub_cache/, installed hub items) is never replaced and DataDir itself is never renamed.
 func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
@@ -838,6 +864,9 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 	defer h.dataMu.Unlock()
+	if h.refuseIfBusy(c) {
+		return
+	}
 
 	// A nested installation reads config/config.yaml: refuse an archive that cannot provide it before
 	// anything is snapshotted or changed. When the inspection was skipped the check after extraction
@@ -1072,6 +1101,9 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(
 // ExportConfig builds a tar.gz archive of the CrowdSec data directory in a temporary file and then
 // sends it. Every failure is reported before the first byte of the download, so a client never receives
 // a truncated archive with a success status.
+//
+// Exports stay available while a background preset install runs (no busy refusal, by design): an archive
+// taken during an install can contain a partly installed hub tree.
 func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 	// Ensure DataDir exists
 	if _, err := os.Stat(h.DataDir); os.IsNotExist(err) {
@@ -1234,6 +1266,11 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 		Force         bool   `json:"force"`
 	}
 	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
+		return
+	}
+
+	// After the cheap gates: a disabled feature or a malformed payload answers 404 or 400 whether or not a job runs.
+	if h.refuseIfBusy(c) {
 		return
 	}
 
@@ -2585,6 +2622,9 @@ func (h *CrowdsecHandler) ListWhitelists(c *gin.Context) {
 
 // AddWhitelist adds a new IP or CIDR to the CrowdSec whitelist.
 func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	var req struct {
 		IPOrCIDR string `json:"ip_or_cidr" binding:"required"`
 		Reason   string `json:"reason"`
@@ -2614,6 +2654,9 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 
 // DeleteWhitelist removes a whitelist entry by UUID.
 func (h *CrowdsecHandler) DeleteWhitelist(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	id := c.Param("uuid")
 	if id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid is required"})
@@ -2650,6 +2693,10 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/presets", h.ListPresets)
 	rg.POST("/admin/crowdsec/presets/pull", h.PullPreset)
 	rg.POST("/admin/crowdsec/presets/apply", h.ApplyPreset)
+	rg.GET("/admin/crowdsec/presets/jobs/current", h.GetCurrentApplyJob)
+	rg.GET("/admin/crowdsec/presets/jobs", h.ListApplyJobs)
+	rg.GET("/admin/crowdsec/presets/jobs/:id", h.GetApplyJob)
+	rg.DELETE("/admin/crowdsec/presets/jobs/:id", h.CancelApplyJob)
 	rg.GET("/admin/crowdsec/presets/cache/*slug", h.GetCachedPreset)
 	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
@@ -2797,4 +2844,29 @@ func cscliFailureReason(out []byte) string {
 		return line
 	}
 	return "cscli reported an error"
+}
+
+// ApplyJobs returns the background install busy flag. It refuses to start a job while a hub item restore
+// runs.
+func (h *CrowdsecHandler) ApplyJobs() *crowdsec.ApplyJobManager {
+	h.applyJobsOnce.Do(func() {
+		h.applyJobs = crowdsec.NewApplyJobManager(h.restore.running.Load)
+	})
+	return h.applyJobs
+}
+
+const (
+	codeCrowdsecBusy = "crowdsec_busy"
+	msgCrowdsecBusy  = "CrowdSec is busy installing a preset; try again when it finishes"
+)
+
+// refuseIfBusy answers 409 crowdsec_busy, naming the active job, while a background install holds the busy
+// flag, and reports whether it did. It never waits, so call it before touching the executor or any config.
+func (h *CrowdsecHandler) refuseIfBusy(c *gin.Context) bool {
+	jobID, busy := h.ApplyJobs().Busy()
+	if !busy {
+		return false
+	}
+	respondCoded(c, http.StatusConflict, codeCrowdsecBusy, msgCrowdsecBusy, gin.H{"job_id": jobID})
+	return true
 }

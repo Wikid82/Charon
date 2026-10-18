@@ -58,9 +58,20 @@ export interface PullCrowdsecPresetResponse {
   type?: string
   preview: string
   cache_key: string
+  /** Digest of the pulled item; sent back on apply so a changed cache entry is refused as stale. */
+  item_sha256?: string
   etag?: string
   retrieved_at?: string
   source?: string
+}
+
+/** Body of a preset apply request. */
+export interface ApplyCrowdsecPresetRequest {
+  slug: string
+  type?: string
+  cache_key?: string
+  /** Digest from pull; the server refuses the apply when the cached item no longer matches. */
+  item_sha256?: string
 }
 
 /** Response from applying a CrowdSec preset. */
@@ -118,12 +129,12 @@ export async function pullCrowdsecPreset(slug: string, type?: string) {
 
 /**
  * Applies a CrowdSec preset to the configuration.
- * @param payload - The canonical preset slug and hub section returned by pull and the cache_key of the previewed copy.
+ * @param payload - The canonical preset slug and hub section returned by pull, plus the cache_key and item_sha256 of the previewed copy.
  *   `cache_key` is required for hub presets and optional for curated ones.
  * @returns Promise resolving to ApplyCrowdsecPresetResponse
  * @throws {AxiosError} If application fails; the body is a CrowdsecPresetApiError
  */
-export async function applyCrowdsecPreset(payload: { slug: string; type?: string; cache_key?: string }) {
+export async function applyCrowdsecPreset(payload: ApplyCrowdsecPresetRequest) {
   const resp = await client.post<ApplyCrowdsecPresetResponse>('/admin/crowdsec/presets/apply', payload, {
     timeout: APPLY_CROWDSEC_PRESET_TIMEOUT_MS,
   })
@@ -173,10 +184,106 @@ export async function getCrowdsecPresetCache(slug: string, type?: string) {
   return resp.data
 }
 
+/** States of a background preset install job. */
+export const APPLY_JOB_STATES = ['queued', 'running', 'verifying', 'succeeded', 'failed', 'timed_out', 'cancelled'] as const
+export type CrowdsecApplyJobState = (typeof APPLY_JOB_STATES)[number]
+
+/** Phases a background install moves through. */
+export const APPLY_JOB_PHASES = ['preflight', 'snapshot', 'install', 'verify', 'reload', 'rollback'] as const
+export type CrowdsecApplyJobPhase = (typeof APPLY_JOB_PHASES)[number]
+
+/** Failure outcome of a job: a preset code, or `interrupted` when the server restarted mid-install. */
+export type CrowdsecApplyJobErrorCode = CrowdsecPresetErrorCode | 'interrupted'
+
+/** A background preset install job as reported by the server. */
+export interface CrowdsecApplyJob {
+  job_id: string
+  slug: string
+  item_type: string
+  cache_key: string
+  state: CrowdsecApplyJobState
+  phase: CrowdsecApplyJobPhase
+  error_code?: CrowdsecApplyJobErrorCode | ''
+  error?: string
+  warnings: string[]
+  items_installed: number
+  items_total: number | null
+  cancel_requested: boolean
+  elapsed_seconds: number
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+/** Error codes of the job endpoints. */
+export const APPLY_JOB_ERROR_CODES = ['job_not_found', 'job_not_active', 'invalid_job_id'] as const
+export type CrowdsecApplyJobApiErrorCode = (typeof APPLY_JOB_ERROR_CODES)[number]
+
+/** Reads the machine-readable outcome from a failed job request. */
+export function getApplyJobErrorCode(err: unknown): CrowdsecApplyJobApiErrorCode | undefined {
+  return getApiErrorCode(err, APPLY_JOB_ERROR_CODES)
+}
+
+/**
+ * Reads the id of the job behind a `crowdsec_busy` refusal.
+ * @returns The job id, or undefined when the server named none
+ */
+export function getCrowdsecBusyJobId(err: unknown): string | undefined {
+  if (!isAxiosError<{ job_id?: unknown }>(err)) return undefined
+  const id = err.response?.data?.job_id
+  return typeof id === 'string' && id !== '' ? id : undefined
+}
+
+/**
+ * Starts installing a hub preset as a background job.
+ * @returns The queued job (HTTP 202)
+ * @throws {AxiosError} 409 `crowdsec_busy` while another install or a data change runs
+ */
+export async function applyPresetAsync(payload: ApplyCrowdsecPresetRequest) {
+  const resp = await client.post<CrowdsecApplyJob>('/admin/crowdsec/presets/apply', { ...payload, async: true })
+  return resp.data
+}
+
+/**
+ * Reads the active install job, or the newest one that finished in the last 30 minutes.
+ * @returns The job, or null when there is none
+ */
+export async function getCurrentApplyJob() {
+  const resp = await client.get<{ job: CrowdsecApplyJob | null }>('/admin/crowdsec/presets/jobs/current')
+  return resp.data.job
+}
+
+/** Reads one install job by id. */
+export async function getApplyJob(id: string) {
+  const resp = await client.get<CrowdsecApplyJob>(`/admin/crowdsec/presets/jobs/${encodeURIComponent(id)}`)
+  return resp.data
+}
+
+/** Lists the most recent install jobs, newest first. */
+export async function listApplyJobs(limit?: number) {
+  const resp = await client.get<{ jobs: CrowdsecApplyJob[] }>('/admin/crowdsec/presets/jobs', { params: { limit } })
+  return resp.data.jobs
+}
+
+/**
+ * Asks an active install job to stop; it rolls back and ends `cancelled`.
+ * @returns The job (HTTP 202)
+ * @throws {AxiosError} 409 `job_not_active` for a finished job, 404 `job_not_found`
+ */
+export async function cancelApplyJob(id: string) {
+  const resp = await client.delete<CrowdsecApplyJob>(`/admin/crowdsec/presets/jobs/${encodeURIComponent(id)}`)
+  return resp.data
+}
+
 export default {
   listCrowdsecPresets,
   getCrowdsecPresets,
   pullCrowdsecPreset,
   applyCrowdsecPreset,
   getCrowdsecPresetCache,
+  applyPresetAsync,
+  getCurrentApplyJob,
+  getApplyJob,
+  listApplyJobs,
+  cancelApplyJob,
 }

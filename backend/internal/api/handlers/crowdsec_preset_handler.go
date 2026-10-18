@@ -224,6 +224,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		"type":         res.Meta.Type,
 		"preview":      res.Preview,
 		"cache_key":    res.Meta.CacheKey,
+		"item_sha256":  res.Meta.ItemSHA256,
 		"etag":         res.Meta.Etag,
 		"retrieved_at": res.Meta.RetrievedAt,
 		"source":       res.Meta.Source,
@@ -233,13 +234,13 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 // Error codes returned next to the English error text of a failed preset apply.
 const (
 	codePresetCacheKeyRequired = "preset_cache_key_required"
-	codePresetCacheStale       = "preset_cache_stale"
-	codePresetHubUpdating      = "preset_hub_updating"
-	codePresetLocalModified    = "preset_local_modified"
-	codePresetApplyTimeout     = "preset_apply_timeout"
+	codePresetCacheStale       = models.CrowdsecApplyErrCacheStale
+	codePresetHubUpdating      = models.CrowdsecApplyErrHubUpdating
+	codePresetLocalModified    = models.CrowdsecApplyErrLocalModified
+	codePresetApplyTimeout     = models.CrowdsecApplyErrTimeout
 	codePresetTypeAmbiguous    = "preset_type_ambiguous"
-	codeHubUnreachable         = "hub_unreachable"
-	codeCSCLIUnavailable       = "cscli_unavailable"
+	codeHubUnreachable         = models.CrowdsecApplyErrHubUnreachable
+	codeCSCLIUnavailable       = models.CrowdsecApplyErrCSCLIUnavailable
 )
 
 // respondCoded writes an error response that carries a stable error_code next to the English text.
@@ -254,6 +255,10 @@ func respondCoded(c *gin.Context, status int, code, msg string, extra gin.H) {
 
 // ApplyPreset installs a pulled preset: a curated preset through cscli, a hub preset by installing the
 // pulled item with cscli and verifying the result.
+//
+// With "async": true a hub preset is installed as a background job (202 with the job, see
+// crowdsec_apply_jobs_handler.go); curated presets are quick and always apply synchronously. The synchronous
+// path is bounded by the 120 s apply timeout and is deprecated for large hub presets, which can take minutes.
 func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	if !h.isCerberusEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
@@ -264,6 +269,9 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		Slug     string `json:"slug"`
 		Type     string `json:"type"`
 		CacheKey string `json:"cache_key"`
+		// ItemSHA256 is optional; when sent it must equal the digest of the cached item or the apply is refused as stale.
+		ItemSHA256 string `json:"item_sha256"`
+		Async      bool   `json:"async"`
 	}
 	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
 		return
@@ -298,18 +306,37 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	}
 
+	// The cheap gates above answer first (a malformed request is a 400 whether or not a job runs); the lock-free
+	// busy check spares a refused request the wait for dataMu, and the recheck below is the authoritative one.
+	if h.refuseIfBusy(c) {
+		return
+	}
+
 	// One mutation of DataDir at a time across preset apply, config import and file writes.
 	if !h.lockData(c, "preset apply") {
 		return
 	}
 	defer h.dataMu.Unlock()
+	if h.refuseIfBusy(c) {
+		return
+	}
 
 	if isCurated {
 		h.applyCuratedPreset(c, curated)
 		return
 	}
 
-	res, err := h.Hub.Apply(c.Request.Context(), slug, itemType, cacheKey)
+	if payload.Async {
+		// A stale request is answered here, like the synchronous path, instead of through a job that fails.
+		if err := h.Hub.CheckApplyFresh(c.Request.Context(), crowdsec.ApplyRequest{Slug: slug, Type: itemType, CacheKey: cacheKey, ItemSHA256: strings.TrimSpace(payload.ItemSHA256)}); err != nil {
+			h.respondApplyError(c, err, crowdsec.ApplyResult{})
+			return
+		}
+		h.startApplyJob(c, crowdsec.ApplyJobRequest{Slug: slug, Type: itemType, CacheKey: cacheKey, ItemSHA256: strings.TrimSpace(payload.ItemSHA256)})
+		return
+	}
+
+	res, err := h.Hub.ApplyWith(c.Request.Context(), crowdsec.ApplyRequest{Slug: slug, Type: itemType, CacheKey: cacheKey, ItemSHA256: strings.TrimSpace(payload.ItemSHA256)})
 	if err != nil {
 		// Safe: slug is validated against the hub item name pattern; backup_path and cache_key are system-generated values
 		// codeql[go/log-injection]
@@ -334,22 +361,22 @@ const msgPresetStale = "The cached preset is outdated or missing. Pull the prese
 func (h *CrowdsecHandler) respondApplyError(c *gin.Context, err error, res crowdsec.ApplyResult) {
 	extra := applyFailureBody("", res)
 	delete(extra, "error")
-	switch {
-	case errors.Is(err, crowdsec.ErrPresetCacheStale):
+	switch crowdsec.ApplyErrorCode(err) {
+	case codePresetCacheStale:
 		respondCoded(c, http.StatusConflict, codePresetCacheStale, msgPresetStale, extra)
-	case errors.Is(err, crowdsec.ErrPresetHubUpdating):
+	case codePresetHubUpdating:
 		respondCoded(c, http.StatusConflict, codePresetHubUpdating, "The hub is still updating. Try again later.", extra)
-	case errors.Is(err, crowdsec.ErrPresetLocalModified):
+	case codePresetLocalModified:
 		var modified *crowdsec.LocalModifiedError
 		if errors.As(err, &modified) {
 			extra["tainted_items"] = modified.Items
 		}
 		respondCoded(c, http.StatusConflict, codePresetLocalModified, "This preset was edited on this server, so it was not replaced. Reset it before applying.", extra)
-	case errors.Is(err, crowdsec.ErrPresetApplyTimeout):
+	case codePresetApplyTimeout:
 		respondCoded(c, http.StatusGatewayTimeout, codePresetApplyTimeout, "The preset install took too long and was rolled back. Try again.", extra)
-	case errors.Is(err, crowdsec.ErrHubUnreachable):
+	case codeHubUnreachable:
 		respondCoded(c, http.StatusServiceUnavailable, codeHubUnreachable, msgHubUnreachable, extra)
-	case errors.Is(err, crowdsec.ErrCSCLIUnavailable):
+	case codeCSCLIUnavailable:
 		respondCoded(c, http.StatusServiceUnavailable, codeCSCLIUnavailable, "cscli unavailable or not responding", extra)
 	default:
 		body := applyFailureBody(crowdsec.RedactPaths(err.Error()), res)

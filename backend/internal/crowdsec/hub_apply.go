@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -27,6 +28,9 @@ var (
 	ErrPresetLocalModified = errors.New("the preset was edited on this server and was not replaced")
 	// ErrPresetApplyTimeout is returned when the apply deadline passed; the configuration is restored.
 	ErrPresetApplyTimeout = errors.New("the preset install took too long and was rolled back")
+	// ErrPresetApplyCancelled is returned when the caller cancelled the apply; the configuration is restored.
+	// It wraps context.Canceled, so errors.Is(err, context.Canceled) holds too.
+	ErrPresetApplyCancelled = fmt.Errorf("the preset install was cancelled and was rolled back: %w", context.Canceled)
 	// ErrHubUnreachable is returned when the hub cannot be reached over the network, for a pull or an install.
 	ErrHubUnreachable = errors.New("the hub could not be reached")
 	// ErrPresetTypeAmbiguous is returned when a hub name exists in several sections and no type was given.
@@ -47,12 +51,101 @@ var dependencySections = []string{"collections", "parsers", "scenarios", "postov
 
 const maxDependencies = 1000
 
+// Phase names the stage an Apply is in, in the order Apply runs them. cscli reports no progress of its own,
+// so ApplyRequest.OnPhase is the only way a caller learns where an apply is.
+type Phase string
+
+// Apply phases. PhaseRollback follows whichever phase failed.
+const (
+	// PhasePreflight covers the hub index update and the inspect before the snapshot.
+	PhasePreflight Phase = "preflight"
+	// PhaseSnapshot covers the configuration snapshot.
+	PhaseSnapshot Phase = "snapshot"
+	// PhaseInstall covers the cscli install.
+	PhaseInstall Phase = "install"
+	// PhaseVerify covers the inspect, upgrade and inspect checks, the hub list and the dependency check.
+	PhaseVerify Phase = "verify"
+	// PhaseReload covers the CrowdSec reload after a verified install.
+	PhaseReload Phase = "reload"
+	// PhaseRollback covers the restore of the snapshot after a failure.
+	PhaseRollback Phase = "rollback"
+)
+
+// ApplyRequest is one preset apply. The zero Timeout uses HubService.ApplyTimeout; a caller that runs the
+// apply in the background passes its own, longer, limit.
+type ApplyRequest struct {
+	Slug     string
+	Type     string
+	CacheKey string
+	// ItemSHA256, when set, must equal the digest of the cached item; a different value is a stale cache.
+	ItemSHA256 string
+	Timeout    time.Duration
+	// OnPhase, when set, is called synchronously as each phase starts. It must return quickly; a panic in it
+	// is logged and never fails the apply.
+	OnPhase func(Phase)
+	// OnSnapshot, when set, is called with the snapshot path as soon as the snapshot exists, so a caller can
+	// persist it before the long install and restore it after a crash. Like OnPhase, a panic in it is logged.
+	OnSnapshot func(path string)
+}
+
+// enter reports the start of phase p to OnPhase, if set.
+func (r ApplyRequest) enter(p Phase) {
+	if r.OnPhase == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			logger.Log().WithField("phase", string(p)).WithField("panic", util.SanitizeForLog(fmt.Sprint(rec))).Error("preset apply phase callback panicked")
+		}
+	}()
+	r.OnPhase(p)
+}
+
+// snapshotted reports the snapshot path to OnSnapshot, if set.
+func (r ApplyRequest) snapshotted(path string) {
+	if r.OnSnapshot == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			logger.Log().WithField("panic", util.SanitizeForLog(fmt.Sprint(rec))).Error("preset apply snapshot callback panicked")
+		}
+	}()
+	r.OnSnapshot(path)
+}
+
+// applyTimeoutError returns the apply timeout error once ctx's deadline has passed, else nil.
+func applyTimeoutError(ctx context.Context) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
+	}
+	return nil
+}
+
+// applyContextError maps a finished apply context to its error: a passed deadline to ErrPresetApplyTimeout
+// and a cancel to ErrPresetApplyCancelled. It returns nil while ctx is live.
+func applyContextError(ctx context.Context) error {
+	if err := applyTimeoutError(ctx); err != nil {
+		return err
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return ErrPresetApplyCancelled
+	}
+	return nil
+}
+
 // Apply installs the previewed hub item with cscli and verifies that what cscli installed is the item that
 // was pulled. DataDir is never renamed: a snapshot of the configuration (not of the hub tree, see
 // snapshotWithoutHub) is taken first and restored in place on failure. Apply never contacts the hub to refresh the cache; an entry that is missing, expired or has a
 // different cacheKey is reported as stale. itemType names the hub section of the pulled item; when it is empty,
 // the section is taken from the cache entry that carries cacheKey.
 func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string) (ApplyResult, error) {
+	return s.ApplyWith(ctx, ApplyRequest{Slug: slug, Type: itemType, CacheKey: cacheKey})
+}
+
+// ApplyWith is Apply with a per-request time limit and phase reporting; see ApplyRequest.
+func (s *HubService) ApplyWith(ctx context.Context, req ApplyRequest) (ApplyResult, error) {
+	slug, itemType, cacheKey := req.Slug, req.Type, req.CacheKey
 	result := ApplyResult{AppliedPreset: slug, Status: "failed"}
 	if !ValidCacheSlug(slug) {
 		return result, ErrInvalidSlug
@@ -68,31 +161,16 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	applyCtx, cancel := context.WithTimeout(ctx, s.ApplyTimeout)
+	timeout := req.Timeout
+	if timeout <= 0 {
+		timeout = s.ApplyTimeout
+	}
+	applyCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	if itemType == "" {
-		if itemType = s.cachedTypeOfKey(applyCtx, slug, cacheKey); itemType == "" {
-			if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
-				return result, fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
-			}
-			// No valid entry carries this key, so there is nothing to apply.
-			return result, ErrPresetCacheStale
-		}
-	}
-	meta, item, err := s.Cache.LoadItem(applyCtx, itemType, slug)
+	meta, item, err := s.loadFreshItem(applyCtx, req)
 	if err != nil {
-		if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
-			return result, fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
-		}
-		if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrCacheExpired) || errors.Is(err, ErrCacheInvalid) {
-			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("reason", util.SanitizeForLog(err.Error())).Info("preset cache entry unusable for apply")
-			return result, ErrPresetCacheStale
-		}
-		return result, fmt.Errorf("load cache for %s: %w", slug, err)
-	}
-	if meta.CacheKey != cacheKey {
-		return result, ErrPresetCacheStale
+		return result, err
 	}
 	result.CacheKey = meta.CacheKey
 	result.Type = meta.Type
@@ -103,33 +181,50 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 
 	// The hub index is refreshed and the item inspected before anything is snapshotted, so a refusal that
 	// depends only on the state before the install costs no snapshot.
+	req.enter(PhasePreflight)
 	s.updateHubIndex(applyCtx)
 	before, err := s.preflight(applyCtx, meta)
 	if err != nil {
 		return result, err
 	}
-	if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
-		return result, fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
+	if timeoutErr := applyTimeoutError(applyCtx); timeoutErr != nil {
+		return result, timeoutErr
 	}
+	req.enter(PhaseSnapshot)
 	backupPath, err := s.snapshotWithoutHub(before)
 	if err != nil {
 		return result, fmt.Errorf("backup: %w", err)
 	}
 	result.BackupPath = backupPath
+	req.snapshotted(backupPath)
 	defer s.pruneAfterApply()
-
-	// rollBack restores the snapshot and reports cause; a passed deadline wins over any other cause and keeps the cache entry.
-	rollBack := func(cause error) (ApplyResult, error) {
-		if errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
-			cause = fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded)
+	// A panic past this point (a stub, a bug) would leave a half-installed tree; restore the snapshot, then let
+	// the panic go on to its recoverer.
+	defer func() {
+		if rec := recover(); rec != nil {
+			if rbErr := s.restore(backupPath); rbErr != nil {
+				_ = rollbackFailure(fmt.Errorf("panic during the preset apply"), rbErr, backupPath)
+			}
+			panic(rec)
 		}
+	}()
+
+	// rollBack restores the snapshot and reports cause; a passed deadline or a cancel wins over any other
+	// cause and keeps the cache entry. The restore does not use the apply context, so it runs after either.
+	rollBack := func(cause error) (ApplyResult, error) {
+		if ctxErr := applyContextError(applyCtx); ctxErr != nil {
+			cause = ctxErr
+		}
+		req.enter(PhaseRollback)
 		return result, s.restoreAfter(cause, backupPath, slug)
 	}
 
+	req.enter(PhaseInstall)
 	installOut, err := s.runCSCLI(applyCtx, meta.Type, "install", meta.Name)
 	if err != nil {
 		return rollBack(installFailure(meta, installOut, err))
 	}
+	req.enter(PhaseVerify)
 	installed, err := s.inspectItem(applyCtx, meta.Type, meta.Name)
 	if err != nil {
 		return rollBack(err)
@@ -142,6 +237,7 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 	}
 	if !strings.EqualFold(installed.LocalHash, meta.ItemSHA256) {
 		if installed.UpToDate == nil || *installed.UpToDate {
+			req.enter(PhaseRollback)
 			return s.rollBackMismatch(applyCtx, result, backupPath, meta)
 		}
 		// An older, unmodified version was already installed and install left it alone.
@@ -155,6 +251,7 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 			return rollBack(s.localModified(applyCtx, meta))
 		}
 		if !strings.EqualFold(installed.LocalHash, meta.ItemSHA256) {
+			req.enter(PhaseRollback)
 			return s.rollBackMismatch(applyCtx, result, backupPath, meta)
 		}
 	}
@@ -165,6 +262,7 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 	}
 	result.Warnings = warnings
 
+	req.enter(PhaseReload)
 	result.Status = "applied"
 	result.ReloadHint = !s.reloadCrowdSec(applyCtx, "hub preset apply")
 	result.UsedCSCLI = true
@@ -173,12 +271,10 @@ func (s *HubService) Apply(ctx context.Context, slug, itemType, cacheKey string)
 
 // rollBackMismatch restores the snapshot after the installed hash differed from the pulled item and drops the
 // cache entry, but only while it still carries the key Apply loaded: a concurrent pull may have replaced it.
+// A passed deadline or a cancel skips the eviction and is reported instead of the mismatch.
 func (s *HubService) rollBackMismatch(ctx context.Context, result ApplyResult, backupPath string, meta CachedPreset) (ApplyResult, error) {
-	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return result, s.restoreAfter(fmt.Errorf("%w: %w", ErrPresetApplyTimeout, context.DeadlineExceeded), backupPath, meta.Slug)
-	case ctx.Err() != nil:
-		return result, s.restoreAfter(ctx.Err(), backupPath, meta.Slug)
+	if ctxErr := applyContextError(ctx); ctxErr != nil {
+		return result, s.restoreAfter(ctxErr, backupPath, meta.Slug)
 	}
 	if err := s.Cache.EvictIfKey(ctx, meta.Type, meta.Slug, meta.CacheKey); err != nil {
 		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(meta.Slug)).Warn("failed to evict outdated cache entry")
@@ -500,4 +596,61 @@ func (s *HubService) cachedTypeOfKey(ctx context.Context, slug, cacheKey string)
 		}
 	}
 	return ""
+}
+
+// loadFreshItem loads the cache entry an apply installs and refuses it as stale when it is missing, expired,
+// invalid, carries another cache key or (when req names one) another item digest. It is the shared gate of
+// ApplyWith and CheckApplyFresh and never touches the hub or cscli.
+func (s *HubService) loadFreshItem(ctx context.Context, req ApplyRequest) (CachedPreset, []byte, error) {
+	slug, itemType, cacheKey := req.Slug, req.Type, req.CacheKey
+	if itemType == "" {
+		if itemType = s.cachedTypeOfKey(ctx, slug, cacheKey); itemType == "" {
+			if err := applyTimeoutError(ctx); err != nil {
+				return CachedPreset{}, nil, err
+			}
+			// No valid entry carries this key, so there is nothing to apply.
+			return CachedPreset{}, nil, ErrPresetCacheStale
+		}
+	}
+	meta, item, err := s.Cache.LoadItem(ctx, itemType, slug)
+	if err != nil {
+		if timeoutErr := applyTimeoutError(ctx); timeoutErr != nil {
+			return CachedPreset{}, nil, timeoutErr
+		}
+		if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrCacheExpired) || errors.Is(err, ErrCacheInvalid) {
+			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("reason", util.SanitizeForLog(err.Error())).Info("preset cache entry unusable for apply")
+			return CachedPreset{}, nil, ErrPresetCacheStale
+		}
+		return CachedPreset{}, nil, fmt.Errorf("load cache for %s: %w", slug, err)
+	}
+	if meta.CacheKey != cacheKey || (req.ItemSHA256 != "" && !strings.EqualFold(req.ItemSHA256, meta.ItemSHA256)) {
+		return CachedPreset{}, nil, ErrPresetCacheStale
+	}
+	return meta, item, nil
+}
+
+// CheckApplyFresh runs the cache-staleness gate of ApplyWith without installing anything, so a handler can
+// answer a stale request (wrong cache key or digest, expired entry) directly instead of through a job that
+// fails afterwards. ApplyWith repeats the check; this one is only the early answer.
+func (s *HubService) CheckApplyFresh(ctx context.Context, req ApplyRequest) error {
+	if !ValidCacheSlug(req.Slug) {
+		return ErrInvalidSlug
+	}
+	if req.Type != "" && !IsCacheItemType(req.Type) {
+		return ErrInvalidItemType
+	}
+	if req.CacheKey == "" {
+		return ErrPresetCacheKeyRequired
+	}
+	if s.Cache == nil {
+		return fmt.Errorf("cache unavailable for manual apply")
+	}
+	timeout := s.ApplyTimeout
+	if timeout <= 0 {
+		timeout = ApplyJobMaxDuration
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	_, _, err := s.loadFreshItem(checkCtx, req)
+	return err
 }

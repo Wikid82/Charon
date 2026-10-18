@@ -7,6 +7,7 @@ import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
 import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError, getCrowdsecBanError, getCrowdsecExportError, type CrowdsecBanErrorCode } from '../api/crowdsec'
+import { isCrowdsecBusyError } from '../api/errorBody'
 import { getFeatureFlags } from '../api/featureFlags'
 import {
   listCrowdsecPresets,
@@ -16,6 +17,7 @@ import {
   getCrowdsecPresetAmbiguousTypes,
   getCrowdsecPresetErrorCode,
   getCrowdsecPresetTaintedItems,
+  PRESET_ERROR_CODES,
   type CrowdsecPresetErrorCode,
 } from '../api/presets'
 import { getSecurityStatus } from '../api/security'
@@ -23,6 +25,7 @@ import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
 import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
 import HubItemsRestorePanel from '../components/crowdsec/HubItemsRestorePanel'
+import { PresetInstallProgress } from '../components/crowdsec/PresetInstallProgress'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -31,6 +34,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
 import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
+import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
@@ -83,12 +87,13 @@ export default function CrowdSecConfig() {
   const [confirmDeleteWhitelist, setConfirmDeleteWhitelist] = useState<CrowdSecWhitelistEntry | null>(null)
   const [isApplyingPreset, setIsApplyingPreset] = useState(false)
   const [presetPreview, setPresetPreview] = useState<string>('')
-  const [presetMeta, setPresetMeta] = useState<{ slug?: string; type?: string; cacheKey?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
+  const [presetMeta, setPresetMeta] = useState<{ slug?: string; type?: string; cacheKey?: string; itemSha256?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
   const [presetStatusMessage, setPresetStatusMessage] = useState<string | null>(null)
   const [hubUnavailable, setHubUnavailable] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string; warnings?: string[] } | null>(null)
   const queryClient = useQueryClient()
+  const applyJob = useCrowdsecApplyJob({ enabled: !!status?.crowdsec })
   const backupCreatedMessage = (name: string) =>
     t('crowdsecConfig.presets.backupCreated', { name, location: t('crowdsecConfig.presets.backupLocation') })
   // Read the "CrowdSec is starting" signal broadcast by Security.tsx via the
@@ -172,7 +177,7 @@ export default function CrowdSecConfig() {
       queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
     },
     onError: (err: unknown) => {
-      toast.error(getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed')))
+      toast.error(isCrowdsecBusyError(err) ? t('crowdsecConfig.busy') : getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed')))
     },
   })
 
@@ -289,7 +294,7 @@ export default function CrowdSecConfig() {
     mutationFn: ({ slug, type }: { slug: string; type?: string }) => pullCrowdsecPreset(slug, type),
     onSuccess: (data) => {
       setPresetPreview(data.preview)
-      setPresetMeta({ slug: data.slug, type: data.type, cacheKey: data.cache_key, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
+      setPresetMeta({ slug: data.slug, type: data.type, cacheKey: data.cache_key, itemSha256: data.item_sha256, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
       setPresetStatusMessage(t('crowdsecConfig.presets.status.previewFetched'))
       setHubUnavailable(false)
       setValidationError(null)
@@ -549,6 +554,7 @@ export default function CrowdSecConfig() {
 
   /** Translated text for a refused import; unknown or missing codes keep the server's text. */
   const importFailureMessage = (err: unknown): string => {
+    if (isCrowdsecBusyError(err)) return t('crowdsecConfig.busy')
     const fallback = err instanceof Error ? err.message : t('crowdsecConfig.importFailed')
     const refusal = getCrowdsecImportError(err)
     const names = refusal ? formatNameList(refusal.names) : ''
@@ -596,6 +602,12 @@ export default function CrowdSecConfig() {
     }
   }
 
+  /** Translated reason for a failed install job; null when the server named none we know. */
+  const jobFailureText = (code: string | undefined): string | null => {
+    const known = PRESET_ERROR_CODES.find((candidate) => candidate === code)
+    return known ? applyOutcomeMessage(known, []) : null
+  }
+
   const handleApplyPreset = async () => {
     if (!selectedPreset) {
       toast.error(t('crowdsecConfig.toasts.selectPreset'))
@@ -606,9 +618,16 @@ export default function CrowdSecConfig() {
     setApplyInfo(null)
     setValidationError(null)
     setPresetStatusMessage(null)
+    applyJob.dismiss()
     try {
       // Apply the exact entry that was previewed: the canonical slug from pull and its cache key.
-      const res = await applyCrowdsecPreset({ slug: presetMeta?.slug ?? selectedPreset.slug, type: presetMeta?.type ?? selectedType, cache_key: presetMeta?.cacheKey })
+      const request = { slug: presetMeta?.slug ?? selectedPreset.slug, type: presetMeta?.type ?? selectedType, cache_key: presetMeta?.cacheKey, item_sha256: presetMeta?.itemSha256 || undefined }
+      if (selectedPresetRequiresHub) {
+        // Hub installs can take minutes: the server runs them as a background job shown in the progress row.
+        await applyJob.start(request)
+        return
+      }
+      const res = await applyCrowdsecPreset(request)
       setApplyInfo({
         status: res.status,
         backup: res.backup,
@@ -630,6 +649,10 @@ export default function CrowdSecConfig() {
     } catch (err) {
       if (!isAxiosError(err)) {
         toast.error(t('crowdsecConfig.toasts.presetApplyFailed'))
+        return
+      }
+      if (isCrowdsecBusyError(err)) {
+        setPresetStatusMessage(t('crowdsecConfig.busy'))
         return
       }
       // The server is authoritative for every preset source: surface its message for any
@@ -665,9 +688,12 @@ export default function CrowdSecConfig() {
     }
   }
 
+  const installJob = applyJob.job
+
   const presetActionDisabled =
     !selectedPreset ||
     isApplyingPreset ||
+    applyJob.isActive ||
     backupMutation.isPending ||
     pullPresetMutation.isPending ||
     (selectedPresetRequiresHub && (hubUnavailable || !presetMeta?.cacheKey))
@@ -833,8 +859,8 @@ export default function CrowdSecConfig() {
                           setTimeout(() => {
                             lapiStatusQuery.refetch();
                           }, 3000);
-                        } catch {
-                          toast.error(t('crowdsecConfig.startFailed'));
+                        } catch (err) {
+                          toast.error(isCrowdsecBusyError(err) ? t('crowdsecConfig.busy') : t('crowdsecConfig.startFailed'));
                         }
                       }}
                     >
@@ -1257,6 +1283,17 @@ export default function CrowdSecConfig() {
 
           {presetStatusMessage && (
             <p className="text-sm text-yellow-300" data-testid="preset-status">{presetStatusMessage}</p>
+          )}
+
+          {installJob && (
+            <PresetInstallProgress
+              job={installJob}
+              isWaitingForServer={applyJob.isWaitingForServer}
+              isCancelling={applyJob.isCancelling}
+              cancelFailed={applyJob.cancelFailed}
+              onCancel={() => applyJob.cancel(installJob.job_id)}
+              failureText={jobFailureText(installJob.error_code)}
+            />
           )}
 
           {ambiguousTypes.length > 0 && selectedPreset && (

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -264,7 +265,13 @@ func backupTimestamp(suffix string) (time.Time, bool) {
 // from file times. Entries that are not real directories or whose names do not parse are ignored.
 // Individual removal errors are aggregated and returned alongside the paths that were removed.
 func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) {
-	return pruneSiblings(filepath.Clean(dataDir)+"."+kind, keep, fs.FileInfo.IsDir)
+	return PruneBackupsProtecting(dataDir, kind, keep, nil)
+}
+
+// PruneBackupsProtecting is PruneBackups that never deletes the directories in protect (compared by cleaned
+// path); they do not count against keep, so a snapshot a job still needs survives however old it is.
+func PruneBackupsProtecting(dataDir, kind string, keep int, protect []string) (removed []string, err error) {
+	return pruneSiblings(filepath.Clean(dataDir)+"."+kind, keep, fs.FileInfo.IsDir, protect...)
 }
 
 // BackupFilePath names the single-file backup of path taken at at: <path>.backup.<timestamp>, with a
@@ -286,7 +293,7 @@ func PruneBackupFiles(path string, keep int) (removed []string, err error) {
 
 // pruneSiblings removes all but the newest `keep` entries named <stem>.<timestamp> that wanted accepts;
 // stem is a cleaned path without the trailing dot. See PruneBackups for the ordering and error contract.
-func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool) (removed []string, err error) {
+func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool, protect ...string) (removed []string, err error) {
 	if keep < 1 {
 		keep = 1
 	}
@@ -319,6 +326,9 @@ func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool) (remove
 			continue
 		}
 		path := filepath.Join(parent, name)
+		if slices.Contains(protect, path) {
+			continue
+		}
 		info, lerr := os.Lstat(path)
 		if lerr != nil || !wanted(info) {
 			continue
@@ -357,10 +367,13 @@ func BackupID(path string) string {
 	return filepath.Base(path)
 }
 
+// ErrRollbackFailed marks a failed apply whose rollback failed too: the snapshot is retained for manual recovery.
+var ErrRollbackFailed = errors.New("rollback failed; backup retained, see server logs")
+
 // rollbackFailure annotates cause with a failed restore; the snapshot location is logged, never returned.
 func rollbackFailure(cause, restoreErr error, backupPath string) error {
 	logger.Log().WithError(restoreErr).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("preset rollback failed; backup retained for manual recovery")
-	return fmt.Errorf("%w (rollback failed; backup retained, see server logs)", cause)
+	return fmt.Errorf("%w (%w)", cause, ErrRollbackFailed)
 }
 
 // BackupFile copies the single file dataDir/rel into a new <dataDir>.filebackup.<ts>/<rel> directory

@@ -1662,6 +1662,37 @@
         "applyHubUnreachable": "CrowdSec could not reach the hub. Check the network connection and try again.",
         "cscliUnavailable": "cscli unavailable or not responding",
         "applyDependencyNote": "Some items this preset depends on were edited on this server and were left unchanged."
+      },
+      "installProgress": {
+        "label": "Installing preset",
+        "starting": "Starting",
+        "phase": {
+          "preflight": "Preparing",
+          "snapshot": "Saving a snapshot of the current configuration",
+          "install": "Installing",
+          "verify": "Verifying",
+          "reload": "Reloading CrowdSec",
+          "rollback": "Restoring the previous configuration"
+        },
+        "itemsSoFar_one": "{{count}} item so far",
+        "itemsSoFar_other": "{{count}} items so far",
+        "itemsSoFar": "{{count}} items so far",
+        "itemsInstalled_one": "{{count}} item installed",
+        "itemsInstalled_other": "{{count}} items installed",
+        "itemsInstalled": "{{count}} items installed",
+        "elapsed": "{{minutes}} min {{seconds}} s",
+        "elapsedSeconds": "{{seconds}} s",
+        "waitingForServer": "Waiting for the server...",
+        "cancel": "Cancel",
+        "cancelling": "Cancelling...",
+        "cancelFailed": "Could not cancel the install. Try again.",
+        "succeeded": "Preset applied.",
+        "failed": "Install failed.",
+        "failedGeneric": "The preset could not be installed.",
+        "cancelled": "Install cancelled.",
+        "interrupted": "The install was interrupted by a restart.",
+        "timedOut": "The install took too long and was stopped.",
+        "rollbackNote": "The previous configuration was restored."
       }
     },
     "files": {
@@ -1779,7 +1810,8 @@
       "decisionNotFound": "No decision with exactly this address or range. Unbanning removes an exact match only; a covering range does not clear the addresses inside it.",
       "timeout": "CrowdSec did not answer in time. Try again.",
       "requestTooLarge": "The request was too large. Shorten the text and try again."
-    }
+    },
+    "busy": "CrowdSec is busy installing a preset. Try again when it finishes."
   },
   "smtp": {
     "title": "Email (SMTP) Settings",

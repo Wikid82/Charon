@@ -167,6 +167,7 @@ func main() {
 				&models.SecurityRuleSet{},
 				&models.CrowdsecPresetEvent{},
 				&models.CrowdsecConsoleEnrollment{},
+				&models.CrowdsecApplyJob{},
 				&models.EmergencyToken{}, // Phase 2: Database-backed emergency tokens
 				// DNS Provider models (Issue #21)
 				&models.DNSProvider{},
