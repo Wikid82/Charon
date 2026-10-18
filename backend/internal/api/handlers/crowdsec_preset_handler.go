@@ -255,6 +255,9 @@ func respondCoded(c *gin.Context, status int, code, msg string, extra gin.H) {
 // ApplyPreset installs a pulled preset: a curated preset through cscli, a hub preset by installing the
 // pulled item with cscli and verifying the result.
 func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
+	if h.refuseIfBusy(c) {
+		return
+	}
 	if !h.isCerberusEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
 		return
@@ -303,6 +306,9 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	}
 	defer h.dataMu.Unlock()
+	if h.refuseIfBusy(c) {
+		return
+	}
 
 	if isCurated {
 		h.applyCuratedPreset(c, curated)
