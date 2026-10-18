@@ -10,11 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// errPresetApplyCancelledPending stands in for ErrPresetApplyCancelled until the Apply options refactor
-// (PR 6 commit 2) adds it. Replace this variable with the real sentinel in that commit; the cancel
-// subtests below stay skipped until then.
-var errPresetApplyCancelledPending error
-
 // rollbackExit is one place in HubService.Apply that restores the snapshot after the snapshot was taken.
 // stall blocks until the apply context ends (a deadline expiring or the caller cancelling) and then returns
 // the scripted answer, so the exit is reached with a finished context.
@@ -174,7 +169,6 @@ func TestApplyRollbackExitsReportCancelAsCancelled(t *testing.T) {
 	for _, exit := range applyRollbackExits() {
 		t.Run(exit.name, func(t *testing.T) {
 			t.Parallel()
-			t.Skip("pending background install implementation: ErrPresetApplyCancelled does not exist yet")
 			e := newApplyEnv(t)
 			e.leaveFileOnInstall()
 			ctx, cancel := context.WithCancel(context.Background())
@@ -184,7 +178,7 @@ func TestApplyRollbackExitsReportCancelAsCancelled(t *testing.T) {
 			}
 
 			res, err := e.svc.Apply(ctx, applyTestSlug, "collections", e.meta.CacheKey)
-			require.ErrorIs(t, err, errPresetApplyCancelledPending)
+			require.ErrorIs(t, err, ErrPresetApplyCancelled)
 			require.ErrorIs(t, err, context.Canceled)
 			require.NotErrorIs(t, err, ErrPresetApplyTimeout)
 			requireRolledBackKeepingEntry(t, e, res)
