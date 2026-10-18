@@ -81,6 +81,9 @@ type ApplyRequest struct {
 	// OnPhase, when set, is called synchronously as each phase starts. It must return quickly; a panic in it
 	// is logged and never fails the apply.
 	OnPhase func(Phase)
+	// OnSnapshot, when set, is called with the snapshot path as soon as the snapshot exists, so a caller can
+	// persist it before the long install and restore it after a crash. Like OnPhase, a panic in it is logged.
+	OnSnapshot func(path string)
 }
 
 // enter reports the start of phase p to OnPhase, if set.
@@ -94,6 +97,19 @@ func (r ApplyRequest) enter(p Phase) {
 		}
 	}()
 	r.OnPhase(p)
+}
+
+// snapshotted reports the snapshot path to OnSnapshot, if set.
+func (r ApplyRequest) snapshotted(path string) {
+	if r.OnSnapshot == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			logger.Log().WithField("panic", util.SanitizeForLog(fmt.Sprint(rec))).Error("preset apply snapshot callback panicked")
+		}
+	}()
+	r.OnSnapshot(path)
 }
 
 // applyTimeoutError returns the apply timeout error once ctx's deadline has passed, else nil.
@@ -197,6 +213,7 @@ func (s *HubService) ApplyWith(ctx context.Context, req ApplyRequest) (ApplyResu
 		return result, fmt.Errorf("backup: %w", err)
 	}
 	result.BackupPath = backupPath
+	req.snapshotted(backupPath)
 	defer s.pruneAfterApply()
 
 	// rollBack restores the snapshot and reports cause; a passed deadline or a cancel wins over any other

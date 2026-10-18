@@ -233,13 +233,13 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 // Error codes returned next to the English error text of a failed preset apply.
 const (
 	codePresetCacheKeyRequired = "preset_cache_key_required"
-	codePresetCacheStale       = "preset_cache_stale"
-	codePresetHubUpdating      = "preset_hub_updating"
-	codePresetLocalModified    = "preset_local_modified"
-	codePresetApplyTimeout     = "preset_apply_timeout"
+	codePresetCacheStale       = models.CrowdsecApplyErrCacheStale
+	codePresetHubUpdating      = models.CrowdsecApplyErrHubUpdating
+	codePresetLocalModified    = models.CrowdsecApplyErrLocalModified
+	codePresetApplyTimeout     = models.CrowdsecApplyErrTimeout
 	codePresetTypeAmbiguous    = "preset_type_ambiguous"
-	codeHubUnreachable         = "hub_unreachable"
-	codeCSCLIUnavailable       = "cscli_unavailable"
+	codeHubUnreachable         = models.CrowdsecApplyErrHubUnreachable
+	codeCSCLIUnavailable       = models.CrowdsecApplyErrCSCLIUnavailable
 )
 
 // respondCoded writes an error response that carries a stable error_code next to the English text.
@@ -340,22 +340,22 @@ const msgPresetStale = "The cached preset is outdated or missing. Pull the prese
 func (h *CrowdsecHandler) respondApplyError(c *gin.Context, err error, res crowdsec.ApplyResult) {
 	extra := applyFailureBody("", res)
 	delete(extra, "error")
-	switch {
-	case errors.Is(err, crowdsec.ErrPresetCacheStale):
+	switch crowdsec.ApplyErrorCode(err) {
+	case codePresetCacheStale:
 		respondCoded(c, http.StatusConflict, codePresetCacheStale, msgPresetStale, extra)
-	case errors.Is(err, crowdsec.ErrPresetHubUpdating):
+	case codePresetHubUpdating:
 		respondCoded(c, http.StatusConflict, codePresetHubUpdating, "The hub is still updating. Try again later.", extra)
-	case errors.Is(err, crowdsec.ErrPresetLocalModified):
+	case codePresetLocalModified:
 		var modified *crowdsec.LocalModifiedError
 		if errors.As(err, &modified) {
 			extra["tainted_items"] = modified.Items
 		}
 		respondCoded(c, http.StatusConflict, codePresetLocalModified, "This preset was edited on this server, so it was not replaced. Reset it before applying.", extra)
-	case errors.Is(err, crowdsec.ErrPresetApplyTimeout):
+	case codePresetApplyTimeout:
 		respondCoded(c, http.StatusGatewayTimeout, codePresetApplyTimeout, "The preset install took too long and was rolled back. Try again.", extra)
-	case errors.Is(err, crowdsec.ErrHubUnreachable):
+	case codeHubUnreachable:
 		respondCoded(c, http.StatusServiceUnavailable, codeHubUnreachable, msgHubUnreachable, extra)
-	case errors.Is(err, crowdsec.ErrCSCLIUnavailable):
+	case codeCSCLIUnavailable:
 		respondCoded(c, http.StatusServiceUnavailable, codeCSCLIUnavailable, "cscli unavailable or not responding", extra)
 	default:
 		body := applyFailureBody(crowdsec.RedactPaths(err.Error()), res)

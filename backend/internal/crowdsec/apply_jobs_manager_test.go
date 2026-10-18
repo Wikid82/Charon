@@ -2,46 +2,46 @@ package crowdsec
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
-// This file holds the tests of the background hub install job manager (#1615, PR 6) before the manager
-// exists. They compile against the intended API declared in the "pending API" block below and skip until
-// the implementation commits replace that block with the real types (PR 6 commits 3 and 5) and delete the
-// t.Skip inside newPendingJobManager. Nothing here is production code.
-
-const pendingSkipReason = "pending background install implementation"
-
-// ---- pending API (replace with the real types in PR 6 commits 3-5) ----
+// This file holds the tests of the background hub install job manager (#1615, PR 6). They drive the real
+// ApplyJobManager through a small harness that fakes ApplyWith and reads the stored rows back.
 
 // Job states and phase codes, as in section 8.2 of the spec.
 const (
-	jobQueued    = "queued"
-	jobRunning   = "running"
-	jobVerifying = "verifying"
-	jobSucceeded = "succeeded"
-	jobFailed    = "failed"
-	jobTimedOut  = "timed_out"
-	jobCancelled = "cancelled"
+	jobQueued    = models.CrowdsecApplyJobQueued
+	jobRunning   = models.CrowdsecApplyJobRunning
+	jobVerifying = models.CrowdsecApplyJobVerifying
+	jobSucceeded = models.CrowdsecApplyJobSucceeded
+	jobFailed    = models.CrowdsecApplyJobFailed
+	jobTimedOut  = models.CrowdsecApplyJobTimedOut
+	jobCancelled = models.CrowdsecApplyJobCancelled
 
-	phasePreflight = "preflight"
-	phaseSnapshot  = "snapshot"
-	phaseInstall   = "install"
-	phaseVerify    = "verify"
-	phaseReload    = "reload"
+	phasePreflight = string(PhasePreflight)
+	phaseSnapshot  = string(PhaseSnapshot)
+	phaseInstall   = string(PhaseInstall)
+	phaseVerify    = string(PhaseVerify)
+	phaseReload    = string(PhaseReload)
 )
 
-// errPendingBusy stands in for the manager's "a job is active" error.
-var errPendingBusy = errors.New("pending: crowdsec busy")
+// errPendingBusy is the manager's "a job is active" error.
+var errPendingBusy = ErrApplyJobBusy
 
-// pendingJob is the status of one job (the JSON body of GET jobs/:id without the HTTP envelope).
+// pendingJob is the stored status of one job.
 type pendingJob struct {
 	ID             string
 	Slug           string
@@ -51,13 +51,13 @@ type pendingJob struct {
 	Phase          string
 	ErrorCode      string
 	BackupPath     string
+	Warnings       []string
 	ItemsInstalled int
-	Result         *ApplyResult
 	StartedAt      time.Time
 	FinishedAt     *time.Time
 }
 
-// pendingApplyFunc is what the manager calls instead of HubService.Apply; onPhase reports phase boundaries.
+// pendingApplyFunc is what the manager calls instead of HubService.ApplyWith; onPhase reports phase boundaries.
 type pendingApplyFunc func(ctx context.Context, slug, itemType, cacheKey string, onPhase func(phase string)) (ApplyResult, error)
 
 type pendingJobConfig struct {
@@ -82,15 +82,119 @@ type pendingJobManager interface {
 	RecoverInterrupted() error
 }
 
-// pendingManagerFactory is set by the implementation commit; while nil every test below skips.
-var pendingManagerFactory func(t *testing.T, cfg pendingJobConfig) pendingJobManager
+// jobHarness adapts ApplyJobManager to pendingJobManager.
+type jobHarness struct {
+	t       *testing.T
+	mgr     *ApplyJobManager
+	repo    *ApplyJobRepository
+	db      *gorm.DB
+	dataDir string
+}
 
 func newPendingJobManager(t *testing.T, cfg pendingJobConfig) pendingJobManager {
 	t.Helper()
-	if pendingManagerFactory == nil {
-		t.Skip(pendingSkipReason)
+	db := testutil.OpenMemoryDB(t)
+	sqlDB, dbErr := db.DB()
+	require.NoError(t, dbErr)
+	sqlDB.SetMaxOpenConns(1) // shared-cache SQLite answers concurrent connections with "table is locked"
+	require.NoError(t, db.AutoMigrate(&models.CrowdsecApplyJob{}))
+	repo := NewApplyJobRepository(db)
+	apply := cfg.Apply
+	if apply == nil {
+		apply = func(context.Context, string, string, string, func(string)) (ApplyResult, error) {
+			return ApplyResult{Status: "applied"}, nil
+		}
 	}
-	return pendingManagerFactory(t, cfg)
+	mgr := NewApplyJobManager(nil)
+	mgr.Configure(ApplyJobConfig{
+		Repo: repo, CountItems: cfg.CountItems, ProgressInterval: cfg.ProgressInterval, MaxDuration: cfg.MaxDuration, Now: cfg.Now,
+		Apply: func(ctx context.Context, req ApplyRequest) (ApplyResult, error) {
+			return apply(ctx, req.Slug, req.Type, req.CacheKey, func(p string) { req.OnPhase(Phase(p)) })
+		},
+	})
+	t.Cleanup(mgr.Shutdown)
+	return &jobHarness{t: t, mgr: mgr, repo: repo, db: db, dataDir: cfg.DataDir}
+}
+
+func toPending(j *models.CrowdsecApplyJob) pendingJob {
+	out := pendingJob{ID: j.ID, Slug: j.Slug, ItemType: j.ItemType, CacheKey: j.CacheKey, State: j.State, Phase: j.Phase,
+		ErrorCode: j.ErrorCode, BackupPath: j.BackupPath, ItemsInstalled: j.ItemsInstalled, FinishedAt: j.FinishedAt}
+	if j.StartedAt != nil {
+		out.StartedAt = *j.StartedAt
+	}
+	if j.Warnings != "" {
+		_ = json.Unmarshal([]byte(j.Warnings), &out.Warnings)
+	}
+	return out
+}
+
+func (h *jobHarness) Start(_ context.Context, slug, itemType, cacheKey string) (string, error) {
+	job, err := h.mgr.Start(ApplyJobRequest{Slug: slug, Type: itemType, CacheKey: cacheKey})
+	if err != nil {
+		return "", err
+	}
+	return job.ID, nil
+}
+
+func (h *jobHarness) Get(id string) (pendingJob, error) {
+	job, err := h.mgr.Get(context.Background(), id)
+	if err != nil {
+		return pendingJob{}, err
+	}
+	return toPending(job), nil
+}
+
+func (h *jobHarness) Current() (pendingJob, bool) {
+	job, err := h.mgr.Current(context.Background())
+	if err != nil {
+		return pendingJob{}, false
+	}
+	return toPending(job), true
+}
+
+func (h *jobHarness) Cancel(id string) error { return h.mgr.Cancel(id) }
+
+func (h *jobHarness) Busy() (string, bool) { return h.mgr.Busy() }
+
+// Wait returns once the job is finished and the busy flag is free again.
+func (h *jobHarness) Wait(id string, timeout time.Duration) (pendingJob, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		job, err := h.Get(id)
+		if err != nil {
+			return pendingJob{}, err
+		}
+		if _, busy := h.mgr.Busy(); !models.IsCrowdsecApplyJobActive(job.State) && !busy {
+			return job, nil
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return pendingJob{}, fmt.Errorf("job %s did not finish within %s", id, timeout)
+}
+
+func (h *jobHarness) Seed(job pendingJob) error {
+	row := &models.CrowdsecApplyJob{ID: job.ID, Slug: job.Slug, State: job.State, BackupPath: job.BackupPath,
+		CreatedAt: job.StartedAt, StartedAt: &job.StartedAt, FinishedAt: job.FinishedAt}
+	if job.FinishedAt != nil {
+		row.UpdatedAt = *job.FinishedAt
+	}
+	return h.repo.Create(context.Background(), row)
+}
+
+func (h *jobHarness) List() []pendingJob {
+	jobs, err := h.mgr.Recent(context.Background(), 1000)
+	require.NoError(h.t, err)
+	out := make([]pendingJob, len(jobs))
+	for i := range jobs {
+		out[i] = toPending(&jobs[i])
+	}
+	return out
+}
+
+func (h *jobHarness) Prune() error { return h.mgr.Prune(context.Background()) }
+
+func (h *jobHarness) RecoverInterrupted() error {
+	return h.mgr.RecoverInterrupted(context.Background(), func(path string) error { return Restore(path, h.dataDir) })
 }
 
 // ---- helpers ----
@@ -176,7 +280,6 @@ func TestApplyJobRunsThroughItsStatesAndPhases(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, jobSucceeded, done.State)
 	require.NotNil(t, done.FinishedAt)
-	require.Equal(t, "applied", done.Result.Status)
 	_, busy := m.Busy()
 	require.False(t, busy, "the flag is released at the end")
 }
@@ -248,8 +351,8 @@ func TestApplyJobCapsTaintedDependencyWarnings(t *testing.T) {
 	done, err := m.Wait(startJob(t, m), 5*time.Second)
 	require.NoError(t, err)
 	require.Equal(t, jobSucceeded, done.State, "a tainted dependency only warns")
-	require.Len(t, done.Result.Warnings, 51)
-	require.Equal(t, "and 30 more", done.Result.Warnings[50])
+	require.Len(t, done.Warnings, 51)
+	require.Equal(t, "and 30 more", done.Warnings[50])
 }
 
 func TestApplyJobCancelRollsBackAndIsIdempotent(t *testing.T) {
@@ -396,6 +499,7 @@ func TestRecoverInterruptedRestoresTheSnapshotAndMarksTheJob(t *testing.T) {
 func TestRecoverInterruptedWithoutASnapshotOnlyMarksTheJob(t *testing.T) {
 	t.Parallel()
 	e := newApplyEnv(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(e.dir, "config"), 0o750))
 	writeFile(t, filepath.Join(e.dir, "config", "config.yaml"), "edited: true\n")
 	m := newPendingJobManager(t, pendingJobConfig{DataDir: e.dir})
 	require.NoError(t, m.Seed(pendingJob{ID: "a", State: jobRunning, StartedAt: time.Now(), BackupPath: ""}))
