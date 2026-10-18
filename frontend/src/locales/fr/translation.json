@@ -1662,6 +1662,36 @@
         "applyHubUnreachable": "CrowdSec n'a pas pu joindre le hub. Vérifiez la connexion réseau et réessayez.",
         "cscliUnavailable": "cscli indisponible ou ne répond pas",
         "applyDependencyNote": "Certains éléments dont dépend ce préréglage ont été modifiés sur ce serveur et ont été laissés tels quels."
+      },
+      "installProgress": {
+        "label": "Installation du preset",
+        "starting": "Démarrage",
+        "phase": {
+          "preflight": "Préparation",
+          "snapshot": "Enregistrement d'un instantané de la configuration actuelle",
+          "install": "Installation en cours",
+          "verify": "Vérification en cours",
+          "reload": "Rechargement de CrowdSec",
+          "rollback": "Restauration de la configuration précédente"
+        },
+        "itemsSoFar_one": "{{count}} élément jusqu'ici",
+        "itemsSoFar_other": "{{count}} éléments jusqu'ici",
+        "itemsSoFar": "{{count}} éléments jusqu'ici",
+        "itemsInstalled_one": "{{count}} élément installé",
+        "itemsInstalled_other": "{{count}} éléments installés",
+        "itemsInstalled": "{{count}} éléments installés",
+        "elapsed": "{{minutes}} min {{seconds}} s",
+        "elapsedSeconds": "{{seconds}} s",
+        "waitingForServer": "En attente du serveur...",
+        "cancel": "Annuler",
+        "cancelling": "Annulation...",
+        "succeeded": "Preset appliqué.",
+        "failed": "L'installation a échoué.",
+        "failedGeneric": "Le preset n'a pas pu être installé.",
+        "cancelled": "Installation annulée.",
+        "interrupted": "L'installation a été interrompue par un redémarrage.",
+        "timedOut": "L'installation a pris trop de temps et a été arrêtée.",
+        "rollbackNote": "La configuration précédente a été restaurée."
       }
     },
     "files": {
@@ -1779,7 +1809,8 @@
       "decisionNotFound": "Aucune décision avec exactement cette adresse ou cette plage. Le débannissement ne retire qu'une correspondance exacte ; une plage plus large ne libère pas les adresses qu'elle contient.",
       "timeout": "CrowdSec n'a pas répondu à temps. Réessayez.",
       "requestTooLarge": "La requête était trop volumineuse. Raccourcissez le texte et réessayez."
-    }
+    },
+    "busy": "CrowdSec est occupé à installer un preset. Réessayez une fois l'installation terminée."
   },
   "smtp": {
     "title": "Paramètres Email (SMTP)",

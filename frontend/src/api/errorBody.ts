@@ -11,3 +11,8 @@ export function getApiErrorCode<C extends string>(err: unknown, codes: readonly 
   const code = err.response?.data?.error_code
   return codes.find((known) => known === code)
 }
+
+/** True when the server refused a CrowdSec change because a background preset install is running. */
+export function isCrowdsecBusyError(err: unknown): boolean {
+  return getApiErrorCode(err, ['crowdsec_busy'] as const) !== undefined
+}
