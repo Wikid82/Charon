@@ -455,6 +455,10 @@ func TestApplyJobConcurrentStartCancelAndPoll(t *testing.T) {
 		go func() { defer wg.Done(); _ = m.Cancel(id) }()
 	}
 	wg.Wait()
+	// A Start that raced in after the first job ended may hold the flag now; nobody else cancels it.
+	if current, busy := m.Busy(); busy {
+		_ = m.Cancel(current)
+	}
 	_, err := m.Wait(id, 5*time.Second)
 	require.NoError(t, err)
 	require.LessOrEqual(t, started, int32(1), "only one job can ever be accepted")

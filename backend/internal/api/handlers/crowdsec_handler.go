@@ -96,10 +96,16 @@ type CrowdsecHandler struct {
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
 	// and the export build; an export holds it only while writing its temporary file, never while sending.
 	// Lock order is always restore.running -> dataMu -> HubService.mu. The background install busy flag
-	// (ApplyJobs) is not a lock: handlers test it without waiting, at the top of the request and again right
-	// after taking dataMu, and a job start takes dataMu briefly to set it, so a handler that passed the check
-	// under dataMu is never overlapped by a job. The restore flag and the busy flag exclude each other.
-	// The wait is abandoned when the request ends (see lockData).
+	// (ApplyJobs) is not a lock: handlers test it without waiting. ImportConfig, WriteFile and ApplyPreset test
+	// it once before and again right after taking dataMu, and ApplyPreset starts a job while holding dataMu,
+	// so once past the recheck those three are never overlapped by a job. RestoreHubItems excludes jobs through
+	// restore.running (the flag and the busy flag exclude each other) and rechecks after taking it.
+	// Start, Stop, ConsoleEnroll, AddWhitelist and DeleteWhitelist check the flag lock-free only, on purpose:
+	// Start and Stop must answer 409 at once, and dataMu can be held for minutes by a synchronous preset apply,
+	// an import or an export build, so waiting for it would stall them. The residual window is that a job
+	// acquiring the flag in the instant after one of these handlers passed its check overlaps that one call
+	// (an engine start or stop, a console enrollment, a whitelist change and its reload).
+	// The wait for dataMu is abandoned when the request ends (see lockData).
 	dataMu ctxMutex
 
 	// acquisMu serializes UpdateAcquisitionConfig. It is separate from dataMu because the acquisition file is
@@ -1095,6 +1101,9 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(
 // ExportConfig builds a tar.gz archive of the CrowdSec data directory in a temporary file and then
 // sends it. Every failure is reported before the first byte of the download, so a client never receives
 // a truncated archive with a success status.
+//
+// Exports stay available while a background preset install runs (no busy refusal, by design): an archive
+// taken during an install can contain a partly installed hub tree.
 func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 	// Ensure DataDir exists
 	if _, err := os.Stat(h.DataDir); os.IsNotExist(err) {
@@ -1241,9 +1250,6 @@ func (h *CrowdsecHandler) respondExportError(c *gin.Context, err error) {
 
 // ConsoleEnroll enrolls the local engine with CrowdSec console.
 func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
-	if h.refuseIfBusy(c) {
-		return
-	}
 	if !h.isConsoleEnrollmentEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
 		return
@@ -1260,6 +1266,11 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 		Force         bool   `json:"force"`
 	}
 	if !bindSmallJSON(c, &payload, func() { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}) }) {
+		return
+	}
+
+	// After the cheap gates: a disabled feature or a malformed payload answers 404 or 400 whether or not a job runs.
+	if h.refuseIfBusy(c) {
 		return
 	}
 

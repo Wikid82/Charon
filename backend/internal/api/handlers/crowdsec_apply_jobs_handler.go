@@ -104,7 +104,8 @@ func (h *CrowdsecHandler) ShutdownApplyJobs() {
 }
 
 // startApplyJob starts a background install of a hub preset and answers 202 with the queued job. The caller
-// holds dataMu, so no data-changing handler is between its busy check and its work while the flag is taken.
+// holds dataMu, so ImportConfig, WriteFile and ApplyPreset are not between their busy recheck and their work
+// while the flag is taken.
 func (h *CrowdsecHandler) startApplyJob(c *gin.Context, req crowdsec.ApplyJobRequest) {
 	m, ok := h.jobManager(c)
 	if !ok {
@@ -119,6 +120,9 @@ func (h *CrowdsecHandler) startApplyJob(c *gin.Context, req crowdsec.ApplyJobReq
 			extra["job_id"] = id
 		}
 		respondCoded(c, http.StatusConflict, codeCrowdsecBusy, msgCrowdsecBusy, extra)
+		return
+	case errors.Is(err, crowdsec.ErrApplyJobShutdown):
+		respondCoded(c, http.StatusServiceUnavailable, codeCrowdsecUnavailable, "CrowdSec is shutting down; try again after the restart", nil)
 		return
 	case err != nil:
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).Error("starting crowdsec preset install job failed")
@@ -241,6 +245,10 @@ func (h *CrowdsecHandler) CancelApplyJob(c *gin.Context) {
 		return
 	}
 	if err := m.Cancel(job.ID); err != nil {
+		if errors.Is(err, crowdsec.ErrApplyJobNotActive) {
+			respondCoded(c, http.StatusConflict, codeJobNotActive, "the install job is not running on this server", gin.H{"state": job.State})
+			return
+		}
 		h.respondJobLookupError(c, err)
 		return
 	}

@@ -47,6 +47,8 @@ func TestValidIndexPath(t *testing.T) {
 	for _, p := range []string{
 		"../etc/passwd", "a/../../b", "a/..", "//evil.example/x", "https://evil.example/x", "javascript:alert(1)",
 		"a\\b", "a/\x00b", "a/\nb", "a/\x7fb",
+		"/etc/passwd", "/collections/a.yaml", "a%2fb", "%2e%2e/x", "a/%2E%2e/b", "a/%2e./b", "a/.%2E/b", "a%00b",
+		"a.yaml?x=1", "a.yaml#frag", "a?b/c", "#x",
 	} {
 		require.False(t, validIndexPath(p), p)
 	}

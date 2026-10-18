@@ -242,3 +242,24 @@ func restoreSavedItem(snapshotPath, dataDir string) error {
 	}
 	return nil
 }
+
+// ValidSnapshot reports whether path holds a snapshot that Restore may be given: a directory that Snapshot or
+// snapshotWithoutHub could have produced. A light snapshot carries its sidecar with the hub manifest; a full
+// one carries the configuration (config.yaml, or the config directory of a nested installation). Restore
+// empties the data directory before it copies, so an empty directory or one holding unrelated files must
+// never reach it.
+func ValidSnapshot(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	if isLightSnapshot(path) {
+		return isRegularFile(filepath.Join(path, snapshotSidecarDir, hubManifestName))
+	}
+	return isRegularFile(filepath.Join(path, "config.yaml")) || isDir(filepath.Join(path, "config"))
+}
+
+func isDir(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir()
+}

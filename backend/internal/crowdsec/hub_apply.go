@@ -217,6 +217,16 @@ func (s *HubService) ApplyWith(ctx context.Context, req ApplyRequest) (ApplyResu
 	result.BackupPath = backupPath
 	req.snapshotted(backupPath)
 	defer s.pruneAfterApply()
+	// A panic past this point (a stub, a bug) would leave a half-installed tree; restore the snapshot, then let
+	// the panic go on to its recoverer.
+	defer func() {
+		if rec := recover(); rec != nil {
+			if rbErr := s.restore(backupPath); rbErr != nil {
+				_ = rollbackFailure(fmt.Errorf("panic during the preset apply"), rbErr, backupPath)
+			}
+			panic(rec)
+		}
+	}()
 
 	// rollBack restores the snapshot and reports cause; a passed deadline or a cancel wins over any other
 	// cause and keeps the cache entry. The restore does not use the apply context, so it runs after either.

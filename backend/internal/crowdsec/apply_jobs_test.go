@@ -20,11 +20,18 @@ func TestApplyJobManagerFlag(t *testing.T) {
 	require.Equal(t, "job-1", id)
 	require.False(t, m.TryAcquire("job-2"), "only one job at a time")
 
-	m.Release()
-	m.Release() // idempotent
+	m.Release("job-0") // not the holder: ignored
+	_, busy = m.Busy()
+	require.True(t, busy, "a release for another job id must not clear the flag")
+	m.Release("job-1")
+	m.Release("job-1") // idempotent
 	_, busy = m.Busy()
 	require.False(t, busy)
 	require.True(t, m.TryAcquire("job-2"))
+	m.Release("job-1") // a late release of the first job
+	id, busy = m.Busy()
+	require.True(t, busy, "a late release must not clear the newer job")
+	require.Equal(t, "job-2", id)
 }
 
 func TestApplyJobManagerRefusesWhileBlocked(t *testing.T) {

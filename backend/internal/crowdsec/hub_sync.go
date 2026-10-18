@@ -350,9 +350,11 @@ func parseCSCLIIndex(raw []byte) (HubIndex, error) {
 }
 
 // validIndexPath reports whether an index item path is safe to append to the hub base URL: a relative path
-// without a scheme, a leading double slash, backslashes, control characters or ".." segments.
+// without a scheme, a leading slash, backslashes, control characters, ".." segments, or any of "%", "?" and "#".
+// Rejecting "%" outright also rejects percent-encoded dot segments (%2e%2e) and encoded separators, which a hub
+// index has no use for.
 func validIndexPath(p string) bool {
-	if strings.HasPrefix(p, "//") || strings.ContainsAny(p, "\\") || strings.Contains(p, "://") {
+	if strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\\%?#") || strings.Contains(p, "://") {
 		return false
 	}
 	for _, r := range p {

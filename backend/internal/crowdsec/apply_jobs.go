@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +30,13 @@ var ErrApplyJobBusy = errors.New("crowdsec is busy with another long operation")
 
 // ErrApplyJobNotConfigured is returned by Start when Configure has not supplied the repository and apply function.
 var ErrApplyJobNotConfigured = errors.New("crowdsec apply job manager is not configured")
+
+// ErrApplyJobNotActive is returned by Cancel when the job row is active but this process runs no such job (a
+// leftover of a crashed process that startup recovery has not failed yet).
+var ErrApplyJobNotActive = errors.New("crowdsec apply job is not running")
+
+// ErrApplyJobShutdown is returned by Start once the manager has been shut down.
+var ErrApplyJobShutdown = errors.New("crowdsec apply job manager is shut down")
 
 // ApplyFunc runs one preset apply. HubService.ApplyWith is the production implementation; tests substitute it.
 type ApplyFunc func(ctx context.Context, req ApplyRequest) (ApplyResult, error)
@@ -78,9 +84,8 @@ type ApplyJobRequest struct {
 
 // activeApplyJob is the in-memory side of the job that holds the busy flag.
 type activeApplyJob struct {
-	id              string
-	cancel          context.CancelFunc
-	cancelRequested atomic.Bool
+	id     string
+	cancel context.CancelFunc
 
 	mu          sync.Mutex
 	phase       string
@@ -111,6 +116,7 @@ type ApplyJobManager struct {
 	mu     sync.Mutex
 	jobID  string
 	busy   bool
+	closed bool // set by Shutdown; Start refuses afterwards
 	cfg    ApplyJobConfig
 	active *activeApplyJob
 }
@@ -151,17 +157,20 @@ func (m *ApplyJobManager) TryAcquire(jobID string) bool {
 	m.mu.Unlock()
 
 	if m.blockedBy != nil && m.blockedBy() {
-		m.Release()
+		m.Release(jobID)
 		return false
 	}
 	return true
 }
 
-// Release clears the busy flag; it is safe to call when no job holds it.
-func (m *ApplyJobManager) Release() {
+// Release clears the busy flag, but only while jobID still holds it: a release that arrives late (after the
+// flag moved on to a newer job) must never clear that job's flag. It is safe to call when no job holds it.
+func (m *ApplyJobManager) Release(jobID string) {
 	m.mu.Lock()
-	m.busy, m.jobID, m.active = false, "", nil
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+	if m.busy && m.jobID == jobID {
+		m.busy, m.jobID, m.active = false, "", nil
+	}
 }
 
 // Busy reports whether a job holds the flag and its id.
@@ -195,8 +204,17 @@ func (m *ApplyJobManager) Start(req ApplyJobRequest) (*models.CrowdsecApplyJob, 
 	}
 	jobCtx, cancel := context.WithTimeout(m.rootCtx, cfg.MaxDuration)
 	a := &activeApplyJob{id: id, cancel: cancel}
+	// The closed check, the active job and the wait group registration share one critical section, so a
+	// Shutdown that has begun waiting never misses a job that is about to start.
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		cancel()
+		m.Release(id)
+		return nil, ErrApplyJobShutdown
+	}
 	m.active = a
+	m.wg.Add(1)
 	m.mu.Unlock()
 
 	ctx, dbCancel := dbContext()
@@ -205,11 +223,11 @@ func (m *ApplyJobManager) Start(req ApplyJobRequest) (*models.CrowdsecApplyJob, 
 	job := &models.CrowdsecApplyJob{ID: id, Slug: req.Slug, ItemType: req.Type, CacheKey: req.CacheKey, State: models.CrowdsecApplyJobQueued}
 	if err := cfg.Repo.Create(ctx, job); err != nil {
 		cancel()
-		m.Release()
+		m.Release(id)
+		m.wg.Done()
 		return nil, err
 	}
 
-	m.wg.Add(1)
 	go m.run(jobCtx, cfg, a, req)
 	return job, nil
 }
@@ -239,10 +257,11 @@ func (m *ApplyJobManager) update(cfg ApplyJobConfig, id string, upd ApplyJobUpda
 	}
 }
 
-// run executes one job to its end and always releases the busy flag.
+// run executes one job to its end and releases the busy flag exactly once, after the last thing it does, so a
+// new job can never start while this one is still pruning and its release can never clear a newer job's flag.
 func (m *ApplyJobManager) run(ctx context.Context, cfg ApplyJobConfig, a *activeApplyJob, req ApplyJobRequest) {
 	defer m.wg.Done()
-	defer m.Release()
+	defer m.Release(a.id)
 	defer a.cancel()
 
 	started := cfg.Repo.now()
@@ -259,7 +278,6 @@ func (m *ApplyJobManager) run(ctx context.Context, cfg ApplyJobConfig, a *active
 	upd := m.finalUpdate(cfg, a, res, err, panicked)
 	m.update(cfg, a.id, upd)
 	m.finish(cfg, a.id)
-	m.Release()
 
 	pruneCtx, cancel := dbContext()
 	defer cancel()
@@ -370,10 +388,14 @@ func (m *ApplyJobManager) finalUpdate(cfg ApplyJobConfig, a *activeApplyJob, res
 	var code, message string
 	switch {
 	case err == nil:
+	case !panicked && errors.Is(err, ErrRollbackFailed):
+		// The rollback itself failed and the snapshot is retained: whatever caused it, this is a failure.
+		state, code = models.CrowdsecApplyJobFailed, ApplyErrorCode(err)
+		message = RedactPaths(err.Error())
 	case !panicked && (errors.Is(err, ErrPresetApplyTimeout) || errors.Is(err, context.DeadlineExceeded)):
 		state, code = models.CrowdsecApplyJobTimedOut, models.CrowdsecApplyErrTimeout
 		message = RedactPaths(err.Error())
-	case !panicked && (errors.Is(err, ErrPresetApplyCancelled) || errors.Is(err, context.Canceled) || a.cancelRequested.Load()):
+	case !panicked && (errors.Is(err, context.Canceled)):
 		state = models.CrowdsecApplyJobCancelled
 		message = RedactPaths(err.Error())
 	default:
@@ -399,11 +421,17 @@ func (m *ApplyJobManager) finalUpdate(cfg ApplyJobConfig, a *activeApplyJob, res
 		a.mu.Unlock()
 		upd.ItemsInstalled = &n
 	}
+	if state != models.CrowdsecApplyJobSucceeded {
+		// Nothing stays installed after a failure, a cancel or a timeout: the rollback removed it.
+		zero := 0
+		upd.ItemsInstalled = &zero
+	}
 	return upd
 }
 
 // Cancel asks the active job to stop; it rolls back and ends cancelled. It is idempotent and a no-op for a
-// finished job, and returns ErrApplyJobNotFound for an unknown id.
+// finished job. It returns ErrApplyJobNotFound for an unknown id and ErrApplyJobNotActive for a job row that
+// is active but not run by this process.
 func (m *ApplyJobManager) Cancel(jobID string) error {
 	cfg := m.config()
 	if cfg.Repo == nil {
@@ -413,7 +441,6 @@ func (m *ApplyJobManager) Cancel(jobID string) error {
 	a := m.active
 	m.mu.Unlock()
 	if a != nil && a.id == jobID {
-		a.cancelRequested.Store(true)
 		requested := true
 		m.update(cfg, jobID, ApplyJobUpdate{CancelRequested: &requested})
 		a.cancel()
@@ -421,8 +448,14 @@ func (m *ApplyJobManager) Cancel(jobID string) error {
 	}
 	ctx, cancel := dbContext()
 	defer cancel()
-	_, err := cfg.Repo.Get(ctx, jobID)
-	return err
+	job, err := cfg.Repo.Get(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if job.IsActive() {
+		return ErrApplyJobNotActive
+	}
+	return nil
 }
 
 // Get returns the job with id, or ErrApplyJobNotFound.
@@ -452,53 +485,67 @@ func (m *ApplyJobManager) Recent(ctx context.Context, limit int) ([]models.Crowd
 	return cfg.Repo.ListRecent(ctx, limit)
 }
 
-// RecoverInterrupted fails every job a previous process left active and calls restore with each job's
-// snapshot path, because the install died half way. A failed restore is recorded as a warning on the job
-// (the snapshot path stays on the row for manual recovery) and never stops the start.
+// RecoverInterrupted restores the snapshot of every job a previous process left active, because the install
+// died half way, and only then fails the job with the interrupted code. The order matters: a crash between
+// the two steps leaves the job active, so the next start retries the (idempotent) restore. A snapshot that
+// is missing, empty or not shaped like one never reaches restore (Restore empties the data directory first);
+// that and a failed restore are recorded as a warning on the job, written together with the failed state,
+// and the snapshot path stays on the row for manual recovery. A job that cannot be marked is logged, left
+// active for the next start, and reported in the returned error after the other jobs were handled.
 func (m *ApplyJobManager) RecoverInterrupted(ctx context.Context, restore func(backupPath string) error) error {
 	cfg := m.config()
 	if cfg.Repo == nil {
 		return ErrApplyJobNotConfigured
 	}
-	jobs, err := cfg.Repo.MarkRunningAsInterrupted(ctx)
+	jobs, err := cfg.Repo.ActiveJobs(ctx)
 	if err != nil {
 		return err
 	}
+	var errs []error
 	for i := range jobs {
 		job := &jobs[i]
-		if job.BackupPath == "" || restore == nil {
-			continue
+		warning := recoverSnapshot(job, restore)
+		var warnings string
+		if warning != "" {
+			var encErr error
+			if warnings, encErr = EncodeApplyWarnings([]string{warning}); encErr != nil {
+				logger.Log().WithField("job_id", job.ID).WithField("error", util.SanitizeForLog(encErr.Error())).Warn("recording the recovery warning failed")
+			}
 		}
-		// Restore empties the data directory before it copies, so a snapshot that is gone must never reach it.
-		if _, statErr := os.Stat(job.BackupPath); statErr != nil {
-			m.recordRecoveryWarning(ctx, cfg, job.ID, "the snapshot of the interrupted install no longer exists, so nothing was restored")
-			continue
+		if markErr := cfg.Repo.MarkInterrupted(ctx, job.ID, warnings); markErr != nil {
+			logger.Log().WithField("job_id", job.ID).WithField("error", util.SanitizeForLog(markErr.Error())).Error("failing an interrupted crowdsec install failed; it is retried at the next start")
+			errs = append(errs, markErr)
 		}
-		restoreErr := restore(job.BackupPath)
-		if restoreErr == nil {
-			logger.Log().WithField("job_id", job.ID).Info("restored the configuration snapshot of an interrupted crowdsec install")
-			continue
-		}
-		msg := "the snapshot could not be restored: " + RedactPaths(restoreErr.Error())
-		logger.Log().WithField("job_id", job.ID).WithField("error", util.SanitizeForLog(msg)).Error("restoring an interrupted crowdsec install failed")
-		m.recordRecoveryWarning(ctx, cfg, job.ID, msg)
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
-// recordRecoveryWarning stores msg as the warning of an interrupted job; a failed write is only logged.
-func (m *ApplyJobManager) recordRecoveryWarning(ctx context.Context, cfg ApplyJobConfig, id, msg string) {
-	warnings, err := EncodeApplyWarnings([]string{msg})
-	if err == nil {
-		err = cfg.Repo.Update(ctx, id, ApplyJobUpdate{Warnings: &warnings})
+// recoverSnapshot restores the snapshot of one interrupted job and returns the warning to store on it, or "".
+func recoverSnapshot(job *models.CrowdsecApplyJob, restore func(backupPath string) error) string {
+	if job.BackupPath == "" || restore == nil {
+		return ""
 	}
-	if err != nil {
-		logger.Log().WithField("job_id", id).WithField("error", util.SanitizeForLog(err.Error())).Warn("recording the recovery warning failed")
+	if _, statErr := os.Stat(job.BackupPath); statErr != nil {
+		return "the snapshot of the interrupted install no longer exists, so nothing was restored"
 	}
+	if !ValidSnapshot(job.BackupPath) {
+		return "the snapshot of the interrupted install is incomplete, so nothing was restored"
+	}
+	restoreErr := restore(job.BackupPath)
+	if restoreErr == nil {
+		logger.Log().WithField("job_id", job.ID).Info("restored the configuration snapshot of an interrupted crowdsec install")
+		return ""
+	}
+	msg := "the snapshot could not be restored: " + RedactPaths(restoreErr.Error())
+	logger.Log().WithField("job_id", job.ID).WithField("error", util.SanitizeForLog(msg)).Error("restoring an interrupted crowdsec install failed")
+	return msg
 }
 
-// Shutdown cancels every running job (each rolls back) and waits for them to end.
+// Shutdown cancels every running job (each rolls back) and waits for them to end. Start refuses afterwards.
 func (m *ApplyJobManager) Shutdown() {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
 	m.rootCancel()
 	m.wg.Wait()
 }

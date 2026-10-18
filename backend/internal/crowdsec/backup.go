@@ -357,10 +357,13 @@ func BackupID(path string) string {
 	return filepath.Base(path)
 }
 
+// ErrRollbackFailed marks a failed apply whose rollback failed too: the snapshot is retained for manual recovery.
+var ErrRollbackFailed = errors.New("rollback failed; backup retained, see server logs")
+
 // rollbackFailure annotates cause with a failed restore; the snapshot location is logged, never returned.
 func rollbackFailure(cause, restoreErr error, backupPath string) error {
 	logger.Log().WithError(restoreErr).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("preset rollback failed; backup retained for manual recovery")
-	return fmt.Errorf("%w (rollback failed; backup retained, see server logs)", cause)
+	return fmt.Errorf("%w (%w)", cause, ErrRollbackFailed)
 }
 
 // BackupFile copies the single file dataDir/rel into a new <dataDir>.filebackup.<ts>/<rel> directory
