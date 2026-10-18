@@ -168,28 +168,9 @@ func (s *HubService) ApplyWith(ctx context.Context, req ApplyRequest) (ApplyResu
 	applyCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	if itemType == "" {
-		if itemType = s.cachedTypeOfKey(applyCtx, slug, cacheKey); itemType == "" {
-			if err := applyTimeoutError(applyCtx); err != nil {
-				return result, err
-			}
-			// No valid entry carries this key, so there is nothing to apply.
-			return result, ErrPresetCacheStale
-		}
-	}
-	meta, item, err := s.Cache.LoadItem(applyCtx, itemType, slug)
+	meta, item, err := s.loadFreshItem(applyCtx, req)
 	if err != nil {
-		if timeoutErr := applyTimeoutError(applyCtx); timeoutErr != nil {
-			return result, timeoutErr
-		}
-		if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrCacheExpired) || errors.Is(err, ErrCacheInvalid) {
-			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("reason", util.SanitizeForLog(err.Error())).Info("preset cache entry unusable for apply")
-			return result, ErrPresetCacheStale
-		}
-		return result, fmt.Errorf("load cache for %s: %w", slug, err)
-	}
-	if meta.CacheKey != cacheKey || (req.ItemSHA256 != "" && !strings.EqualFold(req.ItemSHA256, meta.ItemSHA256)) {
-		return result, ErrPresetCacheStale
+		return result, err
 	}
 	result.CacheKey = meta.CacheKey
 	result.Type = meta.Type
@@ -615,4 +596,61 @@ func (s *HubService) cachedTypeOfKey(ctx context.Context, slug, cacheKey string)
 		}
 	}
 	return ""
+}
+
+// loadFreshItem loads the cache entry an apply installs and refuses it as stale when it is missing, expired,
+// invalid, carries another cache key or (when req names one) another item digest. It is the shared gate of
+// ApplyWith and CheckApplyFresh and never touches the hub or cscli.
+func (s *HubService) loadFreshItem(ctx context.Context, req ApplyRequest) (CachedPreset, []byte, error) {
+	slug, itemType, cacheKey := req.Slug, req.Type, req.CacheKey
+	if itemType == "" {
+		if itemType = s.cachedTypeOfKey(ctx, slug, cacheKey); itemType == "" {
+			if err := applyTimeoutError(ctx); err != nil {
+				return CachedPreset{}, nil, err
+			}
+			// No valid entry carries this key, so there is nothing to apply.
+			return CachedPreset{}, nil, ErrPresetCacheStale
+		}
+	}
+	meta, item, err := s.Cache.LoadItem(ctx, itemType, slug)
+	if err != nil {
+		if timeoutErr := applyTimeoutError(ctx); timeoutErr != nil {
+			return CachedPreset{}, nil, timeoutErr
+		}
+		if errors.Is(err, ErrCacheMiss) || errors.Is(err, ErrCacheExpired) || errors.Is(err, ErrCacheInvalid) {
+			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("reason", util.SanitizeForLog(err.Error())).Info("preset cache entry unusable for apply")
+			return CachedPreset{}, nil, ErrPresetCacheStale
+		}
+		return CachedPreset{}, nil, fmt.Errorf("load cache for %s: %w", slug, err)
+	}
+	if meta.CacheKey != cacheKey || (req.ItemSHA256 != "" && !strings.EqualFold(req.ItemSHA256, meta.ItemSHA256)) {
+		return CachedPreset{}, nil, ErrPresetCacheStale
+	}
+	return meta, item, nil
+}
+
+// CheckApplyFresh runs the cache-staleness gate of ApplyWith without installing anything, so a handler can
+// answer a stale request (wrong cache key or digest, expired entry) directly instead of through a job that
+// fails afterwards. ApplyWith repeats the check; this one is only the early answer.
+func (s *HubService) CheckApplyFresh(ctx context.Context, req ApplyRequest) error {
+	if !ValidCacheSlug(req.Slug) {
+		return ErrInvalidSlug
+	}
+	if req.Type != "" && !IsCacheItemType(req.Type) {
+		return ErrInvalidItemType
+	}
+	if req.CacheKey == "" {
+		return ErrPresetCacheKeyRequired
+	}
+	if s.Cache == nil {
+		return fmt.Errorf("cache unavailable for manual apply")
+	}
+	timeout := s.ApplyTimeout
+	if timeout <= 0 {
+		timeout = ApplyJobMaxDuration
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	_, _, err := s.loadFreshItem(checkCtx, req)
+	return err
 }

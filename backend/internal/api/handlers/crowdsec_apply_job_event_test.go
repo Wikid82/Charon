@@ -27,7 +27,7 @@ func useJobApplyWithHistory(t *testing.T, f *busyFixture, apply crowdsec.ApplyFu
 
 func startHistoryJob(t *testing.T, f *busyFixture) string {
 	t.Helper()
-	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", hubPresetBody, "application/json")
+	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json")
 	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 	return decodeBody(t, w)["job_id"].(string)
 }
@@ -54,7 +54,7 @@ func TestAsyncApplySuccessIsRecordedInThePresetHistory(t *testing.T) {
 	require.Equal(t, "crowdsecurity/sshd", ev.Slug)
 	require.Equal(t, "apply", ev.Action)
 	require.Equal(t, "applied", ev.Status)
-	require.Equal(t, "k", ev.CacheKey)
+	require.Equal(t, f.cacheKey, ev.CacheKey)
 	require.Equal(t, "/data/crowdsec.backup.1", ev.BackupPath)
 	require.Empty(t, ev.Error)
 }
@@ -70,7 +70,7 @@ func TestAsyncApplyFailureIsRecordedInThePresetHistory(t *testing.T) {
 	require.Equal(t, "failed", ev.Status)
 	require.Contains(t, ev.Error, "cscli exploded")
 	require.Equal(t, "/data/crowdsec.backup.2", ev.BackupPath)
-	require.Equal(t, "k", ev.CacheKey)
+	require.Equal(t, f.cacheKey, ev.CacheKey)
 }
 
 func TestAsyncApplyCancelIsRecordedInThePresetHistory(t *testing.T) {
@@ -113,7 +113,7 @@ func TestAsyncApplyWithTheDefaultWiringRecordsTheHistory(t *testing.T) {
 
 	ev := waitHistoryEvent(t, f)
 	require.Equal(t, "failed", ev.Status)
-	require.Equal(t, "k", ev.CacheKey)
+	require.Equal(t, f.cacheKey, ev.CacheKey)
 }
 
 func TestRecordApplyJobEventFallsBackToTheStateWithoutAnErrorText(t *testing.T) {

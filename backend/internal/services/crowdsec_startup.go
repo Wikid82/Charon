@@ -461,7 +461,14 @@ func recoverInterruptedInstalls(db *gorm.DB, dataDir string) {
 		return
 	}
 	m := crowdsec.NewApplyJobManager(nil)
-	m.Configure(crowdsec.ApplyJobConfig{Repo: crowdsec.NewApplyJobRepository(db)})
+	m.Configure(crowdsec.ApplyJobConfig{
+		Repo: crowdsec.NewApplyJobRepository(db),
+		PruneSnapshots: func(protect []string) {
+			if _, err := crowdsec.PruneBackupsProtecting(dataDir, crowdsec.BackupKindSnapshot, crowdsec.DefaultBackupRetention, protect); err != nil {
+				logger.Log().WithError(err).Warn("CrowdSec reconciliation: pruning snapshots after recovery incomplete")
+			}
+		},
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), installRecoveryTimeout)
 	defer cancel()
 	err := m.RecoverInterrupted(ctx, func(backupPath string) error {

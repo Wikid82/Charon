@@ -327,6 +327,11 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	}
 
 	if payload.Async {
+		// A stale request is answered here, like the synchronous path, instead of through a job that fails.
+		if err := h.Hub.CheckApplyFresh(c.Request.Context(), crowdsec.ApplyRequest{Slug: slug, Type: itemType, CacheKey: cacheKey, ItemSHA256: strings.TrimSpace(payload.ItemSHA256)}); err != nil {
+			h.respondApplyError(c, err, crowdsec.ApplyResult{})
+			return
+		}
 		h.startApplyJob(c, crowdsec.ApplyJobRequest{Slug: slug, Type: itemType, CacheKey: cacheKey, ItemSHA256: strings.TrimSpace(payload.ItemSHA256)})
 		return
 	}

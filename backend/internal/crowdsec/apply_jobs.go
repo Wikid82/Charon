@@ -48,6 +48,13 @@ type ApplyJobConfig struct {
 	// CountItems returns the number of hub items installed right now; the job reports the growth since the
 	// install phase began. Nil disables progress counting.
 	CountItems func() int
+	// PruneSnapshots, when set, prunes the data directory snapshots after startup recovery; protect lists the
+	// snapshots of jobs whose recovery did not complete, which must survive for manual recovery.
+	PruneSnapshots func(protect []string)
+	// CountDownloaded returns the number of hub item files present in the hub tree. cscli downloads every item
+	// of a collection before it enables (links) any of them, so this is the only count that advances during a
+	// long install; the live progress is the larger growth of the two counts. Nil disables it.
+	CountDownloaded func() int
 	// ProgressInterval and MaxDuration default to ApplyJobProgressInterval and ApplyJobMaxDuration.
 	ProgressInterval time.Duration
 	MaxDuration      time.Duration
@@ -70,6 +77,7 @@ func HubApplyConfig(svc *HubService, repo *ApplyJobRepository) ApplyJobConfig {
 			}
 			return len(items)
 		},
+		CountDownloaded: func() int { return CountDownloadedHubFiles(svc.DataDir) },
 	}
 }
 
@@ -90,6 +98,7 @@ type activeApplyJob struct {
 	mu          sync.Mutex
 	phase       string
 	baseline    int
+	baselineDL  int
 	lastWritten int
 }
 
@@ -335,6 +344,9 @@ func (m *ApplyJobManager) onPhase(cfg ApplyJobConfig, a *activeApplyJob, p Phase
 		base := cfg.CountItems()
 		a.mu.Lock()
 		a.baseline = base
+		if cfg.CountDownloaded != nil {
+			a.baselineDL = cfg.CountDownloaded()
+		}
 		a.mu.Unlock()
 	}
 	a.setPhase(phase)
@@ -372,6 +384,12 @@ func (m *ApplyJobManager) writeProgress(cfg ApplyJobConfig, a *activeApplyJob) {
 	base := a.baseline
 	a.mu.Unlock()
 	n := max(0, cfg.CountItems()-base)
+	if cfg.CountDownloaded != nil {
+		a.mu.Lock()
+		baseDL := a.baselineDL
+		a.mu.Unlock()
+		n = max(n, cfg.CountDownloaded()-baseDL)
+	}
 	a.mu.Lock()
 	changed := n != a.lastWritten
 	a.lastWritten = n
@@ -502,9 +520,13 @@ func (m *ApplyJobManager) RecoverInterrupted(ctx context.Context, restore func(b
 		return err
 	}
 	var errs []error
+	var protect []string
 	for i := range jobs {
 		job := &jobs[i]
 		warning := recoverSnapshot(job, restore)
+		if warning != "" && job.BackupPath != "" {
+			protect = append(protect, job.BackupPath)
+		}
 		var warnings string
 		if warning != "" {
 			var encErr error
@@ -515,7 +537,13 @@ func (m *ApplyJobManager) RecoverInterrupted(ctx context.Context, restore func(b
 		if markErr := cfg.Repo.MarkInterrupted(ctx, job.ID, warnings); markErr != nil {
 			logger.Log().WithField("job_id", job.ID).WithField("error", util.SanitizeForLog(markErr.Error())).Error("failing an interrupted crowdsec install failed; it is retried at the next start")
 			errs = append(errs, markErr)
+			if job.BackupPath != "" && warning == "" {
+				protect = append(protect, job.BackupPath)
+			}
 		}
+	}
+	if cfg.PruneSnapshots != nil && len(jobs) > 0 {
+		cfg.PruneSnapshots(protect)
 	}
 	return errors.Join(errs...)
 }

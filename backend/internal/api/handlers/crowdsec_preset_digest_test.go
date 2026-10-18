@@ -96,16 +96,25 @@ func TestApplyPresetItemDigest(t *testing.T) {
 	})
 }
 
-func TestAsyncApplyPresetDifferingDigestFailsAsStale(t *testing.T) {
-	r, _, pulled := pulledPreset(t)
-	w := postPresetAny(r, presetApplyURL, map[string]any{"slug": "test/preset", "cache_key": pulled["cache_key"], "item_sha256": strings.Repeat("0", 64), "async": true})
-	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
-	id := decodeBody(t, w)["job_id"].(string)
-
-	require.Eventually(t, func() bool {
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1"+applyJobsBase+"/"+id, http.NoBody))
-		body := decodeBody(t, rec)
-		return body["state"] == "failed" && body["error_code"] == codePresetCacheStale
-	}, 10*time.Second, 20*time.Millisecond)
+func TestAsyncApplyPresetStaleIsAnsweredSynchronously(t *testing.T) {
+	cases := map[string]func(pulled map[string]any) map[string]any{
+		"differing digest": func(p map[string]any) map[string]any {
+			return map[string]any{"slug": "test/preset", "cache_key": p["cache_key"], "item_sha256": strings.Repeat("0", 64), "async": true}
+		},
+		"key mismatch": func(map[string]any) map[string]any {
+			return map[string]any{"slug": "test/preset", "cache_key": "test/preset-1-" + strings.Repeat("0", 64), "async": true}
+		},
+	}
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			r, _, pulled := pulledPreset(t)
+			w := postPresetAny(r, presetApplyURL, payload(pulled))
+			require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+			require.Equal(t, codePresetCacheStale, decodeBody(t, w)["error_code"])
+			// No job was started.
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1"+applyJobsBase, http.NoBody))
+			require.NotContains(t, rec.Body.String(), "job_id")
+		})
+	}
 }

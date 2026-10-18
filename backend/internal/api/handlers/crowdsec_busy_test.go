@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -35,6 +37,9 @@ type busyFixture struct {
 	r    *gin.Engine
 	dir  string
 	exec *countingExec
+	// presetBody is an async apply request for a preset that is in the hub cache.
+	presetBody []byte
+	cacheKey   string
 }
 
 func newBusyFixture(t *testing.T) *busyFixture {
@@ -51,12 +56,16 @@ func newBusyFixture(t *testing.T) *busyFixture {
 	h := newTestCrowdsecHandler(t, db, ce, "/bin/false", dir)
 	h.WhitelistSvc = services.NewCrowdSecWhitelistService(db, dir)
 	h.Console = crowdsec.NewConsoleEnrollmentService(db, &mockEnvExecutor{}, dir, "test-secret")
-	cache, err := crowdsec.NewHubCache(filepath.Join(dir, "hub_cache"), 0)
+	cache, err := crowdsec.NewHubCache(filepath.Join(dir, "hub_cache"), time.Hour)
+	require.NoError(t, err)
+	meta, err := cache.Store(context.Background(), "crowdsecurity/sshd", "collections", "1.0", "hub", []byte("name: crowdsecurity/sshd\n"))
+	require.NoError(t, err)
+	body, err := json.Marshal(map[string]any{"slug": "crowdsecurity/sshd", "type": "collections", "cache_key": meta.CacheKey, "async": true})
 	require.NoError(t, err)
 	h.Hub = crowdsec.NewHubService(&fastCmdExec{}, cache, dir)
 	r := gin.New()
 	h.RegisterRoutes(r.Group("/api/v1"))
-	return &busyFixture{h: h, r: r, dir: dir, exec: ce}
+	return &busyFixture{h: h, r: r, dir: dir, exec: ce, presetBody: body, cacheKey: meta.CacheKey}
 }
 
 func (f *busyFixture) do(method, path string, body []byte, contentType string) *httptest.ResponseRecorder {
@@ -260,7 +269,7 @@ func TestHubItemsRestoreInProgressRefusesAnInstallJob(t *testing.T) {
 	defer f.h.restore.running.Store(false)
 
 	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply",
-		[]byte(`{"slug":"crowdsecurity/sshd","type":"collections","cache_key":"k","async":true}`), "application/json")
+		f.presetBody, "application/json")
 
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	var resp map[string]any
