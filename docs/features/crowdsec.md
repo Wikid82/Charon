@@ -48,13 +48,25 @@ Access pre-built security configurations from the CrowdSec Hub:
 3. Search for specific parsers, scenarios, or collections
 4. Click **Install** to add to your configuration
 
-Hub presets are installed in two steps. First click **Pull** to download and preview the preset (a pulled preview can be shown again without downloading it again, and pulling a preset without picking a section reuses a recently fetched hub list for 10 minutes when only one section is saved on the server). Then click **Apply** to install exactly what you previewed, using the `cscli` tool that ships with Charon (it also installs anything the preset depends on). If the preview has gone out of date, Charon asks you to pull the preset again. Most installs finish in a few seconds. Charon waits up to 120 seconds, then stops, rolls everything back and keeps your preview. Very large collections (hundreds of items) can take longer because their items are downloaded one at a time; for those, install with `docker exec charon cscli collections install <name>` instead. You can apply an already-downloaded preview without internet access if its items are already on the server; otherwise the apply fails and is rolled back, and pulling a preset you never downloaded needs internet access. If a name exists in more than one hub section (for example a parser and a collection with the same name), Charon asks you to choose which one you mean. If the hub cannot be reached, nothing is installed and Charon says so. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#hub-preset-messages) if you see a message.
+Hub presets are installed in two steps. First click **Pull** to download and preview the preset (a pulled preview can be shown again without downloading it again, and pulling a preset without picking a section reuses a recently fetched hub list for 10 minutes when only one section is saved on the server). Then click **Apply** to install exactly what you previewed, using the `cscli` tool that ships with Charon (it also installs anything the preset depends on). If the preview has gone out of date, Charon asks you to pull the preset again. Most installs finish in a few seconds. Large presets install in the background (see below) with a 30 minute limit; a quick install that does not finish within 120 seconds is stopped, rolled back, and your preview is kept. You can apply an already-downloaded preview without internet access if its items are already on the server; otherwise the apply fails and is rolled back, and pulling a preset you never downloaded needs internet access. If a name exists in more than one hub section (for example a parser and a collection with the same name), Charon asks you to choose which one you mean. If the hub cannot be reached, nothing is installed and Charon says so. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#hub-preset-messages) if you see a message.
 
 Popular presets include:
 
 - **HTTP Probing** — Detect reconnaissance and scanning
 - **Bad User-Agents** — Block known malicious bots
 - **CVE Exploits** — Protection against known vulnerabilities
+
+#### Large Installs Run in the Background
+
+Big presets (hundreds of items) can take many minutes, so Charon installs them in the background instead of making you wait on a spinner.
+
+- **Watch the progress.** A small progress row in the presets card shows what Charon is doing right now. Nothing needs your attention while it runs.
+- **Leave and come back.** You can close the page or move to another one. The install keeps going, and the row is there when you return.
+- **Cancel any time.** Click **Cancel** and Charon puts your CrowdSec settings back exactly as they were before the install started.
+- **Other CrowdSec changes wait.** While an install runs, starting or stopping CrowdSec, importing a configuration, saving a file, changing the whitelist, enrolling in the Console and installing missing hub items are paused. Charon shows a "busy" message; try again when the install finishes.
+- **If Charon restarts mid-install,** your previous settings are restored automatically and the job is shown as interrupted. Just start the install again.
+- **Time limit.** An install is stopped and rolled back after 30 minutes.
+- **History.** Charon remembers your latest 20 installs, for up to 7 days, so you can see how the last ones ended.
 
 #### Curated Presets
 
@@ -329,6 +341,23 @@ Access diagnostics programmatically through these API endpoints:
 | `/api/v1/cerberus/crowdsec/diagnostics/connectivity` | GET | Tests LAPI and CAPI connectivity |
 | `/api/v1/cerberus/crowdsec/diagnostics/config` | GET | Validates enrollment configuration |
 | `/api/v1/cerberus/crowdsec/console/heartbeat` | POST | Forces an immediate heartbeat check |
+
+## Preset Install API
+
+Routes live under `/api/v1/admin/crowdsec/presets/` and need an admin login.
+
+| Endpoint | Method | What It Does |
+| ---------- | -------- | -------------- |
+| `.../apply` | POST | Installs a pulled preset. Send `"async": true` to start a background job; the reply is `202` with the job. Without it the install is synchronous, which is deprecated for large presets |
+| `.../jobs/current` | GET | The running job, or the most recently finished one |
+| `.../jobs` | GET | Recent jobs (latest 20, up to 7 days) |
+| `.../jobs/:id` | GET | One job |
+| `.../jobs/:id` | DELETE | Cancels a running job and rolls back |
+
+- A pull returns `item_sha256`; apply accepts it back (optional) to make sure the install matches what was previewed.
+- While a job runs, other CrowdSec changes answer `409` with `crowdsec_busy`.
+- Failed jobs carry an `error_code`, such as `preset_cache_stale` (pull again), `hub_unreachable`, `preset_apply_timeout` or `interrupted`.
+- Job views never include backup locations.
 
 **Example: Check connectivity**
 

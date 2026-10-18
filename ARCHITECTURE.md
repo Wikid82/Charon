@@ -912,6 +912,17 @@ lock serializes apply, import, and file saves. The file editor validates file
 type, size and YAML, and the frontend no
 longer has a local-write fallback for presets; failures are shown as errors.
 
+**Background preset installs:** Large hub preset applies run as background jobs
+(`POST .../presets/apply` with `async: true` answers 202 with a job view;
+`GET .../presets/jobs`, `jobs/current`, `jobs/:id` and `DELETE jobs/:id` read and
+cancel them). An apply job manager runs one job at a time under a process-wide
+busy flag; while it is set, data-changing CrowdSec handlers answer 409
+`crowdsec_busy`. Jobs persist in the `crowdsec_apply_jobs` table (latest 20 kept,
+7 days) and carry a 30 minute limit. Startup recovery marks jobs left active by a
+restart as interrupted and restores the pre-install snapshot. Lock order is busy
+flag, then `dataMu`; `acquisMu` is a leaf lock. The synchronous apply route
+remains but is deprecated for large presets. Job views never expose `backup_path`.
+
 **Persistent hub data:** CrowdSec's `data_dir` (LAPI database and hub data files
 such as blocklists and the GeoIP database) lives at `/app/data/crowdsec/data`
 on the persistent volume, so it survives container recreation. The entrypoint

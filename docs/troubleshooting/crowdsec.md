@@ -248,6 +248,14 @@ Applying a hub preset shows one of these messages when it cannot finish or needs
 - **"cscli unavailable or not responding" offline**: an already-downloaded preview can be applied if its items are already on the server; otherwise the apply fails and is rolled back. Pulling a preset that was never downloaded needs internet access.
 - **A note that some dependencies were edited on this server**: the preset was applied, and those edited dependencies were left unchanged.
 
+### Large preset installs
+
+- **"CrowdSec is busy installing a preset; try again when it finishes."** (HTTP 409, `crowdsec_busy`): a preset install is running in the background, and other CrowdSec changes are paused until it ends. Wait for the progress row to finish, or click **Cancel** on it, then try again.
+- **The install shows as interrupted**: Charon restarted while the install was running. Your previous settings were restored automatically. Start the install again.
+- **The install shows as cancelled**: you cancelled it. Your previous settings were put back. Nothing else is needed.
+- **The install shows as timed out**: it did not finish within 30 minutes and was rolled back. Check the container's internet connection, then try again. For very large collections you can also run `docker exec charon cscli collections install <name>`.
+- **"The preview is out of date"** (`preset_cache_stale`) or **"CrowdSec could not reach the hub"** (`hub_unreachable`): see the messages above, then pull the preset again.
+
 ## CrowdSec Not Starting After Container Restart
 
 ### Problem: Toggle shows ON but CrowdSec is not running
