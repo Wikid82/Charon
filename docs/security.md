@@ -24,7 +24,7 @@ Charon has two kinds of account:
 - **Administrator** — full control. Only an admin can change security-sensitive
   configuration: CrowdSec and the firewall, access lists, security headers,
   certificates and the credentials used to issue them, DNS-provider logins, SSH
-  details for remote servers, tunnels and agents, app settings, plugins, and the
+  details for Sources, tunnels and agents, app settings, plugins, and the
   user list.
 - **Standard user** — manages proxy hosts. A standard user can still open and
   read most settings pages, but the actions that change the areas above are
@@ -1429,6 +1429,8 @@ services:
 
       # Docker socket for container discovery (read-only)
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Recommended: connect Docker with Orthrus instead and drop this mount (docs/features/orthrus.md).
+      # The direct mount remains supported.
       # Note: :ro prevents file deletion but does not restrict Docker API access.
       # For production hardening, replace with a socket proxy scoped to CONTAINERS only.
       # See docs/features/docker-integration.md — "Limiting Socket Access with a Proxy".
@@ -1477,7 +1479,8 @@ volumes:
 **Docker Socket (Container Discovery):**
 
 - Mounting the raw Docker socket grants broad system access regardless of the `:ro` flag
-- For production hardening, replace the socket mount with a socket proxy scoped to container listing only
+- The recommended, more secure option is [Orthrus](features/orthrus.md): a small helper holds the socket so Charon never does. Mounting the socket directly remains supported
+- If you keep the direct mount, replace it with a socket proxy scoped to container listing only
 - See [Docker Auto-Discovery](features/docker-integration.md#limiting-socket-access-with-a-proxy) for the recommended setup
 
 #### What About the `caddy_data` Volume?

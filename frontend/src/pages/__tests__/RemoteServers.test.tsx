@@ -256,13 +256,13 @@ describe('RemoteServers', () => {
     render(<RemoteServers />)
 
     // The empty state renders a heading
-    expect(screen.getByRole('heading', { name: /no remote servers/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /no sources/i })).toBeInTheDocument()
   })
 
   it('opens server form when Add button is clicked', async () => {
     render(<RemoteServers />)
 
-    const addBtn = screen.getByRole('button', { name: /add.*server|new.*server/i })
+    const addBtn = screen.getByRole('button', { name: /add.*source|new.*source/i })
     await userEvent.click(addBtn)
 
     await waitFor(() => {

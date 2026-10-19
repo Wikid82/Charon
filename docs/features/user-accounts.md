@@ -20,7 +20,7 @@ nothing to do there but look at it.
 The full-control account. An admin can change anything: security settings
 (the firewall, CrowdSec, access lists, security headers), certificates and the
 credentials used to get them, DNS provider logins, SSH connection details for
-remote servers, tunnels and agents, app settings, plugins, and the user list
+Sources, tunnels and agents, app settings, plugins, and the user list
 itself. The very first account you create when you set Charon up is an
 administrator.
 

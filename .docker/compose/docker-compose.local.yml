@@ -43,6 +43,7 @@ services:
       - caddy_config:/config
       - crowdsec_data:/app/data/crowdsec
       - plugins_data:/app/plugins # Read-write for development/hot-loading
+      # Optional: direct local discovery. Orthrus (docs/features/orthrus.md) is the recommended, safer option.
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       - ./backend:/app/backend:ro # Mount source for debugging
       # Mount your existing Caddyfile for automatic import (optional)

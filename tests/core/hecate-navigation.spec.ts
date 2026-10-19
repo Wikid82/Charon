@@ -3,7 +3,7 @@
  *
  * Verifies the Hecate collapsible navigation section:
  * - Sidebar has a collapsible "Hecate" group
- * - Expanding the group reveals: Remote Servers, Tunnels, Providers, Agent
+ * - Expanding the group reveals: Sources, Tunnels, Providers, Agent
  * - Each item navigates to the correct /hecate/* route
  * - Legacy /remote-servers redirects to /hecate/remote-servers
  */
@@ -66,7 +66,7 @@ test.describe('Hecate Navigation', () => {
       ).toBeVisible();
 
       await expect(
-        page.getByRole('link', { name: /remote servers/i }).or(page.getByRole('button', { name: /remote servers/i })).first()
+        page.getByRole('link', { name: /^sources$/i }).or(page.getByRole('button', { name: /^sources$/i })).first()
       ).toBeVisible();
     });
   });
@@ -140,8 +140,8 @@ test.describe('Hecate Navigation', () => {
     });
   });
 
-  test('clicking "Remote Servers" navigates to /hecate/remote-servers', async ({ page }) => {
-    await test.step('Expand Hecate group and click Remote Servers', async () => {
+  test('clicking "Sources" navigates to /hecate/remote-servers', async ({ page }) => {
+    await test.step('Expand Hecate group and click Sources', async () => {
       const hecateGroup = page
         .getByRole('button', { name: /hecate/i })
         .or(page.getByRole('link', { name: /hecate/i }))
@@ -153,7 +153,7 @@ test.describe('Hecate Navigation', () => {
         await waitForLoadingComplete(page);
       }
 
-      const remoteServersLink = page.getByRole('link', { name: /remote servers/i }).first();
+      const remoteServersLink = page.getByRole('link', { name: /^sources$/i }).first();
       await remoteServersLink.click();
       await waitForLoadingComplete(page);
     });

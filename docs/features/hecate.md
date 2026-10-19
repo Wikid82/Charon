@@ -1,14 +1,14 @@
 ---
 title: Hecate — Tunnel & Pathway Manager
-description: Choose how each remote server connects to Charon — direct, via agent, or through a VPN
+description: Choose how each Source connects to Charon — direct, via agent, or through a VPN
 category: features
 ---
 
 # Hecate — Tunnel & Pathway Manager
 
-Think of Hecate as a traffic controller standing at a crossroads. When Charon needs to reach a remote server, Hecate decides which road to take: type in the address directly, send a message through the Orthrus agent you installed, or route through your VPN.
+Think of Hecate as a traffic controller standing at a crossroads. When Charon needs to reach a Source (a machine running your containers), Hecate decides which road to take: type in the address directly, send a message through the Orthrus agent you installed, or route through your VPN.
 
-You interact with Hecate every time you add a Remote Server — it's the part that asks "how do you want to connect?"
+You interact with Hecate every time you add a Source — it's the part that asks "how do you want to connect?"
 
 ---
 
@@ -24,7 +24,7 @@ You interact with Hecate every time you add a Remote Server — it's the part th
 
 ## The Three Connection Modes
 
-When you add a Remote Server, you choose one of these modes:
+When you add a Source, you choose one of these modes:
 
 | Mode | When To Use | What You Provide |
 | --- | --- | --- |
@@ -42,13 +42,13 @@ You installed the [Orthrus agent](orthrus.md) on the remote machine. Select it f
 
 ### Provider Mode
 
-Your remote machine is already connected to a VPN service like NetBird, Tailscale, Cloudflare Tunnel, or ZeroTier. Add your VPN credentials once in **Settings → Tunnel Providers**, then pick that provider and the specific device when configuring the Remote Server. No agent installation needed.
+Your remote machine is already connected to a VPN service like NetBird, Tailscale, Cloudflare Tunnel, or ZeroTier. Add your VPN credentials once in **Settings → Tunnel Providers**, then pick that provider and the specific device when configuring the Source. No agent installation needed.
 
 ---
 
 ## Viewing Your Agents
 
-Go to **Remote Agents** in the sidebar to see all your Orthrus agents at a glance. Each one shows a live status badge:
+Open **Hecate** → **Agent** in the sidebar (admins only) to see all your Orthrus agents at a glance. Each one shows a live status badge:
 
 | Badge | Meaning |
 | --- | --- |
@@ -81,9 +81,9 @@ To add a provider: **Settings → Tunnel Providers → Add Provider** → choose
 
 ## Assigning a Tunnel to an Orthrus Agent
 
-If your agent is on a VPN, you can tell Charon exactly where on that network it lives. After you do this, Charon remembers the address — so the next time you add a Remote Server using this agent, everything fills in automatically.
+If your agent is on a VPN, you can tell Charon exactly where on that network it lives. After you do this, Charon remembers the address — so the next time you add a Source using this agent, everything fills in automatically.
 
-1. Go to **Remote Agents** and open the agent
+1. Go to **Hecate** → **Agent** and open the agent
 2. Under **Network Assignment**, pick your Provider and the Device that represents your remote machine
 3. Click **Save**
 
@@ -91,7 +91,7 @@ If your agent is on a VPN, you can tell Charon exactly where on that network it 
 
 ## Uptime Monitoring Integration
 
-Remote servers managed through Orthrus agents work with [Uptime Monitoring](uptime-monitoring.md). Enable monitoring on any proxy host that routes to a remote container, and Charon will alert you if that service goes down — even if it's on a machine behind a firewall on the other side of the world.
+Sources managed through Orthrus agents work with [Uptime Monitoring](uptime-monitoring.md). Enable monitoring on any proxy host that routes to a remote container, and Charon will alert you if that service goes down — even if it's on a machine behind a firewall on the other side of the world.
 
 ---
 

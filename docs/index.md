@@ -36,7 +36,7 @@ description: Charon documentation home. A modern, user-friendly reverse proxy ma
 ## 🌐 Remote Access
 
 **[Orthrus Tunnel Agent](features/orthrus.md)** — Connect a home server behind a firewall — no port forwarding needed
-**[Hecate Agent Manager](features/hecate.md)** — Choose how each remote server connects
+**[Hecate Agent Manager](features/hecate.md)** — Choose how each Source connects
 **[Connecting a Remote Docker Host](guides/remote-docker-setup.md)** — Step-by-step guide
 
 ---

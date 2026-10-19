@@ -15,8 +15,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type dockerContainerLister interface {
+type dockerAPI interface {
 	ListContainers(ctx context.Context, host string) ([]services.DockerContainer, error)
+	LocalStatus(ctx context.Context) services.LocalDockerStatus
 }
 
 type remoteServerGetter interface {
@@ -28,12 +29,12 @@ type orthrusProxyResolver interface {
 }
 
 type DockerHandler struct {
-	dockerService       dockerContainerLister
+	dockerService       dockerAPI
 	remoteServerService remoteServerGetter
 	orthrusResolver     orthrusProxyResolver
 }
 
-func NewDockerHandler(dockerService dockerContainerLister, remoteServerService remoteServerGetter) *DockerHandler {
+func NewDockerHandler(dockerService dockerAPI, remoteServerService remoteServerGetter) *DockerHandler {
 	return &DockerHandler{
 		dockerService:       dockerService,
 		remoteServerService: remoteServerService,
@@ -53,6 +54,13 @@ func (h *DockerHandler) SetOrthrusResolver(r orthrusProxyResolver) {
 
 func (h *DockerHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/docker/containers", h.ListContainers)
+	r.GET("/docker/status", h.LocalStatus)
+}
+
+// LocalStatus reports whether the local Docker socket is usable. Unavailable
+// Docker is a normal 200 answer; the payload never exposes path or uid details.
+func (h *DockerHandler) LocalStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, h.dockerService.LocalStatus(c.Request.Context()))
 }
 
 func (h *DockerHandler) ListContainers(c *gin.Context) {

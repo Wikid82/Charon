@@ -1133,6 +1133,8 @@ DELETE /proxy-hosts/:uuid
 
 ### Remote Servers
 
+> These endpoints manage what the web interface calls **Sources**. The URL paths and field names keep the original `remote-servers` wording.
+
 #### List All Remote Servers
 
 ```http
@@ -1302,6 +1304,34 @@ POST /remote-servers/:uuid/test
 ```
 
 **Note:** This endpoint updates the `reachable` and `last_checked` fields on the remote server.
+
+---
+
+### Docker Status
+
+#### Local Docker Availability
+
+```http
+GET /docker/status
+```
+
+Reports whether the local Docker socket is usable. Requires a signed-in user with management access (passthrough users get 403). Takes no parameters. An unavailable Docker is a normal answer, so this endpoint returns 200 in every case.
+
+**Response 200:**
+
+```json
+{
+  "available": false,
+  "reason": "socket_missing",
+  "message": "No Docker socket is mounted into Charon."
+}
+```
+
+- `available` - `true` when the local daemon answered, or answered too slowly to tell (`slow`)
+- `reason` - One of: `ok`, `socket_missing`, `permission_denied`, `unreachable`, `slow`
+- `message` - Short, safe description. It never includes paths, user IDs or group IDs.
+
+The probe gives up after 2 seconds. A timeout reports `available: true` with reason `slow`, so a busy daemon is not treated as missing.
 
 ---
 

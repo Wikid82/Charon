@@ -103,6 +103,8 @@ services:
       start_period: 40s
 ```
 
+> **Recommended: connect Docker with Orthrus.** Orthrus is a small helper that holds the Docker socket so Charon never has to. It is the more secure way to let Charon find your containers, and it works on the same server or a different one. See the [Orthrus guide](docs/features/orthrus.md). Mounting the socket directly (as above) is still fully supported.
+>
 > **Docker Socket Access:** Charon runs as a non-root user. If you mount the Docker socket for container discovery, the container needs permission to read it. Find your socket's group ID and add it to the compose file:
 >
 > ```bash

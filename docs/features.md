@@ -228,7 +228,7 @@ Your backend applications need to know the real client IP address, not Charon's.
 
 Already running apps in Docker? Charon automatically finds your containers and offers one-click proxy setup. No manual configuration, no port hunting—just select a container and go.
 
-Supports both local Docker installations and remote Docker servers, perfect for managing multiple machines from a single dashboard.
+Connect Docker with **Orthrus** (recommended: a small helper holds the Docker socket so Charon never does), or mount the Docker socket directly (still fully supported). Works for Docker on the same machine or on other machines, perfect for managing multiple machines from a single dashboard. If no socket is mounted, the "Local (Docker Socket)" choice in the Proxy Host form is greyed out.
 
 → [Learn More](features/docker-integration.md)
 
@@ -244,7 +244,7 @@ Your HomeLab is behind a firewall? Orthrus is a small agent you install on any r
 
 ### �🔀 Hecate Tunnel & Pathway Manager
 
-Connect remote servers that sit behind firewalls or NAT routers—no open inbound ports required. Choose how each remote server reaches Charon from three simple connection modes, all managed from the Remote Servers page.
+Connect servers that sit behind firewalls or NAT routers—no open inbound ports required. Choose how each Source reaches Charon from three simple connection modes, all managed from the Sources page.
 
 **Connection Modes:**
 
@@ -258,9 +258,9 @@ Each tunnel provider (Tailscale, Cloudflare, NetBird, ZeroTier) shows its config
 
 **Orthrus Agent + Provider Assignment:**
 
-Each Orthrus agent can be assigned a provider tunnel and a specific device (or public hostname for Cloudflare). Once assigned, Charon remembers the address—so when you add a Remote Server using that agent, the connection details fill in automatically.
+Each Orthrus agent can be assigned a provider tunnel and a specific device (or public hostname for Cloudflare). Once assigned, Charon remembers the address—so when you add a Source using that agent, the connection details fill in automatically.
 
-A step-by-step install wizard walks you through deploying the Orthrus agent (Docker Compose, systemd, Kubernetes, or standalone binary). Each remote server shows a live status badge so you can see connection health at a glance.
+A step-by-step install wizard walks you through deploying the Orthrus agent (Docker Compose, systemd, Kubernetes, or standalone binary). Each Source shows a live status badge so you can see connection health at a glance.
 
 → [Learn More](features/hecate.md)
 

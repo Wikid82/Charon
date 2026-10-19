@@ -1,5 +1,8 @@
 # Docker Compose override — copy to docker-compose.override.yml to activate.
 #
+# Note: Orthrus (docs/features/orthrus.md) is the recommended, more secure way to connect Docker.
+# This override is for the direct socket mount, which remains supported.
+#
 # Use case: grant the container access to the host Docker socket so that
 # Charon can discover running containers.
 #

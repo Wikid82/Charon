@@ -54,7 +54,7 @@
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",
     "redirectionHosts": "Redirection Hosts",
-    "remoteServers": "Remote Servers",
+    "remoteServers": "Sources",
     "domains": "Domains",
     "certificates": "Certificates",
     "dns": "DNS",
@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "Proxy Hosts",
     "description": "Manage your reverse proxy configurations",
+    "source": {
+      "local": "Local (Docker Socket)",
+      "localUnavailable": "unavailable",
+      "localUnavailableHint": "The local Docker socket is not available to Charon. Use an Orthrus agent instead (see Hecate → Agent)."
+    },
     "addHost": "Add Proxy Host",
     "editHost": "Edit Proxy Host",
     "deleteHost": "Delete Proxy Host",
@@ -685,10 +690,10 @@
     "description": "Monitor the health and availability of your services",
     "autoRefresh": "Auto-refreshing every 30s",
     "autoRefreshing": "Auto-refreshing every 30s",
-    "noMonitors": "No monitors found. Add a Proxy Host or Remote Server to start monitoring.",
-    "noMonitorsFound": "No monitors found. Add a Proxy Host or Remote Server to start monitoring.",
+    "noMonitors": "No monitors found. Add a Proxy Host or Source to start monitoring.",
+    "noMonitorsFound": "No monitors found. Add a Proxy Host or Source to start monitoring.",
     "proxyHosts": "Proxy Hosts",
-    "remoteServers": "Remote Servers",
+    "remoteServers": "Sources",
     "otherMonitors": "Other Monitors",
     "configureMonitor": "Configure Monitor",
     "monitorName": "Name",
@@ -754,12 +759,12 @@
     "loadError": "Error loading domains"
   },
   "remoteServers": {
-    "title": "Remote Servers",
-    "description": "Manage backend servers for your proxy hosts",
-    "addServer": "Add Server",
-    "editServer": "Edit Server",
-    "deleteServer": "Delete Remote Server",
-    "noServers": "No Remote Servers",
+    "title": "Sources",
+    "description": "Manage where your proxy hosts get their containers and backends",
+    "addServer": "Add Source",
+    "editServer": "Edit Source",
+    "deleteServer": "Delete Source",
+    "noServers": "No Sources",
     "noServersDescription": "Add servers to quickly select backends when creating proxy hosts",
     "columnName": "Name",
     "columnProvider": "Provider",
@@ -813,7 +818,7 @@
     "availableVariables": "Available variables: .Title, .Message, .Status, .Name, .Latency, .Time. Discord payload only for this rollout.",
     "notificationEvents": "Notification Events",
     "proxyHosts": "Proxy Hosts",
-    "remoteServers": "Remote Servers",
+    "remoteServers": "Sources",
     "domainsNotify": "Domains",
     "certificates": "Certificates",
     "uptime": "Uptime",
@@ -950,7 +955,7 @@
     "title": "Dashboard",
     "description": "Overview of your Charon reverse proxy",
     "proxyHosts": "Proxy Hosts",
-    "remoteServers": "Remote Servers",
+    "remoteServers": "Sources",
     "certificates": "Certificates",
     "certificateStatus": "Certificate Status",
     "accessLists": "Access Lists",
@@ -1316,7 +1321,7 @@
       "crowdsecConsole": "CrowdSec Console Enrollment",
       "crowdsecConsoleTooltip": "Allow enrolling this node with CrowdSec Console for centralized fleet management.",
       "uptimeMonitoring": "Uptime Monitoring",
-      "uptimeMonitoringTooltip": "Monitor the availability of your proxy hosts and remote servers."
+      "uptimeMonitoringTooltip": "Monitor the availability of your proxy hosts and sources."
     },
     "general": {
       "title": "General Configuration",
@@ -2123,7 +2128,7 @@
       "viewLogs": "View Logs",
       "provisionAgent": "Provision New Agent",
       "confirmDeleteTitle": "Delete Provider",
-      "confirmDeleteDescription": "Are you sure you want to delete \"{{name}}\"? Remote Servers using this provider will lose their connection.",
+      "confirmDeleteDescription": "Are you sure you want to delete \"{{name}}\"? Sources using this provider will lose their connection.",
       "confirmDeleteButton": "Delete",
       "rotateTitle": "Rotate Credentials",
       "rotateDescription": "Enter new credentials for {{name}}. The old credentials will be replaced immediately.",
@@ -2140,7 +2145,7 @@
       },
       "emptyState": {
         "title": "No providers configured",
-        "description": "Add a Cloudflare, Tailscale, NetBird, or ZeroTier provider to enable Agent-mode connections for Remote Servers."
+        "description": "Add a Cloudflare, Tailscale, NetBird, or ZeroTier provider to enable Agent-mode connections for Sources."
       },
       "credentials": {
         "editHint": "Leave any field blank to keep the existing credential.",

@@ -34,6 +34,7 @@ services:
     # Docker socket group access: copy docker-compose.override.example.yml
     # to docker-compose.override.yml and set your host's docker GID.
     volumes:
+      # Dev flow uses direct local discovery. For real deployments Orthrus (docs/features/orthrus.md) is recommended.
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       - crowdsec_data:/app/data/crowdsec
       # Mount your existing Caddyfile for automatic import (optional)

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -22,12 +23,19 @@ type fakeDockerService struct {
 
 	ret []services.DockerContainer
 	err error
+
+	status services.LocalDockerStatus
 }
 
 func (f *fakeDockerService) ListContainers(_ context.Context, host string) ([]services.DockerContainer, error) {
 	f.called = true
 	f.host = host
 	return f.ret, f.err
+}
+
+func (f *fakeDockerService) LocalStatus(_ context.Context) services.LocalDockerStatus {
+	f.called = true
+	return f.status
 }
 
 type fakeRemoteServerService struct {
@@ -582,4 +590,40 @@ func TestDockerHandler_SetOrthrusResolver_TypedNil(t *testing.T) {
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Contains(t, w.Body.String(), "Orthrus subsystem unavailable")
+}
+
+func TestDockerHandler_LocalStatus_ReturnsStatusShape(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, reason := range []string{
+		services.LocalStatusOK,
+		services.LocalStatusSocketMissing,
+		services.LocalStatusPermissionDenied,
+		services.LocalStatusUnreachable,
+		services.LocalStatusSlow,
+	} {
+		t.Run(reason, func(t *testing.T) {
+			want := services.LocalDockerStatus{
+				Available: reason == services.LocalStatusOK || reason == services.LocalStatusSlow,
+				Reason:    reason,
+				Message:   "canned message",
+			}
+			dockerSvc := &fakeDockerService{status: want}
+			h := NewDockerHandler(dockerSvc, &fakeRemoteServerService{})
+
+			r := gin.New()
+			h.RegisterRoutes(r.Group("/api/v1"))
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/docker/status", http.NoBody))
+
+			require.Equal(t, http.StatusOK, w.Code)
+			var raw map[string]any
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+			assert.Len(t, raw, 3)
+			assert.Equal(t, want.Available, raw["available"])
+			assert.Equal(t, reason, raw["reason"])
+			assert.Equal(t, "canned message", raw["message"])
+		})
+	}
 }

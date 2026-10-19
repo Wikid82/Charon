@@ -16,7 +16,7 @@ Functional validation of the tunnel manager UI and Orthrus agent provisioning fl
 ## Prerequisites
 
 - Charon running with a valid encryption key configured
-- At minimum one remote server accessible over the network
+- At minimum one Source (remote server) accessible over the network
 - (Optional) Active Cloudflare account, Tailscale network, ZeroTier network, or NetBird workspace for provider-specific tests
 
 ---
@@ -25,7 +25,7 @@ Functional validation of the tunnel manager UI and Orthrus agent provisioning fl
 
 ### TC-01: Add Direct Connection Server
 
-1. Navigate to Remote Servers
+1. Navigate to Sources
 2. Click **Add Server**
 3. Select **Direct** as Connection Type
 4. Enter a valid hostname and port
@@ -37,11 +37,12 @@ Functional validation of the tunnel manager UI and Orthrus agent provisioning fl
 
 ### TC-02: Add Orthrus Agent Server (Provisioning)
 
-1. Navigate to Remote Servers → Add Server
+1. Navigate to Hecate → Sources → Add Source
 2. Select **Orthrus Agent** as Connection Type
 3. Click **Provision New Agent**
 
 **Expected**:
+
 - Install wizard opens
 - AUTH_KEY is displayed in a read-only input
 - Warning "This key will only be shown once" is visible
@@ -55,7 +56,7 @@ Functional validation of the tunnel manager UI and Orthrus agent provisioning fl
 ### TC-03: AUTH_KEY Not Re-Shown After Wizard Close
 
 1. Complete TC-02
-2. Navigate away and return to Remote Servers
+2. Navigate away and return to Sources
 3. Click on the provisioned agent
 
 **Expected**: AUTH_KEY is not visible anywhere in the UI. There is no re-display of the one-time key.
@@ -70,7 +71,7 @@ Functional validation of the tunnel manager UI and Orthrus agent provisioning fl
 **Expected**: Badge shows a stopped/disconnected state (not a "Direct" badge).
 
 3. Start the Orthrus agent binary on the target server
-4. Return to Remote Servers after a few seconds
+4. Return to Sources after a few seconds
 
 **Expected**: Badge updates to show connected state.
 
@@ -110,6 +111,7 @@ Functional validation of the tunnel manager UI and Orthrus agent provisioning fl
 2. Click **View Tunnel Logs**
 
 **Expected**:
+
 - Log viewer dialog opens
 - `role="log"` and `aria-live="polite"` present (screen reader accessible)
 - Pause button shows `aria-pressed="false"` initially
@@ -151,7 +153,7 @@ Functional validation of the tunnel manager UI and Orthrus agent provisioning fl
 ### TC-12: Encryption Key Not Set — Feature Disabled
 
 1. Start Charon without an encryption key configured
-2. Navigate to Remote Servers
+2. Navigate to Sources
 
 **Expected**: The Hecate feature section is not available or shows an appropriate "encryption required" message. No data exposed.
 

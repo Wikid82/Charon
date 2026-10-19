@@ -298,7 +298,7 @@ go run ./cmd/seed/main.go
 
 The seed script creates:
 
-- 4 remote servers (Docker registry, API server, web app, database admin)
+- 4 sources (Docker registry, API server, web app, database admin)
 - 3 proxy hosts (app.local.dev, api.local.dev, docker.local.dev)
 - 3 settings (app configuration)
 - 1 admin user
