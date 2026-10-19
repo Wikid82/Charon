@@ -35,7 +35,7 @@ fi
 # Check Grype
 if ! command -v grype >/dev/null 2>&1; then
     log_error "Grype not found - install from: https://github.com/anchore/grype"
-    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.120.1"
+    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.121.0"
     error_exit "Grype is required for vulnerability scanning" 2
 fi
 
