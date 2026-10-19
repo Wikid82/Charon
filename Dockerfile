@@ -872,7 +872,7 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.22; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.89.3; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.90.0; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -880,7 +880,7 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
     _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    _retry go get github.com/quic-go/quic-go@v0.64.0; \
+    _retry go get github.com/quic-go/quic-go@v0.64.1; \
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.6.1; \
     # kin-openapi: CrowdSec ships v0.147.0 natively (its go.mod baseline), which is past
