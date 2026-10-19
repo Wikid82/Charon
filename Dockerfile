@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-c57efdc8d009a2c9
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:bd93c72f18eaa4c5c7d70734a9876579c3254a991a803a97b1bfc2f891775a7c
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-7a318ac5e2f81354
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:9686fae7a854b14d2c35ec4ca022ccebe2d9707fc112eef750225fc277c15205
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -872,7 +872,7 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.22; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.89.3; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.90.0; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -880,7 +880,7 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
     _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    _retry go get github.com/quic-go/quic-go@v0.64.0; \
+    _retry go get github.com/quic-go/quic-go@v0.64.1; \
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.6.1; \
     # kin-openapi: CrowdSec ships v0.147.0 natively (its go.mod baseline), which is past
