@@ -28,7 +28,7 @@ validate_docker_environment || error_exit "Docker is required but not available"
 # Check Syft
 if ! command -v syft >/dev/null 2>&1; then
     log_error "Syft not found - install from: https://github.com/anchore/syft"
-    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.17.0"
+    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.55.0"
     error_exit "Syft is required for SBOM generation" 2
 fi
 

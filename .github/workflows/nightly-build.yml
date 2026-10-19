@@ -18,7 +18,7 @@ env:
   GO_VERSION: '1.27.2'
   NODE_VERSION: '24.22.0'
   GOTOOLCHAIN: auto
-  SYFT_VERSION: 'v1.54.1'
+  SYFT_VERSION: 'v1.55.0'
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
