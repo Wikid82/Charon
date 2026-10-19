@@ -39,14 +39,16 @@ test.describe('Proxy Host form - local Docker source availability', () => {
       route.fulfill({ json: { available: false, reason: 'socket_missing' } }),
     );
 
-    const { dialog } = await openSourceSelect(page);
+    await openSourceSelect(page);
 
     await test.step('Local option is disabled', async () => {
       await expect(page.getByRole('option', { name: /Local \(Docker Socket\)/i })).toBeDisabled();
     });
 
     await test.step('Orthrus hint is visible', async () => {
-      await expect(dialog.getByText(/Use an Orthrus agent instead/)).toBeVisible();
+      // Query from `page`, not the dialog: an open Radix Select marks everything
+      // outside its listbox aria-hidden, so a role-based dialog locator matches nothing.
+      await expect(page.getByText(/Use an Orthrus agent instead/)).toBeVisible();
     });
   });
 
