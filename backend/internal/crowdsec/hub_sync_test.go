@@ -34,7 +34,7 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func (r *recordingExec) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := name + " " + strings.Join(args, " ")
+	cmd := name + " " + strings.Join(stripConfigFlag(args), " ")
 	r.calls = append(r.calls, cmd)
 	if err, ok := r.errors[cmd]; ok {
 		return nil, err
@@ -238,7 +238,7 @@ func TestPullValidatesSlugAndMissingPreset(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
 
-	_, err := svc.Pull(context.Background(), " ")
+	_, err := svc.Pull(context.Background(), " ", "")
 	require.Error(t, err)
 
 	cache, cacheErr := NewHubCache(t.TempDir(), time.Hour)
@@ -249,7 +249,7 @@ func TestPullValidatesSlugAndMissingPreset(t *testing.T) {
 		return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/other","title":"Other","description":"d","type":"collection"}]}`), nil
 	})}
 
-	_, err = svc.Pull(context.Background(), "crowdsecurity/missing")
+	_, err = svc.Pull(context.Background(), "crowdsecurity/missing", "")
 	require.Error(t, err)
 }
 
@@ -1188,12 +1188,12 @@ func TestFindIndexEntry_ExactMatch(t *testing.T) {
 	t.Parallel()
 	idx := HubIndex{
 		Items: []HubIndexEntry{
-			{Name: "crowdsecurity/nginx", Title: "Nginx"},
-			{Name: "crowdsecurity/apache", Title: "Apache"},
+			{Name: "crowdsecurity/nginx", Title: "Nginx", Type: "collections"},
+			{Name: "crowdsecurity/apache", Title: "Apache", Type: "collections"},
 		},
 	}
 
-	entry, found := findIndexEntry(idx, "crowdsecurity/nginx")
+	entry, found := findIndexEntry(idx, "collections", "crowdsecurity/nginx")
 	require.True(t, found)
 	require.Equal(t, "crowdsecurity/nginx", entry.Name)
 }
@@ -1202,11 +1202,11 @@ func TestFindIndexEntry_ShortNameDoesNotMatch(t *testing.T) {
 	t.Parallel()
 	idx := HubIndex{
 		Items: []HubIndexEntry{
-			{Name: "crowdsecurity/nginx", Title: "Nginx"},
+			{Name: "crowdsecurity/nginx", Title: "Nginx", Type: "collections"},
 		},
 	}
 
-	_, found := findIndexEntry(idx, "nginx")
+	_, found := findIndexEntry(idx, "collections", "nginx")
 	require.False(t, found)
 }
 
@@ -1214,12 +1214,12 @@ func TestFindIndexEntry_AmbiguousShortName(t *testing.T) {
 	t.Parallel()
 	idx := HubIndex{
 		Items: []HubIndexEntry{
-			{Name: "crowdsecurity/test", Title: "Test 1"},
-			{Name: "vendor/test", Title: "Test 2"},
+			{Name: "crowdsecurity/test", Title: "Test 1", Type: "collections"},
+			{Name: "vendor/test", Title: "Test 2", Type: "collections"},
 		},
 	}
 
-	_, found := findIndexEntry(idx, "test")
+	_, found := findIndexEntry(idx, "collections", "test")
 	require.False(t, found, "ambiguous short name should not match")
 }
 
@@ -1227,11 +1227,11 @@ func TestFindIndexEntry_NotFound(t *testing.T) {
 	t.Parallel()
 	idx := HubIndex{
 		Items: []HubIndexEntry{
-			{Name: "crowdsecurity/nginx", Title: "Nginx"},
+			{Name: "crowdsecurity/nginx", Title: "Nginx", Type: "collections"},
 		},
 	}
 
-	_, found := findIndexEntry(idx, "nonexistent")
+	_, found := findIndexEntry(idx, "collections", "nonexistent")
 	require.False(t, found)
 }
 
@@ -1239,11 +1239,11 @@ func TestFindIndexEntry_EmptySlug(t *testing.T) {
 	t.Parallel()
 	idx := HubIndex{
 		Items: []HubIndexEntry{
-			{Name: "crowdsecurity/test", Title: "Test"},
+			{Name: "crowdsecurity/test", Title: "Test", Type: "collections"},
 		},
 	}
 
-	_, found := findIndexEntry(idx, "  ")
+	_, found := findIndexEntry(idx, "collections", "  ")
 	require.False(t, found)
 }
 

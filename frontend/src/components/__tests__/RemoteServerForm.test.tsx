@@ -85,7 +85,7 @@ describe('RemoteServerForm', () => {
   it('renders create form', () => {
     renderForm()
 
-    expect(screen.getByText('Add Remote Server')).toBeInTheDocument()
+    expect(screen.getByText('Add Source')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('My Production Server')).toHaveValue('')
   })
 
@@ -105,7 +105,7 @@ describe('RemoteServerForm', () => {
 
     renderForm({ server: mockServer })
 
-    expect(screen.getByText('Edit Remote Server')).toBeInTheDocument()
+    expect(screen.getByText('Edit Source')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Test Server')).toBeInTheDocument()
     expect(screen.getByDisplayValue('localhost')).toBeInTheDocument()
     expect(screen.getByDisplayValue('5000')).toBeInTheDocument()

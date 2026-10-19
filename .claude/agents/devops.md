@@ -72,7 +72,7 @@ Escalate to human when: production outage >15 minutes, security incident detecte
 **Rollback plan:**
 ```bash
 # Always know how to rollback
-git revert HEAD && git push
+git revert HEAD   # report back to the main session to push; subagents cannot push
 ```
 
 Remember: The best deployment is one nobody notices. Automation, monitoring, and quick recovery are key.

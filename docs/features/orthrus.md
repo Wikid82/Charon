@@ -39,7 +39,7 @@ Charon normally needs to reach your server directly, so this is a problem.
 
 ### Step 1 — Register the Agent in Charon
 
-1. In the Charon sidebar, click **Remote Agents**
+1. In the Charon sidebar, open **Hecate** → **Agent** (admins only)
 2. Click **Add Agent**
 3. Give it a friendly name (e.g. "HomeLab Server" or "NAS")
 4. Click **Create**
@@ -69,9 +69,9 @@ Charon gives you a ready-made install snippet. Pick the method that fits your se
 
 ### Step 4 — Watch It Go Online
 
-Back in Charon → **Remote Agents**, your agent should flip to **Online** within 10–30 seconds.
+Back in Charon → **Hecate** → **Agent**, your agent should flip to **Online** within 10–30 seconds.
 
-That's it. You can now use this agent when [adding a Remote Server](../guides/remote-docker-setup.md).
+That's it. You can now use this agent when [adding a Source](../guides/remote-docker-setup.md). Running Charon and Docker on the same machine? See [Using Orthrus on the same server as Charon](#using-orthrus-on-the-same-server-as-charon).
 
 ---
 
@@ -82,6 +82,35 @@ That's it. You can now use this agent when [adding a Remote Server](../guides/re
 | ✅ Online | Connected and healthy | Nothing — you're good |
 | ❌ Offline | Lost connection or not started | Check the agent is running on the remote machine |
 | 🟡 Pending | Registered but never connected yet | Run the install snippet on the remote machine |
+
+---
+
+## Using Orthrus on the Same Server as Charon
+
+Orthrus is not just for faraway machines. Running it beside Charon on the same server is the **recommended way** to see your containers, because Charon itself no longer needs the Docker socket. (Mounting the socket straight into Charon is still supported if you prefer it.)
+
+The socket is still mounted somewhere: into the small Orthrus agent instead of into Charon. The agent is read-only by default, and write access is an explicit per-agent opt-in (see [What Orthrus Can (and Cannot) Do](#what-orthrus-can-and-cannot-do)).
+
+1. **Register an agent.** In Charon, open **Hecate** → **Agent**, click **Add Agent**, and copy the one-time auth key.
+2. **Run the agent next to Charon.** Use the Docker Compose snippet from the **Install** tab and set `ORTHRUS_SERVER_URL` to **any address the agent can reach Charon on** (see the list below).
+3. **Remove the socket from Charon.** Delete the `/var/run/docker.sock` line (and any `group_add` entry) from Charon's compose file. Keep the socket only on the agent.
+4. **Wait for Online.** When the agent shows **Online** under **Hecate** → **Agent**, open **Hecate** → **Sources** and add a Source with the **Docker** provider and the **Orthrus** connection, pointing at your agent.
+5. **Use it.** In the Proxy Host form, your new Source now appears in the **Source** dropdown.
+
+### Which Server URL Should I Use?
+
+The agent only needs an address it can use to reach Charon. The path (`/api/v1/ws/orthrus/connect`) is added for you if you leave it off. Pick whichever of these fits your setup:
+
+- **Your server's VPN (Tailscale) address.** For example `ws://100.x.y.z:8080`, where `100.x.y.z` is the machine's Tailscale IP. This works in practice: the agent dials that Tailscale address to reach Charon.
+- **A shared Docker network.** Put Charon and the agent on the same Compose network and use `ws://charon:8080` (use your Charon container's name). Do not use `localhost` here: inside the agent's container, `localhost` means the agent itself, not Charon.
+- **Host networking.** If the agent runs with `network_mode: host`, use `ws://localhost:8080`.
+- **Your public address.** If Charon is behind HTTPS, use your normal `wss://` address, for example `wss://charon.example.com`.
+
+> **Is plain `ws://` safe?** Over a private, encrypted link such as Tailscale or WireGuard, yes. The link itself is encrypted. Over a network you do not trust, no: use `wss://` instead. The agent logs a warning when it connects over `ws://` to any address other than `localhost`, so seeing that warning on a private link is expected.
+
+### Local Option Greyed Out?
+
+If no Docker socket is mounted into Charon, the **Local (Docker Socket)** choice in the Proxy Host form's **Source** dropdown is greyed out, with a short note pointing you to Orthrus. That is expected once you follow the steps above: choose your Orthrus Source instead.
 
 ---
 
@@ -124,7 +153,7 @@ This is exactly enough for a tool to run a full "pull the new image, swap the co
 
 **Turning it on:**
 
-1. Go to **Remote Agents**
+1. Go to **Hecate** → **Agent**
 2. Click the **shield icon** next to the agent you want
 3. Toggle **write access** on
 4. Type the agent's exact current name to confirm — this typed confirmation is required specifically so this can't be flipped on by accident. Turning it back off never requires typing anything.
@@ -148,7 +177,7 @@ Some tools like to talk to Docker directly instead of going through Charon's scr
 
 **How to turn it on:**
 
-1. Go to **Remote Agents**
+1. Go to **Hecate** → **Agent**
 2. Click the **gear icon** next to the agent you want
 3. Set a port (any number from 1024 to 65535)
 4. Click **Save**
@@ -188,4 +217,4 @@ One note on that last item: read-only here means the proxy can't change anything
 
 ---
 
-*Ready to connect your first remote server? Follow the [Remote Docker Setup Guide](../guides/remote-docker-setup.md).*
+*Ready to connect your first Docker source? Follow the [Remote Docker Setup Guide](../guides/remote-docker-setup.md).*

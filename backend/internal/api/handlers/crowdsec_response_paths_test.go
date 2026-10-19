@@ -124,7 +124,7 @@ func TestResponses_AcquisitionUpdateCarriesBackupNameOnly(t *testing.T) {
 	requireNoServerPaths(t, w.Body.String(), dir)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Regexp(t, `^acquis\.yaml\.backup\.\d{8}-\d{6}$`, resp["backup"])
+	require.Regexp(t, `^acquis\.yaml\.backup\.\d{8}-\d{6}\.\d{6}$`, resp["backup"])
 	require.FileExists(t, filepath.Join(dir, resp["backup"].(string)))
 }
 
@@ -209,7 +209,8 @@ func TestResponses_LifecycleFailuresReturnFixedMessages(t *testing.T) {
 	cases := []struct {
 		name, method, target, want string
 	}{
-		{"start", http.MethodPost, "/api/v1/admin/crowdsec/start", "failed to start CrowdSec"},
+		// Start reads Status first, which pathErrExec fails.
+		{"start", http.MethodPost, "/api/v1/admin/crowdsec/start", "failed to read CrowdSec status"},
 		{"stop", http.MethodPost, "/api/v1/admin/crowdsec/stop", "failed to stop CrowdSec"},
 		{"status", http.MethodGet, "/api/v1/admin/crowdsec/status", "failed to read CrowdSec status"},
 	}

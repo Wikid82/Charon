@@ -219,13 +219,12 @@ func TestDashboardTopIPs_OK(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 
 	ips := body["ips"].([]interface{})
-	assert.LessOrEqual(t, len(ips), 3)
+	require.Len(t, ips, 3)
 	// 10.0.0.1 has 2 hits, should be first
-	if len(ips) > 0 {
-		first := ips[0].(map[string]interface{})
-		assert.Equal(t, "10.0.0.1", first["ip"])
-		assert.Equal(t, float64(2), first["count"])
-	}
+	first := ips[0].(map[string]interface{})
+	assert.Equal(t, "10.0.0.1", first["ip"])
+	assert.Equal(t, float64(2), first["count"])
+	assert.NotEmpty(t, first["last_seen"])
 }
 
 func TestDashboardTopIPs_LimitCap(t *testing.T) {
@@ -1013,242 +1012,6 @@ func TestDashboardSummary_ActiveDecisions_LAPIBadJSON(t *testing.T) {
 	assert.Equal(t, float64(-1), body["active_decisions"])
 }
 
-func TestListAlerts_LAPISuccess(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"id":"a1"},{"id":"a2"},{"id":"a3"},{"id":"a4"},{"id":"a5"}]`))
-	}))
-	t.Cleanup(server.Close)
-
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{
-		UUID: "default", Name: "default", CrowdSecAPIURL: server.URL,
-	}).Error)
-
-	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "lapi", body["source"])
-	assert.Equal(t, float64(5), body["total"])
-}
-
-func TestListAlerts_LAPISuccessWithOffset(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"id":"a1"},{"id":"a2"},{"id":"a3"},{"id":"a4"},{"id":"a5"}]`))
-	}))
-	t.Cleanup(server.Close)
-
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{
-		UUID: "default", Name: "default", CrowdSecAPIURL: server.URL,
-	}).Error)
-
-	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h&offset=3&limit=10", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "lapi", body["source"])
-	assert.Equal(t, float64(5), body["total"])
-	alerts := body["alerts"].([]interface{})
-	assert.Equal(t, 2, len(alerts))
-}
-
-func TestListAlerts_LAPISuccessWithLargeOffset(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"id":"a1"},{"id":"a2"}]`))
-	}))
-	t.Cleanup(server.Close)
-
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{
-		UUID: "default", Name: "default", CrowdSecAPIURL: server.URL,
-	}).Error)
-
-	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h&offset=100", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "lapi", body["source"])
-	// offset >= len(rawAlerts) returns nil, which marshals as JSON null
-	alerts := body["alerts"]
-	if alerts != nil {
-		assert.Equal(t, 0, len(alerts.([]interface{})))
-	}
-}
-
-func TestListAlerts_LAPISuccessWithLimitSlicing(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"id":"a1"},{"id":"a2"},{"id":"a3"},{"id":"a4"},{"id":"a5"}]`))
-	}))
-	t.Cleanup(server.Close)
-
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{
-		UUID: "default", Name: "default", CrowdSecAPIURL: server.URL,
-	}).Error)
-
-	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h&limit=2", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "lapi", body["source"])
-	assert.Equal(t, float64(5), body["total"])
-	alerts := body["alerts"].([]interface{})
-	assert.Equal(t, 2, len(alerts))
-}
-
-func TestListAlerts_LAPIBadJSON(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`not-json`))
-	}))
-	t.Cleanup(server.Close)
-
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{
-		UUID: "default", Name: "default", CrowdSecAPIURL: server.URL,
-	}).Error)
-
-	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	// Falls back to cscli
-	assert.Equal(t, "cscli", body["source"])
-}
-
-func TestListAlerts_LAPIBadStatus(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	t.Cleanup(server.Close)
-
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{
-		UUID: "default", Name: "default", CrowdSecAPIURL: server.URL,
-	}).Error)
-
-	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "cscli", body["source"])
-}
-
-func TestListAlerts_LAPIWithScenarioFilter(t *testing.T) {
-	t.Parallel()
-
-	var capturedQuery string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedQuery = r.URL.RawQuery
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"id":"a1"}]`))
-	}))
-	t.Cleanup(server.Close)
-
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{
-		UUID: "default", Name: "default", CrowdSecAPIURL: server.URL,
-	}).Error)
-
-	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/alerts?range=24h&scenario=crowdsecurity/http-probing", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, capturedQuery, "scenario=crowdsecurity")
-}
-
 func TestFetchAlertsCscli_ErrorExec(t *testing.T) {
 	t.Parallel()
 
@@ -1288,7 +1051,7 @@ func TestFetchAlertsCscli_ValidJSON(t *testing.T) {
 	h := &CrowdsecHandler{
 		DB:        db,
 		Executor:  &fakeExec{},
-		CmdExec:   &mockCmdExecutor{output: []byte(`[{"id":"1"},{"id":"2"}]`), err: nil},
+		CmdExec:   &mockCmdExecutor{output: []byte(`[{"id":1},{"id":2}]`), err: nil},
 		BinPath:   "/bin/false",
 		DataDir:   t.TempDir(),
 		dashCache: newDashboardCache(),
@@ -1307,4 +1070,119 @@ func TestFetchAlertsCscli_ValidJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, "cscli", body["source"])
 	assert.Equal(t, float64(2), body["total"])
+}
+
+// Rows that carry a country and a time come back with both filled: the country of the decisions of the IP and
+// the time of the newest one.
+func TestDashboardTopIPs_ReturnsCountryAndLastSeen(t *testing.T) {
+	t.Parallel()
+	r := setupDashboardHandler(t)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body struct {
+		IPs []struct {
+			IP       string `json:"ip"`
+			Count    int64  `json:"count"`
+			LastSeen string `json:"last_seen"`
+			Country  string `json:"country"`
+		} `json:"ips"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.IPs, 4, "the 48h-old row and the non-crowdsec row are outside the list")
+
+	byIP := map[string]string{}
+	for _, row := range body.IPs {
+		byIP[row.IP] = row.Country
+		lastSeen, err := time.Parse(time.RFC3339, row.LastSeen)
+		require.NoError(t, err, row.IP)
+		assert.WithinDuration(t, time.Now().UTC(), lastSeen, 24*time.Hour, row.IP)
+		assert.False(t, lastSeen.IsZero(), row.IP)
+	}
+	assert.Equal(t, map[string]string{"10.0.0.1": "US", "10.0.0.2": "DE", "10.0.0.3": "FR", "10.0.0.4": ""}, byIP)
+
+	first := body.IPs[0]
+	assert.Equal(t, "10.0.0.1", first.IP)
+	lastSeen, err := time.Parse(time.RFC3339, first.LastSeen)
+	require.NoError(t, err)
+	assert.WithinDuration(t, time.Now().UTC().Add(-1*time.Hour), lastSeen, 2*time.Minute, "the newest of the two decisions")
+}
+
+// A failed query is reported as a structured 500 instead of an empty list.
+func TestDashboardTopIPs_QueryError(t *testing.T) {
+	t.Parallel()
+
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}))
+	require.NoError(t, db.Migrator().DropTable(&models.SecurityDecision{}))
+	h := &CrowdsecHandler{DB: db, dashCache: newDashboardCache()}
+
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "failed to load top addresses", body["error"])
+}
+
+func TestFormatLastSeen(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"2026-10-18T10:00:00Z":          "2026-10-18T10:00:00Z",
+		"2026-10-18 10:00:00":           "2026-10-18T10:00:00Z",
+		"2026-10-18 10:00:00.123456789": "2026-10-18T10:00:00Z",
+		"2026-10-18 12:00:00.5+02:00":   "2026-10-18T10:00:00Z",
+		"  2026-10-18T10:00:00.25Z  ":   "2026-10-18T10:00:00Z",
+		"":                              "",
+		"not a time":                    "",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, formatLastSeen(in), in)
+	}
+}
+
+// The newest row per address is chosen by instant, not by text order: a row written with a +05:30 offset sorts
+// after a UTC row as text even when it is older.
+func TestDashboardTopIPs_LastSeenMixedZones(t *testing.T) {
+	t.Parallel()
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
+	h := &CrowdsecHandler{DB: db, dashCache: newDashboardCache()}
+	engine := gin.New()
+	h.RegisterRoutes(engine.Group("/api/v1"))
+
+	newest := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	older := newest.Add(-10 * time.Minute)
+	ist := time.FixedZone("IST", 5*3600+1800)
+	layouts := map[string]string{
+		"utc-T-Z":      newest.Format(time.RFC3339),
+		"ist-space":    older.In(ist).Format("2006-01-02 15:04:05-07:00"),
+		"utc-space-ms": older.Add(-time.Minute).Format("2006-01-02 15:04:05.000"),
+	}
+	for name, text := range layouts {
+		d := models.SecurityDecision{UUID: uuid.NewString(), Source: "crowdsec", Action: "block", IP: "10.9.9.9", CreatedAt: newest}
+		require.NoError(t, db.Create(&d).Error, name)
+		require.NoError(t, db.Model(&models.SecurityDecision{}).Where("uuid = ?", d.UUID).UpdateColumn("created_at", text).Error, name)
+	}
+
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/dashboard/top-ips?range=24h", http.NoBody))
+	require.Equal(t, http.StatusOK, w.Code)
+	var body struct {
+		IPs []struct {
+			IP       string `json:"ip"`
+			LastSeen string `json:"last_seen"`
+		} `json:"ips"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.IPs, 1)
+	assert.Equal(t, newest.Format(time.RFC3339), body.IPs[0].LastSeen)
 }

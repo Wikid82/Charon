@@ -62,7 +62,7 @@ func Write(t testing.TB, baseDir string, e Entry) string {
 	if err != nil {
 		t.Fatalf("marshal cache metadata: %v", err)
 	}
-	dir := filepath.Join(baseDir, filepath.FromSlash(e.Slug))
+	dir := filepath.Join(baseDir, e.Type, filepath.FromSlash(e.Slug))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("create cache entry dir: %v", err)
 	}

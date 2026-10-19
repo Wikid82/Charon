@@ -141,7 +141,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
         <div className="bg-dark-card rounded-lg border border-gray-800 max-w-lg w-full pointer-events-auto">
         <div className="p-6 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">
-            {server ? 'Edit Remote Server' : 'Add Remote Server'}
+            {server ? 'Edit Source' : 'Add Source'}
           </h2>
         </div>
 

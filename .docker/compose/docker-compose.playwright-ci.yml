@@ -109,6 +109,7 @@ services:
       - playwright_data:/app/data
       - playwright_caddy_data:/data
       - playwright_caddy_config:/config
+      # Test fixture: container discovery in E2E tests needs this mount. Not a recommended production setup.
       - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     healthcheck:
       test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8080/api/v1/health || exit 1"]
@@ -136,6 +137,7 @@ services:
     volumes:
       - playwright_crowdsec_data:/var/lib/crowdsec/data
       - playwright_crowdsec_config:/etc/crowdsec
+      # Test fixture: container discovery in E2E tests needs this mount. Not a recommended production setup.
       - /var/run/docker.sock:/var/run/docker.sock:ro # For container discovery in tests
     healthcheck:
       test: ["CMD", "cscli", "version"]

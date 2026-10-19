@@ -368,7 +368,7 @@ fork/offline fallback.
 
 - **ProxyService:** CRUD operations for proxy hosts, validation logic
 - **CertificateService:** ACME certificate provisioning and renewal
-- **DockerService:** Container discovery and monitoring
+- **DockerService:** Container discovery and monitoring; also exposes a lightweight local-socket availability probe (`GET /docker/status`) that the Proxy Host form uses to grey out the "Local (Docker Socket)" source when no usable socket is mounted
 - **MailService:** SMTP transport and branded HTML templates for certificate-expiry and other system emails
 - **NotificationService:** GORM CRUD for providers/templates, event-type-to-provider routing, and feature-flag gating (`internal/services/notification_service.go`); outbound dispatch for all eight provider types (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push) plus email is delegated to the external `github.com/Wikid82/go_notify_yourself` module (`v0.3.0+`) through three Charon-supplied adapters — `notify_client_adapter.go` (SSRF-safe HTTP client/URL validation, wired to `internal/network`/`internal/security`), `notify_provider_adapter.go`, and `notify_email_adapter.go` (wraps `MailService` behind the module's `Mailer`/`TemplateRenderer` interfaces). `notify_provider_adapter.go`'s `buildNotifySender` maps a `NotificationProvider` row into a `map[string]any` config (`providerConfigMap`) and constructs the `Sender` by calling the module's self-registering provider factory registry (`notify.New(provider.Type, config)`) rather than a hardcoded per-provider switch/constructor call — `notify_providers_import.go` hand-picks the blank imports (`providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`, `providers/telegram`, `providers/webhook`, `providers/webpush`, `providers/email`) that register those factories at `init()` time, deliberately not importing `providers/all`. Charon's own supported-provider allowlist (`isSupportedNotificationProviderType`, `notification_service.go`) remains independently hardcoded and is not derived from the registry; a unit test asserts it stays a subset of `notify.RegisteredTypes()`. The formerly in-repo delivery engine (`internal/notifications/`) has been removed.
   - **Web Push** is the one provider type that isn't a single destination: one `NotificationProvider` row (`Type = "webpush"`, a DB-enforced singleton) holds the shared VAPID application identity, while each subscribed browser/device is a row in a separate `WebPushSubscription` model (`internal/models/webpush_subscription.go`) — FK'd to that provider row, with its own `notify_webpush_adapter.go` fan-out path that sends to every subscription individually and auto-prunes rows the push service reports as gone.
@@ -417,7 +417,7 @@ The stats subsystem collects, aggregates, and broadcasts request metrics for the
 
 #### Uptime Subsystem (`internal/services/uptime_*`, `internal/api/handlers/uptime_*`)
 
-Monitors the availability of proxy hosts and remote servers at per-monitor
+Monitors the availability of proxy hosts and Sources (remote servers) at per-monitor
 intervals and serves the Uptime page. Rebuilt for scale (target ~500 monitors on
 one instance) by mirroring the Stats subsystem's buffered-write / cached-read
 split. Replaces the former global 1-minute `CheckAll()` + `checkAllHosts()`
@@ -883,12 +883,25 @@ configuration, and saving a file in the config editor never rename or empty the
 live CrowdSec directory. Each operation first takes a copy-based snapshot
 (`<DataDir>.backup.<timestamp>`, newest 5 kept; the live database, the
 top-level `data/` directory, `hub_cache/`, and runtime state are skipped to keep
-snapshots small) and restores it if the operation fails. Single-file edits keep their own
+snapshots small) and restores it if the operation fails. A hub apply takes a light
+snapshot: the installed hub tree is not copied, only a manifest of its paths and
+sizes plus the one item file `cscli upgrade` can overwrite (located from the `path`
+field of `cscli <type> inspect`, below the hub directory); rollback restores the
+configuration and item file and deletes hub files not in the manifest. Only a light
+snapshot writes its `.charon-apply` sidecar; that name is engine-owned, so full
+snapshots, exports and import extraction skip it. The preset
+cache is laid out as `hub_cache/<type>/<owner>/<name>/` (a name shared by several
+types answers 409 `preset_type_ambiguous`; an unreachable hub, for a pull or an apply, answers 503
+`hub_unreachable`). Every `cscli` call runs through the `runCSCLI` helper with a
+deadline, and CrowdSec JSON request bodies are capped at 64 KiB (413
+`request_too_large`). Single-file edits keep their own
 backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). Import and rollback leave
 server-local state untouched: the installed hub tree and its links, runtime
 state, and the proxy/bouncer registration. Export is built in a temporary file
 under the data lock and sent only after it is complete and within the
-importable limits; otherwise a clean error is returned. The export also carries
+importable limits; otherwise a clean error is returned. A `config.yaml` whose
+credentials cannot be blanked safely fails the export (422 `export_config_unsafe`)
+rather than yielding an archive an import would refuse. The export also carries
 a small manifest listing the installed hub items by name, and an import verifies
 that the profiles' notification references resolve before it changes anything.
 Installing missing hub items is a separate action: it takes the data lock for
@@ -898,6 +911,17 @@ action has a bounded overall time. One handler-level
 lock serializes apply, import, and file saves. The file editor validates file
 type, size and YAML, and the frontend no
 longer has a local-write fallback for presets; failures are shown as errors.
+
+**Background preset installs:** Large hub preset applies run as background jobs
+(`POST .../presets/apply` with `async: true` answers 202 with a job view;
+`GET .../presets/jobs`, `jobs/current`, `jobs/:id` and `DELETE jobs/:id` read and
+cancel them). An apply job manager runs one job at a time under a process-wide
+busy flag; while it is set, data-changing CrowdSec handlers answer 409
+`crowdsec_busy`. Jobs persist in the `crowdsec_apply_jobs` table (latest 20 kept,
+7 days) and carry a 30 minute limit. Startup recovery marks jobs left active by a
+restart as interrupted and restores the pre-install snapshot. Lock order is busy
+flag, then `dataMu`; `acquisMu` is a leaf lock. The synchronous apply route
+remains but is deprecated for large presets. Job views never expose `backup_path`.
 
 **Persistent hub data:** CrowdSec's `data_dir` (LAPI database and hub data files
 such as blocklists and the GeoIP database) lives at `/app/data/crowdsec/data`
@@ -1369,7 +1393,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | Container Path | Purpose | Required |
 | --- | --- | --- |
 | `/app/data` | Database, certificates, backups | **Yes** |
-| `/var/run/docker.sock` | Docker container discovery | Optional |
+| `/var/run/docker.sock` | Docker container discovery | Optional; Orthrus recommended |
 
 ### Environment Variables
 
@@ -1410,6 +1434,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./data:/app/data
+      # Optional: direct local discovery. Orthrus is the recommended, more secure alternative (no socket mount in Charon).
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
@@ -2098,7 +2123,7 @@ curl -X POST https://your-charon-instance/api/v1/backups/backup_2026-01-27_03-00
     - Prior versions had ID leakage in Settings queries
 
 2. **Docker Discovery:**
-   - Requires `docker.sock` mount (security trade-off)
+   - Direct local discovery requires a `docker.sock` mount (security trade-off); Orthrus is the recommended way to avoid mounting it, and the direct mount remains supported
    - Only discovers containers on same Docker host
    - **Mitigation:** Use remote Docker API or Kubernetes
 

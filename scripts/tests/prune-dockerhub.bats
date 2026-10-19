@@ -39,6 +39,29 @@ run_prune() { run bash "$PF_ROOT/scripts/prune-dockerhub.sh"; }
   grep -q '^TOTAL_FAILED=1$' prune-summary-dockerhub.env
 }
 
+@test "an expired token (401) triggers one re-login and the delete is retried" {
+  pf_route GET '*/tags?page_size=100&page=1' 200 "$(pf_dockerhub_tags_json <<< 'build-abc1234-amd64 10')"
+  pf_route DELETE '*/tags/build-abc1234-amd64/' 401x1 '{"message":"unauthorized"}'
+  pf_route DELETE '*/tags/build-abc1234-amd64/' 204
+  run_prune
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"re-authenticating"* ]]
+  [ "$(grep -c '^POST .*/users/login/' "$PF_DIR/calls")" -eq 2 ]
+  [ "$(pf_deleted)" -eq 2 ]
+  grep -q '^TOTAL_DELETED=1$' prune-summary-dockerhub.env
+  grep -q '^TOTAL_FAILED=0$' prune-summary-dockerhub.env
+}
+
+@test "a 401 that persists after re-login is retried once, then counted as failed" {
+  pf_route GET '*/tags?page_size=100&page=1' 200 "$(pf_dockerhub_tags_json <<< 'build-abc1234-amd64 10')"
+  pf_route DELETE '*/tags/*' 401 '{"message":"unauthorized"}'
+  run_prune
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"delete FAILED http=401"* ]]
+  [ "$(pf_deleted)" -eq 2 ]
+  grep -q '^TOTAL_FAILED=1$' prune-summary-dockerhub.env
+}
+
 @test "404 on delete is treated as already gone" {
   pf_route GET '*/tags?page_size=100&page=1' 200 "$(pf_dockerhub_tags_json <<< 'build-abc1234-amd64 10')"
   pf_route DELETE '*/tags/*' 404 '{"message":"not found"}'

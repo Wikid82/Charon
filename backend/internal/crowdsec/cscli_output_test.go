@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,7 +47,7 @@ func TestExtractCSCLIJSON(t *testing.T) {
 func TestExtractCSCLIJSONBounds(t *testing.T) {
 	t.Parallel()
 	_, err := extractCSCLIJSON(make([]byte, maxCSCLIOutput+1))
-	require.ErrorIs(t, err, errCSCLIOutput)
+	require.ErrorIs(t, err, ErrCSCLIOutputTooLarge)
 
 	// Many broken starts are not all tried.
 	_, err = extractCSCLIJSON([]byte(strings.Repeat("{x\n", 1000)))
@@ -69,7 +70,7 @@ func TestInspectParsesOutputWithProgressLine(t *testing.T) {
 	t.Parallel()
 	exec := &fixedExecutor{out: []byte(readCSCLIFixture(t, "inspect_with_progress.txt"))}
 
-	require.NoError(t, VerifyHubItem(context.Background(), exec, "collections", "crowdsecurity/nginx"))
+	require.NoError(t, VerifyHubItem(context.Background(), exec, "", "collections", "crowdsecurity/nginx"))
 
 	svc := &HubService{Exec: exec}
 	state, err := svc.inspectItem(context.Background(), "collections", "crowdsecurity/nginx")
@@ -82,7 +83,7 @@ func TestInspectParsesOutputWithProgressLine(t *testing.T) {
 func TestInspectRejectsOutputWithoutDocument(t *testing.T) {
 	t.Parallel()
 	exec := &fixedExecutor{out: []byte(progressLine)}
-	err := VerifyHubItem(context.Background(), exec, "collections", "crowdsecurity/nginx")
+	err := VerifyHubItem(context.Background(), exec, "", "collections", "crowdsecurity/nginx")
 	require.ErrorIs(t, err, errCSCLIOutput)
 	require.NotContains(t, err.Error(), "Loaded")
 
@@ -185,4 +186,32 @@ func TestItemMembersReadsRealInspectOutput(t *testing.T) {
 		{Type: "parsers", Name: "crowdsecurity/nginx-logs"},
 		{Type: "scenarios", Name: "crowdsecurity/nginx-req-limit-exceeded"},
 	}, got)
+}
+
+func TestUnmarshalCSCLIOutput_AboveTheLimit(t *testing.T) {
+	var v any
+
+	t.Run("output at the limit is read", func(t *testing.T) {
+		out := make([]byte, maxCSCLIOutput)
+		for i := range out {
+			out[i] = ' '
+		}
+		copy(out, "[]\n")
+		require.NoError(t, UnmarshalCSCLIOutput(out, &v))
+	})
+
+	t.Run("output above the limit has its own error", func(t *testing.T) {
+		out := make([]byte, maxCSCLIOutput+1)
+		copy(out, "[]\n")
+		err := UnmarshalCSCLIOutput(out, &v)
+		require.Error(t, err)
+		assert.Contains(t, strings.ToLower(err.Error()), "too large", "the sentinel ErrCSCLIOutputTooLarge says the output is too large")
+		assert.NotContains(t, err.Error(), "unexpected cscli output", "it is not the parse error")
+	})
+
+	t.Run("garbage within the limit is the parse error", func(t *testing.T) {
+		err := UnmarshalCSCLIOutput([]byte("no json here"), &v)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected cscli output")
+	})
 }

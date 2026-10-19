@@ -72,15 +72,15 @@ test.describe('CrowdSec Diagnostics', () => {
       });
     });
 
-    test('should report config.yaml invalid without the CrowdSec CLI, naming the failure', async ({ request }) => {
+    test('should report config.yaml invalid with the first cscli line when the configuration is incomplete', async ({ request }) => {
       const response = await request.get(`${ADMIN}/diagnostics/config`);
       expect(response.status()).toBe(200);
       const config = await response.json();
 
-      // The E2E container has no cscli, so `cscli config check` cannot succeed.
+      // The E2E image bundles cscli, which rejects this minimal configuration (no config_paths section).
       expect(config.config_valid).toBe(false);
       expect(config.errors).toHaveLength(1);
-      expect(config.errors[0]).toMatch(/^config\.yaml validation failed/);
+      expect(config.errors[0]).toMatch(/^config\.yaml validation failed: no configuration paths provided/);
     });
 
     test('should keep the current acquisition file and report an empty LAPI port when only config.yaml is imported', async ({ request }, testInfo) => {

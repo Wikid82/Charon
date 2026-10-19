@@ -1,0 +1,9 @@
+Action plan:
+📥 download
+ appsec-rules: crowdsecurity/crs (0.6)
+✅ enable
+ appsec-rules: crowdsecurity/crs
+
+downloading appsec-rules:crowdsecurity/crs
+level=warning msg="Failed to check last modified: failed to make HEAD request for https://cdn-hub.crowdsec.net/crowdsecurity/master/appsec-rules/crowdsecurity/crs.yaml: Head \"https://cdn-hub.crowdsec.net/crowdsecurity/master/appsec-rules/crowdsecurity/crs.yaml\": dial tcp: lookup cdn-hub.crowdsec.net on 8.8.4.4:53: dial udp 8.8.4.4:53: connect: network is unreachable" url=
+Error: cscli appsec-rules install: appsec-rules:crowdsecurity/crs: failed http request for https://cdn-hub.crowdsec.net/crowdsecurity/master/appsec-rules/crowdsecurity/crs.yaml: Get "https://cdn-hub.crowdsec.net/crowdsecurity/master/appsec-rules/crowdsecurity/crs.yaml": dial tcp: lookup cdn-hub.crowdsec.net on 8.8.4.4:53: dial udp 8.8.4.4:53: connect: network is unreachable

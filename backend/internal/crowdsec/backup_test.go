@@ -678,3 +678,99 @@ func TestRestoreAfterReportsRollbackFailure(t *testing.T) {
 	err = NewHubService(nil, nil, good).restoreAfter(cause, snap, "test/preset")
 	require.Equal(t, cause, err)
 }
+
+func TestPruneBackupFilesKeepsNewestRegularFilesOnly(t *testing.T) {
+	t.Parallel()
+	acquis := filepath.Join(t.TempDir(), "acquis.yaml")
+	writeFile(t, acquis, "live")
+	var made []string
+	for i := 1; i <= DefaultBackupRetention+2; i++ {
+		p := fmt.Sprintf("%s.backup.2025010%d-000000", acquis, i)
+		writeFile(t, p, "old")
+		made = append(made, p)
+	}
+	// A same-named directory, an unparsable suffix and an unrelated file must be ignored.
+	dirLike := acquis + ".backup.20240101-000000"
+	require.NoError(t, os.Mkdir(dirLike, 0o700))
+	junk := acquis + ".backup.notatime"
+	writeFile(t, junk, "x")
+
+	removed, err := PruneBackupFiles(acquis, DefaultBackupRetention)
+	require.NoError(t, err)
+	require.ElementsMatch(t, made[:2], removed)
+	for _, p := range made[:2] {
+		require.NoFileExists(t, p)
+	}
+	for _, p := range made[2:] {
+		require.FileExists(t, p)
+	}
+	require.DirExists(t, dirLike)
+	require.FileExists(t, junk)
+	require.FileExists(t, acquis)
+}
+
+func TestSnapshotCreatorsPruneToRetentionKeepingNewest(t *testing.T) {
+	t.Parallel()
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+	writeFile(t, filepath.Join(dataDir, "config", "config.yaml"), "x: 1")
+	var last string
+	for range DefaultBackupRetention + 2 {
+		snap, err := Snapshot(dataDir)
+		require.NoError(t, err)
+		last = snap
+		_, err = PruneBackups(dataDir, BackupKindSnapshot, DefaultBackupRetention)
+		require.NoError(t, err)
+	}
+	matches, err := filepath.Glob(dataDir + ".backup.*")
+	require.NoError(t, err)
+	require.Len(t, matches, DefaultBackupRetention)
+	require.DirExists(t, last)
+}
+
+func TestBackupFilePathMatchesWhatPruneBackupFilesKeeps(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "acquis.yaml")
+	at := time.Date(2026, 10, 18, 9, 8, 7, 123456000, time.UTC)
+	require.Equal(t, path+".backup.20261018-090807.123456", BackupFilePath(path, at))
+
+	for i := range 3 {
+		require.NoError(t, os.WriteFile(BackupFilePath(path, at.Add(time.Duration(i)*time.Second)), []byte("x"), 0o600))
+	}
+	removed, err := PruneBackupFiles(path, 2)
+	require.NoError(t, err)
+	require.Len(t, removed, 1)
+	require.NoFileExists(t, BackupFilePath(path, at))
+}
+
+func TestBackupFilePathSameSecondNamesAreDistinctAndSurvivePrune(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "acquis.yaml")
+	at := time.Date(2026, 10, 18, 9, 8, 7, 100000000, time.UTC)
+	first, second := BackupFilePath(path, at), BackupFilePath(path, at.Add(time.Microsecond))
+	require.NotEqual(t, first, second)
+	require.NoError(t, os.WriteFile(first, []byte("a"), 0o600))
+	require.NoError(t, os.WriteFile(second, []byte("b"), 0o600))
+
+	removed, err := PruneBackupFiles(path, DefaultBackupRetention)
+	require.NoError(t, err)
+	require.Empty(t, removed)
+	require.FileExists(t, first)
+	require.FileExists(t, second)
+}
+
+func TestPruneBackupFilesOrdersLegacyAndMicrosecondNames(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "acquis.yaml")
+	legacy := path + ".backup.20261018-090807"
+	older := path + ".backup.20261018-090806"
+	newest := path + ".backup.20261018-090807.500000"
+	for _, p := range []string{legacy, older, newest} {
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
+	}
+
+	removed, err := PruneBackupFiles(path, 2)
+	require.NoError(t, err)
+	require.Equal(t, []string{older}, removed)
+	require.FileExists(t, legacy)
+	require.FileExists(t, newest)
+}

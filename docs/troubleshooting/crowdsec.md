@@ -54,6 +54,12 @@ When you toggle CrowdSec ON in the Security dashboard:
    - ✅ "CrowdSec started and LAPI is ready" — You can immediately enroll in Console
    - ⚠️ "CrowdSec started but LAPI is still initializing" — Wait before enrolling
 
+### Starting CrowdSec While It Is Already Running
+
+Starting CrowdSec when it is already running does nothing. Charon answers the start request with the status `already_running` (plus the process ID and whether the Local API is ready) and leaves the existing process alone. If Charon lost track of a running CrowdSec process (for example, the process-tracking file was removed), Status and Stop find it again and take it over, and Stop waits for it to exit before reporting success. Charon recognises the engine by its executable name and its configuration file, so other programs that merely mention that file, such as `cscli` or `tail`, are never taken over or stopped.
+
+When stopping, Charon first asks CrowdSec to shut down (SIGTERM) and waits up to 5 seconds. If the process is still running after that, Charon forces it to end (SIGKILL). If the process still cannot be ended, or the request is cancelled while Charon is waiting, Stop reports an error and keeps the process-tracking file so you can try again.
+
 ### Verifying LAPI Status
 
 **Check if LAPI is running:**
@@ -189,19 +195,44 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 
 ## Common issues
 
-- Hub unreachable (503): retry once, then Charon falls back to cached Hub data if available; otherwise stay on curated/offline presets until connectivity returns.
+- Hub unreachable (503, `hub_unreachable`): retry once, then Charon falls back to cached Hub data if available; otherwise stay on curated/offline presets until connectivity returns. The same answer is given when a pull needs to download a preset that is not cached and the hub cannot be reached, and when an apply cannot download an item.
 - Hub returns HTML/redirect: set HUB_BASE_URL to the JSON endpoint above or install cscli so the index is fetched locally.
 - Bad preset slug (400): the slug must match Hub naming; correct the slug before retrying.
 - **"Install missing hub items" says the hub could not be reached**: nothing was installed and nothing was changed. Check that the container has internet access and can resolve names (DNS), then click the button again. Items that were not reached in time can be retried with **Install remaining**.
-- **Import refused because the archive keeps its configuration at the top level**: this CrowdSec reads its settings from the `config/` folder. Export a configuration from the CrowdSec page, or put your files in a `config/` folder inside the archive. Nothing was changed. See the [CrowdSec feature guide](../features/crowdsec.md).
-- **Import refused after saying the current profile was kept**: your archive has no `profiles.yaml`, so Charon kept the current one, but it names notifications your archive has no files for. Add those notification files to the archive, or include your own `profiles.yaml`. Nothing was changed.
-- **Import refused because a profile names notifications that have no matching file**: your imported alert profiles refer to notification names that are not in the archive. Add the missing notification files to the configuration, or remove those names from the profile, then import again. Nothing was changed by the refused import.
+- **"The archive keeps its configuration at the top level; CrowdSec reads it from the config/ folder. Export a configuration from this page, or put the files in a config/ folder inside the archive. Nothing was changed."**: do what the message says. Exporting from the CrowdSec page always gives you the right layout. See the [CrowdSec feature guide](../features/crowdsec.md).
+- **"The archive's profiles.yaml names notifications that no file in the archive defines: ..."**: your imported alert profiles refer to notifications that are not in the archive. Add the missing notification files, or remove those names from the profile, then import again. Nothing was changed.
+- **"The archive has no profiles.yaml, so the current one was kept, but it names notifications the archive has no files for: ..."**: Charon kept your current alert profile, but it needs notification files the archive does not have. Add those files to the archive, or include your own `profiles.yaml`. Nothing was changed.
+- **"The archive has no profiles.yaml, so the current one was kept, but a notification file it needs defines a name the archive already defines."**: the kept profile needs a notification file that clashes with one in your archive. Remove or rename the duplicate in the archive, or include your own `profiles.yaml`, then import again. Nothing was changed.
+- **"The current CrowdSec files could not be kept, so the import was stopped. See the server logs for details."**: Charon could not copy back the files an import must keep, so it put everything back as it was. Check that the data folder has free space and is writable, run `docker logs charon` for the reason, then try again.
+- **"config.yaml was not found at the top level or in the config/ folder of the archive."**: the archive has no main CrowdSec settings file. Export a configuration from the CrowdSec page, or add `config.yaml` to the archive's `config/` folder, then import again. Nothing was changed.
+- **"config.yaml is not valid YAML" or "invalid YAML" for a very large or deeply nested file**: Charon refuses YAML files over 2 MiB or ones that expand into an extreme number of entries (for example, heavy use of aliases), because reading them could slow CrowdSec down. Simplify the file or split it up, then try again.
+- **"The CrowdSec configuration file could not be exported safely"** (HTTP 422, `export_config_unsafe`): the export hides credentials in `config.yaml` and `config.yaml.local`, and it refuses to continue when it cannot do that reliably: the file is larger than 1 MiB, is not valid YAML, or shares credential values through YAML anchors, aliases or merge keys. Nothing is exported, because an archive without the main configuration could not be imported again. Fix or simplify the file (the log names it), then export again. The credential hiding is a best-effort list of well-known setting names, so keep treating an export as private.
+- **Private key files are missing after restoring an export on another host**: exports leave out private key files so they never travel inside a shared file. The export response lists what was left out (up to 50 files, in the `X-Charon-Omitted-Files` header); the Charon log records how many. Charon detects them by name (`*.key`, `*.p12`, `*.pfx`, or a file a notification names as `key_path`) or by a text-format (PEM or PGP) private key inside the file (whole files up to 1 MiB; only the first 64 KiB of larger ones); a binary key with any other name is not detected, so rename key files to end in `.key`. Copy those files onto the new host yourself. Importing on the same server keeps your current key files. See the [CrowdSec feature guide](../features/crowdsec.md).
 - **An imported notification does not send, or the import card says files "still need values"**: exports blank passwords, tokens and webhook addresses in notification files, and only notifications that already exist on this system with the same type, name and target get their values back. Open each listed file in the config file editor and enter the real values, or import again after adding them. If a file used YAML anchors or aliases and came back blanked on the same system, your earlier values are in the `.backup.` copy Charon made next to your data folder before the import. See the [CrowdSec feature guide](../features/crowdsec.md).
 - Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue.
 - Apply not supported (501): use curated/offline presets; Hub apply will be re-enabled when supported in your environment.
 - **Security Engine Offline**: If your dashboard says "Offline", it means CrowdSec LAPI is not running.
   - **Fix**: Ensure CrowdSec is **enabled via GUI toggle** in the Security dashboard. Do NOT use environment variables.
   - **Action**: Go to Security dashboard, toggle CrowdSec ON, wait 15 seconds, verify status shows "Active".
+
+## Ban and unban messages
+
+These appear when you ban or unban an address on the Live Decisions page. Nothing is changed when one of them shows.
+
+- **"Enter a valid IPv4 or IPv6 address, or a range such as 192.0.2.0/24."**: the address is not valid. Check for typos, spaces or a leading dash.
+- **"Choose a duration between 1 minute and 365 days, for example 4h, 30m or 1d."**: use `m` (minutes), `h` (hours) or `d` (days). Weeks (`1w`) and capital letters (`4H`) are not accepted.
+- **"The reason can be at most 200 characters."**: shorten the reason.
+- **"No decision with exactly this address or range."**: nothing is blocked under that exact address or range, perhaps because it already expired or was unbanned. Unbanning removes only an exact match: a range does not clear single addresses banned inside it, and an address does not clear a range that covers it. Refresh the list and use the value exactly as shown.
+- **A "request too large" error** (HTTP 413, `request_too_large`): CrowdSec requests are limited to 64 KiB. Shorten the text you sent.
+- **"CrowdSec did not answer in time. Try again."** (also shown as "CrowdSec did not answer in time" on other CrowdSec pages): CrowdSec's local service is stopped or too slow. Check that it is running (see [Verifying LAPI Status](#verifying-lapi-status)), wait a moment, then try again.
+
+## List notes
+
+The Live Decisions, dashboard and alerts lists show a short note instead of an error when CrowdSec could not supply the list. The list is empty or partial, and it refreshes on its own, so no action is needed unless the note stays.
+
+- **"The decision service took too long to answer, so this list may be incomplete."** (`cscli_timeout`): CrowdSec's local service is slow or stopped. See [Verifying LAPI Status](#verifying-lapi-status).
+- **"The decision service returned more data than can be shown, so this list may be incomplete."** (`cscli_output_too_large`): there are too many entries to show at once. Pick a shorter time range.
+- **"The decision service is not available right now, so this list may be incomplete."** (`cscli_unavailable`): Charon could not run `cscli`. Restart the container.
 
 ## Hub preset messages
 
@@ -211,9 +242,19 @@ Applying a hub preset shows one of these messages when it cannot finish or needs
 - **"The hub is still updating, try again later."**: the hub is still publishing a newer version of this item. Wait a while, pull the preset again, then apply it.
 - **"This item was edited on this server and was left unchanged. Reset it before applying the preset."**: you (or a script) changed this item's file on this server, and Charon will not overwrite your edit. The message lists the edited items ("Edited items: ..."). A plain install or upgrade does nothing for an edited item, so reset it with `cscli <type> install <name> --force` (Docker users run it as `docker exec charon cscli ...`), for example `docker exec charon cscli parsers install crowdsecurity/apache2-logs --force`. If a collection reports an edited item inside it, run `cscli collections install <collection> --force`, which also restores that item. This replaces your edit with the original hub version, so your local change is lost. Then reload CrowdSec, pull the preset again and apply it.
 - **"The preset install took too long and was rolled back. Try again."**: the install did not finish within 120 seconds (typical installs take 1-5 seconds; the slowest common collection takes about a minute on a first download). Try again, or raise `HUB_APPLY_TIMEOUT_SECONDS` on a slow connection (the web interface stops waiting after 130 seconds, so values above about 125 only help when you run the install yourself with `cscli`). Very large collections (hundreds of items, such as `sigmahq/windows_proc_creation`) can take several minutes because items are downloaded one by one; install those directly with `docker exec charon cscli collections install <name>`.
+- **"CrowdSec could not reach the hub. Check the network connection and try again."** (HTTP 503, `hub_unreachable`): the server has no route to the CrowdSec hub, when pulling a preset that was never downloaded as well as when applying one. Nothing was installed and your settings are unchanged. Check the container's internet and DNS access, then try again.
+- **"This name exists in several hub sections. Choose which item to use."** (HTTP 409, `preset_type_ambiguous`): pick the item type in the list that appears, then pull again.
 - **"cscli unavailable or not responding"**: Charon could not run `cscli`. The Docker image includes it; restart the container and try again.
 - **"cscli unavailable or not responding" offline**: an already-downloaded preview can be applied if its items are already on the server; otherwise the apply fails and is rolled back. Pulling a preset that was never downloaded needs internet access.
 - **A note that some dependencies were edited on this server**: the preset was applied, and those edited dependencies were left unchanged.
+
+### Large preset installs
+
+- **"CrowdSec is busy installing a preset; try again when it finishes."** (HTTP 409, `crowdsec_busy`): a preset install is running in the background, and other CrowdSec changes are paused until it ends. Wait for the progress row to finish, or click **Cancel** on it, then try again.
+- **The install shows as interrupted**: Charon restarted while the install was running. Your previous settings were restored automatically. Start the install again.
+- **The install shows as cancelled**: you cancelled it. Your previous settings were put back. Nothing else is needed.
+- **The install shows as timed out**: it did not finish within 30 minutes and was rolled back. Check the container's internet connection, then try again. For very large collections you can also run `docker exec charon cscli collections install <name>`.
+- **"The preview is out of date"** (`preset_cache_stale`) or **"CrowdSec could not reach the hub"** (`hub_unreachable`): see the messages above, then pull the preset again.
 
 ## CrowdSec Not Starting After Container Restart
 

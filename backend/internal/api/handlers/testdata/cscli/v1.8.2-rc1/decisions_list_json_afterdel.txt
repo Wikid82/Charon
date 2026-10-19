@@ -1,0 +1,76 @@
+[
+ {
+  "capacity": 0,
+  "created_at": "2026-10-16T23:15:34Z",
+  "decisions": [
+   {
+    "duration": "1h59m57s",
+    "id": 3,
+    "origin": "cscli",
+    "scenario": "manual ban: range",
+    "scope": "Range",
+    "simulated": false,
+    "type": "ban",
+    "value": "198.51.100.0/24"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 3,
+  "kind": "cscli",
+  "labels": null,
+  "leakspeed": "0",
+  "machine_id": "testlocal",
+  "message": "manual ban: range",
+  "remediation": true,
+  "scenario": "manual ban: range",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "198.51.100.0/24",
+   "scope": "Range",
+   "value": "198.51.100.0/24"
+  },
+  "start_at": "2026-10-16T23:15:34Z",
+  "stop_at": "2026-10-16T23:15:34Z",
+  "uuid": "dc086918-63f9-43a1-a4fc-4944ef5df505"
+ },
+ {
+  "capacity": 0,
+  "created_at": "2026-10-16T23:15:34Z",
+  "decisions": [
+   {
+    "duration": "23h59m57s",
+    "id": 1,
+    "origin": "cscli",
+    "scenario": "manual ban: example",
+    "scope": "Ip",
+    "simulated": false,
+    "type": "ban",
+    "value": "192.0.2.10"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 1,
+  "kind": "cscli",
+  "labels": null,
+  "leakspeed": "0",
+  "machine_id": "testlocal",
+  "message": "manual ban: example",
+  "remediation": true,
+  "scenario": "manual ban: example",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "192.0.2.10",
+   "scope": "Ip",
+   "value": "192.0.2.10"
+  },
+  "start_at": "2026-10-16T23:15:34Z",
+  "stop_at": "2026-10-16T23:15:34Z",
+  "uuid": "f209a035-d06e-4636-843f-f3373e986a0c"
+ }
+]

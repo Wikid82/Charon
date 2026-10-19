@@ -250,6 +250,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.UserPermittedHost{}, // Join table for user permissions
 		&models.CrowdsecPresetEvent{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.CrowdsecApplyJob{},
 		&models.DNSProvider{},
 		&models.DNSProviderCredential{}, // Multi-credential support (Phase 3)
 		&models.Plugin{},                // Phase 5: DNS provider plugins
@@ -1041,6 +1042,23 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(managementAdmin)
+
+		// Cancel a running preset install on shutdown so it rolls back from its snapshot; the drain is bounded by the
+		// caller's grace period and startup recovery restores the snapshot if it runs out.
+		uptimeDrain := uptimeShutdown
+		uptimeShutdown = func(waitCtx context.Context) error {
+			jobsDone := make(chan struct{})
+			go func() {
+				defer close(jobsDone)
+				crowdsecHandler.ShutdownApplyJobs()
+			}()
+			select {
+			case <-jobsDone:
+			case <-waitCtx.Done():
+				logger.Log().Warn("crowdsec preset install did not finish rolling back within the grace period; startup recovery will restore it")
+			}
+			return uptimeDrain(waitCtx)
+		}
 
 		// NOTE: CrowdSec reconciliation now happens in main.go BEFORE HTTP server starts
 		// This ensures proper initialization order and prevents race conditions

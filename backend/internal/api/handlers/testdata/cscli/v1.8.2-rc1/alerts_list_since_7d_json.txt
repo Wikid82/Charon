@@ -1,0 +1,72 @@
+[
+ {
+  "capacity": 0,
+  "created_at": "2026-10-17T14:34:16Z",
+  "decisions": [
+   {
+    "duration": "3h59m44s",
+    "id": 2,
+    "origin": "cscli",
+    "scenario": "manual/new-alert",
+    "scope": "Ip",
+    "simulated": false,
+    "type": "ban",
+    "value": "198.51.100.20"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 2,
+  "labels": null,
+  "leakspeed": "0s",
+  "machine_id": "fixture-machine",
+  "message": "manual/new-alert",
+  "scenario": "manual/new-alert",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "198.51.100.20",
+   "scope": "Ip",
+   "value": "198.51.100.20"
+  },
+  "start_at": "2026-10-17T14:34:16Z",
+  "stop_at": "2026-10-17T14:34:16Z",
+  "uuid": "1c2fccea-291c-4c28-926a-952305ea4ed4"
+ },
+ {
+  "capacity": 0,
+  "created_at": "2026-10-17T14:34:16Z",
+  "decisions": [
+   {
+    "duration": "-67h59m16s",
+    "id": 1,
+    "origin": "cscli",
+    "scenario": "manual/old-alert",
+    "scope": "Ip",
+    "simulated": false,
+    "type": "ban",
+    "value": "192.0.2.10"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 1,
+  "labels": null,
+  "leakspeed": "0s",
+  "machine_id": "fixture-machine",
+  "message": "manual/old-alert",
+  "scenario": "manual/old-alert",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "192.0.2.10",
+   "scope": "Ip",
+   "value": "192.0.2.10"
+  },
+  "start_at": "2026-10-14T14:34:16Z",
+  "stop_at": "2026-10-14T14:35:16Z",
+  "uuid": "93c7086e-029f-4e6b-a227-874b5a1fa932"
+ }
+]

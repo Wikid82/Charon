@@ -25,7 +25,7 @@ const planted = "SECRETTOKEN-"
 func exportEntries(t *testing.T, dir string) (archive []byte, entries map[string]string, total int64) {
 	t.Helper()
 	var buf bytes.Buffer
-	total, err := WriteExportArchive(context.Background(), dir, &buf)
+	total, _, err := WriteExportArchive(context.Background(), dir, &buf)
 	require.NoError(t, err)
 	return buf.Bytes(), readEntries(t, buf.Bytes()), total
 }
@@ -213,11 +213,11 @@ func TestExportArchiveSizeCapCountsRedactedLength(t *testing.T) {
 	require.NoError(t, err)
 	require.Less(t, len(redacted.Data), len(original))
 
-	total, err := writeExportArchive(context.Background(), dir, &buf, int64(len(redacted.Data)), exportHooks{})
+	total, _, err := writeExportArchive(context.Background(), dir, &buf, int64(len(redacted.Data)), exportHooks{})
 	require.NoError(t, err, "the cap applies to the redacted length")
 	require.EqualValues(t, len(redacted.Data), total)
 
-	_, err = writeExportArchive(context.Background(), dir, io.Discard, int64(len(redacted.Data))-1, exportHooks{})
+	_, _, err = writeExportArchive(context.Background(), dir, io.Discard, int64(len(redacted.Data))-1, exportHooks{})
 	require.ErrorIs(t, err, ErrExportTooLarge)
 }
 
@@ -232,7 +232,7 @@ func TestExportArchiveNotificationFileChangedWhileReading(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			writeExportTree(t, dir, map[string]string{"notifications/http.yaml": plantedHTTP})
-			_, err := writeExportArchive(context.Background(), dir, io.Discard, MaxImportUncompressedBytes,
+			_, _, err := writeExportArchive(context.Background(), dir, io.Discard, MaxImportUncompressedBytes,
 				exportHooks{beforeOpen: mutate})
 			require.ErrorIs(t, err, ErrExportFileUnreadable)
 		})
@@ -254,7 +254,7 @@ func TestExportArchiveNotificationFileSwappedForSymlinkIsNotFollowed(t *testing.
 	dir := t.TempDir()
 	writeExportTree(t, dir, map[string]string{"notifications/http.yaml": plantedHTTP, "notifications/z.yaml": "type: dummy\nname: z\n"})
 	var buf bytes.Buffer
-	_, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
+	_, _, err := writeExportArchive(context.Background(), dir, &buf, MaxImportUncompressedBytes, exportHooks{
 		beforeOpen: func(path string) {
 			if filepath.Base(path) == "http.yaml" {
 				require.NoError(t, os.Remove(path))
@@ -271,7 +271,7 @@ func TestExportArchiveNotificationFileSwappedForAnotherFileFails(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeExportTree(t, dir, map[string]string{"notifications/http.yaml": plantedHTTP})
-	_, err := writeExportArchive(context.Background(), dir, io.Discard, MaxImportUncompressedBytes, exportHooks{
+	_, _, err := writeExportArchive(context.Background(), dir, io.Discard, MaxImportUncompressedBytes, exportHooks{
 		beforeOpen: func(path string) {
 			replacement := path + ".new"
 			require.NoError(t, os.WriteFile(replacement, []byte(plantedHTTP), 0o600))

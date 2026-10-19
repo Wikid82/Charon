@@ -136,3 +136,27 @@ func hubItemFromTarget(typ, target string) (HubItem, bool) {
 	}
 	return HubItem{Type: typ, Name: owner + "/" + name}, true
 }
+
+// CountDownloadedHubFiles counts the item files (*.yaml) below the hub trees of dataDir, whether or not the
+// item is enabled yet. It is cheap (no cscli) and bounded like the installed-item scan.
+func CountDownloadedHubFiles(dataDir string) int {
+	n, visited := 0, 0
+	for _, root := range hubRoots {
+		for _, typ := range HubItemTypes {
+			_ = filepath.WalkDir(filepath.Join(dataDir, root, typ), func(_ string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return nil
+				}
+				visited++
+				if visited > maxHubScanEntries {
+					return fs.SkipAll
+				}
+				if !d.IsDir() && d.Type().IsRegular() && strings.HasSuffix(d.Name(), ".yaml") {
+					n++
+				}
+				return nil
+			})
+		}
+	}
+	return n
+}

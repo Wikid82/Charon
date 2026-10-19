@@ -81,7 +81,7 @@ func TestCacheKeyPersistence(t *testing.T) {
 	require.NotEmpty(t, originalCacheKey, "Cache key should be generated")
 
 	// Load it back
-	loaded, err := cache.Load(ctx, "test/preset")
+	loaded, err := cache.Load(ctx, "collections", "test/preset")
 	require.NoError(t, err)
 	require.Equal(t, originalCacheKey, loaded.CacheKey, "Cache key should persist")
 	require.Equal(t, "test/preset", loaded.Slug)

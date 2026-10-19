@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	// DefaultBackupRetention is how many full-tree snapshots (<DataDir>.backup.*) are kept.
+	// DefaultBackupRetention is how many snapshots (<DataDir>.backup.*) are kept.
 	DefaultBackupRetention = 5
 	// DefaultFileBackupRetention is how many single-file edit backups (<DataDir>.filebackup.*) are kept.
 	DefaultFileBackupRetention = 10
@@ -48,8 +49,9 @@ func isLiveDBFile(name string) bool {
 // IsEngineOwnedPath reports whether rel (a slash- or OS-separated path relative to DataDir) is state
 // the running engine owns and that snapshots, restores and archive imports must never touch: a live
 // db file at any depth, the top-level crowdsec.pid (written by the executor, owned by the running
-// process), or anything under the top-level data/ (LAPI db and hub data files) or
-// hub_cache/ (regenerable download cache). Only the top-level directories are excluded; a nested
+// process), or anything under the top-level data/ (LAPI db and hub data files), hub_cache/ (regenerable
+// download cache) or the snapshot sidecar directory (only a light snapshot writes it, so a configuration
+// holding such an entry can never pass for one). Only the top-level directories are excluded; a nested
 // directory with the same name stays part of the configuration. Matching is case-insensitive.
 func IsEngineOwnedPath(rel string) bool {
 	rel = strings.ToLower(filepath.ToSlash(filepath.Clean(rel)))
@@ -60,15 +62,26 @@ func IsEngineOwnedPath(rel string) bool {
 		return true
 	}
 	top, _, _ := strings.Cut(rel, "/")
-	return top == "data" || top == "hub_cache" || rel == "crowdsec.pid"
+	return top == "data" || top == "hub_cache" || top == snapshotSidecarDir || rel == "crowdsec.pid"
 }
 
 // snapshot copies DataDir into a new <DataDir>.backup.<ts> directory; see Snapshot.
 func (s *HubService) snapshot() (string, error) { return Snapshot(s.DataDir) }
 
+// snapshotWithoutHub is the snapshot of a hub apply: the hub tree is described, not copied; see snapshotWithoutHub.
+func (s *HubService) snapshotWithoutHub(item itemState) (string, error) {
+	return snapshotWithoutHub(s.DataDir, item)
+}
+
 // Snapshot copies dataDir (symlinks preserved, engine-owned state excluded) into a new
 // <dataDir>.backup.<ts> directory and returns its path. dataDir is never modified.
 func Snapshot(dataDir string) (string, error) {
+	return snapshotTree(dataDir, IsEngineOwnedPath, nil)
+}
+
+// snapshotTree creates the <dataDir>.backup.<ts> directory, copies dataDir into it except the entries skip
+// selects, and then lets extra add to it. The directory is removed again when any step fails.
+func snapshotTree(dataDir string, skip func(rel string) bool, extra func(path string) error) (string, error) {
 	parent, base := filepath.Split(filepath.Clean(dataDir))
 	var path string
 	var mkErr error
@@ -82,9 +95,15 @@ func Snapshot(dataDir string) (string, error) {
 		return "", fmt.Errorf("mkdir backup: %w", mkErr)
 	}
 	if _, err := os.Stat(dataDir); err == nil {
-		if cpErr := copyTree(dataDir, path, IsEngineOwnedPath); cpErr != nil {
+		if cpErr := copyTree(dataDir, path, skip); cpErr != nil {
 			_ = os.RemoveAll(path)
 			return "", fmt.Errorf("copy backup: %w", cpErr)
+		}
+		if extra != nil {
+			if exErr := extra(path); exErr != nil {
+				_ = os.RemoveAll(path)
+				return "", fmt.Errorf("copy backup: %w", exErr)
+			}
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		_ = os.RemoveAll(path)
@@ -97,8 +116,12 @@ func Snapshot(dataDir string) (string, error) {
 func (s *HubService) restore(path string) error { return Restore(path, s.DataDir) }
 
 // Restore replaces the contents of dataDir with the snapshot while keeping dataDir itself (and the
-// engine-owned entries inside it) in place.
+// engine-owned entries inside it) in place. A snapshot taken without the hub tree (see snapshotWithoutHub)
+// is restored the light way: the hub tree stays and is trimmed back to what it held.
 func Restore(snapshotPath, dataDir string) error {
+	if isLightSnapshot(snapshotPath) {
+		return restoreWithoutHub(snapshotPath, dataDir)
+	}
 	return RestoreKeeping(snapshotPath, dataDir, IsEngineOwnedPath)
 }
 
@@ -220,7 +243,7 @@ func copyTreeRel(src, dst, rel string, skip func(rel string) bool) error {
 	return nil
 }
 
-// pruneAfterApply prunes full-tree snapshots, logging (never returning) any failure.
+// pruneAfterApply prunes snapshots, logging (never returning) any failure.
 func (s *HubService) pruneAfterApply() {
 	if removed, err := PruneBackups(s.DataDir, BackupKindSnapshot, DefaultBackupRetention); err != nil {
 		logger.Log().WithError(err).WithField("removed", len(removed)).Warn("crowdsec backup prune incomplete")
@@ -242,14 +265,43 @@ func backupTimestamp(suffix string) (time.Time, bool) {
 // from file times. Entries that are not real directories or whose names do not parse are ignored.
 // Individual removal errors are aggregated and returned alongside the paths that were removed.
 func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) {
+	return PruneBackupsProtecting(dataDir, kind, keep, nil)
+}
+
+// PruneBackupsProtecting is PruneBackups that never deletes the directories in protect (compared by cleaned
+// path); they do not count against keep, so a snapshot a job still needs survives however old it is.
+func PruneBackupsProtecting(dataDir, kind string, keep int, protect []string) (removed []string, err error) {
+	return pruneSiblings(filepath.Clean(dataDir)+"."+kind, keep, fs.FileInfo.IsDir, protect...)
+}
+
+// BackupFilePath names the single-file backup of path taken at at: <path>.backup.<timestamp>, with a
+// microsecond timestamp. PruneBackupFiles recognises exactly this naming.
+func BackupFilePath(path string, at time.Time) string {
+	return backupFileStem(path) + "." + at.Format(backupTimeFormat)
+}
+
+// backupFileStem is the shared prefix (without the trailing dot) of the single-file backups of path.
+func backupFileStem(path string) string {
+	return filepath.Clean(path) + "." + BackupKindSnapshot
+}
+
+// PruneBackupFiles is PruneBackups for single-file backups named <path>.backup.<timestamp> (for example
+// the acquisition config rename-backups): only regular files are considered, the newest `keep` survive.
+func PruneBackupFiles(path string, keep int) (removed []string, err error) {
+	return pruneSiblings(backupFileStem(path), keep, func(info fs.FileInfo) bool { return info.Mode().IsRegular() })
+}
+
+// pruneSiblings removes all but the newest `keep` entries named <stem>.<timestamp> that wanted accepts;
+// stem is a cleaned path without the trailing dot. See PruneBackups for the ordering and error contract.
+func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool, protect ...string) (removed []string, err error) {
 	if keep < 1 {
 		keep = 1
 	}
-	parent, base := filepath.Split(filepath.Clean(dataDir))
+	parent, base := filepath.Split(stem)
 	if parent == "" {
 		parent = "."
 	}
-	prefix := base + "." + kind + "."
+	prefix := base + "."
 
 	entries, readErr := os.ReadDir(parent)
 	if readErr != nil {
@@ -274,8 +326,11 @@ func PruneBackups(dataDir, kind string, keep int) (removed []string, err error) 
 			continue
 		}
 		path := filepath.Join(parent, name)
+		if slices.Contains(protect, path) {
+			continue
+		}
 		info, lerr := os.Lstat(path)
-		if lerr != nil || !info.IsDir() {
+		if lerr != nil || !wanted(info) {
 			continue
 		}
 		found = append(found, candidate{path: path, ts: ts})
@@ -312,10 +367,13 @@ func BackupID(path string) string {
 	return filepath.Base(path)
 }
 
+// ErrRollbackFailed marks a failed apply whose rollback failed too: the snapshot is retained for manual recovery.
+var ErrRollbackFailed = errors.New("rollback failed; backup retained, see server logs")
+
 // rollbackFailure annotates cause with a failed restore; the snapshot location is logged, never returned.
 func rollbackFailure(cause, restoreErr error, backupPath string) error {
 	logger.Log().WithError(restoreErr).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("preset rollback failed; backup retained for manual recovery")
-	return fmt.Errorf("%w (rollback failed; backup retained, see server logs)", cause)
+	return fmt.Errorf("%w (%w)", cause, ErrRollbackFailed)
 }
 
 // BackupFile copies the single file dataDir/rel into a new <dataDir>.filebackup.<ts>/<rel> directory

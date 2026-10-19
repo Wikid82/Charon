@@ -42,8 +42,9 @@ func TestCrowdsec_Start_Error(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
 	r.ServeHTTP(w, req)
 
+	// errorExec fails Status too, and Start checks Status before spawning.
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "failed to start CrowdSec")
+	assert.Contains(t, w.Body.String(), "failed to read CrowdSec status")
 }
 
 func TestCrowdsec_Stop_Error(t *testing.T) {

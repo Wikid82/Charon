@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-6e84578898648106
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:c4964b2189a8eefc5671184dd4e1297485e88209dc29237678dc44dc03365f05
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-c57efdc8d009a2c9
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:bd93c72f18eaa4c5c7d70734a9876579c3254a991a803a97b1bfc2f891775a7c
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -616,7 +616,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Renovate tracks these via regex manager in renovate.json
         _retry go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
-        _retry go get github.com/hslatman/ipstore@v0.4.0; \
+        _retry go get github.com/hslatman/ipstore@v0.5.0; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
         # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
@@ -633,49 +633,30 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v4
-        _retry go get github.com/go-jose/go-jose/v4@v4.1.4; \
-        # CVE-2026-39883: OTel SDK resource leak
-        # CVE-2026-81870: Exporter config logging may leak endpoint URLs in info logs
+        _retry go get github.com/go-jose/go-jose/v4@v4.1.6; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
-        _retry go get go.opentelemetry.io/otel/sdk@v1.45.0; \
-        # CVE-2026-39882: OTel HTTP exporter request smuggling
-        # otlploghttp is pre-1.0 and version-locked to the go.opentelemetry.io/otel/log
-        # API it was built against (same release train as otel/sdk above: v1.45.0 <->
-        # v0.21.0). Must stay in lockstep with otlploggrpc below or MVS resolves
-        # otel/log to a newer minor than this exporter's compiled-in API surface,
-        # breaking the build ("undefined: api.KeyValue" etc.).
+        _retry go get go.opentelemetry.io/otel/sdk@v1.47.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.21.0; \
-        # CVE-2026-81871: Log gRPC exporter ignores env TLS certs, bypassing mTLS/pinning
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.23.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.21.0; \
-        # go.opentelemetry.io/otel/exporters/stdout/stdoutlog is pulled in transitively
-        # (not a CVE pin) but is compiled against the same pre-1.0 otel/log API surface
-        # as the exporters above, so it must be held on the matching v0.21.0 release
-        # train too, or MVS otherwise leaves it on a stale v0.20.0 that no longer
-        # compiles against otel/log v0.21.0 ("undefined: log.Value" etc.).
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.23.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/stdout/stdoutlog
-        _retry go get go.opentelemetry.io/otel/exporters/stdout/stdoutlog@v0.21.0; \
-        # Kept on the same v1.45.0 release train as otel/sdk above for a coherent,
-        # mutually-compatible module set.
+        _retry go get go.opentelemetry.io/otel/exporters/stdout/stdoutlog@v0.23.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.45.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.47.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp
-        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0; \
+        _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.47.0; \
         # CVE-2026-41889: SQL Injection via placeholder confusion with dollar quoted string literals
         # renovate: datasource=go depName=github.com/jackc/pgx/v5
         _retry go get github.com/jackc/pgx/v5@v5.11.0; \
-        # CVE-2026-41889: Improper Neutralization of Special Elements used in an SQL Command 
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
-        _retry go get github.com/russellhaering/goxmldsig@v1.6.0; \
+        _retry go get github.com/russellhaering/goxmldsig@v1.6.1; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
         _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
-        # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
-        # Affects /usr/bin/caddy (transitive via caddy-crowdsec-bouncer -> crowdsec). Fix available at v1.2.0.
         # renovate: datasource=go depName=github.com/buger/jsonparser
-        _retry go get github.com/buger/jsonparser@v1.2.0; \
+        _retry go get github.com/buger/jsonparser@v1.6.1; \
         # CVE-2026-44982 (GHSA-rw47-hm26-6wr7): CrowdSec AppSec silently drops HTTP request
         # body for chunked/HTTP-2 requests, bypassing WAF body inspection rules.
         # caddy-crowdsec-bouncer@v0.12.1 was built against crowdsec v1.6.3 whose
@@ -700,7 +681,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             # failures in authority/provisioner. Keep this pinned to a known-compatible
             # v1.9.x release until upstream stack supports nebula v1.10+.
             # renovate: datasource=go depName=github.com/slackhq/nebula
-            _retry go get github.com/slackhq/nebula@v1.9.7; \
+            _retry go get github.com/slackhq/nebula@v1.11.2; \
         elif [ "${CADDY_PATCH_SCENARIO}" = "B" ] || [ "${CADDY_PATCH_SCENARIO}" = "C" ]; then \
             # Default PR-2 posture: retire explicit nebula pin and use upstream resolution.
             echo "Skipping nebula pin for scenario ${CADDY_PATCH_SCENARIO}"; \
@@ -740,6 +721,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         cp -r "${BOUNCER_CACHE}/." "${BOUNCER_LOCAL}/"; \
         chmod -R +w "${BOUNCER_LOCAL}"; \
         sed -i "s/IPEquals: &value,/IPEquals: value,/g" "${BOUNCER_LOCAL}/internal/bouncer/live.go"; \
+        # go-cs-lib >= v0.0.25 (pulled in by crowdsec >= v1.8) made version.DetectOS return
+        # three values; caddy-crowdsec-bouncer v0.12.1 still destructures two. Keep ipstore
+        # at v0.5.0+ so MVS does not silently downgrade the bouncer to v0.11.0 (which masked this).
+        sed -i "s/osName, osVersion := version.DetectOS()/osName, osVersion, _ := version.DetectOS()/g" "${BOUNCER_LOCAL}/internal/metrics/metrics.go"; \
         echo "Patched caddy-crowdsec-bouncer at ${BOUNCER_LOCAL}"; \
         go mod edit -replace "github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1=${BOUNCER_LOCAL}"; \
         GO_CS_CACHE="${_GOMC}/github.com/crowdsecurity/go-cs-bouncer@v0.0.14"; \
@@ -881,32 +866,23 @@ RUN set -e; \
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=github-tags depName=jackc/pgx
     _retry go get github.com/jackc/pgx/v4@v4.18.3; \
-    # CVE-2026-29181 (GHSA-mh2q-q3fh-2475): OpenTelemetry-Go baggage header multi-value DoS
-    # go.opentelemetry.io/otel >= 1.36.0 and <= 1.40.0 is vulnerable; fix available at v1.41.0.
-    # Pin here so the CrowdSec binary is patched immediately;
-    # remove once CrowdSec ships a release built with go.opentelemetry.io/otel >= v1.41.0.
     # renovate: datasource=go depName=go.opentelemetry.io/otel
-    _retry go get go.opentelemetry.io/otel@v1.44.0; \
+    _retry go get go.opentelemetry.io/otel@v1.47.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.14; \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.22; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.78.2; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.89.3; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
     # Affects /usr/local/bin/cscli (transitive dependency). Fix available at v0.1.1.
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
     _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
-    # CVE-2026-40898 (GHSA-vvgj-x9jq-8cj9): quic-go HTTP/3 QPACK Trailer Expansion Memory Exhaustion.
-    # Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli (CrowdSec embeds quic-go v0.57.0).
-    # Fix available at v0.59.1. Caddy already resolves v0.59.1 through its own graph.
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    _retry go get github.com/quic-go/quic-go@v0.60.0; \
-    # buger/jsonparser Delete() panic via negative slice index on malformed JSON.
-    # Fix available at v1.2.0.
+    _retry go get github.com/quic-go/quic-go@v0.64.0; \
     # renovate: datasource=go depName=github.com/buger/jsonparser
-    _retry go get github.com/buger/jsonparser@v1.2.0; \
+    _retry go get github.com/buger/jsonparser@v1.6.1; \
     # kin-openapi: CrowdSec ships v0.147.0 natively (its go.mod baseline), which is past
     # GHSA-r277-6w6q-xmqw (ValidationHandler.Load() fail-open auth bypass, fixed v0.144.0) and
     # GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (DoS panic), but still vulnerable to:
@@ -1048,7 +1024,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=635078e412c4443a2950c2e3f775ccdc400e0a1fea5ffd32e5489e5401a9e51d
+ARG GEOLITE2_COUNTRY_SHA256=7ce2f6f453ee36dfd154b3eb1f7e1b8f7ea0248cb655bf25a39d7bfa86c4abe0
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

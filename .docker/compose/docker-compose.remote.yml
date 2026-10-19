@@ -1,8 +1,9 @@
 
 services:
-  # Run this service on your REMOTE servers (not the one running Charon)
-  # to let Charon discover and manage containers running there via the
-  # Orthrus agent. See docs/guides/remote-docker-setup.md for setup steps.
+  # Run this service on the server whose containers you want Charon to see -
+  # a remote server, or the same server that runs Charon - to let Charon
+  # discover containers there via the Orthrus agent. See
+  # docs/guides/remote-docker-setup.md and docs/features/orthrus.md for setup steps.
   orthrus-agent:
     image: wikid82/orthrus:latest
     container_name: orthrus
@@ -15,5 +16,6 @@ services:
       # The one-time auth key shown when you registered this agent
       - ORTHRUS_AUTH_KEY=<AUTH_KEY>
     volumes:
-      # Give the agent read-only access to the host's Docker socket
+      # Give the agent read-only access to the host Docker socket. The agent is read-only by default;
+      # write access is an explicit per-agent opt-in in Charon (see docs/features/orthrus.md).
       - /var/run/docker.sock:/var/run/docker.sock:ro

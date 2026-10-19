@@ -87,7 +87,7 @@ export default function App() {
               <Route path="agent"          element={<RequireRole allowed={['admin']}><HecateAgent /></RequireRole>} />
             </Route>
 
-            {/* Legacy redirect for old Remote Servers bookmarks */}
+            {/* Legacy redirect for old Sources bookmarks */}
             <Route path="remote-servers" element={<Navigate to="/hecate/remote-servers" replace />} />
             <Route path="certificates" element={<Certificates />} />
 

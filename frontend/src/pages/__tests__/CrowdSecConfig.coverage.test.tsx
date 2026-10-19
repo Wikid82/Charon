@@ -109,7 +109,7 @@ describe('CrowdSecConfig coverage', () => {
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
     vi.mocked(crowdsecApi.banIP).mockResolvedValue(undefined)
     vi.mocked(crowdsecApi.unbanIP).mockResolvedValue(undefined)
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['data']))
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({ blob: new Blob(['data']), omitted: [], omittedMore: 0 })
     vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({})
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({
       presets: [
@@ -230,10 +230,52 @@ describe('CrowdSecConfig coverage', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to export CrowdSec configuration'))
   })
 
+  it('explains an export refused because the configuration cannot be exported safely', async () => {
+    vi.mocked(exportUtils.promptCrowdsecFilename).mockReturnValueOnce('crowdsec.tar.gz')
+    vi.mocked(crowdsecApi.getCrowdsecExportError).mockReturnValueOnce('export_config_unsafe')
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockRejectedValueOnce(new Error('refused'))
+    await renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('cannot be hidden reliably')))
+    expect(exportUtils.downloadCrowdsecExport).not.toHaveBeenCalled()
+  })
+
+  it('shows a passive note listing the first five files an export left out', async () => {
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({
+      blob: new Blob(['data']),
+      omitted: ['a.key', 'b.key', 'c.key', 'd.key', 'e.key', 'f.key'],
+      omittedMore: 2,
+    })
+    await renderPage()
+    expect(screen.queryByTestId('export-omitted-note')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+    const note = await screen.findByTestId('export-omitted-note')
+    expect(note).toHaveTextContent('Left out of this export (8): a.key, b.key, c.key, d.key, e.key.')
+    expect(note).toHaveTextContent('(and 3 more)')
+    expect(note).not.toHaveTextContent('f.key')
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('shows a redacted config file and clears it on the next export', async () => {
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValueOnce({
+      blob: new Blob(['data']),
+      omitted: ['config.yaml'],
+      omittedMore: 0,
+    })
+    await renderPage()
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+    expect(await screen.findByTestId('export-omitted-note')).toHaveTextContent('Left out of this export (1): config.yaml.')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+    await waitFor(() => expect(screen.queryByTestId('export-omitted-note')).not.toBeInTheDocument())
+  })
+
   it('auto-selects first preset and pulls preview', async () => {
     await renderPage()
     // Component auto-selects first preset from the list on render
-    await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith(presetFromCatalog.slug))
+    await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith(presetFromCatalog.slug, undefined))
     const previewText = screen.getByTestId('preset-preview').textContent?.replace(/\s+/g, ' ')
     expect(previewText).toContain('crowdsecurity/http-cve')
     expect(screen.getByTestId('preset-meta')).toHaveTextContent('cache-123')
@@ -435,6 +477,25 @@ describe('CrowdSecConfig coverage', () => {
 
     await userEvent.click(screen.getByText('Close'))
     expect((screen.getByTestId('crowdsec-file-select') as HTMLSelectElement).value).toBe('')
+  })
+
+  it('shows a passive note for a soft decisions-list error and none otherwise', async () => {
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(baseStatus)
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({
+      decisions: [],
+      error: 'cscli timed out',
+      error_code: 'cscli_timeout',
+    })
+    await renderPage()
+    expect(await screen.findByTestId('crowdsec-list-error-note')).toBeInTheDocument()
+    expect(await screen.findByText('No banned IPs')).toBeInTheDocument()
+
+    cleanup()
+
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({ decisions: [] })
+    await renderPage()
+    expect(await screen.findByText('No banned IPs')).toBeInTheDocument()
+    expect(screen.queryByTestId('crowdsec-list-error-note')).not.toBeInTheDocument()
   })
 
   it('shows decisions table, handles loading/error/empty states, and unban errors', async () => {

@@ -1,0 +1,15 @@
+{
+  "console": {
+    "authenticated": true,
+    "decision_management": true,
+    "enrolled": true,
+    "plan": "community",
+    "registered": true
+  },
+  "sharing_options": {
+    "context": false,
+    "custom": true,
+    "manual": false,
+    "tainted": true
+  }
+}

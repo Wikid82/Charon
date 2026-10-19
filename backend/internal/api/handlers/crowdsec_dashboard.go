@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // Cache TTL constants for dashboard endpoints.
@@ -134,11 +135,13 @@ func (h *CrowdsecHandler) DashboardSummary(c *gin.Context) {
 	// Historical metrics from SQLite
 	var totalDecisions int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Count(&totalDecisions)
 
 	var uniqueIPs int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Distinct("ip").Count(&uniqueIPs)
 
@@ -159,6 +162,7 @@ func (h *CrowdsecHandler) DashboardSummary(c *gin.Context) {
 	previousSince := since.Add(-duration)
 	var previousCount int64
 	h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
 		Where("source = ? AND created_at >= ? AND created_at < ?", "crowdsec", previousSince, since).
 		Count(&previousCount)
 
@@ -212,7 +216,7 @@ func (h *CrowdsecHandler) fetchActiveDecisionCount(ctx context.Context) int64 {
 	endpoint := baseURL.ResolveReference(&url.URL{Path: "/v1/decisions"})
 	reqURL := endpoint.String()
 
-	apiKey := getLAPIKey()
+	apiKey := h.lapiKey()
 
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -304,6 +308,15 @@ func (h *CrowdsecHandler) DashboardTimeline(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// decisionActionUnblock marks the audit row written when an operator lifts a ban by hand.
+const decisionActionUnblock = "unblock"
+
+// excludeUnblocks leaves out the audit rows of manual unbans: they record a lifted ban, not an attack, so
+// they must not count toward the attack totals, unique addresses, trend or top addresses.
+func excludeUnblocks(db *gorm.DB) *gorm.DB {
+	return db.Where("action <> ?", decisionActionUnblock)
+}
+
 // DashboardTopIPs returns top attacking IPs ranked by decision count.
 func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 	rangeStr := normalizeRange(c.Query("range"))
@@ -328,28 +341,36 @@ func (h *CrowdsecHandler) DashboardTopIPs(c *gin.Context) {
 		return
 	}
 
+	// last_seen is scanned as text: SQLite returns an aggregated time column as a string, which cannot be
+	// scanned into a time.Time. The newest row is chosen by julian day, not by text order, because stored
+	// layouts differ (T or space separator, Z or numeric offset) and text order would mis-rank them.
 	type ipRow struct {
 		IP       string
 		Count    int64
-		LastSeen time.Time
+		LastSeen string
 		Country  string
 	}
 	var rows []ipRow
 
-	h.DB.Model(&models.SecurityDecision{}).
-		Select("ip, COUNT(*) as count, MAX(created_at) as last_seen, MAX(country) as country").
+	if err := h.DB.Model(&models.SecurityDecision{}).
+		Scopes(excludeUnblocks).
+		Select("ip, COUNT(*) as count, COALESCE(strftime('%Y-%m-%dT%H:%M:%SZ', MAX(julianday(created_at))), '') as last_seen, MAX(country) as country").
 		Where("source = ? AND created_at >= ?", "crowdsec", since).
 		Group("ip").
 		Order("count DESC").
 		Limit(limit).
-		Scan(&rows)
+		Scan(&rows).Error; err != nil {
+		logger.Log().WithError(err).Error("Failed to query the CrowdSec top addresses")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load top addresses"})
+		return
+	}
 
 	ips := make([]gin.H, 0, len(rows))
 	for _, r := range rows {
 		ips = append(ips, gin.H{
 			"ip":        r.IP,
 			"count":     r.Count,
-			"last_seen": r.LastSeen.UTC().Format(time.RFC3339),
+			"last_seen": formatLastSeen(r.LastSeen),
 			"country":   r.Country,
 		})
 	}
@@ -423,7 +444,7 @@ func (h *CrowdsecHandler) DashboardScenarios(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// ListAlerts wraps the CrowdSec LAPI /v1/alerts endpoint.
+// ListAlerts lists CrowdSec alerts through cscli (the local API needs a machine login for alerts, not a bouncer key).
 func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 	rangeStr := normalizeRange(c.Query("range"))
 	scenario := strings.TrimSpace(c.Query("scenario"))
@@ -448,121 +469,61 @@ func (h *CrowdsecHandler) ListAlerts(c *gin.Context) {
 		return
 	}
 
-	since, tErr := parseTimeRange(rangeStr)
-	if tErr != nil {
+	if _, tErr := parseTimeRange(rangeStr); tErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": tErr.Error()})
 		return
 	}
 
-	alerts, total, source := h.fetchLAPIAlerts(c.Request.Context(), since, scenario, limit, offset)
+	ctx := c.Request.Context()
+	alerts, total, failure := h.fetchAlertsCscli(ctx, scenario, rangeStr, limit, offset)
 
 	result := gin.H{
 		"alerts": alerts,
 		"total":  total,
-		"source": source,
+		"source": "cscli",
 		"cached": false,
+	}
+	if failure != nil {
+		// a failed listing is not cached, so the next request asks cscli again
+		failure.apply(result)
+		c.JSON(http.StatusOK, result)
+		return
 	}
 
 	h.dashCache.Set(cacheKey, result, dashAlertsTTL)
 	c.JSON(http.StatusOK, result)
 }
 
-// fetchLAPIAlerts attempts to get alerts from LAPI, falling back to cscli.
-func (h *CrowdsecHandler) fetchLAPIAlerts(ctx context.Context, since time.Time, scenario string, limit, offset int) (alerts []interface{}, total int, source string) {
-	lapiURL := "http://127.0.0.1:8085"
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
+// maxAlertsFetch caps how many alerts one request asks cscli for (limit + offset).
+const maxAlertsFetch = 1000
 
-	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
-	if err != nil {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-
-	q := url.Values{}
-	q.Set("since", since.Format(time.RFC3339))
-	if scenario != "" {
-		q.Set("scenario", scenario)
-	}
-	q.Set("limit", strconv.Itoa(limit))
-
-	endpoint := baseURL.ResolveReference(&url.URL{Path: "/v1/alerts"})
-	endpoint.RawQuery = q.Encode()
-	reqURL := endpoint.String()
-
-	apiKey := getLAPIKey()
-
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodGet, reqURL, http.NoBody)
-	if reqErr != nil {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-	if apiKey != "" {
-		req.Header.Set("X-Api-Key", apiKey)
-	}
-	req.Header.Set("Accept", "application/json")
-
-	client := network.NewInternalServiceHTTPClient(10 * time.Second)
-	resp, doErr := client.Do(req)
-	if doErr != nil {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-
-	var rawAlerts []interface{}
-	if decErr := json.NewDecoder(resp.Body).Decode(&rawAlerts); decErr != nil {
-		alerts, total = h.fetchAlertsCscli(ctx, scenario, limit)
-		return alerts, total, "cscli"
-	}
-
-	// Capture full count before slicing for correct pagination semantics
-	fullTotal := len(rawAlerts)
-
-	// Apply offset for pagination
-	if offset > 0 && offset < len(rawAlerts) {
-		rawAlerts = rawAlerts[offset:]
-	} else if offset >= len(rawAlerts) {
-		rawAlerts = nil
-	}
-
-	if limit < len(rawAlerts) {
-		rawAlerts = rawAlerts[:limit]
-	}
-
-	return rawAlerts, fullTotal, "lapi"
-}
-
-// fetchAlertsCscli falls back to using cscli to list alerts.
-func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario string, limit int) (alerts []interface{}, total int) {
-	args := []string{"alerts", "list", "-o", "json"}
+// fetchAlertsCscli lists the alerts that started within rangeStr (cscli --since, validated by the caller)
+// through cscli and returns the fields the UI reads, at most limit of them after skipping offset.
+// cscli has no offset flag, so limit+offset alerts (at most maxAlertsFetch) are fetched and the first offset
+// are dropped here; paging is best-effort, and total is the number of alerts fetched, not of all stored ones.
+// failure is nil on success; otherwise it tells why the list is empty (cscli failed, timed out or printed too much).
+func (h *CrowdsecHandler) fetchAlertsCscli(ctx context.Context, scenario, rangeStr string, limit, offset int) (alerts []alertView, total int, failure *softListError) {
+	fetch := min(limit+offset, maxAlertsFetch)
+	args := []string{"alerts", "list", "-o", "json", "--since", rangeStr}
 	if scenario != "" {
 		args = append(args, "-s", scenario)
 	}
-	args = append(args, "-l", strconv.Itoa(limit))
+	args = append(args, "-l", strconv.Itoa(fetch))
 
-	output, err := h.CmdExec.Execute(ctx, "cscli", args...)
+	output, err := h.runCSCLI(ctx, cscliListTimeout, args...)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to list alerts via cscli")
-		return []interface{}{}, 0
+		return []alertView{}, 0, classifySoftListError(ctx, err, msgAlertsTimedOut)
 	}
 
-	if jErr := json.Unmarshal(output, &alerts); jErr != nil {
-		return []interface{}{}, 0
+	alerts, err = parseCSCLIAlerts(output, fetch)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to parse cscli alerts output")
+		return []alertView{}, 0, classifySoftListError(ctx, err, msgAlertsTimedOut)
 	}
-	return alerts, len(alerts)
+	total = len(alerts)
+	alerts = alerts[min(offset, total):]
+	return alerts[:min(limit, len(alerts))], total, nil
 }
 
 // ExportDecisions exports decisions as downloadable CSV or JSON.
@@ -635,4 +596,24 @@ func (h *CrowdsecHandler) ExportDecisions(c *gin.Context) {
 		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 		c.JSON(http.StatusOK, decisions)
 	}
+}
+
+// sqliteTimeLayouts are the layouts a time column can come back in when it is read as text.
+var sqliteTimeLayouts = []string{
+	time.RFC3339Nano,
+	"2006-01-02 15:04:05.999999999-07:00",
+	"2006-01-02 15:04:05.999999999",
+	"2006-01-02 15:04:05",
+}
+
+// formatLastSeen turns an aggregated time column read as text into an RFC 3339 UTC string. An unreadable
+// value yields an empty string rather than a misleading zero time.
+func formatLastSeen(raw string) string {
+	raw = strings.TrimSpace(raw)
+	for _, layout := range sqliteTimeLayouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC().Format(time.RFC3339)
+		}
+	}
+	return ""
 }

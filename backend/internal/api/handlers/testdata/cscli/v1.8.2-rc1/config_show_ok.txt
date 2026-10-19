@@ -1,0 +1,33 @@
+Global:
+   - Configuration Folder   : /etc/crowdsec
+   - Data Folder            : /var/lib/crowdsec/data
+   - Hub Folder             : /etc/crowdsec/hub
+   - Notification Folder    : /etc/crowdsec/notifications
+   - Simulation File        : /etc/crowdsec/simulation.yaml
+   - Log Folder             : /var/log
+   - Log level              : info
+   - Log Media              : file
+Crowdsec:
+  - Acquisition File        : /etc/crowdsec/acquis.yaml
+  - Parsers routines        : 1
+  - Acquisition Folder      : /etc/crowdsec/acquis.d
+cscli:
+  - Output                  : human
+  - Hub Branch              : 
+API Client:
+  - URL                     : http://127.0.0.1:8085/
+  - Login                   : testlocal
+  - Credentials File        : /etc/crowdsec/local_api_credentials.yaml
+Local API Server:
+  - Listen URL              : 127.0.0.1:8085
+  - Listen Socket           : 
+  - Profile File            : /etc/crowdsec/profiles.yaml
+
+  - Trusted IPs:
+      - 127.0.0.1
+      - ::1
+  - Database:
+      - Type                : sqlite
+      - Path                : /var/lib/crowdsec/data/crowdsec.db
+      - Flush age           : 168h0m0s
+      - Flush size          : 5000

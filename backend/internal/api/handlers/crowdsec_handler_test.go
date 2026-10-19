@@ -1330,7 +1330,7 @@ func TestCrowdsecHandler_Status_Error(t *testing.T) {
 func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
 	t.Parallel()
 
-	fe := &fakeExecWithError{startError: errors.New("failed to start process")}
+	fe := &fakeExec{startErr: errors.New("failed to start process")}
 	db := setupCrowdDB(t)
 	h := newTestCrowdsecHandler(t, db, fe, "/bin/false", t.TempDir())
 
@@ -1344,6 +1344,84 @@ func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	require.Contains(t, w.Body.String(), "failed to start CrowdSec")
+}
+
+// countingExec records Start calls and reports a fixed running state.
+type countingExec struct {
+	running     bool
+	statusErr   error
+	startCalls  int
+	statusCalls int
+}
+
+func (c *countingExec) Start(ctx context.Context, binPath, configDir string) (int, error) {
+	c.startCalls++
+	return 999, nil
+}
+func (c *countingExec) Stop(ctx context.Context, configDir string) error { return nil }
+func (c *countingExec) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
+	c.statusCalls++
+	if c.statusErr != nil {
+		return false, 0, c.statusErr
+	}
+	return c.running, 4242, nil
+}
+
+func postStart(t *testing.T, exec CrowdsecExecutor) *httptest.ResponseRecorder {
+	t.Helper()
+	h := newTestCrowdsecHandler(t, setupCrowdDB(t), exec, "/bin/false", t.TempDir())
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody))
+	return w
+}
+
+func TestCrowdsecHandler_Start_AlreadyRunningDoesNotSpawn(t *testing.T) {
+	t.Parallel()
+
+	ce := &countingExec{running: true}
+	w := postStart(t, ce)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "already_running", body["status"])
+	require.InDelta(t, 4242, body["pid"], 0)
+	require.Equal(t, true, body["lapi_ready"])
+	require.Equal(t, 0, ce.startCalls)
+}
+
+func TestCrowdsecHandler_Start_NotRunningSpawns(t *testing.T) {
+	t.Parallel()
+
+	ce := &countingExec{}
+	w := postStart(t, ce)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), `"status":"started"`)
+	require.Equal(t, 1, ce.startCalls)
+}
+
+func TestCrowdsecHandler_Start_StatusErrorDoesNotSpawn(t *testing.T) {
+	t.Parallel()
+
+	ce := &countingExec{statusErr: errors.New("boom")}
+	db := setupCrowdDB(t)
+	h := newTestCrowdsecHandler(t, db, ce, "/bin/false", t.TempDir())
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody))
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "failed to read CrowdSec status")
+	require.Equal(t, 0, ce.startCalls)
+
+	// The failed status read must leave no persisted "CrowdSec enabled" state.
+	var count int64
+	require.NoError(t, db.Model(&models.SecurityConfig{}).Count(&count).Error)
+	require.Zero(t, count)
 }
 
 func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {
@@ -2236,8 +2314,8 @@ func TestCrowdsecHandler_GetCachedPreset_EmptySlug(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Empty slug should result in 404 (route not matched) or 400
-	require.True(t, w.Code == http.StatusNotFound || w.Code == http.StatusBadRequest)
+	// The catch-all route reaches the handler, which rejects an empty slug
+	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestCrowdsecHandler_Start_StatusCode tests starting CrowdSec returns 200 status
@@ -2552,8 +2630,8 @@ func TestCrowdsecHandler_GetCachedPreset_InvalidSlug(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	// Empty slug should be rejected (404 because route requires :slug parameter)
-	require.Equal(t, http.StatusNotFound, w.Code)
+	// The catch-all route reaches the handler, which rejects an empty slug
+	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestCrowdsecHandler_GetCachedPreset_CacheMiss verifies cache miss handling

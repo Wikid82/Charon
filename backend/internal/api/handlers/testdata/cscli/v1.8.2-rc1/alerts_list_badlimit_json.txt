@@ -1,0 +1,1 @@
+Error: cscli alerts list: invalid argument "notanumber" for "-l, --limit" flag: strconv.ParseInt: parsing "notanumber": invalid syntax

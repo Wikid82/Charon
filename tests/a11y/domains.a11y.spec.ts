@@ -5,10 +5,10 @@ import { getBaselinedRuleIds } from './a11y-baseline';
 
 const domainRoutes = [
   { route: '/domains', name: 'domains' },
-  { route: '/remote-servers', name: 'remote servers' },
+  { route: '/remote-servers', name: 'sources' },
 ] as const;
 
-test.describe('Accessibility: Domains & Remote Servers', () => {
+test.describe('Accessibility: Domains & Sources', () => {
 
   for (const { route, name } of domainRoutes) {
     test(`${name} page has no critical a11y violations`, async ({ page, makeAxeBuilder }) => {

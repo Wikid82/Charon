@@ -349,7 +349,8 @@ describe('presets API', () => {
       const result = await presets.getCrowdsecPresetCache('bot-mitigation-essentials')
 
       expect(client.get).toHaveBeenCalledWith(
-        '/admin/crowdsec/presets/cache/bot-mitigation-essentials'
+        '/admin/crowdsec/presets/cache/bot-mitigation-essentials',
+        { params: { type: undefined } }
       )
       expect(result).toEqual(mockCache)
       expect(result.preview).toContain('configs:')
@@ -366,7 +367,8 @@ describe('presets API', () => {
       await presets.getCrowdsecPresetCache('custom/preset with spaces')
 
       expect(client.get).toHaveBeenCalledWith(
-        '/admin/crowdsec/presets/cache/custom%2Fpreset%20with%20spaces'
+        '/admin/crowdsec/presets/cache/custom/preset%20with%20spaces',
+        { params: { type: undefined } }
       )
     })
 
@@ -502,6 +504,40 @@ describe('presets API', () => {
       await expect(
         presets.applyCrowdsecPreset({ slug: 'test-preset', cache_key: 'test-key' })
       ).rejects.toThrow('Network error')
+    })
+  })
+
+  describe('hub sections (a name in several sections)', () => {
+    it('sends the type with a pull only when one is given', async () => {
+      vi.mocked(client.post).mockResolvedValue({ data: { status: 'pulled' } })
+
+      await presets.pullCrowdsecPreset('crowdsecurity/crs', 'appsec-rules')
+      expect(client.post).toHaveBeenLastCalledWith('/admin/crowdsec/presets/pull', { slug: 'crowdsecurity/crs', type: 'appsec-rules' })
+
+      await presets.pullCrowdsecPreset('crowdsecurity/crs')
+      expect(client.post).toHaveBeenLastCalledWith('/admin/crowdsec/presets/pull', { slug: 'crowdsecurity/crs' })
+    })
+
+    it('sends the type with the cache read as a query parameter', async () => {
+      vi.mocked(client.get).mockResolvedValue({ data: { preview: 'x', cache_key: 'k' } })
+
+      await presets.getCrowdsecPresetCache('crowdsecurity/crs', 'appsec-configs')
+
+      expect(client.get).toHaveBeenCalledWith('/admin/crowdsec/presets/cache/crowdsecurity/crs', { params: { type: 'appsec-configs' } })
+    })
+
+    it('reads the offered types from a preset_type_ambiguous outcome', () => {
+      const err = new AxiosError('conflict', undefined, undefined, undefined, {
+        status: 409,
+        statusText: '409',
+        headers: {},
+        config: {},
+        data: { error: 'x', error_code: 'preset_type_ambiguous', types: ['appsec-rules', 7, 'appsec-configs'] },
+      } as never)
+
+      expect(presets.getCrowdsecPresetErrorCode(err)).toBe('preset_type_ambiguous')
+      expect(presets.getCrowdsecPresetAmbiguousTypes(err)).toEqual(['appsec-rules', 'appsec-configs'])
+      expect(presets.getCrowdsecPresetAmbiguousTypes(new Error('x'))).toEqual([])
     })
   })
 })

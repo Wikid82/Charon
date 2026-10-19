@@ -84,7 +84,7 @@ func TestVerifyHubItem(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			exec := &verifyExec{out: tc.out, err: tc.execErr}
-			err := VerifyHubItem(t.Context(), exec, "collections", "crowdsecurity/sshd")
+			err := VerifyHubItem(t.Context(), exec, "", "collections", "crowdsecurity/sshd")
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 			} else {
@@ -96,6 +96,6 @@ func TestVerifyHubItem(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	exec := &verifyExec{}
-	require.ErrorIs(t, VerifyHubItem(ctx, exec, "collections", "a/b"), context.Canceled)
+	require.ErrorIs(t, VerifyHubItem(ctx, exec, "", "collections", "a/b"), context.Canceled)
 	require.Nil(t, exec.args, "a cancelled context never reaches cscli")
 }

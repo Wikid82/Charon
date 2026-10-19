@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -91,49 +90,4 @@ func TestCheckLAPIHealth_Handler(t *testing.T) {
 	// Should have lapi_url field
 	_, hasURL := response["lapi_url"]
 	assert.True(t, hasURL)
-}
-
-func TestGetLAPIKey_FromEnv(t *testing.T) {
-	// Save and restore original env
-	original := os.Getenv("CROWDSEC_API_KEY")
-	defer func() {
-		if original != "" {
-			_ = os.Setenv("CROWDSEC_API_KEY", original)
-		} else {
-			_ = os.Unsetenv("CROWDSEC_API_KEY")
-		}
-	}()
-
-	// Set test value
-	_ = os.Setenv("CROWDSEC_API_KEY", "test-key-123")
-
-	key := getLAPIKey()
-	assert.Equal(t, "test-key-123", key)
-}
-
-func TestGetLAPIKey_Empty(t *testing.T) {
-	// Save and restore original env vars
-	envVars := []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-
-	originals := make(map[string]string)
-	for _, key := range envVars {
-		originals[key] = os.Getenv(key)
-		_ = os.Unsetenv(key)
-	}
-	defer func() {
-		for key, val := range originals {
-			if val != "" {
-				_ = os.Setenv(key, val)
-			}
-		}
-	}()
-
-	key := getLAPIKey()
-	assert.Empty(t, key)
 }

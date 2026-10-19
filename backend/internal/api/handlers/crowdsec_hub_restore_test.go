@@ -44,6 +44,9 @@ func (f *hubFakeExec) Execute(ctx context.Context, name string, args ...string) 
 	f.mu.Lock()
 	f.calls = append(f.calls, strings.Join(append([]string{name}, args...), " "))
 	f.mu.Unlock()
+	if len(args) >= 2 && args[0] == "-c" { // runCSCLI puts the configuration file in front when one exists
+		args = args[2:]
+	}
 	switch {
 	case name != "cscli":
 		return nil, fmt.Errorf("unexpected binary %q", name)

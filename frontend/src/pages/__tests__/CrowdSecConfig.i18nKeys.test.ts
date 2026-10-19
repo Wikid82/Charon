@@ -92,6 +92,14 @@ describe('CrowdSec config i18n keys', () => {
     expect(lookup(tree, 'crowdsecConfig.importNeedsValuesMore') as string).toContain('{{count}}')
   })
 
+  it.each(LOCALES)('%s offers the one-year ban option and no permanent option', (locale) => {
+    const tree = loadLocale(locale)
+    for (const key of ['crowdsecConfig.banModal.duration365d', 'crowdsecConfig.banModal.durationHelp']) {
+      expect(typeof lookup(tree, key), `${locale}.${key}`).toBe('string')
+    }
+    expect(lookup(tree, 'crowdsecConfig.banModal.durationPermanent')).toBeUndefined()
+  })
+
   it('CrowdSecConfig.tsx has no hard-coded user-visible strings in toasts, status messages or errors', () => {
     const [source] = Object.entries(sourceModules).filter(([path]) => path.endsWith('/CrowdSecConfig.tsx')).map(([, src]) => src)
     expect(source).toBeDefined()

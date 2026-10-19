@@ -133,21 +133,31 @@ func TestFetchIndexTriesHostThatAnswersNotFoundLast(t *testing.T) {
 
 func TestFindIndexEntryMatchesExactNameOnly(t *testing.T) {
 	idx := HubIndex{Items: []HubIndexEntry{
-		{Name: "crowdsecurity/sshd", Title: "SSH daemon"},
-		{Name: "Azlaroc/sftpgo", Title: "sftpgo"},
+		{Name: "crowdsecurity/sshd", Title: "SSH daemon", Type: "collections"},
+		{Name: "Azlaroc/sftpgo", Title: "sftpgo", Type: "collections"},
+		{Name: "crowdsecurity/crs", Title: "rules", Type: "appsec-rules"},
+		{Name: "crowdsecurity/crs", Title: "config", Type: "appsec-configs"},
 	}}
 
-	entry, ok := findIndexEntry(idx, "crowdsecurity/sshd")
+	entry, ok := findIndexEntry(idx, "collections", "crowdsecurity/sshd")
 	require.True(t, ok)
 	require.Equal(t, "crowdsecurity/sshd", entry.Name)
-	entry, ok = findIndexEntry(idx, "Azlaroc/sftpgo")
+	entry, ok = findIndexEntry(idx, "collections", "Azlaroc/sftpgo")
 	require.True(t, ok)
 	require.Equal(t, "Azlaroc/sftpgo", entry.Name)
 
 	for _, query := range []string{"SSH daemon", "sshd", "sftpgo", "azlaroc/sftpgo", "Crowdsecurity/sshd", ""} {
-		_, ok := findIndexEntry(idx, query)
-		require.False(t, ok, "%q must not match", query)
+		_, found := findIndexEntry(idx, "collections", query)
+		require.False(t, found, "%q must not match", query)
 	}
+
+	for _, typ := range []string{"appsec-rules", "appsec-configs"} {
+		entry, ok = findIndexEntry(idx, typ, "crowdsecurity/crs")
+		require.True(t, ok, typ)
+		require.Equal(t, typ, entry.Type, "the entry of the requested section is returned")
+	}
+	_, ok = findIndexEntry(idx, "collections", "crowdsecurity/crs")
+	require.False(t, ok, "the name exists in other sections only")
 }
 
 func TestPullFindsPresetsThatAreNotInstalled(t *testing.T) {
@@ -163,7 +173,7 @@ func TestPullFindsPresetsThatAreNotInstalled(t *testing.T) {
 	svc := NewHubService(exec, cache, t.TempDir())
 	svc.HTTPClient = &http.Client{Transport: transport}
 
-	res, err := svc.Pull(context.Background(), "crowdsecurity/sshd")
+	res, err := svc.Pull(context.Background(), "crowdsecurity/sshd", "")
 	require.NoError(t, err)
 	require.Equal(t, "crowdsecurity/sshd", res.Meta.Slug)
 	require.Contains(t, res.Preview, "crowdsecurity/sshd")
@@ -180,7 +190,7 @@ func TestPullKeepsMixedCaseSlug(t *testing.T) {
 	svc := NewHubService(nil, cache, t.TempDir())
 	svc.HTTPClient = &http.Client{Transport: transport}
 
-	res, err := svc.Pull(context.Background(), "Azlaroc/sftpgo")
+	res, err := svc.Pull(context.Background(), "Azlaroc/sftpgo", "")
 	require.NoError(t, err)
 	require.Equal(t, "Azlaroc/sftpgo", res.Meta.Slug)
 }

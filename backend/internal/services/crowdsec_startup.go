@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -75,6 +76,10 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		logger.Log().Debug("CrowdSec reconciliation skipped: nil db or executor")
 		return
 	}
+
+	// An install job the previous process left running died half way; put the pre-install snapshot back before
+	// anything (including the engine) reads the configuration. This runs whatever the CrowdSec mode is.
+	recoverInterruptedInstalls(db, dataDir)
 
 	// Check if SecurityConfig table exists and has a record with CrowdSecMode = "local"
 	if !db.Migrator().HasTable(&models.SecurityConfig{}) {
@@ -316,7 +321,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	}
 
 	// Priority 2: Check file-stored key
-	if fileKey, err := os.ReadFile(bouncerKeyFile); err == nil && len(fileKey) > 0 {
+	if fileKey, err := os.ReadFile(bouncerKeyFile); err == nil && len(fileKey) > 0 { // #nosec G304 -- bouncerKeyFile is the fixed key path chosen by the caller, cleaned above, never user input
 		keyStr := strings.TrimSpace(string(fileKey))
 		if testKeyAgainstLAPIStartup(keyStr) {
 			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", util.MaskAPIKey(keyStr)).Info("CrowdSec bouncer: file-stored key validated successfully")
@@ -440,5 +445,40 @@ type simpleCommandExecutor struct{}
 func (e *simpleCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: command is from internal allowlist, not user input
 	cmd.Env = os.Environ()
-	return cmd.CombinedOutput()
+	return crowdsec.CombinedOutputLimited(cmd)
+}
+
+// installRecoveryTimeout bounds the database work of recoverInterruptedInstalls; the restore itself is local
+// file copying and is not bounded.
+const installRecoveryTimeout = 30 * time.Second
+
+// recoverInterruptedInstalls fails every background preset install job a previous process left active and
+// restores the snapshot it took before installing, because the cscli child died with the process and the
+// tree may be half installed. A missing or unrestorable snapshot is recorded as a warning on the job and never
+// touches the configuration. Nothing here can stop the start.
+func recoverInterruptedInstalls(db *gorm.DB, dataDir string) {
+	if db == nil || !db.Migrator().HasTable(&models.CrowdsecApplyJob{}) {
+		return
+	}
+	m := crowdsec.NewApplyJobManager(nil)
+	m.Configure(crowdsec.ApplyJobConfig{
+		Repo: crowdsec.NewApplyJobRepository(db),
+		PruneSnapshots: func(protect []string) {
+			if _, err := crowdsec.PruneBackupsProtecting(dataDir, crowdsec.BackupKindSnapshot, crowdsec.DefaultBackupRetention, protect); err != nil {
+				logger.Log().WithError(err).Warn("CrowdSec reconciliation: pruning snapshots after recovery incomplete")
+			}
+		},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), installRecoveryTimeout)
+	defer cancel()
+	err := m.RecoverInterrupted(ctx, func(backupPath string) error {
+		return crowdsec.Restore(backupPath, dataDir)
+	})
+	if err != nil {
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).Warn("CrowdSec reconciliation: recovering interrupted preset installs failed")
+		return
+	}
+	if err := m.Prune(ctx); err != nil {
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).Warn("CrowdSec reconciliation: pruning preset install jobs failed")
+	}
 }

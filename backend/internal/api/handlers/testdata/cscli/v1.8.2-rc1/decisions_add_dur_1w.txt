@@ -1,0 +1,1 @@
+Error: cscli decisions add: API error: machine "testlocal": building decisions for alert 356ed292-1737-4e08-95c7-738cc532fc9e: creating alert decisions: decision duration '1w': time: unknown unit "w" in duration "1w": unable to parse duration

@@ -16,12 +16,16 @@ const maxJSONStartCandidates = 16
 // errCSCLIOutput is the fixed error for output that holds no JSON document. It never carries the output.
 var errCSCLIOutput = errors.New("unexpected cscli output")
 
+// ErrCSCLIOutputTooLarge is returned for output above maxCSCLIOutput. Callers answer it like the executor's
+// own size limit (crowdsec.ErrOutputLimit). It never carries the output.
+var ErrCSCLIOutputTooLarge = errors.New("cscli output is too large")
+
 // extractCSCLIJSON returns the JSON document in the combined stdout/stderr of a cscli command. cscli prints
 // progress lines such as "Loaded: 168 parsers, ..." on stderr before the document, so the document is the
 // first value that starts a line with '{' or '[' and decodes completely; text after it is ignored.
 func extractCSCLIJSON(out []byte) ([]byte, error) {
 	if len(out) > maxCSCLIOutput {
-		return nil, errCSCLIOutput
+		return nil, ErrCSCLIOutputTooLarge
 	}
 	tried := 0
 	for i := 0; i < len(out) && tried < maxJSONStartCandidates; i++ {
@@ -47,4 +51,10 @@ func unmarshalCSCLIJSON(out []byte, v any) error {
 		return errCSCLIOutput
 	}
 	return nil
+}
+
+// UnmarshalCSCLIOutput decodes the JSON document in the combined stdout/stderr of a cscli command into v,
+// ignoring the progress lines cscli prints before it.
+func UnmarshalCSCLIOutput(out []byte, v any) error {
+	return unmarshalCSCLIJSON(out, v)
 }

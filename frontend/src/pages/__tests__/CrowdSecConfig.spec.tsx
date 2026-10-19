@@ -105,7 +105,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local', api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' }, rate_limit: { enabled: false }, acl: { enabled: false } })
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
     const blob = new Blob(['dummy'])
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(blob)
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue({ blob: blob, omitted: [], omittedMore: 0 })
     vi.spyOn(window, 'prompt').mockReturnValue('crowdsec-export')
     renderWithProviders(<CrowdSecConfig />)
     expect(await screen.findByText('CrowdSec Configuration')).toBeInTheDocument()

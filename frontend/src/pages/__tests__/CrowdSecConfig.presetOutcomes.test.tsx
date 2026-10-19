@@ -94,6 +94,23 @@ const renderPage = async () => {
   await screen.findByText('CrowdSec Configuration')
 }
 
+const queuedJob: presetsApi.CrowdsecApplyJob = {
+  job_id: 'job-1',
+  slug: 'crowdsecurity/base-http-scenarios',
+  item_type: 'collections',
+  cache_key: 'cache-pulled',
+  state: 'queued',
+  phase: 'preflight',
+  warnings: [],
+  items_installed: 0,
+  items_total: null,
+  cancel_requested: false,
+  elapsed_seconds: 0,
+  created_at: '2026-10-18T10:00:00Z',
+  started_at: null,
+  finished_at: null,
+}
+
 const canonicalSlug = 'crowdsecurity/Base-HTTP-Scenarios'
 
 const pulled = {
@@ -122,9 +139,14 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [hubPreset] })
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue(pulled)
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({ status: 'applied', used_cscli: true, reload_hint: false })
+    vi.mocked(presetsApi.applyPresetAsync).mockResolvedValue(queuedJob)
+    vi.mocked(presetsApi.getCurrentApplyJob).mockResolvedValue(null)
+    vi.mocked(presetsApi.getApplyJob).mockResolvedValue({ ...queuedJob, state: 'succeeded', phase: 'reload' })
     vi.mocked(presetsApi.getCrowdsecPresetErrorCode).mockImplementation(
       (err) => (err as { response?: { data?: { error_code?: never } } }).response?.data?.error_code,
+    )
+    vi.mocked(presetsApi.getCrowdsecPresetAmbiguousTypes).mockImplementation(
+      (err) => (err as { response?: { data?: { types?: string[] } } }).response?.data?.types ?? [],
     )
     vi.mocked(presetsApi.getCrowdsecPresetTaintedItems).mockImplementation(
       (err) => (err as { response?: { data?: { tainted_items?: string[] } } }).response?.data?.tainted_items ?? [],
@@ -136,9 +158,9 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
   it('applies the canonical slug and the cache key returned by pull', async () => {
     await selectHubAndApply()
     await waitFor(() =>
-      expect(presetsApi.applyCrowdsecPreset).toHaveBeenCalledWith({ slug: canonicalSlug, cache_key: 'cache-pulled' }),
+      expect(presetsApi.applyPresetAsync).toHaveBeenCalledWith({ slug: canonicalSlug, cache_key: 'cache-pulled' }),
     )
-    expect(toast.success).toHaveBeenCalled()
+    expect(await screen.findByTestId('preset-install-result')).toHaveTextContent('Preset applied.')
   })
 
   it('disables Apply for a hub preset that has no cache key', async () => {
@@ -153,7 +175,7 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
     ['preset_cache_stale', 409],
     ['preset_cache_key_required', 400],
   ])('asks for a new pull and clears the preview on %s', async (code, status) => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(coded(status, code))
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(coded(status, code))
     await selectHubAndApply()
     expect(await screen.findByTestId('preset-status')).toHaveTextContent('Pull the preset again')
     expect(screen.getByTestId('preset-preview')).not.toHaveTextContent('base-http-scenarios')
@@ -165,7 +187,7 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
   })
 
   it('lets the user pull again after a stale outcome', async () => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(coded(409, 'preset_cache_stale'))
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValueOnce(coded(409, 'preset_cache_stale'))
     await selectHubAndApply()
     await screen.findByText('Pull the preset again', { exact: false })
     await userEvent.click(screen.getByRole('button', { name: 'Pull Preview' }))
@@ -174,7 +196,7 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
   })
 
   it('says the hub is still updating and clears the preview', async () => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(coded(409, 'preset_hub_updating'))
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(coded(409, 'preset_hub_updating'))
     await selectHubAndApply()
     expect(await screen.findByTestId('preset-status')).toHaveTextContent('The hub is still updating, try again later.')
     expect(screen.getByTestId('preset-preview')).not.toHaveTextContent('base-http-scenarios')
@@ -182,7 +204,7 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
   })
 
   it('explains a locally edited item and keeps the preview', async () => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(coded(409, 'preset_local_modified'))
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(coded(409, 'preset_local_modified'))
     await selectHubAndApply()
     expect(await screen.findByTestId('preset-status')).toHaveTextContent('left unchanged')
     expect(screen.getByTestId('preset-preview')).toHaveTextContent('base-http-scenarios')
@@ -194,7 +216,7 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
       axiosError(409, 'Request failed', { error: 'server text', error_code: 'preset_local_modified', tainted_items })
 
     it('lists the edited items after the message', async () => {
-      vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(
+      vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(
         localModified(['collections/crowdsecurity/nginx', 'parsers/crowdsecurity/nginx-logs']),
       )
       await selectHubAndApply()
@@ -206,7 +228,7 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
 
     it('shows the first 10 names and a count of the rest', async () => {
       const names = Array.from({ length: 13 }, (_, i) => `parsers/owner/item-${i + 1}`)
-      vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(localModified(names))
+      vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(localModified(names))
       await selectHubAndApply()
       const status = await screen.findByTestId('preset-status')
       expect(status).toHaveTextContent('parsers/owner/item-10, and 3 more')
@@ -214,7 +236,7 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
     })
 
     it('strips control and direction characters from names', async () => {
-      vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(localModified(['parsers/ow\u202Ener/it\u0007em']))
+      vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(localModified(['parsers/ow\u202Ener/it\u0007em']))
       await selectHubAndApply()
       const status = await screen.findByTestId('preset-status')
       expect(status.textContent).toContain('Edited items: parsers/owner/item')
@@ -223,7 +245,7 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
     })
 
     it.each([[undefined], [[]]])('omits the list when the server sent %j', async (items) => {
-      vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(localModified(items))
+      vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(localModified(items))
       await selectHubAndApply()
       const status = await screen.findByTestId('preset-status')
       expect(status).toHaveTextContent('left unchanged')
@@ -232,14 +254,22 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
   })
 
   it('shows the timeout message', async () => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(coded(504, 'preset_apply_timeout'))
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(coded(504, 'preset_apply_timeout'))
     await selectHubAndApply()
     expect(await screen.findByTestId('preset-status')).toHaveTextContent('The preset install took too long and was rolled back. Try again.')
     expect(screen.getByTestId('preset-preview')).toHaveTextContent('base-http-scenarios')
   })
 
+  it('shows the unreachable-hub message and keeps the preview', async () => {
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(coded(503, 'hub_unreachable'))
+    await selectHubAndApply()
+    expect(await screen.findByTestId('preset-status')).toHaveTextContent('CrowdSec could not reach the hub. Check the network connection and try again.')
+    expect(screen.getByTestId('preset-preview')).toHaveTextContent('base-http-scenarios')
+    expect(screen.queryByTestId('preset-hub-unavailable')).not.toBeInTheDocument()
+  })
+
   it('shows the cscli message without marking the hub offline', async () => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(coded(503, 'cscli_unavailable'))
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(coded(503, 'cscli_unavailable'))
     await selectHubAndApply()
     expect(await screen.findByTestId('preset-status')).toHaveTextContent('cscli unavailable or not responding')
     expect(screen.queryByTestId('preset-hub-unavailable')).not.toBeInTheDocument()
@@ -247,23 +277,75 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
   })
 
   it('shows apply warnings as a passive note without extra toasts', async () => {
-    vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({
-      status: 'applied',
-      used_cscli: true,
+    vi.mocked(presetsApi.getApplyJob).mockResolvedValue({
+      ...queuedJob,
+      state: 'succeeded',
+      phase: 'reload',
       warnings: ['dependency crowdsecurity/foo was edited locally'],
     })
     await selectHubAndApply()
     const note = await screen.findByTestId('preset-apply-warnings')
     expect(note).toHaveTextContent('left unchanged')
     expect(note).toHaveTextContent('dependency crowdsecurity/foo was edited locally')
-    expect(toast.success).toHaveBeenCalledTimes(1)
     expect(toast.error).not.toHaveBeenCalled()
     expect(toast.info).not.toHaveBeenCalled()
   })
 
   it('shows no warning note when the result has none', async () => {
     await selectHubAndApply()
-    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    expect(await screen.findByTestId('preset-install-result')).toHaveTextContent('Preset applied.')
     expect(screen.queryByTestId('preset-apply-warnings')).not.toBeInTheDocument()
+  })
+
+  describe('a name that exists in several hub sections', () => {
+    const crs = (type: string) => ({ ...hubPreset, slug: 'crowdsecurity/crs', title: `crs ${type}`, type, cache_key: undefined, cached: false })
+
+    it('lists each section as its own item and sends the type of the selected one', async () => {
+      vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [crs('appsec-rules'), crs('appsec-configs')] })
+      await renderPage()
+      await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith('crowdsecurity/crs', 'appsec-rules'))
+
+      await userEvent.click(screen.getByText('crs appsec-configs'))
+
+      await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith('crowdsecurity/crs', 'appsec-configs'))
+      expect(screen.getAllByTestId('preset-type').map((el) => el.textContent).sort()).toEqual(['appsec-configs', 'appsec-rules'])
+    })
+
+    it('applies the type that was pulled', async () => {
+      vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [crs('appsec-rules')] })
+      vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({ ...pulled, slug: 'crowdsecurity/crs', type: 'appsec-rules' })
+      await renderPage()
+      await waitFor(() => expect(screen.getByTestId('apply-preset-btn')).toBeEnabled())
+      await userEvent.click(screen.getByTestId('apply-preset-btn'))
+
+      await waitFor(() =>
+        expect(presetsApi.applyPresetAsync).toHaveBeenCalledWith({
+          slug: 'crowdsecurity/crs',
+          type: 'appsec-rules',
+          cache_key: 'cache-pulled',
+        }),
+      )
+    })
+
+    it('asks which section to use when the server cannot tell, then pulls that one', async () => {
+      vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [{ ...crs('x'), type: undefined }] })
+      vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValueOnce(
+        axiosError(409, 'Request failed', { error: 'x', error_code: 'preset_type_ambiguous', types: ['appsec-configs', 'appsec-rules'] }),
+      )
+      await renderPage()
+      expect(await screen.findByTestId('preset-status')).toHaveTextContent('several hub sections')
+      const picker = await screen.findByLabelText('Item type')
+
+      await userEvent.selectOptions(picker, 'appsec-rules')
+
+      await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenLastCalledWith('crowdsecurity/crs', 'appsec-rules'))
+      await waitFor(() => expect(screen.queryByTestId('preset-type-picker')).not.toBeInTheDocument())
+    })
+
+    it('says the choice is needed when an apply reports the ambiguity', async () => {
+      vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(coded(409, 'preset_type_ambiguous'))
+      await selectHubAndApply()
+      expect(await screen.findByTestId('preset-status')).toHaveTextContent('several hub sections')
+    })
   })
 })

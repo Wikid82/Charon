@@ -1,0 +1,39 @@
+[
+ {
+  "capacity": 0,
+  "created_at": "2026-10-16T23:15:34Z",
+  "decisions": [
+   {
+    "duration": "-1m12s",
+    "id": 2,
+    "origin": "cscli",
+    "scenario": "manual ban",
+    "scope": "Ip",
+    "simulated": false,
+    "type": "ban",
+    "value": "192.0.2.11"
+   }
+  ],
+  "events": null,
+  "events_count": 1,
+  "id": 2,
+  "kind": "cscli",
+  "labels": null,
+  "leakspeed": "0",
+  "machine_id": "testlocal",
+  "message": "manual ban",
+  "remediation": true,
+  "scenario": "manual ban",
+  "scenario_hash": "",
+  "scenario_version": "",
+  "simulated": false,
+  "source": {
+   "ip": "192.0.2.11",
+   "scope": "Ip",
+   "value": "192.0.2.11"
+  },
+  "start_at": "2026-10-16T23:15:34Z",
+  "stop_at": "2026-10-16T23:15:34Z",
+  "uuid": "4ebaee75-fbb0-49e4-8d6e-28de1dc2f140"
+ }
+]

@@ -1,0 +1,3 @@
+Loaded credentials from /etc/crowdsec/local_api_credentials.yaml
+Trying to authenticate with username "testlocal" on http://127.0.0.1:8085/
+You can successfully interact with Local API (LAPI)

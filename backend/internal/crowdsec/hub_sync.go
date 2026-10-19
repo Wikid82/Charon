@@ -10,9 +10,11 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -33,6 +35,9 @@ const (
 	defaultHubIndexPath     = "/api/index.json"
 	maxArchiveSize          = int64(25 * 1024 * 1024) // 25MiB safety cap for the hub index
 	defaultPullTimeout      = 25 * time.Second
+	// indexFreshTTL is how long after a successful index fetch an untyped pull of a single cached section
+	// skips the index request.
+	indexFreshTTL = 10 * time.Minute
 	// defaultApplyTimeout covers cscli version, hub update, the typed install (which downloads the item and its
 	// dependencies), inspect, an optional upgrade with a second inspect, and one hub list. Timed against a real
 	// hub: typical installs take 1-5 s, a collection with about 200 dependencies about 22 s, and the largest
@@ -77,6 +82,8 @@ type ApplyResult struct {
 	CacheKey      string `json:"cache_key"`
 	ErrorMessage  string `json:"error,omitempty"`
 	AppliedPreset string `json:"slug"`
+	// Type is the hub section of the installed item; empty for a curated bundle.
+	Type string `json:"type,omitempty"`
 	// Warnings lists non-fatal findings, such as a dependency that was edited on this server.
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -101,6 +108,17 @@ type HubService struct {
 
 	// mu serializes Apply and ApplyCurated so backup/rollback cycles never interleave.
 	mu sync.Mutex
+
+	// indexMu guards lastIndex and lastIndexAt.
+	indexMu sync.Mutex
+	// lastIndex is the index of the last successful fetch, taken at lastIndexAt.
+	lastIndex   HubIndex
+	lastIndexAt time.Time
+	// now is the clock for the index window; nil means time.Now. Test-only override.
+	now func() time.Time
+	// legacySweepMu guards legacySweepDone, which is set once the old-layout cache sweep has succeeded.
+	legacySweepMu   sync.Mutex
+	legacySweepDone bool
 }
 
 // validateHubURL validates a hub URL for security (SSRF protection - HIGH-001).
@@ -268,7 +286,12 @@ func (s *HubService) FetchIndex(ctx context.Context) (HubIndex, error) {
 	}
 	idx, cscliErr := s.fetchIndexCSCLI(ctx)
 	if cscliErr != nil {
-		return HubIndex{}, fmt.Errorf("%w; cscli fallback failed: %v", httpErr, cscliErr)
+		failure := fmt.Errorf("%w; cscli fallback failed: %v", httpErr, cscliErr)
+		if ctx.Err() != nil {
+			return HubIndex{}, failure
+		}
+		// Neither the hub nor the local index answered; callers show a fixed message and the detail stays in the log.
+		return HubIndex{}, fmt.Errorf("%w: %w", ErrHubUnreachable, failure)
 	}
 	logger.Log().WithError(httpErr).Debug("hub index unreachable, listing from the local cscli index")
 	idx.offline = true
@@ -279,7 +302,7 @@ func (s *HubService) fetchIndexCSCLI(ctx context.Context) (HubIndex, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, s.PullTimeout)
 	defer cancel()
 
-	output, err := s.Exec.Execute(cmdCtx, "cscli", "hub", "list", "-a", "-o", "json")
+	output, err := s.runCSCLI(cmdCtx, "hub", "list", "-a", "-o", "json")
 	if err != nil {
 		return HubIndex{}, err
 	}
@@ -326,6 +349,25 @@ func parseCSCLIIndex(raw []byte) (HubIndex, error) {
 	return HubIndex{Items: items}, nil
 }
 
+// validIndexPath reports whether an index item path is safe to append to the hub base URL: a relative path
+// without a scheme, a leading slash, backslashes, control characters, ".." segments, or any of "%", "?" and "#".
+// Rejecting "%" outright also rejects percent-encoded dot segments (%2e%2e) and encoded separators, which a hub
+// index has no use for.
+func validIndexPath(p string) bool {
+	if strings.HasPrefix(p, "/") || strings.ContainsAny(p, "\\%?#") || strings.Contains(p, "://") {
+		return false
+	}
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	if u, err := neturl.Parse(p); err != nil || u.Scheme != "" || u.Host != "" {
+		return false
+	}
+	return !slices.Contains(strings.Split(p, "/"), "..")
+}
+
 func parseRawIndex(raw []byte, baseURL string) (HubIndex, error) {
 	bucket := map[string]map[string]struct {
 		Path        string `json:"path"`
@@ -342,6 +384,11 @@ func parseRawIndex(raw []byte, baseURL string) (HubIndex, error) {
 		for name, obj := range list {
 			cleanName := strings.TrimSpace(name)
 			if !ValidCacheSlug(cleanName) {
+				dropped++
+				continue
+			}
+
+			if !validIndexPath(obj.Path) {
 				dropped++
 				continue
 			}
@@ -515,8 +562,9 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 }
 
 // Pull downloads a hub item, validates it and stores the raw item in the cache. It never changes hub state
-// and holds the cache lock only while storing.
-func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) {
+// and holds the cache lock only while storing. A name that exists in several hub sections needs itemType;
+// without it Pull answers an *AmbiguousTypeError listing the sections.
+func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResult, error) {
 	if s.Cache == nil {
 		return PullResult{}, fmt.Errorf("cache unavailable")
 	}
@@ -524,37 +572,57 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 	if !ValidCacheSlug(slug) {
 		return PullResult{}, ErrInvalidSlug
 	}
-
-	// Serve a valid, unexpired cache entry first.
-	cachedMeta, cachedItem, err := s.Cache.LoadItem(ctx, slug)
-	switch {
-	case err == nil:
-		return PullResult{Meta: cachedMeta, Preview: string(cachedItem)}, nil
-	case errors.Is(err, ErrCacheExpired):
-		_ = s.Cache.Evict(ctx, slug)
-	case ctx.Err() != nil:
-		return PullResult{}, ctx.Err()
+	if itemType != "" && !IsCacheItemType(itemType) {
+		return PullResult{}, ErrInvalidItemType
 	}
+	s.sweepLegacyCache(ctx)
 
 	pullCtx, cancel := context.WithTimeout(ctx, s.PullTimeout)
 	defer cancel()
 
-	idx, err := s.FetchIndex(pullCtx)
-	if err != nil {
-		return PullResult{}, err
+	var idx HubIndex
+	haveIndex := false
+	if itemType == "" {
+		// Only the index knows whether the name exists in more than one section.
+		var err error
+		if cachedType, ok := s.freshCachedType(ctx, slug); ok {
+			itemType = cachedType
+		} else if idx, err = s.fetchIndexRecorded(pullCtx); err == nil {
+			haveIndex = true
+			if itemType, err = resolveItemType(idx, slug); err != nil {
+				return PullResult{}, err
+			}
+		} else if itemType = s.onlyCachedType(ctx, slug); itemType == "" {
+			return PullResult{}, err
+		}
 	}
-	entry, ok := findIndexEntry(idx, slug)
+
+	// Serve a valid, unexpired cache entry first.
+	cachedMeta, cachedItem, err := s.Cache.LoadItem(ctx, itemType, slug)
+	switch {
+	case err == nil:
+		return PullResult{Meta: cachedMeta, Preview: string(cachedItem)}, nil
+	case errors.Is(err, ErrCacheExpired):
+		_ = s.Cache.Evict(ctx, itemType, slug)
+	case ctx.Err() != nil:
+		return PullResult{}, ctx.Err()
+	}
+
+	if !haveIndex {
+		if idx, err = s.fetchIndexRecorded(pullCtx); err != nil {
+			return PullResult{}, err
+		}
+	}
+	entry, ok := findIndexEntry(idx, itemType, slug)
 	if !ok {
 		return PullResult{}, fmt.Errorf("preset not found in hub")
 	}
 	if entry.DownloadURL == "" {
 		if idx.offline {
-			return PullResult{}, fmt.Errorf("hub index has no download location for this preset (index unreachable)")
+			// The index came from cscli because the hub could not be reached, and cscli's index has no download location.
+			return PullResult{}, fmt.Errorf("hub index has no download location for this preset: %w", ErrHubUnreachable)
 		}
 		return PullResult{}, fmt.Errorf("hub index has no download location for this preset")
-	}
-	if !IsCacheItemType(entry.Type) {
-		return PullResult{}, fmt.Errorf("unsupported hub item type")
 	}
 
 	item, err := s.fetchWithLimitFromURL(pullCtx, entry.DownloadURL, maxCacheItemBytes)
@@ -565,12 +633,91 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 		return PullResult{}, checkErr
 	}
 
-	stored, err := s.Cache.Store(pullCtx, slug, entry.Type, entry.Etag, "hub", item)
+	stored, err := s.Cache.Store(pullCtx, slug, itemType, entry.Etag, "hub", item)
 	if err != nil {
 		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Error("failed to store preset in cache")
 		return PullResult{}, fmt.Errorf("cache store: %w", err)
 	}
 	return PullResult{Meta: stored, Preview: string(item)}, nil
+}
+
+// fetchIndexRecorded fetches the index and, on success, remembers it with the time of the fetch. A failed
+// fetch leaves the previous record untouched.
+func (s *HubService) fetchIndexRecorded(ctx context.Context) (HubIndex, error) {
+	idx, err := s.FetchIndex(ctx)
+	if err != nil {
+		return idx, err
+	}
+	s.indexMu.Lock()
+	s.lastIndex, s.lastIndexAt = idx, s.clock()
+	s.indexMu.Unlock()
+	return idx, nil
+}
+
+func (s *HubService) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+// freshCachedType returns the section of slug when the index request can be skipped: the slug has exactly one
+// valid cached section, the index was fetched within indexFreshTTL, and that index does not list the name in
+// another section. A name the retained index shows in several sections stays ambiguous.
+func (s *HubService) freshCachedType(ctx context.Context, slug string) (string, bool) {
+	s.indexMu.Lock()
+	idx, at := s.lastIndex, s.lastIndexAt
+	s.indexMu.Unlock()
+	if at.IsZero() || s.clock().Sub(at) >= indexFreshTTL {
+		return "", false
+	}
+	cachedType := s.onlyCachedType(ctx, slug)
+	if cachedType == "" {
+		return "", false
+	}
+	// Any error (ambiguous, not found, unsupported) or a different section means the retained index disagrees
+	// with the cache: refetch so the caller receives the real answer from a current index.
+	if indexType, err := resolveItemType(idx, slug); err != nil || indexType != cachedType {
+		return "", false
+	}
+	return cachedType, true
+}
+
+// onlyCachedType returns the section of the single valid cache entry of slug, or "" when there is none or
+// several. It lets a pull without a type be served from the cache while the hub index is unreachable.
+func (s *HubService) onlyCachedType(ctx context.Context, slug string) string {
+	cached, err := s.Cache.ListSlug(ctx, slug)
+	if err != nil || len(cached) != 1 {
+		return ""
+	}
+	return cached[0].Type
+}
+
+// resolveItemType returns the one section of the index that holds slug. A name in no section is not found; a
+// name in several sections is ambiguous.
+func resolveItemType(idx HubIndex, slug string) (string, error) {
+	var types []string
+	found := false
+	for _, i := range idx.Items {
+		if i.Name != slug {
+			continue
+		}
+		found = true
+		if IsCacheItemType(i.Type) && !slices.Contains(types, i.Type) {
+			types = append(types, i.Type)
+		}
+	}
+	switch len(types) {
+	case 0:
+		if found {
+			return "", fmt.Errorf("unsupported hub item type")
+		}
+		return "", fmt.Errorf("preset not found in hub")
+	case 1:
+		return types[0], nil
+	}
+	slices.Sort(types)
+	return "", &AmbiguousTypeError{Types: types}
 }
 
 // checkHubItem requires a hub download to be one raw YAML mapping. Archives, HTML pages and other
@@ -620,14 +767,15 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string, limi
 	return data, nil
 }
 
-// findIndexEntry returns the entry whose name equals slug exactly. Hub item names are case-sensitive,
-// so neither titles, suffixes nor other case variants match.
-func findIndexEntry(idx HubIndex, slug string) (HubIndexEntry, bool) {
+// findIndexEntry returns the entry of section itemType whose name equals slug exactly. Hub item names are
+// case-sensitive, so neither titles, suffixes nor other case variants match, and the same name in another
+// section is a different item.
+func findIndexEntry(idx HubIndex, itemType, slug string) (HubIndexEntry, bool) {
 	if slug == "" {
 		return HubIndexEntry{}, false
 	}
 	for _, i := range idx.Items {
-		if i.Name == slug {
+		if i.Name == slug && i.Type == itemType {
 			return i, true
 		}
 	}
@@ -658,9 +806,21 @@ func (s *HubService) hasCSCLI(ctx context.Context) bool {
 	return true
 }
 
-// copyFile copies a single file.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src) // #nosec G304 -- Source path from copyDir recursive call // #nosec G304 -- Source path from copyDir recursive call
+// copyFile copies a single file, replacing dst when it exists.
+func copyFile(src, dst string) error { return copyFileFlag(src, dst, os.O_TRUNC) }
+
+// copyFileExclusive copies a single file to a path that must not exist yet: a file or link already there makes
+// it fail instead of being written through.
+func copyFileExclusive(src, dst string) error { return copyFileFlag(src, dst, os.O_EXCL) }
+
+// errNotRegularFile is returned when a copy source is a link, directory or device.
+var errNotRegularFile = errors.New("source is not a regular file")
+
+// copyFileFlag copies src to dst, opened with O_CREATE|O_WRONLY and the given extra flag. The source is
+// opened without following a final symlink and must be a regular file, checked on the open descriptor so a
+// swap after the open cannot change what is read.
+func copyFileFlag(src, dst string, flag int) error {
+	srcFile, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) // #nosec G304 -- callers pass paths under Charon-owned data or snapshot folders; O_NOFOLLOW and the regular-file check below refuse links and special files
 	if err != nil {
 		return fmt.Errorf("open src: %w", err)
 	}
@@ -674,8 +834,11 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("stat src: %w", err)
 	}
+	if !srcInfo.Mode().IsRegular() {
+		return fmt.Errorf("open src: %w", errNotRegularFile)
+	}
 
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode()) // #nosec G304 -- Dst path from copyFile internal call
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|flag, srcInfo.Mode()) // #nosec G304 -- dst is built by the callers below their own data or snapshot folder; O_EXCL (copyFileExclusive) refuses an existing entry
 	if err != nil {
 		return fmt.Errorf("create dst: %w", err)
 	}
@@ -690,4 +853,19 @@ func copyFile(src, dst string) error {
 	}
 
 	return dstFile.Sync()
+}
+
+// sweepLegacyCache removes cache entries of the old layout. It runs detached from ctx cancellation and is
+// marked done only on success, so a failed or cancelled first attempt is retried on the next pull.
+func (s *HubService) sweepLegacyCache(ctx context.Context) {
+	s.legacySweepMu.Lock()
+	defer s.legacySweepMu.Unlock()
+	if s.legacySweepDone {
+		return
+	}
+	if err := s.Cache.RemoveLegacyEntries(context.WithoutCancel(ctx)); err != nil {
+		logger.Log().WithError(err).Warn("failed to remove cache entries of the old layout")
+		return
+	}
+	s.legacySweepDone = true
 }

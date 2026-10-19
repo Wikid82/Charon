@@ -25,6 +25,25 @@ import (
 // request first and surface an unhelpful generic error.
 const defaultListContainersTimeout = 8 * time.Second
 
+// localStatusProbeTimeout bounds the Ping used by LocalStatus. It is much
+// shorter than the list timeout because the UI polls the status when the proxy
+// host form opens, and a hung socket must not stall it.
+const localStatusProbeTimeout = 2 * time.Second
+
+// dockerPermissionDeniedMsg matches the message produced by moby/client's
+// doRequest() for os.ErrPermission, whose underlying errno is not recoverable
+// from the error chain (see isDockerConnectivityError).
+const dockerPermissionDeniedMsg = "permission denied while trying to connect to the docker api"
+
+// Reason codes reported by LocalStatus.
+const (
+	LocalStatusOK               = "ok"
+	LocalStatusSocketMissing    = "socket_missing"
+	LocalStatusPermissionDenied = "permission_denied"
+	LocalStatusUnreachable      = "unreachable"
+	LocalStatusSlow             = "slow"
+)
+
 type DockerUnavailableError struct {
 	err     error
 	details string
@@ -134,6 +153,10 @@ type DockerService struct {
 	// struct literal in tests to shrink the timeout for fast, deterministic
 	// coverage.
 	listContainersTimeout time.Duration
+
+	// localStatusTimeout bounds the Ping in LocalStatus. Zero value falls back
+	// to localStatusProbeTimeout; overridable in tests.
+	localStatusTimeout time.Duration
 }
 
 // newDockerServiceFromLocalHost creates a DockerService from an already-resolved
@@ -303,7 +326,7 @@ func isDockerConnectivityError(err error) bool {
 		// via %v) — so unlike other syscall-wrapped errors handled below, the
 		// underlying errno is permanently unrecoverable from this error's chain
 		// and can only be matched by message text.
-		strings.Contains(msg, "permission denied while trying to connect to the docker api") {
+		strings.Contains(msg, dockerPermissionDeniedMsg) {
 		return true
 	}
 
@@ -402,7 +425,7 @@ func buildLocalDockerUnavailableDetails(err error, localHost string) string {
 	}
 
 	errno, ok := extractErrno(err)
-	if !ok && strings.Contains(strings.ToLower(err.Error()), "permission denied while trying to connect to the docker api") {
+	if !ok && strings.Contains(strings.ToLower(err.Error()), dockerPermissionDeniedMsg) {
 		// Same moby v0.5.1 message-shape gap as isDockerConnectivityError
 		// above: the underlying errno is unrecoverable from this error's
 		// chain, so extractErrno() can never find it here either. Treat the
@@ -474,4 +497,75 @@ func localSocketStatSummary(socketPath string) (summary string, gid int) {
 	}
 
 	return fmt.Sprintf("Socket path %s has mode %s owner uid=%d gid=%d.", socketPath, info.Mode().String(), stat.Uid, stat.Gid), int(stat.Gid)
+}
+
+// LocalDockerStatus reports whether the local Docker socket is usable. The
+// message is canned and deliberately carries no path, uid or gid details.
+type LocalDockerStatus struct {
+	Available bool   `json:"available"`
+	Reason    string `json:"reason"`
+	Message   string `json:"message"`
+}
+
+// LocalStatus probes the local Docker daemon with a bounded Ping. Unavailable
+// Docker is a successful answer, never an error. A bounded timeout fails open
+// (Available true, reason "slow") because the daemon is reachable, just slow.
+func (s *DockerService) LocalStatus(ctx context.Context) LocalDockerStatus {
+	// The moby client is lazy: a missing mount does not set initErr, the first
+	// Ping returns ENOENT instead. initErr/nil client only occur on a bad host.
+	if s.initErr != nil || s.client == nil {
+		return localStatusFor(LocalStatusSocketMissing)
+	}
+
+	timeout := s.localStatusTimeout
+	if timeout <= 0 {
+		timeout = localStatusProbeTimeout
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if _, err := s.client.Ping(probeCtx, client.PingOptions{}); err != nil {
+		reason := classifyLocalStatusError(ctx, probeCtx, err)
+		logger.Log().WithError(err).WithField("reason", reason).Debug("local docker status probe failed")
+		return localStatusFor(reason)
+	}
+	return localStatusFor(LocalStatusOK)
+}
+
+// classifyLocalStatusError maps a Ping error onto a LocalStatus reason using
+// the same classifiers as ListContainers.
+func classifyLocalStatusError(parent, probeCtx context.Context, err error) string {
+	if isBoundedListTimeout(parent, probeCtx, err) {
+		return LocalStatusSlow
+	}
+	if errno, ok := extractErrno(err); ok {
+		switch errno {
+		case syscall.ENOENT:
+			return LocalStatusSocketMissing
+		case syscall.EACCES, syscall.EPERM:
+			return LocalStatusPermissionDenied
+		}
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return LocalStatusSocketMissing
+	}
+	if strings.Contains(strings.ToLower(err.Error()), dockerPermissionDeniedMsg) {
+		return LocalStatusPermissionDenied
+	}
+	return LocalStatusUnreachable
+}
+
+func localStatusFor(reason string) LocalDockerStatus {
+	switch reason {
+	case LocalStatusOK:
+		return LocalDockerStatus{Available: true, Reason: reason, Message: "Local Docker is available."}
+	case LocalStatusSlow:
+		return LocalDockerStatus{Available: true, Reason: reason, Message: "Local Docker is responding slowly."}
+	case LocalStatusSocketMissing:
+		return LocalDockerStatus{Reason: reason, Message: "No Docker socket is mounted into Charon."}
+	case LocalStatusPermissionDenied:
+		return LocalDockerStatus{Reason: reason, Message: "The Docker socket is mounted but Charon is not permitted to use it."}
+	default:
+		return LocalDockerStatus{Reason: LocalStatusUnreachable, Message: "The Docker daemon is not reachable."}
+	}
 }

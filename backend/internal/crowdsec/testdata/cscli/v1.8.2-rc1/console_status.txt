@@ -1,0 +1,13 @@
++--------------------+----------------------------------------------+
+| Console connection |                                              |
++--------------------+----------------------------------------------+
+| Central API (CAPI) | ❌ not registered, see 'cscli capi register' |
++--------------------+----------------------------------------------+
++-------------+-----------+------------------------------------------------------+
+| Option Name | Activated | Description                                          |
++-------------+-----------+------------------------------------------------------+
+| custom      | ✅        | Forward alerts from custom scenarios to the console  |
+| manual      | ❌        | Forward manual decisions to the console              |
+| tainted     | ✅        | Forward alerts from tainted scenarios to the console |
+| context     | ❌        | Forward context with alerts to the console           |
++-------------+-----------+------------------------------------------------------+

@@ -323,7 +323,7 @@ graph TB
 
 - **ProxyService:** CRUD operations for proxy hosts, validation logic
 - **CertificateService:** ACME certificate provisioning and renewal
-- **DockerService:** Container discovery and monitoring
+- **DockerService:** Container discovery and monitoring; also exposes a lightweight local-socket availability probe (`GET /docker/status`) that the Proxy Host form uses to grey out the "Local (Docker Socket)" source when no usable socket is mounted
 - **MailService:** Email notifications for certificate expiry
 - **SettingsService:** Application settings management
 
@@ -830,7 +830,7 @@ CMD ["/app/charon"]
 | Container Path | Purpose | Required |
 | --- | --- | --- |
 | `/app/data` | Database, certificates, backups | **Yes** |
-| `/var/run/docker.sock` | Docker container discovery | Optional |
+| `/var/run/docker.sock` | Docker container discovery | Optional; Orthrus recommended |
 
 ### Environment Variables
 
@@ -860,6 +860,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./data:/app/data
+      # Optional: direct local discovery. Orthrus is the recommended, more secure alternative (no socket mount in Charon).
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
@@ -1399,7 +1400,7 @@ docker exec charon /app/scripts/restore-backup.sh \
    - Prior versions had ID leakage in Settings queries
 
 2. **Docker Discovery:**
-   - Requires `docker.sock` mount (security trade-off)
+   - Direct local discovery requires a `docker.sock` mount (security trade-off); Orthrus is the recommended way to avoid mounting it, and the direct mount remains supported
    - Only discovers containers on same Docker host
    - **Mitigation:** Use remote Docker API or Kubernetes
 

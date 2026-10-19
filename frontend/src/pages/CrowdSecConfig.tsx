@@ -6,21 +6,26 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError, getCrowdsecBanError, getCrowdsecExportError, type CrowdsecBanErrorCode } from '../api/crowdsec'
+import { isCrowdsecBusyError } from '../api/errorBody'
 import { getFeatureFlags } from '../api/featureFlags'
 import {
   listCrowdsecPresets,
   pullCrowdsecPreset,
   applyCrowdsecPreset,
   getCrowdsecPresetCache,
+  getCrowdsecPresetAmbiguousTypes,
   getCrowdsecPresetErrorCode,
   getCrowdsecPresetTaintedItems,
+  PRESET_ERROR_CODES,
   type CrowdsecPresetErrorCode,
 } from '../api/presets'
 import { getSecurityStatus } from '../api/security'
 import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
+import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
 import HubItemsRestorePanel from '../components/crowdsec/HubItemsRestorePanel'
+import { PresetInstallProgress } from '../components/crowdsec/PresetInstallProgress'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -29,11 +34,17 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
 import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
+import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
 import { sanitizeSecret } from '../utils/sanitizeSecret'
 import { toast } from '../utils/toast'
+
+/** Identity of a hub item in the preset list: its section and name. */
+function presetKey(preset: { type?: string; slug: string }): string {
+  return preset.type ? `${preset.type}/${preset.slug}` : preset.slug
+}
 
 /** Prefer the server's `error` message for Axios failures, falling back to the given text. */
 function getServerErrorMessage(err: unknown, fallback: string): string {
@@ -45,6 +56,7 @@ function getServerErrorMessage(err: unknown, fallback: string): string {
 }
 
 const MAX_LISTED_NAMES = 10
+const OMITTED_NAMES_SHOWN = 5
 const WORD_SEPARATOR = ' '
 
 const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDashboard'))
@@ -55,26 +67,33 @@ export default function CrowdSecConfig() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'alpha' | 'type' | 'source'>('alpha')
   const [file, setFile] = useState<File | null>(null)
+  const [omittedExport, setOmittedExport] = useState<{ names: string[]; more: number } | null>(null)
   // Hub items the last import reported as missing; the key restarts the panel per import.
   const [importHubItems, setImportHubItems] = useState<{ key: number; items: ImportHubItems } | null>(null)
   const [keptFiles, setKeptFiles] = useState<string[]>([])
   const [needsValues, setNeedsValues] = useState<string[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
-  const [selectedPresetSlug, setSelectedPresetSlug] = useState<string>('')
+  // A selection is a hub item: the same name can exist in several sections, so the section is part of the key.
+  const [selectedPresetKey, setSelectedPresetKey] = useState<string>('')
+  // Sections offered when the server cannot tell which item a name means; chosenType is the user's pick.
+  const [ambiguousTypes, setAmbiguousTypes] = useState<string[]>([])
+  const [chosenType, setChosenType] = useState('')
   const [showBanModal, setShowBanModal] = useState(false)
   const [banForm, setBanForm] = useState({ ip: '', duration: '24h', reason: '' })
+  const [banFieldErrors, setBanFieldErrors] = useState<{ ip?: string; duration?: string; reason?: string }>({})
   const [confirmUnban, setConfirmUnban] = useState<CrowdSecDecision | null>(null)
   const [whitelistForm, setWhitelistForm] = useState<{ ip_or_cidr: string; reason: string }>({ ip_or_cidr: '', reason: '' })
   const [confirmDeleteWhitelist, setConfirmDeleteWhitelist] = useState<CrowdSecWhitelistEntry | null>(null)
   const [isApplyingPreset, setIsApplyingPreset] = useState(false)
   const [presetPreview, setPresetPreview] = useState<string>('')
-  const [presetMeta, setPresetMeta] = useState<{ slug?: string; cacheKey?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
+  const [presetMeta, setPresetMeta] = useState<{ slug?: string; type?: string; cacheKey?: string; itemSha256?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
   const [presetStatusMessage, setPresetStatusMessage] = useState<string | null>(null)
   const [hubUnavailable, setHubUnavailable] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string; warnings?: string[] } | null>(null)
   const queryClient = useQueryClient()
+  const applyJob = useCrowdsecApplyJob({ enabled: !!status?.crowdsec })
   const backupCreatedMessage = (name: string) =>
     t('crowdsecConfig.presets.backupCreated', { name, location: t('crowdsecConfig.presets.backupLocation') })
   // Read the "CrowdSec is starting" signal broadcast by Security.tsx via the
@@ -145,7 +164,7 @@ export default function CrowdSecConfig() {
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.importFailed'))
+      toast.error(importFailureMessage(err))
     }
   })
 
@@ -158,7 +177,7 @@ export default function CrowdSecConfig() {
       queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
     },
     onError: (err: unknown) => {
-      toast.error(getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed')))
+      toast.error(isCrowdsecBusyError(err) ? t('crowdsecConfig.busy') : getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed')))
     },
   })
 
@@ -177,6 +196,7 @@ export default function CrowdSecConfig() {
     etag?: string
     retrievedAt?: string
     source?: string
+    type?: string
   }
 
   const presetCatalog: PresetCatalogEntry[] = useMemo(() => {
@@ -187,6 +207,7 @@ export default function CrowdSecConfig() {
         const local = localMap.get(preset.slug)
         return {
           slug: preset.slug,
+          type: preset.type,
           title: preset.title || local?.title || preset.slug,
           description: local?.description || preset.summary,
           tags: local?.tags || preset.tags,
@@ -238,10 +259,10 @@ export default function CrowdSecConfig() {
 
   useEffect(() => {
     if (!presetCatalog.length) return
-    if (!selectedPresetSlug || !presetCatalog.some((preset) => preset.slug === selectedPresetSlug)) {
-      setSelectedPresetSlug(presetCatalog[0].slug)
+    if (!selectedPresetKey || !presetCatalog.some((preset) => presetKey(preset) === selectedPresetKey)) {
+      setSelectedPresetKey(presetKey(presetCatalog[0]))
     }
-  }, [presetCatalog, selectedPresetSlug])
+  }, [presetCatalog, selectedPresetKey])
 
   // Prefer the enrolled identity over the hostname default, unless the user already edited the field
   useEffect(() => {
@@ -265,21 +286,28 @@ export default function CrowdSecConfig() {
     setConsoleTenant(value)
   }
 
-  const selectedPreset = presetCatalog.find((preset) => preset.slug === selectedPresetSlug)
+  const selectedPreset = presetCatalog.find((preset) => presetKey(preset) === selectedPresetKey)
+  const selectedType = selectedPreset?.type || chosenType || undefined
   const selectedPresetRequiresHub = selectedPreset?.requiresHub ?? false
 
   const pullPresetMutation = useMutation({
-    mutationFn: (slug: string) => pullCrowdsecPreset(slug),
+    mutationFn: ({ slug, type }: { slug: string; type?: string }) => pullCrowdsecPreset(slug, type),
     onSuccess: (data) => {
       setPresetPreview(data.preview)
-      setPresetMeta({ slug: data.slug, cacheKey: data.cache_key, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
+      setPresetMeta({ slug: data.slug, type: data.type, cacheKey: data.cache_key, itemSha256: data.item_sha256, etag: data.etag, retrievedAt: data.retrieved_at, source: data.source })
       setPresetStatusMessage(t('crowdsecConfig.presets.status.previewFetched'))
       setHubUnavailable(false)
       setValidationError(null)
+      setAmbiguousTypes([])
     },
     onError: (err: unknown) => {
       setPresetStatusMessage(null)
       if (isAxiosError(err)) {
+        if (getCrowdsecPresetErrorCode(err) === 'preset_type_ambiguous') {
+          setAmbiguousTypes(getCrowdsecPresetAmbiguousTypes(err))
+          setPresetStatusMessage(t('crowdsecConfig.presets.status.typeAmbiguous'))
+          return
+        }
         if (err.response?.status === 400) {
           setValidationError(err.response.data?.error || t('crowdsecConfig.presets.status.slugInvalid'))
           return
@@ -301,6 +329,8 @@ export default function CrowdSecConfig() {
     setValidationError(null)
     setPresetStatusMessage(null)
     setApplyInfo(null)
+    setAmbiguousTypes([])
+    setChosenType('')
     setPresetMeta({
       cacheKey: selectedPreset.cacheKey,
       etag: selectedPreset.etag,
@@ -308,14 +338,14 @@ export default function CrowdSecConfig() {
       source: selectedPreset.source,
     })
     setPresetPreview('')
-    pullPresetMutation.mutate(selectedPreset.slug)
+    pullPresetMutation.mutate({ slug: selectedPreset.slug, type: selectedPreset.type })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when slug changes, not on mutation/preset object identity changes
-  }, [selectedPreset?.slug])
+  }, [selectedPresetKey])
 
   const loadCachedPreview = async () => {
     if (!selectedPreset) return
     try {
-      const cached = await getCrowdsecPresetCache(selectedPreset.slug)
+      const cached = await getCrowdsecPresetCache(selectedPreset.slug, selectedType)
       setPresetPreview(cached.preview)
       setPresetMeta({ cacheKey: cached.cache_key, etag: cached.etag, retrievedAt: selectedPreset.retrievedAt, source: selectedPreset.source })
       setPresetStatusMessage(t('crowdsecConfig.presets.status.cachedLoaded'))
@@ -394,8 +424,26 @@ export default function CrowdSecConfig() {
     enabled: isLocalMode,
   })
 
+  /** Translated text for a refused ban or unban; unknown or missing codes keep the server's text. */
+  const banFailureMessage = (err: unknown, fallback: string): string => {
+    const messages: Record<CrowdsecBanErrorCode, string> = {
+      invalid_ip: t('crowdsecConfig.banErrors.invalidIp'),
+      invalid_duration: t('crowdsecConfig.banErrors.invalidDuration'),
+      invalid_reason: t('crowdsecConfig.banErrors.invalidReason'),
+      decision_not_found: t('crowdsecConfig.banErrors.decisionNotFound'),
+      cscli_timeout: t('crowdsecConfig.banErrors.timeout'),
+      request_too_large: t('crowdsecConfig.banErrors.requestTooLarge'),
+    }
+    const code = getCrowdsecBanError(err)
+    if (code) return messages[code]
+    return err instanceof Error ? err.message : fallback
+  }
+
   const banMutation = useMutation({
-    mutationFn: () => banIP(banForm.ip, banForm.duration, banForm.reason),
+    mutationFn: () => {
+      setBanFieldErrors({})
+      return banIP(banForm.ip, banForm.duration, banForm.reason)
+    },
     onSuccess: () => {
       toast.success(t('crowdsecConfig.toasts.ipBanned', { ip: banForm.ip }))
       queryClient.invalidateQueries({ queryKey: ['crowdsec-decisions'] })
@@ -403,7 +451,21 @@ export default function CrowdSecConfig() {
       setBanForm({ ip: '', duration: '24h', reason: '' })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.toasts.banFailed'))
+      const message = banFailureMessage(err, t('crowdsecConfig.toasts.banFailed'))
+      // Field problems are shown beside the field so the dialog can be corrected in place.
+      switch (getCrowdsecBanError(err)) {
+        case 'invalid_ip':
+          setBanFieldErrors({ ip: message })
+          break
+        case 'invalid_duration':
+          setBanFieldErrors({ duration: message })
+          break
+        case 'invalid_reason':
+          setBanFieldErrors({ reason: message })
+          break
+        default:
+          toast.error(message)
+      }
     },
   })
 
@@ -415,7 +477,8 @@ export default function CrowdSecConfig() {
       setConfirmUnban(null)
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : t('crowdsecConfig.toasts.unbanFailed'))
+      const message = banFailureMessage(err, t('crowdsecConfig.toasts.unbanFailed'))
+      toast.error(message)
     },
   })
 
@@ -438,17 +501,21 @@ export default function CrowdSecConfig() {
     }
   }
 
+  const omittedTotal = omittedExport ? omittedExport.names.length + omittedExport.more : 0
+
   const handleExport = async () => {
     const defaultName = buildCrowdsecExportFilename()
     const filename = promptCrowdsecFilename(t, defaultName)
     if (!filename) return
 
+    setOmittedExport(null)
     try {
-      const blob = await exportCrowdsecConfig()
+      const { blob, omitted, omittedMore } = await exportCrowdsecConfig()
       downloadCrowdsecExport(blob, filename)
+      setOmittedExport({ names: omitted, more: omittedMore })
       toast.success(t('crowdsecConfig.exportSuccess'))
-    } catch {
-      toast.error(t('crowdsecConfig.exportFailed'))
+    } catch (err) {
+      toast.error(getCrowdsecExportError(err) ? t('crowdsecConfig.exportConfigUnsafe') : t('crowdsecConfig.exportFailed'))
     }
   }
 
@@ -485,6 +552,30 @@ export default function CrowdSecConfig() {
     return (hidden > 0 ? [...listed, t('crowdsecConfig.importNeedsValuesMore', { count: hidden })] : listed).join(', ')
   }
 
+  /** Translated text for a refused import; unknown or missing codes keep the server's text. */
+  const importFailureMessage = (err: unknown): string => {
+    if (isCrowdsecBusyError(err)) return t('crowdsecConfig.busy')
+    const fallback = err instanceof Error ? err.message : t('crowdsecConfig.importFailed')
+    const refusal = getCrowdsecImportError(err)
+    const names = refusal ? formatNameList(refusal.names) : ''
+    switch (refusal?.code) {
+      case 'import_flat_archive':
+        return t('crowdsecConfig.importErrorFlatArchive')
+      case 'import_profile_names_undefined':
+        return names ? t('crowdsecConfig.importErrorProfileNamesUndefined', { names }) : fallback
+      case 'import_kept_profile_undefined':
+        return names ? t('crowdsecConfig.importErrorKeptProfileUndefined', { names }) : fallback
+      case 'import_kept_profile_duplicate':
+        return t('crowdsecConfig.importErrorKeptProfileDuplicate')
+      case 'import_keep_current_failed':
+        return t('crowdsecConfig.importErrorKeepCurrentFailed')
+      case 'import_config_not_found':
+        return t('crowdsecConfig.importErrorConfigNotFound')
+      default:
+        return fallback
+    }
+  }
+
   /** Translated text for an apply outcome reported by the server. */
   const applyOutcomeMessage = (code: CrowdsecPresetErrorCode, editedItems: string[]): string => {
     switch (code) {
@@ -502,9 +593,19 @@ export default function CrowdSecConfig() {
           : t('crowdsecConfig.presets.status.applyLocalModified')
       case 'preset_apply_timeout':
         return t('crowdsecConfig.presets.status.applyTimeout')
+      case 'preset_type_ambiguous':
+        return t('crowdsecConfig.presets.status.typeAmbiguous')
+      case 'hub_unreachable':
+        return t('crowdsecConfig.presets.status.applyHubUnreachable')
       case 'cscli_unavailable':
         return t('crowdsecConfig.presets.status.cscliUnavailable')
     }
+  }
+
+  /** Translated reason for a failed install job; null when the server named none we know. */
+  const jobFailureText = (code: string | undefined): string | null => {
+    const known = PRESET_ERROR_CODES.find((candidate) => candidate === code)
+    return known ? applyOutcomeMessage(known, []) : null
   }
 
   const handleApplyPreset = async () => {
@@ -517,9 +618,16 @@ export default function CrowdSecConfig() {
     setApplyInfo(null)
     setValidationError(null)
     setPresetStatusMessage(null)
+    applyJob.dismiss()
     try {
       // Apply the exact entry that was previewed: the canonical slug from pull and its cache key.
-      const res = await applyCrowdsecPreset({ slug: presetMeta?.slug ?? selectedPreset.slug, cache_key: presetMeta?.cacheKey })
+      const request = { slug: presetMeta?.slug ?? selectedPreset.slug, type: presetMeta?.type ?? selectedType, cache_key: presetMeta?.cacheKey, item_sha256: presetMeta?.itemSha256 || undefined }
+      if (selectedPresetRequiresHub) {
+        // Hub installs can take minutes: the server runs them as a background job shown in the progress row.
+        await applyJob.start(request)
+        return
+      }
+      const res = await applyCrowdsecPreset(request)
       setApplyInfo({
         status: res.status,
         backup: res.backup,
@@ -541,6 +649,10 @@ export default function CrowdSecConfig() {
     } catch (err) {
       if (!isAxiosError(err)) {
         toast.error(t('crowdsecConfig.toasts.presetApplyFailed'))
+        return
+      }
+      if (isCrowdsecBusyError(err)) {
+        setPresetStatusMessage(t('crowdsecConfig.busy'))
         return
       }
       // The server is authoritative for every preset source: surface its message for any
@@ -576,9 +688,12 @@ export default function CrowdSecConfig() {
     }
   }
 
+  const installJob = applyJob.job
+
   const presetActionDisabled =
     !selectedPreset ||
     isApplyingPreset ||
+    applyJob.isActive ||
     backupMutation.isPending ||
     pullPresetMutation.isPending ||
     (selectedPresetRequiresHub && (hubUnavailable || !presetMeta?.cacheKey))
@@ -744,8 +859,8 @@ export default function CrowdSecConfig() {
                           setTimeout(() => {
                             lapiStatusQuery.refetch();
                           }, 3000);
-                        } catch {
-                          toast.error(t('crowdsecConfig.startFailed'));
+                        } catch (err) {
+                          toast.error(isCrowdsecBusyError(err) ? t('crowdsecConfig.busy') : t('crowdsecConfig.startFailed'));
                         }
                       }}
                     >
@@ -1039,6 +1154,16 @@ export default function CrowdSecConfig() {
             </div>
           </div>
           <p className="text-sm text-gray-400">{t('crowdsecConfig.packages.description')}</p>
+          {omittedTotal > 0 && omittedExport && (
+            <p className="text-sm text-gray-400" data-testid="export-omitted-note">
+              {t('crowdsecConfig.packages.omittedNote', {
+                count: omittedTotal,
+                names: omittedExport.names.slice(0, OMITTED_NAMES_SHOWN).join(', '),
+              })}
+              {omittedTotal > OMITTED_NAMES_SHOWN &&
+                t('crowdsecConfig.packages.omittedMore', { count: omittedTotal - OMITTED_NAMES_SHOWN })}
+            </p>
+          )}
           <input
             type="file"
             onChange={(e) => {
@@ -1099,19 +1224,19 @@ export default function CrowdSecConfig() {
             {filteredPresets.length > 0 ? (
               filteredPresets.map((preset) => (
                 <div
-                  key={preset.slug}
-                  onClick={() => setSelectedPresetSlug(preset.slug)}
+                  key={presetKey(preset)}
+                  onClick={() => setSelectedPresetKey(presetKey(preset))}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      setSelectedPresetSlug(preset.slug)
+                      setSelectedPresetKey(presetKey(preset))
                     }
                   }}
-                  aria-pressed={selectedPresetSlug === preset.slug}
+                  aria-pressed={selectedPresetKey === presetKey(preset)}
                   className={`p-3 cursor-pointer hover:bg-gray-800 border-b border-gray-800 last:border-0 outline-none focus-visible:bg-gray-800 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
-                    selectedPresetSlug === preset.slug ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
+                    selectedPresetKey === presetKey(preset) ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
                   }`}
                 >
                   <div className="flex justify-between items-start mb-1">
@@ -1124,6 +1249,7 @@ export default function CrowdSecConfig() {
                       </span>
                     )}
                   </div>
+                  {preset.type && <p className="text-xs text-gray-500" data-testid="preset-type">{preset.type}</p>}
                   <p className="text-xs text-gray-400 line-clamp-1">{preset.description}</p>
                 </div>
               ))
@@ -1135,7 +1261,7 @@ export default function CrowdSecConfig() {
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <Button
               variant="secondary"
-              onClick={() => selectedPreset && pullPresetMutation.mutate(selectedPreset.slug)}
+              onClick={() => selectedPreset && pullPresetMutation.mutate({ slug: selectedPreset.slug, type: selectedType })}
               disabled={!selectedPreset || pullPresetMutation.isPending}
               isLoading={pullPresetMutation.isPending}
             >
@@ -1159,13 +1285,44 @@ export default function CrowdSecConfig() {
             <p className="text-sm text-yellow-300" data-testid="preset-status">{presetStatusMessage}</p>
           )}
 
+          {installJob && (
+            <PresetInstallProgress
+              job={installJob}
+              isWaitingForServer={applyJob.isWaitingForServer}
+              isCancelling={applyJob.isCancelling}
+              cancelFailed={applyJob.cancelFailed}
+              onCancel={() => applyJob.cancel(installJob.job_id)}
+              failureText={jobFailureText(installJob.error_code)}
+            />
+          )}
+
+          {ambiguousTypes.length > 0 && selectedPreset && (
+            <div className="flex flex-wrap gap-2 items-center text-sm" data-testid="preset-type-picker">
+              <label htmlFor="preset-type-select" className="text-gray-300">{t('crowdsecConfig.presets.typeLabel')}</label>
+              <select
+                id="preset-type-select"
+                value={chosenType}
+                onChange={(e) => {
+                  setChosenType(e.target.value)
+                  if (e.target.value) pullPresetMutation.mutate({ slug: selectedPreset.slug, type: e.target.value })
+                }}
+                className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white"
+              >
+                <option value="">{t('crowdsecConfig.presets.typePlaceholder')}</option>
+                {ambiguousTypes.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {hubUnavailable && (
             <div className="flex flex-wrap gap-2 items-center text-sm text-red-300" data-testid="preset-hub-unavailable">
               <span>{t('crowdsecConfig.presets.hubUnreachable')}</span>
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => selectedPreset && pullPresetMutation.mutate(selectedPreset.slug)}
+                onClick={() => selectedPreset && pullPresetMutation.mutate({ slug: selectedPreset.slug, type: selectedType })}
                 disabled={pullPresetMutation.isPending}
               >
                 {t('crowdsecConfig.presets.retry')}
@@ -1284,7 +1441,10 @@ export default function CrowdSecConfig() {
             </div>
             <Button
               data-testid="ban-ip-trigger"
-              onClick={() => setShowBanModal(true)}
+              onClick={() => {
+                setBanFieldErrors({})
+                setShowBanModal(true)
+              }}
               disabled={status.crowdsec.mode === 'disabled'}
               size="sm"
             >
@@ -1292,6 +1452,10 @@ export default function CrowdSecConfig() {
               {t('crowdsecConfig.bannedIps.banIp')}
             </Button>
           </div>
+
+          {status.crowdsec.mode !== 'disabled' && (
+            <ListErrorNote error={decisionsQuery.data?.error} error_code={decisionsQuery.data?.error_code} />
+          )}
 
           {status.crowdsec.mode === 'disabled' ? (
             <p className="text-sm text-gray-500">{t('crowdsecConfig.bannedIps.enableFirst')}</p>
@@ -1515,7 +1679,13 @@ export default function CrowdSecConfig() {
                 label={t('crowdsecConfig.banModal.ipLabel')}
                 placeholder="192.168.1.100"
                 value={banForm.ip}
-                onChange={(e) => setBanForm({ ...banForm, ip: e.target.value })}
+                onChange={(e) => {
+                  setBanForm({ ...banForm, ip: e.target.value })
+                  setBanFieldErrors((prev) => ({ ...prev, ip: undefined }))
+                }}
+                error={banFieldErrors.ip}
+                errorTestId="ban-ip-error"
+                helperText={t('crowdsecConfig.banModal.ipHint')}
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -1530,16 +1700,24 @@ export default function CrowdSecConfig() {
                   id="ban-duration"
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   value={banForm.duration}
-                  onChange={(e) => setBanForm({ ...banForm, duration: e.target.value })}
+                  onChange={(e) => {
+                    setBanForm({ ...banForm, duration: e.target.value })
+                    setBanFieldErrors((prev) => ({ ...prev, duration: undefined }))
+                  }}
                   aria-label={t('crowdsecConfig.banModal.durationLabel')}
+                  aria-describedby={banFieldErrors.duration ? 'ban-duration-error ban-duration-help' : 'ban-duration-help'}
                 >
                   <option value="1h">{t('crowdsecConfig.banModal.duration1h')}</option>
                   <option value="4h">{t('crowdsecConfig.banModal.duration4h')}</option>
                   <option value="24h">{t('crowdsecConfig.banModal.duration24h')}</option>
                   <option value="7d">{t('crowdsecConfig.banModal.duration7d')}</option>
                   <option value="30d">{t('crowdsecConfig.banModal.duration30d')}</option>
-                  <option value="permanent">{t('crowdsecConfig.banModal.durationPermanent')}</option>
+                  <option value="365d">{t('crowdsecConfig.banModal.duration365d')}</option>
                 </select>
+                <p id="ban-duration-help" className="mt-1.5 text-xs text-gray-400">{t('crowdsecConfig.banModal.durationHelp')}</p>
+                {banFieldErrors.duration && (
+                  <p id="ban-duration-error" className="mt-1.5 text-sm text-error" role="alert">{banFieldErrors.duration}</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5" htmlFor="ban-reason">{t('crowdsecConfig.banModal.reasonLabel')}</label>
@@ -1549,7 +1727,11 @@ export default function CrowdSecConfig() {
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                   value={banForm.reason}
-                  onChange={(e) => setBanForm({ ...banForm, reason: e.target.value })}
+                  onChange={(e) => {
+                    setBanForm({ ...banForm, reason: e.target.value })
+                    setBanFieldErrors((prev) => ({ ...prev, reason: undefined }))
+                  }}
+                  aria-describedby={banFieldErrors.reason ? 'ban-reason-error' : undefined}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -1558,6 +1740,9 @@ export default function CrowdSecConfig() {
                   }}
                   aria-label={t('crowdsecConfig.banModal.reasonLabel')}
                 />
+                {banFieldErrors.reason && (
+                  <p id="ban-reason-error" className="mt-1.5 text-sm text-error" role="alert">{banFieldErrors.reason}</p>
+                )}
               </div>
             </div>
             <div className="flex gap-3 justify-end mt-6">
