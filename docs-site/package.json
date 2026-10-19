@@ -37,7 +37,7 @@
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "audit-ci": "^7.1.0",
-    "typescript": "^7.0.2"
+    "typescript": "^6.0.3"
   },
   "overrides": {
     "serialize-javascript": "^7.1.2",
