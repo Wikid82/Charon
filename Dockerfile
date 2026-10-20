@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-7a318ac5e2f81354
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:9686fae7a854b14d2c35ec4ca022ccebe2d9707fc112eef750225fc277c15205
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-bc41371e1d2982ed
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:ccd16f3fdf82bc4485fcf595b549bd2dcc49324caec99f8de16bff754fa78cff
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -317,7 +317,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -453,7 +453,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
 # is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS caddy-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -798,7 +798,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
