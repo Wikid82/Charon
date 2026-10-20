@@ -560,7 +560,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			locHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
 			// Determine if standard headers should be enabled (default true if nil)
 			enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
-			locHandlers = append(locHandlers, resolvedOpts.proxyHandler(dial, false, host.WebsocketSupport, host.Application, enableStdHeaders))
+			locHandlers = append(locHandlers, resolvedOpts.proxyHandler(dial, false, host.Application, enableStdHeaders))
 			locRoute := &Route{
 				Match: []Match{
 					{
@@ -639,7 +639,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			"/emergency/security-reset",
 			"/emergency/*",
 		}
-		emergencyHandlers := append(append([]Handler{}, handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.WebsocketSupport, host.Application, enableStdHeaders))
+		emergencyHandlers := append(append([]Handler{}, handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
 		emergencyRoute := &Route{
 			Match: []Match{
 				{
@@ -660,7 +660,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		routes = append(routes, emergencyRoute)
 
 		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
-		mainHandlers = append(mainHandlers, resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.WebsocketSupport, host.Application, enableStdHeaders))
+		mainHandlers = append(mainHandlers, resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
 
 		route := &Route{
 			Match: []Match{
