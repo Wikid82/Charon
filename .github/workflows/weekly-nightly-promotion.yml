@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '24.22.0'
+  NODE_VERSION: '24.22.1'
   SOURCE_BRANCH: 'nightly'
   TARGET_BRANCH: 'main'
 
