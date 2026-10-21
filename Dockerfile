@@ -100,7 +100,7 @@ ARG CORAZA_VERSION=3.8.1
 # (no leading `v`); the `--with` lines add the `v`. Renovate tracks each via
 # the datasource=go marker.
 # renovate: datasource=go depName=github.com/zhangjiayin/caddy-geoip2
-ARG CADDY_GEOIP2_VERSION=1.3.0
+ARG CADDY_GEOIP2_VERSION=1.3.1
 # renovate: datasource=go depName=github.com/mholt/caddy-ratelimit
 ARG CADDY_RATELIMIT_VERSION=0.1.0
 # ---- DNS-01 Challenge Provider Modules (github.com/caddy-dns/*) ----
