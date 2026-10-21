@@ -30,7 +30,7 @@ jobs:
       actions: read
       pull-requests: read
     container:
-      image: semgrep/semgrep:1.181.0@sha256:c47e426f7f0cfa19af6d7877560d0a7135f683b8090ad0efc97c4ec7810dc435
+      image: semgrep/semgrep:1.182.0@sha256:50440fe8ec1dcc2fc09a0cab0e527b66b1e0a983f2cfc1219b9c34e2f7b5567c
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

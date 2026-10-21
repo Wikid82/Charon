@@ -51,8 +51,8 @@ func (s *selfHopConfig) selfHopHeaders() map[string][]string {
 
 // proxyHandler builds the reverse_proxy handler for dial, adding the hop headers
 // only when the upstream is Charon itself.
-func (o *generateConfigOptions) proxyHandler(dial string, remote, enableWS bool, application string, enableStandardHeaders bool) Handler {
-	h := ReverseProxyHandler(dial, enableWS, application, enableStandardHeaders)
+func (o *generateConfigOptions) proxyHandler(dial string, remote bool, application string, enableStandardHeaders bool) Handler {
+	h := ReverseProxyHandler(dial, application, enableStandardHeaders)
 	if !o.selfHop.isSelfUpstream(dial, remote) {
 		return h
 	}

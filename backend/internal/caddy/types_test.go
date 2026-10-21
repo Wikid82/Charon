@@ -19,7 +19,7 @@ func TestHandlers(t *testing.T) {
 	assert.Equal(t, "/var/www/html", h["root"])
 
 	// Test ReverseProxyHandler
-	h = ReverseProxyHandler("localhost:8080", true, "plex", true)
+	h = ReverseProxyHandler("localhost:8080", "plex", true)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	// Test HeaderHandlers
@@ -36,7 +36,7 @@ func TestHandlers(t *testing.T) {
 }
 
 func TestReverseProxyHandler_NoWebSocket(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8080", false, "none", false)
+	h := ReverseProxyHandler("localhost:8080", "none", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	// Without WebSocket, Upgrade and Connection headers should not be set
@@ -52,20 +52,20 @@ func TestReverseProxyHandler_NoWebSocket(t *testing.T) {
 	}
 }
 
-func TestReverseProxyHandler_WithWebSocket(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8080", true, "none", false)
-	assert.Equal(t, "reverse_proxy", h["handler"])
+// Regression: injecting Upgrade/Connection from request placeholders sent empty headers on
+// ordinary requests, which Jetty-based upstreams (Stirling PDF) rejected with
+// "400 Invalid h2c upgrade headers". Caddy proxies real WebSocket upgrades natively.
+func TestReverseProxyHandler_NeverInjectsUpgradeHeaders(t *testing.T) {
+	h := ReverseProxyHandler("localhost:8080", "none", true)
 
-	// With WebSocket, Upgrade and Connection headers should be set
 	headers := h["headers"].(map[string]any)
-	requestHeaders := headers["request"].(map[string]any)
-	setHeaders := requestHeaders["set"].(map[string][]string)
-	assert.Contains(t, setHeaders, "Upgrade")
-	assert.Contains(t, setHeaders, "Connection")
+	setHeaders := headers["request"].(map[string]any)["set"].(map[string][]string)
+	assert.NotContains(t, setHeaders, "Upgrade")
+	assert.NotContains(t, setHeaders, "Connection")
 }
 
 func TestReverseProxyHandler_StandardHeaders(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8080", false, "none", true)
+	h := ReverseProxyHandler("localhost:8080", "none", true)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	// With standard headers enabled, should have X-Real-IP, X-Forwarded-Proto, etc.
@@ -79,7 +79,7 @@ func TestReverseProxyHandler_StandardHeaders(t *testing.T) {
 }
 
 func TestReverseProxyHandler_Plex(t *testing.T) {
-	h := ReverseProxyHandler("localhost:32400", true, "plex", true)
+	h := ReverseProxyHandler("localhost:32400", "plex", true)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	headers := h["headers"].(map[string]any)
@@ -94,7 +94,7 @@ func TestReverseProxyHandler_Plex(t *testing.T) {
 
 func TestReverseProxyHandler_PlexWithoutStandardHeaders(t *testing.T) {
 	// Plex without standard headers should still have X-Real-IP and X-Forwarded-Host for backward compat
-	h := ReverseProxyHandler("localhost:32400", true, "plex", false)
+	h := ReverseProxyHandler("localhost:32400", "plex", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	headers := h["headers"].(map[string]any)
@@ -107,7 +107,7 @@ func TestReverseProxyHandler_PlexWithoutStandardHeaders(t *testing.T) {
 }
 
 func TestReverseProxyHandler_Jellyfin(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8096", true, "jellyfin", true)
+	h := ReverseProxyHandler("localhost:8096", "jellyfin", true)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	headers := h["headers"].(map[string]any)
@@ -120,7 +120,7 @@ func TestReverseProxyHandler_Jellyfin(t *testing.T) {
 }
 
 func TestReverseProxyHandler_JellyfinWithoutStandardHeaders(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8096", true, "jellyfin", false)
+	h := ReverseProxyHandler("localhost:8096", "jellyfin", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	headers := h["headers"].(map[string]any)
@@ -133,7 +133,7 @@ func TestReverseProxyHandler_JellyfinWithoutStandardHeaders(t *testing.T) {
 }
 
 func TestReverseProxyHandler_Emby(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8096", false, "emby", false)
+	h := ReverseProxyHandler("localhost:8096", "emby", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	headers := h["headers"].(map[string]any)
@@ -145,7 +145,7 @@ func TestReverseProxyHandler_Emby(t *testing.T) {
 }
 
 func TestReverseProxyHandler_HomeAssistant(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8123", true, "homeassistant", false)
+	h := ReverseProxyHandler("localhost:8123", "homeassistant", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	headers := h["headers"].(map[string]any)
@@ -157,7 +157,7 @@ func TestReverseProxyHandler_HomeAssistant(t *testing.T) {
 }
 
 func TestReverseProxyHandler_Nextcloud(t *testing.T) {
-	h := ReverseProxyHandler("localhost:80", false, "nextcloud", false)
+	h := ReverseProxyHandler("localhost:80", "nextcloud", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	headers := h["headers"].(map[string]any)
@@ -169,7 +169,7 @@ func TestReverseProxyHandler_Nextcloud(t *testing.T) {
 }
 
 func TestReverseProxyHandler_Vaultwarden(t *testing.T) {
-	h := ReverseProxyHandler("localhost:80", true, "vaultwarden", false)
+	h := ReverseProxyHandler("localhost:80", "vaultwarden", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	headers := h["headers"].(map[string]any)
@@ -181,7 +181,7 @@ func TestReverseProxyHandler_Vaultwarden(t *testing.T) {
 }
 
 func TestReverseProxyHandler_UnknownApplication(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8080", false, "unknown-app", false)
+	h := ReverseProxyHandler("localhost:8080", "unknown-app", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	// Unknown apps without standard headers should have minimal/no extra headers
@@ -190,7 +190,7 @@ func TestReverseProxyHandler_UnknownApplication(t *testing.T) {
 }
 
 func TestReverseProxyHandler_NoHeaders(t *testing.T) {
-	h := ReverseProxyHandler("localhost:8080", false, "", false)
+	h := ReverseProxyHandler("localhost:8080", "", false)
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	// No websocket, no standard headers, no app = no headers config

@@ -1,9 +1,10 @@
 #!/bin/bash
 #
 # Usage: charon_dep_update.sh [go|npm|all]
-#   go   - /bin/bash "/projects/Charon/scripts/charon_dep_update.sh" go
-#   npm  - /bin/bash "/projects/Charon/scripts/charon_dep_update.sh" npm
+#   go   - bash scripts/charon_dep_update.sh go
+#   npm  - bash scripts/charon_dep_update.sh npm
 #   all  - update both (default)
+# Run from the repo root; the script resolves its own location.
 
 set -euo pipefail
 
@@ -117,7 +118,7 @@ echo "Now using npm $(npm -v) ($(command -v npm))"
         # eslint@^9 dependency (vs. the types-only @types/eslint@* in 6.10.0),
         # reintroducing GHSA-mh99-v99m-4gvg (brace-expansion DoS). Keep
         # exact-pinned to 6.10.0 until upstream ships a fixed release.
-        npx --yes npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y,jsdom
+        npx --yes npm-check-updates -u --reject typescript,@types/eslint-plugin-jsx-a11y
 
         # Also update flat (string-valued) entries in the "overrides" section.
         # npm-check-updates excludes "overrides" from its default --dep list, so
@@ -127,7 +128,7 @@ echo "Now using npm $(npm -v) ($(command -v npm))"
         # The frontend package.json contains nested object overrides
         # (e.g. { "eslint-plugin-react-hooks": { "eslint": "^x.y" } }) which
         # cause ncu to crash when --dep overrides is used without a filter, and
-        # its only flat override (typescript) is already pinned above — so
+        # it has no flat overrides left to update — so
         # there's nothing left to safely update there; skip frontend entirely.
         if [ "$MODULE" != "$REPO_ROOT/frontend" ]; then
             # Root package.json has only flat string overrides — safe to update all

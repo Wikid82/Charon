@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-c57efdc8d009a2c9
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:bd93c72f18eaa4c5c7d70734a9876579c3254a991a803a97b1bfc2f891775a7c
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-bc41371e1d2982ed
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:ccd16f3fdf82bc4485fcf595b549bd2dcc49324caec99f8de16bff754fa78cff
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -31,7 +31,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.27.2
+ARG GO_VERSION=1.27.3
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
@@ -317,7 +317,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -453,7 +453,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
 # is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS caddy-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -798,7 +798,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -872,7 +872,7 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.22; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.89.3; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.90.0; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -880,7 +880,7 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
     _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    _retry go get github.com/quic-go/quic-go@v0.64.0; \
+    _retry go get github.com/quic-go/quic-go@v0.64.1; \
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.6.1; \
     # kin-openapi: CrowdSec ships v0.147.0 natively (its go.mod baseline), which is past

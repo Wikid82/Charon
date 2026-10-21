@@ -26,7 +26,7 @@ func TestValidate_EmergencyPlusMainPattern(t *testing.T) {
 						Path: []string{"/api/v1/emergency/*", "/emergency/*"},
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app:8080", false, "none", true),
+						ReverseProxyHandler("app:8080", "none", true),
 					},
 				},
 				{
@@ -35,7 +35,7 @@ func TestValidate_EmergencyPlusMainPattern(t *testing.T) {
 						Host: []string{"test.com"},
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app:8080", false, "none", true),
+						ReverseProxyHandler("app:8080", "none", true),
 					},
 				},
 			},
@@ -50,7 +50,7 @@ func TestValidate_EmergencyPlusMainPattern(t *testing.T) {
 						Host: []string{"example.com"},
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app:8080", false, "none", true),
+						ReverseProxyHandler("app:8080", "none", true),
 					},
 				},
 				{
@@ -60,7 +60,7 @@ func TestValidate_EmergencyPlusMainPattern(t *testing.T) {
 						Path: []string{"/emergency/*"},
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app:8080", false, "none", true),
+						ReverseProxyHandler("app:8080", "none", true),
 					},
 				},
 			},
@@ -75,7 +75,7 @@ func TestValidate_EmergencyPlusMainPattern(t *testing.T) {
 						Path: []string{"/api/*"},
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app1:8080", false, "none", true),
+						ReverseProxyHandler("app1:8080", "none", true),
 					},
 				},
 				{
@@ -84,7 +84,7 @@ func TestValidate_EmergencyPlusMainPattern(t *testing.T) {
 						Path: []string{"/admin/*"}, // Different paths, but both have paths
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app2:8080", false, "none", true),
+						ReverseProxyHandler("app2:8080", "none", true),
 					},
 				},
 			},
@@ -99,7 +99,7 @@ func TestValidate_EmergencyPlusMainPattern(t *testing.T) {
 						Host: []string{"test.com"},
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app1:8080", false, "none", true),
+						ReverseProxyHandler("app1:8080", "none", true),
 					},
 				},
 				{
@@ -107,7 +107,7 @@ func TestValidate_EmergencyPlusMainPattern(t *testing.T) {
 						Host: []string{"test.com"}, // Same host, both without paths
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app2:8080", false, "none", true),
+						ReverseProxyHandler("app2:8080", "none", true),
 					},
 				},
 			},
@@ -163,7 +163,7 @@ func TestValidate_MultipleHostsWithEmergencyPattern(t *testing.T) {
 						Path: []string{"/api/v1/emergency/*", "/emergency/*"},
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app:8080", false, "none", true),
+						ReverseProxyHandler("app:8080", "none", true),
 					},
 				})
 
@@ -173,7 +173,7 @@ func TestValidate_MultipleHostsWithEmergencyPattern(t *testing.T) {
 						Host: []string{hostname},
 					}},
 					Handle: []Handler{
-						ReverseProxyHandler("app:8080", false, "none", true),
+						ReverseProxyHandler("app:8080", "none", true),
 					},
 				})
 			}
@@ -228,7 +228,7 @@ func TestValidate_RouteOrdering(t *testing.T) {
 									Host: []string{"test.com"},
 								}},
 								Handle: []Handler{
-									ReverseProxyHandler("app:8080", false, "none", true),
+									ReverseProxyHandler("app:8080", "none", true),
 								},
 								Terminal: true,
 							},
@@ -263,7 +263,7 @@ func TestValidate_CaseSensitiveHostnames(t *testing.T) {
 									Host: []string{"Test.com"}, // Uppercase T
 								}},
 								Handle: []Handler{
-									ReverseProxyHandler("app1:8080", false, "none", true),
+									ReverseProxyHandler("app1:8080", "none", true),
 								},
 							},
 							{
@@ -271,7 +271,7 @@ func TestValidate_CaseSensitiveHostnames(t *testing.T) {
 									Host: []string{"test.com"}, // Lowercase t
 								}},
 								Handle: []Handler{
-									ReverseProxyHandler("app2:8080", false, "none", true),
+									ReverseProxyHandler("app2:8080", "none", true),
 								},
 							},
 						},

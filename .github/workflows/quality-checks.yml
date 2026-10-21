@@ -16,7 +16,7 @@ permissions:
   checks: write
 
 env:
-  GO_VERSION: '1.27.2'
+  GO_VERSION: '1.27.3'
   NODE_VERSION: '24.22.0'
   GOTOOLCHAIN: auto
 
@@ -188,7 +188,7 @@ jobs:
           persist-credentials: false
 
       - name: Install regctl
-        uses: iarekylew00t/regctl-installer@c2202c17a65fe59371c71ecc169c9e58c3710a15 # v4.0.16
+        uses: iarekylew00t/regctl-installer@fc03facb7a858d44637c8823b7f0db3c26b0658e # v4.0.17
         with:
           # Pin the regctl binary to an explicit released version (not the
           # action's `latest` default) so this required check is reproducible

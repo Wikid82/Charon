@@ -28,14 +28,14 @@ validate_docker_environment || error_exit "Docker is required but not available"
 # Check Syft
 if ! command -v syft >/dev/null 2>&1; then
     log_error "Syft not found - install from: https://github.com/anchore/syft"
-    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.17.0"
+    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.55.0"
     error_exit "Syft is required for SBOM generation" 2
 fi
 
 # Check Grype
 if ! command -v grype >/dev/null 2>&1; then
     log_error "Grype not found - install from: https://github.com/anchore/grype"
-    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.120.1"
+    log_error "Installation: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.121.0"
     error_exit "Grype is required for vulnerability scanning" 2
 fi
 
@@ -50,8 +50,8 @@ SYFT_INSTALLED_VERSION=$(syft version | grep -oP 'Version:\s*\Kv?[0-9]+\.[0-9]+\
 GRYPE_INSTALLED_VERSION=$(grype version | grep -oP 'Version:\s*\Kv?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
 
 # Set defaults matching CI workflow
-set_default_env "SYFT_VERSION" "v1.54.1"
-set_default_env "GRYPE_VERSION" "v0.120.1"
+set_default_env "SYFT_VERSION" "v1.55.0"
+set_default_env "GRYPE_VERSION" "v0.121.0"
 set_default_env "IMAGE_TAG" "charon:local"
 set_default_env "FAIL_ON_SEVERITY" "Critical,High"
 

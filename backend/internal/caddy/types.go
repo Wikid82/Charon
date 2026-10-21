@@ -126,7 +126,7 @@ type Handler map[string]any
 // ReverseProxyHandler creates a reverse_proxy handler.
 // application: "none", "plex", "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden"
 // enableStandardHeaders: when true, adds 4 standard proxy headers (X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, X-Forwarded-Port)
-func ReverseProxyHandler(dial string, enableWS bool, application string, enableStandardHeaders bool) Handler {
+func ReverseProxyHandler(dial, application string, enableStandardHeaders bool) Handler {
 	h := Handler{
 		"handler":        "reverse_proxy",
 		"flush_interval": -1, // Disable buffering for better streaming performance (Plex, etc.)
@@ -151,16 +151,16 @@ func ReverseProxyHandler(dial string, enableWS bool, application string, enableS
 		setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
 		// X-Forwarded-Host: Original Host header - needed for virtual host routing
 		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
-		// X-Forwarded-Port: Original port - important for non-standard ports
-		setHeaders["X-Forwarded-Port"] = []string{"{http.request.port}"}
+		// X-Forwarded-Port: Port the request arrived on. Not {http.request.port}, which is parsed from
+		// the Host header and empty on default ports (80/443); an empty value makes Jetty upstreams
+		// (e.g. Stirling PDF) reject the request with "400 Bad header value for X-Forwarded-Port".
+		setHeaders["X-Forwarded-Port"] = []string{"{http.request.local.port}"}
 	}
 
-	// STEP 2: WebSocket support headers
-	// Only add Upgrade and Connection headers for WebSocket proxying
-	if enableWS {
-		setHeaders["Upgrade"] = []string{"{http.request.header.Upgrade}"}
-		setHeaders["Connection"] = []string{"{http.request.header.Connection}"}
-	}
+	// STEP 2: WebSocket upgrades need no headers here. Caddy's reverse_proxy
+	// forwards Upgrade/Connection natively when the client sends them; setting
+	// them from placeholders emitted empty headers on ordinary requests, which
+	// Jetty-based upstreams (e.g. Stirling PDF) rejected as invalid h2c upgrades.
 
 	// STEP 3: Application-specific headers
 	// These do NOT duplicate standard headers (they were added above if enabled)

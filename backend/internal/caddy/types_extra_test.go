@@ -9,7 +9,7 @@ import (
 // TestReverseProxyHandler_PlexAndOthers tests application-specific headers
 func TestReverseProxyHandler_PlexAndOthers(t *testing.T) {
 	// Plex should include X-Plex headers and standard headers when enabled
-	h := ReverseProxyHandler("app:32400", false, "plex", true)
+	h := ReverseProxyHandler("app:32400", "plex", true)
 	require.Equal(t, "reverse_proxy", h["handler"])
 	// Assert headers exist
 	if hdrs, ok := h["headers"].(map[string]any); ok {
@@ -25,7 +25,7 @@ func TestReverseProxyHandler_PlexAndOthers(t *testing.T) {
 	}
 
 	// Jellyfin should include X-Real-IP and standard headers when enabled
-	h2 := ReverseProxyHandler("app:8096", true, "jellyfin", true)
+	h2 := ReverseProxyHandler("app:8096", "jellyfin", true)
 	require.Equal(t, "reverse_proxy", h2["handler"])
 	if hdrs, ok := h2["headers"].(map[string]any); ok {
 		req := hdrs["request"].(map[string]any)
@@ -34,14 +34,14 @@ func TestReverseProxyHandler_PlexAndOthers(t *testing.T) {
 		require.Contains(t, set, "X-Forwarded-Proto")
 		require.Contains(t, set, "X-Forwarded-Host")
 		require.Contains(t, set, "X-Forwarded-Port")
-		require.Contains(t, set, "Upgrade")
-		require.Contains(t, set, "Connection")
+		require.NotContains(t, set, "Upgrade")
+		require.NotContains(t, set, "Connection")
 	} else {
 		t.Fatalf("expected headers map for jellyfin")
 	}
 
 	// No websocket, no standard headers means no headers at all
-	h3 := ReverseProxyHandler("app:80", false, "none", false)
+	h3 := ReverseProxyHandler("app:80", "none", false)
 	_, ok := h3["headers"]
 	require.False(t, ok, "expected no headers when enableWS=false, application=none, enableStandardHeaders=false")
 }
@@ -49,7 +49,7 @@ func TestReverseProxyHandler_PlexAndOthers(t *testing.T) {
 // TestReverseProxyHandler_WebSocketHeaders tests WebSocket-specific headers with standard headers
 func TestReverseProxyHandler_WebSocketHeaders(t *testing.T) {
 	// Test: WebSocket enabled with standard headers should include both
-	h := ReverseProxyHandler("app:8080", true, "none", true)
+	h := ReverseProxyHandler("app:8080", "none", true)
 	require.Equal(t, "reverse_proxy", h["handler"])
 
 	hdrs, ok := h["headers"].(map[string]any)
@@ -61,12 +61,10 @@ func TestReverseProxyHandler_WebSocketHeaders(t *testing.T) {
 	set, ok := req["set"].(map[string][]string)
 	require.True(t, ok, "expected set headers")
 
-	// Verify WebSocket passthrough headers
-	require.Contains(t, set, "Upgrade", "Upgrade header should be set for WebSocket")
-	require.Equal(t, []string{"{http.request.header.Upgrade}"}, set["Upgrade"])
-
-	require.Contains(t, set, "Connection", "Connection header should be set for WebSocket")
-	require.Equal(t, []string{"{http.request.header.Connection}"}, set["Connection"])
+	// Upgrade/Connection must never be set from placeholders: ordinary requests would carry
+	// empty values that Jetty-based upstreams reject as invalid h2c upgrades.
+	require.NotContains(t, set, "Upgrade")
+	require.NotContains(t, set, "Connection")
 
 	// Verify standard proxy headers (4 headers)
 	require.Contains(t, set, "X-Real-IP", "X-Real-IP should be set when standard headers enabled")
@@ -79,21 +77,21 @@ func TestReverseProxyHandler_WebSocketHeaders(t *testing.T) {
 	require.Equal(t, []string{"{http.request.host}"}, set["X-Forwarded-Host"])
 
 	require.Contains(t, set, "X-Forwarded-Port", "X-Forwarded-Port should be set when standard headers enabled")
-	require.Equal(t, []string{"{http.request.port}"}, set["X-Forwarded-Port"])
+	require.Equal(t, []string{"{http.request.local.port}"}, set["X-Forwarded-Port"])
 
 	// Verify X-Forwarded-For is NOT explicitly set (Caddy handles it natively)
 	require.NotContains(t, set, "X-Forwarded-For", "X-Forwarded-For should NOT be explicitly set (Caddy handles natively)")
 
 	// Note: trusted_proxies is configured at server level in config.go, not at handler level
 
-	// Total: 6 headers (4 standard + 2 WebSocket, X-Forwarded-For handled by Caddy)
-	require.Equal(t, 6, len(set), "expected exactly 6 headers (4 standard + 2 WebSocket)")
+	// Total: 4 standard headers (X-Forwarded-For handled by Caddy)
+	require.Equal(t, 4, len(set), "expected exactly 4 standard headers")
 }
 
 // TestReverseProxyHandler_StandardProxyHeadersAlwaysSet tests that standard headers are set when feature enabled
 func TestReverseProxyHandler_StandardProxyHeadersAlwaysSet(t *testing.T) {
 	// Test: Standard headers enabled with no WebSocket, no application
-	h := ReverseProxyHandler("app:8080", false, "none", true)
+	h := ReverseProxyHandler("app:8080", "none", true)
 	require.Equal(t, "reverse_proxy", h["handler"])
 
 	// With enableStandardHeaders=true, headers should exist
@@ -117,7 +115,7 @@ func TestReverseProxyHandler_StandardProxyHeadersAlwaysSet(t *testing.T) {
 	require.Equal(t, []string{"{http.request.host}"}, set["X-Forwarded-Host"])
 
 	require.Contains(t, set, "X-Forwarded-Port")
-	require.Equal(t, []string{"{http.request.port}"}, set["X-Forwarded-Port"])
+	require.Equal(t, []string{"{http.request.local.port}"}, set["X-Forwarded-Port"])
 
 	// Verify X-Forwarded-For NOT in setHeaders (Caddy handles it natively)
 	require.NotContains(t, set, "X-Forwarded-For", "X-Forwarded-For should NOT be explicitly set")
@@ -135,7 +133,7 @@ func TestReverseProxyHandler_StandardProxyHeadersAlwaysSet(t *testing.T) {
 // TestReverseProxyHandler_ApplicationSpecificHeaders tests application-specific headers with standard headers
 func TestReverseProxyHandler_ApplicationSpecificHeaders(t *testing.T) {
 	// Test Plex with standard headers enabled
-	hPlex := ReverseProxyHandler("app:32400", false, "plex", true)
+	hPlex := ReverseProxyHandler("app:32400", "plex", true)
 	hdrs := hPlex["headers"].(map[string]any)
 	set := hdrs["request"].(map[string]any)["set"].(map[string][]string)
 
@@ -155,7 +153,7 @@ func TestReverseProxyHandler_ApplicationSpecificHeaders(t *testing.T) {
 	}
 
 	// Test Jellyfin with standard headers enabled
-	hJellyfin := ReverseProxyHandler("app:8096", false, "jellyfin", true)
+	hJellyfin := ReverseProxyHandler("app:8096", "jellyfin", true)
 	hdrsJ := hJellyfin["headers"].(map[string]any)
 	setJ := hdrsJ["request"].(map[string]any)["set"].(map[string][]string)
 
@@ -172,22 +170,22 @@ func TestReverseProxyHandler_ApplicationSpecificHeaders(t *testing.T) {
 // TestReverseProxyHandler_WebSocketWithApplication tests WebSocket + application combined
 func TestReverseProxyHandler_WebSocketWithApplication(t *testing.T) {
 	// Most complex scenario: WebSocket + Jellyfin + standard headers
-	h := ReverseProxyHandler("app:8096", true, "jellyfin", true)
+	h := ReverseProxyHandler("app:8096", "jellyfin", true)
 	require.Equal(t, "reverse_proxy", h["handler"])
 
 	hdrs := h["headers"].(map[string]any)
 	set := hdrs["request"].(map[string]any)["set"].(map[string][]string)
 
-	// Verify all 6 headers present (4 standard + 2 WebSocket)
+	// Verify the 4 standard headers are present and no Upgrade/Connection headers are injected
 	require.Contains(t, set, "X-Real-IP")
 	require.Contains(t, set, "X-Forwarded-Proto")
 	require.Contains(t, set, "X-Forwarded-Host")
 	require.Contains(t, set, "X-Forwarded-Port")
-	require.Contains(t, set, "Upgrade")
-	require.Contains(t, set, "Connection")
+	require.NotContains(t, set, "Upgrade")
+	require.NotContains(t, set, "Connection")
 
 	// Verify no duplicates
-	require.Equal(t, 6, len(set), "expected exactly 6 headers (4 standard + 2 WebSocket)")
+	require.Equal(t, 4, len(set), "expected exactly 4 standard headers")
 
 	// Verify layered approach works correctly (no overrides)
 	require.Equal(t, []string{"{http.request.remote.host}"}, set["X-Real-IP"])
@@ -197,7 +195,7 @@ func TestReverseProxyHandler_WebSocketWithApplication(t *testing.T) {
 // TestReverseProxyHandler_FeatureFlagDisabled tests backward compatibility when feature disabled
 func TestReverseProxyHandler_FeatureFlagDisabled(t *testing.T) {
 	// Test: Standard headers disabled, no WebSocket, no application (old behavior)
-	h := ReverseProxyHandler("app:8080", false, "none", false)
+	h := ReverseProxyHandler("app:8080", "none", false)
 	require.Equal(t, "reverse_proxy", h["handler"])
 
 	// With enableStandardHeaders=false and no WebSocket/application, no headers should exist
@@ -209,7 +207,7 @@ func TestReverseProxyHandler_FeatureFlagDisabled(t *testing.T) {
 	require.False(t, ok, "expected no trusted_proxies when no headers are set")
 
 	// Test: Standard headers disabled with Plex (backward compatibility)
-	hPlex := ReverseProxyHandler("app:32400", false, "plex", false)
+	hPlex := ReverseProxyHandler("app:32400", "plex", false)
 	hdrsPlex := hPlex["headers"].(map[string]any)
 	setPlex := hdrsPlex["request"].(map[string]any)["set"].(map[string][]string)
 
@@ -224,7 +222,7 @@ func TestReverseProxyHandler_FeatureFlagDisabled(t *testing.T) {
 // TestReverseProxyHandler_XForwardedForNotDuplicated tests that X-Forwarded-For is not explicitly set
 func TestReverseProxyHandler_XForwardedForNotDuplicated(t *testing.T) {
 	// Test with standard headers enabled
-	h := ReverseProxyHandler("app:8080", false, "none", true)
+	h := ReverseProxyHandler("app:8080", "none", true)
 	hdrs := h["headers"].(map[string]any)
 	set := hdrs["request"].(map[string]any)["set"].(map[string][]string)
 
@@ -232,14 +230,14 @@ func TestReverseProxyHandler_XForwardedForNotDuplicated(t *testing.T) {
 	require.NotContains(t, set, "X-Forwarded-For", "X-Forwarded-For must NOT be explicitly set (Caddy handles it natively)")
 
 	// Test with WebSocket enabled
-	h2 := ReverseProxyHandler("app:8080", true, "none", true)
+	h2 := ReverseProxyHandler("app:8080", "none", true)
 	hdrs2 := h2["headers"].(map[string]any)
 	set2 := hdrs2["request"].(map[string]any)["set"].(map[string][]string)
 
 	require.NotContains(t, set2, "X-Forwarded-For", "X-Forwarded-For must NOT be explicitly set even with WebSocket")
 
 	// Test with application
-	h3 := ReverseProxyHandler("app:32400", false, "plex", true)
+	h3 := ReverseProxyHandler("app:32400", "plex", true)
 	hdrs3 := h3["headers"].(map[string]any)
 	set3 := hdrs3["request"].(map[string]any)["set"].(map[string][]string)
 
@@ -251,22 +249,22 @@ func TestReverseProxyHandler_XForwardedForNotDuplicated(t *testing.T) {
 // the same security protection globally. Handler-level trusted_proxies caused Caddy config errors.
 func TestReverseProxyHandler_TrustedProxiesConfiguration(t *testing.T) {
 	// Test: trusted_proxies should NOT be present at handler level (configured at server level instead)
-	h := ReverseProxyHandler("app:8080", false, "none", true)
+	h := ReverseProxyHandler("app:8080", "none", true)
 	_, ok := h["trusted_proxies"]
 	require.False(t, ok, "trusted_proxies should NOT be set at handler level (server-level config provides protection)")
 
 	// Test: trusted_proxies NOT present with WebSocket
-	h2 := ReverseProxyHandler("app:8080", true, "none", true)
+	h2 := ReverseProxyHandler("app:8080", "none", true)
 	_, ok = h2["trusted_proxies"]
 	require.False(t, ok, "trusted_proxies should NOT be set at handler level")
 
 	// Test: trusted_proxies NOT present with application
-	h3 := ReverseProxyHandler("app:32400", false, "plex", true)
+	h3 := ReverseProxyHandler("app:32400", "plex", true)
 	_, ok = h3["trusted_proxies"]
 	require.False(t, ok, "trusted_proxies should NOT be set at handler level")
 
 	// Test: trusted_proxies NOT present when standard headers disabled
-	h4 := ReverseProxyHandler("app:8080", false, "none", false)
+	h4 := ReverseProxyHandler("app:8080", "none", false)
 	_, ok = h4["trusted_proxies"]
 	require.False(t, ok, "trusted_proxies should NOT be set at handler level")
 }
