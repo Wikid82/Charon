@@ -1001,9 +1001,15 @@ ARG LIBXML2_VERSION=2.13.9-r2
 # zlib is pinned to an exact version so the image never silently keeps an older vulnerable
 # build from the base layer (`apk upgrade` alone left Aikido flagging it).
 ARG ZLIB_VERSION=1.3.2-r1
+#
+# ca-certificates is a minimum-version floor so the image always carries a Mozilla bundle that
+# distrusts the compromised eMudhra intermediates' roots (Oct 2026) even when the base image
+# layer is stale; Renovate (repology) raises the floor as newer bundles ship.
+# renovate: datasource=repology depName=alpine_3_24/ca-certificates versioning=loose
+ARG CA_CERTIFICATES_VERSION=20261020-r0
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
-    bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
+    bash "ca-certificates>=${CA_CERTIFICATES_VERSION}" "ca-certificates-bundle>=${CA_CERTIFICATES_VERSION}" sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
     && apk upgrade --no-cache libcrypto3 libssl3 musl musl-utils \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
