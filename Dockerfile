@@ -995,7 +995,7 @@ WORKDIR /app
 # libxml2 carries open CVEs with no upstream fix as of 2.13.9-r2. It is declared as a
 # minimum-version floor (`>=`) so builds always pull the newest Alpine package, and the
 # floor itself is bumped by Renovate (repology) the moment a patched release is published.
-# renovate: datasource=repology depName=libxml2 versioning=loose
+# renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
 ARG LIBXML2_VERSION=2.13.9-r2
 #
 # zlib is pinned to an exact version so the image never silently keeps an older vulnerable
