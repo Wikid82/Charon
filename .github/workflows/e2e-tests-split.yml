@@ -125,6 +125,10 @@ env:
   DEBUG: 'charon:*,charon-test:*'
   PLAYWRIGHT_DEBUG: '1'
   CI_LOG_LEVEL: 'verbose'
+  # Official Playwright image (browsers + OS deps preinstalled). MUST match the
+  # @playwright/test version in package-lock.json; scripts/ci/check-playwright-image-version.sh
+  # fails the run if they drift. Renovate bumps this with @playwright/test (see renovate.json).
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
 
 permissions:
   contents: read
@@ -392,33 +396,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Harden apt for flaky CI mirrors
-        run: |
-          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          APTCONF
-
-      - name: Install Playwright Chromium
-        run: |
-          set -uo pipefail
-          echo "📦 Installing Chromium..."
-          for attempt in 1 2 3 4 5; do
-            timeout 3m npx playwright install --with-deps chromium && break
-            if [ "$attempt" -lt 5 ]; then
-              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
-              exit 1
-            fi
-          done
-
       - name: Run Chromium Security Enforcement Tests
         run: |
           set -euo pipefail
@@ -454,7 +431,7 @@ jobs:
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded chromium job.
           echo "--- chromium project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows npx playwright test \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
             --project=chromium \
             --output=playwright-output/security-chromium/multi-feature-workflows \
             tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
@@ -467,7 +444,7 @@ jobs:
           # directories, so `--project=chromium` here always matched 0 tests
           # in them. Run them under their correct project, last (see above).
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests npx playwright test \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
             --output=playwright-output/security-chromium/security-tests \
             tests/security-enforcement/ \
@@ -483,6 +460,7 @@ jobs:
           exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          PLAYWRIGHT_SETUP_BROWSER: chromium
           CI: true
 
       - name: Upload HTML report (Chromium Security)
@@ -655,52 +633,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Harden apt for flaky CI mirrors
-        run: |
-          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          APTCONF
-
-      - name: Install Playwright Chromium (required by security-tests dependency)
-        run: |
-          set -uo pipefail
-          echo "📦 Installing Chromium (required by security-tests dependency)..."
-          for attempt in 1 2 3 4 5; do
-            timeout 3m npx playwright install --with-deps chromium && break
-            if [ "$attempt" -lt 5 ]; then
-              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
-              exit 1
-            fi
-          done
-
-      - name: Install Playwright Firefox
-        run: |
-          set -uo pipefail
-          echo "📦 Installing Firefox..."
-          for attempt in 1 2 3 4 5; do
-            timeout 3m npx playwright install --with-deps firefox && break
-            if [ "$attempt" -lt 5 ]; then
-              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright firefox install failed after 5 attempts" >&2
-              exit 1
-            fi
-          done
-
       - name: Run Firefox Security Enforcement Tests
         run: |
           set -euo pipefail
@@ -736,7 +668,7 @@ jobs:
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded firefox job.
           echo "--- firefox project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows npx playwright test \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
             --project=firefox \
             --output=playwright-output/security-firefox/multi-feature-workflows \
             tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
@@ -749,10 +681,10 @@ jobs:
           # directories, so `--project=firefox` here always matched 0 tests
           # in them. Run them under their correct project, last (see above).
           # (security-tests is Chromium-only regardless of this job's
-          # browser, which is why the earlier "Install Playwright Chromium"
-          # step above already exists.)
+          # browser, so this invocation still needs Chromium. The Playwright image
+          # ships Chromium, so no separate install step is needed.)
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests npx playwright test \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
             --output=playwright-output/security-firefox/security-tests \
             tests/security-enforcement/ \
@@ -768,6 +700,7 @@ jobs:
           exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          PLAYWRIGHT_SETUP_BROWSER: firefox
           CI: true
 
       - name: Upload HTML report (Firefox Security)
@@ -941,57 +874,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Harden apt for flaky CI mirrors
-        run: |
-          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          APTCONF
-
-      - name: Install Playwright Chromium (required by security-tests dependency)
-        run: |
-          set -uo pipefail
-          echo "📦 Installing Chromium (required by security-tests dependency)..."
-          for attempt in 1 2 3 4 5; do
-            timeout 3m npx playwright install --with-deps chromium && break
-            if [ "$attempt" -lt 5 ]; then
-              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
-              exit 1
-            fi
-          done
-
-      - name: Install Playwright WebKit
-        run: |
-          set -uo pipefail
-          echo "📦 Installing WebKit..."
-          # WebKit's --with-deps pulls the full GStreamer/media-codec stack
-          # (~170 packages, ~90MB) that Chromium/Firefox don't need, so it
-          # needs a longer per-attempt budget than the 3m used for the
-          # lighter browsers below - 3m was observed killing healthy,
-          # non-stalled WebKit installs mid-download on a slow mirror.
-          for attempt in 1 2 3; do
-            timeout 10m npx playwright install --with-deps webkit && break
-            if [ "$attempt" -lt 3 ]; then
-              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
-              exit 1
-            fi
-          done
-
       - name: Run WebKit Security Enforcement Tests
         run: |
           set -euo pipefail
@@ -1027,7 +909,7 @@ jobs:
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded webkit job.
           echo "--- webkit project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows npx playwright test \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
             --project=webkit \
             --output=playwright-output/security-webkit/multi-feature-workflows \
             tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
@@ -1040,10 +922,10 @@ jobs:
           # directories, so `--project=webkit` here always matched 0 tests
           # in them. Run them under their correct project, last (see above).
           # (security-tests is Chromium-only regardless of this job's
-          # browser, which is why the earlier "Install Playwright Chromium"
-          # step above already exists.)
+          # browser, so this invocation still needs Chromium. The Playwright image
+          # ships Chromium, so no separate install step is needed.)
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests npx playwright test \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
             --output=playwright-output/security-webkit/security-tests \
             tests/security-enforcement/ \
@@ -1059,6 +941,7 @@ jobs:
           exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          PLAYWRIGHT_SETUP_BROWSER: webkit
           CI: true
 
       - name: Upload HTML report (WebKit Security)
@@ -1270,33 +1153,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Harden apt for flaky CI mirrors
-        run: |
-          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          APTCONF
-
-      - name: Install Playwright Chromium
-        run: |
-          set -uo pipefail
-          echo "📦 Installing Chromium..."
-          for attempt in 1 2 3 4 5; do
-            timeout 3m npx playwright install --with-deps chromium && break
-            if [ "$attempt" -lt 5 ]; then
-              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
-              exit 1
-            fi
-          done
-
       - name: Run Chromium Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
@@ -1311,7 +1167,7 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
-          npx playwright test \
+          bash scripts/ci/run-playwright-container.sh \
             --project=chromium \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/chromium-shard-${{ matrix.shard }} \
@@ -1335,6 +1191,7 @@ jobs:
           exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          PLAYWRIGHT_SETUP_BROWSER: chromium
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
@@ -1547,52 +1404,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Harden apt for flaky CI mirrors
-        run: |
-          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          APTCONF
-
-      - name: Install Playwright Chromium (required by security-tests dependency)
-        run: |
-          set -uo pipefail
-          echo "📦 Installing Chromium (required by security-tests dependency)..."
-          for attempt in 1 2 3 4 5; do
-            timeout 3m npx playwright install --with-deps chromium && break
-            if [ "$attempt" -lt 5 ]; then
-              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
-              exit 1
-            fi
-          done
-
-      - name: Install Playwright Firefox
-        run: |
-          set -uo pipefail
-          echo "📦 Installing Firefox..."
-          for attempt in 1 2 3 4 5; do
-            timeout 3m npx playwright install --with-deps firefox && break
-            if [ "$attempt" -lt 5 ]; then
-              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright firefox install failed after 5 attempts" >&2
-              exit 1
-            fi
-          done
-
       - name: Run Firefox Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
@@ -1607,7 +1418,7 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
-          npx playwright test \
+          bash scripts/ci/run-playwright-container.sh \
             --project=firefox \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/firefox-shard-${{ matrix.shard }} \
@@ -1631,6 +1442,7 @@ jobs:
           exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          PLAYWRIGHT_SETUP_BROWSER: firefox
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
@@ -1844,57 +1656,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Harden apt for flaky CI mirrors
-        run: |
-          sudo tee /etc/apt/apt.conf.d/99-charon-ci-reliability > /dev/null <<'APTCONF'
-          Acquire::Retries "3";
-          Acquire::http::Timeout "15";
-          Acquire::https::Timeout "15";
-          APTCONF
-
-      - name: Install Playwright Chromium (required by security-tests dependency)
-        run: |
-          set -uo pipefail
-          echo "📦 Installing Chromium (required by security-tests dependency)..."
-          for attempt in 1 2 3 4 5; do
-            timeout 3m npx playwright install --with-deps chromium && break
-            if [ "$attempt" -lt 5 ]; then
-              echo "Attempt ${attempt}/5 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright chromium install failed after 5 attempts" >&2
-              exit 1
-            fi
-          done
-
-      - name: Install Playwright WebKit
-        run: |
-          set -uo pipefail
-          echo "📦 Installing WebKit..."
-          # WebKit's --with-deps pulls the full GStreamer/media-codec stack
-          # (~170 packages, ~90MB) that Chromium/Firefox don't need, so it
-          # needs a longer per-attempt budget than the 3m used for the
-          # lighter browsers below - 3m was observed killing healthy,
-          # non-stalled WebKit installs mid-download on a slow mirror.
-          for attempt in 1 2 3; do
-            timeout 10m npx playwright install --with-deps webkit && break
-            if [ "$attempt" -lt 3 ]; then
-              echo "Attempt ${attempt}/3 failed; retrying in 15s..." >&2
-              echo "Cleaning up any orphaned apt/dpkg processes and stale locks..." >&2
-              sudo pkill -9 -f '(^|/)(apt|apt-get|dpkg)( |$)' 2>/dev/null || true
-              sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true
-              sudo dpkg --configure -a > /dev/null 2>&1 || true
-              sleep 15
-            else
-              echo "ERROR: Playwright webkit install failed after 3 attempts" >&2
-              exit 1
-            fi
-          done
-
       - name: Run WebKit Non-Security Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
@@ -1909,7 +1670,7 @@ jobs:
           SHARD_START=$(date +%s)
           echo "SHARD_START=$SHARD_START" >> "$GITHUB_ENV"
 
-          npx playwright test \
+          bash scripts/ci/run-playwright-container.sh \
             --project=webkit \
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --output=playwright-output/webkit-shard-${{ matrix.shard }} \
@@ -1933,6 +1694,7 @@ jobs:
           exit "$STATUS"
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          PLAYWRIGHT_SETUP_BROWSER: webkit
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
 
