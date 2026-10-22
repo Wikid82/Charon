@@ -317,13 +317,15 @@ func TestMaintenance_StopDuringConversionIsSafeAndTheNextBootConverts(t *testing
 }
 
 // waitTempFileIn polls the process's open descriptors for a SQLite temp file in
-// dir. Where /proc is unavailable it reports true (nothing to observe).
+// dir. SQLite unlinks it at once, so it shows as "<dir>/<name> (deleted)"; the name
+// varies by SQLite version (etilqs_<hex>, then #<inode>), so any unlinked file
+// under dir counts. Where /proc is unavailable it reports true (nothing to observe).
 func waitTempFileIn(pid int, dir string, timeout time.Duration) bool {
 	fdDir := fmt.Sprintf("/proc/%d/fd", pid)
 	if _, err := os.ReadDir(fdDir); err != nil {
 		return true
 	}
-	prefix := filepath.Join(dir, "etilqs_")
+	prefix := dir + string(filepath.Separator)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		entries, err := os.ReadDir(fdDir)
@@ -331,7 +333,7 @@ func waitTempFileIn(pid int, dir string, timeout time.Duration) bool {
 			return false
 		}
 		for _, e := range entries {
-			if link, linkErr := os.Readlink(filepath.Join(fdDir, e.Name())); linkErr == nil && strings.HasPrefix(link, prefix) {
+			if link, linkErr := os.Readlink(filepath.Join(fdDir, e.Name())); linkErr == nil && strings.HasPrefix(link, prefix) && strings.HasSuffix(link, " (deleted)") {
 				return true
 			}
 		}
