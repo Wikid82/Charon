@@ -33,7 +33,7 @@ jobs:
       image: semgrep/semgrep:1.182.0@sha256:50440fe8ec1dcc2fc09a0cab0e527b66b1e0a983f2cfc1219b9c34e2f7b5567c
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 

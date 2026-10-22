@@ -43,6 +43,11 @@ jobs:
     timeout-minutes: 30
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_backend }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -175,6 +180,11 @@ jobs:
     timeout-minutes: 25
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -213,6 +223,11 @@ jobs:
     timeout-minutes: 15
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_agent }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -276,6 +291,11 @@ jobs:
       && contains(needs.*.result, 'success') }}
     steps:
       # Checkout at the tested SHA is required so Codecov can map report paths.
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -306,7 +326,7 @@ jobs:
 
       - name: Upload backend coverage to Codecov
         if: ${{ needs.backend-codecov.result == 'success' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        uses: step-security/codecov-action@367bf7e789f1b8e452a759be81c791de8d69b2f6 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./backend/coverage.txt
@@ -315,7 +335,7 @@ jobs:
 
       - name: Upload frontend coverage to Codecov
         if: ${{ needs.frontend-codecov.result == 'success' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        uses: step-security/codecov-action@367bf7e789f1b8e452a759be81c791de8d69b2f6 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./frontend/coverage/lcov.info
@@ -324,7 +344,7 @@ jobs:
 
       - name: Upload agent coverage to Codecov
         if: ${{ needs.agent-codecov.result == 'success' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        uses: step-security/codecov-action@367bf7e789f1b8e452a759be81c791de8d69b2f6 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./agent/coverage.txt
