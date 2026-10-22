@@ -34,6 +34,11 @@ jobs:
     timeout-minutes: 20 # 20m: same-repo runs COPY Caddy/CrowdSec from the pinned toolchain image (~2-4m build); fork PRs compile them inline (~14m), which sets the floor (B6). Test-only fan-out jobs below are sized smaller.
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -63,6 +68,11 @@ jobs:
     timeout-minutes: 12 # test-only work; image is built upstream in `build`.
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -166,6 +176,11 @@ jobs:
     timeout-minutes: 12 # test-only work; image is built upstream in `build`.
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -251,6 +266,11 @@ jobs:
     timeout-minutes: 12 # test-only work; image is built upstream in `build`.
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -349,6 +369,11 @@ jobs:
     timeout-minutes: 10 # test-only work; image is built upstream in `build`.
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -434,6 +459,11 @@ jobs:
     timeout-minutes: 25 # test-only work (three suites, the persistence suite starts four containers); image is built upstream in `build`.
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
