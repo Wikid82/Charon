@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-bc41371e1d2982ed
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:ccd16f3fdf82bc4485fcf595b549bd2dcc49324caec99f8de16bff754fa78cff
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-f5fd1fc300923673
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:9bf612dd9ea5f7dc870073fe819f5a71998c0a21739483b87403c896d9bdff5e
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -34,7 +34,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 ARG GO_VERSION=1.27.3
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+ARG ALPINE_IMAGE=alpine:3.24.3@sha256:1b7232cda4ca3dc20b5d1247bdc9bfb631f2661d15d323bdd6fccc035ed1a9e7
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
@@ -1001,9 +1001,15 @@ ARG LIBXML2_VERSION=2.13.9-r2
 # zlib is pinned to an exact version so the image never silently keeps an older vulnerable
 # build from the base layer (`apk upgrade` alone left Aikido flagging it).
 ARG ZLIB_VERSION=1.3.2-r1
+#
+# ca-certificates is a minimum-version floor so the image always carries a Mozilla bundle that
+# distrusts the compromised eMudhra intermediates' roots (Oct 2026) even when the base image
+# layer is stale; Renovate (repology) raises the floor as newer bundles ship.
+# renovate: datasource=repology depName=alpine_3_24/ca-certificates versioning=loose
+ARG CA_CERTIFICATES_VERSION=20261020-r0
 # hadolint ignore=DL3018
 RUN apk add --no-cache \
-    bash ca-certificates sqlite-libs sqlite tzdata gettext libcap libcap-utils \
+    bash "ca-certificates>=${CA_CERTIFICATES_VERSION}" "ca-certificates-bundle>=${CA_CERTIFICATES_VERSION}" sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
     && apk upgrade --no-cache libcrypto3 libssl3 musl musl-utils \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)

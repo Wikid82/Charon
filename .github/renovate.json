@@ -106,12 +106,12 @@
     },
     {
       "customType": "regex",
-      "description": "Track Alpine apk package floor (libxml2) via Repology in Dockerfile",
+      "description": "Track Alpine apk package floors (libxml2, ca-certificates) via Repology in Dockerfile",
       "managerFilePatterns": [
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>repology)\\s+depName=(?<depName>[^\\s]+)\\s+versioning=(?<versioning>[^\\s]+)\\s*\\nARG LIBXML2_VERSION=(?<currentValue>[^\\s]+)"
+        "#\\s*renovate:\\s*datasource=(?<datasource>repology)\\s+depName=(?<depName>[^\\s]+)\\s+versioning=(?<versioning>[^\\s]+)\\s*\\nARG (?:LIBXML2|CA_CERTIFICATES)_VERSION=(?<currentValue>[^\\s]+)"
       ]
     },
     {
