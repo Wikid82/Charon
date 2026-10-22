@@ -44,6 +44,11 @@ jobs:
       github.event_name == 'schedule'
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Checkout repository
         # actions/checkout v4.2.2
         uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
@@ -289,7 +294,7 @@ jobs:
         if: steps.set-target.outputs.image_name != ''
         id: sbom_primary
         continue-on-error: true
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        uses: step-security/sbom-action@28bb7d0d2869c9ab0e5571c93591747945819d39 # v0.24.2
         with:
           image: ${{ steps.set-target.outputs.image_name }}
           format: cyclonedx-json
