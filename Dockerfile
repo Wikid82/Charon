@@ -34,7 +34,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 ARG GO_VERSION=1.27.3
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.3@sha256:1b7232cda4ca3dc20b5d1247bdc9bfb631f2661d15d323bdd6fccc035ed1a9e7
+ARG ALPINE_IMAGE=alpine:3.24.3@sha256:b3413572228e34bd1c9245f5565e6cd127005655e8a7899aef33d8e83255c9e6
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
