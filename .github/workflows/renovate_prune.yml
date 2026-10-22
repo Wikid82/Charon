@@ -22,6 +22,11 @@ jobs:
       BRANCH_PREFIX: "renovate/"  # adjust if you use a different prefix
 
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - name: Choose GitHub Token
         run: |
           if [ -n "${{ secrets.GITHUB_TOKEN }}" ]; then
