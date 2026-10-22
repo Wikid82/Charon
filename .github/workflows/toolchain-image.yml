@@ -353,7 +353,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
           trivyignores: '.trivyignore'
-          version: 'v0.76.0'
+          version: 'v0.76.1'
         # Report-only on PRs (the app-image Trivy gates still run downstream);
         # blocking on schedule / workflow_dispatch / workflow_call (spec §3.4.3).
         continue-on-error: ${{ github.event_name == 'pull_request' }}
@@ -367,11 +367,11 @@ jobs:
           output: 'trivy-toolchain.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
           trivyignores: '.trivyignore'
-          version: 'v0.76.0'
+          version: 'v0.76.1'
 
       - name: Upload Trivy SARIF
         if: steps.ref.outputs.scan == 'true'
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: 'trivy-toolchain.sarif'
           category: '.github/workflows/toolchain-image.yml:trivy-toolchain'

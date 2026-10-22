@@ -16,7 +16,7 @@ on:
 
 env:
   GO_VERSION: '1.27.3'
-  NODE_VERSION: '24.22.0'
+  NODE_VERSION: '24.22.1'
   GOTOOLCHAIN: auto
   SYFT_VERSION: 'v1.55.0'
   GHCR_REGISTRY: ghcr.io
@@ -670,11 +670,11 @@ jobs:
           image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
           format: 'sarif'
           output: 'trivy-nightly.sarif'
-          version: 'v0.76.0'
+          version: 'v0.76.1'
           trivyignores: '.trivyignore'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: 'trivy-nightly.sarif'
           category: 'trivy-nightly'

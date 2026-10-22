@@ -1,8 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 
 import i18n from '../i18n'
 
+// English is bundled; the other locales are lazy chunks that must be loaded before they can be inspected
+const LAZY_LOCALES = ['es', 'fr', 'de', 'zh']
+const loadLazyLocales = () => i18n.loadLanguages(LAZY_LOCALES)
+
 describe('i18n configuration', () => {
+  beforeAll(loadLazyLocales)
+
   beforeEach(async () => {
     await i18n.changeLanguage('en')
   })
@@ -60,6 +66,8 @@ describe('i18n configuration', () => {
 })
 
 describe('locale parity', () => {
+  beforeAll(loadLazyLocales)
+
   const LOCALES = ['en', 'de', 'es', 'fr', 'zh'] as const
 
   const flatten = (value: unknown, prefix = ''): string[] => {

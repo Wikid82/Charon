@@ -1014,7 +1014,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.76.0'
+          version: 'v0.76.1'
           trivyignores: '.trivyignore'
         continue-on-error: true
 
@@ -1027,7 +1027,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          version: 'v0.76.0'
+          version: 'v0.76.1'
           trivyignores: '.trivyignore'
         continue-on-error: true
 
@@ -1043,7 +1043,7 @@ jobs:
 
       - name: Upload Trivy results
         if: env.TRIGGER_EVENT != 'pull_request' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: 'trivy-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}
@@ -1306,7 +1306,7 @@ jobs:
           trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.76.0'
+          version: 'v0.76.1'
 
       - name: Run Trivy scan on PR image (SARIF - blocking)
         id: trivy-scan
@@ -1321,7 +1321,7 @@ jobs:
           # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
           # at the end so SARIF upload and summaries still run.
           exit-code: '1'
-          version: 'v0.76.0'
+          version: 'v0.76.1'
         continue-on-error: true
 
       - name: Check Trivy PR SARIF exists
@@ -1336,7 +1336,7 @@ jobs:
 
       - name: Upload Trivy scan results
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}

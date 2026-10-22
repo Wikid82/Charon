@@ -100,7 +100,7 @@ ARG CORAZA_VERSION=3.8.1
 # (no leading `v`); the `--with` lines add the `v`. Renovate tracks each via
 # the datasource=go marker.
 # renovate: datasource=go depName=github.com/zhangjiayin/caddy-geoip2
-ARG CADDY_GEOIP2_VERSION=1.3.0
+ARG CADDY_GEOIP2_VERSION=1.3.1
 # renovate: datasource=go depName=github.com/mholt/caddy-ratelimit
 ARG CADDY_RATELIMIT_VERSION=0.1.0
 # ---- DNS-01 Challenge Provider Modules (github.com/caddy-dns/*) ----
@@ -273,7 +273,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.22.0-alpine3.24@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.24@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -870,9 +870,9 @@ RUN set -e; \
     _retry go get go.opentelemetry.io/otel@v1.47.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.22; \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.23; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.90.0; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.90.1; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
