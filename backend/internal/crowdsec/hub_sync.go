@@ -742,7 +742,7 @@ var ErrHubItemUnverified error = hubItemUnverifiedError{}
 type hubItemUnverifiedError struct{}
 
 func (hubItemUnverifiedError) Error() string {
-	return "the downloaded hub item does not match the hub index; the hub may still be updating, try again later"
+	return "hub item could not be verified"
 }
 
 // Is makes an unverified item count as the hub still updating, so both reach the same retryable answer.

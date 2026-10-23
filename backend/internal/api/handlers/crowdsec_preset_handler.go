@@ -203,7 +203,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, crowdsec.ErrHubItemUnverified) {
-			logger.Log().WithField("slug", util.SanitizeForLog(slug)).Warn("crowdsec preset pull refused: hub item does not match the hub index")
+			logger.Log().WithField("slug", util.SanitizeForLog(slug)).Warn("crowdsec preset pull refused: hub still updating")
 			respondCoded(c, http.StatusConflict, codePresetHubUpdating, msgPresetHubUpdating, nil)
 			return
 		}

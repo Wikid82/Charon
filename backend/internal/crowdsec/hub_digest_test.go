@@ -2,14 +2,15 @@ package crowdsec
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec/hubcachetest"
 )
 
 const (
@@ -63,13 +64,8 @@ func versionsWithDigest(digest string) string {
 	return `{"1.0":{"digest":"` + digest + `"}}`
 }
 
-func sha256Hex(data string) string {
-	sum := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(sum[:])
-}
-
 func TestPullVerifiesIndexDigest(t *testing.T) {
-	good := sha256Hex(digestDemoItem)
+	good := hubcachetest.SHA256Hex([]byte(digestDemoItem))
 	cases := []struct {
 		name     string
 		versions string // "" leaves the versions key out of the index
@@ -106,7 +102,7 @@ func TestPullVerifiesIndexDigest(t *testing.T) {
 func TestPullCacheHitIsNotRecheckedAgainstIndex(t *testing.T) {
 	ctx := context.Background()
 	svc, hub := newDigestHub(t)
-	hub.index = rawDigestIndex(versionsWithDigest(sha256Hex(digestDemoItem)))
+	hub.index = rawDigestIndex(versionsWithDigest(hubcachetest.SHA256Hex([]byte(digestDemoItem))))
 	first, err := svc.Pull(ctx, digestDemoSlug, "")
 	require.NoError(t, err)
 
@@ -126,7 +122,7 @@ func TestVerifyIndexDigest(t *testing.T) {
 		refused bool
 	}{
 		{"absent digest is accepted", "", false},
-		{"matching digest is accepted", sha256Hex(digestDemoItem), false},
+		{"matching digest is accepted", hubcachetest.SHA256Hex([]byte(digestDemoItem)), false},
 		{"malformed digest is refused", "not-a-digest", true},
 		{"mismatched digest is refused", strings.Repeat("0", 64), true},
 	}
@@ -143,7 +139,46 @@ func TestVerifyIndexDigest(t *testing.T) {
 }
 
 func TestHubItemUnverifiedCountsAsHubUpdating(t *testing.T) {
-	require.Contains(t, ErrHubItemUnverified.Error(), "does not match the hub index")
 	require.ErrorIs(t, ErrHubItemUnverified, ErrPresetHubUpdating)
 	require.NotErrorIs(t, ErrPresetHubUpdating, ErrHubItemUnverified)
+}
+
+// Recorded-format fixtures: the index carries the hub's map-of-maps shape with a bare lower-case sha256 under
+// versions[version].digest, and the digest is the sha256 of the item body file.
+const (
+	recordedIndexFixture = "testdata/hub_digest_index.json"
+	recordedItemFixture  = "testdata/hub_digest_item.yaml"
+)
+
+func TestPullVerifiesRecordedIndexFormat(t *testing.T) {
+	index, err := os.ReadFile(recordedIndexFixture) //nolint:gosec // G304: fixed testdata path
+	require.NoError(t, err)
+	item, err := os.ReadFile(recordedItemFixture) //nolint:gosec // G304: fixed testdata path
+	require.NoError(t, err)
+	require.Contains(t, string(index), hubcachetest.SHA256Hex(item), "fixture digest must be the sha256 of the item body")
+
+	t.Run("recorded body is accepted and cached", func(t *testing.T) {
+		ctx := context.Background()
+		svc, hub := newDigestHub(t)
+		hub.index = string(index)
+		hub.item = string(item)
+
+		res, err := svc.Pull(ctx, digestDemoSlug, "")
+		require.NoError(t, err)
+		require.Equal(t, string(item), res.Preview)
+		_, _, loadErr := svc.Cache.LoadItem(ctx, "collections", digestDemoSlug)
+		require.NoError(t, loadErr)
+	})
+
+	t.Run("altered body is refused and not cached", func(t *testing.T) {
+		ctx := context.Background()
+		svc, hub := newDigestHub(t)
+		hub.index = string(index)
+		hub.item = strings.Replace(string(item), "demo", "dem0", 1)
+
+		_, err := svc.Pull(ctx, digestDemoSlug, "")
+		require.ErrorIs(t, err, ErrPresetHubUpdating)
+		_, _, loadErr := svc.Cache.LoadItem(ctx, "collections", digestDemoSlug)
+		require.Error(t, loadErr, "a refused item must not reach the cache")
+	})
 }

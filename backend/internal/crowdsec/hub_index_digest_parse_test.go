@@ -5,10 +5,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec/hubcachetest"
 )
 
 func TestParseRawIndexReadsVersionDigest(t *testing.T) {
-	good := sha256Hex("payload")
+	good := hubcachetest.SHA256Hex([]byte("payload"))
 	cases := []struct {
 		name     string
 		versions string
@@ -31,7 +33,7 @@ func TestParseRawIndexReadsVersionDigest(t *testing.T) {
 }
 
 func TestParseRawIndexDigestNotInJSON(t *testing.T) {
-	idx, err := parseRawIndex([]byte(rawDigestIndex(versionsWithDigest(sha256Hex("payload")))), "https://hub.crowdsec.net")
+	idx, err := parseRawIndex([]byte(rawDigestIndex(versionsWithDigest(hubcachetest.SHA256Hex([]byte("payload"))))), "https://hub.crowdsec.net")
 	require.NoError(t, err)
 	require.NotEmpty(t, idx.Items[0].Digest)
 	raw, err := json.Marshal(idx.Items[0])

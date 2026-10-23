@@ -1,0 +1,13 @@
+{
+  "collections": {
+    "crowdsecurity/demo": {
+      "path": "collections/crowdsecurity/demo.yaml",
+      "version": "1.0",
+      "versions": {
+        "1.0": {
+          "digest": "929b5df3383d0ec1bb5fa41967b40d866ffaf76c0e6e747ebe5cea4eb2136b9d"
+        }
+      }
+    }
+  }
+}
