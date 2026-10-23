@@ -270,12 +270,25 @@ func TestReplaceAcquisitionConfigRenamesWhenInPlaceOpenIsDenied(t *testing.T) {
 	requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backup))
 }
 
-// Any chown failure means the owner could not be kept, so the save writes the live file in place and never fails
-// because of the owner (the rename-based save worked before owner handling existed).
-func TestReplaceAcquisitionConfigSavesInPlaceWhenChownFailsForAnyReason(t *testing.T) {
-	for _, chownErr := range []error{syscall.EPERM, syscall.EINVAL, syscall.ENOTSUP, syscall.EROFS, syscall.EIO} {
-		t.Run(chownErr.Error(), func(t *testing.T) {
-			calls := stubAcquisitionOwner(t, 2000, 2000, chownErr)
+// Only a refused chown (EPERM) makes the save write the live file in place, so its owner is kept. Any other chown
+// failure saves through the atomic rename, as it did before owner handling existed, and the live file is never
+// opened for in-place writing. Every case still succeeds and keeps the backup.
+func TestReplaceAcquisitionConfigSavesByChownErrorKind(t *testing.T) {
+	tests := []struct {
+		name    string
+		chown   error
+		inPlace bool
+	}{
+		{name: "EPERM saves in place", chown: syscall.EPERM, inPlace: true},
+		{name: "EINVAL saves by rename", chown: syscall.EINVAL, inPlace: false},
+		{name: "ENOTSUP saves by rename", chown: syscall.ENOTSUP, inPlace: false},
+		{name: "EROFS saves by rename", chown: syscall.EROFS, inPlace: false},
+		{name: "EIO saves by rename", chown: syscall.EIO, inPlace: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := stubAcquisitionOwner(t, 2000, 2000, tc.chown)
+			inPlaceOpens := countInPlaceOpens(t)
 			acquis, dir := acquisitionFixture(t, 0o600)
 			before, err := os.Stat(acquis)
 			require.NoError(t, err)
@@ -285,12 +298,30 @@ func TestReplaceAcquisitionConfigSavesInPlaceWhenChownFailsForAnyReason(t *testi
 			require.Len(t, *calls, 1)
 			after, err := os.Stat(acquis)
 			require.NoError(t, err)
-			require.True(t, os.SameFile(before, after), "the inode, and with it the owner and any bind mount, is kept")
+			require.Equal(t, tc.inPlace, os.SameFile(before, after), "in place keeps the inode (and owner); rename replaces it")
+			if tc.inPlace {
+				require.Equal(t, 1, *inPlaceOpens, "EPERM writes the live file itself")
+			} else {
+				require.Zero(t, *inPlaceOpens, "a non-EPERM chown failure must never open the live file for in-place writing")
+			}
 			require.NotEmpty(t, backup)
 			requireContent(t, acquis, "new\n")
 			requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backup))
 		})
 	}
+}
+
+// countInPlaceOpens counts how many times the live file is opened for an in-place write.
+func countInPlaceOpens(t *testing.T) *int {
+	t.Helper()
+	orig := openInPlaceFile
+	t.Cleanup(func() { openInPlaceFile = orig })
+	opens := new(int)
+	openInPlaceFile = func(name string, mode fs.FileMode) (acquisitionFile, error) {
+		*opens++
+		return orig(name, mode)
+	}
+	return opens
 }
 
 func TestKeepOwnerLeavesAnUnknownOwnerAlone(t *testing.T) {

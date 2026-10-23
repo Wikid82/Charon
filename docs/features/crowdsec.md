@@ -95,7 +95,7 @@ Hub presets are applied on the server too, with the same safety net: before anyt
 - Installing missing hub items now reports an error if CrowdSec's list of installed items cannot be read, and says what was already installed. Trying again is safe. Configuration changes also stop waiting if you cancel or close the request.
 - The export and import messages are translated into your language.
 - The CrowdSec import accepts only `.tar.gz` archives and checks that the main configuration file is valid YAML before applying anything. If it isn't, Charon tells you what's wrong, for example `config.yaml is not valid YAML` or `only .tar.gz archives are supported`.
-- Backups are shown by name and are stored next to the CrowdSec data folder (for example `/app/data/`). Full snapshots are named `crowdsec.backup.<timestamp>`, single-file saves `crowdsec.filebackup.<timestamp>`. Saved acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file instead. To recover by hand, stop CrowdSec, copy the backup you want back into place, and start it again.
+- Backups are shown by name and are stored next to the CrowdSec data folder (for example `/app/data/`). Full snapshots are named `crowdsec.backup.<timestamp>`, single-file saves `crowdsec.filebackup.<timestamp>`. Saved acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file instead. If Charon cannot keep the acquisition file's original owner, it saves the file as the Charon user. To recover by hand, stop CrowdSec, copy the backup you want back into place, and start it again.
 
 ### Console Enrollment
 
