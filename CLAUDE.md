@@ -160,6 +160,11 @@ never affected by this.
   5. Hardening + enable E2E + docs
 - **Per-Commit Requirement**: Each commit should build and pass its validation gate; the PR as a whole must pass the full Definition of Done before merge.
 
+## Git and Commit Guidelines
+
+- Do not append boilerplate text, disclaimers, or watermarks such as "Claude Code helped produce this change." to commit messages, pull request descriptions, or summaries.
+- Keep pull request summaries strictly focused on the changes introduced.
+
 ## 🔎 Findings Triage & Issue Tracking
 
 Applies to every session (planning, implementation, review, QA, live testing). When you find a bug, defect, risk, or upgrade opportunity that is **outside the scope of the current task**:
@@ -267,6 +272,7 @@ Unlike the retired Management agent, the orchestrating session is **not** banned
 - **playwright-dev** — E2E Testing Specialist; Playwright test automation only — writes tests, reports code bugs back to the orchestrating session rather than fixing them itself
 
 **Rules carried over from the retired Management agent:**
+
 - When multiple implementation options exist, prefer the long-term fix over a quick patch.
 - Parallelize independent delegations freely. Never dispatch a second implementation pass onto files that a previous delegation's `qa-security` review is still validating — two orchestration layers editing the same working tree concurrently is what caused a real stash/reset incident (2026-08-26: a second dispatch's edits got mistaken for external drift and stashed mid-QA). Wait for one delegation, including its QA, to fully land before starting the next one on the same files.
 - **Only the main session commits, pushes, and opens PRs.** Subagents leave changes in the working tree and report back; the orchestrator reviews and publishes them per the Branching Strategy. Enforced by the `PreToolUse` hook `.claude/hooks/block-subagent-git-publish.sh` (covers every subagent, including built-in agents like `general-purpose`). Do NOT add `disallowedTools: Bash(...)` patterns to `.claude/agents/*.md` — they were observed to leave subagents with no Bash access at all. Do not remove the hook without updating this rule.
