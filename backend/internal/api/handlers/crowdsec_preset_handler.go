@@ -202,6 +202,11 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 			respondCoded(c, http.StatusConflict, codePresetTypeAmbiguous, msgPresetTypeAmbiguous, gin.H{"types": ambiguous.Types})
 			return
 		}
+		if errors.Is(err, crowdsec.ErrHubItemUnverified) {
+			logger.Log().WithField("slug", util.SanitizeForLog(slug)).Warn("crowdsec preset pull refused: hub still updating")
+			respondCoded(c, http.StatusConflict, codePresetHubUpdating, msgPresetHubUpdating, nil)
+			return
+		}
 		if errors.Is(err, crowdsec.ErrHubUnreachable) {
 			logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("crowdsec preset pull failed: hub unreachable")
 			respondCoded(c, http.StatusServiceUnavailable, codeHubUnreachable, msgHubUnreachable, gin.H{"hub_endpoints": h.hubEndpoints()})
@@ -357,6 +362,8 @@ const msgPresetTypeAmbiguous = "This name exists in several hub sections. Choose
 
 const msgPresetStale = "The cached preset is outdated or missing. Pull the preset again, then apply it."
 
+const msgPresetHubUpdating = "The hub is still updating. Try again later."
+
 // respondApplyError maps a failed hub preset apply to its status and error code.
 func (h *CrowdsecHandler) respondApplyError(c *gin.Context, err error, res crowdsec.ApplyResult) {
 	extra := applyFailureBody("", res)
@@ -365,7 +372,7 @@ func (h *CrowdsecHandler) respondApplyError(c *gin.Context, err error, res crowd
 	case codePresetCacheStale:
 		respondCoded(c, http.StatusConflict, codePresetCacheStale, msgPresetStale, extra)
 	case codePresetHubUpdating:
-		respondCoded(c, http.StatusConflict, codePresetHubUpdating, "The hub is still updating. Try again later.", extra)
+		respondCoded(c, http.StatusConflict, codePresetHubUpdating, msgPresetHubUpdating, extra)
 	case codePresetLocalModified:
 		var modified *crowdsec.LocalModifiedError
 		if errors.As(err, &modified) {

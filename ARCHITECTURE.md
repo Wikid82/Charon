@@ -892,7 +892,7 @@ snapshot writes its `.charon-apply` sidecar; that name is engine-owned, so full
 snapshots, exports and import extraction skip it. The preset
 cache is laid out as `hub_cache/<type>/<owner>/<name>/` (a name shared by several
 types answers 409 `preset_type_ambiguous`; an unreachable hub, for a pull or an apply, answers 503
-`hub_unreachable`). Every `cscli` call runs through the `runCSCLI` helper with a
+`hub_unreachable`). Before a downloaded hub item is cached, it is checked against the hub index; an item that does not match is refused (409 `preset_hub_updating`). Every `cscli` call runs through the `runCSCLI` helper with a
 deadline, and CrowdSec JSON request bodies are capped at 64 KiB (413
 `request_too_large`). Single-file edits keep their own
 backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). Import and rollback leave

@@ -308,6 +308,10 @@ export default function CrowdSecConfig() {
           setPresetStatusMessage(t('crowdsecConfig.presets.status.typeAmbiguous'))
           return
         }
+        if (getCrowdsecPresetErrorCode(err) === 'preset_hub_updating') {
+          setPresetStatusMessage(t('crowdsecConfig.presets.status.applyHubUpdating'))
+          return
+        }
         if (err.response?.status === 400) {
           setValidationError(err.response.data?.error || t('crowdsecConfig.presets.status.slugInvalid'))
           return
