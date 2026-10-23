@@ -11,8 +11,13 @@ import '@testing-library/jest-dom/vitest'
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
+
+// The 1000ms default for findBy*/waitFor is too tight on loaded CI runners
+// running the coverage-instrumented build; slow renders flake just past it.
+// Passing tests are unaffected - these resolve as soon as the element appears.
+configure({ asyncUtilTimeout: 5000 })
 
 // Global mock for react-i18next to return English translations in tests
 // The import must be done inside the factory since vi.mock is hoisted

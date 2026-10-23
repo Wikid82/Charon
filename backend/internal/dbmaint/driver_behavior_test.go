@@ -272,6 +272,15 @@ func vacuumWithCancel(t *testing.T, db *sql.DB, delay time.Duration) (time.Durat
 	return time.Since(start), err
 }
 
+// isSQLiteTempFile reports whether a /proc/self/fd link is a SQLite temp file:
+// a named "etilqs_*" file, or (SQLite 3.54+) an anonymous O_TMPFILE shown as
+// "<dir>/#<inode> (deleted)".
+func isSQLiteTempFile(link string) bool {
+	base := filepath.Base(link)
+	return strings.Contains(link, "etilqs_") ||
+		(strings.HasPrefix(base, "#") && strings.HasSuffix(base, " (deleted)"))
+}
+
 func openTempFDs(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir("/proc/self/fd")
@@ -279,7 +288,7 @@ func openTempFDs(t *testing.T) []string {
 	var out []string
 	for _, e := range entries {
 		link, err := os.Readlink("/proc/self/fd/" + e.Name())
-		if err == nil && strings.Contains(link, "etilqs_") {
+		if err == nil && isSQLiteTempFile(link) {
 			out = append(out, link)
 		}
 	}
@@ -355,4 +364,21 @@ func TestDriver_JournalSizeLimitTruncatesTheWALAfterAReset(t *testing.T) {
 
 	assert.LessOrEqual(t, walSizeAfterBurst(t, true), int64(limit), "the limit trims the WAL")
 	assert.Greater(t, walSizeAfterBurst(t, false), int64(limit), "control: without the limit the WAL keeps its size")
+}
+
+func TestIsSQLiteTempFile(t *testing.T) {
+	tests := []struct {
+		link string
+		want bool
+	}{
+		{"/tmp/etilqs_abc123", true},
+		{"/var/tmp/#754166 (deleted)", true},
+		{"/tmp/data/charon.db", false},
+		{"/tmp/data/charon.db-wal", false},
+		{"/tmp/#notdeleted", false},
+		{"pipe:[26151243]", false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, isSQLiteTempFile(tt.link), tt.link)
+	}
 }
