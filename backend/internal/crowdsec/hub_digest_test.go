@@ -143,6 +143,10 @@ func TestHubItemUnverifiedCountsAsHubUpdating(t *testing.T) {
 	require.NotErrorIs(t, ErrPresetHubUpdating, ErrHubItemUnverified)
 }
 
+func TestHubItemUnverifiedHasMessage(t *testing.T) {
+	require.NotEmpty(t, ErrHubItemUnverified.Error())
+}
+
 // Recorded-format fixtures: the index carries the hub's map-of-maps shape with a bare lower-case sha256 under
 // versions[version].digest, and the digest is the sha256 of the item body file.
 const (

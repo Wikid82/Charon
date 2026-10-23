@@ -750,11 +750,12 @@ func (hubItemUnverifiedError) Is(target error) bool { return target == ErrPreset
 
 // verifyIndexDigest checks a downloaded hub item against the digest the hub index publishes for its version.
 // An entry without a digest (an index with no record for the version, a mirror, or a custom endpoint) is accepted
-// and logged at debug level, so those endpoints keep working. A malformed digest record or a mismatch is refused.
+// and logged at info level, so those endpoints keep working and the gap stays visible. Each Pull downloads one
+// item, so this logs once per Pull. A malformed digest record or a mismatch is refused.
 // Cache hits never reach this check; they were verified when they were stored.
 func verifyIndexDigest(entry HubIndexEntry, item []byte) error {
 	if entry.Digest == "" {
-		logger.Log().WithField("slug", util.SanitizeForLog(entry.Name)).WithField("digest_checked", false).Debug("hub index has no digest for this item; accepted unverified")
+		logger.Log().WithField("slug", util.SanitizeForLog(entry.Name)).WithField("digest_checked", false).Info("hub item pulled without a digest to compare")
 		return nil
 	}
 	if !sha256HexPattern.MatchString(entry.Digest) || entry.Digest != itemDigest(item) {
