@@ -105,6 +105,8 @@ docker run -d \
   ghcr.io/wikid82/charon:latest
 ```
 
+**Stopping Charon:** `docker stop` gives Charon 30 seconds to shut down cleanly. Docker's default is 10 seconds, so `docker run` commands should add `--stop-timeout 30` (the compose files already set `stop_grace_period: 30s`).
+
 ### What Just Happened?
 
 - **Port 80** and **443**: Where your websites will be accessible (like mysite.com)

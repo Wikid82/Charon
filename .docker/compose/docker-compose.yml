@@ -5,6 +5,8 @@ services:
     image: wikid82/charon:latest
     container_name: charon
     restart: unless-stopped
+    # Time for Charon's graceful shutdown (job drain, server stop) before docker sends SIGKILL.
+    stop_grace_period: 30s
     ports:
       - "80:80"        # HTTP (Caddy proxy)
       - "443:443"      # HTTPS (Caddy proxy)
