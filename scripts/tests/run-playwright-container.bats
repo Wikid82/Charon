@@ -108,3 +108,37 @@ docker_run_line() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"PLAYWRIGHT_IMAGE must be set"* ]]
 }
+
+@test "mounts the host docker CLI and daemon socket and adds the socket group when the socket exists" {
+  # A regular file stands in for the socket: the wrapper only checks existence
+  # and reads its group, and bash cannot create a real unix socket.
+  SOCKET="$TMPROOT/docker.sock"
+  : >"$SOCKET"
+  run_wrapper DOCKER_HOST="unix://$SOCKET" -- --project=chromium
+  [ "$status" -eq 0 ]
+  line="$(docker_run_line)"
+  [[ "$line" == *"--volume $TMPROOT/bin/docker:/usr/local/bin/docker:ro"* ]]
+  [[ "$line" == *"--volume $SOCKET:/var/run/docker.sock"* ]]
+  [[ "$line" == *"--env DOCKER_HOST=unix:///var/run/docker.sock"* ]]
+  [[ "$line" == *"--group-add $(stat -c %g "$SOCKET")"* ]]
+  [[ "$output" != *"docker access skipped"* ]]
+}
+
+@test "skips docker access with a note when the socket is absent" {
+  run_wrapper DOCKER_HOST="unix://$TMPROOT/missing.sock" -- --project=chromium
+  [ "$status" -eq 0 ]
+  line="$(docker_run_line)"
+  [[ "$output" == *"no Docker socket at $TMPROOT/missing.sock; docker access skipped"* ]]
+  [[ "$line" != *"docker.sock"* ]]
+  [[ "$line" != *"--group-add"* ]]
+  [[ "$line" != *"/usr/local/bin/docker"* ]]
+  [[ "$line" == *"$IMAGE node node_modules/@playwright/test/cli.js test --project=chromium"* ]]
+}
+
+@test "skips docker access with a note when DOCKER_HOST is not a unix socket" {
+  run_wrapper DOCKER_HOST=tcp://127.0.0.1:2375 -- --project=chromium
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DOCKER_HOST=tcp://127.0.0.1:2375 is not a unix socket"* ]]
+  [[ "$(docker_run_line)" != *"/usr/local/bin/docker"* ]]
+  [[ "$(docker_run_line)" != *"--group-add"* ]]
+}
