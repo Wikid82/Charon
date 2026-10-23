@@ -751,3 +751,20 @@ func TestCrowdsecFiles_Read_SymlinkToCredentialsRefused(t *testing.T) {
 	assert.Equal(t, "invalid path", errorOf(t, w))
 	assert.NotContains(t, w.Body.String(), "hunter2")
 }
+
+func TestAtomicWriteFileSyncsTheDirectoryAfterRename(t *testing.T) {
+	synced := stubSyncDir(t, nil)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "a.yaml")
+
+	require.NoError(t, atomicWriteFile(target, []byte("one"), 0o600))
+	require.Equal(t, []string{dir}, *synced)
+}
+
+func TestAtomicWriteFileIgnoresADirectorySyncFailure(t *testing.T) {
+	synced := stubSyncDir(t, errors.New("sync refused"))
+	target := filepath.Join(t.TempDir(), "a.yaml")
+
+	require.NoError(t, atomicWriteFile(target, []byte("one"), 0o600))
+	require.Len(t, *synced, 1)
+}

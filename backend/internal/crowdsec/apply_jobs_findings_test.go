@@ -147,6 +147,7 @@ func TestApplyJobRecoveryRestoresBeforeItFailsTheJob(t *testing.T) {
 	require.Equal(t, jobFailed, job.State)
 	require.Equal(t, "interrupted", job.ErrorCode)
 	require.Empty(t, job.Warnings)
+	require.NoFileExists(t, snap+retainMarkerSuffix, "a successful restore keeps nothing")
 }
 
 func TestApplyJobRecoveryRecordsAFailedRestoreTogetherWithTheFailedState(t *testing.T) {
@@ -162,6 +163,7 @@ func TestApplyJobRecoveryRecordsAFailedRestoreTogetherWithTheFailedState(t *test
 	require.Equal(t, jobFailed, job.State)
 	require.Len(t, job.Warnings, 1)
 	require.Contains(t, job.Warnings[0], "could not be restored")
+	require.FileExists(t, snap+retainMarkerSuffix, "a failed restore keeps its snapshot beyond automatic cleanup")
 }
 
 func TestApplyJobRecoveryNeverRestoresAnImplausibleSnapshot(t *testing.T) {

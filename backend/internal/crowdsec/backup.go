@@ -33,6 +33,11 @@ const (
 
 	// snapshotMkdirAttempts bounds retries when a microsecond-named directory already exists.
 	snapshotMkdirAttempts = 3
+
+	// retainMarkerSuffix names the marker that keeps a snapshot after a failed rollback. The marker sits
+	// beside the snapshot, never inside it, so a restore can never copy it back into DataDir.
+	retainMarkerSuffix = ".keep"
+	retainMarkerText   = "kept for manual recovery after a failed rollback; delete this file to allow automatic cleanup\n"
 )
 
 // isLiveDBFile reports whether name is the live CrowdSec SQLite database or its WAL/SHM sidecars.
@@ -321,12 +326,18 @@ func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool, protect
 		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
+		if target, isMarker := strings.CutSuffix(strings.TrimPrefix(name, prefix), retainMarkerSuffix); isMarker {
+			if _, ok := backupTimestamp(target); ok {
+				pruneOrphanRetainMarker(filepath.Join(parent, name), filepath.Join(parent, prefix+target))
+			}
+			continue
+		}
 		ts, ok := backupTimestamp(strings.TrimPrefix(name, prefix))
 		if !ok {
 			continue
 		}
 		path := filepath.Join(parent, name)
-		if slices.Contains(protect, path) {
+		if slices.Contains(protect, path) || isRetained(path) {
 			continue
 		}
 		info, lerr := os.Lstat(path)
@@ -357,6 +368,65 @@ func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool, protect
 	return removed, errors.Join(errs...)
 }
 
+// RetainSnapshot writes the retain marker beside the snapshot directory at backupPath, so pruning never
+// deletes it while the marker exists. A missing path or a symlink has nothing to keep and yields nil, and
+// retaining an already retained snapshot is not an error. A marker that cannot be written is an error.
+func RetainSnapshot(backupPath string) error {
+	info, err := os.Lstat(backupPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat snapshot: %w", err)
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	marker := backupPath + retainMarkerSuffix
+	f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: the marker is the snapshot path plus a fixed suffix, both set by the server
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) && isRetained(backupPath) {
+			return nil
+		}
+		return fmt.Errorf("create retain marker: %w", err)
+	}
+	if _, err := f.WriteString(retainMarkerText); err != nil {
+		_ = f.Close()
+		_ = os.Remove(marker)
+		return fmt.Errorf("write retain marker: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(marker)
+		return fmt.Errorf("close retain marker: %w", err)
+	}
+	return nil
+}
+
+// RetainForRecovery is RetainSnapshot for failure paths that must not change their own error: a marker that
+// cannot be written is logged with the sanitised backup path.
+func RetainForRecovery(backupPath string) {
+	if err := RetainSnapshot(backupPath); err != nil {
+		logger.Log().WithError(err).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("could not keep the backup beyond automatic cleanup")
+	}
+}
+
+// isRetained reports whether path has a regular retain marker beside it.
+func isRetained(path string) bool {
+	info, err := os.Lstat(path + retainMarkerSuffix)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// pruneOrphanRetainMarker removes a retain marker whose snapshot was deleted, for example by an admin.
+// Failures are logged at debug level only: a stray marker is harmless and is retried by the next prune.
+func pruneOrphanRetainMarker(marker, target string) {
+	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	if err := os.Remove(marker); err != nil {
+		logger.Log().WithError(err).WithField("path", util.SanitizeForLog(marker)).Debug("failed to remove orphaned crowdsec backup marker")
+	}
+}
+
 // BackupID returns the client-safe name of a backup: the final path element, never the absolute
 // location. It covers the directory kinds (*.backup.<ts>, *.filebackup.<ts>) and file backups
 // (acquis.yaml.backup.<ts>); an empty path yields an empty name.
@@ -373,6 +443,7 @@ var ErrRollbackFailed = errors.New("rollback failed; backup retained, see server
 // rollbackFailure annotates cause with a failed restore; the snapshot location is logged, never returned.
 func rollbackFailure(cause, restoreErr error, backupPath string) error {
 	logger.Log().WithError(restoreErr).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("preset rollback failed; backup retained for manual recovery")
+	RetainForRecovery(backupPath)
 	return fmt.Errorf("%w (%w)", cause, ErrRollbackFailed)
 }
 

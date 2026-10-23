@@ -715,6 +715,7 @@ func TestApplyRestoreFailureIsReported(t *testing.T) {
 	require.ErrorContains(t, err, "backup retained, see server logs")
 	require.NotContains(t, err.Error(), res.BackupPath, "the backup location stays in server logs")
 	require.NotContains(t, err.Error(), e.dir)
+	require.FileExists(t, res.BackupPath+retainMarkerSuffix, "the snapshot a failed restore left behind is kept beyond automatic cleanup")
 }
 
 func TestApplyPrunesAfterFailureAndKeepsTheFailedSnapshot(t *testing.T) {
