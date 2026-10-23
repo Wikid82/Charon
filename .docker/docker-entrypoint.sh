@@ -9,23 +9,38 @@ echo "Starting Charon with integrated Caddy..."
 # Child PIDs of the background processes started below. Empty until launched.
 APP_PID=""
 CADDY_PID=""
+# PID of the startup command currently running under run_interruptible (cscli, install script).
+# Empty when none is running.
+STARTUP_PID=""
 
-# Forward stop signals to the real Charon and Caddy processes, then wait for them to exit
-# so Charon can run its graceful shutdown (job drain, server shutdown). Installed before any
-# long-running work so `docker stop` is honoured during startup too; with no children
-# running it exits immediately. Exit status is 0 on a clean stop.
+# Stop handling: forward stop signals to the real Charon, Caddy and any startup command, and
+# wait for each to exit so Charon can run its graceful shutdown (job drain, server shutdown).
+# Installed before any long-running work so `docker stop` is honoured during startup too; with
+# no children running it exits immediately.
+# Usage: shutdown [exit_status]. A requested stop (TERM/INT) exits 0. The wait loop passes a
+# non-zero status when a child exits on its own, so the container exits non-zero.
 shutdown() {
+    _rc="${1:-0}"
     echo "Shutting down..."
-    if [ -n "$APP_PID" ]; then kill -TERM "$APP_PID" 2>/dev/null || true; fi
-    if [ -n "$CADDY_PID" ]; then kill -TERM "$CADDY_PID" 2>/dev/null || true; fi
+    # Charon first, so its graceful shutdown finishes while Caddy is still proxying; then Caddy.
+    if [ -n "$APP_PID" ]; then
+        kill -TERM "$APP_PID" 2>/dev/null || true
+        wait "$APP_PID" 2>/dev/null || true
+    fi
+    if [ -n "$CADDY_PID" ]; then
+        kill -TERM "$CADDY_PID" 2>/dev/null || true
+        wait "$CADDY_PID" 2>/dev/null || true
+    fi
+    if [ -n "$STARTUP_PID" ]; then
+        kill -TERM "$STARTUP_PID" 2>/dev/null || true
+        wait "$STARTUP_PID" 2>/dev/null || true
+    fi
     # Note: CrowdSec process lifecycle is managed by backend handlers
     # The backend will handle graceful CrowdSec shutdown when the container stops
-    if [ -n "$APP_PID" ]; then wait "$APP_PID" 2>/dev/null || true; fi
-    if [ -n "$CADDY_PID" ]; then wait "$CADDY_PID" 2>/dev/null || true; fi
-    exit 0
+    exit "$_rc"
 }
 
-trap 'shutdown' TERM INT
+trap 'shutdown 0' TERM INT
 
 is_root() {
     [ "$(id -u)" -eq 0 ]
@@ -48,17 +63,35 @@ list_missing_hub_data_files() {
     done
 }
 
-# Start a command in the background, as the charon user when running as root.
+# Start a command in the background, as the charon user when running as root, and store its PID
+# in the named variable straight away (no gap between launch and assignment for a stop signal).
+# Usage: start_as_charon <PID_VAR> <command> [args...]
 # The `&` MUST live inside this function. Writing `run_as_charon cmd &` backgrounds a
 # function call, which runs in a subshell, so `$!` would be that subshell's PID and signals
 # sent to it would never reach the real process (GH #1655). Here `$!` is the job started
 # directly by this shell. gosu execs its target, so that PID is the real process.
 start_as_charon() {
+    _pid_var="$1"
+    shift
     if is_root; then
         gosu charon "$@" &
     else
         "$@" &
     fi
+    eval "$_pid_var=\$!"
+}
+
+# Run a slow startup command (cscli hub update/upgrade, install script) as an interruptible
+# child: a foreground command would hold off the stop trap until it finished, and `docker stop`
+# would then run into its grace period. Returns the command's exit status, so callers keep their
+# `if !` / `||` handling under set -e.
+run_interruptible() {
+    "$@" &
+    STARTUP_PID=$!
+    _status=0
+    wait "$STARTUP_PID" || _status=$?
+    STARTUP_PID=""
+    return "$_status"
 }
 
 get_group_by_gid() {
@@ -423,7 +456,7 @@ ACQUIS_EOF
     else
         # Always refresh hub index on startup (stale index causes hash mismatch errors on collection install)
         echo "Updating CrowdSec hub index..."
-        if ! timeout 60s cscli hub update 2>&1; then
+        if ! run_interruptible timeout 60s cscli hub update 2>&1; then
             echo "⚠️ Hub index update failed (network issue?). Collections may fail to install."
             echo "   CrowdSec will still start with whatever index is cached."
         fi
@@ -432,7 +465,9 @@ ACQUIS_EOF
         # Collections are just config files with zero runtime cost when CrowdSec is disabled.
         echo "Ensuring CrowdSec hub items are installed..."
         if [ -x /usr/local/bin/install_hub_items.sh ]; then
-            /usr/local/bin/install_hub_items.sh || echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
+            if ! run_interruptible /usr/local/bin/install_hub_items.sh; then
+                echo "⚠️ Some hub items may not have installed. CrowdSec can still start."
+            fi
         fi
 
         # Hub items live under /etc/crowdsec (volume) but their data files live in data_dir. If the
@@ -444,7 +479,7 @@ ACQUIS_EOF
         if [ -n "$MISSING_HUB_DATA" ]; then
             echo "⚠️ CrowdSec hub data files missing from $CS_DATA_DIR: $(echo "$MISSING_HUB_DATA" | tr '\n' ' ')"
             echo "Running 'cscli hub upgrade' to restore them (this also upgrades installed hub items)..."
-            if ! timeout 120s cscli hub upgrade 2>&1; then
+            if ! run_interruptible timeout 120s cscli hub upgrade 2>&1; then
                 echo "⚠️ Hub upgrade failed or timed out. CrowdSec will start, but some detection data may be missing until the next restart."
             fi
             STILL_MISSING="$(list_missing_hub_data_files "$CS_CONFIG_DIR" "$CS_DATA_DIR")"
@@ -484,8 +519,7 @@ echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 # Run Caddy as charon user for security
 echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
-start_as_charon caddy run --config /config/caddy.json
-CADDY_PID=$!
+start_as_charon CADDY_PID caddy run --config /config/caddy.json
 echo "Caddy started (PID: $CADDY_PID)"
 
 # Wait for Caddy to be ready
@@ -523,7 +557,7 @@ if [ "$DEBUG_FLAG" = "1" ]; then
         echo "Note: Delve not available in this image (production build, GO-2026-5024 mitigation)."
         echo "   Running Charon directly. To enable remote debugging, rebuild with:"
         echo "   docker build --build-arg BUILD_DEBUG=1 ..."
-        start_as_charon "$bin_path"
+        start_as_charon APP_PID "$bin_path"
     # Check if binary has debug symbols (required for Delve)
     # objdump -h lists section headers; .debug_info is present if DWARF symbols exist
     elif command -v objdump >/dev/null 2>&1; then
@@ -532,20 +566,19 @@ if [ "$DEBUG_FLAG" = "1" ]; then
             echo "   Delve debugging will NOT work with this binary."
             echo "   To fix, rebuild with: docker build --build-arg BUILD_DEBUG=1 ..."
             echo "   Falling back to normal execution (without debugger)."
-            start_as_charon "$bin_path"
+            start_as_charon APP_PID "$bin_path"
         else
             echo "✓ Debug symbols detected. Running Charon under Delve (port $DEBUG_PORT)"
-            start_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log --
+            start_as_charon APP_PID /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log --
         fi
     else
         # objdump not available, try to run Delve anyway with a warning
         echo "Note: Cannot verify debug symbols (objdump not found). Attempting Delve..."
-        start_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log --
+        start_as_charon APP_PID /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log --
     fi
 else
-    start_as_charon "$bin_path"
+    start_as_charon APP_PID "$bin_path"
 fi
-APP_PID=$!
 echo "Charon started (PID: $APP_PID)"
 
 echo "Charon is running!"
@@ -553,10 +586,23 @@ echo "  - Management UI: http://localhost:8080"
 echo "  - Caddy Proxy: http://localhost:80, https://localhost:443"
 echo "  - Caddy Admin API: http://localhost:2019"
 
-# Wait loop: exit when either process dies, then shutdown the other
+# Wait loop: exit when either process dies, then shut down the other.
 while kill -0 "$APP_PID" 2>/dev/null && kill -0 "$CADDY_PID" 2>/dev/null; do
     sleep 1
 done
 
-echo "A process exited, initiating shutdown..."
-shutdown
+# Reap the process that exited and capture its status. `|| EXIT_RC=$?` keeps set -e from
+# aborting here. The process kill -0 can no longer see is the one that exited.
+EXIT_RC=0
+if kill -0 "$APP_PID" 2>/dev/null; then
+    wait "$CADDY_PID" || EXIT_RC=$?
+    echo "Caddy exited (status $EXIT_RC), initiating shutdown..."
+else
+    wait "$APP_PID" || EXIT_RC=$?
+    echo "Charon exited (status $EXIT_RC), initiating shutdown..."
+fi
+# A child that exits on its own is never a clean stop, so a zero status becomes failure.
+if [ "$EXIT_RC" -eq 0 ]; then
+    EXIT_RC=1
+fi
+shutdown "$EXIT_RC"
