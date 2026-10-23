@@ -1,6 +1,8 @@
 package crowdsec
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,15 +59,57 @@ func TestPruneBackupsKeepsRetainedSnapshotsOutsideTheKeepCount(t *testing.T) {
 
 func TestPruneBackupFilesIgnoresRetainMarkersOfOtherStems(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "acquis.yaml")
-	backup := BackupFilePath(path, time.Now().Add(-time.Minute))
-	require.NoError(t, os.WriteFile(backup, []byte("x"), 0o600))
-	require.NoError(t, os.WriteFile(backup+retainMarkerSuffix, []byte("x"), 0o600))
+	dir := t.TempDir()
+	path := filepath.Join(dir, "acquis.yaml")
+	now := time.Now()
+	older := BackupFilePath(path, now.Add(-2*time.Minute))
+	newer := BackupFilePath(path, now.Add(-time.Minute))
+	for _, b := range []string{older, newer} {
+		require.NoError(t, os.WriteFile(b, []byte("x"), 0o600))
+	}
+	// A marker of another stem (other.yaml) must neither protect nor count against acquis.yaml backups.
+	otherBackup := BackupFilePath(filepath.Join(dir, "other.yaml"), now.Add(-3*time.Minute))
+	require.NoError(t, os.WriteFile(otherBackup, []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(otherBackup+retainMarkerSuffix, []byte("x"), 0o600))
 
 	removed, err := PruneBackupFiles(path, 1)
 	require.NoError(t, err)
-	require.Empty(t, removed)
-	require.FileExists(t, backup)
+	require.Equal(t, []string{older}, removed, "only the older acquis.yaml backup goes; the other stem's marker does not protect it")
+	require.FileExists(t, newer, "the newest acquis.yaml backup survives")
+	require.NoFileExists(t, older)
+	require.FileExists(t, otherBackup, "a backup of another stem is never pruned by this stem")
+	require.FileExists(t, otherBackup+retainMarkerSuffix, "a marker of another stem is never pruned by this stem")
+}
+
+func TestPruneBackupFilesSparesARetainedBackupOfTheSameStem(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "acquis.yaml")
+	now := time.Now()
+	older := BackupFilePath(path, now.Add(-2*time.Minute))
+	newer := BackupFilePath(path, now.Add(-time.Minute))
+	for _, b := range []string{older, newer} {
+		require.NoError(t, os.WriteFile(b, []byte("x"), 0o600))
+	}
+	require.NoError(t, os.WriteFile(older+retainMarkerSuffix, []byte("x"), 0o600))
+
+	removed, err := PruneBackupFiles(path, 1)
+	require.NoError(t, err)
+	require.Empty(t, removed, "the retained older backup is outside the keep count, so the newest one alone is kept and nothing goes")
+	require.FileExists(t, older, "a marker on the same stem protects that file backup")
+	require.FileExists(t, newer)
+}
+
+func TestRollbackFailureReportsTheRollbackWhenTheMarkerCannotBeWritten(t *testing.T) {
+	t.Parallel()
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+	snap := retainTestSnapshots(t, dataDir, 1)[0]
+	// A directory where the marker belongs makes RetainSnapshot fail; the rollback error must still be reported.
+	require.NoError(t, os.MkdirAll(snap+retainMarkerSuffix, 0o750))
+	cause := errors.New("apply broke")
+
+	err := rollbackFailure(cause, errors.New("restore broke"), snap)
+	require.ErrorIs(t, err, cause)
+	require.ErrorIs(t, err, ErrRollbackFailed, "a marker that cannot be written does not hide the failed rollback")
 }
 
 func TestPruneBackupsRemovesOrphanRetainMarkers(t *testing.T) {
@@ -123,4 +167,85 @@ func TestRetainSnapshotReportsAMarkerThatCannotBeWritten(t *testing.T) {
 	require.NoError(t, os.MkdirAll(snap+retainMarkerSuffix, 0o750))
 
 	require.Error(t, RetainSnapshot(snap))
+}
+
+func TestRetainSnapshotReportsAStatErrorOnTheSnapshot(t *testing.T) {
+	skipIfRoot(t)
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+	snap := retainTestSnapshots(t, dataDir, 1)[0]
+	// Without search permission on the parent the snapshot cannot be inspected at all: that is not "missing".
+	lockDir(t, filepath.Dir(snap), 0o600)
+
+	require.Error(t, RetainSnapshot(snap))
+}
+
+// errInjectedRetainMarker is returned by the marker wrapper so tests can tell it from real errors.
+var errInjectedRetainMarker = errors.New("injected retain marker failure")
+
+// failingRetainMarker wraps the real marker file and makes Write or Close fail. Close always closes the real file.
+type failingRetainMarker struct {
+	io.WriteCloser
+	failWrite bool
+	failClose bool
+}
+
+func (m failingRetainMarker) Write(p []byte) (int, error) {
+	if m.failWrite {
+		return 0, errInjectedRetainMarker
+	}
+	return m.WriteCloser.Write(p)
+}
+
+func (m failingRetainMarker) Close() error {
+	if err := m.WriteCloser.Close(); err != nil {
+		return err
+	}
+	if m.failClose {
+		return errInjectedRetainMarker
+	}
+	return nil
+}
+
+// stubRetainMarker makes the marker write or close fail; it must not run in parallel with other marker tests.
+func stubRetainMarker(t *testing.T, failWrite, failClose bool) {
+	t.Helper()
+	orig := openRetainMarker
+	t.Cleanup(func() { openRetainMarker = orig })
+	openRetainMarker = func(name string) (io.WriteCloser, error) {
+		f, err := orig(name)
+		if err != nil {
+			return nil, err
+		}
+		return failingRetainMarker{WriteCloser: f, failWrite: failWrite, failClose: failClose}, nil
+	}
+}
+
+func TestRetainSnapshotFailsWhenTheMarkerCannotBeWrittenOrClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		failWrite, failClo bool
+	}{{"write", true, false}, {"close", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubRetainMarker(t, tc.failWrite, tc.failClo)
+			dataDir := filepath.Join(t.TempDir(), "crowdsec")
+			snap := retainTestSnapshots(t, dataDir, 1)[0]
+
+			require.ErrorIs(t, RetainSnapshot(snap), errInjectedRetainMarker)
+			require.NoFileExists(t, snap+retainMarkerSuffix, "a marker that failed to be written is removed again")
+		})
+	}
+}
+
+func TestPruneBackupsLogsAnOrphanMarkerItCannotRemove(t *testing.T) {
+	skipIfRoot(t)
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+	snaps := retainTestSnapshots(t, dataDir, 1)
+	orphan := dataDir + "." + BackupKindSnapshot + "." + time.Now().Add(-2*time.Hour).Format(backupTimeFormat) + retainMarkerSuffix
+	require.NoError(t, os.WriteFile(orphan, []byte("x"), 0o600))
+	lockDir(t, filepath.Dir(dataDir), 0o500)
+
+	_, err := PruneBackups(dataDir, BackupKindSnapshot, 5)
+	require.NoError(t, err, "a stray marker that cannot be removed is only logged and retried by the next prune")
+	require.FileExists(t, orphan)
+	require.DirExists(t, snaps[0])
 }

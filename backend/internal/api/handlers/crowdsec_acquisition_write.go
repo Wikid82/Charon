@@ -125,8 +125,8 @@ var (
 //
 // A rename over a bind-mounted single file (or across devices, or onto a read-only mount) fails with
 // EBUSY/EXDEV/EROFS; then the content is written in place instead and the backup is kept as the safety net.
-// The same in-place write is used when chown is not permitted; if even opening the live file is denied, the
-// rename is the last resort and the owner changes (logged as a warning).
+// The same in-place write is used when the owner cannot be kept (any chown failure); if opening the live file
+// fails for any reason, the rename is the last resort and the owner changes (logged as a warning).
 func replaceAcquisitionConfig(path, content string, now time.Time) (backupPath string, err error) {
 	path = filepath.Clean(path)
 	sweepStaleAcquisitionTemps(path, now)
@@ -161,20 +161,23 @@ func replaceAcquisitionConfig(path, content string, now time.Time) (backupPath s
 			removeIfSet(createdBackup)
 		}
 	}()
-	inPlace, writeErr := writeTempAcquisition(tmp, content, mode, live)
+	ownerErr, writeErr := writeTempAcquisition(tmp, content, mode, live)
 	if writeErr != nil {
 		return "", writeErr
 	}
-	if inPlace {
+	if ownerErr != nil {
 		opened, ipErr := writeInPlace(path, content, mode)
 		switch {
 		case ipErr == nil:
 			return createdBackup, nil
-		case !opened && errors.Is(ipErr, fs.ErrPermission):
-			logger.Log().WithField("path", util.SanitizeForLog(path)).Warn("acquisition file owner could not be kept; replacing the file instead")
-		default:
+		case opened:
 			createdBackup = "" // the live file may be half-written, so the backup is the only intact copy
 			return "", fmt.Errorf("write acquisition config in place: %w", ipErr)
+		default:
+			// Nothing was touched, so the rename below replaces the file as it did before owner handling existed.
+			uid, gid, _ := fileOwner(live)
+			logger.Log().WithError(ipErr).WithField("path", util.SanitizeForLog(path)).WithField("uid", uid).WithField("gid", gid).
+				Warn("acquisition file owner could not be kept; replacing the file instead")
 		}
 	}
 	if err = renameFile(tmpName, path); err == nil {
@@ -191,16 +194,16 @@ func replaceAcquisitionConfig(path, content string, now time.Time) (backupPath s
 	return createdBackup, nil
 }
 
-// writeTempAcquisition fills the temporary file, chmods it, gives it the live file's owner (see keepOwner),
-// then syncs and closes it. inPlace reports that the owner could not be kept, so the caller writes the live
-// file itself. live is nil when there is no live file yet.
-func writeTempAcquisition(tmp acquisitionFile, content string, mode fs.FileMode, live fs.FileInfo) (inPlace bool, err error) {
+// writeTempAcquisition fills the temporary file, chmods it, tries to give it the live file's owner (see
+// keepOwner), then syncs and closes it. ownerErr is non-nil when the owner could not be kept, so the caller
+// writes the live file itself; err is a failure that stops the save. live is nil when there is no live file yet.
+func writeTempAcquisition(tmp acquisitionFile, content string, mode fs.FileMode, live fs.FileInfo) (ownerErr, err error) {
 	_, err = tmp.Write([]byte(content))
 	if err == nil {
 		err = tmp.Chmod(mode)
 	}
 	if err == nil {
-		inPlace, err = keepOwner(tmp, live)
+		ownerErr = keepOwner(tmp, live)
 	}
 	if err == nil {
 		err = tmp.Sync()
@@ -209,35 +212,32 @@ func writeTempAcquisition(tmp acquisitionFile, content string, mode fs.FileMode,
 		err = closeErr
 	}
 	if err != nil {
-		return false, fmt.Errorf("write temporary acquisition config: %w", err)
+		return nil, fmt.Errorf("write temporary acquisition config: %w", err)
 	}
-	return inPlace, nil
+	return ownerErr, nil
 }
 
 // keepOwner gives the temporary file the owner of the live file, so the rename does not change who owns the
 // file the engine reads. A new file (live nil), an unknown owner and an owner that already is the process
-// owner need nothing. When chown is not permitted (EPERM), inPlace asks the caller to write the live file
-// itself: keeping the inode keeps owner and bind mounts intact. That write is not atomic; the backup is the
-// safety net for it, and refusing the save would break root-started containers where the rename works today.
-func keepOwner(tmp acquisitionFile, live fs.FileInfo) (inPlace bool, err error) {
+// owner need nothing. Any chown failure is returned rather than fatal: the caller then writes the live file
+// itself, which keeps its inode, owner and bind mounts. That write is not atomic, so the backup is the safety
+// net for it. The fallback matters for a non-root process saving a file owned by another uid, where chown fails
+// (EPERM) while root's chown succeeds; refusing the save would break deployments where the rename works today.
+func keepOwner(tmp acquisitionFile, live fs.FileInfo) error {
 	if live == nil {
-		return false, nil
+		return nil
 	}
 	uid, gid, ok := fileOwner(live)
 	if !ok {
-		return false, nil
+		return nil
 	}
 	if processUID, processGID := processOwner(); uid == processUID && gid == processGID {
-		return false, nil
+		return nil
 	}
-	switch err = tmp.Chown(uid, gid); {
-	case err == nil:
-		return false, nil
-	case errors.Is(err, fs.ErrPermission):
-		return true, nil
-	default:
-		return false, fmt.Errorf("keep acquisition file owner: %w", err)
+	if err := tmp.Chown(uid, gid); err != nil {
+		return fmt.Errorf("keep acquisition file owner: %w", err)
 	}
+	return nil
 }
 
 // writeInPlace replaces the content of the live file at path without renaming it, so the inode, owner and mode

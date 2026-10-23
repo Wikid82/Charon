@@ -3,6 +3,7 @@ package crowdsec
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -383,14 +384,14 @@ func RetainSnapshot(backupPath string) error {
 		return nil
 	}
 	marker := backupPath + retainMarkerSuffix
-	f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: the marker is the snapshot path plus a fixed suffix, both set by the server
+	f, err := openRetainMarker(marker)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) && isRetained(backupPath) {
 			return nil
 		}
 		return fmt.Errorf("create retain marker: %w", err)
 	}
-	if _, err := f.WriteString(retainMarkerText); err != nil {
+	if _, err := f.Write([]byte(retainMarkerText)); err != nil {
 		_ = f.Close()
 		_ = os.Remove(marker)
 		return fmt.Errorf("write retain marker: %w", err)
@@ -400,6 +401,15 @@ func RetainSnapshot(backupPath string) error {
 		return fmt.Errorf("close retain marker: %w", err)
 	}
 	return nil
+}
+
+// openRetainMarker creates a retain marker exclusively. It is a seam so tests can make writing or closing it fail.
+var openRetainMarker = func(name string) (io.WriteCloser, error) {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: the marker is the snapshot path plus a fixed suffix, both set by the server
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 // RetainForRecovery is RetainSnapshot for failure paths that must not change their own error: a marker that

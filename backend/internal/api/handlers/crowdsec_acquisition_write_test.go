@@ -270,15 +270,45 @@ func TestReplaceAcquisitionConfigRenamesWhenInPlaceOpenIsDenied(t *testing.T) {
 	requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backup))
 }
 
-func TestReplaceAcquisitionConfigFailsCleanlyWhenChownFails(t *testing.T) {
-	stubAcquisitionOwner(t, 2000, 2000, syscall.EIO)
-	acquis, dir := acquisitionFixture(t, 0o600)
+// Any chown failure means the owner could not be kept, so the save writes the live file in place and never fails
+// because of the owner (the rename-based save worked before owner handling existed).
+func TestReplaceAcquisitionConfigSavesInPlaceWhenChownFailsForAnyReason(t *testing.T) {
+	for _, chownErr := range []error{syscall.EPERM, syscall.EINVAL, syscall.ENOTSUP, syscall.EROFS, syscall.EIO} {
+		t.Run(chownErr.Error(), func(t *testing.T) {
+			calls := stubAcquisitionOwner(t, 2000, 2000, chownErr)
+			acquis, dir := acquisitionFixture(t, 0o600)
+			before, err := os.Stat(acquis)
+			require.NoError(t, err)
 
-	backup, err := replaceAcquisitionConfig(acquis, "new\n", time.Now())
-	require.ErrorIs(t, err, syscall.EIO)
-	require.Empty(t, backup)
-	requireContent(t, acquis, "original\n")
-	requireOnlyEntries(t, dir, "acquis.yaml")
+			backup, err := replaceAcquisitionConfig(acquis, "new\n", time.Now())
+			require.NoError(t, err)
+			require.Len(t, *calls, 1)
+			after, err := os.Stat(acquis)
+			require.NoError(t, err)
+			require.True(t, os.SameFile(before, after), "the inode, and with it the owner and any bind mount, is kept")
+			require.NotEmpty(t, backup)
+			requireContent(t, acquis, "new\n")
+			requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backup))
+		})
+	}
+}
+
+func TestKeepOwnerLeavesAnUnknownOwnerAlone(t *testing.T) {
+	origOwner := fileOwner
+	t.Cleanup(func() { fileOwner = origOwner })
+	fileOwner = func(fs.FileInfo) (int, int, bool) { return 0, 0, false }
+	live := filepath.Join(t.TempDir(), "live")
+	require.NoError(t, os.WriteFile(live, []byte("x"), 0o600))
+	info, err := os.Stat(live)
+	require.NoError(t, err)
+	f, err := os.CreateTemp(t.TempDir(), "acquis.yaml.tmp-*")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.Close()) }()
+	var calls [][2]int
+	tmp := chownAcquisitionFile{acquisitionFile: f, calls: &calls, err: syscall.EIO}
+
+	require.NoError(t, keepOwner(tmp, info), "an owner that cannot be read is not a failure")
+	require.Empty(t, calls, "without a known owner there is nothing to chown to")
 }
 
 func TestReplaceAcquisitionConfigKeepsBackupWhenInPlaceWriteFails(t *testing.T) {
@@ -338,6 +368,25 @@ func TestSweepStaleAcquisitionTempsRemovesOnlyOldRegularTemps(t *testing.T) {
 
 	sweepStaleAcquisitionTemps(acquis, now)
 	requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(fresh), filepath.Base(link), filepath.Base(subdir), filepath.Base(unrelated))
+
+	// Far enough in the future that the fresh temp is old too: only the IsRegular check now keeps the symlink
+	// and the directory, and the old regular temp is already gone.
+	sweepStaleAcquisitionTemps(acquis, time.Now().Add(24*time.Hour))
+	requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(link), filepath.Base(subdir), filepath.Base(unrelated))
+}
+
+func TestSweepStaleAcquisitionTempsLeavesNearMissNamesAlone(t *testing.T) {
+	dir := t.TempDir()
+	acquis := filepath.Join(dir, "acquis.yaml")
+	old := time.Now().Add(-time.Hour)
+	nearMisses := []string{acquis + ".tmpX", filepath.Join(dir, "other.yaml.tmp-1")}
+	for _, name := range nearMisses {
+		require.NoError(t, os.WriteFile(name, []byte("x"), 0o600))
+		require.NoError(t, os.Chtimes(name, old, old))
+	}
+
+	sweepStaleAcquisitionTemps(acquis, time.Now().Add(24*time.Hour))
+	requireOnlyEntries(t, dir, filepath.Base(nearMisses[0]), filepath.Base(nearMisses[1]))
 }
 
 func TestSweepStaleAcquisitionTempsToleratesAMissingDirectory(t *testing.T) {
@@ -371,6 +420,31 @@ func stubSyncDir(t *testing.T, syncErr error) *[]string {
 		return syncErr
 	}
 	return synced
+}
+
+// TestReplaceAcquisitionConfigBestEffortStepsDoNotFailTheSave makes the directory unreadable (mode 0o300: write and
+// search only). The stale-temp sweep cannot list it and the directory sync cannot open it; both must only log.
+func TestReplaceAcquisitionConfigBestEffortStepsDoNotFailTheSave(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not bind root")
+	}
+	dir := t.TempDir()
+	acquis := filepath.Join(dir, "acquis.yaml")
+	require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o600))
+	stale := acquis + ".tmp-111"
+	require.NoError(t, os.WriteFile(stale, []byte("x"), 0o600))
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(stale, old, old))
+	require.NoError(t, os.Chmod(dir, 0o300))       //nolint:gosec // G302: test needs a directory that cannot be read
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // G302: restore owner access so cleanup can remove it
+
+	backup, err := replaceAcquisitionConfig(acquis, "new\n", time.Now())
+	require.NoError(t, err, "the save does not depend on listing or syncing the directory")
+	require.NotEmpty(t, backup)
+	requireContent(t, acquis, "new\n")
+
+	require.NoError(t, os.Chmod(dir, 0o700)) //nolint:gosec // G302: restore owner access to list the directory
+	requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backup), filepath.Base(stale))
 }
 
 func TestReplaceAcquisitionConfigSyncsTheDirectoryOnceAfterRename(t *testing.T) {
@@ -418,4 +492,45 @@ func TestReplaceAcquisitionConfigIgnoresADirectorySyncFailure(t *testing.T) {
 	require.NoError(t, err, "the new content is already in place, so a sync failure only logs")
 	require.Len(t, *synced, 1)
 	requireContent(t, acquis, "new\n")
+}
+
+func TestSweepStaleAcquisitionTempsSkipsEntriesItCannotInspectOrRemove(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not bind root")
+	}
+	dir := t.TempDir()
+	acquis := filepath.Join(dir, "acquis.yaml")
+	stale := acquis + ".tmp-111"
+	require.NoError(t, os.WriteFile(stale, []byte("x"), 0o600))
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(stale, old, old))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // G302: restore owner access so cleanup can remove it
+
+	// Readable but not searchable: the names list, but the entry cannot be inspected.
+	require.NoError(t, os.Chmod(dir, 0o400)) //nolint:gosec // G302: test needs a directory that cannot be searched
+	sweepStaleAcquisitionTemps(acquis, time.Now())
+	// Searchable but not writable: the entry is inspected, but cannot be removed.
+	require.NoError(t, os.Chmod(dir, 0o500)) //nolint:gosec // G302: test needs a directory that cannot be written
+	sweepStaleAcquisitionTemps(acquis, time.Now())
+
+	require.NoError(t, os.Chmod(dir, 0o700)) //nolint:gosec // G302: restore owner access to check the entry
+	require.FileExists(t, stale, "entries that cannot be inspected or removed are skipped, never fatal")
+}
+
+// noStatInfo is a FileInfo without a platform stat record, so its owner cannot be read.
+type noStatInfo struct{ fs.FileInfo }
+
+func (noStatInfo) Sys() any { return nil }
+
+func TestFileOwnerReadsTheOwnerOfARealFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "acquis.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+
+	uid, _, ok := fileOwner(info)
+	require.True(t, ok)
+	require.Equal(t, os.Geteuid(), uid, "the test created the file, so this process owns it")
+	_, _, ok = fileOwner(noStatInfo{FileInfo: info})
+	require.False(t, ok, "without a stat record the owner is unknown")
 }
