@@ -23,6 +23,13 @@ func newAsyncJobsTestDB(t *testing.T) *gorm.DB {
 	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
+	// Match production's single-connection pool (database.go). Shared-cache
+	// SQLite reports concurrent table access from separate connections as an
+	// immediate "table is locked" (busy_timeout does not apply), which flaked
+	// jobs racing the async SecurityService writer.
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
 		&models.BackupJob{},
 		&models.BackupRecord{},
