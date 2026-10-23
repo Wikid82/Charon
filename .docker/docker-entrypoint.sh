@@ -6,6 +6,27 @@ set -e
 
 echo "Starting Charon with integrated Caddy..."
 
+# Child PIDs of the background processes started below. Empty until launched.
+APP_PID=""
+CADDY_PID=""
+
+# Forward stop signals to the real Charon and Caddy processes, then wait for them to exit
+# so Charon can run its graceful shutdown (job drain, server shutdown). Installed before any
+# long-running work so `docker stop` is honoured during startup too; with no children
+# running it exits immediately. Exit status is 0 on a clean stop.
+shutdown() {
+    echo "Shutting down..."
+    if [ -n "$APP_PID" ]; then kill -TERM "$APP_PID" 2>/dev/null || true; fi
+    if [ -n "$CADDY_PID" ]; then kill -TERM "$CADDY_PID" 2>/dev/null || true; fi
+    # Note: CrowdSec process lifecycle is managed by backend handlers
+    # The backend will handle graceful CrowdSec shutdown when the container stops
+    if [ -n "$APP_PID" ]; then wait "$APP_PID" 2>/dev/null || true; fi
+    if [ -n "$CADDY_PID" ]; then wait "$CADDY_PID" 2>/dev/null || true; fi
+    exit 0
+}
+
+trap 'shutdown' TERM INT
+
 is_root() {
     [ "$(id -u)" -eq 0 ]
 }
@@ -27,11 +48,16 @@ list_missing_hub_data_files() {
     done
 }
 
-run_as_charon() {
+# Start a command in the background, as the charon user when running as root.
+# The `&` MUST live inside this function. Writing `run_as_charon cmd &` backgrounds a
+# function call, which runs in a subshell, so `$!` would be that subshell's PID and signals
+# sent to it would never reach the real process (GH #1655). Here `$!` is the job started
+# directly by this shell. gosu execs its target, so that PID is the real process.
+start_as_charon() {
     if is_root; then
-        gosu charon "$@"
+        gosu charon "$@" &
     else
-        "$@"
+        "$@" &
     fi
 }
 
@@ -458,7 +484,7 @@ echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 # Run Caddy as charon user for security
 echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
-run_as_charon caddy run --config /config/caddy.json &
+start_as_charon caddy run --config /config/caddy.json
 CADDY_PID=$!
 echo "Caddy started (PID: $CADDY_PID)"
 
@@ -497,7 +523,7 @@ if [ "$DEBUG_FLAG" = "1" ]; then
         echo "Note: Delve not available in this image (production build, GO-2026-5024 mitigation)."
         echo "   Running Charon directly. To enable remote debugging, rebuild with:"
         echo "   docker build --build-arg BUILD_DEBUG=1 ..."
-        run_as_charon "$bin_path" &
+        start_as_charon "$bin_path"
     # Check if binary has debug symbols (required for Delve)
     # objdump -h lists section headers; .debug_info is present if DWARF symbols exist
     elif command -v objdump >/dev/null 2>&1; then
@@ -506,34 +532,21 @@ if [ "$DEBUG_FLAG" = "1" ]; then
             echo "   Delve debugging will NOT work with this binary."
             echo "   To fix, rebuild with: docker build --build-arg BUILD_DEBUG=1 ..."
             echo "   Falling back to normal execution (without debugger)."
-            run_as_charon "$bin_path" &
+            start_as_charon "$bin_path"
         else
             echo "✓ Debug symbols detected. Running Charon under Delve (port $DEBUG_PORT)"
-            run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+            start_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log --
         fi
     else
         # objdump not available, try to run Delve anyway with a warning
         echo "Note: Cannot verify debug symbols (objdump not found). Attempting Delve..."
-        run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+        start_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log --
     fi
 else
-    run_as_charon "$bin_path" &
+    start_as_charon "$bin_path"
 fi
 APP_PID=$!
 echo "Charon started (PID: $APP_PID)"
-shutdown() {
-    echo "Shutting down..."
-    kill -TERM "$APP_PID" 2>/dev/null || true
-    kill -TERM "$CADDY_PID" 2>/dev/null || true
-    # Note: CrowdSec process lifecycle is managed by backend handlers
-    # The backend will handle graceful CrowdSec shutdown when the container stops
-    wait "$APP_PID" 2>/dev/null || true
-    wait "$CADDY_PID" 2>/dev/null || true
-    exit 0
-}
-
-# Trap signals for graceful shutdown
-trap 'shutdown' TERM INT
 
 echo "Charon is running!"
 echo "  - Management UI: http://localhost:8080"
