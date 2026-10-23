@@ -58,6 +58,9 @@ type HubIndexEntry struct {
 	Etag        string `json:"etag"`
 	DownloadURL string `json:"download_url"`
 	PreviewURL  string `json:"preview_url"`
+	// Digest is the hub's lower-case sha256 of the item file for the indexed version. It is empty when the index
+	// has no record for that version, and it is never part of an API response.
+	Digest string `json:"-"`
 }
 
 // HubIndex is a small wrapper for hub listing payloads.
@@ -368,12 +371,19 @@ func validIndexPath(p string) bool {
 	return !slices.Contains(strings.Split(p, "/"), "..")
 }
 
+// rawIndexItem is one item record of the raw hub index. Versions maps each published version to its record,
+// which carries the digest of that version's item file.
+type rawIndexItem struct {
+	Path        string `json:"path"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Versions    map[string]struct {
+		Digest string `json:"digest"`
+	} `json:"versions"`
+}
+
 func parseRawIndex(raw []byte, baseURL string) (HubIndex, error) {
-	bucket := map[string]map[string]struct {
-		Path        string `json:"path"`
-		Version     string `json:"version"`
-		Description string `json:"description"`
-	}{}
+	bucket := map[string]map[string]rawIndexItem{}
 	if err := json.Unmarshal(raw, &bucket); err != nil {
 		return HubIndex{}, fmt.Errorf("parse raw index: %w", err)
 	}
@@ -412,6 +422,7 @@ func parseRawIndex(raw []byte, baseURL string) (HubIndex, error) {
 				Etag:        obj.Version,
 				DownloadURL: dlURL,
 				PreviewURL:  dlURL,
+				Digest:      strings.ToLower(strings.TrimSpace(obj.Versions[obj.Version].Digest)),
 			}
 			items = append(items, entry)
 		}
@@ -629,6 +640,9 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 	if err != nil {
 		return PullResult{}, fmt.Errorf("download preset: %w", err)
 	}
+	if verifyErr := verifyIndexDigest(entry, item); verifyErr != nil {
+		return PullResult{}, verifyErr
+	}
 	if checkErr := checkHubItem(item); checkErr != nil {
 		return PullResult{}, checkErr
 	}
@@ -718,6 +732,36 @@ func resolveItemType(idx HubIndex, slug string) (string, error) {
 	}
 	slices.Sort(types)
 	return "", &AmbiguousTypeError{Types: types}
+}
+
+// ErrHubItemUnverified is returned when a downloaded hub item does not match the digest the hub index publishes
+// for its version, or when that digest record is malformed. It satisfies errors.Is(err, ErrPresetHubUpdating):
+// the index and the item files are published at different moments, so a retry normally succeeds.
+var ErrHubItemUnverified error = hubItemUnverifiedError{}
+
+type hubItemUnverifiedError struct{}
+
+func (hubItemUnverifiedError) Error() string {
+	return "the downloaded hub item does not match the hub index; the hub may still be updating, try again later"
+}
+
+// Is makes an unverified item count as the hub still updating, so both reach the same retryable answer.
+func (hubItemUnverifiedError) Is(target error) bool { return target == ErrPresetHubUpdating }
+
+// verifyIndexDigest checks a downloaded hub item against the digest the hub index publishes for its version.
+// An entry without a digest (an index with no record for the version, a mirror, or a custom endpoint) is accepted
+// and logged at debug level, so those endpoints keep working. A malformed digest record or a mismatch is refused.
+// Cache hits never reach this check; they were verified when they were stored.
+func verifyIndexDigest(entry HubIndexEntry, item []byte) error {
+	if entry.Digest == "" {
+		logger.Log().WithField("slug", util.SanitizeForLog(entry.Name)).WithField("digest_checked", false).Debug("hub index has no digest for this item; accepted unverified")
+		return nil
+	}
+	if !sha256HexPattern.MatchString(entry.Digest) || entry.Digest != itemDigest(item) {
+		return ErrHubItemUnverified
+	}
+	logger.Log().WithField("slug", util.SanitizeForLog(entry.Name)).WithField("digest_checked", true).Debug("hub item matches the hub index digest")
+	return nil
 }
 
 // checkHubItem requires a hub download to be one raw YAML mapping. Archives, HTML pages and other
