@@ -280,6 +280,9 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	)
 	bouncerKeyFile = filepath.Clean(bouncerKeyFile)
 
+	// Every cscli call below reads the same engine configuration as the running engine (empty when none is found).
+	configPath := crowdsec.FindConfigFile(dataDir)
+
 	// Wait for LAPI to be ready (poll cscli lapi status)
 	logger.Log().Info("CrowdSec bouncer registration: waiting for LAPI to be ready...")
 	deadline := time.Now().Add(maxLAPIWait)
@@ -287,11 +290,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 
 	for time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		args := []string{"lapi", "status"}
-		if _, err := os.Stat(filepath.Join(dataDir, "config.yaml")); err == nil {
-			args = append([]string{"-c", filepath.Join(dataDir, "config.yaml")}, args...)
-		}
-		_, err := cmdExec.Execute(ctx, "cscli", args...)
+		_, err := crowdsec.RunCSCLI(ctx, cmdExec, configPath, "lapi", "status")
 		cancel()
 
 		if err == nil {
@@ -335,14 +334,14 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 
 	// Delete existing bouncer if present (stale registration)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	_, _ = cmdExec.Execute(ctx, "cscli", "bouncers", "delete", bouncerName)
+	_, _ = crowdsec.RunCSCLI(ctx, cmdExec, configPath, "bouncers", "delete", bouncerName)
 	cancel()
 
 	// Register new bouncer
 	regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer regCancel()
 
-	output, err := cmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
+	output, err := crowdsec.RunCSCLI(regCtx, cmdExec, configPath, "bouncers", "add", bouncerName, "-o", "raw")
 	if err != nil {
 		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Error("bouncer registration failed")
 		return fmt.Errorf("bouncer registration failed: %w", err)
