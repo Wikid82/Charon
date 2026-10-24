@@ -35,7 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
 import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
-import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
+import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist, whitelistAddErrorMessage } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
 import { sanitizeSecret } from '../utils/sanitizeSecret'
@@ -490,11 +490,11 @@ export default function CrowdSecConfig() {
   const addWhitelistMutation = useAddWhitelist()
   const deleteWhitelistMutation = useDeleteWhitelist()
 
-  const whitelistInlineError = addWhitelistMutation.error instanceof Error
-    ? addWhitelistMutation.error.message
-    : addWhitelistMutation.error != null
-    ? t('crowdsecConfig.whitelist.addFailed')
-    : null
+  // A busy refusal is not a field problem: the toast from useAddWhitelist carries the message instead.
+  const whitelistInlineError =
+    addWhitelistMutation.error != null && !isCrowdsecBusyError(addWhitelistMutation.error)
+      ? whitelistAddErrorMessage(addWhitelistMutation.error, t)
+      : null
 
   const handleAddMyIP = async () => {
     try {
