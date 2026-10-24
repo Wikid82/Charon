@@ -260,7 +260,7 @@ func TestBouncerPrecedence_SaveFailureIsNotFatalForEnvKey(t *testing.T) {
 	require.Equal(t, 0, apply.calls, "the file still holds the stale key, so a re-apply changes nothing")
 }
 
-func TestBouncerPrecedence_SaveFailureAfterRegistrationStillApplies(t *testing.T) {
+func TestBouncerPrecedence_SaveFailureAfterRegistrationSkipsApply(t *testing.T) {
 	lapiURL, _ := newKeyLAPI(t)
 	clearKeyEnv(t, "")
 	dataDir := filepath.Join(t.TempDir(), "not-a-directory")
@@ -275,7 +275,24 @@ func TestBouncerPrecedence_SaveFailureAfterRegistrationStillApplies(t *testing.T
 
 	apply := &applyCounter{}
 	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
-	require.Equal(t, 1, apply.calls, "a fresh key is still applied for this session")
+	require.Equal(t, 0, apply.calls, "the key file does not hold the new key, so a re-apply would not read it")
+}
+
+func TestBouncerPrecedence_RegisteredKeySavedAppliesOnce(t *testing.T) {
+	lapiURL, _ := newKeyLAPI(t)
+	clearKeyEnv(t, "")
+	dataDir := t.TempDir()
+	h := newPrecedenceHandler(t, lapiURL, dataDir, bouncerRegisterMock())
+
+	res, err := h.ensureBouncerRegistration(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, bouncerkey.OutcomeRegistered, res.Outcome)
+	require.NoError(t, res.SaveErr)
+	require.Equal(t, precNewKey, bouncerkey.ReadFile(filepath.Join(dataDir, "bouncer_key")))
+
+	apply := &applyCounter{}
+	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
+	require.Equal(t, 1, apply.calls, "a registered key that was saved is applied once")
 }
 
 func TestBouncerPrecedence_RegisterFailureSkipsApply(t *testing.T) {
@@ -323,6 +340,8 @@ func TestBouncerPrecedence_GetKeyStatusBranches(t *testing.T) {
 		fileKey       string
 		env           string
 		rejected      bool
+		saveFailed    bool
+		registerFail  bool
 		accepted      []string
 		wantSource    string
 		wantFullKey   bool
@@ -338,6 +357,16 @@ func TestBouncerPrecedence_GetKeyStatusBranches(t *testing.T) {
 		{
 			name: "rejected env but saved file empty falls to env without full key", fileKey: "", env: rejectedEn, rejected: true,
 			wantSource: "env", wantRejected: true, wantMsgSubstr: "rejected",
+		},
+		{
+			name: "rejected, save failed, stale file present", fileKey: fileKey, env: rejectedEn, rejected: true, saveFailed: true,
+			accepted: []string{fileKey}, wantSource: "file", wantValid: true,
+			wantRejected: true, wantMsgSubstr: "could not save the new key to",
+		},
+		{
+			name: "rejected, registration failed, stale file present", fileKey: fileKey, env: rejectedEn, rejected: true, registerFail: true,
+			accepted: []string{fileKey}, wantSource: "file", wantValid: true,
+			wantRejected: true, wantMsgSubstr: "could not register a new key with CrowdSec",
 		},
 		{
 			name: "file only", fileKey: fileKey, accepted: []string{fileKey},
@@ -370,6 +399,8 @@ func TestBouncerPrecedence_GetKeyStatusBranches(t *testing.T) {
 			}
 			h := newPrecedenceHandler(t, lapiURL, dataDir, noCSCLIMock())
 			h.envKeyRejected = tc.rejected
+			h.rejectedEnvSaveFailed = tc.saveFailed
+			h.rejectedEnvRegisterFailed = tc.registerFail
 			if tc.rejected {
 				h.rejectedEnvKey = rejectedEn
 			}

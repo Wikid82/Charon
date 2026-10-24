@@ -104,7 +104,7 @@ type EnsureResult struct {
 	EnvKeyIgnored bool
 	// EnvKeyRejected is true when an env value was present but LAPI did not accept it.
 	EnvKeyRejected bool
-	// SaveErr is a failed save of Key. The key is still valid for the session.
+	// SaveErr is a failed save of Key. Nothing else holds the key, so readers of the key file do not see it.
 	SaveErr error
 }
 

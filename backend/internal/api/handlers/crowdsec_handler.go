@@ -1797,7 +1797,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bounce
 
 // handleBouncerRegistration logs the outcome of ensureBouncerRegistration and re-applies
 // the Caddy config when the proxy needs the key that was just chosen. Caddy reads the key
-// file first, so a save that failed after a valid env key leaves nothing to re-apply.
+// file first, so a failed save leaves the file without the new key and nothing to re-apply.
 func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bouncerkey.EnsureResult, regErr error, applyConfig func(context.Context) error) {
 	keyPath := h.bouncerKeyPath()
 
@@ -1821,7 +1821,9 @@ func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bou
 	switch res.Outcome {
 	case bouncerkey.OutcomeRegistered:
 		h.logBouncerKeyBanner(res.Key, res.SaveErr)
-		h.reapplyCaddy(ctx, applyConfig)
+		if res.SaveErr == nil {
+			h.reapplyCaddy(ctx, applyConfig)
+		}
 	case bouncerkey.OutcomeEnvKeySaved:
 		if res.SaveErr == nil {
 			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: env var key validated and saved to key file")
