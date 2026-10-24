@@ -219,7 +219,7 @@ func TestEnsureBouncerRegistration_KeyDirectoryUnavailable(t *testing.T) {
 
 	err := ensureBouncerRegistration(h.dataDir, filepath.Join(blocker, "bouncer_key"), exec)
 
-	// Intended flip: a failed save is not fatal; the key is valid for this run and the Error log names the path.
+	// A failed save is not fatal; the Error log names the path and says CrowdSec blocking depends on the file.
 	require.NoError(t, err)
 	assert.Contains(t, strings.Join(h.channels(h.drain()), "\n"), blocker)
 	_, statErr := os.Stat(filepath.Join(blocker, "bouncer_key"))

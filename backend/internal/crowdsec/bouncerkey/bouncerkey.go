@@ -154,3 +154,17 @@ func Ensure(
 	res.SaveErr = save(path, newKey)
 	return res, nil
 }
+
+// SaveFailedNotice says the new key could not be written to path. The new key is held nowhere else, so
+// CrowdSec blocking depends on the key file becoming writable.
+func SaveFailedNotice(path string) string {
+	return "Charon could not save the new key to " + path +
+		"; CrowdSec blocking may not work until the key file can be written. " +
+		"Fix write access to the data directory and restart CrowdSec."
+}
+
+// RegisterFailedNotice says no replacement key could be registered, so no new key was saved to path.
+func RegisterFailedNotice(path string) string {
+	return "Charon could not register a new key with CrowdSec, so no new key was saved to " + path +
+		". CrowdSec blocking may not work until a key can be registered."
+}

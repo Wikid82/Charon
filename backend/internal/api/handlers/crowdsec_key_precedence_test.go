@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -190,6 +191,40 @@ func TestBouncerPrecedence_BothKeysRejectedRegistersAndSetsRejectedState(t *test
 	apply := &applyCounter{}
 	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
 	require.Equal(t, 1, apply.calls, "a new registration needs one Caddy re-apply")
+}
+
+// bouncerRegisterFailMock accepts bouncer delete and fails bouncer add, so no replacement key is produced.
+func bouncerRegisterFailMock() *MockCommandExecutor {
+	m := new(MockCommandExecutor)
+	m.On("Execute", mock.Anything, "cscli", mock.MatchedBy(func(args []string) bool {
+		return len(args) >= 2 && args[0] == "bouncers" && args[1] == "delete"
+	})).Return([]byte(""), nil)
+	m.On("Execute", mock.Anything, "cscli", mock.MatchedBy(func(args []string) bool {
+		return len(args) >= 2 && args[0] == "bouncers" && args[1] == "add"
+	})).Return([]byte("cscli failed"), errors.New("exit status 1"))
+	return m
+}
+
+func TestBouncerPrecedence_RejectedEnvRegisterFailureReportsNoNewKey(t *testing.T) {
+	const envKey = "env-key-precedence-regfail-8"
+	lapiURL, _ := newKeyLAPI(t)
+	clearKeyEnv(t, envKey)
+	dataDir := t.TempDir()
+	keyPath := filepath.Join(dataDir, "bouncer_key")
+	h := newPrecedenceHandler(t, lapiURL, dataDir, bouncerRegisterFailMock())
+
+	res, err := h.ensureBouncerRegistration(context.Background())
+	require.Error(t, err)
+	require.True(t, res.EnvKeyRejected)
+	require.True(t, h.envKeyRejected)
+	require.True(t, h.rejectedEnvRegisterFailed)
+	require.False(t, h.rejectedEnvSaveFailed)
+	require.NoFileExists(t, keyPath, "a failed registration saves no key")
+
+	msg := keyStatusMessage(t, h)
+	require.Contains(t, msg, "could not register a new key with CrowdSec, so no new key was saved to "+keyPath)
+	require.NotContains(t, msg, "saved a new key")
+	require.NotContains(t, msg, "uses it")
 }
 
 func TestBouncerPrecedence_NoKeysRegisters(t *testing.T) {
@@ -420,8 +455,9 @@ func TestBouncerPrecedence_GetKeyStatusRejectedMessageTracksSave(t *testing.T) {
 		h.rejectedEnvSaveFailed = true
 
 		msg := keyStatusMessage(t, h)
-		require.Contains(t, msg, "could not save its new key to "+h.bouncerKeyPath())
+		require.Contains(t, msg, "could not save the new key to "+h.bouncerKeyPath())
 		require.NotContains(t, msg, "saved a new key")
+		require.NotContains(t, msg, "session")
 	})
 }
 

@@ -401,9 +401,9 @@ func TestWriteFileAtomicInPlaceFailureIsPartial(t *testing.T) {
 	}
 }
 
-// A refused in-place open on the rename fallback also reports ErrPartialInPlaceWrite, so the caller keeps its backup
-// whatever the cause (this is the save behavior the acquisition writer has always had).
-func TestWriteFileAtomicRefusedRenameWithDeniedOpenIsPartial(t *testing.T) {
+// A refused in-place open on the rename fallback fails before the live file is truncated, so nothing was touched and
+// the error is not partial: callers may still remove the backup they made for this write.
+func TestWriteFileAtomicRefusedRenameWithDeniedOpenIsNotPartial(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("file permissions do not bind root")
 	}
@@ -411,7 +411,22 @@ func TestWriteFileAtomicRefusedRenameWithDeniedOpenIsPartial(t *testing.T) {
 	acquis, _ := atomicFixture(t, 0o400)
 
 	_, err := WriteFileAtomic(acquis, []byte("new\n"), 0o400, AtomicWriteOptions{InPlaceFallback: true})
-	require.ErrorIs(t, err, ErrPartialInPlaceWrite)
+	require.ErrorIs(t, err, fs.ErrPermission)
+	require.NotErrorIs(t, err, ErrPartialInPlaceWrite, "the open was refused, so nothing was touched")
+	requireAtomicContent(t, acquis, "original\n")
+}
+
+// Any open failure on the rename fallback is non-partial, not only the symlink refusal: the open touched nothing.
+func TestWriteFileAtomicRenameFallbackOpenFailureIsNotPartial(t *testing.T) {
+	stubAtomicRename(t, &os.LinkError{Op: "rename", Err: syscall.EBUSY})
+	original := openInPlaceFile
+	openInPlaceFile = func(string, fs.FileMode, bool) (tempFile, error) { return nil, syscall.EACCES }
+	t.Cleanup(func() { openInPlaceFile = original })
+	acquis, _ := atomicFixture(t, 0o600)
+
+	_, err := WriteFileAtomic(acquis, []byte("new\n"), 0o600, AtomicWriteOptions{InPlaceFallback: true})
+	require.ErrorIs(t, err, syscall.EACCES)
+	require.NotErrorIs(t, err, ErrPartialInPlaceWrite, "the open failed before the file was touched")
 	requireAtomicContent(t, acquis, "original\n")
 }
 

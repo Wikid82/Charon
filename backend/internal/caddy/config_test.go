@@ -806,12 +806,8 @@ func TestGenerateConfig_DuplicateDomains(t *testing.T) {
 
 // TestGenerateConfig_WithCrowdSecApp verifies CrowdSec app configuration
 func TestGenerateConfig_WithCrowdSecApp(t *testing.T) {
-	const bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
-
-	// Skip if bouncer_key file exists (file takes priority over env vars per Phase 1 of LAPI auth fix)
-	if _, err := os.Stat(bouncerKeyFile); err == nil {
-		t.Skip("Skipping env var test - bouncer_key file exists (file takes priority over env vars)")
-	}
+	// Point the key file at a missing path so the env var is the key source (the file takes priority over env vars).
+	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
 
 	hosts := []models.ProxyHost{
 		{

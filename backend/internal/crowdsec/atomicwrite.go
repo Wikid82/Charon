@@ -166,16 +166,18 @@ func WriteFileAtomic(path string, data []byte, mode fs.FileMode, opts AtomicWrit
 	if !opts.InPlaceFallback || !isRenameUnsupported(err) {
 		return AtomicWriteResult{}, fmt.Errorf("replace crowdsec file: %w", err)
 	}
-	// The rename is refused, so the file is written in place. Any failure here counts as partial: the live file may
-	// already have been truncated, and callers keep their backup. The one exception is a symlink refused by NoFollow:
-	// that open is refused before the file is touched, so nothing is partial.
-	if _, err = writeInPlace(path, data, mode, opts); err != nil {
-		if errors.Is(err, syscall.ELOOP) {
-			return AtomicWriteResult{}, fmt.Errorf("write crowdsec file in place: %w", err)
-		}
+	// The rename is refused, so the file is written in place. A failed open touched nothing (a refused open, or a
+	// symlink refused by NoFollow), so it is not partial. Once the file is open its content may be half written, so
+	// that failure is partial and callers keep their backup.
+	opened, err := writeInPlace(path, data, mode, opts)
+	switch {
+	case err == nil:
+		return AtomicWriteResult{InPlace: true, OwnerKept: true}, nil
+	case opened:
 		return AtomicWriteResult{}, fmt.Errorf("write crowdsec file in place: %w: %w", ErrPartialInPlaceWrite, err)
+	default:
+		return AtomicWriteResult{}, fmt.Errorf("write crowdsec file in place: %w", err)
 	}
-	return AtomicWriteResult{InPlace: true, OwnerKept: true}, nil
 }
 
 // liveFileInfo returns the info of the file at path, or nil when it does not exist yet.

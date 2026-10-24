@@ -131,12 +131,16 @@ type CrowdsecHandler struct {
 	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
 	envKeyRejected bool
 
-	// rejectedEnvKey stores the masked env key that was rejected for user notification
+	// rejectedEnvKey holds the full rejected env value. Only masked previews reach logs and the API.
 	rejectedEnvKey string
 
 	// rejectedEnvSaveFailed is true when the replacement key for a rejected env key could not be
-	// saved to the key file, so the new key is valid for this session only.
+	// saved to the key file.
 	rejectedEnvSaveFailed bool
+
+	// rejectedEnvRegisterFailed is true when a rejected env key could not be replaced because
+	// bouncer registration failed, so no new key was saved.
+	rejectedEnvRegisterFailed bool
 }
 
 // Bouncer auto-registration constants.
@@ -1702,15 +1706,16 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	if h.envKeyRejected && h.rejectedEnvKey != "" {
 		response.EnvKeyRejected = true
 		response.RejectedKeyPreview = util.MaskAPIKey(h.rejectedEnvKey)
-		response.Message = rejectedEnvKeyMessage(keyPath, h.rejectedEnvSaveFailed)
+		response.Message = rejectedEnvKeyMessage(keyPath, h.rejectedEnvSaveFailed, h.rejectedEnvRegisterFailed)
 	}
 
 	envKey, _ := bouncerkey.FromEnv()
 	fileKey := bouncerkey.ReadFile(keyPath)
 
 	switch {
-	case h.envKeyRejected && fileKey != "":
-		// Charon saved a replacement key; give the full key so the user can fix docker-compose.yml.
+	case h.envKeyRejected && fileKey != "" && !h.rejectedEnvSaveFailed && !h.rejectedEnvRegisterFailed:
+		// Charon saved a replacement key, so the file holds it; give the full key so the user can fix docker-compose.yml.
+		// After a failed save or registration the file still holds the rejected key, so it is reported as a file key below.
 		// Security: the caller is an authenticated admin who needs this to correct their config.
 		response.KeySource = "auto-generated"
 		response.FullKey = fileKey
@@ -1739,15 +1744,19 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// rejectedEnvKeyMessage explains that an env key was rejected. It names the key file as the key in
-// use only when the save succeeded; after a failed save the new key lives in memory for this session.
-func rejectedEnvKeyMessage(keyPath string, saveFailed bool) string {
+// rejectedEnvKeyMessage explains that an env key was rejected and what Charon did about it. The key file
+// is named as the key in use only when the replacement was saved.
+func rejectedEnvKeyMessage(keyPath string, saveFailed, registerFailed bool) string {
 	const rejected = "CHARON_SECURITY_CROWDSEC_API_KEY (or another CrowdSec key variable) is set but CrowdSec rejected it. "
-	if saveFailed {
-		return rejected + "Charon could not save its new key to " + keyPath +
-			"; the new key is valid for this session only. Remove the old variable from docker-compose.yml."
+	const removeVar = " Remove the old variable from docker-compose.yml."
+	switch {
+	case registerFailed:
+		return rejected + bouncerkey.RegisterFailedNotice(keyPath) + removeVar
+	case saveFailed:
+		return rejected + bouncerkey.SaveFailedNotice(keyPath) + removeVar
+	default:
+		return rejected + "Charon saved a new key to " + keyPath + " and uses it." + removeVar
 	}
-	return rejected + "Charon saved a new key to " + keyPath + " and uses it. Remove the old variable from docker-compose.yml."
 }
 
 // ignoredEnvKeyMessage notes that a key variable is set but the saved key is used.
@@ -1775,11 +1784,13 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bounce
 		h.envKeyRejected = true
 		h.rejectedEnvKey = res.EnvKey
 		h.rejectedEnvSaveFailed = res.SaveErr != nil
+		h.rejectedEnvRegisterFailed = err != nil
 	}
 	if res.Outcome == bouncerkey.OutcomeSavedKeyValid || res.Outcome == bouncerkey.OutcomeEnvKeySaved {
 		h.envKeyRejected = false
 		h.rejectedEnvKey = ""
 		h.rejectedEnvSaveFailed = false
+		h.rejectedEnvRegisterFailed = false
 	}
 	return res, err
 }
@@ -1790,17 +1801,21 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bounce
 func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bouncerkey.EnsureResult, regErr error, applyConfig func(context.Context) error) {
 	keyPath := h.bouncerKeyPath()
 
-	if res.EnvKeyRejected {
-		logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvLogMessage(keyPath, res.SaveErr))
-	}
-
+	// The rejection is logged only with the outcome it led to: a failed registration keeps no new key.
 	if regErr != nil {
+		if res.EnvKeyRejected {
+			logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvRegisterFailedLogMessage(keyPath))
+		}
 		logger.Log().WithError(regErr).Warn("Failed to register bouncer, CrowdSec may not enforce decisions")
 		return
 	}
 
+	if res.EnvKeyRejected {
+		logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvLogMessage(keyPath, res.SaveErr))
+	}
+
 	if res.SaveErr != nil {
-		logger.Log().WithError(res.SaveErr).WithField("file", keyPath).Error("Failed to save bouncer key to file; the key is valid for this session only")
+		logger.Log().WithError(res.SaveErr).WithField("file", keyPath).Error("Failed to save bouncer key to file; CrowdSec blocking may not work until the key file can be written")
 	}
 
 	switch res.Outcome {
@@ -1808,8 +1823,8 @@ func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bou
 		h.logBouncerKeyBanner(res.Key, res.SaveErr)
 		h.reapplyCaddy(ctx, applyConfig)
 	case bouncerkey.OutcomeEnvKeySaved:
-		logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: env var key validated and saved to key file")
 		if res.SaveErr == nil {
+			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: env var key validated and saved to key file")
 			h.reapplyCaddy(ctx, applyConfig)
 		}
 	case bouncerkey.OutcomeSavedKeyValid:
@@ -1819,15 +1834,21 @@ func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bou
 	}
 }
 
-// rejectedEnvLogMessage is the Warn text for a rejected key variable. It names the saved key
-// file as the key in use only when the save succeeded; after a failed save the new key lives in memory.
+// rejectedEnvLogMessage is the Warn text for a rejected key variable that was replaced by a registered key.
+// It names the saved key file as the key in use only when the save succeeded.
 func rejectedEnvLogMessage(keyPath string, saveErr error) string {
 	if saveErr != nil {
-		return "A CrowdSec key variable was rejected by CrowdSec. Charon could not save its new key to " + keyPath +
-			"; the new key is valid for this session only. Remove the old variable from docker-compose.yml."
+		return "A CrowdSec key variable was rejected by CrowdSec. " + bouncerkey.SaveFailedNotice(keyPath) +
+			" Remove the old variable from docker-compose.yml."
 	}
 	return "A CrowdSec key variable was rejected by CrowdSec. Charon uses the key saved in " + keyPath +
 		"; remove the old variable from docker-compose.yml."
+}
+
+// rejectedEnvRegisterFailedLogMessage is the Warn text for a rejected key variable when no replacement
+// key could be registered, so nothing was saved.
+func rejectedEnvRegisterFailedLogMessage(keyPath string) string {
+	return "A CrowdSec key variable was rejected by CrowdSec. " + bouncerkey.RegisterFailedNotice(keyPath)
 }
 
 // reapplyCaddy runs applyConfig and logs a failure without returning it.
@@ -1916,7 +1937,7 @@ func validateAPIKeyFormat(key string) bool {
 }
 
 // logBouncerKeyBanner logs the bouncer key with a formatted banner. When saveErr is set the key
-// was not written to the key file, so the banner says the key is valid for this session only.
+// was not written to the key file, so the banner says CrowdSec blocking depends on the file becoming writable.
 // Security: API key is masked to prevent exposure in logs (CWE-312).
 func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string, saveErr error) {
 	keyPath := h.bouncerKeyPath()
@@ -1926,9 +1947,9 @@ func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string, saveErr error) {
 	tipLine := "💡 TIP: Charon saved this key and uses it. If docker-compose.yml still\n" +
 		"   sets an old CrowdSec key variable, remove it."
 	if saveErr != nil {
-		storageLine = "Not Saved:    could not save to " + keyPath + "; valid for this session only"
-		securityLine = "⚠️  SECURITY: Key was not saved to file; it is valid for this session only"
-		tipLine = "💡 TIP: Restore write access to the key directory so the key survives a restart.\n" +
+		storageLine = "Not Saved:    could not save to " + keyPath + "; CrowdSec blocking may not work until it can be written"
+		securityLine = "⚠️  SECURITY: Key was not saved to file"
+		tipLine = "💡 TIP: Fix write access to the data directory and restart CrowdSec.\n" +
 			"   If docker-compose.yml still sets an old CrowdSec key variable, remove it."
 	}
 

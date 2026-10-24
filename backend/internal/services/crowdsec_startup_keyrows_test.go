@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -134,8 +135,11 @@ func TestEnsureBouncerRegistration_EnvKeyRejectedSaveFailureLogsAccurately(t *te
 
 	entries := h.drain()
 	out := strings.Join(h.channels(entries), "\n")
-	assert.Contains(t, out, "Charon could not save its new key to "+keyFile)
+	assert.Contains(t, out, "Charon could not save the new key to "+keyFile)
+	assert.Contains(t, out, "CrowdSec blocking may not work until the key file can be written")
+	assert.NotContains(t, out, "valid for this run", "a failed save must not claim the key is valid for a run")
 	assert.NotContains(t, out, "Charon uses the key file", "a failed save must not claim the file holds the key in use")
+	assert.NotContains(t, out, "successfully registered and saved key", "a failed save must not log a success line")
 
 	var sawSaveError bool
 	for _, e := range entries {
@@ -145,4 +149,26 @@ func TestEnsureBouncerRegistration_EnvKeyRejectedSaveFailureLogsAccurately(t *te
 	}
 	assert.True(t, sawSaveError, "the save failure must be logged at Error level")
 	assertNoSubstring(t, h.channels(entries), testGeneratedKey)
+}
+
+func TestEnsureBouncerRegistration_EnvKeyRejectedRegisterFailureLogsAccurately(t *testing.T) {
+	h := newBouncerHarness(t)
+	keyDecisionLAPI(t)
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", testRejectedEnvKey)
+	exec := &scriptedBouncerExecutor{addErr: errors.New("cscli failed")}
+
+	err := ensureBouncerRegistration(h.dataDir, h.keyFile, exec)
+	require.Error(t, err, "a failed registration is returned to the caller")
+
+	entries := h.drain()
+	out := strings.Join(h.channels(entries), "\n")
+	assert.Contains(t, out, "could not register a new key with CrowdSec, so no new key was saved to "+h.keyFile)
+	assert.NotContains(t, out, "Charon uses the key file", "a failed registration must not claim the file holds the key in use")
+	assert.NotContains(t, out, "no action is required")
+	assert.NotContains(t, out, "successfully registered and saved key")
+	assert.NotContains(t, out, "validated and saved to key file")
+	assertNoSubstring(t, h.channels(entries), testRejectedEnvKey)
+
+	_, statErr := os.Stat(h.keyFile)
+	assert.True(t, os.IsNotExist(statErr), "a failed registration saves no key file")
 }

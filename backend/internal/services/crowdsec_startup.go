@@ -335,7 +335,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	}
 
 	res, err := bouncerkey.Ensure(context.Background(), bouncerKeyFile, startupKeyValid, register, crowdsec.SaveBouncerKey)
-	logStartupKeyDecision(res, bouncerKeyFile)
+	logStartupKeyDecision(res, bouncerKeyFile, err)
 	return err
 }
 
@@ -344,31 +344,45 @@ func startupKeyValid(_ context.Context, key string) bool {
 	return testKeyAgainstLAPIStartup(key)
 }
 
-// rejectedEnvKeyLogMessage is the Warn text for a rejected key variable. It claims the key file
-// holds the key in use only when the save succeeded.
+// rejectedEnvKeyLogMessage is the Warn text for a rejected key variable whose replacement was
+// registered. It claims the key file holds the key in use only when the save succeeded.
 func rejectedEnvKeyLogMessage(keyFile string, saveErr error) string {
 	if saveErr != nil {
-		return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " +
-			"Charon could not save its new key to " + keyFile + "; the new key is valid for this run only."
+		return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " + bouncerkey.SaveFailedNotice(keyFile)
 	}
 	return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " +
 		"Charon uses the key file (permissions 0600); no action is required."
 }
 
-// logStartupKeyDecision reports the startup key decision. A failed save is logged at Error and
-// does not fail startup; the key is valid for this run.
-func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string) {
+// rejectedEnvRegisterFailedLogMessage is the Warn text for a rejected key variable when no replacement
+// key could be registered, so nothing was saved.
+func rejectedEnvRegisterFailedLogMessage(keyFile string) string {
+	return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " + bouncerkey.RegisterFailedNotice(keyFile)
+}
+
+// logStartupKeyDecision reports the startup key decision. A failed save is logged at Error and does not
+// fail startup. Success lines are logged only for the outcome that really happened: a failed registration
+// (regErr) logs the rejection with the registration failure and no success line.
+func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr error) {
 	if res.SaveErr != nil {
 		logger.Log().WithError(res.SaveErr).WithField("key_file", keyFile).Error(
-			"CrowdSec bouncer: failed to save the key file; the key is valid for this run only",
+			"CrowdSec bouncer: failed to save the key file; CrowdSec blocking may not work until the key file can be written",
 		)
 	}
 	if res.EnvKeyRejected {
-		logger.Log().WithFields(map[string]any{
+		fields := map[string]any{
 			"bouncer":    startupBouncerName,
 			"key_file":   keyFile,
 			"masked_key": util.MaskAPIKey(res.EnvKey),
-		}).Warn(rejectedEnvKeyLogMessage(keyFile, res.SaveErr))
+		}
+		if regErr != nil {
+			logger.Log().WithFields(fields).Warn(rejectedEnvRegisterFailedLogMessage(keyFile))
+		} else {
+			logger.Log().WithFields(fields).Warn(rejectedEnvKeyLogMessage(keyFile, res.SaveErr))
+		}
+	}
+	if regErr != nil {
+		return
 	}
 
 	switch res.Outcome {
@@ -378,17 +392,21 @@ func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string) {
 			logger.Log().WithField("file", keyFile).Info("CrowdSec bouncer: a key variable is set but the saved key is in use")
 		}
 	case bouncerkey.OutcomeEnvKeySaved:
-		logger.Log().WithFields(map[string]any{
-			"source":     "environment_variable",
-			"key_file":   keyFile,
-			"masked_key": util.MaskAPIKey(res.Key),
-		}).Info("CrowdSec bouncer: env var key validated and saved to key file")
+		if res.SaveErr == nil {
+			logger.Log().WithFields(map[string]any{
+				"source":     "environment_variable",
+				"key_file":   keyFile,
+				"masked_key": util.MaskAPIKey(res.Key),
+			}).Info("CrowdSec bouncer: env var key validated and saved to key file")
+		}
 	case bouncerkey.OutcomeRegistered:
-		logger.Log().WithFields(map[string]any{
-			"bouncer":    startupBouncerName,
-			"key_file":   keyFile,
-			"masked_key": util.MaskAPIKey(res.Key),
-		}).Info("CrowdSec bouncer: successfully registered and saved key")
+		if res.SaveErr == nil {
+			logger.Log().WithFields(map[string]any{
+				"bouncer":    startupBouncerName,
+				"key_file":   keyFile,
+				"masked_key": util.MaskAPIKey(res.Key),
+			}).Info("CrowdSec bouncer: successfully registered and saved key")
+		}
 	}
 }
 
