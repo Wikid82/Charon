@@ -35,7 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
 import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
-import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist, whitelistAddErrorMessage } from '../hooks/useCrowdSecWhitelist'
+import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist, isWhitelistFieldError, whitelistAddErrorMessage } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
 import { sanitizeSecret } from '../utils/sanitizeSecret'
@@ -490,11 +490,10 @@ export default function CrowdSecConfig() {
   const addWhitelistMutation = useAddWhitelist()
   const deleteWhitelistMutation = useDeleteWhitelist()
 
-  // A busy refusal is not a field problem: the toast from useAddWhitelist carries the message instead.
-  const whitelistInlineError =
-    addWhitelistMutation.error != null && !isCrowdsecBusyError(addWhitelistMutation.error)
-      ? whitelistAddErrorMessage(addWhitelistMutation.error, t)
-      : null
+  // Only field problems (400/409 duplicate) show inline. Busy, server and network failures toast only.
+  const whitelistInlineError = isWhitelistFieldError(addWhitelistMutation.error)
+    ? whitelistAddErrorMessage(addWhitelistMutation.error, t)
+    : null
 
   const handleAddMyIP = async () => {
     try {

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 
 import { createBackup } from '../api/backups'
 import { importCrowdsecConfig } from '../api/crowdsec'
+import { crowdsecErrorMessage } from '../api/errorBody'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 
@@ -24,7 +25,7 @@ export default function ImportCrowdSec() {
     },
     onError: (e: unknown) => {
       const msg = e instanceof Error ? e.message : String(e)
-      toast.error(t('importCrowdSec.importFailed', { error: msg }))
+      toast.error(crowdsecErrorMessage(e, t, t('importCrowdSec.importFailed', { error: msg })))
     }
   })
 

@@ -120,7 +120,7 @@ volume_sh() {
 # declared_data_files: data files declared by installed hub items (one per line).
 declared_data_files() {
     docker exec "${CONTAINER_NAME}" sh -c \
-        "find -L /etc/crowdsec/parsers /etc/crowdsec/scenarios /etc/crowdsec/postoverflows -type f -name '*.yaml' -exec grep -h 'dest_file:' {} + 2>/dev/null | sed -e 's/^.*dest_file:[[:space:]]*//' -e 's/[[:space:]]*\$//' | sort -u"
+        "find -L /etc/crowdsec/parsers /etc/crowdsec/scenarios /etc/crowdsec/postoverflows -type f \\( -name '*.yaml' -o -name '*.yml' \\) -exec grep -h 'dest_file:' {} + 2>/dev/null | sed -e 's/^.*dest_file:[[:space:]]*//' -e 's/[[:space:]]*\$//' | sort -u"
 }
 
 # missing_data_files: declared data files that are absent from data_dir (empty files are valid).

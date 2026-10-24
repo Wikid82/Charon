@@ -56,7 +56,7 @@ list_missing_hub_data_files() {
     _data="$2"
     for _sub in parsers scenarios postoverflows contexts; do
         [ -d "$_cfg/$_sub" ] || continue
-        find -L "$_cfg/$_sub" -type f -name '*.yaml' -exec grep -h 'dest_file:' {} + 2>/dev/null || true
+        find -L "$_cfg/$_sub" -type f \( -name '*.yaml' -o -name '*.yml' \) -exec grep -h 'dest_file:' {} + 2>/dev/null || true
     done | sed -e 's/^.*dest_file:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' -e "s/[\"']//g" -e 's/[[:space:]]*$//' | sort -u | while IFS= read -r _file; do
         [ -n "$_file" ] || continue
         [ -e "$_data/$_file" ] || echo "$_file"

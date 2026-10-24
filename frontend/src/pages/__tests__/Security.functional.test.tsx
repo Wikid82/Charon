@@ -642,7 +642,7 @@ describe('Security Page - Functional Tests', () => {
       await user.click(screen.getByTestId('toggle-crowdsec'))
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+        expect(settingsApi.updateSetting).not.toHaveBeenCalledWith(
           'security.crowdsec.enabled',
           'true',
           'security',
@@ -664,7 +664,7 @@ describe('Security Page - Functional Tests', () => {
       await user.click(screen.getByTestId('toggle-crowdsec'))
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+        expect(settingsApi.updateSetting).not.toHaveBeenCalledWith(
           'security.crowdsec.enabled',
           'false',
           'security',

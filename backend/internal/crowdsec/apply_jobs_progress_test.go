@@ -52,12 +52,16 @@ func TestCountDownloadedHubFiles(t *testing.T) {
 		"config/hub/scenarios/crowdsecurity/c.yaml",
 		"hub/collections/crowdsecurity/notes.txt",
 		"hub/unknown/crowdsecurity/d.yaml",
+		"hub/scenarios/sigmahq/e.yml",
+		"config/hub/parsers/s01-parse/crowdsecurity/f.yml",
+		"hub/collections/crowdsecurity/g.YML",
+		"hub/collections/crowdsecurity/h.yml.bak",
 	} {
 		p := filepath.Join(dir, rel)
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o750))
 		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
 	}
-	require.Equal(t, 3, CountDownloadedHubFiles(dir))
+	require.Equal(t, 5, CountDownloadedHubFiles(dir), "yaml and yml items count, other suffixes do not")
 }
 
 func TestApplyJobRecoveryPrunesSnapshotsAndProtectsUnrecoveredOnes(t *testing.T) {
