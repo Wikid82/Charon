@@ -14,6 +14,12 @@ import (
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
 
+// serverShutdownGracePeriod bounds how long Caddy's http app waits for open
+// keep-alive and HTTP/3 connections on shutdown. Caddy's default is unbounded,
+// which forces Docker to SIGKILL the container on stop (issue #1706). Kept
+// below Docker's default 10s stop timeout so a clean exit is possible.
+const serverShutdownGracePeriod = "5s"
+
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
 func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig, opts ...GenerateConfigOption) (*Config, error) {
@@ -26,6 +32,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// Otherwise, we fall back to the storageDir-relative path for development/non-Docker use.
 	logFile := getAccessLogPath(storageDir, crowdsecEnabled)
 
+	shutdownGracePeriod := serverShutdownGracePeriod
 	config := &Config{
 		Admin: &AdminConfig{
 			Listen: "0.0.0.0:2019", // Bind to all interfaces for container access
@@ -51,7 +58,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		},
 		Apps: Apps{
 			HTTP: &HTTPApp{
-				Servers: map[string]*Server{},
+				Servers:     map[string]*Server{},
+				GracePeriod: &shutdownGracePeriod,
 			},
 		},
 		Storage: Storage{
