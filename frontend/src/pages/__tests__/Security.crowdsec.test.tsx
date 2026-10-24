@@ -288,4 +288,105 @@ describe('Security CrowdSec mutation UX', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to stop CrowdSec: kill failed'))
     expect(settingsApi.updateSetting).not.toHaveBeenCalled()
   })
+
+  it('shows the start-verification message when the process is not running after start', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 1, lapi_ready: false })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await user.click(toggle)
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Failed to start CrowdSec: CrowdSec process failed to start. Check server logs for details.',
+      ),
+    )
+  })
+
+  it('shows the stop-verification message when the process is still running after stop', async () => {
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
+    vi.mocked(crowdsecApi.stopCrowdsec).mockResolvedValue(undefined)
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await waitFor(() => expect(toggle).toBeChecked())
+    await user.click(toggle)
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Failed to stop CrowdSec: CrowdSec process still running. Check server logs for details.',
+      ),
+    )
+  })
+
+  it('announces the start and reports LAPI readiness with translated toasts', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123, lapi_ready: true })
+    vi.mocked(crowdsecApi.statusCrowdsec)
+      .mockResolvedValueOnce({ running: false, pid: 0, lapi_ready: false })
+      .mockResolvedValue({ running: true, pid: 123, lapi_ready: true })
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Starting CrowdSec... This may take up to 30 seconds'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('CrowdSec started and LAPI is ready'))
+  })
+
+  it('warns when CrowdSec started but LAPI is still initializing', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123, lapi_ready: false })
+    vi.mocked(crowdsecApi.statusCrowdsec)
+      .mockResolvedValueOnce({ running: false, pid: 0, lapi_ready: false })
+      .mockResolvedValue({ running: true, pid: 123, lapi_ready: false })
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await user.click(toggle)
+
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith(
+        'CrowdSec started but LAPI is still initializing. Please wait before enrolling.',
+      ),
+    )
+  })
+
+  it('reports a successful stop with the translated toast', async () => {
+    vi.mocked(crowdsecApi.statusCrowdsec)
+      .mockResolvedValueOnce({ running: true, pid: 1234, lapi_ready: true })
+      .mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
+    vi.mocked(crowdsecApi.stopCrowdsec).mockResolvedValue(undefined)
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await waitFor(() => expect(toggle).toBeChecked())
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('CrowdSec stopped'))
+  })
+
+  it('refreshes the settings query after a refused start so the setting cannot go stale', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(busyError())
+
+    const user = userEvent.setup()
+    const { qc } = renderSecurity()
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(BUSY_TEXT))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['settings'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['security-status'] })
+  })
 })

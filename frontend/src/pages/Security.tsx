@@ -156,18 +156,26 @@ export default function Security() {
 
   const refreshCrowdsecStatus = () => queryClient.invalidateQueries({ queryKey: CROWDSEC_STATUS_QUERY_KEY })
 
+  // Every query a CrowdSec start or stop can change. Runs after both success and failure so the UI matches the server.
+  const refreshCrowdsecQueries = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['security-status'] }),
+      queryClient.invalidateQueries({ queryKey: ['settings'] }),
+      refreshCrowdsecStatus(),
+    ])
+
   const crowdsecPowerMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
       // The backend persists security.crowdsec.enabled after its busy check, so a refused
       // start or stop leaves the setting untouched. This page only drives the process.
       if (enabled) {
-        toast.info('Starting CrowdSec... This may take up to 30 seconds')
+        toast.info(t('security.crowdsec.startingToast'))
         const result = await startCrowdsec()
 
         // VERIFY: Check if it actually started
         const status = await statusCrowdsec()
         if (!status.running) {
-          throw new Error('CrowdSec process failed to start. Check server logs for details.')
+          throw new Error(t('security.crowdsec.startVerifyFailed'))
         }
 
         return result
@@ -178,7 +186,7 @@ export default function Security() {
         await new Promise(resolve => setTimeout(resolve, 500))
         const status = await statusCrowdsec()
         if (status.running) {
-          throw new Error('CrowdSec process still running. Check server logs for details.')
+          throw new Error(t('security.crowdsec.stopVerifyFailed'))
         }
 
         return { enabled: false }
@@ -200,26 +208,21 @@ export default function Security() {
         : t('security.crowdsec.stopFailed', { error: msg })
       toast.error(crowdsecErrorMessage(err, t, fallback))
       // Force refresh status from backend to ensure UI matches reality
-      queryClient.invalidateQueries({ queryKey: ['security-status'] })
-      refreshCrowdsecStatus()
+      refreshCrowdsecQueries()
     },
     onSuccess: async (result: { lapi_ready?: boolean; enabled?: boolean } | boolean) => {
       queryClient.setQueryData(['crowdsec-starting'], { isStarting: false })
       // Refresh all related queries to ensure consistency
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['security-status'] }),
-        queryClient.invalidateQueries({ queryKey: ['settings'] }),
-        refreshCrowdsecStatus(),
-      ])
+      await refreshCrowdsecQueries()
 
       if (typeof result === 'object' && result.lapi_ready === true) {
-        toast.success('CrowdSec started and LAPI is ready')
+        toast.success(t('security.crowdsec.startedLapiReady'))
       } else if (typeof result === 'object' && result.lapi_ready === false) {
-        toast.warning('CrowdSec started but LAPI is still initializing. Please wait before enrolling.')
+        toast.warning(t('security.crowdsec.startedLapiInitializing'))
       } else if (typeof result === 'object' && result.enabled === false) {
-        toast.success('CrowdSec stopped')
+        toast.success(t('security.crowdsec.stopped'))
       } else {
-        toast.success('CrowdSec started')
+        toast.success(t('security.crowdsec.started'))
       }
     },
   })
