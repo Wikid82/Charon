@@ -78,8 +78,8 @@ func injectInPlaceStep(t *testing.T, step string) {
 	t.Helper()
 	orig := openInPlaceFile
 	t.Cleanup(func() { openInPlaceFile = orig })
-	openInPlaceFile = func(name string, mode fs.FileMode) (tempFile, error) {
-		f, err := orig(name, mode)
+	openInPlaceFile = func(name string, mode fs.FileMode, noFollow bool) (tempFile, error) {
+		f, err := orig(name, mode, noFollow)
 		if err != nil {
 			return nil, err
 		}
@@ -93,11 +93,24 @@ func countInPlaceOpens(t *testing.T) *int {
 	orig := openInPlaceFile
 	t.Cleanup(func() { openInPlaceFile = orig })
 	opens := new(int)
-	openInPlaceFile = func(name string, mode fs.FileMode) (tempFile, error) {
+	openInPlaceFile = func(name string, mode fs.FileMode, noFollow bool) (tempFile, error) {
 		*opens++
-		return orig(name, mode)
+		return orig(name, mode, noFollow)
 	}
 	return opens
+}
+
+// recordInPlaceNoFollow records the noFollow flag of every in-place open and returns the slice.
+func recordInPlaceNoFollow(t *testing.T) *[]bool {
+	t.Helper()
+	orig := openInPlaceFile
+	t.Cleanup(func() { openInPlaceFile = orig })
+	flags := &[]bool{}
+	openInPlaceFile = func(name string, mode fs.FileMode, noFollow bool) (tempFile, error) {
+		*flags = append(*flags, noFollow)
+		return orig(name, mode, noFollow)
+	}
+	return flags
 }
 
 // stubAtomicRename makes the rename that replaces the live file fail with err.
@@ -429,6 +442,52 @@ func TestWriteFileAtomicRefusedRenameWithoutFallbackFails(t *testing.T) {
 	require.Zero(t, *inPlaceOpens, "without the fallback the live file is never written in place")
 	requireAtomicContent(t, acquis, "original\n")
 	requireAtomicEntries(t, dir, "acquis.yaml")
+}
+
+// symlinkFixture writes a real file with the content original and a symlink named acquis.yaml that points at it.
+// It returns the link path, the target path and the directory.
+func symlinkFixture(t *testing.T) (link, target, dir string) {
+	t.Helper()
+	dir = t.TempDir()
+	target = filepath.Join(dir, "real.yaml")
+	require.NoError(t, os.WriteFile(target, []byte("original\n"), 0o600))
+	link = filepath.Join(dir, "acquis.yaml")
+	require.NoError(t, os.Symlink(target, link))
+	return link, target, dir
+}
+
+// With NoFollow the in-place write refuses a symlink at the target before it opens anything, so the link target is
+// untouched and the refusal is not a partial write.
+func TestWriteFileAtomicNoFollowRefusesASymlinkInPlace(t *testing.T) {
+	stubAtomicRename(t, &os.LinkError{Op: "rename", Err: syscall.EBUSY})
+	flags := recordInPlaceNoFollow(t)
+	link, target, dir := symlinkFixture(t)
+
+	_, err := WriteFileAtomic(link, []byte("new\n"), 0o600, AtomicWriteOptions{InPlaceFallback: true, NoFollow: true})
+	require.ErrorIs(t, err, syscall.ELOOP)
+	require.NotErrorIs(t, err, ErrPartialInPlaceWrite, "the open was refused, so nothing was touched")
+	require.Equal(t, []bool{true}, *flags, "the in-place open carries O_NOFOLLOW")
+	requireAtomicContent(t, target, "original\n")
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink, "the link is left as it was")
+	requireAtomicEntries(t, dir, "acquis.yaml", "real.yaml")
+}
+
+// The zero value keeps today's acquisition behavior: the in-place write follows the symlink to its target.
+func TestWriteFileAtomicWithoutNoFollowWritesThroughASymlink(t *testing.T) {
+	stubAtomicRename(t, &os.LinkError{Op: "rename", Err: syscall.EBUSY})
+	flags := recordInPlaceNoFollow(t)
+	link, target, _ := symlinkFixture(t)
+
+	res, err := WriteFileAtomic(link, []byte("new\n"), 0o600, AtomicWriteOptions{InPlaceFallback: true})
+	require.NoError(t, err)
+	require.True(t, res.InPlace)
+	require.Equal(t, []bool{false}, *flags)
+	requireAtomicContent(t, target, "new\n")
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink, "the link itself is kept")
 }
 
 func TestWriteFileAtomicSkipsDirectorySyncWhenRenameFails(t *testing.T) {

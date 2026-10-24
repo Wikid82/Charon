@@ -9,31 +9,18 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
-	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // backupCreateAttempts bounds how many consecutive microsecond timestamps are tried when a backup name
 // is already taken.
 const backupCreateAttempts = 5
 
-// staleAcquisitionTempAge is how old a temporary file must be before a save removes it.
-const staleAcquisitionTempAge = 10 * time.Minute
+// staleTempMaxAge is how old a temporary file must be before a save removes it.
+const staleTempMaxAge = 10 * time.Minute
 
-// writeFileAtomic is the atomic replacement used by replaceAcquisitionConfig, a seam so tests can force its
-// outcomes without touching the file system.
+// writeFileAtomic is the atomic replacement used by the acquisition and file editor saves, a seam so tests can
+// force its outcomes without touching the file system.
 var writeFileAtomic = crowdsec.WriteFileAtomic
-
-// syncDir flushes a directory after a rename into it (see crowdsec.SyncDir); a seam so tests can observe it.
-var syncDir = crowdsec.SyncDir
-
-// syncDirAfterRename makes a completed rename durable for the file editor's save. The new content is already in
-// place, so a failure is only logged and never fails the save.
-func syncDirAfterRename(dir string) {
-	if err := syncDir(dir); err != nil {
-		logger.Log().WithError(err).WithField("path", util.SanitizeForLog(dir)).Warn("could not sync the directory after replacing a crowdsec file")
-	}
-}
 
 // acquisitionFile is the part of *os.File the backup writer uses. It exists so tests can make any single step
 // fail; *os.File satisfies it.
@@ -76,7 +63,7 @@ func replaceAcquisitionConfig(path, content string, now time.Time) (backupPath s
 	_, err = writeFileAtomic(path, []byte(content), mode, crowdsec.AtomicWriteOptions{
 		KeepOwner:           true,
 		InPlaceFallback:     true,
-		SweepTempsOlderThan: staleAcquisitionTempAge,
+		SweepTempsOlderThan: staleTempMaxAge,
 		Now:                 now,
 	})
 	if err != nil {

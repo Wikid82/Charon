@@ -30,6 +30,9 @@ type AtomicWriteOptions struct {
 	// InPlaceFallback writes the live file itself when the owner cannot be kept with EPERM, or when the rename is
 	// refused with EBUSY, EXDEV or EROFS (bind-mounted single file, cross-device, read-only mount).
 	InPlaceFallback bool
+	// NoFollow makes the in-place write refuse a live file that is a symlink (O_NOFOLLOW), so a link planted at the
+	// target is never written through. The refusal happens before the file is opened, so nothing is touched.
+	NoFollow bool
 	// SweepTempsOlderThan removes regular files matching the temp pattern prefix that are older than this age.
 	// Zero disables the sweep. Such names are only created by Charon's own writers.
 	SweepTempsOlderThan time.Duration
@@ -71,9 +74,13 @@ var (
 		}
 		return f, nil
 	}
-	// openInPlaceFile opens the live file itself for an in-place write.
-	openInPlaceFile = func(name string, mode fs.FileMode) (tempFile, error) {
-		f, err := os.OpenFile(name, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, mode) //nolint:gosec // G304: name is a validated Charon config path
+	// openInPlaceFile opens the live file itself for an in-place write; noFollow adds O_NOFOLLOW.
+	openInPlaceFile = func(name string, mode fs.FileMode, noFollow bool) (tempFile, error) {
+		flags := os.O_WRONLY | os.O_TRUNC | os.O_CREATE
+		if noFollow {
+			flags |= syscall.O_NOFOLLOW
+		}
+		f, err := os.OpenFile(name, flags, mode) //nolint:gosec // G304: name is a validated Charon config path
 		if err != nil {
 			return nil, err
 		}
@@ -133,7 +140,7 @@ func WriteFileAtomic(path string, data []byte, mode fs.FileMode, opts AtomicWrit
 	if ownerErr != nil {
 		if opts.InPlaceFallback && errors.Is(ownerErr, syscall.EPERM) {
 			// A permission refusal means the owner must be kept, so the live file itself is written.
-			opened, ipErr := writeInPlace(path, data, mode)
+			opened, ipErr := writeInPlace(path, data, mode, opts.NoFollow)
 			switch {
 			case ipErr == nil:
 				return AtomicWriteResult{InPlace: true, OwnerKept: true}, nil
@@ -156,8 +163,12 @@ func WriteFileAtomic(path string, data []byte, mode fs.FileMode, opts AtomicWrit
 		return AtomicWriteResult{}, fmt.Errorf("replace crowdsec file: %w", err)
 	}
 	// The rename is refused, so the file is written in place. Any failure here counts as partial: the live file may
-	// already have been truncated, and callers keep their backup.
-	if _, err = writeInPlace(path, data, mode); err != nil {
+	// already have been truncated, and callers keep their backup. The one exception is a symlink refused by NoFollow:
+	// that open is refused before the file is touched, so nothing is partial.
+	if _, err = writeInPlace(path, data, mode, opts.NoFollow); err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return AtomicWriteResult{}, fmt.Errorf("write crowdsec file in place: %w", err)
+		}
 		return AtomicWriteResult{}, fmt.Errorf("write crowdsec file in place: %w: %w", ErrPartialInPlaceWrite, err)
 	}
 	return AtomicWriteResult{InPlace: true, OwnerKept: true}, nil
@@ -230,8 +241,8 @@ func warnOwnerNotKept(path string, live fs.FileInfo, cause error) {
 
 // writeInPlace replaces the content of the live file at path without renaming it, so the inode, owner and mode
 // stay. opened reports whether the file was opened; when it was not, nothing was touched.
-func writeInPlace(path string, data []byte, mode fs.FileMode) (opened bool, err error) {
-	f, err := openInPlaceFile(path, mode)
+func writeInPlace(path string, data []byte, mode fs.FileMode, noFollow bool) (opened bool, err error) {
+	f, err := openInPlaceFile(path, mode, noFollow)
 	if err != nil {
 		return false, fmt.Errorf("open crowdsec file: %w", err)
 	}

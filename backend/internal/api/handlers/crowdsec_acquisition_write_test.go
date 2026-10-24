@@ -147,17 +147,3 @@ func acquisitionFixture(t *testing.T, mode fs.FileMode) (acquis, dir string) {
 	require.NoError(t, os.Chmod(acquis, mode))
 	return acquis, dir
 }
-
-// stubSyncDir replaces the directory sync seam used by the file editor's save; the returned slice records each
-// directory synced.
-func stubSyncDir(t *testing.T, syncErr error) *[]string {
-	t.Helper()
-	orig := syncDir
-	t.Cleanup(func() { syncDir = orig })
-	synced := &[]string{}
-	syncDir = func(dir string) error {
-		*synced = append(*synced, dir)
-		return syncErr
-	}
-	return synced
-}
