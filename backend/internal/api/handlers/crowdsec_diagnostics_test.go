@@ -29,11 +29,11 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	return buf
 }
 
-func TestRegisterAndSaveBouncer_ErrorOmitsOutput(t *testing.T) {
+func TestRegisterBouncer_ErrorOmitsOutput(t *testing.T) {
 	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	h.CmdExec = &mockCmdExecutor{output: []byte(diagnosticsSentinel + " boom"), err: errors.New("exit status 1")}
 
-	_, err := h.registerAndSaveBouncer(context.Background())
+	_, err := h.registerBouncer(context.Background())
 
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), diagnosticsSentinel)

@@ -265,9 +265,12 @@ type CommandExecutor interface {
 
 const defaultBouncerKeyFile = bouncerkey.DefaultFile
 
+// startupBouncerName is the bouncer registered with LAPI at startup.
+const startupBouncerName = "caddy-bouncer"
+
 // ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
 // This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
-// Priority: Validates env var key, then checks file, then auto-generates new key if needed.
+// Priority: a valid saved key wins, then a valid env key is saved, then a new key is registered.
 func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor) error {
 	return ensureBouncerRegistration(dataDir, defaultBouncerKeyFile, cmdExec)
 }
@@ -275,7 +278,6 @@ func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor)
 // ensureBouncerRegistration implements ensureBouncerRegistrationOnStartup with an explicit key-file path.
 func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandExecutor) error {
 	const (
-		bouncerName  = "caddy-bouncer"
 		maxLAPIWait  = 30 * time.Second
 		pollInterval = 1 * time.Second
 	)
@@ -307,84 +309,99 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 		return fmt.Errorf("LAPI not ready within timeout %v", maxLAPIWait)
 	}
 
-	// Priority 1: Check environment variable key
-	envKey, _ := bouncerkey.FromEnv()
-	if envKey != "" {
-		if testKeyAgainstLAPIStartup(envKey) {
-			logger.Log().WithField("source", "environment_variable").WithField("masked_key", util.MaskAPIKey(envKey)).Info("CrowdSec bouncer: env var key validated successfully")
-			return nil
+	// The shared decision: a valid saved key wins, then a valid env key is saved, then a new bouncer is registered.
+	// Startup runs before Caddy is created, so no Caddy re-apply is needed for any outcome.
+	register := func(ctx context.Context) (string, error) {
+		// Delete existing bouncer if present (stale registration)
+		delCtx, delCancel := context.WithTimeout(ctx, 5*time.Second)
+		_, _ = crowdsec.RunCSCLI(delCtx, cmdExec, configPath, "bouncers", "delete", startupBouncerName)
+		delCancel()
+
+		regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer regCancel()
+
+		output, err := crowdsec.RunCSCLI(regCtx, cmdExec, configPath, "bouncers", "add", startupBouncerName, "-o", "raw")
+		if err != nil {
+			logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Error("bouncer registration failed")
+			return "", fmt.Errorf("bouncer registration failed: %w", err)
 		}
-		logger.Log().WithField("masked_key", util.MaskAPIKey(envKey)).Warn(
-			"The configured CrowdSec API key was rejected by LAPI and will be ignored. " +
-				"A replacement key will be generated and saved to the key file.",
-		)
-	}
 
-	// Priority 2: Check file-stored key
-	if keyStr := bouncerkey.ReadFile(bouncerKeyFile); keyStr != "" {
-		if testKeyAgainstLAPIStartup(keyStr) {
-			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", util.MaskAPIKey(keyStr)).Info("CrowdSec bouncer: file-stored key validated successfully")
-			return nil
+		newKey := strings.TrimSpace(string(output))
+		if newKey == "" {
+			logger.Log().Error("bouncer registration returned empty key")
+			return "", fmt.Errorf("bouncer registration returned empty key")
 		}
-		logger.Log().WithField("file", bouncerKeyFile).Warn("File-stored key rejected by LAPI, will re-register")
+		return newKey, nil
 	}
 
-	// No valid key - register new bouncer
-	logger.Log().Info("CrowdSec bouncer registration: registering new bouncer with LAPI...")
+	res, err := bouncerkey.Ensure(context.Background(), bouncerKeyFile, startupKeyValid, register, saveStartupBouncerKey)
+	logStartupKeyDecision(res, bouncerKeyFile)
+	return err
+}
 
-	// Delete existing bouncer if present (stale registration)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	_, _ = crowdsec.RunCSCLI(ctx, cmdExec, configPath, "bouncers", "delete", bouncerName)
-	cancel()
+// startupKeyValid tests a key against LAPI for the shared decision.
+func startupKeyValid(_ context.Context, key string) bool {
+	return testKeyAgainstLAPIStartup(key)
+}
 
-	// Register new bouncer
-	regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer regCancel()
-
-	output, err := crowdsec.RunCSCLI(regCtx, cmdExec, configPath, "bouncers", "add", bouncerName, "-o", "raw")
-	if err != nil {
-		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Error("bouncer registration failed")
-		return fmt.Errorf("bouncer registration failed: %w", err)
-	}
-
-	newKey := strings.TrimSpace(string(output))
-	if newKey == "" {
-		logger.Log().Error("bouncer registration returned empty key")
-		return fmt.Errorf("bouncer registration returned empty key")
-	}
-
-	// Save key to file
-	keyDir := filepath.Dir(bouncerKeyFile)
+// saveStartupBouncerKey writes the key file that Caddy and the handlers read.
+func saveStartupBouncerKey(path, key string) error {
+	keyDir := filepath.Dir(path)
 	if err := os.MkdirAll(keyDir, 0o750); err != nil {
-		logger.Log().WithError(err).WithField("dir", keyDir).Error("failed to create key directory")
 		return fmt.Errorf("failed to create key directory: %w", err)
 	}
-
-	if err := os.WriteFile(bouncerKeyFile, []byte(newKey), 0o600); err != nil {
-		logger.Log().WithError(err).WithField("file", bouncerKeyFile).Error("failed to save bouncer key")
+	if err := os.WriteFile(path, []byte(key), 0o600); err != nil {
 		return fmt.Errorf("failed to save bouncer key: %w", err)
 	}
+	return nil
+}
 
-	logger.Log().WithFields(map[string]any{
-		"bouncer":    bouncerName,
-		"key_file":   bouncerKeyFile,
-		"masked_key": util.MaskAPIKey(newKey),
-	}).Info("CrowdSec bouncer: successfully registered and saved key")
+// rejectedEnvKeyLogMessage is the Warn text for a rejected key variable. It claims the key file
+// holds the key in use only when the save succeeded.
+func rejectedEnvKeyLogMessage(keyFile string, saveErr error) string {
+	if saveErr != nil {
+		return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " +
+			"Charon could not save its new key to " + keyFile + "; the new key is valid for this run only."
+	}
+	return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " +
+		"Charon uses the key file (permissions 0600); no action is required."
+}
 
-	// Report the replacement.
-	if envKey != "" {
-		logger.Log().WithFields(map[string]any{
-			"bouncer":    bouncerName,
-			"key_file":   bouncerKeyFile,
-			"masked_key": util.MaskAPIKey(envKey),
-		}).Warn(
-			"CrowdSec API key mismatch: the configured CrowdSec API key was rejected by CrowdSec. " +
-				"A replacement key was generated and saved to the key file (permissions 0600). " +
-				"Charon uses the saved key; no action is required.",
+// logStartupKeyDecision reports the startup key decision. A failed save is logged at Error and
+// does not fail startup; the key is valid for this run.
+func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string) {
+	if res.SaveErr != nil {
+		logger.Log().WithError(res.SaveErr).WithField("key_file", keyFile).Error(
+			"CrowdSec bouncer: failed to save the key file; the key is valid for this run only",
 		)
 	}
+	if res.EnvKeyRejected {
+		logger.Log().WithFields(map[string]any{
+			"bouncer":    startupBouncerName,
+			"key_file":   keyFile,
+			"masked_key": util.MaskAPIKey(res.EnvKey),
+		}).Warn(rejectedEnvKeyLogMessage(keyFile, res.SaveErr))
+	}
 
-	return nil
+	switch res.Outcome {
+	case bouncerkey.OutcomeSavedKeyValid:
+		logger.Log().WithField("file", keyFile).Info("CrowdSec bouncer: file-stored key validated successfully")
+		if res.EnvKeyIgnored {
+			logger.Log().WithField("file", keyFile).Info("CrowdSec bouncer: a key variable is set but the saved key is in use")
+		}
+	case bouncerkey.OutcomeEnvKeySaved:
+		logger.Log().WithFields(map[string]any{
+			"source":     "environment_variable",
+			"key_file":   keyFile,
+			"masked_key": util.MaskAPIKey(res.Key),
+		}).Info("CrowdSec bouncer: env var key validated and saved to key file")
+	case bouncerkey.OutcomeRegistered:
+		logger.Log().WithFields(map[string]any{
+			"bouncer":    startupBouncerName,
+			"key_file":   keyFile,
+			"masked_key": util.MaskAPIKey(res.Key),
+		}).Info("CrowdSec bouncer: successfully registered and saved key")
+	}
 }
 
 // Helper functions for startup bouncer registration (minimal dependencies)

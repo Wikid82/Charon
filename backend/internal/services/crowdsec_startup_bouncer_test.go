@@ -138,9 +138,11 @@ func TestEnsureBouncerRegistration_ValidEnvKey_NoRegistration(t *testing.T) {
 
 	require.NoError(t, ensureBouncerRegistration(h.dataDir, h.keyFile, exec))
 
+	// Intended flip: a valid env key is saved to the key file so the proxy reads it.
 	assert.False(t, exec.called("bouncers add"))
-	_, err := os.Stat(h.keyFile)
-	assert.True(t, os.IsNotExist(err))
+	got, err := os.ReadFile(h.keyFile)
+	require.NoError(t, err)
+	assert.Equal(t, testFileKey, string(got))
 }
 
 func TestEnsureBouncerRegistration_ValidFileKey_NoReRegistration(t *testing.T) {
@@ -195,8 +197,11 @@ func TestEnsureBouncerRegistration_KeyDirectoryUnavailable(t *testing.T) {
 
 	err := ensureBouncerRegistration(h.dataDir, filepath.Join(blocker, "bouncer_key"), exec)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create key directory")
+	// Intended flip: a failed save is not fatal; the key is valid for this run and the Error log names the path.
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(h.channels(h.drain()), "\n"), blocker)
+	_, statErr := os.Stat(filepath.Join(blocker, "bouncer_key"))
+	assert.Error(t, statErr)
 }
 
 func assertNoSubstring(t *testing.T, channels []string, secret string) {

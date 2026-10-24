@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -3846,7 +3847,7 @@ func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 	require.Contains(t, maskedKey, "...wxyz")
 
 	// Call the banner function (it will log, but we've verified masking works)
-	h.logBouncerKeyBanner(testAPIKey)
+	h.logBouncerKeyBanner(testAPIKey, nil)
 
 	// If we reach here without panic, the function executed successfully
 	// The actual log output would need to be captured in integration tests
@@ -4076,10 +4077,13 @@ func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
 	require.NoError(t, db.Create(&cfg).Error)
 
 	ctx := context.Background()
-	key, err := handler.ensureBouncerRegistration(ctx)
+	res, err := handler.ensureBouncerRegistration(ctx)
 
+	// Intended flip: a valid env key is now saved to the key file, so the proxy reads it.
 	require.NoError(t, err)
-	require.Empty(t, key, "Should return empty key when using valid env var")
+	require.Equal(t, bouncerkey.OutcomeEnvKeySaved, res.Outcome)
+	require.Equal(t, "valid-env-key-test", res.Key)
+	require.Equal(t, "valid-env-key-test", bouncerkey.ReadFile(handler.bouncerKeyPath()))
 }
 
 // TestEnsureBouncerRegistration_InvalidEnvKeyFallback verifies fallback when env key is invalid.
@@ -4134,10 +4138,12 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 	require.NoError(t, db.Create(&cfg).Error)
 
 	ctx := context.Background()
-	key, err := handler.ensureBouncerRegistration(ctx)
+	res, err := handler.ensureBouncerRegistration(ctx)
 
 	require.NoError(t, err)
-	require.Equal(t, "new-generated-key-123", key, "Should return newly generated key")
+	require.Equal(t, bouncerkey.OutcomeRegistered, res.Outcome)
+	require.Equal(t, "new-generated-key-123", res.Key, "Should return newly generated key")
+	require.True(t, res.EnvKeyRejected, "the invalid env key is reported as rejected")
 	mockCmdExec.AssertExpectations(t)
 }
 
@@ -4307,9 +4313,9 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			key, err := handler.ensureBouncerRegistration(context.Background())
+			res, err := handler.ensureBouncerRegistration(context.Background())
 			errorsCh <- err
-			keysCh <- key
+			keysCh <- res.Key
 		}()
 	}
 
@@ -4327,10 +4333,10 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 	}
 	require.Equal(t, 0, errorCount, "All concurrent calls should succeed")
 
-	// Verify: All keys are either empty (cached) or the same generated key
+	// Verify: every call returns the same key (the first call registers, the rest see it saved)
 	var seenKeys []string
 	for key := range keysCh {
-		if key != "" { // Non-empty means a new registration occurred
+		if key != "" {
 			seenKeys = append(seenKeys, key)
 		}
 	}

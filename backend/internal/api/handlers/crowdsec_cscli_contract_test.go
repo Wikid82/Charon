@@ -633,12 +633,12 @@ func TestCSCLIContract_BouncerCommands(t *testing.T) {
 			"bouncers add caddy-bouncer-dup -o raw": "bouncers_add_dup",
 		})
 		hh := h(t, fx)
-		key, err := hh.registerAndSaveBouncer(t.Context())
+		key, err := hh.registerBouncer(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, string(add), key)
-		saved, err := os.ReadFile(hh.bouncerKeyPath())
-		require.NoError(t, err)
-		assert.Equal(t, string(add), strings.TrimSpace(string(saved)))
+		// registerBouncer does not save the key; ensureBouncerRegistration owns the save.
+		_, statErr := os.Stat(hh.bouncerKeyPath())
+		assert.True(t, os.IsNotExist(statErr), "registerBouncer must not write the key file")
 	})
 	t.Run("a refused add is an error and the output is not repeated verbatim as a key", func(t *testing.T) {
 		t.Parallel()
@@ -646,7 +646,7 @@ func TestCSCLIContract_BouncerCommands(t *testing.T) {
 			"bouncers delete caddy-bouncer":     "bouncers_delete_missing",
 			"bouncers add caddy-bouncer -o raw": "bouncers_add_dup",
 		})
-		_, err := h(t, fx).registerAndSaveBouncer(t.Context())
+		_, err := h(t, fx).registerBouncer(t.Context())
 		require.Error(t, err)
 	})
 }

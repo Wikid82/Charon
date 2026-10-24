@@ -91,9 +91,10 @@ func TestCrowdsecWave7_EnsureBouncerRegistration_InvalidFileKeyReRegisters(t *te
 	})).Return([]byte("new-file-key-1234567890"), nil)
 	handler.CmdExec = mockCmdExec
 
-	key, err := handler.ensureBouncerRegistration(context.Background())
+	res, err := handler.ensureBouncerRegistration(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "new-file-key-1234567890", key)
+	require.Equal(t, bouncerkey.OutcomeRegistered, res.Outcome)
+	require.Equal(t, "new-file-key-1234567890", res.Key)
 	require.Equal(t, "new-file-key-1234567890", bouncerkey.ReadFile(keyPath))
 	mockCmdExec.AssertExpectations(t)
 }
