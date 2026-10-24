@@ -426,11 +426,11 @@
       "keyStoredAt": "Schlüssel gespeichert unter",
       "keyWarning": {
         "title": "CrowdSec API-Schlüssel aktualisiert",
-        "description": "Ihr konfigurierter API-Schlüssel wurde von CrowdSec LAPI abgelehnt. Ein neuer Schlüssel wurde automatisch generiert, um den Schutz wiederherzustellen.",
-        "instructions": "Aktualisieren Sie Ihre docker-compose.yml mit dem neuen Schlüssel, um eine erneute Registrierung beim Container-Neustart zu verhindern:",
+        "description": "Ihr konfigurierter API-Schlüssel wurde von CrowdSec LAPI abgelehnt. Charon hat einen neuen Schlüssel erzeugt, gespeichert und verwendet ihn jetzt, um den Schutz wiederherzustellen.",
+        "instructions": "Entfernen Sie die alte CrowdSec-Schlüsselvariable aus der docker-compose.yml. Wenn Sie eine behalten möchten, setzen Sie sie auf diesen Schlüssel:",
         "copyButton": "Kopieren",
         "copied": "Schlüssel in Zwischenablage kopiert",
-        "restartNote": "Nach der Aktualisierung der docker-compose.yml starten Sie den Container neu, damit die Änderung wirksam wird."
+        "restartNote": "Ein Neustart ist nicht nötig: Charon verwendet diesen Schlüssel bereits."
       },
       "tabs": {
         "config": "Konfiguration",

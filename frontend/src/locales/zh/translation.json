@@ -426,11 +426,11 @@
       "keyStoredAt": "密钥存储位置",
       "keyWarning": {
         "title": "CrowdSec API密钥已更新",
-        "description": "您配置的API密钥被CrowdSec LAPI拒绝。已自动生成新密钥以恢复保护。",
-        "instructions": "使用新密钥更新您的docker-compose.yml，以防止容器重启时重新注册：",
+        "description": "您配置的API密钥被CrowdSec LAPI拒绝。Charon已生成新密钥并保存，现在使用该密钥恢复保护。",
+        "instructions": "从docker-compose.yml中删除旧的CrowdSec密钥变量。如果要保留一个，请将其设置为此密钥：",
         "copyButton": "复制",
         "copied": "密钥已复制到剪贴板",
-        "restartNote": "更新docker-compose.yml后，重启容器使更改生效。"
+        "restartNote": "无需重启：Charon已在使用此密钥。"
       },
       "tabs": {
         "config": "配置",

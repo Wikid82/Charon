@@ -426,11 +426,11 @@
       "keyStoredAt": "Clave almacenada en",
       "keyWarning": {
         "title": "Clave API de CrowdSec Actualizada",
-        "description": "Su clave API configurada fue rechazada por CrowdSec LAPI. Se ha generado automáticamente una nueva clave para restaurar la protección.",
-        "instructions": "Actualice su docker-compose.yml con la nueva clave para evitar el re-registro al reiniciar el contenedor:",
+        "description": "Su clave API configurada fue rechazada por CrowdSec LAPI. Charon generó una nueva clave, la guardó y la usa ahora para restaurar la protección.",
+        "instructions": "Elimine la variable de clave de CrowdSec antigua de docker-compose.yml. Si desea conservar una, configúrela con esta clave:",
         "copyButton": "Copiar",
         "copied": "Clave copiada al portapapeles",
-        "restartNote": "Después de actualizar docker-compose.yml, reinicie el contenedor para que el cambio surta efecto."
+        "restartNote": "No es necesario reiniciar: Charon ya usa esta clave."
       },
       "tabs": {
         "config": "Configuración",
