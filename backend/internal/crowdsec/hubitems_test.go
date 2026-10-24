@@ -104,6 +104,23 @@ func TestInstalledHubItemsIgnoresNonLinksAndSorts(t *testing.T) {
 	}, items)
 }
 
+// A foo.yaml and foo.yml link pair for the same item is one installed item: scanHubItems keys its
+// set on HubItem. CountDownloadedHubFiles still counts both files, but it counts real files rather
+// than links and only drives the progress counter, so it is covered in apply_jobs_progress_test.go.
+func TestInstalledHubItemsYamlAndYmlPairCollapseToOneItem(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const hub = "/etc/crowdsec/hub/"
+	link(t, dir, "config/collections/caddy.yaml", hub+"collections/crowdsecurity/caddy.yaml")
+	link(t, dir, "config/collections/caddy.yml", hub+"collections/crowdsecurity/caddy.yml")
+	link(t, dir, "collections/caddy.yml", hub+"collections/crowdsecurity/caddy.yml")
+
+	items, skipped, err := scanHubItems(dir)
+	require.NoError(t, err)
+	require.Equal(t, []HubItem{{"collections", "crowdsecurity/caddy"}}, items)
+	require.Zero(t, skipped)
+}
+
 func TestInstalledHubItemsEmptyOrMissingTree(t *testing.T) {
 	t.Parallel()
 	items, err := InstalledHubItems(t.TempDir())
