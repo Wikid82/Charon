@@ -340,6 +340,22 @@ describe('Security CrowdSec mutation UX', () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('CrowdSec started and LAPI is ready'))
   })
 
+  it('falls back to the generic translated started toast when the start response carries no LAPI status', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123 })
+    vi.mocked(crowdsecApi.statusCrowdsec)
+      .mockResolvedValueOnce({ running: false, pid: 0, lapi_ready: false })
+      .mockResolvedValue({ running: true, pid: 123, lapi_ready: false })
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('CrowdSec started'))
+    expect(toast.warning).not.toHaveBeenCalledWith(expect.stringContaining('LAPI'))
+  })
+
   it('warns when CrowdSec started but LAPI is still initializing', async () => {
     vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123, lapi_ready: false })
     vi.mocked(crowdsecApi.statusCrowdsec)
