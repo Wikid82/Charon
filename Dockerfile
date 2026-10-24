@@ -616,7 +616,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Renovate tracks these via regex manager in renovate.json
         _retry go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
         # renovate: datasource=go depName=github.com/hslatman/ipstore
+        # CVE-2026-114437: client IP spoofing via unverified direct connection in ClientIPFromXFF middleware        
         _retry go get github.com/hslatman/ipstore@v0.5.0; \
+        # renovate: datasource=go depName=github.com/go-chi/chi
+        _retry go get github.com/go-chi/chi@v$v5.4.0; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
         # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
