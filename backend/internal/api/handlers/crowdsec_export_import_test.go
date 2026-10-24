@@ -36,6 +36,7 @@ func seedRealLayout(t *testing.T, dir string) {
 		"config/bouncers/caddy-bouncer.key":     "live-bouncer",
 		"crowdsec.pid":                          "4242",
 		"bouncer_key.bak":                       "near-miss",
+		"bouncer_key.tmp-1234":                  "leftover-key",
 		"caddy.yaml":                            "misc",
 		"crowdsec.db":                           "live-db",
 		"data/crowdsec.db":                      "lapi-db",
@@ -97,7 +98,7 @@ func assertLiveSecretsIntact(t *testing.T, dir string) {
 	t.Helper()
 	require.Equal(t, "live-lapi", readTreeFile(t, filepath.Join(dir, "config", "local_api_credentials.yaml")))
 	require.Equal(t, "live-capi", readTreeFile(t, filepath.Join(dir, "config", "online_api_credentials.yaml")))
-	require.Equal(t, "live-key", readTreeFile(t, filepath.Join(dir, "bouncer_key")))
+	require.Equal(t, "leftover-key", readTreeFile(t, filepath.Join(dir, "bouncer_key.tmp-1234")))
 }
 
 func TestExportConfigRealLayoutEntryList(t *testing.T) {
@@ -211,6 +212,7 @@ func TestImportConfigNeverTakesProtectedEntriesFromUpload(t *testing.T) {
 		"config/local_api_credentials.yaml":  "uploaded",
 		"config/online_api_credentials.yaml": "uploaded",
 		"bouncer_key":                        "uploaded",
+		"bouncer_key.tmp-1234":               "uploaded",
 		"config/Online_API_Credentials.yaml": "uploaded-mixed",
 		"config/bouncer_key/inner.yaml":      "uploaded-dir",
 		"config/sibling.yaml":                "sibling",
@@ -374,6 +376,7 @@ func TestEditorHidesSecretsUsingSharedRule(t *testing.T) {
 		"config/online_api_credentials.yaml":   false,
 		"bouncer_key/inner.yaml":               false,
 		"bouncer_key.bak":                      true,
+		"bouncer_key.tmp-1234":                 false,
 		"config/my_local_api_credentials.yaml": true,
 		"config/config.yaml":                   true,
 	} {

@@ -334,7 +334,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 		return newKey, nil
 	}
 
-	res, err := bouncerkey.Ensure(context.Background(), bouncerKeyFile, startupKeyValid, register, saveStartupBouncerKey)
+	res, err := bouncerkey.Ensure(context.Background(), bouncerKeyFile, startupKeyValid, register, crowdsec.SaveBouncerKey)
 	logStartupKeyDecision(res, bouncerKeyFile)
 	return err
 }
@@ -342,18 +342,6 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 // startupKeyValid tests a key against LAPI for the shared decision.
 func startupKeyValid(_ context.Context, key string) bool {
 	return testKeyAgainstLAPIStartup(key)
-}
-
-// saveStartupBouncerKey writes the key file that Caddy and the handlers read.
-func saveStartupBouncerKey(path, key string) error {
-	keyDir := filepath.Dir(path)
-	if err := os.MkdirAll(keyDir, 0o750); err != nil {
-		return fmt.Errorf("failed to create key directory: %w", err)
-	}
-	if err := os.WriteFile(path, []byte(key), 0o600); err != nil {
-		return fmt.Errorf("failed to save bouncer key: %w", err)
-	}
-	return nil
 }
 
 // rejectedEnvKeyLogMessage is the Warn text for a rejected key variable. It claims the key file

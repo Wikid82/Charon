@@ -142,7 +142,7 @@ func TestEnsureBouncerRegistration_ValidEnvKey_NoRegistration(t *testing.T) {
 	assert.False(t, exec.called("bouncers add"))
 	got, err := os.ReadFile(h.keyFile)
 	require.NoError(t, err)
-	assert.Equal(t, testFileKey, string(got))
+	assert.Equal(t, testFileKey+"\n", string(got), "saved with one trailing newline, like every key writer")
 }
 
 func TestEnsureBouncerRegistration_ValidFileKey_NoReRegistration(t *testing.T) {
@@ -169,7 +169,7 @@ func TestEnsureBouncerRegistration_NoEnvKey_RegistersAndSavesKey(t *testing.T) {
 	assert.True(t, exec.called("bouncers add"))
 	got, err := os.ReadFile(h.keyFile)
 	require.NoError(t, err)
-	assert.Equal(t, testGeneratedKey, string(got))
+	assert.Equal(t, testGeneratedKey+"\n", string(got), "saved with one trailing newline, like every key writer")
 	info, err := os.Stat(h.keyFile)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
@@ -177,6 +177,28 @@ func TestEnsureBouncerRegistration_NoEnvKey_RegistersAndSavesKey(t *testing.T) {
 	for _, e := range h.drain() {
 		assert.NotEqual(t, logrus.WarnLevel, e.Level, "no warning expected without an env key: %s", e.Message)
 	}
+}
+
+func TestEnsureBouncerRegistration_ReplacesSymlinkedKeyWithRegularFile(t *testing.T) {
+	h := newBouncerHarness(t)
+	target := filepath.Join(h.dataDir, "elsewhere")
+	require.NoError(t, os.WriteFile(target, []byte("rejected-linked-key\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Dir(h.keyFile), 0o750))
+	require.NoError(t, os.Symlink(target, h.keyFile))
+	exec := &scriptedBouncerExecutor{addOutput: []byte(testGeneratedKey + "\n")}
+
+	require.NoError(t, ensureBouncerRegistration(h.dataDir, h.keyFile, exec))
+
+	info, err := os.Lstat(h.keyFile)
+	require.NoError(t, err)
+	assert.True(t, info.Mode().IsRegular(), "the link is replaced by a regular file")
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	got, err := os.ReadFile(h.keyFile)
+	require.NoError(t, err)
+	assert.Equal(t, testGeneratedKey+"\n", string(got))
+	linked, err := os.ReadFile(target) //nolint:gosec // G304: t.TempDir-derived path
+	require.NoError(t, err)
+	assert.Equal(t, "rejected-linked-key\n", string(linked), "the link target is never written")
 }
 
 func TestEnsureBouncerRegistration_EmptyRegistrationOutput(t *testing.T) {
@@ -223,7 +245,7 @@ func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsRedacted(t *testing
 			// The generated value is persisted to the key file with restricted permissions.
 			got, err := os.ReadFile(h.keyFile)
 			require.NoError(t, err)
-			require.Equal(t, testGeneratedKey, string(got))
+			require.Equal(t, testGeneratedKey+"\n", string(got))
 			info, err := os.Stat(h.keyFile)
 			require.NoError(t, err)
 			require.Equal(t, os.FileMode(0o600), info.Mode().Perm())

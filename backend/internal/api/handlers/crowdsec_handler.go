@@ -1769,7 +1769,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bounce
 	h.registrationMutex.Lock()
 	defer h.registrationMutex.Unlock()
 
-	res, err := bouncerkey.Ensure(ctx, h.bouncerKeyPath(), h.testKeyAgainstLAPI, h.registerBouncer, saveKeyToFile)
+	res, err := bouncerkey.Ensure(ctx, h.bouncerKeyPath(), h.testKeyAgainstLAPI, h.registerBouncer, crowdsec.SaveBouncerKey)
 
 	if res.EnvKeyRejected {
 		h.envKeyRejected = true
@@ -1947,35 +1947,6 @@ API Key:      %s
 	// Security: Mask API key to prevent cleartext exposure in logs
 	maskedKey := util.MaskAPIKey(apiKey)
 	logger.Log().Infof(banner, bouncerName, maskedKey, storageLine, securityLine, tipLine)
-}
-
-// saveKeyToFile saves the bouncer key to a file with secure permissions.
-// Uses atomic write pattern (temp file → rename) to prevent corruption.
-func saveKeyToFile(path, key string) error {
-	if key == "" {
-		return fmt.Errorf("cannot save empty key")
-	}
-
-	// Ensure directory exists with proper permissions
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("failed to create key directory: %w", err)
-	}
-
-	// Atomic write: temp file → rename
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(key+"\n"), 0o600); err != nil {
-		return fmt.Errorf("failed to write key file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		if removeErr := os.Remove(tmpPath); removeErr != nil {
-			logger.Log().WithError(removeErr).Warn("Failed to clean up temporary key file")
-		}
-		return fmt.Errorf("failed to finalize key file: %w", err)
-	}
-
-	return nil
 }
 
 // GetBouncerInfo returns information about the current bouncer key.

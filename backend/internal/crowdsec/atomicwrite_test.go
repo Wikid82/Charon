@@ -1,15 +1,20 @@
 package crowdsec
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 // The tests in this file swap the package seams (createTempFile, openInPlaceFile, renameFile, syncDir, fileOwner,
@@ -430,6 +435,54 @@ func TestWriteFileAtomicFallsBackInPlaceOnRefusedRename(t *testing.T) {
 			requireAtomicEntries(t, dir, "acquis.yaml")
 		})
 	}
+}
+
+// forceModeLogs captures the package logger for the duration of one test and returns the buffer.
+func forceModeLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	logger.Init(false, &buf)
+	t.Cleanup(func() { logger.Init(false, io.Discard) })
+	return &buf
+}
+
+func TestWriteFileAtomicForceModeSetsTheModeInPlace(t *testing.T) {
+	stubAtomicRename(t, &os.LinkError{Op: "rename", Err: syscall.EBUSY})
+	acquis, dir := atomicFixture(t, 0o644)
+
+	res, err := WriteFileAtomic(acquis, []byte("new\n"), 0o600, AtomicWriteOptions{InPlaceFallback: true, ForceMode: true})
+	require.NoError(t, err)
+	require.Equal(t, AtomicWriteResult{InPlace: true, OwnerKept: true}, res)
+	info, err := os.Stat(acquis)
+	require.NoError(t, err)
+	require.Equal(t, fs.FileMode(0o600), info.Mode().Perm(), "the mode is forced to the requested one")
+	requireAtomicContent(t, acquis, "new\n")
+	requireAtomicEntries(t, dir, "acquis.yaml")
+}
+
+func TestWriteFileAtomicWithoutForceModeKeepsTheLiveModeInPlace(t *testing.T) {
+	stubAtomicRename(t, &os.LinkError{Op: "rename", Err: syscall.EBUSY})
+	acquis, _ := atomicFixture(t, 0o644)
+
+	_, err := WriteFileAtomic(acquis, []byte("new\n"), 0o600, AtomicWriteOptions{InPlaceFallback: true})
+	require.NoError(t, err)
+	info, err := os.Stat(acquis)
+	require.NoError(t, err)
+	require.Equal(t, fs.FileMode(0o644), info.Mode().Perm(), "the live mode is kept when ForceMode is off")
+}
+
+func TestWriteFileAtomicForceModeWritesContentWhenChmodFails(t *testing.T) {
+	buf := forceModeLogs(t)
+	injectInPlaceStep(t, "chmod")
+	stubAtomicRename(t, &os.LinkError{Op: "rename", Err: syscall.EBUSY})
+	acquis, dir := atomicFixture(t, 0o644)
+
+	res, err := WriteFileAtomic(acquis, []byte("new\n"), 0o600, AtomicWriteOptions{InPlaceFallback: true, ForceMode: true})
+	require.NoError(t, err, "a refused chmod must not refuse the write: the content is what matters")
+	require.Equal(t, AtomicWriteResult{InPlace: true, OwnerKept: true}, res)
+	requireAtomicContent(t, acquis, "new\n")
+	requireAtomicEntries(t, dir, "acquis.yaml")
+	require.Equal(t, 1, strings.Count(buf.String(), "could not set the crowdsec file mode"), buf.String())
 }
 
 func TestWriteFileAtomicRefusedRenameWithoutFallbackFails(t *testing.T) {

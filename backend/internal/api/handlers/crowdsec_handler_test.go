@@ -3853,46 +3853,6 @@ func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 	// The actual log output would need to be captured in integration tests
 }
 
-// TestSaveKeyToFile_SecurePermissions verifies that API keys are saved with secure file permissions.
-// Security: Ensures key files have 0600 permissions to prevent unauthorized access (CWE-732).
-func TestSaveKeyToFile_SecurePermissions(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	keyFile := filepath.Join(tmpDir, "test_bouncer.key")
-	testKey := "test_api_key_1234567890_secure"
-
-	// Save the key
-	err := saveKeyToFile(keyFile, testKey)
-	require.NoError(t, err)
-
-	// Verify file exists
-	require.FileExists(t, keyFile)
-
-	// Verify file permissions are 0600
-	info, err := os.Stat(keyFile)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "File must have 0600 permissions for security")
-
-	// Verify content is correct
-	// #nosec G304 -- keyFile is in test temp directory created by t.TempDir()
-	content, err := os.ReadFile(keyFile)
-	require.NoError(t, err)
-	require.Equal(t, testKey+"\n", string(content))
-}
-
-// TestSaveKeyToFile_EmptyKey verifies that empty keys are rejected.
-func TestSaveKeyToFile_RejectEmptyKey(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	keyFile := filepath.Join(tmpDir, "test_bouncer.key")
-
-	err := saveKeyToFile(keyFile, "")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot save empty key")
-}
-
 // TestTestKeyAgainstLAPI_ValidKey verifies that valid API keys are accepted by LAPI.
 func TestTestKeyAgainstLAPI_ValidKey(t *testing.T) {
 	t.Parallel()
@@ -4145,39 +4105,6 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 	require.Equal(t, "new-generated-key-123", res.Key, "Should return newly generated key")
 	require.True(t, res.EnvKeyRejected, "the invalid env key is reported as rejected")
 	mockCmdExec.AssertExpectations(t)
-}
-
-// TestSaveKeyToFile_AtomicWrite verifies that key files are written atomically.
-func TestSaveKeyToFile_AtomicWrite(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "keys", "bouncer_key")
-
-	// Save key
-	err := saveKeyToFile(keyPath, "test-key-123-atomic")
-	require.NoError(t, err)
-
-	// Verify file exists and has correct content
-	// #nosec G304 -- keyPath is in test temp directory created by t.TempDir()
-	content, err := os.ReadFile(keyPath)
-	require.NoError(t, err)
-	require.Equal(t, "test-key-123-atomic\n", string(content))
-
-	// Verify permissions
-	info, err := os.Stat(keyPath)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-
-	// Verify no temp file left behind
-	tmpPath := keyPath + ".tmp"
-	_, err = os.Stat(tmpPath)
-	require.True(t, os.IsNotExist(err), "Temp file should be removed after atomic write")
-
-	// Verify directory permissions
-	dirInfo, err := os.Stat(filepath.Dir(keyPath))
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o700), dirInfo.Mode().Perm())
 }
 
 // TestEnsureBouncerRegistration_ConcurrentCalls verifies that concurrent registration

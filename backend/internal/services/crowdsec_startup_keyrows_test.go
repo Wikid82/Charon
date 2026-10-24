@@ -59,20 +59,20 @@ func TestEnsureBouncerRegistration_KeyDecisionRows(t *testing.T) {
 			name:         "invalid saved and valid env saves env",
 			saved:        invalidSaved,
 			env:          testFileKey,
-			wantFile:     testFileKey,
+			wantFile:     testFileKey + "\n",
 			wantValidate: []string{invalidSaved, testFileKey},
 		},
 		{
 			name:         "both invalid registers new key",
 			saved:        invalidSaved,
 			env:          testRejectedEnvKey,
-			wantFile:     testGeneratedKey,
+			wantFile:     testGeneratedKey + "\n",
 			wantRegister: true,
 			wantValidate: []string{invalidSaved, testRejectedEnvKey},
 		},
 		{
 			name:         "none registers new key",
-			wantFile:     testGeneratedKey,
+			wantFile:     testGeneratedKey + "\n",
 			wantRegister: true,
 		},
 	}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/gin-gonic/gin"
@@ -64,7 +65,7 @@ func TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB(t *testing.T)
 func TestCrowdsecWave7_EnsureBouncerRegistration_InvalidFileKeyReRegisters(t *testing.T) {
 	tmpDir := t.TempDir()
 	keyPath := tmpDir + "/bouncer_key"
-	require.NoError(t, saveKeyToFile(keyPath, "invalid-file-key"))
+	require.NoError(t, crowdsec.SaveBouncerKey(keyPath, "invalid-file-key"))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
