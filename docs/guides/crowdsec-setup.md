@@ -138,22 +138,33 @@ This means:
 
 ### Finding Your Key in the Logs
 
-When Charon generates a new bouncer key, you'll see a formatted banner in the container logs:
+When Charon registers a new bouncer key, it writes a short notice to the container logs:
 
 ```bash
 docker logs charon
 ```
 
-Look for a section like this:
+Look for a section like this. The key is partly hidden on purpose:
 
 ```text
-╔══════════════════════════════════════════════════════════════╗
-║              🔑 CrowdSec Bouncer Registered!                ║
-╠══════════════════════════════════════════════════════════════╣
-║  Your bouncer API key has been auto-generated.               ║
-║  Key saved to: /app/data/crowdsec/bouncer_key                ║
-╚══════════════════════════════════════════════════════════════╝
+════════════════════════════════════════════════════════════════════
+🔐 CrowdSec Bouncer Registered Successfully
+────────────────────────────────────────────────────────────────────
+Bouncer Name: caddy-bouncer
+API Key:      (partly hidden)
+Saved To:     /app/data/crowdsec/bouncer_key
+────────────────────────────────────────────────────────────────────
+⚠️  SECURITY: Full API key saved to file (permissions: 0600)
+────────────────────────────────────────────────────────────────────
+💡 TIP: Charon saved this key and uses it. If docker-compose.yml still
+   sets an old CrowdSec key variable, remove it.
+🔄 ROTATE: Change API keys regularly and never commit to version control
+════════════════════════════════════════════════════════════════════
 ```
+
+To see the full key, open the **CrowdSec** card on the Security page and click the copy button.
+
+If the line says **Not Saved** instead of **Saved To**, Charon could not write the key file. Give Charon write access to the data folder, then restart CrowdSec.
 
 ### Providing Your Own Key (Advanced)
 
@@ -234,25 +245,28 @@ services:
 
 ## Manual Bouncer Registration
 
-In rare cases, you might need to register the bouncer manually. This is useful if:
+In rare cases, you might need to create the key yourself instead of letting Charon do it. This is useful if:
 
 - You're recovering from a broken configuration
 - Automatic registration failed
-- You're debugging connection issues
 
-### Step 1: Access the Container Terminal
+Most people should skip this section. Charon creates and saves its own key automatically.
+
+**How it works:** You paste the key into your compose file. Charon then checks it with CrowdSec, and saves it if CrowdSec accepts it.
+
+### Step 1: Open the Container Terminal
 
 ```bash
 docker exec -it charon bash
 ```
 
-### Step 2: Register the Bouncer
+### Step 2: Create the Key
 
 ```bash
 cscli bouncers add caddy-bouncer
 ```
 
-CrowdSec will output an API key. It looks something like this:
+CrowdSec prints a key that looks something like this:
 
 ```text
 Api key for 'caddy-bouncer':
@@ -262,26 +276,33 @@ Api key for 'caddy-bouncer':
 Please keep it safe, you won't be able to retrieve it!
 ```
 
-### Step 3: Verify Registration
+If CrowdSec says the bouncer already exists, first delete it with the steps in [How to Delete and Re-Register a Bouncer](#how-to-delete-and-re-register-a-bouncer), then run this command again.
 
-```bash
-cscli bouncers list
+Copy the key now and keep it safe. Then type `exit` to leave the container terminal.
+
+### Step 3: Put the Key in Your Compose File
+
+Open your `docker-compose.yml` and add this line under `environment:` (replace the example text with your key):
+
+```yaml
+environment:
+  - CHARON_SECURITY_CROWDSEC_API_KEY=f8a7b2c9d3e4a5b6c7d8e9f0a1b2c3d4
 ```
 
-You should see `caddy-bouncer` in the list.
+Charon uses this variable only when it does not already have a working saved key. Once Charon has saved the key, you can leave the line in place.
 
 ### Step 4: Restart Charon
 
-Exit the container and restart:
-
 ```bash
-exit
 docker restart charon
 ```
 
-### Step 5: Re-enable CrowdSec
+### Step 5: Check the Result
 
-Toggle CrowdSec OFF and then ON again in the Security dashboard. Charon will detect the registered bouncer and connect.
+Open the **Security** page and look at the **CrowdSec** card. It should show a bouncer key and say it is registered.
+
+- If CrowdSec does not accept your key, Charon makes its own key instead. Check the key in your compose file for typos, or delete that line and let Charon register its own key.
+- If the card shows an error about saving the key, give Charon write access to the data folder, then restart CrowdSec.
 
 ---
 
@@ -402,12 +423,11 @@ If the bouncer is corrupted or misconfigured:
 # Delete the existing bouncer
 docker exec charon cscli bouncers delete caddy-bouncer
 
-# Register a fresh one
-docker exec charon cscli bouncers add caddy-bouncer
-
-# Restart
+# Restart. Charon registers a fresh key on its own.
 docker restart charon
 ```
+
+If the key file is still there and CrowdSec no longer accepts it, Charon replaces it automatically. To force a fresh key, also delete the file `bouncer_key` in the `crowdsec` folder inside your data folder before restarting.
 
 ---
 
@@ -440,47 +460,11 @@ If you're behind a corporate firewall, you may need to allow these connections.
 
 ## Advanced Configuration
 
-### Using an External CrowdSec Instance
+### Using an External CrowdSec Instance (No Longer Supported)
 
-If you already run CrowdSec separately (not inside Charon), you can connect to it.
+Charon no longer connects to a CrowdSec server that you run somewhere else. It always uses the CrowdSec built in to Charon.
 
-> **⚠️ Warning:** This is an advanced configuration. Most users should use Charon's built-in CrowdSec.
-
-> **📝 Note: Auto-Registration Doesn't Apply Here**
->
-> The auto-registration feature only works with Charon's **built-in** CrowdSec. When connecting to an external CrowdSec instance, you **must** manually register a bouncer and provide the key.
-
-**Steps:**
-
-1. Register a bouncer on your external CrowdSec:
-
-   ```bash
-   cscli bouncers add charon-bouncer
-   ```
-
-2. Save the API key that's generated (you won't see it again!)
-
-3. In your docker-compose.yml:
-
-   ```yaml
-   environment:
-     - CHARON_SECURITY_CROWDSEC_API_URL=http://your-crowdsec-server:8080
-     - CHARON_SECURITY_CROWDSEC_API_KEY=your-generated-key
-   ```
-
-4. Restart Charon:
-
-   ```bash
-   docker restart charon
-   ```
-
-**Why manual registration is required:**
-
-Charon cannot automatically register a bouncer on an external CrowdSec instance because:
-
-- It doesn't have terminal access to the external server
-- It doesn't know the external CrowdSec's admin credentials
-- The external CrowdSec may have custom security policies
+If your compose file still has `CHARON_SECURITY_CROWDSEC_API_URL`, remove that line, then restart Charon with `docker restart charon`.
 
 ---
 

@@ -178,7 +178,7 @@ If you set a key in your compose file, use one of these variable names. Charon c
 
 **Symlinks:** if `bouncer_key` is a shortcut (a symlink) to another file, the next save replaces the shortcut with a normal private file. The file the shortcut pointed to is not changed.
 
-**If Charon cannot save the key:** the key still works until Charon restarts, but it is lost on restart. Charon writes an error to the log. Fix write access to the data folder, then restart Charon.
+**If Charon cannot save the key:** Charon writes an error to the log, and it does not keep the key anywhere else. Blocking may not work until the key file can be written. To fix it, give Charon write access to the data folder, then restart CrowdSec.
 
 **See it in the UI:** Open the CrowdSec page and look at the **Bouncer API Key** card. It shows a shortened preview of the key, whether it is registered, and where the file is stored.
 

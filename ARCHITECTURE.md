@@ -884,7 +884,7 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 2. Otherwise the first non-empty environment variable is tested and, if accepted, saved to the key file. Lookup order: `CHARON_SECURITY_CROWDSEC_API_KEY`, `CROWDSEC_API_KEY`, `CROWDSEC_BOUNCER_API_KEY`, `CERBERUS_SECURITY_CROWDSEC_API_KEY`, `CPM_SECURITY_CROWDSEC_API_KEY`.
 3. Otherwise a new bouncer is registered and its key saved.
 
-Key writes go through `crowdsec.SaveBouncerKey`: a temporary file is written and renamed over the key (mode `0600`). A bind-mounted single file, where rename is not allowed, falls back to an in-place write. A symlinked key file is replaced by a regular file. A failed save is logged and the key remains valid for the current session only.
+Key writes go through `crowdsec.SaveBouncerKey`: a temporary file is written and renamed over the key (mode `0600`). A bind-mounted single file, where rename is not allowed, falls back to an in-place write. A symlinked key file is replaced by a regular file. A failed save is logged as an error. Nothing keeps the new key in memory: Caddy and the key check read the key file, so blocking may not work until the file can be written (fix write access to the data directory, then restart CrowdSec).
 
 **Preset apply and config edits:** Applying a hub preset, importing a
 configuration, and saving a file in the config editor never rename or empty the
