@@ -462,9 +462,7 @@ If you're behind a corporate firewall, you may need to allow these connections.
 
 ### Using an External CrowdSec Instance (No Longer Supported)
 
-Charon no longer connects to a CrowdSec server that you run somewhere else. It always uses the CrowdSec built in to Charon.
-
-If your compose file still has `CHARON_SECURITY_CROWDSEC_API_URL`, remove that line, then restart Charon with `docker restart charon`.
+Connecting Charon to a CrowdSec server you run somewhere else is not supported. If your compose file still has `CHARON_SECURITY_CROWDSEC_API_URL`, remove that line and restart Charon.
 
 ---
 
