@@ -10,7 +10,17 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
-import { ensureCerberusEnabled } from '../utils/crowdsec-stubs';
+import { CROWDSEC_ROUTES, crowdsecFixtures, ensureCerberusEnabled } from '../utils/crowdsec-stubs';
+
+/** English copy of the CrowdSec key notice, read from frontend/src/locales/en/translation.json. */
+const KEY_NOTICE_EN = {
+  title: 'CrowdSec API Key Updated',
+  description:
+    'Your configured API key was rejected by CrowdSec LAPI. Charon generated a new key, saved it, and uses it now to restore protection.',
+  instructions:
+    'Remove the old CrowdSec key variable from docker-compose.yml. If you want to keep one, set it to this key:',
+  restartNote: 'No restart is needed: Charon already uses this key.',
+} as const;
 
 test.describe('CrowdSec first-enable UX @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -95,6 +105,64 @@ test.describe('CrowdSec first-enable UX @security', () => {
     await expect(page.getByRole('alert', { name: /CrowdSec API Key/i })).not.toBeVisible({ timeout: 1500 });
     const keyWarning = page.locator('[role="alert"]').filter({ hasText: /CrowdSec API Key Updated/ });
     await expect(keyWarning).not.toBeVisible({ timeout: 500 });
+  });
+
+  test('CrowdSec key notice shows the new wording and no restart instruction', async ({ page }) => {
+    // Status stays stopped until the start call lands, then reports running so the notice renders.
+    let started = false;
+    await page.route(CROWDSEC_ROUTES.status, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const body = started
+        ? crowdsecFixtures.runningStatus({ running: true, pid: 123, lapi_ready: true })
+        : crowdsecFixtures.runningStatus({ running: false, pid: 0, lapi_ready: false });
+      return route.fulfill({ status: 200, contentType: 'application/json', json: body });
+    });
+    await page.route('**/api/v1/admin/crowdsec/start', async (route) => {
+      started = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ pid: 123, lapi_ready: true }),
+      });
+    });
+    await page.route('**/api/v1/admin/crowdsec/key-status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          env_key_rejected: true,
+          key_source: 'auto-generated',
+          full_key: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+          current_key_preview: 'a1b2...',
+          rejected_key_preview: 'old0...',
+          message: 'Charon generated a new key',
+        }),
+      });
+    });
+
+    await test.step('Load the page with no dismissed notice and CrowdSec stopped', async () => {
+      await page.evaluate(() => localStorage.removeItem('crowdsec-key-warning-dismissed'));
+      await page.reload();
+      await waitForLoadingComplete(page);
+    });
+
+    await test.step('Turn CrowdSec on', async () => {
+      await clickSwitch(page.getByTestId('toggle-crowdsec'));
+    });
+
+    const keyNotice = page.locator('[role="alert"]').filter({ hasText: KEY_NOTICE_EN.title });
+
+    await test.step('Show the English notice text and copy button', async () => {
+      await expect(keyNotice).toBeVisible();
+      await expect(keyNotice.getByText(KEY_NOTICE_EN.description)).toBeVisible();
+      await expect(keyNotice.getByText(KEY_NOTICE_EN.instructions)).toBeVisible();
+      await expect(keyNotice.getByRole('button', { name: 'Copy' })).toBeVisible();
+      await expect(keyNotice.getByText(KEY_NOTICE_EN.restartNote)).toBeVisible();
+    });
+
+    await test.step('Do not tell the operator to restart or edit docker-compose.yml with the new key', async () => {
+      await expect(keyNotice).not.toContainText(/update your docker-compose|restart (the|charon|crowdsec|your)/i);
+    });
   });
 
   test('Backend accepts empty value for setting', async ({ page }) => {
