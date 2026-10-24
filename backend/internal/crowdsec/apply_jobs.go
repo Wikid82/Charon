@@ -526,6 +526,7 @@ func (m *ApplyJobManager) RecoverInterrupted(ctx context.Context, restore func(b
 		warning := recoverSnapshot(job, restore)
 		if warning != "" && job.BackupPath != "" {
 			protect = append(protect, job.BackupPath)
+			RetainForRecovery(job.BackupPath)
 		}
 		var warnings string
 		if warning != "" {

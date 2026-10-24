@@ -357,7 +357,9 @@ func TestImportConfigClearFailureRollsBackAndReportsBothFailures(t *testing.T) {
 
 	matches, err := filepath.Glob(dir + ".backup.*")
 	require.NoError(t, err)
-	require.Len(t, matches, 1, "snapshot kept for manual recovery")
+	// Glob sorts the snapshot before its sibling retain marker "<snapshot>.keep".
+	require.Len(t, matches, 2, "snapshot kept for manual recovery, with its retain marker")
+	require.Equal(t, matches[0]+".keep", matches[1])
 	require.Equal(t, "x", readTreeFile(t, filepath.Join(matches[0], "locked", "f.yaml")))
 	assertEngineStateIntact(t, dir)
 }

@@ -249,6 +249,7 @@ func atomicWriteFile(dst string, data []byte, mode os.FileMode) (err error) {
 	if err = os.Rename(tmpName, dst); err != nil {
 		return fmt.Errorf("rename temp file: %w", err)
 	}
+	syncDirAfterRename(filepath.Dir(dst))
 	return nil
 }
 

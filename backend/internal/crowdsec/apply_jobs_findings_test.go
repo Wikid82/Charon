@@ -147,6 +147,7 @@ func TestApplyJobRecoveryRestoresBeforeItFailsTheJob(t *testing.T) {
 	require.Equal(t, jobFailed, job.State)
 	require.Equal(t, "interrupted", job.ErrorCode)
 	require.Empty(t, job.Warnings)
+	require.NoFileExists(t, snap+retainMarkerSuffix, "a successful restore keeps nothing")
 }
 
 func TestApplyJobRecoveryRecordsAFailedRestoreTogetherWithTheFailedState(t *testing.T) {
@@ -162,6 +163,7 @@ func TestApplyJobRecoveryRecordsAFailedRestoreTogetherWithTheFailedState(t *test
 	require.Equal(t, jobFailed, job.State)
 	require.Len(t, job.Warnings, 1)
 	require.Contains(t, job.Warnings[0], "could not be restored")
+	require.FileExists(t, snap+retainMarkerSuffix, "a failed restore keeps its snapshot beyond automatic cleanup")
 }
 
 func TestApplyJobRecoveryNeverRestoresAnImplausibleSnapshot(t *testing.T) {
@@ -192,6 +194,27 @@ func TestApplyJobRecoveryNeverRestoresAnImplausibleSnapshot(t *testing.T) {
 		require.Len(t, job.Warnings, 1)
 		require.Contains(t, job.Warnings[0], "incomplete")
 	}
+}
+
+// An incomplete snapshot is never restored, and it is kept beyond automatic cleanup for manual recovery.
+func TestApplyJobRecoveryKeepsAnIncompleteSnapshotWithAMarker(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	incomplete := filepath.Join(dir, "incomplete")
+	require.NoError(t, os.MkdirAll(incomplete, 0o750))
+	h := newHarness(t, pendingJobConfig{DataDir: dir})
+	require.NoError(t, h.Seed(pendingJob{ID: "job", State: jobRunning, StartedAt: time.Now(), BackupPath: incomplete}))
+
+	err := h.mgr.RecoverInterrupted(context.Background(), func(p string) error {
+		t.Errorf("restore must not be called for %s", p)
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.FileExists(t, incomplete+retainMarkerSuffix, "the incomplete snapshot is kept for manual recovery")
+	job, getErr := h.Get("job")
+	require.NoError(t, getErr)
+	require.Contains(t, job.Warnings[0], "incomplete")
 }
 
 func TestValidSnapshot(t *testing.T) {

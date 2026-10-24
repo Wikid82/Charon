@@ -892,6 +892,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	rollback := func() {
 		if rbErr := crowdsec.RestoreKeeping(backupDir, h.DataDir, keep); rbErr != nil {
 			logger.Log().WithError(rbErr).WithField("backup_path", util.SanitizeForLog(backupDir)).Error("crowdsec import rollback failed; backup retained for manual recovery")
+			crowdsec.RetainForRecovery(backupDir)
 		}
 	}
 
