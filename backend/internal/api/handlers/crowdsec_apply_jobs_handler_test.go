@@ -53,9 +53,9 @@ func waitJobState(t *testing.T, f *busyFixture, id string, want ...string) map[s
 
 func TestAsyncApplyStartsAJobAndAnswers202(t *testing.T) {
 	f := newBusyFixture(t)
-	release := make(chan struct{})
+	gate, release := newJobGate(t)
 	useJobApply(t, f, func(ctx context.Context, req crowdsec.ApplyRequest) (crowdsec.ApplyResult, error) {
-		<-release
+		<-gate
 		return crowdsec.ApplyResult{Status: "applied", BackupPath: "/secret/backup/path"}, nil
 	})
 
@@ -76,7 +76,7 @@ func TestAsyncApplyStartsAJobAndAnswers202(t *testing.T) {
 	require.Equal(t, codeCrowdsecBusy, resp["error_code"])
 	require.Equal(t, id, resp["job_id"])
 
-	close(release)
+	release()
 	done := waitJobState(t, f, id, models.CrowdsecApplyJobSucceeded)
 	require.NotNil(t, done["finished_at"])
 	raw := f.do(http.MethodGet, applyJobsBase+"/"+id, nil, "").Body.String()
@@ -168,16 +168,16 @@ func TestCurrentJobEndpoint(t *testing.T) {
 	require.Contains(t, body, "job")
 	require.Nil(t, body["job"])
 
-	release := make(chan struct{})
+	gate, release := newJobGate(t)
 	useJobApply(t, f, func(ctx context.Context, req crowdsec.ApplyRequest) (crowdsec.ApplyResult, error) {
-		<-release
+		<-gate
 		return crowdsec.ApplyResult{Status: "applied"}, nil
 	})
 	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json"))["job_id"]
 	job := decodeBody(t, f.do(http.MethodGet, applyJobsBase+"/current", nil, ""))["job"].(map[string]any)
 	require.Equal(t, id, job["job_id"])
 
-	close(release)
+	release()
 	waitJobState(t, f, id.(string), models.CrowdsecApplyJobSucceeded)
 	job = decodeBody(t, f.do(http.MethodGet, applyJobsBase+"/current", nil, ""))["job"].(map[string]any)
 	require.Equal(t, models.CrowdsecApplyJobSucceeded, job["state"], "a job that just finished is still reported")
@@ -205,16 +205,16 @@ func TestGetJobEndpointValidatesTheID(t *testing.T) {
 
 func TestJobEndpointsStayOpenWhileAJobRuns(t *testing.T) {
 	f := newBusyFixture(t)
-	release := make(chan struct{})
+	gate, release := newJobGate(t)
 	useJobApply(t, f, func(ctx context.Context, req crowdsec.ApplyRequest) (crowdsec.ApplyResult, error) {
-		<-release
+		<-gate
 		return crowdsec.ApplyResult{Status: "applied"}, nil
 	})
 	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json"))["job_id"].(string)
 	for _, p := range []string{"/current", "", "/" + id} {
 		require.Equal(t, http.StatusOK, f.do(http.MethodGet, applyJobsBase+p, nil, "").Code, p)
 	}
-	close(release)
+	release()
 	waitJobState(t, f, id, models.CrowdsecApplyJobSucceeded)
 }
 

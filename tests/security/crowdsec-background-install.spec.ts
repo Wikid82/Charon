@@ -174,9 +174,9 @@ test.describe('CrowdSec background hub preset install @security', () => {
     let reloaded = false;
     await page.route(JOB_CURRENT_ROUTE, async (route) => {
       // Before the reload there is no job; after it the job is active.
-      await fulfillJson(route, !reloaded ? { job: null } : {
-          job: jobStatus({ state: 'running', phase: 'install', itemsInstalled: 18, elapsedSeconds: 95 }),
-        }, 200);
+      await fulfillJson(route, !reloaded
+        ? { job: null }
+        : { job: jobStatus({ state: 'running', phase: 'install', itemsInstalled: 18, elapsedSeconds: 95 }) });
     });
     await stubJobPolls(page, [
       jobStatus({ state: 'running', phase: 'install', itemsInstalled: 18, elapsedSeconds: 95 }),
@@ -201,7 +201,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await page.route(JOB_CURRENT_ROUTE, async (route) => {
       await fulfillJson(route, {
         job: jobStatus({ state: 'succeeded', phase: 'reload', itemsInstalled: 41, elapsedSeconds: 360 }),
-      }, 200);
+      });
     });
 
     await loadPage(page);
@@ -226,8 +226,8 @@ test.describe('CrowdSec background hub preset install @security', () => {
         return;
       }
       await fulfillJson(route, cancelled
-          ? jobStatus({ state: 'cancelled', phase: 'rollback', itemsInstalled: 0, elapsedSeconds: 60, errorCode: 'cancelled' })
-          : jobStatus({ state: 'running', phase: 'install', itemsInstalled: 9, elapsedSeconds: 10 }), 200);
+        ? jobStatus({ state: 'cancelled', phase: 'rollback', itemsInstalled: 0, elapsedSeconds: 60, errorCode: 'cancelled' })
+        : jobStatus({ state: 'running', phase: 'install', itemsInstalled: 9, elapsedSeconds: 10 }));
     });
 
     await loadPage(page);
@@ -286,7 +286,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
           elapsedSeconds: 120,
           errorCode: 'interrupted',
         }),
-      }, 200);
+      });
     });
 
     await loadPage(page);
@@ -328,7 +328,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
         await route.abort('connectionrefused');
         return;
       }
-      await fulfillJson(route, jobStatus({ state: 'running', phase: 'install', itemsInstalled: 7, elapsedSeconds: 8 }), 200);
+      await fulfillJson(route, jobStatus({ state: 'running', phase: 'install', itemsInstalled: 7, elapsedSeconds: 8 }));
     });
 
     await loadPage(page);
@@ -374,7 +374,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
       await page.route(JOB_CURRENT_ROUTE, async (route) => {
         await fulfillJson(route, {
           job: jobStatus({ state: 'running', phase: 'install', itemsInstalled: 11, elapsedSeconds: 70 }),
-        }, 200);
+        });
       });
       await stubJobPolls(page, [jobStatus({ state: 'running', phase: 'install', itemsInstalled: 11, elapsedSeconds: 70 })]);
     });

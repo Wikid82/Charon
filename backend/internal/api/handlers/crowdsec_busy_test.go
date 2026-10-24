@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,17 @@ func setBackgroundInstallActive(t *testing.T, h *CrowdsecHandler) {
 	t.Helper()
 	require.True(t, h.ApplyJobs().TryAcquire(busyJobID))
 	t.Cleanup(func() { h.ApplyJobs().Release(busyJobID) })
+}
+
+// newJobGate returns a gate that blocks a fake apply job until release is called. release is also a cleanup, so a
+// failing assertion never leaks the blocked job goroutine.
+func newJobGate(t *testing.T) (gate <-chan struct{}, release func()) {
+	t.Helper()
+	ch := make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(ch) }) }
+	t.Cleanup(release)
+	return ch, release
 }
 
 type busyFixture struct {
@@ -308,9 +320,9 @@ func TestHubItemsRestoreRunningBlocksTheBusyFlag(t *testing.T) {
 // manager), not the stubbed busy flag used by the table above.
 func TestConsoleEnrollRefusedWhileARealInstallRuns(t *testing.T) {
 	f := newBusyFixture(t)
-	release := make(chan struct{})
+	gate, release := newJobGate(t)
 	useJobApply(t, f, func(context.Context, crowdsec.ApplyRequest) (crowdsec.ApplyResult, error) {
-		<-release
+		<-gate
 		return crowdsec.ApplyResult{Status: "applied"}, nil
 	})
 	enrollBody := []byte(`{"enrollment_key":"abcdefghijklmnop","agent_name":"agent"}`)
@@ -326,7 +338,7 @@ func TestConsoleEnrollRefusedWhileARealInstallRuns(t *testing.T) {
 	require.NoError(t, f.h.DB.Model(&models.CrowdsecConsoleEnrollment{}).Count(&n).Error)
 	require.Zero(t, n, "no enrollment attempt was recorded")
 
-	close(release)
+	release()
 	waitJobState(t, f, id, models.CrowdsecApplyJobSucceeded)
 	require.Eventually(t, func() bool { _, busy := f.h.ApplyJobs().Busy(); return !busy }, 5*time.Second, 10*time.Millisecond)
 
