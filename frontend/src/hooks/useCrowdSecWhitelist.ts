@@ -4,17 +4,28 @@ import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import { listWhitelists, addWhitelist, deleteWhitelist, type AddWhitelistPayload } from '../api/crowdsec'
-import { crowdsecErrorMessage } from '../api/errorBody'
+import { crowdsecErrorMessage, isCrowdsecBusyError } from '../api/errorBody'
 import { toast } from '../utils/toast'
 
 /**
- * Text for a failed whitelist add. A validation response (400) keeps its message for the inline IP field;
+ * True when a failed whitelist add is a problem with the submitted entry, which belongs on the IP field:
+ * a 400 validation error or a 409 duplicate. A busy refusal (409 crowdsec_busy) is not a field problem,
+ * and transport or server failures are never field problems.
+ */
+export const isWhitelistFieldError = (err: unknown): boolean => {
+  if (!isAxiosError(err) || isCrowdsecBusyError(err)) return false
+  const status = err.response?.status
+  return status === 400 || status === 409
+}
+
+/**
+ * Text for a failed whitelist add. Field errors (see isWhitelistFieldError) keep the server message;
  * every other Axios failure gets the translated fallback so raw transport text is never shown.
- * Other errors keep their message, and anything else gets the fallback.
+ * Non-Axios errors keep their message, and anything else gets the fallback.
  */
 export const whitelistAddErrorMessage = (err: unknown, t: TFunction): string => {
   const fallback = t('crowdsecConfig.whitelist.addFailed')
-  if (isAxiosError(err)) return err.response?.status === 400 ? err.message : fallback
+  if (isAxiosError(err)) return isWhitelistFieldError(err) ? err.message : fallback
   return err instanceof Error ? err.message : fallback
 }
 

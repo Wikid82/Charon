@@ -7,7 +7,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 import * as crowdsecApi from '../../api/crowdsec'
 import * as toastUtil from '../../utils/toast'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
-import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../useCrowdSecWhitelist'
+import { isWhitelistFieldError, useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../useCrowdSecWhitelist'
 
 import type { CrowdSecWhitelistEntry } from '../../api/crowdsec'
 
@@ -189,6 +189,63 @@ describe('useAddWhitelist', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(toastUtil.toast.error).toHaveBeenCalledWith('Invalid IP')
+  })
+
+  it('shows the server duplicate message for a 409 that is not a busy refusal', async () => {
+    // The client interceptor copies the server's error text onto err.message, so mirror that here.
+    const duplicate = 'entry already exists in whitelist'
+    vi.mocked(crowdsecApi.addWhitelist).mockRejectedValue(
+      new AxiosError(duplicate, 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 409,
+        statusText: 'Conflict',
+        headers: {},
+        config: {},
+        data: { error: duplicate },
+      } as AxiosResponse),
+    )
+
+    const { result } = renderHook(() => useAddWhitelist(), { wrapper })
+
+    await act(async () => {
+      result.current.mutate({ ip_or_cidr: '192.168.1.1', reason: '' })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(toastUtil.toast.error).toHaveBeenCalledWith(duplicate)
+    expect(toastUtil.toast.error).not.toHaveBeenCalledWith('Failed to add entry')
+  })
+})
+
+describe('isWhitelistFieldError', () => {
+  const axiosWith = (status: number, data: Record<string, unknown> = {}) =>
+    new AxiosError('msg', 'ERR', undefined, undefined, {
+      status,
+      statusText: String(status),
+      headers: {},
+      config: {},
+      data,
+    } as AxiosResponse)
+
+  it.each([400, 409])('treats a %i response as a field error', (status) => {
+    expect(isWhitelistFieldError(axiosWith(status, { error: 'x' }))).toBe(true)
+  })
+
+  it('does not treat a busy 409 as a field error', () => {
+    expect(isWhitelistFieldError(busyError())).toBe(false)
+  })
+
+  it.each([500, 404, 503])('does not treat a %i response as a field error', (status) => {
+    expect(isWhitelistFieldError(axiosWith(status, { error: 'x' }))).toBe(false)
+  })
+
+  it('does not treat a network failure as a field error', () => {
+    expect(isWhitelistFieldError(new AxiosError('Network Error', 'ERR_NETWORK'))).toBe(false)
+  })
+
+  it('does not treat non-Axios errors as field errors', () => {
+    expect(isWhitelistFieldError(new Error('IP already whitelisted'))).toBe(false)
+    expect(isWhitelistFieldError(null)).toBe(false)
   })
 })
 
