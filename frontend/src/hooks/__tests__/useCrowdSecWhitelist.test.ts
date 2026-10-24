@@ -152,8 +152,16 @@ describe('useDeleteWhitelist', () => {
     expect(toastUtil.toast.success).toHaveBeenCalledWith('Whitelist entry removed')
   })
 
-  it('shows error toast with server message on failure', async () => {
-    vi.mocked(crowdsecApi.deleteWhitelist).mockRejectedValue(new Error('Entry not found'))
+  it('shows the removal fallback instead of raw Axios text on a non-busy failure', async () => {
+    vi.mocked(crowdsecApi.deleteWhitelist).mockRejectedValue(
+      new AxiosError('Request failed with status code 404', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 404,
+        statusText: 'Not Found',
+        headers: {},
+        config: {},
+        data: { error: 'entry not found' },
+      } as AxiosResponse),
+    )
 
     const { result } = renderHook(() => useDeleteWhitelist(), { wrapper })
 
@@ -163,7 +171,8 @@ describe('useDeleteWhitelist', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true))
 
-    expect(toastUtil.toast.error).toHaveBeenCalledWith('Entry not found')
+    expect(toastUtil.toast.error).toHaveBeenCalledWith('Failed to remove entry')
+    expect(toastUtil.toast.error).not.toHaveBeenCalledWith('Request failed with status code 404')
   })
 
   it('shows generic error toast for non-Error failures', async () => {

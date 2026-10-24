@@ -41,7 +41,7 @@ export const useDeleteWhitelist = () => {
       queryClient.invalidateQueries({ queryKey: ['crowdsec-whitelist'] })
     },
     onError: (err: unknown) => {
-      toast.error(crowdsecErrorMessage(err, t, err instanceof Error ? err.message : t('crowdsecConfig.whitelist.removeFailed')))
+      toast.error(crowdsecErrorMessage(err, t, t('crowdsecConfig.whitelist.removeFailed')))
     },
   })
 }
