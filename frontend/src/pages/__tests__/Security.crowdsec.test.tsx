@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -8,10 +9,23 @@ import * as crowdsecApi from '../../api/crowdsec'
 import * as logsApi from '../../api/logs'
 import * as api from '../../api/security'
 import * as settingsApi from '../../api/settings'
+import { toast } from '../../utils/toast'
 import Security from '../Security'
 
 import type { SecurityStatus } from '../../api/security'
 import type * as ReactRouterDom from 'react-router'
+
+const BUSY_TEXT = 'CrowdSec is busy installing a preset. Try again when it finishes.'
+
+// The refusal the server sends while a background preset install holds the CrowdSec lock.
+const busyError = () =>
+  new AxiosError('Request failed with status code 409', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status: 409,
+    statusText: 'Conflict',
+    headers: {},
+    config: {},
+    data: { error: 'busy', error_code: 'crowdsec_busy', job_id: 'job-1' },
+  } as AxiosResponse)
 
 const mockNavigate = vi.fn()
 
@@ -26,6 +40,16 @@ vi.mock('react-router', async () => {
 vi.mock('../../api/security')
 vi.mock('../../api/settings')
 vi.mock('../../api/crowdsec')
+vi.mock('../../utils/toast', () => ({
+  toast: {
+    info: vi.fn(),
+    success: vi.fn(),
+    warning: vi.fn(),
+    error: vi.fn(),
+    loading: vi.fn(),
+    dismiss: vi.fn(),
+  },
+}))
 vi.mock('../../api/logs', () => ({
   connectLiveLogs: vi.fn(() => vi.fn()),
   connectSecurityLogs: vi.fn(() => vi.fn()),
@@ -205,5 +229,63 @@ describe('Security CrowdSec mutation UX', () => {
     await waitFor(() => {
       expect(toggle).not.toBeChecked()
     }, { timeout: 3000 })
+  })
+
+  it('busy start refusal leaves the setting untouched and shows the busy message', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(busyError())
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(BUSY_TEXT))
+    expect(settingsApi.updateSetting).not.toHaveBeenCalled()
+    expect(toggle).not.toBeChecked()
+  })
+
+  it('busy stop refusal leaves the setting untouched and shows the busy message', async () => {
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
+    vi.mocked(crowdsecApi.stopCrowdsec).mockRejectedValue(busyError())
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await waitFor(() => expect(toggle).toBeChecked())
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(BUSY_TEXT))
+    expect(settingsApi.updateSetting).not.toHaveBeenCalled()
+    expect(toggle).toBeChecked()
+  })
+
+  it('non-busy start failure shows the translated start message with the server detail', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(new Error('boom'))
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to start CrowdSec: boom'))
+    expect(settingsApi.updateSetting).not.toHaveBeenCalled()
+  })
+
+  it('non-busy stop failure shows the translated stop message with the server detail', async () => {
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
+    vi.mocked(crowdsecApi.stopCrowdsec).mockRejectedValue(new Error('kill failed'))
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await waitFor(() => expect(toggle).toBeChecked())
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to stop CrowdSec: kill failed'))
+    expect(settingsApi.updateSetting).not.toHaveBeenCalled()
   })
 })

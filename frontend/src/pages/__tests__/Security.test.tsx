@@ -116,7 +116,8 @@ describe('Security', () => {
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
-      await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.crowdsec.enabled', 'true', 'security', 'bool'))
+      await waitFor(() => expect(crowdsecApi.startCrowdsec).toHaveBeenCalled())
+      expect(settingsApi.updateSetting).not.toHaveBeenCalledWith('security.crowdsec.enabled', 'true', 'security', 'bool')
     })
 
     it('should toggle WAF on', async () => {
@@ -261,7 +262,7 @@ describe('Security', () => {
       })
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.crowdsec.enabled', 'true', 'security', 'bool')
+        expect(settingsApi.updateSetting).not.toHaveBeenCalledWith('security.crowdsec.enabled', 'true', 'security', 'bool')
         expect(crowdsecApi.startCrowdsec).toHaveBeenCalled()
       })
     })
@@ -281,7 +282,7 @@ describe('Security', () => {
       })
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.crowdsec.enabled', 'false', 'security', 'bool')
+        expect(settingsApi.updateSetting).not.toHaveBeenCalledWith('security.crowdsec.enabled', 'false', 'security', 'bool')
         expect(crowdsecApi.stopCrowdsec).toHaveBeenCalled()
       })
     })

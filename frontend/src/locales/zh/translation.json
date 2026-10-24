@@ -406,6 +406,8 @@
       "processStopped": "进程已停止",
       "starting": "启动中……",
       "toggleTooltip": "切换 CrowdSec 保护",
+      "startFailed": "启动 CrowdSec 失败：{{error}}",
+      "stopFailed": "停止 CrowdSec 失败：{{error}}",
       "bouncerApiKey": "Bouncer API 密钥",
       "keyCopied": "API 密钥已复制到剪贴板",
       "copyFailed": "复制API密钥失败",

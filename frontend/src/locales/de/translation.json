@@ -406,6 +406,8 @@
       "processStopped": "Prozess gestoppt",
       "starting": "Startet...",
       "toggleTooltip": "CrowdSec-Schutz umschalten",
+      "startFailed": "CrowdSec konnte nicht gestartet werden: {{error}}",
+      "stopFailed": "CrowdSec konnte nicht gestoppt werden: {{error}}",
       "bouncerApiKey": "Bouncer-API-Schlüssel",
       "keyCopied": "API-Schlüssel in die Zwischenablage kopiert",
       "copyFailed": "Kopieren des API-Schlüssels fehlgeschlagen",

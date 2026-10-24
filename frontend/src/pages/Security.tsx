@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, Outlet } from 'react-router'
 
 import { startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
+import { crowdsecErrorMessage } from '../api/errorBody'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'
 import { updateSetting } from '../api/settings'
 import { CrowdSecKeyWarning } from '../components/CrowdSecKeyWarning'
@@ -157,9 +158,8 @@ export default function Security() {
 
   const crowdsecPowerMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      // Update setting first
-      await updateSetting('security.crowdsec.enabled', enabled ? 'true' : 'false', 'security', 'bool')
-
+      // The backend persists security.crowdsec.enabled after its busy check, so a refused
+      // start or stop leaves the setting untouched. This page only drives the process.
       if (enabled) {
         toast.info('Starting CrowdSec... This may take up to 30 seconds')
         const result = await startCrowdsec()
@@ -167,8 +167,6 @@ export default function Security() {
         // VERIFY: Check if it actually started
         const status = await statusCrowdsec()
         if (!status.running) {
-          // Revert the setting since process didn't start
-          await updateSetting('security.crowdsec.enabled', 'false', 'security', 'bool')
           throw new Error('CrowdSec process failed to start. Check server logs for details.')
         }
 
@@ -197,7 +195,10 @@ export default function Security() {
     onError: (err: unknown, enabled: boolean) => {
       queryClient.setQueryData(['crowdsec-starting'], { isStarting: false })
       const msg = err instanceof Error ? err.message : String(err)
-      toast.error(enabled ? `Failed to start CrowdSec: ${msg}` : `Failed to stop CrowdSec: ${msg}`)
+      const fallback = enabled
+        ? t('security.crowdsec.startFailed', { error: msg })
+        : t('security.crowdsec.stopFailed', { error: msg })
+      toast.error(crowdsecErrorMessage(err, t, fallback))
       // Force refresh status from backend to ensure UI matches reality
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
       refreshCrowdsecStatus()

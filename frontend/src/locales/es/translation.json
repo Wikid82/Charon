@@ -406,6 +406,8 @@
       "processStopped": "Proceso detenido",
       "starting": "Iniciando...",
       "toggleTooltip": "Alternar protección CrowdSec",
+      "startFailed": "No se pudo iniciar CrowdSec: {{error}}",
+      "stopFailed": "No se pudo detener CrowdSec: {{error}}",
       "bouncerApiKey": "Clave API del bouncer",
       "keyCopied": "Clave API copiada al portapapeles",
       "copyFailed": "Error al copiar la clave API",

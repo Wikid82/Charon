@@ -411,6 +411,8 @@
       "processStopped": "Process stopped",
       "starting": "Starting...",
       "toggleTooltip": "Toggle CrowdSec protection",
+      "startFailed": "Failed to start CrowdSec: {{error}}",
+      "stopFailed": "Failed to stop CrowdSec: {{error}}",
       "bouncerApiKey": "Bouncer API Key",
       "keyCopied": "API key copied to clipboard",
       "copyFailed": "Failed to copy API key",
