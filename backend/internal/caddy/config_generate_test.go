@@ -143,3 +143,18 @@ func TestApplyOptionalServerKeepalive_AppliesValidValues(t *testing.T) {
 	require.NotNil(t, server.KeepaliveCount)
 	require.Equal(t, 7, *server.KeepaliveCount)
 }
+
+// TestGenerateConfig_HTTPAppGracePeriodBounded verifies the http app caps Caddy's
+// shutdown wait so open keep-alive/HTTP3 connections cannot hold the process
+// past Docker's stop timeout ("eternal grace period", issue #1706).
+func TestGenerateConfig_HTTPAppGracePeriodBounded(t *testing.T) {
+	cfg, err := GenerateConfig(nil, "/data/caddy/data", "admin@example.com", "/frontend/dist", "letsencrypt", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Apps.HTTP.GracePeriod)
+	require.Equal(t, "5s", *cfg.Apps.HTTP.GracePeriod)
+
+	b, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"grace_period":"5s"`)
+}
