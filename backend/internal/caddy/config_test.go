@@ -3,11 +3,13 @@ package caddy
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -1759,46 +1761,67 @@ func TestNormalizeAdvancedConfig_ArrayInput(t *testing.T) {
 	require.Len(t, arr, 1)
 }
 
-// TestGetCrowdSecAPIKey verifies API key retrieval from environment
+// useBouncerKeyFile points getCrowdSecAPIKey at path for the rest of the test.
+// Tests that call it must not use t.Parallel (the package variable is shared).
+func useBouncerKeyFile(t *testing.T, path string) {
+	t.Helper()
+	original := crowdSecBouncerKeyFile
+	crowdSecBouncerKeyFile = path
+	t.Cleanup(func() { crowdSecBouncerKeyFile = original })
+}
+
+// clearCrowdSecKeyEnv blanks every bouncer key variable for the test (restored on cleanup).
+func clearCrowdSecKeyEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range bouncerkey.EnvNames() {
+		t.Setenv(name, "")
+	}
+}
+
+// TestGetCrowdSecAPIKey verifies API key retrieval from environment when no key file exists.
 func TestGetCrowdSecAPIKey(t *testing.T) {
-	const bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
-
-	// Skip if bouncer_key file exists (file takes priority over env vars per Phase 1 of LAPI auth fix)
-	if _, err := os.Stat(bouncerKeyFile); err == nil {
-		t.Skip("Skipping env var test - bouncer_key file exists (file takes priority over env vars)")
-	}
-
-	// Save original values
-	origVars := map[string]string{}
-	envVars := []string{"CROWDSEC_API_KEY", "CROWDSEC_BOUNCER_API_KEY", "CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY"}
-	for _, v := range envVars {
-		origVars[v] = os.Getenv(v)
-		_ = os.Unsetenv(v)
-	}
-	defer func() {
-		for k, v := range origVars {
-			if v != "" {
-				_ = os.Setenv(k, v)
-			} else {
-				_ = os.Unsetenv(k)
-			}
-		}
-	}()
+	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	clearCrowdSecKeyEnv(t)
 
 	// No keys set - should return empty
-	result := getCrowdSecAPIKey()
-	require.Equal(t, "", result)
+	require.Equal(t, "", getCrowdSecAPIKey())
 
 	// Set primary key
-	_ = os.Setenv("CROWDSEC_API_KEY", "primary-key")
-	result = getCrowdSecAPIKey()
-	require.Equal(t, "primary-key", result)
+	t.Setenv("CROWDSEC_API_KEY", "primary-key")
+	require.Equal(t, "primary-key", getCrowdSecAPIKey())
 
 	// Test fallback priority
-	_ = os.Unsetenv("CROWDSEC_API_KEY")
-	_ = os.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key")
-	result = getCrowdSecAPIKey()
-	require.Equal(t, "bouncer-key", result)
+	t.Setenv("CROWDSEC_API_KEY", "")
+	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key")
+	require.Equal(t, "bouncer-key", getCrowdSecAPIKey())
+}
+
+// TestGetCrowdSecAPIKeyPrefersKeyFile covers the key file branch: a non-empty
+// saved key wins over every environment variable, and an empty or
+// whitespace-only file falls back to the environment.
+func TestGetCrowdSecAPIKeyPrefersKeyFile(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "bouncer_key")
+	useBouncerKeyFile(t, keyPath)
+	clearCrowdSecKeyEnv(t)
+	t.Setenv("CROWDSEC_API_KEY", "env-key")
+
+	require.NoError(t, os.WriteFile(keyPath, []byte("file-key\n"), 0o600))
+	require.Equal(t, "file-key", getCrowdSecAPIKey())
+
+	require.NoError(t, os.WriteFile(keyPath, []byte(" \n"), 0o600))
+	require.Equal(t, "env-key", getCrowdSecAPIKey(), "whitespace-only file must fall back to env")
+
+	require.NoError(t, os.WriteFile(keyPath, nil, 0o600))
+	require.Equal(t, "env-key", getCrowdSecAPIKey(), "empty file must fall back to env")
+}
+
+// TestGetCrowdSecAPIKeyMissingFileUsesEnv covers a key path that does not exist.
+func TestGetCrowdSecAPIKeyMissingFileUsesEnv(t *testing.T) {
+	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "absent"))
+	clearCrowdSecKeyEnv(t)
+	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "cerberus-key")
+
+	require.Equal(t, "cerberus-key", getCrowdSecAPIKey())
 }
 
 type mockOrthrusResolver struct {

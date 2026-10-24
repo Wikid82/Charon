@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -262,7 +263,7 @@ type CommandExecutor interface {
 	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
-const defaultBouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+const defaultBouncerKeyFile = bouncerkey.DefaultFile
 
 // ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
 // This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
@@ -307,7 +308,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	}
 
 	// Priority 1: Check environment variable key
-	envKey := getBouncerAPIKeyFromEnvStartup()
+	envKey, _ := bouncerkey.FromEnv()
 	if envKey != "" {
 		if testKeyAgainstLAPIStartup(envKey) {
 			logger.Log().WithField("source", "environment_variable").WithField("masked_key", util.MaskAPIKey(envKey)).Info("CrowdSec bouncer: env var key validated successfully")
@@ -320,8 +321,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	}
 
 	// Priority 2: Check file-stored key
-	if fileKey, err := os.ReadFile(bouncerKeyFile); err == nil && len(fileKey) > 0 { // #nosec G304 -- bouncerKeyFile is the fixed key path chosen by the caller, cleaned above, never user input
-		keyStr := strings.TrimSpace(string(fileKey))
+	if keyStr := bouncerkey.ReadFile(bouncerKeyFile); keyStr != "" {
 		if testKeyAgainstLAPIStartup(keyStr) {
 			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", util.MaskAPIKey(keyStr)).Info("CrowdSec bouncer: file-stored key validated successfully")
 			return nil
@@ -388,21 +388,6 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 }
 
 // Helper functions for startup bouncer registration (minimal dependencies)
-
-func getBouncerAPIKeyFromEnvStartup() string {
-	for _, k := range []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	} {
-		if v := os.Getenv(k); v != "" {
-			return v
-		}
-	}
-	return ""
-}
 
 func testKeyAgainstLAPIStartup(apiKey string) bool {
 	if apiKey == "" {

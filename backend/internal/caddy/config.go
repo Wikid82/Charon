@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
@@ -1097,37 +1098,26 @@ func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdse
 // This order ensures that after auto-registration, the validated key is used
 // even if an invalid env var key is still set in docker-compose.yml.
 func getCrowdSecAPIKey() string {
-	const bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
-
 	// Priority 1: Check persistent key file first
 	// This takes precedence because it contains a validated, auto-generated key
-	if data, err := os.ReadFile(bouncerKeyFile); err == nil {
-		key := strings.TrimSpace(string(data))
-		if key != "" {
-			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).Debug("CrowdSec API key loaded from file")
-			return key
-		}
+	if key := bouncerkey.ReadFile(crowdSecBouncerKeyFile); key != "" {
+		logger.Log().WithField("source", "file").WithField("file", crowdSecBouncerKeyFile).Debug("CrowdSec API key loaded from file")
+		return key
 	}
 
 	// Priority 2: Fall back to environment variables
-	envVars := []string{
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-
-	for _, envVar := range envVars {
-		if val := os.Getenv(envVar); val != "" {
-			logger.Log().WithField("source", "env_var").WithField("env_var", envVar).Debug("CrowdSec API key loaded from environment variable")
-			return val
-		}
+	if val, envVar := bouncerkey.FromEnv(); val != "" {
+		logger.Log().WithField("source", "env_var").WithField("env_var", envVar).Debug("CrowdSec API key loaded from environment variable")
+		return val
 	}
 
 	logger.Log().Debug("No CrowdSec API key found in file or environment variables")
 	return ""
 }
+
+// crowdSecBouncerKeyFile is the saved bouncer key location. A variable (not a
+// constant) so tests can point the file branch at a temporary file.
+var crowdSecBouncerKeyFile = bouncerkey.DefaultFile
 
 // getAccessLogPath determines the appropriate path for Caddy access logs.
 // When CrowdSec is enabled or running in Docker (detected via /.dockerenv),

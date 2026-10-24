@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -93,6 +94,6 @@ func TestCrowdsecWave7_EnsureBouncerRegistration_InvalidFileKeyReRegisters(t *te
 	key, err := handler.ensureBouncerRegistration(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "new-file-key-1234567890", key)
-	require.Equal(t, "new-file-key-1234567890", readKeyFromFile(keyPath))
+	require.Equal(t, "new-file-key-1234567890", bouncerkey.ReadFile(keyPath))
 	mockCmdExec.AssertExpectations(t)
 }

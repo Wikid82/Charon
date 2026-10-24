@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
@@ -27,14 +28,6 @@ const (
 	testFileKey        = "valid-file-key-0123456789abcdefghijkl"
 	testGeneratedKey   = "ZZsentinel0123456789abcdefghijklmnopqrstuvwx"
 )
-
-var bouncerKeyEnvNames = []string{
-	"CROWDSEC_API_KEY",
-	"CROWDSEC_BOUNCER_API_KEY",
-	"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-	"CHARON_SECURITY_CROWDSEC_API_KEY",
-	"CPM_SECURITY_CROWDSEC_API_KEY",
-}
 
 // scriptedBouncerExecutor answers the cscli calls made during startup registration.
 type scriptedBouncerExecutor struct {
@@ -81,7 +74,7 @@ type bouncerHarness struct {
 func newBouncerHarness(t *testing.T) *bouncerHarness {
 	t.Helper()
 
-	for _, name := range bouncerKeyEnvNames {
+	for _, name := range bouncerkey.EnvNames() {
 		t.Setenv(name, "")
 	}
 
@@ -214,7 +207,7 @@ func assertNoSubstring(t *testing.T, channels []string, secret string) {
 }
 
 func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsRedacted(t *testing.T) {
-	for _, envName := range bouncerKeyEnvNames {
+	for _, envName := range bouncerkey.EnvNames() {
 		t.Run(envName, func(t *testing.T) {
 			h := newBouncerHarness(t)
 			t.Setenv(envName, testRejectedEnvKey)
@@ -271,4 +264,17 @@ func TestEnsureBouncerRegistration_RegistrationError_DiagnosticsRedacted(t *test
 	assert.Contains(t, strings.Join(channels, "\n"), fmt.Sprintf("%d bytes of output omitted", len(output)))
 	_, statErr := os.Stat(h.keyFile)
 	assert.True(t, os.IsNotExist(statErr))
+}
+
+// TestEnsureBouncerRegistration_CharonNameWinsOverUnprefixedName checks the startup
+// path reads the shared order: CHARON_SECURITY_CROWDSEC_API_KEY before CROWDSEC_API_KEY.
+// The unprefixed name holds a rejected key, so a registration attempt would show up as a bouncers add call.
+func TestEnsureBouncerRegistration_CharonNameWinsOverUnprefixedName(t *testing.T) {
+	h := newBouncerHarness(t)
+	t.Setenv("CROWDSEC_API_KEY", testRejectedEnvKey)
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", testFileKey)
+	exec := &scriptedBouncerExecutor{addOutput: []byte(testGeneratedKey + "\n")}
+
+	require.NoError(t, ensureBouncerRegistration(h.dataDir, h.keyFile, exec))
+	require.False(t, exec.called("bouncers add"), "the valid CHARON key must be used without registering")
 }

@@ -25,6 +25,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
@@ -136,7 +137,7 @@ type CrowdsecHandler struct {
 
 // Bouncer auto-registration constants.
 const (
-	bouncerKeyFile               = "/app/data/crowdsec/bouncer_key"
+	bouncerKeyFile               = bouncerkey.DefaultFile
 	bouncerName                  = "caddy-bouncer"
 	defaultRegisterBouncerScript = "/usr/local/bin/register_bouncer.sh"
 )
@@ -162,21 +163,11 @@ func (h *CrowdsecHandler) bouncerKeyPath() string {
 // lapiKey returns the key for direct local API calls: the saved bouncer key file first,
 // then the same environment variable order the proxy config uses.
 func (h *CrowdsecHandler) lapiKey() string {
-	if key := readKeyFromFile(h.bouncerKeyPath()); key != "" {
+	if key := bouncerkey.ReadFile(h.bouncerKeyPath()); key != "" {
 		return key
 	}
-	for _, name := range []string{
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	} {
-		if val := os.Getenv(name); val != "" {
-			return val
-		}
-	}
-	return ""
+	val, _ := bouncerkey.FromEnv()
+	return val
 }
 
 func getAcquisitionConfigPath() string {
@@ -1727,8 +1718,8 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	}
 
 	// Determine current key source and status
-	envKey := getBouncerAPIKeyFromEnv()
-	fileKey := readKeyFromFile(keyPath)
+	envKey, _ := bouncerkey.FromEnv()
+	fileKey := bouncerkey.ReadFile(keyPath)
 
 	switch {
 	case envKey != "" && !h.envKeyRejected:
@@ -1771,7 +1762,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 	keyPath := h.bouncerKeyPath()
 
 	// Priority 1: Check environment variables
-	envKey := getBouncerAPIKeyFromEnv()
+	envKey, _ := bouncerkey.FromEnv()
 	if envKey != "" {
 		// Test key against LAPI (not just bouncer name)
 		if h.testKeyAgainstLAPI(ctx, envKey) {
@@ -1792,7 +1783,7 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string
 	}
 
 	// Priority 2: Check persistent key file
-	fileKey := readKeyFromFile(keyPath)
+	fileKey := bouncerkey.ReadFile(keyPath)
 	if fileKey != "" {
 		// Test key against LAPI (not just bouncer name)
 		if h.testKeyAgainstLAPI(ctx, fileKey) {
@@ -1916,33 +1907,6 @@ Saved To:     %s
 	logger.Log().Infof(banner, bouncerName, maskedKey, keyPath)
 }
 
-// getBouncerAPIKeyFromEnv retrieves the bouncer API key from environment variables.
-func getBouncerAPIKeyFromEnv() string {
-	envVars := []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-	for _, key := range envVars {
-		if val := os.Getenv(key); val != "" {
-			return val
-		}
-	}
-	return ""
-}
-
-// readKeyFromFile reads the bouncer key from a file and returns trimmed content.
-func readKeyFromFile(path string) string {
-	// #nosec G304 -- path is a constant defined at compile time (bouncerKeyFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
 // saveKeyToFile saves the bouncer key to a file with secure permissions.
 // Uses atomic write pattern (temp file → rename) to prevent corruption.
 func saveKeyToFile(path, key string) error {
@@ -1984,8 +1948,8 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 	}
 
 	// Determine key source
-	envKey := getBouncerAPIKeyFromEnv()
-	fileKey := readKeyFromFile(keyPath)
+	envKey, _ := bouncerkey.FromEnv()
+	fileKey := bouncerkey.ReadFile(keyPath)
 
 	var fullKey string
 	switch {
@@ -2017,13 +1981,13 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
 	keyPath := h.bouncerKeyPath()
 
-	envKey := getBouncerAPIKeyFromEnv()
+	envKey, _ := bouncerkey.FromEnv()
 	if envKey != "" {
 		c.JSON(http.StatusOK, gin.H{"key": envKey, "source": "env_var"})
 		return
 	}
 
-	fileKey := readKeyFromFile(keyPath)
+	fileKey := bouncerkey.ReadFile(keyPath)
 	if fileKey != "" {
 		c.JSON(http.StatusOK, gin.H{"key": fileKey, "source": "file"})
 		return
