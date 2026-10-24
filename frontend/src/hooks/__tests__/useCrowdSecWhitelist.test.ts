@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, act, waitFor } from '@testing-library/react'
+import { AxiosError, type AxiosResponse } from 'axios'
 import React from 'react'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
@@ -27,6 +28,18 @@ const wrapper = ({ children }: { children: React.ReactNode }) => {
   const qc = createTestQueryClient()
   return React.createElement(QueryClientProvider, { client: qc }, children)
 }
+
+const BUSY_TEXT = 'CrowdSec is busy installing a preset. Try again when it finishes.'
+
+// The refusal the server sends while a background preset install holds the CrowdSec lock.
+const busyError = () =>
+  new AxiosError('Request failed with status code 409', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status: 409,
+    statusText: 'Conflict',
+    headers: {},
+    config: {},
+    data: { error: 'busy', error_code: 'crowdsec_busy', job_id: 'job-1' },
+  } as AxiosResponse)
 
 const mockEntry: CrowdSecWhitelistEntry = {
   uuid: 'abc-123',
@@ -103,7 +116,21 @@ describe('useAddWhitelist', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true))
 
-    expect(toastUtil.toast.error).toHaveBeenCalledWith('Failed to add whitelist entry')
+    expect(toastUtil.toast.error).toHaveBeenCalledWith('Failed to add entry')
+  })
+
+  it('shows the busy message when an install refuses the add', async () => {
+    vi.mocked(crowdsecApi.addWhitelist).mockRejectedValue(busyError())
+
+    const { result } = renderHook(() => useAddWhitelist(), { wrapper })
+
+    await act(async () => {
+      result.current.mutate({ ip_or_cidr: '10.0.0.2', reason: '' })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(toastUtil.toast.error).toHaveBeenCalledWith(BUSY_TEXT)
   })
 })
 
@@ -125,8 +152,16 @@ describe('useDeleteWhitelist', () => {
     expect(toastUtil.toast.success).toHaveBeenCalledWith('Whitelist entry removed')
   })
 
-  it('shows error toast with server message on failure', async () => {
-    vi.mocked(crowdsecApi.deleteWhitelist).mockRejectedValue(new Error('Entry not found'))
+  it('shows the removal fallback instead of raw Axios text on a non-busy failure', async () => {
+    vi.mocked(crowdsecApi.deleteWhitelist).mockRejectedValue(
+      new AxiosError('Request failed with status code 404', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 404,
+        statusText: 'Not Found',
+        headers: {},
+        config: {},
+        data: { error: 'entry not found' },
+      } as AxiosResponse),
+    )
 
     const { result } = renderHook(() => useDeleteWhitelist(), { wrapper })
 
@@ -136,7 +171,8 @@ describe('useDeleteWhitelist', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true))
 
-    expect(toastUtil.toast.error).toHaveBeenCalledWith('Entry not found')
+    expect(toastUtil.toast.error).toHaveBeenCalledWith('Failed to remove entry')
+    expect(toastUtil.toast.error).not.toHaveBeenCalledWith('Request failed with status code 404')
   })
 
   it('shows generic error toast for non-Error failures', async () => {
@@ -150,6 +186,20 @@ describe('useDeleteWhitelist', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true))
 
-    expect(toastUtil.toast.error).toHaveBeenCalledWith('Failed to remove whitelist entry')
+    expect(toastUtil.toast.error).toHaveBeenCalledWith('Failed to remove entry')
+  })
+
+  it('shows the busy message when an install refuses the removal', async () => {
+    vi.mocked(crowdsecApi.deleteWhitelist).mockRejectedValue(busyError())
+
+    const { result } = renderHook(() => useDeleteWhitelist(), { wrapper })
+
+    await act(async () => {
+      result.current.mutate('some-uuid')
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(toastUtil.toast.error).toHaveBeenCalledWith(BUSY_TEXT)
   })
 })

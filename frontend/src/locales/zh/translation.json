@@ -1765,7 +1765,10 @@
         "body": "要将 {{ip}} 从白名单中移除吗？如果该 IP 触发警报，CrowdSec 之后可能会拦截它。",
         "submit": "移除"
       },
-      "addFailed": "添加条目失败"
+      "addFailed": "添加条目失败",
+      "added": "已添加白名单条目",
+      "removed": "已移除白名单条目",
+      "removeFailed": "移除条目失败"
     },
     "toasts": {
       "fileSaved": "文件已保存",

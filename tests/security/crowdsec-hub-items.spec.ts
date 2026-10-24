@@ -214,6 +214,7 @@ test.describe('CrowdSec Hub Item Restore @security', () => {
     const HUB_UNREACHABLE_TEXT =
       'The CrowdSec hub could not be reached. Nothing was installed. Check the internet connection and try again.';
     const ALREADY_RUNNING_TEXT = 'A restore is already running. Try again when it has finished.';
+    const CROWDSEC_BUSY_TEXT = 'CrowdSec is busy installing a preset. Try again when it finishes.';
     const GENERIC_ERROR_TEXT = 'The hub items could not be installed. Try again.';
 
     test('offers to install the missing items after an import that reports them', async ({ page }, testInfo) => {
@@ -454,6 +455,28 @@ test.describe('CrowdSec Hub Item Restore @security', () => {
       for (const item of MISSING) {
         await expect(panel.getByText(item.name, { exact: true })).toBeVisible();
       }
+    });
+
+    test('shows the busy message, not the already-running text, when a preset install holds CrowdSec (409 crowdsec_busy)', async ({
+      page,
+    }, testInfo) => {
+      const bodies = await mockRestore(page, (route) =>
+        route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          json: { error: 'CrowdSec is busy', error_code: 'crowdsec_busy', job_id: '7b1f6c1e-0c55-4a53-9d3c-5a0d3b6f2e10' },
+        }),
+      );
+      await importArchive(page, testInfo, { in_export: 3, skipped_invalid: 0, missing: MISSING });
+      const panel = page.getByTestId('hub-items-panel');
+
+      await panel.getByRole('button', INSTALL_BUTTON).click();
+
+      // crowdsecConfig.busy: the install job, not a previous restore, is what refused the request.
+      await expect(panel.getByRole('status')).toHaveText(CROWDSEC_BUSY_TEXT);
+      await expect(panel.getByText(ALREADY_RUNNING_TEXT)).toHaveCount(0);
+      expect(bodies).toHaveLength(1);
+      await expect(panel.getByRole('button', INSTALL_BUTTON)).toBeEnabled();
     });
 
     test('shows a generic error and keeps the button available on any other failure', async ({ page }, testInfo) => {

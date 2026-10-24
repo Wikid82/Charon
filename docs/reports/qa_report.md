@@ -1,109 +1,91 @@
-# QA Report: fix/crowdsec-backup-retention-and-acquis-write
+# QA Report: fix/crowdsec-busy-messages
 
-(Replaces the previous report.) Audited on 2026-10-23 at HEAD `451919f1`.
+(Replaces the previous report.) Audited on 2026-10-24 at HEAD `f988aba4`.
 
-**Scope:** 3 commits over `origin/development` (`88ca4ca7`): `f1d94212` (J1, keep CrowdSec backups that a failed rollback left for recovery), `60de6702` (N1 owner preservation, N2 stale temp sweep, N3 directory sync), `451919f1` (save in place whenever the owner cannot be kept, plus the retention edge-case tests). 14 files, +1154/-17. Backend only, plus one line in `docs/troubleshooting/crowdsec.md`. No model, migration, API shape or frontend change.
+**Scope:** 5 commits over `origin/development` (`e53ab062`), section 3g of `docs/plans/crowdsec_hardening_batch5_spec.md` (commit 5 of 3g):
+`af0604bb` (busy guard test with a real install job), `06b5aeb5` (busy message for whitelist, console enrolment and hub item restore), `ccbd7387` (shared E2E install-job stubs and busy-message E2E), `fc4eea1c` (gated test release on failure, install E2E tidy), `f988aba4` (busy refusal kept out of the whitelist IP field error). 21 files, +603/-285. Frontend and tests only, plus backend test code (`crowdsec_busy_test.go`, `crowdsec_apply_jobs_handler_test.go`). No production Go change, no model, migration, or API shape change.
 
-**Audited against:** the `fix/crowdsec-backup-retention-and-acquis-write` spec section 3f in `docs/plans/crowdsec_hardening_batch5_spec.md`, the Definition of Done in `CLAUDE.md`, and the backend security rules in `CLAUDE.md`. For `SECURITY.md`, this audit checked the applicable items (path handling, error wrapping, log sanitising, no Gotify tokens). It was not a full line-by-line review of every `SECURITY.md` section, which covers supply chain and infrastructure items outside this change.
+**Audited against:** `CLAUDE.md` Definition of Done, `SECURITY.md`, and spec section 3g (gates 1-7). The spec's J4 gate was run in throwaway containers, not on the live `charon`.
 
-**Public changelog:** the subjects are plain `fix:` (no `(security)` scope). That is correct for a reliability fix with no vulnerability content.
+**Public changelog:** subjects are plain `fix:`/`test:`/`refactor:` with no `(security)` scope. That is correct: the change is user-facing wording and test coverage, with no vulnerability content.
 
 ## Verdict
 
-**PASS with findings.** Every gate that can run here passes. The container gate passes on 4 of 5 items. Item 4 (the live rollback-failure trigger) is covered by unit tests and a simulated marker, not by a live failing rollback. One spec deviation is worth a decision before merge (F1). No CRITICAL or HIGH findings.
+**PASS with one finding for a decision before merge.** Every code gate passes. The J4 gate is a **FAIL on its "items_installed advances during the install" criterion**. The counter sits flat during a long install and only changes at the end. The root cause is a separate, pre-existing `.yaml`-only hub scan (finding F1, filed as #1712), not this branch. The busy refusals and the post-install recovery both pass.
+
+Per spec 3g.4 step 7, the stop rule (counter never leaves 0) is not met: the counter does move, but only once early and once at the end. The decision is therefore whether to merge with the flat counter or drop the "N items so far" text first. QA recommends merging this PR and tracking F1 in #1712, since F1 is not caused by this branch and the spec says to file rather than widen.
+
+No CRITICAL or HIGH findings in this branch. The `SECURITY.md` Known Vulnerabilities section lists open HIGH items (braces, brace-expansion, dev tooling); none are in this change's files and they are not addressed here.
 
 ## Gate results
 
 | # | Gate | Result | Evidence |
 |---|------|--------|----------|
-| G1 | `go build ./...` (backend) | PASS | Built cleanly. |
-| G2 | `go test -race -count=1 ./internal/crowdsec/... ./internal/api/handlers/...` | PASS | crowdsec 122.8s ok, handlers 478.7s ok, zero failures. |
-| G3 | `scripts/go-test-coverage.sh` (gate 87%) | PASS | Line coverage 91.2%, statements 92.2%. Backend gate met. |
-| G4 | `scripts/local-patch-report.sh` | PASS | Backend patch coverage 100% (160/160 changed lines). `test-results/local-patch-report.md` and `.json` both present. |
-| G5 | `lefthook run pre-commit` | NOT MEANINGFUL | Exit 0, but every hook reported "skip: no matching staged files" because nothing is staged on this branch. Substituted: `golangci-lint run --config .golangci.yml ./internal/crowdsec/... ./internal/api/handlers/...` gives 0 issues (includes gosec, which lefthook defers to CI). `markdownlint` was not run on the one changed docs line. |
-| G6 | `govulncheck ./...` | PASS | 0 vulnerabilities in reachable code. One module-level advisory exists in a required module that this code does not call (informational, not introduced here). |
-| G7 | GORM security scan | NOT TRIGGERED | No `backend/internal/models/**` or query changes in the diff. |
-| G8 | Gotify token review | PASS | No Gotify references in the diff, test artifacts or new logs. |
-| G9 | CodeQL and Trivy | DEFERRED TO CI | `fix:`-only change with no new feature surface, per CLAUDE.md. |
-| G10 | Frontend coverage and type-check | SKIPPED | Frontend untouched. |
-| G11 | Targeted Playwright, `--project=security-tests`, Firefox only | PASS | `crowdsec-file-editor`, `crowdsec-import`, `crowdsec-diagnostics`, `crowdsec-hub-preset-apply`: 94 passed, 0 failed. Ran against a throwaway container, not the live `charon`. Full suite and cross-browser runs deferred to CI. |
-| G12 | Changelog file restored after Playwright | PASS | `backend/internal/changelog/data/changelog.json` restored; working tree clean. |
+| G1 | `go test -race -count=1 ./internal/api/handlers/...`, run 1 | PASS | `ok` in 436.4 s. No failures. |
+| G2 | Same command, run 2 (repeat for the unexplained failure seen earlier) | PASS | `ok` in 409.7 s. No failures. Both runs clean. |
+| G3 | `scripts/go-test-coverage.sh` (gate 87%) | PASS | Line 91.2%, statements 92.2%. Gate met. |
+| G4 | `scripts/frontend-test-coverage.sh` (gate 87%, script gates on lines) | PASS | 310 files, 3867 tests passed, 4 skipped, 2 todo. Lines 91.86%, statements 90.82%, branches 84.59%, functions 88.7%. The script gates on lines only; branches are below 85% but not enforced by the script. Noted, not a blocker. |
+| G5 | `bash scripts/local-patch-report.sh` | PASS | Both artifacts present (`test-results/local-patch-report.md`, `.json`). Overall patch 93.3% (14/15), frontend 93.3%, backend 100% (0 changed lines in production Go). One uncovered changed line: `frontend/src/pages/CrowdSecConfig.tsx:867`, the start-failed busy branch (see F2). |
+| G6 | `npm run type-check` | PASS | `tsc --noEmit` clean. |
+| G7 | `npm run build` (frontend) and `go build ./...` (backend) | PASS | Both exit 0. |
+| G8 | `golangci-lint run --config .golangci.yml ./internal/api/handlers/...` | PASS | 0 issues. |
+| G9 | `eslint` on the changed frontend files | PASS | 0 errors, 29 warnings. The warnings are the existing `jsx-a11y`, `react-hooks/set-state-in-effect` and `testing-library/prefer-find-by` patterns in `CrowdSecConfig.tsx` and its tests. None are new to this branch's logic. |
+| G10 | `lefthook run pre-commit` | NOT MEANINGFUL | Nothing is staged on a committed branch. Substituted `golangci-lint` and `eslint` above. |
+| G11 | Targeted Playwright, `--project=security-tests` (Firefox-only project), all 9 specs that touch or import `tests/utils/crowdsec-stubs.ts` plus the hub-items spec | PASS | 214 passed, 0 failed, 9.9 min. Specs: `crowdsec-background-install`, `crowdsec-config`, `crowdsec-console-enrollment`, `crowdsec-dashboard`, `crowdsec-decisions`, `crowdsec-diagnostics`, `crowdsec-hub-preset-apply`, `crowdsec-ui-states`, `crowdsec-hub-items`. Ran against a freshly rebuilt `charon-e2e` (`docker-rebuild-e2e`, image built from this branch). Full suite and cross-browser runs deferred to CI. |
+| G12 | Changelog artifact restored after Playwright | PASS | `git checkout -- backend/internal/changelog/data/changelog.json`; `git status` clean. |
+| G13 | `govulncheck ./...` | PASS | 0 vulnerabilities in reachable code. One module-level advisory in a required module that the code does not call (informational, not introduced here). |
+| G14 | GORM security scan | NOT TRIGGERED | No `backend/internal/models/**`, GORM query or migration changes. |
+| G15 | Gotify token review | PASS | No Gotify references in the diff, test fixtures, or new logs. The only token-like string is a test fixture `token-value` in a console-enrolment UI test. |
+| G16 | Secrets, debug output and skipped tests in the diff | PASS | No `console.log`, `fmt.Print*`, `.only`, `.skip` or `test.fixme` added. |
+| G17 | CodeQL and Trivy | DEFERRED TO CI | `fix:`/`test:`-only, no new feature surface, per CLAUDE.md. |
+| G18 | Translation parity (5 locales) | PASS | `i18n.test.ts` passes. The three new `crowdsecConfig.whitelist.*` keys are present in en, de, es, fr and zh. |
 
-## Container gate (throwaway image `charon-qa-acq:451919f1` built from this branch)
+## J4 gate: real long install (throwaway containers, not the live `charon`)
 
-Containers were created with unique names on loopback-only ports, and each has its own unique volume. The live `charon` container, its volumes, its compose files and its `charon:local` image tag were never touched. The E2E rebuild skill was deliberately not run, because it retags `charon:local` and rewrites `.env`.
+Setup: two throwaway containers from `charon:local` (built from this branch), each with its own named volume, bound to `127.0.0.1` on ports 18095 and 18096. Both were removed afterwards with their volumes. Preset: `sigmahq/windows_proc_creation` (collections, cold cache), the preset the earlier QA used. Hub reachable from the sandbox.
 
-| Item | Result | Evidence |
-|------|--------|----------|
-| 1. Save as default non-root user, root-owned `acquis.yaml` | PASS | (a) Root-owned 0644, process `charon` (uid 1000): save returned 200. Mode kept 644. Content correct. Owner changed root to charon via the rename fallback, with the expected Warn log (see F2). No stray temp files. (b) Root-owned `root:charon` 0660: save returned 200. Owner kept as root, mode kept 660, inode unchanged (542975 before and after), content correct, backup written, no temp files. |
-| 2. Same save with the container started as root (`--user 0:0`) | PASS, with limitation | Root-owned 0644 file saved with 200, same behaviour as 1(a). The Charon process still runs as uid 1000 because the entrypoint drops privileges, so the `processOwner == root` branch is only covered by unit tests (see F4). |
-| 3. Stale temp sweep | PASS | Seeded `acquis.yaml.tmp-STALE` (regular, 30 min old) was removed. `acquis.yaml.tmp-FRESH` (regular, new) kept. `acquis.yaml.tmp-LINK` (symlink) kept. `acquis.yaml.tmp-DIR` (stale directory with the same prefix) kept. Unrelated `target` file kept. |
-| 4. Failed hub apply rollback: snapshot and `.keep` survive pruning and restart | PARTIAL | Live rollback failure was not reproduced (see F5). Marker written in the exact format `RetainSnapshot` uses, beside a snapshot directory. Then 6 successful applies, a container restart, and 2 more applies: the marked snapshot and its `.keep` survived every prune. Contents intact. |
-| 5. Normal successful apply still prunes old snapshots | PASS | Two unmarked planted snapshots were pruned during the 6 applies. Afterwards exactly 5 unmarked snapshots remained, and the marked snapshot was not counted against the limit. |
+| Check | Run 1 (434 s install) | Run 2 (22 s install) | Result |
+|---|---|---|---|
+| Job reaches `succeeded` | Yes, after 434 s | Yes, after 22 s | PASS |
+| `items_installed` **advances during** the install | Reads 0 at queue, then 1 at the first tick (15 s). **Stays at 1 for about 7 minutes**, then jumps to 3 at success. | 0 → 1 → 1 → 3 over 22 s. Advances once at the end. | **FAIL** (F1) |
+| Not stuck at 0 until the end | Met (1 from the first tick) | Met | PASS (minimal) |
+| Busy refusals while running: whitelist add | `POST /admin/crowdsec/whitelist` → 409 `crowdsec_busy` with `job_id` (run 1 probe used a wrong field name and still got the busy refusal first; run 2 used the correct `ip_or_cidr`) | 409 `crowdsec_busy`, same `job_id` | PASS |
+| Busy refusal: console enrol | `POST /admin/crowdsec/console/enroll` → 409 `crowdsec_busy` with `job_id` | 409 `crowdsec_busy` with `job_id` | PASS |
+| Busy refusal: hub-item restore | `POST /admin/crowdsec/hub-items/restore` → 409 `crowdsec_busy` with `job_id` | 409 `crowdsec_busy` with `job_id` | PASS |
+| After finishing: whitelist add works | `201`, entry created | not re-run | PASS |
+| After finishing: console enrol not refused as busy | Response is 502 "Local API is not running" (LAPI not started in this container). Not a 409 busy. | not re-run | PASS (the busy guard lifted; enrolment itself needs a running LAPI) |
+| After finishing: hub-item restore works | `200`, item installed | not re-run | PASS |
+| Live `charon` untouched | Verified: `charon` (up 5 h, healthy) and `charon-e2e` (healthy) unchanged; throwaway volumes only | Same | PASS |
+
+**The J4 "advances" failure is a real, user-visible defect, not a branch regression.** The mechanism (finding F1):
+
+- The progress counter (`CountDownloadedHubFiles`, `backend/internal/crowdsec/hubitems.go:154`) and the installed-item scan (`hubItemFromTarget`, `backend/internal/crowdsec/hubitems.go:133`) only accept `.yaml`.
+- The sigmahq scenarios are shipped as `.yml`: 520 of the 573 scenario links in run 1 point at `…/*.yml`. Those are skipped.
+- In run 1, about 560 `.yml` files were written steadily from 04:37 to 04:44, but the counter stayed at 1. Its final value of 3 is far below the roughly 590 items actually linked.
+
+Filed as **GitHub issue #1712** (non-security, public OK).
 
 ## Findings (ranked)
 
-### F1. MEDIUM. Spec deviation: any chown failure falls back to a non-atomic in-place write
+| ID | Severity | Finding | Location | Action |
+|----|----------|---------|----------|--------|
+| F1 | **Medium** (user-visible, misleading; not security) | Install progress does not advance for `.yml` hub items, and `items_installed` undercounts (3 of ~590 in run 1). Other callers of the installed-item scan (restore, import "already installed") may also miss `.yml` items; not verified. | `backend/internal/crowdsec/hubitems.go:133`, `:154`; `apply_jobs.go:398/440/445` | **Filed as #1712.** Not fixed here: it is a pre-existing backend defect outside this PR's scope (the spec forbids widening). Decide before merge whether to drop the "N items so far" text in this PR instead. |
+| F2 | Low (test gap) | Start-failed busy branch is not covered by a test: `CrowdSecConfig.tsx:867` (`crowdsecErrorMessage(err, t, t('crowdsecConfig.startFailed'))`). It is the only uncovered changed line. | `frontend/src/pages/CrowdSecConfig.tsx:867` | Add a unit test with a 409 `crowdsec_busy` from the start call. Small, can be folded into this PR as a `test:` commit before merge. |
+| F3 | Low (UX, pre-existing) | Whitelist remove and add toasts show Axios text such as "Request failed with status code 409" when the error is not a busy refusal, because the `err instanceof Error ? err.message` fallback is unchanged. | `frontend/src/hooks/useCrowdSecWhitelist.ts` (remove path) | Not in scope. Consider a follow-up to use the server `error` text, as the add path already does. |
+| F4 | Info | Busy check runs before request-body validation on the whitelist endpoint: a wrong-field body gets 409 `crowdsec_busy` rather than 400 while an install runs. Consistent with the console route's guard ordering, and the busy answer is the correct first refusal. | `backend/internal/api/handlers/crowdsec_handler.go` (whitelist path) | No change needed. Recorded for the record. |
+| F5 | Info | Frontend branch coverage 84.59% (lines 91.86%). The gate script enforces lines only. | `scripts/frontend-test-coverage.sh` | No action for this PR. |
 
-- **Where:** `backend/internal/api/handlers/crowdsec_acquisition_write.go`, `keepOwner` (any error from `tmp.Chown` is returned as `ownerErr`) and `replaceAcquisitionConfig` (any `ownerErr` leads to `writeInPlace`). The handler test at `crowdsec_acquisition_write_test.go:273-276` asserts that EPERM, EINVAL, ENOTSUP, EROFS and EIO all take the in-place path.
-- **Spec:** section 3f.2 (N1) requires EPERM only to take the in-place path. Other errors must fail the save with the live file untouched and the backup removed. Test 3f.5(C3e) asks for the same.
-- **Impact:** an EIO or EINVAL from `chown` now overwrites the live file in place. That is not atomic. A crash or power loss mid-write can leave a truncated CrowdSec acquisition file. The backup is kept only when the in-place write itself fails, so on success it is the only fallback.
-- **Remediation:** choose one, then align code, tests and spec. Either (a) narrow the in-place condition to `fs.ErrPermission`/EPERM as the spec says, and make other chown errors fail the save, or (b) keep the broader behaviour, update spec 3f.2 and C3(e), and document the non-atomic window in the function comment. Option (a) is the closer match to the approved design.
-- **Not a vulnerability.** The file is operator config and the write stays inside the validated path. This is reliability only.
+## Code review notes (no defects found)
 
-### F2. LOW. Owner change when the live file is root-owned and not writable by charon
+- `crowdsecErrorMessage` (`frontend/src/api/errorBody.ts`) is pure, typed with `TFunction`, and unit-tested for the busy and fallback paths.
+- The console-enrol catch keeps `sanitizeErrorMessage` for every non-busy path, so no secret text is newly shown.
+- Restore panel checks the busy code before the 409 switch, so a running install no longer shows "a restore is already running". A 409 without the busy code still shows `alreadyRunning`.
+- The new backend tests use a `sync.Once` release that is also a `t.Cleanup`, so a failing assertion does not leak the blocked job goroutine. The J3 real-job test asserts no enrolment row was recorded while busy and that enrolment is allowed again after the job ends.
+- The shared E2E stub module is the only place the install-job stubs live now; the two spec-local copies are removed.
 
-- **Observed:** a root-owned `root:root 0644` file. The in-place open was denied, so the rename fallback ran and the owner changed to `charon:charon`. The Warn log line was written. CrowdSec still reads the file (mode 644).
-- **Spec:** section 3f.2 accepts this fallback. The acceptance wording "owner preserved or in-place fallback" is met only for the `root:charon 0660` variant.
-- **Security note:** no privilege change beyond what the process already had. Charon could replace the file through the directory anyway, because the rename needs only directory write permission.
-- **Remediation:** document the case in the troubleshooting doc, or have the save refuse and explain when the owner cannot be kept, if operators need strict ownership.
+## Follow-ups
 
-### F3. LOW. Pre-existing, not introduced by this branch: unreadable live file gives an opaque 500
-
-- **Observed:** a root-owned `root:root 0640` file that the charon process cannot read returns 500 `failed to read acquisition config` on GET and 500 `failed to write acquisition config` on PUT. The failure happens at the read step, so nothing is written and there is no data loss.
-- **Where:** `os.ReadFile(path)` in `replaceAcquisitionConfig`, and `readAcquisitionConfig` in the GET handler. Both exist on `development` too.
-- **Remediation:** return a clear 403 or a specific message for a permission error, and file as a low-priority issue. This is not a security finding.
-
-### F4. LOW. Coverage limitation: the root-owner branch is not exercised live
-
-- The entrypoint drops privileges, so the Charon process is always uid 1000 in the image, even when the container starts as root. The `processOwner == root` branch of `keepOwner` is therefore covered only by unit tests.
-- **Remediation:** none needed for this PR. Note it in the test plan.
-
-### F5. LOW. Live rollback-failure trigger not reproduced
-
-- The rollback-failure paths (`rollbackFailure`, the import rollback closure, and `recoverSnapshot`) call `RetainSnapshot` through `RetainForRecovery`. They are covered by unit tests and by the 100% patch coverage. A live failing install plus failing restore could not be forced offline in the throwaway container without a mock.
-- **Remediation:** none required for merge. A future fault-injection test could cover it end to end.
-
-### F6. INFO. Retention markers are unbounded by design
-
-- A snapshot with a `.keep` file is never pruned automatically. Markers are written only on a double failure (failed apply plus failed restore), so growth should be rare. Orphan markers are cleaned up on the next prune. The troubleshooting line documents the manual removal step.
-- **Remediation:** accept. Consider a size or count warning in the admin UI later, subject to the "Passive UI, No Nudges" rule.
-
-### F7. INFO. Commit slicing differs from spec 3f.4
-
-- Spec commit 2 (`refactor:`, seams only, no behaviour change) and commit 5 (`docs:`) are not separate commits. The N4 seams landed inside the N1 and N2 commits, and the docs line is inside the J1 commit. Each commit still builds and passes its own tests as far as this audit could tell, but future reviewers should expect this difference.
-
-### F8. INFO. Operational observation, not investigated
-
-- After the throwaway container was restarted, the first authenticated requests returned 401 until the user logged in again. This is probably expected session behaviour across a restart, but the cause was not confirmed. The CrowdSec entrypoint also logged "Fixing CrowdSec file ownership..." during the run. Neither is related to this change.
-
-## Verified, no finding
-
-- **Path handling:** `replaceAcquisitionConfig` runs `filepath.Clean` and the path comes from the validated `resolveAcquisitionConfigPath`. The temp file and the backup are created beside the live file, so there is no traversal.
-- **Symlinks:** the stale sweep uses `Lstat` and removes only regular files. Symlinks and directories are kept (confirmed live).
-- **Retain marker:** written with `O_EXCL` and mode 0600, outside the snapshot directory, so a restore cannot copy it into DataDir. It is a sibling file (`<snapshot>.keep`). A symlinked or missing snapshot is not marked.
-- **Directory sync:** `SyncDir` treats EINVAL, ENOTSUP and `ErrUnsupported` as success. Other errors are logged and never fail the save.
-- **Error handling and logging:** errors are wrapped with `%w`. Paths in logs go through `util.SanitizeForLog`. Responses use `gin.H{"error": ...}` and carry no absolute paths.
-- **Typed-nil seams:** the default constructors return a literal nil interface on error, as the spec requires.
-- **Gotify:** no tokens in the diff, artifacts or logs.
-
-## Remediation tracking
-
-- F1 is the only item that should block merge, and only if the team wants the spec to hold as written. Decide before the merge commit.
-- F2 and F3: F3 is a pre-existing issue and should be filed as a low-priority public GitHub issue. F2 can be covered in the troubleshooting docs.
-- F4 to F8: accept, or track as informational.
-- No security-sensitive finding was identified, so no private advisory is needed.
-
-## Cleanup
-
-Throwaway containers, volumes, the `charon-qa-acq:451919f1` image and the QA-only files under `/var/tmp` were removed after this report was written. Nothing was committed, pushed or staged. The spec file `docs/plans/crowdsec_hardening_batch5_spec.md` was not staged.
+- **#1712** (F1): hub `.yml` items not counted by the progress counter or the installed-item scan. Medium. Public issue (not security).
+- **F2**: add the `CrowdSecConfig.tsx:867` busy test before merge, or accept the 1-line patch gap. Low.
+- **F3**: whitelist remove error text. Low, follow-up.
+- Full E2E suite and cross-browser runs remain for CI on the PR.

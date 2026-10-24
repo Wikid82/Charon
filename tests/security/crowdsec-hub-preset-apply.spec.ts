@@ -16,17 +16,21 @@
 import type { Page } from '@playwright/test';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import {
+  APPLY_ROUTE,
+  HUB_PRESET_CACHE_KEY,
+  HUB_PRESET_PREVIEW,
+  HUB_PRESET_SLUG,
+  HUB_PRESET_TITLE,
+  PULL_ROUTE,
+  jobStatus,
+  stubAsyncApply,
+  stubHubPreset,
+  stubJobPolls,
+  stubNoCurrentJob,
+} from '../utils/crowdsec-stubs';
 
-const PRESETS_ROUTE = '**/api/v1/admin/crowdsec/presets';
-const PULL_ROUTE = '**/api/v1/admin/crowdsec/presets/pull';
-const APPLY_ROUTE = '**/api/v1/admin/crowdsec/presets/apply';
-const JOB_CURRENT_ROUTE = /\/api\/v1\/admin\/crowdsec\/presets\/jobs\/current(?:\?.*)?$/;
-const JOB_BY_ID_ROUTE = /\/api\/v1\/admin\/crowdsec\/presets\/jobs\/(?!current)[^/?]+(?:\?.*)?$/;
-const JOB_ID = '7b1f6c1e-0c55-4a53-9d3c-5a0d3b6f2e10';
 const FILE_WRITE_ROUTE = '**/api/v1/admin/crowdsec/file';
-const HUB_PRESET_SLUG = 'crowdsecurity/e2e-hub-preset';
-const HUB_PRESET_TITLE = 'E2E Hub Preset';
-const CACHE_KEY = 'e2e-hub-cache-key';
 
 /** Records POSTs to the generic file-write endpoint (the local fallback path). */
 function trackFileWrites(page: Page): { count: () => number } {
@@ -38,99 +42,6 @@ function trackFileWrites(page: Page): { count: () => number } {
     await route.continue();
   });
   return { count: () => writes };
-}
-
-/** Stubs the preset list and pull endpoints so a single hub preset is available. */
-async function stubHubPreset(page: Page): Promise<void> {
-  await page.route(PRESETS_ROUTE, async (route) => {
-    if (route.request().method() !== 'GET') {
-      await route.fallback();
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      json: {
-        presets: [
-          {
-            slug: HUB_PRESET_SLUG,
-            title: HUB_PRESET_TITLE,
-            summary: 'Deterministic hub preset for E2E',
-            source: 'hub',
-            requires_hub: true,
-            available: true,
-            cached: true,
-            cache_key: CACHE_KEY,
-          },
-        ],
-      },
-    });
-  });
-  await page.route(PULL_ROUTE, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      json: {
-        status: 'pulled',
-        slug: HUB_PRESET_SLUG,
-        preview: 'name: e2e-hub-preset\n',
-        cache_key: CACHE_KEY,
-        source: 'hub',
-      },
-    });
-  });
-}
-
-type JobState = 'queued' | 'running' | 'verifying' | 'succeeded' | 'failed';
-
-/** Builds a job status body shaped like `GET /admin/crowdsec/presets/jobs/:id`. */
-function jobStatus(options: { state: JobState; phase: string; itemsInstalled?: number; elapsedSeconds?: number }): Record<string, unknown> {
-  const terminal = options.state === 'succeeded' || options.state === 'failed';
-  return {
-    job_id: JOB_ID,
-    slug: HUB_PRESET_SLUG,
-    item_type: 'collections',
-    cache_key: CACHE_KEY,
-    state: options.state,
-    phase: options.phase,
-    error_code: '',
-    error: '',
-    warnings: [],
-    items_installed: options.itemsInstalled ?? 0,
-    items_total: null,
-    cancel_requested: false,
-    elapsed_seconds: options.elapsedSeconds ?? 0,
-    created_at: '2026-10-18T10:00:00Z',
-    started_at: '2026-10-18T10:00:00Z',
-    finished_at: terminal ? '2026-10-18T10:01:00Z' : null,
-  };
-}
-
-/** Stubs the async apply start with a 202 and records the request bodies. */
-async function stubAsyncApply(page: Page): Promise<Array<Record<string, unknown>>> {
-  const bodies: Array<Record<string, unknown>> = [];
-  await page.route(APPLY_ROUTE, async (route) => {
-    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
-    await route.fulfill({ status: 202, contentType: 'application/json', json: jobStatus({ state: 'queued', phase: 'preflight' }) });
-  });
-  return bodies;
-}
-
-/** Answers `GET jobs/current` with no active or recent job. */
-async function stubNoCurrentJob(page: Page): Promise<void> {
-  await page.route(JOB_CURRENT_ROUTE, async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', json: { job: null } });
-  });
-}
-
-/** Replays `responses` for successive `GET jobs/:id` polls, repeating the last one. */
-async function stubJobPolls(page: Page, responses: Array<Record<string, unknown>>): Promise<void> {
-  let polls = 0;
-  await page.route(JOB_BY_ID_ROUTE, async (route) => {
-    const body = responses[Math.min(polls, responses.length - 1)];
-    polls += 1;
-    await route.fulfill({ status: 200, contentType: 'application/json', json: body });
-  });
 }
 
 async function openPageAndApplyHubPreset(page: Page): Promise<void> {
@@ -166,7 +77,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
 
     await test.step('Verify the apply request opted in to a background job for the previewed entry', async () => {
       await expect.poll(() => applyBodies.length).toBe(1);
-      expect(applyBodies[0]).toMatchObject({ slug: HUB_PRESET_SLUG, cache_key: CACHE_KEY, async: true });
+      expect(applyBodies[0]).toMatchObject({ slug: HUB_PRESET_SLUG, cache_key: HUB_PRESET_CACHE_KEY, async: true });
     });
     await test.step('Verify the success result is shown once the job succeeds', async () => {
       // crowdsecConfig.presets.installProgress.succeeded + itemsInstalled
@@ -254,14 +165,14 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        json: { status: 'applied', used_cscli: true, reload_hint: false, cache_key: CACHE_KEY },
+        json: { status: 'applied', used_cscli: true, reload_hint: false, cache_key: HUB_PRESET_CACHE_KEY },
       });
     });
 
     await openPageAndApplyHubPreset(page);
 
     await test.step('Verify the request names the previewed entry', async () => {
-      await expect.poll(() => applyBody).toMatchObject({ slug: HUB_PRESET_SLUG, cache_key: CACHE_KEY });
+      await expect.poll(() => applyBody).toMatchObject({ slug: HUB_PRESET_SLUG, cache_key: HUB_PRESET_CACHE_KEY });
     });
   });
 
@@ -275,7 +186,7 @@ test.describe('CrowdSec Hub Preset Apply @security', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        json: { preview: 'name: e2e-hub-preset\n', cache_key: CACHE_KEY, etag: 'etag', retrieved_at: new Date().toISOString() },
+        json: { preview: HUB_PRESET_PREVIEW, cache_key: HUB_PRESET_CACHE_KEY, etag: 'etag', retrieved_at: new Date().toISOString() },
       });
     });
     await page.goto('/security/crowdsec');
