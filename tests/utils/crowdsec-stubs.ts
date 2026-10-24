@@ -222,7 +222,7 @@ export interface CrowdSecStubRecorder {
   unbans: string[];
 }
 
-async function fulfillJson(route: Route, json: unknown, status = 200): Promise<void> {
+export async function fulfillJson(route: Route, json: unknown, status = 200): Promise<void> {
   await route.fulfill({ status, contentType: 'application/json', json });
 }
 
@@ -388,4 +388,125 @@ export async function stubCrowdSecApi(
   }
 
   return recorder;
+}
+
+/*
+ * Hub preset install job stubs. The background install and hub preset apply specs share these:
+ * the job view shape of `GET /admin/crowdsec/presets/jobs/:id`, the preset list and pull stubs, and
+ * the apply, current-job and poll routes. Every id and time is fixed so the views are deterministic.
+ */
+
+export const HUB_PRESET_SLUG = 'sigmahq/windows_proc_creation';
+export const HUB_PRESET_TITLE = 'Windows Process Creation';
+export const HUB_PRESET_CACHE_KEY = 'e2e-hub-preset-cache-key';
+export const HUB_PRESET_PREVIEW = 'name: windows_proc_creation\n';
+export const HUB_JOB_ID = '7b1f6c1e-0c55-4a53-9d3c-5a0d3b6f2e10';
+const HUB_JOB_STARTED_AT = '2026-10-18T10:00:00Z';
+const HUB_JOB_FINISHED_AT = '2026-10-18T10:06:00Z';
+
+export const PRESETS_ROUTE = '**/api/v1/admin/crowdsec/presets';
+export const PULL_ROUTE = '**/api/v1/admin/crowdsec/presets/pull';
+export const APPLY_ROUTE = new RegExp(`${ADMIN}/presets/apply${END}`);
+export const JOB_CURRENT_ROUTE = new RegExp(`${ADMIN}/presets/jobs/current${END}`);
+export const JOB_BY_ID_ROUTE = new RegExp(`${ADMIN}/presets/jobs/(?!current)[^/?]+${END}`);
+
+export type JobState = 'queued' | 'running' | 'verifying' | 'succeeded' | 'failed' | 'timed_out' | 'cancelled';
+export type JobPhase = 'preflight' | 'snapshot' | 'install' | 'verify' | 'reload' | 'rollback';
+
+export interface JobStatusOptions {
+  state: JobState;
+  phase?: JobPhase;
+  itemsInstalled?: number;
+  elapsedSeconds?: number;
+  errorCode?: string | null;
+  warnings?: string[];
+  cancelRequested?: boolean;
+}
+
+/** Builds a job status body shaped like `GET /admin/crowdsec/presets/jobs/:id`. */
+export function jobStatus(options: JobStatusOptions): Record<string, unknown> {
+  const terminal = ['succeeded', 'failed', 'timed_out', 'cancelled'].includes(options.state);
+  return {
+    job_id: HUB_JOB_ID,
+    slug: HUB_PRESET_SLUG,
+    item_type: 'collections',
+    cache_key: HUB_PRESET_CACHE_KEY,
+    state: options.state,
+    phase: options.phase ?? 'install',
+    error_code: options.errorCode ?? '',
+    error: '',
+    warnings: options.warnings ?? [],
+    items_installed: options.itemsInstalled ?? 0,
+    items_total: null,
+    cancel_requested: options.cancelRequested ?? false,
+    elapsed_seconds: options.elapsedSeconds ?? 0,
+    created_at: HUB_JOB_STARTED_AT,
+    started_at: HUB_JOB_STARTED_AT,
+    finished_at: terminal ? HUB_JOB_FINISHED_AT : null,
+  };
+}
+
+/** Stubs the preset list with one hub preset and a successful pull so Apply is reachable. */
+export async function stubHubPreset(page: Page): Promise<void> {
+  await page.route(PRESETS_ROUTE, async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await fulfillJson(route, {
+      presets: [
+        {
+          slug: HUB_PRESET_SLUG,
+          title: HUB_PRESET_TITLE,
+          summary: 'Large hub collection for E2E',
+          source: 'hub',
+          requires_hub: true,
+          available: true,
+          cached: true,
+          cache_key: HUB_PRESET_CACHE_KEY,
+        },
+      ],
+    });
+  });
+  await page.route(PULL_ROUTE, async (route) => {
+    await fulfillJson(route, {
+      status: 'pulled',
+      slug: HUB_PRESET_SLUG,
+      preview: HUB_PRESET_PREVIEW,
+      cache_key: HUB_PRESET_CACHE_KEY,
+      source: 'hub',
+    });
+  });
+}
+
+/** Answers `GET jobs/current` with `{ job: null }` (no active or recent job) unless a test overrides it. */
+export async function stubNoCurrentJob(page: Page): Promise<void> {
+  await page.route(JOB_CURRENT_ROUTE, async (route) => {
+    await fulfillJson(route, { job: null });
+  });
+}
+
+/** Replays `responses` for successive `GET jobs/:id` polls, repeating the last one. */
+export async function stubJobPolls(page: Page, responses: Array<Record<string, unknown>>): Promise<{ polls: () => number }> {
+  let polls = 0;
+  await page.route(JOB_BY_ID_ROUTE, async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    const body = responses[Math.min(polls, responses.length - 1)];
+    polls += 1;
+    await fulfillJson(route, body);
+  });
+  return { polls: () => polls };
+}
+
+/** Stubs the async apply start with a 202 and records the request bodies. */
+export async function stubAsyncApply(page: Page): Promise<Array<Record<string, unknown>>> {
+  const bodies: Array<Record<string, unknown>> = [];
+  await page.route(APPLY_ROUTE, async (route) => {
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await fulfillJson(route, jobStatus({ state: 'queued', phase: 'preflight' }), 202);
+  });
+  return bodies;
 }
