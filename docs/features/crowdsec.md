@@ -155,7 +155,30 @@ The bouncer key is the password Charon's built-in firewall layer uses to talk to
 
 **Where it lives:** Charon saves the key in a private file at `/app/data/crowdsec/bouncer_key` inside your data folder (readable only by Charon).
 
-**Which key Charon uses:** If that saved file exists, Charon uses it. Only when there is no saved file does Charon fall back to a key you set in your compose file's environment variables. Changing the environment variable does not switch a running setup away from the saved file.
+**Which key Charon uses (in order):**
+
+1. **The saved key file.** If it exists and CrowdSec still accepts it, Charon uses it. This always wins.
+2. **A key you set in your compose file.** Charon uses it only when there is no working saved key. Charon then saves it to the file, so it is kept after restarts.
+3. **Otherwise,** Charon registers a new key with CrowdSec and saves it.
+
+If you set a key in your compose file, use one of these variable names. Charon checks them in this order and uses the first one that is set:
+
+1. `CHARON_SECURITY_CROWDSEC_API_KEY` (recommended)
+2. `CROWDSEC_API_KEY`
+3. `CROWDSEC_BOUNCER_API_KEY`
+4. `CERBERUS_SECURITY_CROWDSEC_API_KEY`
+5. `CPM_SECURITY_CROWDSEC_API_KEY`
+
+**Changing the key through your compose file:** changing the variable alone does not replace a saved key that still works. To switch to the key in your variable, do both of these:
+
+1. Change the variable in your compose file.
+2. Delete the saved key file (see "Replace the key" below), or revoke the old key in CrowdSec.
+
+**Using a single key file:** you can mount one key file into the container (for example, a single file from your computer). Charon then saves the key by writing into that file directly, and it sets the file's permissions to private (`0600`). If your system does not allow that, Charon writes the key anyway and logs a warning.
+
+**Symlinks:** if `bouncer_key` is a shortcut (a symlink) to another file, the next save replaces the shortcut with a normal private file. The file the shortcut pointed to is not changed.
+
+**If Charon cannot save the key:** the key still works until Charon restarts, but it is lost on restart. Charon writes an error to the log. Fix write access to the data folder, then restart Charon.
 
 **See it in the UI:** Open the CrowdSec page and look at the **Bouncer API Key** card. It shows a shortened preview of the key, whether it is registered, and where the file is stored.
 

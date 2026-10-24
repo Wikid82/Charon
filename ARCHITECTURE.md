@@ -878,6 +878,14 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 - Decision management API (view, create, delete bans)
 - IP whitelist management: operators add/remove IPs and CIDRs via the management UI; entries are persisted in SQLite and regenerated into a `crowdsecurity/whitelists` parser YAML on every mutating operation and at startup
 
+**CrowdSec bouncer key precedence:** the bouncer key is the shared secret the Caddy bouncer uses to talk to the CrowdSec Local API. One rule set, in `backend/internal/crowdsec/bouncerkey`, is used by the proxy config, the handlers and startup:
+
+1. A saved key file (`bouncer_key` in the CrowdSec data folder, `/app/data/crowdsec/bouncer_key` by default) that the Local API accepts wins. Environment values are not tested in this case.
+2. Otherwise the first non-empty environment variable is tested and, if accepted, saved to the key file. Lookup order: `CHARON_SECURITY_CROWDSEC_API_KEY`, `CROWDSEC_API_KEY`, `CROWDSEC_BOUNCER_API_KEY`, `CERBERUS_SECURITY_CROWDSEC_API_KEY`, `CPM_SECURITY_CROWDSEC_API_KEY`.
+3. Otherwise a new bouncer is registered and its key saved.
+
+Key writes go through `crowdsec.SaveBouncerKey`: a temporary file is written and renamed over the key (mode `0600`). A bind-mounted single file, where rename is not allowed, falls back to an in-place write. A symlinked key file is replaced by a regular file. A failed save is logged and the key remains valid for the current session only.
+
 **Preset apply and config edits:** Applying a hub preset, importing a
 configuration, and saving a file in the config editor never rename or empty the
 live CrowdSec directory. Each operation first takes a copy-based snapshot
@@ -1413,7 +1421,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | `CHARON_CROWDSEC_LOG_DIR` | CrowdSec log directory | `/var/log/crowdsec` | No |
 | `CHARON_PLUGINS_DIR` | DNS provider plugin directory | `/app/plugins` | No |
 | `CHARON_SINGLE_CONTAINER_MODE` | Enables permission repair endpoints | `true` | No |
-| `CROWDSEC_API_KEY` | CrowdSec cloud API key | None | Optional |
+| `CROWDSEC_API_KEY` | CrowdSec bouncer key (fallback; the saved key file wins). Not a CrowdSec cloud/console key. See "CrowdSec bouncer key precedence" in the Security Architecture section | None | Optional |
 | `SMTP_HOST` | SMTP server for notifications | None | Optional |
 | `SMTP_PORT` | SMTP port | `587` | Optional |
 | `SMTP_USER` | SMTP username | None | Optional |

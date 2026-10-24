@@ -142,7 +142,7 @@ If no database config exists, Charon reads from environment:
 - `CERBERUS_SECURITY_WAF_MODE` — `disabled` | `monitor` | `block`
 - 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_MODE` — Use GUI toggle instead (see below)
 - 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_URL` — External mode is no longer supported
-- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_KEY` — External mode is no longer supported
+- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_KEY` — External mode is no longer supported. The name is still read as a bouncer key fallback, after the saved key file and the newer `CHARON_SECURITY_CROWDSEC_API_KEY` (see the [CrowdSec feature guide](features/crowdsec.md)).
 - `CERBERUS_SECURITY_ACL_ENABLED` — `true` | `false`
 - `CERBERUS_SECURITY_RATELIMIT_ENABLED` — `true` | `false`
 

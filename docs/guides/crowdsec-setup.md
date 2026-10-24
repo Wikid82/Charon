@@ -107,9 +107,9 @@ In CrowdSec terms:
 
 > **⚠️ Common Mistake Alert**
 >
-> If you set `CHARON_SECURITY_CROWDSEC_API_KEY=mySecureKey123` in your docker-compose.yml, **it won't work**. CrowdSec has never heard of "mySecureKey123" and will reject it.
+> If you set `CHARON_SECURITY_CROWDSEC_API_KEY=mySecureKey123` in your docker-compose.yml, **it won't work** for a made-up value. CrowdSec has never heard of "mySecureKey123" and will reject it. Charon then creates its own key and saves it, and the made-up value is ignored.
 >
-> **Solution:** Remove any manually-set API key and let Charon generate one automatically.
+> **Solution:** Remove any manually-set API key and let Charon generate one automatically. If you do want your own key, see [Providing Your Own Key](#providing-your-own-key-advanced).
 
 ---
 
@@ -157,12 +157,18 @@ Look for a section like this:
 
 ### Providing Your Own Key (Advanced)
 
-This is optional and not needed for a normal setup, since Charon generates and registers a key for you. If you prefer to use your own pre-registered bouncer key, you can set it as an environment variable. Charon checks it against CrowdSec at startup and generates its own key if CrowdSec rejects it:
+This is optional and not needed for a normal setup, since Charon generates and registers a key for you. If you prefer to use your own pre-registered bouncer key, you can set it as an environment variable:
 
 ```yaml
 environment:
   - CHARON_SECURITY_CROWDSEC_API_KEY=your-pre-registered-key
 ```
+
+How it works:
+
+- If Charon already has a saved key that CrowdSec accepts, that saved key is kept and your variable is ignored (Charon logs a note).
+- If there is no working saved key, Charon checks your key with CrowdSec. If CrowdSec accepts it, Charon saves it. If CrowdSec rejects it, Charon creates its own key instead.
+- To switch to your key later, change the variable **and** delete the saved file `/app/data/crowdsec/bouncer_key`. Then restart Charon.
 
 > **⚠️ Important:** This key must be registered with CrowdSec first using `cscli bouncers add`. See [Manual Bouncer Registration](#manual-bouncer-registration) for details.
 
