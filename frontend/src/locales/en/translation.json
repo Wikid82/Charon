@@ -1770,7 +1770,10 @@
         "body": "Remove {{ip}} from the whitelist? CrowdSec may then block this IP if it triggers alerts.",
         "submit": "Remove"
       },
-      "addFailed": "Failed to add entry"
+      "addFailed": "Failed to add entry",
+      "added": "Whitelist entry added",
+      "removed": "Whitelist entry removed",
+      "removeFailed": "Failed to remove entry"
     },
     "toasts": {
       "fileSaved": "File saved",

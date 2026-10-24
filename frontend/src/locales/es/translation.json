@@ -1765,7 +1765,10 @@
         "body": "¿Eliminar {{ip}} de la lista blanca? CrowdSec podrá bloquear esta IP si genera alertas.",
         "submit": "Eliminar"
       },
-      "addFailed": "No se pudo añadir la entrada"
+      "addFailed": "No se pudo añadir la entrada",
+      "added": "Entrada de la lista blanca añadida",
+      "removed": "Entrada de la lista blanca eliminada",
+      "removeFailed": "No se pudo eliminar la entrada"
     },
     "toasts": {
       "fileSaved": "Archivo guardado",

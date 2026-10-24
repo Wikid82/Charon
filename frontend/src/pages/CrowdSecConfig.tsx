@@ -7,7 +7,7 @@ import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
 import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError, getCrowdsecBanError, getCrowdsecExportError, type CrowdsecBanErrorCode } from '../api/crowdsec'
-import { isCrowdsecBusyError } from '../api/errorBody'
+import { crowdsecErrorMessage, isCrowdsecBusyError } from '../api/errorBody'
 import { getFeatureFlags } from '../api/featureFlags'
 import {
   listCrowdsecPresets,
@@ -177,7 +177,7 @@ export default function CrowdSecConfig() {
       queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
     },
     onError: (err: unknown) => {
-      toast.error(isCrowdsecBusyError(err) ? t('crowdsecConfig.busy') : getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed')))
+      toast.error(crowdsecErrorMessage(err, t, getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed'))))
     },
   })
 
@@ -415,7 +415,7 @@ export default function CrowdSecConfig() {
           : t('crowdsecConfig.consoleEnrollment.enrollSent')
       )
     } catch (err) {
-      const message = sanitizeErrorMessage(err)
+      const message = crowdsecErrorMessage(err, t, sanitizeErrorMessage(err))
       setConsoleErrors((prev) => ({ ...prev, submit: message }))
       toast.error(message)
     }
@@ -864,7 +864,7 @@ export default function CrowdSecConfig() {
                             lapiStatusQuery.refetch();
                           }, 3000);
                         } catch (err) {
-                          toast.error(isCrowdsecBusyError(err) ? t('crowdsecConfig.busy') : t('crowdsecConfig.startFailed'));
+                          toast.error(crowdsecErrorMessage(err, t, t('crowdsecConfig.startFailed')));
                         }
                       }}
                     >

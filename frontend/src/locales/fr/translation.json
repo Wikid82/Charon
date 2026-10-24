@@ -1765,7 +1765,10 @@
         "body": "Supprimer {{ip}} de la liste blanche ? CrowdSec pourra alors bloquer cette IP si elle déclenche des alertes.",
         "submit": "Supprimer"
       },
-      "addFailed": "Échec de l'ajout de l'entrée"
+      "addFailed": "Échec de l'ajout de l'entrée",
+      "added": "Entrée de la liste blanche ajoutée",
+      "removed": "Entrée de la liste blanche supprimée",
+      "removeFailed": "Échec de la suppression de l'entrée"
     },
     "toasts": {
       "fileSaved": "Fichier enregistré",

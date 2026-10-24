@@ -1765,7 +1765,10 @@
         "body": "{{ip}} von der Whitelist entfernen? CrowdSec kann diese IP dann blockieren, wenn sie Warnungen auslöst.",
         "submit": "Entfernen"
       },
-      "addFailed": "Eintrag konnte nicht hinzugefügt werden"
+      "addFailed": "Eintrag konnte nicht hinzugefügt werden",
+      "added": "Whitelist-Eintrag hinzugefügt",
+      "removed": "Whitelist-Eintrag entfernt",
+      "removeFailed": "Eintrag konnte nicht entfernt werden"
     },
     "toasts": {
       "fileSaved": "Datei gespeichert",
