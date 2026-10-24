@@ -9,7 +9,7 @@
  * Install stubs BEFORE navigating to the page under test.
  */
 
-import type { Page, Route } from '@playwright/test';
+import { expect, type Page, type Route } from '@playwright/test';
 
 const ADMIN = String.raw`/api/v1/admin/crowdsec`;
 /** Optional query string, then end of URL. */
@@ -28,6 +28,8 @@ export const CROWDSEC_ROUTES = {
   unban: new RegExp(`${ADMIN}/ban/[^?]+${END}`),
   featureFlags: new RegExp(String.raw`/api/v1/feature-flags${END}`),
   status: new RegExp(`${ADMIN}/status${END}`),
+  start: new RegExp(`${ADMIN}/start${END}`),
+  stop: new RegExp(`${ADMIN}/stop${END}`),
   decisions: new RegExp(`${ADMIN}/decisions${END}`),
   consoleStatus: new RegExp(`${ADMIN}/console/status${END}`),
   consoleEnroll: new RegExp(`${ADMIN}/console/enroll${END}`),
@@ -224,6 +226,23 @@ export interface CrowdSecStubRecorder {
 
 export async function fulfillJson(route: Route, json: unknown, status = 200): Promise<void> {
   await route.fulfill({ status, contentType: 'application/json', json });
+}
+
+/**
+ * Ensures the Cerberus feature flag is on. `feature.cerberus.enabled` defaults to `false`, and the
+ * Security page CrowdSec Switch is disabled while Cerberus is off, so CrowdSec toggle specs call
+ * this before clicking. Goes through `page.request`, so it is not seen by `page.route` stubs.
+ */
+export async function ensureCerberusEnabled(page: Page): Promise<void> {
+  await expect.poll(async () => {
+    const response = await page.request.post('/api/v1/settings', {
+      data: { key: 'feature.cerberus.enabled', value: 'true' },
+    });
+    return response.ok();
+  }, {
+    timeout: 10000,
+    message: 'Expected feature.cerberus.enabled to be set before CrowdSec toggle assertions',
+  }).toBe(true);
 }
 
 /**

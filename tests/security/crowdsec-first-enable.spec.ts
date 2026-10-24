@@ -10,32 +10,7 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
-
-/**
- * Ensure the Cerberus framework feature flag is enabled before interacting
- * with the CrowdSec toggle.
- *
- * `feature.cerberus.enabled` defaults to `false` (see
- * backend/internal/api/handlers/feature_flags_handler.go). The CrowdSec
- * Switch on the Security dashboard is `disabled` whenever Cerberus itself
- * is disabled (see `crowdsecToggleDisabled` in frontend/src/pages/Security.tsx),
- * so without this precondition the toggle is unclickable and this file's
- * assertions would hang until the test timeout. This mirrors the same
- * precondition `tests/security/security-dashboard.spec.ts` already
- * establishes via `ensureSecurityDashboardPreconditions()` for its own
- * module toggles.
- */
-async function ensureCerberusEnabled(page: import('@playwright/test').Page): Promise<void> {
-  await expect.poll(async () => {
-    const response = await page.request.post('/api/v1/settings', {
-      data: { key: 'feature.cerberus.enabled', value: 'true' },
-    });
-    return response.ok();
-  }, {
-    timeout: 10000,
-    message: 'Expected feature.cerberus.enabled to be set before CrowdSec toggle assertions',
-  }).toBe(true);
-}
+import { ensureCerberusEnabled } from '../utils/crowdsec-stubs';
 
 test.describe('CrowdSec first-enable UX @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
