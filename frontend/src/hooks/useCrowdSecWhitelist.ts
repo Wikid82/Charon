@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
@@ -6,9 +7,16 @@ import { listWhitelists, addWhitelist, deleteWhitelist, type AddWhitelistPayload
 import { crowdsecErrorMessage } from '../api/errorBody'
 import { toast } from '../utils/toast'
 
-/** Text for a failed whitelist add: the server's message when it is an Error, otherwise the generic fallback. */
-export const whitelistAddErrorMessage = (err: unknown, t: TFunction): string =>
-  err instanceof Error ? err.message : t('crowdsecConfig.whitelist.addFailed')
+/**
+ * Text for a failed whitelist add. A validation response (400) keeps its message for the inline IP field;
+ * every other Axios failure gets the translated fallback so raw transport text is never shown.
+ * Other errors keep their message, and anything else gets the fallback.
+ */
+export const whitelistAddErrorMessage = (err: unknown, t: TFunction): string => {
+  const fallback = t('crowdsecConfig.whitelist.addFailed')
+  if (isAxiosError(err)) return err.response?.status === 400 ? err.message : fallback
+  return err instanceof Error ? err.message : fallback
+}
 
 export const useWhitelistEntries = () =>
   useQuery({

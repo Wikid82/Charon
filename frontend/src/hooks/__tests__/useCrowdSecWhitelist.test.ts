@@ -132,6 +132,64 @@ describe('useAddWhitelist', () => {
 
     expect(toastUtil.toast.error).toHaveBeenCalledWith(BUSY_TEXT)
   })
+  it('shows the translated fallback instead of raw Axios text on a non-validation failure', async () => {
+    vi.mocked(crowdsecApi.addWhitelist).mockRejectedValue(
+      new AxiosError('Request failed with status code 500', 'ERR_BAD_RESPONSE', undefined, undefined, {
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: {},
+        config: {},
+        data: { error: 'database locked' },
+      } as AxiosResponse),
+    )
+
+    const { result } = renderHook(() => useAddWhitelist(), { wrapper })
+
+    await act(async () => {
+      result.current.mutate({ ip_or_cidr: '10.0.0.3', reason: '' })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(toastUtil.toast.error).toHaveBeenCalledWith('Failed to add entry')
+    expect(toastUtil.toast.error).not.toHaveBeenCalledWith('Request failed with status code 500')
+  })
+
+  it('shows the translated fallback when the request never reached the server', async () => {
+    vi.mocked(crowdsecApi.addWhitelist).mockRejectedValue(new AxiosError('Network Error', 'ERR_NETWORK'))
+
+    const { result } = renderHook(() => useAddWhitelist(), { wrapper })
+
+    await act(async () => {
+      result.current.mutate({ ip_or_cidr: '10.0.0.4', reason: '' })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(toastUtil.toast.error).toHaveBeenCalledWith('Failed to add entry')
+  })
+
+  it('keeps the validation message from a 400 response for the inline IP field', async () => {
+    vi.mocked(crowdsecApi.addWhitelist).mockRejectedValue(
+      new AxiosError('Invalid IP', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 400,
+        statusText: 'Bad Request',
+        headers: {},
+        config: {},
+        data: { error: 'bad ip format' },
+      } as AxiosResponse),
+    )
+
+    const { result } = renderHook(() => useAddWhitelist(), { wrapper })
+
+    await act(async () => {
+      result.current.mutate({ ip_or_cidr: 'bad-ip', reason: '' })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(toastUtil.toast.error).toHaveBeenCalledWith('Invalid IP')
+  })
 })
 
 describe('useDeleteWhitelist', () => {
