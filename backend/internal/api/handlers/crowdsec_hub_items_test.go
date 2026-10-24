@@ -96,6 +96,28 @@ func TestExportThenImportReportsMissingHubItems(t *testing.T) {
 	assertTargetLinkKept(t, dst)
 }
 
+func TestExportThenImportHandlesYmlHubItems(t *testing.T) {
+	t.Parallel()
+	const hub = "/etc/crowdsec/hub/"
+	src := t.TempDir()
+	seedRealLayout(t, src)
+	hubLink(t, src, "config/collections/caddy.yml", hub+"collections/crowdsecurity/caddy.yml")
+	hubLink(t, src, "config/scenarios/sigmahq-proc.yml", hub+"scenarios/sigmahq/proc.yml")
+	_, srcRouter := newImportRouter(t, src)
+	exported := exportBytes(t, srcRouter)
+	require.Contains(t, archiveNames(t, exported), crowdsec.ManifestEntryName)
+
+	// The target has the .yml collection installed but not the .yml scenario: only the scenario is missing.
+	dst := t.TempDir()
+	seedRealLayout(t, dst)
+	hubLink(t, dst, "config/collections/caddy.yml", hub+"collections/crowdsecurity/caddy.yml")
+	_, dstRouter := newImportRouter(t, dst)
+
+	body := importHubResponse(t, dstRouter, exported)
+	require.JSONEq(t, `{"in_export":4,"skipped_invalid":0,"missing":[`+
+		`{"type":"scenarios","name":"sigmahq/proc"}]}`, string(body["hub_items"]))
+}
+
 func assertTargetLinkKept(t *testing.T, dst string) {
 	t.Helper()
 	target, err := os.Readlink(filepath.Join(dst, "config", "scenarios", "only-here.yaml"))
