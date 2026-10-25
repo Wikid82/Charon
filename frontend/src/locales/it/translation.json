@@ -578,7 +578,9 @@
       },
       "docsLink": "Learn more in the documentation",
       "loadError": "Login protection status could not be loaded."
-    }
+    },
+    "settingUpdated": "Security setting updated",
+    "settingUpdateFailed": "Failed to update setting: {{error}}"
   },
   "accessLists": {
     "title": "Access Lists",

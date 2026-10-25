@@ -144,13 +144,13 @@ export default function Security() {
         queryClient.setQueryData(['security-status'], context.previous)
       }
       const msg = _err instanceof Error ? _err.message : String(_err)
-      toast.error(`Failed to update setting: ${msg}`)
+      toast.error(t('security.settingUpdateFailed', { error: msg }))
     },
     onSuccess: () => {
       // Refresh data from server
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
-      toast.success('Security setting updated')
+      toast.success(t('security.settingUpdated'))
     },
   })
 

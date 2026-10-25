@@ -587,7 +587,9 @@
       },
       "docsLink": "Mehr dazu in der Dokumentation",
       "loadError": "Der Status des Anmeldeschutzes konnte nicht geladen werden."
-    }
+    },
+    "settingUpdated": "Sicherheitseinstellung aktualisiert",
+    "settingUpdateFailed": "Einstellung konnte nicht aktualisiert werden: {{error}}"
   },
   "accessLists": {
     "title": "Zugriffslisten",

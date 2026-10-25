@@ -587,7 +587,9 @@
       },
       "docsLink": "Más información en la documentación",
       "loadError": "No se pudo cargar el estado de la protección de inicio de sesión."
-    }
+    },
+    "settingUpdated": "Configuración de seguridad actualizada",
+    "settingUpdateFailed": "No se pudo actualizar la configuración: {{error}}"
   },
   "accessLists": {
     "title": "Listas de Acceso",

@@ -587,7 +587,9 @@
       },
       "docsLink": "En savoir plus dans la documentation",
       "loadError": "Impossible de charger l'état de la protection de connexion."
-    }
+    },
+    "settingUpdated": "Paramètre de sécurité mis à jour",
+    "settingUpdateFailed": "Échec de la mise à jour du paramètre : {{error}}"
   },
   "accessLists": {
     "title": "Listes d'Accès",
