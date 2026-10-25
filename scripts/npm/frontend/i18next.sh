@@ -14,5 +14,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
 
     cd "$MODULE" || exit 1
     rm -rf node_modules package-lock.json
-    npm install i18next
+    npm install i18next i18next-browser-languagedetector react-i18next
 done
