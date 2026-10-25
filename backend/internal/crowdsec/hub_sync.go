@@ -30,11 +30,18 @@ type CommandExecutor interface {
 }
 
 const (
-	defaultHubBaseURL       = "https://hub-data.crowdsec.net"
+	// cdnHubHost is the CrowdSec CDN that cscli downloads the hub from. Its master branch serves the index as
+	// .index.json and the items under the same base, so the default base is the branch root.
+	cdnHubHost = "cdn-hub.crowdsec.net"
+	// legacyHubDataHost is the former default hub. Its index path now answers 404, so it is no longer a default. It
+	// stays on the host allowlist so that an operator-set HUB_BASE_URL on it keeps working.
+	legacyHubDataHost       = "hub-data.crowdsec.net"
+	defaultHubBaseURL       = "https://" + cdnHubHost + "/crowdsecurity/master"
 	defaultHubMirrorBaseURL = "https://raw.githubusercontent.com/crowdsecurity/hub/master"
-	defaultHubIndexPath     = "/api/index.json"
-	maxArchiveSize          = int64(25 * 1024 * 1024) // 25MiB safety cap for the hub index
-	defaultPullTimeout      = 25 * time.Second
+	// defaultHubIndexPath is the index path of an operator-set JSON hub base that is not the CDN.
+	defaultHubIndexPath = "/api/index.json"
+	maxArchiveSize      = int64(25 * 1024 * 1024) // 25MiB safety cap for the hub index
+	defaultPullTimeout  = 25 * time.Second
 	// indexFreshTTL is how long after a successful index fetch an untyped pull of a single cached section
 	// skips the index request.
 	indexFreshTTL = 10 * time.Minute
@@ -124,6 +131,10 @@ type HubService struct {
 	legacySweepDone bool
 }
 
+// errHubURLUnparseable is the cause when net/url rejects a hub URL. The parser error quotes the whole input, which
+// may carry operator credentials, so the message stays fixed and callers can match it with errors.Is.
+var errHubURLUnparseable = errors.New("URL cannot be parsed (check HUB_BASE_URL for unescaped characters)")
+
 // validateHubURL validates a hub URL for security (SSRF protection - HIGH-001).
 // This function prevents Server-Side Request Forgery by:
 //  1. Enforcing HTTPS for production hub URLs
@@ -133,7 +144,7 @@ type HubService struct {
 func validateHubURL(rawURL string) error {
 	parsed, err := neturl.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("invalid URL format: %w", err)
+		return fmt.Errorf("invalid URL format: %w", errHubURLUnparseable)
 	}
 
 	// Only allow http/https schemes at parse level; https is enforced below
@@ -151,26 +162,20 @@ func validateHubURL(rawURL string) error {
 		return fmt.Errorf("hub URLs must use HTTPS (got: %s)", parsed.Scheme)
 	}
 
-	// Allowlist known CrowdSec hub domains
-	allowedHosts := []string{
-		"hub-data.crowdsec.net",
-		"hub.crowdsec.net",
-		"raw.githubusercontent.com", // GitHub raw content (CrowdSec mirror)
-	}
-
-	hostAllowed := false
-	for _, allowed := range allowedHosts {
-		if host == allowed {
-			hostAllowed = true
-			break
-		}
-	}
-
-	if !hostAllowed {
-		return fmt.Errorf("unknown hub domain: %s (allowed: hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)", host)
+	if !slices.Contains(allowedHubHosts, host) {
+		return fmt.Errorf("unknown hub domain: %s (allowed: %s)", host, strings.Join(allowedHubHosts, ", "))
 	}
 
 	return nil
+}
+
+// allowedHubHosts are the only hosts a hub URL may name: the CDN default, the legacy hub host (for operator-set
+// URLs), the hub host and the GitHub raw mirror. The match is on the exact hostname.
+var allowedHubHosts = []string{
+	cdnHubHost,
+	legacyHubDataHost,
+	"hub.crowdsec.net",
+	"raw.githubusercontent.com", // GitHub raw content (CrowdSec mirror)
 }
 
 // checkURL validates target with the test override when set, otherwise with
@@ -215,7 +220,7 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 // newHubHTTPClient creates an SSRF-safe HTTP client for hub operations.
 // Hub URLs are validated by validateHubURL() which:
 // - Enforces HTTPS for production
-// - Allowlists known CrowdSec domains (hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)
+// - Allowlists known CrowdSec domains (see allowedHubHosts)
 // - Blocks loopback and private targets at the dial layer
 // Using network.NewSafeHTTPClient provides defense-in-depth at the connection level.
 func newHubHTTPClient(timeout time.Duration) *http.Client {
@@ -233,21 +238,56 @@ func normalizeHubBaseURL(raw string) string {
 	return strings.TrimRight(trimmed, "/")
 }
 
-// hubBaseCandidates lists the hosts to try, in a fixed order. A hub URL configured by the operator comes
-// first; the default hub host answers 404 for the index path, so it is tried last.
+// HubURLForLog returns a hub URL with its userinfo, query and fragment removed, so that a URL can be logged or
+// returned in an error without carrying credentials an operator put in HUB_BASE_URL.
+func HubURLForLog(raw string) string {
+	parsed, err := neturl.Parse(raw)
+	if err != nil {
+		return "<invalid hub URL>"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+// transportCause drops the request URL that net/http embeds in a *url.Error, keeping the underlying cause. Callers
+// name the URL with HubURLForLog instead, so the error never shows the URL with its userinfo.
+func transportCause(err error) error {
+	for {
+		var urlErr *neturl.Error
+		if !errors.As(err, &urlErr) {
+			return err
+		}
+		err = urlErr.Err
+	}
+}
+
+// hubBaseCandidates lists the hub bases to try, in a fixed order: an operator-set HUB_BASE_URL first, then the CDN
+// default, then the GitHub mirror (the configured one, then the built-in one). The legacy hub-data host is not a
+// default, so it is only tried when an operator names it.
 func (s *HubService) hubBaseCandidates() []string {
 	var candidates []string
 	if s.HubBaseURL != defaultHubBaseURL {
 		candidates = append(candidates, s.HubBaseURL)
 	}
-	candidates = append(candidates, s.MirrorBaseURL, defaultHubMirrorBaseURL, defaultHubBaseURL)
+	candidates = append(candidates, defaultHubBaseURL, s.MirrorBaseURL, defaultHubMirrorBaseURL)
 	return uniqueStrings(candidates)
+}
+
+// isCDNHubBase reports whether base is on the CrowdSec CDN host, whose index is the .index.json file under the base.
+func isCDNHubBase(base string) bool {
+	parsed, err := neturl.Parse(base)
+	return err == nil && parsed.Hostname() == cdnHubHost
 }
 
 func buildIndexURL(base string) string {
 	normalized := normalizeHubBaseURL(base)
 	if strings.HasSuffix(strings.ToLower(normalized), ".json") {
 		return normalized
+	}
+	if isCDNHubBase(normalized) {
+		return normalized + "/.index.json"
 	}
 	return strings.TrimRight(normalized, "/") + defaultHubIndexPath
 }
@@ -479,12 +519,16 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 	for attempt, target := range targets {
 		idx, err := s.fetchIndexHTTPFromURL(ctx, target)
 		if err == nil {
-			logger.Log().WithField("hub_index", target).WithField("fallback_used", attempt > 0).Info("hub index fetched")
+			logger.Log().WithField("hub_index", HubURLForLog(target)).WithField("fallback_used", attempt > 0).Info("hub index fetched")
 			return idx, nil
 		}
-		errs = append(errs, fmt.Errorf("%s: %w", target, err))
+		errs = append(errs, candidateError(target, err))
+		// A caller that cancelled or whose deadline passed has no use for the remaining candidates.
+		if ctx.Err() != nil {
+			break
+		}
 		if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
-			logger.Log().WithField("hub_index", target).WithField("attempt", attempt+1).WithError(err).Warn("hub index fetch failed, trying mirror")
+			logger.Log().WithField("hub_index", HubURLForLog(target)).WithField("attempt", attempt+1).WithError(err).Warn("hub index fetch failed, trying mirror")
 			continue
 		}
 		break
@@ -505,15 +549,43 @@ type hubHTTPError struct {
 }
 
 func (h hubHTTPError) Error() string {
+	shown := HubURLForLog(h.url)
 	if h.inner != nil {
-		return fmt.Sprintf("%s (status %d): %v", h.url, h.statusCode, h.inner)
+		return fmt.Sprintf("%s (status %d): %v", shown, h.statusCode, h.inner)
 	}
-	return fmt.Sprintf("%s (status %d)", h.url, h.statusCode)
+	return fmt.Sprintf("%s (status %d)", shown, h.statusCode)
 }
 
 func (h hubHTTPError) Unwrap() error { return h.inner }
 func (h hubHTTPError) CanFallback() bool {
 	return h.fallback
+}
+
+// hubTransportError is a request that failed before any HTTP status arrived: a dial failure, TLS error, reset or
+// timeout. The next candidate may still answer, so it falls back like an unavailable hub.
+type hubTransportError struct {
+	url   string
+	inner error
+}
+
+func (h hubTransportError) Error() string {
+	return fmt.Sprintf("%s (request failed): %v", HubURLForLog(h.url), h.inner)
+}
+
+func (h hubTransportError) Unwrap() error { return h.inner }
+func (h hubTransportError) CanFallback() bool {
+	return true
+}
+
+// candidateError labels a failed candidate with its URL exactly once. hubHTTPError and hubTransportError already
+// name their URL in Error, so they are kept as they are; any other failure gets the URL as a prefix.
+func candidateError(target string, err error) error {
+	var httpErr hubHTTPError
+	var transportErr hubTransportError
+	if errors.As(err, &httpErr) || errors.As(err, &transportErr) {
+		return err
+	}
+	return fmt.Errorf("%s: %w", HubURLForLog(target), err)
 }
 
 func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
@@ -530,7 +602,7 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return HubIndex{}, fmt.Errorf("fetch hub index: %w", err)
+		return HubIndex{}, hubTransportError{url: target, inner: transportCause(err)}
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -540,7 +612,7 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			loc := resp.Header.Get("Location")
-			return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index redirect to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", firstNonEmpty(loc, target)), fallback: true}
+			return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index redirect to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", HubURLForLog(firstNonEmpty(loc, target))), fallback: true}
 		}
 		return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
 	}
@@ -566,7 +638,7 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 			if isLikelyHTML(data) {
 				return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index responded with HTML; install cscli or set HUB_BASE_URL to a JSON hub endpoint"), fallback: true}
 			}
-			return HubIndex{}, fmt.Errorf("decode hub index from %s: %w", target, err)
+			return HubIndex{}, fmt.Errorf("decode hub index from %s: %w", HubURLForLog(target), err)
 		}
 	}
 	return idx, nil
@@ -792,7 +864,7 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string, limi
 	}
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request %s: %w", url, err)
+		return nil, fmt.Errorf("request %s: %w", HubURLForLog(url), transportCause(err))
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -804,10 +876,10 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string, limi
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", url, err)
+		return nil, fmt.Errorf("read %s: %w", HubURLForLog(url), err)
 	}
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("payload too large from %s", url)
+		return nil, fmt.Errorf("payload too large from %s", HubURLForLog(url))
 	}
 	return data, nil
 }

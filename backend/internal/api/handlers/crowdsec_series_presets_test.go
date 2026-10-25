@@ -399,7 +399,7 @@ func TestApplyPreset_OfflineInstallAnswersHubUnreachable(t *testing.T) {
 
 func TestApplyPreset_NetworkMarkersMeanUnreachable(t *testing.T) {
 	t.Parallel()
-	for _, marker := range []string{"dial tcp", "lookup hub-data.crowdsec.net on 127.0.0.11:53", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request", "unable to retrieve latest crowdsec version"} {
+	for _, marker := range []string{"dial tcp", "lookup cdn-hub.crowdsec.net on 127.0.0.11:53", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request", "unable to retrieve latest crowdsec version"} {
 		t.Run(marker, func(t *testing.T) {
 			t.Parallel()
 			e := newPresetEnv(t)
