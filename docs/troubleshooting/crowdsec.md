@@ -13,7 +13,7 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
 - `cscli` is available (preferred path); HTTPS CrowdSec Hub endpoints only.
   - Docker images (v1.7.4+): cscli is pre-installed.
   - Bare-metal deployments: install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL.
-- HUB_BASE_URL points to a JSON hub endpoint (default: <https://cdn-hub.crowdsec.net/crowdsecurity/master>, whose index is `.index.json`; the GitHub mirror is the fallback). Redirects to HTML will be rejected.
+- HUB_BASE_URL points to a JSON hub endpoint (default: <https://cdn-hub.crowdsec.net/crowdsecurity/master>, whose index is `.index.json`; the GitHub mirror is the fallback, and `HUB_MIRROR_BASE_URL`, if you set it, is tried only after the default). Redirects to HTML will be rejected.
   - A loopback hub mirror is no longer reachable from the hub client; RFC 1918 hosts were already blocked.
   - The hub address must be an `https` address on the official CrowdSec hub hosts. Custom `http`, local, or other mirror addresses are not supported.
 - Proxy env is set when required: HTTP(S)_PROXY and NO_PROXY are respected by the hub client.
