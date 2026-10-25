@@ -431,11 +431,11 @@
       "keyStoredAt": "Key stored at",
       "keyWarning": {
         "title": "CrowdSec API Key Updated",
-        "description": "Your configured API key was rejected by CrowdSec LAPI. A new key has been automatically generated to restore protection.",
-        "instructions": "Update your docker-compose.yml with the new key to prevent re-registration on container restart:",
+        "description": "Your configured API key was rejected by CrowdSec LAPI. Charon generated a new key, saved it, and uses it now to restore protection.",
+        "instructions": "Remove the old CrowdSec key variable from docker-compose.yml. If you want to keep one, set it to this key:",
         "copyButton": "Copy",
         "copied": "Key copied to clipboard",
-        "restartNote": "After updating docker-compose.yml, restart the container for the change to take effect."
+        "restartNote": "No restart is needed: Charon already uses this key."
       },
       "tabs": {
         "config": "Configuration",

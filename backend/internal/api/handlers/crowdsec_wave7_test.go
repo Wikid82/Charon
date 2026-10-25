@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -63,7 +65,7 @@ func TestCrowdsecWave7_Start_CreateSecurityConfigFailsOnReadOnlyDB(t *testing.T)
 func TestCrowdsecWave7_EnsureBouncerRegistration_InvalidFileKeyReRegisters(t *testing.T) {
 	tmpDir := t.TempDir()
 	keyPath := tmpDir + "/bouncer_key"
-	require.NoError(t, saveKeyToFile(keyPath, "invalid-file-key"))
+	require.NoError(t, crowdsec.SaveBouncerKey(keyPath, "invalid-file-key"))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -90,9 +92,10 @@ func TestCrowdsecWave7_EnsureBouncerRegistration_InvalidFileKeyReRegisters(t *te
 	})).Return([]byte("new-file-key-1234567890"), nil)
 	handler.CmdExec = mockCmdExec
 
-	key, err := handler.ensureBouncerRegistration(context.Background())
+	res, err := handler.ensureBouncerRegistration(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "new-file-key-1234567890", key)
-	require.Equal(t, "new-file-key-1234567890", readKeyFromFile(keyPath))
+	require.Equal(t, bouncerkey.OutcomeRegistered, res.Outcome)
+	require.Equal(t, "new-file-key-1234567890", res.Key)
+	require.Equal(t, "new-file-key-1234567890", bouncerkey.ReadFile(keyPath))
 	mockCmdExec.AssertExpectations(t)
 }

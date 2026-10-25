@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,10 +13,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 )
 
 type filesFixture struct {
@@ -99,6 +104,7 @@ func TestCrowdsecFiles_Predicates(t *testing.T) {
 		"notes.md":                              true,
 		"config/data/nested.yaml":               true, // only the top-level data/ is protected
 		"bouncer_key":                           false,
+		"bouncer_key.tmp-1234":                  false,
 		"config/bouncer_key":                    false,
 		"crowdsec.db":                           false,
 		"config/crowdsec.db-wal":                false,
@@ -123,27 +129,29 @@ func TestCrowdsecFiles_Predicates(t *testing.T) {
 	}
 
 	writable := map[string]bool{
-		"config.yaml":                         true,
-		"config/config.yaml":                  true,
-		"a.yml":                               true,
-		"a.json":                              true,
-		"a.txt":                               true,
-		"a.conf":                              true,
-		"A.YAML":                              true,
-		"notes.md":                            false,
-		"script.sh":                           false,
-		"noextension":                         false,
-		"config/local_api_credentials.yaml":   false,
-		"config/online_api_credentials.yaml":  false,
-		"bouncer_key":                         false,
-		"data/x.json":                         false,
-		"hub_cache/x.yaml":                    false,
-		"config/hub/parsers/s01-parse/x.yaml": false,
-		"hub/.index.json":                     false,
-		"config/x.db":                         false,
-		"config/.charon-write-123456789.yaml": false,
-		"config/hub_cache/thing.yaml":         true,
-		"config/data/nested.yaml":             true,
+		"config.yaml":                        true,
+		"config/config.yaml":                 true,
+		"a.yml":                              true,
+		"a.json":                             true,
+		"a.txt":                              true,
+		"a.conf":                             true,
+		"A.YAML":                             true,
+		"notes.md":                           false,
+		"script.sh":                          false,
+		"noextension":                        false,
+		"config/local_api_credentials.yaml":  false,
+		"config/online_api_credentials.yaml": false,
+		"bouncer_key":                        false,
+		"bouncer_key.tmp-1234":               false,
+		"config/local_api_credentials.yaml.tmp-1": false,
+		"data/x.json":                             false,
+		"hub_cache/x.yaml":                        false,
+		"config/hub/parsers/s01-parse/x.yaml":     false,
+		"hub/.index.json":                         false,
+		"config/x.db":                             false,
+		"config/.charon-write-123456789.yaml":     false,
+		"config/hub_cache/thing.yaml":             true,
+		"config/data/nested.yaml":                 true,
 		"config/parsers/s01-parse/my-parser.yaml": true,
 	}
 	for rel, want := range writable {
@@ -546,30 +554,6 @@ func TestCrowdsecFiles_Write_BackupFailureIs500(t *testing.T) {
 	assert.Equal(t, "v: 0\n", string(b), "a failed backup must leave the file unchanged")
 }
 
-func TestAtomicWriteFile(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	target := filepath.Join(dir, "a.yaml")
-	require.NoError(t, atomicWriteFile(target, []byte("one"), 0o600))
-	require.NoError(t, atomicWriteFile(target, []byte("two"), 0o600))
-	b, err := os.ReadFile(target) // #nosec G304 -- test path
-	require.NoError(t, err)
-	assert.Equal(t, "two", string(b))
-
-	// A failure at the final rename must remove the temp file and keep the destination intact.
-	blocked := filepath.Join(dir, "blocked")
-	require.NoError(t, os.MkdirAll(filepath.Join(blocked, "child"), 0o750))
-	require.Error(t, atomicWriteFile(blocked, []byte("x"), 0o600))
-	require.Error(t, atomicWriteFile(filepath.Join(dir, "no", "such", "dir", "a.yaml"), []byte("x"), 0o600))
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	assert.ElementsMatch(t, []string{"a.yaml", "blocked"}, names)
-}
-
 func TestPathWithin(t *testing.T) {
 	t.Parallel()
 	assert.True(t, pathWithin("/a/b", "/a/b"))
@@ -752,19 +736,98 @@ func TestCrowdsecFiles_Read_SymlinkToCredentialsRefused(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "hunter2")
 }
 
-func TestAtomicWriteFileSyncsTheDirectoryAfterRename(t *testing.T) {
-	synced := stubSyncDir(t, nil)
-	dir := t.TempDir()
-	target := filepath.Join(dir, "a.yaml")
-
-	require.NoError(t, atomicWriteFile(target, []byte("one"), 0o600))
-	require.Equal(t, []string{dir}, *synced)
+// fileWriteCall is one call to the shared atomic writer made by the file editor's save.
+type fileWriteCall struct {
+	mode fs.FileMode
+	opts crowdsec.AtomicWriteOptions
 }
 
-func TestAtomicWriteFileIgnoresADirectorySyncFailure(t *testing.T) {
-	synced := stubSyncDir(t, errors.New("sync refused"))
-	target := filepath.Join(t.TempDir(), "a.yaml")
+// stubFileWriter replaces the shared atomic writer seam for one test. Every call is recorded and answered with
+// result and err. The tests that use it must not call t.Parallel, since they swap the seam.
+func stubFileWriter(t *testing.T, result crowdsec.AtomicWriteResult, err error) *[]fileWriteCall {
+	t.Helper()
+	orig := writeFileAtomic
+	t.Cleanup(func() { writeFileAtomic = orig })
+	calls := &[]fileWriteCall{}
+	writeFileAtomic = func(_ string, _ []byte, mode fs.FileMode, opts crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error) {
+		*calls = append(*calls, fileWriteCall{mode: mode, opts: opts})
+		return result, err
+	}
+	return calls
+}
 
-	require.NoError(t, atomicWriteFile(target, []byte("one"), 0o600))
-	require.Len(t, *synced, 1)
+func TestCrowdsecFiles_Write_SavesThroughTheSharedWriterWithItsOptions(t *testing.T) {
+	f := newFilesFixture(t)
+	f.put("config/a.yaml", "v: 0\n")
+	require.NoError(t, os.Chmod(filepath.Join(f.dir, "config", "a.yaml"), 0o640)) // #nosec G302 -- test fixture
+	calls := stubFileWriter(t, crowdsec.AtomicWriteResult{InPlace: true, OwnerKept: true}, nil)
+
+	w := f.write("config/a.yaml", "v: 1\n")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "written", resp["status"])
+	assert.NotEmpty(t, resp["backup"], "the previous version is backed up before the write")
+
+	require.Len(t, *calls, 1)
+	assert.Equal(t, fs.FileMode(0o640), (*calls)[0].mode, "the live mode is passed on")
+	assert.Equal(t, crowdsec.AtomicWriteOptions{
+		TempPattern:         ".charon-write-*",
+		KeepOwner:           true,
+		InPlaceFallback:     true,
+		NoFollow:            true,
+		SweepTempsOlderThan: 10 * time.Minute,
+	}, (*calls)[0].opts)
+}
+
+// A partial in-place write must answer 500 and keep the backup, which is then the only intact copy.
+func TestCrowdsecFiles_Write_PartialInPlaceFailureIs500AndKeepsBackup(t *testing.T) {
+	f := newFilesFixture(t)
+	f.put("config/a.yaml", "v: 0\n")
+	stubFileWriter(t, crowdsec.AtomicWriteResult{}, fmt.Errorf("write crowdsec file in place: %w: %w",
+		crowdsec.ErrPartialInPlaceWrite, errors.New("disk full")))
+
+	w := f.write("config/a.yaml", "v: 1\n")
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "failed to write file", errorOf(t, w))
+
+	backups := f.glob("filebackup")
+	require.Len(t, backups, 1, "the backup is kept on a partial failure")
+	b, err := os.ReadFile(filepath.Join(backups[0], "config", "a.yaml")) // #nosec G304 -- test path
+	require.NoError(t, err)
+	assert.Equal(t, "v: 0\n", string(b))
+}
+
+func TestCrowdsecFiles_Write_FailedReplaceIs500AndKeepsBackup(t *testing.T) {
+	f := newFilesFixture(t)
+	f.put("config/a.yaml", "v: 0\n")
+	stubFileWriter(t, crowdsec.AtomicWriteResult{}, errors.New("replace crowdsec file: refused"))
+
+	w := f.write("config/a.yaml", "v: 1\n")
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, "failed to write file", errorOf(t, w))
+	assert.Len(t, f.glob("filebackup"), 1)
+}
+
+// A real save sweeps the stale temp files a crashed save left in the directory, and keeps fresh ones, since
+// another save may still be writing them.
+func TestCrowdsecFiles_Write_SweepsStaleWriteTempsOnSave(t *testing.T) {
+	f := newFilesFixture(t)
+	f.put("config/a.yaml", "v: 0\n")
+	dir := filepath.Join(f.dir, "config")
+	stale := filepath.Join(dir, writeTempPrefix+"old")
+	fresh := filepath.Join(dir, writeTempPrefix+"new")
+	require.NoError(t, os.WriteFile(stale, []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(fresh, []byte("x"), 0o600))
+	old := time.Now().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(stale, old, old))
+
+	require.Equal(t, http.StatusOK, f.write("config/a.yaml", "v: 1\n").Code)
+	_, err := os.Stat(stale)
+	assert.True(t, os.IsNotExist(err), "a stale temp file is swept")
+	_, err = os.Stat(fresh)
+	require.NoError(t, err, "a fresh temp file is kept")
+	b, err := os.ReadFile(filepath.Join(dir, "a.yaml")) // #nosec G304 -- test path
+	require.NoError(t, err)
+	assert.Equal(t, "v: 1\n", string(b))
 }

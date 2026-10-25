@@ -25,6 +25,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
@@ -130,13 +131,21 @@ type CrowdsecHandler struct {
 	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
 	envKeyRejected bool
 
-	// rejectedEnvKey stores the masked env key that was rejected for user notification
+	// rejectedEnvKey holds the full rejected env value. Only masked previews reach logs and the API.
 	rejectedEnvKey string
+
+	// rejectedEnvSaveFailed is true when the replacement key for a rejected env key could not be
+	// saved to the key file.
+	rejectedEnvSaveFailed bool
+
+	// rejectedEnvRegisterFailed is true when a rejected env key could not be replaced because
+	// bouncer registration failed, so no new key was saved.
+	rejectedEnvRegisterFailed bool
 }
 
 // Bouncer auto-registration constants.
 const (
-	bouncerKeyFile               = "/app/data/crowdsec/bouncer_key"
+	bouncerKeyFile               = bouncerkey.DefaultFile
 	bouncerName                  = "caddy-bouncer"
 	defaultRegisterBouncerScript = "/usr/local/bin/register_bouncer.sh"
 )
@@ -162,21 +171,8 @@ func (h *CrowdsecHandler) bouncerKeyPath() string {
 // lapiKey returns the key for direct local API calls: the saved bouncer key file first,
 // then the same environment variable order the proxy config uses.
 func (h *CrowdsecHandler) lapiKey() string {
-	if key := readKeyFromFile(h.bouncerKeyPath()); key != "" {
-		return key
-	}
-	for _, name := range []string{
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	} {
-		if val := os.Getenv(name); val != "" {
-			return val
-		}
-	}
-	return ""
+	key, _ := bouncerkey.Resolve(h.bouncerKeyPath())
+	return key
 }
 
 func getAcquisitionConfigPath() string {
@@ -727,20 +723,8 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 	}
 
 	// After confirming LAPI is ready, ensure bouncer is registered
-	apiKey, regErr := h.ensureBouncerRegistration(ctx)
-	if regErr != nil {
-		logger.Log().WithError(regErr).Warn("Failed to register bouncer, CrowdSec may not enforce decisions")
-	} else if apiKey != "" {
-		// Log the key for user reference
-		h.logBouncerKeyBanner(apiKey)
-
-		// Regenerate Caddy config with new API key
-		if h.CaddyManager != nil {
-			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
-				logger.Log().WithError(err).Warn("Failed to reload Caddy config with new bouncer key")
-			}
-		}
-	}
+	res, regErr := h.ensureBouncerRegistration(ctx)
+	h.handleBouncerRegistration(ctx, res, regErr, h.reapplyCaddyConfig)
 
 	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
 	c.JSON(http.StatusOK, gin.H{
@@ -1718,41 +1702,38 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 		KeyFilePath: keyPath,
 	}
 
-	// Check for rejected env key first
+	// A rejected env key is reported whatever branch below applies.
 	if h.envKeyRejected && h.rejectedEnvKey != "" {
 		response.EnvKeyRejected = true
 		response.RejectedKeyPreview = util.MaskAPIKey(h.rejectedEnvKey)
-		response.Message = "Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but was rejected by LAPI. " +
-			"Either remove it from docker-compose.yml or update it to match the valid key stored in /app/data/crowdsec/bouncer_key."
+		response.Message = rejectedEnvKeyMessage(keyPath, h.rejectedEnvSaveFailed, h.rejectedEnvRegisterFailed)
 	}
 
-	// Determine current key source and status
-	envKey := getBouncerAPIKeyFromEnv()
-	fileKey := readKeyFromFile(keyPath)
+	envKey, _ := bouncerkey.FromEnv()
+	fileKey := bouncerkey.ReadFile(keyPath)
 
 	switch {
-	case envKey != "" && !h.envKeyRejected:
-		// Env key is set and was accepted
+	case h.envKeyRejected && fileKey != "" && !h.rejectedEnvSaveFailed && !h.rejectedEnvRegisterFailed:
+		// Charon saved a replacement key, so the file holds it; give the full key so the user can fix docker-compose.yml.
+		// After a failed save or registration the file still holds the rejected key, so it is reported as a file key below.
+		// Security: the caller is an authenticated admin who needs this to correct their config.
+		response.KeySource = "auto-generated"
+		response.FullKey = fileKey
+		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
+		response.Valid = h.keyStillValid(c, fileKey)
+	case fileKey != "":
+		response.KeySource = "file"
+		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
+		if envKey != "" && envKey != fileKey && !h.envKeyRejected {
+			response.Message = ignoredEnvKeyMessage(keyPath)
+		}
+		response.Valid = h.keyStillValid(c, fileKey)
+	case envKey != "":
+		// No saved file yet (for example a failed save): the env value is what the proxy reads.
 		response.KeySource = "env"
 		response.CurrentKeyPreview = util.MaskAPIKey(envKey)
-		response.Valid = true
-	case fileKey != "":
-		// Using file key (either because no env key, or env key was rejected)
-		if h.envKeyRejected {
-			response.KeySource = "auto-generated"
-			// Provide the full key so the user can copy it to fix their docker-compose.yml
-			// Security: User is already authenticated as admin and needs this to fix their config
-			response.FullKey = fileKey
-		} else {
-			response.KeySource = "file"
-		}
-		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
-		// Verify key is still valid
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-		defer cancel()
-		response.Valid = h.testKeyAgainstLAPI(ctx, fileKey)
+		response.Valid = h.keyStillValid(c, envKey)
 	default:
-		// No key available
 		response.KeySource = "none"
 		response.Valid = false
 		if response.Message == "" {
@@ -1763,60 +1744,131 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// ensureBouncerRegistration checks if bouncer is registered and registers if needed.
-// Returns the API key if newly generated (empty if already set via env var or file).
-func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (string, error) {
+// rejectedEnvKeyMessage explains that an env key was rejected and what Charon did about it. The key file
+// is named as the key in use only when the replacement was saved.
+func rejectedEnvKeyMessage(keyPath string, saveFailed, registerFailed bool) string {
+	const rejected = "CHARON_SECURITY_CROWDSEC_API_KEY (or another CrowdSec key variable) is set but CrowdSec rejected it. "
+	const removeVar = " Remove the old variable from docker-compose.yml."
+	switch {
+	case registerFailed:
+		return rejected + bouncerkey.RegisterFailedNotice(keyPath) + removeVar
+	case saveFailed:
+		return rejected + bouncerkey.SaveFailedNotice(keyPath) + removeVar
+	default:
+		return rejected + "Charon saved a new key to " + keyPath + " and uses it." + removeVar
+	}
+}
+
+// ignoredEnvKeyMessage notes that a key variable is set but the saved key is used.
+func ignoredEnvKeyMessage(keyPath string) string {
+	return "A CrowdSec key variable is set but Charon uses the saved key in " + keyPath +
+		"; remove the variable to silence this note."
+}
+
+// keyStillValid tests key against LAPI with a 5 second budget for status checks.
+func (h *CrowdsecHandler) keyStillValid(c *gin.Context, key string) bool {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	return h.testKeyAgainstLAPI(ctx, key)
+}
+
+// ensureBouncerRegistration decides which bouncer key to use and makes the key file match it.
+// The decision and the rejection state are updated under registrationMutex, which GetKeyStatus also takes.
+func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bouncerkey.EnsureResult, error) {
 	h.registrationMutex.Lock()
 	defer h.registrationMutex.Unlock()
+
+	res, err := bouncerkey.Ensure(ctx, h.bouncerKeyPath(), h.testKeyAgainstLAPI, h.registerBouncer, crowdsec.SaveBouncerKey)
+
+	if res.EnvKeyRejected {
+		h.envKeyRejected = true
+		h.rejectedEnvKey = res.EnvKey
+		h.rejectedEnvSaveFailed = res.SaveErr != nil
+		h.rejectedEnvRegisterFailed = err != nil
+	}
+	if res.Outcome == bouncerkey.OutcomeSavedKeyValid || res.Outcome == bouncerkey.OutcomeEnvKeySaved {
+		h.envKeyRejected = false
+		h.rejectedEnvKey = ""
+		h.rejectedEnvSaveFailed = false
+		h.rejectedEnvRegisterFailed = false
+	}
+	return res, err
+}
+
+// handleBouncerRegistration logs the outcome of ensureBouncerRegistration and re-applies
+// the Caddy config when the proxy needs the key that was just chosen. Caddy reads the key
+// file first, so a failed save leaves the file without the new key and nothing to re-apply.
+func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bouncerkey.EnsureResult, regErr error, applyConfig func(context.Context) error) {
 	keyPath := h.bouncerKeyPath()
 
-	// Priority 1: Check environment variables
-	envKey := getBouncerAPIKeyFromEnv()
-	if envKey != "" {
-		// Test key against LAPI (not just bouncer name)
-		if h.testKeyAgainstLAPI(ctx, envKey) {
-			logger.Log().WithField("source", "environment_variable").WithField("masked_key", util.MaskAPIKey(envKey)).Info("CrowdSec bouncer authentication successful")
-			// Clear any previous rejection state
-			h.envKeyRejected = false
-			h.rejectedEnvKey = ""
-			return "", nil // Key valid, nothing new to report
+	// The rejection is logged only with the outcome it led to: a failed registration keeps no new key.
+	if regErr != nil {
+		if res.EnvKeyRejected {
+			logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvRegisterFailedLogMessage(keyPath))
 		}
-		// Track the rejected env key for API status endpoint
-		h.envKeyRejected = true
-		h.rejectedEnvKey = envKey
-		logger.Log().WithField("masked_key", util.MaskAPIKey(envKey)).Warn(
-			"Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. " +
-				"Either remove it from docker-compose.yml or update it to match the " +
-				"auto-generated key. A new valid key will be generated and saved.",
-		)
+		logger.Log().WithError(regErr).Warn("Failed to register bouncer, CrowdSec may not enforce decisions")
+		return
 	}
 
-	// Priority 2: Check persistent key file
-	fileKey := readKeyFromFile(keyPath)
-	if fileKey != "" {
-		// Test key against LAPI (not just bouncer name)
-		if h.testKeyAgainstLAPI(ctx, fileKey) {
-			logger.Log().WithField("source", "file").WithField("file", keyPath).WithField("masked_key", util.MaskAPIKey(fileKey)).Info("CrowdSec bouncer authentication successful")
-			return "", nil // Key valid
+	if res.EnvKeyRejected {
+		logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvLogMessage(keyPath, res.SaveErr))
+	}
+
+	if res.SaveErr != nil {
+		logger.Log().WithError(res.SaveErr).WithField("file", keyPath).Error("Failed to save bouncer key to file; CrowdSec blocking may not work until the key file can be written")
+	}
+
+	switch res.Outcome {
+	case bouncerkey.OutcomeRegistered:
+		h.logBouncerKeyBanner(res.Key, res.SaveErr)
+		if res.SaveErr == nil {
+			h.reapplyCaddy(ctx, applyConfig)
 		}
-		logger.Log().WithField("file", keyPath).WithField("masked_key", util.MaskAPIKey(fileKey)).Warn("File-stored API key failed LAPI authentication, will re-register")
+	case bouncerkey.OutcomeEnvKeySaved:
+		if res.SaveErr == nil {
+			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: env var key validated and saved to key file")
+			h.reapplyCaddy(ctx, applyConfig)
+		}
+	case bouncerkey.OutcomeSavedKeyValid:
+		if res.EnvKeyIgnored {
+			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: saved key is in use; the key variable is ignored")
+		}
 	}
+}
 
-	// No valid key found - register new bouncer
-	newKey, err := h.registerAndSaveBouncer(ctx)
-	if err != nil {
-		return "", err
+// rejectedEnvLogMessage is the Warn text for a rejected key variable that was replaced by a registered key.
+// It names the saved key file as the key in use only when the save succeeded.
+func rejectedEnvLogMessage(keyPath string, saveErr error) string {
+	if saveErr != nil {
+		return "A CrowdSec key variable was rejected by CrowdSec. " + bouncerkey.SaveFailedNotice(keyPath) +
+			" Remove the old variable from docker-compose.yml."
 	}
+	return "A CrowdSec key variable was rejected by CrowdSec. Charon uses the key saved in " + keyPath +
+		"; remove the old variable from docker-compose.yml."
+}
 
-	// Warn user if env var is set but doesn't match the new key
-	if envKey != "" && envKey != newKey {
-		logger.Log().WithField("env_key_masked", util.MaskAPIKey(envKey)).WithField("valid_key_masked", util.MaskAPIKey(newKey)).Warn(
-			"The configured CrowdSec API key does not match the registered key and is ignored. " +
-				"The registered key has been saved to the key file and will be used on future restarts.",
-		)
+// rejectedEnvRegisterFailedLogMessage is the Warn text for a rejected key variable when no replacement
+// key could be registered, so nothing was saved.
+func rejectedEnvRegisterFailedLogMessage(keyPath string) string {
+	return "A CrowdSec key variable was rejected by CrowdSec. " + bouncerkey.RegisterFailedNotice(keyPath)
+}
+
+// reapplyCaddy runs applyConfig and logs a failure without returning it.
+func (h *CrowdsecHandler) reapplyCaddy(ctx context.Context, applyConfig func(context.Context) error) {
+	if applyConfig == nil {
+		return
 	}
+	if err := applyConfig(ctx); err != nil {
+		logger.Log().WithError(err).Warn("Failed to reload Caddy config with new bouncer key")
+	}
+}
 
-	return newKey, nil
+// reapplyCaddyConfig regenerates the Caddy config so it reads the current key file.
+func (h *CrowdsecHandler) reapplyCaddyConfig(ctx context.Context) error {
+	if h.CaddyManager == nil {
+		return nil
+	}
+	return h.CaddyManager.ApplyConfig(ctx)
 }
 
 // validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
@@ -1848,10 +1900,9 @@ func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
 	return false
 }
 
-// registerAndSaveBouncer registers a new bouncer and saves the key to file.
-func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, error) {
-	keyPath := h.bouncerKeyPath()
-
+// registerBouncer replaces any stale caddy-bouncer registration and returns the new key.
+// It does not save the key; ensureBouncerRegistration saves whatever Ensure chooses.
+func (h *CrowdsecHandler) registerBouncer(ctx context.Context) (string, error) {
 	// Delete existing bouncer if present (stale registration)
 	_, _ = h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "delete", bouncerName)
 
@@ -1864,12 +1915,6 @@ func (h *CrowdsecHandler) registerAndSaveBouncer(ctx context.Context) (string, e
 	apiKey := strings.TrimSpace(string(output))
 	if apiKey == "" {
 		return "", fmt.Errorf("bouncer registration returned empty API key")
-	}
-
-	// Save key to persistent file
-	if err := saveKeyToFile(keyPath, apiKey); err != nil {
-		logger.Log().WithError(err).Warn("Failed to save bouncer key to file")
-		// Continue - key is still valid for this session
 	}
 
 	return apiKey, nil
@@ -1893,10 +1938,22 @@ func validateAPIKeyFormat(key string) bool {
 	return true
 }
 
-// logBouncerKeyBanner logs the bouncer key with a formatted banner.
+// logBouncerKeyBanner logs the bouncer key with a formatted banner. When saveErr is set the key
+// was not written to the key file, so the banner says CrowdSec blocking depends on the file becoming writable.
 // Security: API key is masked to prevent exposure in logs (CWE-312).
-func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string) {
+func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string, saveErr error) {
 	keyPath := h.bouncerKeyPath()
+
+	storageLine := "Saved To:     " + keyPath
+	securityLine := "⚠️  SECURITY: Full API key saved to file (permissions: 0600)"
+	tipLine := "💡 TIP: Charon saved this key and uses it. If docker-compose.yml still\n" +
+		"   sets an old CrowdSec key variable, remove it."
+	if saveErr != nil {
+		storageLine = "Not Saved:    could not save to " + keyPath + "; CrowdSec blocking may not work until it can be written"
+		securityLine = "⚠️  SECURITY: Key was not saved to file"
+		tipLine = "💡 TIP: Fix write access to the data directory and restart CrowdSec.\n" +
+			"   If docker-compose.yml still sets an old CrowdSec key variable, remove it."
+	}
 
 	banner := `
 ════════════════════════════════════════════════════════════════════
@@ -1904,72 +1961,15 @@ func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string) {
 ────────────────────────────────────────────────────────────────────
 Bouncer Name: %s
 API Key:      %s
-Saved To:     %s
+%s
 ────────────────────────────────────────────────────────────────────
-⚠️  SECURITY: Full API key saved to file (permissions: 0600)
-💡 TIP: If connecting to an EXTERNAL CrowdSec instance, copy this
-   key to your docker-compose.yml as CHARON_SECURITY_CROWDSEC_API_KEY
+%s
+%s
 🔄 ROTATE: Change API keys regularly and never commit to version control
 ════════════════════════════════════════════════════════════════════`
 	// Security: Mask API key to prevent cleartext exposure in logs
 	maskedKey := util.MaskAPIKey(apiKey)
-	logger.Log().Infof(banner, bouncerName, maskedKey, keyPath)
-}
-
-// getBouncerAPIKeyFromEnv retrieves the bouncer API key from environment variables.
-func getBouncerAPIKeyFromEnv() string {
-	envVars := []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-	for _, key := range envVars {
-		if val := os.Getenv(key); val != "" {
-			return val
-		}
-	}
-	return ""
-}
-
-// readKeyFromFile reads the bouncer key from a file and returns trimmed content.
-func readKeyFromFile(path string) string {
-	// #nosec G304 -- path is a constant defined at compile time (bouncerKeyFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
-// saveKeyToFile saves the bouncer key to a file with secure permissions.
-// Uses atomic write pattern (temp file → rename) to prevent corruption.
-func saveKeyToFile(path, key string) error {
-	if key == "" {
-		return fmt.Errorf("cannot save empty key")
-	}
-
-	// Ensure directory exists with proper permissions
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("failed to create key directory: %w", err)
-	}
-
-	// Atomic write: temp file → rename
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(key+"\n"), 0o600); err != nil {
-		return fmt.Errorf("failed to write key file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		if removeErr := os.Remove(tmpPath); removeErr != nil {
-			logger.Log().WithError(removeErr).Warn("Failed to clean up temporary key file")
-		}
-		return fmt.Errorf("failed to finalize key file: %w", err)
-	}
-
-	return nil
+	logger.Log().Infof(banner, bouncerName, maskedKey, storageLine, securityLine, tipLine)
 }
 
 // GetBouncerInfo returns information about the current bouncer key.
@@ -1983,18 +1983,13 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 		FilePath: keyPath,
 	}
 
-	// Determine key source
-	envKey := getBouncerAPIKeyFromEnv()
-	fileKey := readKeyFromFile(keyPath)
-
-	var fullKey string
-	switch {
-	case envKey != "":
+	// The proxy uses the saved key file first, so report the same key.
+	fullKey, src := bouncerkey.Resolve(keyPath)
+	switch src {
+	case bouncerkey.SourceEnv:
 		info.KeySource = "env_var"
-		fullKey = envKey
-	case fileKey != "":
+	case bouncerkey.SourceFile:
 		info.KeySource = "file"
-		fullKey = fileKey
 	default:
 		info.KeySource = "none"
 	}
@@ -2015,21 +2010,15 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 // GetBouncerKey returns the full bouncer key (for copy to clipboard).
 // GET /api/v1/admin/crowdsec/bouncer/key
 func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
-	keyPath := h.bouncerKeyPath()
-
-	envKey := getBouncerAPIKeyFromEnv()
-	if envKey != "" {
-		c.JSON(http.StatusOK, gin.H{"key": envKey, "source": "env_var"})
-		return
+	key, src := bouncerkey.Resolve(h.bouncerKeyPath())
+	switch src {
+	case bouncerkey.SourceEnv:
+		c.JSON(http.StatusOK, gin.H{"key": key, "source": "env_var"})
+	case bouncerkey.SourceFile:
+		c.JSON(http.StatusOK, gin.H{"key": key, "source": "file"})
+	default:
+		c.JSON(http.StatusNotFound, gin.H{"error": "No bouncer key configured"})
 	}
-
-	fileKey := readKeyFromFile(keyPath)
-	if fileKey != "" {
-		c.JSON(http.StatusOK, gin.H{"key": fileKey, "source": "file"})
-		return
-	}
-
-	c.JSON(http.StatusNotFound, gin.H{"error": "No bouncer key configured"})
 }
 
 // CheckLAPIHealth verifies that CrowdSec LAPI is responding.

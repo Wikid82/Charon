@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
@@ -1089,45 +1090,26 @@ func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdse
 	return Handler{"handler": "crowdsec"}
 }
 
-// getCrowdSecAPIKey retrieves the CrowdSec bouncer API key.
-// Priority order (per Bug 1 fix in lapi_translation_bugs.md):
-//  1. Persistent key file (/app/data/crowdsec/bouncer_key) - auto-generated valid keys
-//  2. Environment variables - user-configured keys (may be invalid)
-//
-// This order ensures that after auto-registration, the validated key is used
-// even if an invalid env var key is still set in docker-compose.yml.
+// getCrowdSecAPIKey retrieves the CrowdSec bouncer API key the proxy uses.
+// The saved key file wins over the environment variables (see bouncerkey.Resolve),
+// so a key that Charon validated or registered is used even if an invalid
+// variable is still set in docker-compose.yml.
 func getCrowdSecAPIKey() string {
-	const bouncerKeyFile = "/app/data/crowdsec/bouncer_key"
-
-	// Priority 1: Check persistent key file first
-	// This takes precedence because it contains a validated, auto-generated key
-	if data, err := os.ReadFile(bouncerKeyFile); err == nil {
-		key := strings.TrimSpace(string(data))
-		if key != "" {
-			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).Debug("CrowdSec API key loaded from file")
-			return key
-		}
+	key, src := bouncerkey.Resolve(crowdSecBouncerKeyFile)
+	switch src {
+	case bouncerkey.SourceFile:
+		logger.Log().WithField("source", "file").WithField("file", crowdSecBouncerKeyFile).Debug("CrowdSec API key loaded from file")
+	case bouncerkey.SourceEnv:
+		logger.Log().WithField("source", "env_var").Debug("CrowdSec API key loaded from environment variable")
+	default:
+		logger.Log().Debug("No CrowdSec API key found in file or environment variables")
 	}
-
-	// Priority 2: Fall back to environment variables
-	envVars := []string{
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	}
-
-	for _, envVar := range envVars {
-		if val := os.Getenv(envVar); val != "" {
-			logger.Log().WithField("source", "env_var").WithField("env_var", envVar).Debug("CrowdSec API key loaded from environment variable")
-			return val
-		}
-	}
-
-	logger.Log().Debug("No CrowdSec API key found in file or environment variables")
-	return ""
+	return key
 }
+
+// crowdSecBouncerKeyFile is the saved bouncer key location. A variable (not a
+// constant) so tests can point the file branch at a temporary file.
+var crowdSecBouncerKeyFile = bouncerkey.DefaultFile
 
 // getAccessLogPath determines the appropriate path for Caddy access logs.
 // When CrowdSec is enabled or running in Docker (detected via /.dockerenv),
