@@ -62,7 +62,7 @@ func newBusyFixture(t *testing.T) *busyFixture {
 	sqlDB, dbErr := db.DB()
 	require.NoError(t, dbErr)
 	sqlDB.SetMaxOpenConns(1) // shared-cache SQLite answers concurrent connections with "table is locked"
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.CrowdSecWhitelist{}, &models.CrowdsecConsoleEnrollment{}, &models.CrowdsecApplyJob{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.CrowdSecWhitelist{}, &models.CrowdsecConsoleEnrollment{}, &models.CrowdsecApplyJob{}, &models.Setting{}))
 	dir := t.TempDir()
 	ce := &countingExec{running: true}
 	h := newTestCrowdsecHandler(t, db, ce, "/bin/false", dir)

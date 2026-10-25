@@ -58,7 +58,7 @@ func (f *fakeExec) Status(ctx context.Context, configDir string) (running bool, 
 func setupCrowdDB(t *testing.T) *gorm.DB {
 	db := OpenTestDB(t)
 	// Migrate tables needed by CrowdSec handlers
-	if err := db.AutoMigrate(&models.SecurityConfig{}); err != nil {
+	if err := db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}); err != nil {
 		t.Fatalf("failed to migrate SecurityConfig: %v", err)
 	}
 	return db
@@ -2373,7 +2373,7 @@ func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 	var updatedCfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&updatedCfg).Error)
 	require.Equal(t, "disabled", updatedCfg.CrowdSecMode)
-	require.False(t, updatedCfg.Enabled)
+	require.True(t, updatedCfg.Enabled, "Stop must leave the global security switch untouched")
 }
 
 // TestCrowdsecHandler_IsCerberusEnabled_EnvVar tests Cerberus feature flag via environment variable
@@ -3291,7 +3291,7 @@ func TestCrowdsecHandler_Stop_UpdatesExistingConfig(t *testing.T) {
 	var updatedCfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&updatedCfg).Error)
 	require.Equal(t, "disabled", updatedCfg.CrowdSecMode)
-	require.False(t, updatedCfg.Enabled)
+	require.True(t, updatedCfg.Enabled, "Stop must leave the global security switch untouched")
 }
 
 // Test WriteFile backup creation
@@ -3480,12 +3480,12 @@ func TestCrowdsecHandler_Start_ExecutorFailure(t *testing.T) {
 
 	db := setupCrowdDB(t)
 
-	// Create pre-existing config
+	// Create pre-existing config; a failed Start must restore it, not force the switch off
 	cfg := models.SecurityConfig{
 		UUID:         "test-uuid",
 		Name:         models.DefaultSecurityConfigName,
-		Enabled:      false,
-		CrowdSecMode: "disabled",
+		Enabled:      true,
+		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3508,8 +3508,8 @@ func TestCrowdsecHandler_Start_ExecutorFailure(t *testing.T) {
 	// Verify config was reverted
 	var revertedCfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&revertedCfg).Error)
-	require.False(t, revertedCfg.Enabled)
-	require.Equal(t, "disabled", revertedCfg.CrowdSecMode)
+	require.True(t, revertedCfg.Enabled)
+	require.Equal(t, "local", revertedCfg.CrowdSecMode)
 }
 
 // Test Start when LAPI doesn't become ready

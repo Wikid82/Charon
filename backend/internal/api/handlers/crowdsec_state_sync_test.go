@@ -140,7 +140,7 @@ func TestStopSyncsSettingsTable(t *testing.T) {
 	err = db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 	require.NoError(t, err)
 	require.Equal(t, "disabled", cfg.CrowdSecMode)
-	require.False(t, cfg.Enabled)
+	require.True(t, cfg.Enabled, "Stop must leave the global security switch untouched")
 }
 
 // TestStartAndStopStateConsistency verifies consistent state across Start/Stop cycles.

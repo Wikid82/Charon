@@ -264,7 +264,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
 			return
 		}
-		if err := h.ensureSecurityConfigEnabled(); err != nil {
+		if err := enableSecurityFramework(h.DB); err != nil {
 			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
 				return
 			}
@@ -388,7 +388,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		}
 
 		if aclEnabled {
-			if err := h.ensureSecurityConfigEnabledWithDB(tx); err != nil {
+			if err := enableSecurityFramework(tx); err != nil {
 				return err
 			}
 		}
@@ -458,27 +458,6 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, settingsMap)
-}
-
-func (h *SettingsHandler) ensureSecurityConfigEnabled() error {
-	return h.ensureSecurityConfigEnabledWithDB(h.DB)
-}
-
-func (h *SettingsHandler) ensureSecurityConfigEnabledWithDB(db *gorm.DB) error {
-	cfg, err := models.FindDefaultSecurityConfig(db)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		seeded, seedErr := models.SeedDefaultSecurityConfig(db)
-		if seedErr != nil {
-			return seedErr
-		}
-		cfg = *seeded
-	} else if err != nil {
-		return err
-	}
-	if cfg.Enabled {
-		return nil
-	}
-	return db.Model(&cfg).Update("enabled", true).Error
 }
 
 // flattenConfig converts nested map to flat key-value pairs with dot notation

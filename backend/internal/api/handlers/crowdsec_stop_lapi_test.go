@@ -85,7 +85,7 @@ func TestCrowdsecHandler_Stop_Success(t *testing.T) {
 	var updatedCfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&updatedCfg).Error)
 	assert.Equal(t, "disabled", updatedCfg.CrowdSecMode)
-	assert.False(t, updatedCfg.Enabled)
+	assert.True(t, updatedCfg.Enabled, "Stop must leave the global security switch untouched")
 
 	// Verify setting was synced
 	var setting models.Setting

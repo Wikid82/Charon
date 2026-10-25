@@ -639,17 +639,19 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		return
 	}
 
-	// UPDATE the default SecurityConfig to persist user's intent (seeded when missing)
-	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local", "enabled": true}); err != nil {
-		logger.Log().WithError(err).Error("Failed to persist SecurityConfig")
+	// Capture the state Start writes, so a failed Start can put back exactly what was there.
+	snap, err := h.snapshotCrowdsecStart()
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to snapshot SecurityConfig before CrowdSec start")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
 		return
 	}
 
-	// After updating SecurityConfig, also sync settings table for state consistency
-	if h.DB != nil {
-		setting := models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"}
-		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
+	if persistErr := h.persistCrowdsecStart(); persistErr != nil {
+		logger.Log().WithError(persistErr).Error("Failed to persist SecurityConfig")
+		h.revertCrowdsecStart(snap)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+		return
 	}
 
 	if running {
@@ -667,15 +669,7 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 	// concurrent Start that wins the race hands back the existing pid.
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
-		// Revert config on failure
-		if _, revertErr := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled", "enabled": false}); revertErr != nil {
-			logger.Log().WithError(revertErr).Warn("Failed to revert SecurityConfig after failed CrowdSec start")
-		}
-		// Also revert settings table
-		if h.DB != nil {
-			revertSetting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
-			h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(revertSetting).FirstOrCreate(&revertSetting)
-		}
+		h.revertCrowdsecStart(snap)
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to start crowdsec")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start CrowdSec"})
 		return
@@ -740,18 +734,74 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 		return
 	}
 
-	// UPDATE the default SecurityConfig to persist user's intent (seeded when missing)
-	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled", "enabled": false}); err != nil {
+	// Only the CrowdSec mode and its setting change here. The global security switch is left alone.
+	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled"}); err != nil {
 		logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
 	}
-
-	// After updating SecurityConfig, also sync settings table for state consistency
-	if h.DB != nil {
-		setting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
-		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
+	if err := upsertSetting(h.DB, models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to update CrowdSec setting after stopping CrowdSec")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
+}
+
+// crowdsecStartSnapshot is the state Start may write, captured before its first write.
+type crowdsecStartSnapshot struct {
+	row      defaultSecurityConfigSnapshot
+	settings map[string]settingSnapshot
+}
+
+// crowdsecStartSettingKeys lists every setting that Start may write.
+var crowdsecStartSettingKeys = []string{
+	"security.crowdsec.enabled",
+	"feature.cerberus.enabled",
+	"security.cerberus.enabled",
+}
+
+// snapshotCrowdsecStart captures the default row and the settings that Start writes.
+func (h *CrowdsecHandler) snapshotCrowdsecStart() (crowdsecStartSnapshot, error) {
+	row, err := snapshotDefaultSecurityConfigState(h.DB)
+	if err != nil {
+		return crowdsecStartSnapshot{}, fmt.Errorf("snapshot default security config: %w", err)
+	}
+	settings, err := snapshotSettings(h.DB, crowdsecStartSettingKeys)
+	if err != nil {
+		return crowdsecStartSnapshot{}, fmt.Errorf("snapshot security settings: %w", err)
+	}
+
+	return crowdsecStartSnapshot{row: row, settings: settings}, nil
+}
+
+// persistCrowdsecStart records the intent of a Start. The global switch and Cerberus go on through
+// the shared helper, which the sibling security modules also use. Then CrowdSec is set to local.
+func (h *CrowdsecHandler) persistCrowdsecStart() error {
+	if err := enableSecurityFramework(h.DB); err != nil {
+		return fmt.Errorf("enable security framework: %w", err)
+	}
+	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local"}); err != nil {
+		return fmt.Errorf("set crowd_sec_mode: %w", err)
+	}
+
+	return upsertSetting(h.DB, models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"})
+}
+
+// revertCrowdsecStart puts back exactly the state captured before Start. A default row that Start
+// created is kept with the seed values (crowd_sec_mode disabled, enabled false). A setting that was
+// absent before is deleted. The revert never forces anything on or off beyond that snapshot.
+func (h *CrowdsecHandler) revertCrowdsecStart(snap crowdsecStartSnapshot) {
+	row := snap.row
+	if !row.exists {
+		row = defaultSecurityConfigSnapshot{exists: true, enabled: false, crowdSecMode: "disabled"}
+	}
+	if err := restoreDefaultSecurityConfigState(h.DB, row); err != nil {
+		logger.Log().WithError(err).Warn("Failed to restore SecurityConfig after failed CrowdSec start")
+	}
+	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": row.crowdSecMode}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to restore CrowdSec mode after failed CrowdSec start")
+	}
+	if err := restoreSettings(h.DB, snap.settings); err != nil {
+		logger.Log().WithError(err).Warn("Failed to restore security settings after failed CrowdSec start")
+	}
 }
 
 // Status returns running state including LAPI availability check.

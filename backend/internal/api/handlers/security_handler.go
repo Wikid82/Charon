@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -1107,7 +1108,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return
 	}
 
-	securityConfigExistsBefore, securityConfigEnabledBefore, err := snapshotDefaultSecurityConfigState(h.db)
+	securityConfigBefore, err := snapshotDefaultSecurityConfigState(h.db)
 	if err != nil {
 		log.WithError(err).Error("Failed to snapshot security config before toggle")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
@@ -1121,63 +1122,9 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 	}
 
 	if enabled && settingKey != "feature.cerberus.enabled" {
-		if err := h.ensureSecurityConfigEnabled(); err != nil {
-			log.WithError(err).Error("Failed to enable SecurityConfig while enabling security module")
+		if err := enableSecurityFramework(h.db); err != nil {
+			log.WithError(err).Error("Failed to enable security framework while enabling security module")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-
-		cerberusSetting := models.Setting{
-			Key:      "feature.cerberus.enabled",
-			Value:    "true",
-			Category: "feature",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
-			log.WithError(err).Error("Failed to enable Cerberus while enabling security module")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-
-		legacyCerberus := models.Setting{
-			Key:      "security.cerberus.enabled",
-			Value:    "true",
-			Category: "security",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
-			log.WithError(err).Error("Failed to enable legacy Cerberus while enabling security module")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-	}
-
-	if settingKey == "security.acl.enabled" && enabled {
-		if err := h.ensureSecurityConfigEnabled(); err != nil {
-			log.WithError(err).Error("Failed to enable SecurityConfig while enabling ACL")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-		cerberusSetting := models.Setting{
-			Key:      "feature.cerberus.enabled",
-			Value:    "true",
-			Category: "feature",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
-			log.WithError(err).Error("Failed to enable Cerberus while enabling ACL")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-		legacyCerberus := models.Setting{
-			Key:      "security.cerberus.enabled",
-			Value:    "true",
-			Category: "security",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
-			log.WithError(err).Error("Failed to enable legacy Cerberus while enabling ACL")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
 			return
 		}
 	}
@@ -1226,7 +1173,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 			if restoreErr := restoreSettings(h.db, settingSnapshots); restoreErr != nil {
 				log.WithError(restoreErr).Error("Failed to restore settings after security module toggle apply failure")
 			}
-			if restoreErr := restoreDefaultSecurityConfigState(h.db, securityConfigExistsBefore, securityConfigEnabledBefore); restoreErr != nil {
+			if restoreErr := restoreDefaultSecurityConfigState(h.db, securityConfigBefore); restoreErr != nil {
 				log.WithError(restoreErr).Error("Failed to restore security config after security module toggle apply failure")
 			}
 			if h.cerberus != nil {
@@ -1293,34 +1240,62 @@ func restoreSettings(db *gorm.DB, snapshots map[string]settingSnapshot) error {
 	return nil
 }
 
-func snapshotDefaultSecurityConfigState(db *gorm.DB) (exists, enabled bool, err error) {
-	cfg, err := models.FindDefaultSecurityConfig(db)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false, false, nil
-	}
-	if err != nil {
-		return false, false, err
-	}
-
-	return true, cfg.Enabled, nil
+// defaultSecurityConfigSnapshot is the part of the default SecurityConfig row that the
+// security and CrowdSec toggles change. exists is false when the row was missing before.
+type defaultSecurityConfigSnapshot struct {
+	exists       bool
+	enabled      bool
+	crowdSecMode string
 }
 
-func restoreDefaultSecurityConfigState(db *gorm.DB, exists, enabled bool) error {
-	if exists {
-		return db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("enabled", enabled).Error
+func snapshotDefaultSecurityConfigState(db *gorm.DB) (defaultSecurityConfigSnapshot, error) {
+	cfg, err := models.FindDefaultSecurityConfig(db)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return defaultSecurityConfigSnapshot{}, nil
+	}
+	if err != nil {
+		return defaultSecurityConfigSnapshot{}, err
+	}
+
+	return defaultSecurityConfigSnapshot{exists: true, enabled: cfg.Enabled, crowdSecMode: cfg.CrowdSecMode}, nil
+}
+
+// restoreDefaultSecurityConfigState puts back the global switch from the snapshot.
+// A row that did not exist before the toggle is deleted again.
+func restoreDefaultSecurityConfigState(db *gorm.DB, snap defaultSecurityConfigSnapshot) error {
+	if snap.exists {
+		return db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("enabled", snap.enabled).Error
 	}
 
 	return db.Where("name = ?", models.DefaultSecurityConfigName).Delete(&models.SecurityConfig{}).Error
 }
 
-func (h *SecurityHandler) ensureSecurityConfigEnabled() error {
-	if h.db == nil {
-		return errors.New("security config database not configured")
+// enableSecurityFramework turns the global security switch and Cerberus on. It is the one
+// path shared by the module enables (ACL, WAF, rate limiting), the settings save and a
+// successful CrowdSec Start. A missing default row is seeded first.
+func enableSecurityFramework(db *gorm.DB) error {
+	if _, err := setDefaultSecurityConfigState(db, map[string]any{"enabled": true}); err != nil {
+		return fmt.Errorf("enable default security config: %w", err)
 	}
-	if _, err := models.SeedDefaultSecurityConfig(h.db); err != nil {
-		return err
+	for _, setting := range []models.Setting{
+		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature", Type: "bool"},
+		{Key: "security.cerberus.enabled", Value: "true", Category: "security", Type: "bool"},
+	} {
+		if err := upsertSetting(db, setting); err != nil {
+			return err
+		}
 	}
-	return h.db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("enabled", true).Error
+
+	return nil
+}
+
+// upsertSetting writes the setting's value and metadata, creating the row when it is missing.
+func upsertSetting(db *gorm.DB, setting models.Setting) error {
+	if err := db.Where(models.Setting{Key: setting.Key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+		return fmt.Errorf("save setting %s: %w", setting.Key, err)
+	}
+
+	return nil
 }
 
 func (h *SecurityHandler) allowACLEnable(c *gin.Context) bool {
