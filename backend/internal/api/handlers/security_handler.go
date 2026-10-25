@@ -94,8 +94,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 
 	// Override with database SecurityConfig if present (priority 2)
 	if h.db != nil {
-		var sc models.SecurityConfig
-		if err := h.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+		if sc, err := models.FindDefaultSecurityConfig(h.db); err == nil {
 			// SecurityConfig in DB takes precedence over static config
 			enabled = sc.Enabled
 			if sc.WAFMode != "" {
@@ -1101,14 +1100,14 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		snapshotKeys = append(snapshotKeys, "feature.cerberus.enabled", "security.cerberus.enabled")
 	}
 
-	settingSnapshots, err := h.snapshotSettings(snapshotKeys)
+	settingSnapshots, err := snapshotSettings(h.db, snapshotKeys)
 	if err != nil {
 		log.WithError(err).Error("Failed to snapshot security settings before toggle")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
 		return
 	}
 
-	securityConfigExistsBefore, securityConfigEnabledBefore, err := h.snapshotDefaultSecurityConfigState()
+	securityConfigExistsBefore, securityConfigEnabledBefore, err := snapshotDefaultSecurityConfigState(h.db)
 	if err != nil {
 		log.WithError(err).Error("Failed to snapshot security config before toggle")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
@@ -1247,10 +1246,10 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 	if h.caddyManager != nil {
 		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
 			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
-			if restoreErr := h.restoreSettings(settingSnapshots); restoreErr != nil {
+			if restoreErr := restoreSettings(h.db, settingSnapshots); restoreErr != nil {
 				log.WithError(restoreErr).Error("Failed to restore settings after security module toggle apply failure")
 			}
-			if restoreErr := h.restoreDefaultSecurityConfigState(securityConfigExistsBefore, securityConfigEnabledBefore); restoreErr != nil {
+			if restoreErr := restoreDefaultSecurityConfigState(h.db, securityConfigExistsBefore, securityConfigEnabledBefore); restoreErr != nil {
 				log.WithError(restoreErr).Error("Failed to restore security config after security module toggle apply failure")
 			}
 			if h.cerberus != nil {
@@ -1276,7 +1275,7 @@ type settingSnapshot struct {
 	setting models.Setting
 }
 
-func (h *SecurityHandler) snapshotSettings(keys []string) (map[string]settingSnapshot, error) {
+func snapshotSettings(db *gorm.DB, keys []string) (map[string]settingSnapshot, error) {
 	snapshots := make(map[string]settingSnapshot, len(keys))
 	for _, key := range keys {
 		if _, exists := snapshots[key]; exists {
@@ -1284,7 +1283,7 @@ func (h *SecurityHandler) snapshotSettings(keys []string) (map[string]settingSna
 		}
 
 		var existing models.Setting
-		err := h.db.Where("key = ?", key).First(&existing).Error
+		err := db.Where("key = ?", key).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			snapshots[key] = settingSnapshot{exists: false}
 			continue
@@ -1299,17 +1298,17 @@ func (h *SecurityHandler) snapshotSettings(keys []string) (map[string]settingSna
 	return snapshots, nil
 }
 
-func (h *SecurityHandler) restoreSettings(snapshots map[string]settingSnapshot) error {
+func restoreSettings(db *gorm.DB, snapshots map[string]settingSnapshot) error {
 	for key, snapshot := range snapshots {
 		if snapshot.exists {
 			restore := snapshot.setting
-			if err := h.db.Where(models.Setting{Key: key}).Assign(restore).FirstOrCreate(&restore).Error; err != nil {
+			if err := db.Where(models.Setting{Key: key}).Assign(restore).FirstOrCreate(&restore).Error; err != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := h.db.Where("key = ?", key).Delete(&models.Setting{}).Error; err != nil {
+		if err := db.Where("key = ?", key).Delete(&models.Setting{}).Error; err != nil {
 			return err
 		}
 	}
@@ -1317,9 +1316,8 @@ func (h *SecurityHandler) restoreSettings(snapshots map[string]settingSnapshot) 
 	return nil
 }
 
-func (h *SecurityHandler) snapshotDefaultSecurityConfigState() (exists, enabled bool, err error) {
-	var cfg models.SecurityConfig
-	err = h.db.Where("name = ?", "default").First(&cfg).Error
+func snapshotDefaultSecurityConfigState(db *gorm.DB) (exists, enabled bool, err error) {
+	cfg, err := models.FindDefaultSecurityConfig(db)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, false, nil
 	}
@@ -1330,20 +1328,20 @@ func (h *SecurityHandler) snapshotDefaultSecurityConfigState() (exists, enabled 
 	return true, cfg.Enabled, nil
 }
 
-func (h *SecurityHandler) restoreDefaultSecurityConfigState(exists, enabled bool) error {
+func restoreDefaultSecurityConfigState(db *gorm.DB, exists, enabled bool) error {
 	if exists {
-		return h.db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("enabled", enabled).Error
+		return db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("enabled", enabled).Error
 	}
 
-	return h.db.Where("name = ?", "default").Delete(&models.SecurityConfig{}).Error
+	return db.Where("name = ?", models.DefaultSecurityConfigName).Delete(&models.SecurityConfig{}).Error
 }
 
 func (h *SecurityHandler) ensureSecurityConfigEnabled() error {
 	if h.db == nil {
 		return errors.New("security config database not configured")
 	}
-	cfg := models.SecurityConfig{Name: "default", Enabled: true}
-	if err := h.db.Where("name = ?", "default").FirstOrCreate(&cfg).Error; err != nil {
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}
+	if err := h.db.Where("name = ?", models.DefaultSecurityConfigName).FirstOrCreate(&cfg).Error; err != nil {
 		return err
 	}
 	if cfg.Enabled {

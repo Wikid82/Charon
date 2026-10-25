@@ -115,8 +115,7 @@ func (c *Cerberus) IsEnabled() bool {
 	// DB-backed break-glass disable must take effect even when static config defaults to enabled.
 	// This keeps the API reachable and prevents accidental lockouts when Cerberus/ACL is disabled via /security/disable.
 	if c.db != nil {
-		var sc models.SecurityConfig
-		if err := c.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+		if sc, err := models.FindDefaultSecurityConfig(c.db); err == nil {
 			if !sc.Enabled {
 				return false
 			}
@@ -289,8 +288,8 @@ func (c *Cerberus) adminWhitelistStatus(clientIP string) (configured, allowed bo
 		return false, false
 	}
 
-	var sc models.SecurityConfig
-	if err := c.db.Where("name = ?", "default").First(&sc).Error; err != nil {
+	sc, err := models.FindDefaultSecurityConfig(c.db)
+	if err != nil {
 		return false, false
 	}
 	if strings.TrimSpace(sc.AdminWhitelist) == "" {

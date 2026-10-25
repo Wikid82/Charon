@@ -465,11 +465,10 @@ func (h *SettingsHandler) ensureSecurityConfigEnabled() error {
 }
 
 func (h *SettingsHandler) ensureSecurityConfigEnabledWithDB(db *gorm.DB) error {
-	var cfg models.SecurityConfig
-	err := db.Where("name = ?", "default").First(&cfg).Error
+	cfg, err := models.FindDefaultSecurityConfig(db)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			cfg = models.SecurityConfig{Name: "default", Enabled: true}
+			cfg = models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}
 			return db.Create(&cfg).Error
 		}
 		return err
