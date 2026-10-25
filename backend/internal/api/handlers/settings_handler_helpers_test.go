@@ -51,11 +51,10 @@ func TestValidateAdminWhitelist(t *testing.T) {
 	}
 }
 
-func TestSettingsHandler_EnsureSecurityConfigEnabledWithDB(t *testing.T) {
+func TestEnableSecurityFramework_WithDB(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	h := NewSettingsHandler(db)
 
-	require.NoError(t, h.ensureSecurityConfigEnabledWithDB(db))
+	require.NoError(t, enableSecurityFramework(db))
 
 	var cfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
@@ -63,7 +62,7 @@ func TestSettingsHandler_EnsureSecurityConfigEnabledWithDB(t *testing.T) {
 
 	cfg.Enabled = false
 	require.NoError(t, db.Save(&cfg).Error)
-	require.NoError(t, h.ensureSecurityConfigEnabledWithDB(db))
+	require.NoError(t, enableSecurityFramework(db))
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
 	require.True(t, cfg.Enabled)
 }

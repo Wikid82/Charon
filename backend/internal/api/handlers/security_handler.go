@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	securitypkg "github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -91,11 +93,14 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	crowdSecMode := h.cfg.CrowdSecMode
 	crowdSecAPIURL := h.cfg.CrowdSecAPIURL
 	aclMode := h.cfg.ACLMode
+	// The CrowdSec decision reads the default row, or the static mode when no row exists. This matches the proxy
+	// config (caddy manager), so an empty row mode stays off instead of falling back to the static mode.
+	crowdSecRow := models.SecurityConfig{CrowdSecMode: h.cfg.CrowdSecMode}
 
 	// Override with database SecurityConfig if present (priority 2)
 	if h.db != nil {
-		var sc models.SecurityConfig
-		if err := h.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+		if sc, err := models.FindDefaultSecurityConfig(h.db); err == nil {
+			crowdSecRow = sc
 			// SecurityConfig in DB takes precedence over static config
 			enabled = sc.Enabled
 			if sc.WAFMode != "" {
@@ -105,9 +110,6 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 				rateLimitMode = sc.RateLimitMode
 			} else if sc.RateLimitEnable {
 				rateLimitMode = "enabled"
-			}
-			if sc.CrowdSecMode != "" {
-				crowdSecMode = sc.CrowdSecMode
 			}
 			if sc.CrowdSecAPIURL != "" {
 				crowdSecAPIURL = sc.CrowdSecAPIURL
@@ -152,24 +154,14 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			}
 		}
 
-		// CrowdSec enabled override
-		crowdSecEnabledOverride := false
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			crowdSecEnabledOverride = true
-			if strings.EqualFold(setting.Value, "true") {
-				crowdSecMode = "local"
-			} else {
-				crowdSecMode = "disabled"
-			}
+		// CrowdSec: the enabled setting, then the deprecated mode setting, then the row (same precedence as the proxy config).
+		crowdSecOn, crowdSecErr := models.CrowdSecEnabled(h.db, crowdSecRow)
+		if crowdSecErr != nil {
+			logger.Log().WithError(crowdSecErr).Warn("Failed to read CrowdSec setting for status, using the default SecurityConfig row")
 		}
-
-		// CrowdSec mode override (deprecated - only applies when enabled override is absent)
-		if !crowdSecEnabledOverride {
-			setting = struct{ Value string }{}
-			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&setting).Error; err == nil && setting.Value != "" {
-				crowdSecMode = setting.Value
-			}
+		crowdSecMode = "disabled"
+		if crowdSecOn {
+			crowdSecMode = "local"
 		}
 
 		// ACL enabled override
@@ -288,7 +280,7 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 	if payload.Name == "" {
-		payload.Name = "default"
+		payload.Name = models.DefaultSecurityConfigName
 	}
 	// Sync RateLimitMode with RateLimitEnable for backward compatibility
 	if payload.RateLimitEnable {
@@ -315,7 +307,7 @@ func (h *SecurityHandler) GenerateBreakGlass(c *gin.Context) {
 		return
 	}
 
-	token, err := h.svc.GenerateBreakGlassToken("default")
+	token, err := h.svc.GenerateBreakGlassToken(models.DefaultSecurityConfigName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate break-glass token"})
 		return
@@ -522,7 +514,7 @@ func (h *SecurityHandler) Enable(c *gin.Context) {
 		}
 	}
 	// Set enabled true
-	newCfg := &models.SecurityConfig{Name: "default", Enabled: true}
+	newCfg := &models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}
 	if cfg != nil {
 		newCfg = cfg
 		newCfg.Enabled = true
@@ -551,7 +543,7 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 	if clientIP == "127.0.0.1" || clientIP == "::1" {
 		cfg, _ := h.svc.Get()
 		if cfg == nil {
-			cfg = &models.SecurityConfig{Name: "default", Enabled: false}
+			cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: false}
 		} else {
 			cfg.Enabled = false
 		}
@@ -772,7 +764,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	if err != nil {
 		if err == services.ErrSecurityConfigNotFound {
 			// Create default config with the exclusion
-			cfg = &models.SecurityConfig{Name: "default"}
+			cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
 			return
@@ -1101,14 +1093,14 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		snapshotKeys = append(snapshotKeys, "feature.cerberus.enabled", "security.cerberus.enabled")
 	}
 
-	settingSnapshots, err := h.snapshotSettings(snapshotKeys)
+	settingSnapshots, err := snapshotSettings(h.db, snapshotKeys)
 	if err != nil {
 		log.WithError(err).Error("Failed to snapshot security settings before toggle")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
 		return
 	}
 
-	securityConfigExistsBefore, securityConfigEnabledBefore, err := h.snapshotDefaultSecurityConfigState()
+	securityConfigBefore, err := snapshotDefaultSecurityConfigState(h.db)
 	if err != nil {
 		log.WithError(err).Error("Failed to snapshot security config before toggle")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
@@ -1122,63 +1114,9 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 	}
 
 	if enabled && settingKey != "feature.cerberus.enabled" {
-		if err := h.ensureSecurityConfigEnabled(); err != nil {
-			log.WithError(err).Error("Failed to enable SecurityConfig while enabling security module")
+		if err := enableSecurityFramework(h.db); err != nil {
+			log.WithError(err).Error("Failed to enable security framework while enabling security module")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-
-		cerberusSetting := models.Setting{
-			Key:      "feature.cerberus.enabled",
-			Value:    "true",
-			Category: "feature",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
-			log.WithError(err).Error("Failed to enable Cerberus while enabling security module")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-
-		legacyCerberus := models.Setting{
-			Key:      "security.cerberus.enabled",
-			Value:    "true",
-			Category: "security",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
-			log.WithError(err).Error("Failed to enable legacy Cerberus while enabling security module")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-	}
-
-	if settingKey == "security.acl.enabled" && enabled {
-		if err := h.ensureSecurityConfigEnabled(); err != nil {
-			log.WithError(err).Error("Failed to enable SecurityConfig while enabling ACL")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-		cerberusSetting := models.Setting{
-			Key:      "feature.cerberus.enabled",
-			Value:    "true",
-			Category: "feature",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
-			log.WithError(err).Error("Failed to enable Cerberus while enabling ACL")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-		legacyCerberus := models.Setting{
-			Key:      "security.cerberus.enabled",
-			Value:    "true",
-			Category: "security",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
-			log.WithError(err).Error("Failed to enable legacy Cerberus while enabling ACL")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
 			return
 		}
 	}
@@ -1216,29 +1154,6 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		}
 	}
 
-	if settingKey == "security.acl.enabled" && enabled {
-		var count int64
-		if err := h.db.Model(&models.SecurityConfig{}).Count(&count).Error; err != nil {
-			log.WithError(err).Error("Failed to count security configs after enabling ACL")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-		if count == 0 {
-			cfg := models.SecurityConfig{Name: "default", Enabled: true}
-			if err := h.db.Create(&cfg).Error; err != nil {
-				log.WithError(err).Error("Failed to create security config after enabling ACL")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-				return
-			}
-		} else {
-			if err := h.db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("enabled", true).Error; err != nil {
-				log.WithError(err).Error("Failed to update security config after enabling ACL")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-				return
-			}
-		}
-	}
-
 	if h.cerberus != nil {
 		h.cerberus.InvalidateCache()
 	}
@@ -1247,10 +1162,10 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 	if h.caddyManager != nil {
 		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
 			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
-			if restoreErr := h.restoreSettings(settingSnapshots); restoreErr != nil {
+			if restoreErr := restoreSettings(h.db, settingSnapshots); restoreErr != nil {
 				log.WithError(restoreErr).Error("Failed to restore settings after security module toggle apply failure")
 			}
-			if restoreErr := h.restoreDefaultSecurityConfigState(securityConfigExistsBefore, securityConfigEnabledBefore); restoreErr != nil {
+			if restoreErr := restoreDefaultSecurityConfigState(h.db, securityConfigBefore); restoreErr != nil {
 				log.WithError(restoreErr).Error("Failed to restore security config after security module toggle apply failure")
 			}
 			if h.cerberus != nil {
@@ -1276,7 +1191,7 @@ type settingSnapshot struct {
 	setting models.Setting
 }
 
-func (h *SecurityHandler) snapshotSettings(keys []string) (map[string]settingSnapshot, error) {
+func snapshotSettings(db *gorm.DB, keys []string) (map[string]settingSnapshot, error) {
 	snapshots := make(map[string]settingSnapshot, len(keys))
 	for _, key := range keys {
 		if _, exists := snapshots[key]; exists {
@@ -1284,7 +1199,7 @@ func (h *SecurityHandler) snapshotSettings(keys []string) (map[string]settingSna
 		}
 
 		var existing models.Setting
-		err := h.db.Where("key = ?", key).First(&existing).Error
+		err := db.Where("key = ?", key).First(&existing).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			snapshots[key] = settingSnapshot{exists: false}
 			continue
@@ -1299,17 +1214,17 @@ func (h *SecurityHandler) snapshotSettings(keys []string) (map[string]settingSna
 	return snapshots, nil
 }
 
-func (h *SecurityHandler) restoreSettings(snapshots map[string]settingSnapshot) error {
+func restoreSettings(db *gorm.DB, snapshots map[string]settingSnapshot) error {
 	for key, snapshot := range snapshots {
 		if snapshot.exists {
 			restore := snapshot.setting
-			if err := h.db.Where(models.Setting{Key: key}).Assign(restore).FirstOrCreate(&restore).Error; err != nil {
+			if err := db.Where(models.Setting{Key: key}).Assign(restore).FirstOrCreate(&restore).Error; err != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := h.db.Where("key = ?", key).Delete(&models.Setting{}).Error; err != nil {
+		if err := db.Where("key = ?", key).Delete(&models.Setting{}).Error; err != nil {
 			return err
 		}
 	}
@@ -1317,39 +1232,62 @@ func (h *SecurityHandler) restoreSettings(snapshots map[string]settingSnapshot) 
 	return nil
 }
 
-func (h *SecurityHandler) snapshotDefaultSecurityConfigState() (exists, enabled bool, err error) {
-	var cfg models.SecurityConfig
-	err = h.db.Where("name = ?", "default").First(&cfg).Error
+// defaultSecurityConfigSnapshot is the part of the default SecurityConfig row that the
+// security and CrowdSec toggles change. exists is false when the row was missing before.
+type defaultSecurityConfigSnapshot struct {
+	exists       bool
+	enabled      bool
+	crowdSecMode string
+}
+
+func snapshotDefaultSecurityConfigState(db *gorm.DB) (defaultSecurityConfigSnapshot, error) {
+	cfg, err := models.FindDefaultSecurityConfig(db)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false, false, nil
+		return defaultSecurityConfigSnapshot{}, nil
 	}
 	if err != nil {
-		return false, false, err
+		return defaultSecurityConfigSnapshot{}, err
 	}
 
-	return true, cfg.Enabled, nil
+	return defaultSecurityConfigSnapshot{exists: true, enabled: cfg.Enabled, crowdSecMode: cfg.CrowdSecMode}, nil
 }
 
-func (h *SecurityHandler) restoreDefaultSecurityConfigState(exists, enabled bool) error {
-	if exists {
-		return h.db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("enabled", enabled).Error
+// restoreDefaultSecurityConfigState puts back the global switch from the snapshot.
+// A row that did not exist before the toggle is deleted again.
+func restoreDefaultSecurityConfigState(db *gorm.DB, snap defaultSecurityConfigSnapshot) error {
+	if snap.exists {
+		return db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("enabled", snap.enabled).Error
 	}
 
-	return h.db.Where("name = ?", "default").Delete(&models.SecurityConfig{}).Error
+	return db.Where("name = ?", models.DefaultSecurityConfigName).Delete(&models.SecurityConfig{}).Error
 }
 
-func (h *SecurityHandler) ensureSecurityConfigEnabled() error {
-	if h.db == nil {
-		return errors.New("security config database not configured")
+// enableSecurityFramework turns the global security switch and Cerberus on. It is the one
+// path shared by the module enables (ACL, WAF, rate limiting), the settings save and a
+// successful CrowdSec Start. A missing default row is seeded first.
+func enableSecurityFramework(db *gorm.DB) error {
+	if _, err := setDefaultSecurityConfigState(db, map[string]any{"enabled": true}); err != nil {
+		return fmt.Errorf("enable default security config: %w", err)
 	}
-	cfg := models.SecurityConfig{Name: "default", Enabled: true}
-	if err := h.db.Where("name = ?", "default").FirstOrCreate(&cfg).Error; err != nil {
-		return err
+	for _, setting := range []models.Setting{
+		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature", Type: "bool"},
+		{Key: "security.cerberus.enabled", Value: "true", Category: "security", Type: "bool"},
+	} {
+		if err := upsertSetting(db, setting); err != nil {
+			return err
+		}
 	}
-	if cfg.Enabled {
-		return nil
+
+	return nil
+}
+
+// upsertSetting writes the setting's value and metadata, creating the row when it is missing.
+func upsertSetting(db *gorm.DB, setting models.Setting) error {
+	if err := db.Where(models.Setting{Key: setting.Key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+		return fmt.Errorf("save setting %s: %w", setting.Key, err)
 	}
-	return h.db.Model(&cfg).Update("enabled", true).Error
+
+	return nil
 }
 
 func (h *SecurityHandler) allowACLEnable(c *gin.Context) bool {

@@ -121,7 +121,7 @@ Look for:
 - ✅ "parsers loaded" — Configuration loaded
 - ❌ "error" or "fatal" — Initialization problem
 
-**Solution 3 - Restart CrowdSec:**
+**Solution 3 - Turn CrowdSec off and on again:**
 
 1. Go to Security dashboard
 2. Toggle CrowdSec **OFF**
@@ -215,6 +215,8 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 - **Security Engine Offline**: If your dashboard says "Offline", it means CrowdSec LAPI is not running.
   - **Fix**: Ensure CrowdSec is **enabled via GUI toggle** in the Security dashboard. Do NOT use environment variables.
   - **Action**: Go to Security dashboard, toggle CrowdSec ON, wait 15 seconds, verify status shows "Active".
+- **CrowdSec is on, but your sites are not using it, and the log shows a warning about a missing bouncer key**: CrowdSec only joins your proxy once a bouncer key exists. Charon creates one automatically the first time CrowdSec starts. Until then, the proxy leaves CrowdSec out and your other settings keep working. Check the log with `docker logs charon`. If the key never appears, see [Managing the CrowdSec bouncer key](../features/crowdsec.md#managing-the-crowdsec-bouncer-key).
+- **Turning CrowdSec on or off did not update the proxy**: the Security page still shows CrowdSec's real state, and the log has a warning. Switch CrowdSec off and on again to retry.
 
 ## Ban and unban messages
 

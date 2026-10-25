@@ -17,24 +17,23 @@ func setupSettingsWave3DB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestSettingsHandler_EnsureSecurityConfigEnabledWithDB_Branches(t *testing.T) {
+func TestEnableSecurityFramework_Branches(t *testing.T) {
 	db := setupSettingsWave3DB(t)
-	h := &SettingsHandler{DB: db}
 
 	// Record missing -> create enabled
-	require.NoError(t, h.ensureSecurityConfigEnabledWithDB(db))
+	require.NoError(t, enableSecurityFramework(db))
 	var cfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
 	require.True(t, cfg.Enabled)
 
 	// Record exists enabled=false -> update to true
 	require.NoError(t, db.Model(&cfg).Update("enabled", false).Error)
-	require.NoError(t, h.ensureSecurityConfigEnabledWithDB(db))
+	require.NoError(t, enableSecurityFramework(db))
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
 	require.True(t, cfg.Enabled)
 
 	// Record exists enabled=true -> no-op success
-	require.NoError(t, h.ensureSecurityConfigEnabledWithDB(db))
+	require.NoError(t, enableSecurityFramework(db))
 }
 
 func TestFlattenConfig_MixedTypes(t *testing.T) {

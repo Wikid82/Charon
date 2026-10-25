@@ -21,6 +21,10 @@ import (
 // below Docker's default 10s stop timeout so a clean exit is possible.
 const serverShutdownGracePeriod = "5s"
 
+// crowdSecNoKeyWarning is logged once per generated config when CrowdSec is on
+// but no bouncer key exists yet, so CrowdSec is left out of the proxy config.
+const crowdSecNoKeyWarning = "CrowdSec is on but no bouncer key exists yet; CrowdSec is left out of the proxy configuration until a key is saved"
+
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
 func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig, opts ...GenerateConfigOption) (*Config, error) {
@@ -69,20 +73,29 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		},
 	}
 
-	// Configure CrowdSec app if enabled
+	// Attach CrowdSec to the proxy only when a bouncer key exists. The bouncer
+	// rejects an empty key, which fails the whole config, and each route's
+	// crowdsec handler loads this app. The access log path above still follows
+	// crowdsecEnabled, because the engine keeps reading the log.
+	crowdsecInProxy := false
 	if crowdsecEnabled {
-		apiURL := "http://127.0.0.1:8085"
-		if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
-			apiURL = secCfg.CrowdSecAPIURL
-		}
 		apiKey := getCrowdSecAPIKey()
-		enableStreaming := true
+		if apiKey == "" {
+			logger.Log().Warn(crowdSecNoKeyWarning)
+		} else {
+			crowdsecInProxy = true
+			apiURL := "http://127.0.0.1:8085"
+			if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
+				apiURL = secCfg.CrowdSecAPIURL
+			}
+			enableStreaming := true
 
-		config.Apps.CrowdSec = &CrowdSecApp{
-			APIUrl:          apiURL,
-			APIKey:          apiKey,
-			TickerInterval:  "60s",
-			EnableStreaming: &enableStreaming,
+			config.Apps.CrowdSec = &CrowdSecApp{
+				APIUrl:          apiURL,
+				APIKey:          apiKey,
+				TickerInterval:  "60s",
+				EnableStreaming: &enableStreaming,
+			}
 		}
 	}
 
@@ -515,7 +528,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// CrowdSec handler (placeholder) — first in pipeline. The handler builder
 		// now consumes the runtime flag so we can rely on the computed value
 		// rather than requiring a persisted SecurityConfig row to be present.
-		if csH := buildCrowdSecHandler(&host, secCfg, crowdsecEnabled); csH != nil {
+		if csH := buildCrowdSecHandler(&host, secCfg, crowdsecInProxy); csH != nil {
 			securityHandlers = append(securityHandlers, csH)
 		}
 

@@ -276,8 +276,7 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 	}
 
 	// Also update the SecurityConfig record if it exists
-	var securityConfig models.SecurityConfig
-	if err := h.db.Where("name = ?", "default").First(&securityConfig).Error; err == nil {
+	if securityConfig, err := models.FindDefaultSecurityConfig(h.db); err == nil {
 		securityConfig.Enabled = false
 		securityConfig.AdminWhitelist = ""
 		securityConfig.WAFMode = "disabled"

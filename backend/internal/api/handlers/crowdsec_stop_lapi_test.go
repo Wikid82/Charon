@@ -54,7 +54,7 @@ func TestCrowdsecHandler_Stop_Success(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 
 	// Create security config to be updated on stop
-	cfg := models.SecurityConfig{Enabled: true, CrowdSecMode: "enabled"}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true, CrowdSecMode: "enabled"}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	tmpDir := t.TempDir()
@@ -83,9 +83,9 @@ func TestCrowdsecHandler_Stop_Success(t *testing.T) {
 
 	// Verify config was updated
 	var updatedCfg models.SecurityConfig
-	require.NoError(t, db.First(&updatedCfg).Error)
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&updatedCfg).Error)
 	assert.Equal(t, "disabled", updatedCfg.CrowdSecMode)
-	assert.False(t, updatedCfg.Enabled)
+	assert.True(t, updatedCfg.Enabled, "Stop must leave the global security switch untouched")
 
 	// Verify setting was synced
 	var setting models.Setting
@@ -161,7 +161,7 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	// Create security config with mock LAPI URL
-	cfg := models.SecurityConfig{CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -204,7 +204,7 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -239,7 +239,7 @@ func TestGetLAPIDecisions_NullResponse(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -279,7 +279,7 @@ func TestGetLAPIDecisions_NonJSONContentType(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -317,7 +317,7 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -363,7 +363,7 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)

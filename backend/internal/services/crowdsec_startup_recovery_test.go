@@ -38,7 +38,7 @@ func recoveryDB(t *testing.T, mode string) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(&models.CrowdsecApplyJob{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", Name: "d", Enabled: true, CrowdSecMode: mode}).Error)
+	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", Name: models.DefaultSecurityConfigName, Enabled: true, CrowdSecMode: mode}).Error)
 	return db
 }
 

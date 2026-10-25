@@ -58,7 +58,7 @@ func (f *fakeExec) Status(ctx context.Context, configDir string) (running bool, 
 func setupCrowdDB(t *testing.T) *gorm.DB {
 	db := OpenTestDB(t)
 	// Migrate tables needed by CrowdSec handlers
-	if err := db.AutoMigrate(&models.SecurityConfig{}); err != nil {
+	if err := db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}); err != nil {
 		t.Fatalf("failed to migrate SecurityConfig: %v", err)
 	}
 	return db
@@ -76,7 +76,7 @@ func (f *fastCmdExec) Execute(ctx context.Context, name string, args ...string) 
 //
 //nolint:unparam // binPath kept for future test variants
 func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
-	h := NewCrowdsecHandler(db, executor, binPath, dataDir)
+	h := NewCrowdsecHandler(db, executor, binPath, dataDir, nil)
 	// Override CmdExec to avoid 60s LAPI wait timeout during Start
 	h.CmdExec = &fastCmdExec{}
 	// Set short timeouts for test performance
@@ -1777,7 +1777,7 @@ func TestCrowdsecHandler_CheckLAPIHealth_InvalidURL(t *testing.T) {
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 	// Create config with invalid URL
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:           "default",
 		CrowdSecAPIURL: "http://evil.external.com:8080", // Should be blocked by SSRF policy
 	}
@@ -1818,7 +1818,7 @@ func TestCrowdsecHandler_GetLAPIDecisions_Fallback(t *testing.T) {
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 	// Create config with invalid URL to trigger fallback
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:           "default",
 		CrowdSecAPIURL: "http://external.evil.com:8080",
 	}
@@ -2353,7 +2353,7 @@ func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 	// Create initial SecurityConfig
 	cfg := models.SecurityConfig{
 		UUID:         "default",
-		Name:         "Default",
+		Name:         models.DefaultSecurityConfigName,
 		Enabled:      true,
 		CrowdSecMode: "local",
 	}
@@ -2371,9 +2371,9 @@ func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 
 	// Verify SecurityConfig was updated
 	var updatedCfg models.SecurityConfig
-	require.NoError(t, db.First(&updatedCfg).Error)
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&updatedCfg).Error)
 	require.Equal(t, "disabled", updatedCfg.CrowdSecMode)
-	require.False(t, updatedCfg.Enabled)
+	require.True(t, updatedCfg.Enabled, "Stop must leave the global security switch untouched")
 }
 
 // TestCrowdsecHandler_IsCerberusEnabled_EnvVar tests Cerberus feature flag via environment variable
@@ -3252,7 +3252,7 @@ func TestCrowdsecHandler_Start_CreatesSecurityConfig(t *testing.T) {
 
 	// Verify SecurityConfig was created
 	var cfg models.SecurityConfig
-	err := db.First(&cfg).Error
+	err := db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 	require.NoError(t, err)
 	require.Equal(t, "local", cfg.CrowdSecMode)
 	require.True(t, cfg.Enabled)
@@ -3268,7 +3268,7 @@ func TestCrowdsecHandler_Stop_UpdatesExistingConfig(t *testing.T) {
 	// Create pre-existing config
 	cfg := models.SecurityConfig{
 		UUID:         "test-uuid",
-		Name:         "Test Config",
+		Name:         models.DefaultSecurityConfigName,
 		Enabled:      true,
 		CrowdSecMode: "local",
 	}
@@ -3289,9 +3289,9 @@ func TestCrowdsecHandler_Stop_UpdatesExistingConfig(t *testing.T) {
 
 	// Verify config was updated
 	var updatedCfg models.SecurityConfig
-	require.NoError(t, db.First(&updatedCfg).Error)
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&updatedCfg).Error)
 	require.Equal(t, "disabled", updatedCfg.CrowdSecMode)
-	require.False(t, updatedCfg.Enabled)
+	require.True(t, updatedCfg.Enabled, "Stop must leave the global security switch untouched")
 }
 
 // Test WriteFile backup creation
@@ -3480,12 +3480,12 @@ func TestCrowdsecHandler_Start_ExecutorFailure(t *testing.T) {
 
 	db := setupCrowdDB(t)
 
-	// Create pre-existing config
+	// Create pre-existing config; a failed Start must restore it, not force the switch off
 	cfg := models.SecurityConfig{
 		UUID:         "test-uuid",
-		Name:         "Test Config",
-		Enabled:      false,
-		CrowdSecMode: "disabled",
+		Name:         models.DefaultSecurityConfigName,
+		Enabled:      true,
+		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3507,9 +3507,9 @@ func TestCrowdsecHandler_Start_ExecutorFailure(t *testing.T) {
 
 	// Verify config was reverted
 	var revertedCfg models.SecurityConfig
-	require.NoError(t, db.First(&revertedCfg).Error)
-	require.False(t, revertedCfg.Enabled)
-	require.Equal(t, "disabled", revertedCfg.CrowdSecMode)
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&revertedCfg).Error)
+	require.True(t, revertedCfg.Enabled)
+	require.Equal(t, "local", revertedCfg.CrowdSecMode)
 }
 
 // Test Start when LAPI doesn't become ready
@@ -3620,7 +3620,7 @@ func TestCrowdsecHandler_GetLAPIDecisions_APIError(t *testing.T) {
 	// Create SecurityConfig without API key
 	cfg := models.SecurityConfig{
 		UUID:         "test",
-		Name:         "Test",
+		Name:         models.DefaultSecurityConfigName,
 		Enabled:      true,
 		CrowdSecMode: "local",
 	}

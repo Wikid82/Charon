@@ -852,6 +852,7 @@ func TestManager_ApplyConfig_RulesetDirMkdirFailure(t *testing.T) {
 }
 
 func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
+	withTestBouncerKey(t)
 	// Capture /load payloads
 	loadCh := make(chan []byte, 10)
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

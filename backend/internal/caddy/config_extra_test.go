@@ -219,6 +219,7 @@ func TestBuildACLHandler_UnknownIPTypeReturnsNil(t *testing.T) {
 }
 
 func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
+	withTestBouncerKey(t)
 	// Create host with ACL and HSTS/BlockExploits
 	ipRules := `[ { "cidr": "192.168.1.0/24" } ]`
 	acl := models.AccessList{ID: 200, Name: "WL", Enabled: true, Type: "whitelist", IPRules: ipRules}

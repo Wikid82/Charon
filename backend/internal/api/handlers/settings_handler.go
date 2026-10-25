@@ -238,33 +238,8 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	if req.Key == "security.acl.enabled" && strings.EqualFold(strings.TrimSpace(req.Value), "true") {
-		cerberusSetting := models.Setting{
-			Key:      "feature.cerberus.enabled",
-			Value:    "true",
-			Category: "feature",
-			Type:     "bool",
-		}
-		if err := h.DB.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
-			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-		legacyCerberus := models.Setting{
-			Key:      "security.cerberus.enabled",
-			Value:    "true",
-			Category: "security",
-			Type:     "bool",
-		}
-		if err := h.DB.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
-			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-		if err := h.ensureSecurityConfigEnabled(); err != nil {
+		// Turning ACL on also turns the global switch and Cerberus on, through the helper the other modules share.
+		if err := enableSecurityFramework(h.DB); err != nil {
 			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
 				return
 			}
@@ -388,7 +363,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		}
 
 		if aclEnabled {
-			if err := h.ensureSecurityConfigEnabledWithDB(tx); err != nil {
+			if err := enableSecurityFramework(tx); err != nil {
 				return err
 			}
 		}
@@ -458,26 +433,6 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, settingsMap)
-}
-
-func (h *SettingsHandler) ensureSecurityConfigEnabled() error {
-	return h.ensureSecurityConfigEnabledWithDB(h.DB)
-}
-
-func (h *SettingsHandler) ensureSecurityConfigEnabledWithDB(db *gorm.DB) error {
-	var cfg models.SecurityConfig
-	err := db.Where("name = ?", "default").First(&cfg).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			cfg = models.SecurityConfig{Name: "default", Enabled: true}
-			return db.Create(&cfg).Error
-		}
-		return err
-	}
-	if cfg.Enabled {
-		return nil
-	}
-	return db.Model(&cfg).Update("enabled", true).Error
 }
 
 // flattenConfig converts nested map to flat key-value pairs with dot notation
@@ -619,10 +574,7 @@ func (h *SettingsHandler) syncAdminWhitelistWithDB(db *gorm.DB, whitelist string
 		if err != services.ErrSecurityConfigNotFound {
 			return err
 		}
-		cfg = &models.SecurityConfig{Name: "default"}
-	}
-	if cfg.Name == "" {
-		cfg.Name = "default"
+		cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	}
 	cfg.AdminWhitelist = whitelist
 	return securitySvc.Upsert(cfg)

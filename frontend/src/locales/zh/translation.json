@@ -587,7 +587,9 @@
       },
       "docsLink": "在文档中了解更多",
       "loadError": "无法加载登录保护状态。"
-    }
+    },
+    "settingUpdated": "安全设置已更新",
+    "settingUpdateFailed": "更新设置失败：{{error}}"
   },
   "accessLists": {
     "title": "访问列表",

@@ -130,6 +130,38 @@ describe('Security Error Handling Tests', () => {
     })
   })
 
+  describe('EH-11: Security Setting Toasts Use Translated Text', () => {
+    it('should show the translated success toast when a setting update succeeds', async () => {
+      const user = userEvent.setup()
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
+      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
+
+      await renderSecurityPage()
+
+      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await user.click(screen.getByTestId('toggle-waf'))
+
+      await waitFor(() => {
+        expect(toast.success).toHaveBeenCalledWith('Security setting updated')
+      })
+    })
+
+    it('should show the translated error toast with the failure reason interpolated', async () => {
+      const user = userEvent.setup()
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
+      vi.mocked(settingsApi.updateSetting).mockRejectedValue(new Error('Permission denied'))
+
+      await renderSecurityPage()
+
+      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await user.click(screen.getByTestId('toggle-waf'))
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Failed to update setting: Permission denied')
+      })
+    })
+  })
+
   describe('EH-03: CrowdSec Start Failure Shows Specific Toast', () => {
     it('should show "Failed to start CrowdSec: [message]" on start failure', async () => {
       const user = userEvent.setup()

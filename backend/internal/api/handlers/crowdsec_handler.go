@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -23,7 +24,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -61,18 +61,20 @@ func (r *RealCommandExecutor) Execute(ctx context.Context, name string, args ...
 
 // CrowdsecHandler manages CrowdSec process and config imports.
 type CrowdsecHandler struct {
-	DB               *gorm.DB
-	Executor         CrowdsecExecutor
-	CmdExec          CommandExecutor
-	BinPath          string
-	DataDir          string
-	Hub              *crowdsec.HubService
-	Console          *crowdsec.ConsoleEnrollmentService
-	Security         *services.SecurityService
-	WhitelistSvc     *services.CrowdSecWhitelistService
-	CaddyManager     *caddy.Manager // For config reload after bouncer registration
-	LAPIMaxWait      time.Duration  // For testing; 0 means 60s default
-	LAPIPollInterval time.Duration  // For testing; 0 means 500ms default
+	DB           *gorm.DB
+	Executor     CrowdsecExecutor
+	CmdExec      CommandExecutor
+	BinPath      string
+	DataDir      string
+	Hub          *crowdsec.HubService
+	Console      *crowdsec.ConsoleEnrollmentService
+	Security     *services.SecurityService
+	WhitelistSvc *services.CrowdSecWhitelistService
+	// caddyManager re-applies the proxy configuration after Start, so the proxy picks up CrowdSec.
+	// Nil means the handler is not wired, and each apply then logs errCaddyNotWired.
+	caddyManager     CaddyConfigManager
+	LAPIMaxWait      time.Duration // For testing; 0 means 60s default
+	LAPIPollInterval time.Duration // For testing; 0 means 500ms default
 	dashCache        *dashboardCache
 
 	// validateLAPIURL validates and parses a LAPI base URL.
@@ -496,7 +498,9 @@ func mapCrowdsecStatus(err error, defaultCode int) int {
 	return defaultCode
 }
 
-func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
+// NewCrowdsecHandler builds the CrowdSec handler. caddyMgr re-applies the proxy configuration after Start;
+// a nil manager (including a typed nil pointer) leaves the handler unwired.
+func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string, caddyMgr CaddyConfigManager) *CrowdsecHandler {
 	cacheDir := filepath.Join(dataDir, "hub_cache")
 	cache, err := crowdsec.NewHubCache(cacheDir, 24*time.Hour)
 	if err != nil {
@@ -522,6 +526,7 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		Hub:                hubSvc,
 		Console:            consoleSvc,
 		Security:           securitySvc,
+		caddyManager:       nilIfTypedNil(caddyMgr),
 		dashCache:          newDashboardCache(),
 		validateLAPIURL:    validateCrowdsecLAPIBaseURLDefault,
 		signalProcess:      signalOSProcess,
@@ -602,7 +607,49 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 	return out
 }
 
+// setDefaultSecurityConfigState writes the given columns to the default SecurityConfig row,
+// seeding the row first when it is missing. Only the named columns are written.
+func setDefaultSecurityConfigState(db *gorm.DB, updates map[string]any) (models.SecurityConfig, error) {
+	cfg, err := models.FindDefaultSecurityConfig(db)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		seeded, seedErr := models.SeedDefaultSecurityConfig(db)
+		if seedErr != nil {
+			return models.SecurityConfig{}, fmt.Errorf("seed default security config: %w", seedErr)
+		}
+		cfg = *seeded
+	} else if err != nil {
+		return models.SecurityConfig{}, err
+	}
+	if err := db.Model(&cfg).Updates(updates).Error; err != nil {
+		return models.SecurityConfig{}, fmt.Errorf("update default security config: %w", err)
+	}
+	return cfg, nil
+}
+
+// crowdsecApplyTimeout bounds one proxy apply after a CrowdSec state change.
+const crowdsecApplyTimeout = 30 * time.Second
+
+// errCaddyNotWired is returned when the handler has no Caddy manager to apply the proxy configuration with.
+var errCaddyNotWired = errors.New("caddy manager is not wired to the CrowdSec handler")
+
+// nilIfTypedNil returns nil for a nil interface or a nil pointer stored in one, so a missing manager is always detectable.
+func nilIfTypedNil(m CaddyConfigManager) CaddyConfigManager {
+	if m == nil {
+		return nil
+	}
+	if v := reflect.ValueOf(m); v.Kind() == reflect.Pointer && v.IsNil() {
+		return nil
+	}
+	return m
+}
+
+// HasProxyApplier reports whether the handler was built with a Caddy manager.
+func (h *CrowdsecHandler) HasProxyApplier() bool {
+	return h.caddyManager != nil
+}
+
 // Start starts the CrowdSec process and waits for LAPI to be ready.
+// Every outcome that changes or confirms the CrowdSec state re-applies the proxy configuration exactly once.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
 	if h.refuseIfBusy(c) {
 		return
@@ -620,52 +667,31 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		return
 	}
 
-	// UPDATE SecurityConfig to persist user's intent
-	var cfg models.SecurityConfig
-	if err := h.DB.First(&cfg).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// Create default config with CrowdSec enabled
-			cfg = models.SecurityConfig{
-				UUID:         "default",
-				Name:         "Default Security Config",
-				Enabled:      true,
-				CrowdSecMode: "local",
-			}
-			if createErr := h.DB.Create(&cfg).Error; createErr != nil {
-				logger.Log().WithError(createErr).Error("Failed to create SecurityConfig")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
-				return
-			}
-		} else {
-			logger.Log().WithError(err).Error("Failed to read SecurityConfig")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read configuration"})
-			return
-		}
-	} else {
-		// Update existing config
-		cfg.CrowdSecMode = "local"
-		cfg.Enabled = true
-		if err := h.DB.Save(&cfg).Error; err != nil {
-			logger.Log().WithError(err).Error("Failed to update SecurityConfig")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
-			return
-		}
+	// Capture the state Start writes, so a failed Start can put back exactly what was there.
+	snap, err := h.snapshotCrowdsecStart()
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to snapshot SecurityConfig before CrowdSec start")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+		return
 	}
 
-	// After updating SecurityConfig, also sync settings table for state consistency
-	if h.DB != nil {
-		setting := models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"}
-		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
+	if persistErr := h.persistCrowdsecStart(); persistErr != nil {
+		logger.Log().WithError(persistErr).Error("Failed to persist SecurityConfig")
+		h.revertCrowdsecStart(snap)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+		return
 	}
 
 	if running {
 		_, lapiErr := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
 		logger.Log().WithField("pid", runningPid).Info("CrowdSec start requested but it is already running")
-		c.JSON(http.StatusOK, gin.H{
+		body := gin.H{
 			"status":     "already_running",
 			"pid":        runningPid,
 			"lapi_ready": lapiErr == nil,
-		})
+		}
+		h.applyProxyConfig(ctx)
+		c.JSON(http.StatusOK, body)
 		return
 	}
 
@@ -673,15 +699,7 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 	// concurrent Start that wins the race hands back the existing pid.
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
-		// Revert config on failure
-		cfg.CrowdSecMode = "disabled"
-		cfg.Enabled = false
-		h.DB.Save(&cfg)
-		// Also revert settings table
-		if h.DB != nil {
-			revertSetting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
-			h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(revertSetting).FirstOrCreate(&revertSetting)
-		}
+		h.revertCrowdsecStart(snap)
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to start crowdsec")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start CrowdSec"})
 		return
@@ -712,7 +730,9 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 	}
 
 	if !lapiReady {
+		// The mode is already local, so the proxy needs the apply even though no registration ran.
 		logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
+		h.applyProxyConfig(ctx)
 		c.JSON(http.StatusOK, gin.H{
 			"status":     "started",
 			"pid":        pid,
@@ -724,9 +744,10 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 
 	// After confirming LAPI is ready, ensure bouncer is registered
 	res, regErr := h.ensureBouncerRegistration(ctx)
-	h.handleBouncerRegistration(ctx, res, regErr, h.reapplyCaddyConfig)
+	h.handleBouncerRegistration(res, regErr)
 
 	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
+	h.applyProxyConfig(ctx)
 	c.JSON(http.StatusOK, gin.H{
 		"status":     "started",
 		"pid":        pid,
@@ -746,23 +767,76 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 		return
 	}
 
-	// UPDATE SecurityConfig to persist user's intent
-	var cfg models.SecurityConfig
-	if err := h.DB.First(&cfg).Error; err == nil {
-		cfg.CrowdSecMode = "disabled"
-		cfg.Enabled = false
-		if err := h.DB.Save(&cfg).Error; err != nil {
-			logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
-		}
+	// Only the CrowdSec mode and its setting change here. The global security switch is left alone.
+	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled"}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
+	}
+	if err := upsertSetting(h.DB, models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to update CrowdSec setting after stopping CrowdSec")
 	}
 
-	// After updating SecurityConfig, also sync settings table for state consistency
-	if h.DB != nil {
-		setting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
-		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
-	}
-
+	// The engine is stopped and the mode is written, so the proxy must stop routing through CrowdSec.
+	h.applyProxyConfig(ctx)
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
+}
+
+// crowdsecStartSnapshot is the state Start may write, captured before its first write.
+type crowdsecStartSnapshot struct {
+	row      defaultSecurityConfigSnapshot
+	settings map[string]settingSnapshot
+}
+
+// crowdsecStartSettingKeys lists every setting that Start may write.
+var crowdsecStartSettingKeys = []string{
+	"security.crowdsec.enabled",
+	"feature.cerberus.enabled",
+	"security.cerberus.enabled",
+}
+
+// snapshotCrowdsecStart captures the default row and the settings that Start writes.
+func (h *CrowdsecHandler) snapshotCrowdsecStart() (crowdsecStartSnapshot, error) {
+	row, err := snapshotDefaultSecurityConfigState(h.DB)
+	if err != nil {
+		return crowdsecStartSnapshot{}, fmt.Errorf("snapshot default security config: %w", err)
+	}
+	settings, err := snapshotSettings(h.DB, crowdsecStartSettingKeys)
+	if err != nil {
+		return crowdsecStartSnapshot{}, fmt.Errorf("snapshot security settings: %w", err)
+	}
+
+	return crowdsecStartSnapshot{row: row, settings: settings}, nil
+}
+
+// persistCrowdsecStart records the intent of a Start. The global switch and Cerberus go on through
+// the shared helper, which the sibling security modules also use. Then CrowdSec is set to local.
+func (h *CrowdsecHandler) persistCrowdsecStart() error {
+	if err := enableSecurityFramework(h.DB); err != nil {
+		return fmt.Errorf("enable security framework: %w", err)
+	}
+	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local"}); err != nil {
+		return fmt.Errorf("set crowd_sec_mode: %w", err)
+	}
+
+	return upsertSetting(h.DB, models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"})
+}
+
+// revertCrowdsecStart puts back exactly the state captured before Start. A default row that Start
+// created is kept with the seed values (crowd_sec_mode disabled, enabled false). A setting that was
+// absent before is deleted. The revert never forces anything on or off beyond that snapshot.
+func (h *CrowdsecHandler) revertCrowdsecStart(snap crowdsecStartSnapshot) {
+	row := snap.row
+	if !row.exists {
+		row = defaultSecurityConfigSnapshot{exists: true, enabled: false, crowdSecMode: "disabled"}
+	}
+	if err := restoreDefaultSecurityConfigState(h.DB, row); err != nil {
+		logger.Log().WithError(err).Warn("Failed to restore SecurityConfig after failed CrowdSec start")
+	}
+	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": row.crowdSecMode}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to restore CrowdSec mode after failed CrowdSec start")
+	}
+	if err := restoreSettings(h.DB, snap.settings); err != nil {
+		logger.Log().WithError(err).Warn("Failed to restore security settings after failed CrowdSec start")
+	}
 }
 
 // Status returns running state including LAPI availability check.
@@ -1795,10 +1869,9 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bounce
 	return res, err
 }
 
-// handleBouncerRegistration logs the outcome of ensureBouncerRegistration and re-applies
-// the Caddy config when the proxy needs the key that was just chosen. Caddy reads the key
-// file first, so a failed save leaves the file without the new key and nothing to re-apply.
-func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bouncerkey.EnsureResult, regErr error, applyConfig func(context.Context) error) {
+// handleBouncerRegistration logs the outcome of ensureBouncerRegistration. It does not apply the
+// proxy configuration: Start applies once after every outcome, so the apply is not repeated here.
+func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult, regErr error) {
 	keyPath := h.bouncerKeyPath()
 
 	// The rejection is logged only with the outcome it led to: a failed registration keeps no new key.
@@ -1821,13 +1894,9 @@ func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bou
 	switch res.Outcome {
 	case bouncerkey.OutcomeRegistered:
 		h.logBouncerKeyBanner(res.Key, res.SaveErr)
-		if res.SaveErr == nil {
-			h.reapplyCaddy(ctx, applyConfig)
-		}
 	case bouncerkey.OutcomeEnvKeySaved:
 		if res.SaveErr == nil {
 			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: env var key validated and saved to key file")
-			h.reapplyCaddy(ctx, applyConfig)
 		}
 	case bouncerkey.OutcomeSavedKeyValid:
 		if res.EnvKeyIgnored {
@@ -1853,22 +1922,23 @@ func rejectedEnvRegisterFailedLogMessage(keyPath string) string {
 	return "A CrowdSec key variable was rejected by CrowdSec. " + bouncerkey.RegisterFailedNotice(keyPath)
 }
 
-// reapplyCaddy runs applyConfig and logs a failure without returning it.
-func (h *CrowdsecHandler) reapplyCaddy(ctx context.Context, applyConfig func(context.Context) error) {
-	if applyConfig == nil {
-		return
-	}
-	if err := applyConfig(ctx); err != nil {
-		logger.Log().WithError(err).Warn("Failed to reload Caddy config with new bouncer key")
+// applyProxyConfig regenerates and applies the proxy configuration after a CrowdSec state change.
+// The apply runs on a detached context with its own timeout, so a client that disconnects cannot
+// cancel the apply or its rollback. A failure is logged only; the response and the engine are unchanged.
+func (h *CrowdsecHandler) applyProxyConfig(ctx context.Context) {
+	applyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crowdsecApplyTimeout)
+	defer cancel()
+	if err := h.reapplyCaddyConfig(applyCtx); err != nil {
+		logger.Log().WithError(err).Warn("Failed to apply the proxy configuration after a CrowdSec state change")
 	}
 }
 
-// reapplyCaddyConfig regenerates the Caddy config so it reads the current key file.
+// reapplyCaddyConfig regenerates the Caddy config so the proxy reads the current CrowdSec state and key file.
 func (h *CrowdsecHandler) reapplyCaddyConfig(ctx context.Context) error {
-	if h.CaddyManager == nil {
-		return nil
+	if h.caddyManager == nil {
+		return errCaddyNotWired
 	}
-	return h.CaddyManager.ApplyConfig(ctx)
+	return h.caddyManager.ApplyConfig(ctx)
 }
 
 // validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
