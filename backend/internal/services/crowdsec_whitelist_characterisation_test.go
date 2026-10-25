@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These characterisation tests pin how the whitelist YAML file is written today (content, mode, order, the empty
-// list, and the fixed temp name). They must stay green across the whitelist writer rewrite (#1718), so the diff of
-// that rewrite shows only what changes. They deliberately avoid the error text of the write steps.
+// These characterisation tests pin how the whitelist YAML file is written (content, mode, order, the empty list and
+// the legacy temp file). They were written before the whitelist writer rewrite (#1718) and must stay green across it,
+// so the diff of that rewrite shows only what changes. They deliberately avoid the error text of the write steps.
 
 // whitelistDir is the directory CrowdSec loads the Charon whitelist parser from.
 func whitelistDir(dataDir string) string {
@@ -142,9 +142,10 @@ func TestWhitelistCharacterisationWriteLeavesOnlyTheYAMLFile(t *testing.T) {
 	require.Equal(t, []string{"charon-whitelist.yaml"}, names, "a successful write leaves no temp file behind")
 }
 
-// TestWhitelistCharacterisationStaleFixedTempDoesNotBlockWrite pins that a leftover file at the fixed temp name
-// (from an older Charon) is overwritten by the next write rather than blocking it.
-func TestWhitelistCharacterisationStaleFixedTempDoesNotBlockWrite(t *testing.T) {
+// TestWhitelistCharacterisationStaleLegacyTempIsRemoved pins that a leftover regular file at the fixed legacy temp
+// name (from an older Charon) does not block the next write, and is removed by it. Before #1718 the write overwrote
+// that file and renamed it; the new writer uses its own temp name, so it removes the legacy file instead.
+func TestWhitelistCharacterisationStaleLegacyTempIsRemoved(t *testing.T) {
 	t.Parallel()
 	dataDir := t.TempDir()
 	dir := whitelistDir(dataDir)

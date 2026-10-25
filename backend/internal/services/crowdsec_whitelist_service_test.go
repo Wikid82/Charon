@@ -280,15 +280,14 @@ func TestCrowdSecWhitelistService_WriteYAML_WriteFileError(t *testing.T) {
 
 	svc := services.NewCrowdSecWhitelistService(db, tmpDir)
 
-	// Create a directory where the .tmp file would be written, causing WriteFile to fail.
+	// An empty directory at the target cannot be replaced by the rename, so the write fails.
 	dir := filepath.Join(tmpDir, "config", "parsers", "s02-enrich")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
-	tmpTarget := filepath.Join(dir, "charon-whitelist.yaml.tmp")
-	require.NoError(t, os.MkdirAll(tmpTarget, 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "charon-whitelist.yaml"), 0o750))
 
 	err = svc.WriteYAML(context.Background())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "write temp")
+	assert.Contains(t, err.Error(), "write whitelist yaml: write file")
 }
 
 func TestCrowdSecWhitelistService_Add_WriteYAMLWarning(t *testing.T) {
@@ -328,15 +327,16 @@ func TestCrowdSecWhitelistService_WriteYAML_RenameError(t *testing.T) {
 
 	svc := services.NewCrowdSecWhitelistService(db, tmpDir)
 
-	// Create target as a directory so rename (atomic replace) fails.
+	// A non-empty directory at the target cannot be replaced by the rename, so the write fails.
 	dir := filepath.Join(tmpDir, "config", "parsers", "s02-enrich")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	target := filepath.Join(dir, "charon-whitelist.yaml")
 	require.NoError(t, os.MkdirAll(target, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(target, "occupant"), []byte("x"), 0o600))
 
 	err = svc.WriteYAML(context.Background())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "rename")
+	assert.Contains(t, err.Error(), "write whitelist yaml: write file")
 }
 
 func TestCrowdSecWhitelistService_Add_InvalidCIDR(t *testing.T) {
