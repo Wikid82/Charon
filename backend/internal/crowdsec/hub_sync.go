@@ -30,11 +30,18 @@ type CommandExecutor interface {
 }
 
 const (
-	defaultHubBaseURL       = "https://hub-data.crowdsec.net"
+	// cdnHubHost is the CrowdSec CDN that cscli downloads the hub from. Its master branch serves the index as
+	// .index.json and the items under the same base, so the default base is the branch root.
+	cdnHubHost = "cdn-hub.crowdsec.net"
+	// legacyHubDataHost is the former default hub. Its index path now answers 404, so it is no longer a default. It
+	// stays on the host allowlist so that an operator-set HUB_BASE_URL on it keeps working.
+	legacyHubDataHost       = "hub-data.crowdsec.net"
+	defaultHubBaseURL       = "https://" + cdnHubHost + "/crowdsecurity/master"
 	defaultHubMirrorBaseURL = "https://raw.githubusercontent.com/crowdsecurity/hub/master"
-	defaultHubIndexPath     = "/api/index.json"
-	maxArchiveSize          = int64(25 * 1024 * 1024) // 25MiB safety cap for the hub index
-	defaultPullTimeout      = 25 * time.Second
+	// defaultHubIndexPath is the index path of an operator-set JSON hub base that is not the CDN.
+	defaultHubIndexPath = "/api/index.json"
+	maxArchiveSize      = int64(25 * 1024 * 1024) // 25MiB safety cap for the hub index
+	defaultPullTimeout  = 25 * time.Second
 	// indexFreshTTL is how long after a successful index fetch an untyped pull of a single cached section
 	// skips the index request.
 	indexFreshTTL = 10 * time.Minute
@@ -151,26 +158,20 @@ func validateHubURL(rawURL string) error {
 		return fmt.Errorf("hub URLs must use HTTPS (got: %s)", parsed.Scheme)
 	}
 
-	// Allowlist known CrowdSec hub domains
-	allowedHosts := []string{
-		"hub-data.crowdsec.net",
-		"hub.crowdsec.net",
-		"raw.githubusercontent.com", // GitHub raw content (CrowdSec mirror)
-	}
-
-	hostAllowed := false
-	for _, allowed := range allowedHosts {
-		if host == allowed {
-			hostAllowed = true
-			break
-		}
-	}
-
-	if !hostAllowed {
-		return fmt.Errorf("unknown hub domain: %s (allowed: hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)", host)
+	if !slices.Contains(allowedHubHosts, host) {
+		return fmt.Errorf("unknown hub domain: %s (allowed: %s)", host, strings.Join(allowedHubHosts, ", "))
 	}
 
 	return nil
+}
+
+// allowedHubHosts are the only hosts a hub URL may name: the CDN default, the legacy hub host (for operator-set
+// URLs), the hub host and the GitHub raw mirror. The match is on the exact hostname.
+var allowedHubHosts = []string{
+	cdnHubHost,
+	legacyHubDataHost,
+	"hub.crowdsec.net",
+	"raw.githubusercontent.com", // GitHub raw content (CrowdSec mirror)
 }
 
 // checkURL validates target with the test override when set, otherwise with
@@ -215,7 +216,7 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 // newHubHTTPClient creates an SSRF-safe HTTP client for hub operations.
 // Hub URLs are validated by validateHubURL() which:
 // - Enforces HTTPS for production
-// - Allowlists known CrowdSec domains (hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)
+// - Allowlists known CrowdSec domains (see allowedHubHosts)
 // - Blocks loopback and private targets at the dial layer
 // Using network.NewSafeHTTPClient provides defense-in-depth at the connection level.
 func newHubHTTPClient(timeout time.Duration) *http.Client {
@@ -233,21 +234,31 @@ func normalizeHubBaseURL(raw string) string {
 	return strings.TrimRight(trimmed, "/")
 }
 
-// hubBaseCandidates lists the hosts to try, in a fixed order. A hub URL configured by the operator comes
-// first; the default hub host answers 404 for the index path, so it is tried last.
+// hubBaseCandidates lists the hub bases to try, in a fixed order: an operator-set HUB_BASE_URL first, then the CDN
+// default, then the GitHub mirror (the configured one, then the built-in one). The legacy hub-data host is not a
+// default, so it is only tried when an operator names it.
 func (s *HubService) hubBaseCandidates() []string {
 	var candidates []string
 	if s.HubBaseURL != defaultHubBaseURL {
 		candidates = append(candidates, s.HubBaseURL)
 	}
-	candidates = append(candidates, s.MirrorBaseURL, defaultHubMirrorBaseURL, defaultHubBaseURL)
+	candidates = append(candidates, defaultHubBaseURL, s.MirrorBaseURL, defaultHubMirrorBaseURL)
 	return uniqueStrings(candidates)
+}
+
+// isCDNHubBase reports whether base is on the CrowdSec CDN host, whose index is the .index.json file under the base.
+func isCDNHubBase(base string) bool {
+	parsed, err := neturl.Parse(base)
+	return err == nil && parsed.Hostname() == cdnHubHost
 }
 
 func buildIndexURL(base string) string {
 	normalized := normalizeHubBaseURL(base)
 	if strings.HasSuffix(strings.ToLower(normalized), ".json") {
 		return normalized
+	}
+	if isCDNHubBase(normalized) {
+		return normalized + "/.index.json"
 	}
 	return strings.TrimRight(normalized, "/") + defaultHubIndexPath
 }

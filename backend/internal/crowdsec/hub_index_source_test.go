@@ -105,30 +105,45 @@ func TestFetchIndexFallsBackToFullCSCLIListingOffline(t *testing.T) {
 	require.Equal(t, []string{"cscli hub list -a -o json"}, exec.calls)
 }
 
-func TestFetchIndexTriesRawIndexHostFirst(t *testing.T) {
-	transport := &hubTransport{bodies: map[string]string{rawIndexURL: readCSCLIFixture(t, "hub_index_raw_sample.json")}}
-	svc := NewHubService(nil, nil, t.TempDir())
-	svc.HTTPClient = &http.Client{Transport: transport}
-
-	_, err := svc.FetchIndex(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, []string{rawIndexURL}, transport.seen(), "the raw index host answers first and nothing else is asked")
-}
-
-func TestFetchIndexTriesHostThatAnswersNotFoundLast(t *testing.T) {
-	transport := &hubTransport{
-		status: map[string]int{rawIndexURL: http.StatusServiceUnavailable},
-		bodies: map[string]string{hubDataIndex: `{"items":[{"name":"crowdsecurity/demo","type":"collections","download_url":"https://hub-data.crowdsec.net/demo.yaml"}]}`},
-	}
+func TestFetchIndexTriesCDNFirst(t *testing.T) {
+	transport := &hubTransport{bodies: map[string]string{cdnIndexURL: string(readCDNFixture(t, "hub_index_cdn_compact.json"))}}
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HTTPClient = &http.Client{Transport: transport}
 
 	idx, err := svc.FetchIndex(context.Background())
 	require.NoError(t, err)
+	require.Len(t, idx.Items, 6)
+	require.Equal(t, []string{cdnIndexURL}, transport.seen(), "the CDN answers first and nothing else is asked")
+}
+
+// An operator-set HUB_BASE_URL is tried before the CDN and, when it answers, nothing else is asked.
+func TestFetchIndexHonorsOperatorOverrideBeforeCDN(t *testing.T) {
+	override := "https://hub.crowdsec.net"
+	transport := &hubTransport{bodies: map[string]string{
+		override + defaultHubIndexPath: `{"items":[{"name":"crowdsecurity/demo","type":"collections"}]}`,
+	}}
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = override
+	svc.HTTPClient = &http.Client{Transport: transport}
+
+	idx, err := svc.FetchIndex(context.Background())
+	require.NoError(t, err)
 	require.Equal(t, []string{"crowdsecurity/demo"}, itemNames(idx))
-	seen := transport.seen()
-	require.Equal(t, rawIndexURL, seen[0])
-	require.Equal(t, hubDataIndex, seen[len(seen)-1])
+	require.Equal(t, []string{override + defaultHubIndexPath}, transport.seen(), "the operator's hub answers first and the CDN is not asked")
+}
+
+// The legacy hub-data host answers 404 for its index path. As an explicit override it is tried first, and the CDN
+// answers once it has failed.
+func TestFetchIndexFallsThroughNotFoundOverrideToCDN(t *testing.T) {
+	transport := &hubTransport{bodies: map[string]string{cdnIndexURL: string(readCDNFixture(t, "hub_index_cdn_compact.json"))}}
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = "https://hub-data.crowdsec.net"
+	svc.HTTPClient = &http.Client{Transport: transport}
+
+	idx, err := svc.FetchIndex(context.Background())
+	require.NoError(t, err)
+	require.Len(t, idx.Items, 6)
+	require.Equal(t, []string{hubDataIndex, cdnIndexURL}, transport.seen())
 }
 
 func TestFindIndexEntryMatchesExactNameOnly(t *testing.T) {

@@ -68,7 +68,7 @@ curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@ex
 # Check hub availability first
 echo "Checking CrowdSec Hub availability..."
 HUB_AVAILABLE=false
-if curl -sf --max-time 10 "https://hub-data.crowdsec.net/api/index.json" > /dev/null 2>&1; then
+if curl -sf --max-time 10 "https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json" > /dev/null 2>&1; then
     HUB_AVAILABLE=true
     echo "✓ CrowdSec Hub is available"
 else

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -67,11 +68,8 @@ func TestCDNCompactIndexItemPassesDigestVerification(t *testing.T) {
 	require.ErrorIs(t, verifyIndexDigest(entry, tampered), ErrHubItemUnverified, "an item that differs from the indexed digest is refused")
 }
 
-// TODO(PR 10 commit 2): the default index moves to cdn-hub.crowdsec.net; remove this skip when the default changes.
-// Commit 1 is test-only and keeps the suite green, so this red test is skipped until commit 2 lands.
+// The default index is the CDN master index, the same file cscli downloads, and the CDN answers it first.
 func TestDefaultHubIndexIsCDNMaster(t *testing.T) {
-	t.Skip("TODO(PR 10 commit 2): default hub index URL is still hub-data.crowdsec.net/api/index.json")
-
 	transport := &hubTransport{bodies: map[string]string{cdnIndexURL: string(readCDNFixture(t, "hub_index_cdn_compact.json"))}}
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HTTPClient = &http.Client{Transport: transport}
@@ -82,12 +80,62 @@ func TestDefaultHubIndexIsCDNMaster(t *testing.T) {
 	require.Equal(t, []string{cdnIndexURL}, transport.seen(), "the CDN answers first, so no mirror or legacy host is asked")
 }
 
-// TODO(PR 10 commit 2): remove this skip when validateHubURL allowlists cdn-hub.crowdsec.net.
 func TestValidateHubURLAllowsCDNHub(t *testing.T) {
-	t.Skip("TODO(PR 10 commit 2): cdn-hub.crowdsec.net is not in the host allowlist yet")
-
 	require.NoError(t, validateHubURL(cdnIndexURL))
 	require.NoError(t, validateHubURL(cdnItemPrefix+"collections/crowdsecurity/sshd.yaml"))
+}
+
+// The allowlist matches the exact hostname, so names that only contain or prefix the CDN host, a userinfo trick
+// and plain http are all refused.
+func TestValidateHubURLRejectsLookalikesOfCDNHost(t *testing.T) {
+	t.Parallel()
+	for _, rawURL := range []string{
+		"https://cdn-hub.crowdsec.net.evil.example/crowdsecurity/master/.index.json",
+		"https://cdn-hub.crowdsec.net@evil.example/crowdsecurity/master/.index.json",
+		"https://evil.example/cdn-hub.crowdsec.net/crowdsecurity/master/.index.json",
+		"https://evil-cdn-hub.crowdsec.net/crowdsecurity/master/.index.json",
+		"http://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			t.Parallel()
+			require.Error(t, validateHubURL(rawURL))
+		})
+	}
+}
+
+// Item downloads are rooted at the CDN master branch, the base cscli uses, and each item must match the digest the
+// index records for it.
+func TestPullDownloadsCDNItemUnderMasterAndVerifiesDigest(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+	item := string(readCDNFixture(t, "hub_item_cdn_sshd.yaml"))
+	itemURL := cdnItemPrefix + "collections/crowdsecurity/sshd.yaml"
+	transport := &hubTransport{bodies: map[string]string{
+		cdnIndexURL: string(readCDNFixture(t, "hub_index_cdn_compact.json")),
+		itemURL:     item,
+	}}
+	svc := NewHubService(nil, cache, t.TempDir())
+	svc.HTTPClient = &http.Client{Transport: transport}
+
+	res, err := svc.Pull(context.Background(), "crowdsecurity/sshd", "collections")
+	require.NoError(t, err)
+	require.Equal(t, item, res.Preview)
+	require.Contains(t, transport.seen(), itemURL)
+}
+
+func TestPullRefusesCDNItemThatDiffersFromIndexedDigest(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+	tampered := string(readCDNFixture(t, "hub_item_cdn_sshd.yaml")) + "# appended\n"
+	transport := &hubTransport{bodies: map[string]string{
+		cdnIndexURL: string(readCDNFixture(t, "hub_index_cdn_compact.json")),
+		cdnItemPrefix + "collections/crowdsecurity/sshd.yaml": tampered,
+	}}
+	svc := NewHubService(nil, cache, t.TempDir())
+	svc.HTTPClient = &http.Client{Transport: transport}
+
+	_, err = svc.Pull(context.Background(), "crowdsecurity/sshd", "collections")
+	require.ErrorIs(t, err, ErrHubItemUnverified)
 }
 
 // The GitHub mirror is still the fallback when the CDN fails. This is order-agnostic, so it holds before and

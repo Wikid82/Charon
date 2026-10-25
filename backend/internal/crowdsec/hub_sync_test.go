@@ -174,9 +174,9 @@ func TestFetchIndexHTTPFallsBackToDefaultHub(t *testing.T) {
 		switch req.URL.String() {
 		case "https://hub.crowdsec.net/api/index.json":
 			resp := newResponse(http.StatusMovedPermanently, "")
-			resp.Header.Set("Location", "https://hub-data.crowdsec.net/api/index.json")
+			resp.Header.Set("Location", cdnIndexURL)
 			return resp, nil
-		case "https://hub-data.crowdsec.net/api/index.json":
+		case cdnIndexURL:
 			resp := newResponse(http.StatusOK, indexBody)
 			resp.Header.Set("Content-Type", "application/json")
 			return resp, nil
@@ -189,7 +189,7 @@ func TestFetchIndexHTTPFallsBackToDefaultHub(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, idx.Items, 1)
 	require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
-	require.Equal(t, []string{"https://hub.crowdsec.net/api/index.json", "https://hub-data.crowdsec.net/api/index.json"}, calls)
+	require.Equal(t, []string{"https://hub.crowdsec.net/api/index.json", cdnIndexURL}, calls)
 }
 
 func TestFetchIndexFallsBackToMirrorOnForbidden(t *testing.T) {
@@ -298,7 +298,8 @@ func TestBuildIndexURL(t *testing.T) {
 		base string
 		want string
 	}{
-		{"empty base uses default", "", defaultHubBaseURL + defaultHubIndexPath},
+		{"empty base uses CDN default", "", cdnIndexURL},
+		{"CDN master base uses dot index", defaultHubBaseURL, cdnIndexURL},
 		{"standard base appends path", "https://hub.crowdsec.net", "https://hub.crowdsec.net" + defaultHubIndexPath},
 		{"trailing slash removed", "https://hub.crowdsec.net/", "https://hub.crowdsec.net" + defaultHubIndexPath},
 		{"direct json url unchanged", "https://custom.hub/index.json", "https://custom.hub/index.json"},
@@ -509,6 +510,7 @@ func TestValidateHubURL_ValidHTTPSProduction(t *testing.T) {
 		"https://hub-data.crowdsec.net/api/index.json",
 		"https://hub.crowdsec.net/api/index.json",
 		"https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json",
+		cdnIndexURL,
 	}
 
 	for _, url := range validURLs {
@@ -600,6 +602,7 @@ func TestValidateHubURL_HTTPRejectedForProduction(t *testing.T) {
 		"http://hub-data.crowdsec.net/api/index.json",
 		"http://hub.crowdsec.net/api/index.json",
 		"http://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json",
+		"http://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json",
 	}
 
 	for _, url := range httpURLs {
@@ -1255,8 +1258,32 @@ func TestHubBaseCandidates_DistinctRolesKeepOrder(t *testing.T) {
 
 	require.Equal(t, []string{
 		"https://hub.crowdsec.net",
-		defaultHubMirrorBaseURL,
 		defaultHubBaseURL,
+		defaultHubMirrorBaseURL,
+	}, svc.hubBaseCandidates())
+}
+
+// The default candidates are the CDN, then the GitHub mirror, and the legacy hub-data host is absent unless an
+// operator names it.
+func TestHubBaseCandidates_DefaultsOmitLegacyHubData(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = defaultHubBaseURL
+	svc.MirrorBaseURL = defaultHubMirrorBaseURL
+
+	require.Equal(t, []string{defaultHubBaseURL, defaultHubMirrorBaseURL}, svc.hubBaseCandidates())
+}
+
+func TestHubBaseCandidates_OperatorLegacyHubDataKeepsItsPlace(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = "https://hub-data.crowdsec.net"
+	svc.MirrorBaseURL = defaultHubMirrorBaseURL
+
+	require.Equal(t, []string{
+		"https://hub-data.crowdsec.net",
+		defaultHubBaseURL,
+		defaultHubMirrorBaseURL,
 	}, svc.hubBaseCandidates())
 }
 
