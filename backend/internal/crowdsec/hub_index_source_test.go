@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -39,6 +40,8 @@ type hubTransport struct {
 	requests []string
 	bodies   map[string]string
 	status   map[string]int
+	// errs fails the request with a transport error (no HTTP status) for the given URL.
+	errs map[string]error
 }
 
 func (h *hubTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -46,6 +49,9 @@ func (h *hubTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	h.mu.Lock()
 	h.requests = append(h.requests, url)
 	h.mu.Unlock()
+	if err, ok := h.errs[url]; ok {
+		return nil, &neturl.Error{Op: req.Method, URL: url, Err: err}
+	}
 	if code, ok := h.status[url]; ok {
 		return newResponse(code, ""), nil
 	}

@@ -518,7 +518,11 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 			logger.Log().WithField("hub_index", hubURLForLog(target)).WithField("fallback_used", attempt > 0).Info("hub index fetched")
 			return idx, nil
 		}
-		errs = append(errs, fmt.Errorf("%s: %w", hubURLForLog(target), err))
+		errs = append(errs, candidateError(target, err))
+		// A caller that cancelled or whose deadline passed has no use for the remaining candidates.
+		if ctx.Err() != nil {
+			break
+		}
 		if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
 			logger.Log().WithField("hub_index", hubURLForLog(target)).WithField("attempt", attempt+1).WithError(err).Warn("hub index fetch failed, trying mirror")
 			continue
@@ -553,6 +557,33 @@ func (h hubHTTPError) CanFallback() bool {
 	return h.fallback
 }
 
+// hubTransportError is a request that failed before any HTTP status arrived: a dial failure, TLS error, reset or
+// timeout. The next candidate may still answer, so it falls back like an unavailable hub.
+type hubTransportError struct {
+	url   string
+	inner error
+}
+
+func (h hubTransportError) Error() string {
+	return fmt.Sprintf("%s (request failed): %v", hubURLForLog(h.url), h.inner)
+}
+
+func (h hubTransportError) Unwrap() error { return h.inner }
+func (h hubTransportError) CanFallback() bool {
+	return true
+}
+
+// candidateError labels a failed candidate with its URL exactly once. hubHTTPError and hubTransportError already
+// name their URL in Error, so they are kept as they are; any other failure gets the URL as a prefix.
+func candidateError(target string, err error) error {
+	var httpErr hubHTTPError
+	var transportErr hubTransportError
+	if errors.As(err, &httpErr) || errors.As(err, &transportErr) {
+		return err
+	}
+	return fmt.Errorf("%s: %w", hubURLForLog(target), err)
+}
+
 func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
 	// CRITICAL FIX: Validate hub URL before making HTTP request (HIGH-001)
 	if err := s.checkURL(target); err != nil {
@@ -567,7 +598,7 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return HubIndex{}, fmt.Errorf("fetch hub index: %w", transportCause(err))
+		return HubIndex{}, hubTransportError{url: target, inner: transportCause(err)}
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
