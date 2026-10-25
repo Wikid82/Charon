@@ -35,8 +35,7 @@ Key capabilities:
 
 To turn CrowdSec off, switch **CrowdSec Protection** off. Charon stops it and updates the proxy right away.
 
-Turning CrowdSec on also turns on the Security framework, the same way the other security modules do. Turning CrowdSec off leaves that master switch alone.
-
+Turning CrowdSec on also turns on the Security framework, the same way the other security modules do.
 No environment variables or manual configuration required.
 
 **What to expect:**
