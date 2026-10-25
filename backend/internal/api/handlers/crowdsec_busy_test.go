@@ -99,6 +99,13 @@ type busyCase struct {
 }
 
 // busyCases has one entry per busy-checked route of mutatingCrowdsecRoutes.
+//
+// Today the check is one-directional: a running job refuses these requests, but the requests hold nothing, so a job
+// can still start while one is in flight. The fix in PR 11 (commit 5) makes these routes take a hold
+// (routeHeld in crowdsec_route_classification_test.go); that commit extends this table and
+// TestMutatingHandlersAnswerBusyWhileAnInstallRuns with the hold-side checks (Start, Stop, ConsoleEnroll, whitelist
+// add/delete and hub items restore block a job for the length of the request). Until then, no test here asserts
+// that a request blocks a job.
 var busyCases = map[string]busyCase{
 	"POST /admin/crowdsec/start": {
 		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
