@@ -466,11 +466,13 @@ func (h *SettingsHandler) ensureSecurityConfigEnabled() error {
 
 func (h *SettingsHandler) ensureSecurityConfigEnabledWithDB(db *gorm.DB) error {
 	cfg, err := models.FindDefaultSecurityConfig(db)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			cfg = models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}
-			return db.Create(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		seeded, seedErr := models.SeedDefaultSecurityConfig(db)
+		if seedErr != nil {
+			return seedErr
 		}
+		cfg = *seeded
+	} else if err != nil {
 		return err
 	}
 	if cfg.Enabled {
@@ -618,10 +620,10 @@ func (h *SettingsHandler) syncAdminWhitelistWithDB(db *gorm.DB, whitelist string
 		if err != services.ErrSecurityConfigNotFound {
 			return err
 		}
-		cfg = &models.SecurityConfig{Name: "default"}
+		cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	}
 	if cfg.Name == "" {
-		cfg.Name = "default"
+		cfg.Name = models.DefaultSecurityConfigName
 	}
 	cfg.AdminWhitelist = whitelist
 	return securitySvc.Upsert(cfg)

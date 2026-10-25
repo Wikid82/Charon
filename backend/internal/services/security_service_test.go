@@ -983,19 +983,17 @@ func TestSecurityService_Get_Singleton(t *testing.T) {
 		assert.Equal(t, ErrSecurityConfigNotFound, err)
 	})
 
-	t.Run("get returns first config when no default", func(t *testing.T) {
+	t.Run("get ignores rows under other names", func(t *testing.T) {
 		db := setupSecurityTestDB(t)
 		svc := newTestSecurityService(t, db)
 		defer svc.Close()
 
-		// Create only non-default config
+		// Create only non-default config: the proxy never reads it, so Get must not return it
 		cfg := &models.SecurityConfig{Name: "custom", Enabled: false}
 		assert.NoError(t, svc.Upsert(cfg))
 
-		// Should fall back to first config
-		got, err := svc.Get()
-		assert.NoError(t, err)
-		assert.Equal(t, "custom", got.Name)
+		_, err := svc.Get()
+		assert.Equal(t, ErrSecurityConfigNotFound, err)
 	})
 
 	t.Run("get returns default config when exists", func(t *testing.T) {

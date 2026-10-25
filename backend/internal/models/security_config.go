@@ -2,6 +2,9 @@ package models
 
 import (
 	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // SecurityConfig represents global Cerberus/CrowdSec/WAF/RateLimit settings
@@ -28,4 +31,14 @@ type SecurityConfig struct {
 	RateLimitBypassList string    `json:"rate_limit_bypass_list" gorm:"type:text"` // Comma-separated CIDRs
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// BeforeCreate generates a server-side UUID when the caller did not supply one.
+// Every creator of a SecurityConfig row goes through this hook, so no row can be
+// inserted with an empty UUID and collide on the unique UUID index.
+func (c *SecurityConfig) BeforeCreate(_ *gorm.DB) error {
+	if c.UUID == "" {
+		c.UUID = uuid.NewString()
+	}
+	return nil
 }

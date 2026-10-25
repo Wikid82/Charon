@@ -602,6 +602,25 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 	return out
 }
 
+// setDefaultSecurityConfigState writes the given columns to the default SecurityConfig row,
+// seeding the row first when it is missing. Only the named columns are written.
+func setDefaultSecurityConfigState(db *gorm.DB, updates map[string]any) (models.SecurityConfig, error) {
+	cfg, err := models.FindDefaultSecurityConfig(db)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		seeded, seedErr := models.SeedDefaultSecurityConfig(db)
+		if seedErr != nil {
+			return models.SecurityConfig{}, fmt.Errorf("seed default security config: %w", seedErr)
+		}
+		cfg = *seeded
+	} else if err != nil {
+		return models.SecurityConfig{}, err
+	}
+	if err := db.Model(&cfg).Updates(updates).Error; err != nil {
+		return models.SecurityConfig{}, fmt.Errorf("update default security config: %w", err)
+	}
+	return cfg, nil
+}
+
 // Start starts the CrowdSec process and waits for LAPI to be ready.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
 	if h.refuseIfBusy(c) {
@@ -620,36 +639,11 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		return
 	}
 
-	// UPDATE SecurityConfig to persist user's intent
-	var cfg models.SecurityConfig
-	if err := h.DB.First(&cfg).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// Create default config with CrowdSec enabled
-			cfg = models.SecurityConfig{
-				UUID:         "default",
-				Name:         "Default Security Config",
-				Enabled:      true,
-				CrowdSecMode: "local",
-			}
-			if createErr := h.DB.Create(&cfg).Error; createErr != nil {
-				logger.Log().WithError(createErr).Error("Failed to create SecurityConfig")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
-				return
-			}
-		} else {
-			logger.Log().WithError(err).Error("Failed to read SecurityConfig")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read configuration"})
-			return
-		}
-	} else {
-		// Update existing config
-		cfg.CrowdSecMode = "local"
-		cfg.Enabled = true
-		if err := h.DB.Save(&cfg).Error; err != nil {
-			logger.Log().WithError(err).Error("Failed to update SecurityConfig")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
-			return
-		}
+	// UPDATE the default SecurityConfig to persist user's intent (seeded when missing)
+	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local", "enabled": true}); err != nil {
+		logger.Log().WithError(err).Error("Failed to persist SecurityConfig")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+		return
 	}
 
 	// After updating SecurityConfig, also sync settings table for state consistency
@@ -674,9 +668,9 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
 		// Revert config on failure
-		cfg.CrowdSecMode = "disabled"
-		cfg.Enabled = false
-		h.DB.Save(&cfg)
+		if _, revertErr := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled", "enabled": false}); revertErr != nil {
+			logger.Log().WithError(revertErr).Warn("Failed to revert SecurityConfig after failed CrowdSec start")
+		}
 		// Also revert settings table
 		if h.DB != nil {
 			revertSetting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
@@ -746,14 +740,9 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 		return
 	}
 
-	// UPDATE SecurityConfig to persist user's intent
-	var cfg models.SecurityConfig
-	if err := h.DB.First(&cfg).Error; err == nil {
-		cfg.CrowdSecMode = "disabled"
-		cfg.Enabled = false
-		if err := h.DB.Save(&cfg).Error; err != nil {
-			logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
-		}
+	// UPDATE the default SecurityConfig to persist user's intent (seeded when missing)
+	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled", "enabled": false}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
 	}
 
 	// After updating SecurityConfig, also sync settings table for state consistency

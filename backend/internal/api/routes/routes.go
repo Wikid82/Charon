@@ -286,6 +286,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	migrateViewerToPassthrough(db)
 
+	// Rename or remove legacy-named SecurityConfig rows before seeding, so the seed finds the row readers use (#1727).
+	if err := models.RepairDefaultSecurityConfigName(db); err != nil {
+		logger.Log().WithError(err).Warn("Failed to repair default SecurityConfig name — continuing startup")
+	}
+
 	// Seed the default SecurityConfig row on every startup (idempotent).
 	// Missing on fresh installs causes GetStatus to return all-disabled zero values.
 	if _, err := models.SeedDefaultSecurityConfig(db); err != nil {

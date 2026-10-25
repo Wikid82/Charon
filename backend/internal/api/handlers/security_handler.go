@@ -287,7 +287,7 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 	if payload.Name == "" {
-		payload.Name = "default"
+		payload.Name = models.DefaultSecurityConfigName
 	}
 	// Sync RateLimitMode with RateLimitEnable for backward compatibility
 	if payload.RateLimitEnable {
@@ -314,7 +314,7 @@ func (h *SecurityHandler) GenerateBreakGlass(c *gin.Context) {
 		return
 	}
 
-	token, err := h.svc.GenerateBreakGlassToken("default")
+	token, err := h.svc.GenerateBreakGlassToken(models.DefaultSecurityConfigName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate break-glass token"})
 		return
@@ -521,7 +521,7 @@ func (h *SecurityHandler) Enable(c *gin.Context) {
 		}
 	}
 	// Set enabled true
-	newCfg := &models.SecurityConfig{Name: "default", Enabled: true}
+	newCfg := &models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}
 	if cfg != nil {
 		newCfg = cfg
 		newCfg.Enabled = true
@@ -550,7 +550,7 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 	if clientIP == "127.0.0.1" || clientIP == "::1" {
 		cfg, _ := h.svc.Get()
 		if cfg == nil {
-			cfg = &models.SecurityConfig{Name: "default", Enabled: false}
+			cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: false}
 		} else {
 			cfg.Enabled = false
 		}
@@ -771,7 +771,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	if err != nil {
 		if err == services.ErrSecurityConfigNotFound {
 			// Create default config with the exclusion
-			cfg = &models.SecurityConfig{Name: "default"}
+			cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
 			return
@@ -1215,29 +1215,6 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		}
 	}
 
-	if settingKey == "security.acl.enabled" && enabled {
-		var count int64
-		if err := h.db.Model(&models.SecurityConfig{}).Count(&count).Error; err != nil {
-			log.WithError(err).Error("Failed to count security configs after enabling ACL")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-		if count == 0 {
-			cfg := models.SecurityConfig{Name: "default", Enabled: true}
-			if err := h.db.Create(&cfg).Error; err != nil {
-				log.WithError(err).Error("Failed to create security config after enabling ACL")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-				return
-			}
-		} else {
-			if err := h.db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("enabled", true).Error; err != nil {
-				log.WithError(err).Error("Failed to update security config after enabling ACL")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-				return
-			}
-		}
-	}
-
 	if h.cerberus != nil {
 		h.cerberus.InvalidateCache()
 	}
@@ -1340,14 +1317,10 @@ func (h *SecurityHandler) ensureSecurityConfigEnabled() error {
 	if h.db == nil {
 		return errors.New("security config database not configured")
 	}
-	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}
-	if err := h.db.Where("name = ?", models.DefaultSecurityConfigName).FirstOrCreate(&cfg).Error; err != nil {
+	if _, err := models.SeedDefaultSecurityConfig(h.db); err != nil {
 		return err
 	}
-	if cfg.Enabled {
-		return nil
-	}
-	return h.db.Model(&cfg).Update("enabled", true).Error
+	return h.db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("enabled", true).Error
 }
 
 func (h *SecurityHandler) allowACLEnable(c *gin.Context) bool {

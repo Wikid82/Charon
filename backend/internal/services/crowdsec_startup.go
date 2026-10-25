@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -88,59 +89,46 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		return
 	}
 
-	var cfg models.SecurityConfig
-	if err := db.First(&cfg).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// AUTO-INITIALIZE: Create default SecurityConfig by checking Settings table
-			logger.Log().Info("CrowdSec reconciliation: no SecurityConfig found, checking Settings table for user preference")
+	// Repair legacy-named rows before reading the default row, so the check below never acts on a stale copy.
+	// Routes migration and seeding run after this function, so this call is needed on the first boot after upgrade.
+	if repairErr := models.RepairDefaultSecurityConfigName(db); repairErr != nil {
+		logger.Log().WithError(repairErr).Warn("CrowdSec reconciliation: failed to repair default SecurityConfig name, continuing")
+	}
 
-			// Check if user has already enabled CrowdSec via Settings table (from toggle or legacy config)
-			var settingOverride struct{ Value string }
-			crowdSecEnabledInSettings := false
-			if rawErr := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; rawErr == nil && settingOverride.Value != "" {
-				crowdSecEnabledInSettings = strings.EqualFold(settingOverride.Value, "true")
-				logger.Log().WithFields(map[string]any{
-					"setting_value": settingOverride.Value,
-					"enabled":       crowdSecEnabledInSettings,
-				}).Info("CrowdSec reconciliation: found existing Settings table preference")
-			}
-
-			// Create SecurityConfig that matches Settings table state
-			crowdSecMode := "disabled"
-			if crowdSecEnabledInSettings {
-				crowdSecMode = "local"
-			}
-
-			defaultCfg := models.SecurityConfig{
-				UUID:               "default",
-				Name:               "Default Security Config",
-				Enabled:            true, // Cerberus enabled by default; users can disable via "break glass" toggle
-				CrowdSecMode:       crowdSecMode,
-				WAFMode:            "disabled",
-				WAFParanoiaLevel:   1,
-				RateLimitMode:      "disabled",
-				RateLimitBurst:     10,
-				RateLimitRequests:  100,
-				RateLimitWindowSec: 60,
-			}
-
-			if createErr := db.Create(&defaultCfg).Error; createErr != nil {
-				logger.Log().WithError(createErr).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
-				return
-			}
-
-			logger.Log().WithFields(map[string]any{
-				"crowdsec_mode": defaultCfg.CrowdSecMode,
-				"enabled":       defaultCfg.Enabled,
-				"source":        "settings_table",
-			}).Info("CrowdSec reconciliation: default SecurityConfig created from Settings preference")
-
-			// Continue to process the config (DON'T return early)
-			cfg = defaultCfg
-		} else {
-			logger.Log().WithError(err).Warn("CrowdSec reconciliation: failed to read SecurityConfig")
+	cfg, findErr := models.FindDefaultSecurityConfig(db)
+	if findErr != nil {
+		if !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			logger.Log().WithError(findErr).Warn("CrowdSec reconciliation: failed to read SecurityConfig")
 			return
 		}
+		// AUTO-INITIALIZE: seed the default row, then match its mode to the Settings table preference.
+		logger.Log().Info("CrowdSec reconciliation: no default SecurityConfig found, checking Settings table for user preference")
+		seeded, seedErr := models.SeedDefaultSecurityConfig(db)
+		if seedErr != nil {
+			logger.Log().WithError(seedErr).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
+			return
+		}
+		cfg = *seeded
+
+		var settingOverride struct{ Value string }
+		if rawErr := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; rawErr == nil && settingOverride.Value != "" {
+			logger.Log().WithFields(map[string]any{
+				"setting_value": settingOverride.Value,
+				"enabled":       strings.EqualFold(settingOverride.Value, "true"),
+			}).Info("CrowdSec reconciliation: found existing Settings table preference")
+			if strings.EqualFold(settingOverride.Value, "true") && cfg.CrowdSecMode != "local" {
+				if updErr := db.Model(&cfg).Update("crowd_sec_mode", "local").Error; updErr != nil {
+					logger.Log().WithError(updErr).Error("CrowdSec reconciliation: failed to set crowd_sec_mode from Settings preference")
+					return
+				}
+				cfg.CrowdSecMode = "local"
+			}
+		}
+
+		logger.Log().WithFields(map[string]any{
+			"crowdsec_mode": cfg.CrowdSecMode,
+			"source":        "settings_table",
+		}).Info("CrowdSec reconciliation: default SecurityConfig created from Settings preference")
 	}
 
 	// Also check for runtime setting override in settings table
