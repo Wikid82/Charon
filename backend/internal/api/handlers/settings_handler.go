@@ -601,9 +601,6 @@ func (h *SettingsHandler) syncAdminWhitelistWithDB(db *gorm.DB, whitelist string
 		}
 		cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	}
-	if cfg.Name == "" {
-		cfg.Name = models.DefaultSecurityConfigName
-	}
 	cfg.AdminWhitelist = whitelist
 	return securitySvc.Upsert(cfg)
 }
