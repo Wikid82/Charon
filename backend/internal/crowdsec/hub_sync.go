@@ -234,6 +234,31 @@ func normalizeHubBaseURL(raw string) string {
 	return strings.TrimRight(trimmed, "/")
 }
 
+// hubURLForLog returns a hub URL with its userinfo, query and fragment removed, so that a URL can be logged or
+// returned in an error without carrying credentials an operator put in HUB_BASE_URL.
+func hubURLForLog(raw string) string {
+	parsed, err := neturl.Parse(raw)
+	if err != nil {
+		return "<invalid hub URL>"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+// transportCause drops the request URL that net/http embeds in a *url.Error, keeping the underlying cause. Callers
+// name the URL with hubURLForLog instead, so the error never shows the URL with its userinfo.
+func transportCause(err error) error {
+	for {
+		var urlErr *neturl.Error
+		if !errors.As(err, &urlErr) {
+			return err
+		}
+		err = urlErr.Err
+	}
+}
+
 // hubBaseCandidates lists the hub bases to try, in a fixed order: an operator-set HUB_BASE_URL first, then the CDN
 // default, then the GitHub mirror (the configured one, then the built-in one). The legacy hub-data host is not a
 // default, so it is only tried when an operator names it.
@@ -490,12 +515,12 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 	for attempt, target := range targets {
 		idx, err := s.fetchIndexHTTPFromURL(ctx, target)
 		if err == nil {
-			logger.Log().WithField("hub_index", target).WithField("fallback_used", attempt > 0).Info("hub index fetched")
+			logger.Log().WithField("hub_index", hubURLForLog(target)).WithField("fallback_used", attempt > 0).Info("hub index fetched")
 			return idx, nil
 		}
-		errs = append(errs, fmt.Errorf("%s: %w", target, err))
+		errs = append(errs, fmt.Errorf("%s: %w", hubURLForLog(target), err))
 		if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
-			logger.Log().WithField("hub_index", target).WithField("attempt", attempt+1).WithError(err).Warn("hub index fetch failed, trying mirror")
+			logger.Log().WithField("hub_index", hubURLForLog(target)).WithField("attempt", attempt+1).WithError(err).Warn("hub index fetch failed, trying mirror")
 			continue
 		}
 		break
@@ -516,10 +541,11 @@ type hubHTTPError struct {
 }
 
 func (h hubHTTPError) Error() string {
+	shown := hubURLForLog(h.url)
 	if h.inner != nil {
-		return fmt.Sprintf("%s (status %d): %v", h.url, h.statusCode, h.inner)
+		return fmt.Sprintf("%s (status %d): %v", shown, h.statusCode, h.inner)
 	}
-	return fmt.Sprintf("%s (status %d)", h.url, h.statusCode)
+	return fmt.Sprintf("%s (status %d)", shown, h.statusCode)
 }
 
 func (h hubHTTPError) Unwrap() error { return h.inner }
@@ -541,7 +567,7 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return HubIndex{}, fmt.Errorf("fetch hub index: %w", err)
+		return HubIndex{}, fmt.Errorf("fetch hub index: %w", transportCause(err))
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -551,7 +577,7 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			loc := resp.Header.Get("Location")
-			return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index redirect to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", firstNonEmpty(loc, target)), fallback: true}
+			return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index redirect to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", hubURLForLog(firstNonEmpty(loc, target))), fallback: true}
 		}
 		return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
 	}
@@ -577,7 +603,7 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 			if isLikelyHTML(data) {
 				return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index responded with HTML; install cscli or set HUB_BASE_URL to a JSON hub endpoint"), fallback: true}
 			}
-			return HubIndex{}, fmt.Errorf("decode hub index from %s: %w", target, err)
+			return HubIndex{}, fmt.Errorf("decode hub index from %s: %w", hubURLForLog(target), err)
 		}
 	}
 	return idx, nil
@@ -803,7 +829,7 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string, limi
 	}
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request %s: %w", url, err)
+		return nil, fmt.Errorf("request %s: %w", hubURLForLog(url), transportCause(err))
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -815,10 +841,10 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string, limi
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", url, err)
+		return nil, fmt.Errorf("read %s: %w", hubURLForLog(url), err)
 	}
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("payload too large from %s", url)
+		return nil, fmt.Errorf("payload too large from %s", hubURLForLog(url))
 	}
 	return data, nil
 }

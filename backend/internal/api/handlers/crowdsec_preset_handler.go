@@ -216,7 +216,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		// Safe: User input sanitized via util.SanitizeForLog() which removes
 		// control characters (0x00-0x1F, 0x7F) including CRLF
 		// codeql[go/log-injection]
-		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", util.SanitizeForLog(h.Hub.HubBaseURL)).Warn("crowdsec preset pull failed")
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).WithField("slug", util.SanitizeForLog(slug)).Warn("crowdsec preset pull failed")
 		c.JSON(status, gin.H{"error": crowdsec.RedactPaths(err.Error()), "hub_endpoints": h.hubEndpoints()})
 		return
 	}
