@@ -58,9 +58,8 @@ type CrowdsecProcessManager interface {
 // 4. HTTP server starts
 // 5. Routes registered
 //
-// Auto-start conditions (if ANY true, CrowdSec starts):
-// - SecurityConfig.crowdsec_mode == "local"
-// - Settings["security.crowdsec.enabled"] == "true"
+// Auto-start condition: the CrowdSec decision of models.CrowdSecEnabled is on. The enabled setting wins, then the
+// deprecated mode setting, then SecurityConfig.crowdsec_mode == "local".
 //
 // cmdExec is optional; if nil, a real command executor will be used for bouncer registration.
 // Tests should pass a mock to avoid executing real cscli commands.
@@ -131,32 +130,16 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		}).Info("CrowdSec reconciliation: default SecurityConfig created from Settings preference")
 	}
 
-	// Also check for runtime setting override in settings table
-	var settingOverride struct{ Value string }
-	crowdSecEnabled := false
-	if err := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; err == nil && settingOverride.Value != "" {
-		crowdSecEnabled = strings.EqualFold(settingOverride.Value, "true")
-		logger.Log().WithFields(map[string]any{
-			"setting_value":    settingOverride.Value,
-			"crowdsec_enabled": crowdSecEnabled,
-		}).Debug("CrowdSec reconciliation: found runtime setting override")
+	// Decide with the same setting/row precedence the proxy config and the status endpoint use.
+	crowdSecEnabled, crowdSecErr := models.CrowdSecEnabled(db, cfg)
+	if crowdSecErr != nil {
+		logger.Log().WithError(crowdSecErr).Warn("CrowdSec reconciliation: failed to read CrowdSec setting, using the default SecurityConfig row")
 	}
-
-	// Only auto-start if CrowdSecMode is "local" OR runtime setting is enabled
-	if cfg.CrowdSecMode != "local" && !crowdSecEnabled {
-		logger.Log().WithFields(map[string]any{
-			"db_mode":         cfg.CrowdSecMode,
-			"setting_enabled": crowdSecEnabled,
-		}).Info("CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled")
+	if !crowdSecEnabled {
+		logger.Log().WithField("crowdsec_mode", cfg.CrowdSecMode).Info("CrowdSec reconciliation skipped: CrowdSec is disabled by the setting or the default SecurityConfig row")
 		return
 	}
-
-	// Log which source triggered the start
-	if cfg.CrowdSecMode == "local" {
-		logger.Log().WithField("mode", cfg.CrowdSecMode).Info("CrowdSec reconciliation: starting based on SecurityConfig mode='local'")
-	} else if crowdSecEnabled {
-		logger.Log().WithField("setting", "true").Info("CrowdSec reconciliation: starting based on Settings table override")
-	}
+	logger.Log().WithField("crowdsec_mode", cfg.CrowdSecMode).Info("CrowdSec reconciliation: starting, CrowdSec is enabled by the setting or the default SecurityConfig row")
 
 	// VALIDATE: Ensure binary exists
 	if _, err := os.Stat(binPath); os.IsNotExist(err) {

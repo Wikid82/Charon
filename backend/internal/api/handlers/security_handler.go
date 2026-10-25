@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	securitypkg "github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -152,24 +153,14 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			}
 		}
 
-		// CrowdSec enabled override
-		crowdSecEnabledOverride := false
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			crowdSecEnabledOverride = true
-			if strings.EqualFold(setting.Value, "true") {
-				crowdSecMode = "local"
-			} else {
-				crowdSecMode = "disabled"
-			}
+		// CrowdSec: the enabled setting, then the deprecated mode setting, then the row (same precedence as the proxy config).
+		crowdSecOn, crowdSecErr := models.CrowdSecEnabled(h.db, models.SecurityConfig{CrowdSecMode: crowdSecMode})
+		if crowdSecErr != nil {
+			logger.Log().WithError(crowdSecErr).Warn("Failed to read CrowdSec setting for status, using the default SecurityConfig row")
 		}
-
-		// CrowdSec mode override (deprecated - only applies when enabled override is absent)
-		if !crowdSecEnabledOverride {
-			setting = struct{ Value string }{}
-			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&setting).Error; err == nil && setting.Value != "" {
-				crowdSecMode = setting.Value
-			}
+		crowdSecMode = "disabled"
+		if crowdSecOn {
+			crowdSecMode = "local"
 		}
 
 		// ACL enabled override
