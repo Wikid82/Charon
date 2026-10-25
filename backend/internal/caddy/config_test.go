@@ -850,6 +850,7 @@ func TestGenerateConfig_WithCrowdSecApp(t *testing.T) {
 
 // TestGenerateConfig_CrowdSecHandlerAdded verifies CrowdSec handler is added to routes
 func TestGenerateConfig_CrowdSecHandlerAdded(t *testing.T) {
+	withTestBouncerKey(t)
 	hosts := []models.ProxyHost{
 		{
 			UUID:        "test-uuid",

@@ -93,6 +93,7 @@ func TestBuildCrowdSecHandler_WithHost(t *testing.T) {
 }
 
 func TestGenerateConfig_WithCrowdSec(t *testing.T) {
+	withTestBouncerKey(t)
 	// Test that CrowdSec is configured at app-level when enabled
 	hosts := []models.ProxyHost{
 		{
