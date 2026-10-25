@@ -18,9 +18,10 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 )
 
-// These characterisation tests pin how the acquisition GET and PUT handlers answer today: the happy path, the
-// missing-file and unreadable-file cases, and the read-only and failed-write cases. Permission failures still answer
-// a generic 500 with no error_code; the #1708 fix changes that, so these tests are the baseline for its diff.
+// These characterisation tests pin how the acquisition GET and PUT handlers answer: the happy path, the missing-file
+// and unreadable-file cases, and the read-only and failed-write cases. Since #1708 the permission and read-only
+// failures answer a coded 500 (error_code acquisition_config_unreadable / acquisition_config_not_writable); the tests
+// whose pinned behavior changed say so in their doc comment. Every other failure keeps the generic 500 with no code.
 
 // newAcquisitionCharacterisationRouter serves GET and PUT on one router with the acquisition file at acquis.
 func newAcquisitionCharacterisationRouter(t *testing.T, acquis string) *gin.Engine {
@@ -45,6 +46,14 @@ func requireGenericAcquisitionError(t *testing.T, w *httptest.ResponseRecorder, 
 	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
 	require.JSONEq(t, fmt.Sprintf(`{"error":%q}`, msg), w.Body.String())
 	require.NotContains(t, w.Body.String(), "error_code")
+}
+
+// requireCodedAcquisitionError pins the coded 500 shape for a permission failure: the actionable message and the
+// stable error_code next to it.
+func requireCodedAcquisitionError(t *testing.T, w *httptest.ResponseRecorder, code, msg string) {
+	t.Helper()
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	require.JSONEq(t, fmt.Sprintf(`{"error":%q,"error_code":%q}`, msg, code), w.Body.String())
 }
 
 // requireNotRoot skips a test that needs the directory or file mode to bind, which root ignores.
@@ -113,16 +122,20 @@ func TestAcquisitionCharacterisationGetDirectoryIsGeneric500(t *testing.T) {
 	requireGenericAcquisitionError(t, getAcquisitionCharacterisation(r), "failed to read acquisition config")
 }
 
-func TestAcquisitionCharacterisationGetUnreadableFileIsGeneric500(t *testing.T) {
+// TestAcquisitionCharacterisationGetUnreadableFileIsCoded500 changed in #1708: a file the Charon user cannot read
+// now answers the coded 500 (acquisition_config_unreadable) instead of the generic message.
+func TestAcquisitionCharacterisationGetUnreadableFileIsCoded500(t *testing.T) {
 	requireNotRoot(t)
 	acquis := filepath.Join(t.TempDir(), "acquis.yaml")
 	require.NoError(t, os.WriteFile(acquis, []byte("secret\n"), 0o000)) //nolint:gosec // G306: deliberately unreadable file under test
 	r := newAcquisitionCharacterisationRouter(t, acquis)
 
-	requireGenericAcquisitionError(t, getAcquisitionCharacterisation(r), "failed to read acquisition config")
+	requireCodedAcquisitionError(t, getAcquisitionCharacterisation(r), codeAcquisitionUnreadable, msgAcquisitionUnreadable)
 }
 
-func TestAcquisitionCharacterisationPutReadOnlyFolderIsGeneric500(t *testing.T) {
+// TestAcquisitionCharacterisationPutReadOnlyFolderIsCoded500 changed in #1708: the backup cannot be created in a
+// folder the Charon user cannot write, which now answers acquisition_config_not_writable.
+func TestAcquisitionCharacterisationPutReadOnlyFolderIsCoded500(t *testing.T) {
 	requireNotRoot(t)
 	dir := t.TempDir()
 	acquis := filepath.Join(dir, "acquis.yaml")
@@ -131,20 +144,30 @@ func TestAcquisitionCharacterisationPutReadOnlyFolderIsGeneric500(t *testing.T) 
 	require.NoError(t, os.Chmod(dir, 0o500))       //nolint:gosec // G302: read-only directory is the failure under test
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // G302: restore directory so TempDir cleanup works
 
-	requireGenericAcquisitionError(t, putAcquisition(r, "new\n"), "failed to write acquisition config")
+	requireCodedAcquisitionError(t, putAcquisition(r, "new\n"), codeAcquisitionNotWritable, msgAcquisitionNotWritable)
 	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "original\n", string(got))
 	requireOnlyEntries(t, dir, "acquis.yaml")
 }
 
-// TestAcquisitionCharacterisationPutWriteFailuresAreGeneric500 runs without root and without file modes, through
-// the existing seams, so the generic 500 is pinned on every platform.
-func TestAcquisitionCharacterisationPutWriteFailuresAreGeneric500(t *testing.T) {
-	for name, fail := range map[string]error{
-		"permission denied on replace": fmt.Errorf("replace acquisition config: %w", fs.ErrPermission),
-		"read-only mount on replace":   fmt.Errorf("replace acquisition config: %w", syscall.EROFS),
-		"other rename failure":         fmt.Errorf("replace acquisition config: %w", &os.LinkError{Op: "rename", Err: syscall.EXDEV}),
+// TestAcquisitionCharacterisationPutWriteFailuresAreCoded500 runs without root and without file modes, through
+// the existing seams. Permission and read-only failures answer the not-writable code (changed in #1708); a
+// non-permission rename failure keeps the generic 500 with no code.
+func TestAcquisitionCharacterisationPutWriteFailuresAreCoded500(t *testing.T) {
+	type want struct {
+		code string
+		msg  string
+	}
+	generic := want{msg: "failed to write acquisition config"}
+	notWritable := want{code: codeAcquisitionNotWritable, msg: msgAcquisitionNotWritable}
+	for name, tc := range map[string]struct {
+		fail error
+		want want
+	}{
+		"permission denied on replace": {fmt.Errorf("replace acquisition config: %w", fs.ErrPermission), notWritable},
+		"read-only mount on replace":   {fmt.Errorf("replace acquisition config: %w", syscall.EROFS), notWritable},
+		"other rename failure":         {fmt.Errorf("replace acquisition config: %w", &os.LinkError{Op: "rename", Err: syscall.EXDEV}), generic},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -152,10 +175,15 @@ func TestAcquisitionCharacterisationPutWriteFailuresAreGeneric500(t *testing.T) 
 			require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o600))
 			r := newAcquisitionCharacterisationRouter(t, acquis)
 			stubWriteFileAtomic(t, func(string, []byte, fs.FileMode, crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error) {
-				return crowdsec.AtomicWriteResult{}, fail
+				return crowdsec.AtomicWriteResult{}, tc.fail
 			})
 
-			requireGenericAcquisitionError(t, putAcquisition(r, "new\n"), "failed to write acquisition config")
+			w := putAcquisition(r, "new\n")
+			if tc.want.code == "" {
+				requireGenericAcquisitionError(t, w, tc.want.msg)
+			} else {
+				requireCodedAcquisitionError(t, w, tc.want.code, tc.want.msg)
+			}
 			got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 			require.NoError(t, err)
 			require.Equal(t, "original\n", string(got))
@@ -166,13 +194,15 @@ func TestAcquisitionCharacterisationPutWriteFailuresAreGeneric500(t *testing.T) 
 
 // TestAcquisitionCharacterisationPutPartialInPlaceWriteKeepsBackup pins that a half-written live file answers the
 // generic 500 and keeps the backup, the only intact copy.
+// The partial failure wraps a permission error too: it must still answer the generic 500 with no code, because a
+// half-written file is not a permission problem (classified before the permission check).
 func TestAcquisitionCharacterisationPutPartialInPlaceWriteKeepsBackup(t *testing.T) {
 	dir := t.TempDir()
 	acquis := filepath.Join(dir, "acquis.yaml")
 	require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o600))
 	r := newAcquisitionCharacterisationRouter(t, acquis)
 	stubWriteFileAtomic(t, func(string, []byte, fs.FileMode, crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error) {
-		return crowdsec.AtomicWriteResult{}, fmt.Errorf("write in place: %w", crowdsec.ErrPartialInPlaceWrite)
+		return crowdsec.AtomicWriteResult{}, fmt.Errorf("write in place: %w: %w", crowdsec.ErrPartialInPlaceWrite, fs.ErrPermission)
 	})
 
 	requireGenericAcquisitionError(t, putAcquisition(r, "new\n"), "failed to write acquisition config")
@@ -194,7 +224,7 @@ func TestAcquisitionCharacterisationPutBackupCreateFailureIsGeneric500(t *testin
 		return nil, fmt.Errorf("create backup: %w", fs.ErrPermission)
 	}
 
-	requireGenericAcquisitionError(t, putAcquisition(r, "new\n"), "failed to write acquisition config")
+	requireCodedAcquisitionError(t, putAcquisition(r, "new\n"), codeAcquisitionNotWritable, msgAcquisitionNotWritable)
 	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "original\n", string(got))

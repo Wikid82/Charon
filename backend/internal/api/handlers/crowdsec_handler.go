@@ -425,6 +425,23 @@ const (
 	codeImportConfigNotFound = "import_config_not_found"
 )
 
+// Stable error_code values of the acquisition endpoints (#1708). Both answer 500: the server cannot do the
+// operation until the file's owner, mode or folder permissions are fixed. The messages name the fix, not a path.
+const (
+	// codeAcquisitionUnreadable: the Charon user cannot read the acquisition file or search its folder.
+	codeAcquisitionUnreadable = "acquisition_config_unreadable"
+	// codeAcquisitionNotWritable: the Charon user cannot create the backup or replace the file (permission or
+	// read-only mount).
+	codeAcquisitionNotWritable = "acquisition_config_not_writable"
+)
+
+// Acquisition error messages. The generic write message is shared with the failure paths that carry no code.
+const (
+	msgAcquisitionUnreadable  = "Charon cannot read the acquisition file. Check that the Charon user can read it (owner and mode)."
+	msgAcquisitionNotWritable = "Charon cannot write the acquisition file or its backup. Check the owner and mode of the file and its folder."
+	msgAcquisitionWriteFailed = "failed to write acquisition config"
+)
+
 // maxRefusalNames bounds the names list of an import refusal.
 const maxRefusalNames = 50
 
@@ -2388,13 +2405,17 @@ func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
 		return
 	}
 
-	content, err := readAcquisitionConfig(acquisPath)
+	content, err := readAcquisitionFile(acquisPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found"})
 			return
 		}
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to read acquisition config")
+		if acquisitionAccessError(err) {
+			respondCoded(c, http.StatusInternalServerError, codeAcquisitionUnreadable, msgAcquisitionUnreadable, nil)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read acquisition config"})
 		return
 	}
@@ -2433,7 +2454,12 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 	backupPath, err := replaceAcquisitionConfig(acquisPath, payload.Content, time.Now())
 	if err != nil {
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to write acquisition config")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write acquisition config"})
+		code, msg := acquisitionWriteFailure(err)
+		if code == "" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			return
+		}
+		respondCoded(c, http.StatusInternalServerError, code, msg, nil)
 		return
 	}
 
