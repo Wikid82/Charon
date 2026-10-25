@@ -73,3 +73,17 @@ func TestManager_ApplyConfig_WrongNamedSecurityRow_DoesNotAttachCrowdSec(t *test
 
 	require.Nil(t, cfg.Apps.CrowdSec)
 }
+
+// TestManager_ApplyConfig_StartedCrowdSec_AttachesCrowdSec is the state a successful CrowdSec Start persists:
+// the default row in local mode, the enabled setting true, and a bouncer key. The applied config must carry apps.crowdsec.
+func TestManager_ApplyConfig_StartedCrowdSec_AttachesCrowdSec(t *testing.T) {
+	withTestBouncerKey(t)
+	db := newCrowdSecLookupDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "sc-started", Name: models.DefaultSecurityConfigName, Enabled: true, CrowdSecMode: "local"}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"}).Error)
+
+	cfg := applyAndCaptureLoad(t, db, config.SecurityConfig{CerberusEnabled: true, CrowdSecMode: "disabled"})
+
+	require.NotNil(t, cfg.Apps.CrowdSec, "a started CrowdSec must reach the applied config")
+	require.Equal(t, "test-env-key", cfg.Apps.CrowdSec.APIKey)
+}

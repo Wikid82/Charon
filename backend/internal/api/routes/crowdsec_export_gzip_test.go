@@ -28,7 +28,7 @@ func TestCrowdsecExport_NotDoubleCompressed(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "config"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config", "config.yaml"), []byte("test: config\n"), 0o600))
 
-	h := handlers.NewCrowdsecHandler(db, nil, "/bin/false", dataDir)
+	h := handlers.NewCrowdsecHandler(db, nil, "/bin/false", dataDir, nil)
 	t.Cleanup(func() {
 		if h.Security != nil {
 			h.Security.Close()

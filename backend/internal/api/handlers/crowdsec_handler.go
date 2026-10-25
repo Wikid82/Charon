@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -23,7 +24,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -61,18 +61,20 @@ func (r *RealCommandExecutor) Execute(ctx context.Context, name string, args ...
 
 // CrowdsecHandler manages CrowdSec process and config imports.
 type CrowdsecHandler struct {
-	DB               *gorm.DB
-	Executor         CrowdsecExecutor
-	CmdExec          CommandExecutor
-	BinPath          string
-	DataDir          string
-	Hub              *crowdsec.HubService
-	Console          *crowdsec.ConsoleEnrollmentService
-	Security         *services.SecurityService
-	WhitelistSvc     *services.CrowdSecWhitelistService
-	CaddyManager     *caddy.Manager // For config reload after bouncer registration
-	LAPIMaxWait      time.Duration  // For testing; 0 means 60s default
-	LAPIPollInterval time.Duration  // For testing; 0 means 500ms default
+	DB           *gorm.DB
+	Executor     CrowdsecExecutor
+	CmdExec      CommandExecutor
+	BinPath      string
+	DataDir      string
+	Hub          *crowdsec.HubService
+	Console      *crowdsec.ConsoleEnrollmentService
+	Security     *services.SecurityService
+	WhitelistSvc *services.CrowdSecWhitelistService
+	// caddyManager re-applies the proxy configuration after Start, so the proxy picks up CrowdSec.
+	// Nil means the handler is not wired, and each apply then logs errCaddyNotWired.
+	caddyManager     CaddyConfigManager
+	LAPIMaxWait      time.Duration // For testing; 0 means 60s default
+	LAPIPollInterval time.Duration // For testing; 0 means 500ms default
 	dashCache        *dashboardCache
 
 	// validateLAPIURL validates and parses a LAPI base URL.
@@ -496,7 +498,9 @@ func mapCrowdsecStatus(err error, defaultCode int) int {
 	return defaultCode
 }
 
-func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
+// NewCrowdsecHandler builds the CrowdSec handler. caddyMgr re-applies the proxy configuration after Start;
+// a nil manager (including a typed nil pointer) leaves the handler unwired.
+func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string, caddyMgr CaddyConfigManager) *CrowdsecHandler {
 	cacheDir := filepath.Join(dataDir, "hub_cache")
 	cache, err := crowdsec.NewHubCache(cacheDir, 24*time.Hour)
 	if err != nil {
@@ -522,6 +526,7 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		Hub:                hubSvc,
 		Console:            consoleSvc,
 		Security:           securitySvc,
+		caddyManager:       nilIfTypedNil(caddyMgr),
 		dashCache:          newDashboardCache(),
 		validateLAPIURL:    validateCrowdsecLAPIBaseURLDefault,
 		signalProcess:      signalOSProcess,
@@ -621,7 +626,30 @@ func setDefaultSecurityConfigState(db *gorm.DB, updates map[string]any) (models.
 	return cfg, nil
 }
 
+// crowdsecApplyTimeout bounds one proxy apply after a CrowdSec state change.
+const crowdsecApplyTimeout = 30 * time.Second
+
+// errCaddyNotWired is returned when the handler has no Caddy manager to apply the proxy configuration with.
+var errCaddyNotWired = errors.New("caddy manager is not wired to the CrowdSec handler")
+
+// nilIfTypedNil returns nil for a nil interface or a nil pointer stored in one, so a missing manager is always detectable.
+func nilIfTypedNil(m CaddyConfigManager) CaddyConfigManager {
+	if m == nil {
+		return nil
+	}
+	if v := reflect.ValueOf(m); v.Kind() == reflect.Pointer && v.IsNil() {
+		return nil
+	}
+	return m
+}
+
+// HasProxyApplier reports whether the handler was built with a Caddy manager.
+func (h *CrowdsecHandler) HasProxyApplier() bool {
+	return h.caddyManager != nil
+}
+
 // Start starts the CrowdSec process and waits for LAPI to be ready.
+// Every outcome that changes or confirms the CrowdSec state re-applies the proxy configuration exactly once.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
 	if h.refuseIfBusy(c) {
 		return
@@ -657,11 +685,13 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 	if running {
 		_, lapiErr := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
 		logger.Log().WithField("pid", runningPid).Info("CrowdSec start requested but it is already running")
-		c.JSON(http.StatusOK, gin.H{
+		body := gin.H{
 			"status":     "already_running",
 			"pid":        runningPid,
 			"lapi_ready": lapiErr == nil,
-		})
+		}
+		h.applyProxyConfig(ctx)
+		c.JSON(http.StatusOK, body)
 		return
 	}
 
@@ -700,7 +730,9 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 	}
 
 	if !lapiReady {
+		// The mode is already local, so the proxy needs the apply even though no registration ran.
 		logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
+		h.applyProxyConfig(ctx)
 		c.JSON(http.StatusOK, gin.H{
 			"status":     "started",
 			"pid":        pid,
@@ -712,9 +744,10 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 
 	// After confirming LAPI is ready, ensure bouncer is registered
 	res, regErr := h.ensureBouncerRegistration(ctx)
-	h.handleBouncerRegistration(ctx, res, regErr, h.reapplyCaddyConfig)
+	h.handleBouncerRegistration(res, regErr)
 
 	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
+	h.applyProxyConfig(ctx)
 	c.JSON(http.StatusOK, gin.H{
 		"status":     "started",
 		"pid":        pid,
@@ -1834,10 +1867,9 @@ func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bounce
 	return res, err
 }
 
-// handleBouncerRegistration logs the outcome of ensureBouncerRegistration and re-applies
-// the Caddy config when the proxy needs the key that was just chosen. Caddy reads the key
-// file first, so a failed save leaves the file without the new key and nothing to re-apply.
-func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bouncerkey.EnsureResult, regErr error, applyConfig func(context.Context) error) {
+// handleBouncerRegistration logs the outcome of ensureBouncerRegistration. It does not apply the
+// proxy configuration: Start applies once after every outcome, so the apply is not repeated here.
+func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult, regErr error) {
 	keyPath := h.bouncerKeyPath()
 
 	// The rejection is logged only with the outcome it led to: a failed registration keeps no new key.
@@ -1860,13 +1892,9 @@ func (h *CrowdsecHandler) handleBouncerRegistration(ctx context.Context, res bou
 	switch res.Outcome {
 	case bouncerkey.OutcomeRegistered:
 		h.logBouncerKeyBanner(res.Key, res.SaveErr)
-		if res.SaveErr == nil {
-			h.reapplyCaddy(ctx, applyConfig)
-		}
 	case bouncerkey.OutcomeEnvKeySaved:
 		if res.SaveErr == nil {
 			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: env var key validated and saved to key file")
-			h.reapplyCaddy(ctx, applyConfig)
 		}
 	case bouncerkey.OutcomeSavedKeyValid:
 		if res.EnvKeyIgnored {
@@ -1892,22 +1920,23 @@ func rejectedEnvRegisterFailedLogMessage(keyPath string) string {
 	return "A CrowdSec key variable was rejected by CrowdSec. " + bouncerkey.RegisterFailedNotice(keyPath)
 }
 
-// reapplyCaddy runs applyConfig and logs a failure without returning it.
-func (h *CrowdsecHandler) reapplyCaddy(ctx context.Context, applyConfig func(context.Context) error) {
-	if applyConfig == nil {
-		return
-	}
-	if err := applyConfig(ctx); err != nil {
-		logger.Log().WithError(err).Warn("Failed to reload Caddy config with new bouncer key")
+// applyProxyConfig regenerates and applies the proxy configuration after a CrowdSec state change.
+// The apply runs on a detached context with its own timeout, so a client that disconnects cannot
+// cancel the apply or its rollback. A failure is logged only; the response and the engine are unchanged.
+func (h *CrowdsecHandler) applyProxyConfig(ctx context.Context) {
+	applyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crowdsecApplyTimeout)
+	defer cancel()
+	if err := h.reapplyCaddyConfig(applyCtx); err != nil {
+		logger.Log().WithError(err).Warn("Failed to apply the proxy configuration after CrowdSec start")
 	}
 }
 
-// reapplyCaddyConfig regenerates the Caddy config so it reads the current key file.
+// reapplyCaddyConfig regenerates the Caddy config so the proxy reads the current CrowdSec state and key file.
 func (h *CrowdsecHandler) reapplyCaddyConfig(ctx context.Context) error {
-	if h.CaddyManager == nil {
-		return nil
+	if h.caddyManager == nil {
+		return errCaddyNotWired
 	}
-	return h.CaddyManager.ApplyConfig(ctx)
+	return h.caddyManager.ApplyConfig(ctx)
 }
 
 // validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.

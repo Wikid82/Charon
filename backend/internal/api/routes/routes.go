@@ -1045,7 +1045,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		}
 
 		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
-		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
+		crowdsecHandler := newCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir, caddyManager)
 		crowdsecHandler.RegisterRoutes(managementAdmin)
 
 		// Cancel a running preset install on shutdown so it rolls back from its snapshot; the drain is bounded by the

@@ -76,7 +76,7 @@ func (f *fastCmdExec) Execute(ctx context.Context, name string, args ...string) 
 //
 //nolint:unparam // binPath kept for future test variants
 func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
-	h := NewCrowdsecHandler(db, executor, binPath, dataDir)
+	h := NewCrowdsecHandler(db, executor, binPath, dataDir, nil)
 	// Override CmdExec to avoid 60s LAPI wait timeout during Start
 	h.CmdExec = &fastCmdExec{}
 	// Set short timeouts for test performance

@@ -117,14 +117,6 @@ func writeSavedKey(t *testing.T, path, key string) {
 	require.NoError(t, os.WriteFile(path, []byte(key+"\n"), 0o600))
 }
 
-// applyCounter counts Caddy re-applies requested through handleBouncerRegistration.
-type applyCounter struct{ calls int }
-
-func (a *applyCounter) apply(_ context.Context) error {
-	a.calls++
-	return nil
-}
-
 func TestBouncerPrecedence_SavedValidKeyIgnoresEnvWithoutLAPICall(t *testing.T) {
 	const envKey = "env-key-precedence-invalid-0005"
 	lapiURL, stub := newKeyLAPI(t, precSavedKey)
@@ -165,9 +157,7 @@ func TestBouncerPrecedence_InvalidSavedKeyReplacedByValidEnvKey(t *testing.T) {
 	require.False(t, h.envKeyRejected)
 	require.Empty(t, h.rejectedEnvKey)
 
-	apply := &applyCounter{}
-	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
-	require.Equal(t, 1, apply.calls, "a saved env key needs one Caddy re-apply")
+	h.handleBouncerRegistration(res, nil)
 }
 
 func TestBouncerPrecedence_BothKeysRejectedRegistersAndSetsRejectedState(t *testing.T) {
@@ -188,9 +178,7 @@ func TestBouncerPrecedence_BothKeysRejectedRegistersAndSetsRejectedState(t *test
 	require.True(t, h.envKeyRejected)
 	require.Equal(t, envKey, h.rejectedEnvKey)
 
-	apply := &applyCounter{}
-	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
-	require.Equal(t, 1, apply.calls, "a new registration needs one Caddy re-apply")
+	h.handleBouncerRegistration(res, nil)
 }
 
 // bouncerRegisterFailMock accepts bouncer delete and fails bouncer add, so no replacement key is produced.
@@ -255,76 +243,7 @@ func TestBouncerPrecedence_SaveFailureIsNotFatalForEnvKey(t *testing.T) {
 	require.Equal(t, precEnvKey, res.Key)
 	require.Error(t, res.SaveErr)
 
-	apply := &applyCounter{}
-	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
-	require.Equal(t, 0, apply.calls, "the file still holds the stale key, so a re-apply changes nothing")
-}
-
-func TestBouncerPrecedence_SaveFailureAfterRegistrationSkipsApply(t *testing.T) {
-	lapiURL, _ := newKeyLAPI(t)
-	clearKeyEnv(t, "")
-	dataDir := filepath.Join(t.TempDir(), "not-a-directory")
-	require.NoError(t, os.WriteFile(dataDir, []byte("x"), 0o600))
-	h := newPrecedenceHandler(t, lapiURL, dataDir, bouncerRegisterMock())
-
-	res, err := h.ensureBouncerRegistration(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, bouncerkey.OutcomeRegistered, res.Outcome)
-	require.Equal(t, precNewKey, res.Key)
-	require.Error(t, res.SaveErr)
-
-	apply := &applyCounter{}
-	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
-	require.Equal(t, 0, apply.calls, "the key file does not hold the new key, so a re-apply would not read it")
-}
-
-func TestBouncerPrecedence_RegisteredKeySavedAppliesOnce(t *testing.T) {
-	lapiURL, _ := newKeyLAPI(t)
-	clearKeyEnv(t, "")
-	dataDir := t.TempDir()
-	h := newPrecedenceHandler(t, lapiURL, dataDir, bouncerRegisterMock())
-
-	res, err := h.ensureBouncerRegistration(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, bouncerkey.OutcomeRegistered, res.Outcome)
-	require.NoError(t, res.SaveErr)
-	require.Equal(t, precNewKey, bouncerkey.ReadFile(filepath.Join(dataDir, "bouncer_key")))
-
-	apply := &applyCounter{}
-	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
-	require.Equal(t, 1, apply.calls, "a registered key that was saved is applied once")
-}
-
-func TestBouncerPrecedence_RegisterFailureSkipsApply(t *testing.T) {
-	apply := &applyCounter{}
-	h := newPrecedenceHandler(t, "http://127.0.0.1:1", t.TempDir(), noCSCLIMock())
-
-	res := bouncerkey.EnsureResult{EnvKey: precEnvKey, EnvKeyRejected: true}
-	h.handleBouncerRegistration(context.Background(), res, context.DeadlineExceeded, apply.apply)
-	require.Equal(t, 0, apply.calls)
-}
-
-func TestBouncerPrecedence_SavedValidEnvIgnoredLogsOnly(t *testing.T) {
-	lapiURL, _ := newKeyLAPI(t, precSavedKey)
-	clearKeyEnv(t, precEnvKeyOther)
-	h := newPrecedenceHandler(t, lapiURL, t.TempDir(), noCSCLIMock())
-
-	apply := &applyCounter{}
-	res := bouncerkey.EnsureResult{Key: precSavedKey, Outcome: bouncerkey.OutcomeSavedKeyValid, EnvKey: precEnvKeyOther, EnvKeyIgnored: true}
-	h.handleBouncerRegistration(context.Background(), res, nil, apply.apply)
-	require.Equal(t, 0, apply.calls, "a valid saved key never triggers a re-apply")
-}
-
-func TestBouncerPrecedence_ApplyErrorIsLoggedNotReturned(t *testing.T) {
-	h := newPrecedenceHandler(t, "http://127.0.0.1:1", t.TempDir(), noCSCLIMock())
-	res := bouncerkey.EnsureResult{Key: precNewKey, Outcome: bouncerkey.OutcomeRegistered}
-
-	called := 0
-	h.handleBouncerRegistration(context.Background(), res, nil, func(context.Context) error {
-		called++
-		return context.Canceled
-	})
-	require.Equal(t, 1, called)
+	h.handleBouncerRegistration(res, nil)
 }
 
 // TestBouncerPrecedence_GetKeyStatusBranches covers the four key_source branches

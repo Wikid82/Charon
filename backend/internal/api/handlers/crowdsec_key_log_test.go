@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -27,7 +26,7 @@ func rejectedEnvWarnLog(t *testing.T, saveErr error) (keyPath, logs string) {
 		SaveErr:        saveErr,
 	}
 
-	h.handleBouncerRegistration(context.Background(), res, nil, nil)
+	h.handleBouncerRegistration(res, nil)
 	return h.bouncerKeyPath(), buf.String()
 }
 
@@ -56,9 +55,8 @@ func TestHandleBouncerRegistration_RejectedEnvRegisterFailureLogsNoSuccess(t *te
 	buf := captureLogs(t)
 	h := newPrecedenceHandler(t, "http://127.0.0.1:1", t.TempDir(), noCSCLIMock())
 	res := bouncerkey.EnsureResult{EnvKey: logTestRejectedEnvKey, EnvKeyRejected: true}
-	apply := &applyCounter{}
 
-	h.handleBouncerRegistration(context.Background(), res, errors.New("bouncer registration failed"), apply.apply)
+	h.handleBouncerRegistration(res, errors.New("bouncer registration failed"))
 
 	out := buf.String()
 	assert.Contains(t, out, "could not register a new key with CrowdSec, so no new key was saved to "+h.bouncerKeyPath())
@@ -67,7 +65,6 @@ func TestHandleBouncerRegistration_RejectedEnvRegisterFailureLogsNoSuccess(t *te
 	assert.NotContains(t, out, "Charon saved a new key", "a failed registration saved no new key")
 	assert.NotContains(t, out, "validated and saved to key file")
 	assert.NotContains(t, out, logTestRejectedEnvKey, "the rejected key must never be logged")
-	assert.Zero(t, apply.calls, "a failed registration has no new key to re-apply to Caddy")
 }
 
 func TestHandleBouncerRegistration_EnvKeySavedSuccessLogsOnlyWhenSaved(t *testing.T) {
@@ -78,7 +75,7 @@ func TestHandleBouncerRegistration_EnvKeySavedSuccessLogsOnlyWhenSaved(t *testin
 		h := newPrecedenceHandler(t, "http://127.0.0.1:1", t.TempDir(), noCSCLIMock())
 		res := bouncerkey.EnsureResult{Key: precEnvKey, Outcome: bouncerkey.OutcomeEnvKeySaved, EnvKey: precEnvKey}
 
-		h.handleBouncerRegistration(context.Background(), res, nil, nil)
+		h.handleBouncerRegistration(res, nil)
 
 		assert.Contains(t, buf.String(), saved)
 	})
@@ -90,7 +87,7 @@ func TestHandleBouncerRegistration_EnvKeySavedSuccessLogsOnlyWhenSaved(t *testin
 			Key: precEnvKey, Outcome: bouncerkey.OutcomeEnvKeySaved, EnvKey: precEnvKey, SaveErr: errors.New("disk full"),
 		}
 
-		h.handleBouncerRegistration(context.Background(), res, nil, nil)
+		h.handleBouncerRegistration(res, nil)
 
 		assert.NotContains(t, buf.String(), saved, "a failed save must not log a success line")
 		assert.Contains(t, buf.String(), "Failed to save bouncer key to file")
