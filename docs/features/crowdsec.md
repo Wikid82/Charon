@@ -30,10 +30,20 @@ Key capabilities:
 ### Enabling CrowdSec
 
 1. Navigate to **Settings → Security**
-2. Toggle **CrowdSec Protection** to enabled
-3. CrowdSec starts automatically and persists across container restarts
+2. Toggle **CrowdSec Protection** on. Charon starts CrowdSec and updates your proxy right away. You do not need to restart Charon.
+3. CrowdSec starts automatically after a container restart too, as long as it was turned on
+
+To turn CrowdSec off, switch **CrowdSec Protection** off. Charon stops it and updates the proxy right away.
+
+Turning CrowdSec on also turns on the Security framework, the same way the other security modules do. Turning CrowdSec off leaves that master switch alone.
 
 No environment variables or manual configuration required.
+
+**What to expect:**
+
+- The switch on the Security page, your saved CrowdSec setting and the CrowdSec engine stay in step.
+- CrowdSec joins your proxy only once a bouncer key exists. Charon creates that key automatically the first time CrowdSec starts. If no key exists yet, the proxy leaves CrowdSec out and Charon writes a warning to the log.
+- If the proxy update fails after you turn CrowdSec on or off, the Security page still shows the engine's real state and the log has a warning. Switch CrowdSec off and on again to retry.
 
 > **Admin only.** Enabling, disabling, and managing CrowdSec — bans, bouncer
 > keys, rulesets, and configuration — requires an administrator account. Standard

@@ -364,9 +364,7 @@ Your configuration is valuable. Charon makes it easy to backup your entire setup
 
 ### ⚡ Zero-Downtime Updates
 
-Make changes without interrupting your users. Update domains, modify security rules, or add new services instantly. Your sites stay up while you work—no container restarts needed.*
-
-<sup>*Initial CrowdSec security engine setup requires a one-time restart.</sup>
+Make changes without interrupting your users. Update domains, modify security rules, or add new services instantly. Your sites stay up while you work—no container restarts needed.
 
 → [Learn More](features/live-reload.md)
 

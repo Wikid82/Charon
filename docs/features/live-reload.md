@@ -48,9 +48,9 @@ These changes apply instantly without any restart:
 
 ## CrowdSec Integration Note
 
-> **Important**: CrowdSec integration requires a one-time container restart when first enabled or when changing the CrowdSec API endpoint.
+> **Note**: Turning CrowdSec on or off takes effect right away, with no restart needed. Changing the CrowdSec API endpoint in your compose file still requires a container restart.
 
-After the initial setup, CrowdSec decisions update automatically without restart. Only the connection to the CrowdSec API requires the restart.
+CrowdSec decisions update automatically without restart. Only a change to the CrowdSec API endpoint requires the restart.
 
 To minimize disruption:
 
