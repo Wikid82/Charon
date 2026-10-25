@@ -1,145 +1,125 @@
-# QA Report: `fix/crowdsec-key-handling`
+# QA Report: CrowdSec Start/Stop Apply (PR 9)
 
-- **Date:** 2026-10-24
-- **Branch:** `fix/crowdsec-key-handling` (HEAD `ebcad9e7`, 15 commits on top of `51124582`)
-- **Scope:** #1575 CrowdSec key handling: `bouncerkey` leaf package (one env-variable order, saved key wins, `Ensure` decision), startup cscli calls carry `-c` (F4), shared atomic writer (`crowdsec.WriteFileAtomic`, `SaveBouncerKey` with `ForceMode` / `KeepOwner: false` / in-place fallback, `NoFollow` for the file editor), secret temp names, key notice wording in 28 locales, docs.
-- **Spec:** `docs/plans/crowdsec_hardening_batch5_spec.md` section 7.0 (read only, including the 7-step real-cscli container gate in 7.0.3 and the PR gates).
-- **Verdict:** **PASS after fixes.** The original run found two blocking items:
-  - **F1** (CI-blocking, test failure): two repo-wide AST guards failed on a new intentionally broken fixture. **Resolved:** both walkers now skip `testdata` directories (own `test:` commit).
-  - **F2** (gate 10, scenario 1): after an API start that saves the env key, the live Caddy config does not carry the CrowdSec app or the key until Charon restarts. **Triaged as pre-existing, not introduced by this branch:** the CrowdSec handler is never given the Caddy manager in production wiring (`routes.go:1043`), so its re-apply after Start is a silent no-op; `development` behaves the same. Tracked as a separate issue. Until it is fixed the key reaches Caddy after the next restart.
+- Branch: `fix/crowdsec-start-stop-apply`
+- Scope: Start/Stop applies the proxy config, default security settings row repair, no-key omission, K1/K2 consistency fixes, toast translations
+- Commit range: `034d318d..HEAD`
+- Commit types in range: 6 `fix`, 2 `fix(security)`, 2 `refactor`, 1 `test`, 2 `docs`, 2 `chore(docker)`. No `feat` commits.
 
-  Everything else passes. Backend and frontend coverage gates pass.
+## Note on HEAD
 
-## Gate summary
+The run started at HEAD `587688da`. At 12:47:22 UTC the branch was rebased onto the same base (`034d318d`), giving `3d143f4e`. The six subjects are unchanged. The only content difference is a one-line change to the `GEOLITE2_COUNTRY_SHA256` build ARG in `Dockerfile`. The gates below were run on both HEADs; the source under test is identical.
 
-| # | Gate | Result | Evidence |
-| --- | ------ | -------- | ---------- |
-| 1 | `go test -race`: `./internal/testutil/... ./internal/config/... ./internal/crowdsec/... ./internal/caddy/...` | PASS | all `ok`, 2m01s total |
-| 1 | `go test -race ./internal/api/handlers/...` | PASS | `ok`, 7m20s |
-| 1 | `go test -race ./internal/services/` | PASS (run in two halves) | first half 5m09s, second half 4m46s, both PASS. A single run exceeded the 10-minute tool cap in this session, so the package was built once and run as two `-test.run` lists (1715 top-level tests). Comparison against `development` was not run; the timing is recorded for the PR owner. |
-| 2 | `scripts/go-test-coverage.sh` (gate 87%) | **FAIL (tests)** / coverage PASS | Coverage: statements 92.4%, lines 91.3%. But `go test` returned non-zero: `TestCallerIdentityAccessedThroughAccessors` (`internal/api/middleware`) and `TestPasswordVerificationCallSitesAreGuarded` (`internal/api/routes`) fail. See F1. |
-| 3 | `scripts/frontend-test-coverage.sh` | PASS | lines 91.97%, statements 90.92%, branches 84.66%, functions 88.76% (gate is lines; branches are informational, see F8) |
-| 4 | `scripts/local-patch-report.sh` | PASS (97.3%) | `test-results/local-patch-report.{md,json}` both written. Changed backend lines 514, covered 500. Uncovered changed lines are listed under "Patch coverage detail" below. The frontend row reports 0 changed lines, which is wrong (F5). |
-| 5 | `golangci-lint run --config backend/.golangci.yml` on all changed Go packages | PASS | 0 issues |
-| 5 | `make lint-fast` (hook-style fast lint, backend + agent) | PASS | 0 issues |
-| 5 | `go build ./...` | PASS | |
-| 5 | `eslint` on touched frontend files | PASS | 0 errors. 1 warning `unicorn/prefer-ternary` at `frontend/src/api/crowdsec.ts:211`, outside the diff (pre-existing) |
-| 5 | `npm run type-check` | PASS | |
-| 5 | `npm run build` | PASS | |
-| 6 | Rebuild `charon-e2e` from the branch (`docker-rebuild-e2e`) | PASS | container healthy. The live `charon` container was not touched (different compose project). |
-| 6 | `npx playwright test tests/security/crowdsec-first-enable.spec.ts --project=security-tests` | PASS | 7/7 |
-| 6 | `npx playwright test tests/crowdsec-whitelist.spec.ts --project=firefox` | PASS | 11/11. The spec is not selected by `security-tests`. Firefox was run because CLAUDE.md requires it. The browser build was installed locally with `npx playwright install firefox` (environment step, not a repo change). |
-| 7 | `govulncheck ./...` | PASS | 0 vulnerabilities reachable. 1 vulnerability exists in a required module that the code does not call. |
-| 8 | i18n: `src/__tests__/i18n.test.ts` + `CrowdSecKeyWarning*` tests | PASS | 27/27 |
-| 8 | `security.crowdsec.keyWarning.*` present and non-empty in all 28 locales | PASS | |
-| 8 | Old wording (`prevent re-registration`) | PASS | 0 hits in `src/locales` |
-| 9 | markdownlint on touched docs (`ARCHITECTURE.md`, `docs/cerberus.md`, `docs/development/cscli-contract.md`, `docs/features/crowdsec.md`, `docs/guides/crowdsec-setup.md`, `docs/troubleshooting/crowdsec.md`) | PASS | 0 issues in 6 files |
-| 10 | Real-cscli container gate (scenarios 1-8) | **FAIL** (scenario 1 partial) | See "Real-cscli container gate" below |
-| - | GORM security scan | not triggered | No changes under `backend/internal/models/**`, no migrations |
-| - | Gotify token review | PASS | No Gotify token-like strings in the branch diff. Key values were never printed in this QA session (only masked forms appear in logs). |
-| - | CodeQL / Trivy | deferred to CI | `fix:`/`test:`/`docs:` scope, no new endpoint (see spec 7.0.3) |
+## Verdict
 
-## Findings (ranked)
+**PASS, with no blocking findings.** One low-severity finding was filed as a GitHub issue. Several API-level observations are recorded below and are not filed publicly.
 
-### F1. HIGH (CI-blocking): new broken fixture breaks two repo-wide AST guards
+## Gate results
 
-- **Where:** `backend/internal/testutil/cscliguard/testdata/broken/broken.go:3` (added in `6d6f36dc`). Walked by:
-  - `backend/internal/api/middleware/ctxkeys_test.go:226-262`. `TestCallerIdentityAccessedThroughAccessors` walks `../../../internal` and `../../../cmd` and calls `require.NoError(t, parser.ParseFile(...))` on every non-test `.go` file.
-  - `backend/internal/api/routes/password_guard_inventory_test.go:57-85`. `TestPasswordVerificationCallSitesAreGuarded` walks `internal` and `cmd` and returns the parse error.
-- **Evidence:** `go test ./internal/api/middleware -run TestCallerIdentityAccessedThroughAccessors` fails with `broken.go:3:8: expected ')', found 'EOF'`. The full coverage run shows the same failure in `routes` (`TestPasswordVerificationCallSitesAreGuarded`). `go test` returns non-zero and CI would be red.
-- **Why:** The fixture is deliberately unparseable so the `cscliguard` tests can check the parse-failure path. Go's tooling skips `testdata/`, but these two hand-written walkers do not.
-- **Remediation (in this PR, as a `test:` commit):** either (a) skip `testdata` directories in both walkers (`if d.IsDir() && d.Name() == "testdata" { return filepath.SkipDir }`), or (b) rename the fixture to `broken.go.txt` and copy it into a temp directory with a `.go` name inside the cscliguard test. Option (a) is the smaller change and matches Go convention. Re-run both packages after the change.
+### Pre-passed gates (cited, not rerun)
 
-### F2. HIGH (gate 10, scenario 1): Caddy config does not carry the key until restart
+| Gate | Result |
+|---|---|
+| `go build ./...` | PASS |
+| `-race` tests: models, caddy, cerberus, testutil, routes, handlers, services | PASS |
+| `scripts/go-test-coverage.sh` | PASS, exit 0. Statements 92.6%, lines 91.5% (gate 87%). `/var/tmp/gocov.log` has 0 FAIL lines. |
 
-- **Observed (reproduced twice, containers `-a` and `-f`):** saved key invalid, valid env key registered as `qa-env`. `POST /api/v1/security/crowdsec/enable` followed by `POST /api/v1/admin/crowdsec/start`:
-  - Key file: correct. The env key was saved (mode 0600, Info log "env var key validated and saved to key file").
-  - The handler re-applies Caddy (`crowdsec_handler.go:726-727`, `reapplyCaddyConfig`), but `localhost:2019/config/` stays at the 833-byte baseline with no `apps.crowdsec` block and no key.
-  - No `caddy-cs-bouncer` row appears in `cscli bouncers list`. The only pull is by Charon's own `Go-http-client`.
-  - After `docker restart`, the served config is 1005 bytes, contains the CrowdSec app with the env key, and `qa-env` is pulled by `caddy-cs-bouncer` (21:29:24).
-- **Analysis so far:** `ApplyConfig` gets `crowdsecEnabled` from `computeEffectiveFlags` (`backend/internal/caddy/manager.go:699`). `SecurityConfig.crowd_sec_mode` was `local` in the DB at the time. Either that flag is false at runtime, or the apply does not reach Caddy. The branch does not change `caddy/manager.go` or `computeEffectiveFlags`, so this may be pre-existing. That is not confirmed (no `development` image was built for comparison).
-- **Remediation:** triage before merge. Add a log line that prints the effective flags in `ApplyConfig`, and a test that starts with `CrowdSecMode=local` in the DB and asserts `apps.crowdsec` in the generated config after `reapplyCaddyConfig`. If it is pre-existing and the fix is not small, the gate can record it as a known gap, but the PR description must say that the key reaches Caddy only after the next restart.
+### Frontend
 
-### F3. MEDIUM-LOW (non-security): entrypoint cscli calls have no `-c`
+| Gate | Result |
+|---|---|
+| `scripts/frontend-test-coverage.sh` (vitest, v8) | PASS. Lines 91.95% (gate 87%), statements 90.9%, functions 88.76%. Branches 84.63% (informational). 311 files, 3901 passed, 4 skipped, 2 todo, 0 failed. |
+| `npm run type-check` | PASS, exit 0 |
+| `npm run lint` (eslint) | PASS, 0 errors. 1358 warnings (non-blocking, not introduced by this range). |
+| `npm run build` | PASS |
+| i18n tests (`src/__tests__/i18n.test.ts`, `CrowdSecConfig.i18nKeys.test.ts`, `CrowdSecKeyWarning.test.tsx`) | PASS, 44/44 |
 
-- Filed as **#1723**. `.docker/docker-entrypoint.sh:447` (`cscli machines add -a --force`) and `:459` (`cscli hub update`) run without `-c`. Go-side bouncer commands are fixed. The stock layout still works because `/etc/crowdsec` is symlinked.
+The coverage script ran past the 600s tool cap. The vitest run was re-attached and completed with exit 0. The script's own `npm ci` was run separately.
 
-### F4. LOW (non-security): fresh-install boot warnings
+### Patch coverage
 
-- Filed as **#1724**. On an empty volume the first boot logs `CrowdSec reconciliation skipped: SecurityConfig table not found`, `Failed to migrate certificate private keys ... no such column: private_key`, and `failed to install root certificate`. Not verified on `development`.
+`scripts/local-patch-report.sh`: PASS, strict mode. Both artifacts were written: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`.
 
-### F5. LOW (tooling): patch report shows 0 changed frontend lines
+| Scope | Changed lines | Covered | Patch % |
+|---|---|---|---|
+| Overall | 364 | 364 | 100.0 |
+| Backend | 362 | 362 | 100.0 |
+| Frontend | 2 | 2 | 100.0 |
+| Agent | 0 | 0 | 100.0 |
 
-- Filed as **#1725**. `test-results/local-patch-report.md` reports `Frontend | 0 | 0`, while the branch changes `frontend/src/api/crowdsec.ts` and adds a frontend test.
+### Lint
 
-### F6. LOW (security-sensitive, reported privately, not filed): bind-mounted key file can stay world-writable
+| Gate | Result |
+|---|---|
+| `make lint-fast` (staticcheck, govet, errcheck, ineffassign, unused; backend and agent) | PASS, 0 issues |
+| `make lint-backend` (golangci-lint v2.15.0, full config, docker) | PASS, 0 issues |
+| markdownlint on changed docs (`docs/features.md`, `docs/features/crowdsec.md`, `docs/features/live-reload.md`, `docs/troubleshooting/crowdsec.md`) | PASS |
 
-- When `bouncer_key` is a bind-mounted host file, the in-place write succeeds but `ForceMode` `chmod` fails if the container user does not own the host file. The code logs a Warn and writes the key anyway (verified: host mode stayed `666`, warning `could not set the crowdsec file mode; writing the content anyway`). The key is therefore readable and writable by other host users. This is the documented outcome in spec 7.0.2 (M3), and the file belongs to the operator. Recommendation: document that the host file must be `0600` and owned by the container user, and consider logging at Error when the final mode is wider than `0600`. Not filed publicly; raised here so the maintainer can decide whether a private advisory is needed.
+### Security
 
-### F7. INFO (spec clarification): gate 3 "banner flags set"
+| Gate | Result |
+|---|---|
+| `scripts/scan-gorm-security.sh --check` (models changed: 9 files) | PASS. 0 CRITICAL, 0 HIGH. 2 INFO suggestions (index hints). |
+| govulncheck (`backend/...`) | PASS. 0 vulnerabilities reachable from code. 1 vulnerability in required modules that the code does not call. |
+| CodeQL and Trivy (local) | Not run locally. The range has no `feat` commits, so the policy defers both to CI. |
+| Gotify token review | PASS. No Gotify token literals in the diff. No keys were printed during QA. |
 
-- Startup registration with no env value (`services/crowdsec_startup.go`) logs Info only. The handler registration path (`POST /admin/crowdsec/start` after the key was invalidated) logs the "Registered Successfully" banner. Neither sets the UI banner flags (`env_key_rejected`, `full_key`), because those are only set when an env value was rejected (`handler` `envKeyRejected`). After a no-env registration, `key-status` returns `key_source: file` and no `full_key`, so the UI shows no banner. The gate text needs one sentence to say which behaviour is expected.
+### E2E (Playwright, one project per run; full suite not run)
 
-### F8. INFO: frontend branch coverage 84.66%
+| Run | Result |
+|---|---|
+| Rebuild `charon-e2e` (`docker-rebuild-e2e`) | PASS |
+| `--project=security-tests`: `tests/security/crowdsec-security-toggle-busy.spec.ts`, `tests/security/crowdsec-first-enable.spec.ts`, `tests/security-enforcement/crowdsec-enforcement.spec.ts`, `tests/security-enforcement/zzzz-break-glass-recovery.spec.ts` | PASS, 16 passed |
+| `--project=firefox`: `tests/crowdsec-whitelist.spec.ts` | PASS, 11 passed |
 
-- Below 85%, but the gate is line coverage (91.97%). Informational only.
+### Real-cscli throwaway container gate
 
-### F9. INFO: locale key parity is not enforced by `i18n.test.ts`
+Container `charon-qa-gate9`, image `charon:local` (rebuilt from this tree), volumes `qa9_data`, `qa9_caddy_data`, `qa9_caddy_config`. The live `charon` container was not touched.
 
-- 27 locales lack keys that exist in `en` (for example `proxyHosts.source.local`, `security.crowdsec.startFailed`). These are not in the branch diff and fall back to `en`. The keyWarning keys are present in all 28 locales.
+Environment deviation: the throwaway container has no outbound network. The CrowdSec hub index was missing, so LAPI could not start. The hub directory was streamed into the throwaway container from the `charon-e2e` test container with `tar`. This is test-harness seeding only; no application code was changed.
 
-### F10. INFO (deviation recorded): `key_source: auto-generated` gating
+| Scenario | Result | Evidence (no key values printed) |
+|---|---|---|
+| Start with no bouncer key | PASS | Start with no key returned `started`. Served Caddy config had no CrowdSec app. Log: "CrowdSec is on but no bouncer key exists yet; CrowdSec is left out of the proxy configuration". |
+| F2: key created by Start reaches Caddy without restart | PASS | Key file and bouncer removed, then Start. LAPI ready, `key-status` valid with `key_source: file`. Served config gained the CrowdSec app with a 43-character key. Container uptime unchanged (no restart). |
+| CrowdSec on/off without restart (served config changes immediately) | PASS | Disable while running: CrowdSec app removed from served config at once. Enable: app back with key. Container not restarted. |
+| 7a: emergency reset, then restart, engine and served config agree | PASS, with a finding | Reset returned 200 and the served config dropped the CrowdSec app. The engine stayed running until restart. After restart: LAPI refused, served config had no CrowdSec app. Agreement reached. Finding filed as #1736. |
+| 7b: disable while running / enable while stopped (raw module API) | Observation, not filed | See "API-level observations" below. |
+| Boot with a stale wrongly-named default row | PASS | Injected row named `Default Security Config` with mode `local`, default row mode `local`, setting `false`. After boot: legacy row deleted, default row mode synced to `disabled`, log "security config repair: removed legacy default security config rows". Served config and engine consistent (no CrowdSec). |
+| Failed Start reverts to the exact prior settings snapshot | PASS | Engine binary forced to a missing path (`CHARON_CROWDSEC_BIN`). Start returned 500 `failed to start CrowdSec`. Settings rows identical before and after. The `security_configs` row was identical except `updated_at`, which the revert write bumps. |
 
-- Spec 7.0.2(a) allowed `auto-generated` whenever the env key was rejected and the file held a key. The implementation (`crowdsec_handler.go:1713-1720`) additionally requires no save or registration failure (`!h.rejectedEnvSaveFailed && !h.rejectedEnvRegisterFailed`). When a save failed, the status falls through to `file` with no `full_key`, so the banner stays hidden. This is the deliberate deviation the orchestrator asked to record.
+### Migration and scope checks
 
-### F11. INFO: `services` race test runtime
+| Check | Result |
+|---|---|
+| `git diff 034d318d..HEAD -- backend/internal/changelog` | PASS, empty |
+| `go.work.sum` unmodified | PASS |
 
-- The single `go test -race ./internal/services/` run exceeded the 10-minute tool cap; the package passes when split into two halves (about 10 minutes total). Development timing was not measured.
+## Findings
 
-## Real-cscli container gate (spec 7.0.3, gate 10)
+### Blocking
 
-Method: image built from the branch (`docker build -f Dockerfile`), throwaway volumes and containers named `charon-qa-k1575-*`, env values generated per run and kept in 0600 files that were deleted afterwards. The live `charon` container and its volumes were not touched. Key values were never printed. Logs showed only masked forms.
+None.
 
-| # | Scenario | Result | Evidence (no key values) |
-| --- | ---------- | -------- | -------------------------- |
-| 1 | Saved key invalid + valid env key, after Start | **PARTIAL FAIL** | File holds env key, mode 0600, regular file. Bouncer `qa-env` pulled by `caddy-cs-bouncer` after restart. Served Caddy config carries the key after restart (`has-env-key=1`) but not immediately after Start (F2). |
-| 2 | Valid saved key + stale env value | PASS | Restart with stale env: no new bouncer row (only `qa-env`), no "successfully registered" line, `key-status` `source: file`, `valid: true`, message "A CrowdSec key variable is set but Charon uses the saved key ... remove the variable to silence this note.", Info log "a key variable is set but the saved key is in use", no banner. |
-| 3 | Neither saved nor env | PASS (with F7 note) | Startup registration created `caddy-bouncer`; log "successfully registered and saved key" (masked key only). `key-status` `key_source: file` (no env set, so `auto-generated` is not expected). Handler path (stop/start) printed the "Registered Successfully" banner. |
-| 4 | Bind-mounted single file, host mode 0644 | PARTIAL | Tested host mode 0666, owner not the container user (uid 1000): in-place write succeeded, file content is the new key, Warn "could not set the crowdsec file mode; writing the content anyway". Mode 0600 not reached (F6). The exact 0644 case was not run: the container user cannot write a host file owned by another user, so the save would fail with EACCES (not verified). |
-| 5 | Restart after each of 1-4 | PASS | No new registrations: `successfully registered` count unchanged across restarts (containers `-d`, `-f`); bouncer `created_at` values identical before and after the restart on `-f`. |
-| 6 | Startup cscli calls carry `-c` | PASS (bouncer calls) | Process capture during restart: `cscli -c /app/data/crowdsec/config/config.yaml lapi status` and `cscli -c /app/data/crowdsec/config/config.yaml bouncers add caddy-bouncer -o raw`. No "config" errors. Entrypoint calls without `-c` are F3 (#1723). |
-| 7 | Crash leftover `bouncer_key.tmp-x` | PASS | Export archive: 41 entries, no `bouncer_key` or `bouncer_key.tmp*` entry. Files list: no `bouncer_key` entry. |
-| 8 | `bouncer_key` replaced by a symlink to a file in the volume | PASS | Symlink replaced by a regular file, mode 0600, owner `charon`. Link target SHA-256 unchanged before and after. |
+### Filed (non-security, low)
 
-Cleanup: containers, volumes and the image were removed. Temporary env, cookie, password and bind-mount key files were deleted. The Playwright auth state `playwright/.auth/user.json` was deleted.
+- **#1736**: Emergency security reset leaves the CrowdSec engine running until restart. Evidence and suggested fix are in the issue.
 
-## Patch coverage detail (gate 4)
+### API-level observations (not filed, handled privately)
 
-| Path | Patch % | Uncovered changed lines |
-| ------ | --------: | ------------------------- |
-| `backend/internal/crowdsec/bouncer_key_file.go` | 85.7 | 40-41 (MkdirAll error), 66-67 (legacy temp remove error) |
-| `backend/internal/crowdsec/bouncerkey/bouncerkey.go` | 86.3 | 161-164 (`SaveFailedNotice`), 168-170 (`RegisterFailedNotice`) |
-| `backend/internal/testutil/cscliguard/cscliguard.go` | 98.5 | 96 (`exec.CommandContext` non-literal branch) |
-| `backend/internal/api/handlers/crowdsec_handler.go` | 99.1 | 1871 (`reapplyCaddyConfig` nil-manager return) |
-| `backend/internal/crowdsec/atomicwrite.go` | 99.3 | 105 (`fileOwner` error path) |
+These come from the raw module endpoints `POST /api/v1/security/crowdsec/{enable,disable}` and `PATCH /api/v1/security/crowdsec`. The Security page does not call them; its toggle uses `admin/crowdsec/start` and `admin/crowdsec/stop`, which behaved correctly in every scenario above.
 
-## Other checks
+- Enabling via the raw endpoint while the engine is stopped stores the module as enabled and adds the CrowdSec app to the served config, pointed at `127.0.0.1:8085`, where nothing listens. The docs say the switch, the saved setting and the engine "stay in step", which this path does not do.
+- Disabling via the raw endpoint while the engine is running removes CrowdSec from the served config, but leaves the engine running. The docs say disabling stops CrowdSec, which only the Stop path does.
+- Not verified: how the caddy CrowdSec bouncer behaves (fail-open or fail-closed) when LAPI is unreachable. This determines whether the first bullet is a security concern.
 
-- `go.work.sum` unchanged. `backend/internal/changelog/data/changelog.json` is `[]`. `git diff 51124582..HEAD -- backend/internal/changelog` is empty.
-- Working tree after QA: only this report changed. Nothing committed or pushed.
+### Other observations (not blocking, not filed)
 
-## Issues filed (non-security, out of scope)
+- The JWT secret falls back to a random per-boot value when `CHARON_JWT_SECRET` is unset, so every restart logs users out. This is existing fallback behaviour.
+- The failed-Start revert bumps `security_configs.updated_at`. This is harmless.
+- eslint reports 1358 warnings. None are errors and this range did not introduce them.
 
-- #1723: entrypoint cscli calls without `-c` (F3)
-- #1724: fresh-install boot warnings (F4)
-- #1725: patch report shows 0 changed frontend lines (F5)
+## Artifacts
 
-F1 and F2 are blocking for this PR and are not filed; they should be fixed in-PR per the Definition of Done. F6 is security-sensitive and is not filed publicly.
-
-## Recommended next steps
-
-1. Fix F1 (`test:` commit): skip `testdata` in both AST walkers, then re-run `internal/api/middleware` and `internal/api/routes`.
-2. Triage F2 with a regression test in `caddy`. Decide whether it is a fix in this PR or a documented known gap.
-3. Clarify gate 3 "banner flags" (F7) in the spec.
-4. Re-run gate 10 scenario 1 after the F2 fix, and scenario 4 with host mode 0644 and a container-owned host file.
-5. Run `lefthook run pre-commit` before the PR and let CI run CodeQL/Trivy.
+- `/projects/Charon/docs/reports/qa_report.md` (this file, uncommitted)
+- `/projects/Charon/test-results/local-patch-report.md`
+- `/projects/Charon/test-results/local-patch-report.json`
