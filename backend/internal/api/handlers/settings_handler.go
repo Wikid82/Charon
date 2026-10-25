@@ -238,32 +238,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	if req.Key == "security.acl.enabled" && strings.EqualFold(strings.TrimSpace(req.Value), "true") {
-		cerberusSetting := models.Setting{
-			Key:      "feature.cerberus.enabled",
-			Value:    "true",
-			Category: "feature",
-			Type:     "bool",
-		}
-		if err := h.DB.Where(models.Setting{Key: cerberusSetting.Key}).Assign(cerberusSetting).FirstOrCreate(&cerberusSetting).Error; err != nil {
-			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
-		legacyCerberus := models.Setting{
-			Key:      "security.cerberus.enabled",
-			Value:    "true",
-			Category: "security",
-			Type:     "bool",
-		}
-		if err := h.DB.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
-			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable Cerberus"})
-			return
-		}
+		// Turning ACL on also turns the global switch and Cerberus on, through the helper the other modules share.
 		if err := enableSecurityFramework(h.DB); err != nil {
 			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
 				return

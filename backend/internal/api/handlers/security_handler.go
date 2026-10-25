@@ -93,10 +93,14 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	crowdSecMode := h.cfg.CrowdSecMode
 	crowdSecAPIURL := h.cfg.CrowdSecAPIURL
 	aclMode := h.cfg.ACLMode
+	// The CrowdSec decision reads the default row, or the static mode when no row exists. This matches the proxy
+	// config (caddy manager), so an empty row mode stays off instead of falling back to the static mode.
+	crowdSecRow := models.SecurityConfig{CrowdSecMode: h.cfg.CrowdSecMode}
 
 	// Override with database SecurityConfig if present (priority 2)
 	if h.db != nil {
 		if sc, err := models.FindDefaultSecurityConfig(h.db); err == nil {
+			crowdSecRow = sc
 			// SecurityConfig in DB takes precedence over static config
 			enabled = sc.Enabled
 			if sc.WAFMode != "" {
@@ -106,9 +110,6 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 				rateLimitMode = sc.RateLimitMode
 			} else if sc.RateLimitEnable {
 				rateLimitMode = "enabled"
-			}
-			if sc.CrowdSecMode != "" {
-				crowdSecMode = sc.CrowdSecMode
 			}
 			if sc.CrowdSecAPIURL != "" {
 				crowdSecAPIURL = sc.CrowdSecAPIURL
@@ -154,7 +155,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		}
 
 		// CrowdSec: the enabled setting, then the deprecated mode setting, then the row (same precedence as the proxy config).
-		crowdSecOn, crowdSecErr := models.CrowdSecEnabled(h.db, models.SecurityConfig{CrowdSecMode: crowdSecMode})
+		crowdSecOn, crowdSecErr := models.CrowdSecEnabled(h.db, crowdSecRow)
 		if crowdSecErr != nil {
 			logger.Log().WithError(crowdSecErr).Warn("Failed to read CrowdSec setting for status, using the default SecurityConfig row")
 		}

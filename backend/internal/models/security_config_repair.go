@@ -15,9 +15,6 @@ import (
 // renames or removes them.
 const legacyDefaultSecurityConfigName = "Default Security Config"
 
-// crowdSecEnabledSettingKey is the Settings key that records the user's last CrowdSec intent.
-const crowdSecEnabledSettingKey = "security.crowdsec.enabled"
-
 // RepairDefaultSecurityConfigName moves rows written under the legacy name back onto the
 // singleton "default" row that the proxy and every reader use. It runs in one transaction and
 // is idempotent: with no legacy rows it changes nothing.
@@ -102,18 +99,11 @@ func mergeLegacyDefaultSecurityConfig(tx *gorm.DB, legacy []SecurityConfig) erro
 // crowdSecModeFromSetting maps the security.crowdsec.enabled setting to a crowd_sec_mode value.
 // found is false when the settings table or the key is missing, or the value is empty.
 func crowdSecModeFromSetting(tx *gorm.DB) (mode string, found bool, err error) {
-	if !tx.Migrator().HasTable(&Setting{}) {
-		return "", false, nil
+	value, found, err := readTrimmedSetting(tx, CrowdSecEnabledSettingKey)
+	if err != nil || !found {
+		return "", false, err
 	}
-	var setting Setting
-	res := tx.Where("key = ?", crowdSecEnabledSettingKey).Limit(1).Find(&setting)
-	if res.Error != nil {
-		return "", false, fmt.Errorf("read %s setting: %w", crowdSecEnabledSettingKey, res.Error)
-	}
-	if res.RowsAffected == 0 || strings.TrimSpace(setting.Value) == "" {
-		return "", false, nil
-	}
-	if strings.EqualFold(strings.TrimSpace(setting.Value), "true") {
+	if strings.EqualFold(value, "true") {
 		return "local", true, nil
 	}
 	return "disabled", true, nil

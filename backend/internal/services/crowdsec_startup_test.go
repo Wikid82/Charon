@@ -91,9 +91,19 @@ func setupCrowdsecTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+// shortenCrowdSecVerifyWait removes the post-Start settle wait for the rest of the test. It mutates a package
+// variable, so the calling test and its fixtures must not run in parallel.
+func shortenCrowdSecVerifyWait(t *testing.T) {
+	t.Helper()
+	previous := crowdSecVerifyWait
+	crowdSecVerifyWait = 0
+	t.Cleanup(func() { crowdSecVerifyWait = previous })
+}
+
 // setupCrowdsecTestFixtures creates temporary binary and config directory for testing
 func setupCrowdsecTestFixtures(t *testing.T) (binPath, dataDir string, cleanup func()) {
 	t.Helper()
+	shortenCrowdSecVerifyWait(t)
 
 	// Create temp directory
 	tempDir, err := os.MkdirTemp("", "crowdsec-test-*")

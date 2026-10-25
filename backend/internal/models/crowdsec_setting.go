@@ -15,27 +15,39 @@ const (
 	CrowdSecDeprecatedModeSettingKey = "security.crowdsec.mode"
 )
 
-// CrowdSecSettingOverride returns the CrowdSec decision stored in the settings table.
-// The enabled key wins; the deprecated mode key counts only when the enabled key is absent or empty.
-// An empty value counts as absent. found is false when neither key decides, including when the settings
-// table does not exist yet. A query error is returned and found is false.
-func CrowdSecSettingOverride(db *gorm.DB) (enabled, found bool, err error) {
+// readTrimmedSetting returns the whitespace-trimmed value of key. found is false when the settings table does not
+// exist yet, the key has no row, or the trimmed value is empty, so a whitespace-only value counts as absent.
+// Every CrowdSec setting read goes through this helper so all readers parse a value the same way.
+func readTrimmedSetting(db *gorm.DB, key string) (value string, found bool, err error) {
 	if db == nil || !db.Migrator().HasTable(&Setting{}) {
-		return false, false, nil
+		return "", false, nil
 	}
 
+	var setting Setting
+	if queryErr := db.Where("key = ?", key).Limit(1).Find(&setting).Error; queryErr != nil {
+		return "", false, fmt.Errorf("read %s setting: %w", key, queryErr)
+	}
+	value = strings.TrimSpace(setting.Value)
+	return value, value != "", nil
+}
+
+// CrowdSecSettingOverride returns the CrowdSec decision stored in the settings table.
+// The enabled key wins; the deprecated mode key counts only when the enabled key is absent or empty.
+// An empty or whitespace-only value counts as absent. found is false when neither key decides, including when the
+// settings table does not exist yet. A query error is returned and found is false.
+func CrowdSecSettingOverride(db *gorm.DB) (enabled, found bool, err error) {
 	for _, key := range []string{CrowdSecEnabledSettingKey, CrowdSecDeprecatedModeSettingKey} {
-		var setting Setting
-		if queryErr := db.Where("key = ?", key).Limit(1).Find(&setting).Error; queryErr != nil {
-			return false, false, fmt.Errorf("read %s setting: %w", key, queryErr)
+		value, present, readErr := readTrimmedSetting(db, key)
+		if readErr != nil {
+			return false, false, readErr
 		}
-		if setting.Value == "" {
+		if !present {
 			continue
 		}
 		if key == CrowdSecEnabledSettingKey {
-			return strings.EqualFold(setting.Value, "true"), true, nil
+			return strings.EqualFold(value, "true"), true, nil
 		}
-		return setting.Value == "local", true, nil
+		return value == "local", true, nil
 	}
 	return false, false, nil
 }

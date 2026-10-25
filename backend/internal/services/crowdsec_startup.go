@@ -20,6 +20,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// crowdSecVerifyWait is the settle time after a successful Start before reconciliation checks that the process is
+// still running. Production keeps the 2s wait; tests shorten it through a serial-only helper.
+var crowdSecVerifyWait = 2 * time.Second
+
 // reconcileLock prevents concurrent reconciliation calls.
 // This mutex is necessary because reconciliation can be triggered from multiple sources:
 // 1. Container startup (main.go calls synchronously during boot)
@@ -194,7 +198,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 	}
 
 	// VERIFY: Wait briefly and confirm process is actually running
-	time.Sleep(2 * time.Second)
+	time.Sleep(crowdSecVerifyWait)
 
 	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer verifyCancel()

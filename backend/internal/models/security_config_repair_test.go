@@ -209,3 +209,19 @@ func TestRepairDefaultSecurityConfigName_RollsBackOnFailure(t *testing.T) {
 	assert.Equal(t, []string{testLegacySecurityConfigName, testLegacySecurityConfigName}, securityConfigNames(t, db),
 		"a failed repair must leave every row as it was")
 }
+
+// A whitespace-only security.crowdsec.enabled value is absent for the repair and for the resolver, so the legacy
+// row mode decides. The legacy mode is "local" and the default row is "disabled", so a repair that read the
+// blank value as "disabled" would fail this test.
+func TestRepairDefaultSecurityConfigName_WhitespaceOnlySettingUsesLegacyMode(t *testing.T) {
+	db := newRepairTestDB(t, true)
+	require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "   "}).Error)
+	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "u-legacy", Name: testLegacySecurityConfigName, CrowdSecMode: "local"}).Error)
+	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "u-default", Name: models.DefaultSecurityConfigName, CrowdSecMode: "disabled", Enabled: true}).Error)
+
+	require.NoError(t, models.RepairDefaultSecurityConfigName(db))
+
+	cfg, err := models.FindDefaultSecurityConfig(db)
+	require.NoError(t, err)
+	assert.Equal(t, "local", cfg.CrowdSecMode)
+}

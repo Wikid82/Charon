@@ -135,3 +135,24 @@ func TestCrowdSecEnabled_QueryErrorFallsBackToRowAndReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, on)
 }
+
+func TestCrowdSecSettingOverride_WhitespaceOnlyEnabledIsAbsent(t *testing.T) {
+	db := openCrowdSecSettingTestDB(t)
+	seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, " \t ")
+	seedCrowdSecSetting(t, db, models.CrowdSecDeprecatedModeSettingKey, "local")
+
+	enabled, found, err := models.CrowdSecSettingOverride(db)
+	require.NoError(t, err)
+	assert.True(t, found, "a whitespace-only enabled value must fall through to the deprecated mode")
+	assert.True(t, enabled)
+}
+
+func TestCrowdSecSettingOverride_PaddedEnabledValueIsTrimmed(t *testing.T) {
+	db := openCrowdSecSettingTestDB(t)
+	seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, "  true  ")
+
+	enabled, found, err := models.CrowdSecSettingOverride(db)
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.True(t, enabled)
+}
