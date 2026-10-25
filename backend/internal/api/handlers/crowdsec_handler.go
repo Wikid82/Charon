@@ -593,12 +593,13 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 	if h.Hub == nil {
 		return nil
 	}
+	// The operator-set base may carry credentials, so it is returned with userinfo, query and fragment removed.
 	set := make(map[string]struct{})
 	for _, e := range []string{h.Hub.HubBaseURL, h.Hub.MirrorBaseURL} {
 		if e == "" {
 			continue
 		}
-		set[e] = struct{}{}
+		set[crowdsec.HubURLForLog(e)] = struct{}{}
 	}
 	out := make([]string, 0, len(set))
 	for k := range set {

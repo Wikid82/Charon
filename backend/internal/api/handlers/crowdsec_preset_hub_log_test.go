@@ -60,3 +60,36 @@ func TestPullPresetHandlerLogNamesEveryAttemptedHubURL(t *testing.T) {
 	require.NotContains(t, out, "s3cret", "credentials in the configured base never reach the log")
 	require.NotContains(t, out, "operator:")
 }
+
+// An operator-set HUB_BASE_URL that cannot be parsed never reaches the pull API error body or the log.
+func TestPullPresetHandlerOmitsUnparseableHubBaseCredentials(t *testing.T) {
+	var logs bytes.Buffer
+	logger.Init(false, &logs)
+	t.Cleanup(func() { logger.Init(false, os.Stdout) })
+
+	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+	hub := crowdsec.NewHubService(nil, cache, t.TempDir())
+	hub.HubBaseURL = "https://operator:s3cret%zz@cdn-hub.crowdsec.net/crowdsecurity/master"
+	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+
+	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h.Hub = hub
+
+	r := gin.New()
+	h.RegisterRoutes(r.Group("/api/v1"))
+
+	body, _ := json.Marshal(map[string]string{"slug": "crowdsecurity/missing"})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/pull", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.NotContains(t, w.Body.String(), "s3cret")
+	require.NotContains(t, w.Body.String(), "%zz")
+	require.NotContains(t, w.Body.String(), "operator")
+	require.NotContains(t, logs.String(), "s3cret")
+	require.NotContains(t, logs.String(), "%zz")
+}

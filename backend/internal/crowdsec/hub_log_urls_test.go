@@ -90,7 +90,7 @@ func TestHubIndexErrorNamesEveryFailedCandidate(t *testing.T) {
 
 // Credentials in an operator-set hub URL never reach the logs or the returned error.
 func TestHubIndexLogAndErrorOmitUserinfo(t *testing.T) {
-	const withUserinfo = "https://operator:s3cret@cdn-hub.crowdsec.net/crowdsecurity/master"
+	const withUserinfo = "https://operator:s3cret@cdn-hub.crowdsec.net/crowdsecurity/master" //nolint:gosec // G101: test credential
 	const indexWithUserinfo = withUserinfo + "/.index.json"
 
 	t.Run("failed candidate is logged without credentials", func(t *testing.T) {
@@ -148,7 +148,7 @@ func TestHubIndexLogAndErrorOmitUserinfo(t *testing.T) {
 // A transport failure carries the request URL inside url.Error; that URL must not leak credentials either.
 func TestHubIndexTransportErrorOmitsUserinfo(t *testing.T) {
 	captureHubIndexLogs(t)
-	const withUserinfo = "https://operator:s3cret@cdn-hub.crowdsec.net/crowdsecurity/master"
+	const withUserinfo = "https://operator:s3cret@cdn-hub.crowdsec.net/crowdsecurity/master" //nolint:gosec // G101: test credential
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HubBaseURL = withUserinfo
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -160,4 +160,56 @@ func TestHubIndexTransportErrorOmitsUserinfo(t *testing.T) {
 	require.NotContains(t, err.Error(), "s3cret")
 	require.NotContains(t, err.Error(), "operator:")
 	require.Contains(t, err.Error(), "connection refused")
+}
+
+// An operator-set hub URL that cannot be parsed is rejected without echoing it: neither the returned error nor the
+// log carries the raw string, its credentials or the offending escape sequence.
+func TestHubURLUnparseableOmitsRawCredentials(t *testing.T) {
+	const badBase = "https://operator:s3cret%zz@cdn-hub.crowdsec.net/crowdsecurity/master" //nolint:gosec // G101: test credential
+
+	err := validateHubURL(badBase + "/.index.json")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "s3cret")
+	require.NotContains(t, err.Error(), "operator")
+	require.NotContains(t, err.Error(), "%zz")
+
+	logs := captureHubIndexLogs(t)
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = badBase
+	svc.HTTPClient = &http.Client{Transport: &hubTransport{}}
+
+	_, err = svc.FetchIndex(context.Background())
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "s3cret")
+	require.NotContains(t, err.Error(), "operator")
+	require.NotContains(t, err.Error(), "%zz")
+	require.NotContains(t, logs.String(), "s3cret")
+	require.NotContains(t, logs.String(), "%zz")
+}
+
+// A transport failure while downloading a hub resource names the URL without credentials.
+func TestHubResourceTransportErrorOmitsUserinfo(t *testing.T) {
+	const withUserinfo = "https://operator:s3cret@cdn-hub.crowdsec.net/crowdsecurity/master" //nolint:gosec // G101: test credential
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = withUserinfo
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, &neturl.Error{Op: "Get", URL: req.URL.String(), Err: errors.New("connection refused")}
+	})}
+
+	_, err := svc.fetchWithLimitFromURL(context.Background(), withUserinfo+"/collections/crowdsecurity/sshd.yaml", 1024)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "s3cret")
+	require.NotContains(t, err.Error(), "operator:")
+	require.Contains(t, err.Error(), "connection refused")
+	require.Contains(t, err.Error(), "https://cdn-hub.crowdsec.net/crowdsecurity/master/collections/crowdsecurity/sshd.yaml")
+}
+
+// When validation is bypassed and the request cannot be built, the download fails before any HTTP call is made.
+func TestFetchWithLimitFailsWhenRequestCannotBeBuilt(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.validateURL = func(string) error { return nil }
+	svc.HTTPClient = &http.Client{Transport: &hubTransport{}}
+
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "https://[::1", 1024)
+	require.Error(t, err)
 }

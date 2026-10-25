@@ -112,7 +112,7 @@ func TestHubIndexErrorNamesEachURLOnce(t *testing.T) {
 
 // An operator-set hub URL that does not parse is logged as a placeholder, never echoed back.
 func TestHubURLForLogMarksUnparseableURL(t *testing.T) {
-	require.Equal(t, "<invalid hub URL>", hubURLForLog("https://[::1"))
+	require.Equal(t, "<invalid hub URL>", HubURLForLog("https://[::1"))
 }
 
 // A body that fails to close is logged, and the index it carried is still used.
