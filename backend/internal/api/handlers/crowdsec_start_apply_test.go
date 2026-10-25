@@ -229,7 +229,7 @@ func TestStartApply_ApplyFailureKeepsResponseAndState(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"status":"started"`)
 	require.Equal(t, 1, applier.count())
-	require.Contains(t, logs.String(), "Failed to apply the proxy configuration after CrowdSec start")
+	require.Contains(t, logs.String(), "Failed to apply the proxy configuration after a CrowdSec state change")
 
 	var cfg models.SecurityConfig
 	require.NoError(t, h.DB.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error)

@@ -775,6 +775,8 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 		logger.Log().WithError(err).Warn("Failed to update CrowdSec setting after stopping CrowdSec")
 	}
 
+	// The engine is stopped and the mode is written, so the proxy must stop routing through CrowdSec.
+	h.applyProxyConfig(ctx)
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 }
 
@@ -1927,7 +1929,7 @@ func (h *CrowdsecHandler) applyProxyConfig(ctx context.Context) {
 	applyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crowdsecApplyTimeout)
 	defer cancel()
 	if err := h.reapplyCaddyConfig(applyCtx); err != nil {
-		logger.Log().WithError(err).Warn("Failed to apply the proxy configuration after CrowdSec start")
+		logger.Log().WithError(err).Warn("Failed to apply the proxy configuration after a CrowdSec state change")
 	}
 }
 
