@@ -79,7 +79,9 @@ fi
 if [ "$HUB_AVAILABLE" = true ]; then
     echo "Pulled presets list..."
     LIST=$(curl -s -H "Content-Type: application/json" -b ${TMP_COOKIE} http://localhost:8080/api/v1/admin/crowdsec/presets)
-    echo "$LIST" | jq -r .presets | head -20
+    # Slice inside jq: piping a long list into head closes the pipe early and
+    # trips pipefail (SIGPIPE) once the hub returns many presets.
+    echo "$LIST" | jq -r '.presets[:5]'
 
     SLUG="bot-mitigation-essentials"
     echo "Pulling preset $SLUG"
