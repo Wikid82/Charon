@@ -197,6 +197,79 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	// Note: Audit logging is async via SecurityService channel, tested separately
 }
 
+// TestEmergencySecurityReset_PinsResponseAndDisabledValues pins the 200 body and every value the reset writes.
+// The framework switch is not one of them: it stays on.
+func TestEmergencySecurityReset_PinsResponseAndDisabledValues(t *testing.T) {
+	db := setupEmergencyTestDB(t)
+	handler := NewEmergencyHandler(db)
+	t.Cleanup(handler.Close)
+	router := setupEmergencyRouter(handler)
+
+	const resetToken = "this-is-a-valid-emergency-token-with-32-chars-minimum"
+	t.Setenv(EmergencyTokenEnvVar, resetToken)
+
+	require.NoError(t, db.Create(&models.SecurityConfig{
+		Name:            models.DefaultSecurityConfigName,
+		Enabled:         true,
+		WAFMode:         "enabled",
+		RateLimitMode:   "enabled",
+		RateLimitEnable: true,
+		CrowdSecMode:    "local",
+	}).Error)
+	for key, value := range map[string]string{
+		"security.crowdsec.enabled": "true",
+		"feature.cerberus.enabled":  "true",
+	} {
+		require.NoError(t, db.Create(&models.Setting{Key: key, Value: value, Category: "security", Type: "bool"}).Error)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
+	req.Header.Set(EmergencyTokenHeader, resetToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var body struct {
+		Success         bool     `json:"success"`
+		Message         string   `json:"message"`
+		DisabledModules []string `json:"disabled_modules"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.True(t, body.Success)
+	assert.Equal(t, "All security modules have been disabled. Please reconfigure security settings.", body.Message)
+	assert.ElementsMatch(t, []string{
+		"security.acl.enabled",
+		"security.waf.enabled",
+		"security.rate_limit.enabled",
+		"security.crowdsec.enabled",
+		"security.crowdsec.mode",
+	}, body.DisabledModules)
+
+	wantSettings := map[string]string{
+		"security.acl.enabled":        "false",
+		"security.waf.enabled":        "false",
+		"security.rate_limit.enabled": "false",
+		"security.crowdsec.enabled":   "false",
+		"security.crowdsec.mode":      "disabled",
+		"security.admin_whitelist":    "",
+		"feature.cerberus.enabled":    "true",
+	}
+	for key, want := range wantSettings {
+		var setting models.Setting
+		require.NoError(t, db.Where("key = ?", key).First(&setting).Error, key)
+		assert.Equal(t, want, setting.Value, key)
+	}
+
+	var row models.SecurityConfig
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&row).Error)
+	assert.False(t, row.Enabled)
+	assert.Equal(t, "disabled", row.WAFMode)
+	assert.Equal(t, "disabled", row.RateLimitMode)
+	assert.False(t, row.RateLimitEnable)
+	assert.Equal(t, "disabled", row.CrowdSecMode)
+	assert.Empty(t, row.AdminWhitelist)
+}
+
 func TestEmergencySecurityReset_InvalidToken(t *testing.T) {
 	// Setup
 	db := setupEmergencyTestDB(t)

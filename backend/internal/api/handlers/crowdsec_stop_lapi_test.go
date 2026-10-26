@@ -75,6 +75,7 @@ func TestCrowdsecHandler_Stop_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, mockExec.stopCalled)
+	assert.JSONEq(t, `{"status":"stopped"}`, w.Body.String())
 
 	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
@@ -97,6 +98,8 @@ func TestCrowdsecHandler_Stop_Success(t *testing.T) {
 func TestCrowdsecHandler_Stop_Error(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true, CrowdSecMode: "local"}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"}).Error)
 
 	tmpDir := t.TempDir()
 	mockExec := &mockStopExecutor{stopErr: assert.AnError}
@@ -116,6 +119,15 @@ func TestCrowdsecHandler_Stop_Error(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.True(t, mockExec.stopCalled)
+	assert.JSONEq(t, `{"error":"failed to stop CrowdSec"}`, w.Body.String())
+
+	// A failed stop writes nothing: the stored mode and setting stay as they were.
+	var cfg models.SecurityConfig
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error)
+	assert.Equal(t, "local", cfg.CrowdSecMode)
+	var setting models.Setting
+	require.NoError(t, db.Where("key = ?", "security.crowdsec.enabled").First(&setting).Error)
+	assert.Equal(t, "true", setting.Value)
 }
 
 // TestCrowdsecHandler_Stop_NoSecurityConfig tests Stop when there's no existing SecurityConfig

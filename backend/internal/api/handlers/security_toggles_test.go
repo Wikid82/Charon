@@ -116,6 +116,42 @@ func TestSecurityToggles(t *testing.T) {
 	}
 }
 
+// TestSecurityToggles_ModuleResponseAndFrameworkSwitch pins the response body of a module toggle and the
+// framework switch: enabling a module turns the security framework on, disabling it leaves the framework on.
+func TestSecurityToggles_ModuleResponseAndFrameworkSwitch(t *testing.T) {
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: false}).Error)
+	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
+
+	enable := toggleRequest(t, h.EnableRateLimit, http.MethodPost, "/api/v1/security/rate-limit/enable")
+	require.Equal(t, http.StatusOK, enable.Code, enable.Body.String())
+	assert.JSONEq(t, `{"success":true,"module":"security.rate_limit.enabled","enabled":true,"applied":true}`, enable.Body.String())
+
+	var row models.SecurityConfig
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&row).Error)
+	assert.True(t, row.Enabled, "enabling a module turns the security framework on")
+
+	disable := toggleRequest(t, h.DisableRateLimit, http.MethodPost, "/api/v1/security/rate-limit/disable")
+	require.Equal(t, http.StatusOK, disable.Code, disable.Body.String())
+	assert.JSONEq(t, `{"success":true,"module":"security.rate_limit.enabled","enabled":false,"applied":true}`, disable.Body.String())
+
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&row).Error)
+	assert.True(t, row.Enabled, "disabling a module leaves the security framework on")
+}
+
+// toggleRequest runs one admin toggle handler against a request with no body.
+func toggleRequest(t *testing.T, handler gin.HandlerFunc, method, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(method, path, http.NoBody)
+	c.Set("role", "admin")
+	handler(c)
+	return w
+}
+
 func TestSecurityToggles_Forbidden(t *testing.T) {
 	h, _ := setupToggleTest(t)
 

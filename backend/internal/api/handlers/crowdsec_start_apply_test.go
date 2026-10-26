@@ -100,7 +100,7 @@ func TestStartApply_NewStartLAPIReadySavedKeyAppliesOnce(t *testing.T) {
 	w := startRequest(t, h, context.Background())
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), `"status":"started"`)
+	require.JSONEq(t, `{"status":"started","pid":12345,"lapi_ready":true}`, w.Body.String())
 	require.Equal(t, 1, applier.count(), "a valid saved key still changes the mode, so one apply")
 }
 
@@ -171,7 +171,7 @@ func TestStartApply_LAPINeverReadyAppliesOnceWithoutRegistration(t *testing.T) {
 	w := startRequest(t, h, context.Background())
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), `"lapi_ready":false`)
+	require.JSONEq(t, `{"status":"started","pid":12345,"lapi_ready":false,"warning":"Process started but LAPI initialization may take additional time"}`, w.Body.String())
 	require.Equal(t, 1, applier.count(), "the mode is local even though LAPI is not ready")
 	cmd.AssertNotCalled(t, "Execute", mock.Anything, "cscli", mock.MatchedBy(isBouncersCall))
 }
@@ -185,7 +185,7 @@ func TestStartApply_AlreadyRunningAppliesOnce(t *testing.T) {
 	w := startRequest(t, h, context.Background())
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), "already_running")
+	require.JSONEq(t, `{"status":"already_running","pid":12345,"lapi_ready":true}`, w.Body.String())
 	require.Equal(t, 1, applier.count(), "a confirmed running engine still gets its mode applied")
 }
 
@@ -199,6 +199,7 @@ func TestStartApply_EngineStartFailureDoesNotApply(t *testing.T) {
 	w := startRequest(t, h, context.Background())
 
 	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	require.JSONEq(t, `{"error":"failed to start CrowdSec"}`, w.Body.String())
 	require.Zero(t, applier.count(), "a failed start leaves the state reverted, so nothing is applied")
 }
 
