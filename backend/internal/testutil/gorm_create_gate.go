@@ -11,7 +11,8 @@ import (
 )
 
 // gateWaitTimeout bounds how long a test waits for a gated insert to start, so a broken test fails instead of hanging.
-const gateWaitTimeout = 10 * time.Second
+// It is a variable so the timeout path can be exercised without waiting the full bound.
+var gateWaitTimeout = 10 * time.Second
 
 // gateSeq gives every registered gate callback a unique name, so two gates on one database never collide.
 var gateSeq atomic.Uint64

@@ -61,6 +61,13 @@ func mustWriteCrowdsecSetting(db *gorm.DB, key, value string) {
 // newCrowdsecSettingsRouter builds the settings routes for an admin caller. lifecycle may be nil.
 func newCrowdsecSettingsRouter(t *testing.T, lifecycle CrowdsecLifecycle) (*gin.Engine, *gorm.DB) {
 	t.Helper()
+	h, db := newCrowdsecSettingsHandler(t, lifecycle)
+	return settingsRouterFor(h), db
+}
+
+// newCrowdsecSettingsHandler builds a settings handler on a migrated database. lifecycle may be nil.
+func newCrowdsecSettingsHandler(t *testing.T, lifecycle CrowdsecLifecycle) (*SettingsHandler, *gorm.DB) {
+	t.Helper()
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
@@ -68,7 +75,11 @@ func newCrowdsecSettingsRouter(t *testing.T, lifecycle CrowdsecLifecycle) (*gin.
 	if lifecycle != nil {
 		h.WithCrowdsecLifecycle(lifecycle)
 	}
+	return h, db
+}
 
+// settingsRouterFor serves the settings write routes for an admin caller.
+func settingsRouterFor(h *SettingsHandler) *gin.Engine {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("role", "admin")
@@ -78,7 +89,7 @@ func newCrowdsecSettingsRouter(t *testing.T, lifecycle CrowdsecLifecycle) (*gin.
 	router.POST("/settings", h.UpdateSetting)
 	router.PATCH("/settings", h.UpdateSetting)
 	router.PATCH("/config", h.PatchConfig)
-	return router, db
+	return router
 }
 
 func sendSettingsJSON(t *testing.T, router *gin.Engine, method, path, body string) *httptest.ResponseRecorder {
