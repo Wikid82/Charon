@@ -320,11 +320,13 @@ func main() {
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	uptimeShutdown, err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb, gate)
+	registered, err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb, gate)
 	if err != nil {
 		appCancel()
 		log.Fatalf("register routes: %v", err) //nolint:gocritic // exitAfterDefer: appCancel called explicitly above
 	}
+
+	uptimeShutdown := registered.UptimeShutdown
 
 	// Register import handler with config dependencies
 	routes.RegisterImportHandler(router, db, cfg, cfg.CaddyBinary, cfg.ImportDir, cfg.ImportCaddyfile)
@@ -335,7 +337,7 @@ func main() {
 	}
 
 	// Initialize emergency server (Tier 2 break glass)
-	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb, gate).WithManagementCIDRs(cfg.Security.ManagementCIDRs)
+	emergencyServer := server.NewEmergencyServerWithDeps(db, cfg.Emergency, caddyManager, cerb, gate).WithManagementCIDRs(cfg.Security.ManagementCIDRs).WithCrowdsecLifecycle(registered.CrowdSec)
 	if err := emergencyServer.Start(); err != nil {
 		logger.Log().WithError(err).Fatal("Failed to start emergency server")
 	}

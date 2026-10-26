@@ -56,6 +56,13 @@ type SecurityHandler struct {
 	caddyManager *caddy.Manager
 	geoipSvc     *services.GeoIPService
 	cerberus     CacheInvalidator
+	crowdsec     CrowdsecLifecycle
+}
+
+// WithCrowdsecLifecycle wires the CrowdSec lifecycle that the security switches drive. A typed-nil handler is not wired.
+func (h *SecurityHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *SecurityHandler {
+	h.crowdsec = LifecycleOrNil(l)
+	return h
 }
 
 // NewSecurityHandler creates a new SecurityHandler.

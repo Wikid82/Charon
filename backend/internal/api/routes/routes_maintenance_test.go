@@ -58,11 +58,11 @@ func newMaintenanceRig(t *testing.T, gate *dbmaint.Gate) *maintenanceRig {
 	caddyManager := caddy.NewManager(caddy.NewClient(cfg.CaddyAdminAPI), db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
 	cerb := cerberus.New(cfg.Security, db)
 	ctx, cancel := context.WithCancel(context.Background())
-	shutdown, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, gate)
+	registered, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, gate)
 	require.NoError(t, err)
 	t.Cleanup(cancel)
 
-	rig := &maintenanceRig{router: router, db: db, cerb: cerb, shutdown: shutdown, cancel: cancel}
+	rig := &maintenanceRig{router: router, db: db, cerb: cerb, shutdown: registered.UptimeShutdown, cancel: cancel}
 	rig.pin = func() func() {
 		conn, err := sqlDB.Conn(context.Background())
 		require.NoError(t, err)

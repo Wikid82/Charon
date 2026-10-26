@@ -38,6 +38,7 @@ type EmergencyHandler struct {
 	caddyManager    CaddyConfigManager
 	cerberus        CacheInvalidator
 	managementNets  []*net.IPNet
+	crowdsec        CrowdsecLifecycle
 }
 
 // NewEmergencyHandler creates a new EmergencyHandler
@@ -535,6 +536,12 @@ func (h *EmergencyHandler) UpdateTokenExpiration(c *gin.Context) {
 // An empty list selects the default private and loopback ranges.
 func (h *EmergencyHandler) WithManagementCIDRs(cidrs []string) *EmergencyHandler {
 	h.managementNets = middleware.ParseManagementNets(cidrs)
+	return h
+}
+
+// WithCrowdsecLifecycle wires the CrowdSec lifecycle that the emergency reset drives. A typed-nil handler is not wired.
+func (h *EmergencyHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *EmergencyHandler {
+	h.crowdsec = LifecycleOrNil(l)
 	return h
 }
 

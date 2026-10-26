@@ -35,7 +35,14 @@ type SettingsHandler struct {
 	CaddyManager CaddyConfigManager // For triggering config reload on security settings change
 	Cerberus     CacheInvalidator   // For invalidating cache on security settings change
 	SecuritySvc  *services.SecurityService
+	crowdsec     CrowdsecLifecycle
 	DataRoot     string
+}
+
+// WithCrowdsecLifecycle wires the CrowdSec lifecycle that the settings API drives. A typed-nil handler is not wired.
+func (h *SettingsHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *SettingsHandler {
+	h.crowdsec = LifecycleOrNil(l)
+	return h
 }
 
 const (

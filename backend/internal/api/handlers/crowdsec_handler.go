@@ -116,6 +116,11 @@ type CrowdsecHandler struct {
 	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
 	restore hubRestoreState
 
+	// lifecycleMu is held for a whole Start or Stop (StartCrowdSec, StopCrowdSec). It is only ever TryLocked, so a
+	// second Start or Stop is refused at once, and it is taken before the install manager's hold (lock order:
+	// lifecycleMu -> ApplyJobs hold -> dataMu).
+	lifecycleMu sync.Mutex
+
 	// applyJobsOnce lazily builds applyJobs; ApplyJobs is the only reader.
 	applyJobsOnce sync.Once
 	applyJobs     *crowdsec.ApplyJobManager
@@ -664,139 +669,30 @@ func (h *CrowdsecHandler) HasProxyApplier() bool {
 	return h.caddyManager != nil
 }
 
-// Start starts the CrowdSec process and waits for LAPI to be ready.
-// Every outcome that changes or confirms the CrowdSec state re-applies the proxy configuration exactly once.
+// Start is the HTTP switch that starts CrowdSec and waits for LAPI. The engine logic is in StartCrowdSec.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
-	release, ok := h.holdUnlessBusy(c)
-	if !ok {
-		return
-	}
-	defer release()
-	ctx := c.Request.Context()
-
-	// Read the status first so a failure here leaves the persisted config untouched.
-	// A second spawn cannot bind LAPI and would clobber the pid file of the engine
-	// that is already running, so an existing process is reported instead. Status
-	// can rewrite the pid file when it adopts an engine the file did not track.
-	running, runningPid, statusErr := h.Executor.Status(ctx, h.DataDir)
-	if statusErr != nil {
-		logger.Log().WithField("error", sanitizeForLog(statusErr.Error())).Warn("failed to read crowdsec status before start")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read CrowdSec status"})
-		return
-	}
-
-	// Capture the state Start writes, so a failed Start can put back exactly what was there.
-	snap, err := h.snapshotCrowdsecStart()
+	res, err := h.StartCrowdSec(c.Request.Context())
 	if err != nil {
-		logger.Log().WithError(err).Error("Failed to snapshot SecurityConfig before CrowdSec start")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+		respondCrowdsecLifecycleError(c, err)
 		return
 	}
-
-	if persistErr := h.persistCrowdsecStart(); persistErr != nil {
-		logger.Log().WithError(persistErr).Error("Failed to persist SecurityConfig")
-		h.revertCrowdsecStart(snap)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
-		return
+	body := gin.H{
+		"status":     res.Status,
+		"pid":        res.PID,
+		"lapi_ready": res.LAPIReady,
 	}
-
-	if running {
-		_, lapiErr := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
-		logger.Log().WithField("pid", runningPid).Info("CrowdSec start requested but it is already running")
-		body := gin.H{
-			"status":     "already_running",
-			"pid":        runningPid,
-			"lapi_ready": lapiErr == nil,
-		}
-		h.applyProxyConfig(ctx)
-		c.JSON(http.StatusOK, body)
-		return
+	if res.Warning != "" {
+		body["warning"] = res.Warning
 	}
-
-	// Start the process. The executor re-checks under its own lock, so a
-	// concurrent Start that wins the race hands back the existing pid.
-	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
-	if err != nil {
-		h.revertCrowdsecStart(snap)
-		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to start crowdsec")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start CrowdSec"})
-		return
-	}
-
-	// Wait for LAPI to be ready (with timeout)
-	lapiReady := false
-	maxWait := h.LAPIMaxWait
-	if maxWait == 0 {
-		maxWait = 60 * time.Second
-	}
-	pollInterval := h.LAPIPollInterval
-	if pollInterval == 0 {
-		pollInterval = 500 * time.Millisecond
-	}
-	deadline := time.Now().Add(maxWait)
-
-	for time.Now().Before(deadline) {
-		// Check LAPI status using cscli
-		_, err := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
-
-		if err == nil {
-			lapiReady = true
-			break
-		}
-
-		time.Sleep(pollInterval)
-	}
-
-	if !lapiReady {
-		// The mode is already local, so the proxy needs the apply even though no registration ran.
-		logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
-		h.applyProxyConfig(ctx)
-		c.JSON(http.StatusOK, gin.H{
-			"status":     "started",
-			"pid":        pid,
-			"lapi_ready": false,
-			"warning":    "Process started but LAPI initialization may take additional time",
-		})
-		return
-	}
-
-	// After confirming LAPI is ready, ensure bouncer is registered
-	res, regErr := h.ensureBouncerRegistration(ctx)
-	h.handleBouncerRegistration(res, regErr)
-
-	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
-	h.applyProxyConfig(ctx)
-	c.JSON(http.StatusOK, gin.H{
-		"status":     "started",
-		"pid":        pid,
-		"lapi_ready": true,
-	})
+	c.JSON(http.StatusOK, body)
 }
 
-// Stop stops the CrowdSec process.
+// Stop is the HTTP switch that stops CrowdSec. The engine logic is in StopCrowdSec.
 func (h *CrowdsecHandler) Stop(c *gin.Context) {
-	release, ok := h.holdUnlessBusy(c)
-	if !ok {
+	if _, err := h.StopCrowdSec(c.Request.Context()); err != nil {
+		respondCrowdsecLifecycleError(c, err)
 		return
 	}
-	defer release()
-	ctx := c.Request.Context()
-	if err := h.Executor.Stop(ctx, h.DataDir); err != nil {
-		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to stop crowdsec")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop CrowdSec"})
-		return
-	}
-
-	// Only the CrowdSec mode and its setting change here. The global security switch is left alone.
-	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled"}); err != nil {
-		logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
-	}
-	if err := upsertSetting(h.DB, models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}); err != nil {
-		logger.Log().WithError(err).Warn("Failed to update CrowdSec setting after stopping CrowdSec")
-	}
-
-	// The engine is stopped and the mode is written, so the proxy must stop routing through CrowdSec.
-	h.applyProxyConfig(ctx)
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 }
 
@@ -1946,13 +1842,16 @@ func rejectedEnvRegisterFailedLogMessage(keyPath string) string {
 
 // applyProxyConfig regenerates and applies the proxy configuration after a CrowdSec state change.
 // The apply runs on a detached context with its own timeout, so a client that disconnects cannot
-// cancel the apply or its rollback. A failure is logged only; the response and the engine are unchanged.
-func (h *CrowdsecHandler) applyProxyConfig(ctx context.Context) {
+// cancel the apply or its rollback. A failure is logged and returned; it never fails the caller, and the response
+// and the engine are unchanged.
+func (h *CrowdsecHandler) applyProxyConfig(ctx context.Context) error {
 	applyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crowdsecApplyTimeout)
 	defer cancel()
-	if err := h.reapplyCaddyConfig(applyCtx); err != nil {
+	err := h.reapplyCaddyConfig(applyCtx)
+	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to apply the proxy configuration after a CrowdSec state change")
 	}
+	return err
 }
 
 // reapplyCaddyConfig regenerates the Caddy config so the proxy reads the current CrowdSec state and key file.
