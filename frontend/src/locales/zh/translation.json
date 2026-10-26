@@ -1796,7 +1796,8 @@
       "presetAppliedReload": "已通过后端应用预设（需要重新加载）",
       "presetApplyFailed": "应用预设失败",
       "applyFailed": "应用失败：{{message}}",
-      "applyFailedWithBackup": "应用失败：{{message}}。{{backup}}"
+      "applyFailedWithBackup": "应用失败：{{message}}。{{backup}}",
+      "fileManaged": "此文件由 Charon 管理。请在白名单选项卡中修改允许列表。"
     },
     "overlay": {
       "fetchingPreset": "正在获取预设……",
@@ -1826,7 +1827,11 @@
       "requestTooLarge": "请求过大。请缩短文本后重试。"
     },
     "busy": "CrowdSec 正在安装预设。请在安装完成后重试。",
-    "busyOther": "CrowdSec 正在完成另一项更改。请稍后重试。"
+    "busyOther": "CrowdSec 正在完成另一项更改。请稍后重试。",
+    "import": {
+      "whitelistRegenerated": "Charon 已根据本实例的数据库重新生成其白名单文件。",
+      "otherWhitelistFiles": "找到 {{count}} 个其他白名单文件,未作更改:{{files}}"
+    }
   },
   "smtp": {
     "title": "电子邮件 (SMTP) 设置",
@@ -2452,5 +2457,11 @@
     "gotIt": "知道了，谢谢",
     "dontShowAgain": "不再显示更新通知",
     "closeButton": "关闭"
+  },
+  "crowdsec": {
+    "errors": {
+      "stateChanged": "CrowdSec 在启动过程中被关闭。",
+      "unavailable": "此服务器上无法使用 CrowdSec。"
+    }
   }
 }

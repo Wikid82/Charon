@@ -106,4 +106,18 @@ describe('crowdsecErrorMessage', () => {
     expect(crowdsecErrorMessage(axiosError({ error: 'nope' }), t, 'Server text')).toBe('Server text')
     expect(crowdsecErrorMessage(new Error('boom'), t, 'Generic')).toBe('Generic')
   })
+
+  it.each([
+    ['file_managed_by_charon', 'translated:crowdsecConfig.toasts.fileManaged'],
+    ['crowdsec_state_changed', 'translated:crowdsec.errors.stateChanged'],
+    ['crowdsec_unavailable', 'translated:crowdsec.errors.unavailable'],
+  ])('translates the coded refusal %s instead of keeping the fallback', (code, expected) => {
+    expect(crowdsecErrorMessage(axiosError({ error: 'English server text', error_code: code }), t, 'Server text')).toBe(expected)
+  })
+
+  it('keeps the caller fallback for a code without a translated text', () => {
+    expect(crowdsecErrorMessage(axiosError({ error: 'English server text', error_code: 'some_other_code' }), t, 'Server text')).toBe(
+      'Server text',
+    )
+  })
 })

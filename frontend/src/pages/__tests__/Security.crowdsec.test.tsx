@@ -261,6 +261,28 @@ describe('Security CrowdSec mutation UX', () => {
     expect(toggle).toBeChecked()
   })
 
+  it('a start refused because CrowdSec was turned off shows the translated text, not the status code', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(
+      new AxiosError('Request failed with status code 409', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 409,
+        statusText: 'Conflict',
+        headers: {},
+        config: {},
+        data: { error: 'CrowdSec was turned off while it was starting', error_code: 'crowdsec_state_changed' },
+      } as AxiosResponse),
+    )
+
+    const user = userEvent.setup()
+    renderSecurity()
+
+    const toggle = await screen.findByTestId('toggle-crowdsec')
+    await user.click(toggle)
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('CrowdSec was turned off while it was starting.'))
+    expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining('Request failed with status code 409'))
+    expect(settingsApi.updateSetting).not.toHaveBeenCalled()
+  })
+
   it('non-busy start failure shows the translated start message with the server detail', async () => {
     vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(new Error('boom'))
 

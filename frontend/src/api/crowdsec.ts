@@ -95,6 +95,10 @@ export interface ImportCrowdsecResult {
   kept_files?: string[]
   /** Imported notification files whose blanked values still need to be entered. */
   needs_values?: string[]
+  /** True when Charon rewrote its allow-list file from this instance's database after the import. */
+  whitelist_regenerated?: boolean
+  /** Other allow-list files found under the parsers directory, which Charon leaves unchanged. */
+  other_whitelist_files?: string[]
 }
 
 /** Machine-readable reasons the server gives for refusing an import. */
