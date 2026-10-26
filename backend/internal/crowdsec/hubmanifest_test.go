@@ -103,16 +103,21 @@ func realLayoutTree(t *testing.T) string {
 	link(t, dir, "config/postoverflows/s01-whitelist/rdns.yaml", hub+"postoverflows/s01-whitelist/crowdsecurity/rdns.yaml")
 	link(t, dir, "config/contexts/http_base.yaml", hub+"contexts/crowdsecurity/http_base.yaml")
 	link(t, dir, "config/collections/elsewhere.yaml", "/home/me/elsewhere.yaml")
+	// Items shipped as .yml are installed items too.
+	link(t, dir, "config/collections/caddy-yml.yml", hub+"collections/crowdsecurity/caddy-yml.yml")
+	link(t, dir, "config/scenarios/sigmahq-proc.yml", hub+"scenarios/sigmahq/proc.yml")
 	return dir
 }
 
 var realLayoutItems = []HubItem{
 	{"collections", "Azlaroc/sftpgo"},
 	{"collections", "crowdsecurity/caddy"},
+	{"collections", "crowdsecurity/caddy-yml"},
 	{"contexts", "crowdsecurity/http_base"},
 	{"parsers", "crowdsecurity/caddy-logs"},
 	{"postoverflows", "crowdsecurity/rdns"},
 	{"scenarios", "crowdsecurity/CVE-2022-26134"},
+	{"scenarios", "sigmahq/proc"},
 }
 
 func exportToFile(t *testing.T, dir string) (archivePath string, raw []byte) {
@@ -138,9 +143,9 @@ func TestExportManifestRoundTrip(t *testing.T) {
 	require.Equal(t, 1, m.Version)
 	require.Equal(t, realLayoutItems, m.Items)
 	require.JSONEq(t, `{"version":1,"items":[`+
-		`{"type":"collections","name":"Azlaroc/sftpgo"},{"type":"collections","name":"crowdsecurity/caddy"},`+
+		`{"type":"collections","name":"Azlaroc/sftpgo"},{"type":"collections","name":"crowdsecurity/caddy"},{"type":"collections","name":"crowdsecurity/caddy-yml"},`+
 		`{"type":"contexts","name":"crowdsecurity/http_base"},{"type":"parsers","name":"crowdsecurity/caddy-logs"},`+
-		`{"type":"postoverflows","name":"crowdsecurity/rdns"},{"type":"scenarios","name":"crowdsecurity/CVE-2022-26134"}]}`, string(body))
+		`{"type":"postoverflows","name":"crowdsecurity/rdns"},{"type":"scenarios","name":"crowdsecurity/CVE-2022-26134"},{"type":"scenarios","name":"sigmahq/proc"}]}`, string(body))
 
 	info, err := InspectArchive(archivePath)
 	require.NoError(t, err)

@@ -11,7 +11,7 @@ import (
 func SeedDefaultSecurityConfig(db *gorm.DB) (*SecurityConfig, error) {
 	record := SecurityConfig{
 		UUID:             uuid.NewString(),
-		Name:             "default",
+		Name:             DefaultSecurityConfigName,
 		Enabled:          false,
 		CrowdSecMode:     "disabled",
 		CrowdSecAPIURL:   "http://127.0.0.1:8085",
@@ -33,7 +33,7 @@ func SeedDefaultSecurityConfig(db *gorm.DB) (*SecurityConfig, error) {
 
 	// FirstOrCreate matches on Name only; if a row with name="default" already exists
 	// it is loaded into record without modifying any of its fields.
-	result := db.Where(SecurityConfig{Name: "default"}).FirstOrCreate(&record)
+	result := db.Where(SecurityConfig{Name: DefaultSecurityConfigName}).FirstOrCreate(&record)
 	if result.Error != nil {
 		return nil, result.Error
 	}

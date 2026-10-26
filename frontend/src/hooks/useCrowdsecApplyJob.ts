@@ -2,13 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { isCrowdsecBusyError } from '../api/errorBody'
+import { getCrowdsecBusyJobId, isCrowdsecBusyError } from '../api/errorBody'
 import {
   applyPresetAsync,
   cancelApplyJob,
   getApplyJob,
   getApplyJobErrorCode,
-  getCrowdsecBusyJobId,
   getCurrentApplyJob,
   type ApplyCrowdsecPresetRequest,
   type CrowdsecApplyJob,

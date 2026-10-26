@@ -406,6 +406,15 @@
       "processStopped": "Prozess gestoppt",
       "starting": "Startet...",
       "toggleTooltip": "CrowdSec-Schutz umschalten",
+      "startFailed": "CrowdSec konnte nicht gestartet werden: {{error}}",
+      "stopFailed": "CrowdSec konnte nicht gestoppt werden: {{error}}",
+      "startingToast": "CrowdSec wird gestartet... Das kann bis zu 30 Sekunden dauern",
+      "startVerifyFailed": "Der CrowdSec-Prozess konnte nicht gestartet werden. Details stehen in den Server-Logs.",
+      "stopVerifyFailed": "Der CrowdSec-Prozess läuft noch. Details stehen in den Server-Logs.",
+      "startedLapiReady": "CrowdSec gestartet und LAPI ist bereit",
+      "startedLapiInitializing": "CrowdSec gestartet, aber LAPI wird noch initialisiert. Bitte warten, bevor du dich registrierst.",
+      "started": "CrowdSec gestartet",
+      "stopped": "CrowdSec gestoppt",
       "bouncerApiKey": "Bouncer-API-Schlüssel",
       "keyCopied": "API-Schlüssel in die Zwischenablage kopiert",
       "copyFailed": "Kopieren des API-Schlüssels fehlgeschlagen",
@@ -417,11 +426,11 @@
       "keyStoredAt": "Schlüssel gespeichert unter",
       "keyWarning": {
         "title": "CrowdSec API-Schlüssel aktualisiert",
-        "description": "Ihr konfigurierter API-Schlüssel wurde von CrowdSec LAPI abgelehnt. Ein neuer Schlüssel wurde automatisch generiert, um den Schutz wiederherzustellen.",
-        "instructions": "Aktualisieren Sie Ihre docker-compose.yml mit dem neuen Schlüssel, um eine erneute Registrierung beim Container-Neustart zu verhindern:",
+        "description": "Ihr konfigurierter API-Schlüssel wurde von CrowdSec LAPI abgelehnt. Charon hat einen neuen Schlüssel erzeugt, gespeichert und verwendet ihn jetzt, um den Schutz wiederherzustellen.",
+        "instructions": "Entfernen Sie die alte CrowdSec-Schlüsselvariable aus der docker-compose.yml. Wenn Sie eine behalten möchten, setzen Sie sie auf diesen Schlüssel:",
         "copyButton": "Kopieren",
         "copied": "Schlüssel in Zwischenablage kopiert",
-        "restartNote": "Nach der Aktualisierung der docker-compose.yml starten Sie den Container neu, damit die Änderung wirksam wird."
+        "restartNote": "Ein Neustart ist nicht nötig: Charon verwendet diesen Schlüssel bereits."
       },
       "tabs": {
         "config": "Konfiguration",
@@ -578,7 +587,9 @@
       },
       "docsLink": "Mehr dazu in der Dokumentation",
       "loadError": "Der Status des Anmeldeschutzes konnte nicht geladen werden."
-    }
+    },
+    "settingUpdated": "Sicherheitseinstellung aktualisiert",
+    "settingUpdateFailed": "Einstellung konnte nicht aktualisiert werden: {{error}}"
   },
   "accessLists": {
     "title": "Zugriffslisten",
@@ -1765,7 +1776,10 @@
         "body": "{{ip}} von der Whitelist entfernen? CrowdSec kann diese IP dann blockieren, wenn sie Warnungen auslöst.",
         "submit": "Entfernen"
       },
-      "addFailed": "Eintrag konnte nicht hinzugefügt werden"
+      "addFailed": "Eintrag konnte nicht hinzugefügt werden",
+      "added": "Whitelist-Eintrag hinzugefügt",
+      "removed": "Whitelist-Eintrag entfernt",
+      "removeFailed": "Eintrag konnte nicht entfernt werden"
     },
     "toasts": {
       "fileSaved": "Datei gespeichert",
@@ -1811,7 +1825,8 @@
       "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut.",
       "requestTooLarge": "Die Anfrage war zu groß. Kürzen Sie den Text und versuchen Sie es erneut."
     },
-    "busy": "CrowdSec ist gerade mit der Installation eines Presets beschäftigt. Versuchen Sie es erneut, wenn sie abgeschlossen ist."
+    "busy": "CrowdSec ist gerade mit der Installation eines Presets beschäftigt. Versuchen Sie es erneut, wenn sie abgeschlossen ist.",
+    "busyOther": "CrowdSec schließt gerade eine andere Änderung ab. Versuchen Sie es in Kürze erneut."
   },
   "smtp": {
     "title": "E-Mail (SMTP) Einstellungen",

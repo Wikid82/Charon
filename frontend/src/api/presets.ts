@@ -225,16 +225,6 @@ export function getApplyJobErrorCode(err: unknown): CrowdsecApplyJobApiErrorCode
 }
 
 /**
- * Reads the id of the job behind a `crowdsec_busy` refusal.
- * @returns The job id, or undefined when the server named none
- */
-export function getCrowdsecBusyJobId(err: unknown): string | undefined {
-  if (!isAxiosError<{ job_id?: unknown }>(err)) return undefined
-  const id = err.response?.data?.job_id
-  return typeof id === 'string' && id !== '' ? id : undefined
-}
-
-/**
  * Starts installing a hub preset as a background job.
  * @returns The queued job (HTTP 202)
  * @throws {AxiosError} 409 `crowdsec_busy` while another install or a data change runs

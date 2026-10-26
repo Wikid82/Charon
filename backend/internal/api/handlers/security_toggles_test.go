@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -14,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/testutil/gormfault"
 )
 
 func setupToggleTest(t *testing.T) (*SecurityHandler, *gorm.DB) {
@@ -246,4 +249,80 @@ func TestSecurityToggles_RollbackSettingWhenApplyFails(t *testing.T) {
 	var setting models.Setting
 	require.NoError(t, db.Where("key = ?", "security.waf.enabled").First(&setting).Error)
 	assert.Equal(t, "false", setting.Value)
+}
+
+// newFailingApplyWAFToggle builds a WAF toggle whose Caddy apply always fails, so the handler must roll back.
+// The WAF setting exists as false and the default row is off, so the rollback has state to restore.
+func newFailingApplyWAFToggle(t *testing.T) (*SecurityHandler, *gorm.DB) {
+	t.Helper()
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: false}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.waf.enabled", Value: "false", Category: "security", Type: "bool"}).Error)
+
+	manager := caddy.NewManager(
+		caddy.NewClient("http://127.0.0.1:65535"),
+		db,
+		t.TempDir(),
+		t.TempDir(),
+		false,
+		config.SecurityConfig{},
+	)
+	h := NewSecurityHandler(config.SecurityConfig{}, db, manager)
+	t.Cleanup(h.Close)
+	return h, db
+}
+
+// patchWAFEnable sends the enable request through PatchWAF and returns the recorded response.
+func patchWAFEnable(t *testing.T, h *SecurityHandler) *httptest.ResponseRecorder {
+	t.Helper()
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PATCH", "/api/v1/security/waf", strings.NewReader(`{"enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Set("role", "admin")
+	h.PatchWAF(c)
+	return w
+}
+
+// captureLogrusOutput routes the logrus standard logger, which the security handlers write to, into a buffer
+// for the rest of the test.
+func captureLogrusOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	previous := log.StandardLogger().Out
+	log.SetOutput(buf)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	return buf
+}
+
+// When the apply fails and the default row cannot be restored either, the failure is logged and the response is
+// still a 500 with the setting rolled back. Statements on security_configs before the restore are the framework
+// enable only, so the second update is the restore.
+func TestSecurityToggles_LogsWhenDefaultRowRestoreFailsAfterApplyFailure(t *testing.T) {
+	h, db := newFailingApplyWAFToggle(t)
+	gormfault.InjectNth(t, db, gormfault.Update, "security_configs", 2, nil)
+	logs := captureLogrusOutput(t)
+
+	w := patchWAFEnable(t, h)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, logs.String(), "Failed to restore security config after security module toggle apply failure")
+	var setting models.Setting
+	require.NoError(t, db.Where("key = ?", "security.waf.enabled").First(&setting).Error)
+	assert.Equal(t, "false", setting.Value)
+}
+
+// When the apply fails and the settings snapshot cannot be restored, the failure is logged and the response is
+// still a 500. The second settings update is the restore of the WAF setting (the first is the toggle write).
+func TestSecurityToggles_LogsWhenSettingsRestoreFailsAfterApplyFailure(t *testing.T) {
+	h, db := newFailingApplyWAFToggle(t)
+	gormfault.InjectNth(t, db, gormfault.Update, "settings", 2, nil)
+	logs := captureLogrusOutput(t)
+
+	w := patchWAFEnable(t, h)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, logs.String(), "Failed to restore settings after security module toggle apply failure")
 }

@@ -30,10 +30,19 @@ Key capabilities:
 ### Enabling CrowdSec
 
 1. Navigate to **Settings → Security**
-2. Toggle **CrowdSec Protection** to enabled
-3. CrowdSec starts automatically and persists across container restarts
+2. Toggle **CrowdSec Protection** on. Charon starts CrowdSec and updates your proxy right away. You do not need to restart Charon.
+3. CrowdSec starts automatically after a container restart too, as long as it was turned on
 
+To turn CrowdSec off, switch **CrowdSec Protection** off. Charon stops it and updates the proxy right away.
+
+Turning CrowdSec on also turns on the Security framework, the same way the other security modules do.
 No environment variables or manual configuration required.
+
+**What to expect:**
+
+- The switch on the Security page, your saved CrowdSec setting and the CrowdSec engine stay in step.
+- CrowdSec joins your proxy only once a bouncer key exists. Charon creates that key automatically the first time CrowdSec starts. If no key exists yet, the proxy leaves CrowdSec out and Charon writes a warning to the log.
+- If the proxy update fails after you turn CrowdSec on or off, the Security page still shows the engine's real state and the log has a warning. Switch CrowdSec off and on again to retry.
 
 > **Admin only.** Enabling, disabling, and managing CrowdSec — bans, bouncer
 > keys, rulesets, and configuration — requires an administrator account. Standard
@@ -48,7 +57,7 @@ Access pre-built security configurations from the CrowdSec Hub:
 3. Search for specific parsers, scenarios, or collections
 4. Click **Install** to add to your configuration
 
-Hub presets are installed in two steps. First click **Pull** to download and preview the preset (a pulled preview can be shown again without downloading it again, and pulling a preset without picking a section reuses a recently fetched hub list for 10 minutes when only one section is saved on the server). Then click **Apply** to install exactly what you previewed, using the `cscli` tool that ships with Charon (it also installs anything the preset depends on). If the preview has gone out of date, Charon asks you to pull the preset again. Most installs finish in a few seconds. Large presets install in the background (see below) with a 30 minute limit; a quick install that does not finish within 120 seconds is stopped, rolled back, and your preview is kept. You can apply an already-downloaded preview without internet access if its items are already on the server; otherwise the apply fails and is rolled back, and pulling a preset you never downloaded needs internet access. If a name exists in more than one hub section (for example a parser and a collection with the same name), Charon asks you to choose which one you mean. If the hub cannot be reached, nothing is installed and Charon says so. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#hub-preset-messages) if you see a message.
+Hub presets are installed in two steps. First click **Pull** to download and preview the preset (a pulled preview can be shown again without downloading it again, and pulling a preset without picking a section reuses a recently fetched hub list for 10 minutes when only one section is saved on the server). Then click **Apply** to install exactly what you previewed, using the `cscli` tool that ships with Charon (it also installs anything the preset depends on). If the preview has gone out of date, Charon asks you to pull the preset again. Most installs finish in a few seconds. Large presets install in the background (see below) with a 30 minute limit; a quick install that does not finish within 120 seconds is stopped, rolled back, and your preview is kept. You can apply an already-downloaded preview without internet access if its items are already on the server; otherwise the apply fails and is rolled back, and pulling a preset you never downloaded needs internet access. If a name exists in more than one hub section (for example a parser and a collection with the same name), Charon asks you to choose which one you mean. If the hub cannot be reached, nothing is installed and Charon says so. Charon also checks each downloaded item against the hub's index to catch incomplete or inconsistent updates before keeping it; if an item does not match, Charon refuses it and asks you to try again later. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#hub-preset-messages) if you see a message.
 
 Popular presets include:
 
@@ -79,7 +88,8 @@ Hub presets are applied on the server too, with the same safety net: before anyt
 
 - The backup taken before a hub preset is applied is a light one: it does not copy CrowdSec's downloaded hub files, so it stays small and quick however large the hub grows. If the apply fails, your settings are put back and any hub files the failed apply added are removed.
 - Charon keeps the 5 most recent full backups and the 10 most recent single-file backups, and quietly deletes older ones. Backups of your acquisition settings (`acquis.yaml.backup.<timestamp>`) are kept to the latest 5 as well.
-- Only one change runs at a time, so two edits can't collide.
+- If an automatic restore fails too, Charon keeps that backup for manual recovery. It stays protected for 7 days. After that, only the newest 3 kept backups stay protected, and older ones become eligible for normal cleanup. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#common-issues) for where to find them and how to release one for cleanup sooner.
+- A preset install never runs alongside another CrowdSec change. If you start a preset install while another CrowdSec change is still finishing, you will see "CrowdSec is finishing another change. Try again in a moment." A preset install in progress still shows the "busy installing" message instead.
 - The config file editor only accepts common text and settings files (`.yaml`, `.yml`, `.json`, `.txt`, `.conf`) up to 1 MiB, and validates file type, size and YAML. Extremely large or deeply nested YAML files are refused with an "invalid YAML" message.
 - The config file editor does not list CrowdSec's account and connection credential files. They stay safely on disk; an operator can still reach them from the container shell if needed.
 - An exported CrowdSec configuration is meant for moving settings, not for sharing. CrowdSec's account and connection details are not included. In the main `config.yaml` (and `config.yaml.local`), database passwords and other credentials, such as the database user and the automatic registration token, are blanked the same way. This is a best-effort list of known credential settings: any setting whose name ends in `password`, `passwd`, `secret`, `token`, `secret_key`, `apikey`, `api_key` or `private_key`, or contains `_password` or `_token`, is blanked, except settings that only point to a credential (names ending in `_path`, `_file` or `_dir`) or limit its use (such as `tokens_per_minute`). Credentials stored under other names are not recognised, so review the file before sharing it. If you import the export on the same server, the blanked values are put back from the file it replaces; on another host they stay blank and the import card lists the file as one that still needs values. In your notification files, passwords, tokens and webhook addresses are blanked and replaced with `<charon-redacted>`, while names, types and other plain settings stay readable. Settings written as `${NAME}` environment references are kept as they are, comments in notification files are not kept, and stray non-YAML files (such as `.bak` or `.txt`) in a notifications folder are left out. Database settings and anything else in the configuration are still included, so keep treating the file as private. When you import one, your running system keeps its own. Its installed hub items and runtime state stay as they are, so an import cannot remove or change them. An exported configuration no longer contains the downloaded hub data; CrowdSec downloads it again when needed. CrowdSec re-creates its local connection details on its own. If you move to a new host and use community blocklists or the CrowdSec Console, re-enable console enrollment there.
@@ -95,7 +105,7 @@ Hub presets are applied on the server too, with the same safety net: before anyt
 - Installing missing hub items now reports an error if CrowdSec's list of installed items cannot be read, and says what was already installed. Trying again is safe. Configuration changes also stop waiting if you cancel or close the request.
 - The export and import messages are translated into your language.
 - The CrowdSec import accepts only `.tar.gz` archives and checks that the main configuration file is valid YAML before applying anything. If it isn't, Charon tells you what's wrong, for example `config.yaml is not valid YAML` or `only .tar.gz archives are supported`.
-- Backups are shown by name and are stored next to the CrowdSec data folder (for example `/app/data/`). Full snapshots are named `crowdsec.backup.<timestamp>`, single-file saves `crowdsec.filebackup.<timestamp>`. Saved acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file instead. To recover by hand, stop CrowdSec, copy the backup you want back into place, and start it again.
+- Backups are shown by name and are stored next to the CrowdSec data folder (for example `/app/data/`). Full snapshots are named `crowdsec.backup.<timestamp>`, single-file saves `crowdsec.filebackup.<timestamp>`. Saved acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file instead. If Charon cannot keep the acquisition file's original owner, it saves the file as the Charon user. To recover by hand, stop CrowdSec, copy the backup you want back into place, and start it again.
 
 ### Console Enrollment
 
@@ -155,7 +165,30 @@ The bouncer key is the password Charon's built-in firewall layer uses to talk to
 
 **Where it lives:** Charon saves the key in a private file at `/app/data/crowdsec/bouncer_key` inside your data folder (readable only by Charon).
 
-**Which key Charon uses:** If that saved file exists, Charon uses it. Only when there is no saved file does Charon fall back to a key you set in your compose file's environment variables. Changing the environment variable does not switch a running setup away from the saved file.
+**Which key Charon uses (in order):**
+
+1. **The saved key file.** If it exists and CrowdSec still accepts it, Charon uses it. This always wins.
+2. **A key you set in your compose file.** Charon uses it only when there is no working saved key. Charon then saves it to the file, so it is kept after restarts.
+3. **Otherwise,** Charon registers a new key with CrowdSec and saves it.
+
+If you set a key in your compose file, use one of these variable names. Charon checks them in this order and uses the first one that is set:
+
+1. `CHARON_SECURITY_CROWDSEC_API_KEY` (recommended)
+2. `CROWDSEC_API_KEY`
+3. `CROWDSEC_BOUNCER_API_KEY`
+4. `CERBERUS_SECURITY_CROWDSEC_API_KEY`
+5. `CPM_SECURITY_CROWDSEC_API_KEY`
+
+**Changing the key through your compose file:** changing the variable alone does not replace a saved key that still works. To switch to the key in your variable, do both of these:
+
+1. Change the variable in your compose file.
+2. Delete the saved key file (see "Replace the key" below), or revoke the old key in CrowdSec.
+
+**Using a single key file:** you can mount one key file into the container (for example, a single file from your computer). Charon then saves the key by writing into that file directly, and it sets the file's permissions to private (`0600`). If your system does not allow that, Charon writes the key anyway and logs a warning.
+
+**Symlinks:** if `bouncer_key` is a shortcut (a symlink) to another file, the next save replaces the shortcut with a normal private file. The file the shortcut pointed to is not changed.
+
+**If Charon cannot save the key:** Charon writes an error to the log, and it does not keep the key anywhere else. Blocking may not work until the key file can be written. To fix it, give Charon write access to the data folder, then restart CrowdSec.
 
 **See it in the UI:** Open the CrowdSec page and look at the **Bouncer API Key** card. It shows a shortened preview of the key, whether it is registered, and where the file is stored.
 

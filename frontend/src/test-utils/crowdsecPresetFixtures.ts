@@ -8,8 +8,8 @@ export interface HubPresetFixture {
 /** Hub-sourced preset fixtures (previews come from the hub pull, not the frontend). */
 export const HUB_PRESET_FIXTURES: HubPresetFixture[] = [
   {
-    slug: 'bot-mitigation-essentials',
-    title: 'Bot Mitigation Essentials',
+    slug: 'crowdsecurity/sshd',
+    title: 'SSH Brute-Force Protection',
     description: 'Core HTTP parsers and scenarios aimed at credential stuffing, scanners, and bad crawlers.',
     content: `configs:
   collections:

@@ -5,6 +5,8 @@ services:
     # Override for local testing:
     # CHARON_DEV_IMAGE=ghcr.io/wikid82/charon:dev
     image: wikid82/charon:dev
+    # Time for Charon's graceful shutdown (job drain, server stop) before docker sends SIGKILL.
+    stop_grace_period: 30s
     # Development: expose Caddy admin API externally for debugging
     ports:
       - "80:80"

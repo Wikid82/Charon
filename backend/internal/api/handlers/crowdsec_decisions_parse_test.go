@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -189,10 +190,13 @@ func TestParseCSCLIDecisions_Truncation(t *testing.T) {
 
 // A flood of tiny rows must be read one row at a time: the heap stays far below what holding every row would
 // take (hundreds of MiB for this input if the whole document were decoded first). Not parallel, so no other
-// test allocates while it measures.
+// test allocates while it measures. HeapAlloc counts uncollected garbage, and the default GC lets the heap grow
+// by the live heap before collecting; in a long package run that live heap is large enough to blow the limit
+// on its own, so the GC is made aggressive for the measurement.
 func TestParseCSCLIDecisions_TinyRowFloodStaysBounded(t *testing.T) {
 	const rows = 1_000_000
 	in := []byte("[" + strings.Repeat("{},", rows) + "{}]")
+	defer debug.SetGCPercent(debug.SetGCPercent(10))
 
 	var base runtime.MemStats
 	runtime.GC()

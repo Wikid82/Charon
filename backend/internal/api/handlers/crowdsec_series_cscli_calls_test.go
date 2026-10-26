@@ -86,7 +86,7 @@ func TestBouncerCalls_PassTheConfigFile(t *testing.T) {
 		ex := &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return []byte(strings.Repeat("k", 32)), nil }}
 		h := pr4Handler(t, ex, dir)
 
-		_, _ = h.registerAndSaveBouncer(context.Background())
+		_, _ = h.registerBouncer(context.Background())
 
 		require.NotZero(t, ex.callCount())
 		ex.mu.Lock()

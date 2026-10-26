@@ -15,16 +15,33 @@ var secretNames = map[string]struct{}{
 }
 
 // IsSecretPath reports whether rel (a slash- or OS-separated path relative to DataDir) names a stored
-// secret, including the bouncers/ directory. Matching is case-insensitive and exact (near-miss names
-// such as "bouncer_key.bak" are not secrets). Any path component may match, so entries beneath a directory named like a secret are
-// covered as well.
+// secret, including the bouncers/ directory. Matching is case-insensitive. A secret name matches exactly, or
+// with a temporary-file suffix: "<name>.tmp" and "<name>.tmp-*", which the atomic key and file writers
+// leave behind after a crash (see isSecretName). Near-miss names such as "bouncer_key.bak" or
+// "bouncer_key.tmpx" are not secrets. Any path component may match, so entries beneath a directory named
+// like a secret are covered as well.
 func IsSecretPath(rel string) bool {
 	slash := strings.ToLower(filepath.ToSlash(filepath.Clean(rel)))
 	if isBouncersDir(slash) {
 		return true
 	}
 	for _, part := range strings.Split(slash, "/") {
-		if _, ok := secretNames[part]; ok {
+		if isSecretName(part) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSecretName reports whether a lowercase path component is a secret name or one of its temporary files.
+// A temporary file is "<name>.tmp" or "<name>.tmp-<suffix>" (the os.CreateTemp pattern of the writers).
+func isSecretName(part string) bool {
+	if _, ok := secretNames[part]; ok {
+		return true
+	}
+	for name := range secretNames {
+		rest, ok := strings.CutPrefix(part, name+".tmp")
+		if ok && (rest == "" || strings.HasPrefix(rest, "-")) {
 			return true
 		}
 	}

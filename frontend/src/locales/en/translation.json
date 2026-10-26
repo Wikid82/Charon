@@ -411,6 +411,15 @@
       "processStopped": "Process stopped",
       "starting": "Starting...",
       "toggleTooltip": "Toggle CrowdSec protection",
+      "startFailed": "Failed to start CrowdSec: {{error}}",
+      "stopFailed": "Failed to stop CrowdSec: {{error}}",
+      "startingToast": "Starting CrowdSec... This may take up to 30 seconds",
+      "startVerifyFailed": "CrowdSec process failed to start. Check server logs for details.",
+      "stopVerifyFailed": "CrowdSec process still running. Check server logs for details.",
+      "startedLapiReady": "CrowdSec started and LAPI is ready",
+      "startedLapiInitializing": "CrowdSec started but LAPI is still initializing. Please wait before enrolling.",
+      "started": "CrowdSec started",
+      "stopped": "CrowdSec stopped",
       "bouncerApiKey": "Bouncer API Key",
       "keyCopied": "API key copied to clipboard",
       "copyFailed": "Failed to copy API key",
@@ -422,11 +431,11 @@
       "keyStoredAt": "Key stored at",
       "keyWarning": {
         "title": "CrowdSec API Key Updated",
-        "description": "Your configured API key was rejected by CrowdSec LAPI. A new key has been automatically generated to restore protection.",
-        "instructions": "Update your docker-compose.yml with the new key to prevent re-registration on container restart:",
+        "description": "Your configured API key was rejected by CrowdSec LAPI. Charon generated a new key, saved it, and uses it now to restore protection.",
+        "instructions": "Remove the old CrowdSec key variable from docker-compose.yml. If you want to keep one, set it to this key:",
         "copyButton": "Copy",
         "copied": "Key copied to clipboard",
-        "restartNote": "After updating docker-compose.yml, restart the container for the change to take effect."
+        "restartNote": "No restart is needed: Charon already uses this key."
       },
       "tabs": {
         "config": "Configuration",
@@ -583,7 +592,9 @@
       },
       "docsLink": "Learn more in the documentation",
       "loadError": "Login protection status could not be loaded."
-    }
+    },
+    "settingUpdated": "Security setting updated",
+    "settingUpdateFailed": "Failed to update setting: {{error}}"
   },
   "accessLists": {
     "title": "Access Lists",
@@ -1770,7 +1781,10 @@
         "body": "Remove {{ip}} from the whitelist? CrowdSec may then block this IP if it triggers alerts.",
         "submit": "Remove"
       },
-      "addFailed": "Failed to add entry"
+      "addFailed": "Failed to add entry",
+      "added": "Whitelist entry added",
+      "removed": "Whitelist entry removed",
+      "removeFailed": "Failed to remove entry"
     },
     "toasts": {
       "fileSaved": "File saved",
@@ -1816,7 +1830,8 @@
       "timeout": "CrowdSec did not answer in time. Try again.",
       "requestTooLarge": "The request was too large. Shorten the text and try again."
     },
-    "busy": "CrowdSec is busy installing a preset. Try again when it finishes."
+    "busy": "CrowdSec is busy installing a preset. Try again when it finishes.",
+    "busyOther": "CrowdSec is finishing another change. Try again in a moment."
   },
   "smtp": {
     "title": "Email (SMTP) Settings",

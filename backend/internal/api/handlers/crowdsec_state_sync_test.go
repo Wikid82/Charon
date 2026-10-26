@@ -69,7 +69,7 @@ func TestStartSyncsSettingsTable(t *testing.T) {
 
 	// Also verify SecurityConfig was updated
 	var cfg models.SecurityConfig
-	err = db.First(&cfg).Error
+	err = db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 	require.NoError(t, err, "expected SecurityConfig to exist")
 	require.Equal(t, "local", cfg.CrowdSecMode)
 	require.True(t, cfg.Enabled)
@@ -137,10 +137,10 @@ func TestStopSyncsSettingsTable(t *testing.T) {
 
 	// Also verify SecurityConfig was updated
 	var cfg models.SecurityConfig
-	err = db.First(&cfg).Error
+	err = db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 	require.NoError(t, err)
 	require.Equal(t, "disabled", cfg.CrowdSecMode)
-	require.False(t, cfg.Enabled)
+	require.True(t, cfg.Enabled, "Stop must leave the global security switch untouched")
 }
 
 // TestStartAndStopStateConsistency verifies consistent state across Start/Stop cycles.
@@ -193,7 +193,7 @@ func TestStartAndStopStateConsistency(t *testing.T) {
 		require.Equal(t, "true", setting.Value, "cycle %d: setting should be true after start", i)
 
 		var cfg models.SecurityConfig
-		err = db.First(&cfg).Error
+		err = db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 		require.NoError(t, err, "cycle %d: config should exist after start", i)
 		require.Equal(t, "local", cfg.CrowdSecMode, "cycle %d: mode should be local after start", i)
 
@@ -208,7 +208,7 @@ func TestStartAndStopStateConsistency(t *testing.T) {
 		require.NoError(t, err, "cycle %d: setting should exist after stop", i)
 		require.Equal(t, "false", setting.Value, "cycle %d: setting should be false after stop", i)
 
-		err = db.First(&cfg).Error
+		err = db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 		require.NoError(t, err, "cycle %d: config should exist after stop", i)
 		require.Equal(t, "disabled", cfg.CrowdSecMode, "cycle %d: mode should be disabled after stop", i)
 	}

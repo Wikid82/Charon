@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { HubItem, ImportHubItems, RestoreHubItemsResult } from '../../api/crowdsec'
+import { crowdsecBusyMessage } from '../../api/errorBody'
 import { useRestoreHubItems } from '../../hooks/useCrowdsecHubItems'
 import { Button } from '../ui/Button'
 
@@ -44,7 +45,10 @@ export default function HubItemsRestorePanel({ hubItems }: HubItemsRestorePanelP
   const status = restore.error && isAxiosError(restore.error) ? restore.error.response?.status : undefined
   let errorMessage: string | null = null
   if (restore.isError) {
-    if (status === 502) errorMessage = t('crowdsecConfig.hubItems.errors.hubUnreachable')
+    // Checked before the status: a 409 from a running install is not a restore conflict.
+    const busy = crowdsecBusyMessage(restore.error, t)
+    if (busy) errorMessage = busy
+    else if (status === 502) errorMessage = t('crowdsecConfig.hubItems.errors.hubUnreachable')
     else if (status === 409) errorMessage = t('crowdsecConfig.hubItems.errors.alreadyRunning')
     else errorMessage = t('crowdsecConfig.hubItems.errors.generic')
   }

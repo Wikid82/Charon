@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,11 +13,16 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
+
+// crowdSecVerifyWait is the settle time after a successful Start before reconciliation checks that the process is
+// still running. Production keeps the 2s wait; tests shorten it through a serial-only helper.
+var crowdSecVerifyWait = 2 * time.Second
 
 // reconcileLock prevents concurrent reconciliation calls.
 // This mutex is necessary because reconciliation can be triggered from multiple sources:
@@ -56,9 +62,8 @@ type CrowdsecProcessManager interface {
 // 4. HTTP server starts
 // 5. Routes registered
 //
-// Auto-start conditions (if ANY true, CrowdSec starts):
-// - SecurityConfig.crowdsec_mode == "local"
-// - Settings["security.crowdsec.enabled"] == "true"
+// Auto-start condition: the CrowdSec decision of models.CrowdSecEnabled is on. The enabled setting wins, then the
+// deprecated mode setting, then SecurityConfig.crowdsec_mode == "local".
 //
 // cmdExec is optional; if nil, a real command executor will be used for bouncer registration.
 // Tests should pass a mock to avoid executing real cscli commands.
@@ -87,87 +92,58 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		return
 	}
 
-	var cfg models.SecurityConfig
-	if err := db.First(&cfg).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// AUTO-INITIALIZE: Create default SecurityConfig by checking Settings table
-			logger.Log().Info("CrowdSec reconciliation: no SecurityConfig found, checking Settings table for user preference")
+	// Repair legacy-named rows before reading the default row, so the check below never acts on a stale copy.
+	// Routes migration and seeding run after this function, so this call is needed on the first boot after upgrade.
+	if repairErr := models.RepairDefaultSecurityConfigName(db); repairErr != nil {
+		logger.Log().WithError(repairErr).Warn("CrowdSec reconciliation: failed to repair default SecurityConfig name, continuing")
+	}
 
-			// Check if user has already enabled CrowdSec via Settings table (from toggle or legacy config)
-			var settingOverride struct{ Value string }
-			crowdSecEnabledInSettings := false
-			if rawErr := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; rawErr == nil && settingOverride.Value != "" {
-				crowdSecEnabledInSettings = strings.EqualFold(settingOverride.Value, "true")
-				logger.Log().WithFields(map[string]any{
-					"setting_value": settingOverride.Value,
-					"enabled":       crowdSecEnabledInSettings,
-				}).Info("CrowdSec reconciliation: found existing Settings table preference")
-			}
-
-			// Create SecurityConfig that matches Settings table state
-			crowdSecMode := "disabled"
-			if crowdSecEnabledInSettings {
-				crowdSecMode = "local"
-			}
-
-			defaultCfg := models.SecurityConfig{
-				UUID:               "default",
-				Name:               "Default Security Config",
-				Enabled:            true, // Cerberus enabled by default; users can disable via "break glass" toggle
-				CrowdSecMode:       crowdSecMode,
-				WAFMode:            "disabled",
-				WAFParanoiaLevel:   1,
-				RateLimitMode:      "disabled",
-				RateLimitBurst:     10,
-				RateLimitRequests:  100,
-				RateLimitWindowSec: 60,
-			}
-
-			if createErr := db.Create(&defaultCfg).Error; createErr != nil {
-				logger.Log().WithError(createErr).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
-				return
-			}
-
-			logger.Log().WithFields(map[string]any{
-				"crowdsec_mode": defaultCfg.CrowdSecMode,
-				"enabled":       defaultCfg.Enabled,
-				"source":        "settings_table",
-			}).Info("CrowdSec reconciliation: default SecurityConfig created from Settings preference")
-
-			// Continue to process the config (DON'T return early)
-			cfg = defaultCfg
-		} else {
-			logger.Log().WithError(err).Warn("CrowdSec reconciliation: failed to read SecurityConfig")
+	cfg, findErr := models.FindDefaultSecurityConfig(db)
+	if findErr != nil {
+		if !errors.Is(findErr, gorm.ErrRecordNotFound) {
+			logger.Log().WithError(findErr).Warn("CrowdSec reconciliation: failed to read SecurityConfig")
 			return
 		}
+		// AUTO-INITIALIZE: seed the default row, then match its mode to the Settings table preference.
+		logger.Log().Info("CrowdSec reconciliation: no default SecurityConfig found, checking Settings table for user preference")
+		seeded, seedErr := models.SeedDefaultSecurityConfig(db)
+		if seedErr != nil {
+			logger.Log().WithError(seedErr).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
+			return
+		}
+		cfg = *seeded
+
+		var settingOverride struct{ Value string }
+		if rawErr := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; rawErr == nil && settingOverride.Value != "" {
+			logger.Log().WithFields(map[string]any{
+				"setting_value": settingOverride.Value,
+				"enabled":       strings.EqualFold(settingOverride.Value, "true"),
+			}).Info("CrowdSec reconciliation: found existing Settings table preference")
+			if strings.EqualFold(settingOverride.Value, "true") && cfg.CrowdSecMode != "local" {
+				if updErr := db.Model(&cfg).Update("crowd_sec_mode", "local").Error; updErr != nil {
+					logger.Log().WithError(updErr).Error("CrowdSec reconciliation: failed to set crowd_sec_mode from Settings preference")
+					return
+				}
+				cfg.CrowdSecMode = "local"
+			}
+		}
+
+		logger.Log().WithFields(map[string]any{
+			"crowdsec_mode": cfg.CrowdSecMode,
+			"source":        "settings_table",
+		}).Info("CrowdSec reconciliation: default SecurityConfig created from Settings preference")
 	}
 
-	// Also check for runtime setting override in settings table
-	var settingOverride struct{ Value string }
-	crowdSecEnabled := false
-	if err := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; err == nil && settingOverride.Value != "" {
-		crowdSecEnabled = strings.EqualFold(settingOverride.Value, "true")
-		logger.Log().WithFields(map[string]any{
-			"setting_value":    settingOverride.Value,
-			"crowdsec_enabled": crowdSecEnabled,
-		}).Debug("CrowdSec reconciliation: found runtime setting override")
+	// Decide with the same setting/row precedence the proxy config and the status endpoint use.
+	crowdSecEnabled, crowdSecErr := models.CrowdSecEnabled(db, cfg)
+	if crowdSecErr != nil {
+		logger.Log().WithError(crowdSecErr).Warn("CrowdSec reconciliation: failed to read CrowdSec setting, using the default SecurityConfig row")
 	}
-
-	// Only auto-start if CrowdSecMode is "local" OR runtime setting is enabled
-	if cfg.CrowdSecMode != "local" && !crowdSecEnabled {
-		logger.Log().WithFields(map[string]any{
-			"db_mode":         cfg.CrowdSecMode,
-			"setting_enabled": crowdSecEnabled,
-		}).Info("CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled")
+	if !crowdSecEnabled {
+		logger.Log().WithField("crowdsec_mode", cfg.CrowdSecMode).Info("CrowdSec reconciliation skipped: CrowdSec is disabled by the setting or the default SecurityConfig row")
 		return
 	}
-
-	// Log which source triggered the start
-	if cfg.CrowdSecMode == "local" {
-		logger.Log().WithField("mode", cfg.CrowdSecMode).Info("CrowdSec reconciliation: starting based on SecurityConfig mode='local'")
-	} else if crowdSecEnabled {
-		logger.Log().WithField("setting", "true").Info("CrowdSec reconciliation: starting based on Settings table override")
-	}
+	logger.Log().WithField("crowdsec_mode", cfg.CrowdSecMode).Info("CrowdSec reconciliation: starting, CrowdSec is enabled by the setting or the default SecurityConfig row")
 
 	// VALIDATE: Ensure binary exists
 	if _, err := os.Stat(binPath); os.IsNotExist(err) {
@@ -222,7 +198,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 	}
 
 	// VERIFY: Wait briefly and confirm process is actually running
-	time.Sleep(2 * time.Second)
+	time.Sleep(crowdSecVerifyWait)
 
 	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer verifyCancel()
@@ -262,11 +238,14 @@ type CommandExecutor interface {
 	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
-const defaultBouncerKeyFile = "/app/data/crowdsec/bouncer_key"
+const defaultBouncerKeyFile = bouncerkey.DefaultFile
+
+// startupBouncerName is the bouncer registered with LAPI at startup.
+const startupBouncerName = "caddy-bouncer"
 
 // ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
 // This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
-// Priority: Validates env var key, then checks file, then auto-generates new key if needed.
+// Priority: a valid saved key wins, then a valid env key is saved, then a new key is registered.
 func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor) error {
 	return ensureBouncerRegistration(dataDir, defaultBouncerKeyFile, cmdExec)
 }
@@ -274,11 +253,13 @@ func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor)
 // ensureBouncerRegistration implements ensureBouncerRegistrationOnStartup with an explicit key-file path.
 func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandExecutor) error {
 	const (
-		bouncerName  = "caddy-bouncer"
 		maxLAPIWait  = 30 * time.Second
 		pollInterval = 1 * time.Second
 	)
 	bouncerKeyFile = filepath.Clean(bouncerKeyFile)
+
+	// Every cscli call below reads the same engine configuration as the running engine (empty when none is found).
+	configPath := crowdsec.FindConfigFile(dataDir)
 
 	// Wait for LAPI to be ready (poll cscli lapi status)
 	logger.Log().Info("CrowdSec bouncer registration: waiting for LAPI to be ready...")
@@ -287,11 +268,7 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 
 	for time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		args := []string{"lapi", "status"}
-		if _, err := os.Stat(filepath.Join(dataDir, "config.yaml")); err == nil {
-			args = append([]string{"-c", filepath.Join(dataDir, "config.yaml")}, args...)
-		}
-		_, err := cmdExec.Execute(ctx, "cscli", args...)
+		_, err := crowdsec.RunCSCLI(ctx, cmdExec, configPath, "lapi", "status")
 		cancel()
 
 		if err == nil {
@@ -307,103 +284,108 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 		return fmt.Errorf("LAPI not ready within timeout %v", maxLAPIWait)
 	}
 
-	// Priority 1: Check environment variable key
-	envKey := getBouncerAPIKeyFromEnvStartup()
-	if envKey != "" {
-		if testKeyAgainstLAPIStartup(envKey) {
-			logger.Log().WithField("source", "environment_variable").WithField("masked_key", util.MaskAPIKey(envKey)).Info("CrowdSec bouncer: env var key validated successfully")
-			return nil
+	// The shared decision: a valid saved key wins, then a valid env key is saved, then a new bouncer is registered.
+	// Startup runs before Caddy is created, so no Caddy re-apply is needed for any outcome.
+	register := func(ctx context.Context) (string, error) {
+		// Delete existing bouncer if present (stale registration)
+		delCtx, delCancel := context.WithTimeout(ctx, 5*time.Second)
+		_, _ = crowdsec.RunCSCLI(delCtx, cmdExec, configPath, "bouncers", "delete", startupBouncerName)
+		delCancel()
+
+		regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer regCancel()
+
+		output, err := crowdsec.RunCSCLI(regCtx, cmdExec, configPath, "bouncers", "add", startupBouncerName, "-o", "raw")
+		if err != nil {
+			logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Error("bouncer registration failed")
+			return "", fmt.Errorf("bouncer registration failed: %w", err)
 		}
-		logger.Log().WithField("masked_key", util.MaskAPIKey(envKey)).Warn(
-			"The configured CrowdSec API key was rejected by LAPI and will be ignored. " +
-				"A replacement key will be generated and saved to the key file.",
+
+		newKey := strings.TrimSpace(string(output))
+		if newKey == "" {
+			logger.Log().Error("bouncer registration returned empty key")
+			return "", fmt.Errorf("bouncer registration returned empty key")
+		}
+		return newKey, nil
+	}
+
+	res, err := bouncerkey.Ensure(context.Background(), bouncerKeyFile, startupKeyValid, register, crowdsec.SaveBouncerKey)
+	logStartupKeyDecision(res, bouncerKeyFile, err)
+	return err
+}
+
+// startupKeyValid tests a key against LAPI for the shared decision.
+func startupKeyValid(_ context.Context, key string) bool {
+	return testKeyAgainstLAPIStartup(key)
+}
+
+// rejectedEnvKeyLogMessage is the Warn text for a rejected key variable whose replacement was
+// registered. It claims the key file holds the key in use only when the save succeeded.
+func rejectedEnvKeyLogMessage(keyFile string, saveErr error) string {
+	if saveErr != nil {
+		return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " + bouncerkey.SaveFailedNotice(keyFile)
+	}
+	return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " +
+		"Charon uses the key file (permissions 0600); no action is required."
+}
+
+// rejectedEnvRegisterFailedLogMessage is the Warn text for a rejected key variable when no replacement
+// key could be registered, so nothing was saved.
+func rejectedEnvRegisterFailedLogMessage(keyFile string) string {
+	return "The configured CrowdSec API key was rejected by CrowdSec and is ignored. " + bouncerkey.RegisterFailedNotice(keyFile)
+}
+
+// logStartupKeyDecision reports the startup key decision. A failed save is logged at Error and does not
+// fail startup. Success lines are logged only for the outcome that really happened: a failed registration
+// (regErr) logs the rejection with the registration failure and no success line.
+func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr error) {
+	if res.SaveErr != nil {
+		logger.Log().WithError(res.SaveErr).WithField("key_file", keyFile).Error(
+			"CrowdSec bouncer: failed to save the key file; CrowdSec blocking may not work until the key file can be written",
 		)
 	}
-
-	// Priority 2: Check file-stored key
-	if fileKey, err := os.ReadFile(bouncerKeyFile); err == nil && len(fileKey) > 0 { // #nosec G304 -- bouncerKeyFile is the fixed key path chosen by the caller, cleaned above, never user input
-		keyStr := strings.TrimSpace(string(fileKey))
-		if testKeyAgainstLAPIStartup(keyStr) {
-			logger.Log().WithField("source", "file").WithField("file", bouncerKeyFile).WithField("masked_key", util.MaskAPIKey(keyStr)).Info("CrowdSec bouncer: file-stored key validated successfully")
-			return nil
+	if res.EnvKeyRejected {
+		fields := map[string]any{
+			"bouncer":    startupBouncerName,
+			"key_file":   keyFile,
+			"masked_key": util.MaskAPIKey(res.EnvKey),
 		}
-		logger.Log().WithField("file", bouncerKeyFile).Warn("File-stored key rejected by LAPI, will re-register")
+		if regErr != nil {
+			logger.Log().WithFields(fields).Warn(rejectedEnvRegisterFailedLogMessage(keyFile))
+		} else {
+			logger.Log().WithFields(fields).Warn(rejectedEnvKeyLogMessage(keyFile, res.SaveErr))
+		}
+	}
+	if regErr != nil {
+		return
 	}
 
-	// No valid key - register new bouncer
-	logger.Log().Info("CrowdSec bouncer registration: registering new bouncer with LAPI...")
-
-	// Delete existing bouncer if present (stale registration)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	_, _ = cmdExec.Execute(ctx, "cscli", "bouncers", "delete", bouncerName)
-	cancel()
-
-	// Register new bouncer
-	regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer regCancel()
-
-	output, err := cmdExec.Execute(regCtx, "cscli", "bouncers", "add", bouncerName, "-o", "raw")
-	if err != nil {
-		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Error("bouncer registration failed")
-		return fmt.Errorf("bouncer registration failed: %w", err)
+	switch res.Outcome {
+	case bouncerkey.OutcomeSavedKeyValid:
+		logger.Log().WithField("file", keyFile).Info("CrowdSec bouncer: file-stored key validated successfully")
+		if res.EnvKeyIgnored {
+			logger.Log().WithField("file", keyFile).Info("CrowdSec bouncer: a key variable is set but the saved key is in use")
+		}
+	case bouncerkey.OutcomeEnvKeySaved:
+		if res.SaveErr == nil {
+			logger.Log().WithFields(map[string]any{
+				"source":     "environment_variable",
+				"key_file":   keyFile,
+				"masked_key": util.MaskAPIKey(res.Key),
+			}).Info("CrowdSec bouncer: env var key validated and saved to key file")
+		}
+	case bouncerkey.OutcomeRegistered:
+		if res.SaveErr == nil {
+			logger.Log().WithFields(map[string]any{
+				"bouncer":    startupBouncerName,
+				"key_file":   keyFile,
+				"masked_key": util.MaskAPIKey(res.Key),
+			}).Info("CrowdSec bouncer: successfully registered and saved key")
+		}
 	}
-
-	newKey := strings.TrimSpace(string(output))
-	if newKey == "" {
-		logger.Log().Error("bouncer registration returned empty key")
-		return fmt.Errorf("bouncer registration returned empty key")
-	}
-
-	// Save key to file
-	keyDir := filepath.Dir(bouncerKeyFile)
-	if err := os.MkdirAll(keyDir, 0o750); err != nil {
-		logger.Log().WithError(err).WithField("dir", keyDir).Error("failed to create key directory")
-		return fmt.Errorf("failed to create key directory: %w", err)
-	}
-
-	if err := os.WriteFile(bouncerKeyFile, []byte(newKey), 0o600); err != nil {
-		logger.Log().WithError(err).WithField("file", bouncerKeyFile).Error("failed to save bouncer key")
-		return fmt.Errorf("failed to save bouncer key: %w", err)
-	}
-
-	logger.Log().WithFields(map[string]any{
-		"bouncer":    bouncerName,
-		"key_file":   bouncerKeyFile,
-		"masked_key": util.MaskAPIKey(newKey),
-	}).Info("CrowdSec bouncer: successfully registered and saved key")
-
-	// Report the replacement.
-	if envKey != "" {
-		logger.Log().WithFields(map[string]any{
-			"bouncer":    bouncerName,
-			"key_file":   bouncerKeyFile,
-			"masked_key": util.MaskAPIKey(envKey),
-		}).Warn(
-			"CrowdSec API key mismatch: the configured CrowdSec API key was rejected by CrowdSec. " +
-				"A replacement key was generated and saved to the key file (permissions 0600). " +
-				"Charon uses the saved key; no action is required.",
-		)
-	}
-
-	return nil
 }
 
 // Helper functions for startup bouncer registration (minimal dependencies)
-
-func getBouncerAPIKeyFromEnvStartup() string {
-	for _, k := range []string{
-		"CROWDSEC_API_KEY",
-		"CROWDSEC_BOUNCER_API_KEY",
-		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-		"CHARON_SECURITY_CROWDSEC_API_KEY",
-		"CPM_SECURITY_CROWDSEC_API_KEY",
-	} {
-		if v := os.Getenv(k); v != "" {
-			return v
-		}
-	}
-	return ""
-}
 
 func testKeyAgainstLAPIStartup(apiKey string) bool {
 	if apiKey == "" {
@@ -460,7 +442,7 @@ func recoverInterruptedInstalls(db *gorm.DB, dataDir string) {
 	if db == nil || !db.Migrator().HasTable(&models.CrowdsecApplyJob{}) {
 		return
 	}
-	m := crowdsec.NewApplyJobManager(nil)
+	m := crowdsec.NewApplyJobManager()
 	m.Configure(crowdsec.ApplyJobConfig{
 		Repo: crowdsec.NewApplyJobRepository(db),
 		PruneSnapshots: func(protect []string) {

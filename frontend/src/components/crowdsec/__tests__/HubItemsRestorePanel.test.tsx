@@ -34,6 +34,18 @@ const httpError = (status: number) =>
     data: { error: 'x' },
   } as never)
 
+const BUSY_TEXT = 'CrowdSec is busy installing a preset. Try again when it finishes.'
+
+// A 409 from the busy guard while a background install runs (not a restore conflict).
+const busyError = () =>
+  new AxiosError('failed', undefined, undefined, undefined, {
+    status: 409,
+    statusText: '409',
+    headers: {},
+    config: {},
+    data: { error: 'busy', error_code: 'crowdsec_busy', job_id: 'job-1' },
+  } as never)
+
 const renderPanel = (skipped = 0, missing = MISSING) =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}>
@@ -158,6 +170,35 @@ describe('HubItemsRestorePanel', () => {
     expect(await screen.findByText(message)).toBeInTheDocument()
     expect(installButton()).toBeEnabled()
     expect(screen.getByText(MISSING[0].name, { exact: true })).toBeInTheDocument()
+  })
+
+  it('shows the busy message, not the restore conflict, when an install refuses the restore', async () => {
+    vi.mocked(api.restoreHubItems).mockRejectedValue(busyError())
+    renderPanel()
+
+    await userEvent.click(installButton())
+
+    expect(await screen.findByText(BUSY_TEXT)).toBeInTheDocument()
+    expect(screen.queryByText(/restore is already running/i)).not.toBeInTheDocument()
+    expect(installButton()).toBeEnabled()
+  })
+
+  it('shows the other-change message when a refusal names no install job', async () => {
+    vi.mocked(api.restoreHubItems).mockRejectedValue(
+      new AxiosError('failed', undefined, undefined, undefined, {
+        status: 409,
+        statusText: '409',
+        headers: {},
+        config: {},
+        data: { error: 'busy', error_code: 'crowdsec_busy' },
+      } as never),
+    )
+    renderPanel()
+
+    await userEvent.click(installButton())
+
+    expect(await screen.findByText('CrowdSec is finishing another change. Try again in a moment.')).toBeInTheDocument()
+    expect(screen.queryByText(BUSY_TEXT)).not.toBeInTheDocument()
   })
 
   it('shows the generic message for a non-HTTP error', async () => {

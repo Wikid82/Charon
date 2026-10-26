@@ -6,6 +6,7 @@ const LOCALES = ['de', 'en', 'es', 'fr', 'zh'] as const
 const sourceModules = {
   ...import.meta.glob('../CrowdSecConfig.tsx', { query: '?raw', import: 'default', eager: true }),
   ...import.meta.glob('../../utils/crowdsecExport.ts', { query: '?raw', import: 'default', eager: true }),
+  ...import.meta.glob('../../api/errorBody.ts', { query: '?raw', import: 'default', eager: true }),
   ...import.meta.glob('../../components/crowdsec/HubItemsRestorePanel.tsx', { query: '?raw', import: 'default', eager: true }),
   ...import.meta.glob('../../components/crowdsec/DashboardTimeRangeSelector.tsx', { query: '?raw', import: 'default', eager: true }),
 } as Record<string, string>

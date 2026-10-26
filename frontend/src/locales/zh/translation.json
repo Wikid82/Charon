@@ -406,6 +406,15 @@
       "processStopped": "进程已停止",
       "starting": "启动中……",
       "toggleTooltip": "切换 CrowdSec 保护",
+      "startFailed": "启动 CrowdSec 失败：{{error}}",
+      "stopFailed": "停止 CrowdSec 失败：{{error}}",
+      "startingToast": "正在启动 CrowdSec... 可能需要最多 30 秒",
+      "startVerifyFailed": "CrowdSec 进程启动失败。详情请查看服务器日志。",
+      "stopVerifyFailed": "CrowdSec 进程仍在运行。详情请查看服务器日志。",
+      "startedLapiReady": "CrowdSec 已启动，LAPI 已就绪",
+      "startedLapiInitializing": "CrowdSec 已启动，但 LAPI 仍在初始化。请等待后再注册。",
+      "started": "CrowdSec 已启动",
+      "stopped": "CrowdSec 已停止",
       "bouncerApiKey": "Bouncer API 密钥",
       "keyCopied": "API 密钥已复制到剪贴板",
       "copyFailed": "复制API密钥失败",
@@ -417,11 +426,11 @@
       "keyStoredAt": "密钥存储位置",
       "keyWarning": {
         "title": "CrowdSec API密钥已更新",
-        "description": "您配置的API密钥被CrowdSec LAPI拒绝。已自动生成新密钥以恢复保护。",
-        "instructions": "使用新密钥更新您的docker-compose.yml，以防止容器重启时重新注册：",
+        "description": "您配置的API密钥被CrowdSec LAPI拒绝。Charon已生成新密钥并保存，现在使用该密钥恢复保护。",
+        "instructions": "从docker-compose.yml中删除旧的CrowdSec密钥变量。如果要保留一个，请将其设置为此密钥：",
         "copyButton": "复制",
         "copied": "密钥已复制到剪贴板",
-        "restartNote": "更新docker-compose.yml后，重启容器使更改生效。"
+        "restartNote": "无需重启：Charon已在使用此密钥。"
       },
       "tabs": {
         "config": "配置",
@@ -578,7 +587,9 @@
       },
       "docsLink": "在文档中了解更多",
       "loadError": "无法加载登录保护状态。"
-    }
+    },
+    "settingUpdated": "安全设置已更新",
+    "settingUpdateFailed": "更新设置失败：{{error}}"
   },
   "accessLists": {
     "title": "访问列表",
@@ -1765,7 +1776,10 @@
         "body": "要将 {{ip}} 从白名单中移除吗？如果该 IP 触发警报，CrowdSec 之后可能会拦截它。",
         "submit": "移除"
       },
-      "addFailed": "添加条目失败"
+      "addFailed": "添加条目失败",
+      "added": "已添加白名单条目",
+      "removed": "已移除白名单条目",
+      "removeFailed": "移除条目失败"
     },
     "toasts": {
       "fileSaved": "文件已保存",
@@ -1811,7 +1825,8 @@
       "timeout": "CrowdSec 未能及时响应。请重试。",
       "requestTooLarge": "请求过大。请缩短文本后重试。"
     },
-    "busy": "CrowdSec 正在安装预设。请在安装完成后重试。"
+    "busy": "CrowdSec 正在安装预设。请在安装完成后重试。",
+    "busyOther": "CrowdSec 正在完成另一项更改。请稍后重试。"
   },
   "smtp": {
     "title": "电子邮件 (SMTP) 设置",

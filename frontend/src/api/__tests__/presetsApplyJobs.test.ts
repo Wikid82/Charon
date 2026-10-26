@@ -68,16 +68,11 @@ describe('preset apply job API', () => {
     expect(client.delete).toHaveBeenCalledWith('/admin/crowdsec/presets/jobs/id1')
   })
 
-  it('reads job error codes and the busy job id', () => {
+  it('reads job error codes', () => {
     expect(presets.getApplyJobErrorCode(axiosError(404, { error_code: 'job_not_found' }))).toBe('job_not_found')
     expect(presets.getApplyJobErrorCode(axiosError(409, { error_code: 'job_not_active' }))).toBe('job_not_active')
     expect(presets.getApplyJobErrorCode(axiosError(500, { error_code: 'other' }))).toBeUndefined()
-
-    const busy = axiosError(409, { error_code: 'crowdsec_busy', job_id: 'abc' })
-    expect(isCrowdsecBusyError(busy)).toBe(true)
-    expect(presets.getCrowdsecBusyJobId(busy)).toBe('abc')
-    expect(presets.getCrowdsecBusyJobId(axiosError(409, { error_code: 'crowdsec_busy' }))).toBeUndefined()
-    expect(presets.getCrowdsecBusyJobId(new Error('x'))).toBeUndefined()
+    expect(isCrowdsecBusyError(axiosError(409, { error_code: 'crowdsec_busy', job_id: 'abc' }))).toBe(true)
     expect(isCrowdsecBusyError(new Error('x'))).toBe(false)
   })
 })

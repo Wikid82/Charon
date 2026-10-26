@@ -36,6 +36,40 @@ if (!process.env.PLAYWRIGHT_BASE_URL) {
 const skipSecurityDeps = process.env.PLAYWRIGHT_SKIP_SECURITY_DEPS !== '0';
 const browserDependencies = skipSecurityDeps ? ['setup'] : ['setup', 'security-tests'];
 
+/**
+ * Browser engine for the `setup` project (auth.setup.ts).
+ * Defaults to chromium so local runs are unchanged. CI sets it to each job's
+ * browser so a Firefox or WebKit job never has to fall back to Chromium.
+ */
+const SUPPORTED_BROWSERS = ['chromium', 'firefox', 'webkit'];
+const setupBrowser = process.env.PLAYWRIGHT_SETUP_BROWSER || 'chromium';
+if (!SUPPORTED_BROWSERS.includes(setupBrowser)) {
+  throw new Error(
+    `PLAYWRIGHT_SETUP_BROWSER must be one of ${SUPPORTED_BROWSERS.join(', ')} (got "${setupBrowser}")`
+  );
+}
+
+/**
+ * Per-engine launch options, shared by the browser projects and the setup project.
+ */
+const BROWSER_LAUNCH_OPTIONS = {
+  chromium: {},
+  firefox: {
+    firefoxUserPrefs: {
+      // The app sends `Cross-Origin-Opener-Policy: same-origin`. On the first navigation
+      // of a fresh page Firefox swaps browsing-context groups for that header, and the
+      // Playwright/Juggler protocol intermittently loses the resulting `load` event, so
+      // page.goto() hangs until the test timeout even though the page finished loading
+      // (readyState === 'complete', no pending requests). Measured against the E2E
+      // container: ~8% of fresh-page navigations hang, 0% with this pref, and a plain
+      // page hangs only when it carries the COOP header. Browser-side workaround only;
+      // the header itself is asserted only by the Go middleware unit tests (security_test.go), not by any E2E spec.
+      'browser.tabs.remote.useCrossOriginOpenerPolicy': false,
+    },
+  },
+  webkit: {},
+};
+
 const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
   sourceRoot: __dirname,
   exclude: [
@@ -225,6 +259,14 @@ export default defineConfig({
     {
       name: 'setup',
       testMatch: /auth\.setup\.ts/,
+      // Auth setup drives the API via the `request` fixture and launches no browser
+      // today. The engine is still pinned to the job's browser so any future
+      // page-based setup follows PLAYWRIGHT_SETUP_BROWSER instead of silently
+      // requiring Chromium.
+      use: {
+        browserName: setupBrowser,
+        launchOptions: BROWSER_LAUNCH_OPTIONS[setupBrowser],
+      },
     },
 
     // Security Shard Setup - runs only when security-tests are executed
@@ -284,19 +326,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Firefox'],
         storageState: STORAGE_STATE,
-        launchOptions: {
-          firefoxUserPrefs: {
-            // The app sends `Cross-Origin-Opener-Policy: same-origin`. On the first navigation
-            // of a fresh page Firefox swaps browsing-context groups for that header, and the
-            // Playwright/Juggler protocol intermittently loses the resulting `load` event, so
-            // page.goto() hangs until the test timeout even though the page finished loading
-            // (readyState === 'complete', no pending requests). Measured against the E2E
-            // container: ~8% of fresh-page navigations hang, 0% with this pref, and a plain
-            // page hangs only when it carries the COOP header. Browser-side workaround only;
-            // the header itself is asserted only by the Go middleware unit tests (security_test.go), not by any E2E spec.
-            'browser.tabs.remote.useCrossOriginOpenerPolicy': false,
-          },
-        },
+        launchOptions: BROWSER_LAUNCH_OPTIONS.firefox,
       },
       dependencies: browserDependencies,
       testMatch: /.*\.spec\.(ts|js)$/,

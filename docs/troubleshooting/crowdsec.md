@@ -13,7 +13,7 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
 - `cscli` is available (preferred path); HTTPS CrowdSec Hub endpoints only.
   - Docker images (v1.7.4+): cscli is pre-installed.
   - Bare-metal deployments: install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL.
-- HUB_BASE_URL points to a JSON hub endpoint (default: <https://hub-data.crowdsec.net/api/index.json>). Redirects to HTML will be rejected.
+- HUB_BASE_URL points to a JSON hub endpoint (default: <https://cdn-hub.crowdsec.net/crowdsecurity/master>, whose index is `.index.json`; the GitHub mirror is the fallback, and `HUB_MIRROR_BASE_URL`, if you set it, is tried only after the default). Redirects to HTML will be rejected.
   - A loopback hub mirror is no longer reachable from the hub client; RFC 1918 hosts were already blocked.
   - The hub address must be an `https` address on the official CrowdSec hub hosts. Custom `http`, local, or other mirror addresses are not supported.
 - Proxy env is set when required: HTTP(S)_PROXY and NO_PROXY are respected by the hub client.
@@ -121,7 +121,7 @@ Look for:
 - ✅ "parsers loaded" — Configuration loaded
 - ❌ "error" or "fatal" — Initialization problem
 
-**Solution 3 - Restart CrowdSec:**
+**Solution 3 - Turn CrowdSec off and on again:**
 
 1. Go to Security dashboard
 2. Toggle CrowdSec **OFF**
@@ -209,11 +209,14 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 - **"The CrowdSec configuration file could not be exported safely"** (HTTP 422, `export_config_unsafe`): the export hides credentials in `config.yaml` and `config.yaml.local`, and it refuses to continue when it cannot do that reliably: the file is larger than 1 MiB, is not valid YAML, or shares credential values through YAML anchors, aliases or merge keys. Nothing is exported, because an archive without the main configuration could not be imported again. Fix or simplify the file (the log names it), then export again. The credential hiding is a best-effort list of well-known setting names, so keep treating an export as private.
 - **Private key files are missing after restoring an export on another host**: exports leave out private key files so they never travel inside a shared file. The export response lists what was left out (up to 50 files, in the `X-Charon-Omitted-Files` header); the Charon log records how many. Charon detects them by name (`*.key`, `*.p12`, `*.pfx`, or a file a notification names as `key_path`) or by a text-format (PEM or PGP) private key inside the file (whole files up to 1 MiB; only the first 64 KiB of larger ones); a binary key with any other name is not detected, so rename key files to end in `.key`. Copy those files onto the new host yourself. Importing on the same server keeps your current key files. See the [CrowdSec feature guide](../features/crowdsec.md).
 - **An imported notification does not send, or the import card says files "still need values"**: exports blank passwords, tokens and webhook addresses in notification files, and only notifications that already exist on this system with the same type, name and target get their values back. Open each listed file in the config file editor and enter the real values, or import again after adding them. If a file used YAML anchors or aliases and came back blanked on the same system, your earlier values are in the `.backup.` copy Charon made next to your data folder before the import. See the [CrowdSec feature guide](../features/crowdsec.md).
-- Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue.
+- Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue. If the automatic restore failed too, Charon keeps that backup for manual recovery and puts a small `.keep` file next to it. A kept backup is protected for 7 days. After that, only the newest 3 kept backups keep their `.keep` file, and an older one that loses it becomes eligible for normal cleanup, which removes the oldest backups once more than the usual number are kept. To release a backup for cleanup sooner, delete its `.keep` file.
 - Apply not supported (501): use curated/offline presets; Hub apply will be re-enabled when supported in your environment.
+- **I changed the CrowdSec key in my compose file, but Charon still uses the old one**: Charon keeps the key it saved first, as long as CrowdSec still accepts it. Delete the saved file `/app/data/crowdsec/bouncer_key` (inside your data folder) and restart Charon. Charon then uses the key from your compose file if CrowdSec accepts it; otherwise it creates a new key. Details are in the [CrowdSec feature guide](../features/crowdsec.md#managing-the-crowdsec-bouncer-key).
 - **Security Engine Offline**: If your dashboard says "Offline", it means CrowdSec LAPI is not running.
   - **Fix**: Ensure CrowdSec is **enabled via GUI toggle** in the Security dashboard. Do NOT use environment variables.
   - **Action**: Go to Security dashboard, toggle CrowdSec ON, wait 15 seconds, verify status shows "Active".
+- **CrowdSec is on, but your sites are not using it, and the log shows a warning about a missing bouncer key**: CrowdSec only joins your proxy once a bouncer key exists. Charon creates one automatically the first time CrowdSec starts. Until then, the proxy leaves CrowdSec out and your other settings keep working. Check the log with `docker logs charon`. If the key never appears, see [Managing the CrowdSec bouncer key](../features/crowdsec.md#managing-the-crowdsec-bouncer-key).
+- **Turning CrowdSec on or off did not update the proxy**: the Security page still shows CrowdSec's real state, and the log has a warning. Switch CrowdSec off and on again to retry.
 
 ## Ban and unban messages
 
@@ -234,12 +237,26 @@ The Live Decisions, dashboard and alerts lists show a short note instead of an e
 - **"The decision service returned more data than can be shown, so this list may be incomplete."** (`cscli_output_too_large`): there are too many entries to show at once. Pick a shorter time range.
 - **"The decision service is not available right now, so this list may be incomplete."** (`cscli_unavailable`): Charon could not run `cscli`. Restart the container.
 
+## Acquisition settings messages
+
+These appear when Charon cannot read or save your log sources settings file (`acquis.yaml`, in the `crowdsec/config` folder inside your data folder). Nothing is changed when one of them shows.
+
+- **Error code `acquisition_config_unreadable`**: Charon cannot open the file. The message asks you to check the file's owner and permissions.
+- **Error code `acquisition_config_not_writable`**: Charon cannot save changes to the file, usually because the file or its folder is read-only. The message asks you to check the file's owner and permissions.
+
+**How to fix it:**
+
+1. Look at the file and its folder. Run `docker exec charon ls -la /app/data/crowdsec/config` and check the line for `acquis.yaml`. The first column shows who may read and write it (for example `-rw-r--r--`), and the owner name is shown further along.
+2. Make sure the folder is writable too. Run `docker exec charon ls -ld /app/data/crowdsec/config`. A folder that only lets its owner read it cannot have files saved in it.
+3. Fix the owner or permissions on your computer, then restart Charon. `chown` changes the owner of a file or folder, and `chmod` changes who may read or write it. Ask someone who knows your server if you are not sure which owner to use.
+4. If you mounted your data folder as read-only (a `:ro` at the end of its line in your compose file), Charon cannot save anything. Remove the `:ro` from that line, restart Charon, and try again.
+
 ## Hub preset messages
 
 Applying a hub preset shows one of these messages when it cannot finish or needs your attention. When an apply fails, your CrowdSec settings are put back as they were.
 
 - **"The preview is out of date. Pull the preset again, then apply it."**: the preview is too old or was replaced. Click **Pull** again, then **Apply**.
-- **"The hub is still updating, try again later."**: the hub is still publishing a newer version of this item. Wait a while, pull the preset again, then apply it.
+- **"The hub is still updating, try again later."** (HTTP 409, `preset_hub_updating`): the hub is still publishing a newer version of this item. Charon checks every downloaded item against the hub's index before it keeps a copy, and refuses one that does not match, so an incomplete update is not used. Wait a while, pull the preset again, then apply it.
 - **"This item was edited on this server and was left unchanged. Reset it before applying the preset."**: you (or a script) changed this item's file on this server, and Charon will not overwrite your edit. The message lists the edited items ("Edited items: ..."). A plain install or upgrade does nothing for an edited item, so reset it with `cscli <type> install <name> --force` (Docker users run it as `docker exec charon cscli ...`), for example `docker exec charon cscli parsers install crowdsecurity/apache2-logs --force`. If a collection reports an edited item inside it, run `cscli collections install <collection> --force`, which also restores that item. This replaces your edit with the original hub version, so your local change is lost. Then reload CrowdSec, pull the preset again and apply it.
 - **"The preset install took too long and was rolled back. Try again."**: the install did not finish within 120 seconds (typical installs take 1-5 seconds; the slowest common collection takes about a minute on a first download). Try again, or raise `HUB_APPLY_TIMEOUT_SECONDS` on a slow connection (the web interface stops waiting after 130 seconds, so values above about 125 only help when you run the install yourself with `cscli`). Very large collections (hundreds of items, such as `sigmahq/windows_proc_creation`) can take several minutes because items are downloaded one by one; install those directly with `docker exec charon cscli collections install <name>`.
 - **"CrowdSec could not reach the hub. Check the network connection and try again."** (HTTP 503, `hub_unreachable`): the server has no route to the CrowdSec hub, when pulling a preset that was never downloaded as well as when applying one. Nothing was installed and your settings are unchanged. Check the container's internet and DNS access, then try again.
@@ -251,6 +268,7 @@ Applying a hub preset shows one of these messages when it cannot finish or needs
 ### Large preset installs
 
 - **"CrowdSec is busy installing a preset; try again when it finishes."** (HTTP 409, `crowdsec_busy`): a preset install is running in the background, and other CrowdSec changes are paused until it ends. Wait for the progress row to finish, or click **Cancel** on it, then try again.
+- **"CrowdSec is finishing another change. Try again in a moment."** (HTTP 409, `crowdsec_busy`, no install running): you tried to start a preset install while another CrowdSec change, such as turning CrowdSec on or off, was still finishing. Wait a moment and try again.
 - **The install shows as interrupted**: Charon restarted while the install was running. Your previous settings were restored automatically. Start the install again.
 - **The install shows as cancelled**: you cancelled it. Your previous settings were put back. Nothing else is needed.
 - **The install shows as timed out**: it did not finish within 30 minutes and was rolled back. Check the container's internet connection, then try again. For very large collections you can also run `docker exec charon cscli collections install <name>`.

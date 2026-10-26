@@ -406,6 +406,15 @@
       "processStopped": "Proceso detenido",
       "starting": "Iniciando...",
       "toggleTooltip": "Alternar protección CrowdSec",
+      "startFailed": "No se pudo iniciar CrowdSec: {{error}}",
+      "stopFailed": "No se pudo detener CrowdSec: {{error}}",
+      "startingToast": "Iniciando CrowdSec... Puede tardar hasta 30 segundos",
+      "startVerifyFailed": "El proceso de CrowdSec no se pudo iniciar. Consulta los registros del servidor para más detalles.",
+      "stopVerifyFailed": "El proceso de CrowdSec sigue en ejecución. Consulta los registros del servidor para más detalles.",
+      "startedLapiReady": "CrowdSec iniciado y LAPI está lista",
+      "startedLapiInitializing": "CrowdSec iniciado, pero LAPI aún se está inicializando. Espera antes de registrarte.",
+      "started": "CrowdSec iniciado",
+      "stopped": "CrowdSec detenido",
       "bouncerApiKey": "Clave API del bouncer",
       "keyCopied": "Clave API copiada al portapapeles",
       "copyFailed": "Error al copiar la clave API",
@@ -417,11 +426,11 @@
       "keyStoredAt": "Clave almacenada en",
       "keyWarning": {
         "title": "Clave API de CrowdSec Actualizada",
-        "description": "Su clave API configurada fue rechazada por CrowdSec LAPI. Se ha generado automáticamente una nueva clave para restaurar la protección.",
-        "instructions": "Actualice su docker-compose.yml con la nueva clave para evitar el re-registro al reiniciar el contenedor:",
+        "description": "Su clave API configurada fue rechazada por CrowdSec LAPI. Charon generó una nueva clave, la guardó y la usa ahora para restaurar la protección.",
+        "instructions": "Elimine la variable de clave de CrowdSec antigua de docker-compose.yml. Si desea conservar una, configúrela con esta clave:",
         "copyButton": "Copiar",
         "copied": "Clave copiada al portapapeles",
-        "restartNote": "Después de actualizar docker-compose.yml, reinicie el contenedor para que el cambio surta efecto."
+        "restartNote": "No es necesario reiniciar: Charon ya usa esta clave."
       },
       "tabs": {
         "config": "Configuración",
@@ -578,7 +587,9 @@
       },
       "docsLink": "Más información en la documentación",
       "loadError": "No se pudo cargar el estado de la protección de inicio de sesión."
-    }
+    },
+    "settingUpdated": "Configuración de seguridad actualizada",
+    "settingUpdateFailed": "No se pudo actualizar la configuración: {{error}}"
   },
   "accessLists": {
     "title": "Listas de Acceso",
@@ -1765,7 +1776,10 @@
         "body": "¿Eliminar {{ip}} de la lista blanca? CrowdSec podrá bloquear esta IP si genera alertas.",
         "submit": "Eliminar"
       },
-      "addFailed": "No se pudo añadir la entrada"
+      "addFailed": "No se pudo añadir la entrada",
+      "added": "Entrada de la lista blanca añadida",
+      "removed": "Entrada de la lista blanca eliminada",
+      "removeFailed": "No se pudo eliminar la entrada"
     },
     "toasts": {
       "fileSaved": "Archivo guardado",
@@ -1811,7 +1825,8 @@
       "timeout": "CrowdSec no respondió a tiempo. Inténtalo de nuevo.",
       "requestTooLarge": "La solicitud era demasiado grande. Acorta el texto e inténtalo de nuevo."
     },
-    "busy": "CrowdSec está ocupado instalando un preset. Inténtalo de nuevo cuando termine."
+    "busy": "CrowdSec está ocupado instalando un preset. Inténtalo de nuevo cuando termine.",
+    "busyOther": "CrowdSec está terminando otro cambio. Inténtalo de nuevo en un momento."
   },
   "smtp": {
     "title": "Configuración de Correo (SMTP)",

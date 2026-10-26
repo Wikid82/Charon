@@ -304,6 +304,20 @@ func TestRestoreHubItemsSkipsInstalled(t *testing.T) {
 	require.Equal(t, []string{"cscli scenarios install crowdsecurity/other"}, hh.exec.installCalls())
 }
 
+func TestRestoreHubItemsSkipsInstalledYmlItem(t *testing.T) {
+	t.Parallel()
+	hh := newHubHarness(t)
+	have := hubItems("scenarios", "sigmahq/proc")
+	hubLink(t, hh.dir, "config/scenarios/sigmahq-proc.yml", "/etc/crowdsec/hub/scenarios/sigmahq/proc.yml")
+
+	w := hh.post(restoreBody(append(have, hubItems("scenarios", "sigmahq/other")...)...))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	res := decodeRestore(t, w)
+	require.Equal(t, have, res.AlreadyInstalled, "an installed .yml item is not installed again")
+	require.Equal(t, hubItems("scenarios", "sigmahq/other"), res.Installed)
+	require.Equal(t, []string{"cscli scenarios install sigmahq/other"}, hh.exec.installCalls())
+}
+
 func TestRestoreHubItemsCollectionsFirstThenReDiff(t *testing.T) {
 	t.Parallel()
 	hh := newHubHarness(t)

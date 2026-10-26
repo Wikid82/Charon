@@ -235,6 +235,10 @@ func TestCallerIdentityAccessedThroughAccessors(t *testing.T) {
 				return err
 			}
 			name := d.Name()
+			if d.IsDir() && name == "testdata" {
+				// Go tooling convention: testdata holds deliberately invalid fixtures.
+				return filepath.SkipDir
+			}
 			if d.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 				return nil
 			}

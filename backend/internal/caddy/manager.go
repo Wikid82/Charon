@@ -343,8 +343,8 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// warn but allow initial startup to proceed. This prevents total lockout when
 	// the user has enabled Cerberus but hasn't configured admin_whitelist yet.
 	// The warning alerts them to configure it properly.
-	var secCfg models.SecurityConfig
-	if err := m.db.Where("name = ?", "default").First(&secCfg).Error; err == nil {
+	secCfg, secCfgErr := models.FindDefaultSecurityConfig(m.db)
+	if secCfgErr == nil {
 		if secCfg.Enabled && strings.TrimSpace(secCfg.AdminWhitelist) == "" {
 			logger.Log().Warn("Cerberus is enabled but admin_whitelist is empty. " +
 				"Security features that depend on admin whitelist will not function correctly. " +
@@ -705,9 +705,13 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 	aclEnabled = m.securityCfg.ACLMode == "enabled"
 
 	if m.db != nil {
+		// The default row, or the static config when no row exists. CrowdSec is resolved after the settings overrides.
+		crowdSecRow := models.SecurityConfig{CrowdSecMode: m.securityCfg.CrowdSecMode}
+
 		// Priority 1: Read from SecurityConfig table (DB overrides static config)
-		var sc models.SecurityConfig
-		if err := m.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+		if sc, err := models.FindDefaultSecurityConfig(m.db); err == nil {
+			crowdSecRow = sc
+
 			// SecurityConfig.Enabled controls Cerberus globally
 			cerbEnabled = sc.Enabled
 
@@ -722,11 +726,6 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 			} else if sc.RateLimitEnable {
 				// Fallback to boolean field for backward compatibility
 				rateLimitEnabled = true
-			}
-
-			// CrowdSec mode from DB
-			if sc.CrowdSecMode != "" {
-				crowdsecEnabled = sc.CrowdSecMode == "local"
 			}
 
 			// ACL mode (if we add it to SecurityConfig in the future)
@@ -772,15 +771,11 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 			}
 		}
 
-		// runtime override for crowdsec mode (mode value determines whether it's local/remote/enabled)
-		var cm struct{ Value string }
-		if err := m.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&cm).Error; err == nil && cm.Value != "" {
-			// Only 'local' runtime mode enables CrowdSec; all other values are disabled
-			if cm.Value == "local" {
-				crowdsecEnabled = true
-			} else {
-				crowdsecEnabled = false
-			}
+		// CrowdSec: the enabled setting, then the deprecated mode setting, then the default row (shared with status and boot).
+		var crowdSecErr error
+		crowdsecEnabled, crowdSecErr = models.CrowdSecEnabled(m.db, crowdSecRow)
+		if crowdSecErr != nil {
+			logger.Log().WithError(crowdSecErr).Warn("Failed to read CrowdSec setting, using the default SecurityConfig row")
 		}
 	}
 

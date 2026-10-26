@@ -68,8 +68,16 @@ describe('CrowdSecConfig import refusals', () => {
   })
 
   it('shows the busy text while a preset install runs', async () => {
+    const busyWithJob = new AxiosError('busy', 'ERR_BAD_REQUEST', undefined, undefined, {
+      status: 409,
+      data: { error: 'busy', error_code: 'crowdsec_busy', job_id: 'job-1' },
+    } as AxiosResponse)
+    expect(await importFailing(busyWithJob)).toBe('CrowdSec is busy installing a preset. Try again when it finishes.')
+  })
+
+  it('shows the other-change text when a refused import names no install job', async () => {
     expect(await importFailing(refusal(409, { error: 'busy', error_code: 'crowdsec_busy' }))).toBe(
-      'CrowdSec is busy installing a preset. Try again when it finishes.',
+      'CrowdSec is finishing another change. Try again in a moment.',
     )
   })
 

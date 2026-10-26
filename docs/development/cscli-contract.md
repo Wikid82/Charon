@@ -25,8 +25,8 @@ validation and registration (5 s and 10 s deadlines); a test fails if a handler 
 list and an `error` code: `cscli_timeout`, `cscli_output_too_large` or
 `cscli_unavailable`; the UI shows a passive note.
 
-Every `cscli` call, including hub `inspect` and verify, passes `-c <engine config>` so it
-reads the same configuration and hub as the running engine. The one exception is the
+Every `cscli` call, including hub `inspect`, verify and the startup bouncer commands, passes
+`-c <engine config>` so it reads the same configuration and hub as the running engine. The one exception is the
 `cscli version` presence probe, which needs no configuration.
 
 | Command | How the result is used |
@@ -107,7 +107,10 @@ alerts.
 For calls that use the bouncer key (decisions stream, active-decision count), `lapiKey()`
 looks in this order: the saved key file (`bouncer_key` in the data folder), then
 `CHARON_SECURITY_CROWDSEC_API_KEY`, `CROWDSEC_API_KEY`, `CROWDSEC_BOUNCER_API_KEY`,
-`CERBERUS_SECURITY_CROWDSEC_API_KEY`, `CPM_SECURITY_CROWDSEC_API_KEY`.
+`CERBERUS_SECURITY_CROWDSEC_API_KEY`, `CPM_SECURITY_CROWDSEC_API_KEY`. Every other reader of
+the key (the key status and bouncer info endpoints, the startup check, the proxy config) uses
+the same order through the shared `bouncerkey` package, so they cannot disagree. Key writes
+use `crowdsec.SaveBouncerKey`.
 
 ## Recorded output (fixtures)
 

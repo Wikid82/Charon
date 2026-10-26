@@ -7,7 +7,7 @@ import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
 import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError, getCrowdsecBanError, getCrowdsecExportError, type CrowdsecBanErrorCode } from '../api/crowdsec'
-import { isCrowdsecBusyError } from '../api/errorBody'
+import { crowdsecBusyMessage, crowdsecErrorMessage } from '../api/errorBody'
 import { getFeatureFlags } from '../api/featureFlags'
 import {
   listCrowdsecPresets,
@@ -35,7 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
 import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
-import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../hooks/useCrowdSecWhitelist'
+import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist, isWhitelistFieldError, whitelistAddErrorMessage } from '../hooks/useCrowdSecWhitelist'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
 import { sanitizeSecret } from '../utils/sanitizeSecret'
@@ -177,7 +177,7 @@ export default function CrowdSecConfig() {
       queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
     },
     onError: (err: unknown) => {
-      toast.error(isCrowdsecBusyError(err) ? t('crowdsecConfig.busy') : getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed')))
+      toast.error(crowdsecErrorMessage(err, t, getServerErrorMessage(err, t('crowdsecConfig.toasts.saveFailed'))))
     },
   })
 
@@ -308,6 +308,10 @@ export default function CrowdSecConfig() {
           setPresetStatusMessage(t('crowdsecConfig.presets.status.typeAmbiguous'))
           return
         }
+        if (getCrowdsecPresetErrorCode(err) === 'preset_hub_updating') {
+          setPresetStatusMessage(t('crowdsecConfig.presets.status.applyHubUpdating'))
+          return
+        }
         if (err.response?.status === 400) {
           setValidationError(err.response.data?.error || t('crowdsecConfig.presets.status.slugInvalid'))
           return
@@ -411,7 +415,7 @@ export default function CrowdSecConfig() {
           : t('crowdsecConfig.consoleEnrollment.enrollSent')
       )
     } catch (err) {
-      const message = sanitizeErrorMessage(err)
+      const message = crowdsecErrorMessage(err, t, sanitizeErrorMessage(err))
       setConsoleErrors((prev) => ({ ...prev, submit: message }))
       toast.error(message)
     }
@@ -486,10 +490,9 @@ export default function CrowdSecConfig() {
   const addWhitelistMutation = useAddWhitelist()
   const deleteWhitelistMutation = useDeleteWhitelist()
 
-  const whitelistInlineError = addWhitelistMutation.error instanceof Error
-    ? addWhitelistMutation.error.message
-    : addWhitelistMutation.error != null
-    ? t('crowdsecConfig.whitelist.addFailed')
+  // Only field problems (400/409 duplicate) show inline. Busy, server and network failures toast only.
+  const whitelistInlineError = isWhitelistFieldError(addWhitelistMutation.error)
+    ? whitelistAddErrorMessage(addWhitelistMutation.error, t)
     : null
 
   const handleAddMyIP = async () => {
@@ -554,7 +557,8 @@ export default function CrowdSecConfig() {
 
   /** Translated text for a refused import; unknown or missing codes keep the server's text. */
   const importFailureMessage = (err: unknown): string => {
-    if (isCrowdsecBusyError(err)) return t('crowdsecConfig.busy')
+    const busy = crowdsecBusyMessage(err, t)
+    if (busy) return busy
     const fallback = err instanceof Error ? err.message : t('crowdsecConfig.importFailed')
     const refusal = getCrowdsecImportError(err)
     const names = refusal ? formatNameList(refusal.names) : ''
@@ -651,8 +655,9 @@ export default function CrowdSecConfig() {
         toast.error(t('crowdsecConfig.toasts.presetApplyFailed'))
         return
       }
-      if (isCrowdsecBusyError(err)) {
-        setPresetStatusMessage(t('crowdsecConfig.busy'))
+      const busy = crowdsecBusyMessage(err, t)
+      if (busy) {
+        setPresetStatusMessage(busy)
         return
       }
       // The server is authoritative for every preset source: surface its message for any
@@ -860,7 +865,7 @@ export default function CrowdSecConfig() {
                             lapiStatusQuery.refetch();
                           }, 3000);
                         } catch (err) {
-                          toast.error(isCrowdsecBusyError(err) ? t('crowdsecConfig.busy') : t('crowdsecConfig.startFailed'));
+                          toast.error(crowdsecErrorMessage(err, t, t('crowdsecConfig.startFailed')));
                         }
                       }}
                     >

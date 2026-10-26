@@ -120,7 +120,7 @@ volume_sh() {
 # declared_data_files: data files declared by installed hub items (one per line).
 declared_data_files() {
     docker exec "${CONTAINER_NAME}" sh -c \
-        "find -L /etc/crowdsec/parsers /etc/crowdsec/scenarios /etc/crowdsec/postoverflows -type f -name '*.yaml' -exec grep -h 'dest_file:' {} + 2>/dev/null | sed -e 's/^.*dest_file:[[:space:]]*//' -e 's/[[:space:]]*\$//' | sort -u"
+        "find -L /etc/crowdsec/parsers /etc/crowdsec/scenarios /etc/crowdsec/postoverflows -type f \\( -name '*.yaml' -o -name '*.yml' \\) -exec grep -h 'dest_file:' {} + 2>/dev/null | sed -e 's/^.*dest_file:[[:space:]]*//' -e 's/[[:space:]]*\$//' | sort -u"
 }
 
 # missing_data_files: declared data files that are absent from data_dir (empty files are valid).
@@ -227,7 +227,9 @@ fi
 
 # ----------------------------------------------------------------------------
 log_info "Scenario 2b: recreate with a present-but-empty data file (legitimately empty list)"
-EMPTY_FILE="$(declared_data_files | head -n1)"
+# sed (not head) so the pipe is fully drained: under pipefail, head closing early
+# can SIGPIPE the producer and abort the whole script silently with status 141.
+EMPTY_FILE="$(declared_data_files | sed -n '1p')"
 docker rm -f "${CONTAINER_NAME}" >/dev/null
 volume_sh "truncate -s 0 '${DATA_DIR}/${EMPTY_FILE}'"
 start_container

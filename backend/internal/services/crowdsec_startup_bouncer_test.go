@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
@@ -27,14 +28,6 @@ const (
 	testFileKey        = "valid-file-key-0123456789abcdefghijkl"
 	testGeneratedKey   = "ZZsentinel0123456789abcdefghijklmnopqrstuvwx"
 )
-
-var bouncerKeyEnvNames = []string{
-	"CROWDSEC_API_KEY",
-	"CROWDSEC_BOUNCER_API_KEY",
-	"CERBERUS_SECURITY_CROWDSEC_API_KEY",
-	"CHARON_SECURITY_CROWDSEC_API_KEY",
-	"CPM_SECURITY_CROWDSEC_API_KEY",
-}
 
 // scriptedBouncerExecutor answers the cscli calls made during startup registration.
 type scriptedBouncerExecutor struct {
@@ -81,7 +74,7 @@ type bouncerHarness struct {
 func newBouncerHarness(t *testing.T) *bouncerHarness {
 	t.Helper()
 
-	for _, name := range bouncerKeyEnvNames {
+	for _, name := range bouncerkey.EnvNames() {
 		t.Setenv(name, "")
 	}
 
@@ -145,9 +138,11 @@ func TestEnsureBouncerRegistration_ValidEnvKey_NoRegistration(t *testing.T) {
 
 	require.NoError(t, ensureBouncerRegistration(h.dataDir, h.keyFile, exec))
 
+	// Intended flip: a valid env key is saved to the key file so the proxy reads it.
 	assert.False(t, exec.called("bouncers add"))
-	_, err := os.Stat(h.keyFile)
-	assert.True(t, os.IsNotExist(err))
+	got, err := os.ReadFile(h.keyFile)
+	require.NoError(t, err)
+	assert.Equal(t, testFileKey+"\n", string(got), "saved with one trailing newline, like every key writer")
 }
 
 func TestEnsureBouncerRegistration_ValidFileKey_NoReRegistration(t *testing.T) {
@@ -174,7 +169,7 @@ func TestEnsureBouncerRegistration_NoEnvKey_RegistersAndSavesKey(t *testing.T) {
 	assert.True(t, exec.called("bouncers add"))
 	got, err := os.ReadFile(h.keyFile)
 	require.NoError(t, err)
-	assert.Equal(t, testGeneratedKey, string(got))
+	assert.Equal(t, testGeneratedKey+"\n", string(got), "saved with one trailing newline, like every key writer")
 	info, err := os.Stat(h.keyFile)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
@@ -182,6 +177,28 @@ func TestEnsureBouncerRegistration_NoEnvKey_RegistersAndSavesKey(t *testing.T) {
 	for _, e := range h.drain() {
 		assert.NotEqual(t, logrus.WarnLevel, e.Level, "no warning expected without an env key: %s", e.Message)
 	}
+}
+
+func TestEnsureBouncerRegistration_ReplacesSymlinkedKeyWithRegularFile(t *testing.T) {
+	h := newBouncerHarness(t)
+	target := filepath.Join(h.dataDir, "elsewhere")
+	require.NoError(t, os.WriteFile(target, []byte("rejected-linked-key\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Dir(h.keyFile), 0o750))
+	require.NoError(t, os.Symlink(target, h.keyFile))
+	exec := &scriptedBouncerExecutor{addOutput: []byte(testGeneratedKey + "\n")}
+
+	require.NoError(t, ensureBouncerRegistration(h.dataDir, h.keyFile, exec))
+
+	info, err := os.Lstat(h.keyFile)
+	require.NoError(t, err)
+	assert.True(t, info.Mode().IsRegular(), "the link is replaced by a regular file")
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	got, err := os.ReadFile(h.keyFile)
+	require.NoError(t, err)
+	assert.Equal(t, testGeneratedKey+"\n", string(got))
+	linked, err := os.ReadFile(target) //nolint:gosec // G304: t.TempDir-derived path
+	require.NoError(t, err)
+	assert.Equal(t, "rejected-linked-key\n", string(linked), "the link target is never written")
 }
 
 func TestEnsureBouncerRegistration_EmptyRegistrationOutput(t *testing.T) {
@@ -202,8 +219,11 @@ func TestEnsureBouncerRegistration_KeyDirectoryUnavailable(t *testing.T) {
 
 	err := ensureBouncerRegistration(h.dataDir, filepath.Join(blocker, "bouncer_key"), exec)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create key directory")
+	// A failed save is not fatal; the Error log names the path and says CrowdSec blocking depends on the file.
+	require.NoError(t, err)
+	assert.Contains(t, strings.Join(h.channels(h.drain()), "\n"), blocker)
+	_, statErr := os.Stat(filepath.Join(blocker, "bouncer_key"))
+	assert.Error(t, statErr)
 }
 
 func assertNoSubstring(t *testing.T, channels []string, secret string) {
@@ -214,7 +234,7 @@ func assertNoSubstring(t *testing.T, channels []string, secret string) {
 }
 
 func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsRedacted(t *testing.T) {
-	for _, envName := range bouncerKeyEnvNames {
+	for _, envName := range bouncerkey.EnvNames() {
 		t.Run(envName, func(t *testing.T) {
 			h := newBouncerHarness(t)
 			t.Setenv(envName, testRejectedEnvKey)
@@ -225,7 +245,7 @@ func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsRedacted(t *testing
 			// The generated value is persisted to the key file with restricted permissions.
 			got, err := os.ReadFile(h.keyFile)
 			require.NoError(t, err)
-			require.Equal(t, testGeneratedKey, string(got))
+			require.Equal(t, testGeneratedKey+"\n", string(got))
 			info, err := os.Stat(h.keyFile)
 			require.NoError(t, err)
 			require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
@@ -271,4 +291,17 @@ func TestEnsureBouncerRegistration_RegistrationError_DiagnosticsRedacted(t *test
 	assert.Contains(t, strings.Join(channels, "\n"), fmt.Sprintf("%d bytes of output omitted", len(output)))
 	_, statErr := os.Stat(h.keyFile)
 	assert.True(t, os.IsNotExist(statErr))
+}
+
+// TestEnsureBouncerRegistration_CharonNameWinsOverUnprefixedName checks the startup
+// path reads the shared order: CHARON_SECURITY_CROWDSEC_API_KEY before CROWDSEC_API_KEY.
+// The unprefixed name holds a rejected key, so a registration attempt would show up as a bouncers add call.
+func TestEnsureBouncerRegistration_CharonNameWinsOverUnprefixedName(t *testing.T) {
+	h := newBouncerHarness(t)
+	t.Setenv("CROWDSEC_API_KEY", testRejectedEnvKey)
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", testFileKey)
+	exec := &scriptedBouncerExecutor{addOutput: []byte(testGeneratedKey + "\n")}
+
+	require.NoError(t, ensureBouncerRegistration(h.dataDir, h.keyFile, exec))
+	require.False(t, exec.called("bouncers add"), "the valid CHARON key must be used without registering")
 }

@@ -61,6 +61,9 @@ This document explains how to run Playwright tests using a real browser (headed)
 
 - Do not run Playwright `--ui` in CI. Use headless runs or the E2E Docker image and collect traces/videos for failures.
 - For coverage, use the provided skill: `.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage`
+- The E2E workflow (`.github/workflows/e2e-tests-split.yml`) runs Playwright inside the official `mcr.microsoft.com/playwright` image through `scripts/ci/run-playwright-container.sh`. The image ships its browsers, so CI jobs do not run `playwright install`.
+- The image tag must match the `@playwright/test` version in `package-lock.json`. `scripts/ci/check-playwright-image-version.sh` fails the run on drift, and Renovate bumps both together (the `playwright` group in `.github/renovate.json`).
+- `PLAYWRIGHT_SETUP_BROWSER` (`chromium` by default, or `firefox` / `webkit`) selects the engine for the `setup` project. CI sets it to each job's browser.
 
 ## Troubleshooting
 

@@ -91,9 +91,19 @@ func setupCrowdsecTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+// shortenCrowdSecVerifyWait removes the post-Start settle wait for the rest of the test. It mutates a package
+// variable, so the calling test and its fixtures must not run in parallel.
+func shortenCrowdSecVerifyWait(t *testing.T) {
+	t.Helper()
+	previous := crowdSecVerifyWait
+	crowdSecVerifyWait = 0
+	t.Cleanup(func() { crowdSecVerifyWait = previous })
+}
+
 // setupCrowdsecTestFixtures creates temporary binary and config directory for testing
 func setupCrowdsecTestFixtures(t *testing.T) (binPath, dataDir string, cleanup func()) {
 	t.Helper()
+	shortenCrowdSecVerifyWait(t)
 
 	// Create temp directory
 	tempDir, err := os.MkdirTemp("", "crowdsec-test-*")
@@ -153,11 +163,11 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettings(t *testing.T) {
 
 	// Verify SecurityConfig was created with disabled mode
 	var cfg models.SecurityConfig
-	err := db.First(&cfg).Error
+	err := db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", cfg.CrowdSecMode)
-	// Note: cfg.Enabled is the global Cerberus flag (always true by default), not CrowdSec-specific
-	assert.True(t, cfg.Enabled, "Cerberus global flag should be enabled by default")
+	// The seed creates the global Cerberus flag as false, the same as on a fresh install
+	assert.False(t, cfg.Enabled)
 
 	// Should not attempt to start since mode is disabled
 	assert.False(t, exec.startCalled)
@@ -191,10 +201,10 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsEnabled(t *testing.
 
 	// Verify SecurityConfig was created with local mode
 	var cfg models.SecurityConfig
-	err = db.First(&cfg).Error
+	err = db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 	require.NoError(t, err)
 	assert.Equal(t, "local", cfg.CrowdSecMode)
-	assert.True(t, cfg.Enabled)
+	assert.False(t, cfg.Enabled, "seeded global flag matches a fresh install")
 
 	// Should attempt to start since Settings says enabled
 	assert.True(t, exec.startCalled, "Should start CrowdSec when Settings table indicates enabled")
@@ -226,11 +236,11 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsDisabled(t *testing
 
 	// Verify SecurityConfig was created with disabled mode
 	var cfg models.SecurityConfig
-	err = db.First(&cfg).Error
+	err = db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 	require.NoError(t, err)
 	assert.Equal(t, "disabled", cfg.CrowdSecMode)
-	// Note: cfg.Enabled is the global Cerberus flag (always true by default), not CrowdSec-specific
-	assert.True(t, cfg.Enabled, "Cerberus global flag should be enabled by default")
+	// The seed creates the global Cerberus flag as false, the same as on a fresh install
+	assert.False(t, cfg.Enabled)
 
 	// Should not attempt to start
 	assert.False(t, exec.startCalled)
@@ -242,7 +252,7 @@ func TestReconcileCrowdSecOnStartup_ModeDisabled(t *testing.T) {
 	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=disabled
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "disabled",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -265,7 +275,7 @@ func TestReconcileCrowdSecOnStartup_ModeLocal_AlreadyRunning(t *testing.T) {
 	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -293,7 +303,7 @@ func TestReconcileCrowdSecOnStartup_ModeLocal_NotRunning_Starts(t *testing.T) {
 	exec.running = false
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -323,7 +333,7 @@ func TestReconcileCrowdSecOnStartup_ModeLocal_StartError(t *testing.T) {
 	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -345,7 +355,7 @@ func TestReconcileCrowdSecOnStartup_StatusError(t *testing.T) {
 	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -372,7 +382,7 @@ func TestReconcileCrowdSecOnStartup_BinaryNotFound(t *testing.T) {
 	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -396,7 +406,7 @@ func TestReconcileCrowdSecOnStartup_ConfigDirNotFound(t *testing.T) {
 	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -429,7 +439,7 @@ func TestReconcileCrowdSecOnStartup_SettingsOverrideEnabled(t *testing.T) {
 	require.NoError(t, db.Create(&setting).Error)
 
 	// Create SecurityConfig with mode=disabled
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "disabled",
 		Enabled:      false,
 	}
@@ -458,7 +468,7 @@ func TestReconcileCrowdSecOnStartup_VerificationFails(t *testing.T) {
 	cmdExec := &mockCommandExecutor{} // Mock to avoid real cscli calls
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -480,7 +490,7 @@ func TestReconcileCrowdSecOnStartup_VerificationError(t *testing.T) {
 	cmdExec := &mockCommandExecutor{} // Mock to avoid real cscli calls
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
@@ -502,7 +512,7 @@ func TestReconcileCrowdSecOnStartup_DBError(t *testing.T) {
 	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=local
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:         "test",
 		CrowdSecMode: "local",
 	}
@@ -578,7 +588,7 @@ func TestReconcileCrowdSecOnStartup_SettingsTableQueryError(t *testing.T) {
 	cmdExec := &mockCommandExecutor{}
 
 	// Create SecurityConfig with mode=remote (not local)
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "remote",
 		Enabled:      false,
 	}
@@ -613,7 +623,7 @@ func TestReconcileCrowdSecOnStartup_SettingsOverrideNonLocalMode(t *testing.T) {
 	require.NoError(t, db.Create(&setting).Error)
 
 	// Create SecurityConfig with mode=remote (not local)
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		CrowdSecMode: "remote",
 		Enabled:      false,
 	}

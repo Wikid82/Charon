@@ -12,6 +12,8 @@
 codecov.yml
 .sourcery.yml
 .claude/
+scripts/npm
+scripts/go
 
 # -----------------------------------------------------------------------------
 # Python (tooling)

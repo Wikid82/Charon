@@ -23,7 +23,7 @@ func TestInstallFailureClassifiesNetworkText(t *testing.T) {
 		"stale item":            {"Error: can't find 'crowdsecurity/nginx' in collections", ErrPresetCacheStale},
 		"stale + lookup":        {"invalid hub index: lookup failed", ErrPresetCacheStale},
 		"other failure":         {"Error: disk full", nil},
-		"resolver text":         {"Error: lookup hub-data.crowdsec.net on 127.0.0.11:53: server misbehaving", ErrHubUnreachable},
+		"resolver text":         {"Error: lookup cdn-hub.crowdsec.net on 127.0.0.11:53: server misbehaving", ErrHubUnreachable},
 		"latest version":        {"Error: unable to retrieve latest crowdsec version", ErrHubUnreachable},
 		"item name with lookup": {"Error: cannot install parsers acme/lookup-table: disk full", nil},
 		"file name with lookup": {"Error: open /etc/crowdsec/parsers/lookup.yaml: permission denied", nil},

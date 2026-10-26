@@ -190,6 +190,28 @@ func TestLoad_SecurityConfig(t *testing.T) {
 	assert.True(t, cfg.Security.CerberusEnabled)
 }
 
+// TestLoad_CrowdSecAPIKeyEnvNames checks the key variables are read in the shared
+// bouncerkey order, including the unprefixed CROWDSEC_API_KEY.
+func TestLoad_CrowdSecAPIKeyEnvNames(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	for _, name := range []string{"CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY", "CROWDSEC_BOUNCER_API_KEY", "CROWDSEC_API_KEY"} {
+		t.Setenv(name, "")
+	}
+
+	t.Setenv("CROWDSEC_API_KEY", "from-crowdsec-api-key")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "from-crowdsec-api-key", cfg.Security.CrowdSecAPIKey)
+
+	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "from-charon")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.Equal(t, "from-charon", cfg.Security.CrowdSecAPIKey)
+}
+
 func TestLoad_DatabasePathError(t *testing.T) {
 	tempDir := t.TempDir()
 

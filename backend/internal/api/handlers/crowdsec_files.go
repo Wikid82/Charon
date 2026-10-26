@@ -220,38 +220,6 @@ func checkYAML(rel, content string) *fileError {
 	return nil
 }
 
-// atomicWriteFile writes data to a temp file beside dst and renames it into place. The temp file is
-// removed on any failure.
-func atomicWriteFile(dst string, data []byte, mode os.FileMode) (err error) {
-	tmp, err := os.CreateTemp(filepath.Dir(dst), writeTempPrefix+"*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer func() {
-		if err != nil {
-			_ = tmp.Close()
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if err = tmp.Chmod(mode); err != nil {
-		return fmt.Errorf("chmod temp file: %w", err)
-	}
-	if _, err = tmp.Write(data); err != nil {
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err = tmp.Sync(); err != nil {
-		return fmt.Errorf("sync temp file: %w", err)
-	}
-	if err = tmp.Close(); err != nil {
-		return fmt.Errorf("close temp file: %w", err)
-	}
-	if err = os.Rename(tmpName, dst); err != nil {
-		return fmt.Errorf("rename temp file: %w", err)
-	}
-	return nil
-}
-
 // ListFiles returns a flat list of the readable files under the CrowdSec DataDir.
 func (h *CrowdsecHandler) ListFiles(c *gin.Context) {
 	files := []string{}
@@ -405,12 +373,26 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+	if err = os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare dir"})
 		return
 	}
-	if err := atomicWriteFile(target, []byte(payload.Content), mode); err != nil {
-		fileErrorLog(err).Warn("crowdsec file write failed")
+	// The editor saves through the shared writer: a file bind-mounted on its own or owned by another user is written
+	// in place, and NoFollow keeps that in-place write from following a symlink. A stale temp file left by a crash
+	// is swept; the backup above is kept on every failure, so a partial in-place write still has an intact copy.
+	_, err = writeFileAtomic(target, []byte(payload.Content), mode, crowdsec.AtomicWriteOptions{
+		TempPattern:         writeTempPrefix + "*",
+		KeepOwner:           true,
+		InPlaceFallback:     true,
+		NoFollow:            true,
+		SweepTempsOlderThan: staleTempMaxAge,
+	})
+	if err != nil {
+		entry := fileErrorLog(err)
+		if errors.Is(err, crowdsec.ErrPartialInPlaceWrite) {
+			entry = entry.WithField("backup", crowdsec.BackupID(backupDir))
+		}
+		entry.Warn("crowdsec file write failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file"})
 		return
 	}

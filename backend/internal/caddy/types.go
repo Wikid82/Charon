@@ -74,6 +74,10 @@ type Apps struct {
 // HTTPApp configures the HTTP app.
 type HTTPApp struct {
 	Servers map[string]*Server `json:"servers"`
+	// GracePeriod bounds how long Caddy waits for open connections during
+	// shutdown. Caddy only accepts it on the http app, not per server. Unset,
+	// Caddy waits forever and the container is SIGKILLed on stop.
+	GracePeriod *string `json:"grace_period,omitempty"`
 }
 
 // Server represents an HTTP server instance.

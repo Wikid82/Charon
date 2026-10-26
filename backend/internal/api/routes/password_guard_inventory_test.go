@@ -65,6 +65,10 @@ func TestPasswordVerificationCallSitesAreGuarded(t *testing.T) {
 			if err != nil {
 				return err
 			}
+			if d.IsDir() && d.Name() == "testdata" {
+				// Go tooling convention: testdata holds deliberately invalid fixtures.
+				return filepath.SkipDir
+			}
 			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}

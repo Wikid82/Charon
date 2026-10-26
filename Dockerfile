@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-da9f57e8aed5e623
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:8de0b51813cc9410f840133da97c73c80c0c8fd2ad5787953d3340eac789c791
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-e153402b1e91f65f
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:e0597b4d734d478cc99d24b01fff361a56cfb5bb02fd1ba365c3cb1db710f253
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -34,11 +34,11 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 ARG GO_VERSION=1.27.3
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.3@sha256:1b7232cda4ca3dc20b5d1247bdc9bfb631f2661d15d323bdd6fccc035ed1a9e7
+ARG ALPINE_IMAGE=alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.8.2-rc1
+ARG CROWDSEC_VERSION=1.8.2-rc2
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
@@ -273,7 +273,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.24@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.24@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -317,7 +317,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -453,7 +453,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
 # is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS caddy-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -615,8 +615,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # These patches fix CVEs in transitive dependencies
         # Renovate tracks these via regex manager in renovate.json
         _retry go get github.com/expr-lang/expr@v${EXPR_LANG_VERSION}; \
-        # renovate: datasource=go depName=github.com/hslatman/ipstore
+        # renovate: datasource=go depName=github.com/hslatman/ipstore      
         _retry go get github.com/hslatman/ipstore@v0.5.0; \
+        # renovate: datasource=go depName=github.com/go-chi/chi/v5
+        _retry go get github.com/go-chi/chi/v5@v5.5.0; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
         # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
@@ -798,7 +800,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -870,9 +872,9 @@ RUN set -e; \
     _retry go get go.opentelemetry.io/otel@v1.47.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.23; \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.24; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.90.1; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.90.2; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -883,17 +885,7 @@ RUN set -e; \
     _retry go get github.com/quic-go/quic-go@v0.64.1; \
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.6.1; \
-    # kin-openapi: CrowdSec ships v0.147.0 natively (its go.mod baseline), which is past
-    # GHSA-r277-6w6q-xmqw (ValidationHandler.Load() fail-open auth bypass, fixed v0.144.0) and
-    # GHSA-jpcw-4wr7-c3vq / CVE-2026-73502 (DoS panic), but still vulnerable to:
-    #   - GHSA-rj39-cv6w-8wv7 / CVE-2026-100352 (YAML NaN/Inf panic via OAS 3.1 validation; fixed v0.148.0)
-    #   - GHSA-g8cf-rcjf-c8cf / CVE-2026-100354 (unbounded recursion on circular allOf/anyOf/oneOf,
-    #     fatal stack overflow; fixed v0.149.0)
-    #   - GHSA-vrcc-3ch7-hppw / CVE-2026-100353 (nil-Items panic paths in openapi3filter; fixed v0.149.0)
-    # Pinned to v0.151.0 (no known advisories). Also acts as a floor/Renovate anchor so a CrowdSec
-    # version regression or MVS downgrade cannot reintroduce a vulnerable resolution.
-    # renovate: datasource=go depName=github.com/getkin/kin-openapi
-    _retry go get github.com/getkin/kin-openapi@v0.151.0; \
+    _retry go get github.com/getkin/kin-openapi@v0.152.0; \
     # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
@@ -1030,7 +1022,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=7ce2f6f453ee36dfd154b3eb1f7e1b8f7ea0248cb655bf25a39d7bfa86c4abe0
+ARG GEOLITE2_COUNTRY_SHA256=c7b73dd5e1a618c6df2d9a716cf95b939a51016de8978cd317d9ae7ebf3f0b5f
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \

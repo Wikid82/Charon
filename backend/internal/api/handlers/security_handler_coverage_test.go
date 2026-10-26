@@ -964,19 +964,19 @@ func TestSecurityHandler_SnapshotAndRestoreHelpers(t *testing.T) {
 	t.Cleanup(handler.Close)
 	require.NoError(t, db.Create(&models.Setting{Key: "k1", Value: "v1", Category: "security", Type: "string"}).Error)
 
-	snapshots, err := handler.snapshotSettings([]string{"k1", "k1", "k2"})
+	snapshots, err := snapshotSettings(db, []string{"k1", "k1", "k2"})
 	require.NoError(t, err)
 	require.Len(t, snapshots, 2)
 	require.True(t, snapshots["k1"].exists)
 	require.False(t, snapshots["k2"].exists)
 
-	require.NoError(t, handler.restoreSettings(map[string]settingSnapshot{
+	require.NoError(t, restoreSettings(db, map[string]settingSnapshot{
 		"k1": snapshots["k1"],
 		"k2": snapshots["k2"],
 	}))
 
 	require.NoError(t, db.Exec("DROP TABLE settings").Error)
-	err = handler.restoreSettings(map[string]settingSnapshot{
+	err = restoreSettings(db, map[string]settingSnapshot{
 		"k1": snapshots["k1"],
 	})
 	require.Error(t, err)
@@ -989,44 +989,42 @@ func TestSecurityHandler_DefaultSecurityConfigStateHelpers(t *testing.T) {
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	t.Cleanup(handler.Close)
 
-	exists, enabled, err := handler.snapshotDefaultSecurityConfigState()
+	snap, err := snapshotDefaultSecurityConfigState(db)
 	require.NoError(t, err)
-	require.False(t, exists)
-	require.False(t, enabled)
+	require.False(t, snap.exists)
+	require.False(t, snap.enabled)
 
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true}).Error)
-	exists, enabled, err = handler.snapshotDefaultSecurityConfigState()
+	snap, err = snapshotDefaultSecurityConfigState(db)
 	require.NoError(t, err)
-	require.True(t, exists)
-	require.True(t, enabled)
+	require.True(t, snap.exists)
+	require.True(t, snap.enabled)
 
-	require.NoError(t, handler.restoreDefaultSecurityConfigState(true, false))
+	require.NoError(t, restoreDefaultSecurityConfigState(db, defaultSecurityConfigSnapshot{exists: true, enabled: false}))
 	var cfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
 	require.False(t, cfg.Enabled)
 
-	require.NoError(t, handler.restoreDefaultSecurityConfigState(false, false))
+	require.NoError(t, restoreDefaultSecurityConfigState(db, defaultSecurityConfigSnapshot{}))
 	err = db.Where("name = ?", "default").First(&cfg).Error
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
 
-func TestSecurityHandler_EnsureSecurityConfigEnabled_Helper(t *testing.T) {
-	handler := &SecurityHandler{db: nil}
-	err := handler.ensureSecurityConfigEnabled()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "database not configured")
-
+func TestEnableSecurityFramework_Helper(t *testing.T) {
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: false}).Error)
 
-	handler = NewSecurityHandler(config.SecurityConfig{}, db, nil)
-	t.Cleanup(handler.Close)
-	require.NoError(t, handler.ensureSecurityConfigEnabled())
+	require.NoError(t, enableSecurityFramework(db))
 
 	var cfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
 	require.True(t, cfg.Enabled)
+	for _, key := range []string{"feature.cerberus.enabled", "security.cerberus.enabled"} {
+		var setting models.Setting
+		require.NoError(t, db.Where("key = ?", key).First(&setting).Error)
+		require.Equal(t, "true", setting.Value, key)
+	}
 }
 
 func TestLatestConfigApplyState_Helper(t *testing.T) {

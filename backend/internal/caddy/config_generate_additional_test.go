@@ -45,6 +45,7 @@ func TestGenerateConfig_ZerosslAndBothProviders(t *testing.T) {
 }
 
 func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
+	withTestBouncerKey(t)
 	// Create host with a location so location-level handlers are generated
 	ipRules := `[ { "cidr": "192.168.1.0/24" } ]`
 	acl := models.AccessList{ID: 201, Name: "WL2", Enabled: true, Type: "whitelist", IPRules: ipRules}
@@ -382,6 +383,7 @@ func TestGenerateConfig_RateLimitFromSecCfg(t *testing.T) {
 }
 
 func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
+	withTestBouncerKey(t)
 	host := models.ProxyHost{UUID: "cs-1", DomainNames: "cs.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	sec := &models.SecurityConfig{CrowdSecMode: "local", CrowdSecAPIURL: "http://cs.local"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, sec, nil)

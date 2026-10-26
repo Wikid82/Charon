@@ -26,7 +26,7 @@ var stagedHubTypes = map[string]bool{"parsers": true, "postoverflows": true}
 
 // InstalledHubItems lists the hub items installed below dataDir, sorted by type then name. An item is
 // installed when a symlink under <type>/ (or config/<type>/) points into the hub tree at
-// hub/<type>/[stage/]<owner>/<name>.yaml. Only the link text is read: no cscli, no network, and the
+// hub/<type>/[stage/]<owner>/<name>.yaml or .yml. Only the link text is read: no cscli, no network, and the
 // target is not required to exist. Links that do not fit that shape (relative, pointing elsewhere, a
 // name that fails ValidHubItemName) are skipped, real files are not hub items, and at most MaxHubItems
 // are returned.
@@ -117,8 +117,23 @@ func hubItemFromLink(typ, rel, p string) (HubItem, bool) {
 	return item, ok && item.Valid()
 }
 
+// hubItemExtensions are the file suffixes hub items ship with. The hub uses both spellings, so every
+// hub item check goes through hubItemStem.
+var hubItemExtensions = []string{".yaml", ".yml"}
+
+// hubItemStem returns the item name of a hub item file (the file name without its .yaml or .yml
+// suffix) and reports whether file is a hub item file at all. The match is case sensitive, like the hub.
+func hubItemStem(file string) (string, bool) {
+	for _, ext := range hubItemExtensions {
+		if stem, ok := strings.CutSuffix(file, ext); ok {
+			return stem, true
+		}
+	}
+	return "", false
+}
+
 // hubItemFromTarget parses a cleaned absolute link target ending in
-// hub/<typ>/[stage/]<owner>/<name>.yaml.
+// hub/<typ>/[stage/]<owner>/<name>.yaml (or .yml).
 func hubItemFromTarget(typ, target string) (HubItem, bool) {
 	parts := strings.Split(strings.TrimPrefix(target, "/"), "/")
 	tail := 2 // owner/name.yaml
@@ -130,15 +145,15 @@ func hubItemFromTarget(typ, target string) (HubItem, bool) {
 		return HubItem{}, false
 	}
 	owner, file := parts[len(parts)-2], parts[len(parts)-1]
-	name, found := strings.CutSuffix(file, ".yaml")
+	name, found := hubItemStem(file)
 	if !found {
 		return HubItem{}, false
 	}
 	return HubItem{Type: typ, Name: owner + "/" + name}, true
 }
 
-// CountDownloadedHubFiles counts the item files (*.yaml) below the hub trees of dataDir, whether or not the
-// item is enabled yet. It is cheap (no cscli) and bounded like the installed-item scan.
+// CountDownloadedHubFiles counts the item files (*.yaml and *.yml) below the hub trees of dataDir, whether or
+// not the item is enabled yet. It is cheap (no cscli) and bounded like the installed-item scan.
 func CountDownloadedHubFiles(dataDir string) int {
 	n, visited := 0, 0
 	for _, root := range hubRoots {
@@ -151,7 +166,7 @@ func CountDownloadedHubFiles(dataDir string) int {
 				if visited > maxHubScanEntries {
 					return fs.SkipAll
 				}
-				if !d.IsDir() && d.Type().IsRegular() && strings.HasSuffix(d.Name(), ".yaml") {
+				if _, isItem := hubItemStem(d.Name()); isItem && !d.IsDir() && d.Type().IsRegular() {
 					n++
 				}
 				return nil

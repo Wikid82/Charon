@@ -1,17 +1,13 @@
 package crowdsec
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/testutil/cscliguard"
 )
 
 // Hub items are verified against the engine configuration, so cscli gets `-c <file>` like the other calls.
@@ -37,28 +33,8 @@ var cscliProbesWithoutConfig = map[string]bool{"hasCSCLI": true}
 // function with several cscli starts needs a withConfigFlag call for each.
 func TestCrowdSecPackageRunsCSCLIOnlyWithTheConfigFile(t *testing.T) {
 	t.Parallel()
-	files, err := filepath.Glob("*.go")
+	offenders, err := cscliguard.Offenders(".", []string{"withConfigFlag"}, cscliProbesWithoutConfig)
 	require.NoError(t, err)
-	fset := token.NewFileSet()
-	var offenders []string
-	for _, name := range files {
-		if strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		src, readErr := os.ReadFile(name) //nolint:gosec // G304: Go files of this package
-		require.NoError(t, readErr)
-		file, parseErr := parser.ParseFile(fset, name, src, 0)
-		require.NoError(t, parseErr)
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			if n := countCSCLICalls(fn.Body); n > 0 && !cscliProbesWithoutConfig[fn.Name.Name] && countCalls(fn.Body, "withConfigFlag") < n {
-				offenders = append(offenders, name+": "+fn.Name.Name)
-			}
-		}
-	}
 	assert.Empty(t, offenders, "these functions start cscli without -c")
 }
 
@@ -69,41 +45,4 @@ func stripConfigFlag(args []string) []string {
 		return args[2:]
 	}
 	return args
-}
-
-// countCSCLICalls counts the Execute and ExecuteWithEnv calls in body that run the literal "cscli" command.
-func countCSCLICalls(body *ast.BlockStmt) int {
-	count := 0
-	ast.Inspect(body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || (sel.Sel.Name != "Execute" && sel.Sel.Name != "ExecuteWithEnv") {
-			return true
-		}
-		for _, arg := range call.Args {
-			if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING && lit.Value == `"cscli"` {
-				count++
-				break
-			}
-		}
-		return true
-	})
-	return count
-}
-
-// countCalls counts the calls of the plain function name in body.
-func countCalls(body *ast.BlockStmt, name string) int {
-	count := 0
-	ast.Inspect(body, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == name {
-				count++
-			}
-		}
-		return true
-	})
-	return count
 }

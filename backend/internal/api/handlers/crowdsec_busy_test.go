@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +33,17 @@ func setBackgroundInstallActive(t *testing.T, h *CrowdsecHandler) {
 	t.Cleanup(func() { h.ApplyJobs().Release(busyJobID) })
 }
 
+// newJobGate returns a gate that blocks a fake apply job until release is called. release is also a cleanup, so a
+// failing assertion never leaks the blocked job goroutine.
+func newJobGate(t *testing.T) (gate <-chan struct{}, release func()) {
+	t.Helper()
+	ch := make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(ch) }) }
+	t.Cleanup(release)
+	return ch, release
+}
+
 type busyFixture struct {
 	h    *CrowdsecHandler
 	r    *gin.Engine
@@ -50,7 +62,7 @@ func newBusyFixture(t *testing.T) *busyFixture {
 	sqlDB, dbErr := db.DB()
 	require.NoError(t, dbErr)
 	sqlDB.SetMaxOpenConns(1) // shared-cache SQLite answers concurrent connections with "table is locked"
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.CrowdSecWhitelist{}, &models.CrowdsecConsoleEnrollment{}, &models.CrowdsecApplyJob{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.CrowdSecWhitelist{}, &models.CrowdsecConsoleEnrollment{}, &models.CrowdsecApplyJob{}, &models.Setting{}))
 	dir := t.TempDir()
 	ce := &countingExec{running: true}
 	h := newTestCrowdsecHandler(t, db, ce, "/bin/false", dir)
@@ -87,6 +99,10 @@ type busyCase struct {
 }
 
 // busyCases has one entry per busy-checked route of mutatingCrowdsecRoutes.
+//
+// The routes classed routeHeld take a hold on the install manager while they run (Start, Stop, ConsoleEnroll,
+// whitelist add/delete and hub items restore), so a job cannot start in the middle of them. Their hold-side
+// checks live in crowdsec_held_routes_test.go. Every row here is refused with 409 while a job runs.
 var busyCases = map[string]busyCase{
 	"POST /admin/crowdsec/start": {
 		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
@@ -183,7 +199,7 @@ func curatedPresetSlug() string {
 func TestBusyCasesCoverEveryBusyCheckedRoute(t *testing.T) {
 	t.Parallel()
 	for route, c := range mutatingCrowdsecRoutes {
-		if c.class == routeBusyChecked {
+		if c.class == routeBusyChecked || c.class == routeHeld {
 			require.Contains(t, busyCases, route, "a busy-checked route needs a case in busyCases")
 		} else {
 			require.NotContains(t, busyCases, route, "only busy-checked routes belong in busyCases")
@@ -205,6 +221,7 @@ func TestMutatingHandlersAnswerBusyWhileAnInstallRuns(t *testing.T) {
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, codeCrowdsecBusy, resp["error_code"])
 			require.Equal(t, busyJobID, resp["job_id"], "the active job is named so the UI can resume it")
+			require.Equal(t, msgCrowdsecBusy, resp["error"])
 			if bc.untouched != nil {
 				bc.untouched(t, f)
 			}
@@ -253,7 +270,7 @@ func TestNonBusyRoutesStayOpenWhileAnInstallRuns(t *testing.T) {
 	setBackgroundInstallActive(t, f.h)
 
 	for route, c := range mutatingCrowdsecRoutes {
-		if c.class == routeBusyChecked {
+		if c.class == routeBusyChecked || c.class == routeHeld {
 			continue
 		}
 		method, path, _ := strings.Cut(route, " ")
@@ -265,8 +282,9 @@ func TestNonBusyRoutesStayOpenWhileAnInstallRuns(t *testing.T) {
 
 func TestHubItemsRestoreInProgressRefusesAnInstallJob(t *testing.T) {
 	f := newBusyFixture(t)
-	f.h.restore.running.Store(true)
-	defer f.h.restore.running.Store(false)
+	release, _, ok := f.h.ApplyJobs().Hold() // a restore holds the manager for its whole run
+	require.True(t, ok)
+	defer release()
 
 	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply",
 		f.presetBody, "application/json")
@@ -297,9 +315,65 @@ func TestBusyFlagIsReleasedWhenAJobEnds(t *testing.T) {
 
 func TestHubItemsRestoreRunningBlocksTheBusyFlag(t *testing.T) {
 	f := newBusyFixture(t)
-	f.h.restore.running.Store(true)
-	require.False(t, f.h.ApplyJobs().TryAcquire(busyJobID), "no job may start while a restore runs")
-	f.h.restore.running.Store(false)
+	release, _, ok := f.h.ApplyJobs().Hold()
+	require.True(t, ok)
+	require.False(t, f.h.ApplyJobs().TryAcquire(busyJobID), "no job may start while a restore holds the manager")
+	release()
 	require.True(t, f.h.ApplyJobs().TryAcquire(busyJobID))
 	f.h.ApplyJobs().Release(busyJobID)
+}
+
+// TestConsoleEnrollRefusedWhileARealInstallRuns drives the console guard with a real async apply job (job row and
+// manager), not the stubbed busy flag used by the table above.
+func TestConsoleEnrollRefusedWhileARealInstallRuns(t *testing.T) {
+	f := newBusyFixture(t)
+	gate, release := newJobGate(t)
+	useJobApply(t, f, func(context.Context, crowdsec.ApplyRequest) (crowdsec.ApplyResult, error) {
+		<-gate
+		return crowdsec.ApplyResult{Status: "applied"}, nil
+	})
+	enrollBody := []byte(`{"enrollment_key":"abcdefghijklmnop","agent_name":"agent"}`)
+	id := decodeBody(t, f.do(http.MethodPost, "/admin/crowdsec/presets/apply", f.presetBody, "application/json"))["job_id"].(string)
+	waitJobState(t, f, id, models.CrowdsecApplyJobRunning)
+
+	w := f.do(http.MethodPost, "/admin/crowdsec/console/enroll", enrollBody, "application/json")
+	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	resp := decodeBody(t, w)
+	require.Equal(t, codeCrowdsecBusy, resp["error_code"])
+	require.Equal(t, id, resp["job_id"], "the running job is named so the UI can resume it")
+	var n int64
+	require.NoError(t, f.h.DB.Model(&models.CrowdsecConsoleEnrollment{}).Count(&n).Error)
+	require.Zero(t, n, "no enrollment attempt was recorded")
+
+	release()
+	waitJobState(t, f, id, models.CrowdsecApplyJobSucceeded)
+	require.Eventually(t, func() bool { _, busy := f.h.ApplyJobs().Busy(); return !busy }, 5*time.Second, 10*time.Millisecond)
+
+	w = f.do(http.MethodPost, "/admin/crowdsec/console/enroll", enrollBody, "application/json")
+	require.NotEqual(t, http.StatusConflict, w.Code, "enrolment is allowed again once the job ended: %s", w.Body.String())
+	require.NotContains(t, w.Body.String(), codeCrowdsecBusy)
+}
+
+// TestConsoleEnrollCheapGatesWinOverBusy pins that a disabled feature or a malformed payload is answered before the
+// busy check, so it is never reported as busy while an install runs.
+func TestConsoleEnrollCheapGatesWinOverBusy(t *testing.T) {
+	for name, tc := range map[string]struct {
+		flag string
+		body string
+		want int
+	}{
+		"feature disabled": {flag: "false", body: `{"enrollment_key":"abcdefghijklmnop","agent_name":"agent"}`, want: http.StatusNotFound},
+		"invalid payload":  {flag: "true", body: `{`, want: http.StatusBadRequest},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newBusyFixture(t)
+			t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", tc.flag)
+			setBackgroundInstallActive(t, f.h)
+
+			w := f.do(http.MethodPost, "/admin/crowdsec/console/enroll", []byte(tc.body), "application/json")
+
+			require.Equal(t, tc.want, w.Code, w.Body.String())
+			require.NotContains(t, w.Body.String(), codeCrowdsecBusy)
+		})
+	}
 }

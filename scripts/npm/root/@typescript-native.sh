@@ -4,7 +4,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 NPM_MODULES=(
+        "$REPO_ROOT"
         "$REPO_ROOT/frontend"
+        "$REPO_ROOT/docs-site"
     )
 
 for MODULE in "${NPM_MODULES[@]}"; do
@@ -14,5 +16,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
 
     cd "$MODULE" || exit 1
     rm -rf node_modules package-lock.json
-    npm install react-i18next
+    npm install @typescript/native@npm:typescript@next --save-dev
 done

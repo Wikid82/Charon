@@ -27,15 +27,23 @@ func TestInstalledHubItemsLinkTargets(t *testing.T) {
 		want   *HubItem
 	}{
 		{"collection", "config/collections/caddy.yaml", hub + "collections/crowdsecurity/caddy.yaml", &HubItem{"collections", "crowdsecurity/caddy"}},
+		{"collection shipped as yml", "config/collections/caddy.yml", hub + "collections/crowdsecurity/caddy.yml", &HubItem{"collections", "crowdsecurity/caddy"}},
+		{"yml link to yaml target", "config/collections/caddy.yml", hub + "collections/crowdsecurity/caddy.yaml", &HubItem{"collections", "crowdsecurity/caddy"}},
 		{"context", "config/contexts/http_base.yaml", hub + "contexts/crowdsecurity/http_base.yaml", &HubItem{"contexts", "crowdsecurity/http_base"}},
 		{"scenario", "config/scenarios/CVE-2017-9841.yaml", hub + "scenarios/crowdsecurity/CVE-2017-9841.yaml", &HubItem{"scenarios", "crowdsecurity/CVE-2017-9841"}},
+		{"scenario shipped as yml", "config/scenarios/sigmahq-proc.yml", hub + "scenarios/sigmahq/proc.yml", &HubItem{"scenarios", "sigmahq/proc"}},
 		{"parser with stage", "config/parsers/s01-parse/caddy-logs.yaml", hub + "parsers/s01-parse/crowdsecurity/caddy-logs.yaml", &HubItem{"parsers", "crowdsecurity/caddy-logs"}},
+		{"parser with stage shipped as yml", "config/parsers/s01-parse/caddy-logs.yml", hub + "parsers/s01-parse/crowdsecurity/caddy-logs.yml", &HubItem{"parsers", "crowdsecurity/caddy-logs"}},
 		{"postoverflow with stage", "config/postoverflows/s01-whitelist/rdns.yaml", hub + "postoverflows/s01-whitelist/crowdsecurity/rdns.yaml", &HubItem{"postoverflows", "crowdsecurity/rdns"}},
 		{"mixed case owner", "config/collections/sftpgo.yaml", hub + "collections/Azlaroc/sftpgo.yaml", &HubItem{"collections", "Azlaroc/sftpgo"}},
 		{"root layout", "collections/caddy.yaml", hub + "collections/crowdsecurity/caddy.yaml", &HubItem{"collections", "crowdsecurity/caddy"}},
+		{"root layout shipped as yml", "collections/caddy.yml", hub + "collections/crowdsecurity/caddy.yml", &HubItem{"collections", "crowdsecurity/caddy"}},
 		{"hub below the data dir", "config/collections/c.yaml", "/app/data/crowdsec/config/hub/collections/o/c.yaml", &HubItem{"collections", "o/c"}},
 		{"unclean target", "config/collections/c.yaml", hub + "collections/./x/../o/c.yaml", &HubItem{"collections", "o/c"}},
 		{"dangling target is still listed", "config/collections/c.yaml", "/nonexistent/hub/collections/o/c.yaml", &HubItem{"collections", "o/c"}},
+		{"upper case yml extension", "config/collections/c.yml", hub + "collections/o/c.YML", nil},
+		{"yml alone is not an item", "config/collections/c.yml", hub + "collections/o/.yml", nil},
+		{"yaml suffix inside a name is not an extension", "config/collections/c.yml", hub + "collections/o/c.yml.bak", nil},
 		{"relative link", "config/collections/c.yaml", "../hub/collections/o/c.yaml", nil},
 		{"user link elsewhere", "config/collections/c.yaml", "/home/user/mine/c.yaml", nil},
 		{"wrong type directory", "config/collections/c.yaml", hub + "scenarios/o/c.yaml", nil},
@@ -78,6 +86,7 @@ func TestInstalledHubItemsIgnoresNonLinksAndSorts(t *testing.T) {
 	link(t, dir, "config/collections/b.yaml", hub+"collections/crowdsecurity/b.yaml")
 	link(t, dir, "config/collections/a.yaml", hub+"collections/Azlaroc/a.yaml")
 	link(t, dir, "config/parsers/s02-enrich/p.yaml", hub+"parsers/s02-enrich/crowdsecurity/p.yaml")
+	link(t, dir, "config/scenarios/ymlonly.yml", hub+"scenarios/sigmahq/ymlonly.yml")
 	// Duplicate through the root layout, a real file, a directory link and an unrelated tree.
 	link(t, dir, "collections/b.yaml", hub+"collections/crowdsecurity/b.yaml")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config", "collections", "mine.yaml"), []byte("x"), 0o600))
@@ -90,8 +99,26 @@ func TestInstalledHubItemsIgnoresNonLinksAndSorts(t *testing.T) {
 		{"collections", "Azlaroc/a"},
 		{"collections", "crowdsecurity/b"},
 		{"parsers", "crowdsecurity/p"},
+		{"scenarios", "sigmahq/ymlonly"},
 		{"scenarios", "zeta/z"},
 	}, items)
+}
+
+// A foo.yaml and foo.yml link pair for the same item is one installed item: scanHubItems keys its
+// set on HubItem. CountDownloadedHubFiles still counts both files, but it counts real files rather
+// than links and only drives the progress counter, so it is covered in apply_jobs_progress_test.go.
+func TestInstalledHubItemsYamlAndYmlPairCollapseToOneItem(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const hub = "/etc/crowdsec/hub/"
+	link(t, dir, "config/collections/caddy.yaml", hub+"collections/crowdsecurity/caddy.yaml")
+	link(t, dir, "config/collections/caddy.yml", hub+"collections/crowdsecurity/caddy.yml")
+	link(t, dir, "collections/caddy.yml", hub+"collections/crowdsecurity/caddy.yml")
+
+	items, skipped, err := scanHubItems(dir)
+	require.NoError(t, err)
+	require.Equal(t, []HubItem{{"collections", "crowdsecurity/caddy"}}, items)
+	require.Zero(t, skipped)
 }
 
 func TestInstalledHubItemsEmptyOrMissingTree(t *testing.T) {
@@ -108,7 +135,11 @@ func TestInstalledHubItemsCap(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	for i := 0; i < MaxHubItems+25; i++ {
-		link(t, dir, fmt.Sprintf("config/collections/c%04d.yaml", i), fmt.Sprintf("/etc/crowdsec/hub/collections/o/c%04d.yaml", i))
+		ext := ".yaml"
+		if i%2 == 1 {
+			ext = ".yml" // the cap counts both spellings
+		}
+		link(t, dir, fmt.Sprintf("config/collections/c%04d%s", i, ext), fmt.Sprintf("/etc/crowdsec/hub/collections/o/c%04d%s", i, ext))
 	}
 	items, err := InstalledHubItems(dir)
 	require.NoError(t, err)

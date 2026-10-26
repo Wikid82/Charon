@@ -153,7 +153,7 @@ graph TB
 | **State Management** | React Hooks + Context | Native | Global state |
 | **Internationalization** | i18next | Latest | 5 language support |
 | **Unit Testing** | Vitest | 4.1.0-beta.6 | Fast unit test runner |
-| **E2E Testing** | Playwright | 1.58.2 | Browser automation |
+| **E2E Testing** | Playwright | 1.64.1 | Browser automation |
 | **Theme System** | CSS Custom Properties + data-theme | N/A | `data-theme` attribute on `<html>` drives 5 built-in themes, custom colors, system mode, and logo customization |
 
 ### Infrastructure
@@ -878,6 +878,14 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 - Decision management API (view, create, delete bans)
 - IP whitelist management: operators add/remove IPs and CIDRs via the management UI; entries are persisted in SQLite and regenerated into a `crowdsecurity/whitelists` parser YAML on every mutating operation and at startup
 
+**CrowdSec bouncer key precedence:** the bouncer key is the shared secret the Caddy bouncer uses to talk to the CrowdSec Local API. One rule set, in `backend/internal/crowdsec/bouncerkey`, is used by the proxy config, the handlers and startup:
+
+1. A saved key file (`bouncer_key` in the CrowdSec data folder, `/app/data/crowdsec/bouncer_key` by default) that the Local API accepts wins. Environment values are not tested in this case.
+2. Otherwise the first non-empty environment variable is tested and, if accepted, saved to the key file. Lookup order: `CHARON_SECURITY_CROWDSEC_API_KEY`, `CROWDSEC_API_KEY`, `CROWDSEC_BOUNCER_API_KEY`, `CERBERUS_SECURITY_CROWDSEC_API_KEY`, `CPM_SECURITY_CROWDSEC_API_KEY`.
+3. Otherwise a new bouncer is registered and its key saved.
+
+Key writes go through `crowdsec.SaveBouncerKey`: a temporary file is written and renamed over the key (mode `0600`). A bind-mounted single file, where rename is not allowed, falls back to an in-place write. A symlinked key file is replaced by a regular file. A failed save is logged as an error. Nothing keeps the new key in memory: Caddy and the key check read the key file, so blocking may not work until the file can be written (fix write access to the data directory, then restart CrowdSec).
+
 **Preset apply and config edits:** Applying a hub preset, importing a
 configuration, and saving a file in the config editor never rename or empty the
 live CrowdSec directory. Each operation first takes a copy-based snapshot
@@ -892,7 +900,7 @@ snapshot writes its `.charon-apply` sidecar; that name is engine-owned, so full
 snapshots, exports and import extraction skip it. The preset
 cache is laid out as `hub_cache/<type>/<owner>/<name>/` (a name shared by several
 types answers 409 `preset_type_ambiguous`; an unreachable hub, for a pull or an apply, answers 503
-`hub_unreachable`). Every `cscli` call runs through the `runCSCLI` helper with a
+`hub_unreachable`). Before a downloaded hub item is cached, it is checked against the hub index; an item that does not match is refused (409 `preset_hub_updating`). Every `cscli` call runs through the `runCSCLI` helper with a
 deadline, and CrowdSec JSON request bodies are capped at 64 KiB (413
 `request_too_large`). Single-file edits keep their own
 backups (`<DataDir>.filebackup.<timestamp>`, newest 10 kept). Import and rollback leave
@@ -1413,7 +1421,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | `CHARON_CROWDSEC_LOG_DIR` | CrowdSec log directory | `/var/log/crowdsec` | No |
 | `CHARON_PLUGINS_DIR` | DNS provider plugin directory | `/app/plugins` | No |
 | `CHARON_SINGLE_CONTAINER_MODE` | Enables permission repair endpoints | `true` | No |
-| `CROWDSEC_API_KEY` | CrowdSec cloud API key | None | Optional |
+| `CROWDSEC_API_KEY` | CrowdSec bouncer key (fallback; the saved key file wins). Not a CrowdSec cloud/console key. See "CrowdSec bouncer key precedence" in the Security Architecture section | None | Optional |
 | `SMTP_HOST` | SMTP server for notifications | None | Optional |
 | `SMTP_PORT` | SMTP port | `587` | Optional |
 | `SMTP_USER` | SMTP username | None | Optional |

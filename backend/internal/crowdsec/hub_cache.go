@@ -58,6 +58,13 @@ var (
 	sha256HexPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
+// itemDigest returns the lower-case hex sha256 of a cached or downloaded hub item. It is the value the hub index
+// publishes per version and the value cache metadata records.
+func itemDigest(item []byte) string {
+	sum := sha256.Sum256(item)
+	return hex.EncodeToString(sum[:])
+}
+
 // IsCacheItemType reports whether t is an item type a cache entry may carry.
 func IsCacheItemType(t string) bool { return slices.Contains(cacheItemTypes, t) }
 
@@ -138,8 +145,7 @@ func (c *HubCache) Store(ctx context.Context, slug, itemType, etag, source strin
 		return CachedPreset{}, fmt.Errorf("item size out of range")
 	}
 
-	sum := sha256.Sum256(item)
-	digest := hex.EncodeToString(sum[:])
+	digest := itemDigest(item)
 	ts := c.nowFn().UTC()
 	meta := CachedPreset{
 		Slug:        slug,
@@ -468,8 +474,7 @@ func (c *HubCache) readEntry(itemType, slug string) (meta CachedPreset, item []b
 
 // validateMeta checks the stored metadata against the entry address and the item that was read.
 func (c *HubCache) validateMeta(meta CachedPreset, itemType string, item []byte) error {
-	sum := sha256.Sum256(item)
-	digest := hex.EncodeToString(sum[:])
+	digest := itemDigest(item)
 	switch {
 	case meta.Name != meta.Slug:
 		return invalidEntry("name")

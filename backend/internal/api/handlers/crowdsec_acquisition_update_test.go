@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -126,53 +127,55 @@ func requireOnlyEntries(t *testing.T, dir string, names ...string) {
 	require.ElementsMatch(t, names, got)
 }
 
-func TestReplaceAcquisitionConfigFallsBackInPlaceOnBusyRename(t *testing.T) {
-	for _, errno := range []syscall.Errno{syscall.EBUSY, syscall.EXDEV, syscall.EROFS} {
-		t.Run(errno.Error(), func(t *testing.T) {
-			dir := t.TempDir()
-			acquis := filepath.Join(dir, "acquis.yaml")
-			require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o640)) //nolint:gosec // G306: deliberate 0640 to verify mode preservation
-			orig := renameFile
-			renameFile = func(oldpath, newpath string) error {
-				return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: errno}
-			}
-			t.Cleanup(func() { renameFile = orig })
-
-			now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-			backup, err := replaceAcquisitionConfig(acquis, "new\n", now)
-			require.NoError(t, err)
-			require.Equal(t, crowdsec.BackupFilePath(acquis, now), backup)
-
-			got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
-			require.NoError(t, err)
-			require.Equal(t, "new\n", string(got))
-			saved, err := os.ReadFile(backup) //nolint:gosec // G304: t.TempDir-derived path
-			require.NoError(t, err)
-			require.Equal(t, "original\n", string(saved))
-			requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backup))
-		})
-	}
+// stubWriteFileAtomic replaces the atomic write seam of replaceAcquisitionConfig for the duration of the test.
+func stubWriteFileAtomic(t *testing.T, fn func(string, []byte, fs.FileMode, crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error)) {
+	t.Helper()
+	orig := writeFileAtomic
+	t.Cleanup(func() { writeFileAtomic = orig })
+	writeFileAtomic = fn
 }
 
-func TestReplaceAcquisitionConfigInPlaceFallbackFailureKeepsBackup(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("file permissions do not bind root")
-	}
+func TestReplaceAcquisitionConfigReturnsTheBackupAfterAnInPlaceSave(t *testing.T) {
 	dir := t.TempDir()
 	acquis := filepath.Join(dir, "acquis.yaml")
-	require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o400))
-	orig := renameFile
-	renameFile = func(oldpath, newpath string) error {
-		return &os.LinkError{Op: "rename", Old: oldpath, New: newpath, Err: syscall.EBUSY}
-	}
-	t.Cleanup(func() { renameFile = orig })
+	require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o640)) //nolint:gosec // G306: deliberate 0640 to verify mode preservation
+	stubWriteFileAtomic(t, func(path string, data []byte, mode fs.FileMode, _ crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error) {
+		if err := os.WriteFile(path, data, mode); err != nil { //nolint:gosec // G306: test writes the fake in-place result
+			return crowdsec.AtomicWriteResult{}, err
+		}
+		return crowdsec.AtomicWriteResult{InPlace: true, OwnerKept: true}, nil
+	})
+
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	backup, err := replaceAcquisitionConfig(acquis, "new\n", now)
+	require.NoError(t, err)
+	require.Equal(t, crowdsec.BackupFilePath(acquis, now), backup)
+
+	got, err := os.ReadFile(acquis) //nolint:gosec // G304: t.TempDir-derived path
+	require.NoError(t, err)
+	require.Equal(t, "new\n", string(got))
+	saved, err := os.ReadFile(backup) //nolint:gosec // G304: t.TempDir-derived path
+	require.NoError(t, err)
+	require.Equal(t, "original\n", string(saved))
+	requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backup))
+}
+
+// TestReplaceAcquisitionConfigKeepsBackupWhenInPlaceWriteIsPartial: a partial in-place write wraps
+// ErrPartialInPlaceWrite, so the backup is the only intact copy and must be kept.
+func TestReplaceAcquisitionConfigKeepsBackupWhenInPlaceWriteIsPartial(t *testing.T) {
+	dir := t.TempDir()
+	acquis := filepath.Join(dir, "acquis.yaml")
+	require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o600))
+	stubWriteFileAtomic(t, func(string, []byte, fs.FileMode, crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error) {
+		return crowdsec.AtomicWriteResult{}, fmt.Errorf("write in place: %w", errors.Join(crowdsec.ErrPartialInPlaceWrite, &os.LinkError{Op: "rename", Err: syscall.EBUSY}))
+	})
 
 	backup, err := replaceAcquisitionConfig(acquis, "new\n", time.Now())
-	require.Error(t, err)
+	require.ErrorIs(t, err, crowdsec.ErrPartialInPlaceWrite)
 	require.Empty(t, backup)
 	backups, globErr := filepath.Glob(acquis + ".backup.*")
 	require.NoError(t, globErr)
-	require.Len(t, backups, 1, "the backup is the only intact copy after a failed in-place write")
+	require.Len(t, backups, 1, "a half-written live file leaves the backup as the only intact copy")
 	requireOnlyEntries(t, dir, "acquis.yaml", filepath.Base(backups[0]))
 }
 
@@ -182,9 +185,9 @@ func TestUpdateAcquisitionConfigFailedReplaceLeaksNoFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(acquis, []byte("original\n"), 0o600))
 	t.Setenv("CHARON_CROWDSEC_ACQUIS_PATH", acquis)
 	r := newAcquisitionRouter(t)
-	orig := renameFile
-	renameFile = func(string, string) error { return errors.New("boom") }
-	t.Cleanup(func() { renameFile = orig })
+	stubWriteFileAtomic(t, func(string, []byte, fs.FileMode, crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error) {
+		return crowdsec.AtomicWriteResult{}, fmt.Errorf("replace acquisition config: %w", &os.LinkError{Op: "rename", Err: errors.New("boom")})
+	})
 
 	w := putAcquisition(r, "new\n")
 	require.Equal(t, http.StatusInternalServerError, w.Code)
@@ -259,7 +262,7 @@ func TestReplaceAcquisitionConfigTempCreateError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing-dir", "acquis.yaml")
 
 	_, err := replaceAcquisitionConfig(missing, "new\n", time.Now())
-	require.ErrorContains(t, err, "create temporary acquisition config")
+	require.ErrorContains(t, err, "create temporary crowdsec file")
 }
 
 func TestUpdateAcquisitionConfigCancelledRequestDoesNotWrite(t *testing.T) {

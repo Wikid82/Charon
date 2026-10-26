@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -57,7 +58,7 @@ func (f *fakeExec) Status(ctx context.Context, configDir string) (running bool, 
 func setupCrowdDB(t *testing.T) *gorm.DB {
 	db := OpenTestDB(t)
 	// Migrate tables needed by CrowdSec handlers
-	if err := db.AutoMigrate(&models.SecurityConfig{}); err != nil {
+	if err := db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}); err != nil {
 		t.Fatalf("failed to migrate SecurityConfig: %v", err)
 	}
 	return db
@@ -75,7 +76,7 @@ func (f *fastCmdExec) Execute(ctx context.Context, name string, args ...string) 
 //
 //nolint:unparam // binPath kept for future test variants
 func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
-	h := NewCrowdsecHandler(db, executor, binPath, dataDir)
+	h := NewCrowdsecHandler(db, executor, binPath, dataDir, nil)
 	// Override CmdExec to avoid 60s LAPI wait timeout during Start
 	h.CmdExec = &fastCmdExec{}
 	// Set short timeouts for test performance
@@ -1776,7 +1777,7 @@ func TestCrowdsecHandler_CheckLAPIHealth_InvalidURL(t *testing.T) {
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 	// Create config with invalid URL
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:           "default",
 		CrowdSecAPIURL: "http://evil.external.com:8080", // Should be blocked by SSRF policy
 	}
@@ -1817,7 +1818,7 @@ func TestCrowdsecHandler_GetLAPIDecisions_Fallback(t *testing.T) {
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 	// Create config with invalid URL to trigger fallback
-	cfg := models.SecurityConfig{
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:           "default",
 		CrowdSecAPIURL: "http://external.evil.com:8080",
 	}
@@ -2352,7 +2353,7 @@ func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 	// Create initial SecurityConfig
 	cfg := models.SecurityConfig{
 		UUID:         "default",
-		Name:         "Default",
+		Name:         models.DefaultSecurityConfigName,
 		Enabled:      true,
 		CrowdSecMode: "local",
 	}
@@ -2370,9 +2371,9 @@ func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
 
 	// Verify SecurityConfig was updated
 	var updatedCfg models.SecurityConfig
-	require.NoError(t, db.First(&updatedCfg).Error)
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&updatedCfg).Error)
 	require.Equal(t, "disabled", updatedCfg.CrowdSecMode)
-	require.False(t, updatedCfg.Enabled)
+	require.True(t, updatedCfg.Enabled, "Stop must leave the global security switch untouched")
 }
 
 // TestCrowdsecHandler_IsCerberusEnabled_EnvVar tests Cerberus feature flag via environment variable
@@ -3251,7 +3252,7 @@ func TestCrowdsecHandler_Start_CreatesSecurityConfig(t *testing.T) {
 
 	// Verify SecurityConfig was created
 	var cfg models.SecurityConfig
-	err := db.First(&cfg).Error
+	err := db.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error
 	require.NoError(t, err)
 	require.Equal(t, "local", cfg.CrowdSecMode)
 	require.True(t, cfg.Enabled)
@@ -3267,7 +3268,7 @@ func TestCrowdsecHandler_Stop_UpdatesExistingConfig(t *testing.T) {
 	// Create pre-existing config
 	cfg := models.SecurityConfig{
 		UUID:         "test-uuid",
-		Name:         "Test Config",
+		Name:         models.DefaultSecurityConfigName,
 		Enabled:      true,
 		CrowdSecMode: "local",
 	}
@@ -3288,9 +3289,9 @@ func TestCrowdsecHandler_Stop_UpdatesExistingConfig(t *testing.T) {
 
 	// Verify config was updated
 	var updatedCfg models.SecurityConfig
-	require.NoError(t, db.First(&updatedCfg).Error)
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&updatedCfg).Error)
 	require.Equal(t, "disabled", updatedCfg.CrowdSecMode)
-	require.False(t, updatedCfg.Enabled)
+	require.True(t, updatedCfg.Enabled, "Stop must leave the global security switch untouched")
 }
 
 // Test WriteFile backup creation
@@ -3479,12 +3480,12 @@ func TestCrowdsecHandler_Start_ExecutorFailure(t *testing.T) {
 
 	db := setupCrowdDB(t)
 
-	// Create pre-existing config
+	// Create pre-existing config; a failed Start must restore it, not force the switch off
 	cfg := models.SecurityConfig{
 		UUID:         "test-uuid",
-		Name:         "Test Config",
-		Enabled:      false,
-		CrowdSecMode: "disabled",
+		Name:         models.DefaultSecurityConfigName,
+		Enabled:      true,
+		CrowdSecMode: "local",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3506,9 +3507,9 @@ func TestCrowdsecHandler_Start_ExecutorFailure(t *testing.T) {
 
 	// Verify config was reverted
 	var revertedCfg models.SecurityConfig
-	require.NoError(t, db.First(&revertedCfg).Error)
-	require.False(t, revertedCfg.Enabled)
-	require.Equal(t, "disabled", revertedCfg.CrowdSecMode)
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&revertedCfg).Error)
+	require.True(t, revertedCfg.Enabled)
+	require.Equal(t, "local", revertedCfg.CrowdSecMode)
 }
 
 // Test Start when LAPI doesn't become ready
@@ -3619,7 +3620,7 @@ func TestCrowdsecHandler_GetLAPIDecisions_APIError(t *testing.T) {
 	// Create SecurityConfig without API key
 	cfg := models.SecurityConfig{
 		UUID:         "test",
-		Name:         "Test",
+		Name:         models.DefaultSecurityConfigName,
 		Enabled:      true,
 		CrowdSecMode: "local",
 	}
@@ -3846,50 +3847,10 @@ func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 	require.Contains(t, maskedKey, "...wxyz")
 
 	// Call the banner function (it will log, but we've verified masking works)
-	h.logBouncerKeyBanner(testAPIKey)
+	h.logBouncerKeyBanner(testAPIKey, nil)
 
 	// If we reach here without panic, the function executed successfully
 	// The actual log output would need to be captured in integration tests
-}
-
-// TestSaveKeyToFile_SecurePermissions verifies that API keys are saved with secure file permissions.
-// Security: Ensures key files have 0600 permissions to prevent unauthorized access (CWE-732).
-func TestSaveKeyToFile_SecurePermissions(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	keyFile := filepath.Join(tmpDir, "test_bouncer.key")
-	testKey := "test_api_key_1234567890_secure"
-
-	// Save the key
-	err := saveKeyToFile(keyFile, testKey)
-	require.NoError(t, err)
-
-	// Verify file exists
-	require.FileExists(t, keyFile)
-
-	// Verify file permissions are 0600
-	info, err := os.Stat(keyFile)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "File must have 0600 permissions for security")
-
-	// Verify content is correct
-	// #nosec G304 -- keyFile is in test temp directory created by t.TempDir()
-	content, err := os.ReadFile(keyFile)
-	require.NoError(t, err)
-	require.Equal(t, testKey+"\n", string(content))
-}
-
-// TestSaveKeyToFile_EmptyKey verifies that empty keys are rejected.
-func TestSaveKeyToFile_RejectEmptyKey(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	keyFile := filepath.Join(tmpDir, "test_bouncer.key")
-
-	err := saveKeyToFile(keyFile, "")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot save empty key")
 }
 
 // TestTestKeyAgainstLAPI_ValidKey verifies that valid API keys are accepted by LAPI.
@@ -4076,10 +4037,13 @@ func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
 	require.NoError(t, db.Create(&cfg).Error)
 
 	ctx := context.Background()
-	key, err := handler.ensureBouncerRegistration(ctx)
+	res, err := handler.ensureBouncerRegistration(ctx)
 
+	// Intended flip: a valid env key is now saved to the key file, so the proxy reads it.
 	require.NoError(t, err)
-	require.Empty(t, key, "Should return empty key when using valid env var")
+	require.Equal(t, bouncerkey.OutcomeEnvKeySaved, res.Outcome)
+	require.Equal(t, "valid-env-key-test", res.Key)
+	require.Equal(t, "valid-env-key-test", bouncerkey.ReadFile(handler.bouncerKeyPath()))
 }
 
 // TestEnsureBouncerRegistration_InvalidEnvKeyFallback verifies fallback when env key is invalid.
@@ -4134,116 +4098,13 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 	require.NoError(t, db.Create(&cfg).Error)
 
 	ctx := context.Background()
-	key, err := handler.ensureBouncerRegistration(ctx)
+	res, err := handler.ensureBouncerRegistration(ctx)
 
 	require.NoError(t, err)
-	require.Equal(t, "new-generated-key-123", key, "Should return newly generated key")
+	require.Equal(t, bouncerkey.OutcomeRegistered, res.Outcome)
+	require.Equal(t, "new-generated-key-123", res.Key, "Should return newly generated key")
+	require.True(t, res.EnvKeyRejected, "the invalid env key is reported as rejected")
 	mockCmdExec.AssertExpectations(t)
-}
-
-// TestSaveKeyToFile_AtomicWrite verifies that key files are written atomically.
-func TestSaveKeyToFile_AtomicWrite(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	keyPath := filepath.Join(tmpDir, "keys", "bouncer_key")
-
-	// Save key
-	err := saveKeyToFile(keyPath, "test-key-123-atomic")
-	require.NoError(t, err)
-
-	// Verify file exists and has correct content
-	// #nosec G304 -- keyPath is in test temp directory created by t.TempDir()
-	content, err := os.ReadFile(keyPath)
-	require.NoError(t, err)
-	require.Equal(t, "test-key-123-atomic\n", string(content))
-
-	// Verify permissions
-	info, err := os.Stat(keyPath)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-
-	// Verify no temp file left behind
-	tmpPath := keyPath + ".tmp"
-	_, err = os.Stat(tmpPath)
-	require.True(t, os.IsNotExist(err), "Temp file should be removed after atomic write")
-
-	// Verify directory permissions
-	dirInfo, err := os.Stat(filepath.Dir(keyPath))
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o700), dirInfo.Mode().Perm())
-}
-
-// TestReadKeyFromFile_Trimming verifies that key file content is properly trimmed.
-func TestReadKeyFromFile_Trimming(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-
-	tests := []struct {
-		name     string
-		content  string
-		expected string
-	}{
-		{
-			name:     "Key with newline",
-			content:  "test-key-123\n",
-			expected: "test-key-123",
-		},
-		{
-			name:     "Key with extra whitespace",
-			content:  "  test-key-456  \n",
-			expected: "test-key-456",
-		},
-		{
-			name:     "Key without newline",
-			content:  "test-key-789",
-			expected: "test-key-789",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			keyPath := filepath.Join(tmpDir, strings.ReplaceAll(tt.name, " ", "_"))
-			err := os.WriteFile(keyPath, []byte(tt.content), 0o600)
-			require.NoError(t, err)
-
-			result := readKeyFromFile(keyPath)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-
-	// Test non-existent file
-	result := readKeyFromFile(filepath.Join(tmpDir, "nonexistent"))
-	require.Empty(t, result, "Should return empty string for non-existent file")
-}
-
-// TestGetBouncerAPIKeyFromEnv_Priority verifies environment variable priority order.
-func TestGetBouncerAPIKeyFromEnv_Priority(t *testing.T) {
-	// Not parallel: this test mutates process environment
-	t.Setenv("CROWDSEC_API_KEY", "")
-	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "")
-	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
-	t.Setenv("CPM_SECURITY_CROWDSEC_API_KEY", "")
-
-	// Test priority order (first match wins)
-	t.Setenv("CROWDSEC_API_KEY", "key1")
-
-	result := getBouncerAPIKeyFromEnv()
-	require.Equal(t, "key1", result)
-
-	// Clear first and test second priority
-	t.Setenv("CROWDSEC_API_KEY", "")
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "key2")
-
-	result = getBouncerAPIKeyFromEnv()
-	require.Equal(t, "key2", result)
-
-	// Test empty result when no env vars set
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
-	result = getBouncerAPIKeyFromEnv()
-	require.Empty(t, result, "Should return empty string when no env vars set")
 }
 
 // TestEnsureBouncerRegistration_ConcurrentCalls verifies that concurrent registration
@@ -4379,9 +4240,9 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			key, err := handler.ensureBouncerRegistration(context.Background())
+			res, err := handler.ensureBouncerRegistration(context.Background())
 			errorsCh <- err
-			keysCh <- key
+			keysCh <- res.Key
 		}()
 	}
 
@@ -4399,10 +4260,10 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 	}
 	require.Equal(t, 0, errorCount, "All concurrent calls should succeed")
 
-	// Verify: All keys are either empty (cached) or the same generated key
+	// Verify: every call returns the same key (the first call registers, the rest see it saved)
 	var seenKeys []string
 	for key := range keysCh {
-		if key != "" { // Non-empty means a new registration occurred
+		if key != "" {
 			seenKeys = append(seenKeys, key)
 		}
 	}

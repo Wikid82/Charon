@@ -3,6 +3,7 @@ package crowdsec
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -21,6 +22,11 @@ const (
 	DefaultBackupRetention = 5
 	// DefaultFileBackupRetention is how many single-file edit backups (<DataDir>.filebackup.*) are kept.
 	DefaultFileBackupRetention = 10
+	// MaxRetainedSnapshots is how many snapshots from failed restores keep their retain marker once the
+	// oldest of them are past RetainedSnapshotMinAge. See capRetained.
+	MaxRetainedSnapshots = 3
+	// RetainedSnapshotMinAge is the floor: a kept snapshot younger than this is never un-marked.
+	RetainedSnapshotMinAge = 7 * 24 * time.Hour
 
 	// BackupKindSnapshot and BackupKindFile name the two independent backup namespaces next to DataDir.
 	BackupKindSnapshot = "backup"
@@ -33,6 +39,11 @@ const (
 
 	// snapshotMkdirAttempts bounds retries when a microsecond-named directory already exists.
 	snapshotMkdirAttempts = 3
+
+	// retainMarkerSuffix names the marker that keeps a snapshot after a failed rollback. The marker sits
+	// beside the snapshot, never inside it, so a restore can never copy it back into DataDir.
+	retainMarkerSuffix = ".keep"
+	retainMarkerText   = "kept for manual recovery after a failed rollback. It is protected for 7 days. After that only the newest 3 kept snapshots keep this marker, and an older one that loses it becomes eligible for normal cleanup. Delete this file to release this snapshot for cleanup now.\n"
 )
 
 // isLiveDBFile reports whether name is the live CrowdSec SQLite database or its WAL/SHM sidecars.
@@ -321,12 +332,18 @@ func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool, protect
 		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
+		if target, isMarker := strings.CutSuffix(strings.TrimPrefix(name, prefix), retainMarkerSuffix); isMarker {
+			if _, ok := backupTimestamp(target); ok {
+				pruneOrphanRetainMarker(filepath.Join(parent, name), filepath.Join(parent, prefix+target))
+			}
+			continue
+		}
 		ts, ok := backupTimestamp(strings.TrimPrefix(name, prefix))
 		if !ok {
 			continue
 		}
 		path := filepath.Join(parent, name)
-		if slices.Contains(protect, path) {
+		if slices.Contains(protect, path) || isRetained(path) {
 			continue
 		}
 		info, lerr := os.Lstat(path)
@@ -357,6 +374,160 @@ func pruneSiblings(stem string, keep int, wanted func(fs.FileInfo) bool, protect
 	return removed, errors.Join(errs...)
 }
 
+// RetainSnapshot writes the retain marker beside the snapshot directory at backupPath, so pruning never
+// deletes it while the marker exists. A missing path or a symlink has nothing to keep and yields nil, and
+// retaining an already retained snapshot is not an error. A marker that cannot be written is an error.
+func RetainSnapshot(backupPath string) error {
+	info, err := os.Lstat(backupPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat snapshot: %w", err)
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	marker := backupPath + retainMarkerSuffix
+	f, err := openRetainMarker(marker)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) && isRetained(backupPath) {
+			return nil
+		}
+		return fmt.Errorf("create retain marker: %w", err)
+	}
+	if _, err := f.Write([]byte(retainMarkerText)); err != nil {
+		_ = f.Close()
+		_ = os.Remove(marker)
+		return fmt.Errorf("write retain marker: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(marker)
+		return fmt.Errorf("close retain marker: %w", err)
+	}
+	capRetained(backupPath, time.Now())
+	return nil
+}
+
+// removeRetainMarker deletes a retain marker. It is a seam so tests can make removing one fail.
+var removeRetainMarker = os.Remove
+
+// capRetained keeps at most MaxRetainedSnapshots snapshots of backupPath's stem marked, by removing the
+// retain marker (never the snapshot) of the oldest ones, oldest first. Age comes from the timestamp in the
+// name, never from file times. The rules:
+//   - a kept snapshot younger than RetainedSnapshotMinAge is never un-marked, even when more than
+//     MaxRetainedSnapshots are kept: the floor wins over the cap;
+//   - backupPath itself is protected by identity (its cleaned path), never by timestamp order, so a clock
+//     step cannot un-mark the snapshot that was just retained;
+//   - an un-marked snapshot is not deleted here; PruneBackups removes it at the next cleanup;
+//   - a marker that cannot be removed is logged and the next eligible one is tried; a marker that is already
+//     gone (removed by an admin) counts as removed.
+//
+// Invariant: every caller is serialised. The sync apply and the import hold dataMu, the async apply holds the
+// job busy flag, and boot recovery runs before routes exist. So two capRetained calls never run at once, and
+// the listing read here cannot change under it, except by an admin removing a marker by hand, which is harmless.
+func capRetained(backupPath string, now time.Time) {
+	clean := filepath.Clean(backupPath)
+	dir, name := filepath.Split(clean)
+	if dir == "" {
+		dir = "."
+	}
+	idx := strings.LastIndex(name, "."+BackupKindSnapshot+".")
+	if idx < 0 {
+		return
+	}
+	// The stem with its trailing dot, "<base>.backup.": only snapshots of this stem are counted.
+	prefix := name[:idx+len(BackupKindSnapshot)+2]
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		logger.Log().WithError(err).WithField("backup_path", util.SanitizeForLog(clean)).Warn("could not list kept crowdsec snapshots; the retain cap was not applied")
+		return
+	}
+	type keptSnapshot struct {
+		path string
+		ts   time.Time
+	}
+	var kept []keptSnapshot
+	for _, entry := range entries {
+		entryName := entry.Name()
+		if !entry.IsDir() || !strings.HasPrefix(entryName, prefix) {
+			continue
+		}
+		ts, ok := backupTimestamp(strings.TrimPrefix(entryName, prefix))
+		if !ok {
+			continue
+		}
+		if path := filepath.Join(dir, entryName); isRetained(path) {
+			kept = append(kept, keptSnapshot{path: path, ts: ts})
+		}
+	}
+	if len(kept) <= MaxRetainedSnapshots {
+		return
+	}
+	sort.Slice(kept, func(i, j int) bool {
+		if !kept[i].ts.Equal(kept[j].ts) {
+			return kept[i].ts.Before(kept[j].ts)
+		}
+		return kept[i].path < kept[j].path
+	})
+
+	excess := len(kept) - MaxRetainedSnapshots
+	for _, k := range kept {
+		if excess == 0 {
+			break
+		}
+		if k.path == clean {
+			continue
+		}
+		// kept is oldest first, so the first snapshot inside the floor means every later one is inside it too.
+		if now.Sub(k.ts) < RetainedSnapshotMinAge {
+			break
+		}
+		marker := k.path + retainMarkerSuffix
+		if err := removeRetainMarker(marker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logger.Log().WithError(err).WithField("backup_id", BackupID(k.path)).Warn("could not un-mark kept crowdsec snapshot beyond the retention cap")
+			continue
+		}
+		excess--
+		logger.Log().WithField("backup_id", BackupID(k.path)).Info("un-marked kept crowdsec snapshot beyond the retention cap; automatic cleanup removes it")
+	}
+}
+
+// openRetainMarker creates a retain marker exclusively. It is a seam so tests can make writing or closing it fail.
+var openRetainMarker = func(name string) (io.WriteCloser, error) {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: the marker is the snapshot path plus a fixed suffix, both set by the server
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// RetainForRecovery is RetainSnapshot for failure paths that must not change their own error: a marker that
+// cannot be written is logged with the sanitised backup path.
+func RetainForRecovery(backupPath string) {
+	if err := RetainSnapshot(backupPath); err != nil {
+		logger.Log().WithError(err).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("could not keep the backup beyond automatic cleanup")
+	}
+}
+
+// isRetained reports whether path has a regular retain marker beside it.
+func isRetained(path string) bool {
+	info, err := os.Lstat(path + retainMarkerSuffix)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// pruneOrphanRetainMarker removes a retain marker whose snapshot was deleted, for example by an admin.
+// Failures are logged at debug level only: a stray marker is harmless and is retried by the next prune.
+func pruneOrphanRetainMarker(marker, target string) {
+	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	if err := os.Remove(marker); err != nil {
+		logger.Log().WithError(err).WithField("path", util.SanitizeForLog(marker)).Debug("failed to remove orphaned crowdsec backup marker")
+	}
+}
+
 // BackupID returns the client-safe name of a backup: the final path element, never the absolute
 // location. It covers the directory kinds (*.backup.<ts>, *.filebackup.<ts>) and file backups
 // (acquis.yaml.backup.<ts>); an empty path yields an empty name.
@@ -373,6 +544,7 @@ var ErrRollbackFailed = errors.New("rollback failed; backup retained, see server
 // rollbackFailure annotates cause with a failed restore; the snapshot location is logged, never returned.
 func rollbackFailure(cause, restoreErr error, backupPath string) error {
 	logger.Log().WithError(restoreErr).WithField("backup_path", util.SanitizeForLog(backupPath)).Error("preset rollback failed; backup retained for manual recovery")
+	RetainForRecovery(backupPath)
 	return fmt.Errorf("%w (%w)", cause, ErrRollbackFailed)
 }
 

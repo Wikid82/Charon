@@ -25,7 +25,7 @@ const (
 	applyJobDBTimeout = 10 * time.Second
 )
 
-// ErrApplyJobBusy is returned by Start when another job, or the hub item restore, holds the busy flag.
+// ErrApplyJobBusy is returned by Start when another job holds the busy flag or a request holds the manager (Hold).
 var ErrApplyJobBusy = errors.New("crowdsec is busy with another long operation")
 
 // ErrApplyJobNotConfigured is returned by Start when Configure has not supplied the repository and apply function.
@@ -110,12 +110,10 @@ func (a *activeApplyJob) setPhase(phase string) {
 
 // ApplyJobManager holds the busy flag of the background hub preset install (#1615) and runs the jobs. While
 // a job holds the flag, every handler that changes DataDir or the engine process answers 409 crowdsec_busy
-// instead of waiting. The job itself runs without any lock; the flag only decides who may start and who
-// must wait.
+// instead of waiting. Requests that change DataDir take a hold (Hold) while they run, and a job cannot start
+// while any hold is out. The job itself runs without any lock; the flag and the holds only decide who may
+// start and who must wait. m.mu is a leaf lock: nothing else is acquired while it is held.
 type ApplyJobManager struct {
-	// blockedBy reports a competing long operation (the hub item restore) that forbids starting a job.
-	blockedBy func() bool
-
 	// rootCtx is the manager-lifetime context every job derives from; Shutdown cancels it. It is never an
 	// HTTP request context.
 	rootCtx    context.Context
@@ -125,16 +123,16 @@ type ApplyJobManager struct {
 	mu     sync.Mutex
 	jobID  string
 	busy   bool
+	holds  int  // requests and restores holding the manager (Hold); a job waits while any is out
 	closed bool // set by Shutdown; Start refuses afterwards
 	cfg    ApplyJobConfig
 	active *activeApplyJob
 }
 
-// NewApplyJobManager returns a manager with no active job. blockedBy may be nil. Configure must be called
-// before Start.
-func NewApplyJobManager(blockedBy func() bool) *ApplyJobManager {
+// NewApplyJobManager returns a manager with no active job and no holds. Configure must be called before Start.
+func NewApplyJobManager() *ApplyJobManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &ApplyJobManager{blockedBy: blockedBy, rootCtx: ctx, rootCancel: cancel}
+	return &ApplyJobManager{rootCtx: ctx, rootCancel: cancel}
 }
 
 // Configure supplies the repository and apply function; defaults fill the unset limits.
@@ -153,22 +151,36 @@ func (m *ApplyJobManager) Configure(cfg ApplyJobConfig) {
 	m.mu.Unlock()
 }
 
-// TryAcquire takes the busy flag for jobID. It fails when a job already holds it or when the competing
-// operation reported by blockedBy is running. The flag is taken before blockedBy is consulted and released
-// again on refusal, so a restore that starts at the same moment sees the flag or this call sees the restore.
+// Hold reserves the manager for one request or one hub item restore. While a job holds the busy flag it
+// fails, naming the job; otherwise it never waits and never refuses another hold, so concurrent requests
+// do not exclude each other. The flag is never set on a refusal, so Busy never reports a job that does not
+// start. release is idempotent and safe to defer right after a successful hold; on a refusal it is a no-op.
+func (m *ApplyJobManager) Hold() (release func(), jobID string, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.busy {
+		return func() {}, m.jobID, false
+	}
+	m.holds++
+	return sync.OnceFunc(m.releaseHold), "", true
+}
+
+// releaseHold gives back one hold taken by Hold. sync.OnceFunc makes each returned release run it once.
+func (m *ApplyJobManager) releaseHold() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.holds--
+}
+
+// TryAcquire takes the busy flag for jobID. It fails when a job already holds it or while any hold is out.
+// Both checks and the flag are one critical section, so a refused call changes nothing.
 func (m *ApplyJobManager) TryAcquire(jobID string) bool {
 	m.mu.Lock()
-	if m.busy {
-		m.mu.Unlock()
+	defer m.mu.Unlock()
+	if m.busy || m.holds > 0 {
 		return false
 	}
 	m.busy, m.jobID = true, jobID
-	m.mu.Unlock()
-
-	if m.blockedBy != nil && m.blockedBy() {
-		m.Release(jobID)
-		return false
-	}
 	return true
 }
 
@@ -526,6 +538,7 @@ func (m *ApplyJobManager) RecoverInterrupted(ctx context.Context, restore func(b
 		warning := recoverSnapshot(job, restore)
 		if warning != "" && job.BackupPath != "" {
 			protect = append(protect, job.BackupPath)
+			RetainForRecovery(job.BackupPath)
 		}
 		var warnings string
 		if warning != "" {

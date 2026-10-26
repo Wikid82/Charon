@@ -56,6 +56,31 @@ type presetEnv struct {
 	network func(*http.Request) (*http.Response, error)
 }
 
+// indexDescribingSeriesItems returns the recorded raw index with the digest of each served item's version replaced
+// by the digest of the synthetic body the test serves. The recorded digests belong to the real hub files, so
+// without this the pull would refuse every served item as a mismatch.
+func indexDescribingSeriesItems(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var index map[string]map[string]map[string]any
+	require.NoError(t, json.Unmarshal(raw, &index))
+	for _, list := range index {
+		for _, obj := range list {
+			path, _ := obj["path"].(string)
+			item, served := seriesItems["/"+path]
+			version, _ := obj["version"].(string)
+			versions, _ := obj["versions"].(map[string]any)
+			record, hasRecord := versions[version].(map[string]any)
+			if !served || !hasRecord {
+				continue
+			}
+			record["digest"] = hubcachetest.SHA256Hex([]byte(item))
+		}
+	}
+	out, err := json.Marshal(index)
+	require.NoError(t, err)
+	return out
+}
+
 func (e *presetEnv) Execute(_ context.Context, _ string, args ...string) ([]byte, error) {
 	// The scripted commands are written without the `-c <config>` pair the hub service puts in front.
 	if len(args) >= 2 && args[0] == "-c" {
@@ -104,8 +129,9 @@ func newPresetEnv(t *testing.T) *presetEnv {
 	t.Helper()
 	e := &presetEnv{t: t, dataDir: t.TempDir(), cacheDir: filepath.Join(t.TempDir(), "hub_cache")}
 	writeTree(t, e.dataDir, map[string]string{"config/config.yaml": "original: true\n"})
-	index, err := os.ReadFile(filepath.Join("..", "..", "crowdsec", "testdata", "hub_index_ambiguous.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "crowdsec", "testdata", "hub_index_ambiguous.json"))
 	require.NoError(t, err)
+	index := indexDescribingSeriesItems(t, raw)
 
 	cache, err := crowdsec.NewHubCache(e.cacheDir, time.Hour)
 	require.NoError(t, err)
@@ -373,7 +399,7 @@ func TestApplyPreset_OfflineInstallAnswersHubUnreachable(t *testing.T) {
 
 func TestApplyPreset_NetworkMarkersMeanUnreachable(t *testing.T) {
 	t.Parallel()
-	for _, marker := range []string{"dial tcp", "lookup hub-data.crowdsec.net on 127.0.0.11:53", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request", "unable to retrieve latest crowdsec version"} {
+	for _, marker := range []string{"dial tcp", "lookup cdn-hub.crowdsec.net on 127.0.0.11:53", "network is unreachable", "connection refused", "i/o timeout", "no such host", "unable to send request", "unable to retrieve latest crowdsec version"} {
 		t.Run(marker, func(t *testing.T) {
 			t.Parallel()
 			e := newPresetEnv(t)

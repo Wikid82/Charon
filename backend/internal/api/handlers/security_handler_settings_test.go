@@ -352,14 +352,14 @@ func TestSecurityHandler_PatchACL_SetsACLAndCerberusSettings(t *testing.T) {
 	assert.Equal(t, "true", legacySetting.Value)
 }
 
-func TestSecurityHandler_EnsureSecurityConfigEnabled_CreatesWhenMissing(t *testing.T) {
+func TestEnableSecurityFramework_CreatesWhenMissing(t *testing.T) {
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	t.Cleanup(handler.Close)
 
-	err := handler.ensureSecurityConfigEnabled()
+	err := enableSecurityFramework(db)
 	require.NoError(t, err)
 
 	var cfg models.SecurityConfig

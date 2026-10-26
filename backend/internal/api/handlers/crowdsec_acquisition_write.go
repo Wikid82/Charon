@@ -16,78 +16,97 @@ import (
 // is already taken.
 const backupCreateAttempts = 5
 
-// renameFile is the rename step of replaceAcquisitionConfig, a seam so tests can force its failure modes.
-var renameFile = os.Rename
+// staleTempMaxAge is how old a temporary file must be before a save removes it.
+const staleTempMaxAge = 10 * time.Minute
 
-// replaceAcquisitionConfig atomically swaps the acquisition file for content. When a live file exists its
-// bytes are first copied to a timestamped backup (whose path is returned), and the new content is written
-// to a temporary sibling that is renamed over the live file, so a failure at any step leaves the previous
-// live file untouched. The live file's mode is preserved (0o644 for a new file).
-//
-// A rename over a bind-mounted single file (or across devices, or onto a read-only mount) fails with
-// EBUSY/EXDEV/EROFS; then the content is written in place instead and the backup is kept as the safety net.
+// writeFileAtomic is the atomic replacement used by the acquisition and file editor saves, a seam so tests can
+// force its outcomes without touching the file system.
+var writeFileAtomic = crowdsec.WriteFileAtomic
+
+// statAcquisitionConfig and readAcquisitionFile are seams so tests can force the stat and read failures that
+// need a permission problem to occur; those failures bind only for a non-root user.
+var (
+	statAcquisitionConfig = os.Stat
+	readAcquisitionFile   = readAcquisitionConfig
+)
+
+// errAcquisitionRead marks a failure to stat or read the live acquisition file (as opposed to a write failure), so
+// the PUT handler can answer an unreadable file with its own error_code.
+var errAcquisitionRead = errors.New("read acquisition config")
+
+// acquisitionAccessError reports whether err is a permission or read-only failure, the kind an operator fixes by
+// changing the file's owner or mode, or its folder's permissions.
+func acquisitionAccessError(err error) bool {
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS)
+}
+
+// acquisitionWriteFailure maps a replaceAcquisitionConfig error to the response code and message of a PUT. A
+// partial in-place write keeps the generic message and no code: it is not a permission problem, and the backup
+// it leaves behind is the intact copy. The read sentinel is checked before the write permission case.
+func acquisitionWriteFailure(err error) (code, msg string) {
+	switch {
+	case errors.Is(err, crowdsec.ErrPartialInPlaceWrite):
+		return "", msgAcquisitionWriteFailed
+	case errors.Is(err, errAcquisitionRead) && acquisitionAccessError(err):
+		return codeAcquisitionUnreadable, msgAcquisitionUnreadable
+	case acquisitionAccessError(err):
+		return codeAcquisitionNotWritable, msgAcquisitionNotWritable
+	default:
+		return "", msgAcquisitionWriteFailed
+	}
+}
+
+// acquisitionFile is the part of *os.File the backup writer uses. It exists so tests can make any single step
+// fail; *os.File satisfies it.
+type acquisitionFile = crowdsec.WriteSyncCloser
+
+// openAcquisitionBackupFile creates a backup exclusively, so an existing backup is never overwritten. The default
+// returns a literal nil interface on error (a typed nil *os.File would look like a file).
+var openAcquisitionBackupFile = func(name string, mode fs.FileMode) (acquisitionFile, error) {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode) //nolint:gosec // name derives from the validated acquisition path
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// replaceAcquisitionConfig atomically swaps the acquisition file for content. When a live file exists its bytes are
+// first copied to a timestamped backup (whose path is returned), then the content is replaced through
+// crowdsec.WriteFileAtomic, which keeps the live file's owner and mode and falls back to an in-place write when a
+// rename is refused. A failure leaves the live file untouched and removes the backup, except when an in-place write
+// failed partway: then the backup is the only intact copy and is kept.
 func replaceAcquisitionConfig(path, content string, now time.Time) (backupPath string, err error) {
 	path = filepath.Clean(path)
 	mode := fs.FileMode(0o644)
 	var createdBackup string // separate from the named return: `return "", err` zeroes backupPath before defers run
-	info, statErr := os.Stat(path)
+	info, statErr := statAcquisitionConfig(path)
 	switch {
 	case statErr == nil:
 		mode = info.Mode().Perm()
 		old, readErr := os.ReadFile(path) //nolint:gosec // G304: acquisition path is operator config (CHARON_CROWDSEC_ACQUIS_PATH), validated by resolveAcquisitionConfigPath and cleaned above
 		if readErr != nil {
-			return "", fmt.Errorf("read acquisition config: %w", readErr)
+			return "", fmt.Errorf("%w: read acquisition config: %w", errAcquisitionRead, readErr)
 		}
 		if createdBackup, err = writeBackupExclusive(path, old, mode, now); err != nil {
 			return "", fmt.Errorf("write acquisition backup: %w", err)
 		}
 	case !errors.Is(statErr, fs.ErrNotExist):
-		return "", fmt.Errorf("stat acquisition config: %w", statErr)
+		return "", fmt.Errorf("%w: stat acquisition config: %w", errAcquisitionRead, statErr)
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	_, err = writeFileAtomic(path, []byte(content), mode, crowdsec.AtomicWriteOptions{
+		KeepOwner:           true,
+		InPlaceFallback:     true,
+		SweepTempsOlderThan: staleTempMaxAge,
+		Now:                 now,
+	})
 	if err != nil {
-		removeIfSet(createdBackup)
-		return "", fmt.Errorf("create temporary acquisition config: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer func() {
-		_ = os.Remove(tmpName) // already gone after a successful rename
-		if err != nil {
+		if !errors.Is(err, crowdsec.ErrPartialInPlaceWrite) {
 			removeIfSet(createdBackup)
 		}
-	}()
-	if writeErr := writeTempAcquisition(tmp, content, mode); writeErr != nil {
-		return "", writeErr
-	}
-	if err = renameFile(tmpName, path); err != nil {
-		if !isRenameUnsupported(err) {
-			return "", fmt.Errorf("replace acquisition config: %w", err)
-		}
-		if err = os.WriteFile(path, []byte(content), mode); err != nil {
-			createdBackup = "" // the live file may be half-written, so the backup is the only intact copy
-			return "", fmt.Errorf("write acquisition config in place: %w", err)
-		}
+		return "", fmt.Errorf("replace acquisition config: %w", err)
 	}
 	return createdBackup, nil
-}
-
-// writeTempAcquisition fills, chmods, syncs and closes the temporary file.
-func writeTempAcquisition(tmp *os.File, content string, mode fs.FileMode) error {
-	_, err := tmp.WriteString(content)
-	if err == nil {
-		err = tmp.Chmod(mode)
-	}
-	if err == nil {
-		err = tmp.Sync()
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return fmt.Errorf("write temporary acquisition config: %w", err)
-	}
-	return nil
 }
 
 // writeBackupExclusive writes data to the backup name for now, advancing one microsecond whenever the name
@@ -96,7 +115,7 @@ func writeBackupExclusive(path string, data []byte, mode fs.FileMode, now time.T
 	var lastErr error
 	for i := range backupCreateAttempts {
 		name := crowdsec.BackupFilePath(path, now.Add(time.Duration(i)*time.Microsecond))
-		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode) //nolint:gosec // name derives from the validated acquisition path
+		f, err := openAcquisitionBackupFile(name, mode)
 		if errors.Is(err, fs.ErrExist) {
 			lastErr = err
 			continue
@@ -104,34 +123,13 @@ func writeBackupExclusive(path string, data []byte, mode fs.FileMode, now time.T
 		if err != nil {
 			return "", err
 		}
-		if err = writeSyncClose(f, data); err != nil {
+		if err = crowdsec.WriteSyncClose(f, data); err != nil {
 			_ = os.Remove(name)
 			return "", err
 		}
 		return name, nil
 	}
 	return "", fmt.Errorf("no free backup name after %d attempts: %w", backupCreateAttempts, lastErr)
-}
-
-func writeSyncClose(f *os.File, data []byte) error {
-	_, err := f.Write(data)
-	if err == nil {
-		err = f.Sync()
-	}
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
-	}
-	return err
-}
-
-// isRenameUnsupported reports whether err means the target cannot be replaced by rename (bind-mounted
-// file, cross-device, read-only mount) but may still be writable in place.
-func isRenameUnsupported(err error) bool {
-	var linkErr *os.LinkError
-	if !errors.As(err, &linkErr) {
-		return false
-	}
-	return errors.Is(linkErr.Err, syscall.EBUSY) || errors.Is(linkErr.Err, syscall.EXDEV) || errors.Is(linkErr.Err, syscall.EROFS)
 }
 
 func removeIfSet(path string) {

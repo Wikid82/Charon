@@ -119,6 +119,12 @@ jobs:
       - name: bats
         run: bats scripts/tests/check-codecov-trigger-parity.bats
 
+      - name: shellcheck (Playwright container helpers)
+        run: shellcheck --severity=error scripts/ci/check-playwright-image-version.sh scripts/ci/run-playwright-container.sh
+
+      - name: bats (Playwright container helpers)
+        run: bats scripts/tests/check-playwright-image-version.bats scripts/tests/run-playwright-container.bats
+
   container-prune-tests:
     name: Container registry prune scripts (bats)
     runs-on: ubuntu-latest

@@ -55,6 +55,18 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Track the Playwright container image (tag + digest) used by the E2E workflow. Must match @playwright/test; the packageRule below groups both into one PR.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/e2e-tests-split\\.yml$/"
+      ],
+      "matchStrings": [
+        "PLAYWRIGHT_IMAGE: (?<depName>[^:\\s]+):(?<currentValue>v[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-noble$"
+    },
+    {
+      "customType": "regex",
       "description": "Track caddy-security plugin version in Dockerfile",
       "managerFilePatterns": [
         "/^Dockerfile$/"
@@ -885,6 +897,16 @@
       "allowedVersions": "<7"
     },
     {
+      "description": "Keep the Playwright container image in lockstep with @playwright/test: one PR bumps both, so the E2E version guard (scripts/ci/check-playwright-image-version.sh) never sees a drift on main.",
+      "matchPackageNames": [
+        "@playwright/test",
+        "mcr.microsoft.com/playwright"
+      ],
+      "groupName": "playwright",
+      "groupSlug": "playwright"
+    },
+    {
+        {
       "description": "Release gating: bumps default to deps: (a release-triggering prefix for release-please) so a dependency that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins, and custom.regex trackers under .github/workflows, scripts, and .github/skills (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, NODE_VERSION/GO_VERSION) — does not ship, so force it back to chore: (non-releasable).",
       "matchManagers": [
         "github-actions"
@@ -930,13 +952,14 @@
         "github-actions"
       ],
       "matchUpdateTypes": [
+        "major",
         "minor",
         "patch",
         "pin",
         "digest"
       ],
-      "groupName": "github-actions-non-major",
-      "groupSlug": "github-actions-non-major"
+      "groupName": "github-actions",
+      "groupSlug": "github-actions"
     },
     {
       "description": "Group Go non-major updates into one PR",

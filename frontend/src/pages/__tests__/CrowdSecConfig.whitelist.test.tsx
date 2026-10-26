@@ -227,6 +227,48 @@ describe('CrowdSecConfig – whitelist tab', () => {
     await userEvent.type(screen.getByTestId('whitelist-ip-input'), 'bad-ip')
     await userEvent.click(screen.getByTestId('whitelist-add-btn'))
     await waitFor(() => expect(screen.getByTestId('whitelist-ip-error')).toBeInTheDocument())
+    expect(screen.getByTestId('whitelist-ip-error')).toHaveTextContent('Invalid IP')
+  })
+
+  it('shows the server duplicate message inline for a 409 that is not a busy refusal', async () => {
+    const duplicate = 'entry already exists in whitelist'
+    vi.mocked(crowdsecApi.addWhitelist).mockRejectedValueOnce(
+      axiosError(409, duplicate, { error: duplicate }),
+    )
+    await renderPage()
+    await goToWhitelistTab()
+    await userEvent.type(screen.getByTestId('whitelist-ip-input'), '192.168.1.1')
+    await userEvent.click(screen.getByTestId('whitelist-add-btn'))
+    await waitFor(() => expect(screen.getByTestId('whitelist-ip-error')).toBeInTheDocument())
+    expect(screen.getByTestId('whitelist-ip-error')).toHaveTextContent(duplicate)
+    expect(toast.error).toHaveBeenCalledWith(duplicate)
+  })
+
+  it('shows only a toast, no field error, for a server failure on add', async () => {
+    vi.mocked(crowdsecApi.addWhitelist).mockRejectedValueOnce(
+      axiosError(500, 'database locked', { error: 'database locked' }),
+    )
+    await renderPage()
+    await goToWhitelistTab()
+    await userEvent.type(screen.getByTestId('whitelist-ip-input'), '1.2.3.4')
+    await userEvent.click(screen.getByTestId('whitelist-add-btn'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Failed to add entry'))
+    expect(screen.queryByTestId('whitelist-ip-error')).not.toBeInTheDocument()
+  })
+
+  it('shows the busy toast and no field error when a preset install blocks the add', async () => {
+    vi.mocked(crowdsecApi.addWhitelist).mockRejectedValueOnce(
+      axiosError(409, 'busy', { error: 'busy', error_code: 'crowdsec_busy', job_id: 'job-1' }),
+    )
+    await renderPage()
+    await goToWhitelistTab()
+    await userEvent.type(screen.getByTestId('whitelist-ip-input'), '1.2.3.4')
+    await userEvent.click(screen.getByTestId('whitelist-add-btn'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('CrowdSec is busy installing a preset. Try again when it finishes.'),
+    )
+    expect(screen.queryByTestId('whitelist-ip-error')).not.toBeInTheDocument()
+    expect(screen.getByTestId('whitelist-ip-input')).not.toHaveAttribute('aria-invalid', 'true')
   })
 
   it('opens delete confirmation dialog', async () => {

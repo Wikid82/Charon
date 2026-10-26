@@ -131,33 +131,56 @@ func TestPerf_GetStatus_Parallel_AssertThreshold(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
 
-	n := 200
-	samples := make(chan float64, n)
-	var worker = func() {
-		for i := 0; i < n; i++ {
-			req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
-			w := httptest.NewRecorder()
-			s := time.Now()
-			router.ServeHTTP(w, req)
-			d := time.Since(s)
-			samples <- ms(d)
-		}
-	}
+	const (
+		workers        = 4
+		perWorker      = 200
+		measuredRounds = 3
+	)
+	// Warm-up round: primes the connection pool and SQLite statement caches so first-request setup cost is not
+	// sampled. Its samples are discarded.
+	gatherParallelStats(router, workers, perWorker)
 
-	// run 4 concurrent workers
-	for k := 0; k < 4; k++ {
-		go worker()
+	// Each measured round yields its own P95, and the assertion uses the median of those P95s. A single round
+	// that lands on a busy scheduler slice cannot fail the test alone, while a real regression slows every round.
+	roundP95s := make([]float64, 0, measuredRounds)
+	var allSamples []float64
+	for r := 0; r < measuredRounds; r++ {
+		samples := gatherParallelStats(router, workers, perWorker)
+		allSamples = append(allSamples, samples...)
+		_, _, roundP95, _, _ := computePercentiles(samples)
+		roundP95s = append(roundP95s, roundP95)
 	}
-	collected := make([]float64, 0, n*4)
-	for i := 0; i < n*4; i++ {
+	avg, _, _, _, maxVal := computePercentiles(allSamples)
+	sort.Float64s(roundP95s)
+	medianP95 := roundP95s[len(roundP95s)/2]
+
+	thresholdP95 := perfThresholdMs("PERF_MAX_MS_GETSTATUS_P95_PARALLEL", 5.0)
+	t.Logf("GetStatus Parallel avg=%.3fms median-round p95=%.3fms round p95s=%.3v max=%.3fms", avg, medianP95, roundP95s, maxVal)
+	if medianP95 > thresholdP95 {
+		t.Fatalf("GetStatus Parallel median-round P95 (%.3fms) exceeds threshold %.3fms", medianP95, thresholdP95)
+	}
+}
+
+// gatherParallelStats fires perWorker status requests from each of workers concurrent goroutines and returns every
+// sample in ms. Goroutines do not call t.Fatalf, so status codes are not asserted here; the latency is the signal.
+func gatherParallelStats(router http.Handler, workers, perWorker int) []float64 {
+	samples := make(chan float64, workers*perWorker)
+	for k := 0; k < workers; k++ {
+		go func() {
+			for i := 0; i < perWorker; i++ {
+				req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
+				w := httptest.NewRecorder()
+				s := time.Now()
+				router.ServeHTTP(w, req)
+				samples <- ms(time.Since(s))
+			}
+		}()
+	}
+	collected := make([]float64, 0, workers*perWorker)
+	for i := 0; i < workers*perWorker; i++ {
 		collected = append(collected, <-samples)
 	}
-	avg, _, p95, _, maxVal := computePercentiles(collected)
-	thresholdP95 := perfThresholdMs("PERF_MAX_MS_GETSTATUS_P95_PARALLEL", 5.0)
-	t.Logf("GetStatus Parallel avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, maxVal)
-	if p95 > thresholdP95 {
-		t.Fatalf("GetStatus Parallel P95 (%.3fms) exceeds threshold %.3fms", p95, thresholdP95)
-	}
+	return collected
 }
 
 func TestPerf_ListDecisions_AssertThreshold(t *testing.T) {

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { MemoryRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
@@ -8,7 +9,10 @@ import type { CrowdSecStatus } from '../../api/crowdsec'
 import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as securityApi from '../../api/security'
+import { toast } from '../../utils/toast'
 import CrowdSecConfig from '../CrowdSecConfig'
+
+const BUSY_TEXT = 'CrowdSec is busy installing a preset. Try again when it finishes.'
 
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
@@ -161,5 +165,44 @@ describe('CrowdSecConfig — isStartingUp banner suppression', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(3001) })
 
     expect(screen.getByTestId('lapi-not-running-warning')).toBeInTheDocument()
+  })
+})
+
+describe('CrowdSecConfig — start refusal messages', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(baseStatus)
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+      'feature.crowdsec.console_enrollment': true,
+    })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows the busy message when starting CrowdSec is refused during a preset install', async () => {
+    vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(
+      new AxiosError('Request failed with status code 409', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 409,
+        statusText: 'Conflict',
+        headers: {},
+        config: {},
+        data: { error: 'busy', error_code: 'crowdsec_busy', job_id: 'job-1' },
+      } as AxiosResponse),
+    )
+    renderWithSeed({ isStarting: false }, { running: false, lapi_ready: false })
+    await act(async () => { await vi.advanceTimersByTimeAsync(3001) })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start CrowdSec' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    expect(toast.error).toHaveBeenCalledWith(BUSY_TEXT)
+    expect(toast.error).not.toHaveBeenCalledWith('Failed to start CrowdSec')
   })
 })

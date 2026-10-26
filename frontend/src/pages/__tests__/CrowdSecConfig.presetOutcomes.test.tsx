@@ -203,6 +203,22 @@ describe('CrowdSecConfig hub preset apply outcomes', () => {
     expect(toast.error).not.toHaveBeenCalled()
   })
 
+  describe('pull outcomes', () => {
+    it('maps a hub-updating refusal from pull to the hub-updating text', async () => {
+      vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValue(coded(409, 'preset_hub_updating'))
+      await renderPage()
+      expect(await screen.findByTestId('preset-status')).toHaveTextContent('The hub is still updating, try again later.')
+      expect(screen.getByTestId('preset-status')).not.toHaveTextContent('server text')
+      expect(screen.queryByTestId('preset-preview')).not.toHaveTextContent('base-http-scenarios')
+    })
+
+    it('keeps the server message for a pull refusal without a known code', async () => {
+      vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValue(coded(409, 'some other conflict'))
+      await renderPage()
+      expect(await screen.findByTestId('preset-status')).toHaveTextContent('server text')
+    })
+  })
+
   it('explains a locally edited item and keeps the preview', async () => {
     vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(coded(409, 'preset_local_modified'))
     await selectHubAndApply()
