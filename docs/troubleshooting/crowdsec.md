@@ -268,6 +268,7 @@ Applying a hub preset shows one of these messages when it cannot finish or needs
 ### Large preset installs
 
 - **"CrowdSec is busy installing a preset; try again when it finishes."** (HTTP 409, `crowdsec_busy`): a preset install is running in the background, and other CrowdSec changes are paused until it ends. Wait for the progress row to finish, or click **Cancel** on it, then try again.
+- **"CrowdSec is finishing another change. Try again in a moment."** (HTTP 409, `crowdsec_busy`, no install running): you tried to start a preset install while another CrowdSec change, such as turning CrowdSec on or off, was still finishing. Wait a moment and try again.
 - **The install shows as interrupted**: Charon restarted while the install was running. Your previous settings were restored automatically. Start the install again.
 - **The install shows as cancelled**: you cancelled it. Your previous settings were put back. Nothing else is needed.
 - **The install shows as timed out**: it did not finish within 30 minutes and was rolled back. Check the container's internet connection, then try again. For very large collections you can also run `docker exec charon cscli collections install <name>`.
