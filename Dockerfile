@@ -38,7 +38,7 @@ ARG ALPINE_IMAGE=alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.8.2-rc2
+ARG CROWDSEC_VERSION=1.8.2
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
