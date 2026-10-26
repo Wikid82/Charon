@@ -120,13 +120,14 @@ type ApplyJobManager struct {
 	rootCancel context.CancelFunc
 	wg         sync.WaitGroup
 
-	mu     sync.Mutex
-	jobID  string
-	busy   bool
-	holds  int  // requests and restores holding the manager (Hold); a job waits while any is out
-	closed bool // set by Shutdown; Start refuses afterwards
-	cfg    ApplyJobConfig
-	active *activeApplyJob
+	mu        sync.Mutex
+	jobID     string
+	busy      bool
+	published bool // jobID is named only once its row is recorded (publishedJobID); until then it is withheld
+	holds     int  // requests and restores holding the manager (Hold); a job waits while any is out
+	closed    bool // set by Shutdown; Start refuses afterwards
+	cfg       ApplyJobConfig
+	active    *activeApplyJob
 }
 
 // NewApplyJobManager returns a manager with no active job and no holds. Configure must be called before Start.
@@ -152,14 +153,15 @@ func (m *ApplyJobManager) Configure(cfg ApplyJobConfig) {
 }
 
 // Hold reserves the manager for one request or one hub item restore. While a job holds the busy flag it
-// fails, naming the job; otherwise it never waits and never refuses another hold, so concurrent requests
-// do not exclude each other. The flag is never set on a refusal, so Busy never reports a job that does not
-// start. release is idempotent and safe to defer right after a successful hold; on a refusal it is a no-op.
+// fails, naming the job once the job's row is recorded; otherwise it never waits and never refuses another
+// hold, so concurrent requests do not exclude each other. The flag is never set on a refusal, so Busy never
+// reports a job that does not start. release is idempotent and safe to defer right after a successful hold;
+// on a refusal it is a no-op.
 func (m *ApplyJobManager) Hold() (release func(), jobID string, ok bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.busy {
-		return func() {}, m.jobID, false
+		return func() {}, m.publishedJobID(), false
 	}
 	m.holds++
 	return sync.OnceFunc(m.releaseHold), "", true
@@ -172,15 +174,22 @@ func (m *ApplyJobManager) releaseHold() {
 	m.holds--
 }
 
-// TryAcquire takes the busy flag for jobID. It fails when a job already holds it or while any hold is out.
-// Both checks and the flag are one critical section, so a refused call changes nothing.
+// TryAcquire takes the busy flag for jobID and names jobID at once. It fails when a job already holds it or
+// while any hold is out. Both checks and the flag are one critical section, so a refused call changes nothing.
+// Start does not use it: a job whose row is not yet recorded is taken with tryAcquire(jobID, false).
 func (m *ApplyJobManager) TryAcquire(jobID string) bool {
+	return m.tryAcquire(jobID, true)
+}
+
+// tryAcquire is TryAcquire with the publication made explicit: an unpublished job holds the flag but has no id
+// visible to callers until publish is set after its row is recorded (publishedJobID).
+func (m *ApplyJobManager) tryAcquire(jobID string, published bool) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.busy || m.holds > 0 {
 		return false
 	}
-	m.busy, m.jobID = true, jobID
+	m.busy, m.jobID, m.published = true, jobID, published
 	return true
 }
 
@@ -190,15 +199,24 @@ func (m *ApplyJobManager) Release(jobID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.busy && m.jobID == jobID {
-		m.busy, m.jobID, m.active = false, "", nil
+		m.busy, m.jobID, m.active, m.published = false, "", nil, false
 	}
 }
 
-// Busy reports whether a job holds the flag and its id.
+// Busy reports whether a job holds the flag and its id. The id is empty while the job's row is not yet recorded.
 func (m *ApplyJobManager) Busy() (jobID string, busy bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.jobID, m.busy
+	return m.publishedJobID(), m.busy
+}
+
+// publishedJobID returns the id of the job holding the flag once its row is recorded, and "" before that: a
+// caller must never name a job that GET presets/jobs/:id does not yet answer. The caller holds m.mu.
+func (m *ApplyJobManager) publishedJobID() string {
+	if !m.published {
+		return ""
+	}
+	return m.jobID
 }
 
 func (m *ApplyJobManager) config() ApplyJobConfig {
@@ -220,7 +238,7 @@ func (m *ApplyJobManager) Start(req ApplyJobRequest) (*models.CrowdsecApplyJob, 
 		return nil, ErrApplyJobNotConfigured
 	}
 	id := uuid.New().String()
-	if !m.TryAcquire(id) {
+	if !m.tryAcquire(id, false) {
 		return nil, ErrApplyJobBusy
 	}
 	jobCtx, cancel := context.WithTimeout(m.rootCtx, cfg.MaxDuration)
@@ -248,6 +266,9 @@ func (m *ApplyJobManager) Start(req ApplyJobRequest) (*models.CrowdsecApplyJob, 
 		m.wg.Done()
 		return nil, err
 	}
+	m.mu.Lock()
+	m.published = true
+	m.mu.Unlock()
 
 	go m.run(jobCtx, cfg, a, req)
 	return job, nil
