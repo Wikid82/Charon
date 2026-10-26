@@ -35,7 +35,7 @@ func TestSyncWhitelistFile_CancelledLockWaitSkipsRewrite(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	h.syncWhitelistFile(ctx, false)
+	h.syncWhitelistFile(ctx)
 
 	_, statErr := os.Stat(filepath.Join(dataDir, filepath.FromSlash(crowdsec.WhitelistRelPath)))
 	assert.True(t, os.IsNotExist(statErr), "the whitelist file must not be rewritten without the data lock")

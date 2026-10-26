@@ -104,7 +104,10 @@ func TestCrowdsecLifecycle_StartWritesWhitelistFromDBBeforeEngineStart(t *testin
 	require.NotContains(t, eng.seen[0], "stale archive copy")
 }
 
-func TestCrowdsecLifecycle_AlreadyRunningRewritesWhitelistAndReloadsOnce(t *testing.T) {
+// TestCrowdsecLifecycle_AlreadyRunningRewritesWhitelistWithoutSignal: a Start that finds the engine running rewrites the
+// whitelist file but sends no signal. The engine can still be loading its parsers when Start answers, and a SIGHUP then
+// ends it. Whitelist adds and deletes reload the engine themselves.
+func TestCrowdsecLifecycle_AlreadyRunningRewritesWhitelistWithoutSignal(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	eng := &recordingEngine{running: true}
@@ -126,7 +129,7 @@ func TestCrowdsecLifecycle_AlreadyRunningRewritesWhitelistAndReloadsOnce(t *test
 	b, readErr := os.ReadFile(path) //nolint:gosec // G304: test fixture path
 	require.NoError(t, readErr)
 	require.Contains(t, string(b), "10.0.0.6")
-	require.Equal(t, 1, signals, "one reload after the rewrite")
+	require.Zero(t, signals, "an already running engine must not receive a signal from Start")
 }
 
 func TestCrowdsecLifecycle_StartWaitsForDataLockBeforeWritingWhitelist(t *testing.T) {

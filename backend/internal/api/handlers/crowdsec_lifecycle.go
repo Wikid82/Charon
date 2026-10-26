@@ -206,8 +206,9 @@ func (t *resetStopTracker) wait(ctx context.Context) error {
 // CrowdSec off while the Start runs, the Start stops the engine, keeps the reset's values and answers
 // errCrowdsecStateChanged.
 //
-// Before the engine starts, or before the reload when it already runs, Charon's whitelist file is rewritten from
-// the database under dataMu, so the engine never reads an out-of-date list.
+// Before the engine starts, Charon's whitelist file is rewritten from the database under dataMu, so the engine never
+// reads an out-of-date list. A running engine gets no signal from Start: it may still be loading its parsers, and a
+// SIGHUP then ends it (see syncWhitelistFile).
 func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartResult, error) {
 	ctx, releaseOp := h.operationContext(reqCtx)
 	defer releaseOp()
@@ -261,7 +262,7 @@ func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartRe
 	runHook(h.hooks.afterPersist)
 
 	if running {
-		h.syncWhitelistFile(ctx, true)
+		h.syncWhitelistFile(ctx)
 		_, lapiErr := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
 		if h.stateChangedSince(gen) {
 			return CrowdsecStartResult{}, h.abortStartAfterReset(ctx)
@@ -275,7 +276,7 @@ func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartRe
 		}, nil
 	}
 
-	h.syncWhitelistFile(ctx, false)
+	h.syncWhitelistFile(ctx)
 
 	// Start the process. The executor re-checks under its own lock, so a
 	// concurrent Start that wins the race hands back the existing pid.
@@ -540,21 +541,16 @@ func (h *CrowdsecHandler) writeWhitelistFile(ctx context.Context) (bool, error) 
 	return true, nil
 }
 
-// syncWhitelistFile rewrites Charon's whitelist file from the database under dataMu, and with reload set reloads a
-// running engine so it reads the file. A lock wait that ends with ctx, and a failed write, are logged and never fail
-// the Start (the same rule as boot).
-func (h *CrowdsecHandler) syncWhitelistFile(ctx context.Context, reload bool) {
+// syncWhitelistFile rewrites Charon's whitelist file from the database under dataMu. It never signals the engine: a
+// running engine reads the file at its next reload, and whitelist adds and deletes reload it. A lock wait that ends
+// with ctx, and a failed write, are logged and never fail the Start (the same rule as boot).
+func (h *CrowdsecHandler) syncWhitelistFile(ctx context.Context) {
 	if err := h.lockDataCtx(ctx, "crowdsec start"); err != nil {
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("CrowdSec start: the whitelist file was not rewritten")
 		return
 	}
 	defer h.dataMu.Unlock()
-	written, err := h.writeWhitelistFile(ctx)
-	if err != nil {
+	if _, err := h.writeWhitelistFile(ctx); err != nil {
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("CrowdSec start: rewriting the whitelist file failed (non-fatal)")
-		return
-	}
-	if written && reload {
-		h.reloadAfterWhitelistChange(ctx, "start")
 	}
 }
