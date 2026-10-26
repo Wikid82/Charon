@@ -14,6 +14,7 @@
 import { test, expect } from '../fixtures/test';
 import type { APIRequestContext } from '@playwright/test';
 import { EMERGENCY_TOKEN } from '../fixtures/security';
+import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
 
 const STATUS_ROUTE = '/api/v1/admin/crowdsec/status';
 const SECURITY_CROWDSEC_ROUTE = '/api/v1/security/crowdsec';
@@ -44,6 +45,11 @@ async function postSetting(request: APIRequestContext, key: string, value: strin
 
 test.describe('CrowdSec lifecycle consistency', () => {
   test.describe.configure({ mode: 'serial', timeout: 150_000 });
+
+  // The engine only starts from a complete configuration. Earlier specs may have replaced it with a minimal one.
+  test.beforeEach(async ({ request }) => {
+    await restoreShippedCrowdsecConfig(request);
+  });
 
   test('security PATCH enable starts the engine', async ({ request }) => {
     await test.step('Ensure the engine is stopped', async () => {

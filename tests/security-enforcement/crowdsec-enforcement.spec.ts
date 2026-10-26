@@ -19,6 +19,7 @@ import {
   restoreSecurityState,
   CapturedSecurityState,
 } from '../utils/security-helpers';
+import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
 
 /**
  * Configure admin whitelist to allow test runner IPs.
@@ -55,6 +56,9 @@ test.describe('CrowdSec Enforcement', () => {
       baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080',
       storageState: STORAGE_STATE,
     });
+
+    // Enabling CrowdSec starts the engine, which needs a complete configuration. Earlier specs may have replaced it.
+    await restoreShippedCrowdsecConfig(requestContext);
 
     // CRITICAL: Configure admin whitelist BEFORE enabling security modules
     try {

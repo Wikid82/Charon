@@ -18,6 +18,7 @@ import {
   slackNotificationYamlWithAlias,
   readTarGzEntry,
 } from '../utils/archive-helpers';
+import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
 
 const ADMIN = '/api/v1/admin/crowdsec';
 const NOTIFICATION = 'http_default';
@@ -81,6 +82,11 @@ async function seedNotification(
   expect(response.status()).toBe(200);
   return response;
 }
+
+// Every case seeds a configuration with a notification; the shipped one goes back afterwards.
+test.afterEach(async ({ request }) => {
+  await restoreShippedCrowdsecConfig(request);
+});
 
 test.describe('CrowdSec export: blanked notification values', () => {
   test.beforeEach(async ({ request }, testInfo) => {

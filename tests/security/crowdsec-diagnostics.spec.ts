@@ -22,6 +22,7 @@ import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { createTarGz } from '../utils/archive-helpers';
 import { stubCrowdSecApi, crowdsecFixtures } from '../utils/crowdsec-stubs';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
 import { promises as fs } from 'fs';
 
 const ADMIN = '/api/v1/admin/crowdsec';
@@ -50,6 +51,11 @@ async function importKnownConfig(
   });
   expect(response.status()).toBe(200);
 }
+
+// Every case imports a known configuration; the shipped one goes back afterwards so later specs can start the engine.
+test.afterEach(async ({ request }) => {
+  await restoreShippedCrowdsecConfig(request);
+});
 
 test.describe('CrowdSec Diagnostics', () => {
   test.beforeEach(async ({ page, adminUser, request }, testInfo) => {
