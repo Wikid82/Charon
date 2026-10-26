@@ -315,7 +315,7 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	// already happened, so a failed re-read is logged and the payload is answered instead.
 	saved, err := h.svc.GetByName(payload.Name)
 	if err != nil {
-		log.WithError(err).Warn("Failed to re-read SecurityConfig after save")
+		log.Warn("Failed to re-read SecurityConfig after save; answering the submitted payload")
 		c.JSON(http.StatusOK, gin.H{"config": payload})
 		return
 	}
