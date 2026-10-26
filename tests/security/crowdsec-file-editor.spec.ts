@@ -134,7 +134,7 @@ test.describe('CrowdSec File Editor @security', () => {
     });
   });
 
-  test.fixme('should explain that Charon manages the whitelist file when the write is refused with a coded 400', async ({ page }) => {
+  test('should explain that Charon manages the whitelist file when the write is refused with a coded 400', async ({ page }) => {
     const MANAGED_PATH = 'charon-whitelist.yaml';
     // The mock carries only the stable error code, so the message must come from the frontend mapping.
     const stub = await stubEditor(

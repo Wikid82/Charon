@@ -8,9 +8,6 @@
  * - The settings API refuses the deprecated mode key
  * - The emergency security reset stops the engine
  *
- * These tests are `test.fixme` until the CrowdSec lifecycle change lands. They
- * fail against the current build by design and are enabled once it ships.
- *
  * Runs only under `--project=security-tests`.
  */
 
@@ -48,7 +45,7 @@ async function postSetting(request: APIRequestContext, key: string, value: strin
 test.describe('CrowdSec lifecycle consistency', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test.fixme('security PATCH enable starts the engine', async ({ request }) => {
+  test('security PATCH enable starts the engine', async ({ request }) => {
     await test.step('Ensure the engine is stopped', async () => {
       await patchCrowdsecEnabled(request, false);
       await expect.poll(() => isEngineRunning(request), { timeout: ENGINE_STATE_TIMEOUT_MS }).toBe(false);
@@ -63,7 +60,7 @@ test.describe('CrowdSec lifecycle consistency', () => {
     });
   });
 
-  test.fixme('security PATCH disable stops the engine', async ({ request }) => {
+  test('security PATCH disable stops the engine', async ({ request }) => {
     await test.step('Ensure the engine is running', async () => {
       await patchCrowdsecEnabled(request, true);
       await expect.poll(() => isEngineRunning(request), { timeout: ENGINE_STATE_TIMEOUT_MS }).toBe(true);
@@ -78,7 +75,7 @@ test.describe('CrowdSec lifecycle consistency', () => {
     });
   });
 
-  test.fixme('settings change of the enabled key stops the engine', async ({ request }) => {
+  test('settings change of the enabled key stops the engine', async ({ request }) => {
     await test.step('Ensure the engine is running', async () => {
       await patchCrowdsecEnabled(request, true);
       await expect.poll(() => isEngineRunning(request), { timeout: ENGINE_STATE_TIMEOUT_MS }).toBe(true);
@@ -94,14 +91,14 @@ test.describe('CrowdSec lifecycle consistency', () => {
     });
   });
 
-  test.fixme('settings API refuses the deprecated CrowdSec mode key', async ({ request }) => {
+  test('settings API refuses the deprecated CrowdSec mode key', async ({ request }) => {
     await test.step('Set the mode key to local through the settings API', async () => {
       const response = await postSetting(request, 'security.crowdsec.mode', 'local');
       expect(response.status()).toBe(400);
     });
   });
 
-  test.fixme('emergency security reset stops the engine', async ({ request }) => {
+  test('emergency security reset stops the engine', async ({ request }) => {
     await test.step('Ensure the engine is running', async () => {
       await patchCrowdsecEnabled(request, true);
       await expect.poll(() => isEngineRunning(request), { timeout: ENGINE_STATE_TIMEOUT_MS }).toBe(true);
