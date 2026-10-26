@@ -390,10 +390,7 @@ func (h *EmergencyHandler) syncSecurityState(ctx context.Context) {
 		return
 	}
 
-	applyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if err := h.caddyManager.ApplyConfig(applyCtx); err != nil {
+	if err := applyProxyConfigDetached(ctx, h.caddyManager, proxyApplyTimeout); err != nil {
 		log.WithError(err).Warn("Failed to reload Caddy config after emergency reset")
 	}
 }

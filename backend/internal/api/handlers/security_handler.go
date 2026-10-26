@@ -14,7 +14,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
-	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -53,7 +52,7 @@ type SecurityHandler struct {
 	cfg          config.SecurityConfig
 	db           *gorm.DB
 	svc          *services.SecurityService
-	caddyManager *caddy.Manager
+	caddyManager CaddyConfigManager
 	geoipSvc     *services.GeoIPService
 	cerberus     CacheInvalidator
 	crowdsec     CrowdsecLifecycle
@@ -66,15 +65,15 @@ func (h *SecurityHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *SecurityHa
 }
 
 // NewSecurityHandler creates a new SecurityHandler.
-func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager) *SecurityHandler {
+func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager CaddyConfigManager) *SecurityHandler {
 	svc := services.NewSecurityService(db)
-	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager}
+	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: nilIfTypedNil(caddyManager)}
 }
 
 // NewSecurityHandlerWithDeps creates a new SecurityHandler with optional cache invalidation.
-func NewSecurityHandlerWithDeps(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager, cerberus CacheInvalidator) *SecurityHandler {
+func NewSecurityHandlerWithDeps(cfg config.SecurityConfig, db *gorm.DB, caddyManager CaddyConfigManager, cerberus CacheInvalidator) *SecurityHandler {
 	svc := services.NewSecurityService(db)
-	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager, cerberus: cerberus}
+	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: nilIfTypedNil(caddyManager), cerberus: cerberus}
 }
 
 // Close stops the background audit goroutine. Required for test cleanup.
@@ -308,7 +307,7 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	}
 	// Apply updated config to Caddy so WAF mode changes take effect
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply security config changes to Caddy")
 		}
 	}
@@ -1227,7 +1226,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 
 	// Trigger Caddy config reload
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
 			if restoreErr := restoreSettings(h.db, settingSnapshots); restoreErr != nil {
 				log.WithError(restoreErr).Error("Failed to restore settings after security module toggle apply failure")

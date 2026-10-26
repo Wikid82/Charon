@@ -159,7 +159,7 @@ func TestStopApply_ApplyRunsAfterClientDisconnect(t *testing.T) {
 	seen := applier.seen[0]
 	require.NoError(t, seen.ctxErr, "the apply must not inherit the client's cancellation")
 	require.True(t, seen.hasDeadline, "the apply must be bounded")
-	require.LessOrEqual(t, time.Until(seen.deadline), crowdsecApplyTimeout)
+	require.LessOrEqual(t, time.Until(seen.deadline), proxyApplyTimeout)
 }
 
 // TestStopApply_AppliedConfigHasNoCrowdSec drives the real Caddy manager: before Stop the applied config

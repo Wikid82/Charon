@@ -395,10 +395,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 
 		// Trigger sync Caddy config reload so callers can rely on deterministic applied state
 		if h.CaddyManager != nil {
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-			defer cancel()
-
-			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+			if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
 				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
 				return
@@ -534,10 +531,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 		// Trigger sync Caddy config reload so callers can rely on deterministic applied state
 		if h.CaddyManager != nil {
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-			defer cancel()
-
-			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+			if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
 				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security settings change")
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
 				return

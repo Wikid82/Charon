@@ -650,9 +650,6 @@ func setDefaultSecurityConfigState(db *gorm.DB, updates map[string]any) (models.
 	return cfg, nil
 }
 
-// crowdsecApplyTimeout bounds one proxy apply after a CrowdSec state change.
-const crowdsecApplyTimeout = 30 * time.Second
-
 // errCaddyNotWired is returned when the handler has no Caddy manager to apply the proxy configuration with.
 var errCaddyNotWired = errors.New("caddy manager is not wired to the CrowdSec handler")
 
@@ -1859,9 +1856,7 @@ func rejectedEnvRegisterFailedLogMessage(keyPath string) string {
 // cancel the apply or its rollback. A failure is logged and returned; it never fails the caller, and the response
 // and the engine are unchanged.
 func (h *CrowdsecHandler) applyProxyConfig(ctx context.Context) error {
-	applyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crowdsecApplyTimeout)
-	defer cancel()
-	err := h.reapplyCaddyConfig(applyCtx)
+	err := h.reapplyCaddyConfig(ctx)
 	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to apply the proxy configuration after a CrowdSec state change")
 	}
@@ -1873,7 +1868,7 @@ func (h *CrowdsecHandler) reapplyCaddyConfig(ctx context.Context) error {
 	if h.caddyManager == nil {
 		return errCaddyNotWired
 	}
-	return h.caddyManager.ApplyConfig(ctx)
+	return applyProxyConfigDetached(ctx, h.caddyManager, proxyApplyTimeout)
 }
 
 // validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
