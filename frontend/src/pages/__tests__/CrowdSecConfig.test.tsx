@@ -114,7 +114,7 @@ describe('CrowdSecConfig', () => {
     vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [] })
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
       status: 'pulled',
-      slug: 'bot-mitigation-essentials',
+      slug: 'crowdsecurity/sshd',
       preview: 'configs: {}',
       cache_key: 'cache-123',
     })

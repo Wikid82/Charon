@@ -1825,7 +1825,8 @@
       "timeout": "CrowdSec no respondió a tiempo. Inténtalo de nuevo.",
       "requestTooLarge": "La solicitud era demasiado grande. Acorta el texto e inténtalo de nuevo."
     },
-    "busy": "CrowdSec está ocupado instalando un preset. Inténtalo de nuevo cuando termine."
+    "busy": "CrowdSec está ocupado instalando un preset. Inténtalo de nuevo cuando termine.",
+    "busyOther": "CrowdSec está terminando otro cambio. Inténtalo de nuevo en un momento."
   },
   "smtp": {
     "title": "Configuración de Correo (SMTP)",

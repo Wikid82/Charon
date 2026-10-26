@@ -354,11 +354,38 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await loadPage(page);
     await startApply(page);
 
-    // translateApiError: errors.crowdsec_busy
+    // crowdsecBusyMessage: crowdsecConfig.busy (the refusal names a job)
     await expect(page.getByText(/crowdsec is busy installing a preset/i)).toBeVisible();
     await expect(page.getByText(/preset applied/i)).toHaveCount(0);
     // The refusal names the running job, so its progress row is shown.
     await expect(progressRow(page)).toContainText(/4 items so far/i);
+  });
+
+  // A refused start with no job_id means another change (such as a Start) holds CrowdSec, so the
+  // apply shows the "finishing another change" text and no progress row (#1730).
+  test('should show the other-change text, not a progress row, when another change holds the busy flag', async ({ page }) => {
+    await stubNoCurrentJob(page);
+    await page.route(APPLY_ROUTE, async (route) => {
+      await fulfillJson(route, {
+        error: 'server busy text',
+        error_code: 'crowdsec_busy',
+      }, 409);
+    });
+
+    await loadPage(page);
+    await startApply(page);
+
+    await test.step('Verify the other-change text is shown', async () => {
+      // i18n: crowdsecConfig.busyOther
+      await expect(
+        page.getByText('CrowdSec is finishing another change. Try again in a moment.'),
+      ).toBeVisible();
+    });
+
+    await test.step('Verify no installation progress row and no success text appear', async () => {
+      await expect(progressRow(page)).toHaveCount(0);
+      await expect(page.getByText(/preset applied/i)).toHaveCount(0);
+    });
   });
 
   test.describe('while a job is active', () => {

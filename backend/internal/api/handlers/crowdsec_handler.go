@@ -98,16 +98,14 @@ type CrowdsecHandler struct {
 
 	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
 	// and the export build; an export holds it only while writing its temporary file, never while sending.
-	// Lock order is always restore.running -> dataMu -> HubService.mu. The background install busy flag
-	// (ApplyJobs) is not a lock: handlers test it without waiting. ImportConfig, WriteFile and ApplyPreset test
-	// it once before and again right after taking dataMu, and ApplyPreset starts a job while holding dataMu,
-	// so once past the recheck those three are never overlapped by a job. RestoreHubItems excludes jobs through
-	// restore.running (the flag and the busy flag exclude each other) and rechecks after taking it.
-	// Start, Stop, ConsoleEnroll, AddWhitelist and DeleteWhitelist check the flag lock-free only, on purpose:
-	// Start and Stop must answer 409 at once, and dataMu can be held for minutes by a synchronous preset apply,
-	// an import or an export build, so waiting for it would stall them. The residual window is that a job
-	// acquiring the flag in the instant after one of these handlers passed its check overlaps that one call
-	// (an engine start or stop, a console enrollment, a whitelist change and its reload).
+	// Lock order is always restore.running -> dataMu -> HubService.mu. The background install manager (ApplyJobs)
+	// is not a lock: handlers never wait for it. ImportConfig, WriteFile and ApplyPreset test its busy flag once
+	// before and again right after taking dataMu, and ApplyPreset starts a job while holding dataMu, so once past
+	// the recheck those three are never overlapped by a job. Start, Stop, ConsoleEnroll, AddWhitelist,
+	// DeleteWhitelist and RestoreHubItems take a hold on the manager (holdUnlessBusy) for the whole request. A
+	// hold never waits and never refuses another hold, and a job cannot start while one is out, so no job
+	// overlaps them (#1730). RestoreHubItems also keeps restore.running for restore-vs-restore. The hold is a
+	// counter inside the manager, not a lock, so it adds nothing to the lock order.
 	// The wait for dataMu is abandoned when the request ends (see lockData).
 	dataMu ctxMutex
 
@@ -425,6 +423,23 @@ const (
 	codeImportConfigNotFound = "import_config_not_found"
 )
 
+// Stable error_code values of the acquisition endpoints (#1708). Both answer 500: the server cannot do the
+// operation until the file's owner, mode or folder permissions are fixed. The messages name the fix, not a path.
+const (
+	// codeAcquisitionUnreadable: the Charon user cannot read the acquisition file or search its folder.
+	codeAcquisitionUnreadable = "acquisition_config_unreadable"
+	// codeAcquisitionNotWritable: the Charon user cannot create the backup or replace the file (permission or
+	// read-only mount).
+	codeAcquisitionNotWritable = "acquisition_config_not_writable"
+)
+
+// Acquisition error messages. The generic write message is shared with the failure paths that carry no code.
+const (
+	msgAcquisitionUnreadable  = "Charon cannot read the acquisition file. Check that the Charon user can read it (owner and mode)."
+	msgAcquisitionNotWritable = "Charon cannot write the acquisition file or its backup. Check the owner and mode of the file and its folder."
+	msgAcquisitionWriteFailed = "failed to write acquisition config"
+)
+
 // maxRefusalNames bounds the names list of an import refusal.
 const maxRefusalNames = 50
 
@@ -652,9 +667,11 @@ func (h *CrowdsecHandler) HasProxyApplier() bool {
 // Start starts the CrowdSec process and waits for LAPI to be ready.
 // Every outcome that changes or confirms the CrowdSec state re-applies the proxy configuration exactly once.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
-	if h.refuseIfBusy(c) {
+	release, ok := h.holdUnlessBusy(c)
+	if !ok {
 		return
 	}
+	defer release()
 	ctx := c.Request.Context()
 
 	// Read the status first so a failure here leaves the persisted config untouched.
@@ -758,9 +775,11 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 
 // Stop stops the CrowdSec process.
 func (h *CrowdsecHandler) Stop(c *gin.Context) {
-	if h.refuseIfBusy(c) {
+	release, ok := h.holdUnlessBusy(c)
+	if !ok {
 		return
 	}
+	defer release()
 	ctx := c.Request.Context()
 	if err := h.Executor.Stop(ctx, h.DataDir); err != nil {
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to stop crowdsec")
@@ -1330,9 +1349,11 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 	}
 
 	// After the cheap gates: a disabled feature or a malformed payload answers 404 or 400 whether or not a job runs.
-	if h.refuseIfBusy(c) {
+	release, ok := h.holdUnlessBusy(c)
+	if !ok {
 		return
 	}
+	defer release()
 
 	ctx := c.Request.Context()
 	status, err := h.Console.Enroll(ctx, crowdsec.ConsoleEnrollRequest{
@@ -2388,13 +2409,17 @@ func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
 		return
 	}
 
-	content, err := readAcquisitionConfig(acquisPath)
+	content, err := readAcquisitionFile(acquisPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found"})
 			return
 		}
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to read acquisition config")
+		if acquisitionAccessError(err) {
+			respondCoded(c, http.StatusInternalServerError, codeAcquisitionUnreadable, msgAcquisitionUnreadable, nil)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read acquisition config"})
 		return
 	}
@@ -2433,7 +2458,12 @@ func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
 	backupPath, err := replaceAcquisitionConfig(acquisPath, payload.Content, time.Now())
 	if err != nil {
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to write acquisition config")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write acquisition config"})
+		code, msg := acquisitionWriteFailure(err)
+		if code == "" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+			return
+		}
+		respondCoded(c, http.StatusInternalServerError, code, msg, nil)
 		return
 	}
 
@@ -2683,9 +2713,13 @@ func (h *CrowdsecHandler) ListWhitelists(c *gin.Context) {
 
 // AddWhitelist adds a new IP or CIDR to the CrowdSec whitelist.
 func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
-	if h.refuseIfBusy(c) {
+	// The hold is taken before the body is validated, as the busy check always was: an invalid body during a job
+	// still answers 409, and the hold lasts only until the 400 is written.
+	release, ok := h.holdUnlessBusy(c)
+	if !ok {
 		return
 	}
+	defer release()
 	var req struct {
 		IPOrCIDR string `json:"ip_or_cidr" binding:"required"`
 		Reason   string `json:"reason"`
@@ -2715,9 +2749,11 @@ func (h *CrowdsecHandler) AddWhitelist(c *gin.Context) {
 
 // DeleteWhitelist removes a whitelist entry by UUID.
 func (h *CrowdsecHandler) DeleteWhitelist(c *gin.Context) {
-	if h.refuseIfBusy(c) {
+	release, ok := h.holdUnlessBusy(c)
+	if !ok {
 		return
 	}
+	defer release()
 	id := c.Param("uuid")
 	if id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "uuid is required"})
@@ -2907,11 +2943,11 @@ func cscliFailureReason(out []byte) string {
 	return "cscli reported an error"
 }
 
-// ApplyJobs returns the background install busy flag. It refuses to start a job while a hub item restore
-// runs.
+// ApplyJobs returns the background install manager: its busy flag, and the holds that requests take while they
+// change DataDir (holdUnlessBusy).
 func (h *CrowdsecHandler) ApplyJobs() *crowdsec.ApplyJobManager {
 	h.applyJobsOnce.Do(func() {
-		h.applyJobs = crowdsec.NewApplyJobManager(h.restore.running.Load)
+		h.applyJobs = crowdsec.NewApplyJobManager()
 	})
 	return h.applyJobs
 }
@@ -2919,15 +2955,39 @@ func (h *CrowdsecHandler) ApplyJobs() *crowdsec.ApplyJobManager {
 const (
 	codeCrowdsecBusy = "crowdsec_busy"
 	msgCrowdsecBusy  = "CrowdSec is busy installing a preset; try again when it finishes"
+	// msgCrowdsecBusyOther is the refusal when no job is named: a request or a hub item restore holds the manager.
+	msgCrowdsecBusyOther = "CrowdSec is finishing another change; try again in a moment"
 )
 
+// respondBusy answers 409 crowdsec_busy. It names the job only when jobID is set, so the UI resumes a real job
+// and shows the generic text when a request or a restore is the cause.
+func respondBusy(c *gin.Context, jobID string) {
+	if jobID == "" {
+		respondCoded(c, http.StatusConflict, codeCrowdsecBusy, msgCrowdsecBusyOther, nil)
+		return
+	}
+	respondCoded(c, http.StatusConflict, codeCrowdsecBusy, msgCrowdsecBusy, gin.H{"job_id": jobID})
+}
+
 // refuseIfBusy answers 409 crowdsec_busy, naming the active job, while a background install holds the busy
-// flag, and reports whether it did. It never waits, so call it before touching the executor or any config.
+// flag, and reports whether it did. It never waits and takes no hold, so it is for handlers that are already
+// serialised by dataMu and recheck under it. Call it before touching the executor or any config.
 func (h *CrowdsecHandler) refuseIfBusy(c *gin.Context) bool {
 	jobID, busy := h.ApplyJobs().Busy()
 	if !busy {
 		return false
 	}
-	respondCoded(c, http.StatusConflict, codeCrowdsecBusy, msgCrowdsecBusy, gin.H{"job_id": jobID})
+	respondBusy(c, jobID)
 	return true
+}
+
+// holdUnlessBusy takes a hold on the install manager for one request. While a job runs, or while a hold cannot
+// be taken, it answers 409 crowdsec_busy and returns ok false. On ok true the caller must defer release(), so
+// a panic in the handler still releases the hold. The hold never waits, and it is shared with other requests.
+func (h *CrowdsecHandler) holdUnlessBusy(c *gin.Context) (release func(), ok bool) {
+	rel, jobID, ok := h.ApplyJobs().Hold()
+	if !ok {
+		respondBusy(c, jobID)
+	}
+	return rel, ok
 }

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
@@ -21,6 +22,39 @@ const staleTempMaxAge = 10 * time.Minute
 // writeFileAtomic is the atomic replacement used by the acquisition and file editor saves, a seam so tests can
 // force its outcomes without touching the file system.
 var writeFileAtomic = crowdsec.WriteFileAtomic
+
+// statAcquisitionConfig and readAcquisitionFile are seams so tests can force the stat and read failures that
+// need a permission problem to occur; those failures bind only for a non-root user.
+var (
+	statAcquisitionConfig = os.Stat
+	readAcquisitionFile   = readAcquisitionConfig
+)
+
+// errAcquisitionRead marks a failure to stat or read the live acquisition file (as opposed to a write failure), so
+// the PUT handler can answer an unreadable file with its own error_code.
+var errAcquisitionRead = errors.New("read acquisition config")
+
+// acquisitionAccessError reports whether err is a permission or read-only failure, the kind an operator fixes by
+// changing the file's owner or mode, or its folder's permissions.
+func acquisitionAccessError(err error) bool {
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS)
+}
+
+// acquisitionWriteFailure maps a replaceAcquisitionConfig error to the response code and message of a PUT. A
+// partial in-place write keeps the generic message and no code: it is not a permission problem, and the backup
+// it leaves behind is the intact copy. The read sentinel is checked before the write permission case.
+func acquisitionWriteFailure(err error) (code, msg string) {
+	switch {
+	case errors.Is(err, crowdsec.ErrPartialInPlaceWrite):
+		return "", msgAcquisitionWriteFailed
+	case errors.Is(err, errAcquisitionRead) && acquisitionAccessError(err):
+		return codeAcquisitionUnreadable, msgAcquisitionUnreadable
+	case acquisitionAccessError(err):
+		return codeAcquisitionNotWritable, msgAcquisitionNotWritable
+	default:
+		return "", msgAcquisitionWriteFailed
+	}
+}
 
 // acquisitionFile is the part of *os.File the backup writer uses. It exists so tests can make any single step
 // fail; *os.File satisfies it.
@@ -45,19 +79,19 @@ func replaceAcquisitionConfig(path, content string, now time.Time) (backupPath s
 	path = filepath.Clean(path)
 	mode := fs.FileMode(0o644)
 	var createdBackup string // separate from the named return: `return "", err` zeroes backupPath before defers run
-	info, statErr := os.Stat(path)
+	info, statErr := statAcquisitionConfig(path)
 	switch {
 	case statErr == nil:
 		mode = info.Mode().Perm()
 		old, readErr := os.ReadFile(path) //nolint:gosec // G304: acquisition path is operator config (CHARON_CROWDSEC_ACQUIS_PATH), validated by resolveAcquisitionConfigPath and cleaned above
 		if readErr != nil {
-			return "", fmt.Errorf("read acquisition config: %w", readErr)
+			return "", fmt.Errorf("%w: read acquisition config: %w", errAcquisitionRead, readErr)
 		}
 		if createdBackup, err = writeBackupExclusive(path, old, mode, now); err != nil {
 			return "", fmt.Errorf("write acquisition backup: %w", err)
 		}
 	case !errors.Is(statErr, fs.ErrNotExist):
-		return "", fmt.Errorf("stat acquisition config: %w", statErr)
+		return "", fmt.Errorf("%w: stat acquisition config: %w", errAcquisitionRead, statErr)
 	}
 
 	_, err = writeFileAtomic(path, []byte(content), mode, crowdsec.AtomicWriteOptions{

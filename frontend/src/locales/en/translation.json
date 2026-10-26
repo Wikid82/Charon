@@ -1830,7 +1830,8 @@
       "timeout": "CrowdSec did not answer in time. Try again.",
       "requestTooLarge": "The request was too large. Shorten the text and try again."
     },
-    "busy": "CrowdSec is busy installing a preset. Try again when it finishes."
+    "busy": "CrowdSec is busy installing a preset. Try again when it finishes.",
+    "busyOther": "CrowdSec is finishing another change. Try again in a moment."
   },
   "smtp": {
     "title": "Email (SMTP) Settings",

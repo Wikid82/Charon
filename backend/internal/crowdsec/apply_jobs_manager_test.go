@@ -106,7 +106,7 @@ func newPendingJobManager(t *testing.T, cfg pendingJobConfig) pendingJobManager 
 			return ApplyResult{Status: "applied"}, nil
 		}
 	}
-	mgr := NewApplyJobManager(nil)
+	mgr := NewApplyJobManager()
 	mgr.Configure(ApplyJobConfig{
 		Repo: repo, CountItems: cfg.CountItems, CountDownloaded: cfg.CountDownloaded, ProgressInterval: cfg.ProgressInterval, MaxDuration: cfg.MaxDuration, Now: cfg.Now,
 		Apply: func(ctx context.Context, req ApplyRequest) (ApplyResult, error) {

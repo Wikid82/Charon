@@ -1825,7 +1825,8 @@
       "timeout": "CrowdSec 未能及时响应。请重试。",
       "requestTooLarge": "请求过大。请缩短文本后重试。"
     },
-    "busy": "CrowdSec 正在安装预设。请在安装完成后重试。"
+    "busy": "CrowdSec 正在安装预设。请在安装完成后重试。",
+    "busyOther": "CrowdSec 正在完成另一项更改。请稍后重试。"
   },
   "smtp": {
     "title": "电子邮件 (SMTP) 设置",

@@ -20,7 +20,7 @@ func TestApplyJobOnFinishReceivesTheStoredFinalJob(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.CrowdsecApplyJob{}))
 
 	got := make(chan models.CrowdsecApplyJob, 1)
-	mgr := NewApplyJobManager(nil)
+	mgr := NewApplyJobManager()
 	mgr.Configure(ApplyJobConfig{
 		Repo:  NewApplyJobRepository(db),
 		Apply: func(context.Context, ApplyRequest) (ApplyResult, error) { return ApplyResult{}, errors.New("boom") },
@@ -51,7 +51,7 @@ func TestApplyJobOnFinishPanicDoesNotBreakTheJob(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(&models.CrowdsecApplyJob{}))
 
-	mgr := NewApplyJobManager(nil)
+	mgr := NewApplyJobManager()
 	mgr.Configure(ApplyJobConfig{
 		Repo:     NewApplyJobRepository(db),
 		Apply:    func(context.Context, ApplyRequest) (ApplyResult, error) { return ApplyResult{Status: "applied"}, nil },

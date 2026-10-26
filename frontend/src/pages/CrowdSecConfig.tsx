@@ -7,7 +7,7 @@ import { useNavigate, Link } from 'react-router'
 
 import { createBackup } from '../api/backups'
 import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, type CrowdSecDecision, type CrowdSecWhitelistEntry, statusCrowdsec, type CrowdSecStatus, startCrowdsec, type ImportHubItems, getCrowdsecImportError, getCrowdsecBanError, getCrowdsecExportError, type CrowdsecBanErrorCode } from '../api/crowdsec'
-import { crowdsecErrorMessage, isCrowdsecBusyError } from '../api/errorBody'
+import { crowdsecBusyMessage, crowdsecErrorMessage } from '../api/errorBody'
 import { getFeatureFlags } from '../api/featureFlags'
 import {
   listCrowdsecPresets,
@@ -557,7 +557,8 @@ export default function CrowdSecConfig() {
 
   /** Translated text for a refused import; unknown or missing codes keep the server's text. */
   const importFailureMessage = (err: unknown): string => {
-    if (isCrowdsecBusyError(err)) return t('crowdsecConfig.busy')
+    const busy = crowdsecBusyMessage(err, t)
+    if (busy) return busy
     const fallback = err instanceof Error ? err.message : t('crowdsecConfig.importFailed')
     const refusal = getCrowdsecImportError(err)
     const names = refusal ? formatNameList(refusal.names) : ''
@@ -654,8 +655,9 @@ export default function CrowdSecConfig() {
         toast.error(t('crowdsecConfig.toasts.presetApplyFailed'))
         return
       }
-      if (isCrowdsecBusyError(err)) {
-        setPresetStatusMessage(t('crowdsecConfig.busy'))
+      const busy = crowdsecBusyMessage(err, t)
+      if (busy) {
+        setPresetStatusMessage(busy)
         return
       }
       // The server is authoritative for every preset source: surface its message for any

@@ -16,8 +16,8 @@ describe('presets API', () => {
       const mockPresets = {
         presets: [
           {
-            slug: 'bot-mitigation-essentials',
-            title: 'Bot Mitigation Essentials',
+            slug: 'crowdsecurity/sshd',
+            title: 'SSH Brute-Force Protection',
             summary: 'Core HTTP parsers and scenarios',
             source: 'hub',
             tags: ['bots', 'web'],
@@ -97,7 +97,7 @@ describe('presets API', () => {
     it('should pull preset and return preview with cache_key', async () => {
       const mockResponse = {
         status: 'success',
-        slug: 'bot-mitigation-essentials',
+        slug: 'crowdsecurity/sshd',
         preview: '# Bot Mitigation Config\nconfigs:\n  collections:\n    - crowdsecurity/base-http-scenarios',
         cache_key: 'hub-bot-xyz789',
         etag: '"abc123"',
@@ -106,10 +106,10 @@ describe('presets API', () => {
       }
       vi.mocked(client.post).mockResolvedValue({ data: mockResponse })
 
-      const result = await presets.pullCrowdsecPreset('bot-mitigation-essentials')
+      const result = await presets.pullCrowdsecPreset('crowdsecurity/sshd')
 
       expect(client.post).toHaveBeenCalledWith('/admin/crowdsec/presets/pull', {
-        slug: 'bot-mitigation-essentials',
+        slug: 'crowdsecurity/sshd',
       })
       expect(result).toEqual(mockResponse)
       expect(result.status).toBe('success')
@@ -140,13 +140,13 @@ describe('presets API', () => {
       }
       vi.mocked(client.post).mockRejectedValue(error)
 
-      await expect(presets.pullCrowdsecPreset('bot-mitigation-essentials')).rejects.toEqual(error)
+      await expect(presets.pullCrowdsecPreset('crowdsecurity/sshd')).rejects.toEqual(error)
     })
 
     it('should handle ETAG validation scenarios', async () => {
       const mockResponse = {
         status: 'success',
-        slug: 'bot-mitigation-essentials',
+        slug: 'crowdsecurity/sshd',
         preview: '# Cached content',
         cache_key: 'hub-bot-cached123',
         etag: '"not-modified"',
@@ -155,7 +155,7 @@ describe('presets API', () => {
       }
       vi.mocked(client.post).mockResolvedValue({ data: mockResponse })
 
-      const result = await presets.pullCrowdsecPreset('bot-mitigation-essentials')
+      const result = await presets.pullCrowdsecPreset('crowdsecurity/sshd')
 
       expect(result.source).toBe('cache')
       expect(result.etag).toBe('"not-modified"')
@@ -170,7 +170,7 @@ describe('presets API', () => {
       }
       vi.mocked(client.post).mockRejectedValue(error)
 
-      await expect(presets.pullCrowdsecPreset('bot-mitigation-essentials')).rejects.toEqual(error)
+      await expect(presets.pullCrowdsecPreset('crowdsecurity/sshd')).rejects.toEqual(error)
     })
 
     it('should encode special characters in preset slug', async () => {
@@ -192,14 +192,14 @@ describe('presets API', () => {
 
   describe('applyCrowdsecPreset', () => {
     it('should apply preset with cache_key when available', async () => {
-      const payload = { slug: 'bot-mitigation-essentials', cache_key: 'hub-bot-xyz789' }
+      const payload = { slug: 'crowdsecurity/sshd', cache_key: 'hub-bot-xyz789' }
       const mockResponse = {
         status: 'success',
         backup: '/data/charon/data/backups/preset-backup-20251215-100000.tar.gz',
         reload_hint: true,
         used_cscli: true,
         cache_key: 'hub-bot-xyz789',
-        slug: 'bot-mitigation-essentials',
+        slug: 'crowdsecurity/sshd',
       }
       vi.mocked(client.post).mockResolvedValue({ data: mockResponse })
 
@@ -231,7 +231,7 @@ describe('presets API', () => {
     })
 
     it('should handle stale cache_key gracefully', async () => {
-      const stalePayload = { slug: 'bot-mitigation-essentials', cache_key: 'old_key_123' }
+      const stalePayload = { slug: 'crowdsecurity/sshd', cache_key: 'old_key_123' }
       const error = {
         response: {
           status: 400,
@@ -244,7 +244,7 @@ describe('presets API', () => {
     })
 
     it('should error when applying preset with CrowdSec stopped', async () => {
-      const payload = { slug: 'bot-mitigation-essentials', cache_key: 'valid-key' }
+      const payload = { slug: 'crowdsecurity/sshd', cache_key: 'valid-key' }
       const error = {
         response: {
           status: 500,
@@ -257,7 +257,7 @@ describe('presets API', () => {
     })
 
     it('should handle backup creation failure', async () => {
-      const payload = { slug: 'bot-mitigation-essentials', cache_key: 'valid-key' }
+      const payload = { slug: 'crowdsecurity/sshd', cache_key: 'valid-key' }
       const error = {
         response: {
           status: 500,
@@ -283,7 +283,7 @@ describe('presets API', () => {
     })
 
     it('should handle payload with force flag', async () => {
-      const payload = { slug: 'bot-mitigation-essentials', cache_key: 'key123' }
+      const payload = { slug: 'crowdsecurity/sshd', cache_key: 'key123' }
       const mockResponse = {
         status: 'success',
         backup: '/data/backups/preset-forced.tar.gz',
@@ -346,10 +346,10 @@ describe('presets API', () => {
       }
       vi.mocked(client.get).mockResolvedValue({ data: mockCache })
 
-      const result = await presets.getCrowdsecPresetCache('bot-mitigation-essentials')
+      const result = await presets.getCrowdsecPresetCache('crowdsecurity/sshd')
 
       expect(client.get).toHaveBeenCalledWith(
-        '/admin/crowdsec/presets/cache/bot-mitigation-essentials',
+        '/admin/crowdsec/presets/cache/crowdsecurity/sshd',
         { params: { type: undefined } }
       )
       expect(result).toEqual(mockCache)
@@ -426,7 +426,7 @@ describe('presets API', () => {
       const mockList = {
         presets: [
           {
-            slug: 'bot-mitigation-essentials',
+            slug: 'crowdsecurity/sshd',
             title: 'Bot Mitigation',
             summary: 'Core',
             source: 'hub',
@@ -444,7 +444,7 @@ describe('presets API', () => {
       // 2. Pull preset
       const mockPull = {
         status: 'success',
-        slug: 'bot-mitigation-essentials',
+        slug: 'crowdsecurity/sshd',
         preview: '# Config',
         cache_key: 'hub-bot-new123',
         etag: '"etag1"',
@@ -452,7 +452,7 @@ describe('presets API', () => {
       }
       vi.mocked(client.post).mockResolvedValueOnce({ data: mockPull })
 
-      const pullResult = await presets.pullCrowdsecPreset('bot-mitigation-essentials')
+      const pullResult = await presets.pullCrowdsecPreset('crowdsecurity/sshd')
       expect(pullResult.cache_key).toBe('hub-bot-new123')
 
       // 3. Verify cache
@@ -463,7 +463,7 @@ describe('presets API', () => {
       }
       vi.mocked(client.get).mockResolvedValueOnce({ data: mockCache })
 
-      const cacheResult = await presets.getCrowdsecPresetCache('bot-mitigation-essentials')
+      const cacheResult = await presets.getCrowdsecPresetCache('crowdsecurity/sshd')
       expect(cacheResult.cache_key).toBe(pullResult.cache_key)
 
       // 4. Apply preset
@@ -472,12 +472,12 @@ describe('presets API', () => {
         backup: '/data/backups/preset-backup.tar.gz',
         reload_hint: true,
         cache_key: 'hub-bot-new123',
-        slug: 'bot-mitigation-essentials',
+        slug: 'crowdsecurity/sshd',
       }
       vi.mocked(client.post).mockResolvedValueOnce({ data: mockApply })
 
       const applyResult = await presets.applyCrowdsecPreset({
-        slug: 'bot-mitigation-essentials',
+        slug: 'crowdsecurity/sshd',
         cache_key: pullResult.cache_key,
       })
       expect(applyResult.status).toBe('success')

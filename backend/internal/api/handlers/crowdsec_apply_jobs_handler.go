@@ -114,12 +114,9 @@ func (h *CrowdsecHandler) startApplyJob(c *gin.Context, req crowdsec.ApplyJobReq
 	job, err := m.Start(req)
 	switch {
 	case errors.Is(err, crowdsec.ErrApplyJobBusy):
-		// The id is empty when the hub item restore, not a job, holds the other side of the exclusion.
-		extra := gin.H{}
-		if id, busy := m.Busy(); busy && id != "" {
-			extra["job_id"] = id
-		}
-		respondCoded(c, http.StatusConflict, codeCrowdsecBusy, msgCrowdsecBusy, extra)
+		// Only a running job is named. A request or a hub item restore holding the manager refuses without one.
+		jobID, _ := m.Busy()
+		respondBusy(c, jobID)
 		return
 	case errors.Is(err, crowdsec.ErrApplyJobShutdown):
 		respondCoded(c, http.StatusServiceUnavailable, codeCrowdsecUnavailable, "CrowdSec is shutting down; try again after the restart", nil)
