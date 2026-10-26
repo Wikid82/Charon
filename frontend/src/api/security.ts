@@ -78,20 +78,28 @@ export const getLoginProtectionStatus = async (): Promise<LoginProtectionStatus>
   return response.data
 }
 
-/** Security configuration payload. */
+/**
+ * Security configuration payload for a partial update. Every key is optional: a key that is absent (or null)
+ * keeps the stored value, and an explicit empty string, 0 or false is applied.
+ */
 export interface SecurityConfigPayload {
   name?: string
   enabled?: boolean
   admin_whitelist?: string
+  /** Managed by the CrowdSec switch and ignored by the security config save. */
   crowdsec_mode?: string
   crowdsec_api_url?: string
   waf_mode?: string
   waf_rules_source?: string
   waf_learning?: boolean
+  waf_paranoia_level?: number
+  waf_exclusions?: string
+  rate_limit_mode?: string
   rate_limit_enable?: boolean
   rate_limit_burst?: number
   rate_limit_requests?: number
   rate_limit_window_sec?: number
+  rate_limit_bypass_list?: string
 }
 
 /**
@@ -106,8 +114,13 @@ export const getSecurityConfig = async () => {
 
 /**
  * Updates security configuration.
- * @param payload - SecurityConfigPayload with settings to update
- * @returns Promise resolving to the updated configuration
+ *
+ * Only the fields present in the payload are changed; omitted or null fields keep their stored value. Send an
+ * empty string, 0 or false to clear or turn a field off. `crowdsec_mode` is managed by the CrowdSec switch and
+ * is ignored here.
+ *
+ * @param payload - SecurityConfigPayload with the fields to change
+ * @returns Promise resolving to the stored configuration
  * @throws {AxiosError} If update fails
  */
 export const updateSecurityConfig = async (payload: SecurityConfigPayload) => {

@@ -56,6 +56,15 @@ describe('security API', () => {
       expect(result).toEqual(mockData)
     })
 
+    it('should post a single-key payload as exactly that key', async () => {
+      vi.mocked(client.post).mockResolvedValue({ data: { success: true } })
+
+      await security.updateSecurityConfig({ name: 'default', admin_whitelist: '' })
+
+      const [, body] = vi.mocked(client.post).mock.calls[0]
+      expect(body).toStrictEqual({ name: 'default', admin_whitelist: '' })
+    })
+
     it('should handle all payload fields', async () => {
       const payload: security.SecurityConfigPayload = {
         name: 'test',
