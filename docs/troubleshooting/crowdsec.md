@@ -274,6 +274,17 @@ Applying a hub preset shows one of these messages when it cannot finish or needs
 - **The install shows as timed out**: it did not finish within 30 minutes and was rolled back. Check the container's internet connection, then try again. For very large collections you can also run `docker exec charon cscli collections install <name>`.
 - **"The preview is out of date"** (`preset_cache_stale`) or **"CrowdSec could not reach the hub"** (`hub_unreachable`): see the messages above, then pull the preset again.
 
+## Switch, setting and reset messages
+
+These appear when you turn CrowdSec on or off, change its setting, or run an emergency reset. Nothing is changed when one of them shows, unless the entry says otherwise.
+
+- **"CrowdSec was turned off while it was starting."** (error code `crowdsec_state_changed`, HTTP 409): you turned CrowdSec off, or ran an emergency reset, while it was still starting. CrowdSec stays off and the setting stays off. Check the **CrowdSec Protection** switch on the Security page, then turn it on again if you still want it.
+- **Error code `crowdsec_setting_use_switch`** (HTTP 400): a settings change tried to set CrowdSec's internal mode value directly. Turn CrowdSec on or off with the **CrowdSec Protection** switch on the Security page instead. This only affects scripts or other tools that call the settings API.
+- **Error code `invalid_crowdsec_setting`** (HTTP 400): the CrowdSec setting (`security.crowdsec.enabled`) must be `true` or `false`. Values such as `yes` or `1` are refused. Use `true` to turn CrowdSec on or `false` to turn it off.
+- **"CrowdSec is not available on this server."** (error code `crowdsec_unavailable`, HTTP 503): the part of Charon that starts and stops CrowdSec is not running, so a switch cannot change CrowdSec. Restart the container and try again. If it keeps showing, run `docker logs charon` and look for the reason. An emergency reset still turns off the other security modules in this case, but CrowdSec may keep running until you restart Charon.
+- **"Charon manages this file. Change the allow list on the Whitelist tab."** (error code `file_managed_by_charon`, HTTP 400): you tried to save `charon-whitelist.yaml` in the config file editor. The file is not changed. Make your change on the **Whitelist** tab instead, because Charon rewrites this file from that list every time CrowdSec starts. Hand edits to the file are replaced the same way at the next start.
+- **The log says CrowdSec is running while the security suite is off**: this is information, not an error. CrowdSec is running, but your proxy leaves it out until the security suite is turned on again. Turn the security suite on from the Security page if you want CrowdSec to protect your sites.
+
 ## CrowdSec Not Starting After Container Restart
 
 ### Problem: Toggle shows ON but CrowdSec is not running
