@@ -1825,7 +1825,8 @@
       "timeout": "CrowdSec n'a pas répondu à temps. Réessayez.",
       "requestTooLarge": "La requête était trop volumineuse. Raccourcissez le texte et réessayez."
     },
-    "busy": "CrowdSec est occupé à installer un preset. Réessayez une fois l'installation terminée."
+    "busy": "CrowdSec est occupé à installer un preset. Réessayez une fois l'installation terminée.",
+    "busyOther": "CrowdSec termine une autre modification. Réessayez dans un instant."
   },
   "smtp": {
     "title": "Paramètres Email (SMTP)",

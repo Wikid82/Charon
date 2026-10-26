@@ -91,7 +91,6 @@ describe('CrowdSecConfig background preset install', () => {
     vi.mocked(presetsApi.applyPresetAsync).mockResolvedValue(job({ state: 'queued', phase: 'preflight' }))
     vi.mocked(presetsApi.getApplyJob).mockResolvedValue(job({ phase: 'install', items_installed: 12, elapsed_seconds: 200 }))
     vi.mocked(presetsApi.getApplyJobErrorCode).mockReturnValue(undefined)
-    vi.mocked(presetsApi.getCrowdsecBusyJobId).mockReturnValue(undefined)
     vi.mocked(presetsApi.getCrowdsecPresetErrorCode).mockImplementation(
       (err) => (err as { response?: { data?: { error_code?: never } } }).response?.data?.error_code,
     )
@@ -235,6 +234,14 @@ describe('CrowdSecConfig background preset install', () => {
     await startApply()
 
     expect(await screen.findByTestId('preset-status')).toHaveTextContent('CrowdSec is busy installing a preset. Try again when it finishes.')
+    expect(screen.queryByTestId('preset-install-result')).not.toBeInTheDocument()
+  })
+
+  it('shows the other-change text when another change, not an install, holds the lock', async () => {
+    vi.mocked(presetsApi.applyPresetAsync).mockRejectedValue(axiosError(409, { error: 'busy', error_code: 'crowdsec_busy' }))
+    await startApply()
+
+    expect(await screen.findByTestId('preset-status')).toHaveTextContent('CrowdSec is finishing another change. Try again in a moment.')
     expect(screen.queryByTestId('preset-install-result')).not.toBeInTheDocument()
   })
 })

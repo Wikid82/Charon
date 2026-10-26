@@ -1825,7 +1825,8 @@
       "timeout": "CrowdSec hat nicht rechtzeitig geantwortet. Versuchen Sie es erneut.",
       "requestTooLarge": "Die Anfrage war zu groß. Kürzen Sie den Text und versuchen Sie es erneut."
     },
-    "busy": "CrowdSec ist gerade mit der Installation eines Presets beschäftigt. Versuchen Sie es erneut, wenn sie abgeschlossen ist."
+    "busy": "CrowdSec ist gerade mit der Installation eines Presets beschäftigt. Versuchen Sie es erneut, wenn sie abgeschlossen ist.",
+    "busyOther": "CrowdSec schließt gerade eine andere Änderung ab. Versuchen Sie es in Kürze erneut."
   },
   "smtp": {
     "title": "E-Mail (SMTP) Einstellungen",

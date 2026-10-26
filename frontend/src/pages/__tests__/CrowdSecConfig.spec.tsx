@@ -76,7 +76,7 @@ describe('CrowdSecConfig', () => {
     })
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
       status: 'pulled',
-      slug: 'bot-mitigation-essentials',
+      slug: 'crowdsecurity/sshd',
       preview: HUB_PRESET_FIXTURES[0].content,
       cache_key: 'cache-123',
       etag: 'etag-123',
@@ -89,7 +89,7 @@ describe('CrowdSecConfig', () => {
       reload_hint: true,
       used_cscli: true,
       cache_key: 'cache-123',
-      slug: 'bot-mitigation-essentials',
+      slug: 'crowdsecurity/sshd',
     })
     vi.mocked(presetsApi.getCrowdsecPresetCache).mockResolvedValue({ preview: 'cached', cache_key: 'cache-123', etag: 'etag-123' })
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
@@ -393,7 +393,7 @@ describe('CrowdSecConfig', () => {
     await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
     await userEvent.click(screen.getByTestId('apply-preset-btn'))
 
-    await waitFor(() => expect(presetsApi.applyCrowdsecPreset).toHaveBeenCalledWith({ slug: 'bot-mitigation-essentials', cache_key: 'cache-123' }))
+    await waitFor(() => expect(presetsApi.applyCrowdsecPreset).toHaveBeenCalledWith({ slug: 'crowdsecurity/sshd', cache_key: 'cache-123' }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Apply failed: apply unsupported'))
     expect(backupsApi.createBackup).not.toHaveBeenCalled()
     expect(crowdsecApi.writeCrowdsecFile).not.toHaveBeenCalled()
@@ -472,7 +472,7 @@ describe('CrowdSecConfig', () => {
       reload_hint: true,
       used_cscli: true,
       cache_key: 'cache-123',
-      slug: 'bot-mitigation-essentials',
+      slug: 'crowdsecurity/sshd',
     })
 
     renderWithProviders(<CrowdSecConfig />)
