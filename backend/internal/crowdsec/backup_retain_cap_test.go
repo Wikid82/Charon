@@ -222,8 +222,52 @@ func TestRetainMarkerTextExplainsTheCap(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(marker), "7 days")
 	require.Contains(t, string(marker), "newest 3")
-	require.Contains(t, string(marker), "removed at the next cleanup")
+	require.Contains(t, string(marker), "becomes eligible for normal cleanup")
 	require.Contains(t, string(marker), "Delete this file")
+}
+
+// A kept folder whose suffix does not parse as a timestamp is ignored: it is never un-marked and never counts toward the cap.
+func TestCapRetainedIgnoresUnparseableKeptNames(t *testing.T) {
+	t.Parallel()
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+	p30 := capSnapshot(t, dataDir, capAgo(30*capDay), true)
+	p10 := capSnapshot(t, dataDir, capAgo(10*capDay), true)
+	p1 := capSnapshot(t, dataDir, capAgo(1*capDay), true)
+	garbage := dataDir + "." + BackupKindSnapshot + ".not-a-timestamp"
+	require.NoError(t, os.MkdirAll(garbage, 0o750))
+	require.NoError(t, os.WriteFile(garbage+retainMarkerSuffix, []byte("x"), 0o600))
+
+	capRetained(p1, capTestNow)
+
+	require.True(t, isRetained(garbage), "a folder with an unparseable timestamp is never un-marked")
+	require.DirExists(t, garbage)
+	require.True(t, isRetained(p30), "three parseable kept snapshots reach the cap, so the unparseable one does not push p30 out")
+	require.True(t, isRetained(p10))
+	require.True(t, isRetained(p1))
+}
+
+// Two kept snapshots with the same instant are ordered by path, so the lexically smaller one is un-marked first.
+// The legacy name "<stem>.20251025-120000" and the current name "<stem>.20251025-120000.000000" parse to the same time.
+func TestCapRetainedBreaksTimestampTiesByPath(t *testing.T) {
+	t.Parallel()
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+	at := capAgo(30 * capDay)
+	legacy := dataDir + "." + BackupKindSnapshot + "." + at.Format(legacyBackupTimeFormat)
+	current := dataDir + "." + BackupKindSnapshot + "." + at.Format(backupTimeFormat)
+	require.Less(t, legacy, current, "the legacy name must sort first for this test to be meaningful")
+	for _, p := range []string{legacy, current} {
+		require.NoError(t, os.MkdirAll(p, 0o750))
+		require.NoError(t, os.WriteFile(p+retainMarkerSuffix, []byte("x"), 0o600))
+	}
+	p10 := capSnapshot(t, dataDir, capAgo(10*capDay), true)
+	p1 := capSnapshot(t, dataDir, capAgo(1*capDay), true)
+
+	capRetained(p1, capTestNow)
+
+	require.False(t, isRetained(legacy), "the lexically smaller path of the tied pair is un-marked first")
+	require.True(t, isRetained(current), "the tied sibling keeps its marker once the cap is met")
+	require.True(t, isRetained(p10))
+	require.True(t, isRetained(p1))
 }
 
 // A snapshot folder that cannot be listed is logged; the marker that was just written stays and nothing is un-marked.

@@ -43,7 +43,7 @@ const (
 	// retainMarkerSuffix names the marker that keeps a snapshot after a failed rollback. The marker sits
 	// beside the snapshot, never inside it, so a restore can never copy it back into DataDir.
 	retainMarkerSuffix = ".keep"
-	retainMarkerText   = "kept for manual recovery after a failed rollback. It is protected for 7 days. After that only the newest 3 kept snapshots keep this marker, and an older one that loses it is removed at the next cleanup. Delete this file to release this snapshot for cleanup now.\n"
+	retainMarkerText   = "kept for manual recovery after a failed rollback. It is protected for 7 days. After that only the newest 3 kept snapshots keep this marker, and an older one that loses it becomes eligible for normal cleanup. Delete this file to release this snapshot for cleanup now.\n"
 )
 
 // isLiveDBFile reports whether name is the live CrowdSec SQLite database or its WAL/SHM sidecars.
