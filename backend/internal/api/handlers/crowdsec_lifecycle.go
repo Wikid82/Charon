@@ -53,6 +53,9 @@ func (e *CrowdsecBusyError) Error() string {
 	return "crowdsec is busy"
 }
 
+// msgCrowdsecUnavailable is the answer when no lifecycle is wired to a switch, so the switch cannot drive the engine.
+const msgCrowdsecUnavailable = "CrowdSec is not available on this server."
+
 // Sentinel causes of a failed Start or Stop. They are wrapped with the underlying error and mapped to HTTP answers
 // by respondCrowdsecLifecycleError, so every caller answers the same way.
 var (

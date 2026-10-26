@@ -1027,32 +1027,77 @@ func (h *SecurityHandler) DisableCerberus(c *gin.Context) {
 	h.toggleSecurityModule(c, "feature.cerberus.enabled", false)
 }
 
-// EnableCrowdSec enables the CrowdSec security module
+// EnableCrowdSec starts the CrowdSec engine through the lifecycle, which also turns the CrowdSec setting on.
 // POST /api/v1/security/crowdsec/enable
 func (h *SecurityHandler) EnableCrowdSec(c *gin.Context) {
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", true)
+	if !requireAdmin(c) {
+		return
+	}
+	h.switchCrowdSec(c, true)
 }
 
-// DisableCrowdSec disables the CrowdSec security module
+// DisableCrowdSec stops the CrowdSec engine through the lifecycle, which also turns the CrowdSec setting off.
 // POST /api/v1/security/crowdsec/disable
 func (h *SecurityHandler) DisableCrowdSec(c *gin.Context) {
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", false)
+	if !requireAdmin(c) {
+		return
+	}
+	h.switchCrowdSec(c, false)
 }
 
-// PatchCrowdSec handles PATCH requests to enable/disable CrowdSec based on JSON body
+// PatchCrowdSec starts or stops the CrowdSec engine through the lifecycle, based on the JSON body.
 // PATCH /api/v1/security/crowdsec
 // Expects: {"enabled": true/false}
 func (h *SecurityHandler) PatchCrowdSec(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", req.Enabled)
+	h.switchCrowdSec(c, req.Enabled)
+}
+
+// switchCrowdSec drives the CrowdSec engine for an admin caller and answers with the switch result. The handler
+// writes nothing itself: the lifecycle owns the setting, the mode and the proxy configuration. The 200 body keeps the
+// module keys and adds the engine fields; lapi_ready is only reported on enable.
+func (h *SecurityHandler) switchCrowdSec(c *gin.Context, enabled bool) {
+	if h.crowdsec == nil {
+		respondCoded(c, http.StatusServiceUnavailable, codeCrowdsecUnavailable, msgCrowdsecUnavailable, nil)
+		return
+	}
+
+	body := gin.H{
+		"success": true,
+		"module":  models.CrowdSecEnabledSettingKey,
+		"enabled": enabled,
+	}
+	if enabled {
+		res, err := h.crowdsec.StartCrowdSec(c.Request.Context())
+		if err != nil {
+			respondCrowdsecLifecycleError(c, err)
+			return
+		}
+		body["applied"] = res.ProxyApplied
+		body["status"] = res.Status
+		body["lapi_ready"] = res.LAPIReady
+	} else {
+		res, err := h.crowdsec.StopCrowdSec(c.Request.Context())
+		if err != nil {
+			respondCrowdsecLifecycleError(c, err)
+			return
+		}
+		body["applied"] = res.ProxyApplied
+		body["status"] = "stopped"
+	}
+
+	c.JSON(http.StatusOK, body)
 }
 
 // EnableRateLimit enables the Rate Limiting security module
