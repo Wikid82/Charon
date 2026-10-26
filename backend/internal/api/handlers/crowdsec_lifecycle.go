@@ -11,15 +11,20 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
+
+// engineStopTimeout bounds one Executor.Stop: the SIGTERM wait, the SIGKILL wait and the process scan.
+const engineStopTimeout = 15 * time.Second
 
 // CrowdsecLifecycle is the one owner of the CrowdSec engine state. The engine process, the default row's
 // crowd_sec_mode, the security.crowdsec.enabled setting and the proxy configuration change together, and only
 // through it. The HTTP switches and the settings and emergency handlers call it; none of them drives the engine
-// on its own.
+// on its own. The request context passed in only supplies values: an operation does not stop when it is cancelled
+// (see operationContext).
 type CrowdsecLifecycle interface {
-	StartCrowdSec(ctx context.Context) (CrowdsecStartResult, error)
-	StopCrowdSec(ctx context.Context) (CrowdsecStopResult, error)
+	StartCrowdSec(reqCtx context.Context) (CrowdsecStartResult, error)
+	StopCrowdSec(reqCtx context.Context) (CrowdsecStopResult, error)
 }
 
 // CrowdsecStartResult is the outcome of a Start that did not fail.
@@ -77,6 +82,22 @@ func respondCrowdsecLifecycleError(c *gin.Context, err error) {
 	}
 }
 
+// operationContext returns the context one Start or Stop runs on, and the func that releases it. The context does
+// not follow reqCtx, so a client that leaves never cuts an operation in half. It ends when the application context
+// is cancelled at shutdown, which is the one signal that stops a wait early.
+func (h *CrowdsecHandler) operationContext(reqCtx context.Context) (ctx context.Context, release func()) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(reqCtx))
+	appCtx := h.appCtx
+	if appCtx == nil {
+		appCtx = context.Background()
+	}
+	stopWatch := context.AfterFunc(appCtx, cancel)
+	return ctx, func() {
+		stopWatch()
+		cancel()
+	}
+}
+
 // LifecycleOrNil returns nil for a nil interface or for a nil *CrowdsecHandler stored in one, so a handler that
 // was never built is detectable as not wired. It is a type switch rather than reflection, so no kind can panic.
 func LifecycleOrNil(l CrowdsecLifecycle) CrowdsecLifecycle {
@@ -95,7 +116,9 @@ func LifecycleOrNil(l CrowdsecLifecycle) CrowdsecLifecycle {
 // the Start switch. It refuses with *CrowdsecBusyError while another Start or Stop runs, or while a background
 // change holds the manager. Every outcome that changes or confirms the CrowdSec state re-applies the proxy
 // configuration exactly once.
-func (h *CrowdsecHandler) StartCrowdSec(ctx context.Context) (CrowdsecStartResult, error) {
+func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartResult, error) {
+	ctx, release := h.operationContext(reqCtx)
+	defer release()
 	if !h.lifecycleMu.TryLock() {
 		return CrowdsecStartResult{}, &CrowdsecBusyError{}
 	}
@@ -170,7 +193,10 @@ func (h *CrowdsecHandler) StartCrowdSec(ctx context.Context) (CrowdsecStartResul
 			break
 		}
 
-		time.Sleep(pollInterval)
+		// A shutdown ends the wait at once, the same as the deadline does.
+		if util.SleepContext(ctx, pollInterval) != nil {
+			break
+		}
 	}
 
 	if !lapiReady {
@@ -200,7 +226,9 @@ func (h *CrowdsecHandler) StartCrowdSec(ctx context.Context) (CrowdsecStartResul
 
 // StopCrowdSec stops the CrowdSec engine and turns its state off. It is the request-independent core of the Stop
 // switch, and it refuses with *CrowdsecBusyError under the same rules as StartCrowdSec.
-func (h *CrowdsecHandler) StopCrowdSec(ctx context.Context) (CrowdsecStopResult, error) {
+func (h *CrowdsecHandler) StopCrowdSec(reqCtx context.Context) (CrowdsecStopResult, error) {
+	ctx, releaseOp := h.operationContext(reqCtx)
+	defer releaseOp()
 	if !h.lifecycleMu.TryLock() {
 		return CrowdsecStopResult{}, &CrowdsecBusyError{}
 	}
@@ -211,7 +239,11 @@ func (h *CrowdsecHandler) StopCrowdSec(ctx context.Context) (CrowdsecStopResult,
 	}
 	defer release()
 
-	if err := h.Executor.Stop(ctx, h.DataDir); err != nil {
+	// Executor.Stop gives up without SIGKILL once its context is done, so it gets its own bound, detached from
+	// the operation: a client leaving or a shutdown never leaves a SIGTERMed engine with the setting still on.
+	stopCtx, cancelStop := context.WithTimeout(context.WithoutCancel(ctx), engineStopTimeout)
+	defer cancelStop()
+	if err := h.Executor.Stop(stopCtx, h.DataDir); err != nil {
 		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to stop crowdsec")
 		return CrowdsecStopResult{}, fmt.Errorf("%w: %w", errCrowdsecStop, err)
 	}

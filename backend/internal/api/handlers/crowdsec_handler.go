@@ -72,7 +72,10 @@ type CrowdsecHandler struct {
 	WhitelistSvc *services.CrowdSecWhitelistService
 	// caddyManager re-applies the proxy configuration after Start, so the proxy picks up CrowdSec.
 	// Nil means the handler is not wired, and each apply then logs errCaddyNotWired.
-	caddyManager     CaddyConfigManager
+	caddyManager CaddyConfigManager
+	// appCtx is the application context. Cancelling it at shutdown ends every Start and Stop still running
+	// (see operationContext). Nil means context.Background(), as in tests.
+	appCtx           context.Context
 	LAPIMaxWait      time.Duration // For testing; 0 means 60s default
 	LAPIPollInterval time.Duration // For testing; 0 means 500ms default
 	dashCache        *dashboardCache
@@ -662,6 +665,12 @@ func nilIfTypedNil(m CaddyConfigManager) CaddyConfigManager {
 		return nil
 	}
 	return m
+}
+
+// WithAppContext sets the application context that ends the Start and Stop operations at shutdown.
+func (h *CrowdsecHandler) WithAppContext(ctx context.Context) *CrowdsecHandler {
+	h.appCtx = ctx
+	return h
 }
 
 // HasProxyApplier reports whether the handler was built with a Caddy manager.

@@ -345,7 +345,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	if crowdsecBinPath == "" {
 		crowdsecBinPath = "/usr/local/bin/crowdsec" // Default location in Alpine container
 	}
-	crowdsecHandler := newCrowdsecHandler(db, handlers.NewDefaultCrowdsecExecutor(), crowdsecBinPath, crowdsecDataDir, caddyManager)
+	crowdsecHandler := newCrowdsecHandler(db, handlers.NewDefaultCrowdsecExecutor(), crowdsecBinPath, crowdsecDataDir, caddyManager).WithAppContext(ctx)
 
 	// Emergency endpoint
 	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb).
