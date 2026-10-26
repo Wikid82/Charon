@@ -289,11 +289,7 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 		payload.Name = models.DefaultSecurityConfigName
 	}
 	// Sync RateLimitMode with RateLimitEnable for backward compatibility
-	if payload.RateLimitEnable {
-		payload.RateLimitMode = "enabled"
-	} else if payload.RateLimitMode == "" {
-		payload.RateLimitMode = "disabled"
-	}
+	payload.RateLimitMode = services.ResolveRateLimitMode(payload.RateLimitEnable, payload.RateLimitMode)
 	// The CrowdSec mode is owned by the CrowdSec lifecycle, so this endpoint validates a supplied value and then
 	// leaves the stored one alone: the save never carries it.
 	if err := services.ValidateCrowdSecMode(payload.CrowdSecMode); err != nil {

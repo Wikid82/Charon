@@ -99,30 +99,11 @@ func (s *SecurityService) GetByName(name string) (*models.SecurityConfig, error)
 	return &cfg, nil
 }
 
-// ValidateCrowdSecMode accepts the empty value and the two supported modes, 'local' and 'disabled'.
-// Any other value, including an external one, is refused.
-func ValidateCrowdSecMode(mode string) error {
-	if mode == "" || mode == "local" || mode == "disabled" {
-		return nil
-	}
-	return fmt.Errorf("invalid crowdsec mode: %s", mode)
-}
-
-// Upsert validates and saves a security config
+// Upsert saves a full SecurityConfig row: every column of cfg replaces the stored value, so callers must pass a
+// row they read first, with the fields they do not change still set to their stored values.
 func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
-	// Validate AdminWhitelist - comma-separated list of CIDRs
-	if cfg.AdminWhitelist != "" {
-		parts := strings.Split(cfg.AdminWhitelist, ",")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			// Validate as IP or CIDR using the same helper as AccessListService
-			if !isValidCIDR(p) {
-				return ErrInvalidAdminCIDR
-			}
-		}
+	if err := ValidateAdminWhitelist(cfg.AdminWhitelist); err != nil {
+		return err
 	}
 
 	// If a breakglass token is present in BreakGlassHash as empty string,
