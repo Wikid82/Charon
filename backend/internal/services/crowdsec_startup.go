@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -23,6 +25,40 @@ import (
 // crowdSecVerifyWait is the settle time after a successful Start before reconciliation checks that the process is
 // still running. Production keeps the 2s wait; tests shorten it through a serial-only helper.
 var crowdSecVerifyWait = 2 * time.Second
+
+// crowdSecProxySuiteOffMessage is the boot note written when the engine runs but the proxy leaves CrowdSec out
+// because the security suite (Cerberus) is off.
+const crowdSecProxySuiteOffMessage = "CrowdSec engine started; the proxy leaves CrowdSec out while the security suite is off"
+
+// reconcileOptions holds the optional behavior of ReconcileCrowdSecOnStartup. The zero value is the behavior
+// without options.
+type reconcileOptions struct {
+	cerberusOn func() bool
+}
+
+// ReconcileOption configures ReconcileCrowdSecOnStartup. Options are variadic so existing callers stay unchanged.
+type ReconcileOption func(*reconcileOptions)
+
+// WithCerberusCheck makes boot report, after a verified start, when the proxy will leave CrowdSec out because the
+// security suite is off. on reports whether the proxy applies Cerberus; a nil check reports nothing. The engine
+// decision does not depend on it.
+func WithCerberusCheck(on func() bool) ReconcileOption {
+	return func(o *reconcileOptions) {
+		o.cerberusOn = on
+	}
+}
+
+// ProxyCerberusCheck returns a check for WithCerberusCheck that applies the proxy's own Cerberus decision to the
+// current default SecurityConfig row and the settings table.
+func ProxyCerberusCheck(db *gorm.DB, static config.SecurityConfig) func() bool {
+	return func() bool {
+		var row *models.SecurityConfig
+		if sc, err := models.FindDefaultSecurityConfig(db); err == nil {
+			row = &sc
+		}
+		return caddy.CerberusEnabledForProxy(db, static, row)
+	}
+}
 
 // reconcileLock prevents concurrent reconciliation calls.
 // This mutex is necessary because reconciliation can be triggered from multiple sources:
@@ -67,7 +103,14 @@ type CrowdsecProcessManager interface {
 //
 // cmdExec is optional; if nil, a real command executor will be used for bouncer registration.
 // Tests should pass a mock to avoid executing real cscli commands.
-func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, binPath, dataDir string, cmdExec CommandExecutor) {
+//
+// opts are optional; see WithCerberusCheck.
+func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, binPath, dataDir string, cmdExec CommandExecutor, opts ...ReconcileOption) {
+	var options reconcileOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	// Prevent concurrent reconciliation calls
 	reconcileLock.Lock()
 	defer reconcileLock.Unlock()
@@ -222,6 +265,11 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		"pid":      newPid,
 		"verified": true,
 	}).Info("CrowdSec reconciliation: successfully started and verified CrowdSec")
+
+	// The engine follows the CrowdSec setting only; say so when the proxy will not apply CrowdSec with it.
+	if options.cerberusOn != nil && !options.cerberusOn() {
+		logger.Log().Info(crowdSecProxySuiteOffMessage)
+	}
 
 	// Register bouncer with LAPI after successful startup
 	// This ensures the bouncer API key is registered even if user provided an invalid env var key

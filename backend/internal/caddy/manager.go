@@ -709,11 +709,10 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 		crowdSecRow := models.SecurityConfig{CrowdSecMode: m.securityCfg.CrowdSecMode}
 
 		// Priority 1: Read from SecurityConfig table (DB overrides static config)
+		var row *models.SecurityConfig
 		if sc, err := models.FindDefaultSecurityConfig(m.db); err == nil {
 			crowdSecRow = sc
-
-			// SecurityConfig.Enabled controls Cerberus globally
-			cerbEnabled = sc.Enabled
+			row = &sc
 
 			// WAF mode from DB
 			if sc.WAFMode != "" {
@@ -732,15 +731,11 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 			// For now, ACL mode stays at static config value or settings override below
 		}
 
-		// Priority 2: Settings table overrides (for feature flags)
-		var s models.Setting
-		// runtime override for cerberus enabled (check feature flag first, fallback to legacy key)
-		if err := m.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
-			cerbEnabled = strings.EqualFold(s.Value, "true")
-		} else if err := m.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
-			cerbEnabled = strings.EqualFold(s.Value, "true")
-		}
+		// Priority 2: Settings table overrides (for feature flags). Cerberus takes the row above, then the feature
+		// and legacy keys; boot reads the same decision through CerberusEnabledForProxy.
+		cerbEnabled = CerberusEnabledForProxy(m.db, m.securityCfg, row)
 
+		var s models.Setting
 		// runtime override for ACL enabled
 		s = models.Setting{} // Reset to prevent ID leakage from previous query
 		if err := m.db.Where("key = ?", "security.acl.enabled").First(&s).Error; err == nil {

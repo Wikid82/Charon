@@ -276,7 +276,8 @@ func main() {
 	}
 
 	crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
-	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir, nil)
+	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir, nil,
+		services.WithCerberusCheck(services.ProxyCerberusCheck(db, cfg.Security)))
 
 	// Initialize plugin loader and load external DNS provider plugins (Phase 5)
 	logger.Log().Info("Initializing DNS provider plugin system...")
