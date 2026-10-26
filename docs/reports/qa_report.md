@@ -1,97 +1,179 @@
-# QA Report: CrowdSec Hub Source (PR 10)
+# QA Report: CrowdSec Whitelist, Acquisition, Busy Guard and Retention Tidy
 
-- Branch: `fix/crowdsec-hub-source`
-- HEAD: `e0405c96` (base `development` `9250fdbf`)
-- Scope: CrowdSec hub index fetched from `https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json` with a GitHub mirror fallback, host allowlist, log lines that name the URL actually requested, transport errors falling through to the next candidate, credentials scrubbed from hub errors, logs and API responses (`hubEndpoints`, `validateHubURL`), and docs.
-- Changed files: 16 (backend hub client and handlers, their tests and testdata, `backend/.env.example`, `docs/troubleshooting/crowdsec.md`, `scripts/crowdsec_integration.sh`). Frontend: untouched (0 diff lines).
-- Commit types in range: fix, docs. No `feat`, so CodeQL and Trivy were deferred to CI per CLAUDE.md.
+- Branch: `fix/crowdsec-backup-acquisition-tidy`
+- HEAD: `1644f823` (base `development` `cbe2c76b`, 9 commits)
+- Scope: whitelist writer safety and lock (#1718, W1), kept-snapshot cap with 7-day floor (#1707), acquisition permission error codes (#1708), shared `Hold()` busy guard (#1730, T1), frontend `crowdsecBusyMessage` and `busyOther` translations, docs.
+- Working tree: clean before the run; the only change afterwards is this report (`docs/reports/qa_report.md`, uncommitted). Nothing was committed, pushed, or opened as a PR.
+- Verdict: **PASS, no blockers.** Every local gate passes. Lint has 0 errors. The only residual items are minor test-coverage and wording notes (see Findings).
 
-## Verdict
-
-**Not clear to merge yet. Two items need a decision before merge:**
-
-1. **Patch coverage is 96.2%, not 100%.** The two uncovered changed lines are error branches in `backend/internal/crowdsec/hub_sync.go` (lines 615 and 879). The local report status is `pass` against the 90% overall threshold, but it misses the 100% target. Recommended fix: unit tests for both branches, as a `test:` commit in this PR.
-2. **A `-race` flake in `internal/api/handlers`.** `TestPerf_GetStatus_Parallel_AssertThreshold` failed once in the full race run (p95 15.283 ms against a 15 ms threshold). It is unrelated to the hub code (it exercises `SecurityHandler.GetStatus`). It passed 3 of 3 isolated `-race` reruns and in the non-race coverage run. Existing issue #1610 tracks this flake class; evidence was added there. If CI runs `-race` on handlers, this is CI-blocking and should be fixed in-PR per CLAUDE.md.
-
-Everything else passes. Real-CDN, CDN-blocked (mirror) and credential-leak checks all behave as specified. No security-sensitive findings were identified, so nothing was reported privately.
-
-## Gate results
+## Gate Summary
 
 | # | Gate | Result |
-|---|---|---|
-| 1 | `go build ./...` | PASS (exit 0) |
-| 1 | `go test -race ./internal/crowdsec/...` | PASS (`crowdsec` 115 s, `bouncerkey` ok) |
-| 1 | `go test -race ./internal/api/handlers/` | FAIL, 1 flaky timing test (see finding F2). 417 s. Full package otherwise green. |
-| 1 | Other touched packages | None beyond `crowdsec` and `handlers` (all other touched files are docs, scripts, or `.env.example`) |
-| 2 | `scripts/go-test-coverage.sh` | PASS. Line coverage 91.5%, statement coverage 92.6%, gate 87%. Zero FAIL lines in the run log (log removed during cleanup). The script hit the 600 s tool cap and was auto-backgrounded. It was re-attached with a blocking wait and completed (handlers package 472 s). Not split, so this is the script's own run, not equivalent steps. |
-| 3 | `scripts/local-patch-report.sh` | Artifacts generated (`test-results/local-patch-report.md` and `.json`). Overall patch coverage **96.2%** (50 of 52 changed lines), status `pass`. **Not 100%**: uncovered lines `hub_sync.go:615` (redirect-response error return in the index fetch) and `hub_sync.go:879` (body read error in the generic fetch helper). See F1. |
-| 4 | `make lint-fast` | PASS, 0 issues (backend and agent) |
-| 4 | `make lint-backend` (golangci-lint v2.15.0, full config, Docker) | PASS, 0 issues |
-| 4 | gofmt on changed `.go` files | PASS (no output from `gofmt -l`) |
-| 4 | markdownlint on `docs/troubleshooting/crowdsec.md` | PASS. `bash -n` on `scripts/crowdsec_integration.sh` also PASS. |
-| 5 | `scripts/scan-gorm-security.sh --check` | PASS. 74 Go files, 0 CRITICAL, 0 HIGH. (No model files changed; run as requested.) |
-| 5 | `govulncheck ./...` (backend) | PASS. 0 vulnerabilities affecting the code. 1 vulnerability in a required module that the code does not call (informational). |
-| 6 | Frontend coverage | Skipped. `git diff 9250fdbf..HEAD -- frontend` is empty. |
-| 7 | Real-cscli and CDN gate | PASS on all checks, with one finding (F3). Details below. |
-| 8 | Playwright, `--project=security-tests` | PASS. `tests/security/crowdsec-hub-preset-apply.spec.ts`, `crowdsec-preset-apply.spec.ts`, `crowdsec-hub-items.spec.ts`: 51 passed. `crowdsec-ui-states.spec.ts`: 13 passed. |
-| 9 | `git diff 034d318d..HEAD -- backend/internal/changelog` | Empty. `backend/internal/changelog/data/changelog.json` is `[]`. |
-| 9 | `go.work.sum` unmodified | PASS (0 diff lines against `034d318d..HEAD`) |
-| - | Working tree | Clean (`git status` empty). Nothing committed, pushed, or opened as a PR. |
+|---|------|--------|
+| 1 | `go build ./...`, `-race` on crowdsec, handlers and services (services `-count=1`), other touched packages | PASS |
+| 2 | `scripts/go-test-coverage.sh` (gate 87%) | PASS, line 91.5%, statement 92.6%, no FAIL |
+| 3 | `scripts/local-patch-report.sh` | PASS, backend 98.8%, frontend 100%, overall 98.9% |
+| 4 | Frontend coverage (gate 87%), type-check, lint, build, i18n and CrowdSec tests | PASS (lines 91.95%; branches 84.64% informational) |
+| 5 | `make lint-fast`, `make lint-backend`, markdownlint, gofmt | PASS (0 issues; gofmt flags one pre-existing fixture) |
+| 6 | `scan-gorm-security.sh --check`, `govulncheck` | PASS (0 CRITICAL/HIGH; no vulnerabilities in called code) |
+| 7 | Rebuild `charon-e2e`; targeted Playwright (one project per run) | PASS (security-tests 53/53; firefox whitelist 11/11) |
+| 8 | Real-cscli throwaway container gate (a) to (f) | PASS, all sub-gates |
+| 9 | Changelog and go.work.sum unchanged | PASS |
 
-### Gate 7 detail (throwaway containers from the branch image `charon:qa-hubgate-e0405c96`)
+Security scans: CodeQL and Trivy were not run locally. This branch adds no feature surface (commits are `test:`, `fix:` and `docs:`), so CLAUDE.md defers them to CI.
 
-The image was built from HEAD with `docker build`. The `docker-rebuild-e2e` skill was also run, as authorized, to refresh `charon-e2e` for gate 8. The live `charon` container was not touched, and its status stayed `Up 3 hours (healthy)` throughout. Each throwaway container had its own volume and a loopback-only port. A throwaway admin account (`qa-gate@example.invalid`) was created in each. Its password was a placeholder, and the containers are deleted at the end.
+## Gate 1: Build and Race Tests
 
-| Check | Setup | Result |
-|---|---|---|
-| A. Real CDN | Default config, container network reachable | PASS. Log: `hub index fetched`, `hub_index=https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json`, `fallback_used=false`. `crowdsecurity/sshd` pulled (HTTP 200) and cached. Its `item_sha256` (`58b871f7...9af`) equals the CDN index digest for that version. No `without a digest` or `unverified` lines. `cscli hub update` reports the index is up to date. `cscli hub list` works (168 parsers, 788 scenarios, 172 collections loaded). |
-| B. CDN blocked, mirror serves | `--add-host cdn-hub.crowdsec.net:127.0.0.1` | PASS. CDN attempt fails (`connection refused` for `cscli`, and the dial guard `connection to private IP blocked` for Charon). Charon logs `hub index fetch failed, trying mirror` naming `cdn-hub.crowdsec.net`, then `hub index fetched` naming `https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json` with `fallback_used=true`. The sshd pull succeeds, and its `item_sha256` equals the mirror index digest. `cscli hub update` fails in this setup because `cscli` has no mirror fallback (F3). |
-| C. Userinfo in `HUB_BASE_URL`, CDN reachable | `HUB_BASE_URL=https://operator:placeholder@cdn-hub.crowdsec.net/crowdsecurity/master`, CDN reachable | PASS. Presets list 200, pull 200, connectivity diagnostics 200. Zero `operator:placeholder` hits in responses or logs. The only textual match (`operator`) is a false positive: the phrase "offensive operators" in a preset description. Logs show the URL without userinfo. |
-| D. Userinfo in `HUB_BASE_URL`, both CDN and GitHub mirror blocked | Same userinfo value, `--add-host` for both hosts | PASS. Pull returns 503 with `hub_endpoints` set to `https://cdn-hub.crowdsec.net/crowdsecurity/master` and `https://raw.githubusercontent.com/crowdsecurity/hub/master`. No userinfo in the response. Zero placeholder hits in responses or logs. Each attempt is logged with its userinfo-free URL. The presets list still returned 200 in this state, probably from the local cached or cscli index; not investigated further. |
+- `go build ./...`: OK.
+- `go test -race -count=1 ./internal/crowdsec/...`: ok (crowdsec 115.6 s, bouncerkey ok).
+- `go test -race -count=1 ./internal/api/handlers/`: ok (426.7 s).
+- `go test -race -count=1 ./internal/services/`: ok (572.3 s). Run with `-count=1` as instructed (issue #1742).
+- Other packages: `git diff --stat cbe2c76b..HEAD` lists changes only under `backend/internal/crowdsec`, `backend/internal/api/handlers` and `backend/internal/services` (plus frontend, docs, and the E2E spec). No other Go package was touched, so no extra non-race run was needed.
 
-### Security review of the change
+## Gate 2: Backend Coverage
 
-- Every candidate URL passes `validateHubURL` (HTTPS only, exact host allowlist) before any request (`fetchIndexHTTPFromURL` line 593 and the generic fetch helper line 855).
-- Redirects are not followed (`ErrUseLastResponse` in the network client). A 3xx from the CDN cannot route the fetch to an unlisted host.
-- The network client's dial layer blocks private and loopback targets. The failover in gate B depends on that refusal being treated as a transport error, and it is.
-- Digest verification runs on every pulled item (checked against the index digest, and against the mirror digest in gate B).
-- No Gotify tokens found in the diff, logs, or artifacts. The matches in the coverage log are test names; the matches in preset JSON are descriptions.
-- CodeQL and Trivy were not run locally, since the change has no new feature surface. CI runs both on the PR.
+- `scripts/go-test-coverage.sh` finished in under 600 s on the second attempt (the first call hit the tool cap and was re-attached in place, not split). Log: `/var/tmp/qa_backend_cov.log`.
+- Statement coverage 92.6%, line coverage 91.5%, gate 87%: met. Zero `FAIL` lines.
+
+## Gate 3: Local Patch Coverage
+
+Artifacts present: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`. Re-run after the frontend coverage gate so the frontend figure is fresh.
+
+| Scope | Changed | Covered | Patch % | Status |
+|---|---:|---:|---:|---|
+| Overall | 185 | 183 | 98.9 | pass |
+| Backend | 172 | 170 | 98.8 | pass |
+| Frontend | 13 | 13 | 100.0 | pass |
+
+Expected ~100% backend was not reached. Two backend lines are uncovered, both in `backend/internal/crowdsec/backup.go`, function `capRetained`:
+- line 459: `continue` for a retained snapshot directory whose name does not parse as a timestamp;
+- line 472: the path tie-break in the sort comparator, reached only when two kept snapshots share an identical timestamp.
+
+Neither is a blocker (both are above the 85% threshold). They are recorded as a test gap (see Findings).
+
+## Gate 4: Frontend
+
+- Coverage (`scripts/frontend-test-coverage.sh`): statements 90.91%, branches 84.64% (informational), functions 88.77%, lines 91.95%. Gate met.
+- `npm run type-check`: exit 0.
+- `npm run lint`: **0 errors**, 1358 warnings across the whole repo (pre-existing backlog, filed as #1743). Warnings in files this branch touched:
+  - `frontend/src/api/__tests__/errorBody.test.ts`: `import-x/order` (3).
+  - `frontend/src/components/crowdsec/HubItemsRestorePanel.tsx`: `import-x/order` (2).
+  - `frontend/src/components/crowdsec/__tests__/HubItemsRestorePanel.test.tsx:76`: `unicorn/no-useless-undefined`.
+  - `frontend/src/pages/CrowdSecConfig.tsx:25-26, 113`: import order, and `Date.now` during render at line 113. Line 113 is pre-existing (unchanged from the base).
+  - `frontend/src/pages/__tests__/CrowdSecConfig.i18nKeys.test.ts:20-21`: `unicorn/prefer-ternary`, `unicorn/no-useless-undefined`.
+  - `frontend/src/pages/__tests__/CrowdSecConfig.spec.tsx:285,288`: `testing-library/no-node-access`.
+  - `i18n-json/identical-keys` on the de, es, fr and zh `translation.json`: pre-existing (the `proxyHosts.source` block is absent in those locales on the base too). Tracked as #1741.
+- `npm run build`: exit 0.
+- Targeted vitest (i18n test, CrowdSec i18n-keys, errorBody, presets and preset apply-jobs, HubItemsRestorePanel, CrowdSecConfig importErrors, installProgress, spec and config): 10 files, 176 tests, all passed.
+
+## Gate 5: Lint and Formatting
+
+- `make lint-fast` (backend and agent): 0 issues.
+- `make lint-backend` (full golangci-lint): 0 issues.
+- markdownlint on `docs/features/crowdsec.md` and `docs/troubleshooting/crowdsec.md`: 0 issues.
+- `gofmt -l ./internal ./cmd`: flags `internal/testutil/cscliguard/testdata/broken/broken.go`. This is a deliberately broken fixture added in `6d6f36dc`, before the base; it is not in this branch's diff and the Go toolchain ignores `testdata`.
+
+## Gate 6: Security Scans
+
+- `./scripts/scan-gorm-security.sh --check`: 74 Go files scanned; 0 CRITICAL, 0 HIGH, 0 MEDIUM. 2 INFO suggestions (informational).
+- `govulncheck ./...` (backend): no vulnerabilities in called code; 1 vulnerability in a required module that the code does not call.
+- Gotify token review: no Gotify references in the diff; no secrets added to logs. The only secret-looking matches are a test fixture payload (`[]byte("secret\n")`) in an unreadable-file test.
+
+## Gate 7: E2E (Playwright)
+
+- Rebuilt `charon-e2e` with the `docker-rebuild-e2e` skill (no `--clean`, no `--no-cache`). Result: container healthy, image `charon:local` built from this branch. The live `charon` container (compose project `charon`) was not touched; `charon-e2e` is in compose project `compose`.
+- `--project=security-tests`, one run: `tests/security/crowdsec-background-install.spec.ts`, `tests/security/crowdsec-security-toggle-busy.spec.ts`, `tests/security/crowdsec-hub-items.spec.ts`. **53 passed.**
+- `--project=firefox`, one run: `tests/crowdsec-whitelist.spec.ts`. **11 passed.**
+- Full suite was not run locally (per CLAUDE.md); CI will confirm.
+
+## Gate 8: Real-cscli Throwaway Container Gate
+
+Containers and volumes (unique names, all removed at cleanup):
+- `charon-qa-gate-6e6945` with volume `charon-qa-gate-data-6e6945`: main container. Published on 127.0.0.1 only.
+- `charon-qa-ro-d46a73` with volume `charon-qa-ro-data-d46a73`: read-only bind test container.
+
+Image: `charon:local` (CrowdSec `cscli` v1.8.2-rc2 inside). Setup used the Charon API with a throwaway admin account; no real secrets were printed. Hub access worked (presets listed, presets pulled).
+
+### (a) Acquisition errors: PASS
+
+Acquisition file: `/app/data/crowdsec/config/acquis.yaml` (reached through `/etc/crowdsec`).
+
+| Case | GET | PUT | Code |
+|---|---:|---:|---|
+| Healthy | 200 | 200 | none |
+| File mode 000 (charon user cannot read) | 500 | 500 | `acquisition_config_unreadable` |
+| Config directory 555 (cannot create backup or replace) | - | 500 | `acquisition_config_not_writable` |
+| Read-only bind mount over the file | 200 | 500 | `acquisition_config_not_writable` |
+| Restored | 200 | 200 | none |
+
+Observation: a file mode of 444 alone does not block saves (the write is temp-file-then-rename in a writable directory), so it still returned 200. This matches the code, which keys on directory and file access. Not a defect, but worth knowing when reading the 'check the owner and mode of the file and its folder' message.
+
+### (b) Busy guard: PASS
+
+- During an async preset apply (job `state: running`), `start`, `stop`, `presets/apply` and whitelist add each returned **409** with `error_code: crowdsec_busy`, text "CrowdSec is busy installing a preset; try again when it finishes", and the job id.
+- Console enroll during an apply also returned 409 `crowdsec_busy` with the job id (after enabling the `feature.crowdsec.console_enrollment` flag).
+- During a Start's LAPI wait window (Start raced with an async apply, six iterations): apply returned **409 `crowdsec_busy`** with "CrowdSec is finishing another change; try again in a moment", and **no job_id**. Start returned 200 each time.
+- Note: the preset apply job completes in under one second, so the busy window is short. The Start race used `&` and `wait` inside one foreground command so that both calls finished within the same tool call.
+
+### (c) Whitelist writer: PASS
+
+- 10 parallel adds (`10.20.0.1` to `.10`): all 201.
+- A client with a 50 ms timeout still got 201. A client with a 1 ms timeout aborted (curl exit 28). The DB still committed (`10.20.0.98` present in the API list and in the file), so the file matched the DB.
+- `charon-whitelist.yaml` matched the API list exactly (12 entries, IPs and CIDRs); `cidr: []`.
+- Mode `640`, owner `charon:charon`.
+- A stale legacy `charon-whitelist.yaml.tmp` (planted before the adds) was removed.
+
+### (d) Retention cap and floor: PASS
+
+Method: snapshot directories were renamed to aged timestamps and retain markers were placed by hand. Failing imports were triggered by making `crowdsec/config` read-only (500 "failed to create config dir"; the rollback failed and retained the snapshot). Ages were computed with the host's GNU `date`.
+
+- **Floor test:** four marked snapshots aged 1 to 4 days, then a failing import (6 kept, all under 7 days). All six markers kept. No directory deleted.
+- **Cap test:** two marked snapshots aged 8 and 9 days, then a failing import (7 kept, five under 7 days). The 9-day and 8-day markers were removed; the five younger markers stayed (floor wins over cap). No directory deleted: 12 `crowdsec.backup.*` entries before and after the retain (7 directories plus 5 markers).
+- **Removal at next prune:** the 9-day unmarked snapshot was removed by the next prune after four successful applies (unmarked count went above `DefaultBackupRetention = 5`). The 8-day unmarked snapshot stayed (it is among the newest five unmarked). See Findings for the wording note.
+
+### (e) Observation: whitelist file editing (W2): PASS (observation recorded)
+
+- Editing `config/parsers/s02-enrich/charon-whitelist.yaml` via the file editor (`POST /admin/crowdsec/file`) persisted. It did **not** regenerate within 5 s. File and API/DB then diverged (file had an extra `192.0.2.250` and lacked `10.20.0.98`; API did not).
+- The next whitelist add (`10.20.0.97`) regenerated the file from the DB: the hand-added IP was dropped and `10.20.0.98` came back. Mode stayed `640`.
+- `ImportConfig` with a fresh export (which contains the whitelist file) replaced the edited file with the archived content, so the file and API matched again.
+- Behavior summary: the file is not authoritative and is rewritten only on the next whitelist write or an import. Until then, a hand-edited file is live in CrowdSec while the Charon list does not show it. See the private note below.
+
+### (f) Basic start/stop/on/off: PASS
+
+- Stop: 200, `stopped`. Status: `running: false`.
+- Start: 200, `started`, LAPI ready.
+- Disable security.crowdsec: 200 `enabled: false`. Enable: 200 `enabled: true`.
+- Start again: 200 `already_running`.
+
+### Container health
+
+Logs for both containers: 0 panics, 0 data-race reports, 0 fatal lines. One startup warning in the main container: `Failed to create log file for LogWatcher` for `/var/log/caddy/access.log` (expected in a throwaway container with no Caddy logs; recorded, not filed).
+
+## Gate 9: Changelog and go.work.sum
+
+- `git diff 034d318d..HEAD -- backend/internal/changelog`: empty (0 bytes). Working tree has no change there.
+- `go.work.sum`: unmodified against `HEAD` and against `034d318d`.
 
 ## Findings
 
-| ID | Severity | Type | Finding | Status |
-|---|---|---|---|---|
-| F1 | Medium | Coverage (PR blocker per 100% target) | Patch coverage 96.2%. Uncovered: `backend/internal/crowdsec/hub_sync.go:615` (redirect error return in index fetch) and `:879` (body read error in fetch helper). | Resolved in this PR: unit tests added for both branches; patch coverage is now 100% (52/52). |
-| F2 | Low (CI blocker only if CI runs `-race` on handlers) | Test flake | `TestPerf_GetStatus_Parallel_AssertThreshold` (`internal/api/handlers/perf_assert_test.go:124`) failed once in a full `-race` run (p95 15.283 ms vs 15 ms threshold). Passes in isolation. | Resolved in this PR (issue #1610): the test now discards a warm-up round and asserts the median P95 of three rounds against the unchanged threshold. 10 of 10 `-race` runs pass (median-round P95 5.0 to 10.0 ms) and the full handlers package passes under `-race`. |
-| F3 | Medium | Functional gap, non-security | When the CDN is unreachable, the bundled `cscli` hub update and item installs have no mirror fallback. Charon's HTTP path does fall back. In gate B, `cscli` logged `invalid hub index` for the install steps. | Filed as GitHub issue #1739. |
-| F4 | Info | Observation | Presets list returns 200 when every hub candidate is unreachable (gate D). Probably served from the local cache or cscli index. | Not investigated. Low priority. |
+Severity follows the QA rules. None is a CI blocker.
 
-No security-sensitive findings. Nothing was reported privately, and nothing was filed.
+### Non-security, filed
 
-## Actions taken
+1. **Frontend lint backlog: 1358 warnings (0 errors)**, issue #1743. Low. Repository-wide. Suggested cleanup in a chore PR, then `--max-warnings` in CI.
+2. **Missing `proxyHosts.source` block in de, es, fr and zh locales**: already tracked as #1741. Not filed again (duplicate). Pre-existing, not introduced by this branch.
 
-- Filed GitHub issue #1739 (F3). Body has no closing keywords.
-- Added a comment to GitHub issue #1610 with this run's F2 evidence. The comment contains no closing keywords.
-- Refreshed `charon-e2e` through the `docker-rebuild-e2e` skill (no `--clean`, so `playwright_*` volumes are kept). The skill also synced a port value into the git-ignored `.env`.
-- Built `charon:qa-hubgate-e0405c96` and ran throwaway containers and volumes for gate 7. These are deleted in the cleanup step.
-- No application code was changed. No commits, pushes, or PRs.
+### CrowdSec-specific, reported for the spec (not filed)
 
-## Commands run (for reproduction)
+3. **Patch-coverage gap in `capRetained`** (`backend/internal/crowdsec/backup.go:459` and `:472`). Low. Add unit tests for an unparseable retained directory name and for two kept snapshots with equal timestamps. Both lines are new code in this branch, so the test belongs in this PR per CLAUDE.md. Backend patch coverage is 98.8%, above the threshold.
+4. **Retention wording vs. behavior** (`backend/internal/crowdsec/backup.go` retain marker text, and `docs/troubleshooting/crowdsec.md`). Low. The marker text says an older snapshot that loses its marker "is removed at the next cleanup". In practice, an unmarked snapshot is removed only when the unmarked count exceeds `DefaultBackupRetention` (5). Observed: an 8-day unmarked snapshot survived a prune. Suggest rewording to "removed once newer snapshots fill the retention count" or similar.
+5. **Generic error message on a failed clear in import** (`crowdsec_handler.go`, import path): 500 "failed to create config dir" is returned when `ClearConfigKeeping` fails for any reason (including permission problems). Low. A coded message (similar to `acquisition_config_not_writable`) would help operators.
+6. **Acquisition message vs. file mode** (informational): a 444 file mode does not block saves; only folder permissions do. The message "Check the owner and mode of the file and its folder" is accurate but may mislead. Low.
 
-```
-cd backend && go build ./...
-cd backend && go test -race -count=1 ./internal/crowdsec/...
-cd backend && go test -race -count=1 ./internal/api/handlers/
-bash scripts/go-test-coverage.sh
-bash scripts/local-patch-report.sh
-make lint-fast
-make lint-backend
-gofmt -l <changed .go files>
-markdownlint docs/troubleshooting/crowdsec.md
-./scripts/scan-gorm-security.sh --check
-govulncheck ./...            # from backend/
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
-npx playwright test tests/security/crowdsec-hub-preset-apply.spec.ts tests/security/crowdsec-preset-apply.spec.ts tests/security/crowdsec-hub-items.spec.ts --project=security-tests
-npx playwright test tests/security/crowdsec-ui-states.spec.ts --project=security-tests
-```
+### Security-sensitive, reported privately (not filed)
+
+7. **Whitelist file is not authoritative** (see gate 8(e)). A hand edit to `charon-whitelist.yaml` is applied by CrowdSec immediately, is not reflected in the Charon whitelist API or UI, and persists until the next whitelist write or import. This means an entry can be active that the operator's Charon list does not show. Treat as medium, and handle as a private advisory per `SECURITY.md` if you judge it security-relevant. Nothing was filed publicly. The fix direction is for the writer to be the only source of the file (or for the file to be regenerated on read or start).
+
+## Commands and Logs
+
+Logs under `/var/tmp`: `qa_backend_cov.log`, `qa_fe_cov.log`, `qa_fe_tc.log`, `qa_fe_lint.log`, `qa_fe_build.log`, `qa_fe_targeted.log`, `qa_lintfast.log`, `qa_lintbe.log`, `qa_mdl.log`, `qa_gorm.log`, `qa_govuln.log`, `qa_rebuild.log`, `qa_pw_security.log`, `qa_pw_wl.log`. Removed at cleanup, except this report.
