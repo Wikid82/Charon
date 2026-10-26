@@ -367,7 +367,7 @@ test.describe('CrowdSec background hub preset install @security', () => {
     await stubNoCurrentJob(page);
     await page.route(APPLY_ROUTE, async (route) => {
       await fulfillJson(route, {
-        error: 'CrowdSec is finishing another change',
+        error: 'server busy text',
         error_code: 'crowdsec_busy',
       }, 409);
     });
@@ -377,7 +377,9 @@ test.describe('CrowdSec background hub preset install @security', () => {
 
     await test.step('Verify the other-change text is shown', async () => {
       // i18n: crowdsecConfig.busyOther
-      await expect(page.getByText(/finishing another change/i)).toBeVisible();
+      await expect(
+        page.getByText('CrowdSec is finishing another change. Try again in a moment.'),
+      ).toBeVisible();
     });
 
     await test.step('Verify no installation progress row and no success text appear', async () => {
