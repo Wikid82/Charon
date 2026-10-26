@@ -122,9 +122,14 @@ type hubRestoreResponse struct {
 // import, export, file save or preset apply waits for at most one bounded call and never overlaps an
 // install.
 func (h *CrowdsecHandler) RestoreHubItems(c *gin.Context) {
-	if h.refuseIfBusy(c) {
+	// The hold keeps every background install out for the whole restore. Two restores still exclude each other
+	// through restore.running, because holds never refuse one another.
+	release, ok := h.holdUnlessBusy(c)
+	if !ok {
 		return
 	}
+	defer release()
+
 	items, status, msg := parseHubRestoreRequest(c)
 	if status != 0 {
 		c.JSON(status, gin.H{"error": msg})
@@ -136,12 +141,6 @@ func (h *CrowdsecHandler) RestoreHubItems(c *gin.Context) {
 		return
 	}
 	defer h.restore.running.Store(false)
-
-	// A job that started between the first check and the flag above would see the flag, so one more check
-	// closes the gap.
-	if h.refuseIfBusy(c) {
-		return
-	}
 
 	limits := h.restore.limits.withDefaults()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), limits.overall)

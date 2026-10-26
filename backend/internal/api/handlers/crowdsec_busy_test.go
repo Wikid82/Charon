@@ -100,12 +100,9 @@ type busyCase struct {
 
 // busyCases has one entry per busy-checked route of mutatingCrowdsecRoutes.
 //
-// Today the check is one-directional: a running job refuses these requests, but the requests hold nothing, so a job
-// can still start while one is in flight. The fix in PR 11 (commit 5) makes these routes take a hold
-// (routeHeld in crowdsec_route_classification_test.go); that commit extends this table and
-// TestMutatingHandlersAnswerBusyWhileAnInstallRuns with the hold-side checks (Start, Stop, ConsoleEnroll, whitelist
-// add/delete and hub items restore block a job for the length of the request). Until then, no test here asserts
-// that a request blocks a job.
+// The routes classed routeHeld take a hold on the install manager while they run (Start, Stop, ConsoleEnroll,
+// whitelist add/delete and hub items restore), so a job cannot start in the middle of them. Their hold-side
+// checks live in crowdsec_held_routes_test.go. Every row here is refused with 409 while a job runs.
 var busyCases = map[string]busyCase{
 	"POST /admin/crowdsec/start": {
 		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
@@ -202,7 +199,7 @@ func curatedPresetSlug() string {
 func TestBusyCasesCoverEveryBusyCheckedRoute(t *testing.T) {
 	t.Parallel()
 	for route, c := range mutatingCrowdsecRoutes {
-		if c.class == routeBusyChecked {
+		if c.class == routeBusyChecked || c.class == routeHeld {
 			require.Contains(t, busyCases, route, "a busy-checked route needs a case in busyCases")
 		} else {
 			require.NotContains(t, busyCases, route, "only busy-checked routes belong in busyCases")
@@ -224,6 +221,7 @@ func TestMutatingHandlersAnswerBusyWhileAnInstallRuns(t *testing.T) {
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			require.Equal(t, codeCrowdsecBusy, resp["error_code"])
 			require.Equal(t, busyJobID, resp["job_id"], "the active job is named so the UI can resume it")
+			require.Equal(t, msgCrowdsecBusy, resp["error"])
 			if bc.untouched != nil {
 				bc.untouched(t, f)
 			}
@@ -272,7 +270,7 @@ func TestNonBusyRoutesStayOpenWhileAnInstallRuns(t *testing.T) {
 	setBackgroundInstallActive(t, f.h)
 
 	for route, c := range mutatingCrowdsecRoutes {
-		if c.class == routeBusyChecked {
+		if c.class == routeBusyChecked || c.class == routeHeld {
 			continue
 		}
 		method, path, _ := strings.Cut(route, " ")
@@ -284,8 +282,9 @@ func TestNonBusyRoutesStayOpenWhileAnInstallRuns(t *testing.T) {
 
 func TestHubItemsRestoreInProgressRefusesAnInstallJob(t *testing.T) {
 	f := newBusyFixture(t)
-	f.h.restore.running.Store(true)
-	defer f.h.restore.running.Store(false)
+	release, _, ok := f.h.ApplyJobs().Hold() // a restore holds the manager for its whole run
+	require.True(t, ok)
+	defer release()
 
 	w := f.do(http.MethodPost, "/admin/crowdsec/presets/apply",
 		f.presetBody, "application/json")
@@ -316,9 +315,10 @@ func TestBusyFlagIsReleasedWhenAJobEnds(t *testing.T) {
 
 func TestHubItemsRestoreRunningBlocksTheBusyFlag(t *testing.T) {
 	f := newBusyFixture(t)
-	f.h.restore.running.Store(true)
-	require.False(t, f.h.ApplyJobs().TryAcquire(busyJobID), "no job may start while a restore runs")
-	f.h.restore.running.Store(false)
+	release, _, ok := f.h.ApplyJobs().Hold()
+	require.True(t, ok)
+	require.False(t, f.h.ApplyJobs().TryAcquire(busyJobID), "no job may start while a restore holds the manager")
+	release()
 	require.True(t, f.h.ApplyJobs().TryAcquire(busyJobID))
 	f.h.ApplyJobs().Release(busyJobID)
 }

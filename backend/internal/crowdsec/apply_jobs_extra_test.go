@@ -41,7 +41,7 @@ func TestApplyErrorCode(t *testing.T) {
 
 func TestApplyJobManagerNeedsConfiguration(t *testing.T) {
 	t.Parallel()
-	m := NewApplyJobManager(nil)
+	m := NewApplyJobManager()
 	ctx := context.Background()
 	_, err := m.Start(ApplyJobRequest{})
 	require.ErrorIs(t, err, ErrApplyJobNotConfigured)
@@ -58,13 +58,21 @@ func TestApplyJobManagerNeedsConfiguration(t *testing.T) {
 	require.False(t, busy)
 }
 
-func TestApplyJobStartRefusedWhileRestoreRuns(t *testing.T) {
+func TestApplyJobStartRefusedWhileAHoldIsOut(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, pendingJobConfig{DataDir: t.TempDir()})
-	h.mgr.blockedBy = func() bool { return true }
+	release, _, ok := h.mgr.Hold()
+	require.True(t, ok)
 	_, err := h.mgr.Start(ApplyJobRequest{Slug: applyTestSlug})
 	require.ErrorIs(t, err, ErrApplyJobBusy)
 	require.Empty(t, h.List(), "a refused start leaves no row")
+	_, busy := h.mgr.Busy()
+	require.False(t, busy, "a start refused by a hold names no job")
+
+	release()
+	job, err := h.mgr.Start(ApplyJobRequest{Slug: applyTestSlug})
+	require.NoError(t, err)
+	require.NotNil(t, job)
 }
 
 func TestApplyJobCancelUnknownAndFinished(t *testing.T) {
@@ -160,7 +168,7 @@ func TestApplyJobRunsHubServiceWithItsOwnTimeLimit(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	m := NewApplyJobManager(nil)
+	m := NewApplyJobManager()
 	t.Cleanup(m.Shutdown)
 	m.Configure(HubApplyConfig(e.svc, NewApplyJobRepository(db)))
 
@@ -223,7 +231,7 @@ func TestApplyJobTurnsAPanickingInstallIntoAFailedJobWithTheTreeRestored(t *test
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	m := NewApplyJobManager(nil)
+	m := NewApplyJobManager()
 	t.Cleanup(m.Shutdown)
 	m.Configure(HubApplyConfig(e.svc, NewApplyJobRepository(db)))
 

@@ -10,7 +10,7 @@ import (
 
 func TestApplyJobManagerFlag(t *testing.T) {
 	t.Parallel()
-	m := NewApplyJobManager(nil)
+	m := NewApplyJobManager()
 
 	_, busy := m.Busy()
 	require.False(t, busy)
@@ -36,21 +36,21 @@ func TestApplyJobManagerFlag(t *testing.T) {
 
 func TestApplyJobManagerRefusesWhileBlocked(t *testing.T) {
 	t.Parallel()
-	var blocked atomic.Bool
-	m := NewApplyJobManager(blocked.Load)
+	m := NewApplyJobManager()
 
-	blocked.Store(true)
+	release, _, ok := m.Hold()
+	require.True(t, ok)
 	require.False(t, m.TryAcquire("job-1"))
 	_, busy := m.Busy()
 	require.False(t, busy, "a refused start leaves no flag behind")
 
-	blocked.Store(false)
+	release()
 	require.True(t, m.TryAcquire("job-1"))
 }
 
 func TestApplyJobManagerSingleWinner(t *testing.T) {
 	t.Parallel()
-	m := NewApplyJobManager(nil)
+	m := NewApplyJobManager()
 	var wins atomic.Int32
 	var wg sync.WaitGroup
 	for i := 0; i < 32; i++ {

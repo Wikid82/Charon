@@ -18,6 +18,9 @@ const (
 	// routeBusyChecked routes change DataDir (or the engine's process) and must answer 409 crowdsec_busy
 	// while an install job runs.
 	routeBusyChecked routeClass = "busy-checked"
+	// routeHeld routes are busy-checked and also take a hold on the install manager for the length of the
+	// request (Hold), so a job cannot start in the middle of them (#1730). Every routeHeld route is busy-checked.
+	routeHeld routeClass = "held"
 	// routeLAPIOnly routes only talk to the local API or the engine database, which snapshots never touch.
 	routeLAPIOnly routeClass = "LAPI-only"
 	// routeOutsideDataDir routes write nothing a snapshot restore could revert.
@@ -33,14 +36,14 @@ type routeClassification struct {
 // TestEveryMutatingCrowdsecRouteIsClassified fails when a route is added, renamed or removed without a row
 // here, so the decision "does a running install have to block this?" is made for each new route.
 var mutatingCrowdsecRoutes = map[string]routeClassification{
-	"POST /admin/crowdsec/start": {routeBusyChecked,
+	"POST /admin/crowdsec/start": {routeHeld,
 		"starting the engine writes the bouncer key file and the PID file and would race the install; the check must run before the executor call"},
-	"POST /admin/crowdsec/stop": {routeBusyChecked,
+	"POST /admin/crowdsec/stop": {routeHeld,
 		"stopping the engine mid-install would drop the final reload; the check must run before the executor call"},
 	"POST /admin/crowdsec/import": {routeBusyChecked,
 		"replaces the whole configuration tree"},
-	"POST /admin/crowdsec/hub-items/restore": {routeBusyChecked,
-		"installs hub items; has its own restore.running flag (not lockData), so it needs its own check at the top and per section"},
+	"POST /admin/crowdsec/hub-items/restore": {routeHeld,
+		"installs hub items; holds the manager for the whole restore and has its own restore.running flag (not lockData) for restore-vs-restore"},
 	"POST /admin/crowdsec/file": {routeBusyChecked,
 		"writes a file below DataDir, which a rollback restore would silently revert"},
 	"POST /admin/crowdsec/presets/pull": {routeOutsideDataDir,
@@ -49,7 +52,7 @@ var mutatingCrowdsecRoutes = map[string]routeClassification{
 		"synchronous and curated apply mutate the hub tree; the async variant starts the job and answers 409 with the active job id"},
 	"DELETE /admin/crowdsec/presets/jobs/:id": {routeOutsideDataDir,
 		"asks the running install job to stop; the job itself rolls back from its snapshot, and the request must work while the job holds the busy flag"},
-	"POST /admin/crowdsec/console/enroll": {routeBusyChecked,
+	"POST /admin/crowdsec/console/enroll": {routeHeld,
 		"cscli console enrol (and capi register) write online_api_credentials.yaml below DataDir/config, which a rollback restore would revert"},
 	"DELETE /admin/crowdsec/console/enrollment": {routeOutsideDataDir,
 		"deletes the enrollment row from Charon's own database; no file is touched"},
@@ -61,9 +64,9 @@ var mutatingCrowdsecRoutes = map[string]routeClassification{
 		"runs register_bouncer.sh, which adds the bouncer in the engine database and writes its key to /etc/crowdsec/bouncers, outside DataDir (the DataDir bouncer_key file is written by Start, which is busy-checked)"},
 	"PUT /admin/crowdsec/acquisition": {routeOutsideDataDir,
 		"writes /etc/crowdsec/acquis.yaml, outside DataDir; serialised by its own leaf lock acquisMu, which nothing else is taken under; not busy-checked"},
-	"POST /admin/crowdsec/whitelist": {routeBusyChecked,
+	"POST /admin/crowdsec/whitelist": {routeHeld,
 		"WriteYAML writes DataDir/config/parsers/s02-enrich/charon-whitelist.yaml (inside the snapshot) and then sends SIGHUP; a rollback would revert the file while the database row stays"},
-	"DELETE /admin/crowdsec/whitelist/:uuid": {routeBusyChecked,
+	"DELETE /admin/crowdsec/whitelist/:uuid": {routeHeld,
 		"same as whitelist add: rewrites or removes the whitelist YAML and reloads"},
 }
 
@@ -103,7 +106,7 @@ func TestEveryMutatingCrowdsecRouteIsClassified(t *testing.T) {
 			unclassified = append(unclassified, route)
 		}
 	}
-	require.Empty(t, unclassified, "classify these routes in mutatingCrowdsecRoutes (busy-checked, LAPI-only or outside DataDir) and, if busy-checked, add them to the busy test table")
+	require.Empty(t, unclassified, "classify these routes in mutatingCrowdsecRoutes (busy-checked, held, LAPI-only or outside DataDir) and, if busy-checked or held, add them to the busy test table")
 
 	var stale []string
 	for route := range mutatingCrowdsecRoutes {
@@ -117,7 +120,7 @@ func TestEveryMutatingCrowdsecRouteIsClassified(t *testing.T) {
 func TestRouteClassificationsHaveAReason(t *testing.T) {
 	t.Parallel()
 	for route, c := range mutatingCrowdsecRoutes {
-		require.Contains(t, []routeClass{routeBusyChecked, routeLAPIOnly, routeOutsideDataDir}, c.class, route)
+		require.Contains(t, []routeClass{routeBusyChecked, routeHeld, routeLAPIOnly, routeOutsideDataDir}, c.class, route)
 		require.NotEmpty(t, strings.TrimSpace(c.reason), fmt.Sprintf("%s needs a reason", route))
 	}
 }

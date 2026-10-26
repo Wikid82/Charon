@@ -442,7 +442,7 @@ func recoverInterruptedInstalls(db *gorm.DB, dataDir string) {
 	if db == nil || !db.Migrator().HasTable(&models.CrowdsecApplyJob{}) {
 		return
 	}
-	m := crowdsec.NewApplyJobManager(nil)
+	m := crowdsec.NewApplyJobManager()
 	m.Configure(crowdsec.ApplyJobConfig{
 		Repo: crowdsec.NewApplyJobRepository(db),
 		PruneSnapshots: func(protect []string) {
