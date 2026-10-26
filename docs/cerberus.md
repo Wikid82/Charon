@@ -782,6 +782,8 @@ POST /api/v1/security/config
 
 See SecurityConfig schema above.
 
+A save changes only the fields it sends. Omitted or `null` fields keep their stored values, and `""`, `0` or `false` are applied. Each security page saves only the settings in its own section, so saving one section leaves the others unchanged. See [Upsert Global Security Config](api.md#upsert-global-security-config) for details.
+
 ### Rulesets
 
 ```http

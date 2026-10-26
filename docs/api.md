@@ -122,20 +122,23 @@ POST /security/config
 Content-Type: application/json
 ```
 
-Request Body (example):
+Only the fields present in the request body are changed. Every other stored setting keeps its current value.
+
+- A field that is **omitted**, or set to `null`, keeps its stored value.
+- An explicit empty string (`""`), `0` or `false` is applied. Use these to clear a text setting or turn a setting off.
+- A body with no settable field (for example `{}`) changes nothing.
+- `crowdsec_mode` is accepted for compatibility and checked for a valid value, but it is not stored. Turn CrowdSec on or off with the CrowdSec switch instead.
+
+Request Body (example; only these two fields change):
 
 ```json
 {
-  "name": "default",
-  "enabled": true,
   "admin_whitelist": "198.51.100.10,203.0.113.0/24",
-  "crowdsec_mode": "local",
-  "waf_mode": "monitor",
-  "waf_rules_source": "owasp-crs-local"
+  "waf_mode": "monitor"
 }
 ```
 
-Response 200: `{ "config": { ... } }`
+Response 200: `{ "config": { ... } }`. The `config` object is the stored row after the save, with every field.
 
 **Security Considerations**:
 
