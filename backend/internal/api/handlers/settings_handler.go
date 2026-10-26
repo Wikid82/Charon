@@ -168,6 +168,112 @@ type UpdateSettingRequest struct {
 	Type     string `json:"type"`
 }
 
+const (
+	codeCrowdsecSettingUseSwitch = "crowdsec_setting_use_switch"
+	codeInvalidCrowdsecSetting   = "invalid_crowdsec_setting"
+	msgCrowdsecSettingUseSwitch  = "Turn CrowdSec on or off with the CrowdSec switch, not the settings API."
+	msgCrowdsecBulkUseSwitch     = "Turn CrowdSec on or off with the CrowdSec switch, not the bulk settings update."
+	msgInvalidCrowdsecSetting    = "security.crowdsec.enabled must be true or false."
+)
+
+// updateCrowdsecEnabledSetting handles a write to the enabled key. "true" and "false" start or stop the engine
+// through the lifecycle. An empty value means "absent": the decision that would apply without the key is
+// computed, and the engine changes only when it differs from the current decision. The empty value is never
+// stored first, so a refusal or a failure leaves the stored state as it was.
+func (h *SettingsHandler) updateCrowdsecEnabledSetting(c *gin.Context, value string) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true":
+		h.switchCrowdsecFromSetting(c, true)
+	case "false":
+		h.switchCrowdsecFromSetting(c, false)
+	case "":
+		h.reconcileAbsentCrowdsecSetting(c)
+	default:
+		respondCoded(c, http.StatusBadRequest, codeInvalidCrowdsecSetting, msgInvalidCrowdsecSetting, nil)
+	}
+}
+
+// reconcileAbsentCrowdsecSetting makes the engine match the decision that applies with the enabled key absent.
+// When both decisions agree it changes nothing and answers the stored setting.
+func (h *SettingsHandler) reconcileAbsentCrowdsecSetting(c *gin.Context) {
+	row, err := defaultSecurityConfigOrZero(h.DB)
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to read the default SecurityConfig for the CrowdSec setting")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
+		return
+	}
+	want, err := models.CrowdSecDecisionWithoutEnabledKey(h.DB, row)
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to resolve the CrowdSec mode setting")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
+		return
+	}
+	have, err := models.CrowdSecEnabled(h.DB, row)
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to resolve the CrowdSec setting")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
+		return
+	}
+	if want == have {
+		h.respondCrowdsecSetting(c)
+		return
+	}
+	h.switchCrowdsecFromSetting(c, want)
+}
+
+// switchCrowdsecFromSetting starts or stops the engine through the lifecycle and answers the stored setting.
+// Every refusal and failure is answered by the shared lifecycle mapping, and nothing is written here.
+func (h *SettingsHandler) switchCrowdsecFromSetting(c *gin.Context, enable bool) {
+	if h.crowdsec == nil {
+		respondCoded(c, http.StatusServiceUnavailable, codeCrowdsecUnavailable, msgCrowdsecUnavailable, nil)
+		return
+	}
+	var err error
+	if enable {
+		_, err = h.crowdsec.StartCrowdSec(c.Request.Context())
+	} else {
+		_, err = h.crowdsec.StopCrowdSec(c.Request.Context())
+	}
+	if err != nil {
+		respondCrowdsecLifecycleError(c, err)
+		return
+	}
+	// The lifecycle changed the security state, so the Cerberus cache must not serve the old decision.
+	if h.Cerberus != nil {
+		h.Cerberus.InvalidateCache()
+	}
+	h.respondCrowdsecSetting(c)
+}
+
+// respondCrowdsecSetting answers the stored enabled setting. An absent row is answered as an empty value, in the
+// same shape as a stored setting.
+func (h *SettingsHandler) respondCrowdsecSetting(c *gin.Context) {
+	var setting models.Setting
+	err := h.DB.Where("key = ?", models.CrowdSecEnabledSettingKey).First(&setting).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusOK, models.Setting{Key: models.CrowdSecEnabledSettingKey})
+		return
+	}
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to read the CrowdSec setting")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
+		return
+	}
+	c.JSON(http.StatusOK, setting)
+}
+
+// defaultSecurityConfigOrZero returns the default SecurityConfig row, or the zero value when no row exists yet.
+func defaultSecurityConfigOrZero(db *gorm.DB) (models.SecurityConfig, error) {
+	row, err := models.FindDefaultSecurityConfig(db)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.SecurityConfig{}, nil
+	}
+	if err != nil {
+		return models.SecurityConfig{}, fmt.Errorf("find default security config: %w", err)
+	}
+	return row, nil
+}
+
 // UpdateSetting updates or creates a setting.
 func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	if !requireAdmin(c) {
@@ -182,6 +288,17 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 
 	if isInternalSettingKey(req.Key) {
 		respondReservedSettingKey(c)
+		return
+	}
+
+	// The CrowdSec switch settings are owned by the CrowdSec lifecycle: the lifecycle writes them, so this
+	// request is answered by it and nothing is upserted here.
+	switch req.Key {
+	case models.CrowdSecDeprecatedModeSettingKey:
+		respondCoded(c, http.StatusBadRequest, codeCrowdsecSettingUseSwitch, msgCrowdsecSettingUseSwitch, nil)
+		return
+	case models.CrowdSecEnabledSettingKey:
+		h.updateCrowdsecEnabledSetting(c, req.Value)
 		return
 	}
 
@@ -317,6 +434,14 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	for key := range updates {
 		if isInternalSettingKey(key) {
 			respondReservedSettingKey(c)
+			return
+		}
+	}
+
+	// The CrowdSec switch settings are refused here too, after flattening so the nested spelling is caught.
+	for _, key := range []string{models.CrowdSecEnabledSettingKey, models.CrowdSecDeprecatedModeSettingKey} {
+		if _, found := updates[key]; found {
+			respondCoded(c, http.StatusBadRequest, codeCrowdsecSettingUseSwitch, msgCrowdsecBulkUseSwitch, nil)
 			return
 		}
 	}

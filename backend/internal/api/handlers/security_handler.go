@@ -295,6 +295,13 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	} else if payload.RateLimitMode == "" {
 		payload.RateLimitMode = "disabled"
 	}
+	// The CrowdSec mode is owned by the CrowdSec lifecycle, so this endpoint validates a supplied value and then
+	// leaves the stored one alone: the save never carries it.
+	if err := services.ValidateCrowdSecMode(payload.CrowdSecMode); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	payload.CrowdSecMode = ""
 	if err := h.svc.Upsert(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -305,7 +312,15 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 			log.WithError(err).Warn("failed to apply security config changes to Caddy")
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"config": payload})
+	// Answer the stored row, so the response shows the stored CrowdSec mode and the row's UUID. The save has
+	// already happened, so a failed re-read is logged and the payload is answered instead.
+	saved, err := h.svc.GetByName(payload.Name)
+	if err != nil {
+		log.WithError(err).Warn("Failed to re-read SecurityConfig after save")
+		c.JSON(http.StatusOK, gin.H{"config": payload})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"config": saved})
 }
 
 // GenerateBreakGlass generates a break-glass token and returns the plaintext token once

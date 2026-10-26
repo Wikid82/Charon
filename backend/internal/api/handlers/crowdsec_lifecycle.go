@@ -255,8 +255,11 @@ func (h *CrowdsecHandler) StopCrowdSec(reqCtx context.Context) (CrowdsecStopResu
 	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled"}); err != nil {
 		logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
 	}
-	if err := upsertSetting(h.DB, models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}); err != nil {
+	if err := upsertSetting(h.DB, models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "false", Category: "security", Type: "bool"}); err != nil {
 		logger.Log().WithError(err).Warn("Failed to update CrowdSec setting after stopping CrowdSec")
+	}
+	if err := upsertSetting(h.DB, models.Setting{Key: models.CrowdSecDeprecatedModeSettingKey, Value: "disabled", Category: "security", Type: "string"}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to update CrowdSec mode setting after stopping CrowdSec")
 	}
 
 	// The engine is stopped and the mode is written, so the proxy must stop routing through CrowdSec.

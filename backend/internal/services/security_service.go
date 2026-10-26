@@ -87,6 +87,27 @@ func (s *SecurityService) Get() (*models.SecurityConfig, error) {
 	return &cfg, nil
 }
 
+// GetByName returns the SecurityConfig row with the given name, or ErrSecurityConfigNotFound.
+func (s *SecurityService) GetByName(name string) (*models.SecurityConfig, error) {
+	var cfg models.SecurityConfig
+	if err := s.db.Where("name = ?", name).First(&cfg).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrSecurityConfigNotFound
+		}
+		return nil, fmt.Errorf("find security config %q: %w", name, err)
+	}
+	return &cfg, nil
+}
+
+// ValidateCrowdSecMode accepts the empty value and the two supported modes, 'local' and 'disabled'.
+// Any other value, including an external one, is refused.
+func ValidateCrowdSecMode(mode string) error {
+	if mode == "" || mode == "local" || mode == "disabled" {
+		return nil
+	}
+	return fmt.Errorf("invalid crowdsec mode: %s", mode)
+}
+
 // Upsert validates and saves a security config
 func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 	// Validate AdminWhitelist - comma-separated list of CIDRs
@@ -107,9 +128,9 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 	// If a breakglass token is present in BreakGlassHash as empty string,
 	// do not overwrite it here. Token generation should be done explicitly.
 
-	// Validate CrowdSec mode on input prior to any DB operations: only 'local' or 'disabled' supported
-	if cfg.CrowdSecMode != "" && cfg.CrowdSecMode != "local" && cfg.CrowdSecMode != "disabled" {
-		return fmt.Errorf("invalid crowdsec mode: %s", cfg.CrowdSecMode)
+	// Validate CrowdSec mode on input prior to any DB operations.
+	if err := ValidateCrowdSecMode(cfg.CrowdSecMode); err != nil {
+		return err
 	}
 
 	// Upsert behaviour: try to find existing record
@@ -128,11 +149,7 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 	}
 	existing.Enabled = cfg.Enabled
 	existing.AdminWhitelist = cfg.AdminWhitelist
-	// Validate CrowdSec mode: only 'local' or 'disabled' supported. Reject external/remote values.
-	if cfg.CrowdSecMode != "" && cfg.CrowdSecMode != "local" && cfg.CrowdSecMode != "disabled" {
-		return fmt.Errorf("invalid crowdsec mode: %s", cfg.CrowdSecMode)
-	}
-	existing.CrowdSecMode = cfg.CrowdSecMode
+	// The CrowdSec mode is not copied: the CrowdSec lifecycle owns the stored value, so a save keeps it.
 	existing.CrowdSecAPIURL = cfg.CrowdSecAPIURL
 	existing.WAFMode = cfg.WAFMode
 	existing.WAFRulesSource = cfg.WAFRulesSource
