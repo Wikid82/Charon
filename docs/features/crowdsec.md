@@ -38,7 +38,7 @@ To turn CrowdSec off, switch **CrowdSec Protection** off. Charon stops it and up
 Three things can turn CrowdSec on or off, and each one starts or stops the CrowdSec engine to match:
 
 - The **CrowdSec Protection** switch on the Security page
-- The CrowdSec setting in Charon's settings
+- The CrowdSec setting, for scripts and other tools that call the settings API
 - The **emergency reset**, which turns off every security module, CrowdSec included
 
 Turning CrowdSec on also turns on the Security framework, the same way the other security modules do.

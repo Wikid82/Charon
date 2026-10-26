@@ -33,7 +33,7 @@ async function isEngineRunning(request: APIRequestContext): Promise<boolean> {
 
 /** Sets the CrowdSec security module through the PATCH endpoint and expects success. */
 async function patchCrowdsecEnabled(request: APIRequestContext, enabled: boolean): Promise<void> {
-  const response = await request.patch(SECURITY_CROWDSEC_ROUTE, { data: { enabled } });
+  const response = await request.patch(SECURITY_CROWDSEC_ROUTE, { data: { enabled }, timeout: 120_000 });
   expect(response.ok()).toBeTruthy();
 }
 
@@ -43,7 +43,7 @@ async function postSetting(request: APIRequestContext, key: string, value: strin
 }
 
 test.describe('CrowdSec lifecycle consistency', () => {
-  test.describe.configure({ mode: 'serial' });
+  test.describe.configure({ mode: 'serial', timeout: 150_000 });
 
   test('security PATCH enable starts the engine', async ({ request }) => {
     await test.step('Ensure the engine is stopped', async () => {

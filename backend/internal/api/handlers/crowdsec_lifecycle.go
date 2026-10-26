@@ -207,8 +207,8 @@ func (t *resetStopTracker) wait(ctx context.Context) error {
 // errCrowdsecStateChanged.
 //
 // Before the engine starts, Charon's whitelist file is rewritten from the database under dataMu, so the engine never
-// reads an out-of-date list. A running engine gets no signal from Start: it may still be loading its parsers, and a
-// SIGHUP then ends it (see syncWhitelistFile).
+// reads an out-of-date list. A running engine gets no signal from Start: it may still be loading its parsers, so
+// it picks the list up at its next reload (see syncWhitelistFile).
 func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartResult, error) {
 	ctx, releaseOp := h.operationContext(reqCtx)
 	defer releaseOp()

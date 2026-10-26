@@ -1875,7 +1875,7 @@ func TestUpdateSetting_EmptyValueIsAccepted(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, "empty Value must not trigger a 400 validation error")
 
 	// An empty value is never stored: with no stored state the decision without the key matches the current one,
-	// so nothing is written and nothing is started or stopped (the rev 28 rule for the empty enabled value).
+	// so nothing is written and nothing is started or stopped.
 	var count int64
 	require.NoError(t, db.Model(&models.Setting{}).Where("key = ?", "security.crowdsec.enabled").Count(&count).Error)
 	assert.Equal(t, int64(0), count)

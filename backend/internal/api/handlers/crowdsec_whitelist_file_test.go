@@ -105,8 +105,8 @@ func TestCrowdsecLifecycle_StartWritesWhitelistFromDBBeforeEngineStart(t *testin
 }
 
 // TestCrowdsecLifecycle_AlreadyRunningRewritesWhitelistWithoutSignal: a Start that finds the engine running rewrites the
-// whitelist file but sends no signal. The engine can still be loading its parsers when Start answers, and a SIGHUP then
-// ends it. Whitelist adds and deletes reload the engine themselves.
+// whitelist file but sends no signal. The engine can still be loading its parsers when Start answers, so it picks the
+// list up at its next reload. Whitelist adds and deletes reload the engine themselves.
 func TestCrowdsecLifecycle_AlreadyRunningRewritesWhitelistWithoutSignal(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
