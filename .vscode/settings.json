@@ -1,4 +1,8 @@
 {
+  "json.schemaDownload.trustedDomains": [
+    "https://docs.renovatebot.com"
+  ],
+
   "docker.host": "unix:///run/user/1001/docker.sock",
   "gopls": {
     "buildFlags": ["-tags=integration"]
