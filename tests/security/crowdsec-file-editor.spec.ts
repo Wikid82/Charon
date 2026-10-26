@@ -29,13 +29,17 @@ interface WriteBody {
 }
 
 /** Stubs list/read/backup endpoints and records every POST to the write endpoint. */
-async function stubEditor(page: Page, writeResponse: { status: number; json: Record<string, unknown> }): Promise<{ writes: WriteBody[] }> {
+async function stubEditor(
+  page: Page,
+  writeResponse: { status: number; json: Record<string, unknown> },
+  files: string[] = [SELECTED_PATH, OTHER_PATH]
+): Promise<{ writes: WriteBody[] }> {
   const writes: WriteBody[] = [];
   await page.route(FILES_ROUTE, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      json: { files: [SELECTED_PATH, OTHER_PATH] },
+      json: { files },
     });
   });
   await page.route(BACKUPS_ROUTE, async (route) => {
@@ -61,13 +65,13 @@ async function stubEditor(page: Page, writeResponse: { status: number; json: Rec
   return { writes };
 }
 
-async function editSelectedFile(page: Page, newContent: string): Promise<void> {
+async function editSelectedFile(page: Page, newContent: string, path: string = SELECTED_PATH): Promise<void> {
   await test.step('Open the configuration page', async () => {
     await page.goto('/security/crowdsec');
     await waitForLoadingComplete(page);
   });
   await test.step('Select the file and edit its content', async () => {
-    await page.getByRole('combobox', { name: /select a file/i }).selectOption(SELECTED_PATH);
+    await page.getByRole('combobox', { name: /select a file/i }).selectOption(path);
     const editor = page.getByRole('textbox', { name: /file content|content/i });
     await expect(editor).toHaveValue(/log_level: info/);
     await editor.fill(newContent);
@@ -127,6 +131,27 @@ test.describe('CrowdSec File Editor @security', () => {
     await test.step('Verify the server message is surfaced and no success toast is shown', async () => {
       await expect(page.getByText(message).first()).toBeVisible();
       await expect(page.getByText(/file saved/i)).toHaveCount(0);
+    });
+  });
+
+  test('should explain that Charon manages the whitelist file when the write is refused with a coded 400', async ({ page }) => {
+    const MANAGED_PATH = 'charon-whitelist.yaml';
+    // The mock carries only the stable error code, so the message must come from the frontend mapping.
+    const stub = await stubEditor(
+      page,
+      { status: 400, json: { error: 'file cannot be edited', error_code: 'file_managed_by_charon' } },
+      [MANAGED_PATH]
+    );
+
+    await editSelectedFile(page, 'common:\n  log_level: debug\n', MANAGED_PATH);
+
+    await test.step('Verify the managed-file explanation is shown and no success toast is shown', async () => {
+      await expect(page.getByText(/Charon manages this file/i).first()).toBeVisible();
+      await expect(page.getByText(/file saved/i)).toHaveCount(0);
+    });
+    await test.step('Verify a single write attempt for the managed path', async () => {
+      expect(stub.writes).toHaveLength(1);
+      expect(stub.writes[0].path).toBe(MANAGED_PATH);
     });
   });
 

@@ -46,6 +46,7 @@ type EmergencyServer struct {
 	caddy     handlers.CaddyConfigManager
 	gate      *dbmaint.Gate
 	mgmtCIDRs []string
+	crowdsec  handlers.CrowdsecLifecycle
 }
 
 // NewEmergencyServer creates a new emergency server instance
@@ -70,6 +71,12 @@ func NewEmergencyServerWithDeps(db *gorm.DB, cfg config.EmergencyConfig, caddyMa
 // An empty list selects the default private and loopback ranges.
 func (s *EmergencyServer) WithManagementCIDRs(cidrs []string) *EmergencyServer {
 	s.mgmtCIDRs = cidrs
+	return s
+}
+
+// WithCrowdsecLifecycle wires the CrowdSec lifecycle that the emergency handler drives. A typed-nil handler is not wired.
+func (s *EmergencyServer) WithCrowdsecLifecycle(l handlers.CrowdsecLifecycle) *EmergencyServer {
+	s.crowdsec = handlers.LifecycleOrNil(l)
 	return s
 }
 
@@ -135,7 +142,7 @@ func (s *EmergencyServer) Start() error {
 	})
 
 	// Emergency endpoints only
-	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(s.db, s.caddy, s.cerberus).WithManagementCIDRs(s.mgmtCIDRs)
+	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(s.db, s.caddy, s.cerberus).WithManagementCIDRs(s.mgmtCIDRs).WithCrowdsecLifecycle(s.crowdsec)
 
 	// GET /health - Health check endpoint (NO AUTH - must be accessible for monitoring)
 	router.GET("/health", func(c *gin.Context) {

@@ -11,7 +11,7 @@ const sourceModules = {
   ...import.meta.glob('../../components/crowdsec/DashboardTimeRangeSelector.tsx', { query: '?raw', import: 'default', eager: true }),
 } as Record<string, string>
 const localeModules = import.meta.glob('../../locales/*/translation.json', { import: 'default', eager: true }) as Record<string, Json>
-const NAMESPACES = ['crowdsecConfig', 'security.crowdsec']
+const NAMESPACES = ['crowdsecConfig', 'security.crowdsec', 'crowdsec']
 
 const loadLocale = (locale: string): Json => localeModules[`../../locales/${locale}/translation.json`]
 

@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,7 +73,10 @@ type CrowdsecHandler struct {
 	WhitelistSvc *services.CrowdSecWhitelistService
 	// caddyManager re-applies the proxy configuration after Start, so the proxy picks up CrowdSec.
 	// Nil means the handler is not wired, and each apply then logs errCaddyNotWired.
-	caddyManager     CaddyConfigManager
+	caddyManager CaddyConfigManager
+	// appCtx is the application context. Cancelling it at shutdown ends every Start and Stop still running
+	// (see operationContext). Nil means context.Background(), as in tests.
+	appCtx           context.Context
 	LAPIMaxWait      time.Duration // For testing; 0 means 60s default
 	LAPIPollInterval time.Duration // For testing; 0 means 500ms default
 	dashCache        *dashboardCache
@@ -96,17 +100,21 @@ type CrowdsecHandler struct {
 	mergeConfig        func(snapshotDir, dataDir string) error
 	scanPlaceholders   func(dataDir string) ([]string, error)
 
-	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
-	// and the export build; an export holds it only while writing its temporary file, never while sending.
-	// Lock order is always restore.running -> dataMu -> HubService.mu. The background install manager (ApplyJobs)
-	// is not a lock: handlers never wait for it. ImportConfig, WriteFile and ApplyPreset test its busy flag once
-	// before and again right after taking dataMu, and ApplyPreset starts a job while holding dataMu, so once past
-	// the recheck those three are never overlapped by a job. Start, Stop, ConsoleEnroll, AddWhitelist,
-	// DeleteWhitelist and RestoreHubItems take a hold on the manager (holdUnlessBusy) for the whole request. A
-	// hold never waits and never refuses another hold, and a job cannot start while one is out, so no job
-	// overlaps them (#1730). RestoreHubItems also keeps restore.running for restore-vs-restore. The hold is a
-	// counter inside the manager, not a lock, so it adds nothing to the lock order.
-	// The wait for dataMu is abandoned when the request ends (see lockData).
+	// dataMu serializes every operation that mutates DataDir: preset apply, config import, file write, hub item
+	// install and restore, the export build (which holds it only while writing its temporary file, never while
+	// sending) and the whitelist file write that a Start makes (syncWhitelistFile).
+	// Lock order for the CrowdSec lifecycle: lifecycleMu (TryLock, never waits) -> ApplyJobs hold (never waits) ->
+	// dataMu -> writeMu (the whitelist service's leaf lock). The hub restore takes restore.running -> dataMu ->
+	// HubService.mu. stateMu is a separate leaf and is never taken while dataMu is held (see stateMu).
+	// The background install manager (ApplyJobs) is not a lock: handlers never wait for it. ImportConfig, WriteFile
+	// and ApplyPreset test its busy flag once before and again right after taking dataMu, and ApplyPreset starts a
+	// job while holding dataMu, so once past the recheck those three are never overlapped by a job. StartCrowdSec
+	// and StopCrowdSec take their hold inside the lifecycle, before dataMu. ConsoleEnroll, AddWhitelist,
+	// DeleteWhitelist and RestoreHubItems take it through holdUnlessBusy for the whole request. A hold never waits
+	// and never refuses another hold, and a job cannot start while one is out, so no job overlaps them (#1730).
+	// RestoreHubItems also keeps restore.running for restore-vs-restore. The hold is a counter inside the manager,
+	// not a lock, so it adds nothing to the lock order.
+	// The wait for dataMu is abandoned when the request or operation ends (see lockData and lockDataCtx).
 	dataMu ctxMutex
 
 	// acquisMu serializes UpdateAcquisitionConfig. It is separate from dataMu because the acquisition file is
@@ -115,6 +123,25 @@ type CrowdsecHandler struct {
 
 	// restore holds the state of the hub item restore action (crowdsec_hub_items.go).
 	restore hubRestoreState
+
+	// lifecycleMu is held for a whole Start or Stop (StartCrowdSec, StopCrowdSec). It is only ever TryLocked, so a
+	// second Start or Stop is refused at once, and it is taken before the install manager's hold (lock order:
+	// lifecycleMu -> ApplyJobs hold -> dataMu).
+	lifecycleMu sync.Mutex
+
+	// stateMu serializes the CrowdSec state writes that an emergency reset can race with: the reset's writes,
+	// each write group of a Start (checked against stateGen), and the writes of a Stop. It is a blocking leaf.
+	// Nothing is held across an executor call, a cscli call, the LAPI wait, a whitelist write or a proxy apply,
+	// and it is never taken while dataMu is held. The only lock taken under it is resetStops.mu.
+	stateMu sync.Mutex
+	// stateGen counts the emergency resets that started. A Start records it before its first write.
+	stateGen atomic.Uint64
+	// resetStops counts the engine stops that emergency resets started and that have not finished.
+	resetStops resetStopTracker
+	// resetStopWaitMax bounds a Start's wait for pending reset stops; 0 means resetStopTimeout plus one second.
+	resetStopWaitMax time.Duration
+	// hooks are test seams at fixed points of a Start; production leaves them nil.
+	hooks lifecycleHooks
 
 	// applyJobsOnce lazily builds applyJobs; ApplyJobs is the only reader.
 	applyJobsOnce sync.Once
@@ -642,9 +669,6 @@ func setDefaultSecurityConfigState(db *gorm.DB, updates map[string]any) (models.
 	return cfg, nil
 }
 
-// crowdsecApplyTimeout bounds one proxy apply after a CrowdSec state change.
-const crowdsecApplyTimeout = 30 * time.Second
-
 // errCaddyNotWired is returned when the handler has no Caddy manager to apply the proxy configuration with.
 var errCaddyNotWired = errors.New("caddy manager is not wired to the CrowdSec handler")
 
@@ -659,144 +683,41 @@ func nilIfTypedNil(m CaddyConfigManager) CaddyConfigManager {
 	return m
 }
 
+// WithAppContext sets the application context that ends the Start and Stop operations at shutdown.
+func (h *CrowdsecHandler) WithAppContext(ctx context.Context) *CrowdsecHandler {
+	h.appCtx = ctx
+	return h
+}
+
 // HasProxyApplier reports whether the handler was built with a Caddy manager.
 func (h *CrowdsecHandler) HasProxyApplier() bool {
 	return h.caddyManager != nil
 }
 
-// Start starts the CrowdSec process and waits for LAPI to be ready.
-// Every outcome that changes or confirms the CrowdSec state re-applies the proxy configuration exactly once.
+// Start is the HTTP switch that starts CrowdSec and waits for LAPI. The engine logic is in StartCrowdSec.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
-	release, ok := h.holdUnlessBusy(c)
-	if !ok {
-		return
-	}
-	defer release()
-	ctx := c.Request.Context()
-
-	// Read the status first so a failure here leaves the persisted config untouched.
-	// A second spawn cannot bind LAPI and would clobber the pid file of the engine
-	// that is already running, so an existing process is reported instead. Status
-	// can rewrite the pid file when it adopts an engine the file did not track.
-	running, runningPid, statusErr := h.Executor.Status(ctx, h.DataDir)
-	if statusErr != nil {
-		logger.Log().WithField("error", sanitizeForLog(statusErr.Error())).Warn("failed to read crowdsec status before start")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read CrowdSec status"})
-		return
-	}
-
-	// Capture the state Start writes, so a failed Start can put back exactly what was there.
-	snap, err := h.snapshotCrowdsecStart()
+	res, err := h.StartCrowdSec(c.Request.Context())
 	if err != nil {
-		logger.Log().WithError(err).Error("Failed to snapshot SecurityConfig before CrowdSec start")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+		respondCrowdsecLifecycleError(c, err)
 		return
 	}
-
-	if persistErr := h.persistCrowdsecStart(); persistErr != nil {
-		logger.Log().WithError(persistErr).Error("Failed to persist SecurityConfig")
-		h.revertCrowdsecStart(snap)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
-		return
+	body := gin.H{
+		"status":     res.Status,
+		"pid":        res.PID,
+		"lapi_ready": res.LAPIReady,
 	}
-
-	if running {
-		_, lapiErr := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
-		logger.Log().WithField("pid", runningPid).Info("CrowdSec start requested but it is already running")
-		body := gin.H{
-			"status":     "already_running",
-			"pid":        runningPid,
-			"lapi_ready": lapiErr == nil,
-		}
-		h.applyProxyConfig(ctx)
-		c.JSON(http.StatusOK, body)
-		return
+	if res.Warning != "" {
+		body["warning"] = res.Warning
 	}
-
-	// Start the process. The executor re-checks under its own lock, so a
-	// concurrent Start that wins the race hands back the existing pid.
-	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
-	if err != nil {
-		h.revertCrowdsecStart(snap)
-		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to start crowdsec")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start CrowdSec"})
-		return
-	}
-
-	// Wait for LAPI to be ready (with timeout)
-	lapiReady := false
-	maxWait := h.LAPIMaxWait
-	if maxWait == 0 {
-		maxWait = 60 * time.Second
-	}
-	pollInterval := h.LAPIPollInterval
-	if pollInterval == 0 {
-		pollInterval = 500 * time.Millisecond
-	}
-	deadline := time.Now().Add(maxWait)
-
-	for time.Now().Before(deadline) {
-		// Check LAPI status using cscli
-		_, err := h.runCSCLI(ctx, 2*time.Second, "lapi", "status")
-
-		if err == nil {
-			lapiReady = true
-			break
-		}
-
-		time.Sleep(pollInterval)
-	}
-
-	if !lapiReady {
-		// The mode is already local, so the proxy needs the apply even though no registration ran.
-		logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
-		h.applyProxyConfig(ctx)
-		c.JSON(http.StatusOK, gin.H{
-			"status":     "started",
-			"pid":        pid,
-			"lapi_ready": false,
-			"warning":    "Process started but LAPI initialization may take additional time",
-		})
-		return
-	}
-
-	// After confirming LAPI is ready, ensure bouncer is registered
-	res, regErr := h.ensureBouncerRegistration(ctx)
-	h.handleBouncerRegistration(res, regErr)
-
-	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
-	h.applyProxyConfig(ctx)
-	c.JSON(http.StatusOK, gin.H{
-		"status":     "started",
-		"pid":        pid,
-		"lapi_ready": true,
-	})
+	c.JSON(http.StatusOK, body)
 }
 
-// Stop stops the CrowdSec process.
+// Stop is the HTTP switch that stops CrowdSec. The engine logic is in StopCrowdSec.
 func (h *CrowdsecHandler) Stop(c *gin.Context) {
-	release, ok := h.holdUnlessBusy(c)
-	if !ok {
+	if _, err := h.StopCrowdSec(c.Request.Context()); err != nil {
+		respondCrowdsecLifecycleError(c, err)
 		return
 	}
-	defer release()
-	ctx := c.Request.Context()
-	if err := h.Executor.Stop(ctx, h.DataDir); err != nil {
-		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("failed to stop crowdsec")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop CrowdSec"})
-		return
-	}
-
-	// Only the CrowdSec mode and its setting change here. The global security switch is left alone.
-	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled"}); err != nil {
-		logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
-	}
-	if err := upsertSetting(h.DB, models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}); err != nil {
-		logger.Log().WithError(err).Warn("Failed to update CrowdSec setting after stopping CrowdSec")
-	}
-
-	// The engine is stopped and the mode is written, so the proxy must stop routing through CrowdSec.
-	h.applyProxyConfig(ctx)
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 }
 
@@ -808,7 +729,8 @@ type crowdsecStartSnapshot struct {
 
 // crowdsecStartSettingKeys lists every setting that Start may write.
 var crowdsecStartSettingKeys = []string{
-	"security.crowdsec.enabled",
+	models.CrowdSecEnabledSettingKey,
+	models.CrowdSecDeprecatedModeSettingKey,
 	"feature.cerberus.enabled",
 	"security.cerberus.enabled",
 }
@@ -828,7 +750,8 @@ func (h *CrowdsecHandler) snapshotCrowdsecStart() (crowdsecStartSnapshot, error)
 }
 
 // persistCrowdsecStart records the intent of a Start. The global switch and Cerberus go on through
-// the shared helper, which the sibling security modules also use. Then CrowdSec is set to local.
+// the shared helper, which the sibling security modules also use. Then CrowdSec is set to local: the
+// row, the deprecated mode setting and the enabled setting, so every reader of the decision agrees.
 func (h *CrowdsecHandler) persistCrowdsecStart() error {
 	if err := enableSecurityFramework(h.DB); err != nil {
 		return fmt.Errorf("enable security framework: %w", err)
@@ -836,8 +759,11 @@ func (h *CrowdsecHandler) persistCrowdsecStart() error {
 	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local"}); err != nil {
 		return fmt.Errorf("set crowd_sec_mode: %w", err)
 	}
+	if err := upsertSetting(h.DB, models.Setting{Key: models.CrowdSecDeprecatedModeSettingKey, Value: "local", Category: "security", Type: "string"}); err != nil {
+		return fmt.Errorf("set crowdsec mode setting: %w", err)
+	}
 
-	return upsertSetting(h.DB, models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"})
+	return upsertSetting(h.DB, models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true", Category: "security", Type: "bool"})
 }
 
 // revertCrowdsecStart puts back exactly the state captured before Start. A default row that Start
@@ -1052,7 +978,19 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
+	// Charon's whitelist file follows this instance's database, not the archive's copy. A failure is logged and
+	// leaves the import standing with the archive's copy of the file.
+	regenerated, wlErr := h.writeWhitelistFile(c.Request.Context())
+	if wlErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(wlErr.Error())).Warn("crowdsec import: regenerating the whitelist file failed (non-fatal)")
+	}
 	resp := gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)}
+	if regenerated {
+		resp["whitelist_regenerated"] = true
+	}
+	if others := crowdsec.FindOtherWhitelistFiles(h.DataDir); len(others) > 0 {
+		resp["other_whitelist_files"] = others
+	}
 	h.addHubItemsReport(resp, info.HubItems)
 	if len(keptFiles) > 0 {
 		resp["kept_files"] = keptFiles
@@ -1279,18 +1217,26 @@ func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (size i
 // is aborted without a body (the client is gone), so the caller must return before registering its
 // deferred Unlock.
 func (h *CrowdsecHandler) lockData(c *gin.Context, op string) bool {
-	if err := h.dataMu.LockContext(c.Request.Context()); err != nil {
-		logger.Log().WithField("operation", op).WithField("error", sanitizeForLog(err.Error())).Debug("crowdsec: request ended while waiting for the data lock")
+	if err := h.lockDataCtx(c.Request.Context(), op); err != nil {
 		c.Abort()
 		return false
 	}
 	return true
 }
 
+// lockDataCtx takes dataMu, giving up when ctx ends. On error the lock is NOT held. The error wraps ctx's error.
+func (h *CrowdsecHandler) lockDataCtx(ctx context.Context, op string) error {
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		logger.Log().WithField("operation", op).WithField("error", sanitizeForLog(err.Error())).Debug("crowdsec: the wait for the data lock ended")
+		return fmt.Errorf("wait for the data lock: %w", err)
+	}
+	return nil
+}
+
 // writeExportLocked serializes the archive build with every other writer of DataDir.
 func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (total int64, omitted []string, err error) {
-	if err := h.dataMu.LockContext(ctx); err != nil {
-		return 0, nil, fmt.Errorf("wait for the data lock: %w", err)
+	if err := h.lockDataCtx(ctx, "export"); err != nil {
+		return 0, nil, err
 	}
 	defer h.dataMu.Unlock()
 	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
@@ -1946,13 +1892,14 @@ func rejectedEnvRegisterFailedLogMessage(keyPath string) string {
 
 // applyProxyConfig regenerates and applies the proxy configuration after a CrowdSec state change.
 // The apply runs on a detached context with its own timeout, so a client that disconnects cannot
-// cancel the apply or its rollback. A failure is logged only; the response and the engine are unchanged.
-func (h *CrowdsecHandler) applyProxyConfig(ctx context.Context) {
-	applyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crowdsecApplyTimeout)
-	defer cancel()
-	if err := h.reapplyCaddyConfig(applyCtx); err != nil {
+// cancel the apply or its rollback. A failure is logged and returned; it never fails the caller, and the response
+// and the engine are unchanged.
+func (h *CrowdsecHandler) applyProxyConfig(ctx context.Context) error {
+	err := h.reapplyCaddyConfig(ctx)
+	if err != nil {
 		logger.Log().WithError(err).Warn("Failed to apply the proxy configuration after a CrowdSec state change")
 	}
+	return err
 }
 
 // reapplyCaddyConfig regenerates the Caddy config so the proxy reads the current CrowdSec state and key file.
@@ -1960,7 +1907,7 @@ func (h *CrowdsecHandler) reapplyCaddyConfig(ctx context.Context) error {
 	if h.caddyManager == nil {
 		return errCaddyNotWired
 	}
-	return h.caddyManager.ApplyConfig(ctx)
+	return applyProxyConfigDetached(ctx, h.caddyManager, proxyApplyTimeout)
 }
 
 // validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.

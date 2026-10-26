@@ -141,6 +141,8 @@ func TestEmergencyServer_SecurityReset(t *testing.T) {
 
 	assert.True(t, body["success"].(bool), "Success should be true")
 	assert.NotNil(t, body["disabled_modules"], "Disabled modules should be present")
+	assert.Len(t, body["disabled_modules"], 5, "ACL, WAF, rate limit and both CrowdSec keys are disabled")
+	assert.Equal(t, "All security modules have been disabled. Please reconfigure security settings.", body["message"])
 }
 
 func TestEmergencyServer_BasicAuth(t *testing.T) {

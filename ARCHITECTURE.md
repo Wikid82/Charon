@@ -877,6 +877,7 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 - Automatic IP banning with configurable duration
 - Decision management API (view, create, delete bans)
 - IP whitelist management: operators add/remove IPs and CIDRs via the management UI; entries are persisted in SQLite and regenerated into a `crowdsecurity/whitelists` parser YAML on every mutating operation and at startup
+- Engine lifecycle: one CrowdSec lifecycle owner starts and stops the engine for the API, the settings endpoint and both emergency reset paths (the main API and the separate emergency server)
 
 **CrowdSec bouncer key precedence:** the bouncer key is the shared secret the Caddy bouncer uses to talk to the CrowdSec Local API. One rule set, in `backend/internal/crowdsec/bouncerkey`, is used by the proxy config, the handlers and startup:
 

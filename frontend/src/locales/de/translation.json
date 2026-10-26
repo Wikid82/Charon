@@ -1796,7 +1796,8 @@
       "presetAppliedReload": "Vorlage über das Backend angewendet (Neuladen erforderlich)",
       "presetApplyFailed": "Vorlage konnte nicht angewendet werden",
       "applyFailed": "Anwenden fehlgeschlagen: {{message}}",
-      "applyFailedWithBackup": "Anwenden fehlgeschlagen: {{message}}. {{backup}}"
+      "applyFailedWithBackup": "Anwenden fehlgeschlagen: {{message}}. {{backup}}",
+      "fileManaged": "Charon verwaltet diese Datei. Ändern Sie die Liste auf dem Whitelist-Tab."
     },
     "overlay": {
       "fetchingPreset": "Vorlage wird abgerufen...",
@@ -1826,7 +1827,11 @@
       "requestTooLarge": "Die Anfrage war zu groß. Kürzen Sie den Text und versuchen Sie es erneut."
     },
     "busy": "CrowdSec ist gerade mit der Installation eines Presets beschäftigt. Versuchen Sie es erneut, wenn sie abgeschlossen ist.",
-    "busyOther": "CrowdSec schließt gerade eine andere Änderung ab. Versuchen Sie es in Kürze erneut."
+    "busyOther": "CrowdSec schließt gerade eine andere Änderung ab. Versuchen Sie es in Kürze erneut.",
+    "import": {
+      "whitelistRegenerated": "Charon hat seine Whitelist-Datei aus der Datenbank dieser Instanz neu erzeugt.",
+      "otherWhitelistFiles": "{{count}} weitere Whitelist-Dateien wurden gefunden und unverändert gelassen: {{files}}"
+    }
   },
   "smtp": {
     "title": "E-Mail (SMTP) Einstellungen",
@@ -2452,5 +2457,11 @@
     "gotIt": "Verstanden, danke",
     "dontShowAgain": "Update-Benachrichtigungen nicht mehr anzeigen",
     "closeButton": "Schließen"
+  },
+  "crowdsec": {
+    "errors": {
+      "stateChanged": "CrowdSec wurde ausgeschaltet, während es gestartet wurde.",
+      "unavailable": "CrowdSec ist auf diesem Server nicht verfügbar."
+    }
   }
 }

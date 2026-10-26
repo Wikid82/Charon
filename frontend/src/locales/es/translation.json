@@ -1796,7 +1796,8 @@
       "presetAppliedReload": "Preajuste aplicado mediante el backend (se requiere recargar)",
       "presetApplyFailed": "No se pudo aplicar el preajuste",
       "applyFailed": "Error al aplicar: {{message}}",
-      "applyFailedWithBackup": "Error al aplicar: {{message}}. {{backup}}"
+      "applyFailedWithBackup": "Error al aplicar: {{message}}. {{backup}}",
+      "fileManaged": "Charon gestiona este archivo. Cambia la lista en la pestaña Lista blanca."
     },
     "overlay": {
       "fetchingPreset": "Obteniendo preajuste...",
@@ -1826,7 +1827,11 @@
       "requestTooLarge": "La solicitud era demasiado grande. Acorta el texto e inténtalo de nuevo."
     },
     "busy": "CrowdSec está ocupado instalando un preset. Inténtalo de nuevo cuando termine.",
-    "busyOther": "CrowdSec está terminando otro cambio. Inténtalo de nuevo en un momento."
+    "busyOther": "CrowdSec está terminando otro cambio. Inténtalo de nuevo en un momento.",
+    "import": {
+      "whitelistRegenerated": "Charon regeneró su archivo de lista blanca a partir de la base de datos de esta instancia.",
+      "otherWhitelistFiles": "Se encontraron {{count}} otros archivos de lista blanca y se dejaron sin cambios: {{files}}"
+    }
   },
   "smtp": {
     "title": "Configuración de Correo (SMTP)",
@@ -2452,5 +2457,11 @@
     "gotIt": "Entendido, gracias",
     "dontShowAgain": "No mostrarme notificaciones de actualización",
     "closeButton": "Cerrar"
+  },
+  "crowdsec": {
+    "errors": {
+      "stateChanged": "CrowdSec se desactivó mientras se iniciaba.",
+      "unavailable": "CrowdSec no está disponible en este servidor."
+    }
   }
 }

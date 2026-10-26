@@ -317,6 +317,15 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	}
 
+	// An async non-curated apply is a job: while a job or a hold runs it is refused here, before the wait for
+	// dataMu, so it does not queue behind a hub restore only to be refused after it. Curated presets stay synchronous.
+	if payload.Async && !isCurated {
+		if jobID, ok := h.ApplyJobs().CanStart(); !ok {
+			respondBusy(c, jobID)
+			return
+		}
+	}
+
 	// One mutation of DataDir at a time across preset apply, config import and file writes.
 	if !h.lockData(c, "preset apply") {
 		return

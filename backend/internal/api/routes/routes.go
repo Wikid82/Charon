@@ -194,14 +194,21 @@ func startUptimePipeline(ctx context.Context, gate *dbmaint.Gate, s uptimeStarte
 	return done
 }
 
+// Registered is what RegisterWithDeps hands back to the caller: the uptime shutdown hook, and the CrowdSec
+// lifecycle that the Tier 2 emergency server must share with the API handlers.
+type Registered struct {
+	UptimeShutdown UptimeShutdownFunc
+	CrowdSec       handlers.CrowdsecLifecycle
+}
+
 // RegisterWithDeps wires up API routes and performs automatic migrations with
-// prebuilt dependencies. It returns an UptimeShutdownFunc the caller invokes
+// prebuilt dependencies. It returns the Registered handles; the caller invokes Registered.UptimeShutdown
 // (after cancelling ctx) to wait out the ordered uptime teardown.
 //
 // gate is the database maintenance gate (GH #1422); nil behaves as a gate that
 // is permanently idle. The caller installs gate.Middleware itself so it runs
 // before every middleware registered here.
-func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus, gate *dbmaint.Gate) (UptimeShutdownFunc, error) {
+func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus, gate *dbmaint.Gate) (Registered, error) {
 	uptimeShutdown := UptimeShutdownFunc(func(context.Context) error { return nil })
 	// Emergency bypass must be registered FIRST.
 	// When a valid X-Emergency-Token is present from an authorized source,
@@ -265,7 +272,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		&models.BackupRemoteCopy{},      // Issue #32: per-target remote upload status
 		&models.BackupJob{},             // Async Backup/Restore Jobs: tracks in-flight create/restore jobs
 	); err != nil {
-		return uptimeShutdown, fmt.Errorf("auto migrate: %w", err)
+		return Registered{UptimeShutdown: uptimeShutdown}, fmt.Errorf("auto migrate: %w", err)
 	}
 
 	// Decide synchronously, before the backup scheduler and every pipeline
@@ -281,7 +288,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// other startup migration step in this function.
 	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webpush_singleton
 		ON notification_providers(type) WHERE type = 'webpush'`).Error; err != nil {
-		return uptimeShutdown, fmt.Errorf("create webpush singleton index: %w", err)
+		return Registered{UptimeShutdown: uptimeShutdown}, fmt.Errorf("create webpush singleton index: %w", err)
 	}
 
 	migrateViewerToPassthrough(db)
@@ -330,8 +337,20 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
 	})
 
+	// The CrowdSec handler is the one owner of the engine state. It is built before the emergency, settings and
+	// security handlers, which all receive this instance.
+	crowdsecDataDir := cfg.Security.CrowdSecConfigDir
+	// Use full path to CrowdSec binary to ensure it's found regardless of PATH
+	crowdsecBinPath := os.Getenv("CHARON_CROWDSEC_BIN")
+	if crowdsecBinPath == "" {
+		crowdsecBinPath = "/usr/local/bin/crowdsec" // Default location in Alpine container
+	}
+	crowdsecHandler := newCrowdsecHandler(db, handlers.NewDefaultCrowdsecExecutor(), crowdsecBinPath, crowdsecDataDir, caddyManager).WithAppContext(ctx)
+
 	// Emergency endpoint
-	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb).WithManagementCIDRs(cfg.Security.ManagementCIDRs)
+	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb).
+		WithManagementCIDRs(cfg.Security.ManagementCIDRs).
+		WithCrowdsecLifecycle(crowdsecHandler)
 	emergency := router.Group("/api/v1/emergency")
 	// Emergency endpoints must stay responsive and should not be rate limited.
 	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
@@ -401,7 +420,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// Ensure notify-only provider migration reconciliation at boot
 	if err := notificationService.EnsureNotifyOnlyProviderMigration(context.Background()); err != nil {
-		return uptimeShutdown, fmt.Errorf("notify-only provider migration: %w", err)
+		return Registered{UptimeShutdown: uptimeShutdown}, fmt.Errorf("notify-only provider migration: %w", err)
 	}
 
 	// Remote Server Service (needed for Docker handler)
@@ -431,7 +450,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// auth.Group: Gin copies the parent's handler chain into a child group.
 	authRateLimiter, throttleErr := middleware.NewAuthRateLimiter(cfg.Security.AuthRateLimit, cfg.Security.TrustedProxies)
 	if throttleErr != nil {
-		return uptimeShutdown, fmt.Errorf("create sign-in throttle: %w", throttleErr)
+		return Registered{UptimeShutdown: uptimeShutdown}, fmt.Errorf("create sign-in throttle: %w", throttleErr)
 	}
 	logAuthThrottlePolicy(authRateLimiter.Status())
 
@@ -599,7 +618,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		managementAdmin.GET("/audit-logs/:uuid", auditLogHandler.Get)
 
 		// Settings - with CaddyManager and Cerberus for security settings reload
-		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot)
+		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot).WithCrowdsecLifecycle(crowdsecHandler)
 
 		// Settings reads load for every role; every mutation is admin-only
 		// (per-route guard here + belt-and-braces in-handler checks retained).
@@ -987,7 +1006,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		}
 
 		// Security Status
-		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb)
+		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)
 		if geoipSvc != nil {
 			securityHandler.SetGeoIPService(geoipSvc)
 		}
@@ -1035,27 +1054,20 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityAdmin.PATCH("/rate-limit", securityHandler.PatchRateLimit) // E2E tests use PATCH
 
 		// CrowdSec process management and import
-		// Data dir for crowdsec (persisted on host via volumes)
-		crowdsecDataDir := cfg.Security.CrowdSecConfigDir
-
-		// Use full path to CrowdSec binary to ensure it's found regardless of PATH
-		crowdsecBinPath := os.Getenv("CHARON_CROWDSEC_BIN")
-		if crowdsecBinPath == "" {
-			crowdsecBinPath = "/usr/local/bin/crowdsec" // Default location in Alpine container
-		}
-
-		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
-		crowdsecHandler := newCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir, caddyManager)
 		crowdsecHandler.RegisterRoutes(managementAdmin)
 
 		// Cancel a running preset install on shutdown so it rolls back from its snapshot; the drain is bounded by the
 		// caller's grace period and startup recovery restores the snapshot if it runs out.
+		// An emergency reset's engine stop is waited on in the same bounded drain.
 		uptimeDrain := uptimeShutdown
 		uptimeShutdown = func(waitCtx context.Context) error {
 			jobsDone := make(chan struct{})
 			go func() {
 				defer close(jobsDone)
 				crowdsecHandler.ShutdownApplyJobs()
+				if err := crowdsecHandler.WaitResetStops(waitCtx); err != nil {
+					logger.Log().Warn("crowdsec engine stop after an emergency reset did not finish within the grace period")
+				}
 			}()
 			select {
 			case <-jobsDone:
@@ -1224,7 +1236,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// gate ignores it).
 	go applyInitialCaddyConfig(ctx, caddyManager, 30*time.Second, time.Second, gate.ConfigDone)
 
-	return uptimeShutdown, nil
+	return Registered{UptimeShutdown: uptimeShutdown, CrowdSec: handlers.LifecycleOrNil(crowdsecHandler)}, nil
 }
 
 // startDatabaseMaintenance plans a database optimization and, when one is

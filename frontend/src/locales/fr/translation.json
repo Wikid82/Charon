@@ -1796,7 +1796,8 @@
       "presetAppliedReload": "Préréglage appliqué via le backend (rechargement requis)",
       "presetApplyFailed": "Échec de l'application du préréglage",
       "applyFailed": "Échec de l'application : {{message}}",
-      "applyFailedWithBackup": "Échec de l'application : {{message}}. {{backup}}"
+      "applyFailedWithBackup": "Échec de l'application : {{message}}. {{backup}}",
+      "fileManaged": "Charon gère ce fichier. Modifiez la liste dans l'onglet Liste blanche."
     },
     "overlay": {
       "fetchingPreset": "Récupération du préréglage...",
@@ -1826,7 +1827,11 @@
       "requestTooLarge": "La requête était trop volumineuse. Raccourcissez le texte et réessayez."
     },
     "busy": "CrowdSec est occupé à installer un preset. Réessayez une fois l'installation terminée.",
-    "busyOther": "CrowdSec termine une autre modification. Réessayez dans un instant."
+    "busyOther": "CrowdSec termine une autre modification. Réessayez dans un instant.",
+    "import": {
+      "whitelistRegenerated": "Charon a régénéré son fichier de liste blanche à partir de la base de données de cette instance.",
+      "otherWhitelistFiles": "{{count}} autre(s) fichier(s) de liste blanche trouvé(s), laissé(s) inchangé(s) : {{files}}"
+    }
   },
   "smtp": {
     "title": "Paramètres Email (SMTP)",
@@ -2452,5 +2457,11 @@
     "gotIt": "Compris, merci",
     "dontShowAgain": "Ne plus m'afficher les notifications de mise à jour",
     "closeButton": "Fermer"
+  },
+  "crowdsec": {
+    "errors": {
+      "stateChanged": "CrowdSec a été désactivé pendant son démarrage.",
+      "unavailable": "CrowdSec n'est pas disponible sur ce serveur."
+    }
   }
 }

@@ -14,7 +14,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
-	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -53,21 +52,28 @@ type SecurityHandler struct {
 	cfg          config.SecurityConfig
 	db           *gorm.DB
 	svc          *services.SecurityService
-	caddyManager *caddy.Manager
+	caddyManager CaddyConfigManager
 	geoipSvc     *services.GeoIPService
 	cerberus     CacheInvalidator
+	crowdsec     CrowdsecLifecycle
+}
+
+// WithCrowdsecLifecycle wires the CrowdSec lifecycle that the security switches drive. A typed-nil handler is not wired.
+func (h *SecurityHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *SecurityHandler {
+	h.crowdsec = LifecycleOrNil(l)
+	return h
 }
 
 // NewSecurityHandler creates a new SecurityHandler.
-func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager) *SecurityHandler {
+func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager CaddyConfigManager) *SecurityHandler {
 	svc := services.NewSecurityService(db)
-	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager}
+	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: nilIfTypedNil(caddyManager)}
 }
 
 // NewSecurityHandlerWithDeps creates a new SecurityHandler with optional cache invalidation.
-func NewSecurityHandlerWithDeps(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager, cerberus CacheInvalidator) *SecurityHandler {
+func NewSecurityHandlerWithDeps(cfg config.SecurityConfig, db *gorm.DB, caddyManager CaddyConfigManager, cerberus CacheInvalidator) *SecurityHandler {
 	svc := services.NewSecurityService(db)
-	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager, cerberus: cerberus}
+	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: nilIfTypedNil(caddyManager), cerberus: cerberus}
 }
 
 // Close stops the background audit goroutine. Required for test cleanup.
@@ -288,17 +294,32 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	} else if payload.RateLimitMode == "" {
 		payload.RateLimitMode = "disabled"
 	}
+	// The CrowdSec mode is owned by the CrowdSec lifecycle, so this endpoint validates a supplied value and then
+	// leaves the stored one alone: the save never carries it.
+	if err := services.ValidateCrowdSecMode(payload.CrowdSecMode); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	payload.CrowdSecMode = ""
 	if err := h.svc.Upsert(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	// Apply updated config to Caddy so WAF mode changes take effect
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply security config changes to Caddy")
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"config": payload})
+	// Answer the stored row, so the response shows the stored CrowdSec mode and the row's UUID. The save has
+	// already happened, so a failed re-read is logged and the payload is answered instead.
+	saved, err := h.svc.GetByName(payload.Name)
+	if err != nil {
+		log.Warn("Failed to re-read SecurityConfig after save; answering the submitted payload")
+		c.JSON(http.StatusOK, gin.H{"config": payload})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"config": saved})
 }
 
 // GenerateBreakGlass generates a break-glass token and returns the plaintext token once
@@ -412,7 +433,7 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -448,7 +469,7 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -524,7 +545,7 @@ func (h *SecurityHandler) Enable(c *gin.Context) {
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -576,7 +597,7 @@ func (h *SecurityHandler) persistDisabled(c *gin.Context, cfg *models.SecurityCo
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
 			return
 		}
@@ -807,7 +828,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 
 	// Apply updated config to Caddy
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
 		}
 	}
@@ -895,7 +916,7 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 
 	// Apply updated config to Caddy
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
 		}
 	}
@@ -1020,32 +1041,77 @@ func (h *SecurityHandler) DisableCerberus(c *gin.Context) {
 	h.toggleSecurityModule(c, "feature.cerberus.enabled", false)
 }
 
-// EnableCrowdSec enables the CrowdSec security module
+// EnableCrowdSec starts the CrowdSec engine through the lifecycle, which also turns the CrowdSec setting on.
 // POST /api/v1/security/crowdsec/enable
 func (h *SecurityHandler) EnableCrowdSec(c *gin.Context) {
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", true)
+	if !requireAdmin(c) {
+		return
+	}
+	h.switchCrowdSec(c, true)
 }
 
-// DisableCrowdSec disables the CrowdSec security module
+// DisableCrowdSec stops the CrowdSec engine through the lifecycle, which also turns the CrowdSec setting off.
 // POST /api/v1/security/crowdsec/disable
 func (h *SecurityHandler) DisableCrowdSec(c *gin.Context) {
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", false)
+	if !requireAdmin(c) {
+		return
+	}
+	h.switchCrowdSec(c, false)
 }
 
-// PatchCrowdSec handles PATCH requests to enable/disable CrowdSec based on JSON body
+// PatchCrowdSec starts or stops the CrowdSec engine through the lifecycle, based on the JSON body.
 // PATCH /api/v1/security/crowdsec
 // Expects: {"enabled": true/false}
 func (h *SecurityHandler) PatchCrowdSec(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", req.Enabled)
+	h.switchCrowdSec(c, req.Enabled)
+}
+
+// switchCrowdSec drives the CrowdSec engine for an admin caller and answers with the switch result. The handler
+// writes nothing itself: the lifecycle owns the setting, the mode and the proxy configuration. The 200 body keeps the
+// module keys and adds the engine fields; lapi_ready is only reported on enable.
+func (h *SecurityHandler) switchCrowdSec(c *gin.Context, enabled bool) {
+	if h.crowdsec == nil {
+		respondCoded(c, http.StatusServiceUnavailable, codeCrowdsecUnavailable, msgCrowdsecUnavailable, nil)
+		return
+	}
+
+	body := gin.H{
+		"success": true,
+		"module":  models.CrowdSecEnabledSettingKey,
+		"enabled": enabled,
+	}
+	if enabled {
+		res, err := h.crowdsec.StartCrowdSec(c.Request.Context())
+		if err != nil {
+			respondCrowdsecLifecycleError(c, err)
+			return
+		}
+		body["applied"] = res.ProxyApplied
+		body["status"] = res.Status
+		body["lapi_ready"] = res.LAPIReady
+	} else {
+		res, err := h.crowdsec.StopCrowdSec(c.Request.Context())
+		if err != nil {
+			respondCrowdsecLifecycleError(c, err)
+			return
+		}
+		body["applied"] = res.ProxyApplied
+		body["status"] = "stopped"
+	}
+
+	c.JSON(http.StatusOK, body)
 }
 
 // EnableRateLimit enables the Rate Limiting security module
@@ -1160,7 +1226,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 
 	// Trigger Caddy config reload
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
 			if restoreErr := restoreSettings(h.db, settingSnapshots); restoreErr != nil {
 				log.WithError(restoreErr).Error("Failed to restore settings after security module toggle apply failure")

@@ -1064,3 +1064,71 @@ func TestSecurityService_ListAuditLogs_ActorFormats(t *testing.T) {
 	assert.Equal(t, 1, count("alice"))
 	assert.Equal(t, 0, count("user:"), "empty id is exact")
 }
+
+func TestValidateCrowdSecMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		wantErr string
+	}{
+		{name: "empty is accepted", mode: ""},
+		{name: "local is accepted", mode: "local"},
+		{name: "disabled is accepted", mode: "disabled"},
+		{name: "external is refused", mode: "external", wantErr: "invalid crowdsec mode: external"},
+		{name: "matching is case sensitive", mode: "LOCAL", wantErr: "invalid crowdsec mode: LOCAL"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCrowdSecMode(tt.mode)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestSecurityService_Upsert_KeepsStoredCrowdSecMode(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := newTestSecurityService(t, db)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "local"}).Error)
+
+	// A save that carries another mode, or none, must leave the stored column alone.
+	for _, mode := range []string{"disabled", ""} {
+		require.NoError(t, svc.Upsert(&models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: mode, WAFMode: "block"}))
+
+		var stored models.SecurityConfig
+		require.NoError(t, db.Where("name = ?", "default").First(&stored).Error)
+		assert.Equal(t, "local", stored.CrowdSecMode, "mode %q", mode)
+		assert.Equal(t, "block", stored.WAFMode, "other columns still save")
+	}
+}
+
+func TestSecurityService_Upsert_RefusesInvalidCrowdSecModeWithoutWriting(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := newTestSecurityService(t, db)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, WAFMode: "disabled"}).Error)
+
+	err := svc.Upsert(&models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "external", WAFMode: "block"})
+	require.EqualError(t, err, "invalid crowdsec mode: external")
+
+	var stored models.SecurityConfig
+	require.NoError(t, db.Where("name = ?", "default").First(&stored).Error)
+	assert.Equal(t, "disabled", stored.WAFMode)
+}
+
+func TestSecurityService_GetByName(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := newTestSecurityService(t, db)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "local"}).Error)
+
+	got, err := svc.GetByName("default")
+	require.NoError(t, err)
+	assert.Equal(t, "local", got.CrowdSecMode)
+	assert.NotEmpty(t, got.UUID)
+
+	_, err = svc.GetByName("missing")
+	require.ErrorIs(t, err, ErrSecurityConfigNotFound)
+}

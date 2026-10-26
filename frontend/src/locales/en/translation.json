@@ -1801,7 +1801,8 @@
       "presetAppliedReload": "Preset applied via backend (reload required)",
       "presetApplyFailed": "Failed to apply preset",
       "applyFailed": "Apply failed: {{message}}",
-      "applyFailedWithBackup": "Apply failed: {{message}}. {{backup}}"
+      "applyFailedWithBackup": "Apply failed: {{message}}. {{backup}}",
+      "fileManaged": "Charon manages this file. Use the Whitelist tab to change the allow list."
     },
     "overlay": {
       "fetchingPreset": "Fetching preset...",
@@ -1831,7 +1832,11 @@
       "requestTooLarge": "The request was too large. Shorten the text and try again."
     },
     "busy": "CrowdSec is busy installing a preset. Try again when it finishes.",
-    "busyOther": "CrowdSec is finishing another change. Try again in a moment."
+    "busyOther": "CrowdSec is finishing another change. Try again in a moment.",
+    "import": {
+      "whitelistRegenerated": "Charon regenerated its whitelist file from this instance's database.",
+      "otherWhitelistFiles": "{{count}} other whitelist files were found and left unchanged: {{files}}"
+    }
   },
   "smtp": {
     "title": "Email (SMTP) Settings",
@@ -2457,5 +2462,11 @@
     "gotIt": "Got It, Thanks",
     "dontShowAgain": "Don't show me update notifications",
     "closeButton": "Close"
+  },
+  "crowdsec": {
+    "errors": {
+      "stateChanged": "CrowdSec was turned off while it was starting.",
+      "unavailable": "CrowdSec is not available on this server."
+    }
   }
 }
