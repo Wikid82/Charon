@@ -433,7 +433,7 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -469,7 +469,7 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -545,7 +545,7 @@ func (h *SecurityHandler) Enable(c *gin.Context) {
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -597,7 +597,7 @@ func (h *SecurityHandler) persistDisabled(c *gin.Context, cfg *models.SecurityCo
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
 			return
 		}
@@ -828,7 +828,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 
 	// Apply updated config to Caddy
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
 		}
 	}
@@ -916,7 +916,7 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 
 	// Apply updated config to Caddy
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
 		}
 	}

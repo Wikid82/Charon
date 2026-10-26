@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -104,6 +106,86 @@ func TestProxyApplyDetached_SecurityUpdateConfigRequestCancelled(t *testing.T) {
 	body := []byte(`{"name":"default","enabled":true}`)
 	c, w := proxyApplyAdminContext(http.MethodPost, "/security/config", body, cancelledRequestContext())
 	h.UpdateConfig(c)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	requireDetachedApply(t, applier)
+}
+
+// securityApplyHandler returns a security handler whose apply is recorded by the returned applier.
+func securityApplyHandler(t *testing.T) (*SecurityHandler, *gorm.DB, *recordingApplier) {
+	t.Helper()
+	h, db := setupToggleTest(t)
+	applier := &recordingApplier{}
+	h.caddyManager = applier
+	return h, db, applier
+}
+
+func TestProxyApplyDetached_SecurityUpsertRuleSetRequestCancelled(t *testing.T) {
+	h, db, applier := securityApplyHandler(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
+
+	c, w := proxyApplyAdminContext(http.MethodPost, "/security/rulesets", []byte(`{"name":"ruleset-a"}`), cancelledRequestContext())
+	h.UpsertRuleSet(c)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	requireDetachedApply(t, applier)
+}
+
+func TestProxyApplyDetached_SecurityDeleteRuleSetRequestCancelled(t *testing.T) {
+	h, db, applier := securityApplyHandler(t)
+	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
+	ruleSet := models.SecurityRuleSet{Name: "ruleset-a"}
+	require.NoError(t, db.Create(&ruleSet).Error)
+
+	c, w := proxyApplyAdminContext(http.MethodDelete, "/security/rulesets", nil, cancelledRequestContext())
+	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(uint64(ruleSet.ID), 10)}}
+	h.DeleteRuleSet(c)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	requireDetachedApply(t, applier)
+}
+
+func TestProxyApplyDetached_SecurityEnableRequestCancelled(t *testing.T) {
+	h, db, applier := securityApplyHandler(t)
+	// The request comes from 192.0.2.1 (httptest's default RemoteAddr), so whitelist that address.
+	require.NoError(t, db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("admin_whitelist", "192.0.2.1/32").Error)
+
+	c, w := proxyApplyAdminContext(http.MethodPost, "/security/enable", []byte(`{}`), cancelledRequestContext())
+	h.Enable(c)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	requireDetachedApply(t, applier)
+}
+
+func TestProxyApplyDetached_SecurityDisableRequestCancelled(t *testing.T) {
+	h, _, applier := securityApplyHandler(t)
+
+	// Disable without a break-glass token is allowed only from localhost.
+	c, w := proxyApplyAdminContext(http.MethodPost, "/security/disable", []byte(`{}`), cancelledRequestContext())
+	c.Request.RemoteAddr = "127.0.0.1:5000"
+	h.Disable(c)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	requireDetachedApply(t, applier)
+}
+
+func TestProxyApplyDetached_SecurityAddWAFExclusionRequestCancelled(t *testing.T) {
+	h, _, applier := securityApplyHandler(t)
+
+	c, w := proxyApplyAdminContext(http.MethodPost, "/security/waf/exclusions", []byte(`{"rule_id":942100}`), cancelledRequestContext())
+	h.AddWAFExclusion(c)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	requireDetachedApply(t, applier)
+}
+
+func TestProxyApplyDetached_SecurityDeleteWAFExclusionRequestCancelled(t *testing.T) {
+	h, db, applier := securityApplyHandler(t)
+	require.NoError(t, db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("waf_exclusions", `[{"rule_id":942100}]`).Error)
+
+	c, w := proxyApplyAdminContext(http.MethodDelete, "/security/waf/exclusions/942100", nil, cancelledRequestContext())
+	c.Params = gin.Params{{Key: "rule_id", Value: "942100"}}
+	h.DeleteWAFExclusion(c)
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	requireDetachedApply(t, applier)
