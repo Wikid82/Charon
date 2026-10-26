@@ -906,7 +906,6 @@
       "groupSlug": "playwright"
     },
     {
-        {
       "description": "Release gating: bumps default to deps: (a release-triggering prefix for release-please) so a dependency that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins, and custom.regex trackers under .github/workflows, scripts, and .github/skills (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, NODE_VERSION/GO_VERSION) — does not ship, so force it back to chore: (non-releasable).",
       "matchManagers": [
         "github-actions"
