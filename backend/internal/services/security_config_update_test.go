@@ -19,7 +19,7 @@ import (
 // fullUpdateTestRow returns a default row with every updatable column set to a non-zero value. The break-glass
 // hash is set too, so a write that reaches it shows up in the comparison.
 func fullUpdateTestRow() models.SecurityConfig {
-	return models.SecurityConfig{
+	return models.SecurityConfig{ //nolint:gosec // G101: test fixture, not a credential
 		Name:                models.DefaultSecurityConfigName,
 		Enabled:             true,
 		AdminWhitelist:      "192.0.2.0/24",

@@ -47,7 +47,7 @@ func newSecurityPinRouter(t *testing.T) (*SecurityHandler, *gin.Engine, *gorm.DB
 // save that touches one column can be checked against all the others.
 func seedFullSecurityRow(t *testing.T, db *gorm.DB, enabled bool) models.SecurityConfig {
 	t.Helper()
-	require.NoError(t, db.Create(&models.SecurityConfig{
+	require.NoError(t, db.Create(&models.SecurityConfig{ //nolint:gosec // G101: test fixture, not a credential
 		Name:                models.DefaultSecurityConfigName,
 		Enabled:             enabled,
 		AdminWhitelist:      "192.0.2.0/24",
