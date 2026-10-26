@@ -205,13 +205,29 @@ No premium tiers. No feature paywalls. No usage limits. Everything you see is yo
 [Explore All Features →](https://github.com/Wikid82/Charon/blob/main/docs/features.md)**
 
 ---
-🐛 Get Help
+
+### ⭐️ Star History
+
+<!-- markdownlint-disable MD033 -->
+<div align="center">
+  <a href="https://www.star-history.com/?repos=wikid82%2Fcharon&type=date&legend=top-left">
+    <img src="https://api.star-history.com/chart?repos=wikid82/charon&type=date&legend=top-left" alt="Star History Chart" width="40%">
+  </a>
+</div>
+<!-- markdownlint-restore -->
+
+---
+
+### 🐛 Get Help
+
 <p align="center">   <a href="https://github.com/Wikid82/Charon/issues">
     <img alt="GitHub issues"
          src="https://img.shields.io/github/issues/Wikid82/Charon"><a href="https://github.com/Wikid82/Charon/issues/new/choose"> <img alt="Open an issue" src="https://img.shields.io/badge/Support-Open%20Issue-blue?logo=github"></a> </p>
 
 ---
-☕ Support This Project
+
+### ☕ Support This Project
+
 <p align="center">
   <a href="https://github.com/sponsors/Wikid82">
     <img alt="GitHub Sponsors" src="https://img.shields.io/badge/GitHub%20Sponsors-sponsor-EA4AAA?logo=github-sponsors&logoColor=white">
@@ -223,7 +239,7 @@ No premium tiers. No feature paywalls. No usage limits. Everything you see is yo
 
 ---
 
-❤️ Free & Open Source
+### ❤️ Free & Open Source
 
 Charon is 100% free and open source under the MIT License.
 
