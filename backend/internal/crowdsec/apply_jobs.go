@@ -210,6 +210,15 @@ func (m *ApplyJobManager) Busy() (jobID string, busy bool) {
 	return m.publishedJobID(), m.busy
 }
 
+// CanStart reports whether a new job could start now: no job holds the flag and no hold is out. It lets a request
+// refuse at once, before waiting for the handler's data lock behind a hub restore. It is advisory: TryAcquire stays
+// the authoritative check, and jobID is named under the same rule as Busy.
+func (m *ApplyJobManager) CanStart() (jobID string, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.publishedJobID(), !m.busy && m.holds == 0
+}
+
 // publishedJobID returns the id of the job holding the flag once its row is recorded, and "" before that: a
 // caller must never name a job that GET presets/jobs/:id does not yet answer. The caller holds m.mu.
 func (m *ApplyJobManager) publishedJobID() string {
