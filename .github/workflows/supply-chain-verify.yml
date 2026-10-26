@@ -679,7 +679,7 @@ jobs:
       - name: Find Existing PR Comment
         id: find-comment
         if: steps.pr-number.outputs.result != ''
-        uses: step-security/find-comment@1d7bf2a0c1b6802305aa3cf2e7c0e47568915caf # v4.0.0
+        uses: step-security/find-comment@6f028a080de41f336ca877ba6e2fbd3728183ee4 # v4.0.1
         with:
           issue-number: ${{ steps.pr-number.outputs.result }}
           comment-author: 'github-actions[bot]'
