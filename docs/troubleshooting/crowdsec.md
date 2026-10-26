@@ -209,7 +209,7 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 - **"The CrowdSec configuration file could not be exported safely"** (HTTP 422, `export_config_unsafe`): the export hides credentials in `config.yaml` and `config.yaml.local`, and it refuses to continue when it cannot do that reliably: the file is larger than 1 MiB, is not valid YAML, or shares credential values through YAML anchors, aliases or merge keys. Nothing is exported, because an archive without the main configuration could not be imported again. Fix or simplify the file (the log names it), then export again. The credential hiding is a best-effort list of well-known setting names, so keep treating an export as private.
 - **Private key files are missing after restoring an export on another host**: exports leave out private key files so they never travel inside a shared file. The export response lists what was left out (up to 50 files, in the `X-Charon-Omitted-Files` header); the Charon log records how many. Charon detects them by name (`*.key`, `*.p12`, `*.pfx`, or a file a notification names as `key_path`) or by a text-format (PEM or PGP) private key inside the file (whole files up to 1 MiB; only the first 64 KiB of larger ones); a binary key with any other name is not detected, so rename key files to end in `.key`. Copy those files onto the new host yourself. Importing on the same server keeps your current key files. See the [CrowdSec feature guide](../features/crowdsec.md).
 - **An imported notification does not send, or the import card says files "still need values"**: exports blank passwords, tokens and webhook addresses in notification files, and only notifications that already exist on this system with the same type, name and target get their values back. Open each listed file in the config file editor and enter the real values, or import again after adding them. If a file used YAML anchors or aliases and came back blanked on the same system, your earlier values are in the `.backup.` copy Charon made next to your data folder before the import. See the [CrowdSec feature guide](../features/crowdsec.md).
-- Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue. If the automatic restore failed too, that backup has a small `.keep` file next to it and is not deleted automatically; delete the `.keep` file once you no longer need the backup.
+- Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue. If the automatic restore failed too, Charon keeps that backup for manual recovery and puts a small `.keep` file next to it. A kept backup is protected for 7 days. After that, only the newest 3 kept backups keep their `.keep` file, and an older one that loses it is removed at the next cleanup. To release a backup for cleanup sooner, delete its `.keep` file.
 - Apply not supported (501): use curated/offline presets; Hub apply will be re-enabled when supported in your environment.
 - **I changed the CrowdSec key in my compose file, but Charon still uses the old one**: Charon keeps the key it saved first, as long as CrowdSec still accepts it. Delete the saved file `/app/data/crowdsec/bouncer_key` (inside your data folder) and restart Charon. Charon then uses the key from your compose file if CrowdSec accepts it; otherwise it creates a new key. Details are in the [CrowdSec feature guide](../features/crowdsec.md#managing-the-crowdsec-bouncer-key).
 - **Security Engine Offline**: If your dashboard says "Offline", it means CrowdSec LAPI is not running.
@@ -236,6 +236,20 @@ The Live Decisions, dashboard and alerts lists show a short note instead of an e
 - **"The decision service took too long to answer, so this list may be incomplete."** (`cscli_timeout`): CrowdSec's local service is slow or stopped. See [Verifying LAPI Status](#verifying-lapi-status).
 - **"The decision service returned more data than can be shown, so this list may be incomplete."** (`cscli_output_too_large`): there are too many entries to show at once. Pick a shorter time range.
 - **"The decision service is not available right now, so this list may be incomplete."** (`cscli_unavailable`): Charon could not run `cscli`. Restart the container.
+
+## Acquisition settings messages
+
+These appear when Charon cannot read or save your log sources settings file (`acquis.yaml`, in the `crowdsec/config` folder inside your data folder). Nothing is changed when one of them shows.
+
+- **Error code `acquisition_config_unreadable`**: Charon cannot open the file. The message asks you to check the file's owner and permissions.
+- **Error code `acquisition_config_not_writable`**: Charon cannot save changes to the file, usually because the file or its folder is read-only. The message asks you to check the file's owner and permissions.
+
+**How to fix it:**
+
+1. Look at the file and its folder. Run `docker exec charon ls -la /app/data/crowdsec/config` and check the line for `acquis.yaml`. The first column shows who may read and write it (for example `-rw-r--r--`), and the owner name is shown further along.
+2. Make sure the folder is writable too. Run `docker exec charon ls -ld /app/data/crowdsec/config`. A folder that only lets its owner read it cannot have files saved in it.
+3. Fix the owner or permissions on your computer, then restart Charon. `chown` changes the owner of a file or folder, and `chmod` changes who may read or write it. Ask someone who knows your server if you are not sure which owner to use.
+4. If you mounted your data folder as read-only (a `:ro` at the end of its line in your compose file), Charon cannot save anything. Remove the `:ro` from that line, restart Charon, and try again.
 
 ## Hub preset messages
 
