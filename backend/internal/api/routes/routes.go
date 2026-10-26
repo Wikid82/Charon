@@ -1058,12 +1058,16 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Cancel a running preset install on shutdown so it rolls back from its snapshot; the drain is bounded by the
 		// caller's grace period and startup recovery restores the snapshot if it runs out.
+		// An emergency reset's engine stop is waited on in the same bounded drain.
 		uptimeDrain := uptimeShutdown
 		uptimeShutdown = func(waitCtx context.Context) error {
 			jobsDone := make(chan struct{})
 			go func() {
 				defer close(jobsDone)
 				crowdsecHandler.ShutdownApplyJobs()
+				if err := crowdsecHandler.WaitResetStops(waitCtx); err != nil {
+					logger.Log().Warn("crowdsec engine stop after an emergency reset did not finish within the grace period")
+				}
 			}()
 			select {
 			case <-jobsDone:

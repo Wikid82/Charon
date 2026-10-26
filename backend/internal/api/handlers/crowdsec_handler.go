@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -123,6 +124,20 @@ type CrowdsecHandler struct {
 	// second Start or Stop is refused at once, and it is taken before the install manager's hold (lock order:
 	// lifecycleMu -> ApplyJobs hold -> dataMu).
 	lifecycleMu sync.Mutex
+
+	// stateMu serializes the CrowdSec state writes that an emergency reset can race with: the reset's writes,
+	// each write group of a Start (checked against stateGen), and the writes of a Stop. It is a blocking leaf.
+	// Nothing is held across an executor call, a cscli call, the LAPI wait, a whitelist write or a proxy apply,
+	// and it is never taken while dataMu is held. The only lock taken under it is resetStops.mu.
+	stateMu sync.Mutex
+	// stateGen counts the emergency resets that started. A Start records it before its first write.
+	stateGen atomic.Uint64
+	// resetStops counts the engine stops that emergency resets started and that have not finished.
+	resetStops resetStopTracker
+	// resetStopWaitMax bounds a Start's wait for pending reset stops; 0 means resetStopTimeout plus one second.
+	resetStopWaitMax time.Duration
+	// hooks are test seams at fixed points of a Start; production leaves them nil.
+	hooks lifecycleHooks
 
 	// applyJobsOnce lazily builds applyJobs; ApplyJobs is the only reader.
 	applyJobsOnce sync.Once

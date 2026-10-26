@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -193,15 +194,38 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	h.performSecurityReset(c, clientIP, startTime)
 }
 
-// performSecurityReset executes the actual security module disable operation
+// errResetInterrupted is the reset result seen by StopAfterReset when the writes panic before they return.
+var errResetInterrupted = errors.New("emergency reset did not complete")
+
+// performSecurityReset executes the actual security module disable operation. With the CrowdSec lifecycle wired, the
+// writes run through ResetCrowdSecState and the engine stop is registered before that call, so it is released on
+// every path, including a panic in the writes. The stop runs after the reply.
 func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string, startTime time.Time) {
-	disabledModules, err := h.disableAllSecurityModules()
-	if err != nil {
-		h.logEnhancedAudit(clientIP, "emergency_reset_failed", fmt.Sprintf("Failed to disable modules: %v", err), false, time.Since(startTime))
+	var disabledModules []string
+	writes := func() error {
+		var err error
+		disabledModules, err = h.disableAllSecurityModules()
+		return err
+	}
+
+	resetErr := errResetInterrupted
+	if h.crowdsec == nil {
+		log.WithFields(log.Fields{
+			"ip":     util.SanitizeForLog(clientIP),
+			"action": "emergency_reset_without_lifecycle",
+		}).Warn("emergency reset ran without the CrowdSec lifecycle; the engine was not stopped")
+		resetErr = writes()
+	} else {
+		defer func() { h.crowdsec.StopAfterReset(resetErr) }()
+		resetErr = h.crowdsec.ResetCrowdSecState(writes)
+	}
+
+	if resetErr != nil {
+		h.logEnhancedAudit(clientIP, "emergency_reset_failed", fmt.Sprintf("Failed to disable modules: %v", resetErr), false, time.Since(startTime))
 		log.WithFields(log.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_failed",
-			"error":  util.SanitizeForLog(err.Error()),
+			"error":  util.SanitizeForLog(resetErr.Error()),
 		}).Error("Emergency reset failed to disable security modules")
 
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -229,40 +253,41 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string,
 	})
 }
 
+// securitySettingWrite is one setting that the emergency reset writes.
+type securitySettingWrite struct {
+	key   string
+	value string
+}
+
+// emergencySecuritySettings lists the settings the reset disables, in write order. The Cerberus framework keys are
+// not listed: the framework stays enabled so break glass testing keeps working.
+var emergencySecuritySettings = []securitySettingWrite{
+	{key: models.CrowdSecEnabledSettingKey, value: "false"},
+	{key: models.CrowdSecDeprecatedModeSettingKey, value: "disabled"},
+	{key: "security.acl.enabled", value: "false"},
+	{key: "security.waf.enabled", value: "false"},
+	{key: "security.rate_limit.enabled", value: "false"},
+}
+
 // disableAllSecurityModules disables ACL, WAF, Rate Limit, and CrowdSec modules
 // while keeping the Cerberus framework enabled for break glass testing.
 func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 	disabledModules := []string{}
 
-	// Settings to disable - NOTE: We keep feature.cerberus.enabled = true
-	// so E2E tests can validate break glass functionality.
-	// Only individual security modules are disabled for clean test state.
-	securitySettings := map[string]string{
-		// Feature framework stays ENABLED (removed from this map)
-		// "feature.cerberus.enabled": "false",  ← BUG FIX: Keep framework enabled
-		// "security.cerberus.enabled": "false", ← BUG FIX: Keep framework enabled
-
-		// Individual security modules disabled for clean slate
-		"security.acl.enabled":        "false",
-		"security.waf.enabled":        "false",
-		"security.rate_limit.enabled": "false",
-		"security.crowdsec.enabled":   "false",
-		"security.crowdsec.mode":      "disabled",
-	}
-
-	// Disable each module via settings
-	for key, value := range securitySettings {
+	// Disable each module via settings, in order. The CrowdSec keys come first, so a reset that fails part way has
+	// already turned CrowdSec off whenever it has written anything, and the lifecycle can stop the engine on that basis.
+	for _, s := range emergencySecuritySettings {
 		setting := models.Setting{
-			Key:      key,
-			Value:    value,
+			Key:      s.key,
+			Value:    s.value,
 			Category: "security",
 			Type:     "bool",
 		}
 
 		if err := h.upsertSettingWithRetry(&setting); err != nil {
-			return disabledModules, fmt.Errorf("failed to disable %s: %w", key, err)
+			return disabledModules, fmt.Errorf("failed to disable %s: %w", s.key, err)
 		}
-		disabledModules = append(disabledModules, key)
+		disabledModules = append(disabledModules, s.key)
 	}
 
 	// Clear admin whitelist to prevent bypass persistence after reset

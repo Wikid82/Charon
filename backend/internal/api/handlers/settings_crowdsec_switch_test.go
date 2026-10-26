@@ -28,6 +28,10 @@ type settingsCrowdsecLifecycle struct {
 	stopErr    error
 }
 
+func (f *settingsCrowdsecLifecycle) ResetCrowdSecState(write func() error) error { return write() }
+
+func (f *settingsCrowdsecLifecycle) StopAfterReset(error) {}
+
 func (f *settingsCrowdsecLifecycle) StartCrowdSec(_ context.Context) (CrowdsecStartResult, error) {
 	f.startCalls++
 	if f.startErr != nil {
@@ -314,6 +318,14 @@ func (b *busyCrowdsecLifecycle) StartCrowdSec(_ context.Context) (CrowdsecStartR
 	b.startAttempts++
 	return CrowdsecStartResult{}, &CrowdsecBusyError{}
 }
+
+func (b *busyCrowdsecLifecycle) StopCrowdSec(_ context.Context) (CrowdsecStopResult, error) {
+	return CrowdsecStopResult{}, &CrowdsecBusyError{}
+}
+
+func (b *busyCrowdsecLifecycle) ResetCrowdSecState(write func() error) error { return write() }
+
+func (b *busyCrowdsecLifecycle) StopAfterReset(error) {}
 
 func TestUpdateSetting_CrowdSecEnabledEmptyFailedStartWritesNothing(t *testing.T) {
 	lc := &settingsCrowdsecLifecycle{startErr: fmt.Errorf("%w: boom", errCrowdsecStart)}
