@@ -162,14 +162,20 @@ describe('RateLimiting page', () => {
     await userEvent.click(saveBtn)
 
     await waitFor(() => {
-      expect(securityApi.updateSecurityConfig).toHaveBeenCalledWith(
-        expect.objectContaining({
-          rate_limit_requests: 25,
-          rate_limit_burst: 5,
-          rate_limit_window_sec: 60,
-        })
-      )
+      expect(securityApi.updateSecurityConfig).toHaveBeenCalledWith({
+        rate_limit_requests: 25,
+        rate_limit_burst: 5,
+        rate_limit_window_sec: 60,
+      })
     })
+
+    // Exact key set: the page sends only its own section, no extra or dropped keys
+    const [sentPayload] = vi.mocked(securityApi.updateSecurityConfig).mock.calls[0]
+    expect(Object.keys(sentPayload).sort()).toEqual([
+      'rate_limit_burst',
+      'rate_limit_requests',
+      'rate_limit_window_sec',
+    ])
   })
 
   it('displays default values from config', async () => {

@@ -18,6 +18,8 @@ import Security from '../Security'
 import type * as ReactRouterDom from 'react-router'
 
 const mockNavigate = vi.hoisted(() => vi.fn())
+// Shared across renders so tests can inspect what the page saved
+const mockUpdateSecurityConfigMutate = vi.hoisted(() => vi.fn())
 
 // Sign-in throttle status is admin-only; these suites cover the page for a non-admin session
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'user' } }) }))
@@ -143,7 +145,7 @@ vi.mock('../../components/CrowdSecKeyWarning', () => ({
 
 vi.mock('../../hooks/useSecurity', () => ({
   useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '10.0.0.0/8' } } })),
-  useUpdateSecurityConfig: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useUpdateSecurityConfig: vi.fn(() => ({ mutate: mockUpdateSecurityConfigMutate, isPending: false })),
   useGenerateBreakGlassToken: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }))
 
@@ -534,6 +536,37 @@ describe('Security Page - Functional Tests', () => {
         expect(screen.getByRole('button', { name: /Save/i })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Generate Token/i })).toBeInTheDocument()
       })
+    })
+
+    it('should save only the name and the allow-list value', async () => {
+      const user = userEvent.setup()
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
+
+      await renderSecurityPage()
+
+      const input = await screen.findByDisplayValue('10.0.0.0/8')
+      await user.clear(input)
+      await user.type(input, '198.51.100.0/24')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      expect(mockUpdateSecurityConfigMutate).toHaveBeenCalledTimes(1)
+      const [sentPayload] = mockUpdateSecurityConfigMutate.mock.calls[0]
+      expect(sentPayload).toStrictEqual({ name: 'default', admin_whitelist: '198.51.100.0/24' })
+    })
+
+    it('should send an empty admin_whitelist when the field is cleared', async () => {
+      const user = userEvent.setup()
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
+
+      await renderSecurityPage()
+
+      const input = await screen.findByDisplayValue('10.0.0.0/8')
+      await user.clear(input)
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      expect(mockUpdateSecurityConfigMutate).toHaveBeenCalledTimes(1)
+      const [sentPayload] = mockUpdateSecurityConfigMutate.mock.calls[0]
+      expect(sentPayload).toStrictEqual({ name: 'default', admin_whitelist: '' })
     })
   })
 
