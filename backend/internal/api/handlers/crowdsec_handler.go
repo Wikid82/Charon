@@ -100,17 +100,21 @@ type CrowdsecHandler struct {
 	mergeConfig        func(snapshotDir, dataDir string) error
 	scanPlaceholders   func(dataDir string) ([]string, error)
 
-	// dataMu serializes every operation that mutates DataDir (preset apply, config import, file write)
-	// and the export build; an export holds it only while writing its temporary file, never while sending.
-	// Lock order is always restore.running -> dataMu -> HubService.mu. The background install manager (ApplyJobs)
-	// is not a lock: handlers never wait for it. ImportConfig, WriteFile and ApplyPreset test its busy flag once
-	// before and again right after taking dataMu, and ApplyPreset starts a job while holding dataMu, so once past
-	// the recheck those three are never overlapped by a job. Start, Stop, ConsoleEnroll, AddWhitelist,
-	// DeleteWhitelist and RestoreHubItems take a hold on the manager (holdUnlessBusy) for the whole request. A
-	// hold never waits and never refuses another hold, and a job cannot start while one is out, so no job
-	// overlaps them (#1730). RestoreHubItems also keeps restore.running for restore-vs-restore. The hold is a
-	// counter inside the manager, not a lock, so it adds nothing to the lock order.
-	// The wait for dataMu is abandoned when the request ends (see lockData).
+	// dataMu serializes every operation that mutates DataDir: preset apply, config import, file write, hub item
+	// install and restore, the export build (which holds it only while writing its temporary file, never while
+	// sending) and the whitelist file write that a Start makes (syncWhitelistFile).
+	// Lock order for the CrowdSec lifecycle: lifecycleMu (TryLock, never waits) -> ApplyJobs hold (never waits) ->
+	// dataMu -> writeMu (the whitelist service's leaf lock). The hub restore takes restore.running -> dataMu ->
+	// HubService.mu. stateMu is a separate leaf and is never taken while dataMu is held (see stateMu).
+	// The background install manager (ApplyJobs) is not a lock: handlers never wait for it. ImportConfig, WriteFile
+	// and ApplyPreset test its busy flag once before and again right after taking dataMu, and ApplyPreset starts a
+	// job while holding dataMu, so once past the recheck those three are never overlapped by a job. StartCrowdSec
+	// and StopCrowdSec take their hold inside the lifecycle, before dataMu. ConsoleEnroll, AddWhitelist,
+	// DeleteWhitelist and RestoreHubItems take it through holdUnlessBusy for the whole request. A hold never waits
+	// and never refuses another hold, and a job cannot start while one is out, so no job overlaps them (#1730).
+	// RestoreHubItems also keeps restore.running for restore-vs-restore. The hold is a counter inside the manager,
+	// not a lock, so it adds nothing to the lock order.
+	// The wait for dataMu is abandoned when the request or operation ends (see lockData and lockDataCtx).
 	dataMu ctxMutex
 
 	// acquisMu serializes UpdateAcquisitionConfig. It is separate from dataMu because the acquisition file is
@@ -974,7 +978,19 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		return
 	}
 
+	// Charon's whitelist file follows this instance's database, not the archive's copy. A failure is logged and
+	// leaves the import standing with the archive's copy of the file.
+	regenerated, wlErr := h.writeWhitelistFile(c.Request.Context())
+	if wlErr != nil {
+		logger.Log().WithField("error", sanitizeForLog(wlErr.Error())).Warn("crowdsec import: regenerating the whitelist file failed (non-fatal)")
+	}
 	resp := gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)}
+	if regenerated {
+		resp["whitelist_regenerated"] = true
+	}
+	if others := crowdsec.FindOtherWhitelistFiles(h.DataDir); len(others) > 0 {
+		resp["other_whitelist_files"] = others
+	}
 	h.addHubItemsReport(resp, info.HubItems)
 	if len(keptFiles) > 0 {
 		resp["kept_files"] = keptFiles
@@ -1201,18 +1217,26 @@ func (h *CrowdsecHandler) buildExport(ctx context.Context, tmp *os.File) (size i
 // is aborted without a body (the client is gone), so the caller must return before registering its
 // deferred Unlock.
 func (h *CrowdsecHandler) lockData(c *gin.Context, op string) bool {
-	if err := h.dataMu.LockContext(c.Request.Context()); err != nil {
-		logger.Log().WithField("operation", op).WithField("error", sanitizeForLog(err.Error())).Debug("crowdsec: request ended while waiting for the data lock")
+	if err := h.lockDataCtx(c.Request.Context(), op); err != nil {
 		c.Abort()
 		return false
 	}
 	return true
 }
 
+// lockDataCtx takes dataMu, giving up when ctx ends. On error the lock is NOT held. The error wraps ctx's error.
+func (h *CrowdsecHandler) lockDataCtx(ctx context.Context, op string) error {
+	if err := h.dataMu.LockContext(ctx); err != nil {
+		logger.Log().WithField("operation", op).WithField("error", sanitizeForLog(err.Error())).Debug("crowdsec: the wait for the data lock ended")
+		return fmt.Errorf("wait for the data lock: %w", err)
+	}
+	return nil
+}
+
 // writeExportLocked serializes the archive build with every other writer of DataDir.
 func (h *CrowdsecHandler) writeExportLocked(ctx context.Context, w io.Writer) (total int64, omitted []string, err error) {
-	if err := h.dataMu.LockContext(ctx); err != nil {
-		return 0, nil, fmt.Errorf("wait for the data lock: %w", err)
+	if err := h.lockDataCtx(ctx, "export"); err != nil {
+		return 0, nil, err
 	}
 	defer h.dataMu.Unlock()
 	return crowdsec.WriteExportArchive(ctx, h.DataDir, w)
