@@ -35,6 +35,7 @@ func newSecurityPinRouter(t *testing.T) (*SecurityHandler, *gin.Engine, *gorm.DB
 		c.Next()
 	})
 	router.POST("/security/config", h.UpdateConfig)
+	router.GET("/security/status", h.GetStatus)
 	router.POST("/security/enable", h.Enable)
 	router.POST("/security/disable", h.Disable)
 	router.POST("/security/waf/exclusions", h.AddWAFExclusion)

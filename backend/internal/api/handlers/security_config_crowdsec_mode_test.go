@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 	"testing"
 
@@ -71,30 +70,4 @@ func TestUpdateConfig_ExternalCrowdSecModeRefusedBeforeAnySave(t *testing.T) {
 	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&stored).Error)
 	assert.Equal(t, "local", stored.CrowdSecMode)
 	assert.Equal(t, "disabled", stored.WAFMode, "nothing is saved when the mode is refused")
-}
-
-func TestUpdateConfig_RereadFailureAfterSaveAnswersPayloadAndWarns(t *testing.T) {
-	router, db, _ := newSecurityConfigRouter(t, "local")
-	logs := captureLogrusOutput(t)
-
-	// The first read of the row is the save's own lookup; the second is the re-read for the response.
-	reads := 0
-	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("test:fail_reread", func(tx *gorm.DB) {
-		if tx.Statement.Table != "security_configs" {
-			return
-		}
-		reads++
-		if reads == 2 {
-			tx.Error = errors.New("injected re-read failure")
-		}
-	}))
-
-	w := sendSettingsJSON(t, router, http.MethodPost, "/security/config", `{"name":"default","waf_mode":"block"}`)
-
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	assert.Contains(t, w.Body.String(), `"name":"default"`)
-	assert.Contains(t, logs.String(), "Failed to re-read SecurityConfig after save")
-	var stored models.SecurityConfig
-	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&stored).Error)
-	assert.Equal(t, "block", stored.WAFMode, "the save stands when the re-read fails")
 }

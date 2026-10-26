@@ -99,8 +99,8 @@ func (s *SecurityService) GetByName(name string) (*models.SecurityConfig, error)
 	return &cfg, nil
 }
 
-// Upsert saves a full SecurityConfig row: every column of cfg replaces the stored value, so callers must pass a
-// row they read first, with the fields they do not change still set to their stored values.
+// Upsert replaces every column from cfg. Callers must pass a row they just read, with the fields they do not change
+// still set to their stored values. Request handlers must use ApplyUpdate, which writes only the fields a request carries.
 func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 	if err := ValidateAdminWhitelist(cfg.AdminWhitelist); err != nil {
 		return err

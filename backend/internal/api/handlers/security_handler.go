@@ -280,24 +280,18 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
-	var payload models.SecurityConfig
-	if err := c.ShouldBindJSON(&payload); err != nil {
+	// Only the keys present in the body change; absent and null keys keep the stored value (see SecurityConfigUpdate).
+	var update services.SecurityConfigUpdate
+	if err := c.ShouldBindJSON(&update); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
-	if payload.Name == "" {
-		payload.Name = models.DefaultSecurityConfigName
+	name := models.DefaultSecurityConfigName
+	if update.Name != nil && *update.Name != "" {
+		name = *update.Name
 	}
-	// Sync RateLimitMode with RateLimitEnable for backward compatibility
-	payload.RateLimitMode = services.ResolveRateLimitMode(payload.RateLimitEnable, payload.RateLimitMode)
-	// The CrowdSec mode is owned by the CrowdSec lifecycle, so this endpoint validates a supplied value and then
-	// leaves the stored one alone: the save never carries it.
-	if err := services.ValidateCrowdSecMode(payload.CrowdSecMode); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	payload.CrowdSecMode = ""
-	if err := h.svc.Upsert(&payload); err != nil {
+	saved, err := h.svc.ApplyUpdate(name, update)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -307,14 +301,7 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 			log.WithError(err).Warn("failed to apply security config changes to Caddy")
 		}
 	}
-	// Answer the stored row, so the response shows the stored CrowdSec mode and the row's UUID. The save has
-	// already happened, so a failed re-read is logged and the payload is answered instead.
-	saved, err := h.svc.GetByName(payload.Name)
-	if err != nil {
-		log.Warn("Failed to re-read SecurityConfig after save; answering the submitted payload")
-		c.JSON(http.StatusOK, gin.H{"config": payload})
-		return
-	}
+	// Answer the stored row, so the response shows the stored CrowdSec mode and the row's UUID.
 	c.JSON(http.StatusOK, gin.H{"config": saved})
 }
 
