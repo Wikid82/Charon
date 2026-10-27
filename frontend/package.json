@@ -124,7 +124,8 @@
     },
     "@vitejs/plugin-react": {
       "vite": "^8.3.5"
-    }
+    },
+    "katex": "^0.19.1"
   },
   "allowScripts": {
     "unrs-resolver": false
