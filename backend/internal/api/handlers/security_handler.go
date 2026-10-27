@@ -195,6 +195,16 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		aclMode = "disabled"
 	}
 
+	wafStatus := gin.H{
+		"mode":    wafMode,
+		"enabled": wafEnabled,
+	}
+	rateLimitStatus := gin.H{
+		"mode":    rateLimitMode,
+		"enabled": rateLimitEnabled,
+	}
+	h.addAppliedState(wafStatus, rateLimitStatus, wafEnabled, rateLimitEnabled)
+
 	c.JSON(http.StatusOK, gin.H{
 		"cerberus": gin.H{"enabled": enabled},
 		"crowdsec": gin.H{
@@ -202,14 +212,8 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			"api_url": crowdSecAPIURL,
 			"enabled": crowdsecEnabled,
 		},
-		"waf": gin.H{
-			"mode":    wafMode,
-			"enabled": wafEnabled,
-		},
-		"rate_limit": gin.H{
-			"mode":    rateLimitMode,
-			"enabled": rateLimitEnabled,
-		},
+		"waf":        wafStatus,
+		"rate_limit": rateLimitStatus,
 		"acl": gin.H{
 			"mode":    aclMode,
 			"enabled": aclEnabled,

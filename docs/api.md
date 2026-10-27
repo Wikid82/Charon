@@ -107,6 +107,8 @@ GET /security/status
 
 Returns enabled flag plus modes for each module.
 
+The `waf` and `rate_limit` objects also report the applied state from the last successful configuration apply: `enforced` (true when every eligible host has the module's handler; omitted when no host is eligible or no apply has completed), `reason` (why a host has no handler, when one does), and for `waf` `unprotected_hosts` (the number of eligible hosts without a WAF handler). These fields are omitted when the stored report does not match the current on/off state of the module.
+
 #### Get Global Security Config
 
 ```http

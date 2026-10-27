@@ -1,12 +1,19 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -47,25 +54,184 @@ func TestSecurityHandler_Disable_KeepsModuleColumns(t *testing.T) {
 // TestSecurityStatus_ReportsAppliedState describes the additive status fields (enforced, unprotected host count,
 // reason) being filled from the last enforcement report.
 func TestSecurityStatus_ReportsAppliedState(t *testing.T) {
-	t.Skip("enabled in commit 3 of this PR: status reports the applied state")
+	h, _ := newStatusApplyFixture(t, models.SecurityConfig{
+		Enabled:            true,
+		WAFMode:            "block",
+		RateLimitMode:      "enabled",
+		RateLimitEnable:    true,
+		RateLimitRequests:  100,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     20,
+	}, noopCaddyClient{})
+	mustApplyConfig(t, h)
+
+	status := getSecurityStatus(t, h)
+	waf := status["waf"].(map[string]any)
+	assert.Equal(t, true, waf["enforced"])
+	assert.Equal(t, float64(0), waf["unprotected_hosts"])
+	assert.NotContains(t, waf, "reason", "a reason is reported only when a host is left out")
+
+	rateLimit := status["rate_limit"].(map[string]any)
+	assert.Equal(t, true, rateLimit["enforced"])
+	assert.NotContains(t, rateLimit, "reason")
 }
 
 // TestSecurityStatus_ModeDisabledReasonWithKeyOn describes the interim reason mode_disabled: the WAF key is on,
 // the default row holds the disabled mode, and the status reports that reason. Removed in commit 4.
 func TestSecurityStatus_ModeDisabledReasonWithKeyOn(t *testing.T) {
-	t.Skip("enabled in commit 3 of this PR: interim reason mode_disabled")
+	h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, WAFMode: "disabled"}, noopCaddyClient{})
+	setSettingValue(t, db, models.SecurityWAFEnabledSettingKey, "true")
+	mustApplyConfig(t, h)
+
+	waf := getSecurityStatus(t, h)["waf"].(map[string]any)
+	assert.Equal(t, true, waf["enabled"], "the WAF key is on")
+	assert.Equal(t, false, waf["enforced"])
+	assert.Equal(t, float64(1), waf["unprotected_hosts"])
+	assert.Equal(t, caddy.ReasonModeDisabled, waf["reason"])
 }
 
 // TestSecurityStatus_StaleEnforcementReportNotTrusted describes a stored enforcement report whose stamped flags do
 // not match the handler's resolved flags (or that predates a failed apply): the enforced field is omitted.
 func TestSecurityStatus_StaleEnforcementReportNotTrusted(t *testing.T) {
-	t.Skip("enabled in commit 3 of this PR: status reports the applied state")
+	row := models.SecurityConfig{
+		Enabled:            true,
+		WAFMode:            "block",
+		RateLimitMode:      "enabled",
+		RateLimitEnable:    true,
+		RateLimitRequests:  100,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     20,
+	}
+
+	t.Run("no successful apply yet", func(t *testing.T) {
+		h, _ := newStatusApplyFixture(t, row, noopCaddyClient{})
+		status := getSecurityStatus(t, h)
+		assert.NotContains(t, status["waf"], "enforced")
+		assert.NotContains(t, status["waf"], "unprotected_hosts")
+	})
+
+	t.Run("module state changed after the apply", func(t *testing.T) {
+		h, db := newStatusApplyFixture(t, row, noopCaddyClient{})
+		mustApplyConfig(t, h)
+
+		// WAF key turned off after the apply: the WAF fields are dropped, the unchanged rate limit keeps its fields.
+		setSettingValue(t, db, models.SecurityWAFEnabledSettingKey, "false")
+		status := getSecurityStatus(t, h)
+		assert.Equal(t, false, status["waf"].(map[string]any)["enabled"])
+		assert.NotContains(t, status["waf"], "enforced")
+		assert.NotContains(t, status["waf"], "unprotected_hosts")
+		assert.Equal(t, true, status["rate_limit"].(map[string]any)["enforced"])
+
+		// Rate limit key turned off as well: its fields are dropped too.
+		setSettingValue(t, db, models.SecurityRateLimitEnabledSettingKey, "false")
+		status = getSecurityStatus(t, h)
+		assert.NotContains(t, status["rate_limit"], "enforced")
+	})
+
+	t.Run("failed apply after a successful one", func(t *testing.T) {
+		client := &switchableLoadClient{}
+		h, _ := newStatusApplyFixture(t, row, client)
+		mustApplyConfig(t, h)
+		require.Equal(t, true, getSecurityStatus(t, h)["waf"].(map[string]any)["enforced"])
+
+		client.loadErr = errors.New("caddy refused the config")
+		require.Error(t, h.caddyManager.ApplyConfig(context.Background()))
+		status := getSecurityStatus(t, h)
+		assert.NotContains(t, status["waf"], "enforced")
+		assert.NotContains(t, status["rate_limit"], "enforced")
+	})
+
+	t.Run("no caddy manager wired", func(t *testing.T) {
+		db := OpenTestDB(t)
+		require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+		require.NoError(t, db.Create(&row).Error)
+		h := NewSecurityHandler(config.SecurityConfig{CerberusEnabled: true}, db, nil)
+		t.Cleanup(h.Close)
+		assert.NotContains(t, getSecurityStatus(t, h)["waf"], "enforced")
+	})
 }
 
 // TestSecurityStatus_RoutesUseRealManagerReportAccessor describes the route wiring: the real caddy manager satisfies
 // the optional report accessor the status handler type-asserts on.
 func TestSecurityStatus_RoutesUseRealManagerReportAccessor(t *testing.T) {
-	t.Skip("enabled in commit 3 of this PR: status reports the applied state")
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+	manager := caddy.NewManager(noopCaddyClient{}, db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+
+	// The routes pass the concrete manager through the nil-safe wrapper of NewSecurityHandlerWithDeps.
+	h := NewSecurityHandlerWithDeps(config.SecurityConfig{CerberusEnabled: true}, db, manager, nil)
+	t.Cleanup(h.Close)
+	_, ok := h.caddyManager.(enforcementReporter)
+	require.True(t, ok, "the real caddy manager must satisfy the report accessor")
+}
+
+// switchableLoadClient is a Caddy client whose Load fails while loadErr is set.
+type switchableLoadClient struct {
+	loadErr error
+}
+
+func (c *switchableLoadClient) Load(context.Context, *caddy.Config) error { return c.loadErr }
+func (c *switchableLoadClient) Ping(context.Context) error                { return nil }
+func (c *switchableLoadClient) GetConfig(context.Context) (*caddy.Config, error) {
+	return &caddy.Config{}, nil
+}
+
+// newStatusApplyFixture returns a security handler wired to a real caddy manager over a database that holds the given
+// default row, one enabled host and one ruleset. The returned database is the one the handler and manager read.
+func newStatusApplyFixture(t *testing.T, row models.SecurityConfig, client caddy.CaddyClient) (*SecurityHandler, *gorm.DB) {
+	t.Helper()
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+	migrateCaddyApplyTables(t, db)
+
+	row.Name = models.DefaultSecurityConfigName
+	require.NoError(t, db.Create(&row).Error)
+	require.NoError(t, db.Create(&models.SecurityRuleSet{
+		UUID:    "status-ruleset",
+		Name:    "owasp-crs",
+		Content: "SecRule ARGS \"@contains probe\" \"id:1000,phase:1,deny\"",
+	}).Error)
+	require.NoError(t, db.Create(&models.ProxyHost{
+		UUID:          "status-host",
+		DomainNames:   "status.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "upstream.internal",
+		ForwardPort:   8080,
+		Enabled:       true,
+	}).Error)
+
+	manager := caddy.NewManager(client, db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	h := NewSecurityHandler(config.SecurityConfig{CerberusEnabled: true}, db, manager)
+	t.Cleanup(h.Close)
+	return h, db
+}
+
+// mustApplyConfig runs the handler's manager apply and fails the test when it does not succeed.
+func mustApplyConfig(t *testing.T, h *SecurityHandler) {
+	t.Helper()
+	require.NoError(t, h.caddyManager.ApplyConfig(context.Background()))
+}
+
+// setSettingValue writes a security setting, creating the row when it does not exist yet.
+func setSettingValue(t *testing.T, db *gorm.DB, key, value string) {
+	t.Helper()
+	require.NoError(t, db.Where(models.Setting{Key: key}).
+		Assign(models.Setting{Value: value, Category: "security", Type: "bool"}).
+		FirstOrCreate(&models.Setting{}).Error)
+}
+
+// getSecurityStatus calls GET /security/status and returns the decoded body.
+func getSecurityStatus(t *testing.T, h *SecurityHandler) map[string]any {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/security/status", h.GetStatus)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/security/status", http.NoBody))
+	require.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	return body
 }
 
 // Save contract (POST /security/config): a mode maps to a module key only when it differs from the stored row.

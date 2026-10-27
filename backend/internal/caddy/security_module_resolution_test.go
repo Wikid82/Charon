@@ -146,13 +146,93 @@ func failSettingsQueries(db *gorm.DB) {
 // reasons no_ruleset, ruleset_not_selected, ruleset_unavailable and thresholds_unset, counts for eligible
 // and protected hosts, and zero eligible hosts (enforced omitted).
 func TestEnforcementReport_ReasonsAndCounts(t *testing.T) {
-	t.Skip("enabled in commit 3 of this PR: enforcement report with reasons and counts")
+	twoHosts := []models.ProxyHost{
+		enforcementTestHost("first", "first.example.com", false),
+		enforcementTestHost("second", "second.example.com", false),
+	}
+	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	owaspPath := map[string]string{"owasp-crs": "/data/coraza/owasp-crs.conf"}
+	blockRow := &models.SecurityConfig{WAFMode: "block"}
+	thresholds := &models.SecurityConfig{WAFMode: "block", RateLimitRequests: 100, RateLimitWindowSec: 60, RateLimitBurst: 20}
+	disabledHost := enforcementTestHost("off", "off.example.com", false)
+	disabledHost.Enabled = false
+
+	cases := []struct {
+		name     string
+		hosts    []models.ProxyHost
+		wafOn    bool
+		rlOn     bool
+		rulesets []models.SecurityRuleSet
+		paths    map[string]string
+		secCfg   *models.SecurityConfig
+		wantWAF  ModuleEnforcement
+		wantRL   ModuleEnforcement
+	}{
+		{
+			name: "no ruleset", hosts: twoHosts, wafOn: true, secCfg: blockRow,
+			wantWAF: ModuleEnforcement{Eligible: 2, Reason: ReasonNoRuleset},
+		},
+		{
+			name: "ruleset not selected", hosts: twoHosts, wafOn: true, secCfg: blockRow,
+			rulesets: []models.SecurityRuleSet{{Name: "alpha"}, {Name: "beta"}},
+			paths:    map[string]string{"alpha": "/data/a.conf", "beta": "/data/b.conf"},
+			wantWAF:  ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetNotSelected},
+		},
+		{
+			name: "selected ruleset has no file", hosts: twoHosts, wafOn: true, secCfg: blockRow,
+			rulesets: owasp, paths: map[string]string{},
+			wantWAF: ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetUnavailable},
+		},
+		{
+			name: "every host protected", hosts: twoHosts, wafOn: true, rlOn: true, secCfg: thresholds,
+			rulesets: owasp, paths: owaspPath,
+			wantWAF: ModuleEnforcement{Eligible: 2, Protected: 2},
+			wantRL:  ModuleEnforcement{Eligible: 2, Protected: 2},
+		},
+		{
+			name: "rate limit without thresholds", hosts: twoHosts, rlOn: true, secCfg: &models.SecurityConfig{RateLimitMode: "enabled"},
+			wantRL: ModuleEnforcement{Eligible: 2, Reason: ReasonThresholdsUnset},
+		},
+		{
+			name: "disabled row mode with the WAF key on", hosts: twoHosts, wafOn: true,
+			rulesets: owasp, paths: owaspPath, secCfg: &models.SecurityConfig{WAFMode: "disabled"},
+			wantWAF: ModuleEnforcement{Eligible: 2, Reason: ReasonModeDisabled},
+		},
+		{
+			name: "no enabled host", hosts: []models.ProxyHost{disabledHost},
+			wafOn: true, rlOn: true, rulesets: owasp, paths: owaspPath, secCfg: thresholds,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			report := generateEnforcementReport(t, tc.hosts, tc.wafOn, tc.rlOn, tc.rulesets, tc.paths, tc.secCfg)
+			require.Equal(t, tc.wafOn, report.WAFOn)
+			require.Equal(t, tc.rlOn, report.RateLimitOn)
+			require.Equal(t, tc.wantWAF, report.WAF)
+			require.Equal(t, tc.wantRL, report.RateLimit)
+		})
+	}
 }
 
 // TestEnforcementReport_WAFDisabledHostsNotEligible describes hosts with the WAF switched off for their own
 // entry: they are excluded from the WAF eligible count.
 func TestEnforcementReport_WAFDisabledHostsNotEligible(t *testing.T) {
-	t.Skip("enabled in commit 3 of this PR: enforcement report with reasons and counts")
+	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	owaspPath := map[string]string{"owasp-crs": "/data/coraza/owasp-crs.conf"}
+	block := &models.SecurityConfig{WAFMode: "block"}
+
+	mixed := []models.ProxyHost{
+		enforcementTestHost("opted-out", "opted-out.example.com", true),
+		enforcementTestHost("covered", "covered.example.com", false),
+	}
+	report := generateEnforcementReport(t, mixed, true, false, owasp, owaspPath, block)
+	require.Equal(t, ModuleEnforcement{Eligible: 1, Protected: 1}, report.WAF, "the host with the WAF off for itself is not counted")
+	require.True(t, report.WAF.Enforced())
+
+	onlyOptedOut := []models.ProxyHost{enforcementTestHost("opted-out", "opted-out.example.com", true)}
+	report = generateEnforcementReport(t, onlyOptedOut, true, false, owasp, owaspPath, block)
+	require.Equal(t, ModuleEnforcement{}, report.WAF, "no eligible host leaves enforced omitted")
+	require.False(t, report.WAF.Enforced())
 }
 
 // TestBuildWAFHandler_KeyOnWithDisabledRowBuildsHandler describes the WAF handler being generated when the
@@ -176,5 +256,49 @@ func TestBuildRateLimitHandler_UnsetThresholdsReportsReason(t *testing.T) {
 // TestBuildWAFDirectives_UnresolvedRulesetReportsReason describes the WAF handler being dropped when no
 // ruleset resolves, with the reason recorded in the enforcement report.
 func TestBuildWAFDirectives_UnresolvedRulesetReportsReason(t *testing.T) {
-	t.Skip("enabled in commit 3 of this PR: enforcement report with reasons and counts")
+	host := &models.ProxyHost{UUID: "reason-host"}
+	block := &models.SecurityConfig{WAFMode: "block"}
+	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+
+	handler, reason := buildWAFHandlerWithReason(host, nil, nil, block)
+	require.Nil(t, handler)
+	require.Equal(t, ReasonNoRuleset, reason)
+
+	two := []models.SecurityRuleSet{{Name: "alpha"}, {Name: "beta"}}
+	handler, reason = buildWAFHandlerWithReason(host, two, map[string]string{"alpha": "/data/a.conf", "beta": "/data/b.conf"}, block)
+	require.Nil(t, handler)
+	require.Equal(t, ReasonRulesetNotSelected, reason)
+
+	handler, reason = buildWAFHandlerWithReason(host, owasp, map[string]string{}, block)
+	require.Nil(t, handler)
+	require.Equal(t, ReasonRulesetUnavailable, reason)
+
+	handler, reason = buildWAFHandlerWithReason(host, owasp, map[string]string{"owasp-crs": "/data/owasp-crs.conf"}, block)
+	require.NotNil(t, handler)
+	require.Empty(t, reason)
+}
+
+// enforcementTestHost returns an enabled proxy host with the given UUID and domain.
+func enforcementTestHost(uuid, domain string, wafDisabled bool) models.ProxyHost {
+	return models.ProxyHost{
+		UUID:          uuid,
+		DomainNames:   domain,
+		ForwardScheme: "http",
+		ForwardHost:   "upstream.internal",
+		ForwardPort:   8080,
+		Enabled:       true,
+		WAFDisabled:   wafDisabled,
+	}
+}
+
+// generateEnforcementReport runs GenerateConfig with the given module state and returns the single report it hands to
+// the sink.
+func generateEnforcementReport(t *testing.T, hosts []models.ProxyHost, wafOn, rateLimitOn bool, rulesets []models.SecurityRuleSet, paths map[string]string, secCfg *models.SecurityConfig) EnforcementReport {
+	t.Helper()
+	var reports []EnforcementReport
+	_, err := GenerateConfig(hosts, t.TempDir(), "", "", "", false, false, wafOn, rateLimitOn, false, "", rulesets, paths, nil, secCfg, nil,
+		WithEnforcementSink(func(r EnforcementReport) { reports = append(reports, r) }))
+	require.NoError(t, err)
+	require.Len(t, reports, 1, "the sink is called exactly once per generation")
+	return reports[0]
 }

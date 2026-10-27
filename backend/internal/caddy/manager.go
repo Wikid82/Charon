@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/gorm"
@@ -80,6 +81,18 @@ type Manager struct {
 	orthrusSvc  OrthrusAddrResolver
 	hopSecret   *selfhop.Secret
 	hopPort     string
+	// enforcement is the report of the last successful apply. It is nil while an apply runs and after any failed one.
+	enforcement atomic.Pointer[EnforcementReport]
+}
+
+// EnforcementReport returns the enforcement report of the last successful apply. ok is false when no successful apply
+// has completed since the last apply attempt started. It reads memory only, so status requests do not wait for an apply.
+func (m *Manager) EnforcementReport() (report EnforcementReport, ok bool) {
+	stored := m.enforcement.Load()
+	if stored == nil {
+		return EnforcementReport{}, false
+	}
+	return *stored, true
 }
 
 // NewManager creates a configuration manager.
@@ -117,6 +130,8 @@ func (m *Manager) SetSelfHop(secret *selfhop.Secret, port string) {
 func (m *Manager) ApplyConfig(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Drop the previous report first: until this apply succeeds, no report describes the running configuration.
+	m.enforcement.Store(nil)
 	// Fetch all proxy hosts from database
 	var hosts []models.ProxyHost
 	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Preload("DNSProvider").Find(&hosts).Error; err != nil {
@@ -461,7 +476,13 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	remoteHosts := orthrusHostUUIDs(hosts)
 	hosts = resolveOrthrusHosts(hosts, m.orthrusSvc)
 
-	genOpts := []GenerateConfigOption{WithEncryptionService(m.encSvc), WithRedirectionHosts(redirectHosts), WithRemoteHosts(remoteHosts)}
+	var generatedReport *EnforcementReport
+	genOpts := []GenerateConfigOption{
+		WithEncryptionService(m.encSvc),
+		WithRedirectionHosts(redirectHosts),
+		WithRemoteHosts(remoteHosts),
+		WithEnforcementSink(func(report EnforcementReport) { generatedReport = &report }),
+	}
 	if m.hopSecret != nil {
 		genOpts = append(genOpts, WithSelfHop(m.hopSecret, m.hopPort))
 	}
@@ -529,6 +550,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 
 	// Record successful application
 	m.recordConfigChange(configHash, true, "")
+	m.enforcement.Store(generatedReport)
 
 	// Cleanup old snapshots (keep last 10)
 	if err := m.rotateSnapshots(10); err != nil {
