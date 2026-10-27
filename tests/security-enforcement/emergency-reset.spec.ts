@@ -1,5 +1,17 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { EMERGENCY_TOKEN } from '../fixtures/security';
+import {
+  PENDING_DETAILS,
+  RUNNER_WHITELIST,
+  WAF_ENABLE_PATH,
+  createRuleSet,
+  enableModule,
+  getSecurityStatus,
+  runEmergencySecurityReset,
+  saveConfig,
+  getConfigRow,
+  useSecurityStateRestore,
+} from '../utils/security-settings-api';
 
 type SettingsMap = Record<string, string>;
 
@@ -249,4 +261,76 @@ test.describe('Emergency Access & Rate Limiting', () => {
       expect(rateLimitHit).toBeTruthy();
     });
   });
+});
+
+test.describe('Security settings saved after the emergency endpoint runs', () => {
+  test.describe.configure({ mode: 'serial' });
+  useSecurityStateRestore();
+
+  const RULE_SET_NAME = `emergency-followup-${Date.now()}`;
+
+  test.fixme(
+    'Config save with block mode after the emergency endpoint runs reports the WAF as applied',
+    PENDING_DETAILS,
+    async ({ request }) => {
+      await test.step('Create a rule set', async () => {
+        await createRuleSet(request, RULE_SET_NAME);
+      });
+
+      await test.step('Run the emergency endpoint', async () => {
+        await runEmergencySecurityReset(request);
+      });
+
+      await test.step('Save block mode with the rule set chosen', async () => {
+        await saveConfig(request, {
+          name: 'default',
+          admin_whitelist: RUNNER_WHITELIST,
+          enabled: true,
+          waf_mode: 'block',
+          waf_rules_source: RULE_SET_NAME,
+        });
+      });
+
+      await test.step('Status reports the WAF as applied and the stored row holds block mode', async () => {
+        const status = await getSecurityStatus(request);
+        expect(status.waf.enabled).toBe(true);
+        expect(status.waf.enforced).toBe(true);
+
+        const row = await getConfigRow(request);
+        expect(row).toMatchObject({ waf_mode: 'block' });
+      });
+    },
+  );
+
+  test.fixme(
+    'WAF toggled on after the emergency endpoint runs with a rule set selected reports the WAF as applied',
+    PENDING_DETAILS,
+    async ({ request }) => {
+      await test.step('Create a rule set and choose it', async () => {
+        await createRuleSet(request, RULE_SET_NAME);
+        await saveConfig(request, {
+          name: 'default',
+          admin_whitelist: RUNNER_WHITELIST,
+          waf_rules_source: RULE_SET_NAME,
+        });
+      });
+
+      await test.step('Run the emergency endpoint', async () => {
+        await runEmergencySecurityReset(request);
+      });
+
+      await test.step('Turn the WAF on through its toggle', async () => {
+        await enableModule(request, WAF_ENABLE_PATH);
+      });
+
+      await test.step('Status reports the WAF as applied and the stored row holds block mode', async () => {
+        const status = await getSecurityStatus(request);
+        expect(status.waf.enabled).toBe(true);
+        expect(status.waf.enforced).toBe(true);
+
+        const row = await getConfigRow(request);
+        expect(row).toMatchObject({ waf_mode: 'block' });
+      });
+    },
+  );
 });
