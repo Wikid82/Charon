@@ -724,6 +724,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			"WAF is enabled but some hosts have no WAF handler; the security status shows the reason")
 	}
 
+	// The rate limit is enabled but its request count or window is not set, so the hosts get no rate limit handler.
+	// One line per apply carries the count; the stored values stay as they are.
+	if rateLimitUnsetHosts := report.RateLimit.Eligible - report.RateLimit.Protected; rateLimitUnsetHosts > 0 {
+		logger.Log().WithField("hosts", rateLimitUnsetHosts).WithField("reason", ReasonThresholdsUnset).Warn(
+			"Rate limit is enabled but its request count or window is not set; the security status shows the reason")
+	}
+
 	// Add catch-all 404 handler
 	// This matches any request that wasn't handled by previous routes
 	if frontendDir != "" {

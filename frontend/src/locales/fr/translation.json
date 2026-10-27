@@ -643,7 +643,8 @@
     "rateLimitingDisabled": "Limitation de Débit Désactivée",
     "enableToConfigureMessage": "Activez la limitation de débit pour configurer les limites de requêtes et protéger vos services",
     "adjustingGates": "Ajustement des portes...",
-    "configurationUpdating": "Configuration de la limitation de débit en cours de mise à jour"
+    "configurationUpdating": "Configuration de la limitation de débit en cours de mise à jour",
+    "invalidValue": "Saisissez un nombre entier supérieur à 0."
   },
   "wafConfig": {
     "title": "Configuration WAF",

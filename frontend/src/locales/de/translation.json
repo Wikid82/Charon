@@ -643,7 +643,8 @@
     "rateLimitingDisabled": "Ratenbegrenzung deaktiviert",
     "enableToConfigureMessage": "Aktivieren Sie Ratenbegrenzung, um Anforderungslimits zu konfigurieren und Ihre Dienste zu schützen",
     "adjustingGates": "Tore werden angepasst...",
-    "configurationUpdating": "Ratenbegrenzungskonfiguration wird aktualisiert"
+    "configurationUpdating": "Ratenbegrenzungskonfiguration wird aktualisiert",
+    "invalidValue": "Gib eine ganze Zahl größer als 0 ein."
   },
   "wafConfig": {
     "title": "WAF-Konfiguration",

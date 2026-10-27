@@ -621,7 +621,20 @@ func TestSecurityModuleKey_ToggleAfterResetBuildsWAFHandler(t *testing.T) {
 // TestSecurityModuleKey_ToggleAfterResetRateLimitHalf describes the rate-limit half of the toggle sequence: after the
 // reset, the rate-limit toggle on with seeded zero thresholds writes the visible thresholds and builds the handler.
 func TestSecurityModuleKey_ToggleAfterResetRateLimitHalf(t *testing.T) {
-	t.Skip("enabled in commit 5 of this PR: unset rate limit values are filled on enable")
+	h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, WAFMode: "block"}, noopCaddyClient{})
+	resetModuleState(t, db)
+	mustApplyConfig(t, h)
+
+	w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/rate-limit/enable", "127.0.0.1:5000", `{}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	row := loadDefaultSecurityRow(t, db)
+	assert.Equal(t, models.StandardRateLimitRequests, row.RateLimitRequests)
+	assert.Equal(t, models.StandardRateLimitWindowSec, row.RateLimitWindowSec)
+	assert.Equal(t, models.StandardRateLimitBurst, row.RateLimitBurst)
+	rateLimit := getSecurityStatus(t, h)["rate_limit"].(map[string]any)
+	assert.Equal(t, true, rateLimit["enabled"])
+	assert.Equal(t, true, rateLimit["enforced"])
 }
 
 // Writer contracts: every writer that changes the module keys or the row keeps both stores consistent.
@@ -882,22 +895,147 @@ func assertKeyState(t *testing.T, got, want, label string) {
 // TestRateLimitEnable_FillsMissingThresholds describes enabling the rate limit on a row with zero thresholds: the
 // standard values 100 requests, 60 seconds and burst 20 are written in the same transaction.
 func TestRateLimitEnable_FillsMissingThresholds(t *testing.T) {
-	t.Skip("enabled in commit 5 of this PR: unset rate limit values are filled on enable")
+	paths := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		settings bool
+	}{
+		{"toggle", http.MethodPost, "/security/rate-limit/enable", `{}`, false},
+		{"settings update", http.MethodPost, "/settings", `{"key":"security.rate_limit.enabled","value":"true"}`, true},
+		{"settings patch", http.MethodPatch, "/config", `{"security.rate_limit.enabled":"true"}`, true},
+		{"config save", http.MethodPost, "/security/config", `{"enabled":true,"rate_limit_enable":true}`, false},
+	}
+	for _, p := range paths {
+		t.Run(p.name, func(t *testing.T) {
+			h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true}, noopCaddyClient{})
+			router := newModuleRouter(t, h)
+			if p.settings {
+				router = newModuleSettingsRouter(t, db, h.caddyManager)
+			}
+			w := serveSecurityPin(t, router, p.method, p.path, "127.0.0.1:5000", p.body)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+			row := loadDefaultSecurityRow(t, db)
+			assert.Equal(t, models.StandardRateLimitRequests, row.RateLimitRequests)
+			assert.Equal(t, models.StandardRateLimitWindowSec, row.RateLimitWindowSec)
+			assert.Equal(t, models.StandardRateLimitBurst, row.RateLimitBurst)
+			assert.True(t, row.RateLimitEnable)
+		})
+	}
 }
 
 // TestRateLimitEnable_KeepsSuppliedThresholds describes enabling with requests 50 and window 0: 50 is kept and the
 // window is filled with 60.
 func TestRateLimitEnable_KeepsSuppliedThresholds(t *testing.T) {
-	t.Skip("enabled in commit 5 of this PR: unset rate limit values are filled on enable")
+	t.Run("config save fills only the window", func(t *testing.T) {
+		h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true}, noopCaddyClient{})
+		body := `{"enabled":true,"rate_limit_enable":true,"rate_limit_requests":50}`
+		w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/config", "127.0.0.1:5000", body)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+		row := loadDefaultSecurityRow(t, db)
+		assert.Equal(t, 50, row.RateLimitRequests, "the request's value wins over the fill")
+		assert.Equal(t, models.StandardRateLimitWindowSec, row.RateLimitWindowSec)
+		assert.Equal(t, models.StandardRateLimitBurst, row.RateLimitBurst)
+	})
+
+	t.Run("config save keeps every supplied value", func(t *testing.T) {
+		h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true}, noopCaddyClient{})
+		body := `{"enabled":true,"rate_limit_enable":true,"rate_limit_requests":50,"rate_limit_window_sec":30,"rate_limit_burst":5}`
+		w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/config", "127.0.0.1:5000", body)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+		row := loadDefaultSecurityRow(t, db)
+		assert.Equal(t, 50, row.RateLimitRequests)
+		assert.Equal(t, 30, row.RateLimitWindowSec)
+		assert.Equal(t, 5, row.RateLimitBurst)
+	})
+
+	t.Run("toggle keeps a stored request count and fills the window", func(t *testing.T) {
+		h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, RateLimitRequests: 50}, noopCaddyClient{})
+		w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/rate-limit/enable", "127.0.0.1:5000", `{}`)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+		row := loadDefaultSecurityRow(t, db)
+		assert.Equal(t, 50, row.RateLimitRequests)
+		assert.Equal(t, models.StandardRateLimitWindowSec, row.RateLimitWindowSec)
+		assert.Equal(t, models.StandardRateLimitBurst, row.RateLimitBurst)
+	})
 }
 
 // TestRateLimitDisable_WritesNothing describes disabling the rate limit: no threshold is written.
 func TestRateLimitDisable_WritesNothing(t *testing.T) {
-	t.Skip("enabled in commit 5 of this PR: unset rate limit values are filled on enable")
+	paths := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		settings bool
+	}{
+		{"toggle", http.MethodPost, "/security/rate-limit/disable", `{}`, false},
+		{"settings update", http.MethodPost, "/settings", `{"key":"security.rate_limit.enabled","value":"false"}`, true},
+		{"settings patch", http.MethodPatch, "/config", `{"security.rate_limit.enabled":"false"}`, true},
+		{"config save", http.MethodPost, "/security/config", `{"enabled":true,"rate_limit_enable":false}`, false},
+	}
+	for _, p := range paths {
+		t.Run(p.name, func(t *testing.T) {
+			h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, RateLimitMode: "enabled", RateLimitEnable: true}, noopCaddyClient{})
+			setSettingValue(t, db, models.SecurityRateLimitEnabledSettingKey, "true")
+			router := newModuleRouter(t, h)
+			if p.settings {
+				router = newModuleSettingsRouter(t, db, h.caddyManager)
+			}
+			w := serveSecurityPin(t, router, p.method, p.path, "127.0.0.1:5000", p.body)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+			value, _ := settingValue(t, db, models.SecurityRateLimitEnabledSettingKey)
+			assert.Equal(t, "false", value)
+			row := loadDefaultSecurityRow(t, db)
+			assert.Zero(t, row.RateLimitRequests)
+			assert.Zero(t, row.RateLimitWindowSec)
+			assert.Zero(t, row.RateLimitBurst)
+		})
+	}
 }
 
 // TestRateLimitAlreadyEnabledZeroes_ReportsUnset describes a row that is already enabled with zero thresholds: no
 // write happens at apply time and the status reports thresholds_unset.
 func TestRateLimitAlreadyEnabledZeroes_ReportsUnset(t *testing.T) {
-	t.Skip("enabled in commit 5 of this PR: unset rate limit values are filled on enable")
+	h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, RateLimitMode: "enabled", RateLimitEnable: true}, noopCaddyClient{})
+	setSettingValue(t, db, models.SecurityRateLimitEnabledSettingKey, "true")
+	mustApplyConfig(t, h)
+
+	row := loadDefaultSecurityRow(t, db)
+	assert.Zero(t, row.RateLimitRequests, "the apply writes no threshold")
+	assert.Zero(t, row.RateLimitWindowSec)
+	assert.Zero(t, row.RateLimitBurst)
+	rateLimit := getSecurityStatus(t, h)["rate_limit"].(map[string]any)
+	assert.Equal(t, false, rateLimit["enforced"])
+	assert.Equal(t, caddy.ReasonThresholdsUnset, rateLimit["reason"])
+
+	// An echo of the stored row does not switch the rate limit on again, so no threshold is written by the save either.
+	w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/config", "127.0.0.1:5000", `{"rate_limit_enable":true,"rate_limit_mode":"enabled"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	row = loadDefaultSecurityRow(t, db)
+	assert.Zero(t, row.RateLimitRequests)
+	assert.Zero(t, row.RateLimitWindowSec)
+}
+
+// TestRateLimitEnable_FillRestoredOnApplyFailure describes a toggle that fills the window and burst, then fails to apply:
+// the stored state, including the partly set request count, is restored to the pre-image.
+func TestRateLimitEnable_FillRestoredOnApplyFailure(t *testing.T) {
+	client := &switchableLoadClient{}
+	h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, RateLimitRequests: 50}, client)
+	before := captureModuleStateView(t, db)
+
+	client.loadErr = errors.New("caddy refused the config")
+	w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/rate-limit/enable", "127.0.0.1:5000", `{}`)
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+
+	assert.Equal(t, before, captureModuleStateView(t, db), "the filled thresholds are restored with the row")
+	row := loadDefaultSecurityRow(t, db)
+	assert.Equal(t, 50, row.RateLimitRequests)
+	assert.Zero(t, row.RateLimitWindowSec)
 }

@@ -625,9 +625,9 @@ func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
 			"id":          "standard",
 			"name":        "Standard Web",
 			"description": "Balanced protection for general web applications",
-			"requests":    100,
-			"window_sec":  60,
-			"burst":       20,
+			"requests":    models.StandardRateLimitRequests,
+			"window_sec":  models.StandardRateLimitWindowSec,
+			"burst":       models.StandardRateLimitBurst,
 		},
 		{
 			"id":          "api",

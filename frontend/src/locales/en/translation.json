@@ -648,7 +648,8 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "invalidValue": "Enter a whole number greater than 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

@@ -643,7 +643,8 @@
     "rateLimitingDisabled": "速率限制已禁用",
     "enableToConfigureMessage": "启用速率限制以配置请求限制并保护您的服务",
     "adjustingGates": "调整门禁……",
-    "configurationUpdating": "速率限制配置更新中"
+    "configurationUpdating": "速率限制配置更新中",
+    "invalidValue": "请输入大于 0 的整数。"
   },
   "wafConfig": {
     "title": "WAF配置",

@@ -299,7 +299,19 @@ func (c *recordingCaddyClient) GetConfig(context.Context) (*Config, error) {
 // TestBuildRateLimitHandler_UnsetThresholdsReportsReason describes an enabled rate limit with zero thresholds:
 // no handler is built and the enforcement report carries reason thresholds_unset.
 func TestBuildRateLimitHandler_UnsetThresholdsReportsReason(t *testing.T) {
-	t.Skip("enabled in commit 5 of this PR: unset rate limit thresholds are reported")
+	host := models.ProxyHost{UUID: "unset-host", DomainNames: "unset.example.com", ForwardScheme: "http", ForwardHost: "upstream.internal", ForwardPort: 8080, Enabled: true}
+
+	for _, row := range []*models.SecurityConfig{
+		{RateLimitRequests: 0, RateLimitWindowSec: 0},
+		{RateLimitRequests: 50, RateLimitWindowSec: 0},
+		{RateLimitRequests: 0, RateLimitWindowSec: 60},
+	} {
+		require.Nil(t, buildRateLimitHandler(&host, row), "a zero request count or window builds no handler")
+	}
+
+	report := generateEnforcementReport(t, []models.ProxyHost{host}, false, true, nil, nil, &models.SecurityConfig{RateLimitMode: "enabled"})
+	require.Equal(t, ModuleEnforcement{Eligible: 1, Reason: ReasonThresholdsUnset}, report.RateLimit)
+	require.False(t, report.RateLimit.Enforced())
 }
 
 // TestBuildWAFDirectives_UnresolvedRulesetReportsReason describes the WAF handler being dropped when no

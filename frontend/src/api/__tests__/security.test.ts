@@ -5,6 +5,12 @@ import * as security from '../security'
 
 vi.mock('../client')
 
+describe('STANDARD_RATE_LIMIT', () => {
+  it('matches the standard thresholds written by the backend', () => {
+    expect(security.STANDARD_RATE_LIMIT).toEqual({ requests: 100, windowSec: 60, burst: 20 })
+  })
+})
+
 describe('security API', () => {
   beforeEach(() => {
     vi.clearAllMocks()

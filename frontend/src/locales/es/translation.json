@@ -643,7 +643,8 @@
     "rateLimitingDisabled": "Limitación de Tasa Deshabilitada",
     "enableToConfigureMessage": "Habilita la limitación de tasa para configurar límites de solicitudes y proteger tus servicios",
     "adjustingGates": "Ajustando las puertas...",
-    "configurationUpdating": "Configuración de limitación de tasa actualizándose"
+    "configurationUpdating": "Configuración de limitación de tasa actualizándose",
+    "invalidValue": "Introduce un número entero mayor que 0."
   },
   "wafConfig": {
     "title": "Configuración WAF",

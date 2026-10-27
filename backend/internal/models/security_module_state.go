@@ -107,13 +107,44 @@ func mirrorModuleRow(tx *gorm.DB, module string) error {
 			return fmt.Errorf("mirror waf mode: %w", err)
 		}
 	case SecurityRateLimitEnabledSettingKey:
-		// The threshold fill for unset values is written here by the rate-limit enable path.
-		err := tx.Model(&SecurityConfig{}).
-			Where("name = ?", DefaultSecurityConfigName).
-			Updates(map[string]any{"rate_limit_mode": "enabled", "rate_limit_enable": true}).Error
-		if err != nil {
-			return fmt.Errorf("mirror rate limit: %w", err)
-		}
+		return mirrorRateLimitRow(tx)
+	}
+	return nil
+}
+
+// mirrorRateLimitRow marks the rate limit enabled in the default row and fills each threshold the row does not set
+// (zero or negative) with its standard value. A threshold the row already holds is kept, so an admin value supplied in
+// the same request wins over the fill. The fill is written in the caller's transaction, so it is visible in the row
+// the admin sees and it is restored with the row when the apply fails.
+func mirrorRateLimitRow(tx *gorm.DB) error {
+	row, err := ReadModuleRow(tx, DefaultSecurityConfigName)
+	if err != nil {
+		return fmt.Errorf("mirror rate limit: %w", err)
+	}
+	if row == nil {
+		return nil
+	}
+
+	updates := map[string]any{"rate_limit_mode": "enabled", "rate_limit_enable": true}
+	filled := map[string]int{}
+	if row.RateLimitRequests <= 0 {
+		updates["rate_limit_requests"] = StandardRateLimitRequests
+		filled["rate_limit_requests"] = StandardRateLimitRequests
+	}
+	if row.RateLimitWindowSec <= 0 {
+		updates["rate_limit_window_sec"] = StandardRateLimitWindowSec
+		filled["rate_limit_window_sec"] = StandardRateLimitWindowSec
+	}
+	if row.RateLimitBurst <= 0 {
+		updates["rate_limit_burst"] = StandardRateLimitBurst
+		filled["rate_limit_burst"] = StandardRateLimitBurst
+	}
+
+	if err := tx.Model(&SecurityConfig{}).Where("name = ?", DefaultSecurityConfigName).Updates(updates).Error; err != nil {
+		return fmt.Errorf("mirror rate limit: %w", err)
+	}
+	if len(filled) > 0 {
+		logger.Log().WithField("filled", filled).Info("rate limit enabled: unset thresholds set to the standard values")
 	}
 	return nil
 }

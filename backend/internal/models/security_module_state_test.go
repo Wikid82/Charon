@@ -436,3 +436,87 @@ func TestModuleStateRestore_DeleteFailuresAreReturned(t *testing.T) {
 		assert.Error(t, snap.RestoreRow(db))
 	})
 }
+
+// setRateLimitThresholds stores the three rate-limit thresholds of the default row.
+func setRateLimitThresholds(t *testing.T, db *gorm.DB, requests, windowSec, burst int) {
+	t.Helper()
+	require.NoError(t, db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).
+		Updates(map[string]any{"rate_limit_requests": requests, "rate_limit_window_sec": windowSec, "rate_limit_burst": burst}).Error)
+}
+
+func TestSetModuleState_RateLimitOnFillsOnlyUnsetThresholds(t *testing.T) {
+	tests := []struct {
+		name                       string
+		requests, windowSec, burst int
+		wantRequests, wantWindow   int
+		wantBurst                  int
+	}{
+		{name: "all unset", wantRequests: models.StandardRateLimitRequests, wantWindow: models.StandardRateLimitWindowSec, wantBurst: models.StandardRateLimitBurst},
+		{name: "requests kept, window and burst filled", requests: 50, wantRequests: 50, wantWindow: models.StandardRateLimitWindowSec, wantBurst: models.StandardRateLimitBurst},
+		{name: "window kept, requests and burst filled", windowSec: 30, wantRequests: models.StandardRateLimitRequests, wantWindow: 30, wantBurst: models.StandardRateLimitBurst},
+		{name: "negative values are unset", requests: -1, windowSec: -1, burst: -1, wantRequests: models.StandardRateLimitRequests, wantWindow: models.StandardRateLimitWindowSec, wantBurst: models.StandardRateLimitBurst},
+		{name: "all set", requests: 10, windowSec: 5, burst: 3, wantRequests: 10, wantWindow: 5, wantBurst: 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newModuleTestDB(t)
+			require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName}).Error)
+			setRateLimitThresholds(t, db, tc.requests, tc.windowSec, tc.burst)
+
+			require.NoError(t, models.SetModuleState(db, models.SecurityRateLimitEnabledSettingKey, true, "test"))
+
+			row := readDefaultRow(t, db)
+			assert.Equal(t, tc.wantRequests, row.RateLimitRequests)
+			assert.Equal(t, tc.wantWindow, row.RateLimitWindowSec)
+			assert.Equal(t, tc.wantBurst, row.RateLimitBurst)
+			assert.True(t, row.RateLimitEnable)
+			assert.Equal(t, "enabled", row.RateLimitMode)
+		})
+	}
+}
+
+func TestSetModuleState_RateLimitOffWritesNoThresholds(t *testing.T) {
+	db := newModuleTestDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, RateLimitMode: "enabled", RateLimitEnable: true}).Error)
+
+	require.NoError(t, models.SetModuleState(db, models.SecurityRateLimitEnabledSettingKey, false, "test"))
+
+	row := readDefaultRow(t, db)
+	assert.Zero(t, row.RateLimitRequests)
+	assert.Zero(t, row.RateLimitWindowSec)
+	assert.Zero(t, row.RateLimitBurst)
+	assert.True(t, row.RateLimitEnable, "a switch off never touches the row")
+}
+
+func TestSetModuleStateOpt_RateLimitOnWithoutRowWritesNothingToRow(t *testing.T) {
+	db := newModuleTestDB(t)
+
+	require.NoError(t, models.SetModuleStateOpt(db, models.SecurityRateLimitEnabledSettingKey, true, "test", false))
+
+	value, _ := readSettingValue(t, db, models.SecurityRateLimitEnabledSettingKey)
+	assert.Equal(t, "true", value)
+	var count int64
+	require.NoError(t, db.Model(&models.SecurityConfig{}).Count(&count).Error)
+	assert.Zero(t, count, "a missing row has nothing to mirror or fill")
+}
+
+func TestSetModuleState_RateLimitOnErrorsWhenFillWriteFails(t *testing.T) {
+	db := newModuleTestDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName}).Error)
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register("test:fail_update_security_configs", func(tx *gorm.DB) {
+		if tx.Statement.Table == "security_configs" {
+			_ = tx.AddError(errors.New("forced update failure"))
+		}
+	}))
+
+	assert.Error(t, models.SetModuleState(db, models.SecurityRateLimitEnabledSettingKey, true, "test"))
+}
+
+func TestSetModuleStateOpt_RateLimitOnErrorsWhenRowReadFails(t *testing.T) {
+	db := newModuleTestDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName}).Error)
+	failQueriesOn(db, "security_configs")
+
+	// The framework enable is skipped, so the row read in the mirror is the first query on the row table.
+	assert.Error(t, models.SetModuleStateOpt(db, models.SecurityRateLimitEnabledSettingKey, true, "test", false))
+}

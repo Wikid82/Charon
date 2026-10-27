@@ -3,6 +3,7 @@ import { Gauge, Info } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { STANDARD_RATE_LIMIT } from '../api/security'
 import { updateSetting } from '../api/settings'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
@@ -11,6 +12,30 @@ import { Input } from '../components/ui/Input'
 import { useSecurityStatus, useSecurityConfig, useUpdateSecurityConfig } from '../hooks/useSecurity'
 import { toast } from '../utils/toast'
 
+type RateLimitField = 'requests' | 'burst' | 'window'
+
+/** Field inputs are kept as text so an empty field is representable while the user types. */
+type FieldValues = Record<RateLimitField, string>
+
+type FieldErrors = Partial<Record<RateLimitField, string>>
+
+/**
+ * Text shown in a field for a stored value. A missing value falls back to the standard number; a stored 0
+ * (or any non-positive number) shows as an empty field so the standard number appears only as a placeholder.
+ */
+const toFieldText = (stored: unknown, standard: number): string => {
+  if (typeof stored !== 'number') return String(standard)
+  return stored > 0 ? String(stored) : ''
+}
+
+/** Parses a field as a whole number greater than 0; returns null when it is empty, zero or not a whole number. */
+const parsePositiveInt = (text: string): number | null => {
+  const trimmed = text.trim()
+  if (!/^\d+$/.test(trimmed)) return null
+  const value = Number.parseInt(trimmed, 10)
+  return value > 0 ? value : null
+}
+
 export default function RateLimiting() {
   const { t } = useTranslation()
   const { data: status, isLoading: statusLoading } = useSecurityStatus()
@@ -18,20 +43,30 @@ export default function RateLimiting() {
   const updateConfigMutation = useUpdateSecurityConfig()
   const queryClient = useQueryClient()
 
-  const [rps, setRps] = useState(10)
-  const [burst, setBurst] = useState(5)
-  const [window, setWindow] = useState(60)
+  const [fields, setFields] = useState<FieldValues>({
+    requests: String(STANDARD_RATE_LIMIT.requests),
+    burst: String(STANDARD_RATE_LIMIT.burst),
+    window: String(STANDARD_RATE_LIMIT.windowSec),
+  })
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
 
   const config = configData?.config
 
   // Sync local state with fetched config
   useEffect(() => {
     if (config) {
-      setRps(config.rate_limit_requests ?? 10)
-      setBurst(config.rate_limit_burst ?? 5)
-      setWindow(config.rate_limit_window_sec ?? 60)
+      setFields({
+        requests: toFieldText(config.rate_limit_requests, STANDARD_RATE_LIMIT.requests),
+        burst: toFieldText(config.rate_limit_burst, STANDARD_RATE_LIMIT.burst),
+        window: toFieldText(config.rate_limit_window_sec, STANDARD_RATE_LIMIT.windowSec),
+      })
     }
   }, [config])
+
+  const updateField = (field: RateLimitField, text: string) => {
+    setFields((prev) => ({ ...prev, [field]: text }))
+    setFieldErrors((prev) => ({ ...prev, [field]: undefined }))
+  }
 
   const toggleMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -39,6 +74,8 @@ export default function RateLimiting() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['securityStatus'] })
+      // The enable path writes the thresholds on the backend; refresh the config so they appear.
+      queryClient.invalidateQueries({ queryKey: ['securityConfig'] })
       toast.success(t('rateLimiting.settingUpdated'))
     },
     onError: (err: Error) => {
@@ -52,10 +89,24 @@ export default function RateLimiting() {
   }
 
   const handleSave = () => {
+    const requests = parsePositiveInt(fields.requests)
+    const burst = parsePositiveInt(fields.burst)
+    const windowSec = parsePositiveInt(fields.window)
+
+    // Refuse zero or empty values client-side so a save never writes 0 over the thresholds.
+    const invalidMessage = t('rateLimiting.invalidValue')
+    const errors: FieldErrors = {
+      requests: requests === null ? invalidMessage : undefined,
+      burst: burst === null ? invalidMessage : undefined,
+      window: windowSec === null ? invalidMessage : undefined,
+    }
+    setFieldErrors(errors)
+    if (requests === null || burst === null || windowSec === null) return
+
     updateConfigMutation.mutate({
-      rate_limit_requests: rps,
+      rate_limit_requests: requests,
       rate_limit_burst: burst,
-      rate_limit_window_sec: window,
+      rate_limit_window_sec: windowSec,
     })
   }
 
@@ -157,9 +208,12 @@ export default function RateLimiting() {
                 type="number"
                 min={1}
                 max={1000}
-                value={rps}
-                onChange={(e) => setRps(parseInt(e.target.value, 10) || 1)}
+                value={fields.requests}
+                placeholder={String(STANDARD_RATE_LIMIT.requests)}
+                onChange={(e) => updateField('requests', e.target.value)}
                 helperText={t('rateLimiting.requestsPerSecondHelper')}
+                error={fieldErrors.requests}
+                errorTestId="rate-limit-rps-error"
                 data-testid="rate-limit-rps"
               />
               <Input
@@ -167,9 +221,12 @@ export default function RateLimiting() {
                 type="number"
                 min={1}
                 max={100}
-                value={burst}
-                onChange={(e) => setBurst(parseInt(e.target.value, 10) || 1)}
+                value={fields.burst}
+                placeholder={String(STANDARD_RATE_LIMIT.burst)}
+                onChange={(e) => updateField('burst', e.target.value)}
                 helperText={t('rateLimiting.burstHelper')}
+                error={fieldErrors.burst}
+                errorTestId="rate-limit-burst-error"
                 data-testid="rate-limit-burst"
               />
               <Input
@@ -177,9 +234,12 @@ export default function RateLimiting() {
                 type="number"
                 min={1}
                 max={3600}
-                value={window}
-                onChange={(e) => setWindow(parseInt(e.target.value, 10) || 1)}
+                value={fields.window}
+                placeholder={String(STANDARD_RATE_LIMIT.windowSec)}
+                onChange={(e) => updateField('window', e.target.value)}
                 helperText={t('rateLimiting.windowSecondsHelper')}
+                error={fieldErrors.window}
+                errorTestId="rate-limit-window-error"
                 data-testid="rate-limit-window"
               />
             </div>

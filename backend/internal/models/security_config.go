@@ -7,6 +7,14 @@ import (
 	"gorm.io/gorm"
 )
 
+// The standard rate limit values. Turning the rate limit on writes them into the default row for each threshold the row
+// does not set, so the stored numbers are the ones that apply. The in-process API limiter uses the same budget.
+const (
+	StandardRateLimitRequests  = 100
+	StandardRateLimitWindowSec = 60
+	StandardRateLimitBurst     = 20
+)
+
 // SecurityConfig represents global Cerberus/CrowdSec/WAF/RateLimit settings
 // used by the server and propagated into the generated Caddy config.
 type SecurityConfig struct {

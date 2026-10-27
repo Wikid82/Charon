@@ -16,13 +16,6 @@ import (
 	"github.com/Wikid82/charon/backend/internal/util"
 )
 
-// Built-in API limiter budget, used unless config or settings override it.
-const (
-	defaultRateLimitRequests  = 100
-	defaultRateLimitWindowSec = 60
-	defaultRateLimitBurst     = 20
-)
-
 // Cap on per-episode WARN lines emitted by the Cerberus limiter.
 const (
 	rateLimitWarnBurst    = 10
@@ -81,7 +74,7 @@ func (c *Cerberus) positiveSetting(key string) (int, bool) {
 // effectiveRateLimit resolves the budget: built-in defaults, then positive
 // static config values, then positive runtime settings.
 func (c *Cerberus) effectiveRateLimit() (requests, windowSec, burst int) {
-	requests, windowSec, burst = defaultRateLimitRequests, defaultRateLimitWindowSec, defaultRateLimitBurst
+	requests, windowSec, burst = models.StandardRateLimitRequests, models.StandardRateLimitWindowSec, models.StandardRateLimitBurst
 
 	if c.cfg.RateLimitRequests > 0 {
 		requests = c.cfg.RateLimitRequests
@@ -109,7 +102,7 @@ func (c *Cerberus) effectiveRateLimit() (requests, windowSec, burst int) {
 // security config and settings. Each call returns an independent limiter.
 func (c *Cerberus) RateLimitMiddleware() gin.HandlerFunc {
 	clock := func() time.Time { return c.now() }
-	r, b := ratelimit.PerWindow(defaultRateLimitRequests, defaultRateLimitWindowSec*time.Second)
+	r, b := ratelimit.PerWindow(models.StandardRateLimitRequests, models.StandardRateLimitWindowSec*time.Second)
 	limiter := ratelimit.MustNewKeyedLimiter(ratelimit.Config{Rate: r, Burst: b, Now: clock})
 
 	return func(ctx *gin.Context) {

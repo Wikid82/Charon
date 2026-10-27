@@ -19,13 +19,10 @@ func SeedDefaultSecurityConfig(db *gorm.DB) (*SecurityConfig, error) {
 		WAFParanoiaLevel: 1,
 		RateLimitMode:    "disabled",
 		RateLimitEnable:  false,
-		// Zero values are intentional for the disabled default state.
-		// cerberus.RateLimitMiddleware guards against zero/negative values by falling
-		// back to safe operational defaults (requests=100, window=60s, burst=20) before
-		// computing the token-bucket rate.  buildRateLimitHandler (caddy/config.go) also
-		// returns nil — skipping rate-limit injection — when either value is ≤ 0.
-		// A user enabling rate limiting via the UI without configuring thresholds will
-		// therefore receive the safe hardcoded defaults, not a zero-rate limit.
+		// Zero values are intentional for the disabled default state. Turning the rate limit on fills each
+		// zero threshold with StandardRateLimit* in the same write (SetModuleState). The in-process API limiter
+		// falls back to the same values. buildRateLimitHandler (caddy/config.go) returns nil while either proxy
+		// threshold is <= 0, so an instance that was enabled with zeros is reported as thresholds_unset.
 		RateLimitBurst:     0,
 		RateLimitRequests:  0,
 		RateLimitWindowSec: 0,

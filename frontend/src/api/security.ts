@@ -79,6 +79,16 @@ export const getLoginProtectionStatus = async (): Promise<LoginProtectionStatus>
 }
 
 /**
+ * Standard rate-limit thresholds: the values the backend writes when the module is turned on without
+ * thresholds, and the page placeholders and fallbacks. Keep in step with the backend constants.
+ */
+export const STANDARD_RATE_LIMIT = {
+  requests: 100,
+  windowSec: 60,
+  burst: 20,
+} as const
+
+/**
  * Security configuration payload for a partial update. Every key is optional: a key that is absent (or null)
  * keeps the stored value, and an explicit empty string, 0 or false is applied.
  */
