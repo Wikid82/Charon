@@ -604,6 +604,8 @@ check.
 - Database-driven rule configuration
 - Metrics collection for security events
 
+**Module switch resolution:** Whether the WAF, the rate limit or the ACL is on is resolved in one place (`internal/models`). A settings key set to `true` or `false` wins; otherwise the default security config row is used; otherwise the static configuration. Cerberus off forces every module off. All writers (the toggles, the settings save, the config save and the patch route) update the switch and, for the WAF and rate limit, the row mirror in one write-locked transaction. A proxy apply that fails restores both. `GET /security/status` reports the applied state from the last successful apply.
+
 #### Database Layer (`internal/database/`)
 
 - **Migrations:** Automatic schema versioning with GORM AutoMigrate

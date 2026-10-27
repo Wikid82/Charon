@@ -6,9 +6,12 @@
  * so a test never leaves the emergency endpoint's changes or its own seeded values behind.
  */
 
-import { expect, test, type APIRequestContext, type TestDetails } from '@playwright/test';
+import { expect, request as playwrightRequest, test, type APIRequestContext } from '@playwright/test';
+import { STORAGE_STATE } from '../constants';
 import { EMERGENCY_TOKEN } from '../fixtures/security';
 
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+export const PROXY_HOSTS_PATH = '/api/v1/proxy-hosts';
 export const CONFIG_PATH = '/api/v1/security/config';
 export const STATUS_PATH = '/api/v1/security/status';
 export const SETTINGS_PATH = '/api/v1/settings';
@@ -20,13 +23,15 @@ export const RATE_LIMIT_ENABLE_PATH = '/api/v1/security/rate-limit/enable';
 /** Whitelist that keeps the test runner reachable while Cerberus is on. */
 export const RUNNER_WHITELIST = '127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 
-/** Settings keys that hold the module switches. */
-export const MODULE_SETTING_KEYS = [
-  'feature.cerberus.enabled',
+/** Settings keys that hold the security module switches. The settings API accepts only true or false for them. */
+export const SECURITY_MODULE_SWITCH_KEYS = [
   'security.waf.enabled',
   'security.rate_limit.enabled',
   'security.acl.enabled',
 ] as const;
+
+/** Settings keys that hold the module switches, including the Cerberus feature switch. */
+export const MODULE_SETTING_KEYS = ['feature.cerberus.enabled', ...SECURITY_MODULE_SWITCH_KEYS] as const;
 
 /** Stored config fields a save may carry. The restore body is built from these. */
 export const CONFIG_FIELDS = [
@@ -46,11 +51,6 @@ export const CONFIG_FIELDS = [
   'rate_limit_window_sec',
   'rate_limit_bypass_list',
 ] as const;
-
-/** Reason shown on every spec that depends on behaviour arriving later in this PR. */
-export const PENDING_DETAILS: TestDetails = {
-  annotation: { type: 'fixme', description: 'enabled in commit 7 of this PR' },
-};
 
 export type SecurityConfigRow = Record<string, unknown> & { updated_at: string };
 export type SettingValues = Record<string, string>;
@@ -74,7 +74,8 @@ export interface SecurityStateSnapshot {
 }
 
 interface RuleSetListEntry {
-  id?: number;
+  /** The list exposes the uuid; the numeric row id is not serialised. */
+  uuid?: string;
   name: string;
 }
 
@@ -118,6 +119,20 @@ export async function readModuleSettings(request: APIRequestContext): Promise<Se
   );
 }
 
+/**
+ * Puts the module switches back to the values captured before a test. A security module key captured as '' is absent:
+ * the settings API cannot delete it, so it is left alone here and the stored row restore decides its final value.
+ */
+export async function restoreModuleSwitches(request: APIRequestContext, settings: SettingValues): Promise<void> {
+  for (const [key, value] of Object.entries(settings)) {
+    const isSecurityModuleKey = (SECURITY_MODULE_SWITCH_KEYS as readonly string[]).includes(key);
+    if (isSecurityModuleKey && value === '') {
+      continue;
+    }
+    await writeSettingValue(request, key, value);
+  }
+}
+
 export async function writeSettingValue(request: APIRequestContext, key: string, value: string): Promise<void> {
   const response = await withRateLimitRetry(() => request.post(SETTINGS_PATH, { data: { key, value } }));
   expect(response.ok(), `POST ${SETTINGS_PATH} ${key} failed with ${response.status()}`).toBeTruthy();
@@ -151,7 +166,7 @@ async function listRuleSets(request: APIRequestContext): Promise<RuleSetListEntr
 }
 
 /**
- * Deletes a rule set by name. DELETE takes the numeric row id, so the list must expose `id`;
+ * Deletes a rule set by name. DELETE takes the rule set uuid, so the list must expose `uuid`;
  * the helper fails loudly when it does not instead of leaving the rule set behind.
  */
 async function deleteRuleSetByName(request: APIRequestContext, name: string): Promise<void> {
@@ -159,10 +174,10 @@ async function deleteRuleSetByName(request: APIRequestContext, name: string): Pr
   if (!entry) {
     return;
   }
-  if (entry.id === undefined) {
-    throw new Error(`Rule set list does not expose an id, so "${name}" cannot be deleted`);
+  if (!entry.uuid) {
+    throw new Error(`Rule set list does not expose a uuid, so "${name}" cannot be deleted`);
   }
-  const response = await withRateLimitRetry(() => request.delete(`${RULESETS_PATH}/${entry.id}`));
+  const response = await withRateLimitRetry(() => request.delete(`${RULESETS_PATH}/${entry.uuid}`));
   expect(response.ok(), `DELETE rule set ${name} failed with ${response.status()}`).toBeTruthy();
 }
 
@@ -192,12 +207,11 @@ export async function restoreSecurityState(
   request: APIRequestContext,
   snapshot: SecurityStateSnapshot,
 ): Promise<void> {
-  for (const [key, value] of Object.entries(snapshot.settings)) {
-    await writeSettingValue(request, key, value);
-  }
+  // The row goes first: a save that enables a module also turns on the framework, so the switches are written last.
   if (snapshot.config) {
     await saveConfig(request, bodyFromRow(snapshot.config));
   }
+  await restoreModuleSwitches(request, snapshot.settings);
   for (const ruleSet of await listRuleSets(request)) {
     if (!snapshot.ruleSetNames.includes(ruleSet.name)) {
       await deleteRuleSetByName(request, ruleSet.name);
@@ -220,6 +234,42 @@ export function useSecurityStateRestore(): void {
     if (snapshot) {
       await restoreSecurityState(request, snapshot);
       snapshot = undefined;
+    }
+  });
+}
+
+/**
+ * Creates one enabled proxy host for the enclosing describe and deletes it afterwards. The status reports a reason or
+ * `enforced` only for an eligible host, so the enforcement assertions need one. Call it inside a `test.describe` block.
+ */
+export function useEligibleProxyHost(): void {
+  const domain = `security-status-${Date.now()}.e2e.test`;
+  let uuid: string | undefined;
+
+  test.beforeAll(async () => {
+    const context = await playwrightRequest.newContext({ baseURL: BASE_URL, storageState: STORAGE_STATE });
+    try {
+      // The host only has to exist and be enabled: the status reads the proxy configuration, nothing is sent to it.
+      const response = await context.post(PROXY_HOSTS_PATH, {
+        data: { name: domain, domain_names: domain, forward_scheme: 'http', forward_host: '127.0.0.1', forward_port: 9, enabled: true },
+      });
+      expect(response.ok(), `POST ${PROXY_HOSTS_PATH} failed with ${response.status()}: ${await response.text()}`).toBeTruthy();
+      uuid = ((await response.json()) as { uuid: string }).uuid;
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  test.afterAll(async () => {
+    if (!uuid) {
+      return;
+    }
+    const context = await playwrightRequest.newContext({ baseURL: BASE_URL, storageState: STORAGE_STATE });
+    try {
+      const response = await context.delete(`${PROXY_HOSTS_PATH}/${uuid}`);
+      expect(response.ok() || response.status() === 404, `DELETE ${PROXY_HOSTS_PATH} failed with ${response.status()}`).toBeTruthy();
+    } finally {
+      await context.dispose();
     }
   });
 }

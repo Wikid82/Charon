@@ -28,21 +28,28 @@ Protected attack types include:
 
 ## Configuration
 
-### Enabling WAF
+### Turning On the WAF
 
-1. Navigate to **Proxy Hosts**
-2. Edit or create a proxy host
-3. In the **Security** tab, toggle **Web Application Firewall**
-4. Select your preferred mode
+1. Open the **Security** page
+2. Turn on the **Web Application Firewall** switch
+3. Open the **WAF** page and pick a rule set from the list, or choose automatic selection
+
+The WAF page shows the rule sets you have and their modes. If the WAF is on but no rule set can be used yet, the Security page says so and tells you the reason.
 
 ### Operating Modes
 
+Each rule set has its own mode:
+
 | Mode | Behavior | Use Case |
 | --- | --- | --- |
-| **Monitor** | Logs threats but allows traffic | Testing rules, reducing false positives |
-| **Block** | Actively blocks malicious requests | Production protection |
+| **Detection** | Logs threats but allows traffic | Testing rules, reducing false positives |
+| **Blocking** | Actively blocks malicious requests | Production protection |
 
-**Recommendation**: Start in Monitor mode to review detected threats, then switch to Block mode once you're confident in the rules.
+**Recommendation**: Start with Detection to review detected threats, then switch the rule set to Blocking once you're confident in the rules.
+
+### After Upgrading
+
+After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them. A rule set with no mode of its own follows the saved WAF mode, which is detection when no mode had been saved.
 
 ### Per-Host Configuration
 
@@ -78,9 +85,9 @@ For TCP/UDP protection, use [CrowdSec](./crowdsec.md) or network-level firewalls
 
 | Issue | Solution |
 | ------- | ---------- |
-| Legitimate requests blocked | Switch to Monitor mode and review logs |
+| Legitimate requests blocked | Switch the rule set to Detection mode and review logs |
 | High latency | Check if complex rules are triggering; consider rule tuning |
-| WAF not activating | Verify the proxy host has WAF enabled in Security tab |
+| WAF shows as not applied | Check the WAF switch and rule set choice; see [Checking that a security module is applied](../troubleshooting/security-module-applied.md) |
 
 ## Related
 

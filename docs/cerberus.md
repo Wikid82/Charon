@@ -126,7 +126,7 @@ type SecurityConfig struct {
     CrowdsecAPIURL       string `json:"crowdsec_api_url"`
     CrowdsecAPIKey       string `json:"crowdsec_api_key"`
     WafMode              string `json:"waf_mode"`               // disabled, monitor, block
-    WafRulesSource       string `json:"waf_rules_source"`       // Ruleset identifier
+    WafRulesSource       string `json:"waf_rules_source"`       // Rule set name, or an http(s) URL
     WafLearning          bool   `json:"waf_learning"`
     RateLimitEnable      bool   `json:"rate_limit_enable"`
     RateLimitBurst       int    `json:"rate_limit_burst"`
@@ -202,12 +202,26 @@ type SecurityRuleSet struct {
     ID         uint   `gorm:"primaryKey"`
     Name       string `json:"name"`
     SourceURL  string `json:"source_url"`  // Optional URL for rule updates
-    Mode       string `json:"mode"`        // owasp, custom
+    Mode       string `json:"mode"`        // blocking or detection (see below)
     Content    string `json:"content"`     // Raw rule text
 }
 ```
 
 Manage via `/api/v1/security/rulesets`.
+
+### Choosing the Rule Set the WAF Uses
+
+On the WAF page, pick a rule set from the list, or choose automatic selection. The saved choice is either the name of a rule set or the address (`http://` or `https://`) of a rule file. A name that matches no rule set is refused.
+
+### How the Switch, the Saved Mode and the Rule Set Mode Combine
+
+- **The WAF switch** turns the WAF on or off. Turning it off never changes the rule sets or the saved mode.
+- **Each rule set has a mode**, Blocking or Detection, set on the WAF page. A rule set in Detection mode logs matching requests without stopping them. A rule set in Blocking mode stops them.
+- **The saved WAF mode** (`monitor` or `block`) is used only for a rule set with no mode of its own. Its `monitor` value means Detection; any other value means Blocking.
+
+### After Upgrading
+
+After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them. A rule set with no mode of its own follows the saved WAF mode, which is detection when no mode had been saved.
 
 ### Prometheus Metrics
 
@@ -235,6 +249,21 @@ WAF decisions emit JSON-like structured logs:
 ```
 
 Use these for dashboard creation and alerting.
+
+---
+
+## Rate Limiting
+
+The **Rate Limiting** switch on the Security page turns on two limits. Both follow that one switch.
+
+- **Proxy limit.** Limits how fast each visitor can send requests to your proxied sites. Its numbers are the ones on the Rate Limiting card.
+- **Management API limit.** Limits requests to Charon's own management interface. It does not read the numbers on the Rate Limiting card.
+
+**Standard numbers.** When the rate limit is turned on, any number that is not set is filled with the standard values: 100 requests, a 60 second window and a burst of 20. Numbers already sent in the same change are kept.
+
+**Unset numbers.** If the rate limit is already on but its request count or window is not set, Charon does not invent numbers. The Security page shows the rate limit as not applied with the reason `thresholds_unset` until you set the numbers.
+
+**Visitor counting.** The proxy limit counts visitors by the address that connects to Charon. Behind a tunnel or a shared network address, many visitors can share one count.
 
 ---
 
