@@ -117,3 +117,78 @@ func TestGetStatus_SettingsReadErrorKeepsRowState(t *testing.T) {
 	assert.Equal(t, "block", got.WAF.Mode)
 	assert.True(t, got.RateLimit.Enabled)
 }
+
+// TestGetStatus_WAFModeLabelFollowsStoredAction pins the displayed WAF mode when a settings key decides the state:
+// an ON WAF shows the stored block or monitor mode, and any other stored value keeps the enabled label.
+func TestGetStatus_WAFModeLabelFollowsStoredAction(t *testing.T) {
+	tests := []struct {
+		name        string
+		row         models.SecurityConfig
+		wafKey      string
+		static      config.SecurityConfig
+		wantEnabled bool
+		wantMode    string
+	}{
+		{
+			name:        "key true over block row shows block",
+			row:         models.SecurityConfig{WAFMode: "block"},
+			wafKey:      "true",
+			wantEnabled: true,
+			wantMode:    "block",
+		},
+		{
+			name:        "key true over padded mixed-case monitor row shows lowercase monitor",
+			row:         models.SecurityConfig{WAFMode: " Monitor "},
+			wafKey:      "true",
+			wantEnabled: true,
+			wantMode:    "monitor",
+		},
+		{
+			name:        "key true over disabled row shows enabled",
+			row:         models.SecurityConfig{WAFMode: "disabled"},
+			wafKey:      "true",
+			wantEnabled: true,
+			wantMode:    "enabled",
+		},
+		{
+			name:        "key true over empty row shows enabled",
+			row:         models.SecurityConfig{},
+			wafKey:      "true",
+			wantEnabled: true,
+			wantMode:    "enabled",
+		},
+		{
+			name:        "key false over block row shows disabled",
+			row:         models.SecurityConfig{WAFMode: "block"},
+			wafKey:      "false",
+			wantEnabled: false,
+			wantMode:    "disabled",
+		},
+		{
+			name:        "key absent over block row shows the stored block mode",
+			row:         models.SecurityConfig{WAFMode: "block"},
+			wantEnabled: true,
+			wantMode:    "block",
+		},
+		{
+			name:        "static WAF only shows the static mode",
+			static:      config.SecurityConfig{WAFMode: "monitor"},
+			wantEnabled: true,
+			wantMode:    "monitor",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			// An empty row has no WAF opinion, so the static-only case behaves as if no row existed.
+			seedStatusModuleState(t, db, tt.row, tt.wafKey)
+
+			static := tt.static
+			static.CerberusEnabled = true
+			got := getStatusModules(t, db, static)
+			assert.Equal(t, tt.wantEnabled, got.WAF.Enabled)
+			assert.Equal(t, tt.wantMode, got.WAF.Mode)
+		})
+	}
+}

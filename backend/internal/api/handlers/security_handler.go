@@ -166,6 +166,10 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	logStatusReadError("waf", wafErr)
 	if wafRes.FromSetting {
 		wafMode = settingModeLabel(wafRes.Enabled)
+		// An ON WAF keeps the stored block/monitor mode visible, so a settings key does not hide it.
+		if stored := storedWAFActionMode(defaultRow.WAFMode); wafRes.Enabled && stored != "" {
+			wafMode = stored
+		}
 	}
 	rateLimitRes, rateLimitErr := models.ResolveRateLimit(h.db, defaultRow, h.cfg.RateLimitMode == "enabled")
 	logStatusReadError("rate_limit", rateLimitErr)
@@ -229,6 +233,16 @@ func settingModeLabel(enabled bool) string {
 		return "enabled"
 	}
 	return "disabled"
+}
+
+// storedWAFActionMode returns the lowercase, trimmed WAF mode from the default row when it is "block" or "monitor",
+// or "" for any other value.
+func storedWAFActionMode(rowMode string) string {
+	mode := strings.ToLower(strings.TrimSpace(rowMode))
+	if mode == "block" || mode == "monitor" {
+		return mode
+	}
+	return ""
 }
 
 // logStatusReadError records a failed settings or row read behind the status response. The resolved state is still

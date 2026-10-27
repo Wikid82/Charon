@@ -194,8 +194,9 @@ func TestSecurityHandler_GetStatus_WAFModeFromSettings(t *testing.T) {
 	require.NoError(t, err)
 
 	waf := response["waf"].(map[string]any)
-	// When enabled via settings, mode should reflect "enabled" state
+	// When enabled via settings with no stored block or monitor mode, mode should reflect "enabled" state
 	assert.True(t, waf["enabled"].(bool))
+	assert.Equal(t, "enabled", waf["mode"])
 }
 
 // TestSecurityHandler_GetStatus_RateLimitModeFromSettings verifies that Rate Limit mode
