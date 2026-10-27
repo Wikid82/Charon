@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/ratelimit"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
@@ -58,7 +59,7 @@ func (c *Cerberus) isAdminSecurityControlPlaneRequest(ctx *gin.Context) bool {
 // override it in either direction.
 func (c *Cerberus) rateLimitEnabled() bool {
 	enabled := c.cfg.RateLimitMode == "enabled"
-	if v, ok := c.getSetting("security.rate_limit.enabled"); ok {
+	if v, ok := c.getSetting(models.SecurityRateLimitEnabledSettingKey); ok {
 		enabled = strings.EqualFold(v, "true")
 	}
 	return enabled

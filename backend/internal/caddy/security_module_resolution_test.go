@@ -89,6 +89,59 @@ func TestSecurityModuleResolution_AbsentRowUsesStaticWAFMode(t *testing.T) {
 	require.True(t, wafEnabled, "true key over disabled static mode with no row")
 }
 
+// TestSecurityModuleResolution_CerberusOffForcesModulesOff pins that Cerberus off keeps every module off, even when
+// the settings keys say on and the default row enables them.
+func TestSecurityModuleResolution_CerberusOffForcesModulesOff(t *testing.T) {
+	db := openModuleResolutionDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: false, WAFMode: "block", RateLimitMode: "enabled"}).Error)
+	for _, key := range []string{models.SecurityWAFEnabledSettingKey, models.SecurityRateLimitEnabledSettingKey, models.SecurityACLEnabledSettingKey} {
+		require.NoError(t, db.Create(&models.Setting{Key: key, Value: "true", Category: "security", Type: "bool"}).Error)
+	}
+
+	manager := NewManager(nil, db, "", "", false, config.SecurityConfig{CerberusEnabled: false, ACLMode: "enabled"})
+	cerbEnabled, aclEnabled, wafEnabled, rateLimitEnabled, _ := manager.computeEffectiveFlags(context.Background())
+	require.False(t, cerbEnabled)
+	require.False(t, aclEnabled)
+	require.False(t, wafEnabled)
+	require.False(t, rateLimitEnabled)
+}
+
+// TestSecurityModuleResolution_ACLKeyEnablesOverStatic pins that a "true" ACL key turns ACL on over a static
+// disabled mode, while Cerberus stays on.
+func TestSecurityModuleResolution_ACLKeyEnablesOverStatic(t *testing.T) {
+	db := openModuleResolutionDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: models.SecurityACLEnabledSettingKey, Value: " True ", Category: "security", Type: "bool"}).Error)
+
+	manager := NewManager(nil, db, "", "", false, config.SecurityConfig{CerberusEnabled: true, ACLMode: "disabled"})
+	cerbEnabled, aclEnabled, _, _, _ := manager.computeEffectiveFlags(context.Background())
+	require.True(t, cerbEnabled)
+	require.True(t, aclEnabled)
+}
+
+// TestSecurityModuleResolution_SettingsReadFailureUsesRowAndStatic pins that a failed settings read does not change
+// the other sources: the WAF follows the default row and the rate limit follows the static configuration.
+func TestSecurityModuleResolution_SettingsReadFailureUsesRowAndStatic(t *testing.T) {
+	db := openModuleResolutionDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true, WAFMode: "block"}).Error)
+	failSettingsQueries(db)
+
+	manager := NewManager(nil, db, "", "", false, config.SecurityConfig{CerberusEnabled: true, RateLimitMode: "enabled"})
+	_, aclEnabled, wafEnabled, rateLimitEnabled, _ := manager.computeEffectiveFlags(context.Background())
+	require.True(t, wafEnabled, "row block mode decides when the settings read fails")
+	require.True(t, rateLimitEnabled, "static rate limit decides when the settings read fails")
+	require.False(t, aclEnabled)
+}
+
+// failSettingsQueries makes every query against the settings table fail.
+func failSettingsQueries(db *gorm.DB) {
+	_ = db.Callback().Query().Before("gorm:query").Register("test:fail_settings", func(tx *gorm.DB) {
+		if tx.Statement.Table == "settings" {
+			_ = tx.AddError(fmt.Errorf("forced settings failure"))
+		}
+	})
+}
+
 // TestEnforcementReport_ReasonsAndCounts describes the enforcement report the proxy stores after an apply:
 // reasons no_ruleset, ruleset_not_selected, ruleset_unavailable and thresholds_unset, counts for eligible
 // and protected hosts, and zero eligible hosts (enforced omitted).

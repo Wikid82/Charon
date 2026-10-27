@@ -102,11 +102,14 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	// The CrowdSec decision reads the default row, or the static mode when no row exists. This matches the proxy
 	// config (caddy manager), so an empty row mode stays off instead of falling back to the static mode.
 	crowdSecRow := models.SecurityConfig{CrowdSecMode: h.cfg.CrowdSecMode}
+	// The default row for the module resolution; zero when no row exists, which has no opinion on any module.
+	defaultRow := models.SecurityConfig{}
 
 	// Override with database SecurityConfig if present (priority 2)
 	if h.db != nil {
 		if sc, err := models.FindDefaultSecurityConfig(h.db); err == nil {
 			crowdSecRow = sc
+			defaultRow = sc
 			// SecurityConfig in DB takes precedence over static config
 			enabled = sc.Enabled
 			if sc.WAFMode != "" {
@@ -140,26 +143,6 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			}
 		}
 
-		// WAF enabled override
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.waf.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			if strings.EqualFold(setting.Value, "true") {
-				wafMode = "enabled"
-			} else {
-				wafMode = "disabled"
-			}
-		}
-
-		// Rate Limit enabled override
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.rate_limit.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			if strings.EqualFold(setting.Value, "true") {
-				rateLimitMode = "enabled"
-			} else {
-				rateLimitMode = "disabled"
-			}
-		}
-
 		// CrowdSec: the enabled setting, then the deprecated mode setting, then the row (same precedence as the proxy config).
 		crowdSecOn, crowdSecErr := models.CrowdSecEnabled(h.db, crowdSecRow)
 		if crowdSecErr != nil {
@@ -169,16 +152,6 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		if crowdSecOn {
 			crowdSecMode = "local"
 		}
-
-		// ACL enabled override
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.acl.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			if strings.EqualFold(setting.Value, "true") {
-				aclMode = "enabled"
-			} else {
-				aclMode = "disabled"
-			}
-		}
 	}
 
 	// Map unknown/external mode to disabled
@@ -186,11 +159,29 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		crowdSecMode = "disabled"
 	}
 
+	// WAF, rate limit and ACL: settings key, then the default row, then the static configuration (the proxy's order).
+	// A decision that came from the settings key also sets the displayed mode.
+	wafRes, wafErr := models.ResolveWAF(h.db, defaultRow, models.StaticWAFEnabled(h.cfg.WAFMode))
+	logStatusReadError("waf", wafErr)
+	if wafRes.FromSetting {
+		wafMode = settingModeLabel(wafRes.Enabled)
+	}
+	rateLimitRes, rateLimitErr := models.ResolveRateLimit(h.db, defaultRow, h.cfg.RateLimitMode == "enabled")
+	logStatusReadError("rate_limit", rateLimitErr)
+	if rateLimitRes.FromSetting {
+		rateLimitMode = settingModeLabel(rateLimitRes.Enabled)
+	}
+	aclRes, aclErr := models.ResolveACL(h.db, h.cfg.ACLMode == "enabled")
+	logStatusReadError("acl", aclErr)
+	if aclRes.FromSetting {
+		aclMode = settingModeLabel(aclRes.Enabled)
+	}
+
 	// Compute effective enabled state for each feature
-	wafEnabled := wafMode != "" && wafMode != "disabled"
-	rateLimitEnabled := rateLimitMode == "enabled"
+	wafEnabled := wafRes.Enabled
+	rateLimitEnabled := rateLimitRes.Enabled
 	crowdsecEnabled := crowdSecMode == "local"
-	aclEnabled := aclMode == "enabled"
+	aclEnabled := aclRes.Enabled
 
 	// All features require Cerberus to be enabled
 	if !enabled {
@@ -225,6 +216,23 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		},
 		"config_apply": latestConfigApplyState(h.db),
 	})
+}
+
+// settingModeLabel is the mode shown for a module whose settings key decided its state.
+func settingModeLabel(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+// logStatusReadError records a failed settings or row read behind the status response. The resolved state is still
+// reported, using the default row or the static configuration.
+func logStatusReadError(module string, err error) {
+	if err == nil {
+		return
+	}
+	logger.Log().WithError(err).WithField("module", module).Warn("Failed to read security module setting for status, using the default SecurityConfig row or static configuration")
 }
 
 func latestConfigApplyState(db *gorm.DB) gin.H {
