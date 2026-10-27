@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
+import { useTranslation } from 'react-i18next'
 
+import { wafErrorMessage } from '../api/errorBody'
 import {
   getSecurityStatus,
   getSecurityConfig,
@@ -19,8 +21,14 @@ import {
   type CreateDecisionPayload,
 } from '../api/security'
 
+/**
+ * The one query key for the security status. Every page that reads or invalidates the status uses it, so a
+ * change on one page (for example the WAF rule-set source) refreshes the status everywhere.
+ */
+export const SECURITY_STATUS_QUERY_KEY = ['securityStatus'] as const
+
 export function useSecurityStatus() {
-  return useQuery({ queryKey: ['securityStatus'], queryFn: getSecurityStatus })
+  return useQuery({ queryKey: SECURITY_STATUS_QUERY_KEY, queryFn: getSecurityStatus })
 }
 
 /** Admin-only sign-in throttle status; pass `enabled: false` for non-admins so no request is made. */
@@ -43,7 +51,7 @@ export function useUpdateSecurityConfig() {
     mutationFn: (payload: SecurityConfigPayload) => updateSecurityConfig(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['securityConfig'] })
-      qc.invalidateQueries({ queryKey: ['securityStatus'] })
+      qc.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
       toast.success('Security configuration updated')
     },
     onError: (err: Error) => {
@@ -88,14 +96,36 @@ export function useUpsertRuleSet() {
 
 export function useDeleteRuleSet() {
   const qc = useQueryClient()
+  const { t } = useTranslation()
   return useMutation({
-    mutationFn: (id: number) => deleteRuleSet(id),
+    mutationFn: (uuid: string) => deleteRuleSet(uuid),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['securityRulesets'] })
       toast.success('Rule set deleted')
     },
     onError: (err: Error) => {
-      toast.error(`Failed to delete rule set: ${err.message}`)
+      toast.error(wafErrorMessage(err, t, `Failed to delete rule set: ${err.message}`))
+    },
+  })
+}
+
+/**
+ * Chooses the rule set the WAF inspects requests with. The empty string means "Choose automatically". Saves only
+ * the rule-set source (the field-level save), so no other stored setting changes.
+ */
+export function useUpdateWafRulesSource() {
+  const qc = useQueryClient()
+  const { t } = useTranslation()
+  return useMutation({
+    mutationFn: (source: string) =>
+      updateSecurityConfig({ name: 'default', waf_rules_source: source }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['securityConfig'] })
+      qc.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
+      toast.success(t('wafConfig.rulesSource.saved'))
+    },
+    onError: (err: unknown) => {
+      toast.error(wafErrorMessage(err, t, t('wafConfig.rulesSource.saveFailed')))
     },
   })
 }
@@ -106,7 +136,7 @@ export function useEnableCerberus() {
     mutationFn: (payload?: Record<string, unknown>) => enableCerberus(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['securityConfig'] })
-      qc.invalidateQueries({ queryKey: ['securityStatus'] })
+      qc.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
       toast.success('Cerberus enabled')
     },
     onError: (err: Error) => {
@@ -121,7 +151,7 @@ export function useDisableCerberus() {
     mutationFn: (payload?: Record<string, unknown>) => disableCerberus(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['securityConfig'] })
-      qc.invalidateQueries({ queryKey: ['securityStatus'] })
+      qc.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
       toast.success('Cerberus disabled')
     },
     onError: (err: Error) => {

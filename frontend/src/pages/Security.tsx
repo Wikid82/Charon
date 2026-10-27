@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink, Bell } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -6,13 +6,14 @@ import { useNavigate, Outlet } from 'react-router'
 
 import { startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
 import { crowdsecErrorMessage } from '../api/errorBody'
-import { getSecurityStatus, type SecurityStatus } from '../api/security'
+import { type SecurityStatus } from '../api/security'
 import { updateSetting } from '../api/settings'
 import { CrowdSecKeyWarning } from '../components/CrowdSecKeyWarning'
 import { PageShell } from '../components/layout/PageShell'
 import { LiveLogViewer } from '../components/LiveLogViewer'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { LoginProtectionCard } from '../components/LoginProtectionCard'
+import { SecurityEnforcementNote } from '../components/SecurityEnforcementNote'
 import {
   Card,
   CardHeader,
@@ -32,7 +33,13 @@ import {
 } from '../components/ui'
 import { useAuth } from '../hooks/useAuth'
 import { CROWDSEC_STATUS_QUERY_KEY, useCrowdsecStatus } from '../hooks/useCrowdsecStatus'
-import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
+import {
+  SECURITY_STATUS_QUERY_KEY,
+  useSecurityConfig,
+  useSecurityStatus,
+  useUpdateSecurityConfig,
+  useGenerateBreakGlassToken,
+} from '../hooks/useSecurity'
 import { toast } from '../utils/toast'
 
 // Skeleton loader for security layer cards
@@ -84,10 +91,7 @@ export default function Security() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { data: status, isLoading } = useQuery({
-    queryKey: ['security-status'],
-    queryFn: getSecurityStatus,
-  })
+  const { data: status, isLoading } = useSecurityStatus()
   const { data: securityConfig } = useSecurityConfig()
   // Draft is null until the user edits; the displayed value falls back to the server value.
   const [adminWhitelistDraft, setAdminWhitelistDraft] = useState<string | null>(null)
@@ -105,13 +109,13 @@ export default function Security() {
     },
     onMutate: async ({ key, enabled }: { key: string; enabled: boolean }) => {
       // Cancel ongoing queries to avoid race conditions
-      await queryClient.cancelQueries({ queryKey: ['security-status'] })
+      await queryClient.cancelQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
 
       // Snapshot current state for rollback
-      const previous = queryClient.getQueryData(['security-status'])
+      const previous = queryClient.getQueryData(SECURITY_STATUS_QUERY_KEY)
 
       // Optimistic update: parse key like "security.acl.enabled" -> section "acl"
-      queryClient.setQueryData(['security-status'], (old: unknown) => {
+      queryClient.setQueryData(SECURITY_STATUS_QUERY_KEY, (old: unknown) => {
         if (!old || typeof old !== 'object') return old
 
         const oldStatus = old as SecurityStatus
@@ -141,7 +145,7 @@ export default function Security() {
     onError: (_err, _vars, context: unknown) => {
       // Rollback on error
       if (context && typeof context === 'object' && 'previous' in context) {
-        queryClient.setQueryData(['security-status'], context.previous)
+        queryClient.setQueryData(SECURITY_STATUS_QUERY_KEY, context.previous)
       }
       const msg = _err instanceof Error ? _err.message : String(_err)
       toast.error(t('security.settingUpdateFailed', { error: msg }))
@@ -149,7 +153,7 @@ export default function Security() {
     onSuccess: () => {
       // Refresh data from server
       queryClient.invalidateQueries({ queryKey: ['settings'] })
-      queryClient.invalidateQueries({ queryKey: ['security-status'] })
+      queryClient.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
       toast.success(t('security.settingUpdated'))
     },
   })
@@ -159,7 +163,7 @@ export default function Security() {
   // Every query a CrowdSec start or stop can change. Runs after both success and failure so the UI matches the server.
   const refreshCrowdsecQueries = () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['security-status'] }),
+      queryClient.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY }),
       queryClient.invalidateQueries({ queryKey: ['settings'] }),
       refreshCrowdsecStatus(),
     ])
@@ -567,6 +571,7 @@ export default function Security() {
                   ? t('security.wafProtects')
                   : t('security.wafDisabledDescription')}
               </p>
+              <SecurityEnforcementNote moduleName="waf" state={status.waf} />
             </CardContent>
             <CardFooter className="justify-between pt-4">
               <Tooltip>
@@ -620,6 +625,7 @@ export default function Security() {
               <p className="text-sm text-content-muted">
                 {t('security.rateLimitProtects')}
               </p>
+              <SecurityEnforcementNote moduleName="rate_limit" state={status.rate_limit} />
             </CardContent>
             <CardFooter className="justify-between pt-4">
               <Tooltip>

@@ -594,7 +594,18 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "waf": {
+        "no_ruleset": "The WAF is on, but no rule set is available to inspect requests. Add a rule set on the WAF page.",
+        "ruleset_not_selected": "The WAF is on, but several rule sets exist and none is selected. Choose the rule set on the WAF page.",
+        "ruleset_unavailable": "The WAF is on, but the selected rule set could not be loaded. Check it on the WAF page."
+      },
+      "rate_limit": {
+        "thresholds_unset": "Rate limiting is on, but no limits are set yet. Set the requests and window on the Rate Limiting page."
+      },
+      "unknown": "Not applied to every host yet. Check this module's settings page."
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -695,7 +706,20 @@
     "loadingConfiguration": "Loading WAF configuration...",
     "failedToLoad": "Failed to load WAF configuration",
     "deleteConfirmation": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
-    "ruleCount": "{{count}} rule(s)"
+    "ruleCount": "{{count}} rule(s)",
+    "rulesSource": {
+      "label": "Rule set source",
+      "help": "The rule set the WAF inspects requests with. Choose automatically when only one rule set exists.",
+      "auto": "Choose automatically",
+      "saved": "WAF rule set source saved",
+      "saveFailed": "Could not save the WAF rule set source"
+    },
+    "errors": {
+      "waf_rules_source_unknown": "That rule set does not exist. Choose one from the list.",
+      "waf_ruleset_in_use": "This rule set is the one the WAF uses. Choose another rule set first.",
+      "invalid_waf_mode": "The WAF mode is not valid. Reload the page and try again."
+    },
+    "detectionMode": "Detection mode: requests that match the rules are logged, not blocked. Set a rule set's mode to blocking to block them."
   },
   "uptime": {
     "title": "Uptime Monitoring",

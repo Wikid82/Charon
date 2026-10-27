@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { SECURITY_STATUS_QUERY_KEY } from './useSecurity'
 import { getCrowdsecBusyJobId, isCrowdsecBusyError } from '../api/errorBody'
 import {
   applyPresetAsync,
@@ -102,7 +103,7 @@ export function useCrowdsecApplyJob(options: { enabled?: boolean } = {}) {
     finishedRef.current = finishedId
     void queryClient.invalidateQueries({ queryKey: ['crowdsec-presets'] })
     void queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] })
-    void queryClient.invalidateQueries({ queryKey: ['security-status'] })
+    void queryClient.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
   }, [finishedId, queryClient])
 
   const follow = useCallback((started: CrowdsecApplyJob) => {

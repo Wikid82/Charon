@@ -20,7 +20,6 @@ import {
   PRESET_ERROR_CODES,
   type CrowdsecPresetErrorCode,
 } from '../api/presets'
-import { getSecurityStatus } from '../api/security'
 import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
 import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
@@ -36,6 +35,7 @@ import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist, isWhitelistFieldError, whitelistAddErrorMessage } from '../hooks/useCrowdSecWhitelist'
+import { SECURITY_STATUS_QUERY_KEY, useSecurityStatus } from '../hooks/useSecurity'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
 import { sanitizeSecret } from '../utils/sanitizeSecret'
@@ -63,7 +63,7 @@ const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDash
 
 export default function CrowdSecConfig() {
   const { t } = useTranslation()
-  const { data: status, isLoading, error } = useQuery({ queryKey: ['security-status'], queryFn: getSecurityStatus })
+  const { data: status, isLoading, error } = useSecurityStatus()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'alpha' | 'type' | 'source'>('alpha')
   const [file, setFile] = useState<File | null>(null)
@@ -166,7 +166,7 @@ export default function CrowdSecConfig() {
       setNeedsValues(result.needs_values ?? [])
       setWhitelistRegenerated(result.whitelist_regenerated === true)
       setOtherWhitelistFiles(result.other_whitelist_files ?? [])
-      queryClient.invalidateQueries({ queryKey: ['security-status'] })
+      queryClient.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
     },
     onError: (err: unknown) => {
       toast.error(importFailureMessage(err))

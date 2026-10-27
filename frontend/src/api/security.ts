@@ -1,5 +1,14 @@
 import client from './client'
 
+/**
+ * Whether a module that is on is applied to the proxy. `enforced` is omitted when the report does not apply
+ * (module off, no hosts, or a stale report); `reason` names the state when `enforced` is false.
+ */
+export interface SecurityEnforcement {
+  enforced?: boolean
+  reason?: string
+}
+
 /** Security module status information. */
 export interface SecurityStatus {
   cerberus?: { enabled: boolean }
@@ -11,11 +20,13 @@ export interface SecurityStatus {
   waf: {
     mode: 'disabled' | 'enabled'
     enabled: boolean
-  }
+    /** Hosts the WAF is not applied to while it is on. */
+    unprotected_hosts?: number
+  } & SecurityEnforcement
   rate_limit: {
     mode?: 'disabled' | 'enabled'
     enabled: boolean
-  }
+  } & SecurityEnforcement
   acl: {
     enabled: boolean
   }
@@ -112,13 +123,29 @@ export interface SecurityConfigPayload {
   rate_limit_bypass_list?: string
 }
 
+/** Stored security configuration fields the UI reads. Other stored fields are not listed. */
+export interface SecurityConfigRecord {
+  name?: string
+  admin_whitelist?: string
+  waf_mode?: string
+  waf_rules_source?: string
+  rate_limit_requests?: number | null
+  rate_limit_burst?: number | null
+  rate_limit_window_sec?: number | null
+}
+
+/** Response of `GET /security/config`; `config` is null before the default row is seeded. */
+export interface SecurityConfigResponse {
+  config: SecurityConfigRecord | null
+}
+
 /**
  * Gets the current security configuration.
  * @returns Promise resolving to the security configuration
  * @throws {AxiosError} If the request fails
  */
-export const getSecurityConfig = async () => {
-  const response = await client.get('/security/config')
+export const getSecurityConfig = async (): Promise<SecurityConfigResponse> => {
+  const response = await client.get<SecurityConfigResponse>('/security/config')
   return response.data
 }
 
@@ -201,9 +228,11 @@ export const createDecision = async (payload: CreateDecisionPayload) => {
 }
 
 // WAF Ruleset types
-/** WAF security ruleset configuration. */
+/**
+ * WAF security ruleset configuration. The numeric database id is never sent to the client; `uuid` identifies
+ * a rule set in every route that addresses one.
+ */
 export interface SecurityRuleSet {
-  id: number
   uuid: string
   name: string
   source_url: string
@@ -219,7 +248,6 @@ export interface RuleSetsResponse {
 
 /** Payload for creating/updating a WAF ruleset. */
 export interface UpsertRuleSetPayload {
-  id?: number
   name: string
   content?: string
   source_url?: string
@@ -248,12 +276,12 @@ export const upsertRuleSet = async (payload: UpsertRuleSetPayload) => {
 }
 
 /**
- * Deletes a WAF ruleset.
- * @param id - The ruleset ID to delete
+ * Deletes a WAF ruleset. The server refuses (409 `waf_ruleset_in_use`) the rule set the WAF uses as its source.
+ * @param uuid - The ruleset UUID to delete
  * @returns Promise resolving to delete result
  * @throws {AxiosError} If deletion fails or ruleset not found
  */
-export const deleteRuleSet = async (id: number) => {
-  const response = await client.delete(`/security/rulesets/${id}`)
+export const deleteRuleSet = async (uuid: string) => {
+  const response = await client.delete(`/security/rulesets/${encodeURIComponent(uuid)}`)
   return response.data
 }

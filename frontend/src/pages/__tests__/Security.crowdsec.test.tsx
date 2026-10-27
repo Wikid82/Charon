@@ -425,6 +425,6 @@ describe('Security CrowdSec mutation UX', () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(BUSY_TEXT))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['settings'] })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['security-status'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['securityStatus'] })
   })
 })

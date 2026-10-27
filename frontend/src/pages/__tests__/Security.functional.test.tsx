@@ -15,6 +15,7 @@ import * as securityApi from '../../api/security'
 import * as settingsApi from '../../api/settings'
 import Security from '../Security'
 
+import type * as useSecurity from '../../hooks/useSecurity'
 import type * as ReactRouterDom from 'react-router'
 
 const mockNavigate = vi.hoisted(() => vi.fn())
@@ -143,11 +144,15 @@ vi.mock('../../components/CrowdSecKeyWarning', () => ({
 
 // NOTE: CrowdSecBouncerKeyDisplay mock removed (moved to CrowdSecConfig page)
 
-vi.mock('../../hooks/useSecurity', () => ({
-  useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '10.0.0.0/8' } } })),
-  useUpdateSecurityConfig: vi.fn(() => ({ mutate: mockUpdateSecurityConfigMutate, isPending: false })),
-  useGenerateBreakGlassToken: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-}))
+vi.mock('../../hooks/useSecurity', async (importOriginal) => {
+  const actual = await importOriginal<typeof useSecurity>()
+  return {
+    ...actual,
+    useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '10.0.0.0/8' } } })),
+    useUpdateSecurityConfig: vi.fn(() => ({ mutate: mockUpdateSecurityConfigMutate, isPending: false })),
+    useGenerateBreakGlassToken: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  }
+})
 
 const mockSecurityStatusAllEnabled = {
   cerberus: { enabled: true },
