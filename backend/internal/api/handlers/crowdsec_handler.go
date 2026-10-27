@@ -753,7 +753,7 @@ func (h *CrowdsecHandler) snapshotCrowdsecStart() (crowdsecStartSnapshot, error)
 // the shared helper, which the sibling security modules also use. Then CrowdSec is set to local: the
 // row, the deprecated mode setting and the enabled setting, so every reader of the decision agrees.
 func (h *CrowdsecHandler) persistCrowdsecStart() error {
-	if err := enableSecurityFramework(h.DB); err != nil {
+	if err := models.EnableSecurityFramework(h.DB); err != nil {
 		return fmt.Errorf("enable security framework: %w", err)
 	}
 	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local"}); err != nil {

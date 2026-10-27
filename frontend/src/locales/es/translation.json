@@ -589,7 +589,18 @@
       "loadError": "No se pudo cargar el estado de la protección de inicio de sesión."
     },
     "settingUpdated": "Configuración de seguridad actualizada",
-    "settingUpdateFailed": "No se pudo actualizar la configuración: {{error}}"
+    "settingUpdateFailed": "No se pudo actualizar la configuración: {{error}}",
+    "enforcement": {
+      "waf": {
+        "no_ruleset": "El WAF está activado, pero no hay ningún conjunto de reglas disponible para inspeccionar las solicitudes. Añade un conjunto de reglas en la página del WAF.",
+        "ruleset_not_selected": "El WAF está activado, pero hay varios conjuntos de reglas y ninguno está seleccionado. Elige el conjunto de reglas en la página del WAF.",
+        "ruleset_unavailable": "El WAF está activado, pero no se pudo cargar el conjunto de reglas seleccionado. Revísalo en la página del WAF."
+      },
+      "rate_limit": {
+        "thresholds_unset": "El límite de velocidad está activado, pero todavía no hay límites definidos. Define las solicitudes y la ventana en la página de límite de velocidad."
+      },
+      "unknown": "Todavía no se aplica a todos los hosts. Revisa la página de configuración de este módulo."
+    }
   },
   "accessLists": {
     "title": "Listas de Acceso",
@@ -643,7 +654,8 @@
     "rateLimitingDisabled": "Limitación de Tasa Deshabilitada",
     "enableToConfigureMessage": "Habilita la limitación de tasa para configurar límites de solicitudes y proteger tus servicios",
     "adjustingGates": "Ajustando las puertas...",
-    "configurationUpdating": "Configuración de limitación de tasa actualizándose"
+    "configurationUpdating": "Configuración de limitación de tasa actualizándose",
+    "invalidValue": "Introduce un número entero mayor que 0."
   },
   "wafConfig": {
     "title": "Configuración WAF",
@@ -689,7 +701,20 @@
     "loadingConfiguration": "Loading WAF configuration...",
     "failedToLoad": "Failed to load WAF configuration",
     "deleteConfirmation": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
-    "ruleCount": "{{count}} rule(s)"
+    "ruleCount": "{{count}} rule(s)",
+    "rulesSource": {
+      "label": "Origen del conjunto de reglas",
+      "help": "El conjunto de reglas con el que el WAF inspecciona las solicitudes. Elige «Elegir automáticamente» si solo existe un conjunto de reglas.",
+      "auto": "Elegir automáticamente",
+      "saved": "Origen del conjunto de reglas del WAF guardado",
+      "saveFailed": "No se pudo guardar el origen del conjunto de reglas del WAF"
+    },
+    "errors": {
+      "waf_rules_source_unknown": "Ese conjunto de reglas no existe. Elige uno de la lista.",
+      "waf_ruleset_in_use": "Este conjunto de reglas es el que usa el WAF. Elige primero otro conjunto de reglas.",
+      "invalid_waf_mode": "El modo del WAF no es válido. Recarga la página e inténtalo de nuevo."
+    },
+    "detectionMode": "Los conjuntos de reglas sin modo propio solo registran las solicitudes coincidentes mientras el modo WAF guardado sea detección. Un conjunto de reglas con modo bloqueo bloquea las solicitudes coincidentes."
   },
   "uptime": {
     "title": "Monitoreo de Disponibilidad",

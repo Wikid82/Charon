@@ -54,7 +54,7 @@ func TestValidateAdminWhitelist(t *testing.T) {
 func TestEnableSecurityFramework_WithDB(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
 
-	require.NoError(t, enableSecurityFramework(db))
+	require.NoError(t, models.EnableSecurityFramework(db))
 
 	var cfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
@@ -62,7 +62,7 @@ func TestEnableSecurityFramework_WithDB(t *testing.T) {
 
 	cfg.Enabled = false
 	require.NoError(t, db.Save(&cfg).Error)
-	require.NoError(t, enableSecurityFramework(db))
+	require.NoError(t, models.EnableSecurityFramework(db))
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
 	require.True(t, cfg.Enabled)
 }

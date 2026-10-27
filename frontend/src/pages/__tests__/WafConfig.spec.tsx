@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -29,7 +29,6 @@ const renderWithProviders = (ui: React.ReactNode) => {
 }
 
 const mockRuleSet: SecurityRuleSet = {
-  id: 1,
   uuid: 'uuid-1',
   name: 'OWASP CRS',
   source_url: '',
@@ -87,7 +86,7 @@ describe('WafConfig page', () => {
     await waitFor(() => {
       expect(screen.getByTestId('rulesets-table')).toBeInTheDocument()
     })
-    expect(screen.getByText('OWASP CRS')).toBeInTheDocument()
+    expect(within(screen.getByTestId('rulesets-table')).getByText('OWASP CRS')).toBeInTheDocument()
     expect(screen.getByText('Blocking')).toBeInTheDocument()
     expect(screen.getByText('Inline')).toBeInTheDocument()
   })
@@ -154,7 +153,7 @@ describe('WafConfig page', () => {
       expect(screen.getByTestId('rulesets-table')).toBeInTheDocument()
     })
 
-    await userEvent.click(screen.getByTestId('edit-ruleset-1'))
+    await userEvent.click(screen.getByTestId('edit-ruleset-uuid-1'))
 
     expect(screen.getByText('Edit Rule Set')).toBeInTheDocument()
     expect(screen.getByDisplayValue('OWASP CRS')).toBeInTheDocument()
@@ -172,7 +171,7 @@ describe('WafConfig page', () => {
     })
 
     // Click delete button
-    await userEvent.click(screen.getByTestId('delete-ruleset-1'))
+    await userEvent.click(screen.getByTestId('delete-ruleset-uuid-1'))
 
     // Confirm dialog should appear
     expect(screen.getByText('Delete Rule Set')).toBeInTheDocument()
@@ -182,7 +181,7 @@ describe('WafConfig page', () => {
     await userEvent.click(screen.getByTestId('confirm-delete-btn'))
 
     await waitFor(() => {
-      expect(securityApi.deleteRuleSet).toHaveBeenCalledWith(1)
+      expect(securityApi.deleteRuleSet).toHaveBeenCalledWith('uuid-1')
     })
   })
 
@@ -197,7 +196,7 @@ describe('WafConfig page', () => {
     })
 
     // Click delete button
-    await userEvent.click(screen.getByTestId('delete-ruleset-1'))
+    await userEvent.click(screen.getByTestId('delete-ruleset-uuid-1'))
 
     // Click cancel
     await userEvent.click(screen.getByText('Cancel'))
@@ -220,7 +219,7 @@ describe('WafConfig page', () => {
     })
 
     // Click delete button
-    await userEvent.click(screen.getByTestId('delete-ruleset-1'))
+    await userEvent.click(screen.getByTestId('delete-ruleset-uuid-1'))
 
     // Click backdrop
     await userEvent.click(screen.getByTestId('confirm-dialog-backdrop'))
@@ -404,7 +403,7 @@ describe('WafConfig page', () => {
     })
 
     // Open edit form
-    await userEvent.click(screen.getByTestId('edit-ruleset-1'))
+    await userEvent.click(screen.getByTestId('edit-ruleset-uuid-1'))
 
     // Update name
     const nameInput = screen.getByTestId('ruleset-name-input')
@@ -417,7 +416,6 @@ describe('WafConfig page', () => {
     await waitFor(() => {
       expect(securityApi.upsertRuleSet).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 1,
           name: 'Updated CRS',
         })
       )
@@ -435,7 +433,7 @@ describe('WafConfig page', () => {
     })
 
     // Open edit form
-    await userEvent.click(screen.getByTestId('edit-ruleset-1'))
+    await userEvent.click(screen.getByTestId('edit-ruleset-uuid-1'))
 
     // Click delete button in edit form header
     const deleteBtn = screen.getByRole('button', { name: /delete/i })
@@ -535,7 +533,7 @@ SecRule ARGS "@contains test3" "id:3,phase:1,deny"`,
       expect(screen.getByTestId('rulesets-table')).toBeInTheDocument()
     })
 
-    await userEvent.click(screen.getByTestId('edit-ruleset-1'))
+    await userEvent.click(screen.getByTestId('edit-ruleset-uuid-1'))
 
     // Preset dropdown should not be visible when editing
     expect(screen.queryByTestId('preset-select')).not.toBeInTheDocument()

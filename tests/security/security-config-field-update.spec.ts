@@ -5,6 +5,9 @@
  * Each test seeds a known security state through the API, performs one save (through the API, or through the
  * Rate Limiting and Security pages), then compares the stored row and /security/status before and after.
  *
+ * A save can also change the module switch keys: waf_mode and rate_limit_enable write the key only when the value
+ * differs from the stored row (the echo rule), so a GET -> edit -> POST round trip never flips a module.
+ *
  * The admin allow-list always keeps the test runner's ranges so the runner stays reachable while Cerberus is on.
  */
 
@@ -12,36 +15,26 @@ import { test, expect } from '../fixtures/test';
 import { request as playwrightRequest, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+import {
+  CONFIG_PATH,
+  RUNNER_WHITELIST,
+  type ModuleSwitchSnapshot,
+  type SecurityConfigRow,
+  bodyFromRow,
+  captureModuleSwitches,
+  expectModuleSwitchesRestored,
+  getConfigRow,
+  readModuleSettings,
+  restoreModuleSwitches,
+  saveConfig,
+  writeSettingValue,
+} from '../utils/security-settings-api';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
-const CONFIG_PATH = '/api/v1/security/config';
 const STATUS_PATH = '/api/v1/security/status';
 const DEFAULT_CONFIG_NAME = 'default';
 
-const RUNNER_WHITELIST = '127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 const EXTRA_WHITELIST_CIDR = '198.51.100.0/24';
-
-/** Stored security config row as returned by GET /api/v1/security/config. */
-type SecurityConfigRow = Record<string, unknown> & { updated_at: string };
-
-/** Body fields the save endpoint reads. crowdsec_mode is validated but not stored by this endpoint. */
-const UPDATABLE_KEYS = [
-  'name',
-  'enabled',
-  'admin_whitelist',
-  'crowdsec_api_url',
-  'waf_mode',
-  'waf_rules_source',
-  'waf_learning',
-  'waf_paranoia_level',
-  'waf_exclusions',
-  'rate_limit_mode',
-  'rate_limit_enable',
-  'rate_limit_burst',
-  'rate_limit_requests',
-  'rate_limit_window_sec',
-  'rate_limit_bypass_list',
-] as const;
 
 /** Known state every test starts from. Fields not listed here keep whatever the stored row holds. */
 const SEED_STATE = {
@@ -77,34 +70,6 @@ async function withRateLimitRetry<T extends { status(): number }>(send: () => Pr
   return response;
 }
 
-async function getConfigRow(context: APIRequestContext): Promise<SecurityConfigRow | null> {
-  const response = await withRateLimitRetry(() => context.get(CONFIG_PATH));
-  expect(response.ok(), `GET ${CONFIG_PATH} failed with ${response.status()}`).toBeTruthy();
-  const body = (await response.json()) as { config: SecurityConfigRow | null };
-  return body.config;
-}
-
-/**
- * Settings overrides that decide whether the Rate Limiting and Security pages show their config controls.
- * The status endpoint prefers these over the stored row, so the UI tests turn them on and restore them after.
- */
-const UI_SURFACE_SETTING_KEYS = ['feature.cerberus.enabled', 'security.rate_limit.enabled'] as const;
-
-async function readSettingValues(context: APIRequestContext): Promise<Record<string, string>> {
-  const response = await withRateLimitRetry(() => context.get('/api/v1/settings'));
-  expect(response.ok(), `GET /api/v1/settings failed with ${response.status()}`).toBeTruthy();
-  const body = (await response.json()) as Record<string, unknown>;
-  // An absent key is stored back as an empty value, which the status endpoint reads as "no override".
-  return Object.fromEntries(
-    UI_SURFACE_SETTING_KEYS.map((key) => [key, typeof body[key] === 'string' ? body[key] : '']),
-  );
-}
-
-async function writeSettingValue(context: APIRequestContext, key: string, value: string): Promise<void> {
-  const response = await withRateLimitRetry(() => context.post('/api/v1/settings', { data: { key, value } }));
-  expect(response.ok(), `POST /api/v1/settings ${key} failed with ${response.status()}`).toBeTruthy();
-}
-
 /**
  * Returns the module status flags. config_apply is left out: its applied_at timestamp moves on every save,
  * so it says nothing about which fields were stored.
@@ -116,27 +81,13 @@ async function getStatus(context: APIRequestContext): Promise<Record<string, unk
   return flags;
 }
 
-/** Posts a save body and asserts it was accepted. */
-async function saveConfig(context: APIRequestContext, body: Record<string, unknown>): Promise<void> {
-  const response = await withRateLimitRetry(() => context.post(CONFIG_PATH, { data: body }));
-  expect(response.ok(), `POST ${CONFIG_PATH} failed with ${response.status()}: ${await response.text()}`).toBeTruthy();
-}
-
-/** Builds a full-row save body from a stored row, limited to the keys the endpoint updates. */
-function restoreBodyFrom(row: SecurityConfigRow): Record<string, unknown> {
-  const body: Record<string, unknown> = {};
-  for (const key of UPDATABLE_KEYS) {
-    body[key] = row[key];
-  }
-  return body;
-}
-
-/** Returns the row without updated_at, which moves on every write. */
-function withoutUpdatedAt(row: SecurityConfigRow): Omit<SecurityConfigRow, 'updated_at'> {
-  return Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'updated_at')) as Omit<
-    SecurityConfigRow,
-    'updated_at'
-  >;
+/** Seeds SEED_STATE (with optional overrides) and returns the row and status to compare against. */
+async function seedState(context: APIRequestContext, overrides: Record<string, unknown> = {}) {
+  await saveConfig(context, { ...SEED_STATE, ...overrides });
+  const row = await getConfigRow(context);
+  expect(row).not.toBeNull();
+  const status = await getStatus(context);
+  return { row: row as SecurityConfigRow, status };
 }
 
 /**
@@ -158,29 +109,39 @@ function expectOnlyChanged(
   expect(after).toEqual({ ...before, ...changes, updated_at: after.updated_at });
 }
 
+/** Returns the row without updated_at, which moves on every write. */
+function withoutUpdatedAt(row: SecurityConfigRow): Omit<SecurityConfigRow, 'updated_at'> {
+  return Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'updated_at')) as Omit<
+    SecurityConfigRow,
+    'updated_at'
+  >;
+}
+
 test.describe('Security config save applies only the fields in the request', () => {
   test.describe.configure({ mode: 'serial' });
 
   let context: APIRequestContext;
   let originalRow: SecurityConfigRow | null;
-  let originalSettings: Record<string, string>;
+  let originalModules: ModuleSwitchSnapshot;
 
   test.beforeAll(async () => {
     context = await createAuthedContext();
     originalRow = await getConfigRow(context);
-    originalSettings = await readSettingValues(context);
+    originalModules = await captureModuleSwitches(context);
   });
 
   test.afterAll(async () => {
     try {
-      for (const [key, value] of Object.entries(originalSettings)) {
-        await writeSettingValue(context, key, value);
-      }
+      // Force both module keys off first, so the restore below always has a real change to put back.
+      await saveConfig(context, { name: DEFAULT_CONFIG_NAME, waf_mode: 'disabled', rate_limit_enable: false });
+      // The row goes first: a save that enables a module also turns on the framework, so the switches are written last.
       if (originalRow) {
-        await saveConfig(context, restoreBodyFrom(originalRow));
+        await saveConfig(context, bodyFromRow(originalRow));
         const restored = await getConfigRow(context);
         expect(restored && withoutUpdatedAt(restored)).toEqual(withoutUpdatedAt(originalRow));
       }
+      await restoreModuleSwitches(context, originalModules);
+      await expectModuleSwitchesRestored(context, originalModules);
     } finally {
       await context.dispose();
     }
@@ -192,17 +153,8 @@ test.describe('Security config save applies only the fields in the request', () 
     await writeSettingValue(context, 'security.rate_limit.enabled', 'true');
   }
 
-  /** Seeds SEED_STATE (with optional overrides) and returns the row and status to compare against. */
-  async function seed(overrides: Record<string, unknown> = {}) {
-    await saveConfig(context, { ...SEED_STATE, ...overrides });
-    const row = await getConfigRow(context);
-    expect(row).not.toBeNull();
-    const status = await getStatus(context);
-    return { row: row as SecurityConfigRow, status };
-  }
-
   test('API save of only the three rate-limit numbers changes only those numbers', async () => {
-    const before = await seed();
+    const before = await seedState(context);
 
     await test.step('Save the three rate-limit numbers only', async () => {
       await saveConfig(context, {
@@ -227,7 +179,7 @@ test.describe('Security config save applies only the fields in the request', () 
   });
 
   test('API save of only the admin allow-list changes only that field', async () => {
-    const before = await seed();
+    const before = await seedState(context);
     const newWhitelist = `${RUNNER_WHITELIST},${EXTRA_WHITELIST_CIDR}`;
 
     await test.step('Save the admin allow-list only', async () => {
@@ -244,9 +196,26 @@ test.describe('Security config save applies only the fields in the request', () 
     });
   });
 
+  test('Saving the stored row back with one field edited changes no module switch', async () => {
+    const before = await seedState(context);
+    const switchesBefore = await readModuleSettings(context);
+
+    await test.step('Save the stored row back with one unrelated field edited', async () => {
+      const row = await getConfigRow(context);
+      expect(row).not.toBeNull();
+      await saveConfig(context, { ...bodyFromRow(row as SecurityConfigRow), waf_learning: !before.row.waf_learning });
+    });
+
+    await test.step('Module switches are unchanged and only the edited field is stored', async () => {
+      expect(await readModuleSettings(context)).toEqual(switchesBefore);
+      const after = await getConfigRow(context);
+      expectOnlyChanged(before.row, after, { waf_learning: !before.row.waf_learning });
+    });
+  });
+
   test('Rate Limiting page save changes only the three rate-limit numbers', async ({ page }) => {
     await showConfigControls();
-    const before = await seed();
+    const before = await seedState(context);
 
     await test.step('Open the Rate Limiting page', async () => {
       await page.goto('/security/rate-limiting');
@@ -278,7 +247,7 @@ test.describe('Security config save applies only the fields in the request', () 
 
   test('Security page allow-list save changes only the admin allow-list', async ({ page }) => {
     await showConfigControls();
-    const before = await seed();
+    const before = await seedState(context);
     const newWhitelist = `${RUNNER_WHITELIST},${EXTRA_WHITELIST_CIDR}`;
 
     await test.step('Open the Security page', async () => {
@@ -307,7 +276,7 @@ test.describe('Security config save applies only the fields in the request', () 
 
   test('explicit empty allow-list clears it and changes no other field', async () => {
     // Cerberus is off for this test so clearing the allow-list cannot block the runner.
-    const before = await seed({ enabled: false });
+    const before = await seedState(context, { enabled: false });
 
     await test.step('Save an empty allow-list', async () => {
       await saveConfig(context, { admin_whitelist: '' });
@@ -324,7 +293,7 @@ test.describe('Security config save applies only the fields in the request', () 
   });
 
   test('explicit false and zero values are stored', async () => {
-    const before = await seed();
+    const before = await seedState(context);
 
     await test.step('Save false and zero values', async () => {
       await saveConfig(context, {
@@ -344,8 +313,40 @@ test.describe('Security config save applies only the fields in the request', () 
     });
   });
 
+  test('an invalid WAF mode is refused and changes nothing', async () => {
+    const before = await seedState(context);
+
+    await test.step('Save an unknown WAF mode', async () => {
+      const response = await withRateLimitRetry(() =>
+        context.post(CONFIG_PATH, { data: { name: DEFAULT_CONFIG_NAME, waf_mode: 'foo' } }),
+      );
+      expect(response.status()).toBe(400);
+    });
+
+    await test.step('Stored row and status are unchanged', async () => {
+      expectOnlyChanged(before.row, await getConfigRow(context), {});
+      expect(await getStatus(context)).toEqual(before.status);
+    });
+  });
+
+  test('a WAF rule set name that matches no rule set is refused and changes nothing', async () => {
+    const before = await seedState(context);
+
+    await test.step('Save an unknown rule set name', async () => {
+      const response = await withRateLimitRetry(() =>
+        context.post(CONFIG_PATH, { data: { name: DEFAULT_CONFIG_NAME, waf_rules_source: `missing-rule-set-${Date.now()}` } }),
+      );
+      expect(response.status()).toBe(422);
+    });
+
+    await test.step('Stored row and status are unchanged', async () => {
+      expectOnlyChanged(before.row, await getConfigRow(context), {});
+      expect(await getStatus(context)).toEqual(before.status);
+    });
+  });
+
   test('a body whose keys are all null changes nothing', async () => {
-    const before = await seed();
+    const before = await seedState(context);
 
     await test.step('Save null values only', async () => {
       await saveConfig(context, {
@@ -363,7 +364,7 @@ test.describe('Security config save applies only the fields in the request', () 
   });
 
   test('a body with no updatable key changes nothing', async () => {
-    const before = await seed();
+    const before = await seedState(context);
 
     for (const body of [{}, { name: DEFAULT_CONFIG_NAME }, { crowdsec_mode: 'local' }]) {
       await test.step(`Save ${JSON.stringify(body)}`, async () => {

@@ -202,10 +202,10 @@ describe('useSecurity hooks', () => {
 
       const { result } = renderHook(() => useDeleteRuleSet(), { wrapper })
 
-      result.current.mutate(1)
+      result.current.mutate('uuid-1')
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(securityApi.deleteRuleSet).toHaveBeenCalledWith(1)
+      expect(securityApi.deleteRuleSet).toHaveBeenCalledWith('uuid-1')
       expect(toast.success).toHaveBeenCalledWith('Rule set deleted')
     })
 
@@ -215,7 +215,7 @@ describe('useSecurity hooks', () => {
 
       const { result } = renderHook(() => useDeleteRuleSet(), { wrapper })
 
-      result.current.mutate(1)
+      result.current.mutate('uuid-1')
 
       await waitFor(() => expect(result.current.isError).toBe(true))
       expect(toast.error).toHaveBeenCalledWith('Failed to delete rule set: Delete failed')

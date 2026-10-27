@@ -155,7 +155,7 @@ func TestToggleFault_EnableFrameworkFailureIsA500(t *testing.T) {
 	h.PatchWAF(c)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "Failed to enable security config")
+	assert.Contains(t, w.Body.String(), "Failed to update security module", "the framework enable failure is a 500 with no partial write")
 	var setting models.Setting
 	require.NoError(t, db.Where("key = ?", "security.waf.enabled").First(&setting).Error)
 	assert.Equal(t, "false", setting.Value)

@@ -172,6 +172,6 @@ func TestEnableSecurityFramework_SettingWriteFailure(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	err := enableSecurityFramework(db)
+	err := models.EnableSecurityFramework(db)
 	require.ErrorContains(t, err, "save setting")
 }

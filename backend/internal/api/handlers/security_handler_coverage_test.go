@@ -1015,7 +1015,7 @@ func TestEnableSecurityFramework_Helper(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}))
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: false}).Error)
 
-	require.NoError(t, enableSecurityFramework(db))
+	require.NoError(t, models.EnableSecurityFramework(db))
 
 	var cfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)

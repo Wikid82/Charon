@@ -107,6 +107,15 @@ GET /security/status
 
 Returns enabled flag plus modes for each module.
 
+The `waf` and `rate_limit` objects also report the applied state from the last successful configuration apply: `enforced` (true when every eligible host has the module's handler; omitted when no host is eligible or no apply has completed), `reason` (why a host has no handler, when one does), and for `waf` `unprotected_hosts` (the number of eligible hosts without a WAF handler). These fields are omitted when the stored report does not match the current on/off state of the module.
+
+The `reason` value is one of these:
+
+- `no_ruleset`: the WAF is on, but no rule set exists yet.
+- `ruleset_not_selected`: rule sets exist, but none is chosen for the host.
+- `ruleset_unavailable`: the chosen rule set has no file ready to load.
+- `thresholds_unset`: the rate limit is on, but its request count or time window is not set. See the rate limit rules under Upsert below.
+
 #### Get Global Security Config
 
 ```http
@@ -139,6 +148,27 @@ Request Body (example; only these two fields change):
 ```
 
 Response 200: `{ "config": { ... } }`. The `config` object is the stored row after the save, with every field.
+
+#### Module Switches and Rule Sets
+
+The WAF and rate limit switches are set through the same save:
+
+- **`waf_mode`**: `block` or `monitor` turns the WAF on. `disabled` turns it off. An empty string clears the saved choice, so Charon uses its default. Any other value is refused with `400` and the code `invalid_waf_mode`.
+- **`rate_limit_enable`**: `true` turns the rate limit on and `false` turns it off. If a save sends only `rate_limit_mode`, the value `enabled` turns it on, any other non-empty value turns it off, and an empty value clears the saved choice.
+- **An unchanged value changes nothing.** A switch is written only when the value sent differs from the value already saved in the config. A read, edit one field, and save cycle therefore never turns a module on or off. To turn the WAF on when its saved mode is already `block` but the WAF is off, use `POST /security/waf/enable` or `PATCH /security/waf` instead.
+- **Turning a module on also turns on the security framework**, unless the same request also sends `"enabled": false`.
+- **Rate limit numbers.** When the rate limit is turned on, any request count, time window or burst that is not set is filled with the standard values: 100 requests, a 60 second window and a burst of 20. Numbers sent in the same request are kept. A value of `0` counts as not set, so it is filled the same way.
+- **`waf_rules_source`** (the rule set the WAF uses) must be empty, the name of an existing rule set, or an `http://` or `https://` address. Any other name is refused with `422` and the code `waf_rules_source_unknown`. A value that is already saved is always accepted, so unrelated saves do not fail.
+- **If the proxy cannot apply the change**, Charon restores the values from before the save and answers `500` with the message `Failed to reload configuration`.
+
+Coded errors include a readable message and a machine-readable `error_code`:
+
+```json
+{
+  "error": "That rule set does not exist. Choose one from the list.",
+  "error_code": "waf_rules_source_unknown"
+}
+```
 
 **Security Considerations**:
 
@@ -251,6 +281,8 @@ Response 200: `{ "ruleset": { ... } }`
 ```http
 DELETE /security/rulesets/:id
 ```
+
+The `:id` can be the rule set's UUID or its numeric ID. A rule set that the WAF is using (the one chosen as the rule set source) cannot be deleted: the response is `409` with the code `waf_ruleset_in_use`. Choose another rule set first.
 
 Response 200: `{ "deleted": true }`
 

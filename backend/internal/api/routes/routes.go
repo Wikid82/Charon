@@ -304,6 +304,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		logger.Log().WithError(err).Warn("Failed to seed default SecurityConfig — continuing startup")
 	}
 
+	// Before the first proxy apply: a WAF that is on with no stored mode gets monitor (detection) mode, so it does not
+	// block until an admin sets blocking (idempotent).
+	if _, err := models.ReconcileWAFDetectionMode(db); err != nil {
+		logger.Log().WithError(err).Warn("Failed to reconcile WAF detection mode — continuing startup")
+	}
+
 	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
 	logger.Log().Info("Cleaning up invalid Let's Encrypt certificate associations...")
 	cleanInvalidLetsEncryptCertAssignments(db, "proxy_hosts", func(h models.ProxyHost) string { return h.DomainNames })

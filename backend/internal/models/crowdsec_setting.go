@@ -19,12 +19,16 @@ const (
 // exist yet, the key has no row, or the trimmed value is empty, so a whitespace-only value counts as absent.
 // Every CrowdSec setting read goes through this helper so all readers parse a value the same way.
 func readTrimmedSetting(db *gorm.DB, key string) (value string, found bool, err error) {
-	if db == nil || !db.Migrator().HasTable(&Setting{}) {
+	if db == nil {
 		return "", false, nil
 	}
 
 	var setting Setting
 	if queryErr := db.Where("key = ?", key).Limit(1).Find(&setting).Error; queryErr != nil {
+		// The table check runs only on failure: the happy path stays one query per key on hot status and config reads.
+		if !db.Migrator().HasTable(&Setting{}) {
+			return "", false, nil
+		}
 		return "", false, fmt.Errorf("read %s setting: %w", key, queryErr)
 	}
 	value = strings.TrimSpace(setting.Value)

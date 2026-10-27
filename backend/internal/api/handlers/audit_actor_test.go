@@ -46,6 +46,16 @@ func TestAuditActor(t *testing.T) {
 		c.Set(middleware.UserIDKey, "42")
 		assert.Equal(t, "198.51.100.10", auditActor(c))
 	})
+	t.Run("client address with control characters is sanitized", func(t *testing.T) {
+		router := gin.New()
+		router.TrustedPlatform = "X-Client-Addr"
+		var got string
+		router.GET("/", func(c *gin.Context) { got = auditActor(c) })
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req.Header.Set("X-Client-Addr", "198.51.100.10\nforged line")
+		router.ServeHTTP(httptest.NewRecorder(), req)
+		assert.Equal(t, "198.51.100.10 forged line", got)
+	})
 }
 
 func TestSecurityHandler_AuditEntriesRecordCaller(t *testing.T) {

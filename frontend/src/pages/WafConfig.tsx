@@ -3,9 +3,17 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { SecurityEnforcementNote } from '../components/SecurityEnforcementNote'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
-import { useRuleSets, useUpsertRuleSet, useDeleteRuleSet } from '../hooks/useSecurity'
+import {
+  useRuleSets,
+  useUpsertRuleSet,
+  useDeleteRuleSet,
+  useSecurityConfig,
+  useSecurityStatus,
+  useUpdateWafRulesSource,
+} from '../hooks/useSecurity'
 
 import type { SecurityRuleSet, UpsertRuleSetPayload } from '../api/security'
 
@@ -139,7 +147,6 @@ function RuleSetForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onSubmit({
-      id: initialData?.id,
       name: name.trim(),
       source_url: sourceUrl.trim() || undefined,
       content: content.trim() || undefined,
@@ -269,6 +276,9 @@ export default function WafConfig() {
   const { data: ruleSets, isLoading, error } = useRuleSets()
   const upsertMutation = useUpsertRuleSet()
   const deleteMutation = useDeleteRuleSet()
+  const { data: status } = useSecurityStatus()
+  const { data: securityConfig } = useSecurityConfig()
+  const updateRulesSourceMutation = useUpdateWafRulesSource()
 
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingRuleSet, setEditingRuleSet] = useState<SecurityRuleSet | null>(null)
@@ -306,7 +316,7 @@ export default function WafConfig() {
 
   const handleDelete = () => {
     if (!deleteConfirm) return
-    deleteMutation.mutate(deleteConfirm.id, {
+    deleteMutation.mutate(deleteConfirm.uuid, {
       onSuccess: () => {
         setDeleteConfirm(null)
         setEditingRuleSet(null)
@@ -331,6 +341,11 @@ export default function WafConfig() {
   }
 
   const ruleSetList = ruleSets?.rulesets || []
+  const storedRulesSource = securityConfig?.config?.waf_rules_source ?? ''
+  const storedWafMode = securityConfig?.config?.waf_mode ?? ''
+  // The WAF is on and no mode has been chosen for it: requests are logged, not blocked.
+  const showDetectionMode = status?.waf.enabled === true && storedWafMode === 'monitor'
+  const ruleSetNames = ruleSetList.map((rs) => rs.name)
 
   return (
     <>
@@ -384,6 +399,38 @@ export default function WafConfig() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Rule set source: the rule set the WAF inspects requests with */}
+      <div className="bg-dark-card border border-gray-800 rounded-lg p-6 space-y-2">
+        <label htmlFor="waf-rules-source" className="block text-sm font-medium text-gray-300">
+          {t('wafConfig.rulesSource.label')}
+        </label>
+        <select
+          id="waf-rules-source"
+          value={storedRulesSource}
+          onChange={(e) => updateRulesSourceMutation.mutate(e.target.value)}
+          disabled={updateRulesSourceMutation.isPending}
+          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          data-testid="waf-rules-source-select"
+        >
+          <option value="">{t('wafConfig.rulesSource.auto')}</option>
+          {ruleSetNames.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+          {storedRulesSource !== '' && !ruleSetNames.includes(storedRulesSource) && (
+            <option value={storedRulesSource}>{storedRulesSource}</option>
+          )}
+        </select>
+        <p className="text-xs text-gray-500">{t('wafConfig.rulesSource.help')}</p>
+        <SecurityEnforcementNote moduleName="waf" state={status?.waf} />
+        {showDetectionMode && (
+          <p className="text-sm text-content-muted" data-testid="waf-detection-mode">
+            {t('wafConfig.detectionMode')}
+          </p>
+        )}
       </div>
 
       {/* Create Form */}
@@ -479,7 +526,7 @@ export default function WafConfig() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {ruleSetList.map((rs) => (
-                <tr key={rs.id} className="hover:bg-gray-900/30">
+                <tr key={rs.uuid} className="hover:bg-gray-900/30">
                   <td className="px-6 py-4">
                     <p className="font-medium text-white">{rs.name}</p>
                     {rs.content && (
@@ -525,7 +572,7 @@ export default function WafConfig() {
                         onClick={() => setEditingRuleSet(rs)}
                         className="text-gray-400 hover:text-blue-400"
                         title={t('common.edit')}
-                        data-testid={`edit-ruleset-${rs.id}`}
+                        data-testid={`edit-ruleset-${rs.uuid}`}
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -533,7 +580,7 @@ export default function WafConfig() {
                         onClick={() => setDeleteConfirm(rs)}
                         className="text-gray-400 hover:text-red-400"
                         title={t('common.delete')}
-                        data-testid={`delete-ruleset-${rs.id}`}
+                        data-testid={`delete-ruleset-${rs.uuid}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

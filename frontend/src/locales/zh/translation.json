@@ -589,7 +589,18 @@
       "loadError": "无法加载登录保护状态。"
     },
     "settingUpdated": "安全设置已更新",
-    "settingUpdateFailed": "更新设置失败：{{error}}"
+    "settingUpdateFailed": "更新设置失败：{{error}}",
+    "enforcement": {
+      "waf": {
+        "no_ruleset": "WAF 已开启，但没有可用于检查请求的规则集。请在 WAF 页面添加规则集。",
+        "ruleset_not_selected": "WAF 已开启，但存在多个规则集且未选择任何规则集。请在 WAF 页面选择规则集。",
+        "ruleset_unavailable": "WAF 已开启，但无法加载所选规则集。请在 WAF 页面检查。"
+      },
+      "rate_limit": {
+        "thresholds_unset": "速率限制已开启，但尚未设置限制。请在速率限制页面设置请求数和时间窗口。"
+      },
+      "unknown": "尚未应用到所有主机。请查看此模块的设置页面。"
+    }
   },
   "accessLists": {
     "title": "访问列表",
@@ -643,7 +654,8 @@
     "rateLimitingDisabled": "速率限制已禁用",
     "enableToConfigureMessage": "启用速率限制以配置请求限制并保护您的服务",
     "adjustingGates": "调整门禁……",
-    "configurationUpdating": "速率限制配置更新中"
+    "configurationUpdating": "速率限制配置更新中",
+    "invalidValue": "请输入大于 0 的整数。"
   },
   "wafConfig": {
     "title": "WAF配置",
@@ -689,7 +701,20 @@
     "loadingConfiguration": "Loading WAF configuration...",
     "failedToLoad": "Failed to load WAF configuration",
     "deleteConfirmation": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
-    "ruleCount": "{{count}} rule(s)"
+    "ruleCount": "{{count}} rule(s)",
+    "rulesSource": {
+      "label": "规则集来源",
+      "help": "WAF 检查请求时使用的规则集。如果只有一个规则集，请选择“自动选择”。",
+      "auto": "自动选择",
+      "saved": "WAF 规则集来源已保存",
+      "saveFailed": "无法保存 WAF 规则集来源"
+    },
+    "errors": {
+      "waf_rules_source_unknown": "该规则集不存在。请从列表中选择。",
+      "waf_ruleset_in_use": "这是 WAF 正在使用的规则集。请先选择其他规则集。",
+      "invalid_waf_mode": "WAF 模式无效。请重新加载页面后重试。"
+    },
+    "detectionMode": "没有自身模式的规则集只会在已保存的 WAF 模式为检测时记录匹配的请求。模式设为阻止的规则集会阻止匹配的请求。"
   },
   "uptime": {
     "title": "运行时间监控",

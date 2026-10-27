@@ -81,7 +81,7 @@ describe('locale parity', () => {
     flatten(i18n.getResourceBundle(locale, 'translation')[root], root).sort()
 
   // Sign-in throttle strings are added in every locale in the same change
-  it.each(['errors', 'auth.rateLimitAdminHint', 'auth.rateLimitAdminHintLink', 'security.loginProtection', 'security.settingUpdated', 'security.settingUpdateFailed', 'crowdsecConfig.whitelist'])(
+  it.each(['errors', 'auth.rateLimitAdminHint', 'auth.rateLimitAdminHintLink', 'security.loginProtection', 'security.settingUpdated', 'security.settingUpdateFailed', 'security.enforcement', 'crowdsecConfig.whitelist', 'wafConfig.rulesSource', 'wafConfig.errors'])(
     'has the same %s keys in every locale',
     (root) => {
       const read = (locale: string) =>

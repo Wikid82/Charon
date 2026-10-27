@@ -717,7 +717,8 @@ func TestSettingsHandler_PatchConfig_ReloadFailureReturns500(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, 1, inv.calls)
+	// The cache is dropped before the reload and again after the pre-image is restored.
+	assert.Equal(t, 2, inv.calls)
 	assert.Equal(t, 1, mgr.calls)
 	assert.Contains(t, w.Body.String(), "Failed to reload configuration")
 }

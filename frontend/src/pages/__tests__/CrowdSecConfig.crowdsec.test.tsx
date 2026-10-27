@@ -83,7 +83,7 @@ function renderWithSeed(
   const queryClient = makeQueryClient()
   queryClient.setQueryData(['crowdsec-starting'], crowdsecStartingData)
   queryClient.setQueryData(['feature-flags'], { 'feature.crowdsec.console_enrollment': true })
-  queryClient.setQueryData(['security-status'], baseStatus)
+  queryClient.setQueryData(['securityStatus'], baseStatus)
   // Seed lapi-status so the component has data immediately (no loading gap).
   // Also override the mock so any refetch after initialCheckComplete returns the
   // same value, preventing the beforeEach default from overwriting the seed.

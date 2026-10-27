@@ -589,7 +589,18 @@
       "loadError": "Der Status des Anmeldeschutzes konnte nicht geladen werden."
     },
     "settingUpdated": "Sicherheitseinstellung aktualisiert",
-    "settingUpdateFailed": "Einstellung konnte nicht aktualisiert werden: {{error}}"
+    "settingUpdateFailed": "Einstellung konnte nicht aktualisiert werden: {{error}}",
+    "enforcement": {
+      "waf": {
+        "no_ruleset": "Die WAF ist aktiv, aber es ist keine Regelsammlung verfügbar, um Anfragen zu prüfen. Lege auf der WAF-Seite eine Regelsammlung an.",
+        "ruleset_not_selected": "Die WAF ist aktiv, aber es gibt mehrere Regelsammlungen und keine ist ausgewählt. Wähle die Regelsammlung auf der WAF-Seite aus.",
+        "ruleset_unavailable": "Die WAF ist aktiv, aber die ausgewählte Regelsammlung konnte nicht geladen werden. Prüfe sie auf der WAF-Seite."
+      },
+      "rate_limit": {
+        "thresholds_unset": "Die Ratenbegrenzung ist aktiv, aber es sind noch keine Grenzwerte festgelegt. Lege Anfragen und Zeitfenster auf der Seite Ratenbegrenzung fest."
+      },
+      "unknown": "Noch nicht auf alle Hosts angewendet. Prüfe die Einstellungen dieses Moduls."
+    }
   },
   "accessLists": {
     "title": "Zugriffslisten",
@@ -643,7 +654,8 @@
     "rateLimitingDisabled": "Ratenbegrenzung deaktiviert",
     "enableToConfigureMessage": "Aktivieren Sie Ratenbegrenzung, um Anforderungslimits zu konfigurieren und Ihre Dienste zu schützen",
     "adjustingGates": "Tore werden angepasst...",
-    "configurationUpdating": "Ratenbegrenzungskonfiguration wird aktualisiert"
+    "configurationUpdating": "Ratenbegrenzungskonfiguration wird aktualisiert",
+    "invalidValue": "Gib eine ganze Zahl größer als 0 ein."
   },
   "wafConfig": {
     "title": "WAF-Konfiguration",
@@ -689,7 +701,20 @@
     "loadingConfiguration": "Loading WAF configuration...",
     "failedToLoad": "Failed to load WAF configuration",
     "deleteConfirmation": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
-    "ruleCount": "{{count}} rule(s)"
+    "ruleCount": "{{count}} rule(s)",
+    "rulesSource": {
+      "label": "Quelle der Regelsammlung",
+      "help": "Die Regelsammlung, mit der die WAF Anfragen prüft. Wähle „Automatisch wählen“, wenn nur eine Regelsammlung vorhanden ist.",
+      "auto": "Automatisch wählen",
+      "saved": "Quelle der WAF-Regelsammlung gespeichert",
+      "saveFailed": "Die Quelle der WAF-Regelsammlung konnte nicht gespeichert werden"
+    },
+    "errors": {
+      "waf_rules_source_unknown": "Diese Regelsammlung existiert nicht. Wähle eine aus der Liste.",
+      "waf_ruleset_in_use": "Diese Regelsammlung wird von der WAF verwendet. Wähle zuerst eine andere Regelsammlung.",
+      "invalid_waf_mode": "Der WAF-Modus ist ungültig. Lade die Seite neu und versuche es erneut."
+    },
+    "detectionMode": "Regelsätze ohne eigenen Modus protokollieren passende Anfragen nur, solange der gespeicherte WAF-Modus Erkennung ist. Ein Regelsatz mit Modus Blockieren blockiert passende Anfragen."
   },
   "uptime": {
     "title": "Verfügbarkeitsüberwachung",
