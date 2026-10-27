@@ -190,7 +190,7 @@ func TestSecurityConfigSave_FullRowPayloadStoresEveryKey(t *testing.T) {
 
 	// Every key the endpoint accepts. crowdsec_mode differs from the stored value and must not be stored.
 	body := `{"name":"default","enabled":false,"admin_whitelist":"203.0.113.0/24","crowdsec_mode":"disabled",` +
-		`"crowdsec_api_url":"http://crowdsec.example:9090","waf_mode":"block","waf_rules_source":"custom-rules",` +
+		`"crowdsec_api_url":"http://crowdsec.example:9090","waf_mode":"block","waf_rules_source":"https://rules.example.com/custom.conf",` +
 		`"waf_learning":false,"waf_paranoia_level":3,"waf_exclusions":"[]","rate_limit_mode":"enabled",` +
 		`"rate_limit_enable":true,"rate_limit_burst":9,"rate_limit_requests":90,"rate_limit_window_sec":11,` +
 		`"rate_limit_bypass_list":"198.51.100.7/32"}`
@@ -205,7 +205,7 @@ func TestSecurityConfigSave_FullRowPayloadStoresEveryKey(t *testing.T) {
 	assert.Equal(t, "local", after.CrowdSecMode)
 	assert.Equal(t, "http://crowdsec.example:9090", after.CrowdSecAPIURL)
 	assert.Equal(t, "block", after.WAFMode)
-	assert.Equal(t, "custom-rules", after.WAFRulesSource)
+	assert.Equal(t, "https://rules.example.com/custom.conf", after.WAFRulesSource)
 	assert.False(t, after.WAFLearning)
 	assert.Equal(t, 3, after.WAFParanoiaLevel)
 	assert.Equal(t, "[]", after.WAFExclusions)

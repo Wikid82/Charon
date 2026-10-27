@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
@@ -302,16 +303,23 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	if update.Name != nil && *update.Name != "" {
 		name = *update.Name
 	}
-	saved, err := h.svc.ApplyUpdate(name, update)
+	saved, snapshot, err := h.svc.ApplyUpdate(auditActor(c), name, update)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondConfigUpdateError(c, err)
 		return
 	}
-	// Apply updated config to Caddy so WAF mode changes take effect
+	// Apply updated config to Caddy so WAF mode changes take effect. A save the proxy refuses is rolled back, so the
+	// stored config never holds a state Caddy rejected.
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply security config changes to Caddy")
+			restoreModuleState(h.db, h.cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			return
 		}
+	}
+	if h.cerberus != nil {
+		h.cerberus.InvalidateCache()
 	}
 	// Answer the stored row, so the response shows the stored CrowdSec mode and the row's UUID.
 	c.JSON(http.StatusOK, gin.H{"config": saved})
@@ -445,22 +453,32 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 		return
 	}
 
+	// The path takes the ruleset uuid (the JSON id of a ruleset is hidden) or the numeric id.
 	idParam := c.Param("id")
 	if idParam == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
 		return
 	}
-	id, err := strconv.ParseUint(idParam, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-	if err := h.svc.DeleteRuleSet(uint(id)); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "ruleset not found"})
+	var deleteErr error
+	if _, uuidErr := uuid.Parse(idParam); uuidErr == nil {
+		deleteErr = h.svc.DeleteRuleSetByUUID(idParam)
+	} else {
+		id, parseErr := strconv.ParseUint(idParam, 10, 32)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete ruleset"})
+		deleteErr = h.svc.DeleteRuleSet(uint(id))
+	}
+	if deleteErr != nil {
+		switch {
+		case errors.Is(deleteErr, gorm.ErrRecordNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "ruleset not found"})
+		case errors.Is(deleteErr, services.ErrRuleSetInUse):
+			respondCoded(c, http.StatusConflict, codeWAFRulesetInUse, msgWAFRulesetInUse, nil)
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete ruleset"})
+		}
 		return
 	}
 	if h.caddyManager != nil {
@@ -1139,100 +1157,45 @@ func (h *SecurityHandler) PatchRateLimit(c *gin.Context) {
 
 // toggleSecurityModule is a helper function that handles enabling/disabling security modules
 // It updates the setting, invalidates cache, and triggers Caddy config reload
+// toggleSecurityModule switches one module on or off. The write and the Cerberus cache drop run under the shared write
+// lock; when the proxy apply fails, the pre-image of the module keys and the default row is restored and the request
+// answers 500.
 func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string, enabled bool) {
 	if !requireAdmin(c) {
 		return
 	}
 
-	settingCategory := "security"
-	if strings.HasPrefix(settingKey, "feature.") {
-		settingCategory = "feature"
+	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !h.allowACLEnable(c) {
+		return
 	}
 
-	snapshotKeys := []string{settingKey}
-	if enabled && settingKey != "feature.cerberus.enabled" {
-		snapshotKeys = append(snapshotKeys, "feature.cerberus.enabled", "security.cerberus.enabled")
-	}
-
-	settingSnapshots, err := snapshotSettings(h.db, snapshotKeys)
+	actor := auditActor(c)
+	var snapshot models.ModuleStateSnapshot
+	err := services.WithWriteLock(h.db, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return err
+		}
+		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, settingKey); err != nil {
+			return err
+		}
+		return writeModuleToggle(tx, settingKey, enabled, actor)
+	})
 	if err != nil {
-		log.WithError(err).Error("Failed to snapshot security settings before toggle")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
+		log.WithError(err).Errorf("Failed to update security module setting %s", settingKey)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleWriteFailed})
 		return
-	}
-
-	securityConfigBefore, err := snapshotDefaultSecurityConfigState(h.db)
-	if err != nil {
-		log.WithError(err).Error("Failed to snapshot security config before toggle")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
-		return
-	}
-
-	if settingKey == "security.acl.enabled" && enabled {
-		if !h.allowACLEnable(c) {
-			return
-		}
-	}
-
-	if enabled && settingKey != "feature.cerberus.enabled" {
-		if err := enableSecurityFramework(h.db); err != nil {
-			log.WithError(err).Error("Failed to enable security framework while enabling security module")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-	}
-
-	// Update setting
-	value := "false"
-	if enabled {
-		value = "true"
-	}
-
-	setting := models.Setting{
-		Key:      settingKey,
-		Value:    value,
-		Category: settingCategory,
-		Type:     "bool",
-	}
-
-	if err := h.db.Where(models.Setting{Key: settingKey}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
-		log.WithError(err).Errorf("Failed to update setting %s", settingKey)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
-		return
-	}
-
-	if settingKey == "feature.cerberus.enabled" {
-		legacyCerberus := models.Setting{
-			Key:      "security.cerberus.enabled",
-			Value:    value,
-			Category: "security",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
-			log.WithError(err).Error("Failed to sync legacy Cerberus setting")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
-			return
-		}
 	}
 
 	if h.cerberus != nil {
 		h.cerberus.InvalidateCache()
 	}
 
-	// Trigger Caddy config reload
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
-			if restoreErr := restoreSettings(h.db, settingSnapshots); restoreErr != nil {
-				log.WithError(restoreErr).Error("Failed to restore settings after security module toggle apply failure")
-			}
-			if restoreErr := restoreDefaultSecurityConfigState(h.db, securityConfigBefore); restoreErr != nil {
-				log.WithError(restoreErr).Error("Failed to restore security config after security module toggle apply failure")
-			}
-			if h.cerberus != nil {
-				h.cerberus.InvalidateCache()
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+			restoreModuleState(h.db, h.cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
 		}
 	}
@@ -1321,25 +1284,6 @@ func restoreDefaultSecurityConfigState(db *gorm.DB, snap defaultSecurityConfigSn
 	}
 
 	return db.Where("name = ?", models.DefaultSecurityConfigName).Delete(&models.SecurityConfig{}).Error
-}
-
-// enableSecurityFramework turns the global security switch and Cerberus on. It is the one
-// path shared by the module enables (ACL, WAF, rate limiting), the settings save and a
-// successful CrowdSec Start. A missing default row is seeded first.
-func enableSecurityFramework(db *gorm.DB) error {
-	if _, err := setDefaultSecurityConfigState(db, map[string]any{"enabled": true}); err != nil {
-		return fmt.Errorf("enable default security config: %w", err)
-	}
-	for _, setting := range []models.Setting{
-		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature", Type: "bool"},
-		{Key: "security.cerberus.enabled", Value: "true", Category: "security", Type: "bool"},
-	} {
-		if err := upsertSetting(db, setting); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // upsertSetting writes the setting's value and metadata, creating the row when it is missing.

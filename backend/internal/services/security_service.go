@@ -132,13 +132,10 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 	existing.AdminWhitelist = cfg.AdminWhitelist
 	// The CrowdSec mode is not copied: the CrowdSec lifecycle owns the stored value, so a save keeps it.
 	existing.CrowdSecAPIURL = cfg.CrowdSecAPIURL
-	existing.WAFMode = cfg.WAFMode
 	existing.WAFRulesSource = cfg.WAFRulesSource
 	existing.WAFLearning = cfg.WAFLearning
 	existing.WAFParanoiaLevel = cfg.WAFParanoiaLevel
 	existing.WAFExclusions = cfg.WAFExclusions
-	existing.RateLimitEnable = cfg.RateLimitEnable
-	existing.RateLimitMode = cfg.RateLimitMode
 	existing.RateLimitBurst = cfg.RateLimitBurst
 	existing.RateLimitRequests = cfg.RateLimitRequests
 	existing.RateLimitWindowSec = cfg.RateLimitWindowSec
@@ -448,13 +445,40 @@ func (s *SecurityService) UpsertRuleSet(r *models.SecurityRuleSet) error {
 	return s.db.Save(&existing).Error
 }
 
-// DeleteRuleSet removes a ruleset by id
+// ErrRuleSetInUse is returned when a rule set is the one the WAF uses: the default row's waf_rules_source names it.
+var ErrRuleSetInUse = errors.New("rule set is the WAF rules source")
+
+// DeleteRuleSet removes a ruleset by id. See deleteRuleSet.
 func (s *SecurityService) DeleteRuleSet(id uint) error {
-	var rs models.SecurityRuleSet
-	if err := s.db.Where("id = ?", id).First(&rs).Error; err != nil {
-		return err
-	}
-	return s.db.Delete(&rs).Error
+	return s.deleteRuleSet("id = ?", id)
+}
+
+// DeleteRuleSetByUUID removes a ruleset by its uuid. See deleteRuleSet.
+func (s *SecurityService) DeleteRuleSetByUUID(ref string) error {
+	return s.deleteRuleSet("uuid = ?", ref)
+}
+
+// deleteRuleSet deletes the ruleset matching query. The in-use check and the delete run in one write-locked
+// transaction, so a config save that selects the rule set cannot interleave between them. A missing rule set returns
+// gorm.ErrRecordNotFound unwrapped; a rule set in use returns ErrRuleSetInUse.
+func (s *SecurityService) deleteRuleSet(query string, arg any) error {
+	return WithWriteLock(s.db, &models.SecurityRuleSet{}, func(tx *gorm.DB) error {
+		var rs models.SecurityRuleSet
+		if err := tx.Where(query, arg).First(&rs).Error; err != nil {
+			return err
+		}
+		var inUse int64
+		err := tx.Model(&models.SecurityConfig{}).
+			Where("name = ? AND waf_rules_source = ?", models.DefaultSecurityConfigName, rs.Name).
+			Count(&inUse).Error
+		if err != nil {
+			return fmt.Errorf("check rule set use: %w", err)
+		}
+		if inUse > 0 {
+			return ErrRuleSetInUse
+		}
+		return tx.Delete(&rs).Error
+	})
 }
 
 // ListRuleSets returns all known rulesets

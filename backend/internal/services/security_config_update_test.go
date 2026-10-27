@@ -96,7 +96,7 @@ var updateFieldCases = []struct {
 	{"admin_whitelist", "AdminWhitelist", "203.0.113.0/24", ""},
 	{"crowdsec_api_url", "CrowdSecAPIURL", "http://crowdsec.example:9090", ""},
 	{"waf_mode", "WAFMode", "block", ""},
-	{"waf_rules_source", "WAFRulesSource", "custom-rules", ""},
+	{"waf_rules_source", "WAFRulesSource", "https://rules.example.com/custom.conf", ""},
 	{"waf_learning", "WAFLearning", true, false},
 	{"waf_paranoia_level", "WAFParanoiaLevel", 3, 0},
 	{"waf_exclusions", "WAFExclusions", "[]", ""},
@@ -119,7 +119,7 @@ func TestApplyUpdate_AbsentVersusExplicitZero(t *testing.T) {
 			before := seedUpdateTestRow(t, db, seeded)
 
 			body := fmt.Sprintf(`{%q:%s}`, c.key, mustJSONLiteral(t, c.nonZero))
-			got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, body))
+			got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, body))
 			require.NoError(t, err)
 
 			want := before
@@ -134,7 +134,7 @@ func TestApplyUpdate_AbsentVersusExplicitZero(t *testing.T) {
 			before := seedUpdateTestRow(t, db, fullUpdateTestRow())
 
 			body := fmt.Sprintf(`{%q:%s}`, c.key, mustJSONLiteral(t, c.zero))
-			got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, body))
+			got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, body))
 			require.NoError(t, err)
 
 			want := before
@@ -152,7 +152,7 @@ func TestApplyUpdate_AbsentVersusExplicitZero(t *testing.T) {
 				svc := newTestSecurityService(t, db)
 				before := seedUpdateTestRow(t, db, fullUpdateTestRow())
 
-				got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, absent.body))
+				got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, absent.body))
 				require.NoError(t, err)
 
 				requireUpdateTestRowEqual(t, before, *got)
@@ -199,7 +199,7 @@ func TestApplyUpdate_RateLimitModeRule(t *testing.T) {
 			seeded.RateLimitMode = c.seedMode
 			seedUpdateTestRow(t, db, seeded)
 
-			got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, c.body))
+			got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, c.body))
 			require.NoError(t, err)
 
 			assert.Equal(t, c.wantEnable, got.RateLimitEnable)
@@ -227,7 +227,7 @@ func TestApplyUpdate_BodyWithoutUpdatableKeyIssuesNoUpdate(t *testing.T) {
 				}
 			}))
 
-			got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, body))
+			got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, body))
 			require.NoError(t, err)
 
 			assert.Equal(t, 0, rowUpdates, "no row is written")
@@ -245,7 +245,7 @@ func TestApplyUpdate_CrowdSecModeIsValidatedAndNeverStored(t *testing.T) {
 	seeded.CrowdSecMode = "disabled"
 	seedUpdateTestRow(t, db, seeded)
 
-	got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"crowdsec_mode":"local","waf_mode":"block"}`))
+	got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"crowdsec_mode":"local","waf_mode":"block"}`))
 	require.NoError(t, err)
 
 	assert.Equal(t, "disabled", got.CrowdSecMode, "the stored mode is kept")
@@ -271,7 +271,7 @@ func TestApplyUpdate_InvalidValuesWriteNothing(t *testing.T) {
 			svc := newTestSecurityService(t, db)
 			before := seedUpdateTestRow(t, db, fullUpdateTestRow())
 
-			got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, c.body))
+			got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, c.body))
 			require.Error(t, err)
 			assert.Nil(t, got)
 			if c.wantErr != nil {
@@ -291,7 +291,7 @@ func TestApplyUpdate_ExplicitEmptyAllowListClearsIt(t *testing.T) {
 	svc := newTestSecurityService(t, db)
 	before := seedUpdateTestRow(t, db, fullUpdateTestRow())
 
-	_, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"admin_whitelist":""}`))
+	_, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"admin_whitelist":""}`))
 	require.NoError(t, err)
 
 	want := before
@@ -304,7 +304,7 @@ func TestApplyUpdate_CreatesDefaultRowWhenNoneExists(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := newTestSecurityService(t, db)
 
-	got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"admin_whitelist":"192.0.2.0/24"}`))
+	got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"admin_whitelist":"192.0.2.0/24"}`))
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, got.UUID, "the UUID is generated server-side")
@@ -321,11 +321,11 @@ func TestApplyUpdate_ParanoiaLevelZeroOnCreateIsDefaulted(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := newTestSecurityService(t, db)
 
-	created, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_paranoia_level":0}`))
+	created, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_paranoia_level":0}`))
 	require.NoError(t, err)
 	assert.Equal(t, 1, created.WAFParanoiaLevel)
 
-	updated, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_paranoia_level":0}`))
+	updated, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_paranoia_level":0}`))
 	require.NoError(t, err)
 	assert.Equal(t, 0, updated.WAFParanoiaLevel)
 	assert.Equal(t, 0, loadUpdateTestRow(t, db).WAFParanoiaLevel)
@@ -336,7 +336,7 @@ func TestApplyUpdate_CreatePathAppliesRateLimitRule(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := newTestSecurityService(t, db)
 
-	got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"rate_limit_enable":true}`))
+	got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"rate_limit_enable":true}`))
 	require.NoError(t, err)
 	assert.True(t, got.RateLimitEnable)
 	assert.Equal(t, "enabled", got.RateLimitMode)
@@ -364,18 +364,18 @@ func TestApplyUpdate_ConcurrentCallersKeepEachColumn(t *testing.T) {
 		defer close(done)
 		for i := 1; i <= rounds; i++ {
 			requests := 1000 + i
-			mode := fmt.Sprintf("mode-%d", i)
+			mode := []string{"monitor", "block"}[i%2]
 			var wg sync.WaitGroup
 			wg.Add(2)
 			go func() {
 				defer wg.Done()
-				if _, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, SecurityConfigUpdate{RateLimitRequests: &requests}); err != nil {
+				if _, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, SecurityConfigUpdate{RateLimitRequests: &requests}); err != nil {
 					fail(fmt.Sprintf("round %d rate limit update: %v", i, err))
 				}
 			}()
 			go func() {
 				defer wg.Done()
-				if _, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, SecurityConfigUpdate{WAFMode: &mode}); err != nil {
+				if _, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, SecurityConfigUpdate{WAFMode: &mode}); err != nil {
 					fail(fmt.Sprintf("round %d waf update: %v", i, err))
 				}
 			}()
@@ -478,8 +478,9 @@ func TestApplyUpdate_StorageFailuresAreReturned(t *testing.T) {
 			armed := false
 			require.NoError(t, c.hook(db, &armed))
 
+			// A body without module fields: the module keys are written after the update, so the second query is the read-back.
 			armed = true
-			got, err := svc.ApplyUpdate(models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_mode":"block"}`))
+			got, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_paranoia_level":2}`))
 			armed = false
 			require.Error(t, err)
 			assert.ErrorIs(t, err, injected)

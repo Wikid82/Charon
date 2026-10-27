@@ -545,7 +545,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			report.WAF.record(wafH != nil, reason)
 			if wafH != nil {
 				securityHandlers = append(securityHandlers, wafH)
-			} else if secCfg == nil || secCfg.WAFMode != "disabled" {
+			} else {
 				wafUnprotectedHosts++
 			}
 		}
@@ -1196,11 +1196,6 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 // buildWAFHandlerWithReason is buildWAFHandler for a host the WAF applies to. When no handler is returned, the reason
 // says why (one of the Reason constants). A host with the WAF switched off for itself returns no handler and no reason.
 func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig) (handler Handler, reason string) {
-	// Interim veto: a disabled row mode blocks the handler even when the WAF key is on. Removed with the mode reconciliation.
-	if secCfg != nil && secCfg.WAFMode == "disabled" {
-		return nil, ReasonModeDisabled
-	}
-
 	// Check per-host WAF toggle - if host has WAF disabled, skip
 	if host != nil && host.WAFDisabled {
 		return nil, ""

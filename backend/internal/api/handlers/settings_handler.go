@@ -322,6 +322,16 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		}
 	}
 
+	// The module switches are written through the shared module writer, with the same proxy apply and restore as the
+	// toggle routes.
+	if models.IsSecurityModuleKey(req.Key) {
+		setting, ok := h.writeModuleSwitchSetting(c, req.Key, req.Value)
+		if ok {
+			c.JSON(http.StatusOK, setting)
+		}
+		return
+	}
+
 	// uptime.* tuning knobs are plain integers with fixed bounds (§3.6.1).
 	// They have no cron/side-effect coupling, so the generic endpoint owns
 	// them — it just enforces the range here.
@@ -361,17 +371,6 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
-	if req.Key == "security.acl.enabled" && strings.EqualFold(strings.TrimSpace(req.Value), "true") {
-		// Turning ACL on also turns the global switch and Cerberus on, through the helper the other modules share.
-		if err := enableSecurityFramework(h.DB); err != nil {
-			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-	}
-
 	if req.Key == "security.admin_whitelist" {
 		if err := h.syncAdminWhitelist(req.Value); err != nil {
 			if errors.Is(err, services.ErrInvalidAdminCIDR) {
@@ -406,6 +405,65 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, setting)
+}
+
+// writeModuleSwitchSetting stores a module switch from the generic settings API. The value must be true or false. The
+// write and the proxy apply are one unit: a failed apply restores the pre-image and answers 500. It returns the stored
+// setting, or false after answering the request.
+func (h *SettingsHandler) writeModuleSwitchSetting(c *gin.Context, key, value string) (models.Setting, bool) {
+	on, recognised := models.ParseModuleSettingValue(value)
+	if !recognised {
+		c.JSON(http.StatusBadRequest, gin.H{"error": key + " must be true or false"})
+		return models.Setting{}, false
+	}
+
+	actor := auditActor(c)
+	var snapshot models.ModuleStateSnapshot
+	err := services.WithWriteLock(h.DB, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return err
+		}
+		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, key); err != nil {
+			return err
+		}
+		return models.SetModuleState(tx, key, on, actor)
+	})
+	if err != nil {
+		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
+			return models.Setting{}, false
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save setting"})
+		return models.Setting{}, false
+	}
+
+	if h.Cerberus != nil {
+		h.Cerberus.InvalidateCache()
+	}
+	if h.CaddyManager != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
+			logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
+			restoreModuleState(h.DB, h.Cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			return models.Setting{}, false
+		}
+		logger.Log().WithField("setting_key", sanitizeForLog(key)).Info("Caddy config reloaded after security setting change")
+	}
+
+	stored := "false"
+	if on {
+		stored = "true"
+	}
+	return models.Setting{Key: key, Value: stored, Category: "security", Type: "bool"}, true
+}
+
+// updateKeys returns the keys of a flattened settings batch.
+func updateKeys(updates map[string]string) []string {
+	keys := make([]string, 0, len(updates))
+	for key := range updates {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // PatchConfig updates multiple configuration settings at once
@@ -445,10 +503,18 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 	adminWhitelist, hasAdminWhitelist := updates["security.admin_whitelist"]
 
-	aclEnabled := false
-	if value, ok := updates["security.acl.enabled"]; ok && strings.EqualFold(value, "true") {
-		aclEnabled = true
-		updates["feature.cerberus.enabled"] = "true"
+	// Module switches must be true or false. They are refused here, before any write, and written through SetModuleState.
+	moduleSwitches := make(map[string]bool)
+	for key, value := range updates {
+		if !models.IsSecurityModuleKey(key) {
+			continue
+		}
+		on, recognised := models.ParseModuleSettingValue(value)
+		if !recognised {
+			c.JSON(http.StatusBadRequest, gin.H{"error": key + " must be true or false"})
+			return
+		}
+		moduleSwitches[key] = on
 	}
 
 	// Validate the whole batch before opening the transaction so an invalid
@@ -461,7 +527,19 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		return
 	}
 
-	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+	// The batch and its pre-image are taken under the shared write lock, so a module switch and the rows it mirrors are
+	// written together and a failed proxy apply can put the pre-image back.
+	actor := auditActor(c)
+	var snapshot models.ModuleStateSnapshot
+	if err := services.WithWriteLock(h.DB, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return err
+		}
+		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, updateKeys(updates)...); err != nil {
+			return err
+		}
+
 		for key, value := range updates {
 			if key == "security.admin_whitelist" {
 				if err := validateAdminWhitelist(value); err != nil {
@@ -471,6 +549,13 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 			if err := validateOptionalKeepaliveSetting(key, value); err != nil {
 				return err
+			}
+
+			if on, isModule := moduleSwitches[key]; isModule {
+				if err := models.SetModuleState(tx, key, on, actor); err != nil {
+					return err
+				}
+				continue
 			}
 
 			setting := models.Setting{
@@ -487,12 +572,6 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 		if hasAdminWhitelist {
 			if err := h.syncAdminWhitelistWithDB(tx, adminWhitelist); err != nil {
-				return err
-			}
-		}
-
-		if aclEnabled {
-			if err := enableSecurityFramework(tx); err != nil {
 				return err
 			}
 		}
@@ -533,7 +612,8 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		if h.CaddyManager != nil {
 			if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
 				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security settings change")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+				restoreModuleState(h.DB, h.Cerberus, snapshot)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 				return
 			}
 

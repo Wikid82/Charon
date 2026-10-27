@@ -170,7 +170,8 @@ func TestBuildWAFHandler_NoDirectivesReturnsNil(t *testing.T) {
 	}
 }
 
-// TestBuildWAFHandler_DisabledModes verifies WAF is disabled correctly
+// TestBuildWAFHandler_DisabledModes verifies the WAF key decides whether a handler is built: a key that is off gives no
+// handler whatever the row says, and a key that is on builds one even when the row holds the disabled mode.
 func TestBuildWAFHandler_DisabledModes(t *testing.T) {
 	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
 	rulesetPaths := map[string]string{"owasp-crs": "/path/to/rules.conf"}
@@ -180,23 +181,30 @@ func TestBuildWAFHandler_DisabledModes(t *testing.T) {
 		name       string
 		secCfg     *models.SecurityConfig
 		wafEnabled bool
+		wantNil    bool
 	}{
 		{
 			name:       "wafEnabled false returns nil",
 			secCfg:     &models.SecurityConfig{WAFMode: "block"},
 			wafEnabled: false,
+			wantNil:    true,
 		},
 		{
-			name:       "WAFMode disabled returns nil",
+			name:       "WAFMode disabled with the WAF on builds the handler",
 			secCfg:     &models.SecurityConfig{WAFMode: "disabled"},
 			wafEnabled: true,
+			wantNil:    false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := buildWAFHandler(host, rulesets, rulesetPaths, tc.secCfg, tc.wafEnabled)
-			require.Nil(t, handler)
+			if tc.wantNil {
+				require.Nil(t, handler)
+				return
+			}
+			require.NotNil(t, handler)
 		})
 	}
 }

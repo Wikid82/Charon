@@ -188,10 +188,11 @@ func TestUpdateConfig_NonAdminIsRefused(t *testing.T) {
 	assertRowKeptExcept(t, before, loadDefaultSecurityRow(t, db))
 }
 
-// The proxy is applied once after a save. When the apply fails the save still answers 200 with the stored row.
-func TestUpdateConfig_ApplyFailureStillAnswersStoredRow(t *testing.T) {
+// When the proxy apply fails, the save answers 500 and the pre-image is restored: the stored row and the module keys
+// are the ones the save found, not the refused values.
+func TestUpdateConfig_ApplyFailureRestoresStoredStateAndAnswers500(t *testing.T) {
 	h, router, db := newSecurityPinRouter(t)
-	seedFullSecurityRow(t, db, true)
+	before := seedFullSecurityRow(t, db, true)
 	applier := &recordingApplier{err: errors.New("apply failed")}
 	h.caddyManager = applier
 	logs := captureLogrusOutput(t)
@@ -199,11 +200,11 @@ func TestUpdateConfig_ApplyFailureStillAnswersStoredRow(t *testing.T) {
 	w := serveSecurityPin(t, router, http.MethodPost, "/security/config", "192.0.2.10:5000",
 		`{"name":"default","waf_mode":"block"}`)
 
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	assert.Contains(t, w.Body.String(), `"waf_mode":"block"`, "the response is the stored row")
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), "Failed to reload configuration")
 	assert.Equal(t, 1, applier.count(), "the proxy is applied once")
 	assert.Contains(t, logs.String(), "failed to apply security config changes to Caddy")
-	assert.Equal(t, "block", loadDefaultSecurityRow(t, db).WAFMode)
+	assertRowKeptExcept(t, before, loadDefaultSecurityRow(t, db))
 }
 
 // serveSecurityStatus returns the module status body, so a save can be checked against it.

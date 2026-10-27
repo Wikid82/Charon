@@ -27,5 +27,32 @@ func TestSecurityService_Upsert_SavesGeneralColumns(t *testing.T) {
 // TestSecurityService_Upsert_DoesNotCopyModuleColumns describes Upsert saving the general fields of a row without
 // copying the WAF mode and rate-limit mode and enable columns onto the stored row.
 func TestSecurityService_Upsert_DoesNotCopyModuleColumns(t *testing.T) {
-	t.Skip("enabled in commit 4 of this PR: Upsert leaves module columns to the module writers")
+	db := setupSecurityTestDB(t)
+	svc := newTestSecurityService(t, db)
+	require.NoError(t, db.Create(&models.SecurityConfig{
+		Name:               "default",
+		Enabled:            true,
+		WAFMode:            "block",
+		RateLimitMode:      "enabled",
+		RateLimitEnable:    true,
+		RateLimitRequests:  50,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     20,
+	}).Error)
+
+	// A save that carries other module values, read from a stale copy, must not change the stored module columns.
+	require.NoError(t, svc.Upsert(&models.SecurityConfig{
+		Name:            "default",
+		Enabled:         false,
+		WAFMode:         "monitor",
+		RateLimitMode:   "disabled",
+		RateLimitEnable: false,
+	}))
+
+	var stored models.SecurityConfig
+	require.NoError(t, db.Where("name = ?", "default").First(&stored).Error)
+	assert.False(t, stored.Enabled, "general columns still save")
+	assert.Equal(t, "block", stored.WAFMode)
+	assert.Equal(t, "enabled", stored.RateLimitMode)
+	assert.True(t, stored.RateLimitEnable)
 }

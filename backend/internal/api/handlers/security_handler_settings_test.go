@@ -359,7 +359,7 @@ func TestEnableSecurityFramework_CreatesWhenMissing(t *testing.T) {
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	t.Cleanup(handler.Close)
 
-	err := enableSecurityFramework(db)
+	err := models.EnableSecurityFramework(db)
 	require.NoError(t, err)
 
 	var cfg models.SecurityConfig

@@ -24,7 +24,7 @@ func setupSecurityTestDB(t *testing.T) *gorm.DB {
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 
-	err = db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityDecision{}, &models.SecurityAudit{}, &models.SecurityRuleSet{})
+	err = db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityDecision{}, &models.SecurityAudit{}, &models.SecurityRuleSet{}, &models.Setting{})
 	assert.NoError(t, err)
 
 	// Close database connection when test completes
@@ -1102,7 +1102,6 @@ func TestSecurityService_Upsert_KeepsStoredCrowdSecMode(t *testing.T) {
 		var stored models.SecurityConfig
 		require.NoError(t, db.Where("name = ?", "default").First(&stored).Error)
 		assert.Equal(t, "local", stored.CrowdSecMode, "mode %q", mode)
-		assert.Equal(t, "block", stored.WAFMode, "other columns still save")
 	}
 }
 

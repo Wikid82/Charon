@@ -330,32 +330,34 @@ func captureLogrusOutput(t *testing.T) *bytes.Buffer {
 
 // When the apply fails and the default row cannot be restored either, the failure is logged and the response is
 // still a 500 with the setting rolled back. Statements on security_configs before the restore are the framework
-// enable only, so the second update is the restore.
+// enable and the row mirror, so the third update is the restore.
 func TestSecurityToggles_LogsWhenDefaultRowRestoreFailsAfterApplyFailure(t *testing.T) {
 	h, db := newFailingApplyWAFToggle(t)
-	gormfault.InjectNth(t, db, gormfault.Update, "security_configs", 2, nil)
+	// Updates on security_configs before the restore: the framework enable and the row mirror. The third is the restore.
+	gormfault.InjectNth(t, db, gormfault.Update, "security_configs", 3, nil)
 	logs := captureLogrusOutput(t)
 
 	w := patchWAFEnable(t, h)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, logs.String(), "Failed to restore security config after security module toggle apply failure")
+	assert.Contains(t, logs.String(), "Failed to restore security config after the proxy apply failed")
 	var setting models.Setting
 	require.NoError(t, db.Where("key = ?", "security.waf.enabled").First(&setting).Error)
 	assert.Equal(t, "false", setting.Value)
 }
 
 // When the apply fails and the settings snapshot cannot be restored, the failure is logged and the response is
-// still a 500. The second settings update is the restore of the WAF setting (the first is the toggle write).
+// still a 500 with the key restored.
 func TestSecurityToggles_LogsWhenSettingsRestoreFailsAfterApplyFailure(t *testing.T) {
 	h, db := newFailingApplyWAFToggle(t)
-	gormfault.InjectNth(t, db, gormfault.Update, "settings", 2, nil)
+	// Updates on settings before the restore: the write lock and the WAF key write. The fourth is the restore of the key.
+	gormfault.InjectNth(t, db, gormfault.Update, "settings", 4, nil)
 	logs := captureLogrusOutput(t)
 
 	w := patchWAFEnable(t, h)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, logs.String(), "Failed to restore settings after security module toggle apply failure")
+	assert.Contains(t, logs.String(), "Failed to restore settings after the proxy apply failed")
 }
 
 // fakeCrowdsecLifecycle stands in for the CrowdSec lifecycle. It records the calls and answers with scripted results.

@@ -9,9 +9,6 @@ const (
 	ReasonRulesetNotSelected = "ruleset_not_selected"
 	// ReasonRulesetUnavailable means the chosen ruleset has no file on disk.
 	ReasonRulesetUnavailable = "ruleset_unavailable"
-	// ReasonModeDisabled means the default row holds the disabled WAF mode while the WAF key is on.
-	// It is an interim reason; the veto that produces it is removed with the mode reconciliation.
-	ReasonModeDisabled = "mode_disabled"
 	// ReasonThresholdsUnset means the rate limit is on without a request count or a window.
 	ReasonThresholdsUnset = "thresholds_unset"
 )

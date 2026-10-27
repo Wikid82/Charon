@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -196,7 +197,7 @@ func TestEnforcementReport_ReasonsAndCounts(t *testing.T) {
 		{
 			name: "disabled row mode with the WAF key on", hosts: twoHosts, wafOn: true,
 			rulesets: owasp, paths: owaspPath, secCfg: &models.SecurityConfig{WAFMode: "disabled"},
-			wantWAF: ModuleEnforcement{Eligible: 2, Reason: ReasonModeDisabled},
+			wantWAF: ModuleEnforcement{Eligible: 2, Protected: 2},
 		},
 		{
 			name: "no enabled host", hosts: []models.ProxyHost{disabledHost},
@@ -236,15 +237,63 @@ func TestEnforcementReport_WAFDisabledHostsNotEligible(t *testing.T) {
 }
 
 // TestBuildWAFHandler_KeyOnWithDisabledRowBuildsHandler describes the WAF handler being generated when the
-// WAF key is on and the default row still holds the disabled mode, with the legacy veto removed.
+// WAF key is on and the default row still holds the disabled mode, with no row-mode gate.
 func TestBuildWAFHandler_KeyOnWithDisabledRowBuildsHandler(t *testing.T) {
-	t.Skip("enabled in commit 4 of this PR: removal of the row veto in buildWAFHandler")
+	host := &models.ProxyHost{UUID: "keyon-host"}
+	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	paths := map[string]string{"owasp-crs": "/data/owasp-crs.conf"}
+
+	handler, reason := buildWAFHandlerWithReason(host, owasp, paths, &models.SecurityConfig{WAFMode: "disabled"})
+	require.NotNil(t, handler, "the WAF key decides; a disabled row mode does not stop the handler being built")
+	require.Empty(t, reason)
 }
 
 // TestApplyConfig_StartupReconcileMonitorMode describes the start-up step that moves a WAF key that is on
 // with a disabled or empty row to monitor mode, before the first apply.
 func TestApplyConfig_StartupReconcileMonitorMode(t *testing.T) {
-	t.Skip("enabled in commit 4 of this PR: start-up reconciliation of the WAF mode")
+	db := openEnforcementApplyDB(t)
+	// The WAF key is on and the row still holds the disabled mode, as every UI-toggled WAF instance does.
+	require.NoError(t, db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("waf_mode", "disabled").Error)
+	require.NoError(t, db.Create(&models.Setting{Key: models.SecurityWAFEnabledSettingKey, Value: "true", Category: "security", Type: "bool"}).Error)
+
+	changed, err := models.ReconcileWAFDetectionMode(db)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), changed)
+
+	client := &recordingCaddyClient{}
+	manager := NewManager(client, db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	require.NoError(t, manager.ApplyConfig(context.Background()))
+	body, err := json.Marshal(client.last)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "SecRuleEngine DetectionOnly", "the reconciled row runs the WAF in detection mode")
+
+	report, ok := manager.EnforcementReport()
+	require.True(t, ok)
+	require.True(t, report.WAF.Enforced())
+
+	var stored models.SecurityConfig
+	require.NoError(t, db.Where("name = ?", models.DefaultSecurityConfigName).First(&stored).Error)
+	require.Equal(t, "monitor", stored.WAFMode)
+
+	again, err := models.ReconcileWAFDetectionMode(db)
+	require.NoError(t, err)
+	require.Zero(t, again, "a second start-up changes nothing")
+}
+
+// recordingCaddyClient keeps the last configuration it was asked to load.
+type recordingCaddyClient struct {
+	last *Config
+}
+
+func (c *recordingCaddyClient) Load(_ context.Context, cfg *Config) error {
+	c.last = cfg
+	return nil
+}
+
+func (c *recordingCaddyClient) Ping(context.Context) error { return nil }
+
+func (c *recordingCaddyClient) GetConfig(context.Context) (*Config, error) {
+	return &Config{}, nil
 }
 
 // TestBuildRateLimitHandler_UnsetThresholdsReportsReason describes an enabled rate limit with zero thresholds:
