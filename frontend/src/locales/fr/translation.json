@@ -714,7 +714,7 @@
       "waf_ruleset_in_use": "Ce jeu de règles est celui utilisé par le WAF. Choisissez d'abord un autre jeu de règles.",
       "invalid_waf_mode": "Le mode du WAF n'est pas valide. Rechargez la page et réessayez."
     },
-    "detectionMode": "Mode de détection : les requêtes qui correspondent aux règles sont journalisées, pas bloquées. Passez le mode d'un jeu de règles sur blocage pour les bloquer."
+    "detectionMode": "Les jeux de règles sans mode propre ne journalisent les requêtes correspondantes que lorsque le mode WAF enregistré est la détection. Un jeu de règles réglé sur blocage bloque les requêtes correspondantes."
   },
   "uptime": {
     "title": "Surveillance de la Disponibilité",

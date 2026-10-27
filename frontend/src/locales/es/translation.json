@@ -714,7 +714,7 @@
       "waf_ruleset_in_use": "Este conjunto de reglas es el que usa el WAF. Elige primero otro conjunto de reglas.",
       "invalid_waf_mode": "El modo del WAF no es válido. Recarga la página e inténtalo de nuevo."
     },
-    "detectionMode": "Modo de detección: las solicitudes que coinciden con las reglas se registran, no se bloquean. Cambia el modo de un conjunto de reglas a bloqueo para bloquearlas."
+    "detectionMode": "Los conjuntos de reglas sin modo propio solo registran las solicitudes coincidentes mientras el modo WAF guardado sea detección. Un conjunto de reglas con modo bloqueo bloquea las solicitudes coincidentes."
   },
   "uptime": {
     "title": "Monitoreo de Disponibilidad",

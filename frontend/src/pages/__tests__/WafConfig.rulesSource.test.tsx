@@ -131,7 +131,7 @@ describe('WafConfig rules source', () => {
     renderPage()
 
     expect(await screen.findByTestId('waf-detection-mode')).toHaveTextContent(
-      'Detection mode: requests that match the rules are logged, not blocked. Set a rule set\'s mode to blocking to block them.'
+      'Rule sets without a mode of their own only log matching requests while the saved WAF mode is detection. A rule set set to blocking blocks matching requests.'
     )
   })
 
