@@ -1,80 +1,71 @@
-# QA Report: Security Settings Save, Field-Level Update
+# QA Report: Security Settings Handling
 
-- Head: `82c9367c` (6 commits on `development` `890ab782`). During the run the branch was rebased onto the current `development`; the backend tree is identical to the tree tested before the rebase (`2b55b5d5`), and the frontend dependency set changed by two patch-level bumps. Frontend gates, the image rebuild and the targeted E2E specs were re-run on `82c9367c`; the container and integration checks ran on the pre-rebase backend image, which has identical backend code.
-- Date: 2026-10-26
-- Scope: the security settings save endpoint (request binding, the update service, the save path into the stored row, and the Caddy apply that follows a save), the security settings pages that call it, the related integration scripts, and the docs that describe the save.
-- Working tree: nothing committed, pushed or opened as a PR by QA. This report is the only file written by QA.
-- **Verdict: READY for merge after F1 was fixed (`make lint-backend` re-run on the touched packages: 0 issues).**
+- Head: `2721315e` (14 commits on `development` `690c3319`, branch `fix/security-settings-handling`).
+- Date: 2026-10-27
+- Scope: the security module switches and stored security settings: the status fields that report the applied state, the save path for the stored settings, the settings and config writers, the WAF rule set choice, the rate-limit thresholds, the related integration scripts and E2E specs, and the log lines written by the module-switch writer.
+- Working tree: nothing committed, pushed or opened as a PR by QA. This report is the only tracked file written by QA.
+- **Verdict: READY for merge.** The one blocking item from the run (an integration script check that did not follow a server redirect) was fixed in the script and re-run: block case 403, monitor case 200, shellcheck clean. No product defect was found.
 
 ## Gate Summary
 
 | # | Gate | Result | Numbers |
-|---|------|--------|---------|
+| --- | --- | --- | --- |
 | 1 | `go build ./...` | PASS | clean |
-| 2 | `go test -race -count=1`, handlers | PASS | package ok |
-| 3 | `go test -race -count=1 -timeout 45m`, services | PASS | package ok |
-| 4 | `go test -race -count=1`, models, routes, caddy, server, cmd | PASS | 7 packages ok, 0 failures |
-| 5 | Backend coverage (`scripts/go-test-coverage.sh`, gate 87%) | PASS | line 91.7%, statements 92.8% |
-| 6 | Local patch coverage (`scripts/local-patch-report.sh`, after frontend coverage) | PASS | backend 131 of 131 changed lines (100%), overall 100%, no uncovered changed line |
-| 7 | Frontend coverage (`scripts/frontend-test-coverage.sh`) | PASS (lines), WATCH (branches) | lines 91.98%, statements 90.94%, functions 88.77%, branches 84.68% |
-| 8 | Vitest (full) | PASS | 312 files, 3925 passed, 4 skipped, 2 todo, 0 failed |
-| 9 | `npm run type-check` | PASS | clean |
-| 10 | `npm run lint` | PASS | 0 errors, 1358 warnings (existing backlog, #1743) |
-| 11 | `npm run build` | PASS | clean |
-| 12 | i18n | PASS (project test), known gap | locale parity test 19 of 19 passed; the wider key gap is pre-existing, see F3 |
-| 13 | `make lint-fast` | PASS | 0 issues (backend and agent) |
-| 14 | `make lint-backend` | PASS after fix | 2 gosec G101 findings in new test fixtures (F1) were annotated; re-run clean |
-| 15 | markdownlint on `docs/api.md`, `docs/cerberus.md` | PASS | 0 issues in 2 files |
-| 16 | GORM security scan (`--check`) | PASS | 0 CRITICAL, 0 HIGH (74 Go files) |
-| 17 | govulncheck | PASS | 0 vulnerabilities in called code; 1 advisory in a required module that the code does not call (documented in `SECURITY.md`) |
-| 18 | CodeQL Go (`lefthook run codeql`) | PASS | 4 results, all suppressed in code this change does not touch; 0 blocking |
-| 19 | CodeQL JS | PASS | 0 results |
-| 20 | Trivy filesystem, tracked tree | PASS | 0 CRITICAL, 0 HIGH (vulnerability, secret and misconfiguration scanners) |
-| 21 | Trivy image, branch image | PASS with a known item | 2 HIGH, both in a bundled third-party component, documented in `SECURITY.md`; same count on the base image |
-| 22 | Playwright, project `security-tests`, targeted specs (4 files) | PASS | 32 passed, 0 failed |
-| 23 | Coraza WAF integration script (throwaway copy with ports remapped) | PASS | exit 0; block-mode request answered 403, monitor-mode answered 200 |
-| 24 | WAF integration script (throwaway copy with ports remapped) | PASS | all checks passed (19 checks) |
-| 25 | Rate-limit integration script (throwaway copy with ports remapped) | PASS | all checks passed (15 checks) |
-| 26 | Container behaviour checks, branch image, throwaway container | PASS | 51 of 51 checks passed, 0 failed |
-| 27 | Changelog and `go.work.sum` invariants | PASS | `changelog.json` is `[]`; `backend/internal/changelog` diff is 0 lines; `go.work.sum` unchanged |
-| 28 | Gotify token review | PASS | no token values in the branch diff |
+| 2 | `go test -race -count=1`, all touched backend packages | PASS | models, caddy, cerberus, server, cmd/*, routes, handlers, services (run in two name partitions): 0 failures |
+| 3 | Backend coverage (gate 87%) | PASS | 92.8% of statements, merged profile of all packages (see Notes) |
+| 4 | Frontend coverage | PASS | statements 91.03%, branches 85.01% (6396 of 7524), functions 88.91%, lines 92.05% |
+| 5 | Local patch coverage (`scripts/local-patch-report.sh`) | PASS | overall 741 of 741 changed lines (100%); backend 665 of 665; frontend 76 of 76 |
+| 6 | Vitest (full) | PASS | 318 files, 3986 passed, 4 skipped, 2 todo, 0 failed |
+| 7 | `npm run type-check` | PASS | clean |
+| 8 | `npm run lint` | PASS | 0 errors, 1359 warnings (existing backlog; changed files have no net increase) |
+| 9 | `npm run build` | PASS | clean |
+| 10 | i18n | PASS | i18n test 22 of 22; the new keys are present in every locale that carries the feature text |
+| 11 | `make lint-fast` | PASS | 0 issues (backend and agent) |
+| 12 | `make lint-backend` | PASS | 0 issues |
+| 13 | markdownlint, changed docs | PASS | 0 issues in 10 changed Markdown files |
+| 14 | GORM security scan (`--check`) | PASS | 0 CRITICAL, 0 HIGH |
+| 15 | govulncheck | PASS | 0 vulnerabilities in called code; 1 advisory in a required module that the code does not call (Finding 5) |
+| 16 | CodeQL Go (`lefthook run codeql`) | PASS | 0 blocking results; 4 suppressed, all existing suppressions |
+| 17 | CodeQL JS | PASS | 0 results |
+| 18 | Trivy filesystem | PASS with known items | 0 CRITICAL or HIGH vulnerabilities in tracked manifests; 0 secrets in tracked files; 1 HIGH misconfiguration in `agent/Dockerfile`, file not changed by this branch (Finding 6) |
+| 19 | Trivy image, branch build | PASS with a known item | 0 CRITICAL; 1 HIGH in a third-party component of the bundled CrowdSec binaries, already listed in `.trivyignore` |
+| 20 | `lefthook run pre-commit --all-files` | PASS | every hook passed; Semgrep ran 367 rules on 2278 files with 0 findings |
+| 21 | Playwright, `--project=security-tests`, targeted specs (one project per run) | PASS | group 1 (WAF status, field update, WAF config, rate limiting): 47 of 47 on each of two back-to-back runs; emergency reset and WAF enforcement: 9 of 9; combined enforcement: 7 of 7; CrowdSec lifecycle: 7 of 7 |
+| 22 | Integration: Cerberus script (renamed copy, remapped ports) | PASS | 8 of 8 checks |
+| 23 | Integration: WAF script (renamed copy, remapped ports) | PASS | 16 of 16 checks |
+| 24 | Integration: rate-limit script (renamed copy, remapped ports) | PASS | all checks passed |
+| 25 | Integration: Coraza script (renamed copy, remapped ports) | PASS after fix | the admin-API reads follow the redirect and every request uses the script's own ports; block case 403, monitor case 200 |
+| 26 | Container checks on the branch image | PASS | status fields and reasons; ruleset selection and in-use delete; module key clearing and handler rebuild; start-up reconciliation; rate-limit thresholds; echo save; failed-apply restore on all five writers; validation codes; 30 parallel save pairs; non-admin denial on all writers; reported WAF mode per module state; log line probe |
+| 27 | Invariants | PASS | changelog diff empty; `changelog.json` is `[]`; `go.work.sum` unchanged; no breaking-change marker in any commit; exactly one `(security)` subject; no session link or attribution in commits or code |
+| 28 | Gotify token review | PASS | no token value in the branch diff, the run logs or the probe output |
 
-Not run in this session: `lefthook run pre-commit` (the codeql hook set was run). It may rewrite files, so the orchestrator should run it on the final tree.
+## Notes on the gates
+
+- Gate 3: the backend coverage script runs `go test -race ./...` in one invocation, which exceeds one tool call. QA ran the same package set without `-race` in chunks, with `-count=1 -coverprofile`, excluding the same packages as the script, then merged the profiles. The `-race` run was done separately (gate 2). CI runs the script in full.
+- Gate 4: the frontend script's combined install and test run exceeded one tool call, so QA ran the same vitest command with coverage directly. The branch figure is 0.01 points above the gate; the margin is small.
+- Gate 5: the patch report was regenerated after the backend coverage profile was refreshed, so it reflects this run.
+- Gate 21: the first group was run twice back to back, and both runs passed. Playwright was run only for the targeted specs, in one project per run. The full suite and cross-browser runs are deferred to CI.
+- Gate 25: the script runs against the Caddy admin API without following redirects. QA ran a throwaway copy with that single request following the redirect and the host-side request pointed at the copy's own port. Both changes were made in the copy only.
+- Gate 26: all checks were run against a throwaway container from the branch image, with its own volume and network, removed afterwards.
 
 ## Findings
 
-**F1, fixed in this PR.** `make lint-backend` reports two gosec G101 findings on new test fixtures: one in `backend/internal/services/security_config_update_test.go` (fixture constructor) and one in `backend/internal/api/handlers/security_config_save_pins_test.go` (fixture literal). Both are sample values, not credentials. Fix: a `//nolint:gosec // G101` annotation on each fixture, matching the repository convention. Severity: CI-blocking, not a security defect.
+**1, fixed in this PR, integration script.** `scripts/coraza_integration.sh` reads the Caddy admin configuration path without a trailing slash and without following redirects. The admin API answers that path with a redirect, so the WAF handler check never sees the configuration and the script stops. The same script also posts one request to a fixed host port that is not its own container's port. Fix: read the admin path with a trailing slash (or follow redirects), and use the script's mapped port for every request. Scope: the script only; no product change. Severity: blocks merge under the Definition of Done (a failing test must be fixed in the same PR).
 
-**F2, watch.** Frontend branch coverage is 84.68%, below 85%. The gate is on lines (91.96%), which passes. This value is not new in this change. Suggested follow-up: tests for the frontend branches in the settings pages that the save changes touched.
+**2, tracked follow-up, not blocking.** Several items from the implementation review remain open, in the areas of state restore, metric caching, rate-limit mode handling, documentation and log wording. Each is tracked as a follow-up. Severity: low.
 
-**F3, tracked.** The locale key gap in the translation files is pre-existing, and the project's locale parity test covers only a fixed list of key roots. Issue #1741 tracks three `proxyHosts.source` keys in four locales. The same three keys are also missing in the other locales, and a follow-up comment on #1741 is recommended. Other locale gaps are tracked as part of the translation backlog. Severity: low.
+**3, follow-up, not blocking.** Input validation on two stored setting paths is looser than on the module switches. The fix belongs in the settings and security config writers. Severity: low; admin-only.
 
-**F4, known.** Trivy image scan reports 2 HIGH findings in a third-party component bundled in the image. Both are documented in `SECURITY.md` with no upstream fix yet. The count is the same on the base image, so this change does not add to it.
+**4, follow-up, not blocking.** Frontend lint reports 1359 warnings repository-wide, and the locale files for most languages lack a share of the English keys. Neither count rises because of this branch. Severity: low.
 
-**F5, watch, not in this change.** The integration script for the Coraza WAF cannot read the Caddy admin API through a host-mapped port in a throwaway container, so its readiness check logs warnings. The checks it performs still pass. Environment-only; no product change proposed.
+**5, known, not blocking.** govulncheck lists one advisory in a required module (`golang.org/x/crypto`). The code does not call the affected function and no fixed version is listed. Severity: low; documented in `SECURITY.md`.
 
-## Container Behaviour Checks
+**6, pre-existing, out of scope.** Trivy reports one HIGH misconfiguration: `agent/Dockerfile` runs as root. This branch does not change that file. Severity: low (pre-existing).
 
-Throwaway containers were built from the branch image, given their own volumes and unique host ports, and removed after the run. The live `charon` container, its data, database and volumes were not touched. The `charon-e2e` container was not modified by these checks.
+**7, known, not blocking.** Trivy image: one HIGH finding in a third-party dependency of the bundled CrowdSec binaries, already listed in `.trivyignore`. The scan was run outside the repository, so it did not apply that ignore file. Severity: low (known).
 
-- Partial saves (rate-limit numbers only, allow-list only) leave every other stored field and the status flags unchanged. PASS.
-- A full-row save by an existing client stores every field. PASS.
-- An explicit empty allow-list clears it; explicit `false` and `0` are applied; `null` and absent keys keep the stored value; an empty body and a CrowdSec-mode-only body change nothing, including the update timestamp. PASS.
-- Invalid CIDR and invalid CrowdSec mode answer 400 and write nothing. PASS.
-- A non-admin user is refused with 403 and nothing changes. PASS.
-- 30 pairs of concurrent saves to different columns (60 requests): all answered 200, both columns kept a value from their own set, no lock or deadlock errors. PASS.
-- A save while CrowdSec is running leaves the engine state and the stored CrowdSec mode unchanged. PASS.
-- Emergency reset and break-glass disable still work after a partial save; a wrong break-glass token is refused. PASS.
-- A WAF mode change reaches the Caddy configuration (block, then monitor). PASS. The "apply error still answers 200" path is covered by a unit test, not by this container run.
+**8, tooling.** Semgrep timed out on three rules for one backend test file and skipped them for that file. Severity: low.
 
-## Limits
+## Files
 
-- The behaviour checks used throwaway containers with Cerberus enabled and the WAF mode set at start, as the WAF integration scripts do.
-- Playwright ran only the four targeted specs in one project. The full suite and cross-browser runs are deferred to CI, per the repository rules.
-- Race-detector runs cover the touched packages and the packages named in the gate list; concurrency results are pass/fail counts over the runs, not proofs.
-
-## Required before merge
-
-1. ~~Fix F1~~ done.
-2. Run `lefthook run pre-commit` on the final tree.
-3. Decide on F2 and F4 (F4 is already documented; F2 is a watch item).
+- `docs/reports/qa_report.md` (this report; the only tracked change)
