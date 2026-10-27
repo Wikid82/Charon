@@ -18,7 +18,7 @@ Cerberus is the optional security suite built into Charon. It includes:
 - **WAF (Web Application Firewall)** — Inspects requests for malicious payloads
 - **CrowdSec** — Blocks IPs based on behavior and reputation
 - **Access Lists** — Static allow/deny rules (IP, CIDR, geo)
-- **Rate Limiting** — Volume-based abuse prevention (placeholder)
+- **Rate Limiting** — Limits how many requests a visitor can send in a time window
 
 All components are disabled by default and can be enabled independently.
 
@@ -28,21 +28,15 @@ All components are disabled by default and can be enabled independently.
 
 ### Request Flow
 
-When a request hits Charon:
+When a visitor's request reaches one of your proxied sites, Caddy runs these checks in order. Each check runs only when its switch is on.
 
-1. **Check if Cerberus is enabled** (global setting + dynamic database flag)
-2. **WAF evaluation** (if `waf_mode != disabled`)
-   - Increment `charon_waf_requests_total` metric
-   - Check payload against loaded rulesets
-   - If suspicious:
-     - `block` mode: Return 403 + increment `charon_waf_blocked_total`
-     - `monitor` mode: Log + increment `charon_waf_monitored_total`
-3. **ACL evaluation** (if enabled)
-   - Test client IP against active access lists
-   - First denial = 403 response
-4. **CrowdSec check** (placeholder for future)
-5. **Rate limit check** (placeholder for future)
-6. **Pass to downstream handler** (if not blocked)
+1. **Cerberus switch** — If the security switch on the Security page is off, none of the checks below run.
+2. **Block decisions** — Addresses with a block decision get a 403 response. Addresses on the admin allow list are not refused this way.
+3. **CrowdSec** — The CrowdSec bouncer checks the address against CrowdSec decisions.
+4. **WAF** — The selected rule set checks the request when the WAF is on for the site. A rule set in Blocking mode refuses matching requests. A rule set in Detection mode only logs them.
+5. **Rate limit** — A visitor who is over the limit gets a 429 response. Runs only when the request count and time window are both set.
+6. **Access list** — Requests that fail the site's access list are refused.
+7. **Forward** — The request goes on to your app.
 
 ### Middleware Integration
 
@@ -103,11 +97,12 @@ The WAF provides **pattern-based detection** for zero-day exploits:
 ## Request Processing Pipeline
 
 ```text
-1. [CrowdSec]      Check IP reputation → Block if known attacker
-2. [ACL]           Check IP/Geo rules → Block if not allowed
-3. [WAF]           Inspect request payload → Block if malicious pattern
-4. [Rate Limit]    Count requests → Block if too many
-5. [Proxy]         Forward to upstream service
+1. [Block decisions] Refuse addresses with a block decision (admin allow list excepted)
+2. [CrowdSec]        Check the address against CrowdSec decisions, when on
+3. [WAF]             Inspect the request with the selected rule set, when on
+4. [Rate Limit]      Count requests per visitor, when on and its numbers are set
+5. [ACL]             Check the site's access list, when on and the site has one
+6. [Proxy]           Forward to upstream service
 ```
 
 ## Configuration Model
@@ -163,35 +158,9 @@ If no database config exists, Charon reads from environment:
 
 ### Current Implementation
 
-**Status:** Prototype with placeholder detection
+**Status:** Active. The WAF uses the [Coraza](https://coraza.io/) engine with the selected rule set (the OWASP Core Rule Set by default).
 
-The current WAF checks for `<script>` tags as a proof-of-concept. Full OWASP CRS integration is planned.
-
-```go
-func (w *WAF) EvaluateRequest(r *http.Request) (Decision, error) {
-    if strings.Contains(r.URL.Query().Get("q"), "<script>") {
-        return Decision{Action: "block", Reason: "XSS detected"}, nil
-    }
-    return Decision{Action: "allow"}, nil
-}
-```
-
-### Future: Coraza Integration
-
-Planned integration with [Coraza WAF](https://coraza.io/) and OWASP Core Rule Set:
-
-```go
-waf, err := coraza.NewWAF(coraza.NewWAFConfig().
-    WithDirectives(loadedRuleContent))
-```
-
-This will provide production-grade detection of:
-
-- SQL injection
-- Cross-site scripting (XSS)
-- Remote code execution
-- File inclusion attacks
-- And more
+Charon writes each rule set to a file. A header line in that file sets the engine mode: `SecRuleEngine On` for a rule set in Blocking mode, and `SecRuleEngine DetectionOnly` for one in Detection mode. A rule set with no mode of its own takes the saved WAF mode.
 
 ### Rulesets
 
@@ -221,7 +190,7 @@ On the WAF page, pick a rule set from the list, or choose automatic selection. T
 
 ### After Upgrading
 
-After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them. A rule set with no mode of its own follows the saved WAF mode, which is detection when no mode had been saved.
+After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them. A rule set with no mode of its own follows the saved WAF mode (detection when it is set to monitor, blocking otherwise).
 
 ### Prometheus Metrics
 
@@ -849,11 +818,11 @@ go test -tags=integration ./integration -run TestCorazaIntegration -v
 
 ### Manual Testing
 
-1. Enable WAF in `monitor` mode
-2. Send request with `<script>` in query string
-3. Check `/api/v1/security/decisions` for logged attempt
-4. Switch to `block` mode
-5. Repeat — should receive 403
+1. On the Security page, turn on the Coraza WAF switch
+2. On the WAF page, set the rule set's mode to Detection
+3. Send a request with `<script>` in the query string to a proxied site that has the WAF on. The request still reaches the app, because Detection only logs it
+4. On the WAF page, set the rule set's mode to Blocking
+5. Repeat step 3. The request should now be refused
 
 ---
 
@@ -905,18 +874,18 @@ annotations:
 | 1 | WAF placeholder + metrics | ✅ Complete |
 | 2 | ACL implementation | ✅ Complete |
 | 3 | Break-glass token | ✅ Complete |
-| 4 | Coraza CRS integration | 📋 Planned |
+| 4 | Coraza CRS integration | ✅ Complete |
 | 5 | CrowdSec local agent | 📋 Planned |
-| 6 | Rate limiting enforcement | 📋 Planned |
+| 6 | Rate limiting enforcement | ✅ Complete |
 | 7 | Adaptive learning/tuning | 🔮 Future |
 
 ---
 
 ## FAQ
 
-### Why is the WAF just a placeholder?
+### Does the WAF really block attacks?
 
-We wanted to ship the architecture and observability first. This lets you enable monitoring, see the metrics, and prepare dashboards before the full rule engine is integrated.
+Yes. Charon uses the Coraza engine with the OWASP Core Rule Set. Each rule set is either Detection (logs only) or Blocking (refuses matching requests).
 
 ### Can I use my own WAF rules?
 
@@ -924,11 +893,11 @@ Yes, via `/api/v1/security/rulesets`. Upload custom Coraza-compatible rules.
 
 ### Does Cerberus protect Caddy's proxy traffic?
 
-Not yet. Currently it only protects the management API (`/api/v1`). Future versions will integrate directly with Caddy's request pipeline to protect proxied traffic.
+Yes. For each proxied site, the block decisions, CrowdSec, WAF, rate limit and access list checks run in Caddy before the request reaches your app. Charon's own management API (`/api/v1`) has a separate rate limit.
 
-### Why is monitor mode still blocking?
+### Why does a rule set still block when the saved WAF mode is monitor?
 
-Known issue with the placeholder implementation. This will be fixed when Coraza integration is complete.
+The saved WAF mode applies only to a rule set with no mode of its own. A rule set set to Blocking keeps blocking. Set it to Detection on the WAF page to log only.
 
 ---
 

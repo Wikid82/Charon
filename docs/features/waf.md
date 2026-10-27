@@ -49,7 +49,7 @@ Each rule set has its own mode:
 
 ### After Upgrading
 
-After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them. A rule set with no mode of its own follows the saved WAF mode, which is detection when no mode had been saved.
+After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them. A rule set with no mode of its own follows the saved WAF mode (detection when it is set to monitor, blocking otherwise).
 
 ### Per-Host Configuration
 
@@ -57,7 +57,8 @@ WAF can be enabled independently for each proxy host:
 
 - Enable for public-facing applications
 - Disable for internal services or APIs with custom security
-- Mix modes across different hosts as needed
+
+The Detection or Blocking mode belongs to each rule set, not to a host. Hosts that use the same rule set get the same mode.
 
 ## Zero-Day Protection
 

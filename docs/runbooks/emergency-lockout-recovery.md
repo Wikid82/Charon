@@ -154,13 +154,13 @@ curl -X POST https://charon.example.com/api/v1/emergency/security-reset \
 ```json
 {
   "success": true,
-  "message": "All security modules have been disabled",
+  "message": "All security modules have been disabled. Please reconfigure security settings.",
   "disabled_modules": [
-    "feature.cerberus.enabled",
+    "security.crowdsec.enabled",
+    "security.crowdsec.mode",
     "security.acl.enabled",
     "security.waf.enabled",
-    "security.rate_limit.enabled",
-    "security.crowdsec.enabled"
+    "security.rate_limit.enabled"
   ],
   "timestamp": "2026-01-26T10:30:45Z"
 }
@@ -193,6 +193,17 @@ https://charon.example.com:8080
 ```
 
 You should now have full access to the Charon management interface.
+
+#### Step 6: Turn the Security Modules Back On
+
+The reset turns off the WAF, Rate Limiting, Access Lists and CrowdSec. It keeps the Cerberus security switch on, and it clears the admin allow list. Turn the modules back on one at a time:
+
+1. Open the **Security** page.
+2. Turn on each module you want. Turning a module on also turns on the security switch if it is off.
+3. For the WAF, open the **WAF** page and choose the rule set again.
+4. Enter your addresses again in the admin allow list on the Security page.
+
+Advanced: each module also has an admin-only API switch. Send an authenticated `POST` to `/api/v1/security/waf/enable`, `/api/v1/security/rate-limit/enable`, `/api/v1/security/acl/enable` or `/api/v1/security/crowdsec/enable`.
 
 ### Troubleshooting Tier 1
 

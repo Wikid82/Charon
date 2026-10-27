@@ -7,30 +7,40 @@ The Charon security configuration system uses a three-tier priority chain to det
 ## Priority Chain
 
 1. **Settings Table** (Highest Priority)
-   - Runtime overrides stored in the `settings` database table
-   - Used for feature flags and quick toggles
-   - Can enable/disable individual security modules without full config changes
+   - Module switches stored in the `settings` database table (`security.waf.enabled`, `security.rate_limit.enabled`, `security.acl.enabled`)
+   - A value of `"true"` or `"false"` (any case, surrounding spaces ignored) decides the module. Any other value is ignored, so the next source decides
    - Takes precedence over all other sources
 
 2. **SecurityConfig Database Record** (Middle Priority)
-   - Persistent configuration stored in the `security_configs` table
-   - Contains comprehensive security settings including admin whitelists, rate limits, etc.
+   - Persistent configuration stored in the `security_configs` row named `default`
+   - Holds the WAF mode and the rate limit mode (or its legacy enable flag)
+   - A blank column has no opinion, so the next source decides
    - Overrides static configuration file settings
-   - Used for user-managed security configuration
 
 3. **Static Configuration File** (Lowest Priority)
    - Default values from `config/config.yaml` or environment variables
-   - Fallback when no database overrides exist
+   - Fallback when neither a switch nor a row decides
    - Used for initial setup and defaults
 
 ## How It Works
 
-When the `/api/v1/security/status` endpoint is called, the system:
+The proxy configuration and the `/api/v1/security/status` endpoint use the same resolver (`ResolveModule` in `backend/internal/models/security_modules.go`), so both report the same state for each module. For each module the resolver:
 
-1. Starts with static config values
-2. Checks for SecurityConfig DB record and overrides static values if present
-3. Checks for Settings table entries and overrides both static and DB values if present
-4. Computes effective enabled state based on final values
+1. Reads the settings key. A recognised `true` or `false` wins
+2. Otherwise reads the default row. A set column decides
+3. Otherwise uses the static configuration
+
+The Cerberus switch is checked first. When it is off, every module reports as off.
+
+## Who Writes the Switches
+
+Every write to a module switch goes through one set of helpers (`SetModuleState` and `ClearModuleKey` in `backend/internal/models/security_module_state.go`), inside the caller's transaction:
+
+- **Turning a module on** writes the key and turns on the security framework. The WAF mirror moves a missing or disabled WAF mode to `block` (an explicit `monitor` mode is kept). The rate limit mirror marks the rate limit enabled and fills each unset or zero threshold with the standard value.
+- **Turning a module off** writes the key only. It never changes the default row.
+- **A config save** writes a switch only when the value it sends differs from the saved value.
+- **The emergency reset** writes the WAF, rate limit, ACL and CrowdSec keys as `"false"`.
+- **Clearing a key** removes it, so the resolver falls back to the default row and then the static configuration.
 
 ## Supported Settings Table Keys
 
@@ -40,11 +50,11 @@ When the `/api/v1/security/status` endpoint is called, the system:
 
 ### WAF (Web Application Firewall)
 
-- `security.waf.enabled` - "true"/"false" - Overrides WAF mode
+- `security.waf.enabled` - "true"/"false" - Turns the WAF on or off. The saved WAF mode is still used for rule sets that have no mode of their own
 
 ### Rate Limiting
 
-- `security.rate_limit.enabled` - "true"/"false" - Overrides rate limit mode
+- `security.rate_limit.enabled` - "true"/"false" - Turns the rate limit on or off. Its numbers come from the default row. Turning it on fills unset or zero numbers with the standard values; if the numbers are still unset, the proxy does not apply the limit
 
 ### CrowdSec
 
@@ -70,7 +80,7 @@ config.SecurityConfig{
 SecurityConfig{
     Name: "default",
     Enabled: true,
-    WAFMode: "enabled",  // Tries to enable WAF
+    WAFMode: "block",  // The row would turn the WAF on
 }
 
 // Settings Table
@@ -141,45 +151,7 @@ Comprehensive unit tests verify the priority chain:
 
 ## Implementation Details
 
-The priority logic is implemented in [security_handler.go](backend/internal/api/handlers/security_handler.go#L55-L170):
-
-```go
-// GetStatus returns the current status of all security services.
-// Priority chain:
-// 1. Settings table (highest - runtime overrides)
-// 2. SecurityConfig DB record (middle - user configuration)
-// 3. Static config (lowest - defaults)
-func (h *SecurityHandler) GetStatus(c *gin.Context) {
-    // Start with static config defaults
-    enabled := h.cfg.CerberusEnabled
-    wafMode := h.cfg.WAFMode
-    // ... other fields
-
-    // Override with database SecurityConfig if present (priority 2)
-    if h.db != nil {
-        var sc models.SecurityConfig
-        if err := h.db.Where("name = ?", "default").First(&sc).Error; err == nil {
-            enabled = sc.Enabled
-            if sc.WAFMode != "" {
-                wafMode = sc.WAFMode
-            }
-            // ... other overrides
-        }
-
-        // Check runtime setting overrides from settings table (priority 1 - highest)
-        var setting struct{ Value string }
-        if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.waf.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-            if strings.EqualFold(setting.Value, "true") {
-                wafMode = "enabled"
-            } else {
-                wafMode = "disabled"
-            }
-        }
-        // ... other setting checks
-    }
-    // ... compute effective state and return
-}
-```
+The status handler (`backend/internal/api/handlers/security_handler.go`, `GetStatus`) reads the default row and the Cerberus switch, then calls the shared resolver for the WAF, rate limit and ACL. The proxy configuration (`backend/internal/caddy/manager.go`) calls the same resolver, so a module the status reports as on is the module the proxy applies.
 
 ## QA Verification
 
