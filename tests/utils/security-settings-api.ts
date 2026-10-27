@@ -62,14 +62,28 @@ export interface EnforcementState {
 }
 
 export interface SecurityStatusBody {
+  cerberus: { enabled: boolean };
   waf: EnforcementState;
   rate_limit: EnforcementState;
+  acl: { enabled: boolean };
   [key: string]: unknown;
+}
+
+export type ModuleSwitchKey = (typeof MODULE_SETTING_KEYS)[number];
+
+/** The state the status endpoint reports for each module switch, which is what the app resolves for it. */
+export type EffectiveModuleStates = Record<ModuleSwitchKey, boolean>;
+
+export interface ModuleSwitchSnapshot {
+  /** Raw stored values. '' marks an absent key. */
+  settings: SettingValues;
+  /** Effective states read from the status endpoint at the same moment as the raw values. */
+  effective: EffectiveModuleStates;
 }
 
 export interface SecurityStateSnapshot {
   config: SecurityConfigRow | null;
-  settings: SettingValues;
+  modules: ModuleSwitchSnapshot;
   ruleSetNames: string[];
 }
 
@@ -119,17 +133,51 @@ export async function readModuleSettings(request: APIRequestContext): Promise<Se
   );
 }
 
+/** Reads the raw module switch values and the effective state the status endpoint reports for each one. */
+export async function captureModuleSwitches(request: APIRequestContext): Promise<ModuleSwitchSnapshot> {
+  const settings = await readModuleSettings(request);
+  const status = await getSecurityStatus(request);
+  const effective = {
+    'feature.cerberus.enabled': status.cerberus.enabled,
+    'security.waf.enabled': status.waf.enabled,
+    'security.rate_limit.enabled': status.rate_limit.enabled,
+    'security.acl.enabled': status.acl.enabled,
+  } satisfies EffectiveModuleStates;
+  return { settings, effective };
+}
+
 /**
- * Puts the module switches back to the values captured before a test. A key captured as '' was absent: the settings
- * API cannot delete it and writing '' would change what it stores (Cerberus reads '' as off), so it is left alone.
- * The security module keys are then decided by the stored row restore.
+ * Puts the module switches back to the state captured before a test.
+ *
+ * A key that was present is written back with its stored value. A key captured as '' was absent: the settings API
+ * cannot delete it, so when a test left a concrete value behind, the key is written with the boolean the app resolved
+ * before the test. That boolean is the same effective state, so the restore never changes what the app enforces.
+ * Call this after the stored row is restored, because a row save can write these keys too.
  */
-export async function restoreModuleSwitches(request: APIRequestContext, settings: SettingValues): Promise<void> {
-  for (const [key, value] of Object.entries(settings)) {
-    if (value === '') {
-      continue;
+export async function restoreModuleSwitches(request: APIRequestContext, snapshot: ModuleSwitchSnapshot): Promise<void> {
+  const current = await readModuleSettings(request);
+  for (const key of MODULE_SETTING_KEYS) {
+    const original = snapshot.settings[key];
+    if (original !== '') {
+      await writeSettingValue(request, key, original);
+    } else if (current[key] !== '') {
+      await writeSettingValue(request, key, String(snapshot.effective[key]));
     }
-    await writeSettingValue(request, key, value);
+  }
+}
+
+/**
+ * Asserts the module switches match the captured state. A key captured with a stored value must hold that exact value,
+ * and every switch must report the same effective state the status endpoint gave before the test. Absent keys are
+ * compared by effective state only, because their stored value cannot be restored byte for byte.
+ */
+export async function expectModuleSwitchesRestored(request: APIRequestContext, snapshot: ModuleSwitchSnapshot): Promise<void> {
+  const current = await captureModuleSwitches(request);
+  for (const key of MODULE_SETTING_KEYS) {
+    if (snapshot.settings[key] !== '') {
+      expect(current.settings[key], `stored value of ${key}`).toBe(snapshot.settings[key]);
+    }
+    expect(current.effective[key], `effective state of ${key}`).toBe(snapshot.effective[key]);
   }
 }
 
@@ -214,7 +262,7 @@ export async function snapshotSecurityState(request: APIRequestContext): Promise
   const ruleSets = await listRuleSets(request);
   return {
     config: await getConfigRow(request),
-    settings: await readModuleSettings(request),
+    modules: await captureModuleSwitches(request),
     ruleSetNames: ruleSets.map((ruleSet) => ruleSet.name),
   };
 }
@@ -236,7 +284,7 @@ export async function restoreSecurityState(
     }
     await saveConfig(request, body);
   }
-  await restoreModuleSwitches(request, snapshot.settings);
+  await restoreModuleSwitches(request, snapshot.modules);
   for (const ruleSet of await listRuleSets(request)) {
     if (!snapshot.ruleSetNames.includes(ruleSet.name)) {
       await deleteRuleSetByName(request, ruleSet.name);

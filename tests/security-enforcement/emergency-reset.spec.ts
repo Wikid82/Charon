@@ -126,6 +126,16 @@ async function patchRateLimit(
   }
 }
 
+/** Reads the effective rate limit state the status endpoint reports, which is what the app resolves for an absent key. */
+async function fetchRateLimitEnabled(token: string, request: APIRequestContext): Promise<boolean> {
+  const response = await request.get('/api/v1/security/status', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(response.ok()).toBeTruthy();
+  const status = (await response.json()) as { rate_limit: { enabled: boolean } };
+  return status.rate_limit.enabled;
+}
+
 async function waitForSettings(
   token: string,
   request: APIRequestContext,
@@ -153,6 +163,8 @@ test.describe('Emergency Access & Rate Limiting', () => {
 
   let token: string;
   let originalSettings: SettingsMap = {};
+  // Effective rate limit state before Stage A. It restores the switch when the stored key was absent.
+  let originalRateLimitEnabled = DEFAULT_LIMITS.enabled;
 
   test.beforeAll(async ({ request }) => {
     const email = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
@@ -173,6 +185,7 @@ test.describe('Emergency Access & Rate Limiting', () => {
 
     await test.step('Capture original settings and apply Stage A limits', async () => {
       originalSettings = await fetchSettings(token, request);
+      originalRateLimitEnabled = await fetchRateLimitEnabled(token, request);
       await patchRateLimit(token, request, STAGE_A_LIMITS);
       await waitForSettings(token, request, STAGE_A_LIMITS);
     });
@@ -192,11 +205,13 @@ test.describe('Emergency Access & Rate Limiting', () => {
   });
 
   test.afterAll(async ({ request }) => {
+    // An absent key cannot be written back as absent, so it is restored to the effective state read before Stage A.
+    const storedEnabled = originalSettings['security.rate_limit.enabled'];
     const restore = {
-      enabled: coerceBoolean(
-        originalSettings['security.rate_limit.enabled'],
-        DEFAULT_LIMITS.enabled
-      ),
+      enabled:
+        storedEnabled === undefined || storedEnabled === ''
+          ? originalRateLimitEnabled
+          : coerceBoolean(storedEnabled, DEFAULT_LIMITS.enabled),
       requests: coerceNumber(
         originalSettings['security.rate_limit.requests'],
         DEFAULT_LIMITS.requests

@@ -18,9 +18,11 @@ import { waitForLoadingComplete } from '../utils/wait-helpers';
 import {
   CONFIG_PATH,
   RUNNER_WHITELIST,
-  SECURITY_MODULE_SWITCH_KEYS,
+  type ModuleSwitchSnapshot,
   type SecurityConfigRow,
   bodyFromRow,
+  captureModuleSwitches,
+  expectModuleSwitchesRestored,
   getConfigRow,
   readModuleSettings,
   restoreModuleSwitches,
@@ -79,19 +81,6 @@ async function getStatus(context: APIRequestContext): Promise<Record<string, unk
   return flags;
 }
 
-/**
- * Maps the module switches to their effective values. An absent security switch and a false one both leave the module
- * off, so they compare equal; an absent key cannot be restored byte for byte (see restoreModuleSwitches).
- */
-function effectiveOf(settings: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(settings).map(([key, value]) => [
-      key,
-      (SECURITY_MODULE_SWITCH_KEYS as readonly string[]).includes(key) && value !== 'true' ? 'false' : value,
-    ]),
-  );
-}
-
 /** Seeds SEED_STATE (with optional overrides) and returns the row and status to compare against. */
 async function seedState(context: APIRequestContext, overrides: Record<string, unknown> = {}) {
   await saveConfig(context, { ...SEED_STATE, ...overrides });
@@ -133,12 +122,12 @@ test.describe('Security config save applies only the fields in the request', () 
 
   let context: APIRequestContext;
   let originalRow: SecurityConfigRow | null;
-  let originalSettings: Record<string, string>;
+  let originalModules: ModuleSwitchSnapshot;
 
   test.beforeAll(async () => {
     context = await createAuthedContext();
     originalRow = await getConfigRow(context);
-    originalSettings = await readModuleSettings(context);
+    originalModules = await captureModuleSwitches(context);
   });
 
   test.afterAll(async () => {
@@ -151,8 +140,8 @@ test.describe('Security config save applies only the fields in the request', () 
         const restored = await getConfigRow(context);
         expect(restored && withoutUpdatedAt(restored)).toEqual(withoutUpdatedAt(originalRow));
       }
-      await restoreModuleSwitches(context, originalSettings);
-      expect(effectiveOf(await readModuleSettings(context))).toEqual(effectiveOf(originalSettings));
+      await restoreModuleSwitches(context, originalModules);
+      await expectModuleSwitchesRestored(context, originalModules);
     } finally {
       await context.dispose();
     }
