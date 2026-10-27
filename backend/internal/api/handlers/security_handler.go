@@ -1155,8 +1155,6 @@ func (h *SecurityHandler) PatchRateLimit(c *gin.Context) {
 	h.toggleSecurityModule(c, "security.rate_limit.enabled", req.Enabled)
 }
 
-// toggleSecurityModule is a helper function that handles enabling/disabling security modules
-// It updates the setting, invalidates cache, and triggers Caddy config reload
 // toggleSecurityModule switches one module on or off. The write and the Cerberus cache drop run under the shared write
 // lock; when the proxy apply fails, the pre-image of the module keys and the default row is restored and the request
 // answers 500.

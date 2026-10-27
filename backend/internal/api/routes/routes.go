@@ -304,8 +304,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		logger.Log().WithError(err).Warn("Failed to seed default SecurityConfig — continuing startup")
 	}
 
-	// Before the first proxy apply: a WAF switched on with no saved mode starts in detection mode, so the upgrade never
-	// starts blocking on its own (idempotent; the mode is changed by an admin afterwards).
+	// Before the first proxy apply: a WAF that is on with no stored mode gets monitor (detection) mode, so it does not
+	// block until an admin sets blocking (idempotent).
 	if _, err := models.ReconcileWAFDetectionMode(db); err != nil {
 		logger.Log().WithError(err).Warn("Failed to reconcile WAF detection mode — continuing startup")
 	}

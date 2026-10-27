@@ -82,9 +82,9 @@ func TestSecurityStatus_ReportsAppliedState(t *testing.T) {
 	assert.NotContains(t, rateLimit, "reason")
 }
 
-// TestSecurityStatus_KeyOnWithDisabledRowIsEnforced describes the WAF key on while the default row still holds the
+// TestSecurityStatus_KeyOnRowDisabledIsEnforced describes the WAF key on with the default row in the
 // disabled mode: the key decides, so the handler is built and the status reports the WAF applied to every host.
-func TestSecurityStatus_KeyOnWithDisabledRowIsEnforced(t *testing.T) {
+func TestSecurityStatus_KeyOnRowDisabledIsEnforced(t *testing.T) {
 	h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, WAFMode: "disabled"}, noopCaddyClient{})
 	setSettingValue(t, db, models.SecurityWAFEnabledSettingKey, "true")
 	mustApplyConfig(t, h)
@@ -382,7 +382,7 @@ func TestSecurityConfigSave_EchoLeavesModulesUnchanged(t *testing.T) {
 		RateLimitWindowSec: 60,
 		RateLimitBurst:     20,
 	}, noopCaddyClient{})
-	// The modules were switched off from the UI: the keys say false while the row still holds the modes.
+	// The module keys are false while the row keeps its modes.
 	setSettingValue(t, db, models.SecurityWAFEnabledSettingKey, "false")
 	setSettingValue(t, db, models.SecurityRateLimitEnabledSettingKey, "false")
 	router := newModuleRouter(t, h)
@@ -576,10 +576,10 @@ func TestSecurityConfigReconcile_IsIdempotent(t *testing.T) {
 	assert.Equal(t, "monitor", loadDefaultSecurityRow(t, db).WAFMode)
 }
 
-// Regression sequences from the module state (reset, then save or toggle).
+// Sequences that start with the module keys off and the default row disabled, then a save or a toggle.
 
-// resetModuleState writes the state the emergency reset leaves: both module keys false and the default row disabled.
-func resetModuleState(t *testing.T, db *gorm.DB) {
+// setModuleKeysOff sets both module keys to false and the default row to disabled.
+func setModuleKeysOff(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	setSettingValue(t, db, models.SecurityWAFEnabledSettingKey, "false")
 	setSettingValue(t, db, models.SecurityRateLimitEnabledSettingKey, "false")
@@ -587,11 +587,11 @@ func resetModuleState(t *testing.T, db *gorm.DB) {
 		Updates(map[string]any{"enabled": false, "waf_mode": "disabled", "rate_limit_mode": "disabled", "rate_limit_enable": false}).Error)
 }
 
-// TestSecurityModuleKey_ResetThenBlockSaveBuildsHandler describes the sequence: emergency reset, then a config save
+// TestSecurityModuleKey_KeysOffThenBlockSaveBuildsHandler describes the sequence: module keys off, then a config save
 // with enabled true and mode block. The status reports the WAF on and the WAF handler is built.
-func TestSecurityModuleKey_ResetThenBlockSaveBuildsHandler(t *testing.T) {
+func TestSecurityModuleKey_KeysOffThenBlockSaveBuildsHandler(t *testing.T) {
 	h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, WAFMode: "block"}, noopCaddyClient{})
-	resetModuleState(t, db)
+	setModuleKeysOff(t, db)
 	mustApplyConfig(t, h)
 
 	w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/config", "127.0.0.1:5000", `{"enabled":true,"waf_mode":"block"}`)
@@ -602,11 +602,11 @@ func TestSecurityModuleKey_ResetThenBlockSaveBuildsHandler(t *testing.T) {
 	assert.Equal(t, true, waf["enforced"])
 }
 
-// TestSecurityModuleKey_ToggleAfterResetBuildsWAFHandler describes the sequence: emergency reset, then the WAF toggle
+// TestSecurityModuleKey_KeysOffThenToggleBuildsWAFHandler describes the sequence: module keys off, then the WAF toggle
 // on. The status reports the WAF on and the WAF handler is built.
-func TestSecurityModuleKey_ToggleAfterResetBuildsWAFHandler(t *testing.T) {
+func TestSecurityModuleKey_KeysOffThenToggleBuildsWAFHandler(t *testing.T) {
 	h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, WAFMode: "block"}, noopCaddyClient{})
-	resetModuleState(t, db)
+	setModuleKeysOff(t, db)
 	mustApplyConfig(t, h)
 
 	w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/waf/enable", "127.0.0.1:5000", `{}`)
@@ -618,11 +618,11 @@ func TestSecurityModuleKey_ToggleAfterResetBuildsWAFHandler(t *testing.T) {
 	assert.Equal(t, true, waf["enforced"])
 }
 
-// TestSecurityModuleKey_ToggleAfterResetRateLimitHalf describes the rate-limit half of the toggle sequence: after the
-// reset, the rate-limit toggle on with seeded zero thresholds writes the visible thresholds and builds the handler.
-func TestSecurityModuleKey_ToggleAfterResetRateLimitHalf(t *testing.T) {
+// TestSecurityModuleKey_KeysOffThenRateLimitToggle describes the rate-limit half of the toggle sequence: from
+// module keys off, the rate-limit toggle on with seeded zero thresholds writes the visible thresholds and builds the handler.
+func TestSecurityModuleKey_KeysOffThenRateLimitToggle(t *testing.T) {
 	h, db := newStatusApplyFixture(t, models.SecurityConfig{Enabled: true, WAFMode: "block"}, noopCaddyClient{})
-	resetModuleState(t, db)
+	setModuleKeysOff(t, db)
 	mustApplyConfig(t, h)
 
 	w := serveSecurityPin(t, newModuleRouter(t, h), http.MethodPost, "/security/rate-limit/enable", "127.0.0.1:5000", `{}`)

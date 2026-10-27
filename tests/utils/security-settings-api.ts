@@ -3,7 +3,7 @@
  *
  * Writes go through the same endpoints the admin UI uses. {@link useSecurityStateRestore} captures the
  * module switches, the stored config row and the rule sets before each test and puts them back after it,
- * so a test never leaves the emergency endpoint's changes or its own seeded values behind.
+ * so a test never leaves its own changes or seeded values behind.
  */
 
 import { expect, request as playwrightRequest, test, type APIRequestContext } from '@playwright/test';
@@ -16,7 +16,7 @@ export const CONFIG_PATH = '/api/v1/security/config';
 export const STATUS_PATH = '/api/v1/security/status';
 export const SETTINGS_PATH = '/api/v1/settings';
 export const RULESETS_PATH = '/api/v1/security/rulesets';
-export const EMERGENCY_RESET_PATH = '/api/v1/emergency/security-reset';
+export const EMERGENCY_ENDPOINT_PATH = '/api/v1/emergency/security-reset';
 export const WAF_ENABLE_PATH = '/api/v1/security/waf/enable';
 export const RATE_LIMIT_ENABLE_PATH = '/api/v1/security/rate-limit/enable';
 
@@ -120,13 +120,13 @@ export async function readModuleSettings(request: APIRequestContext): Promise<Se
 }
 
 /**
- * Puts the module switches back to the values captured before a test. A security module key captured as '' is absent:
- * the settings API cannot delete it, so it is left alone here and the stored row restore decides its final value.
+ * Puts the module switches back to the values captured before a test. A key captured as '' was absent: the settings
+ * API cannot delete it and writing '' would change what it stores (Cerberus reads '' as off), so it is left alone.
+ * The security module keys are then decided by the stored row restore.
  */
 export async function restoreModuleSwitches(request: APIRequestContext, settings: SettingValues): Promise<void> {
   for (const [key, value] of Object.entries(settings)) {
-    const isSecurityModuleKey = (SECURITY_MODULE_SWITCH_KEYS as readonly string[]).includes(key);
-    if (isSecurityModuleKey && value === '') {
+    if (value === '') {
       continue;
     }
     await writeSettingValue(request, key, value);
@@ -139,11 +139,11 @@ export async function writeSettingValue(request: APIRequestContext, key: string,
 }
 
 /** Calls the emergency endpoint with the break-glass token. Only the endpoint's own status is checked. */
-export async function runEmergencySecurityReset(request: APIRequestContext): Promise<void> {
+export async function callEmergencyEndpoint(request: APIRequestContext): Promise<void> {
   const response = await withRateLimitRetry(() =>
-    request.post(EMERGENCY_RESET_PATH, { headers: { 'X-Emergency-Token': EMERGENCY_TOKEN } }),
+    request.post(EMERGENCY_ENDPOINT_PATH, { headers: { 'X-Emergency-Token': EMERGENCY_TOKEN } }),
   );
-  expect(response.ok(), `POST ${EMERGENCY_RESET_PATH} failed with ${response.status()}`).toBeTruthy();
+  expect(response.ok(), `POST ${EMERGENCY_ENDPOINT_PATH} failed with ${response.status()}`).toBeTruthy();
 }
 
 /** Enables a module through its toggle endpoint, the same call the admin page makes. */
@@ -181,6 +181,26 @@ async function deleteRuleSetByName(request: APIRequestContext, name: string): Pr
   expect(response.ok(), `DELETE rule set ${name} failed with ${response.status()}`).toBeTruthy();
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.host !== '';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The API refuses a waf_rules_source that is neither empty, a URL nor an existing rule set name (422). A value left by
+ * an earlier test that no longer names a rule set is therefore not restored, and the current value is kept instead.
+ */
+export function isRestorableRulesSource(source: unknown, existingRuleSetNames: readonly string[]): boolean {
+  if (typeof source !== 'string') {
+    return false;
+  }
+  return source === '' || isHttpUrl(source) || existingRuleSetNames.includes(source);
+}
+
 /** Builds a save body from a stored row, limited to the fields a config save accepts. */
 export function bodyFromRow(row: SecurityConfigRow): Record<string, unknown> {
   const body: Record<string, unknown> = {};
@@ -209,7 +229,12 @@ export async function restoreSecurityState(
 ): Promise<void> {
   // The row goes first: a save that enables a module also turns on the framework, so the switches are written last.
   if (snapshot.config) {
-    await saveConfig(request, bodyFromRow(snapshot.config));
+    const existingRuleSets = (await listRuleSets(request)).map((ruleSet) => ruleSet.name);
+    const body = bodyFromRow(snapshot.config);
+    if (!isRestorableRulesSource(body.waf_rules_source, existingRuleSets)) {
+      delete body.waf_rules_source;
+    }
+    await saveConfig(request, body);
   }
   await restoreModuleSwitches(request, snapshot.settings);
   for (const ruleSet of await listRuleSets(request)) {

@@ -236,9 +236,9 @@ func TestEnforcementReport_WAFDisabledHostsNotEligible(t *testing.T) {
 	require.False(t, report.WAF.Enforced())
 }
 
-// TestBuildWAFHandler_KeyOnWithDisabledRowBuildsHandler describes the WAF handler being generated when the
-// WAF key is on and the default row still holds the disabled mode, with no row-mode gate.
-func TestBuildWAFHandler_KeyOnWithDisabledRowBuildsHandler(t *testing.T) {
+// TestBuildWAFHandler_KeyOnRowDisabledBuildsHandler describes the WAF handler being generated when the
+// WAF key is on and the default row holds the disabled mode, with no row-mode gate.
+func TestBuildWAFHandler_KeyOnRowDisabledBuildsHandler(t *testing.T) {
 	host := &models.ProxyHost{UUID: "keyon-host"}
 	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
 	paths := map[string]string{"owasp-crs": "/data/owasp-crs.conf"}
@@ -252,7 +252,7 @@ func TestBuildWAFHandler_KeyOnWithDisabledRowBuildsHandler(t *testing.T) {
 // with a disabled or empty row to monitor mode, before the first apply.
 func TestApplyConfig_StartupReconcileMonitorMode(t *testing.T) {
 	db := openEnforcementApplyDB(t)
-	// The WAF key is on and the row still holds the disabled mode, as every UI-toggled WAF instance does.
+	// The WAF key is on and the row holds the disabled mode.
 	require.NoError(t, db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("waf_mode", "disabled").Error)
 	require.NoError(t, db.Create(&models.Setting{Key: models.SecurityWAFEnabledSettingKey, Value: "true", Category: "security", Type: "bool"}).Error)
 

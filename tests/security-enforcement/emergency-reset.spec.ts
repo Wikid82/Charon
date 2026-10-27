@@ -5,8 +5,8 @@ import {
   WAF_ENABLE_PATH,
   createRuleSet,
   enableModule,
+  callEmergencyEndpoint,
   getSecurityStatus,
-  runEmergencySecurityReset,
   saveConfig,
   getConfigRow,
   useEligibleProxyHost,
@@ -177,7 +177,7 @@ test.describe('Emergency Access & Rate Limiting', () => {
       await waitForSettings(token, request, STAGE_A_LIMITS);
     });
 
-    await test.step('Advisory security status check (Stage A only)', async () => {
+    await test.step('Security status check (Stage A only)', async () => {
       const statusResponse = await request.get('/api/v1/security/status', {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -214,10 +214,10 @@ test.describe('Emergency Access & Rate Limiting', () => {
     await patchRateLimit(token, request, restore);
   });
 
-  test('Emergency endpoint bypasses rate limits while others do not', async ({ request }) => {
+  test('Emergency endpoint is not rate limited while other endpoints are', async ({ request }) => {
     let stageBBurstUsed = 0;
 
-    await test.step('Emergency reset runs before Stage B', async () => {
+    await test.step('Emergency endpoint call before Stage B', async () => {
       const emergencyResponse = await request.post('/api/v1/emergency/security-reset', {
         headers: {
           'X-Emergency-Token': EMERGENCY_TOKEN,
@@ -263,7 +263,7 @@ test.describe('Emergency Access & Rate Limiting', () => {
   });
 });
 
-test.describe('Security settings saved after the emergency endpoint runs', () => {
+test.describe('Security settings saved with all module switches off', () => {
   test.describe.configure({ mode: 'serial' });
   useSecurityStateRestore();
   useEligibleProxyHost();
@@ -271,14 +271,14 @@ test.describe('Security settings saved after the emergency endpoint runs', () =>
   const RULE_SET_NAME = `emergency-followup-${Date.now()}`;
 
   test(
-    'Config save with block mode after the emergency endpoint runs reports the WAF as applied',
+    'Config save with block mode and all module switches off reports the WAF as applied',
     async ({ request }) => {
       await test.step('Create a rule set', async () => {
         await createRuleSet(request, RULE_SET_NAME);
       });
 
-      await test.step('Run the emergency endpoint', async () => {
-        await runEmergencySecurityReset(request);
+      await test.step('Run the emergency endpoint to reach the all-switches-off state', async () => {
+        await callEmergencyEndpoint(request);
       });
 
       await test.step('Save block mode with the rule set chosen', async () => {
@@ -303,7 +303,7 @@ test.describe('Security settings saved after the emergency endpoint runs', () =>
   );
 
   test(
-    'WAF toggled on after the emergency endpoint runs with a rule set selected reports the WAF as applied',
+    'WAF toggled on with all module switches off and a rule set selected reports the WAF as applied',
     async ({ request }) => {
       await test.step('Create a rule set and choose it', async () => {
         await createRuleSet(request, RULE_SET_NAME);
@@ -314,8 +314,8 @@ test.describe('Security settings saved after the emergency endpoint runs', () =>
         });
       });
 
-      await test.step('Run the emergency endpoint', async () => {
-        await runEmergencySecurityReset(request);
+      await test.step('Run the emergency endpoint to reach the all-switches-off state', async () => {
+        await callEmergencyEndpoint(request);
       });
 
       await test.step('Turn the WAF on through its toggle', async () => {

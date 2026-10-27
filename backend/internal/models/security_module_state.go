@@ -175,10 +175,10 @@ func EnableSecurityFramework(tx *gorm.DB) error {
 	return nil
 }
 
-// ReconcileWAFDetectionMode is the start-up step that aligns WAF state stored by earlier releases. When the WAF key
-// is on and the default row holds no mode or the disabled mode, the row moves to monitor, so the WAF starts in
-// detection mode. Blocking stays an explicit admin step. A key that is off or absent is left alone, and a second run
-// changes nothing. It returns the number of rows changed and logs one Info line when there were any.
+// ReconcileWAFDetectionMode is the start-up step that gives a WAF that is on with no stored mode the monitor mode.
+// When the WAF key is on and the default row holds an empty or disabled mode, the row moves to monitor, so the WAF
+// runs in detection mode. Blocking stays an explicit admin step. A key that is off or absent is left alone, and a
+// second run changes nothing. It returns the number of rows changed and logs one Info line when there were any.
 func ReconcileWAFDetectionMode(db *gorm.DB) (int64, error) {
 	var changed int64
 	err := db.Transaction(func(tx *gorm.DB) error {
@@ -206,7 +206,7 @@ func ReconcileWAFDetectionMode(db *gorm.DB) (int64, error) {
 		return 0, err
 	}
 	if changed > 0 {
-		logger.Log().WithField("rows", changed).Info("WAF switched on with no saved mode: default row set to monitor (detection) mode")
+		logger.Log().WithField("rows", changed).Info("WAF is on with no stored mode: default row set to monitor")
 	}
 	return changed, nil
 }
