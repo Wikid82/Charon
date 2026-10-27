@@ -8,7 +8,11 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
+
+// maxLogValueRunes bounds a caller-influenced value written to a module log line.
+const maxLogValueRunes = 128
 
 // The module switches are written in one place. A switch is a settings key (the proxy and the status read it first)
 // and, for the WAF and the rate limit, a mirror in the default SecurityConfig row. Every function here takes the
@@ -69,6 +73,17 @@ func SetModuleStateOpt(tx *gorm.DB, module string, on bool, source string, enabl
 	return mirrorModuleRow(tx, module)
 }
 
+// logValue returns a caller-influenced string (the actor or a settings key) in a form safe to write to the log:
+// control characters and line breaks are replaced and the value is bounded, so a supplied value cannot forge or
+// split a log line.
+func logValue(s string) string {
+	s = util.SanitizeForLog(s)
+	if runes := []rune(s); len(runes) > maxLogValueRunes {
+		return string(runes[:maxLogValueRunes])
+	}
+	return s
+}
+
 // ClearModuleKey removes a module key, so the resolver falls back to the default row and then the static configuration.
 func ClearModuleKey(tx *gorm.DB, module, source string) error {
 	if !IsSecurityModuleKey(module) {
@@ -77,7 +92,7 @@ func ClearModuleKey(tx *gorm.DB, module, source string) error {
 	if err := tx.Where("key = ?", module).Delete(&Setting{}).Error; err != nil {
 		return fmt.Errorf("delete setting %s: %w", module, err)
 	}
-	logger.Log().WithFields(map[string]any{"setting_key": module, "value": "", "actor": source}).Info("security module switch cleared")
+	logger.Log().WithFields(map[string]any{"setting_key": logValue(module), "value": "", "actor": logValue(source)}).Info("security module switch key removed")
 	return nil
 }
 
@@ -91,7 +106,7 @@ func writeModuleKey(tx *gorm.DB, key string, on bool, source string) error {
 	if err := tx.Where(Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
 		return fmt.Errorf("save setting %s: %w", key, err)
 	}
-	logger.Log().WithFields(map[string]any{"setting_key": key, "value": value, "actor": source}).Info("security module switch written")
+	logger.Log().WithFields(map[string]any{"setting_key": logValue(key), "value": value, "actor": logValue(source)}).Info("security module switch written")
 	return nil
 }
 
@@ -206,7 +221,7 @@ func ReconcileWAFDetectionMode(db *gorm.DB) (int64, error) {
 		return 0, err
 	}
 	if changed > 0 {
-		logger.Log().WithField("rows", changed).Info("WAF is on with no stored mode: default row set to monitor")
+		logger.Log().WithField("rows", changed).Info("WAF switch is on with no WAF mode set: default row set to monitor")
 	}
 	return changed, nil
 }
