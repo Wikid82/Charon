@@ -21,6 +21,16 @@ sleep 1
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# Host ports this test publishes and calls. Every request to the test stack
+# must go through these variables so the script never reaches a service that
+# is not its own. Defaults match the historical values; override them to run
+# the test next to another Charon instance.
+CORAZA_HTTP_PORT="${CORAZA_HTTP_PORT:-80}"
+CORAZA_HTTPS_PORT="${CORAZA_HTTPS_PORT:-443}"
+CORAZA_API_PORT="${CORAZA_API_PORT:-8080}"
+CORAZA_ADMIN_PORT="${CORAZA_ADMIN_PORT:-2019}"
+CORAZA_DEBUG_PORT="${CORAZA_DEBUG_PORT:-2345}"
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -36,7 +46,7 @@ verify_waf_config() {
     for i in $(seq 1 $retries); do
         # Fetch Caddy config via admin API
         local caddy_config
-        caddy_config=$(curl -s http://localhost:2019/config 2>/dev/null || echo "")
+        caddy_config=$(curl -s "http://localhost:${CORAZA_ADMIN_PORT}/config/" 2>/dev/null || echo "")
 
         if [ -z "$caddy_config" ]; then
             echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
@@ -80,7 +90,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    curl -s http://localhost:2019/config 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    curl -s "http://localhost:${CORAZA_ADMIN_PORT}/config/" 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Ruleset Files in Container ==="
@@ -92,11 +102,11 @@ on_failure() {
     echo ""
 
     echo "=== Security Config in API ==="
-    curl -s http://localhost:8080/api/v1/security/config 2>/dev/null || echo "Could not retrieve security config"
+    curl -s "http://localhost:${CORAZA_API_PORT}/api/v1/security/config" 2>/dev/null || echo "Could not retrieve security config"
     echo ""
 
     echo "=== Proxy Hosts ==="
-    curl -s http://localhost:8080/api/v1/proxy-hosts 2>/dev/null | head -50 || echo "Could not retrieve proxy hosts"
+    curl -s "http://localhost:${CORAZA_API_PORT}/api/v1/proxy-hosts" 2>/dev/null | head -50 || echo "Could not retrieve proxy hosts"
     echo ""
 
     echo "=============================================="
@@ -130,7 +140,7 @@ fi
 # In CI, frontend/dist does not exist (it's built inside the Docker image).
 # Mounting a non-existent directory would override the built frontend with an empty dir.
 # For local development with hot-reload, use .docker/compose/docker-compose.local.yml instead.
-docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p 80:80 -p 443:443 -p 8080:8080 -p 2019:2019 -p 2345:2345 \
+docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p "${CORAZA_HTTP_PORT}":80 -p "${CORAZA_HTTPS_PORT}":443 -p "${CORAZA_API_PORT}":8080 -p "${CORAZA_ADMIN_PORT}":2019 -p "${CORAZA_DEBUG_PORT}":2345 \
   -e CHARON_ENV=development -e CHARON_DEBUG=1 -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
   -e CHARON_CADDY_ADMIN_API=http://localhost:2019 -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
   -e CHARON_IMPORT_DIR=/app/data/imports -e CHARON_ACME_STAGING=false -e CHARON_SECURITY_WAF_MODE=block \
@@ -138,7 +148,7 @@ docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=un
 
 echo "Waiting for Charon API to be ready..."
 for i in {1..30}; do
-  if curl -s -f http://localhost:8080/api/v1/ >/dev/null 2>&1; then
+  if curl -s -f "http://localhost:${CORAZA_API_PORT}/api/v1/" >/dev/null 2>&1; then
     break
   fi
   echo -n '.'
@@ -164,7 +174,7 @@ for i in {1..20}; do
     echo "✓ httpbin backend is ready"
     break
   fi
-  if [ $i -eq 20 ]; then
+  if [ "$i" -eq 20 ]; then
     echo "✗ httpbin backend failed to start"
     echo "Container status:"
     docker ps -a --filter name=coraza-backend
@@ -178,8 +188,8 @@ done
 
 echo "Setting up admin user and logging in to retrieve session cookie..."
 TMP_COOKIE=$(mktemp)
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/setup >/dev/null || true
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null
+curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' "http://localhost:${CORAZA_API_PORT}/api/v1/setup" >/dev/null || true
+curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/auth/login" >/dev/null
 
 echo "Creating proxy host 'integration.local' pointing to backend..."
 PROXY_HOST_PAYLOAD=$(cat <<EOF
@@ -194,15 +204,15 @@ PROXY_HOST_PAYLOAD=$(cat <<EOF
 }
 EOF
 )
-CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts)
+CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" -b "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/proxy-hosts")
 CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
 if [ "$CREATE_STATUS" != "201" ]; then
   echo "Proxy host create failed or already exists; attempting to update existing host..."
   # Find the existing host UUID by searching for the domain in the proxy-hosts list
-  EXISTING_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts | grep -o '{[^}]*"domain_names":"integration.local"[^}]*}' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
+  EXISTING_UUID=$(curl -s -b "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/proxy-hosts" | grep -o '{[^}]*"domain_names":"integration.local"[^}]*}' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
   if [ -n "$EXISTING_UUID" ]; then
     echo "Updating existing host $EXISTING_UUID with Coraza handler"
-    curl -s -X PUT -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts/$EXISTING_UUID
+    curl -s -X PUT -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" -b "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/proxy-hosts/$EXISTING_UUID"
   else
     echo "Could not find existing host; create response:"
     echo "$CREATE_RESP"
@@ -217,11 +227,11 @@ RULESET=$(cat <<'EOF'
 {"name":"integration-xss","content":"SecRule REQUEST_BODY \"<script>\" \"id:12345,phase:2,deny,status:403,msg:'XSS blocked'\""}
 EOF
 )
-curl -s -X POST -H "Content-Type: application/json" -d "${RULESET}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/rulesets
+curl -s -X POST -H "Content-Type: application/json" -d "${RULESET}" -b "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/security/rulesets"
 
 echo "Enable WAF globally and set ruleset source to integration-xss..."
 SEC_CFG_PAYLOAD='{"name":"default","enabled":true,"waf_mode":"block","waf_rules_source":"integration-xss","admin_whitelist":"127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"}'
-curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
+curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_PAYLOAD}" -b "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/security/config"
 
 echo "Waiting for Caddy to apply WAF configuration..."
 sleep 10
@@ -237,7 +247,7 @@ echo "Apply rules and test payload..."
 # create minimal proxy host if needed; omitted here for brevity; test will target local Caddy root
 
 echo "Verifying Caddy config has WAF handler..."
-curl -s http://localhost:2019/config | grep -E '"handler":"waf"' || echo "WARNING: WAF handler not found in initial config check"
+curl -s "http://localhost:${CORAZA_ADMIN_PORT}/config/" | grep -E '"handler":"waf"' || echo "WARNING: WAF handler not found in initial config check"
 
 echo "Inspecting ruleset file inside container..."
 docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf' || echo "WARNING: Could not read ruleset file"
@@ -246,15 +256,13 @@ echo ""
 echo "=== Testing BLOCK mode ==="
 
 MAX_RETRIES=3
-BLOCK_SUCCESS=0
 for attempt in $(seq 1 $MAX_RETRIES); do
-  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
+  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" "http://localhost:${CORAZA_HTTP_PORT}/post")
   if [ "$RESPONSE" = "403" ]; then
     echo "✓ Coraza WAF blocked payload as expected (HTTP 403) in BLOCK mode"
-    BLOCK_SUCCESS=1
     break
   fi
-  if [ $attempt -eq $MAX_RETRIES ]; then
+  if [ "$attempt" -eq $MAX_RETRIES ]; then
     echo "✗ Unexpected response code: $RESPONSE (expected 403) in BLOCK mode after $MAX_RETRIES attempts"
     exit 1
   fi
@@ -266,7 +274,7 @@ echo ""
 echo "=== Testing MONITOR mode (DetectionOnly) ==="
 echo "Switching WAF to monitor mode..."
 SEC_CFG_MONITOR='{"name":"default","enabled":true,"waf_mode":"monitor","waf_rules_source":"integration-xss","admin_whitelist":"127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"}'
-curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_MONITOR}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
+curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_MONITOR}" -b "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/security/config"
 
 echo "Wait for Caddy to apply monitor mode config..."
 sleep 12
@@ -281,15 +289,13 @@ fi
 echo "Inspecting ruleset file (should now have DetectionOnly)..."
 docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf | head -5' || true
 
-MONITOR_SUCCESS=0
 for attempt in $(seq 1 $MAX_RETRIES); do
-  RESPONSE_MONITOR=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
+  RESPONSE_MONITOR=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" "http://localhost:${CORAZA_HTTP_PORT}/post")
   if [ "$RESPONSE_MONITOR" = "200" ]; then
     echo "✓ Coraza WAF in MONITOR mode allowed payload through (HTTP 200) as expected"
-    MONITOR_SUCCESS=1
     break
   fi
-  if [ $attempt -eq $MAX_RETRIES ]; then
+  if [ "$attempt" -eq $MAX_RETRIES ]; then
     echo "✗ Unexpected response code: $RESPONSE_MONITOR (expected 200) in MONITOR mode after $MAX_RETRIES attempts"
     echo "  Note: Monitor mode should log but not block"
     exit 1
@@ -304,9 +310,9 @@ echo "Cleaning up..."
 
 # Delete the integration test proxy host from DB before stopping container
 echo "Removing integration test proxy host from database..."
-INTEGRATION_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts | grep -o '"uuid":"[^"]*"[^}]*"domain_names":"integration.local"' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
+INTEGRATION_UUID=$(curl -s -b "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/proxy-hosts" | grep -o '"uuid":"[^"]*"[^}]*"domain_names":"integration.local"' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
 if [ -n "$INTEGRATION_UUID" ]; then
-  curl -s -X DELETE -b ${TMP_COOKIE} "http://localhost:8080/api/v1/proxy-hosts/${INTEGRATION_UUID}?delete_uptime=true" >/dev/null
+  curl -s -X DELETE -b "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/proxy-hosts/${INTEGRATION_UUID}?delete_uptime=true" >/dev/null
   echo "✓ Deleted integration proxy host ${INTEGRATION_UUID}"
 fi
 
@@ -315,5 +321,5 @@ if [ "$CREATED_NETWORK" -eq 1 ]; then
   docker network rm containers_default || true
 fi
 docker rm -f charon-debug || true
-rm -f ${TMP_COOKIE}
+rm -f "${TMP_COOKIE}"
 echo "Done"

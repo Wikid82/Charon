@@ -206,6 +206,18 @@ func TestCrowdsecFiles_Read_Basics(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, f.read("config/d").Code, "directories are not files")
 }
 
+// TestCrowdsecFiles_Read_WhitelistFileIsReadable pins the editor read of the file Charon writes its allow list to.
+func TestCrowdsecFiles_Read_WhitelistFileIsReadable(t *testing.T) {
+	t.Parallel()
+	f := newFilesFixture(t)
+	const rel = "config/parsers/s02-enrich/charon-whitelist.yaml"
+	f.put(rel, "name: charon-whitelist\n")
+
+	w := f.read(rel)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"content":"name: charon-whitelist\n"}`, w.Body.String())
+}
+
 func TestCrowdsecFiles_Read_MissingDataDir(t *testing.T) {
 	t.Parallel()
 	f := newFilesFixture(t)

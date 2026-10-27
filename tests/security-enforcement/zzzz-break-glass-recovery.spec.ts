@@ -111,7 +111,10 @@ test.describe.serial('Break Glass Recovery - Test-Runner Whitelist', () => {
     });
   });
 
+  // The CrowdSec enable starts the engine and waits up to ~90 s for LAPI, so this test gets an explicit budget.
   test('Step 3: Enable all security modules (bypassed by whitelist)', async () => {
+    test.setTimeout(150_000);
+
     console.log('\n🔧 Break Glass Recovery: Enabling all security modules...');
 
     // Enable ACL
@@ -145,6 +148,7 @@ test.describe.serial('Break Glass Recovery - Test-Runner Whitelist', () => {
     await test.step('Enable CrowdSec module', async () => {
       const response = await apiContext.patch('/api/v1/security/crowdsec', {
         data: { enabled: true },
+        timeout: 120_000,
       });
 
       // CrowdSec may not be running in E2E environment, so we allow failure here

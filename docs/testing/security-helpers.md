@@ -104,6 +104,8 @@ test.describe('ACL Tests', () => {
 | `security.crowdsec.enabled` | `"true"` / `"false"` | Toggle CrowdSec |
 | `feature.cerberus.enabled` | `"true"` / `"false"` | Master toggle for all security |
 
+The WAF and rate limit keys (`security.waf.enabled`, `security.rate_limit.enabled`) also update the saved security settings row, the same way the Security page switches do. Turning one on fills in any unset rate limit numbers. Turning one off changes only its key. Any value other than `"true"` or `"false"` is refused.
+
 ## Best Practices
 
 1. **Always use `test.afterAll`** for cleanup - it runs even when tests fail

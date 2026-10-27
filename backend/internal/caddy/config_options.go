@@ -27,6 +27,7 @@ type generateConfigOptions struct {
 	redirectHosts []models.RedirectionHost
 	selfHop       *selfHopConfig
 	remoteHosts   map[string]struct{}
+	enforcement   func(EnforcementReport)
 }
 
 // resolveGenerateConfigOptions applies opts in order and returns the
@@ -72,4 +73,10 @@ func WithRemoteHosts(uuids map[string]struct{}) GenerateConfigOption {
 func (o *generateConfigOptions) isRemoteHost(uuid string) bool {
 	_, ok := o.remoteHosts[uuid]
 	return ok
+}
+
+// WithEnforcementSink receives the enforcement report of one GenerateConfig call. The sink is called on every return
+// path, so a caller never keeps a report from an earlier generation.
+func WithEnforcementSink(sink func(EnforcementReport)) GenerateConfigOption {
+	return func(o *generateConfigOptions) { o.enforcement = sink }
 }

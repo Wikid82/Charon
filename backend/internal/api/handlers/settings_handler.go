@@ -35,7 +35,14 @@ type SettingsHandler struct {
 	CaddyManager CaddyConfigManager // For triggering config reload on security settings change
 	Cerberus     CacheInvalidator   // For invalidating cache on security settings change
 	SecuritySvc  *services.SecurityService
+	crowdsec     CrowdsecLifecycle
 	DataRoot     string
+}
+
+// WithCrowdsecLifecycle wires the CrowdSec lifecycle that the settings API drives. A typed-nil handler is not wired.
+func (h *SettingsHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *SettingsHandler {
+	h.crowdsec = LifecycleOrNil(l)
+	return h
 }
 
 const (
@@ -161,6 +168,112 @@ type UpdateSettingRequest struct {
 	Type     string `json:"type"`
 }
 
+const (
+	codeCrowdsecSettingUseSwitch = "crowdsec_setting_use_switch"
+	codeInvalidCrowdsecSetting   = "invalid_crowdsec_setting"
+	msgCrowdsecSettingUseSwitch  = "Turn CrowdSec on or off with the CrowdSec switch, not the settings API."
+	msgCrowdsecBulkUseSwitch     = "Turn CrowdSec on or off with the CrowdSec switch, not the bulk settings update."
+	msgInvalidCrowdsecSetting    = "security.crowdsec.enabled must be true or false."
+)
+
+// updateCrowdsecEnabledSetting handles a write to the enabled key. "true" and "false" start or stop the engine
+// through the lifecycle. An empty value means "absent": the decision that would apply without the key is
+// computed, and the engine changes only when it differs from the current decision. The empty value is never
+// stored first, so a refusal or a failure leaves the stored state as it was.
+func (h *SettingsHandler) updateCrowdsecEnabledSetting(c *gin.Context, value string) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true":
+		h.switchCrowdsecFromSetting(c, true)
+	case "false":
+		h.switchCrowdsecFromSetting(c, false)
+	case "":
+		h.reconcileAbsentCrowdsecSetting(c)
+	default:
+		respondCoded(c, http.StatusBadRequest, codeInvalidCrowdsecSetting, msgInvalidCrowdsecSetting, nil)
+	}
+}
+
+// reconcileAbsentCrowdsecSetting makes the engine match the decision that applies with the enabled key absent.
+// When both decisions agree it changes nothing and answers the stored setting.
+func (h *SettingsHandler) reconcileAbsentCrowdsecSetting(c *gin.Context) {
+	row, err := defaultSecurityConfigOrZero(h.DB)
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to read the default SecurityConfig for the CrowdSec setting")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
+		return
+	}
+	want, err := models.CrowdSecDecisionWithoutEnabledKey(h.DB, row)
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to resolve the CrowdSec mode setting")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
+		return
+	}
+	have, err := models.CrowdSecEnabled(h.DB, row)
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to resolve the CrowdSec setting")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
+		return
+	}
+	if want == have {
+		h.respondCrowdsecSetting(c)
+		return
+	}
+	h.switchCrowdsecFromSetting(c, want)
+}
+
+// switchCrowdsecFromSetting starts or stops the engine through the lifecycle and answers the stored setting.
+// Every refusal and failure is answered by the shared lifecycle mapping, and nothing is written here.
+func (h *SettingsHandler) switchCrowdsecFromSetting(c *gin.Context, enable bool) {
+	if h.crowdsec == nil {
+		respondCoded(c, http.StatusServiceUnavailable, codeCrowdsecUnavailable, msgCrowdsecUnavailable, nil)
+		return
+	}
+	var err error
+	if enable {
+		_, err = h.crowdsec.StartCrowdSec(c.Request.Context())
+	} else {
+		_, err = h.crowdsec.StopCrowdSec(c.Request.Context())
+	}
+	if err != nil {
+		respondCrowdsecLifecycleError(c, err)
+		return
+	}
+	// The lifecycle changed the security state, so the Cerberus cache must not serve the old decision.
+	if h.Cerberus != nil {
+		h.Cerberus.InvalidateCache()
+	}
+	h.respondCrowdsecSetting(c)
+}
+
+// respondCrowdsecSetting answers the stored enabled setting. An absent row is answered as an empty value, in the
+// same shape as a stored setting.
+func (h *SettingsHandler) respondCrowdsecSetting(c *gin.Context) {
+	var setting models.Setting
+	err := h.DB.Where("key = ?", models.CrowdSecEnabledSettingKey).First(&setting).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusOK, models.Setting{Key: models.CrowdSecEnabledSettingKey})
+		return
+	}
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to read the CrowdSec setting")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
+		return
+	}
+	c.JSON(http.StatusOK, setting)
+}
+
+// defaultSecurityConfigOrZero returns the default SecurityConfig row, or the zero value when no row exists yet.
+func defaultSecurityConfigOrZero(db *gorm.DB) (models.SecurityConfig, error) {
+	row, err := models.FindDefaultSecurityConfig(db)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.SecurityConfig{}, nil
+	}
+	if err != nil {
+		return models.SecurityConfig{}, fmt.Errorf("find default security config: %w", err)
+	}
+	return row, nil
+}
+
 // UpdateSetting updates or creates a setting.
 func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	if !requireAdmin(c) {
@@ -175,6 +288,17 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 
 	if isInternalSettingKey(req.Key) {
 		respondReservedSettingKey(c)
+		return
+	}
+
+	// The CrowdSec switch settings are owned by the CrowdSec lifecycle: the lifecycle writes them, so this
+	// request is answered by it and nothing is upserted here.
+	switch req.Key {
+	case models.CrowdSecDeprecatedModeSettingKey:
+		respondCoded(c, http.StatusBadRequest, codeCrowdsecSettingUseSwitch, msgCrowdsecSettingUseSwitch, nil)
+		return
+	case models.CrowdSecEnabledSettingKey:
+		h.updateCrowdsecEnabledSetting(c, req.Value)
 		return
 	}
 
@@ -196,6 +320,16 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid admin_whitelist: %v", err)})
 			return
 		}
+	}
+
+	// The module switches are written through the shared module writer, with the same proxy apply and restore as the
+	// toggle routes.
+	if models.IsSecurityModuleKey(req.Key) {
+		setting, ok := h.writeModuleSwitchSetting(c, req.Key, req.Value)
+		if ok {
+			c.JSON(http.StatusOK, setting)
+		}
+		return
 	}
 
 	// uptime.* tuning knobs are plain integers with fixed bounds (§3.6.1).
@@ -237,17 +371,6 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
-	if req.Key == "security.acl.enabled" && strings.EqualFold(strings.TrimSpace(req.Value), "true") {
-		// Turning ACL on also turns the global switch and Cerberus on, through the helper the other modules share.
-		if err := enableSecurityFramework(h.DB); err != nil {
-			if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-	}
-
 	if req.Key == "security.admin_whitelist" {
 		if err := h.syncAdminWhitelist(req.Value); err != nil {
 			if errors.Is(err, services.ErrInvalidAdminCIDR) {
@@ -271,10 +394,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 
 		// Trigger sync Caddy config reload so callers can rely on deterministic applied state
 		if h.CaddyManager != nil {
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-			defer cancel()
-
-			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+			if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
 				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
 				return
@@ -285,6 +405,65 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, setting)
+}
+
+// writeModuleSwitchSetting stores a module switch from the generic settings API. The value must be true or false. The
+// write and the proxy apply are one unit: a failed apply restores the pre-image and answers 500. It returns the stored
+// setting, or false after answering the request.
+func (h *SettingsHandler) writeModuleSwitchSetting(c *gin.Context, key, value string) (models.Setting, bool) {
+	on, recognised := models.ParseModuleSettingValue(value)
+	if !recognised {
+		c.JSON(http.StatusBadRequest, gin.H{"error": key + " must be true or false"})
+		return models.Setting{}, false
+	}
+
+	actor := auditActor(c)
+	var snapshot models.ModuleStateSnapshot
+	err := services.WithWriteLock(h.DB, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return err
+		}
+		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, key); err != nil {
+			return err
+		}
+		return models.SetModuleState(tx, key, on, actor)
+	})
+	if err != nil {
+		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
+			return models.Setting{}, false
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save setting"})
+		return models.Setting{}, false
+	}
+
+	if h.Cerberus != nil {
+		h.Cerberus.InvalidateCache()
+	}
+	if h.CaddyManager != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
+			logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
+			restoreModuleState(h.DB, h.Cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			return models.Setting{}, false
+		}
+		logger.Log().WithField("setting_key", sanitizeForLog(key)).Info("Caddy config reloaded after security setting change")
+	}
+
+	stored := "false"
+	if on {
+		stored = "true"
+	}
+	return models.Setting{Key: key, Value: stored, Category: "security", Type: "bool"}, true
+}
+
+// updateKeys returns the keys of a flattened settings batch.
+func updateKeys(updates map[string]string) []string {
+	keys := make([]string, 0, len(updates))
+	for key := range updates {
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 // PatchConfig updates multiple configuration settings at once
@@ -314,12 +493,28 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		}
 	}
 
+	// The CrowdSec switch settings are refused here too, after flattening so the nested spelling is caught.
+	for _, key := range []string{models.CrowdSecEnabledSettingKey, models.CrowdSecDeprecatedModeSettingKey} {
+		if _, found := updates[key]; found {
+			respondCoded(c, http.StatusBadRequest, codeCrowdsecSettingUseSwitch, msgCrowdsecBulkUseSwitch, nil)
+			return
+		}
+	}
+
 	adminWhitelist, hasAdminWhitelist := updates["security.admin_whitelist"]
 
-	aclEnabled := false
-	if value, ok := updates["security.acl.enabled"]; ok && strings.EqualFold(value, "true") {
-		aclEnabled = true
-		updates["feature.cerberus.enabled"] = "true"
+	// Module switches must be true or false. They are refused here, before any write, and written through SetModuleState.
+	moduleSwitches := make(map[string]bool)
+	for key, value := range updates {
+		if !models.IsSecurityModuleKey(key) {
+			continue
+		}
+		on, recognised := models.ParseModuleSettingValue(value)
+		if !recognised {
+			c.JSON(http.StatusBadRequest, gin.H{"error": key + " must be true or false"})
+			return
+		}
+		moduleSwitches[key] = on
 	}
 
 	// Validate the whole batch before opening the transaction so an invalid
@@ -332,7 +527,19 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		return
 	}
 
-	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+	// The batch and its pre-image are taken under the shared write lock, so a module switch and the rows it mirrors are
+	// written together and a failed proxy apply can put the pre-image back.
+	actor := auditActor(c)
+	var snapshot models.ModuleStateSnapshot
+	if err := services.WithWriteLock(h.DB, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return err
+		}
+		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, updateKeys(updates)...); err != nil {
+			return err
+		}
+
 		for key, value := range updates {
 			if key == "security.admin_whitelist" {
 				if err := validateAdminWhitelist(value); err != nil {
@@ -342,6 +549,13 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 			if err := validateOptionalKeepaliveSetting(key, value); err != nil {
 				return err
+			}
+
+			if on, isModule := moduleSwitches[key]; isModule {
+				if err := models.SetModuleState(tx, key, on, actor); err != nil {
+					return err
+				}
+				continue
 			}
 
 			setting := models.Setting{
@@ -358,12 +572,6 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 		if hasAdminWhitelist {
 			if err := h.syncAdminWhitelistWithDB(tx, adminWhitelist); err != nil {
-				return err
-			}
-		}
-
-		if aclEnabled {
-			if err := enableSecurityFramework(tx); err != nil {
 				return err
 			}
 		}
@@ -402,12 +610,10 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 		// Trigger sync Caddy config reload so callers can rely on deterministic applied state
 		if h.CaddyManager != nil {
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-			defer cancel()
-
-			if err := h.CaddyManager.ApplyConfig(ctx); err != nil {
+			if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
 				logger.Log().WithError(err).Warn("Failed to reload Caddy config after security settings change")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+				restoreModuleState(h.DB, h.Cerberus, snapshot)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 				return
 			}
 

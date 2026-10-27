@@ -1,5 +1,17 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { EMERGENCY_TOKEN } from '../fixtures/security';
+import {
+  RUNNER_WHITELIST,
+  WAF_ENABLE_PATH,
+  createRuleSet,
+  enableModule,
+  callEmergencyEndpoint,
+  getSecurityStatus,
+  saveConfig,
+  getConfigRow,
+  useEligibleProxyHost,
+  useSecurityStateRestore,
+} from '../utils/security-settings-api';
 
 type SettingsMap = Record<string, string>;
 
@@ -114,6 +126,16 @@ async function patchRateLimit(
   }
 }
 
+/** Reads the effective rate limit state the status endpoint reports, which is what the app resolves for an absent key. */
+async function fetchRateLimitEnabled(token: string, request: APIRequestContext): Promise<boolean> {
+  const response = await request.get('/api/v1/security/status', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(response.ok()).toBeTruthy();
+  const status = (await response.json()) as { rate_limit: { enabled: boolean } };
+  return status.rate_limit.enabled;
+}
+
 async function waitForSettings(
   token: string,
   request: APIRequestContext,
@@ -141,6 +163,8 @@ test.describe('Emergency Access & Rate Limiting', () => {
 
   let token: string;
   let originalSettings: SettingsMap = {};
+  // Effective rate limit state before Stage A. It restores the switch when the stored key was absent.
+  let originalRateLimitEnabled = DEFAULT_LIMITS.enabled;
 
   test.beforeAll(async ({ request }) => {
     const email = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
@@ -161,11 +185,12 @@ test.describe('Emergency Access & Rate Limiting', () => {
 
     await test.step('Capture original settings and apply Stage A limits', async () => {
       originalSettings = await fetchSettings(token, request);
+      originalRateLimitEnabled = await fetchRateLimitEnabled(token, request);
       await patchRateLimit(token, request, STAGE_A_LIMITS);
       await waitForSettings(token, request, STAGE_A_LIMITS);
     });
 
-    await test.step('Advisory security status check (Stage A only)', async () => {
+    await test.step('Security status check (Stage A only)', async () => {
       const statusResponse = await request.get('/api/v1/security/status', {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -180,11 +205,13 @@ test.describe('Emergency Access & Rate Limiting', () => {
   });
 
   test.afterAll(async ({ request }) => {
+    // An absent key cannot be written back as absent, so it is restored to the effective state read before Stage A.
+    const storedEnabled = originalSettings['security.rate_limit.enabled'];
     const restore = {
-      enabled: coerceBoolean(
-        originalSettings['security.rate_limit.enabled'],
-        DEFAULT_LIMITS.enabled
-      ),
+      enabled:
+        storedEnabled === undefined || storedEnabled === ''
+          ? originalRateLimitEnabled
+          : coerceBoolean(storedEnabled, DEFAULT_LIMITS.enabled),
       requests: coerceNumber(
         originalSettings['security.rate_limit.requests'],
         DEFAULT_LIMITS.requests
@@ -202,10 +229,10 @@ test.describe('Emergency Access & Rate Limiting', () => {
     await patchRateLimit(token, request, restore);
   });
 
-  test('Emergency endpoint bypasses rate limits while others do not', async ({ request }) => {
+  test('Emergency endpoint is not rate limited while other endpoints are', async ({ request }) => {
     let stageBBurstUsed = 0;
 
-    await test.step('Emergency reset runs before Stage B', async () => {
+    await test.step('Emergency endpoint call before Stage B', async () => {
       const emergencyResponse = await request.post('/api/v1/emergency/security-reset', {
         headers: {
           'X-Emergency-Token': EMERGENCY_TOKEN,
@@ -249,4 +276,75 @@ test.describe('Emergency Access & Rate Limiting', () => {
       expect(rateLimitHit).toBeTruthy();
     });
   });
+});
+
+test.describe('Security settings saved with all module switches off', () => {
+  test.describe.configure({ mode: 'serial' });
+  useSecurityStateRestore();
+  useEligibleProxyHost();
+
+  const RULE_SET_NAME = `emergency-followup-${Date.now()}`;
+
+  test(
+    'Config save with block mode and all module switches off reports the WAF as applied',
+    async ({ request }) => {
+      await test.step('Create a rule set', async () => {
+        await createRuleSet(request, RULE_SET_NAME);
+      });
+
+      await test.step('Run the emergency endpoint to reach the all-switches-off state', async () => {
+        await callEmergencyEndpoint(request);
+      });
+
+      await test.step('Save block mode with the rule set chosen', async () => {
+        await saveConfig(request, {
+          name: 'default',
+          admin_whitelist: RUNNER_WHITELIST,
+          enabled: true,
+          waf_mode: 'block',
+          waf_rules_source: RULE_SET_NAME,
+        });
+      });
+
+      await test.step('Status reports the WAF as applied and the stored row holds block mode', async () => {
+        const status = await getSecurityStatus(request);
+        expect(status.waf.enabled).toBe(true);
+        expect(status.waf.enforced).toBe(true);
+
+        const row = await getConfigRow(request);
+        expect(row).toMatchObject({ waf_mode: 'block' });
+      });
+    },
+  );
+
+  test(
+    'WAF toggled on with all module switches off and a rule set selected reports the WAF as applied',
+    async ({ request }) => {
+      await test.step('Create a rule set and choose it', async () => {
+        await createRuleSet(request, RULE_SET_NAME);
+        await saveConfig(request, {
+          name: 'default',
+          admin_whitelist: RUNNER_WHITELIST,
+          waf_rules_source: RULE_SET_NAME,
+        });
+      });
+
+      await test.step('Run the emergency endpoint to reach the all-switches-off state', async () => {
+        await callEmergencyEndpoint(request);
+      });
+
+      await test.step('Turn the WAF on through its toggle', async () => {
+        await enableModule(request, WAF_ENABLE_PATH);
+      });
+
+      await test.step('Status reports the WAF as applied and the stored row holds block mode', async () => {
+        const status = await getSecurityStatus(request);
+        expect(status.waf.enabled).toBe(true);
+        expect(status.waf.enforced).toBe(true);
+
+        const row = await getConfigRow(request);
+        expect(row).toMatchObject({ waf_mode: 'block' });
+      });
+    },
+  );
 });

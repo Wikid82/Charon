@@ -5,6 +5,12 @@ import * as security from '../security'
 
 vi.mock('../client')
 
+describe('STANDARD_RATE_LIMIT', () => {
+  it('matches the standard thresholds written by the backend', () => {
+    expect(security.STANDARD_RATE_LIMIT).toEqual({ requests: 100, windowSec: 60, burst: 20 })
+  })
+})
+
 describe('security API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -54,6 +60,15 @@ describe('security API', () => {
 
       expect(client.post).toHaveBeenCalledWith('/security/config', payload)
       expect(result).toEqual(mockData)
+    })
+
+    it('should post a single-key payload as exactly that key', async () => {
+      vi.mocked(client.post).mockResolvedValue({ data: { success: true } })
+
+      await security.updateSecurityConfig({ name: 'default', admin_whitelist: '' })
+
+      const [, body] = vi.mocked(client.post).mock.calls[0]
+      expect(body).toStrictEqual({ name: 'default', admin_whitelist: '' })
     })
 
     it('should handle all payload fields', async () => {
@@ -179,7 +194,6 @@ describe('security API', () => {
       const mockData: security.RuleSetsResponse = {
         rulesets: [
           {
-            id: 1,
             uuid: 'abc-123',
             name: 'OWASP CRS',
             source_url: 'https://example.com/rules',
@@ -216,7 +230,6 @@ describe('security API', () => {
 
     it('should call POST /security/rulesets with update payload', async () => {
       const payload: security.UpsertRuleSetPayload = {
-        id: 1,
         name: 'Updated Rules',
         source_url: 'https://example.com/rules',
         mode: 'detection'
@@ -232,14 +245,22 @@ describe('security API', () => {
   })
 
   describe('deleteRuleSet', () => {
-    it('should call DELETE /security/rulesets/:id', async () => {
+    it('should call DELETE /security/rulesets/:uuid', async () => {
       const mockData = { success: true }
       vi.mocked(client.delete).mockResolvedValue({ data: mockData })
 
-      const result = await security.deleteRuleSet(1)
+      const result = await security.deleteRuleSet('abc-123')
 
-      expect(client.delete).toHaveBeenCalledWith('/security/rulesets/1')
+      expect(client.delete).toHaveBeenCalledWith('/security/rulesets/abc-123')
       expect(result).toEqual(mockData)
+    })
+
+    it('encodes the uuid in the path', async () => {
+      vi.mocked(client.delete).mockResolvedValue({ data: {} })
+
+      await security.deleteRuleSet('a/b c')
+
+      expect(client.delete).toHaveBeenCalledWith('/security/rulesets/a%2Fb%20c')
     })
   })
 })

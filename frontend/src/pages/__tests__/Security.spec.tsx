@@ -100,8 +100,8 @@ const mockSecurityConfig = {
 
 const mockRuleSets: RuleSetsResponse = {
   rulesets: [
-    { id: 1, uuid: 'uuid-1', name: 'OWASP CRS', source_url: '', mode: 'blocking', last_updated: '', content: '' },
-    { id: 2, uuid: 'uuid-2', name: 'Custom Rules', source_url: '', mode: 'detection', last_updated: '', content: '' },
+    { uuid: 'uuid-1', name: 'OWASP CRS', source_url: '', mode: 'blocking', last_updated: '', content: '' },
+    { uuid: 'uuid-2', name: 'Custom Rules', source_url: '', mode: 'detection', last_updated: '', content: '' },
   ],
 }
     // Types already imported at top-level; avoid duplicate declarations

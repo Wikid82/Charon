@@ -33,6 +33,12 @@ const (
 
 const errFileCannotBeEdited = "file cannot be edited"
 
+// codeFileManagedByCharon and msgFileManagedByCharon answer a save to the whitelist file Charon generates.
+const (
+	codeFileManagedByCharon = "file_managed_by_charon"
+	msgFileManagedByCharon  = "Charon manages this file. Change the allow list on the Whitelist tab."
+)
+
 var (
 	// writableExtensions is the allowlist of file types the editor may save.
 	writableExtensions = map[string]struct{}{
@@ -44,9 +50,15 @@ var (
 type fileError struct {
 	status int
 	msg    string
+	// code, when set, is sent as error_code alongside msg.
+	code string
 }
 
 func (e *fileError) respond(c *gin.Context) {
+	if e.code != "" {
+		respondCoded(c, e.status, e.code, e.msg, nil)
+		return
+	}
 	c.JSON(e.status, gin.H{"error": e.msg})
 }
 
@@ -85,7 +97,7 @@ func isReadable(rel string) bool {
 // isWritable is the stricter predicate for saves. It is always a subset of isReadable so that every
 // file the editor can write is also listed.
 func isWritable(rel string) bool {
-	if !isReadable(rel) {
+	if !isReadable(rel) || crowdsec.IsManagedPath(rel) {
 		return false
 	}
 	slash := filepath.ToSlash(rel)
@@ -154,6 +166,9 @@ func resolveReadable(dataDir, rel string) (string, *fileError) {
 func resolveWritable(dataDir, rel string) (string, *fileError) {
 	if !isReadable(rel) {
 		return "", badRequest(errFileCannotBeEdited)
+	}
+	if crowdsec.IsManagedPath(rel) {
+		return "", &fileError{status: http.StatusBadRequest, msg: msgFileManagedByCharon, code: codeFileManagedByCharon}
 	}
 	if !isWritable(rel) {
 		if _, ok := writableExtensions[strings.ToLower(filepath.Ext(rel))]; !ok {

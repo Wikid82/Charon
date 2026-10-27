@@ -1,5 +1,14 @@
 import client from './client'
 
+/**
+ * Whether a module that is on is applied to the proxy. `enforced` is omitted when the report does not apply
+ * (module off, no hosts, or a stale report); `reason` names the state when `enforced` is false.
+ */
+export interface SecurityEnforcement {
+  enforced?: boolean
+  reason?: string
+}
+
 /** Security module status information. */
 export interface SecurityStatus {
   cerberus?: { enabled: boolean }
@@ -11,11 +20,13 @@ export interface SecurityStatus {
   waf: {
     mode: 'disabled' | 'enabled'
     enabled: boolean
-  }
+    /** Hosts the WAF is not applied to while it is on. */
+    unprotected_hosts?: number
+  } & SecurityEnforcement
   rate_limit: {
     mode?: 'disabled' | 'enabled'
     enabled: boolean
-  }
+  } & SecurityEnforcement
   acl: {
     enabled: boolean
   }
@@ -78,20 +89,54 @@ export const getLoginProtectionStatus = async (): Promise<LoginProtectionStatus>
   return response.data
 }
 
-/** Security configuration payload. */
+/**
+ * Standard rate-limit thresholds: the values the backend writes when the module is turned on without
+ * thresholds, and the page placeholders and fallbacks. Keep in step with the backend constants.
+ */
+export const STANDARD_RATE_LIMIT = {
+  requests: 100,
+  windowSec: 60,
+  burst: 20,
+} as const
+
+/**
+ * Security configuration payload for a partial update. Every key is optional: a key that is absent (or null)
+ * keeps the stored value, and an explicit empty string, 0 or false is applied.
+ */
 export interface SecurityConfigPayload {
   name?: string
   enabled?: boolean
   admin_whitelist?: string
+  /** Managed by the CrowdSec switch and ignored by the security config save. */
   crowdsec_mode?: string
   crowdsec_api_url?: string
   waf_mode?: string
   waf_rules_source?: string
   waf_learning?: boolean
+  waf_paranoia_level?: number
+  waf_exclusions?: string
+  rate_limit_mode?: string
   rate_limit_enable?: boolean
   rate_limit_burst?: number
   rate_limit_requests?: number
   rate_limit_window_sec?: number
+  rate_limit_bypass_list?: string
+}
+
+/** Stored security configuration fields the UI reads. Other stored fields are not listed. */
+export interface SecurityConfigRecord {
+  name?: string
+  admin_whitelist?: string
+  waf_mode?: string
+  waf_rules_source?: string
+  rate_limit_requests?: number | null
+  rate_limit_burst?: number | null
+  rate_limit_window_sec?: number | null
+}
+
+/** Response of `GET /security/config`; `config` is null before the default row is seeded. */
+export interface SecurityConfigResponse {
+  config: SecurityConfigRecord | null
 }
 
 /**
@@ -99,15 +144,20 @@ export interface SecurityConfigPayload {
  * @returns Promise resolving to the security configuration
  * @throws {AxiosError} If the request fails
  */
-export const getSecurityConfig = async () => {
-  const response = await client.get('/security/config')
+export const getSecurityConfig = async (): Promise<SecurityConfigResponse> => {
+  const response = await client.get<SecurityConfigResponse>('/security/config')
   return response.data
 }
 
 /**
  * Updates security configuration.
- * @param payload - SecurityConfigPayload with settings to update
- * @returns Promise resolving to the updated configuration
+ *
+ * Only the fields present in the payload are changed; omitted or null fields keep their stored value. Send an
+ * empty string, 0 or false to clear or turn a field off. `crowdsec_mode` is managed by the CrowdSec switch and
+ * is ignored here.
+ *
+ * @param payload - SecurityConfigPayload with the fields to change
+ * @returns Promise resolving to the stored configuration
  * @throws {AxiosError} If update fails
  */
 export const updateSecurityConfig = async (payload: SecurityConfigPayload) => {
@@ -178,9 +228,11 @@ export const createDecision = async (payload: CreateDecisionPayload) => {
 }
 
 // WAF Ruleset types
-/** WAF security ruleset configuration. */
+/**
+ * WAF security ruleset configuration. The numeric database id is never sent to the client; `uuid` identifies
+ * a rule set in every route that addresses one.
+ */
 export interface SecurityRuleSet {
-  id: number
   uuid: string
   name: string
   source_url: string
@@ -196,7 +248,6 @@ export interface RuleSetsResponse {
 
 /** Payload for creating/updating a WAF ruleset. */
 export interface UpsertRuleSetPayload {
-  id?: number
   name: string
   content?: string
   source_url?: string
@@ -225,12 +276,12 @@ export const upsertRuleSet = async (payload: UpsertRuleSetPayload) => {
 }
 
 /**
- * Deletes a WAF ruleset.
- * @param id - The ruleset ID to delete
+ * Deletes a WAF ruleset. The server refuses (409 `waf_ruleset_in_use`) the rule set the WAF uses as its source.
+ * @param uuid - The ruleset UUID to delete
  * @returns Promise resolving to delete result
  * @throws {AxiosError} If deletion fails or ruleset not found
  */
-export const deleteRuleSet = async (id: number) => {
-  const response = await client.delete(`/security/rulesets/${id}`)
+export const deleteRuleSet = async (uuid: string) => {
+  const response = await client.delete(`/security/rulesets/${encodeURIComponent(uuid)}`)
   return response.data
 }

@@ -604,6 +604,8 @@ check.
 - Database-driven rule configuration
 - Metrics collection for security events
 
+**Module switch resolution:** Whether the WAF, the rate limit or the ACL is on is resolved in one place (`internal/models`). A settings key set to `true` or `false` wins; otherwise the default security config row is used; otherwise the static configuration. Cerberus off forces every module off. All writers (the toggles, the settings save, the config save and the patch route) update the switch and, for the WAF and rate limit, the row mirror in one write-locked transaction. A proxy apply that fails restores both. `GET /security/status` reports the applied state from the last successful apply.
+
 #### Database Layer (`internal/database/`)
 
 - **Migrations:** Automatic schema versioning with GORM AutoMigrate
@@ -877,6 +879,7 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 - Automatic IP banning with configurable duration
 - Decision management API (view, create, delete bans)
 - IP whitelist management: operators add/remove IPs and CIDRs via the management UI; entries are persisted in SQLite and regenerated into a `crowdsecurity/whitelists` parser YAML on every mutating operation and at startup
+- Engine lifecycle: one CrowdSec lifecycle owner starts and stops the engine for the API, the settings endpoint and both emergency reset paths (the main API and the separate emergency server)
 
 **CrowdSec bouncer key precedence:** the bouncer key is the shared secret the Caddy bouncer uses to talk to the CrowdSec Local API. One rule set, in `backend/internal/crowdsec/bouncerkey`, is used by the proxy config, the handlers and startup:
 

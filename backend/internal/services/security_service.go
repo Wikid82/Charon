@@ -87,29 +87,31 @@ func (s *SecurityService) Get() (*models.SecurityConfig, error) {
 	return &cfg, nil
 }
 
-// Upsert validates and saves a security config
-func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
-	// Validate AdminWhitelist - comma-separated list of CIDRs
-	if cfg.AdminWhitelist != "" {
-		parts := strings.Split(cfg.AdminWhitelist, ",")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			// Validate as IP or CIDR using the same helper as AccessListService
-			if !isValidCIDR(p) {
-				return ErrInvalidAdminCIDR
-			}
+// GetByName returns the SecurityConfig row with the given name, or ErrSecurityConfigNotFound.
+func (s *SecurityService) GetByName(name string) (*models.SecurityConfig, error) {
+	var cfg models.SecurityConfig
+	if err := s.db.Where("name = ?", name).First(&cfg).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrSecurityConfigNotFound
 		}
+		return nil, fmt.Errorf("find security config %q: %w", name, err)
+	}
+	return &cfg, nil
+}
+
+// Upsert replaces every column from cfg. Callers must pass a row they just read, with the fields they do not change
+// still set to their stored values. Request handlers must use ApplyUpdate, which writes only the fields a request carries.
+func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
+	if err := ValidateAdminWhitelist(cfg.AdminWhitelist); err != nil {
+		return err
 	}
 
 	// If a breakglass token is present in BreakGlassHash as empty string,
 	// do not overwrite it here. Token generation should be done explicitly.
 
-	// Validate CrowdSec mode on input prior to any DB operations: only 'local' or 'disabled' supported
-	if cfg.CrowdSecMode != "" && cfg.CrowdSecMode != "local" && cfg.CrowdSecMode != "disabled" {
-		return fmt.Errorf("invalid crowdsec mode: %s", cfg.CrowdSecMode)
+	// Validate CrowdSec mode on input prior to any DB operations.
+	if err := ValidateCrowdSecMode(cfg.CrowdSecMode); err != nil {
+		return err
 	}
 
 	// Upsert behaviour: try to find existing record
@@ -128,19 +130,12 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 	}
 	existing.Enabled = cfg.Enabled
 	existing.AdminWhitelist = cfg.AdminWhitelist
-	// Validate CrowdSec mode: only 'local' or 'disabled' supported. Reject external/remote values.
-	if cfg.CrowdSecMode != "" && cfg.CrowdSecMode != "local" && cfg.CrowdSecMode != "disabled" {
-		return fmt.Errorf("invalid crowdsec mode: %s", cfg.CrowdSecMode)
-	}
-	existing.CrowdSecMode = cfg.CrowdSecMode
+	// The CrowdSec mode is not copied: the CrowdSec lifecycle owns the stored value, so a save keeps it.
 	existing.CrowdSecAPIURL = cfg.CrowdSecAPIURL
-	existing.WAFMode = cfg.WAFMode
 	existing.WAFRulesSource = cfg.WAFRulesSource
 	existing.WAFLearning = cfg.WAFLearning
 	existing.WAFParanoiaLevel = cfg.WAFParanoiaLevel
 	existing.WAFExclusions = cfg.WAFExclusions
-	existing.RateLimitEnable = cfg.RateLimitEnable
-	existing.RateLimitMode = cfg.RateLimitMode
 	existing.RateLimitBurst = cfg.RateLimitBurst
 	existing.RateLimitRequests = cfg.RateLimitRequests
 	existing.RateLimitWindowSec = cfg.RateLimitWindowSec
@@ -450,13 +445,40 @@ func (s *SecurityService) UpsertRuleSet(r *models.SecurityRuleSet) error {
 	return s.db.Save(&existing).Error
 }
 
-// DeleteRuleSet removes a ruleset by id
+// ErrRuleSetInUse is returned when a rule set is the one the WAF uses: the default row's waf_rules_source names it.
+var ErrRuleSetInUse = errors.New("rule set is the WAF rules source")
+
+// DeleteRuleSet removes a ruleset by id. See deleteRuleSet.
 func (s *SecurityService) DeleteRuleSet(id uint) error {
-	var rs models.SecurityRuleSet
-	if err := s.db.Where("id = ?", id).First(&rs).Error; err != nil {
-		return err
-	}
-	return s.db.Delete(&rs).Error
+	return s.deleteRuleSet("id = ?", id)
+}
+
+// DeleteRuleSetByUUID removes a ruleset by its uuid. See deleteRuleSet.
+func (s *SecurityService) DeleteRuleSetByUUID(ref string) error {
+	return s.deleteRuleSet("uuid = ?", ref)
+}
+
+// deleteRuleSet deletes the ruleset matching query. The in-use check and the delete run in one write-locked
+// transaction, so a config save that selects the rule set cannot interleave between them. A missing rule set returns
+// gorm.ErrRecordNotFound unwrapped; a rule set in use returns ErrRuleSetInUse.
+func (s *SecurityService) deleteRuleSet(query string, arg any) error {
+	return WithWriteLock(s.db, &models.SecurityRuleSet{}, func(tx *gorm.DB) error {
+		var rs models.SecurityRuleSet
+		if err := tx.Where(query, arg).First(&rs).Error; err != nil {
+			return err
+		}
+		var inUse int64
+		err := tx.Model(&models.SecurityConfig{}).
+			Where("name = ? AND waf_rules_source = ?", models.DefaultSecurityConfigName, rs.Name).
+			Count(&inUse).Error
+		if err != nil {
+			return fmt.Errorf("check rule set use: %w", err)
+		}
+		if inUse > 0 {
+			return ErrRuleSetInUse
+		}
+		return tx.Delete(&rs).Error
+	})
 }
 
 // ListRuleSets returns all known rulesets

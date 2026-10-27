@@ -10,11 +10,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
-	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -53,21 +53,28 @@ type SecurityHandler struct {
 	cfg          config.SecurityConfig
 	db           *gorm.DB
 	svc          *services.SecurityService
-	caddyManager *caddy.Manager
+	caddyManager CaddyConfigManager
 	geoipSvc     *services.GeoIPService
 	cerberus     CacheInvalidator
+	crowdsec     CrowdsecLifecycle
+}
+
+// WithCrowdsecLifecycle wires the CrowdSec lifecycle that the security switches drive. A typed-nil handler is not wired.
+func (h *SecurityHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *SecurityHandler {
+	h.crowdsec = LifecycleOrNil(l)
+	return h
 }
 
 // NewSecurityHandler creates a new SecurityHandler.
-func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager) *SecurityHandler {
+func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager CaddyConfigManager) *SecurityHandler {
 	svc := services.NewSecurityService(db)
-	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager}
+	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: nilIfTypedNil(caddyManager)}
 }
 
 // NewSecurityHandlerWithDeps creates a new SecurityHandler with optional cache invalidation.
-func NewSecurityHandlerWithDeps(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager, cerberus CacheInvalidator) *SecurityHandler {
+func NewSecurityHandlerWithDeps(cfg config.SecurityConfig, db *gorm.DB, caddyManager CaddyConfigManager, cerberus CacheInvalidator) *SecurityHandler {
 	svc := services.NewSecurityService(db)
-	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager, cerberus: cerberus}
+	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: nilIfTypedNil(caddyManager), cerberus: cerberus}
 }
 
 // Close stops the background audit goroutine. Required for test cleanup.
@@ -96,11 +103,14 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	// The CrowdSec decision reads the default row, or the static mode when no row exists. This matches the proxy
 	// config (caddy manager), so an empty row mode stays off instead of falling back to the static mode.
 	crowdSecRow := models.SecurityConfig{CrowdSecMode: h.cfg.CrowdSecMode}
+	// The default row for the module resolution; zero when no row exists, which has no opinion on any module.
+	defaultRow := models.SecurityConfig{}
 
 	// Override with database SecurityConfig if present (priority 2)
 	if h.db != nil {
 		if sc, err := models.FindDefaultSecurityConfig(h.db); err == nil {
 			crowdSecRow = sc
+			defaultRow = sc
 			// SecurityConfig in DB takes precedence over static config
 			enabled = sc.Enabled
 			if sc.WAFMode != "" {
@@ -134,26 +144,6 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			}
 		}
 
-		// WAF enabled override
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.waf.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			if strings.EqualFold(setting.Value, "true") {
-				wafMode = "enabled"
-			} else {
-				wafMode = "disabled"
-			}
-		}
-
-		// Rate Limit enabled override
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.rate_limit.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			if strings.EqualFold(setting.Value, "true") {
-				rateLimitMode = "enabled"
-			} else {
-				rateLimitMode = "disabled"
-			}
-		}
-
 		// CrowdSec: the enabled setting, then the deprecated mode setting, then the row (same precedence as the proxy config).
 		crowdSecOn, crowdSecErr := models.CrowdSecEnabled(h.db, crowdSecRow)
 		if crowdSecErr != nil {
@@ -163,16 +153,6 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		if crowdSecOn {
 			crowdSecMode = "local"
 		}
-
-		// ACL enabled override
-		setting = struct{ Value string }{}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.acl.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			if strings.EqualFold(setting.Value, "true") {
-				aclMode = "enabled"
-			} else {
-				aclMode = "disabled"
-			}
-		}
 	}
 
 	// Map unknown/external mode to disabled
@@ -180,11 +160,33 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		crowdSecMode = "disabled"
 	}
 
+	// WAF, rate limit and ACL: settings key, then the default row, then the static configuration (the proxy's order).
+	// A decision that came from the settings key also sets the displayed mode.
+	wafRes, wafErr := models.ResolveWAF(h.db, defaultRow, models.StaticWAFEnabled(h.cfg.WAFMode))
+	logStatusReadError("waf", wafErr)
+	if wafRes.FromSetting {
+		wafMode = settingModeLabel(wafRes.Enabled)
+		// An ON WAF keeps the stored block/monitor mode visible, so a settings key does not hide it.
+		if stored := storedWAFActionMode(defaultRow.WAFMode); wafRes.Enabled && stored != "" {
+			wafMode = stored
+		}
+	}
+	rateLimitRes, rateLimitErr := models.ResolveRateLimit(h.db, defaultRow, h.cfg.RateLimitMode == "enabled")
+	logStatusReadError("rate_limit", rateLimitErr)
+	if rateLimitRes.FromSetting {
+		rateLimitMode = settingModeLabel(rateLimitRes.Enabled)
+	}
+	aclRes, aclErr := models.ResolveACL(h.db, h.cfg.ACLMode == "enabled")
+	logStatusReadError("acl", aclErr)
+	if aclRes.FromSetting {
+		aclMode = settingModeLabel(aclRes.Enabled)
+	}
+
 	// Compute effective enabled state for each feature
-	wafEnabled := wafMode != "" && wafMode != "disabled"
-	rateLimitEnabled := rateLimitMode == "enabled"
+	wafEnabled := wafRes.Enabled
+	rateLimitEnabled := rateLimitRes.Enabled
 	crowdsecEnabled := crowdSecMode == "local"
-	aclEnabled := aclMode == "enabled"
+	aclEnabled := aclRes.Enabled
 
 	// All features require Cerberus to be enabled
 	if !enabled {
@@ -198,6 +200,16 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		aclMode = "disabled"
 	}
 
+	wafStatus := gin.H{
+		"mode":    wafMode,
+		"enabled": wafEnabled,
+	}
+	rateLimitStatus := gin.H{
+		"mode":    rateLimitMode,
+		"enabled": rateLimitEnabled,
+	}
+	h.addAppliedState(wafStatus, rateLimitStatus, wafEnabled, rateLimitEnabled)
+
 	c.JSON(http.StatusOK, gin.H{
 		"cerberus": gin.H{"enabled": enabled},
 		"crowdsec": gin.H{
@@ -205,20 +217,41 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			"api_url": crowdSecAPIURL,
 			"enabled": crowdsecEnabled,
 		},
-		"waf": gin.H{
-			"mode":    wafMode,
-			"enabled": wafEnabled,
-		},
-		"rate_limit": gin.H{
-			"mode":    rateLimitMode,
-			"enabled": rateLimitEnabled,
-		},
+		"waf":        wafStatus,
+		"rate_limit": rateLimitStatus,
 		"acl": gin.H{
 			"mode":    aclMode,
 			"enabled": aclEnabled,
 		},
 		"config_apply": latestConfigApplyState(h.db),
 	})
+}
+
+// settingModeLabel is the mode shown for a module whose settings key decided its state.
+func settingModeLabel(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+// storedWAFActionMode returns the lowercase, trimmed WAF mode from the default row when it is "block" or "monitor",
+// or "" for any other value.
+func storedWAFActionMode(rowMode string) string {
+	mode := strings.ToLower(strings.TrimSpace(rowMode))
+	if mode == "block" || mode == "monitor" {
+		return mode
+	}
+	return ""
+}
+
+// logStatusReadError records a failed settings or row read behind the status response. The resolved state is still
+// reported, using the default row or the static configuration.
+func logStatusReadError(module string, err error) {
+	if err == nil {
+		return
+	}
+	logger.Log().WithError(err).WithField("module", module).Warn("Failed to read security module setting for status, using the default SecurityConfig row or static configuration")
 }
 
 func latestConfigApplyState(db *gorm.DB) gin.H {
@@ -274,31 +307,36 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
-	var payload models.SecurityConfig
-	if err := c.ShouldBindJSON(&payload); err != nil {
+	// Only the keys present in the body change; absent and null keys keep the stored value (see SecurityConfigUpdate).
+	var update services.SecurityConfigUpdate
+	if err := c.ShouldBindJSON(&update); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
-	if payload.Name == "" {
-		payload.Name = models.DefaultSecurityConfigName
+	name := models.DefaultSecurityConfigName
+	if update.Name != nil && *update.Name != "" {
+		name = *update.Name
 	}
-	// Sync RateLimitMode with RateLimitEnable for backward compatibility
-	if payload.RateLimitEnable {
-		payload.RateLimitMode = "enabled"
-	} else if payload.RateLimitMode == "" {
-		payload.RateLimitMode = "disabled"
-	}
-	if err := h.svc.Upsert(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	saved, snapshot, err := h.svc.ApplyUpdate(auditActor(c), name, update)
+	if err != nil {
+		respondConfigUpdateError(c, err)
 		return
 	}
-	// Apply updated config to Caddy so WAF mode changes take effect
+	// Apply updated config to Caddy so WAF mode changes take effect. A save the proxy refuses is rolled back, so the
+	// stored config never holds a state Caddy rejected.
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply security config changes to Caddy")
+			restoreModuleState(h.db, h.cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			return
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"config": payload})
+	if h.cerberus != nil {
+		h.cerberus.InvalidateCache()
+	}
+	// Answer the stored row, so the response shows the stored CrowdSec mode and the row's UUID.
+	c.JSON(http.StatusOK, gin.H{"config": saved})
 }
 
 // GenerateBreakGlass generates a break-glass token and returns the plaintext token once
@@ -412,7 +450,7 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -429,26 +467,36 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 		return
 	}
 
+	// The path takes the ruleset uuid (the JSON id of a ruleset is hidden) or the numeric id.
 	idParam := c.Param("id")
 	if idParam == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
 		return
 	}
-	id, err := strconv.ParseUint(idParam, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-	if err := h.svc.DeleteRuleSet(uint(id)); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "ruleset not found"})
+	var deleteErr error
+	if _, uuidErr := uuid.Parse(idParam); uuidErr == nil {
+		deleteErr = h.svc.DeleteRuleSetByUUID(idParam)
+	} else {
+		id, parseErr := strconv.ParseUint(idParam, 10, 32)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete ruleset"})
+		deleteErr = h.svc.DeleteRuleSet(uint(id))
+	}
+	if deleteErr != nil {
+		switch {
+		case errors.Is(deleteErr, gorm.ErrRecordNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "ruleset not found"})
+		case errors.Is(deleteErr, services.ErrRuleSetInUse):
+			respondCoded(c, http.StatusConflict, codeWAFRulesetInUse, msgWAFRulesetInUse, nil)
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete ruleset"})
+		}
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -524,7 +572,7 @@ func (h *SecurityHandler) Enable(c *gin.Context) {
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
@@ -576,7 +624,7 @@ func (h *SecurityHandler) persistDisabled(c *gin.Context, cfg *models.SecurityCo
 		return
 	}
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
 			return
 		}
@@ -591,9 +639,9 @@ func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
 			"id":          "standard",
 			"name":        "Standard Web",
 			"description": "Balanced protection for general web applications",
-			"requests":    100,
-			"window_sec":  60,
-			"burst":       20,
+			"requests":    models.StandardRateLimitRequests,
+			"window_sec":  models.StandardRateLimitWindowSec,
+			"burst":       models.StandardRateLimitBurst,
 		},
 		{
 			"id":          "api",
@@ -807,7 +855,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 
 	// Apply updated config to Caddy
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
 		}
 	}
@@ -895,7 +943,7 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 
 	// Apply updated config to Caddy
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
 		}
 	}
@@ -1020,32 +1068,77 @@ func (h *SecurityHandler) DisableCerberus(c *gin.Context) {
 	h.toggleSecurityModule(c, "feature.cerberus.enabled", false)
 }
 
-// EnableCrowdSec enables the CrowdSec security module
+// EnableCrowdSec starts the CrowdSec engine through the lifecycle, which also turns the CrowdSec setting on.
 // POST /api/v1/security/crowdsec/enable
 func (h *SecurityHandler) EnableCrowdSec(c *gin.Context) {
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", true)
+	if !requireAdmin(c) {
+		return
+	}
+	h.switchCrowdSec(c, true)
 }
 
-// DisableCrowdSec disables the CrowdSec security module
+// DisableCrowdSec stops the CrowdSec engine through the lifecycle, which also turns the CrowdSec setting off.
 // POST /api/v1/security/crowdsec/disable
 func (h *SecurityHandler) DisableCrowdSec(c *gin.Context) {
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", false)
+	if !requireAdmin(c) {
+		return
+	}
+	h.switchCrowdSec(c, false)
 }
 
-// PatchCrowdSec handles PATCH requests to enable/disable CrowdSec based on JSON body
+// PatchCrowdSec starts or stops the CrowdSec engine through the lifecycle, based on the JSON body.
 // PATCH /api/v1/security/crowdsec
 // Expects: {"enabled": true/false}
 func (h *SecurityHandler) PatchCrowdSec(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	h.toggleSecurityModule(c, "security.crowdsec.enabled", req.Enabled)
+	h.switchCrowdSec(c, req.Enabled)
+}
+
+// switchCrowdSec drives the CrowdSec engine for an admin caller and answers with the switch result. The handler
+// writes nothing itself: the lifecycle owns the setting, the mode and the proxy configuration. The 200 body keeps the
+// module keys and adds the engine fields; lapi_ready is only reported on enable.
+func (h *SecurityHandler) switchCrowdSec(c *gin.Context, enabled bool) {
+	if h.crowdsec == nil {
+		respondCoded(c, http.StatusServiceUnavailable, codeCrowdsecUnavailable, msgCrowdsecUnavailable, nil)
+		return
+	}
+
+	body := gin.H{
+		"success": true,
+		"module":  models.CrowdSecEnabledSettingKey,
+		"enabled": enabled,
+	}
+	if enabled {
+		res, err := h.crowdsec.StartCrowdSec(c.Request.Context())
+		if err != nil {
+			respondCrowdsecLifecycleError(c, err)
+			return
+		}
+		body["applied"] = res.ProxyApplied
+		body["status"] = res.Status
+		body["lapi_ready"] = res.LAPIReady
+	} else {
+		res, err := h.crowdsec.StopCrowdSec(c.Request.Context())
+		if err != nil {
+			respondCrowdsecLifecycleError(c, err)
+			return
+		}
+		body["applied"] = res.ProxyApplied
+		body["status"] = "stopped"
+	}
+
+	c.JSON(http.StatusOK, body)
 }
 
 // EnableRateLimit enables the Rate Limiting security module
@@ -1076,102 +1169,45 @@ func (h *SecurityHandler) PatchRateLimit(c *gin.Context) {
 	h.toggleSecurityModule(c, "security.rate_limit.enabled", req.Enabled)
 }
 
-// toggleSecurityModule is a helper function that handles enabling/disabling security modules
-// It updates the setting, invalidates cache, and triggers Caddy config reload
+// toggleSecurityModule switches one module on or off. The write and the Cerberus cache drop run under the shared write
+// lock; when the proxy apply fails, the pre-image of the module keys and the default row is restored and the request
+// answers 500.
 func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string, enabled bool) {
 	if !requireAdmin(c) {
 		return
 	}
 
-	settingCategory := "security"
-	if strings.HasPrefix(settingKey, "feature.") {
-		settingCategory = "feature"
+	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !h.allowACLEnable(c) {
+		return
 	}
 
-	snapshotKeys := []string{settingKey}
-	if enabled && settingKey != "feature.cerberus.enabled" {
-		snapshotKeys = append(snapshotKeys, "feature.cerberus.enabled", "security.cerberus.enabled")
-	}
-
-	settingSnapshots, err := snapshotSettings(h.db, snapshotKeys)
+	actor := auditActor(c)
+	var snapshot models.ModuleStateSnapshot
+	err := services.WithWriteLock(h.db, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return err
+		}
+		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, settingKey); err != nil {
+			return err
+		}
+		return writeModuleToggle(tx, settingKey, enabled, actor)
+	})
 	if err != nil {
-		log.WithError(err).Error("Failed to snapshot security settings before toggle")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
+		log.WithError(err).Errorf("Failed to update security module setting %s", settingKey)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleWriteFailed})
 		return
-	}
-
-	securityConfigBefore, err := snapshotDefaultSecurityConfigState(h.db)
-	if err != nil {
-		log.WithError(err).Error("Failed to snapshot security config before toggle")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
-		return
-	}
-
-	if settingKey == "security.acl.enabled" && enabled {
-		if !h.allowACLEnable(c) {
-			return
-		}
-	}
-
-	if enabled && settingKey != "feature.cerberus.enabled" {
-		if err := enableSecurityFramework(h.db); err != nil {
-			log.WithError(err).Error("Failed to enable security framework while enabling security module")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enable security config"})
-			return
-		}
-	}
-
-	// Update setting
-	value := "false"
-	if enabled {
-		value = "true"
-	}
-
-	setting := models.Setting{
-		Key:      settingKey,
-		Value:    value,
-		Category: settingCategory,
-		Type:     "bool",
-	}
-
-	if err := h.db.Where(models.Setting{Key: settingKey}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
-		log.WithError(err).Errorf("Failed to update setting %s", settingKey)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
-		return
-	}
-
-	if settingKey == "feature.cerberus.enabled" {
-		legacyCerberus := models.Setting{
-			Key:      "security.cerberus.enabled",
-			Value:    value,
-			Category: "security",
-			Type:     "bool",
-		}
-		if err := h.db.Where(models.Setting{Key: legacyCerberus.Key}).Assign(legacyCerberus).FirstOrCreate(&legacyCerberus).Error; err != nil {
-			log.WithError(err).Error("Failed to sync legacy Cerberus setting")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update security module"})
-			return
-		}
 	}
 
 	if h.cerberus != nil {
 		h.cerberus.InvalidateCache()
 	}
 
-	// Trigger Caddy config reload
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
 			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
-			if restoreErr := restoreSettings(h.db, settingSnapshots); restoreErr != nil {
-				log.WithError(restoreErr).Error("Failed to restore settings after security module toggle apply failure")
-			}
-			if restoreErr := restoreDefaultSecurityConfigState(h.db, securityConfigBefore); restoreErr != nil {
-				log.WithError(restoreErr).Error("Failed to restore security config after security module toggle apply failure")
-			}
-			if h.cerberus != nil {
-				h.cerberus.InvalidateCache()
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload configuration"})
+			restoreModuleState(h.db, h.cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
 		}
 	}
@@ -1260,25 +1296,6 @@ func restoreDefaultSecurityConfigState(db *gorm.DB, snap defaultSecurityConfigSn
 	}
 
 	return db.Where("name = ?", models.DefaultSecurityConfigName).Delete(&models.SecurityConfig{}).Error
-}
-
-// enableSecurityFramework turns the global security switch and Cerberus on. It is the one
-// path shared by the module enables (ACL, WAF, rate limiting), the settings save and a
-// successful CrowdSec Start. A missing default row is seeded first.
-func enableSecurityFramework(db *gorm.DB) error {
-	if _, err := setDefaultSecurityConfigState(db, map[string]any{"enabled": true}); err != nil {
-		return fmt.Errorf("enable default security config: %w", err)
-	}
-	for _, setting := range []models.Setting{
-		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature", Type: "bool"},
-		{Key: "security.cerberus.enabled", Value: "true", Category: "security", Type: "bool"},
-	} {
-		if err := upsertSetting(db, setting); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // upsertSetting writes the setting's value and metadata, creating the row when it is missing.

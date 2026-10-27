@@ -124,6 +124,7 @@ func setupSecurityCoverageDB3(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
 	_ = db.AutoMigrate(
+		&models.Setting{},
 		&models.SecurityConfig{},
 		&models.SecurityDecision{},
 		&models.SecurityRuleSet{},

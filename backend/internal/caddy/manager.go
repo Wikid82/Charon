@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/gorm"
@@ -80,6 +81,18 @@ type Manager struct {
 	orthrusSvc  OrthrusAddrResolver
 	hopSecret   *selfhop.Secret
 	hopPort     string
+	// enforcement is the report of the last successful apply. It is nil while an apply runs and after any failed one.
+	enforcement atomic.Pointer[EnforcementReport]
+}
+
+// EnforcementReport returns the enforcement report of the last successful apply. ok is false when no successful apply
+// has completed since the last apply attempt started. It reads memory only, so status requests do not wait for an apply.
+func (m *Manager) EnforcementReport() (report EnforcementReport, ok bool) {
+	stored := m.enforcement.Load()
+	if stored == nil {
+		return EnforcementReport{}, false
+	}
+	return *stored, true
 }
 
 // NewManager creates a configuration manager.
@@ -117,6 +130,8 @@ func (m *Manager) SetSelfHop(secret *selfhop.Secret, port string) {
 func (m *Manager) ApplyConfig(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Drop the previous report first: until this apply succeeds, no report describes the running configuration.
+	m.enforcement.Store(nil)
 	// Fetch all proxy hosts from database
 	var hosts []models.ProxyHost
 	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Preload("DNSProvider").Find(&hosts).Error; err != nil {
@@ -461,7 +476,13 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	remoteHosts := orthrusHostUUIDs(hosts)
 	hosts = resolveOrthrusHosts(hosts, m.orthrusSvc)
 
-	genOpts := []GenerateConfigOption{WithEncryptionService(m.encSvc), WithRedirectionHosts(redirectHosts), WithRemoteHosts(remoteHosts)}
+	var generatedReport *EnforcementReport
+	genOpts := []GenerateConfigOption{
+		WithEncryptionService(m.encSvc),
+		WithRedirectionHosts(redirectHosts),
+		WithRemoteHosts(remoteHosts),
+		WithEnforcementSink(func(report EnforcementReport) { generatedReport = &report }),
+	}
 	if m.hopSecret != nil {
 		genOpts = append(genOpts, WithSelfHop(m.hopSecret, m.hopPort))
 	}
@@ -529,6 +550,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 
 	// Record successful application
 	m.recordConfigChange(configHash, true, "")
+	m.enforcement.Store(generatedReport)
 
 	// Cleanup old snapshots (keep last 10)
 	if err := m.rotateSnapshots(10); err != nil {
@@ -699,7 +721,7 @@ func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) {
 func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled bool) {
 	// Start with base flags from static config (environment variables)
 	cerbEnabled = m.securityCfg.CerberusEnabled
-	wafEnabled = m.securityCfg.WAFMode != "" && m.securityCfg.WAFMode != "disabled"
+	wafEnabled = models.StaticWAFEnabled(m.securityCfg.WAFMode)
 	rateLimitEnabled = m.securityCfg.RateLimitMode == "enabled"
 	crowdsecEnabled = m.securityCfg.CrowdSecMode == "local"
 	aclEnabled = m.securityCfg.ACLMode == "enabled"
@@ -709,67 +731,31 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 		crowdSecRow := models.SecurityConfig{CrowdSecMode: m.securityCfg.CrowdSecMode}
 
 		// Priority 1: Read from SecurityConfig table (DB overrides static config)
+		// A missing row leaves defaultRow zero, which has no opinion on any module.
+		var row *models.SecurityConfig
+		defaultRow := models.SecurityConfig{}
 		if sc, err := models.FindDefaultSecurityConfig(m.db); err == nil {
 			crowdSecRow = sc
-
-			// SecurityConfig.Enabled controls Cerberus globally
-			cerbEnabled = sc.Enabled
-
-			// WAF mode from DB
-			if sc.WAFMode != "" {
-				wafEnabled = !strings.EqualFold(sc.WAFMode, "disabled")
-			}
-
-			// Rate limiting from DB
-			if sc.RateLimitMode != "" {
-				rateLimitEnabled = strings.EqualFold(sc.RateLimitMode, "enabled")
-			} else if sc.RateLimitEnable {
-				// Fallback to boolean field for backward compatibility
-				rateLimitEnabled = true
-			}
-
-			// ACL mode (if we add it to SecurityConfig in the future)
-			// For now, ACL mode stays at static config value or settings override below
+			row = &sc
+			defaultRow = sc
 		}
 
-		// Priority 2: Settings table overrides (for feature flags)
-		var s models.Setting
-		// runtime override for cerberus enabled (check feature flag first, fallback to legacy key)
-		if err := m.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
-			cerbEnabled = strings.EqualFold(s.Value, "true")
-		} else if err := m.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
-			cerbEnabled = strings.EqualFold(s.Value, "true")
-		}
+		// Priority 2: Settings table overrides (for feature flags). Cerberus takes the row above, then the feature
+		// and legacy keys; boot reads the same decision through CerberusEnabledForProxy.
+		cerbEnabled = CerberusEnabledForProxy(m.db, m.securityCfg, row)
 
-		// runtime override for ACL enabled
-		s = models.Setting{} // Reset to prevent ID leakage from previous query
-		if err := m.db.Where("key = ?", "security.acl.enabled").First(&s).Error; err == nil {
-			if strings.EqualFold(s.Value, "true") {
-				aclEnabled = true
-			} else if strings.EqualFold(s.Value, "false") {
-				aclEnabled = false
-			}
-		}
+		// WAF, rate limit and ACL: settings key, then the default row, then the static configuration.
+		wafRes, wafErr := models.ResolveWAF(m.db, defaultRow, wafEnabled)
+		logModuleReadError("waf", wafErr)
+		wafEnabled = wafRes.Enabled
 
-		// runtime override for WAF enabled
-		s = models.Setting{} // Reset
-		if err := m.db.Where("key = ?", "security.waf.enabled").First(&s).Error; err == nil {
-			if strings.EqualFold(s.Value, "true") {
-				wafEnabled = true
-			} else if strings.EqualFold(s.Value, "false") {
-				wafEnabled = false
-			}
-		}
+		rateLimitRes, rateLimitErr := models.ResolveRateLimit(m.db, defaultRow, rateLimitEnabled)
+		logModuleReadError("rate_limit", rateLimitErr)
+		rateLimitEnabled = rateLimitRes.Enabled
 
-		// runtime override for Rate Limit enabled
-		s = models.Setting{} // Reset
-		if err := m.db.Where("key = ?", "security.rate_limit.enabled").First(&s).Error; err == nil {
-			if strings.EqualFold(s.Value, "true") {
-				rateLimitEnabled = true
-			} else if strings.EqualFold(s.Value, "false") {
-				rateLimitEnabled = false
-			}
-		}
+		aclRes, aclErr := models.ResolveACL(m.db, aclEnabled)
+		logModuleReadError("acl", aclErr)
+		aclEnabled = aclRes.Enabled
 
 		// CrowdSec: the enabled setting, then the deprecated mode setting, then the default row (shared with status and boot).
 		var crowdSecErr error
@@ -788,4 +774,13 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 	}
 
 	return cerbEnabled, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled
+}
+
+// logModuleReadError records a failed settings or row read for one security module. The resolved state is used
+// either way, so the proxy config still builds.
+func logModuleReadError(module string, err error) {
+	if err == nil {
+		return
+	}
+	logger.Log().WithError(err).WithField("module", module).Warn("Failed to read security module setting, using the default SecurityConfig row or static configuration")
 }

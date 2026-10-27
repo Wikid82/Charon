@@ -35,18 +35,33 @@ Key capabilities:
 
 To turn CrowdSec off, switch **CrowdSec Protection** off. Charon stops it and updates the proxy right away.
 
+Three things can turn CrowdSec on or off, and each one starts or stops the CrowdSec engine to match:
+
+- The **CrowdSec Protection** switch on the Security page
+- The CrowdSec setting, for scripts and other tools that call the settings API
+- The **emergency reset**, which turns off every security module, CrowdSec included
+
 Turning CrowdSec on also turns on the Security framework, the same way the other security modules do.
 No environment variables or manual configuration required.
 
 **What to expect:**
 
 - The switch on the Security page, your saved CrowdSec setting and the CrowdSec engine stay in step.
+- CrowdSec can keep running while the security suite is off. When Charon starts with CrowdSec on but the security suite off, the log says so. The proxy then leaves CrowdSec out until you turn the security suite on.
 - CrowdSec joins your proxy only once a bouncer key exists. Charon creates that key automatically the first time CrowdSec starts. If no key exists yet, the proxy leaves CrowdSec out and Charon writes a warning to the log.
 - If the proxy update fails after you turn CrowdSec on or off, the Security page still shows the engine's real state and the log has a warning. Switch CrowdSec off and on again to retry.
 
 > **Admin only.** Enabling, disabling, and managing CrowdSec — bans, bouncer
 > keys, rulesets, and configuration — requires an administrator account. Standard
 > users don't see the CrowdSec controls.
+
+### Your Allow List
+
+Charon keeps CrowdSec's allow list (addresses that CrowdSec never blocks) in its own file, `charon-whitelist.yaml`. Charon writes that file from the **Whitelist** tab every time CrowdSec starts.
+
+- **Change the allow list on the Whitelist tab.** Edits you make to `charon-whitelist.yaml` in the config file editor are refused, and any hand edit is replaced the next time CrowdSec starts.
+- **Your other parser files are yours.** Files you add to CrowdSec's parser folder are not changed by Charon.
+- **Importing a configuration keeps this server's allow list.** Charon puts back the allow list from this server, not the one in the archive. If the archive has other allow-list files, Charon lists them after the import and leaves them as they are.
 
 ### Hub Presets
 

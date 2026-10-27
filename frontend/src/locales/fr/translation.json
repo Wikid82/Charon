@@ -589,7 +589,18 @@
       "loadError": "Impossible de charger l'état de la protection de connexion."
     },
     "settingUpdated": "Paramètre de sécurité mis à jour",
-    "settingUpdateFailed": "Échec de la mise à jour du paramètre : {{error}}"
+    "settingUpdateFailed": "Échec de la mise à jour du paramètre : {{error}}",
+    "enforcement": {
+      "waf": {
+        "no_ruleset": "Le WAF est activé, mais aucun jeu de règles n'est disponible pour inspecter les requêtes. Ajoutez un jeu de règles sur la page du WAF.",
+        "ruleset_not_selected": "Le WAF est activé, mais plusieurs jeux de règles existent et aucun n'est sélectionné. Choisissez le jeu de règles sur la page du WAF.",
+        "ruleset_unavailable": "Le WAF est activé, mais le jeu de règles sélectionné n'a pas pu être chargé. Vérifiez-le sur la page du WAF."
+      },
+      "rate_limit": {
+        "thresholds_unset": "La limitation de débit est activée, mais aucune limite n'est encore définie. Définissez les requêtes et la fenêtre sur la page de limitation de débit."
+      },
+      "unknown": "Pas encore appliqué à tous les hôtes. Consultez la page des paramètres de ce module."
+    }
   },
   "accessLists": {
     "title": "Listes d'Accès",
@@ -643,7 +654,8 @@
     "rateLimitingDisabled": "Limitation de Débit Désactivée",
     "enableToConfigureMessage": "Activez la limitation de débit pour configurer les limites de requêtes et protéger vos services",
     "adjustingGates": "Ajustement des portes...",
-    "configurationUpdating": "Configuration de la limitation de débit en cours de mise à jour"
+    "configurationUpdating": "Configuration de la limitation de débit en cours de mise à jour",
+    "invalidValue": "Saisissez un nombre entier supérieur à 0."
   },
   "wafConfig": {
     "title": "Configuration WAF",
@@ -689,7 +701,20 @@
     "loadingConfiguration": "Loading WAF configuration...",
     "failedToLoad": "Failed to load WAF configuration",
     "deleteConfirmation": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
-    "ruleCount": "{{count}} rule(s)"
+    "ruleCount": "{{count}} rule(s)",
+    "rulesSource": {
+      "label": "Source du jeu de règles",
+      "help": "Le jeu de règles avec lequel le WAF inspecte les requêtes. Choisissez « Choisir automatiquement » si un seul jeu de règles existe.",
+      "auto": "Choisir automatiquement",
+      "saved": "Source du jeu de règles du WAF enregistrée",
+      "saveFailed": "Impossible d'enregistrer la source du jeu de règles du WAF"
+    },
+    "errors": {
+      "waf_rules_source_unknown": "Ce jeu de règles n'existe pas. Choisissez-en un dans la liste.",
+      "waf_ruleset_in_use": "Ce jeu de règles est celui utilisé par le WAF. Choisissez d'abord un autre jeu de règles.",
+      "invalid_waf_mode": "Le mode du WAF n'est pas valide. Rechargez la page et réessayez."
+    },
+    "detectionMode": "Les jeux de règles sans mode propre ne journalisent les requêtes correspondantes que lorsque le mode WAF enregistré est la détection. Un jeu de règles réglé sur blocage bloque les requêtes correspondantes."
   },
   "uptime": {
     "title": "Surveillance de la Disponibilité",
@@ -1796,7 +1821,8 @@
       "presetAppliedReload": "Préréglage appliqué via le backend (rechargement requis)",
       "presetApplyFailed": "Échec de l'application du préréglage",
       "applyFailed": "Échec de l'application : {{message}}",
-      "applyFailedWithBackup": "Échec de l'application : {{message}}. {{backup}}"
+      "applyFailedWithBackup": "Échec de l'application : {{message}}. {{backup}}",
+      "fileManaged": "Charon gère ce fichier. Modifiez la liste dans l'onglet Liste blanche."
     },
     "overlay": {
       "fetchingPreset": "Récupération du préréglage...",
@@ -1826,7 +1852,11 @@
       "requestTooLarge": "La requête était trop volumineuse. Raccourcissez le texte et réessayez."
     },
     "busy": "CrowdSec est occupé à installer un preset. Réessayez une fois l'installation terminée.",
-    "busyOther": "CrowdSec termine une autre modification. Réessayez dans un instant."
+    "busyOther": "CrowdSec termine une autre modification. Réessayez dans un instant.",
+    "import": {
+      "whitelistRegenerated": "Charon a régénéré son fichier de liste blanche à partir de la base de données de cette instance.",
+      "otherWhitelistFiles": "{{count}} autre(s) fichier(s) de liste blanche trouvé(s), laissé(s) inchangé(s) : {{files}}"
+    }
   },
   "smtp": {
     "title": "Paramètres Email (SMTP)",
@@ -2452,5 +2482,11 @@
     "gotIt": "Compris, merci",
     "dontShowAgain": "Ne plus m'afficher les notifications de mise à jour",
     "closeButton": "Fermer"
+  },
+  "crowdsec": {
+    "errors": {
+      "stateChanged": "CrowdSec a été désactivé pendant son démarrage.",
+      "unavailable": "CrowdSec n'est pas disponible sur ce serveur."
+    }
   }
 }

@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-e153402b1e91f65f
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:e0597b4d734d478cc99d24b01fff361a56cfb5bb02fd1ba365c3cb1db710f253
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-eda056b143a1c1e3
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:d56373f52b371ebf1bacbfa0fa7fcf3b7c28bf932c4e99f533d38f5886092eec
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -38,7 +38,7 @@ ARG ALPINE_IMAGE=alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.8.2-rc2
+ARG CROWDSEC_VERSION=1.8.2
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
@@ -88,7 +88,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.7
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.4.1
+ARG CADDY_SECURITY_VERSION=1.5.0
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.2
 # coraza WAF override: coraza-caddy v2.6.1 requires coraza v3.7.0, which carries a CVE
@@ -317,7 +317,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -453,7 +453,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
 # is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS caddy-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -800,7 +800,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
 # renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec

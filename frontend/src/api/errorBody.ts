@@ -42,12 +42,56 @@ export function crowdsecBusyMessage(err: unknown, t: TFunction): string | null {
 }
 
 /**
- * User-facing text for a refused CrowdSec change: the busy text for a busy refusal,
- * otherwise the caller's own fallback.
+ * Coded CrowdSec refusals with a translated text of their own, keyed by the server's `error_code`.
+ * Every other code keeps the caller's fallback.
+ */
+const CROWDSEC_CODE_MESSAGE_KEYS = {
+  file_managed_by_charon: 'crowdsecConfig.toasts.fileManaged',
+  crowdsec_state_changed: 'crowdsec.errors.stateChanged',
+  crowdsec_unavailable: 'crowdsec.errors.unavailable',
+} as const
+
+type CrowdsecCodedMessage = keyof typeof CROWDSEC_CODE_MESSAGE_KEYS
+
+const CROWDSEC_CODED_MESSAGES = Object.keys(CROWDSEC_CODE_MESSAGE_KEYS) as CrowdsecCodedMessage[]
+
+/**
+ * User-facing text for a refused CrowdSec change: the busy text for a busy refusal, the
+ * translated text for a coded refusal (managed file, state changed, unavailable), otherwise
+ * the caller's own fallback.
  * @param err - The value thrown by the request
  * @param t - The translation function of the calling component or hook
  * @param fallback - Text to show for every other error
  */
 export function crowdsecErrorMessage(err: unknown, t: TFunction, fallback: string): string {
-  return crowdsecBusyMessage(err, t) ?? fallback
+  const busy = crowdsecBusyMessage(err, t)
+  if (busy !== null) return busy
+  const code = getApiErrorCode(err, CROWDSEC_CODED_MESSAGES)
+  return code ? t(CROWDSEC_CODE_MESSAGE_KEYS[code]) : fallback
+}
+
+/**
+ * Coded WAF rule-set refusals with a translated text of their own, keyed by the server's `error_code`.
+ * Every other code keeps the caller's fallback.
+ */
+const WAF_CODE_MESSAGE_KEYS = {
+  waf_rules_source_unknown: 'wafConfig.errors.waf_rules_source_unknown',
+  waf_ruleset_in_use: 'wafConfig.errors.waf_ruleset_in_use',
+  invalid_waf_mode: 'wafConfig.errors.invalid_waf_mode',
+} as const
+
+type WafCodedMessage = keyof typeof WAF_CODE_MESSAGE_KEYS
+
+const WAF_CODED_MESSAGES = Object.keys(WAF_CODE_MESSAGE_KEYS) as WafCodedMessage[]
+
+/**
+ * User-facing text for a refused WAF rule-set change: the translated text for a coded refusal
+ * (unknown source, rule set in use, invalid mode), otherwise the caller's own fallback.
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @param fallback - Text to show for every other error
+ */
+export function wafErrorMessage(err: unknown, t: TFunction, fallback: string): string {
+  const code = getApiErrorCode(err, WAF_CODED_MESSAGES)
+  return code ? t(WAF_CODE_MESSAGE_KEYS[code]) : fallback
 }

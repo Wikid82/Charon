@@ -209,7 +209,7 @@ for i in {1..30}; do
         log_info "Charon API is ready"
         break
     fi
-    if [ $i -eq 30 ]; then
+    if [ "$i" -eq 30 ]; then
         log_error "Charon API failed to start"
         exit 1
     fi
@@ -224,7 +224,7 @@ for i in {1..45}; do
         log_info "httpbin backend is ready"
         break
     fi
-    if [ $i -eq 45 ]; then
+    if [ "$i" -eq 45 ]; then
         log_error "httpbin backend failed to start"
         exit 1
     fi
@@ -251,7 +251,33 @@ curl -s -X POST -H "Content-Type: application/json" \
 log_info "Authentication complete"
 
 # ============================================================================
-# Step 4: Enable WAF in block mode + configure rate limiting
+# Step 4: Create WAF ruleset (XSS protection)
+# The ruleset must exist before the security config references it by name:
+# the config endpoint rejects an unknown waf_rules_source with 422.
+# ============================================================================
+log_info "Creating XSS WAF ruleset..."
+XSS_RULESET=$(cat <<'EOF'
+{
+    "name": "cerberus-xss",
+    "content": "SecRule REQUEST_BODY|ARGS|ARGS_NAMES \"<script\" \"id:99001,phase:2,deny,status:403,msg:'XSS Attack Detected'\""
+}
+EOF
+)
+
+XSS_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
+    -d "${XSS_RULESET}" \
+    -b "${TMP_COOKIE}" \
+    "http://localhost:${API_PORT}/api/v1/security/rulesets")
+XSS_STATUS=$(echo "$XSS_RESP" | tail -n1)
+
+if [ "$XSS_STATUS" = "200" ] || [ "$XSS_STATUS" = "201" ]; then
+    log_info "XSS ruleset created"
+else
+    log_warn "XSS ruleset creation returned status: $XSS_STATUS"
+fi
+
+# ============================================================================
+# Step 5: Enable WAF in block mode + configure rate limiting
 # ============================================================================
 log_info "Enabling WAF (block mode) and rate limiting (${RATE_LIMIT_REQUESTS} req / ${RATE_LIMIT_WINDOW_SEC} sec)..."
 SECURITY_CONFIG=$(cat <<EOF
@@ -279,30 +305,6 @@ if [ "$SEC_STATUS" = "200" ]; then
     log_info "Security configuration applied"
 else
     log_warn "Security config returned status: $SEC_STATUS"
-fi
-
-# ============================================================================
-# Step 5: Create WAF ruleset (XSS protection)
-# ============================================================================
-log_info "Creating XSS WAF ruleset..."
-XSS_RULESET=$(cat <<'EOF'
-{
-    "name": "cerberus-xss",
-    "content": "SecRule REQUEST_BODY|ARGS|ARGS_NAMES \"<script\" \"id:99001,phase:2,deny,status:403,msg:'XSS Attack Detected'\""
-}
-EOF
-)
-
-XSS_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
-    -d "${XSS_RULESET}" \
-    -b "${TMP_COOKIE}" \
-    "http://localhost:${API_PORT}/api/v1/security/rulesets")
-XSS_STATUS=$(echo "$XSS_RESP" | tail -n1)
-
-if [ "$XSS_STATUS" = "200" ] || [ "$XSS_STATUS" = "201" ]; then
-    log_info "XSS ruleset created"
-else
-    log_warn "XSS ruleset creation returned status: $XSS_STATUS"
 fi
 
 # ============================================================================

@@ -1233,14 +1233,14 @@ func TestBuildWAFHandler_GlobalDisabled(t *testing.T) {
 	h := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, false)
 	require.Nil(t, h)
 
-	// WAF disabled via SecurityConfig.WAFMode
+	// A disabled row mode does not switch the WAF off while the WAF key (the wafEnabled flag) is on
 	secCfg2 := &models.SecurityConfig{
 		WAFMode:        "disabled",
 		WAFRulesSource: "owasp-crs",
 	}
 
 	h2 := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg2, true)
-	require.Nil(t, h2)
+	require.NotNil(t, h2)
 }
 
 // TestBuildWAFHandler_NoRuleset verifies handler returns nil when no ruleset available

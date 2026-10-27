@@ -20,7 +20,6 @@ import {
   PRESET_ERROR_CODES,
   type CrowdsecPresetErrorCode,
 } from '../api/presets'
-import { getSecurityStatus } from '../api/security'
 import { getMyIP } from '../api/system'
 import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
 import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
@@ -36,6 +35,7 @@ import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist, isWhitelistFieldError, whitelistAddErrorMessage } from '../hooks/useCrowdSecWhitelist'
+import { SECURITY_STATUS_QUERY_KEY, useSecurityStatus } from '../hooks/useSecurity'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
 import { sanitizeSecret } from '../utils/sanitizeSecret'
@@ -63,7 +63,7 @@ const CrowdSecDashboard = lazy(() => import('../components/crowdsec/CrowdSecDash
 
 export default function CrowdSecConfig() {
   const { t } = useTranslation()
-  const { data: status, isLoading, error } = useQuery({ queryKey: ['security-status'], queryFn: getSecurityStatus })
+  const { data: status, isLoading, error } = useSecurityStatus()
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'alpha' | 'type' | 'source'>('alpha')
   const [file, setFile] = useState<File | null>(null)
@@ -71,6 +71,9 @@ export default function CrowdSecConfig() {
   // Hub items the last import reported as missing; the key restarts the panel per import.
   const [importHubItems, setImportHubItems] = useState<{ key: number; items: ImportHubItems } | null>(null)
   const [keptFiles, setKeptFiles] = useState<string[]>([])
+  // Passive import notes: Charon's own allow-list file was rewritten, and other allow-list files were found.
+  const [whitelistRegenerated, setWhitelistRegenerated] = useState(false)
+  const [otherWhitelistFiles, setOtherWhitelistFiles] = useState<string[]>([])
   const [needsValues, setNeedsValues] = useState<string[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
@@ -161,7 +164,9 @@ export default function CrowdSecConfig() {
       setImportHubItems(items && items.missing.length > 0 ? { key: Date.now(), items } : null)
       setKeptFiles(result.kept_files ?? [])
       setNeedsValues(result.needs_values ?? [])
-      queryClient.invalidateQueries({ queryKey: ['security-status'] })
+      setWhitelistRegenerated(result.whitelist_regenerated === true)
+      setOtherWhitelistFiles(result.other_whitelist_files ?? [])
+      queryClient.invalidateQueries({ queryKey: SECURITY_STATUS_QUERY_KEY })
     },
     onError: (err: unknown) => {
       toast.error(importFailureMessage(err))
@@ -1176,6 +1181,8 @@ export default function CrowdSecConfig() {
               setImportHubItems(null)
               setKeptFiles([])
               setNeedsValues([])
+              setWhitelistRegenerated(false)
+              setOtherWhitelistFiles([])
             }}
             data-testid="import-file"
             accept=".tar.gz"
@@ -1189,6 +1196,19 @@ export default function CrowdSecConfig() {
           {needsValues.length > 0 && (
             <p className="text-sm text-gray-400" data-testid="import-needs-values">
               {t('crowdsecConfig.importNeedsValues', { files: formatNameList(needsValues) })}
+            </p>
+          )}
+          {whitelistRegenerated && (
+            <p className="text-sm text-gray-400" data-testid="import-whitelist-regenerated">
+              {t('crowdsecConfig.import.whitelistRegenerated')}
+            </p>
+          )}
+          {otherWhitelistFiles.length > 0 && (
+            <p className="text-sm text-gray-400" data-testid="import-other-whitelist-files">
+              {t('crowdsecConfig.import.otherWhitelistFiles', {
+                count: otherWhitelistFiles.length,
+                files: otherWhitelistFiles.map(sanitizeKeptFileName).join(', '),
+              })}
             </p>
           )}
           {importHubItems && <HubItemsRestorePanel key={importHubItems.key} hubItems={importHubItems.items} />}

@@ -31,6 +31,7 @@ import {
   profilesYaml,
   readTarGzEntry,
 } from '../utils/archive-helpers';
+import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
 
 const ADMIN = '/api/v1/admin/crowdsec';
 const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
@@ -96,6 +97,12 @@ async function readConfigFile(request: APIRequestContext, name: string) {
 function keptCompanions(kept: string[] | undefined): string[] {
   return (kept ?? []).filter((name) => !name.includes('/'));
 }
+
+// Most cases replace config.yaml with a minimal file the engine cannot start from. The shipped
+// configuration goes back after every case, so later specs that start the engine find a valid one.
+test.afterEach(async ({ request }) => {
+  await restoreShippedCrowdsecConfig(request);
+});
 
 test.describe('CrowdSec Config Import Validation', () => {
   test.beforeEach(async ({ request }, testInfo) => {

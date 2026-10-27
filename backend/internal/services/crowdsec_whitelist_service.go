@@ -130,8 +130,8 @@ func (s *CrowdSecWhitelistService) WriteYAML(ctx context.Context) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	dir := filepath.Join(s.dataDir, "config", "parsers", "s02-enrich")
-	target := filepath.Join(dir, "charon-whitelist.yaml")
+	target := filepath.Join(s.dataDir, filepath.FromSlash(crowdsec.WhitelistRelPath))
+	dir := filepath.Dir(target)
 	removeLegacyWhitelistTemp(target)
 
 	ips, cidrs, err := s.whitelistLists(ctx)

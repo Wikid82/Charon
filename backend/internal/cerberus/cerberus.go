@@ -3,6 +3,7 @@ package cerberus
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -174,10 +175,12 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 
 		// WAF: The actual WAF protection is handled by the Coraza plugin at the Caddy layer.
 		// This middleware just tracks metrics for requests when WAF is enabled.
-		// Check runtime setting first (from cache), then fall back to static config.
-		wafEnabled := c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled"
-		if val, ok := c.getSetting("security.waf.enabled"); ok {
-			wafEnabled = strings.EqualFold(val, "true")
+		// Resolved the same way as the proxy config: settings key, then the default row, then static config.
+		// Read per request, so a failed read is logged at debug level to keep the request path quiet.
+		row, rowErr := models.DefaultSecurityConfigOrZero(c.db)
+		wafEnabled, wafErr := models.WAFEnabled(c.db, row, models.StaticWAFEnabled(c.cfg.WAFMode))
+		if readErr := errors.Join(rowErr, wafErr); readErr != nil {
+			logger.Log().WithError(readErr).Debug("Failed to read WAF setting for metrics, using the default SecurityConfig row or static configuration")
 		}
 		if wafEnabled {
 			metrics.IncWAFRequest()
@@ -192,7 +195,7 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 		// ACL: simple per-request evaluation against all access lists if enabled
 		// Check runtime setting first (from cache), then fall back to static config.
 		aclEnabled := c.cfg.ACLMode == "enabled"
-		if val, ok := c.getSetting("security.acl.enabled"); ok {
+		if val, ok := c.getSetting(models.SecurityACLEnabledSettingKey); ok {
 			aclEnabled = strings.EqualFold(val, "true")
 		}
 

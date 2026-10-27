@@ -52,38 +52,20 @@ Think of Cerberus as a guard dog for your websites. It has three heads (in Greek
 
 ## Turn It On (The Safe Way)
 
-**Step 1: Start in "Monitor" Mode**
+**Step 1: Start in "Detection" Mode**
 
-This means Cerberus watches but doesn't block anyone yet.
+Detection mode watches and logs, but does not block anyone yet.
 
-Add this to your `docker-compose.yml`:
+1. Open the **Security** page and turn on the **Coraza WAF** switch.
+2. Open the **WAF** page and set your rule set's mode to **Detection**.
 
-```yaml
-environment:
-  - CERBERUS_SECURITY_WAF_MODE=monitor
-  - CERBERUS_SECURITY_CROWDSEC_MODE=local
-```
+**Step 2: Review the Logs**
 
-Restart Charon:
-
-```bash
-docker-compose restart
-```
-
-**Step 2: Watch the Logs**
-
-Check "Security" in the sidebar. You'll see what would have been blocked. If it looks right, move to Step 3.
+Use your sites as normal for a few days, then check the logs for requests that were flagged. If a request you know is legitimate was flagged, adjust the rule set before you move on.
 
 **Step 3: Turn On Blocking**
 
-Change `monitor` to `block`:
-
-```yaml
-environment:
-  - CERBERUS_SECURITY_WAF_MODE=block
-```
-
-Restart again. Now bad guys actually get blocked.
+On the **WAF** page, change the rule set's mode to **Blocking**. From then on, matching requests are refused.
 
 ---
 
@@ -315,12 +297,18 @@ Having trouble with CrowdSec? Check out the [CrowdSec Troubleshooting Guide](tro
 
 ### How to Enable It
 
-```yaml
-environment:
-  - CERBERUS_SECURITY_WAF_MODE=block
-```
+1. Open the **Security** page and turn on the **Coraza WAF** switch.
+2. Open the **WAF** page and choose a rule set.
+3. Set the rule set to **Detection** first, then to **Blocking** once you trust it.
 
-**Start with `monitor` first!** This lets you see what would be blocked without actually blocking it.
+**Start with Detection first!** This lets you see what would be flagged without actually blocking it.
+
+### If the Security Page Shows a Note
+
+When the WAF or the rate limit is on but does not apply to every site, the Security page shows a short note under its switch:
+
+- **WAF:** no rule set exists, several exist and none is chosen, or the chosen rule set could not be loaded. Check the rule set on the WAF page.
+- **Rate limit:** the request count or time window is not set. Enter both numbers on the Rate Limiting card.
 
 ---
 

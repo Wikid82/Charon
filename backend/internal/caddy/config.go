@@ -31,6 +31,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	resolvedOpts := resolveGenerateConfigOptions(opts)
 	redirectHosts := resolvedOpts.redirectHosts
 
+	// The enforcement report is filled while hosts are built and handed to the sink on every return path.
+	report := EnforcementReport{WAFOn: wafEnabled, RateLimitOn: rateLimitEnabled}
+	if resolvedOpts.enforcement != nil {
+		defer func() { resolvedOpts.enforcement(report) }()
+	}
+
 	// Define log file paths for Caddy access logs.
 	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
 	// location that CrowdSec's acquis.yaml is configured to monitor.
@@ -532,16 +538,23 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			securityHandlers = append(securityHandlers, csH)
 		}
 
-		// WAF handler (placeholder) — add according to runtime flag
-		if wafH := buildWAFHandler(&host, rulesets, rulesetPaths, secCfg, wafEnabled); wafH != nil {
-			securityHandlers = append(securityHandlers, wafH)
-		} else if wafEnabled && !host.WAFDisabled && (secCfg == nil || secCfg.WAFMode != "disabled") {
-			wafUnprotectedHosts++
+		// WAF handler (placeholder) — add according to runtime flag. A host with the WAF switched off for itself is not
+		// eligible, so it is left out of the enforcement counts.
+		if wafEnabled && !host.WAFDisabled {
+			wafH, reason := buildWAFHandlerWithReason(&host, rulesets, rulesetPaths, secCfg)
+			report.WAF.record(wafH != nil, reason)
+			if wafH != nil {
+				securityHandlers = append(securityHandlers, wafH)
+			} else {
+				wafUnprotectedHosts++
+			}
 		}
 
-		// Rate Limit handler (placeholder)
+		// Rate Limit handler (placeholder). buildRateLimitHandler returns nil only when the thresholds are unset.
 		if rateLimitEnabled {
-			if rlH := buildRateLimitHandler(&host, secCfg); rlH != nil {
+			rlH := buildRateLimitHandler(&host, secCfg)
+			report.RateLimit.record(rlH != nil, ReasonThresholdsUnset)
+			if rlH != nil {
 				securityHandlers = append(securityHandlers, rlH)
 			}
 		}
@@ -707,9 +720,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// file could not be written). Say so, otherwise the UI toggle looks active while
 	// nothing is protected.
 	if wafUnprotectedHosts > 0 {
-		logger.Log().WithField("hosts", wafUnprotectedHosts).Warn(
-			"WAF is enabled but no ruleset could be resolved; these hosts are NOT protected. " +
-				"Set a WAF rules source or ensure a ruleset exists.")
+		logger.Log().WithField("hosts", wafUnprotectedHosts).WithField("reason", report.WAF.Reason).Warn(
+			"WAF is enabled but some hosts have no WAF handler; the security status shows the reason")
+	}
+
+	// The rate limit is enabled but its request count or window is not set, so the hosts get no rate limit handler.
+	// One line per apply carries the count; the stored values stay as they are.
+	if rateLimitUnsetHosts := report.RateLimit.Eligible - report.RateLimit.Protected; rateLimitUnsetHosts > 0 {
+		logger.Log().WithField("hosts", rateLimitUnsetHosts).WithField("reason", ReasonThresholdsUnset).Warn(
+			"Rate limit is enabled but its request count or window is not set; the security status shows the reason")
 	}
 
 	// Add catch-all 404 handler
@@ -1162,7 +1181,7 @@ func getAccessLogPath(storageDir string, crowdsecEnabled bool) string {
 	return filepath.Join(logDir, "access.log")
 }
 
-// buildWAFHandler returns a WAF handler (Coraza) configuration.
+// buildWAFHandler returns a WAF handler (Coraza) configuration, or nil when the WAF is off or no handler applies.
 // The coraza-caddy plugin registers as http.handlers.waf and expects:
 // - handler: "waf"
 // - directives: ModSecurity directive string including Include statements
@@ -1177,13 +1196,16 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 	if !wafEnabled {
 		return nil
 	}
-	if secCfg != nil && secCfg.WAFMode == "disabled" {
-		return nil
-	}
+	h, _ := buildWAFHandlerWithReason(host, rulesets, rulesetPaths, secCfg)
+	return h
+}
 
+// buildWAFHandlerWithReason is buildWAFHandler for a host the WAF applies to. When no handler is returned, the reason
+// says why (one of the Reason constants). A host with the WAF switched off for itself returns no handler and no reason.
+func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig) (handler Handler, reason string) {
 	// Check per-host WAF toggle - if host has WAF disabled, skip
 	if host != nil && host.WAFDisabled {
-		return nil
+		return nil, ""
 	}
 
 	// If the host provided an advanced_config containing a 'ruleset_name', prefer that value
@@ -1252,7 +1274,7 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 
 	// Bug fix: Don't return a WAF handler without directives - it creates a no-op WAF
 	if directives == "" {
-		return nil
+		return nil, unresolvedRulesetReason(rulesets, selected)
 	}
 
 	h := Handler{
@@ -1260,7 +1282,20 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 		"directives": directives,
 	}
 
-	return h
+	return h, ""
+}
+
+// unresolvedRulesetReason names why no WAF directives were built: there is no ruleset at all, none is chosen for the
+// host, or the chosen ruleset has no file on disk.
+func unresolvedRulesetReason(rulesets []models.SecurityRuleSet, selected *models.SecurityRuleSet) string {
+	switch {
+	case selected != nil:
+		return ReasonRulesetUnavailable
+	case len(rulesets) == 0:
+		return ReasonNoRuleset
+	default:
+		return ReasonRulesetNotSelected
+	}
 }
 
 // isOWASPCRSName reports whether a ruleset name refers to the OWASP Core Rule Set,
