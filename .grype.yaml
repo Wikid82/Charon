@@ -4,15 +4,17 @@
 # Documentation: https://github.com/anchore/grype#specifying-matches-to-ignore
 
 ignore:
-  # CVE-2026-116587: Go JOSE: DoS when parsing JWKs that contain RSA keys
+  # GHSA-mgcc-cww5-fp2q / CVE-2026-116587: Go JOSE: DoS when parsing JWKs that contain RSA keys
   # Severity: HIGH
-  # Package: github.com/go-jose/go-jose/v3 (embedded in Caddy, CrowdSec, and cscli binaries)
-  # Status: No current upstream patch
+  # Package: github.com/go-jose/go-jose/v3 v3.0.5 (embedded in /usr/bin/caddy)
+  # Status: No v3 patch — fixed only in go-jose/v4 v4.1.6
+  # Note: Grype reports this finding under the GHSA ID (CVE is only a related ID), so the
+  #       rule must match the GHSA; Trivy reports the CVE, so .trivyignore keeps the CVE.
   #
-  # Review: Revisit once the upstream binaries are rebuilt against grpc-go >= v1.82.1.
-  # Removal criteria: rebuild the image and confirm GHSA-hrxh-6v49-42gf no longer appears in
+  # Review: Revisit once Caddy is rebuilt against go-jose/v4 >= v4.1.6 (or v3 is patched).
+  # Removal criteria: rebuild the image and confirm GHSA-mgcc-cww5-fp2q no longer appears in
   # the current scan output, then remove this entry and the corresponding .trivyignore entry.
-  - vulnerability: CVE-2026-116587
+  - vulnerability: GHSA-mgcc-cww5-fp2q
     package:
       name: github.com/go-jose/go-jose/v3
       type: go-module
