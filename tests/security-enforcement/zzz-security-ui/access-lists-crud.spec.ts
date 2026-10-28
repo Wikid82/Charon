@@ -593,7 +593,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         // Verify the rename persisted server-side, not just optimistically
         // in the UI list.
-        await expect(getAccessListViaAPI(page.request, acl.uuid)).resolves.toMatchObject({
+        await expect.poll(() => getAccessListViaAPI(page.request, acl.uuid)).toMatchObject({
           name: newName,
         });
       });

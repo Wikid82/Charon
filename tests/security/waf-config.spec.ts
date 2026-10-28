@@ -198,7 +198,7 @@ test.describe('WAF Configuration @security', () => {
         const dialogVisible = await dialog.isVisible().catch(() => false);
 
         if (dialogVisible) {
-          const cancelButton = page.getByRole('button', { name: /cancel|close/i });
+          const cancelButton = page.getByRole('button', { name: /cancel|close/i }).first();
           await cancelButton.click();
         }
       }
