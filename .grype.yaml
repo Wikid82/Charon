@@ -1436,10 +1436,11 @@ match:
 
 # Output configuration (optional)
 # These settings can be overridden via CLI flags
-output:
+output: json
+
   # Report only HIGH and CRITICAL by default
   # Medium/Low findings are still logged but don't fail the scan
-  fail-on-severity: high
+fail-on-severity: high
 
 # Check for configuration updates
 # Grype automatically updates its vulnerability database
