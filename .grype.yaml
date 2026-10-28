@@ -4,6 +4,29 @@
 # Documentation: https://github.com/anchore/grype#specifying-matches-to-ignore
 
 ignore:
+  # CVE-2026-116587: Go JOSE: DoS when parsing JWKs that contain RSA keys
+  # Severity: HIGH
+  # Package: github.com/go-jose/go-jose/v3 (embedded in Caddy, CrowdSec, and cscli binaries)
+  # Status: No current upstream patch
+  #
+  # Review: Revisit once the upstream binaries are rebuilt against grpc-go >= v1.82.1.
+  # Removal criteria: rebuild the image and confirm GHSA-hrxh-6v49-42gf no longer appears in
+  # the current scan output, then remove this entry and the corresponding .trivyignore entry.
+  - vulnerability: CVE-2026-116587
+    package:
+      name: github.com/go-jose/go-jose/v3
+      type: go-module
+    reason: |
+      Go JOSE provides an implementation of the Javascript Object Signing and Encryption
+      set of standards in Go, including support for JSON Web Encryption (JWE), JSON Web
+      Signature (JWS), and JSON Web Token (JWT) standards. Prior to 4.1.6, go-jose parses
+      attacker-controlled RSA modulus and prime values from JWKs without enforcing size
+      and consistency bounds before passing them to crypto/rsa.PrivateKey.Validate.
+      On Go 1.24 and later, crafted large or degenerate RSA parameters can make that
+      validation consume cubic CPU time, allowing remote denial of service in applications
+      that parse JWKs from untrusted sources.
+    expiry: "2026-11-28"
+
   # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
   # Severity: HIGH
   # Package: google.golang.org/grpc (embedded in Caddy, CrowdSec, and cscli binaries)
@@ -1436,10 +1459,11 @@ match:
 
 # Output configuration (optional)
 # These settings can be overridden via CLI flags
-output:
+output: json
+
   # Report only HIGH and CRITICAL by default
   # Medium/Low findings are still logged but don't fail the scan
-  fail-on-severity: high
+fail-on-severity: high
 
 # Check for configuration updates
 # Grype automatically updates its vulnerability database
