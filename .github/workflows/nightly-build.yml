@@ -16,7 +16,7 @@ on:
 
 env:
   GO_VERSION: '1.27.3'
-  NODE_VERSION: '24.22.1'
+  NODE_VERSION: '26.13.0'
   GOTOOLCHAIN: auto
   SYFT_VERSION: 'v1.55.0'
   GHCR_REGISTRY: ghcr.io
