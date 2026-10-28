@@ -426,8 +426,8 @@ test.describe('CrowdSec Dashboard @security', () => {
 
       await test.step('Defaults to 24 hours', async () => {
         await expect(group.getByRole('radio', { name: '24H' })).toBeChecked();
-        expect(recorder.dashboardQueries.summary[0]).toEqual({ range: '24h' });
-        expect(recorder.dashboardQueries['top-ips'][0]).toEqual({ range: '24h', limit: '10' });
+        await expect.poll(() => recorder.dashboardQueries.summary[0]).toEqual({ range: '24h' });
+        await expect.poll(() => recorder.dashboardQueries['top-ips'][0]).toEqual({ range: '24h', limit: '10' });
       });
 
       await test.step('Select 7 days', async () => {
