@@ -11,7 +11,7 @@
     "lint:md:fix": "markdownlint-cli2 --fix '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'"
   },
   "engines": {
-    "node": "24.22.1"
+    "node": "24.22.2"
   },
   "overrides": {
     "smol-toml": "^1.9.1",

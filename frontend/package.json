@@ -110,7 +110,7 @@
     "zod-validation-error": "^5.0.0"
   },
   "engines": {
-    "node": "24.22.1"
+    "node": "24.22.2"
   },
   "overrides": {
     "eslint-plugin-react-hooks": {
