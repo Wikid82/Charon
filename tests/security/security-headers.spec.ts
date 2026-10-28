@@ -181,7 +181,7 @@ test.describe('Security Headers Configuration @security', () => {
 
         if (modalVisible) {
           // Close modal
-          const closeButton = page.getByRole('button', { name: /cancel|close/i });
+          const closeButton = page.getByRole('button', { name: /cancel|close/i }).first();
           await closeButton.click();
         }
       }
