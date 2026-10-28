@@ -321,3 +321,10 @@ GHSA-w34q-cm8f-9c5x
 # Review by: 2026-10-18
 # exp: 2026-10-18
 CVE-2026-85091
+
+# CVE-2026-116587: Go JOSE: DoS when parsing JWKs that contain RSA keys
+# Severity: HIGH
+# No upstream fix or v3 patch available
+# Review by: 2026-11-28
+# exp: 2026-11-28
+CVE-2026-116587
