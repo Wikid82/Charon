@@ -684,7 +684,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             # failures in authority/provisioner. Keep this pinned to a known-compatible
             # v1.9.x release until upstream stack supports nebula v1.10+.
             # renovate: datasource=go depName=github.com/slackhq/nebula
-            _retry go get github.com/slackhq/nebula@v1.11.2; \
+            _retry go get github.com/slackhq/nebula@v1.12.0; \
         elif [ "${CADDY_PATCH_SCENARIO}" = "B" ] || [ "${CADDY_PATCH_SCENARIO}" = "C" ]; then \
             # Default PR-2 posture: retire explicit nebula pin and use upstream resolution.
             echo "Skipping nebula pin for scenario ${CADDY_PATCH_SCENARIO}"; \
