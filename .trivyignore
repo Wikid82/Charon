@@ -328,3 +328,10 @@ CVE-2026-85091
 # Review by: 2026-11-28
 # exp: 2026-11-28
 CVE-2026-116587
+
+# CVE-2026-116586: Go JOSE: Panics in JSON parsing 
+# Severity: HIGH
+# No upstream fix or v3 patch available
+# Review by: 2026-11-29
+# exp: 2026-11-29
+CVE-2026-116586

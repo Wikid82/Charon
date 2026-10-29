@@ -4,6 +4,17 @@
 # Documentation: https://github.com/anchore/grype#specifying-matches-to-ignore
 
 ignore:
+
+     # References:
+  # - CVE-2026-116586:
+  - vulnerability: GHSA-6mp9-8xrw-74r4
+    package:
+      name: github.com/go-jose/go-jose/v3
+      type: go-module
+    reason: |
+      HIGH — Parsing deeply nested JSON structures can hit Go's stack limit, causing the application to crash.
+    expiry: "2026-11-23"  # Review: Initial suppression 2026-09-18. Next review: 2026-10-18.
+
   # GHSA-mgcc-cww5-fp2q / CVE-2026-116587: Go JOSE: DoS when parsing JWKs that contain RSA keys
   # Severity: HIGH
   # Package: github.com/go-jose/go-jose/v3 v3.0.5 (embedded in /usr/bin/caddy)
@@ -1440,6 +1451,15 @@ ignore:
       zlib is present only as an Alpine system-library dependency. Risk accepted pending an
       Alpine/upstream patch.
     expiry: "2026-10-18"  # Review: Initial suppression 2026-09-18. Next review: 2026-10-18.
+
+     # References:
+  # - CVE-2026-116586:
+  - vulnerability: GHSA-6mp9-8xrw-74r4
+    package:
+      name: Go JOSE
+    reason: |
+      HIGH — Parsing deeply nested JSON structures can hit Go's stack limit, causing the application to crash.
+    expiry: "2026-11-23"  # Review: Initial suppression 2026-09-18. Next review: 2026-10-18.
 
     # Action items when this suppression expires:
     # 1. Check Alpine's zlib package tracker for a patched build past 1.3.2-r0
