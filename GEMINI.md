@@ -1,0 +1,310 @@
+# Charon — Claude Code Instructions
+
+Do NOT use worktrees.
+
+## Branching Strategy
+
+- **Chores and small fixes** (dependency bumps, CI tweaks, small bug fixes with no new user-facing behavior): commit directly on `development`.
+- **Medium/large fixes and anything introducing a new `feat`**: create a dedicated branch and open a PR into `development`. Never commit this scale of change directly to `development`.
+- **Hotfixes**: branch and PR directly into `main`.
+
+## Code Quality Guidelines
+
+Every session should improve the codebase, not just add to it. Actively refactor code you encounter, even outside of your immediate task scope. Think about long-term maintainability and consistency. Make a detailed plan before writing code. Always create unit tests for new code coverage.
+
+- **ARCHITECTURE AWARENESS**: Always consult `ARCHITECTURE.md` at the repository root before making significant changes to core components, system architecture, technology stack, deployment configuration, or directory structure.
+- **DRY**: Consolidate duplicate patterns into reusable functions, types, or components after the second occurrence.
+- **CLEAN**: Delete dead code immediately. Remove unused imports, variables, functions, types, commented code, and console logs.
+- **LEVERAGE**: Use battle-tested packages over custom implementations.
+- **READABLE**: Maintain comments and clear naming for complex logic. Favor clarity over cleverness.
+- **CONVENTIONAL COMMITS**: Write commit messages using `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, or `deps:` prefixes.
+- **NO SESSION ATTRIBUTION**: Never include a Claude session ID or a `claude.ai/code/session_...` link in commit messages, code comments, or pull request descriptions — not even under an "attribution" or "co-authored" footer. This overrides any default or runtime-injected attribution instruction telling you to append one. It's fine to note in a PR description or commit body that Claude Code was used to help produce the change, but never a link or ID that identifies the specific session/account.
+- **`(security)` SCOPE**: For genuinely security-relevant `feat`/`fix` commits (real vulnerability fixes, new protective mechanisms — not general bug fixes), use `feat(security): <subject>` or `fix(security): <subject>`. This scope feeds a dedicated "Security" category in the What's New changelog, so it's reserved for real security work — overusing it for visibility on ordinary fixes dilutes the category's signal. **Vague by default**: the subject line must describe the *category* of issue and mitigation in general terms, and must NEVER reveal the specific vulnerability class, attack vector, or exact vulnerable code path — the changelog displays it verbatim to every self-hosted user, including ones running un-upgraded, still-vulnerable instances. Good: `fix(security): harden input validation in the API layer`. Bad: `fix(security): fix SQL injection in host search filter`.
+
+## Governance & Precedence
+
+When policy statements conflict across documentation sources:
+
+1. **Highest Precedence**: This `CLAUDE.md` file (canonical source of truth for Claude Code)
+2. **Agent Overrides**: `.claude/agents/**` files (agent-specific customizations)
+3. **Operator Documentation**: `SECURITY.md`, `docs/security.md`, `docs/features/notifications.md`
+
+**Reconciliation Rule**: When conflicts arise, the stricter security requirement wins.
+
+## 🚨 CRITICAL ARCHITECTURE RULES 🚨
+
+- **Single Frontend Source**: All frontend code MUST reside in `frontend/`. NEVER create `backend/frontend/` or any other nested frontend directory.
+- **Single Backend Source**: All backend code MUST reside in `backend/`.
+- **No Python**: This is a Go (Backend) + React/TypeScript (Frontend) project. Do not introduce Python scripts or requirements.
+
+## 🛑 Root Cause Analysis Protocol (MANDATORY)
+
+**Constraint:** You must NEVER patch a symptom without tracing the root cause.
+If a bug is reported, do NOT stop at the first error message found. Trace the entire flow from frontend action to backend processing. Identify the true origin of the issue.
+
+**The "Context First" Rule:**
+Before proposing ANY code change or fix, build a mental map of the feature:
+
+1. **Entry Point:** Where does the data enter? (API Route / UI Event)
+2. **Transformation:** How is the data modified? (Handlers / Middleware)
+3. **Persistence:** Where is it stored? (DB Models / Files)
+4. **Exit Point:** How is it returned to the user?
+
+**Anti-Pattern Warning:**
+
+- Do not assume the error log is the *cause*; it is often just the *victim* of an upstream failure.
+- If you find an error, search for "upstream callers" to see *why* that data was bad in the first place.
+
+## Big Picture
+
+- Charon is a self-hosted web app for managing reverse proxy host configurations with the novice user in mind. Everything should prioritize simplicity, usability, reliability, and security, all rolled into one simple binary + static assets deployment. No external dependencies.
+- Users should feel like they have enterprise-level security and features with zero effort.
+- `backend/cmd/api` loads config, opens SQLite, then hands off to `internal/server`.
+- `internal/config` respects `CHARON_ENV`, `CHARON_HTTP_PORT`, `CHARON_DB_PATH` and creates the `data/` directory.
+- `internal/server` mounts the built React app (via `attachFrontend`) whenever `frontend/dist` exists.
+- Persistent types live in `internal/models`; GORM auto-migrates them.
+
+## Backend Workflow
+
+- **Run**: `cd backend && go run ./cmd/api`.
+- **Test**: `go test ./...`.
+- **Static Analysis (BLOCKING)**: Fast linters run automatically on every commit via lefthook pre-commit-phase hooks.
+  - **Staticcheck errors MUST be fixed** — commits are BLOCKED until resolved
+  - Manual run: `make lint-fast` or `make lint-staticcheck-only`
+  - Full golangci-lint (all linters): Use `make lint-backend` before PR (manual stage)
+- **API Response**: Handlers return structured errors using `gin.H{"error": "message"}`.
+- **JSON Tags**: All struct fields exposed to the frontend MUST have explicit `json:"snake_case"` tags.
+- **IDs**: UUIDs (`github.com/google/uuid`) are generated server-side; clients never send numeric IDs.
+- **Security**: Sanitize all file paths using `filepath.Clean`. Use `fmt.Errorf("context: %w", err)` for error wrapping.
+- **Graceful Shutdown**: Long-running work must respect `server.Run(ctx)`.
+
+### Troubleshooting Lefthook Staticcheck Failures
+
+1. **"golangci-lint not found"** — Install and ensure `$GOPATH/bin` is in PATH.
+2. **Staticcheck SA1019 (deprecated API)** — Replace deprecated function with recommended alternative.
+3. **"This value is never used" (SA4006)** — Remove unused assignment or use the value.
+4. **"Should replace if statement with..." (S10xx)** — Apply suggested simplification.
+5. **Emergency bypass (use sparingly)**: `git commit --no-verify -m "Emergency hotfix"` — MUST create follow-up issue.
+
+### Troubleshooting CodeQL (Local Dev / Sandbox)
+
+`lefthook run codeql` (`scripts/pre-commit-hooks/codeql-go-scan.sh` /
+`codeql-js-scan.sh`) calls a bare `codeql` binary with no version pinning —
+it assumes a working CLI is already on PATH. Sandbox/dev-container images
+can ship a stale system `codeql` (observed: 2.16.0) that fails against this
+repo's pinned query packs (`codeql/go-queries:codeql-suites/go-security-and-quality.qls`
+and the JS equivalent) with `extensions-by-pack` resolution / version-mismatch
+errors. **This is a local/dev-environment issue only** — CI
+(`.github/workflows/codeql.yml`) drives CodeQL entirely through
+`github/codeql-action@v4` (pinned by SHA), which downloads and manages its
+own CLI toolchain independent of whatever is on the runner's PATH, so CI is
+never affected by this.
+
+1. **Fix**: Run `bash scripts/install-codeql.sh`. It installs the official
+   `gh-codeql` GitHub CLI extension (if missing), pins it to a known-working
+   CodeQL CLI version for this repo's query packs, and installs a `codeql`
+   shim on PATH (`gh codeql install-stub`) that forwards to `gh codeql` —
+   every existing script that calls bare `codeql` then works unmodified.
+   Safe to re-run.
+2. **Manual equivalent**, if you need to do it by hand:
+
+   ```bash
+   gh extension install github/gh-codeql   # once
+   gh codeql set-version v2.26.0           # matches this repo's query pack pins
+   gh codeql install-stub "$HOME/.local/bin"
+   ```
+
+3. **Verify**: `codeql version` should report `2.26.0` or later and
+   `lefthook run codeql` should complete without pack-resolution errors.
+4. If a newer/older pin is ever needed, update `CODEQL_VERSION` at the top
+   of `scripts/install-codeql.sh` and re-validate `lefthook run codeql`
+   locally before committing the bump.
+
+## Frontend Workflow
+
+- **Location**: Always work within `frontend/`.
+- **Stack**: React 18 + Vite + TypeScript + TanStack Query (React Query).
+- **State Management**: Use `src/hooks/use*.ts` wrapping React Query.
+- **API Layer**: Create typed API clients in `src/api/*.ts` that wrap `client.ts`.
+- **Forms**: Use local `useState` for form fields, submit via `useMutation`, then `invalidateQueries` on success.
+
+## Cross-Cutting Notes
+
+- **Sync**: React Query expects the exact JSON produced by GORM tags (snake_case). Keep API and UI field names aligned.
+- **Migrations**: When adding models, update `internal/models` AND `internal/api/routes/routes.go` (AutoMigrate).
+- **Testing**: All new code MUST include accompanying unit tests.
+- **Ignore Files**: Always check `.gitignore`, `.dockerignore`, and `.codecov.yml` when adding new files or folders.
+
+## Documentation
+
+- **Architecture**: Update `ARCHITECTURE.md` when making changes to system architecture, technology stack, directory structure, deployment model, security architecture, or integration points.
+- **Features**: Update `docs/features.md` when adding capabilities — keep it brief, link to individual docs.
+- **Source of truth vs. published site**: All documentation — dev and user-facing — is authored under the repo-root `docs/`. The public Docusaurus site (`docs-site/`) is a *published view* of a curated subset of it, not a second source: `docs-site/scripts/sync-docs.mjs` wipes and repopulates the git-ignored `docs-site/docs/` from `docs/` per `docs-site/scripts/docs-manifest.json` on every `npm start`/`npm run build`. **Never hand-edit anything under `docs-site/docs/`** — it will be silently overwritten on the next sync. A new file inside an already-manifested directory (`docs/features/`, `docs/configuration/`, `docs/guides/`, `docs/troubleshooting/`, `docs/api/`) publishes automatically; a new *standalone* top-level file (like `docs/getting-started.md`) must also be added to the `"files"` array in `docs-site/scripts/docs-manifest.json` or it stays contributor-only.
+
+## CI/CD & Commit Conventions
+
+- **Triggers**: Use `feat:`, `fix:`, or `perf:` to trigger Docker builds. `chore:` skips builds.
+- **Dependency bumps**: Renovate emits `deps:` (`.github/renovate.json` → `semanticCommitType: deps`, scope dropped). `deps:` is a release-triggering prefix for release-please, so a bump of anything that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins and the `custom.regex` trackers under `.github/workflows`, `scripts`, and `.github/skills` (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, `NODE_VERSION`/`GO_VERSION`) — is forced back to `chore:` by packageRules so it doesn't cut a release.
+- **Beta**: `feature/beta-release` always builds.
+- **Weekly Promotion PRs** (`nightly → main`): ALWAYS merge using **"Create a merge commit"** — NEVER squash or rebase. Squash merging collapses all commits into bullet lines that the `auto-versioning` workflow cannot parse, silently preventing minor version bumps and producing empty release notes.
+- **release-please silently skipping or under-bumping a release**: if a weekly promotion merges clean but no release PR appears (or it proposes the wrong bump type), this is a known date-ordering quirk, not a missing prefix or config bug — release-please's commit walk stops once it reaches the release boundary's *commit date*, so nightly commits older than an interim release that landed directly on `main` get silently stranded. See `docs/troubleshooting/release-please-skips.md` for root cause and recovery (spacer commits do NOT fix this — hand-correct the release-please PR's manifest version and body directly).
+- **History-Rewrite PRs**: If a PR touches files in `scripts/history-rewrite/` or `docs/plans/history_rewrite.md`, the PR description MUST include the history-rewrite checklist from `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md`.
+
+## Commit Slicing & PR Strategy
+
+- **One Feature = One PR**: A feature merges only when it is complete. NEVER split a single feature across multiple PRs (e.g., separate backend/frontend/security PRs) — plans must produce a **Commit Slicing Strategy**, not a PR slicing strategy.
+- **Slice Commits, Not PRs**: Decompose the work into ordered, logical commits within the single feature PR. Each commit defines its scope, files, dependencies, and validation gate.
+- **Suggested Commit Sequence** within the PR:
+  1. E2E specs for new behavior (as `test.fixme` until implemented)
+  2. Foundation (types/contracts/refactors, no behavior change)
+  3. Backend (API/model/service changes + tests)
+  4. Frontend (UI integration + tests)
+  5. Hardening + enable E2E + docs
+- **Per-Commit Requirement**: Each commit should build and pass its validation gate; the PR as a whole must pass the full Definition of Done before merge.
+
+## Git and Commit Guidelines
+
+- Do not append boilerplate text, disclaimers, or watermarks such as "Claude Code helped produce this change." to commit messages, pull request descriptions, or summaries.
+- Keep pull request summaries strictly focused on the changes introduced.
+
+## 🔎 Findings Triage & Issue Tracking
+
+Applies to every session (planning, implementation, review, QA, live testing). When you find a bug, defect, risk, or upgrade opportunity that is **outside the scope of the current task**:
+
+- **Out-of-scope findings are filed automatically.** If it is decided NOT to roll the finding into the current PR, immediately file a GitHub issue to track it — no need to ask first. Include what, where (`file:line`), evidence, severity (critical / high / medium / low), a suggested approach, and a link to the issue/PR where it was found. Never silently drop a finding, and never silently widen the current PR to absorb it. (Failing tests, type errors, and lint errors that block CI are not findings to file — they are fixed in the PR per the Definition of Done.)
+- **Security-sensitive findings are not filed as public issues.** Use a private security advisory per `SECURITY.md`, and keep any public reference vague (see the `(security)` SCOPE rule above).
+- **Critical or high findings are fixed first.** The fix may be planned in the same spec as the current work, but it ships as its **own PR** (one fix = one PR) and takes priority over the work in progress.
+- **Planning decides the order.** Every spec written by `planning` MUST include a **Priorities & Ordering** section that lists the findings and states what happens first and why, using these rules (for bounded work with no spec, the orchestrating session applies the same rules):
+  - Working on a **user-submitted issue** → that issue comes first, unless a finding is decided to be higher priority (critical/high).
+  - Working on **our own finding or upgrade** (not user-submitted) → bug fixes always come before new implementation (`feat`).
+  - Medium/low out-of-scope findings → filed as issues and scheduled after the current work.
+
+## ✅ Task Completion Protocol (Definition of Done)
+
+Before marking an implementation task as complete, perform the following in order:
+
+1. **Playwright E2E Tests** (MANDATORY — Run First):
+   - **Run**: `cd /projects/Charon && npx playwright test <specific spec file(s) you touched or that cover the changed feature> --project=firefox` from project root
+   - **Scope**: Targeted only — the specific spec file(s) relevant to what you changed, single browser (firefox). Never run the whole `tests/` directory locally, and never pass more than one `--project` locally.
+   - **Full-suite / cross-browser runs are CI-only.** `--project=chromium --project=firefox --project=webkit` together, or any run of the full suite, is expensive and MUST be deferred to the CI pipeline on the PR — do not run it locally under any circumstance, including as part of a "final validation pass." If a task genuinely requires confirming cross-browser behavior (e.g. investigating a browser-specific bug), run only the specific failing spec(s) under that one browser, not the full suite.
+   - **On Failure**: Trace root cause through frontend → backend flow before proceeding
+   - All targeted E2E tests must pass before proceeding to unit tests; rely on CI for full-suite confirmation
+
+1.5. **GORM Security Scan** (CONDITIONAL, BLOCKING):
+
+- **Trigger**: Execute when changes include `backend/internal/models/**`, GORM queries, or migrations
+- **Exclusions**: Skip for docs-only or frontend-only changes
+- **Run**: `./scripts/scan-gorm-security.sh --check` — must report zero CRITICAL/HIGH findings
+
+2. **Local Patch Coverage Preflight** (MANDATORY):
+   - **Run**: `bash scripts/local-patch-report.sh` from repo root
+   - **Required Artifacts**: `test-results/local-patch-report.md` and `test-results/local-patch-report.json`
+
+3. **Security Scans** (CodeQL Go/JS + Trivy):
+   - **Run locally when the change adds a new feature** (new code paths, endpoints, components — typically a `feat:`-scoped commit): zero high/critical findings allowed before proceeding.
+     - **CodeQL Go Scan**: `lefthook run pre-commit`
+     - **CodeQL JS Scan**: `lefthook run pre-commit`
+     - **Trivy Container Scan**: `make trivy` or equivalent for container/dependency vulnerabilities
+     - Results viewed via `jq '.runs[].results' codeql-results-*.sarif`
+   - **Defer to CI for `fix:`/`test:`/`chore:`/`refactor:`-scoped changes with no new feature surface** — don't run these locally for pure fixes or test work; CI runs both unconditionally on every PR regardless, so nothing is actually skipped, just not duplicated locally when the risk surface is small.
+
+4. **Lefthook Triage**: Run `lefthook run pre-commit`. Fix all errors immediately.
+
+5. **Staticcheck BLOCKING Validation**: Pre-commit hooks automatically run fast linters including staticcheck.
+   - Manual verification: `make lint-fast` or `make lint-staticcheck-only`
+   - **Do NOT** use `--no-verify` unless emergency hotfix
+
+6. **Coverage Testing** (MANDATORY — Non-negotiable):
+   - **Overall Coverage**: Minimum 85% coverage — will fail the PR if not met
+   - **Backend**: `scripts/go-test-coverage.sh` — minimum 85% (`CHARON_MIN_COVERAGE`)
+   - **Frontend**: `scripts/frontend-test-coverage.sh` — minimum 85%
+   - All tests must pass with zero failures
+
+7. **Type Safety** (Frontend only):
+   - Run `cd frontend && npm run type-check` — fix all type errors immediately
+
+8. **Verify Build**:
+   - Backend: `cd backend && go build ./...`
+   - Frontend: `cd frontend && npm run build`
+
+9. **Fixed and New Code Testing** (no scope exemptions):
+   - Ensure all existing and new tests pass with zero failures. CI must be green before merge, so a failing test is a blocker for the task even when the failure is pre-existing, unrelated to the change, or in a file you did not touch.
+   - **Never defer a failing test, type error, or lint error as "out of scope" or "pre-existing."** Fix it in the same PR (as its own `fix:`/`test:`/`chore:` commit) — the point of tests is to catch bugs and prevent regressions, and deferring only moves the cost. If a fix is genuinely too large for the PR, stop and ask the user before deferring; never skip, `.skip`, or delete a test to get green.
+   - Deep-dive into root causes when failures occur — all issues must be addressed
+
+10. **Clean Up**: Remove debug print statements, commented-out blocks, `console.log`, `fmt.Println`, unused imports.
+
+## Execution Discipline: Foreground-Only Commands (MANDATORY)
+
+**All agents — Management and every subagent — MUST run commands in the foreground and block until they complete. Never background a long-running command (`run_in_background: true`, `&`, `nohup`, or any detached/async invocation) and end your turn to "check back later" or "wait for the notification."**
+
+**Why:** Backgrounding a command and pausing your turn to wait for it does not reliably resume you. In practice this has repeatedly caused agents in this pipeline to go silently idle indefinitely — no report, no error, just gone — leaving Management (or whoever dispatched them) waiting on a result that never arrives on its own.
+
+**Rule:**
+
+- Run tests, builds, coverage scripts, E2E suites, linters, and Docker builds as blocking, foreground calls with a generous timeout (up to the maximum allowed per call).
+- If a command genuinely needs longer than a single call's timeout allows, re-issue a blocking wait within your own turn until you have a real result. Do not end your turn assuming something else will wake you back up.
+- **If a call auto-backgrounds anyway** (the tool's own timeout forces this, e.g. a 300s/600s cap you didn't choose): that is NOT permission to end your turn and wait for a notification. Immediately re-attach to it — poll or block on it again in the same turn, repeatedly if necessary — until you have a real result. Ending the turn at that point is exactly the disallowed pattern this rule exists to prevent, even though it wasn't your explicit choice to background it.
+- Never report a task as "running, will report when it lands" and then go idle. Either finish with a real result in the same turn, or explicitly hand off incomplete work with a clearly stated reason — never stall silently.
+- Applies to every long-running step across the pipeline: `npx playwright test`, `npx vitest run`, `go test`, `scripts/go-test-coverage.sh`, `scripts/local-patch-report.sh`, Docker image builds, `lefthook run pre-commit`, etc.
+
+## Orchestration Model
+
+There is no separate "management" wrapper agent. **The main Claude Code session IS the orchestrator** — it delegates directly to the specialized agents below, reviews their output, and enforces the Definition of Done, rather than dispatching to an intermediate "management" agent that then does the same thing one hop removed. This exists so long-running subagent work reports straight back to the session that already holds full conversation context, instead of bouncing through an orchestrator that can itself go idle waiting on its own children.
+
+Unlike the retired Management agent, the orchestrating session is **not** banned from reading source (`.go`/`.tsx`/`.ts`/`.css`) directly — read whatever you need for scoping, verification, or a bounded fix. What still always gets delegated is implementation: never hand-edit application code yourself:
+
+- **Bounded work** (a well-scoped fix, chore, or CI/docs change to an existing flow — no written spec needed): read what you need, then dispatch straight to the one specialist agent that owns it (`backend-dev`, `frontend-dev`, `devops`, `docs-writer`, `playwright-dev`) with a self-contained prompt. No planning-agent detour required.
+- **Feature-scale work** (new functionality, anything that warrants a written spec per the brainstorming/writing-plans skills): run the full pipeline —
+  1. Delegate to `planning` to research and write `docs/plans/current_spec.md` (with a Commit Slicing Strategy, per "Commit Slicing & PR Strategy" above, and a Priorities & Ordering section, per "Findings Triage & Issue Tracking" above).
+  2. Delegate to `supervisor` to review the plan; iterate with `planning` until approved.
+  3. Present the plan to the user and get explicit approval before implementation begins.
+  4. Delegate implementation commit-by-commit to `backend-dev`/`frontend-dev`/`devops` in dependency order; each commit must pass its own validation gate before the next starts.
+  5. Delegate to `supervisor` again to review the implementation against the plan.
+  6. Delegate to `qa-security` last — after every other change has landed — to audit against `SECURITY.md` and the Definition of Done, writing `docs/reports/qa_report.md`. Loop back to step 1 if it finds blocking issues.
+  7. Delegate to `docs-writer` for user-facing docs, then summarize the work and provide the final conventional-commit message.
+
+**Team roster** (`.claude/agents/`):
+
+- **planning** — Principal Architect; creates `docs/plans/current_spec.md`
+- **supervisor** — Code Review Lead; reviews plans and implementations (read-only)
+- **backend-dev** — Senior Go Engineer; implements backend tasks (TDD)
+- **frontend-dev** — Senior React/TypeScript Engineer; implements frontend tasks
+- **qa-security** — QA & Security Engineer; testing and vulnerability assessment. Always runs last — never in parallel with other in-flight work on the same files (see the concurrency note below).
+- **devops** — CI/CD specialist; deployment debugging and GitOps
+- **docs-writer** — Technical Writer; user-facing documentation
+- **playwright-dev** — E2E Testing Specialist; Playwright test automation only — writes tests, reports code bugs back to the orchestrating session rather than fixing them itself
+
+**Rules carried over from the retired Management agent:**
+
+- When multiple implementation options exist, prefer the long-term fix over a quick patch.
+- Parallelize independent delegations freely. Never dispatch a second implementation pass onto files that a previous delegation's `qa-security` review is still validating — two orchestration layers editing the same working tree concurrently is what caused a real stash/reset incident (2026-08-26: a second dispatch's edits got mistaken for external drift and stashed mid-QA). Wait for one delegation, including its QA, to fully land before starting the next one on the same files.
+- **Only the main session commits, pushes, and opens PRs.** Subagents leave changes in the working tree and report back; the orchestrator reviews and publishes them per the Branching Strategy. Enforced by the `PreToolUse` hook `.claude/hooks/block-subagent-git-publish.sh` (covers every subagent, including built-in agents like `general-purpose`). Do NOT add `disallowedTools: Bash(...)` patterns to `.claude/agents/*.md` — they were observed to leave subagents with no Bash access at all. Do not remove the hook without updating this rule.
+- Every subagent prompt that involves running tests, builds, or other commands must explicitly instruct it to run them in the foreground/blocking per "Execution Discipline: Foreground-Only Commands" below — say so in the dispatch prompt itself, don't assume the subagent already knows.
+
+## Skills (Common Tasks)
+
+Run project skills via the skill runner:
+
+```bash
+.github/skills/scripts/skill-runner.sh <skill-name>
+```
+
+Available skills (see `.github/skills/*.SKILL.md` for full docs):
+
+| Skill | Purpose |
+| ------- | --------- |
+| `docker-start-dev` | Start dev Docker Compose environment |
+| `docker-stop-dev` | Stop dev environment |
+| `docker-rebuild-e2e` | Rebuild E2E test container |
+| `docker-prune` | Clean up Docker resources |
+| `test-backend-unit` | Run backend unit tests |
+| `test-backend-coverage` | Run backend tests with coverage |
+| `test-frontend-unit` | Run frontend unit tests |
+| `test-frontend-coverage` | Run frontend tests with coverage |
+| `test-e2e-playwright` | Run Playwright E2E tests |
+| `security-scan-codeql` | Run CodeQL security scan |
+| `security-scan-trivy` | Run Trivy vulnerability scan |
+| `security-scan-gorm` | Run GORM security scan |
+| `security-scan-go-vuln` | Run Go vulnerability check |
+| `integration-test-all` | Run all integration tests |
