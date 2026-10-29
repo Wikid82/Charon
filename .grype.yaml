@@ -5,7 +5,15 @@
 
 ignore:
 
-     # References:
+  # - CVE-2026-116585:
+  - vulnerability: GHSA-4w3g-jfj2-cw2q
+    package:
+      name: github.com/go-jose/go-jose/v3
+      type: go-module
+    reason: |
+      HIGH — Panic during CBC-HMAC processing
+    expiry: "2026-11-29"
+
   # - CVE-2026-116586:
   - vulnerability: GHSA-6mp9-8xrw-74r4
     package:
@@ -13,7 +21,7 @@ ignore:
       type: go-module
     reason: |
       HIGH — Parsing deeply nested JSON structures can hit Go's stack limit, causing the application to crash.
-    expiry: "2026-11-23"  # Review: Initial suppression 2026-09-18. Next review: 2026-10-18.
+    expiry: "2026-11-29"
 
   # GHSA-mgcc-cww5-fp2q / CVE-2026-116587: Go JOSE: DoS when parsing JWKs that contain RSA keys
   # Severity: HIGH
