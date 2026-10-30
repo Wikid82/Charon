@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wikid82/Hermes/transport"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
-	"github.com/Wikid82/go_notify_yourself/transport"
 )
 
 // notifyClientTimeout is the outbound HTTP timeout used for every extracted

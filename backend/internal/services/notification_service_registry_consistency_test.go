@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	notify "github.com/Wikid82/go_notify_yourself"
+	notify "github.com/Wikid82/Hermes"
 )
 
 // TestSupportedProviderAllowlistIsSubsetOfRegisteredTypes is a

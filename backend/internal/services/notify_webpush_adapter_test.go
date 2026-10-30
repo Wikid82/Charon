@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wikid82/go_notify_yourself/providers/webpush"
-	"github.com/Wikid82/go_notify_yourself/transport"
+	"github.com/Wikid82/Hermes/providers/webpush"
+	"github.com/Wikid82/Hermes/transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"

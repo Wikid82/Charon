@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wikid82/go_notify_yourself/transport"
+	"github.com/Wikid82/Hermes/transport"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security"

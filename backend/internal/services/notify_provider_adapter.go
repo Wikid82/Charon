@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	notify "github.com/Wikid82/go_notify_yourself"
-	"github.com/Wikid82/go_notify_yourself/transport"
+	notify "github.com/Wikid82/Hermes"
+	"github.com/Wikid82/Hermes/transport"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )

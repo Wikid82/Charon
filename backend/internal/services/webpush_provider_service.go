@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wikid82/go_notify_yourself/providers/webpush"
+	"github.com/Wikid82/Hermes/providers/webpush"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"

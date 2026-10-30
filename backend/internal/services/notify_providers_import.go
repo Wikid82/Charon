@@ -21,13 +21,13 @@ package services
 // (or equivalent) asserts that allowlist is a subset of
 // notify.RegisteredTypes(), catching drift between the two.
 import (
-	_ "github.com/Wikid82/go_notify_yourself/providers/discord"
-	_ "github.com/Wikid82/go_notify_yourself/providers/email"
-	_ "github.com/Wikid82/go_notify_yourself/providers/gotify"
-	_ "github.com/Wikid82/go_notify_yourself/providers/ntfy"
-	_ "github.com/Wikid82/go_notify_yourself/providers/pushover"
-	_ "github.com/Wikid82/go_notify_yourself/providers/slack"
-	_ "github.com/Wikid82/go_notify_yourself/providers/telegram"
-	_ "github.com/Wikid82/go_notify_yourself/providers/webhook"
-	_ "github.com/Wikid82/go_notify_yourself/providers/webpush"
+	_ "github.com/Wikid82/Hermes/providers/discord"
+	_ "github.com/Wikid82/Hermes/providers/email"
+	_ "github.com/Wikid82/Hermes/providers/gotify"
+	_ "github.com/Wikid82/Hermes/providers/ntfy"
+	_ "github.com/Wikid82/Hermes/providers/pushover"
+	_ "github.com/Wikid82/Hermes/providers/slack"
+	_ "github.com/Wikid82/Hermes/providers/telegram"
+	_ "github.com/Wikid82/Hermes/providers/webhook"
+	_ "github.com/Wikid82/Hermes/providers/webpush"
 )
