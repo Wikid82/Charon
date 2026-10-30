@@ -1546,6 +1546,7 @@
         "generic": "Les éléments du hub n'ont pas pu être installés. Réessayez."
       }
     },
+    "reloadPending": "Le rechargement est programmé et aura lieu une fois que CrowdSec a fini de démarrer.",
     "importSuccess": "Configuration CrowdSec importée (sauvegarde créée)",
     "importFailed": "Échec de l'importation",
     "importKeptFiles": "Ces fichiers n'étaient pas dans l'archive, les fichiers actuels ont donc été conservés : {{files}}",

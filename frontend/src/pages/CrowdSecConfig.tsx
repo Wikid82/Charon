@@ -94,7 +94,7 @@ export default function CrowdSecConfig() {
   const [presetStatusMessage, setPresetStatusMessage] = useState<string | null>(null)
   const [hubUnavailable, setHubUnavailable] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
-  const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string; warnings?: string[] } | null>(null)
+  const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; reloadPending?: boolean; usedCscli?: boolean; cacheKey?: string; warnings?: string[] } | null>(null)
   const queryClient = useQueryClient()
   const applyJob = useCrowdsecApplyJob({ enabled: !!status?.crowdsec })
   const backupCreatedMessage = (name: string) =>
@@ -641,6 +641,7 @@ export default function CrowdSecConfig() {
         status: res.status,
         backup: res.backup,
         reloadHint: res.reload_hint,
+        reloadPending: res.reload_pending,
         usedCscli: res.used_cscli,
         cacheKey: res.cache_key,
         warnings: res.warnings,
@@ -651,7 +652,8 @@ export default function CrowdSecConfig() {
         return
       }
 
-      toast.success(t(res.reload_hint ? 'crowdsecConfig.toasts.presetAppliedReload' : 'crowdsecConfig.toasts.presetApplied'))
+      // A queued reload is not a pending user action, so it does not use the "reload required" toast.
+      toast.success(t(res.reload_hint && !res.reload_pending ? 'crowdsecConfig.toasts.presetAppliedReload' : 'crowdsecConfig.toasts.presetApplied'))
       if (res.backup) {
         setPresetStatusMessage(backupCreatedMessage(res.backup))
       }
@@ -1390,7 +1392,8 @@ export default function CrowdSecConfig() {
                 <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3 text-xs text-gray-200" data-testid="preset-apply-info">
                   <p>{t('common.status')}: {applyInfo.status || t('crowdsecConfig.presets.applied')}</p>
                   {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup} ({t('crowdsecConfig.presets.backupLocation')})</p>}
-                  {applyInfo.reloadHint && <p>{t('crowdsecConfig.presets.reload')}: {t('crowdsecConfig.presets.required')}</p>}
+                  {applyInfo.reloadPending && <p data-testid="preset-reload-pending">{t('crowdsecConfig.reloadPending')}</p>}
+                  {applyInfo.reloadHint && !applyInfo.reloadPending && <p>{t('crowdsecConfig.presets.reload')}: {t('crowdsecConfig.presets.required')}</p>}
                   {applyInfo.warnings && applyInfo.warnings.length > 0 && (
                     <div className="mt-1 text-yellow-300" data-testid="preset-apply-warnings">
                       <p>{t('crowdsecConfig.presets.status.applyDependencyNote')}</p>

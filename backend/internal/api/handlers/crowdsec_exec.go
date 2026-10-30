@@ -42,12 +42,21 @@ const crowdsecSpawnScript = `trap "" HUP; exec "$0" "$@"`
 // spawnWrapperShells are the shell base names that may run crowdsecSpawnScript.
 var spawnWrapperShells = []string{"sh", "dash", "bash", "busybox"}
 
+// procClockTicksPerSecond is the kernel's USER_HZ: /proc/<pid>/stat reports starttime in these ticks. Linux fixes
+// it at 100 for every architecture that Charon ships, and /proc does not expose it.
+const procClockTicksPerSecond = 100
+
 // DefaultCrowdsecExecutor implements CrowdsecExecutor using OS processes.
 type DefaultCrowdsecExecutor struct {
 	// mu serialises Start and Stop so concurrent callers cannot spawn two
 	// engines or stop one while another is starting. It is never held while
 	// waiting for LAPI (that wait lives in the handler).
 	mu sync.Mutex
+	// startMu guards startedAt. It is separate from mu so an age read never waits behind a Start in progress.
+	startMu sync.Mutex
+	// startedAt holds the monotonic spawn time of each engine this executor started, keyed by pid. An entry is
+	// removed when the process exits.
+	startedAt map[int]time.Time
 	// procPath allows overriding /proc for testing
 	procPath string
 	// stopTimeout is how long Stop waits after SIGTERM before sending SIGKILL
@@ -59,10 +68,99 @@ type DefaultCrowdsecExecutor struct {
 
 func NewDefaultCrowdsecExecutor() *DefaultCrowdsecExecutor {
 	return &DefaultCrowdsecExecutor{
+		startedAt:   make(map[int]time.Time),
 		procPath:    "/proc",
 		stopTimeout: defaultStopTimeout,
 		kill:        syscall.Kill,
 	}
+}
+
+// EngineAge reports how long the engine with pid has been running. An engine this executor spawned is measured
+// on the monotonic clock from its spawn. An adopted engine (one it did not start, e.g. after a Charon restart) is
+// read from /proc. known is false when the age cannot be determined.
+func (e *DefaultCrowdsecExecutor) EngineAge(pid int) (age time.Duration, known bool) {
+	e.startMu.Lock()
+	started, spawned := e.startedAt[pid]
+	e.startMu.Unlock()
+	if spawned {
+		return time.Since(started), true
+	}
+	return processAge(e.procPath, pid)
+}
+
+// processAge reads the engine's age from procPath: the process start time (field 22 of stat, in clock ticks since
+// boot) against the uptime in procPath/uptime.
+func processAge(procPath string, pid int) (time.Duration, bool) {
+	// #nosec G304 -- path constructed from trusted procPath and pid
+	stat, err := os.ReadFile(filepath.Join(procPath, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return 0, false
+	}
+	uptime, err := os.ReadFile(filepath.Join(procPath, "uptime")) // #nosec G304 -- fixed name under trusted procPath
+	if err != nil {
+		return 0, false
+	}
+	return parseProcessAge(stat, uptime)
+}
+
+// parseProcessAge computes the age from the contents of /proc/<pid>/stat and /proc/uptime. Under a
+// virtualised /proc (lxcfs), the uptime can be smaller than the host start time the stat file reports, which gives
+// a negative age. Such an age is not a measurement, so it is reported as unknown.
+func parseProcessAge(stat, uptimeFile []byte) (time.Duration, bool) {
+	uptimeFields := strings.Fields(string(uptimeFile))
+	if len(uptimeFields) == 0 {
+		return 0, false
+	}
+	uptimeSeconds, err := strconv.ParseFloat(uptimeFields[0], 64)
+	if err != nil {
+		return 0, false
+	}
+	startTicks, ok := processStartTicks(stat)
+	if !ok {
+		return 0, false
+	}
+	age := uptimeSeconds - float64(startTicks)/procClockTicksPerSecond
+	if age < 0 {
+		return 0, false
+	}
+	return time.Duration(age * float64(time.Second)), true
+}
+
+// processStartTicks returns starttime (field 22) from a /proc/<pid>/stat line. The comm field may contain spaces
+// and parentheses, so the fields are counted after the last ")"; the first field there is state (field 3), which
+// puts starttime at index 19.
+func processStartTicks(stat []byte) (uint64, bool) {
+	const startTimeIndex = 22 - 3
+	idx := strings.LastIndex(string(stat), ")")
+	if idx < 0 {
+		return 0, false
+	}
+	fields := strings.Fields(string(stat)[idx+1:])
+	if len(fields) <= startTimeIndex {
+		return 0, false
+	}
+	ticks, err := strconv.ParseUint(fields[startTimeIndex], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return ticks, true
+}
+
+// recordStart remembers when the engine with pid was spawned.
+func (e *DefaultCrowdsecExecutor) recordStart(pid int, at time.Time) {
+	e.startMu.Lock()
+	defer e.startMu.Unlock()
+	if e.startedAt == nil {
+		e.startedAt = make(map[int]time.Time)
+	}
+	e.startedAt[pid] = at
+}
+
+// forgetStart drops the spawn time of an engine that has exited.
+func (e *DefaultCrowdsecExecutor) forgetStart(pid int) {
+	e.startMu.Lock()
+	defer e.startMu.Unlock()
+	delete(e.startedAt, pid)
 }
 
 // configFile returns the config file path Charon passes to the engine.
@@ -234,9 +332,11 @@ func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir 
 		return 0, err
 	}
 	pid := cmd.Process.Pid
+	e.recordStart(pid, time.Now())
 	// Reap the process whatever happens next so it never lingers as a zombie.
 	go func() {
 		_ = cmd.Wait()
+		e.forgetStart(pid)
 		e.removePidFileIfOwnedBy(configDir, pid)
 	}()
 	if err := e.writePidFile(configDir, pid); err != nil {

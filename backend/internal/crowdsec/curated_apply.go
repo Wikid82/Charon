@@ -14,7 +14,12 @@ var ErrCSCLIUnavailable = errors.New("cscli unavailable")
 // ErrCrowdSecNotRunning is returned by a ReloadFunc when no managed CrowdSec process is running.
 var ErrCrowdSecNotRunning = errors.New("crowdsec is not running")
 
-// ReloadFunc signals the managed CrowdSec process to reload its configuration and hub items.
+// ErrReloadDeferred is returned by a ReloadFunc when the engine is still starting, so the reload is queued and
+// delivered once the engine is ready. The reload has not happened yet when this is returned.
+var ErrReloadDeferred = errors.New("crowdsec reload deferred until the engine is ready")
+
+// ReloadFunc signals the managed CrowdSec process to reload its configuration and hub items. It returns
+// ErrReloadDeferred when the reload is queued behind a starting engine.
 type ReloadFunc func(ctx context.Context) error
 
 // ApplyCurated installs every hub item of a Charon-defined preset through cscli and verifies
@@ -58,7 +63,9 @@ func (s *HubService) ApplyCurated(ctx context.Context, preset Preset) (ApplyResu
 
 	result.Status = "applied"
 	result.UsedCSCLI = true
-	result.ReloadHint = !s.reloadCrowdSec(applyCtx, "curated preset apply")
+	reloaded, pending := s.reloadCrowdSec(applyCtx, "curated preset apply")
+	result.ReloadHint = !reloaded && !pending
+	result.ReloadPending = pending
 	return result, nil
 }
 
@@ -81,21 +88,25 @@ func (s *HubService) installAndVerify(ctx context.Context, preset Preset) error 
 	return nil
 }
 
-// reloadCrowdSec asks the managed CrowdSec process to reload (best-effort) and reports
-// whether the reload was performed. A missing reloader or a stopped process is not an error:
-// CrowdSec loads the installed items itself on its next start.
-func (s *HubService) reloadCrowdSec(ctx context.Context, reason string) bool {
+// reloadCrowdSec asks the managed CrowdSec process to reload (best-effort). It reports whether the reload was
+// performed and whether it is queued behind a starting engine (pending). A missing reloader or a stopped process
+// is not an error: CrowdSec loads the installed items itself on its next start. A queued reload is not a
+// failure either, so neither result asks the operator for a restart.
+func (s *HubService) reloadCrowdSec(ctx context.Context, reason string) (reloaded, pending bool) {
 	if s.Reload == nil {
-		return false
+		return false, false
 	}
 	err := s.Reload(ctx)
 	switch {
 	case err == nil:
-		return true
+		return true, false
+	case errors.Is(err, ErrReloadDeferred):
+		logger.Log().WithField("reason", reason).Info("crowdsec is starting; the reload runs once it is ready")
+		return false, true
 	case errors.Is(err, ErrCrowdSecNotRunning):
 		logger.Log().WithField("reason", reason).Info("crowdsec is not running; installed items load on next start")
 	default:
 		logger.Log().WithError(err).WithField("reason", reason).Warn("crowdsec reload failed; restart required")
 	}
-	return false
+	return false, false
 }

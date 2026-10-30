@@ -1551,6 +1551,7 @@
         "generic": "The hub items could not be installed. Try again."
       }
     },
+    "reloadPending": "The reload is scheduled and will happen once CrowdSec has finished starting.",
     "importSuccess": "CrowdSec config imported (backup created)",
     "importFailed": "Failed to import",
     "importKeptFiles": "These files were not in the archive, so the current ones were kept: {{files}}",

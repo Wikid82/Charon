@@ -1546,6 +1546,7 @@
         "generic": "无法安装 Hub 项目，请重试。"
       }
     },
+    "reloadPending": "重新加载已排定，将在 CrowdSec 启动完成后执行。",
     "importSuccess": "CrowdSec 配置已导入（已创建备份）",
     "importFailed": "导入失败",
     "importKeptFiles": "归档中没有这些文件，因此保留了当前的文件：{{files}}",

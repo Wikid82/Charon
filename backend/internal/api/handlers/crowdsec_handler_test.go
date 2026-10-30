@@ -79,6 +79,8 @@ func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor
 	h := NewCrowdsecHandler(db, executor, binPath, dataDir, nil)
 	// Override CmdExec to avoid 60s LAPI wait timeout during Start
 	h.CmdExec = &fastCmdExec{}
+	// A test engine is ready unless a test says otherwise, so a reload is signalled at once.
+	h.reloadProbe = func(context.Context) bool { return true }
 	// Set short timeouts for test performance
 	h.LAPIMaxWait = 100 * time.Millisecond
 	h.LAPIPollInterval = 10 * time.Millisecond

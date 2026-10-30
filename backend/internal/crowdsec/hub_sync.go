@@ -85,9 +85,11 @@ type PullResult struct {
 
 // ApplyResult captures the outcome of an apply attempt.
 type ApplyResult struct {
-	Status        string `json:"status"`
-	BackupPath    string `json:"backup_path"`
-	ReloadHint    bool   `json:"reload_hint"`
+	Status     string `json:"status"`
+	BackupPath string `json:"backup_path"`
+	ReloadHint bool   `json:"reload_hint"`
+	// ReloadPending is true when the engine is still starting and the reload is queued; it is not a request to restart.
+	ReloadPending bool   `json:"reload_pending"`
 	UsedCSCLI     bool   `json:"used_cscli"`
 	CacheKey      string `json:"cache_key"`
 	ErrorMessage  string `json:"error,omitempty"`

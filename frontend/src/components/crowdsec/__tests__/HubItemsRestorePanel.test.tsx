@@ -144,6 +144,27 @@ describe('HubItemsRestorePanel', () => {
     expect(screen.getByText('Not attempted yet')).toBeInTheDocument()
   })
 
+  it('shows passive reload-pending text after a restore whose reload was queued', async () => {
+    vi.mocked(api.restoreHubItems).mockResolvedValue(result({ installed: [MISSING[0]], reloaded: false, reload_pending: true }))
+    renderPanel()
+
+    await userEvent.click(installButton())
+
+    expect(await screen.findByTestId('hub-items-reload-pending')).toHaveTextContent(
+      'The reload is scheduled and will happen once CrowdSec has finished starting.',
+    )
+  })
+
+  it('omits the reload-pending text when the restore did not queue a reload', async () => {
+    vi.mocked(api.restoreHubItems).mockResolvedValue(result({ installed: [MISSING[0]], reloaded: true }))
+    renderPanel()
+
+    await userEvent.click(installButton())
+
+    expect(await screen.findByText('Installed')).toBeInTheDocument()
+    expect(screen.queryByTestId('hub-items-reload-pending')).not.toBeInTheDocument()
+  })
+
   it('does not offer a retry when remaining entries are reported without not_attempted rows', async () => {
     vi.mocked(api.restoreHubItems).mockResolvedValue(
       result({ failed: [{ ...MISSING[1], reason: 'verify_failed' }, { ...MISSING[2], reason: 'not_found' }], remaining: 0 }),

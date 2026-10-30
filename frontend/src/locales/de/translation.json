@@ -1546,6 +1546,7 @@
         "generic": "Die Hub-Elemente konnten nicht installiert werden. Versuchen Sie es erneut."
       }
     },
+    "reloadPending": "Das Neuladen ist vorgemerkt und wird ausgeführt, sobald CrowdSec den Start abgeschlossen hat.",
     "importSuccess": "CrowdSec-Konfiguration importiert (Sicherung erstellt)",
     "importFailed": "Import fehlgeschlagen",
     "importKeptFiles": "Diese Dateien waren nicht im Archiv, daher wurden die aktuellen beibehalten: {{files}}",
