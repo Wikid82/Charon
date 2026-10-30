@@ -85,7 +85,9 @@ var (
 )
 
 // crowdsecExitPolls is the number of consecutive not-running Status polls that count as an engine exit during the
-// LAPI wait. One miss is not enough: a single poll can land in the window where the engine process is replaced.
+// LAPI wait. Two misses are a defensive margin against one transient Status read that reports no engine. The window
+// where the start script hands over to the engine process is not covered by this count; the executor's engine
+// identity check covers it.
 const crowdsecExitPolls = 2
 
 // respondCrowdsecLifecycleError maps an error from StartCrowdSec or StopCrowdSec to its HTTP answer.

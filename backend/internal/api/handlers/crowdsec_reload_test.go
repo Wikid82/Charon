@@ -337,6 +337,30 @@ func TestReloaderProbeIsCachedPerEngineWithinSettleWindow(t *testing.T) {
 	f.r.mu.Unlock()
 }
 
+// A negative probe is cached for only reloadNegativeProbeTTL, so a queued reload is delivered soon after LAPI
+// answers. A positive probe stays cached for the whole settle window.
+func TestReloaderNegativeProbeIsCachedOnlyBriefly(t *testing.T) {
+	t.Parallel()
+	f := newReloadFixture(t)
+	ctx := f.ctx
+	f.set(func(f *reloadFixture) { f.probeOK = false })
+
+	f.r.mu.Lock()
+	defer f.r.mu.Unlock()
+	now := f.clock.Now()
+	require.False(t, f.r.probeLocked(ctx, 7, now))
+	require.False(t, f.r.probeLocked(ctx, 7, now.Add(reloadNegativeProbeTTL-time.Millisecond)))
+	require.Equal(t, 1, f.probeCount(), "a negative answer is reused inside its short TTL")
+
+	require.False(t, f.r.probeLocked(ctx, 7, now.Add(reloadNegativeProbeTTL)))
+	require.Equal(t, 2, f.probeCount(), "a negative answer is probed again once its TTL passes")
+
+	f.set(func(f *reloadFixture) { f.probeOK = true })
+	require.True(t, f.r.probeLocked(ctx, 8, now))
+	require.True(t, f.r.probeLocked(ctx, 8, now.Add(engineSettleWindow-time.Millisecond)))
+	require.Equal(t, 3, f.probeCount(), "a positive answer stays cached for the whole settle window")
+}
+
 // The sentinel is what the handler and the hub services compare against, so it must stay distinct.
 func TestReloadDeferredIsDistinctFromNotRunning(t *testing.T) {
 	t.Parallel()

@@ -574,7 +574,12 @@ func validateYAMLFile(path string) error {
 // Any other outcome (the binary cannot run, the check times out or is killed, or the output shows a port or
 // database lock held by a running engine) is logged as a Warn and skipped, so the import still stands.
 func (h *CrowdsecHandler) validateWithEngine(ctx context.Context, configPath string) error {
-	ctx, cancel := context.WithTimeout(ctx, h.engineCheckTimeout)
+	// A handler built as a struct literal has no timeout set; a zero bound would expire at once and skip the check.
+	timeout := h.engineCheckTimeout
+	if timeout <= 0 {
+		timeout = crowdsecImportCheckTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	out, err := h.CmdExec.Execute(ctx, h.BinPath, "-t", "-c", configPath)

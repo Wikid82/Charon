@@ -25,6 +25,9 @@ const (
 	reloadPollInterval = 250 * time.Millisecond
 	// reloadProbeTimeout caps the LAPI readiness probe.
 	reloadProbeTimeout = 2 * time.Second
+	// reloadNegativeProbeTTL bounds how long a "LAPI not ready" answer is reused. It is short so a queued reload is
+	// delivered soon after LAPI answers; a positive answer is reused for the whole settle window.
+	reloadNegativeProbeTTL = time.Second
 )
 
 // engineAger is implemented by executors that can say how long an engine has been running. Executors without it
@@ -64,7 +67,7 @@ type crowdsecReloader struct {
 	mu         sync.Mutex
 	pending    bool
 	lastSignal time.Time
-	// The readiness probe result is cached per engine for one settle window.
+	// The readiness probe result is cached per engine: a positive one for one settle window, a negative one briefly.
 	probedPid int
 	probedAt  time.Time
 	probedOK  bool
@@ -130,10 +133,14 @@ func (r *crowdsecReloader) ageOf(pid int) (time.Duration, bool) {
 	return r.deps.age(pid)
 }
 
-// probeLocked answers the LAPI probe from the cache while it is inside the settle window for pid, and probes
-// otherwise. Callers hold r.mu.
+// probeLocked answers the LAPI probe from the cache and probes otherwise. A positive answer is reused for the settle
+// window; a negative one only for reloadNegativeProbeTTL, so a queued reload follows LAPI closely. Callers hold r.mu.
 func (r *crowdsecReloader) probeLocked(ctx context.Context, pid int, now time.Time) bool {
-	if r.probedPid == pid && !r.probedAt.IsZero() && now.Sub(r.probedAt) < r.settle {
+	ttl := reloadNegativeProbeTTL
+	if r.probedOK {
+		ttl = r.settle
+	}
+	if r.probedPid == pid && !r.probedAt.IsZero() && now.Sub(r.probedAt) < ttl {
 		return r.probedOK
 	}
 	ok := r.deps.probe(ctx)

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -51,12 +50,12 @@ func answer(out []byte, err error) *engineCheckRecorder {
 	return &engineCheckRecorder{run: func(context.Context) ([]byte, error) { return out, err }}
 }
 
-// shellExit runs a real shell that writes msg to stderr and exits with code. The error is the *exec.ExitError
+// shellExit runs a real shell that writes msg to stderr and exits with status 1. The error is the *exec.ExitError
 // an engine's own non-zero exit produces.
-func shellExit(t *testing.T, code int, msg string) ([]byte, error) {
+func shellExit(t *testing.T, msg string) ([]byte, error) {
 	t.Helper()
 	//nolint:gosec // G204: fixed test script; arguments are passed as positional parameters
-	cmd := exec.Command("sh", "-c", `printf '%s\n' "$1" >&2; exit "$2"`, "sh", msg, strconv.Itoa(code))
+	cmd := exec.Command("sh", "-c", `printf '%s\n' "$1" >&2; exit 1`, "sh", msg)
 	return cmd.CombinedOutput()
 }
 
@@ -124,7 +123,7 @@ func TestImportConfigEngineRejectionRollsBack(t *testing.T) {
 	dir := t.TempDir()
 	seedEngineState(t, dir)
 	before := treeContents(t, dir)
-	out, err := shellExit(t, 1, "level=fatal msg=\"parsing /etc/secret/path: bad\"")
+	out, err := shellExit(t, "level=fatal msg=\"parsing /etc/secret/path: bad\"")
 	_, r := newEngineCheckRouter(t, OpenTestDB(t), dir, engineCheckBinPath, answer(out, err))
 
 	w := importWithTree(t, r, map[string]string{"config.yaml": importableConfig})
@@ -218,7 +217,7 @@ func TestImportConfigSkipsEngineCheckForEnvironmentalOutput(t *testing.T) {
 	for name, msg := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			out, err := shellExit(t, 1, msg)
+			out, err := shellExit(t, msg)
 			dir := t.TempDir()
 			_, r := newEngineCheckRouter(t, OpenTestDB(t), dir, engineCheckBinPath, answer(out, err))
 
@@ -243,7 +242,7 @@ func TestImportConfigRefusesNonEnvironmentalEngineOutput(t *testing.T) {
 			dir := t.TempDir()
 			seedEngineState(t, dir)
 			before := treeContents(t, dir)
-			out, err := shellExit(t, 1, msg)
+			out, err := shellExit(t, msg)
 			_, r := newEngineCheckRouter(t, OpenTestDB(t), dir, engineCheckBinPath, answer(out, err))
 
 			w := importWithTree(t, r, map[string]string{"config.yaml": importableConfig})
@@ -269,6 +268,26 @@ func TestImportConfigEngineCheckInvocation(t *testing.T) {
 	require.True(t, rec.hasDeadline, "the engine check must carry a deadline")
 	require.Equal(t, 30*time.Second, h.engineCheckTimeout)
 	require.WithinDuration(t, time.Now().Add(30*time.Second), rec.deadline, 5*time.Second)
+}
+
+// A handler built as a struct literal leaves engineCheckTimeout at zero. The check must still run under the default
+// bound, not under an already expired deadline that would skip it.
+func TestValidateWithEngineZeroTimeoutUsesDefault(t *testing.T) {
+	t.Parallel()
+	for name, timeout := range map[string]time.Duration{"zero": 0, "negative": -time.Second} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			out, err := shellExit(t, "level=fatal msg=\"parsing config: bad\"")
+			rec := answer(out, err)
+			h := &CrowdsecHandler{CmdExec: rec, BinPath: engineCheckBinPath, engineCheckTimeout: timeout}
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+
+			require.ErrorIs(t, h.validateWithEngine(context.Background(), configPath), errEngineRejectedConfig)
+			require.Len(t, rec.calls, 1, "the engine check must run")
+			require.True(t, rec.hasDeadline, "the engine check must carry a deadline")
+			require.WithinDuration(t, time.Now().Add(crowdsecImportCheckTimeout), rec.deadline, 5*time.Second)
+		})
+	}
 }
 
 func TestImportConfigWhitelistRegenerationFailureRollsBack(t *testing.T) {
