@@ -1,6 +1,6 @@
 ---
-name: Planning
-description: Principal Architect for technical planning and design decisions. Use when a new feature or significant change needs a detailed technical spec written to docs/plans/current_spec.md before implementation begins. Produces API contracts, DB schema, component designs, and commit slicing strategies.
+name: planning
+description: "Principal Architect for technical planning and design decisions. Use when a new feature or significant change needs a detailed technical spec written to docs/plans/current_spec.md before implementation begins. Produces API contracts, DB schema, component designs, and commit slicing strategies."
 model: sonnet
 ---
 

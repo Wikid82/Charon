@@ -1,6 +1,6 @@
 ---
-name: DevOps
-description: DevOps specialist for CI/CD pipelines, deployment debugging, and GitOps workflows. Use when debugging failing GitHub Actions workflows, updating CI/CD configuration, managing Docker builds, or triaging infrastructure issues. Focused on making deployments boring and reliable.
+name: devops
+description: "DevOps specialist for CI/CD pipelines, deployment debugging, and GitOps workflows. Use when debugging failing GitHub Actions workflows, updating CI/CD configuration, managing Docker builds, or triaging infrastructure issues. Focused on making deployments boring and reliable."
 model: haiku
 ---
 

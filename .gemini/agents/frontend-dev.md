@@ -1,6 +1,6 @@
 ---
-name: Frontend Dev
-description: Senior React/TypeScript Engineer for frontend implementation. Use for React/TypeScript tasks: implementing UI components, hooks, API clients, forms, or Vitest tests. Requires a plan from the Planning agent before starting.
+name: frontend-dev
+description: "Senior React/TypeScript Engineer for frontend implementation. Use for React/TypeScript tasks: implementing UI components, hooks, API clients, forms, or Vitest tests. Requires a plan from the Planning agent before starting."
 model: haiku
 ---
 

@@ -1,6 +1,6 @@
 ---
-name: Docs Writer
-description: User Advocate and Technical Writer focused on creating simple, layman-friendly documentation. Use after a feature is implemented to update README.md, docs/features.md, and user-facing documentation. Writes for novice home users — no jargon, no implementation details.
+name: docs-writer
+description: "User Advocate and Technical Writer focused on creating simple, layman-friendly documentation. Use after a feature is implemented to update README.md, docs/features.md, and user-facing documentation. Writes for novice home users — no jargon, no implementation details."
 model: haiku
 ---
 

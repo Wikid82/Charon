@@ -1,6 +1,6 @@
 ---
-name: Playwright Dev
-description: E2E Testing Specialist for Playwright test automation. Use when writing or updating Playwright E2E tests for user flows. Strictly writes tests only — reports code bugs back to the calling session for delegation. Uses role-based locators and accessibility snapshots.
+name: playwright-dev
+description: "E2E Testing Specialist for Playwright test automation. Use when writing or updating Playwright E2E tests for user flows. Strictly writes tests only — reports code bugs back to the calling session for delegation. Uses role-based locators and accessibility snapshots."
 model: haiku
 ---
 
