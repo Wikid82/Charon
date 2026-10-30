@@ -18,11 +18,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     setLanguageState(lang)
     localStorage.setItem('charon-language', lang)
     i18n.changeLanguage(lang)
-    // Set document direction for RTL languages
-    // Currently only LTR languages are supported (en, es, fr, de, zh)
-    // When adding RTL languages (ar, he), update the Language type and this check:
-    // document.documentElement.dir = ['ar', 'he'].includes(lang) ? 'rtl' : 'ltr'
-    document.documentElement.dir = 'ltr'
+    // Set document direction for RTL languages (ar, he)
+    document.documentElement.dir = ['ar', 'he'].includes(lang) ? 'rtl' : 'ltr'
   }
 
   return (

@@ -32,7 +32,7 @@ describe('LanguageSelector', () => {
 
     // Check that all language options are available
     const options = screen.getAllByRole('option')
-    expect(options).toHaveLength(5)
+    expect(options).toHaveLength(28)
     expect(options[0]).toHaveTextContent('English')
     expect(options[1]).toHaveTextContent('Español')
     expect(options[2]).toHaveTextContent('Français')
