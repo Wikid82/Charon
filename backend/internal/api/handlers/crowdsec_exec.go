@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,8 +24,23 @@ const (
 	stopPollInterval   = 50 * time.Millisecond
 )
 
+// How long Start waits for the spawned process to exec into the engine, and
+// how often it checks.
+const (
+	engineStartTimeout      = time.Second
+	engineStartPollInterval = 20 * time.Millisecond
+)
+
 // crowdsecExecutableName is the base name of the CrowdSec engine executable.
 const crowdsecExecutableName = "crowdsec"
+
+// crowdsecSpawnScript runs in sh before the engine starts. It ignores SIGHUP
+// and then execs the engine, which keeps the pid. The binary and its arguments
+// arrive as $0 and $@, so sh never parses them.
+const crowdsecSpawnScript = `trap "" HUP; exec "$0" "$@"`
+
+// spawnWrapperShells are the shell base names that may run crowdsecSpawnScript.
+var spawnWrapperShells = []string{"sh", "dash", "bash", "busybox"}
 
 // DefaultCrowdsecExecutor implements CrowdsecExecutor using OS processes.
 type DefaultCrowdsecExecutor struct {
@@ -73,22 +89,31 @@ func (e *DefaultCrowdsecExecutor) readCmdline(pid int) ([]string, bool) {
 }
 
 // isCrowdSecProcess checks that pid is a CrowdSec engine started with the
-// given config file: its executable (argv[0]) must be named "crowdsec" and one
-// of its arguments must be exactly the config file. Matching on the executable
+// given config file, either as the engine itself or as the spawn wrapper that
+// Start uses until the shell execs the engine. Matching on the executable
 // rather than a substring keeps tools that merely mention the config path
 // (cscli -c <config>, tail -f <config>) from being mistaken for the engine,
 // and checking the config keeps a recycled pid from matching.
 func (e *DefaultCrowdsecExecutor) isCrowdSecProcess(pid int, cfgFile string) bool {
 	args, ok := e.readCmdline(pid)
-	if !ok || len(args) < 2 || filepath.Base(args[0]) != crowdsecExecutableName {
-		return false
-	}
-	for _, arg := range args[1:] {
-		if arg == cfgFile {
-			return true
-		}
-	}
-	return false
+	return ok && (isEngineArgv(args, cfgFile) || isSpawnWrapperArgv(args, cfgFile))
+}
+
+// isEngineArgv reports whether args are the engine's own command line: an
+// executable named "crowdsec" with the config file among its arguments.
+func isEngineArgv(args []string, cfgFile string) bool {
+	return len(args) >= 2 && filepath.Base(args[0]) == crowdsecExecutableName && slices.Contains(args[1:], cfgFile)
+}
+
+// isSpawnWrapperArgv reports whether args are "<shell> -c crowdsecSpawnScript
+// <bin> -c <config>" as Start builds it, with bin named "crowdsec". Any other
+// shell script does not match.
+func isSpawnWrapperArgv(args []string, cfgFile string) bool {
+	return len(args) == 6 &&
+		slices.Contains(spawnWrapperShells, filepath.Base(args[0])) &&
+		args[1] == "-c" && args[2] == crowdsecSpawnScript &&
+		filepath.Base(args[3]) == crowdsecExecutableName &&
+		args[4] == "-c" && args[5] == cfgFile
 }
 
 // findProcess scans the process table for a CrowdSec engine started with this
@@ -186,12 +211,17 @@ func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir 
 		return pid, nil
 	}
 
+	// Resolve the binary before spawning. The shell wrapper would otherwise
+	// turn a missing or non-executable binary into a late engine exit.
+	resolved, lookErr := exec.LookPath(binPath)
+	if lookErr != nil {
+		return 0, fmt.Errorf("resolve crowdsec binary: %w", lookErr)
+	}
+
 	// Use exec.Command (not CommandContext) to avoid context cancellation killing the process
 	// CrowdSec should run independently of the startup goroutine's lifecycle
-	//
-	// #nosec G204 -- binPath is server-controlled: sourced from CHARON_CROWDSEC_BIN env var
-	// or defaults to "/usr/local/bin/crowdsec". Not user input. Arguments are static.
-	cmd := exec.Command(binPath, "-c", configFile(configDir))
+	cfgFile := configFile(configDir)
+	cmd := spawnCommand(resolved, cfgFile)
 
 	// Detach the process so it doesn't get killed when the parent exits
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -212,7 +242,47 @@ func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir 
 	if err := e.writePidFile(configDir, pid); err != nil {
 		return pid, fmt.Errorf("failed to write pid file: %w", err)
 	}
+	e.awaitEngineCmdline(pid, cfgFile)
 	return pid, nil
+}
+
+// spawnCommand builds the engine launch. It runs under sh with SIGHUP ignored
+// because the engine dies on a SIGHUP that arrives before it arms its handler.
+// Without sh the engine starts directly and only the reloader's readiness gate
+// protects it.
+func spawnCommand(binPath, cfgFile string) *exec.Cmd {
+	shPath, err := exec.LookPath("sh")
+	if err != nil {
+		logger.Log().WithError(err).Warn("sh not found, starting CrowdSec without the SIGHUP guard")
+		// #nosec G204 -- binPath is server-controlled: sourced from CHARON_CROWDSEC_BIN env var
+		// or defaults to "/usr/local/bin/crowdsec". Not user input. Arguments are static.
+		return exec.Command(binPath, "-c", cfgFile) // nosemgrep: dangerous-exec-command -- server-controlled path, static arguments
+	}
+	// #nosec G204 -- shPath comes from LookPath; binPath is server-controlled (see above) and is
+	// passed as $0, never parsed by sh. The script is a constant.
+	return exec.Command(shPath, "-c", crowdsecSpawnScript, binPath, "-c", cfgFile) // nosemgrep: dangerous-exec-command -- constant script; binPath is server-controlled and passed as $0
+}
+
+// awaitEngineCmdline waits until pid has exec'd into the engine's own command
+// line, so later checks match it in its final form. It returns early when the
+// process exits, and after engineStartTimeout. Either way the caller keeps the
+// pid: the spawn wrapper still matches while the shell runs.
+func (e *DefaultCrowdsecExecutor) awaitEngineCmdline(pid int, cfgFile string) {
+	deadline := time.Now().Add(engineStartTimeout)
+	for {
+		if args, ok := e.readCmdline(pid); ok && isEngineArgv(args, cfgFile) {
+			return
+		}
+		if !e.isAlive(pid) {
+			logger.Log().WithField("pid", pid).Warn("CrowdSec exited while starting")
+			return
+		}
+		if time.Now().After(deadline) {
+			logger.Log().WithField("pid", pid).Warn("CrowdSec has not exec'd its engine command line yet")
+			return
+		}
+		time.Sleep(engineStartPollInterval)
+	}
 }
 
 // Stop stops the CrowdSec process: SIGTERM, then SIGKILL if it has not exited

@@ -79,7 +79,14 @@ var (
 	// errCrowdsecStateChanged reports that an emergency reset turned CrowdSec off while a Start was running. The Start
 	// stopped the engine it had begun and kept the reset's values.
 	errCrowdsecStateChanged = errors.New("crowdsec was turned off during start")
+	// errCrowdsecEngineExited reports that the engine process was gone before LAPI answered. The Start put back the
+	// state it had recorded before its persist, as for a failed spawn.
+	errCrowdsecEngineExited = errors.New("crowdsec engine exited during start")
 )
+
+// crowdsecExitPolls is the number of consecutive not-running Status polls that count as an engine exit during the
+// LAPI wait. One miss is not enough: a single poll can land in the window where the engine process is replaced.
+const crowdsecExitPolls = 2
 
 // respondCrowdsecLifecycleError maps an error from StartCrowdSec or StopCrowdSec to its HTTP answer.
 func respondCrowdsecLifecycleError(c *gin.Context, err error) {
@@ -97,6 +104,9 @@ func respondCrowdsecLifecycleError(c *gin.Context, err error) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop CrowdSec"})
 	case errors.Is(err, errCrowdsecStateChanged):
 		respondCoded(c, http.StatusConflict, "crowdsec_state_changed", "CrowdSec was turned off while it was starting", nil)
+	case errors.Is(err, errCrowdsecEngineExited):
+		respondCoded(c, http.StatusInternalServerError, "crowdsec_engine_exited",
+			"CrowdSec stopped right after it started. Check the CrowdSec log for the reason.", nil)
 	default:
 		logger.Log().WithError(err).Error("CrowdSec lifecycle request failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "CrowdSec request failed"})
@@ -301,10 +311,25 @@ func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartRe
 	}
 	deadline := time.Now().Add(maxWait)
 
+	// notRunningPolls counts consecutive Status polls that found no engine. A failed Status read breaks the run, since
+	// it says nothing about the engine.
+	notRunningPolls := 0
+	engineExited := false
 	for time.Now().Before(deadline) {
 		runHook(h.hooks.duringLAPIWait)
 		// A reset that turned CrowdSec off ends the wait at once; the checkpoint below stops the engine.
 		if h.stateChangedSince(gen) {
+			break
+		}
+
+		engineUp, _, pollErr := h.Executor.Status(ctx, h.DataDir)
+		if pollErr == nil && !engineUp {
+			notRunningPolls++
+		} else {
+			notRunningPolls = 0
+		}
+		if notRunningPolls >= crowdsecExitPolls {
+			engineExited = true
 			break
 		}
 
@@ -325,6 +350,9 @@ func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartRe
 	if !lapiReady {
 		if h.stateChangedSince(gen) {
 			return CrowdsecStartResult{}, h.abortStartAfterReset(ctx)
+		}
+		if engineExited {
+			return CrowdsecStartResult{}, h.failStartEngineExited(ctx, gen, snap, pid)
 		}
 		// The mode is already local, so the proxy needs the apply even though no registration ran.
 		logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
@@ -515,6 +543,17 @@ func (h *CrowdsecHandler) revertCrowdsecStartIfCurrent(gen uint64, snap crowdsec
 		h.revertCrowdsecStart(snap)
 		return nil
 	})
+}
+
+// failStartEngineExited ends a Start whose engine died before LAPI answered. As for a failed Executor.Start, the
+// recorded snapshot is put back and the proxy is not applied. A reset that took the state in the meantime wins, and
+// the Start answers errCrowdsecStateChanged instead.
+func (h *CrowdsecHandler) failStartEngineExited(ctx context.Context, gen uint64, snap crowdsecStartSnapshot, pid int) error {
+	logger.Log().WithField("pid", pid).Warn("CrowdSec exited while it was starting")
+	if revertErr := h.revertCrowdsecStartIfCurrent(gen, snap); errors.Is(revertErr, errCrowdsecStateChanged) {
+		return h.abortStartAfterReset(ctx)
+	}
+	return fmt.Errorf("%w: pid %d", errCrowdsecEngineExited, pid)
 }
 
 // abortStartAfterReset ends a Start that an emergency reset overtook. The engine is stopped on its own bounded

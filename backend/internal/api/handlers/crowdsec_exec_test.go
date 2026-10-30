@@ -516,6 +516,162 @@ func TestDefaultCrowdsecExecutor_Stop_CancelledContextDoesNotEscalate(t *testing
 	assert.NoError(t, statErr, "pid file must be kept while the engine is still running")
 }
 
+// Spawn window: until the shell execs the engine, the process cmdline is the
+// wrapper form. Status, Start and Stop must treat that process as the engine.
+
+func wrapperArgv(cfgFile string) []string {
+	return []string{"/bin/sh", "-c", crowdsecSpawnScript, "/usr/local/bin/crowdsec", "-c", cfgFile}
+}
+
+func engineArgv(cfgFile string) []string {
+	return []string{"/usr/local/bin/crowdsec", "-c", cfgFile}
+}
+
+func TestDefaultCrowdsecExecutor_isCrowdSecProcess_SpawnWrapper(t *testing.T) {
+	const cfg = "/data/config/config.yaml"
+	const bin = "/usr/local/bin/crowdsec"
+	cases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"wrapper by sh", []string{"/bin/sh", "-c", crowdsecSpawnScript, bin, "-c", cfg}, true},
+		{"wrapper by dash", []string{"dash", "-c", crowdsecSpawnScript, bin, "-c", cfg}, true},
+		{"wrapper by bash", []string{"/usr/bin/bash", "-c", crowdsecSpawnScript, bin, "-c", cfg}, true},
+		{"wrapper by busybox", []string{"/bin/busybox", "-c", crowdsecSpawnScript, bin, "-c", cfg}, true},
+		{"other shell script", []string{"/bin/sh", "-c", "sleep 30", bin, "-c", cfg}, false},
+		{"script with appended command", []string{"/bin/sh", "-c", crowdsecSpawnScript + "; rm -rf /", bin, "-c", cfg}, false},
+		{"not a shell", []string{"/usr/bin/env", "-c", crowdsecSpawnScript, bin, "-c", cfg}, false},
+		{"wrapped binary is not crowdsec", []string{"/bin/sh", "-c", crowdsecSpawnScript, "/usr/bin/tail", "-c", cfg}, false},
+		{"wrapper of another config", []string{"/bin/sh", "-c", crowdsecSpawnScript, bin, "-c", "/elsewhere/config.yaml"}, false},
+		{"extra arguments", []string{"/bin/sh", "-c", crowdsecSpawnScript, bin, "-c", cfg, "--debug"}, false},
+		{"config flag missing", []string{"/bin/sh", "-c", crowdsecSpawnScript, bin, "-x", cfg}, false},
+		{"script without arguments", []string{"/bin/sh", "-c", crowdsecSpawnScript}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e, proc, _ := newProcExecutor(t)
+			writeFakeProc(t, proc, 12345, tc.args...)
+			assert.Equal(t, tc.want, e.isCrowdSecProcess(12345, cfg))
+		})
+	}
+}
+
+func TestDefaultCrowdsecExecutor_Status_RunningAcrossSpawnWindow(t *testing.T) {
+	e, proc, dir := newProcExecutor(t)
+	pid := spawnSleeper(t)
+	writeFakeProc(t, proc, pid, wrapperArgv(configFile(dir))...)
+	require.NoError(t, e.writePidFile(dir, pid))
+
+	running, got, err := e.Status(context.Background(), dir)
+	require.NoError(t, err)
+	assert.True(t, running, "wrapper phase must count as running")
+	assert.Equal(t, pid, got)
+
+	writeFakeProc(t, proc, pid, engineArgv(configFile(dir))...)
+	running, got, err = e.Status(context.Background(), dir)
+	require.NoError(t, err)
+	assert.True(t, running, "engine phase must count as running")
+	assert.Equal(t, pid, got)
+}
+
+func TestDefaultCrowdsecExecutor_Start_ReturnsPidInSpawnWindowWithoutSpawning(t *testing.T) {
+	e, proc, dir := newProcExecutor(t)
+	pid := spawnSleeper(t)
+	writeFakeProc(t, proc, pid, wrapperArgv(configFile(dir))...)
+	require.NoError(t, e.writePidFile(dir, pid))
+
+	// The binary does not exist, so any spawn attempt would fail.
+	got, err := e.Start(context.Background(), filepath.Join(t.TempDir(), "missing"), dir)
+	require.NoError(t, err)
+	assert.Equal(t, pid, got, "second start must reuse the engine in its spawn window")
+}
+
+func TestDefaultCrowdsecExecutor_Stop_SignalsPidInSpawnWindow(t *testing.T) {
+	e, proc, dir := newProcExecutor(t)
+	pid := spawnSleeper(t)
+	writeFakeProc(t, proc, pid, wrapperArgv(configFile(dir))...)
+	require.NoError(t, e.writePidFile(dir, pid))
+
+	var signals []syscall.Signal
+	e.kill = func(target int, sig syscall.Signal) error {
+		assert.Equal(t, pid, target)
+		signals = append(signals, sig)
+		return syscall.Kill(target, sig)
+	}
+	require.NoError(t, e.Stop(context.Background(), dir))
+	assert.Equal(t, []syscall.Signal{syscall.SIGTERM}, signals)
+	assert.False(t, e.isAlive(pid), "Stop must wait for the process in its spawn window to exit")
+	_, statErr := os.Stat(e.pidFile(dir))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestDefaultCrowdsecExecutor_Start_MissingBinaryFailsAtOnce(t *testing.T) {
+	notExecutable := filepath.Join(t.TempDir(), "not-executable")
+	require.NoError(t, os.WriteFile(notExecutable, []byte("x"), 0o600)) // #nosec G306 -- test fixture
+	cases := map[string]string{
+		"missing":        filepath.Join(t.TempDir(), "missing"),
+		"not executable": notExecutable,
+	}
+	for name, bin := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := NewDefaultCrowdsecExecutor()
+			dir := t.TempDir()
+			start := time.Now()
+
+			pid, err := e.Start(context.Background(), bin, dir)
+			require.Error(t, err)
+			assert.Zero(t, pid)
+			assert.Less(t, time.Since(start), engineStartTimeout, "a bad binary must not wait for the engine")
+			_, statErr := os.Stat(e.pidFile(dir))
+			assert.True(t, os.IsNotExist(statErr), "no pid file for a process that never started")
+		})
+	}
+}
+
+func TestDefaultCrowdsecExecutor_Start_ReturnsPidWhenEngineCmdlineNeverAppears(t *testing.T) {
+	e, bin, dir := newStubExecutor(t)
+	// The real cmdline is never visible in this fake /proc, so the wait must time out.
+	e.procPath = t.TempDir()
+
+	start := time.Now()
+	pid, err := e.Start(context.Background(), bin, dir)
+	require.NoError(t, err)
+	require.Positive(t, pid)
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	assert.GreaterOrEqual(t, time.Since(start), engineStartTimeout)
+}
+
+func TestDefaultCrowdsecExecutor_Start_ReturnsWhenProcessExitsWhileStarting(t *testing.T) {
+	falsePath, err := osexec.LookPath("false")
+	require.NoError(t, err)
+	// A "crowdsec" that exits at once: the wait must end without the full timeout.
+	bin := filepath.Join(t.TempDir(), crowdsecExecutableName)
+	require.NoError(t, os.Symlink(falsePath, bin))
+	e := NewDefaultCrowdsecExecutor()
+	e.procPath = t.TempDir()
+
+	start := time.Now()
+	pid, err := e.Start(context.Background(), bin, t.TempDir())
+	require.NoError(t, err)
+	assert.Positive(t, pid)
+	assert.Less(t, time.Since(start), engineStartTimeout)
+}
+
+func TestDefaultCrowdsecExecutor_Start_WithoutShellSpawnsEngineDirectly(t *testing.T) {
+	e, bin, dir := newStubExecutor(t)
+	t.Setenv("PATH", "")
+	t.Cleanup(func() { _ = e.Stop(context.Background(), dir) })
+
+	pid, err := e.Start(context.Background(), bin, dir)
+	require.NoError(t, err)
+	require.Positive(t, pid)
+	running, got, err := e.Status(context.Background(), dir)
+	require.NoError(t, err)
+	assert.True(t, running)
+	assert.Equal(t, pid, got)
+}
+
 // Helpers
 
 // spawnSleeper starts a real child process and reaps it in the background so a
