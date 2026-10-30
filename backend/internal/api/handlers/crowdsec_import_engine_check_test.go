@@ -210,6 +210,10 @@ func TestImportConfigSkipsEngineCheckForEnvironmentalOutput(t *testing.T) {
 		"database locked":    "database is locked",
 		"table locked":       "database table is locked: crowdsec_machines",
 		"sqlite busy result": "error: SQLITE_BUSY",
+		"plugin directory missing": "api server init: plugin broker: loading plugin: open " +
+			"/usr/local/lib/crowdsec/plugins: no such file or directory",
+		"plugin binary missing": "api server init: plugin broker: loading plugin: binary for plugin " +
+			"slack not found",
 	}
 	for name, msg := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -222,6 +226,32 @@ func TestImportConfigSkipsEngineCheckForEnvironmentalOutput(t *testing.T) {
 
 			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 			require.Contains(t, w.Body.String(), `"status":"imported"`)
+		})
+	}
+}
+
+func TestImportConfigRefusesNonEnvironmentalEngineOutput(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"config error":          "level=fatal msg=\"config_paths: data_dir does not exist\"",
+		"bad config dir":        "level=fatal msg=\"unable to load config_dir: no such file or directory\"",
+		"plugin text in config": "level=fatal msg=\"plugin_config: invalid group name\"",
+	}
+	for name, msg := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			seedEngineState(t, dir)
+			before := treeContents(t, dir)
+			out, err := shellExit(t, 1, msg)
+			_, r := newEngineCheckRouter(t, OpenTestDB(t), dir, engineCheckBinPath, answer(out, err))
+
+			w := importWithTree(t, r, map[string]string{"config.yaml": importableConfig})
+
+			require.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
+			require.Contains(t, w.Body.String(), `"error_code":"import_config_invalid"`)
+			require.Contains(t, w.Body.String(), importConfigInvalidMsg)
+			require.Equal(t, before, treeContents(t, dir), "a refused import must restore the live configuration")
 		})
 	}
 }

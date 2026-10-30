@@ -473,8 +473,10 @@ const crowdsecImportCheckTimeout = 30 * time.Second
 var errEngineRejectedConfig = errors.New("crowdsec rejected the imported configuration")
 
 // environmentalEngineOutput matches the engine output of a check that could not run against the configuration
-// because the environment is busy: a running engine holds the ports and the database.
-var environmentalEngineOutput = regexp.MustCompile(`(?i)address already in use|bind: |database is locked|database table is locked|sqlite_busy`)
+// because the environment is not ready: a running engine holds the ports and the database, and the image ships
+// without the notification plugin directory or binaries that the shipped config names. The plugin alternatives
+// cover the broker's directory and binary load failures, which are not config-content errors.
+var environmentalEngineOutput = regexp.MustCompile(`(?i)address already in use|bind: |database is locked|database table is locked|sqlite_busy|plugin broker|binary for plugin .+ not found`)
 
 // Stable error_code values of the acquisition endpoints (#1708). Both answer 500: the server cannot do the
 // operation until the file's owner, mode or folder permissions are fixed. The messages name the fix, not a path.
@@ -589,7 +591,7 @@ func (h *CrowdsecHandler) validateWithEngine(ctx context.Context, configPath str
 
 	output := strings.TrimSpace(string(out))
 	if environmentalEngineOutput.MatchString(output) {
-		logger.Log().WithField("output", sanitizeForLog(output)).Warn("crowdsec import: the engine configuration check hit a busy port or database; skipped")
+		logger.Log().WithField("output", sanitizeForLog(output)).Warn("crowdsec import: the engine configuration check hit a busy port, database or missing plugin; skipped")
 		return nil
 	}
 
