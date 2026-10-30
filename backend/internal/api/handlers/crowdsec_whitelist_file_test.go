@@ -216,7 +216,19 @@ func TestImportConfig_RegeneratesWhitelistFromDBAndListsOtherParsers(t *testing.
 	require.Equal(t, otherBody, readTreeFile(t, filepath.Join(dir, "config", "parsers", "s02-enrich", "operator.yaml")))
 }
 
-func TestImportConfig_EmptyDBListRemovesArchiveWhitelist(t *testing.T) {
+// The placeholder is listed and read like any file, so its state is visible, but a save is refused (see
+// TestCrowdsecFiles_ManagedWhitelistRefusedOnWrite).
+func TestCrowdsecFiles_ManagedPlaceholderIsListedAndReadable(t *testing.T) {
+	t.Parallel()
+	f := newFilesFixture(t)
+	f.put(managedWhitelistRel, "name: charon-whitelist\nwhitelist:\n  expression:\n    - \"false\"\n")
+
+	require.Contains(t, f.list(), managedWhitelistRel)
+	w := f.read(managedWhitelistRel)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+}
+
+func TestImportConfig_EmptyDBListReplacesArchiveWhitelistWithPlaceholder(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	seedRealLayout(t, dir)
@@ -227,7 +239,10 @@ func TestImportConfig_EmptyDBListRemovesArchiveWhitelist(t *testing.T) {
 	w := importStatus(t, r, importWhitelistArchive())
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NoFileExists(t, filepath.Join(dir, managedWhitelistRel))
+	managed := readTreeFile(t, filepath.Join(dir, managedWhitelistRel))
+	require.Contains(t, managed, "expression:", "the archive's copy is replaced by the placeholder")
+	require.NotContains(t, managed, "192.0.2.1")
 	require.Contains(t, w.Body.String(), "config/parsers/s02-enrich/operator.yaml")
+	require.NotContains(t, w.Body.String(), managedWhitelistRel, "the placeholder is not reported as another whitelist file")
 	require.Contains(t, w.Body.String(), `"whitelist_regenerated":true`)
 }

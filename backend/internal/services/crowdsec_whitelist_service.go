@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
@@ -33,6 +33,19 @@ whitelist:
   reason: "Charon managed whitelist"
 `
 
+// whitelistPlaceholderYAML is the file written while the allow list is empty. CrowdSec rejects a whitelist parser
+// whose ip and cidr lists are both empty ("Node is empty"), so the placeholder carries an expression that is never
+// true instead: it matches no event. The file is never removed, because removing it while the engine runs can kill
+// the engine on its next reload.
+const whitelistPlaceholderYAML = `name: charon-whitelist
+description: "Charon-managed IP/CIDR whitelist"
+filter: "evt.Meta.service == 'http'"
+whitelist:
+  reason: "Charon managed whitelist (no entries)"
+  expression:
+    - "false"
+`
+
 // whitelistQueryTimeout bounds the entries query of one file write. The query runs detached from the request
 // context (see whitelistLists), so it needs a limit of its own.
 const whitelistQueryTimeout = 5 * time.Second
@@ -44,11 +57,18 @@ const whitelistStaleTempAge = 10 * time.Minute
 // force a failure.
 var writeWhitelistFile = crowdsec.WriteFileAtomic
 
-// removeWhitelistPath deletes the whitelist file or a legacy temp file, and syncWhitelistDir flushes the directory
-// after such a removal. They are seams so tests can force their failures.
+// removeLegacyTemp deletes the legacy temp file (see removeLegacyWhitelistTemp). It is a seam so tests can force a
+// failure.
+var removeLegacyTemp = os.Remove
+
+// whitelistInPlaceWarned makes the in-place warning fire once per process; logWhitelistInPlace logs it. Both are
+// seams for the tests.
 var (
-	removeWhitelistPath = os.Remove
-	syncWhitelistDir    = crowdsec.SyncDir
+	whitelistInPlaceWarned atomic.Bool
+	logWhitelistInPlace    = func() {
+		logger.Log().Warn("CrowdSec whitelist file was written in place because its rename was refused. " +
+			"A crash during that write can leave the file partly written; the engine reads it at its next reload.")
+	}
 )
 
 // CrowdSecWhitelistService manages the CrowdSec IP/CIDR whitelist.
@@ -120,9 +140,11 @@ func (s *CrowdSecWhitelistService) Delete(ctx context.Context, id string) error 
 	return nil
 }
 
-// WriteYAML renders and atomically writes the CrowdSec whitelist YAML file from the current entries.
-// It is a no-op when dataDir is empty (unit-test mode). Writes are serialised, and the entries query ignores the
-// cancellation of ctx, so a client that disconnects after its DB commit still leaves the file in step with the list.
+// WriteYAML renders and atomically writes the CrowdSec whitelist YAML file from the current entries. An empty list
+// writes the placeholder (see whitelistPlaceholderYAML) rather than removing the file, so the file is in place
+// whenever an engine may reload it. It is a no-op when dataDir is empty (unit-test mode). Writes are serialised, and
+// the entries query ignores the cancellation of ctx, so a client that disconnects after its DB commit still leaves
+// the file in step with the list.
 func (s *CrowdSecWhitelistService) WriteYAML(ctx context.Context) error {
 	if s.dataDir == "" {
 		return nil
@@ -139,29 +161,33 @@ func (s *CrowdSecWhitelistService) WriteYAML(ctx context.Context) error {
 		return err
 	}
 
-	// CrowdSec rejects a whitelist parser whose ip and cidr lists are both empty
-	// ("Node is empty" fatal). When there are no whitelist entries, remove the
-	// file so CrowdSec starts cleanly; it handles a missing file gracefully.
-	if len(ips) == 0 && len(cidrs) == 0 {
-		return removeWhitelistFile(dir, target)
-	}
-
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err = os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("write whitelist yaml: create dir: %w", err)
 	}
 
 	// The owner of the live file is kept (CrowdSec reads it), and a refused rename falls back to an in-place write.
 	// NoFollow refuses a symlink planted at the target, so it is never written through.
-	if _, err := writeWhitelistFile(target, buildWhitelistYAML(ips, cidrs), 0o640, crowdsec.AtomicWriteOptions{
+	res, err := writeWhitelistFile(target, buildWhitelistYAML(ips, cidrs), 0o640, crowdsec.AtomicWriteOptions{
 		KeepOwner:           true,
 		InPlaceFallback:     true,
 		NoFollow:            true,
 		SweepTempsOlderThan: whitelistStaleTempAge,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("write whitelist yaml: write file: %w", err)
+	}
+	if res.InPlace {
+		noteWhitelistInPlace()
 	}
 
 	return nil
+}
+
+// noteWhitelistInPlace logs, once per process, that the whitelist file was written in place rather than renamed.
+func noteWhitelistInPlace() {
+	if whitelistInPlaceWarned.CompareAndSwap(false, true) {
+		logWhitelistInPlace()
+	}
 }
 
 // whitelistLists returns the IP and CIDR entries in creation order. The query runs on a context detached from ctx's
@@ -186,31 +212,16 @@ func (s *CrowdSecWhitelistService) whitelistLists(ctx context.Context) (ips, cid
 	return ips, cidrs, nil
 }
 
-// removeWhitelistFile removes the whitelist file for an empty list and syncs its directory, so the removal survives a
-// crash. The directory itself stays. A missing file is not an error.
-func removeWhitelistFile(dir, target string) error {
-	err := removeWhitelistPath(target)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("write whitelist yaml: remove empty: %w", err)
-	}
-	if err := syncWhitelistDir(dir); err != nil {
-		logger.Log().WithError(err).Warn("could not sync the CrowdSec whitelist directory after removing the file (non-fatal)")
-	}
-	return nil
-}
-
 // removeLegacyWhitelistTemp removes the fixed-name temporary file that earlier versions wrote next to the whitelist
-// ("<target>.tmp") when it is a regular file. Anything else at that name is left alone.
+// ("<target>.tmp") when it is a regular file. Anything else at that name is left alone. A failed removal is logged
+// and never fails the write.
 func removeLegacyWhitelistTemp(target string) {
 	legacy := target + ".tmp"
 	info, err := os.Lstat(legacy)
 	if err != nil || !info.Mode().IsRegular() {
 		return
 	}
-	if err := removeWhitelistPath(legacy); err != nil {
+	if err := removeLegacyTemp(legacy); err != nil {
 		logger.Log().WithError(err).Debug("could not remove a legacy CrowdSec whitelist temporary file")
 	}
 }
@@ -233,8 +244,12 @@ func normalizeIPOrCIDR(raw string) (string, error) {
 	return ip.String(), nil
 }
 
-// buildWhitelistYAML constructs the YAML content for the CrowdSec whitelist parser.
+// buildWhitelistYAML constructs the YAML content for the CrowdSec whitelist parser. With no entries it returns the
+// placeholder.
 func buildWhitelistYAML(ips, cidrs []string) []byte {
+	if len(ips) == 0 && len(cidrs) == 0 {
+		return []byte(whitelistPlaceholderYAML)
+	}
 	var sb strings.Builder
 	sb.WriteString(whitelistYAMLHeader)
 
