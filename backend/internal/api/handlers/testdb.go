@@ -85,6 +85,10 @@ func OpenTestDB(t *testing.T) *gorm.DB {
 			_ = sqlDB.Close()
 		}
 	})
+	// Production migrates the whitelist table at start-up, and an import rewrites the whitelist file from it.
+	if err := db.AutoMigrate(&models.CrowdSecWhitelist{}); err != nil {
+		t.Fatalf("failed to migrate the whitelist table: %v", err)
+	}
 	return db
 }
 

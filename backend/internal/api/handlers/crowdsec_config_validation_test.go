@@ -38,11 +38,14 @@ func TestValidateYAMLFile(t *testing.T) {
 		{"broken yaml containing api text", "api:\n  server: [unclosed\n", "config.yaml is not valid YAML"},
 		{"unknown keys only", "foo: bar\nserver: {}\n", "config.yaml has no CrowdSec configuration sections"},
 		{"disable flag only", "disable_agent: true\n", "config.yaml has no CrowdSec configuration sections"},
-		{"minimal api", "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n", ""},
-		{"common only", "common:\n  log_level: info\n", ""},
-		{"first document only", "api: {}\n---\n- list\n", ""},
-		{"first document invalid", "foo: bar\n---\napi: {}\n", "config.yaml has no CrowdSec configuration sections"},
-		{"later document unparsed", "api: {}\n---\nbad: [unclosed\n", ""},
+		{"minimal api without config_paths", "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n", "config.yaml has no config_paths section"},
+		{"minimal api", "api:\n  server:\n    listen_uri: 0.0.0.0:8080\nconfig_paths: {}\n", ""},
+		{"common only without config_paths", "common:\n  log_level: info\n", "config.yaml has no config_paths section"},
+		{"common only", "common:\n  log_level: info\nconfig_paths: {}\n", ""},
+		{"first document only", "api: {}\nconfig_paths: {}\n---\n- list\n", ""},
+		{"first document invalid", "foo: bar\n---\napi: {}\nconfig_paths: {}\n", "config.yaml has no CrowdSec configuration sections"},
+		{"later document unparsed", "api: {}\nconfig_paths: {}\n---\nbad: [unclosed\n", ""},
+		{"config_paths in a later document only", "api: {}\n---\nconfig_paths: {}\n", "config.yaml has no config_paths section"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -157,7 +160,7 @@ func validateWithin(t *testing.T, content string) error {
 // aliasBombDocument builds a small document whose fully expanded form is fanout^levels nodes.
 func aliasBombDocument(levels, fanout int) string {
 	var b strings.Builder
-	b.WriteString("api:\n  server: {}\n")
+	b.WriteString("api:\n  server: {}\nconfig_paths: {}\n")
 	b.WriteString("l0: &l0 [" + strings.TrimSuffix(strings.Repeat("x,", fanout), ",") + "]\n")
 	for i := 1; i <= levels; i++ {
 		refs := make([]string, fanout)
@@ -186,7 +189,7 @@ func TestValidateYAMLFileAcceptsModerateAliasing(t *testing.T) {
 
 func TestValidateYAMLFileNesting(t *testing.T) {
 	nested := func(depth int) string {
-		return "api:\n  server: " + strings.Repeat("[", depth) + strings.Repeat("]", depth) + "\n"
+		return "api:\n  server: " + strings.Repeat("[", depth) + strings.Repeat("]", depth) + "\nconfig_paths: {}\n"
 	}
 
 	t.Run("moderate nesting is accepted", func(t *testing.T) {

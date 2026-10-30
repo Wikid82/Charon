@@ -57,7 +57,7 @@ func (f *fakeExec) Status(ctx context.Context, configDir string) (running bool, 
 
 func setupCrowdDB(t *testing.T) *gorm.DB {
 	db := OpenTestDB(t)
-	// Migrate tables needed by CrowdSec handlers
+	// Migrate tables needed by CrowdSec handlers.
 	if err := db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}); err != nil {
 		t.Fatalf("failed to migrate SecurityConfig: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestImportConfig(t *testing.T) {
 
 	// Create a valid test archive
 	files := map[string]string{
-		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config.yaml": importableConfig,
 	}
 	archivePath := createTestArchive(t, "tar.gz", files, true)
 
@@ -192,7 +192,7 @@ func TestImportCreatesBackup(t *testing.T) {
 
 	// Create valid archive
 	files := map[string]string{
-		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config.yaml": importableConfig,
 	}
 	archivePath := createTestArchive(t, "tar.gz", files, true)
 	// #nosec G304 -- archivePath is in test temp directory created by t.TempDir()
@@ -3201,7 +3201,7 @@ func TestCrowdsecHandler_ImportConfig_LargeFile(t *testing.T) {
 
 	// Create a valid large archive with config.yaml
 	files := map[string]string{
-		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config.yaml": importableConfig,
 	}
 	archivePath := createTestArchive(t, "tar.gz", files, true)
 	// #nosec G304 -- archivePath is in test temp directory created by t.TempDir()

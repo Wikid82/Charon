@@ -2487,6 +2487,7 @@
   "crowdsec": {
     "errors": {
       "engineExited": "CrowdSec s'est arrêté juste après son démarrage. Consultez le journal de CrowdSec pour en connaître la raison.",
+      "importConfigInvalid": "CrowdSec n'a pas pu charger la configuration importée. Vérifiez que config.yaml contient une section config_paths et que les dossiers qu'elle indique existent.",
       "stateChanged": "CrowdSec a été désactivé pendant son démarrage.",
       "unavailable": "CrowdSec n'est pas disponible sur ce serveur."
     }

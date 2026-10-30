@@ -2487,6 +2487,7 @@
   "crowdsec": {
     "errors": {
       "engineExited": "CrowdSec 在启动后立即停止。请查看 CrowdSec 日志了解原因。",
+      "importConfigInvalid": "CrowdSec 无法加载导入的配置。请检查 config.yaml 是否包含 config_paths 部分，以及其中指定的文件夹是否存在。",
       "stateChanged": "CrowdSec 在启动过程中被关闭。",
       "unavailable": "此服务器上无法使用 CrowdSec。"
     }
