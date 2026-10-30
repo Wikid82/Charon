@@ -2485,6 +2485,7 @@
   },
   "crowdsec": {
     "errors": {
+      "engineExited": "CrowdSec se detuvo justo después de iniciarse. Revisa el registro de CrowdSec para ver el motivo.",
       "stateChanged": "CrowdSec se desactivó mientras se iniciaba.",
       "unavailable": "CrowdSec no está disponible en este servidor."
     }

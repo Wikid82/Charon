@@ -48,6 +48,7 @@ export function crowdsecBusyMessage(err: unknown, t: TFunction): string | null {
 const CROWDSEC_CODE_MESSAGE_KEYS = {
   file_managed_by_charon: 'crowdsecConfig.toasts.fileManaged',
   crowdsec_state_changed: 'crowdsec.errors.stateChanged',
+  crowdsec_engine_exited: 'crowdsec.errors.engineExited',
   crowdsec_unavailable: 'crowdsec.errors.unavailable',
 } as const
 

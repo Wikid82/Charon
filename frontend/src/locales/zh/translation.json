@@ -2485,6 +2485,7 @@
   },
   "crowdsec": {
     "errors": {
+      "engineExited": "CrowdSec 在启动后立即停止。请查看 CrowdSec 日志了解原因。",
       "stateChanged": "CrowdSec 在启动过程中被关闭。",
       "unavailable": "此服务器上无法使用 CrowdSec。"
     }
