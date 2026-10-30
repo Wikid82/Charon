@@ -32,7 +32,8 @@
     "github.com/gorilla/websocket",
     "github.com/golang-jwt/jwt/v5",
     "@types/eslint-plugin-jsx-a11y",
-    "google.golang.org/grpc"
+    "google.golang.org/grpc",
+    "github.com/go-jose/go-jose/v4"
   ],
 
   "minimumReleaseAge": null,
