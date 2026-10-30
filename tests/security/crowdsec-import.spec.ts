@@ -76,6 +76,10 @@ const BASELINE_SIMULATION = `simulation: false
 const FLAT_ARCHIVE_MESSAGE =
   'the archive keeps its configuration at the top level, but this CrowdSec installation reads it from the config folder; export a configuration from this page, or put the files in a config/ folder inside the archive';
 
+/** English text of the refusal shown when CrowdSec cannot load an imported configuration. */
+const IMPORT_CONFIG_INVALID_MESSAGE_EN =
+  'CrowdSec could not load the imported configuration. Check that config.yaml has a config_paths section and that the folders it names exist.';
+
 /** The path of a configuration file as the file API lists and reads it. */
 const cfg = (name: string) => `config/${name}`;
 
@@ -444,6 +448,39 @@ test.describe('CrowdSec Config Import Validation', () => {
       const body = await response.json();
       expect(body.error).toBe(FLAT_ARCHIVE_MESSAGE);
       expect(body.error_code).toBe('import_flat_archive');
+    });
+  });
+
+  test.describe('Refusal Message', () => {
+    test('shows the load-check message in the UI and keeps the live configuration', async ({ page, request }, testInfo) => {
+      test.fixme(true, 'Import load-check message is not wired in the UI yet');
+
+      const archive = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('load-refused.tar.gz'));
+      await page.route(`**${ADMIN}/import`, (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        return route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: IMPORT_CONFIG_INVALID_MESSAGE_EN,
+            error_code: 'import_config_invalid',
+          }),
+        });
+      });
+
+      await test.step('Open the configuration page and choose the archive', async () => {
+        await page.goto('/security/crowdsec');
+        await page.locator('input[type="file"]').setInputFiles(archive);
+      });
+
+      await test.step('Submit the import and see the refusal message', async () => {
+        await page.getByTestId('import-btn').click();
+        await expect(page.getByText(IMPORT_CONFIG_INVALID_MESSAGE_EN)).toBeVisible();
+      });
+
+      await test.step('The live configuration is still the baseline', async () => {
+        expect(await readConfigFile(request, cfg('config.yaml'))).toBe(BASELINE_CONFIG);
+      });
     });
   });
 

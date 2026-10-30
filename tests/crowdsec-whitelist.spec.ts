@@ -409,5 +409,41 @@ test.describe('CrowdSec IP Whitelist Management', () => {
         await expect(page.getByTestId('whitelist-add-btn')).toBeDisabled();
       });
     });
+
+    test('adds an entry without an error when the engine reload is deferred', async ({ page }) => {
+      test.fixme(true, 'Deferred engine reload after a whitelist change is not implemented yet');
+
+      const testIP = `${TEST_IP_PREFIX}.6.10`;
+      let addedUUID: string | null = null;
+
+      try {
+        await test.step('Fill IP address and reason fields', async () => {
+          await page.getByTestId('whitelist-ip-input').fill(testIP);
+          await page.getByTestId('whitelist-reason-input').fill('deferred reload test');
+        });
+
+        await test.step('Submit the form and expect the add to succeed', async () => {
+          const responsePromise = page.waitForResponse(
+            (resp) =>
+              resp.url().includes('/api/v1/admin/crowdsec/whitelist') &&
+              resp.request().method() === 'POST'
+          );
+          await page.getByTestId('whitelist-add-btn').click();
+          const response = await responsePromise;
+          expect(response.status()).toBe(201);
+          const body = await response.json();
+          addedUUID = body.uuid as string;
+        });
+
+        await test.step('Verify the entry is listed and no error is shown', async () => {
+          await expect(page.getByRole('cell', { name: testIP, exact: true })).toBeVisible({ timeout: 10_000 });
+          await expect(page.getByTestId('whitelist-ip-error')).not.toBeVisible();
+        });
+      } finally {
+        if (addedUUID) {
+          await rc.delete(`/api/v1/admin/crowdsec/whitelist/${addedUUID}`);
+        }
+      }
+    });
   });
 });

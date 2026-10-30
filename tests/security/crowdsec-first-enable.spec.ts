@@ -22,6 +22,10 @@ const KEY_NOTICE_EN = {
   restartNote: 'No restart is needed: Charon already uses this key.',
 } as const;
 
+/** English text of the passive message shown when CrowdSec stops while it is starting. */
+const ENGINE_EXITED_MESSAGE_EN =
+  'CrowdSec stopped right after it started. Check the CrowdSec log for the reason.';
+
 test.describe('CrowdSec first-enable UX @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
@@ -171,5 +175,28 @@ test.describe('CrowdSec first-enable UX @security', () => {
       data: { key: 'security.crowdsec.enabled', value: '' },
     });
     expect(response.status()).toBe(200);
+  });
+
+  test('CrowdSec start that stops during the wait shows the stop message and reverts the switch', async ({ page }) => {
+    test.fixme(true, 'Engine-exit detection during start is not implemented yet');
+
+    await page.route('**/api/v1/admin/crowdsec/start', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: ENGINE_EXITED_MESSAGE_EN, error_code: 'crowdsec_engine_exited' }),
+      }),
+    );
+
+    const toggle = page.getByTestId('toggle-crowdsec');
+    await clickSwitch(toggle);
+
+    await test.step('Show the passive stop message', async () => {
+      await expect(page.getByText(ENGINE_EXITED_MESSAGE_EN)).toBeVisible();
+    });
+
+    await test.step('Revert the switch to off', async () => {
+      await expect(toggle).not.toBeChecked();
+    });
   });
 });
