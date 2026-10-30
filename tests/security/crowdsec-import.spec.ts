@@ -31,16 +31,18 @@ import {
   profilesYaml,
   readTarGzEntry,
 } from '../utils/archive-helpers';
-import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
+import { restoreShippedCrowdsecConfig, SHIPPED_CROWDSEC_FILES } from '../utils/crowdsec-shipped-config';
 
 const ADMIN = '/api/v1/admin/crowdsec';
 const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 
-const VALID_CONFIG = `api:
-  server:
-    listen_uri: 0.0.0.0:8080
-    log_level: info
-`;
+/**
+ * A configuration the engine can load. The import check runs the engine on the archive's config.yaml, and a
+ * minimal file is refused ("no database configuration provided", "no configuration paths"), so every valid
+ * fixture starts from the shipped configuration.
+ */
+const ENGINE_LOADABLE_CONFIG = SHIPPED_CROWDSEC_FILES['config/config.yaml'];
+const VALID_CONFIG = ENGINE_LOADABLE_CONFIG;
 const ACQUIS = `filenames:
   - /var/log/nginx/access.log
   - /var/log/auth.log
@@ -48,10 +50,7 @@ labels:
   type: syslog
 `;
 /** A configuration that is recognisable after a failed import. */
-const BASELINE_CONFIG = `api:
-  server:
-    listen_uri: 127.0.0.1:8085
-# baseline-marker
+const BASELINE_CONFIG = `${ENGINE_LOADABLE_CONFIG}# baseline-marker
 `;
 const BASELINE_ACQUIS = `source: file
 filenames:
@@ -453,8 +452,6 @@ test.describe('CrowdSec Config Import Validation', () => {
 
   test.describe('Refusal Message', () => {
     test('shows the load-check message in the UI and keeps the live configuration', async ({ page, request }, testInfo) => {
-      test.fixme(true, 'Import load-check message is not wired in the UI yet');
-
       const archive = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('load-refused.tar.gz'));
       await page.route(`**${ADMIN}/import`, (route) => {
         if (route.request().method() !== 'POST') return route.fallback();

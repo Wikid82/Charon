@@ -411,8 +411,6 @@ test.describe('CrowdSec IP Whitelist Management', () => {
     });
 
     test('adds an entry without an error when the engine reload is deferred', async ({ page }) => {
-      test.fixme(true, 'Deferred engine reload after a whitelist change is not implemented yet');
-
       const testIP = `${TEST_IP_PREFIX}.6.10`;
       let addedUUID: string | null = null;
 

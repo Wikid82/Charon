@@ -178,8 +178,6 @@ test.describe('CrowdSec first-enable UX @security', () => {
   });
 
   test('CrowdSec start that stops during the wait shows the stop message and reverts the switch', async ({ page }) => {
-    test.fixme(true, 'Engine-exit detection during start is not implemented yet');
-
     await page.route('**/api/v1/admin/crowdsec/start', (route) =>
       route.fulfill({
         status: 500,
