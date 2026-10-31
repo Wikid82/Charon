@@ -174,6 +174,7 @@ scripts/lib/prune-common.sh
 scripts/prune-ghcr.sh
 scripts/prune-dockerhub.sh
 scripts/crowdsec_data_persistence_test.sh
+scripts/cscli_hub_mirror_test.sh
 
 # -----------------------------------------------------------------------------
 # Tools (not needed in image)

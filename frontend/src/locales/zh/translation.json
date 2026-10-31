@@ -1659,6 +1659,8 @@
       "pullPreview": "获取预览",
       "applyPreset": "应用预设",
       "hubUnreachable": "无法访问 CrowdSec Hub。Hub 预设可能无法使用。",
+      "hubOffline": "正在显示内置和已下载的预设。未加载 Hub 列表。",
+      "unavailableOffline": "需要 CrowdSec Hub。Hub 离线时不可用。",
       "retry": "重试",
       "useCached": "使用缓存",
       "typeLabel": "项目类型",

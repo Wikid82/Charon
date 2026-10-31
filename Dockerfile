@@ -1158,6 +1158,9 @@ COPY --from=frontend-builder --chown=charon:charon /app/frontend/dist /app/front
 COPY .docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
+# Hub mirror retry helper, sourced by the startup script (sourced, not executed, so no chmod)
+COPY .docker/cscli-hub-mirror.sh /usr/local/lib/charon/cscli-hub-mirror.sh
+
 # Copy utility scripts (used for DB recovery and maintenance)
 COPY --chown=charon:charon scripts/ /app/scripts/
 RUN chmod +x /app/scripts/db-recovery.sh

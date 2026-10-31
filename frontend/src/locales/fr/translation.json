@@ -1659,6 +1659,8 @@
       "pullPreview": "Récupérer l'aperçu",
       "applyPreset": "Appliquer le préréglage",
       "hubUnreachable": "Hub CrowdSec inaccessible. Les préréglages du hub peuvent ne pas fonctionner.",
+      "hubOffline": "Préréglages intégrés et téléchargés affichés. La liste du hub n'a pas été chargée.",
+      "unavailableOffline": "Nécessite le hub CrowdSec. Indisponible tant que le hub est hors ligne.",
       "retry": "Réessayer",
       "useCached": "Utiliser le cache",
       "typeLabel": "Type d'élément",

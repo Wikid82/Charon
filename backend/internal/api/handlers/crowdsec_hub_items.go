@@ -232,7 +232,7 @@ func (h *CrowdsecHandler) hubUpdate(ctx context.Context, limit time.Duration) er
 		return fmt.Errorf("wait for the data lock: %w", err)
 	}
 	defer h.dataMu.Unlock()
-	if out, err := h.runCSCLI(ctx, limit, "hub", "update"); err != nil {
+	if out, err := h.runHubCSCLI(ctx, limit, "hub", "update"); err != nil {
 		return fmt.Errorf("hub update: %w (%s)", err, hubLogDetail(string(out)))
 	}
 	return nil
@@ -312,7 +312,7 @@ func (h *CrowdsecHandler) installHubItem(ctx context.Context, itemLimit time.Dur
 
 	// Literal binary, no shell, one item per call; type and name passed ValidHubItem checks and cannot
 	// read as a flag.
-	out, err := h.runCSCLI(ctx, limit, it.Type, "install", it.Name)
+	out, err := h.runHubCSCLI(ctx, limit, it.Type, "install", it.Name)
 	if err != nil {
 		logger.Log().
 			WithField("type", hubLogDetail(it.Type)).WithField("name", hubLogDetail(it.Name)).

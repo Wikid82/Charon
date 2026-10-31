@@ -1659,6 +1659,8 @@
       "pullPreview": "Obtener vista previa",
       "applyPreset": "Aplicar plantilla",
       "hubUnreachable": "Hub de CrowdSec inalcanzable. Las plantillas del hub pueden no funcionar.",
+      "hubOffline": "Se muestran las plantillas integradas y descargadas. No se cargó la lista del hub.",
+      "unavailableOffline": "Requiere el hub de CrowdSec. No disponible mientras el hub esté sin conexión.",
       "retry": "Reintentar",
       "useCached": "Usar en caché",
       "typeLabel": "Tipo de elemento",

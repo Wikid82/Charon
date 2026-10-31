@@ -1664,6 +1664,8 @@
       "pullPreview": "Pull Preview",
       "applyPreset": "Apply Preset",
       "hubUnreachable": "CrowdSec Hub unreachable. Hub presets may not work.",
+      "hubOffline": "Showing built-in and downloaded presets. The hub list was not loaded.",
+      "unavailableOffline": "Needs the CrowdSec hub. Not available while the hub is offline.",
       "retry": "Retry",
       "useCached": "Use Cached",
       "typeLabel": "Item type",

@@ -1659,6 +1659,8 @@
       "pullPreview": "Vorschau abrufen",
       "applyPreset": "Vorlage anwenden",
       "hubUnreachable": "CrowdSec Hub nicht erreichbar. Hub-Vorlagen funktionieren möglicherweise nicht.",
+      "hubOffline": "Integrierte und heruntergeladene Vorlagen werden angezeigt. Die Hub-Liste wurde nicht geladen.",
+      "unavailableOffline": "Benötigt den CrowdSec-Hub. Solange der Hub offline ist, nicht verfügbar.",
       "retry": "Wiederholen",
       "useCached": "Zwischengespeichert verwenden",
       "typeLabel": "Elementtyp",

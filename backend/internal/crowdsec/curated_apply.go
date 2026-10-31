@@ -71,14 +71,14 @@ func (s *HubService) ApplyCurated(ctx context.Context, preset Preset) (ApplyResu
 
 // installAndVerify runs hub update, then install + inspect for every item, stopping at the first failure.
 func (s *HubService) installAndVerify(ctx context.Context, preset Preset) error {
-	if _, err := s.runCSCLI(ctx, "hub", "update"); err != nil {
+	if _, err := s.runHubCSCLI(ctx, "hub", "update"); err != nil {
 		logger.Log().WithError(err).Warn("cscli hub update failed; continuing with the local hub index")
 	}
 	for _, item := range preset.Items {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("install %s %s: %w", item.Type, item.Name, err)
 		}
-		if _, err := s.runCSCLI(ctx, item.Type, "install", item.Name); err != nil {
+		if _, err := s.runHubCSCLI(ctx, item.Type, "install", item.Name); err != nil {
 			return fmt.Errorf("install %s %s: %w", item.Type, item.Name, err)
 		}
 		if err := VerifyHubItem(ctx, s.Exec, FindConfigFile(s.DataDir), item.Type, item.Name); err != nil {
