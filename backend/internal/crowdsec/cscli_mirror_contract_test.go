@@ -34,7 +34,7 @@ func contractLiveConfig(t *testing.T) string {
 	paths["index_path"] = filepath.Join(paths["hub_dir"], ".index.json")
 	raw, err := yaml.Marshal(map[string]any{
 		"config_paths": paths,
-		"cscli":        map[string]any{mirrorBranchKey: "master", "hub_dir": paths["hub_dir"]},
+		"cscli":        map[string]any{mirrorBranchKey: "master"},
 	})
 	require.NoError(t, err)
 	return writeCSCLIConfig(t, root, string(raw))
