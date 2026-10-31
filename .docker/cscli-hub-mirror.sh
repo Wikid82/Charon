@@ -7,7 +7,9 @@
 # GitHub mirror. The live config is never written.
 #
 # The rules follow backend/internal/crowdsec/hub_mirror.go (template checks, refusal of a template the
-# operator already set, the retry classifier). Keep the two in step.
+# operator already set, the network-failure markers). Keep the two in step. The timeout classification (_hub_timed_out:
+# exit status, signal text, budget expiry) exists only here: the image runs cscli under busybox timeout, which reports
+# a trapped TERM as the command's own exit 1, and the Go side does not classify exit statuses.
 #
 # Internal state, set by this helper and not meant for operators:
 #   CHARON_CSCLI_MIRROR_CONFIG  path of the derived config while it exists
@@ -227,29 +229,45 @@ _hub_network_failure() {
     return 1
 }
 
-# _hub_retry_wanted <kind> <status> <log>
-# kind is update (hub update), hub (hub upgrade) or item (type install|upgrade). Hub commands retry on a network
-# failure or when timeout ended the attempt. Item installs and upgrades retry on a network failure only, so a
-# healthy slow install is never cut short.
-_hub_retry_wanted() {
-    case "$2" in
-        124|143)
-            # 124 is GNU timeout's status, 143 is busybox timeout's.
-            case "$1" in
-                update|hub) return 0 ;;
-            esac
-            ;;
+# _hub_timed_out <status> <log>
+# Succeeds when the last attempt ran out of its budget. Three shapes count, because the image's timeout is busybox's
+# and cscli reports the expiry in more than one way:
+#   - exit 124 (GNU timeout) or 143 (busybox timeout, or a command killed by TERM);
+#   - the signal text cscli prints when it traps the TERM that timeout sends ("terminated signal received", or
+#     Go's "signal: terminated"), which leaves exit 1 on busybox;
+#   - a non-zero exit at or past the budget less one second. The clock has whole seconds, so the margin keeps a
+#     run that ended right at the budget. Reads _HUB_ATTEMPT_BUDGET and _HUB_ATTEMPT_ELAPSED from the last attempt.
+_hub_timed_out() {
+    case "$1" in
+        124|143) return 0 ;;
     esac
+    if grep -Eqi 'terminated signal received|signal: terminated' "$2"; then
+        return 0
+    fi
+    [ "$1" -ne 0 ] && [ "$_HUB_ATTEMPT_ELAPSED" -ge $((_HUB_ATTEMPT_BUDGET - 1)) ]
+}
+
+# _hub_retry_wanted <kind> <status> <log>
+# kind is update (hub update), hub (hub upgrade) or item (type install|upgrade). Only hub update retries when its
+# attempt timed out (_hub_timed_out). Hub upgrades and item installs or upgrades retry on a network failure text
+# only, so a healthy slow run is never cut short. A bare expired deadline counts only for hub update (_hub_network_failure).
+_hub_retry_wanted() {
+    if [ "$1" = update ] && _hub_timed_out "$2" "$3"; then
+        return 0
+    fi
     _hub_network_failure "$1" "$3"
 }
 
 # _hub_attempt <seconds> <config or empty> <log> <cscli arguments...>
-# Runs one cscli command under timeout with its output in the log, prints the log, and returns the status.
+# Runs one cscli command under timeout with its output in the log, prints the log, and returns the status. It also
+# records the budget and the wall-clock seconds the attempt took, for _hub_timed_out.
 _hub_attempt() {
     _secs=$1
     _cfg=$2
     _log=$3
     shift 3
+    _HUB_ATTEMPT_BUDGET=$_secs
+    _HUB_ATTEMPT_ELAPSED=0
     if [ "$_secs" -lt 1 ]; then
         # timeout 0 would mean no limit at all, so an attempt with no time left is refused instead.
         : >"$_log"
@@ -258,8 +276,10 @@ _hub_attempt() {
     if [ -n "$_cfg" ]; then
         set -- -c "$_cfg" "$@"
     fi
+    _started=$(date +%s)
     _status=0
     run_interruptible timeout "$_secs" cscli "$@" >"$_log" 2>&1 || _status=$?
+    _HUB_ATTEMPT_ELAPSED=$(($(date +%s) - _started))
     cat "$_log"
     return "$_status"
 }

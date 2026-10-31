@@ -16,6 +16,17 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 
 FAKEBIN="$WORK/bin"
 mkdir -p "$FAKEBIN"
+
+# The image's timeout is busybox's, which ends a command with that command's own status: a cscli that traps TERM and
+# exits 1 gives 1. GNU timeout reports 124 for the same shape, so the test shim asks GNU for its --preserve-status form,
+# which keeps the command's status the way busybox does. The helper still calls plain `timeout`.
+REAL_TIMEOUT=$(command -v timeout)
+cat >"$FAKEBIN/timeout" <<SHIM
+#!/bin/sh
+exec "$REAL_TIMEOUT" --preserve-status "\$@"
+SHIM
+chmod +x "$FAKEBIN/timeout"
+
 TEMPLATE='https://raw.githubusercontent.com/crowdsecurity/hub/%s/%s'
 TEMPLATE_LINE="  __hub_url_template__: \"$TEMPLATE\""
 
@@ -27,6 +38,9 @@ TEMPLATE_LINE="  __hub_url_template__: \"$TEMPLATE\""
 #   live_hang    the live config never answers; the derived config succeeds
 #   live_deadline the live config fails with a bare expired deadline; the derived config succeeds
 #   live_transport the live config fails with a client timeout; the derived config succeeds
+#   live_term    the live config traps TERM, runs past its budget, prints "terminated signal received" and exits 1
+#                (the shape the real cscli shows when `timeout` ends it); the derived config succeeds
+#   live_quiet   the live config traps TERM, runs past its budget and exits 1 with no text; the derived config succeeds
 #   derived_net  the derived config fails with a network error; the live config succeeds
 #   both_net     both fail with a network error
 cat >"$FAKEBIN/cscli" <<'FAKE'
@@ -59,12 +73,14 @@ if [ -z "$cfg" ]; then
         live_hang) exec sleep 30 ;;
         live_deadline) echo "$deadline"; exit 1 ;;
         live_transport) echo "$transport"; exit 1 ;;
+        live_term) trap 'echo "terminated signal received"; exit 1' TERM; sleep 30 & wait $!; exit 1 ;;
+        live_quiet) trap 'exit 1' TERM; sleep 30 & wait $!; exit 1 ;;
         derived_net) echo ok; exit 0 ;;
         both_net) echo "$net"; exit 1 ;;
     esac
 else
     case "$FAKE_MODE" in
-        live_ok|live_net|live_bad|live_hang|live_deadline|live_transport) echo ok; exit 0 ;;
+        live_ok|live_net|live_bad|live_hang|live_deadline|live_transport|live_term|live_quiet) echo ok; exit 0 ;;
         derived_net|both_net) echo "$net"; exit 1 ;;
     esac
 fi
@@ -438,6 +454,29 @@ check "hub update bare deadline: answered, exit 0" "0" "$(res hubupdate_deadline
 run_case item_transport live_transport 0 1 60 collections install crowdsecurity/x
 check "item install client timeout: retried through the mirror" "3" "$(ncalls item_transport)"
 check "item install client timeout: mirror mode turned on" "1" "$(res item_transport flag)"
+
+# A timeout that cscli reports with its own signal text (a trapped TERM and exit 1, no 124 or 143) is a timeout.
+# Hub update retries it on the mirror; item installs and hub upgrades do not.
+run_case term_update live_term 0 1 4 hub update
+check "trapped timeout: hub update exit 0 after the mirror retry" "0" "$(res term_update rc)"
+check "trapped timeout: hub update retried on the derived config" \
+    "cfg=derived tpl=1 local=1 args=hub update" "$(call term_update 2)"
+check "trapped timeout: two calls" "2" "$(ncalls term_update)"
+
+run_case term_item live_term 0 1 2 collections install crowdsecurity/x
+check "trapped timeout: item install not retried" "1" "$(ncalls term_item)"
+check "trapped timeout: item install fails" "1" "$([ "$(res term_item rc)" != 0 ] && echo 1)"
+
+run_case term_upgrade live_term 0 1 4 hub upgrade
+check "trapped timeout: hub upgrade not retried" "1" "$(ncalls term_upgrade)"
+
+# No signal text: a non-zero exit at the budget (less one second) is a timeout too, for hub update only.
+run_case quiet_update live_quiet 0 1 4 hub update
+check "budget expiry without text: hub update exit 0 after the mirror retry" "0" "$(res quiet_update rc)"
+check "budget expiry without text: two calls" "2" "$(ncalls quiet_update)"
+
+run_case quiet_item live_quiet 0 1 2 collections install crowdsecurity/x
+check "budget expiry without text: item install not retried" "1" "$(ncalls quiet_item)"
 
 # When config.yaml.local names a template, the prepare fails and cscli_hub does not retry.
 C13="$WORK/c13"
