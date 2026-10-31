@@ -77,7 +77,7 @@ func assertDerivedConfig(t *testing.T, path string) {
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	var doc struct {
 		CSCLI map[string]any `yaml:"cscli"`
@@ -86,7 +86,7 @@ func assertDerivedConfig(t *testing.T, path string) {
 	require.Equal(t, testMirrorTemplate, doc.CSCLI[mirrorTemplateKey])
 	require.Equal(t, "master", doc.CSCLI[mirrorBranchKey])
 
-	local, err := os.ReadFile(path + ".local")
+	local, err := os.ReadFile(path + ".local") //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Contains(t, string(local), "/local/hub")
 	localInfo, err := os.Stat(path + ".local")
@@ -244,7 +244,7 @@ func TestRunHubCSCLIOperatorTemplateFailsClosed(t *testing.T) {
 	require.ErrorIs(t, err, errLiveCSCLI)
 	require.Len(t, exec.recorded(), 1, "the operator's own hub is never replaced by the mirror")
 	require.False(t, mem.Active())
-	raw, readErr := os.ReadFile(live)
+	raw, readErr := os.ReadFile(live) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, readErr)
 	require.Equal(t, operatorConfig, string(raw))
 }

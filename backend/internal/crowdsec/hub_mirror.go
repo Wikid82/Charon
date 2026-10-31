@@ -401,7 +401,7 @@ func writeMirrorFile(f *os.File, data []byte) error {
 // readLocalOverride returns the CrowdSec local override at src. The second result reports whether the override exists.
 // A missing override is not an error; an unreadable one is, so the caller does not retry without it.
 func readLocalOverride(src string) (raw []byte, present bool, err error) {
-	raw, err = os.ReadFile(src)
+	raw, err = os.ReadFile(src) //nolint:gosec // G304: path derives from the server-controlled cscli config directory
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
@@ -413,7 +413,7 @@ func readLocalOverride(src string) (raw []byte, present bool, err error) {
 
 // writeLocalOverride creates dst exclusively with mode 0600 and writes the override content raw into it.
 func writeLocalOverride(dst string, raw []byte) error {
-	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path derives from the server-controlled cscli config directory
 	if err != nil {
 		return fmt.Errorf("create hub mirror local override: %w", err)
 	}

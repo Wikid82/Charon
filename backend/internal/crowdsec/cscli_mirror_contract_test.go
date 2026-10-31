@@ -45,7 +45,7 @@ func contractLiveConfig(t *testing.T) string {
 // checks do on hosts without the binary.
 func TestCSCLIContractAcceptsMirrorConfig(t *testing.T) {
 	live := contractLiveConfig(t)
-	raw, err := os.ReadFile(live)
+	raw, err := os.ReadFile(live) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	var fixture map[string]any
 	require.NoError(t, yaml.Unmarshal(raw, &fixture))
@@ -62,7 +62,7 @@ func TestCSCLIContractAcceptsMirrorConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 
-	derivedRaw, err := os.ReadFile(derived)
+	derivedRaw, err := os.ReadFile(derived) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	var doc struct {
 		CSCLI map[string]any `yaml:"cscli"`

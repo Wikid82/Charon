@@ -182,7 +182,7 @@ func TestMirrorCSCLIConfigInsertsTemplateAndKeepsOtherKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 
-	raw, err := os.ReadFile(derived)
+	raw, err := os.ReadFile(derived) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	var got map[string]map[string]string
 	require.NoError(t, yaml.Unmarshal(raw, &got))
@@ -192,7 +192,7 @@ func TestMirrorCSCLIConfigInsertsTemplateAndKeepsOtherKeys(t *testing.T) {
 	require.Equal(t, "info", got["common"]["log_level"])
 
 	// The live file is never touched.
-	liveRaw, err := os.ReadFile(live)
+	liveRaw, err := os.ReadFile(live) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Contains(t, string(liveRaw), "hub_branch: dev")
 	require.NotContains(t, string(liveRaw), "__hub_url_template__")
@@ -223,7 +223,7 @@ func TestMirrorCSCLIConfigSetsBranchWhenMissingOrEmpty(t *testing.T) {
 			require.NoError(t, err)
 			defer cleanup()
 
-			raw, err := os.ReadFile(derived)
+			raw, err := os.ReadFile(derived) //nolint:gosec // G304: t.TempDir-derived path
 			require.NoError(t, err)
 			var got map[string]map[string]string
 			require.NoError(t, yaml.Unmarshal(raw, &got))
@@ -241,7 +241,7 @@ func TestMirrorCSCLIConfigQuotesTemplateValue(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	raw, err := os.ReadFile(derived)
+	raw, err := os.ReadFile(derived) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `__hub_url_template__: "https://raw.githubusercontent.com/crowdsecurity/hub/%s/%s"`)
 }
@@ -267,7 +267,7 @@ func TestMirrorCSCLIConfigAllowsEmptyOperatorTemplate(t *testing.T) {
 	require.NoError(t, err)
 	defer cleanup()
 
-	raw, err := os.ReadFile(derived)
+	raw, err := os.ReadFile(derived) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Contains(t, string(raw), testMirrorTemplate)
 }
@@ -331,7 +331,7 @@ func TestMirrorCSCLIConfigCopiesLocalOverride(t *testing.T) {
 	derived, cleanup, err := mirrorCSCLIConfig(live, testMirrorTemplate)
 	require.NoError(t, err)
 
-	copied, err := os.ReadFile(derived + ".local")
+	copied, err := os.ReadFile(derived + ".local") //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, local, string(copied))
 	info, err := os.Stat(derived + ".local")
@@ -459,7 +459,7 @@ func TestWriteLocalOverrideRefusesExistingTarget(t *testing.T) {
 	require.NoError(t, os.WriteFile(dst, []byte("keep"), 0o600))
 
 	require.ErrorContains(t, writeLocalOverride(dst, []byte("new")), "create hub mirror local override")
-	kept, err := os.ReadFile(dst)
+	kept, err := os.ReadFile(dst) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	require.Equal(t, "keep", string(kept), "an existing target is never overwritten")
 }
