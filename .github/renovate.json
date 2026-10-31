@@ -890,12 +890,6 @@
   },
   "packageRules": [
     {
-      "description": "Keep TypeScript on 6.x: typescript-eslint does not support TS 7 yet (v7 crashes it) and npm cannot give it a separate copy. Remove once typescript-eslint supports TS 7.",
-      "matchManagers": ["npm"],
-      "matchPackageNames": ["typescript"],
-      "allowedVersions": "<7"
-    },
-    {
       "description": "Keep the Playwright container image in lockstep with @playwright/test: one PR bumps both, so the E2E version guard (scripts/ci/check-playwright-image-version.sh) never sees a drift on main.",
       "matchPackageNames": [
         "@playwright/test",
