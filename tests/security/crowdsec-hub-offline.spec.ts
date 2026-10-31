@@ -9,7 +9,6 @@
  * - `hub_offline: false` shows no note
  *
  * The E2E container has no cscli or hub, so the preset list is route-mocked.
- * Every case is `test.fixme` until the UI lands.
  */
 
 import type { Page } from "@playwright/test";
@@ -113,7 +112,7 @@ test.describe("CrowdSec hub offline presets @security", () => {
     await waitForLoadingComplete(page);
   });
 
-  test.fixme("should show the muted hub offline note with no banner or button when hub_offline is true", async ({
+  test("should show the muted hub offline note with no banner or button when hub_offline is true", async ({
     page,
   }) => {
     await stubPresetList(page, [SELECTABLE_ROW, OFFLINE_HUB_ROW], true);
@@ -139,7 +138,7 @@ test.describe("CrowdSec hub offline presets @security", () => {
     });
   });
 
-  test.fixme("should show unavailable hub rows disabled and auto-select the first selectable row", async ({
+  test("should show unavailable hub rows disabled and auto-select the first selectable row", async ({
     page,
   }) => {
     const { pullSlugs } = await stubPresetList(
@@ -177,11 +176,28 @@ test.describe("CrowdSec hub offline presets @security", () => {
         "aria-pressed",
         "true",
       );
+      // Positive control: selecting a row auto-pulls its preview and Pull Preview pulls again, so
+      // the captured slugs are only asserted after the explicit pull's request and response.
+      const pullRequest = page.waitForRequest(
+        (request) =>
+          request.url().endsWith("/api/v1/admin/crowdsec/presets/pull") &&
+          request.method() === "POST",
+      );
+      const pullResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname ===
+            "/api/v1/admin/crowdsec/presets/pull" &&
+          response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Pull Preview", exact: true }).click();
+      await pullRequest;
+      await pullResponse;
+      expect(new Set(pullSlugs)).toEqual(new Set([SELECTABLE_ROW.slug]));
       expect(pullSlugs).not.toContain(OFFLINE_HUB_ROW.slug);
     });
   });
 
-  test.fixme("should select nothing and show no error when every row is unavailable offline", async ({
+  test("should select nothing and show no error when every row is unavailable offline", async ({
     page,
   }) => {
     const { pullSlugs } = await stubPresetList(
@@ -214,7 +230,7 @@ test.describe("CrowdSec hub offline presets @security", () => {
     });
   });
 
-  test.fixme("should show no hub offline note when hub_offline is false", async ({
+  test("should show no hub offline note when hub_offline is false", async ({
     page,
   }) => {
     await stubPresetList(page, [SELECTABLE_ROW, OFFLINE_HUB_ROW], false);

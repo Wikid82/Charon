@@ -945,9 +945,11 @@ re-download them (startup log line only; no UI). `scripts/crowdsec_data_persiste
 verifies this in the CrowdSec integration job.
 
 **Versioning:** the bundled `cscli` and `crowdsec` binaries report their real
-version (currently v1.8.1); the Docker build fails if they do not. The
+version (currently v1.8.2); the Docker build fails if they do not. The
 entrypoint pins `cscli.hub_branch: master` in the CrowdSec config for
 deterministic hub access (an operator-set value is preserved).
+
+**Hub fallback:** every hub request attempt gets its own share of the remaining time budget (`attemptContext`, `internal/crowdsec/hub_budget.go`, floor 5 s). When `cscli hub update`, upgrade, or an item install fails on the live hub address, Charon runs the same command once more under a derived cscli configuration: a copy of the live file with cscli's hidden `__hub_url_template__` key pointed at the GitHub mirror. The live file is never written, and the copy is removed afterwards. `hub update` gives the live address half of its budget first. A winning mirror retry opens a mirror-first window of 10 minutes (`mirrorMemoryTTL`, not extended by later wins) that the API process keeps in memory; a live win closes it. Startup and item installs use the POSIX helper `.docker/cscli-hub-mirror.sh` (installed as `/usr/local/lib/charon/cscli-hub-mirror.sh`, sourced by `.docker/docker-entrypoint.sh` and `configs/crowdsec/install_hub_items.sh`), which keeps its mirror-first flag only for that startup run. The `CHARON_CSCLI_MIRROR_CONFIG` and `CHARON_CSCLI_MIRROR_FIRST` variables are internal state set by that helper; they are not operator settings, and the entrypoint clears them at start. Derived `.charon-hub-mirror-*` files are excluded from listings, reads, exports and imports. The presets list answers 200 with `hub_offline: true` when it was served without a usable hub index; a pull or apply that reaches no hub route answers 503 `hub_unreachable`.
 
 **Modes:**
 

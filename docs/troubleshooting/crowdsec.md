@@ -195,7 +195,7 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 
 ## Common issues
 
-- Hub unreachable (503, `hub_unreachable`): retry once, then Charon falls back to cached Hub data if available; otherwise stay on curated/offline presets until connectivity returns. The same answer is given when a pull needs to download a preset that is not cached and the hub cannot be reached, and when an apply cannot download an item.
+- Hub unreachable (503, `hub_unreachable`): Charon has already tried the main hub address and the GitHub mirror (see [When the CrowdSec hub cannot be reached](#when-the-crowdsec-hub-cannot-be-reached)). Retry once, then Charon falls back to cached Hub data if available; otherwise stay on curated/offline presets until connectivity returns. The same answer is given when a pull needs to download a preset that is not cached and the hub cannot be reached, and when an apply cannot download an item.
 - Hub returns HTML/redirect: set HUB_BASE_URL to the JSON endpoint above or install cscli so the index is fetched locally.
 - Bad preset slug (400): the slug must match Hub naming; correct the slug before retrying.
 - **"Install missing hub items" says the hub could not be reached**: nothing was installed and nothing was changed. Check that the container has internet access and can resolve names (DNS), then click the button again. Items that were not reached in time can be retried with **Install remaining**.
@@ -251,6 +251,29 @@ These appear when Charon cannot read or save your log sources settings file (`ac
 3. Fix the owner or permissions on your computer, then restart Charon. `chown` changes the owner of a file or folder, and `chmod` changes who may read or write it. Ask someone who knows your server if you are not sure which owner to use.
 4. If you mounted your data folder as read-only (a `:ro` at the end of its line in your compose file), Charon cannot save anything. Remove the `:ro` from that line, restart Charon, and try again.
 
+## When the CrowdSec hub cannot be reached
+
+CrowdSec publishes its lists of rules and presets (the "hub"). Charon normally gets them from CrowdSec's main address. If that address does not answer, Charon tries a second copy of the hub on GitHub (the "mirror"). You do not need to turn anything on for this.
+
+The mirror is used in these places:
+
+- **Preset list and downloads.** The presets page and the **Pull** button try the main address first, then the mirror.
+- **Starting CrowdSec.** The hub update that runs when the container starts, and the installs of missing hub items, try the mirror too.
+- **Installing items.** Charon's `cscli` tool (CrowdSec's command-line helper, which ships inside Charon) retries on the mirror when a hub update or item install fails on the main address.
+
+**Slow connections.** A slow link can make the main address take a long time to fail before the mirror is tried. For `hub update`, Charon gives the main address about half of its time limit, then uses the rest for the mirror. For item installs, the main address gets the full time, so a slow install that runs out of time does not get a mirror retry. If that happens, wait a few minutes and try again.
+
+**Staying on the mirror.** After the mirror answers once, Charon tries the mirror first for the next 10 minutes, so each request does not wait for the main address to time out again. When that time ends, the main address is tried first again. If the main address answers during those 10 minutes, Charon goes back to it straight away.
+
+**The presets page.** If the hub list could not be used, the page shows a quiet note: "Showing built-in and downloaded presets. The hub list was not loaded." It is information only. No action is needed.
+
+- Built-in presets and presets you have already downloaded keep working.
+- Hub presets you have not downloaded yet appear greyed out. You cannot select them until the hub is reachable again.
+
+**When both routes fail.** If neither the main address nor the mirror can be reached, Charon reports "CrowdSec could not reach the hub" (error `hub_unreachable`). Nothing is installed and your settings stay as they were. Check the container's internet and DNS access, then try again.
+
+**Temporary files.** During a mirror retry, Charon makes a short-lived copy of CrowdSec's settings file that points at the mirror. Its name starts with `.charon-hub-mirror-`. This copy is internal. Charon removes it automatically, and it never appears in the file list or in exports. You do not need to delete it.
+
 ## Hub preset messages
 
 Applying a hub preset shows one of these messages when it cannot finish or needs your attention. When an apply fails, your CrowdSec settings are put back as they were.
@@ -259,7 +282,7 @@ Applying a hub preset shows one of these messages when it cannot finish or needs
 - **"The hub is still updating, try again later."** (HTTP 409, `preset_hub_updating`): the hub is still publishing a newer version of this item. Charon checks every downloaded item against the hub's index before it keeps a copy, and refuses one that does not match, so an incomplete update is not used. Wait a while, pull the preset again, then apply it.
 - **"This item was edited on this server and was left unchanged. Reset it before applying the preset."**: you (or a script) changed this item's file on this server, and Charon will not overwrite your edit. The message lists the edited items ("Edited items: ..."). A plain install or upgrade does nothing for an edited item, so reset it with `cscli <type> install <name> --force` (Docker users run it as `docker exec charon cscli ...`), for example `docker exec charon cscli parsers install crowdsecurity/apache2-logs --force`. If a collection reports an edited item inside it, run `cscli collections install <collection> --force`, which also restores that item. This replaces your edit with the original hub version, so your local change is lost. Then reload CrowdSec, pull the preset again and apply it.
 - **"The preset install took too long and was rolled back. Try again."**: the install did not finish within 120 seconds (typical installs take 1-5 seconds; the slowest common collection takes about a minute on a first download). Try again, or raise `HUB_APPLY_TIMEOUT_SECONDS` on a slow connection (the web interface stops waiting after 130 seconds, so values above about 125 only help when you run the install yourself with `cscli`). Very large collections (hundreds of items, such as `sigmahq/windows_proc_creation`) can take several minutes because items are downloaded one by one; install those directly with `docker exec charon cscli collections install <name>`.
-- **"CrowdSec could not reach the hub. Check the network connection and try again."** (HTTP 503, `hub_unreachable`): the server has no route to the CrowdSec hub, when pulling a preset that was never downloaded as well as when applying one. Nothing was installed and your settings are unchanged. Check the container's internet and DNS access, then try again.
+- **"CrowdSec could not reach the hub. Check the network connection and try again."** (HTTP 503, `hub_unreachable`): Charon could not reach the CrowdSec hub on either its main address or the GitHub mirror. This applies when pulling a preset that was never downloaded as well as when applying one. Nothing was installed and your settings are unchanged. Check the container's internet and DNS access, then try again.
 - **"This name exists in several hub sections. Choose which item to use."** (HTTP 409, `preset_type_ambiguous`): pick the item type in the list that appears, then pull again.
 - **"cscli unavailable or not responding"**: Charon could not run `cscli`. The Docker image includes it; restart the container and try again.
 - **"cscli unavailable or not responding" offline**: an already-downloaded preview can be applied if its items are already on the server; otherwise the apply fails and is rolled back. Pulling a preset that was never downloaded needs internet access.
