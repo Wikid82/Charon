@@ -235,8 +235,9 @@ _hub_network_failure() {
 #   - exit 124 (GNU timeout) or 143 (busybox timeout, or a command killed by TERM);
 #   - the signal text cscli prints when it traps the TERM that timeout sends ("terminated signal received", or
 #     Go's "signal: terminated"), which leaves exit 1 on busybox;
-#   - a non-zero exit at or past the budget less one second. The clock has whole seconds, so the margin keeps a
-#     run that ended right at the budget. Reads _HUB_ATTEMPT_BUDGET and _HUB_ATTEMPT_ELAPSED from the last attempt.
+#   - a non-zero exit at or past the budget less one second, and never under two seconds. The clock has whole seconds:
+#     the margin keeps a run that ended right at the budget, and the floor stops an instant failure that crosses a
+#     second boundary from reading as one second. Reads _HUB_ATTEMPT_BUDGET and _HUB_ATTEMPT_ELAPSED from the last attempt.
 _hub_timed_out() {
     case "$1" in
         124|143) return 0 ;;
@@ -244,7 +245,7 @@ _hub_timed_out() {
     if grep -Eqi 'terminated signal received|signal: terminated' "$2"; then
         return 0
     fi
-    [ "$1" -ne 0 ] && [ "$_HUB_ATTEMPT_ELAPSED" -ge $((_HUB_ATTEMPT_BUDGET - 1)) ]
+    [ "$1" -ne 0 ] && [ "$_HUB_ATTEMPT_ELAPSED" -ge 2 ] && [ "$_HUB_ATTEMPT_ELAPSED" -ge $((_HUB_ATTEMPT_BUDGET - 1)) ]
 }
 
 # _hub_retry_wanted <kind> <status> <log>

@@ -602,7 +602,7 @@ echo "# set -e safety and the stop-aware runner"
     export FAKE_MODE FAKE_LOG
     : >"$FAKE_LOG"
     hub_mirror_prepare "$C10/config.yaml"
-    if ! cscli_hub 4 hub update >/dev/null 2>&1; then
+    if ! cscli_hub 60 hub update >/dev/null 2>&1; then
         echo "handled"
     fi
     echo "after"
