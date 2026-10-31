@@ -2,6 +2,7 @@ package crowdsec
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -49,9 +50,22 @@ func isSecretName(part string) bool {
 }
 
 // IsPreservedPath reports whether rel is server-local state that imports must neither remove, replace
-// nor take from an upload: engine-owned state and stored secrets.
+// nor take from an upload: engine-owned state, stored secrets and derived hub mirror configurations.
 func IsPreservedPath(rel string) bool {
-	return IsEngineOwnedPath(rel) || IsSecretPath(rel)
+	return IsEngineOwnedPath(rel) || IsSecretPath(rel) || IsHubMirrorConfig(rel)
+}
+
+// IsHubMirrorConfig reports whether rel names a derived cscli configuration made for a hub mirror retry, or its
+// local override copy. Such a file repeats the live engine settings, so it is never listed, read, exported or
+// imported. Only the two places a live configuration can sit are matched: directly under DataDir or under
+// config/. Matching is case-insensitive.
+func IsHubMirrorConfig(rel string) bool {
+	slash := strings.ToLower(path.Clean(filepath.ToSlash(rel)))
+	dir := path.Dir(slash)
+	if dir != "." && dir != "config" {
+		return false
+	}
+	return isMirrorConfigName(path.Base(slash))
 }
 
 // FindConfigFile returns the CrowdSec config file below dataDir: config/config.yaml when it exists,

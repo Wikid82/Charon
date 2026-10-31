@@ -1,6 +1,8 @@
 package crowdsec
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -158,4 +160,69 @@ func TestRestoreKeepingLeavesLiveSecretsAlone(t *testing.T) {
 		require.NoError(t, Restore(snap, dir))
 		require.Equal(t, "live-key", readFile(t, filepath.Join(dir, "bouncer_key")))
 	})
+}
+
+func TestIsHubMirrorConfig(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		".charon-hub-mirror-abc.yaml":              true,
+		".charon-hub-mirror-abc.yaml.local":        true,
+		"config/.charon-hub-mirror-abc.yaml":       true,
+		"config/.charon-hub-mirror-abc.yaml.local": true,
+		"./.charon-hub-mirror-abc.yaml":            true,
+		"CONFIG/.Charon-Hub-Mirror-ABC.YAML":       true,
+		".CHARON-HUB-MIRROR-ABC.YAML.LOCAL":        true,
+		`config\.charon-hub-mirror-abc.yaml`:       filepath.Separator == '\\',
+		"config.yaml":                              false,
+		"config/config.yaml":                       false,
+		"config/config.yaml.local":                 false,
+		"charon-hub-mirror-abc.yaml":               false,
+		".charon-hub-mirror-abc.txt":               false,
+		".charon-hub-mirror-abc.yaml.bak":          false,
+		"sub/.charon-hub-mirror-abc.yaml":          false,
+		"config/sub/.charon-hub-mirror-abc.yaml":   false,
+		"data/.charon-hub-mirror-abc.yaml":         false,
+		"xcharon-hub-mirror-abc.yaml":              false,
+		"":                                         false,
+		".":                                        false,
+	}
+	for rel, want := range cases {
+		require.Equal(t, want, IsHubMirrorConfig(rel), rel)
+	}
+}
+
+func TestHubMirrorConfigIsPreservedAndExcluded(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	for _, rel := range []string{
+		".charon-hub-mirror-abc.yaml",
+		".charon-hub-mirror-abc.yaml.local",
+		"config/.charon-hub-mirror-abc.yaml",
+		"config/.charon-hub-mirror-abc.yaml.local",
+	} {
+		require.True(t, IsPreservedPath(rel), "preserved %s", rel)
+		require.True(t, IsExportExcluded(rel), "export excludes %s", rel)
+		require.True(t, ImportKeeper(dataDir)(rel), "import keeps %s", rel)
+	}
+	require.False(t, IsPreservedPath("config/config.yaml"))
+	require.False(t, IsExportExcluded("config/config.yaml"))
+	require.False(t, ImportKeeper(dataDir)("config/config.yaml"))
+}
+
+func TestHubMirrorLeftoverIsLeftOutOfExportArchive(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeExportTree(t, dir, map[string]string{
+		"config/config.yaml":                       "common: {}\n",
+		"config/.charon-hub-mirror-abc.yaml":       "cscli:\n  password: s3cret\n",
+		"config/.charon-hub-mirror-abc.yaml.local": "cscli: {}\n",
+		".charon-hub-mirror-def.yaml":              "cscli:\n  password: s3cret\n",
+		"config/acquis.yaml":                       "source: file\n",
+	})
+
+	var buf bytes.Buffer
+	_, omitted, err := WriteExportArchive(context.Background(), dir, &buf)
+	require.NoError(t, err)
+	require.Equal(t, []string{"config/acquis.yaml", "config/config.yaml"}, exportNames(t, buf.Bytes()))
+	require.NotContains(t, omitted, "config/.charon-hub-mirror-abc.yaml")
 }

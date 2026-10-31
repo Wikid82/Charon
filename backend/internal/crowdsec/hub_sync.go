@@ -77,6 +77,9 @@ type HubIndex struct {
 	offline bool
 }
 
+// Offline reports whether the index was listed from the local cscli data because the HTTP index was unreachable.
+func (idx HubIndex) Offline() bool { return idx.offline }
+
 // PullResult bundles the pull metadata, preview text, and cache entry.
 type PullResult struct {
 	Meta    CachedPreset
