@@ -48,6 +48,7 @@ Every `cscli` call, including hub `inspect`, verify and the startup bouncer comm
 | `cscli <type> inspect <name> -o json` | Parsed for the item's state. `path` is the item's own file relative to the hub directory (for example `collections/crowdsecurity/nginx.yaml`) and is what a preset apply saves before an in-place upgrade; `local_path` is the installed link in the configuration and is only a fallback. |
 | `cscli <type> install <name>` | Exit status. **`cscli hub install` does not exist**; items are installed per type (`collections`, `parsers`, ...). |
 | `cscli <type> upgrade <name>` | Exit status. |
+| `cscli -c <derived> ...` with `cscli.__hub_url_template__` set (hidden test hook; used for the hub mirror retry) | Charon runs the hub commands above a second time under a derived copy of the configuration when the hub address fails. Verified on cscli 1.8.2 only; re-check on every CrowdSec bump. A cscli that drops the key runs the same request once more and reports the original error. |
 
 Not every path in the table is fixture-covered (see the recordings below); the fixtures
 are the authority for what each covered command prints.

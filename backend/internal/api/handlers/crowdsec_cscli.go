@@ -39,9 +39,36 @@ const (
 // time returns an error that wraps context.DeadlineExceeded, whether the process was killed or reported the
 // context error itself.
 func (h *CrowdsecHandler) runCSCLI(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
+	return h.runTimedCSCLI(ctx, timeout, func(runCtx context.Context) ([]byte, error) {
+		return crowdsec.RunCSCLI(runCtx, h.CmdExec, crowdsec.FindConfigFile(h.DataDir), args...)
+	})
+}
+
+// runHubCSCLI runs one cscli hub download under its own deadline, as runCSCLI does. A failed hub address is retried
+// once on the hub mirror (see crowdsec.RunHubCSCLI) with the handler's executor.
+func (h *CrowdsecHandler) runHubCSCLI(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
+	return h.runTimedCSCLI(ctx, timeout, func(runCtx context.Context) ([]byte, error) {
+		return crowdsec.RunHubCSCLI(runCtx, h.CmdExec, h.hubMirrorOptions(), args...)
+	})
+}
+
+// hubMirrorOptions returns the mirror retry settings for the handler's data directory. Without a hub service
+// there is no mirror window and no mirror template, so a failed hub address is not retried.
+func (h *CrowdsecHandler) hubMirrorOptions() crowdsec.HubCSCLIOptions {
+	opts := crowdsec.HubCSCLIOptions{ConfigPath: crowdsec.FindConfigFile(h.DataDir)}
+	if h.Hub != nil {
+		hubOpts := h.Hub.MirrorOptions()
+		opts.Template, opts.Memory = hubOpts.Template, hubOpts.Memory
+	}
+	return opts
+}
+
+// runTimedCSCLI runs one cscli call under a deadline of timeout. A call that ran out of time returns an error that
+// wraps context.DeadlineExceeded, whether the process was killed or reported the context error itself.
+func (h *CrowdsecHandler) runTimedCSCLI(ctx context.Context, timeout time.Duration, run func(context.Context) ([]byte, error)) ([]byte, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := crowdsec.RunCSCLI(runCtx, h.CmdExec, crowdsec.FindConfigFile(h.DataDir), args...)
+	out, err := run(runCtx)
 	if err != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
 		err = fmt.Errorf("cscli did not finish in time: %w: %w", context.DeadlineExceeded, err)
 	}

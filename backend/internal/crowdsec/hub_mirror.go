@@ -29,6 +29,9 @@ const (
 	mirrorDefaultBranch = "master"
 	// builtinMirrorTemplate is the template of the built-in mirror: the GitHub hub mirror, branch and file.
 	builtinMirrorTemplate = "https://raw.githubusercontent.com/crowdsecurity/hub/%s/%s"
+	// mirrorMemoryTTL is how long requests go mirror-first after the mirror answered one. A hung hub then costs one
+	// attempt per job instead of one per item.
+	mirrorMemoryTTL = 10 * time.Minute
 )
 
 var (
@@ -107,20 +110,39 @@ func isHubNetworkOp(args []string) bool {
 	return args[1] == "install" || args[1] == "upgrade"
 }
 
-// isRetryableHubFailure reports whether cscli output names a failure that a retry on the mirror can fix: a
-// network failure, or a request that ran out of time. Other failures (an unknown item, a tainted item) are not
-// retried.
-func isRetryableHubFailure(text string) bool {
+// transportTimeoutMarkers are the output fragments of an HTTP request that timed out inside the client. They name a
+// request that never got an answer, which a retry on another address can fix.
+var transportTimeoutMarkers = []string{"client.timeout", "tls handshake timeout"}
+
+// deadlineMarker is the text of an expired context. On its own it can be a healthy slow install that ran out of its
+// time, so only a hub update retries on it.
+const deadlineMarker = "context deadline exceeded"
+
+// isHubUpdate reports whether args are `hub update`.
+func isHubUpdate(args []string) bool {
+	return len(args) >= 2 && args[0] == "hub" && args[1] == "update"
+}
+
+// isMirrorRetryableFailure reports whether cscli output names a network failure or a transport timeout. An item
+// error (unknown, tainted) and a bare deadline are not retryable here.
+func isMirrorRetryableFailure(text string) bool {
 	if hasNetworkFailure(text) {
 		return true
 	}
 	lower := strings.ToLower(text)
-	for _, marker := range []string{"context deadline exceeded", "client.timeout", "tls handshake timeout"} {
+	for _, marker := range transportTimeoutMarkers {
 		if strings.Contains(lower, marker) {
 			return true
 		}
 	}
 	return false
+}
+
+// isRetryableHubFailure reports whether cscli output names a failure a hub update can retry on the other address: a
+// network failure, a transport timeout, or an expired deadline. Other failures (an unknown item, a tainted item) are
+// not retried.
+func isRetryableHubFailure(text string) bool {
+	return isMirrorRetryableFailure(text) || strings.Contains(strings.ToLower(text), deadlineMarker)
 }
 
 // mirrorHubTemplate returns the cscli hub URL template for a mirror base, such as

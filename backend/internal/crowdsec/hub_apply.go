@@ -220,7 +220,7 @@ func (s *HubService) ApplyWith(ctx context.Context, req ApplyRequest) (ApplyResu
 	}
 
 	req.enter(PhaseInstall)
-	installOut, err := s.runCSCLI(applyCtx, meta.Type, "install", meta.Name)
+	installOut, err := s.runHubCSCLI(applyCtx, meta.Type, "install", meta.Name)
 	if err != nil {
 		return rollBack(installFailure(meta, installOut, err))
 	}
@@ -241,7 +241,7 @@ func (s *HubService) ApplyWith(ctx context.Context, req ApplyRequest) (ApplyResu
 			return s.rollBackMismatch(applyCtx, result, backupPath, meta)
 		}
 		// An older, unmodified version was already installed and install left it alone.
-		if _, upErr := s.runCSCLI(applyCtx, meta.Type, "upgrade", meta.Name); upErr != nil {
+		if _, upErr := s.runHubCSCLI(applyCtx, meta.Type, "upgrade", meta.Name); upErr != nil {
 			return rollBack(fmt.Errorf("upgrade %s %s: %w", meta.Type, meta.Name, upErr))
 		}
 		if installed, err = s.inspectItem(applyCtx, meta.Type, meta.Name); err != nil {
@@ -303,7 +303,7 @@ func (s *HubService) updateHubIndex(ctx context.Context) {
 	}
 	updateCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	if _, err := s.runCSCLI(updateCtx, "hub", "update"); err != nil {
+	if _, err := s.runHubCSCLI(updateCtx, "hub", "update"); err != nil {
 		logger.Log().WithError(err).Warn("cscli hub update failed; continuing with the local hub index")
 	}
 }

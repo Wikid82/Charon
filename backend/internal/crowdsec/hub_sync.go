@@ -134,6 +134,8 @@ type HubService struct {
 	// legacySweepMu guards legacySweepDone, which is set once the old-layout cache sweep has succeeded.
 	legacySweepMu   sync.Mutex
 	legacySweepDone bool
+	// mirror is the mirror-first window shared by every cscli hub request of this service.
+	mirror *MirrorMemory
 }
 
 // errHubURLUnparseable is the cause when net/url rejects a hub URL. The parser error quotes the whole input, which
@@ -208,6 +210,11 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 		}
 	}
 
+	// Derived mirror configurations a crash left behind are removed before any request can use the directory.
+	if err := sweepMirrorLeftovers(dataDir); err != nil {
+		logger.Log().WithError(err).Warn("could not remove leftover hub mirror configurations")
+	}
+
 	return &HubService{
 		Exec:          exec,
 		Cache:         cache,
@@ -219,6 +226,7 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 		ApplyTimeout:  applyTimeout,
 
 		HubUpdateTimeout: defaultHubUpdateTimeout,
+		mirror:           NewMirrorMemory(mirrorMemoryTTL, nil),
 	}
 }
 
