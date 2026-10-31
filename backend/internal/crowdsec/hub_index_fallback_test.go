@@ -90,10 +90,9 @@ func TestFetchIndexStopsWhenCallerContextEnds(t *testing.T) {
 // When every candidate fails, each URL appears exactly once in the aggregated error, with transport and HTTP failures alike.
 func TestHubIndexErrorNamesEachURLOnce(t *testing.T) {
 	captureHubIndexLogs(t)
-	mirrorAPI := defaultHubMirrorBaseURL + defaultHubIndexPath
 	transport := &hubTransport{
 		errs:   map[string]error{cdnIndexURL: errors.New("connection refused")},
-		status: map[string]int{rawIndexURL: http.StatusServiceUnavailable, mirrorAPI: http.StatusNotFound},
+		status: map[string]int{rawIndexURL: http.StatusServiceUnavailable},
 	}
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HTTPClient = &http.Client{Transport: transport}
@@ -102,12 +101,11 @@ func TestHubIndexErrorNamesEachURLOnce(t *testing.T) {
 	require.Error(t, err)
 
 	msg := err.Error()
-	for _, u := range []string{cdnIndexURL, rawIndexURL, mirrorAPI} {
+	for _, u := range []string{cdnIndexURL, rawIndexURL} {
 		require.Equal(t, 1, strings.Count(msg, u), "URL %s must appear exactly once in: %s", u, msg)
 	}
 	require.Contains(t, msg, "connection refused")
 	require.Contains(t, msg, "status 503")
-	require.Contains(t, msg, "status 404")
 }
 
 // An operator-set hub URL that does not parse is logged as a placeholder, never echoed back.

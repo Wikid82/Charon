@@ -297,15 +297,15 @@ func buildIndexURL(base string) string {
 	return strings.TrimRight(normalized, "/") + defaultHubIndexPath
 }
 
+// indexURLCandidates lists the index files to try for one hub base. A GitHub-hosted base has only its .index.json:
+// the api/index.json path that buildIndexURL would add there does not exist on those hosts.
 func indexURLCandidates(base string) []string {
 	normalized := normalizeHubBaseURL(base)
-	primary := buildIndexURL(normalized)
 	if strings.Contains(normalized, "github.io") || strings.Contains(normalized, "githubusercontent.com") {
-		mirrorIndex := strings.TrimRight(normalized, "/") + "/.index.json"
-		return uniqueStrings([]string{mirrorIndex, primary})
+		return []string{strings.TrimRight(normalized, "/") + "/.index.json"}
 	}
 
-	return []string{primary}
+	return []string{buildIndexURL(normalized)}
 }
 
 func uniqueStrings(values []string) []string {
@@ -325,25 +325,38 @@ func uniqueStrings(values []string) []string {
 // to the index cscli holds locally (`cscli hub list -a`), which lists every item but carries no download
 // URLs, so it serves listing only.
 func (s *HubService) FetchIndex(ctx context.Context) (HubIndex, error) {
-	idx, httpErr := s.fetchIndexHTTP(ctx)
+	// The walk and the local cscli listing share one overall deadline: the caller's own, or PullTimeout from now.
+	overall, cancel := overallContext(ctx, s.PullTimeout)
+	defer cancel()
+
+	idx, httpErr := s.fetchIndexHTTP(overall)
 	if httpErr == nil {
 		return idx, nil
 	}
-	if s.Exec == nil {
+	if s.Exec != nil {
+		cscliIdx, cscliErr := s.fetchIndexCSCLI(overall)
+		if cscliErr == nil {
+			logger.Log().WithError(httpErr).Debug("hub index unreachable, listing from the local cscli index")
+			cscliIdx.offline = true
+			return cscliIdx, nil
+		}
+		httpErr = fmt.Errorf("%w; cscli fallback failed: %v", httpErr, cscliErr)
+	}
+	// A caller that left, or whose own deadline ended the fetch, is not told that the hub is unreachable.
+	if errors.Is(ctx.Err(), context.Canceled) {
 		return HubIndex{}, httpErr
 	}
-	idx, cscliErr := s.fetchIndexCSCLI(ctx)
-	if cscliErr != nil {
-		failure := fmt.Errorf("%w; cscli fallback failed: %v", httpErr, cscliErr)
-		if ctx.Err() != nil {
-			return HubIndex{}, failure
-		}
-		// Neither the hub nor the local index answered; callers show a fixed message and the detail stays in the log.
-		return HubIndex{}, fmt.Errorf("%w: %w", ErrHubUnreachable, failure)
+	if _, callerDeadline := ctx.Deadline(); callerDeadline && ctx.Err() != nil {
+		return HubIndex{}, httpErr
 	}
-	logger.Log().WithError(httpErr).Debug("hub index unreachable, listing from the local cscli index")
-	idx.offline = true
-	return idx, nil
+	// Only a hub that never answered (every address failed at transport level or by timing out) is unreachable;
+	// an address that answered with an error keeps its own status.
+	var walkErr hubWalkError
+	if !errors.As(httpErr, &walkErr) || !walkErr.transportOnly {
+		return HubIndex{}, httpErr
+	}
+	// Neither the hub nor the local index answered; callers show a fixed message and the detail stays in the log.
+	return HubIndex{}, fmt.Errorf("%w: %w", ErrHubUnreachable, httpErr)
 }
 
 func (s *HubService) fetchIndexCSCLI(ctx context.Context) (HubIndex, error) {
@@ -520,16 +533,25 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 	}
 	targets = uniqueStrings(targets)
 	var errs []error
+	transportOnly := true
 
+	// The walk owns one overall deadline; each candidate gets its share of what is left of it, so a hanging
+	// address cannot use up the time the next address needs.
+	walkCtx, cancelWalk := walkContext(ctx, s.PullTimeout)
+	defer cancelWalk()
 	for attempt, target := range targets {
-		idx, err := s.fetchIndexHTTPFromURL(ctx, target)
+		attemptCtx, cancelAttempt := attemptContext(walkCtx, len(targets)-attempt)
+		idx, err := s.fetchIndexHTTPFromURL(attemptCtx, target)
+		cancelAttempt()
 		if err == nil {
 			logger.Log().WithField("hub_index", HubURLForLog(target)).WithField("fallback_used", attempt > 0).Info("hub index fetched")
 			return idx, nil
 		}
 		errs = append(errs, candidateError(target, err))
-		// A caller that cancelled or whose deadline passed has no use for the remaining candidates.
-		if ctx.Err() != nil {
+		var transportErr hubTransportError
+		transportOnly = transportOnly && errors.As(err, &transportErr)
+		// The walk's deadline or the caller's context ended: the remaining candidates have no time left.
+		if walkCtx.Err() != nil {
 			break
 		}
 		if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
@@ -539,12 +561,22 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 		break
 	}
 
+	joined := errors.Join(errs...)
 	if len(errs) == 1 {
-		return HubIndex{}, fmt.Errorf("fetch hub index: %w", errs[0])
+		joined = errs[0]
 	}
-
-	return HubIndex{}, fmt.Errorf("fetch hub index: %w", errors.Join(errs...))
+	return HubIndex{}, hubWalkError{err: fmt.Errorf("fetch hub index: %w", joined), transportOnly: transportOnly}
 }
+
+// hubWalkError is the failure of the HTTP candidate walk. transportOnly is set when no candidate answered at all:
+// every failure was a transport failure, including an attempt that timed out.
+type hubWalkError struct {
+	err           error
+	transportOnly bool
+}
+
+func (h hubWalkError) Error() string { return h.err.Error() }
+func (h hubWalkError) Unwrap() error { return h.err }
 
 type hubHTTPError struct {
 	url        string
@@ -623,7 +655,8 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArchiveSize))
 	if err != nil {
-		return HubIndex{}, fmt.Errorf("read hub index: %w", err)
+		// A body that stalls past the attempt's share or breaks mid-way is a transport failure: the next address may answer.
+		return HubIndex{}, hubTransportError{url: target, inner: transportCause(err)}
 	}
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
 	if ct != "" && !strings.Contains(ct, "application/json") && !strings.Contains(ct, "text/plain") {
@@ -675,7 +708,7 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 		var err error
 		if cachedType, ok := s.freshCachedType(ctx, slug); ok {
 			itemType = cachedType
-		} else if idx, err = s.fetchIndexRecorded(pullCtx); err == nil {
+		} else if idx, err = s.fetchIndexRecorded(ctx); err == nil {
 			haveIndex = true
 			if itemType, err = resolveItemType(idx, slug); err != nil {
 				return PullResult{}, err
@@ -697,7 +730,7 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 	}
 
 	if !haveIndex {
-		if idx, err = s.fetchIndexRecorded(pullCtx); err != nil {
+		if idx, err = s.fetchIndexRecorded(ctx); err != nil {
 			return PullResult{}, err
 		}
 	}

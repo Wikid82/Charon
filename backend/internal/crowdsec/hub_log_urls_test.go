@@ -65,11 +65,9 @@ func TestHubIndexLogNamesFailedCDNAndServingMirror(t *testing.T) {
 // When every candidate fails, the returned error names each URL that was requested, in attempt order.
 func TestHubIndexErrorNamesEveryFailedCandidate(t *testing.T) {
 	logs := captureHubIndexLogs(t)
-	mirrorAPI := defaultHubMirrorBaseURL + defaultHubIndexPath
 	transport := &hubTransport{status: map[string]int{
 		cdnIndexURL: http.StatusServiceUnavailable,
 		rawIndexURL: http.StatusServiceUnavailable,
-		mirrorAPI:   http.StatusServiceUnavailable,
 	}}
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HTTPClient = &http.Client{Transport: transport}
@@ -80,11 +78,10 @@ func TestHubIndexErrorNamesEveryFailedCandidate(t *testing.T) {
 	msg := err.Error()
 	require.Contains(t, msg, cdnIndexURL)
 	require.Contains(t, msg, rawIndexURL)
-	require.Contains(t, msg, mirrorAPI)
-	require.Equal(t, []string{cdnIndexURL, rawIndexURL, mirrorAPI}, transport.seen())
+	require.Equal(t, []string{cdnIndexURL, rawIndexURL}, transport.seen())
 
 	out := logs.String()
-	require.Equal(t, 3, strings.Count(out, `"hub index fetch failed, trying mirror"`), "each failed candidate is logged once")
+	require.Equal(t, 2, strings.Count(out, `"hub index fetch failed, trying mirror"`), "each failed candidate is logged once")
 	require.NotContains(t, out, `"hub index fetched"`)
 }
 
@@ -131,7 +128,6 @@ func TestHubIndexLogAndErrorOmitUserinfo(t *testing.T) {
 			indexWithUserinfo: http.StatusServiceUnavailable,
 			cdnIndexURL:       http.StatusServiceUnavailable,
 			rawIndexURL:       http.StatusServiceUnavailable,
-			defaultHubMirrorBaseURL + defaultHubIndexPath: http.StatusServiceUnavailable,
 		}}
 		svc := NewHubService(nil, nil, t.TempDir())
 		svc.HubBaseURL = withUserinfo
