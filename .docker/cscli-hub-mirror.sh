@@ -13,6 +13,7 @@
 #   CHARON_CSCLI_MIRROR_CONFIG  path of the derived config while it exists
 #   CHARON_CSCLI_MIRROR_FIRST   "1" once a mirror retry answered: later cscli_hub calls go mirror-first
 
+# The shell always uses the built-in mirror template, with no operator mirror base (the Go side can use one).
 _HUB_MIRROR_TEMPLATE='https://raw.githubusercontent.com/crowdsecurity/hub/%s/%s'
 _HUB_MIRROR_KEY='__hub_url_template__'
 _HUB_MIRROR_PREFIX='.charon-hub-mirror-'
@@ -134,17 +135,38 @@ _hub_mirror_sweep() {
     return 0
 }
 
+# _hub_mirror_local_template_set <local config>
+# Succeeds when config.yaml.local names a non-empty hub URL template. CrowdSec merges that file over the config, so
+# such a template would override the derived one. Same rule as _hub_mirror_rewrite: any line naming the key with a
+# value counts.
+_hub_mirror_local_template_set() {
+    while IFS= read -r _line || [ -n "$_line" ]; do
+        case "$_line" in
+            *"$_HUB_MIRROR_KEY"*)
+                if ! _hub_mirror_match "^[[:space:]]*${_HUB_MIRROR_KEY}:[[:space:]]*${_HUB_MIRROR_EMPTY_VALUE}" "$_line"; then
+                    return 0
+                fi
+                ;;
+        esac
+    done <"$1"
+    return 1
+}
+
 # hub_mirror_prepare <live config path>
 # Writes the derived config beside the live one (mode 0600, the live settings with the mirror template), copies
 # config.yaml.local next to it when present (CrowdSec merges that file by name), and exports
-# CHARON_CSCLI_MIRROR_CONFIG. On failure nothing is left behind and nothing is exported, so cscli_hub does not
-# retry. Relative paths keep resolving because the copy sits in the same directory.
+# CHARON_CSCLI_MIRROR_CONFIG. Fails closed, with nothing left behind and nothing exported (so cscli_hub does not
+# retry), when the live config or config.yaml.local already sets a template. Relative paths keep resolving because
+# the copy sits in the same directory.
 hub_mirror_prepare() {
     _live=$1
     if ! hub_mirror_template_valid "$_HUB_MIRROR_TEMPLATE"; then
         return 1
     fi
     if [ ! -r "$_live" ]; then
+        return 1
+    fi
+    if [ -f "$_live.local" ] && _hub_mirror_local_template_set "$_live.local"; then
         return 1
     fi
     _dir=$(dirname "$_live")
@@ -191,24 +213,34 @@ _hub_left() {
     printf '%s' $(($1 - $(date +%s)))
 }
 
-# _hub_network_failure <log>: the output names a failed network request.
+# _hub_network_failure <kind> <log>: the output names a failed network request or a transport timeout. An expired
+# deadline counts only for `hub update` (kind update), as on the Go side: on an item install or a hub upgrade it can
+# be a healthy slow run that ran out of its time.
 _hub_network_failure() {
-    grep -Eqi 'dial tcp|no such host|network is unreachable|connection refused|i/o timeout|unable to send request|unable to retrieve latest crowdsec version|context deadline exceeded|client\.timeout|tls handshake timeout|lookup [^[:space:]]+ on [^[:space:]]' "$1"
+    if grep -Eqi 'dial tcp|no such host|network is unreachable|connection refused|i/o timeout|unable to send request|unable to retrieve latest crowdsec version|client\.timeout|tls handshake timeout|lookup [^[:space:]]+ on [^[:space:]]' "$2"; then
+        return 0
+    fi
+    if [ "$1" = update ]; then
+        grep -Eqi 'context deadline exceeded' "$2"
+        return
+    fi
+    return 1
 }
 
 # _hub_retry_wanted <kind> <status> <log>
-# hub commands retry on a network failure or when timeout ended the attempt. Item installs and upgrades retry on
-# a network failure only, so a healthy slow install is never cut short.
+# kind is update (hub update), hub (hub upgrade) or item (type install|upgrade). Hub commands retry on a network
+# failure or when timeout ended the attempt. Item installs and upgrades retry on a network failure only, so a
+# healthy slow install is never cut short.
 _hub_retry_wanted() {
     case "$2" in
         124|143)
             # 124 is GNU timeout's status, 143 is busybox timeout's.
-            if [ "$1" = hub ]; then
-                return 0
-            fi
+            case "$1" in
+                update|hub) return 0 ;;
+            esac
             ;;
     esac
-    _hub_network_failure "$3"
+    _hub_network_failure "$1" "$3"
 }
 
 # _hub_attempt <seconds> <config or empty> <log> <cscli arguments...>
@@ -264,7 +296,11 @@ cscli_hub() {
     _first=$_budget
     if [ "${1:-}" = hub ]; then
         case "${2:-}" in
-            update|upgrade)
+            update)
+                _kind=update
+                _first=$((_budget / 2))
+                ;;
+            upgrade)
                 _kind=hub
                 _first=$((_budget / 2))
                 ;;

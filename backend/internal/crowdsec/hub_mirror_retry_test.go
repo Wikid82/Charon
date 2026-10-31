@@ -1,6 +1,7 @@
 package crowdsec
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 // dialFailureText is the output cscli prints when the hub address refuses the connection.
@@ -244,6 +247,47 @@ func TestRunHubCSCLIOperatorTemplateFailsClosed(t *testing.T) {
 	raw, readErr := os.ReadFile(live)
 	require.NoError(t, readErr)
 	require.Equal(t, operatorConfig, string(raw))
+}
+
+func TestRunHubCSCLILocalOperatorTemplateFailsClosed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	live := writeCSCLIConfig(t, dir, "cscli:\n  hub_branch: master\n")
+	const localConfig = "cscli:\n  __hub_url_template__: \"https://hub.example.org/%s/%s\"\n"
+	require.NoError(t, os.WriteFile(live+".local", []byte(localConfig), 0o600))
+	mem := NewMirrorMemory(time.Minute, nil)
+	exec := &scriptedCSCLI{respond: func(_ context.Context, _ int, _ []string) ([]byte, error) {
+		return []byte(dialFailureText), errLiveCSCLI
+	}}
+
+	_, err := RunHubCSCLI(context.Background(), exec, mirrorTestOpts(live, mem), "collections", "install", "demo")
+	require.ErrorIs(t, err, errLiveCSCLI)
+	require.Len(t, exec.recorded(), 1, "a .local template that the mirror would override is never retried")
+	require.False(t, mem.Active())
+	require.Equal(t, []string{"config.yaml", "config.yaml.local"}, dirEntryNames(t, dir), "no derived copy is left behind")
+}
+
+func TestHubServiceMirrorTemplateLogsUnusableBaseOnce(t *testing.T) {
+	// Not parallel: the test swaps the global logger output.
+	var logs bytes.Buffer
+	logger.Init(false, &logs)
+	t.Cleanup(func() { logger.Init(false, os.Stdout) })
+
+	svc, _ := mirrorTestSetup(t)
+	svc.MirrorBaseURL = "https://example.com/hub/master"
+	for range 3 {
+		opts := svc.MirrorOptions()
+		require.Equal(t, builtinMirrorTemplate, opts.Template)
+	}
+	require.Equal(t, 1, strings.Count(logs.String(), "hub mirror base not usable"), "a repeated call does not repeat the warning")
+
+	svc.MirrorBaseURL = "https://raw.githubusercontent.com/example/hub/master"
+	require.Equal(t, "https://raw.githubusercontent.com/example/hub/%s/%s", svc.MirrorOptions().Template)
+	require.Equal(t, 1, strings.Count(logs.String(), "hub mirror base not usable"), "a usable base logs nothing")
+
+	svc.MirrorBaseURL = "https://example.com/other/master"
+	require.Equal(t, builtinMirrorTemplate, svc.MirrorOptions().Template)
+	require.Equal(t, 2, strings.Count(logs.String(), "hub mirror base not usable"), "a new unusable base is named once")
 }
 
 func TestRunHubCSCLIMirrorFirstSkipsLiveWhileWindowIsOpen(t *testing.T) {

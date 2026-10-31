@@ -453,27 +453,105 @@ func TestWriteMirrorFileReportsClosedFile(t *testing.T) {
 	require.ErrorContains(t, writeMirrorFile(f, []byte("x")), "write hub mirror config")
 }
 
-func TestCopyLocalOverrideRefusesExistingTarget(t *testing.T) {
+func TestWriteLocalOverrideRefusesExistingTarget(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	src := filepath.Join(dir, "config.yaml.local")
-	dst := filepath.Join(dir, "derived.yaml.local")
-	require.NoError(t, os.WriteFile(src, []byte("new"), 0o600))
+	dst := filepath.Join(t.TempDir(), "derived.yaml.local")
 	require.NoError(t, os.WriteFile(dst, []byte("keep"), 0o600))
 
-	require.ErrorContains(t, copyLocalOverride(src, dst), "create hub mirror local override")
+	require.ErrorContains(t, writeLocalOverride(dst, []byte("new")), "create hub mirror local override")
 	kept, err := os.ReadFile(dst)
 	require.NoError(t, err)
 	require.Equal(t, "keep", string(kept), "an existing target is never overwritten")
 }
 
-func TestCopyLocalOverrideMissingSourceIsNoop(t *testing.T) {
+func TestReadLocalOverrideMissingSourceIsAbsent(t *testing.T) {
+	t.Parallel()
+	raw, present, err := readLocalOverride(filepath.Join(t.TempDir(), "absent.local"))
+	require.NoError(t, err)
+	require.False(t, present)
+	require.Nil(t, raw)
+}
+
+func TestReadLocalOverridePresentEmptyFile(t *testing.T) {
+	t.Parallel()
+	src := filepath.Join(t.TempDir(), "config.yaml.local")
+	require.NoError(t, os.WriteFile(src, nil, 0o600))
+	raw, present, err := readLocalOverride(src)
+	require.NoError(t, err)
+	require.True(t, present, "an empty override file is still an override")
+	require.Empty(t, raw)
+}
+
+func TestMirrorCSCLIConfigRefusesLocalOperatorTemplate(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	dst := filepath.Join(dir, "derived.yaml.local")
-	require.NoError(t, copyLocalOverride(filepath.Join(dir, "absent.local"), dst))
-	_, err := os.Stat(dst)
-	require.True(t, errors.Is(err, os.ErrNotExist))
+	live := writeCSCLIConfig(t, dir, "cscli:\n  hub_branch: master\n")
+	require.NoError(t, os.WriteFile(live+".local", []byte("cscli:\n  __hub_url_template__: https://private.example/%s/%s\n"), 0o600))
+
+	derived, cleanup, err := mirrorCSCLIConfig(live, testMirrorTemplate)
+	require.ErrorIs(t, err, errMirrorLocalTemplateSet)
+	require.Empty(t, derived)
+	cleanup()
+	require.Equal(t, []string{"config.yaml", "config.yaml.local"}, dirEntryNames(t, dir), "no derived copy is left behind")
+}
+
+func TestMirrorCSCLIConfigAllowsEmptyLocalTemplate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	live := writeCSCLIConfig(t, dir, "cscli:\n  hub_branch: master\n")
+	require.NoError(t, os.WriteFile(live+".local", []byte("cscli:\n  __hub_url_template__:\n"), 0o600))
+
+	derived, cleanup, err := mirrorCSCLIConfig(live, testMirrorTemplate)
+	require.NoError(t, err)
+	defer cleanup()
+	require.FileExists(t, derived+".local")
+}
+
+func TestMirrorCSCLIConfigFailsClosedOnUnparseableLocal(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	live := writeCSCLIConfig(t, dir, "cscli:\n  hub_branch: master\n")
+	require.NoError(t, os.WriteFile(live+".local", []byte("cscli: [\n"), 0o600))
+
+	derived, cleanup, err := mirrorCSCLIConfig(live, testMirrorTemplate)
+	require.ErrorContains(t, err, "parse cscli local override")
+	require.Empty(t, derived)
+	cleanup()
+	require.Equal(t, []string{"config.yaml", "config.yaml.local"}, dirEntryNames(t, dir))
+}
+
+func TestMirrorTemplateSetIn(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		raw     string
+		want    bool
+		wantErr bool
+	}{
+		{name: "empty document", raw: "", want: false},
+		{name: "no cscli section", raw: "common:\n  log_level: info\n", want: false},
+		{name: "null cscli section", raw: "cscli:\n", want: false},
+		{name: "no template key", raw: "cscli:\n  hub_branch: master\n", want: false},
+		{name: "empty template value", raw: "cscli:\n  __hub_url_template__:\n", want: false},
+		{name: "empty string template", raw: "cscli:\n  __hub_url_template__: \"\"\n", want: false},
+		{name: "non-empty template", raw: "cscli:\n  __hub_url_template__: https://x/%s/%s\n", want: true},
+		{name: "non-scalar template is treated as set", raw: "cscli:\n  __hub_url_template__: [a]\n", want: true},
+		{name: "root is a sequence", raw: "- a\n", wantErr: true},
+		{name: "cscli is a scalar", raw: "cscli: 5\n", wantErr: true},
+		{name: "malformed yaml", raw: "cscli: [\n", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := mirrorTemplateSetIn([]byte(tc.raw))
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestIsMirrorConfigName(t *testing.T) {

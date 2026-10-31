@@ -136,6 +136,8 @@ type HubService struct {
 	legacySweepDone bool
 	// mirror is the mirror-first window shared by every cscli hub request of this service.
 	mirror *MirrorMemory
+	// mirrorTemplate caches the hub URL template of MirrorBaseURL, so cscli calls do not re-resolve it.
+	mirrorTemplate mirrorTemplateCache
 }
 
 // errHubURLUnparseable is the cause when net/url rejects a hub URL. The parser error quotes the whole input, which

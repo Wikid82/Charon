@@ -38,6 +38,9 @@ var (
 	// errMirrorTemplateSet means the live configuration already names a hub URL template. The retry must not
 	// replace an operator's own hub, so it is refused.
 	errMirrorTemplateSet = errors.New("the cscli config already sets a hub URL template")
+	// errMirrorLocalTemplateSet means the local override (config.yaml.local) sets a hub URL template. The override is
+	// merged over the derived configuration, so it would replace the mirror; the retry is refused for the same reason.
+	errMirrorLocalTemplateSet = errors.New("the cscli local override already sets a hub URL template")
 	// errMirrorTemplateInvalid means the template is not an https URL with exactly the two verbs cscli fills in.
 	errMirrorTemplateInvalid = errors.New("the hub mirror template must be an https URL with exactly two %s verbs")
 	// createMirrorTemp creates the derived configuration file. It is a variable so tests can make creation fail.
@@ -164,6 +167,26 @@ func mirrorHubTemplate(mirrorBase string) (string, bool) {
 	return template, true
 }
 
+// mirrorTemplateCache keeps the resolved hub URL template of a service's mirror base. The base is resolved, and an
+// unusable base logged, once per distinct base rather than on every cscli call. The zero value is ready to use.
+type mirrorTemplateCache struct {
+	mu       sync.Mutex
+	base     string
+	template string
+	resolved bool
+}
+
+// get returns the template for base, resolving it again only when base differs from the last one.
+func (c *mirrorTemplateCache) get(base string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.resolved || c.base != base {
+		c.template, _ = mirrorHubTemplate(base)
+		c.base, c.resolved = base, true
+	}
+	return c.template
+}
+
 // operatorMirrorTemplate turns an operator mirror base into a template, or names why it cannot be used.
 func operatorMirrorTemplate(base string) (template, refusal string) {
 	if err := validateHubURL(base); err != nil {
@@ -193,9 +216,11 @@ func validMirrorTemplate(template string) bool {
 // template, and returns the copy's path with a cleanup that removes it. The copy is built with yaml.v3 (never by
 // text concatenation), created with mode 0600 in the same directory so relative paths in it resolve as before, and
 // a sibling config.yaml.local is copied next to it because CrowdSec merges that file by name. A live configuration
-// that already sets a template is refused with errMirrorTemplateSet, and an unreadable local override fails the
-// call, so the caller never retries with a configuration it cannot reproduce. On error the cleanup is a no-op.
-// The copy holds the live settings, so IsHubMirrorConfig keeps it out of listings, reads, exports and imports.
+// that already sets a template is refused with errMirrorTemplateSet, and a local override that sets one is refused
+// with errMirrorLocalTemplateSet, since the override would replace the mirror. An override that cannot be read or
+// parsed fails the call too, so the caller never retries with a configuration it cannot reproduce. On error the
+// cleanup is a no-op. The copy holds the live settings, so IsHubMirrorConfig keeps it out of listings, reads, exports
+// and imports.
 func mirrorCSCLIConfig(configPath, template string) (derivedPath string, cleanup func(), err error) {
 	noop := func() {}
 	if configPath == "" {
@@ -213,6 +238,19 @@ func mirrorCSCLIConfig(configPath, template string) (derivedPath string, cleanup
 	if err != nil {
 		return "", noop, err
 	}
+	local, hasLocal, err := readLocalOverride(live + ".local")
+	if err != nil {
+		return "", noop, err
+	}
+	if hasLocal {
+		set, parseErr := mirrorTemplateSetIn(local)
+		if parseErr != nil {
+			return "", noop, fmt.Errorf("parse cscli local override: %w", parseErr)
+		}
+		if set {
+			return "", noop, errMirrorLocalTemplateSet
+		}
+	}
 	f, err := createMirrorTemp(filepath.Dir(live), mirrorConfigPrefix+"*.yaml")
 	if err != nil {
 		return "", noop, fmt.Errorf("create hub mirror config: %w", err)
@@ -226,11 +264,40 @@ func mirrorCSCLIConfig(configPath, template string) (derivedPath string, cleanup
 		cleanup()
 		return "", noop, err
 	}
-	if err := copyLocalOverride(live+".local", derived+".local"); err != nil {
-		cleanup()
-		return "", noop, err
+	if hasLocal {
+		if err := writeLocalOverride(derived+".local", local); err != nil {
+			cleanup()
+			return "", noop, err
+		}
 	}
 	return derived, cleanup, nil
+}
+
+// mirrorTemplateSetIn reports whether the cscli section of a YAML configuration already sets a non-empty hub URL
+// template. An empty document, or a missing or null cscli section, sets none. A root or cscli section of the wrong
+// kind is an error, so the caller fails closed.
+func mirrorTemplateSetIn(raw []byte) (bool, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return false, err
+	}
+	if len(doc.Content) == 0 {
+		return false, nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return false, errors.New("cscli config root is not a mapping")
+	}
+	i := findMappingKey(root, mirrorCSCLISec)
+	if i < 0 || isNullScalar(root.Content[i+1]) {
+		return false, nil
+	}
+	section := root.Content[i+1]
+	if section.Kind != yaml.MappingNode {
+		return false, fmt.Errorf("cscli config %s is not a mapping", mirrorCSCLISec)
+	}
+	j := findMappingKey(section, mirrorTemplateKey)
+	return j >= 0 && !isEmptyScalar(section.Content[j+1]), nil
 }
 
 // withMirrorTemplate returns the YAML of a cscli configuration with the hub URL template set in its cscli section.
@@ -331,16 +398,21 @@ func writeMirrorFile(f *os.File, data []byte) error {
 	return nil
 }
 
-// copyLocalOverride copies the CrowdSec local override src to dst, when src exists. dst is created exclusively with
-// mode 0600. A missing override is not an error; an unreadable one is, so the caller does not retry without it.
-func copyLocalOverride(src, dst string) error {
-	raw, err := os.ReadFile(src)
+// readLocalOverride returns the CrowdSec local override at src. The second result reports whether the override exists.
+// A missing override is not an error; an unreadable one is, so the caller does not retry without it.
+func readLocalOverride(src string) (raw []byte, present bool, err error) {
+	raw, err = os.ReadFile(src)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("read cscli local override: %w", err)
+		return nil, false, fmt.Errorf("read cscli local override: %w", err)
 	}
+	return raw, true, nil
+}
+
+// writeLocalOverride creates dst exclusively with mode 0600 and writes the override content raw into it.
+func writeLocalOverride(dst string, raw []byte) error {
 	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create hub mirror local override: %w", err)

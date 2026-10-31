@@ -25,6 +25,8 @@ TEMPLATE_LINE="  __hub_url_template__: \"$TEMPLATE\""
 #   live_net     the live config fails with a network error; the derived config succeeds
 #   live_bad     the live config fails with an item error; the derived config succeeds
 #   live_hang    the live config never answers; the derived config succeeds
+#   live_deadline the live config fails with a bare expired deadline; the derived config succeeds
+#   live_transport the live config fails with a client timeout; the derived config succeeds
 #   derived_net  the derived config fails with a network error; the live config succeeds
 #   both_net     both fail with a network error
 cat >"$FAKEBIN/cscli" <<'FAKE'
@@ -47,18 +49,22 @@ fi
 echo "cfg=${cfg:-live} tpl=$tpl local=$localfile args=$*" >>"$FAKE_LOG"
 net="failed http request for https://cdn-hub.crowdsec.net/x: dial tcp 127.0.0.1:443: connection refused"
 bad="item not found: crowdsecurity/nope"
+deadline="context deadline exceeded"
+transport="Get \"https://cdn-hub.crowdsec.net/x\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"
 if [ -z "$cfg" ]; then
     case "$FAKE_MODE" in
         live_ok) echo ok; exit 0 ;;
         live_net) echo "$net"; exit 1 ;;
         live_bad) echo "$bad"; exit 1 ;;
         live_hang) exec sleep 30 ;;
+        live_deadline) echo "$deadline"; exit 1 ;;
+        live_transport) echo "$transport"; exit 1 ;;
         derived_net) echo ok; exit 0 ;;
         both_net) echo "$net"; exit 1 ;;
     esac
 else
     case "$FAKE_MODE" in
-        live_ok|live_net|live_bad|live_hang) echo ok; exit 0 ;;
+        live_ok|live_net|live_bad|live_hang|live_deadline|live_transport) echo ok; exit 0 ;;
         derived_net|both_net) echo "$net"; exit 1 ;;
     esac
 fi
@@ -249,6 +255,34 @@ check "unreadable local override leaves no derived file" "" "$(derived_in "$C7")
 D8=$(prepared "$WORK/nope/config.yaml" c8)
 check "missing live config is refused" "" "$D8"
 
+# A config.yaml.local that names a template would override the derived one, so the prepare fails closed.
+local_refuse_case() {
+    _dir="$WORK/$1"
+    make_live "$_dir"
+    printf 'cscli:\n  __hub_url_template__: "%s"\n' "$2" >"$_dir/config.yaml.local"
+    (
+        . "$HELPER"
+        if hub_mirror_prepare "$_dir/config.yaml"; then
+            echo "result=accepted"
+        else
+            echo "result=refused"
+        fi
+        echo "exported=${CHARON_CSCLI_MIRROR_CONFIG:-}"
+    ) >"$_dir/out" 2>&1
+    check "$3: refused" "result=refused" "$(grep '^result=' "$_dir/out")"
+    check "$3: nothing exported" "exported=" "$(grep '^exported=' "$_dir/out")"
+    check "$3: no derived file or copy left" "" "$(derived_in "$_dir")"
+}
+local_refuse_case l1 "https://example.com/%s/%s" "local operator template set"
+local_refuse_case l2 "https://raw.githubusercontent.com/crowdsecurity/hub/%s/%s" "local template set to the built-in value"
+
+C12="$WORK/c12"
+make_live "$C12"
+printf 'cscli:\n  __hub_url_template__: ""\n' >"$C12/config.yaml.local"
+D12=$(prepared "$C12/config.yaml" c12)
+check "local template left empty is accepted and copied" "$D12" "$([ -r "$D12" ] && echo "$D12")"
+check "local template left empty: the copy is beside the derived config" "1" "$([ -r "$D12.local" ] && echo 1)"
+
 # ---------------------------------------------------------------------------
 echo "# relative path, startup sweep and removal"
 C9="$WORK/c9"
@@ -384,6 +418,43 @@ check "no derived config: no retry" "1" "$(ncalls no_derived)"
 
 run_case not_network live_net 0 1 4 hub list
 check "non-network command: one attempt, no retry" "1" "$(ncalls not_network)"
+
+# A bare expired deadline retries only a hub update, as on the Go side; item installs and hub upgrades do not.
+run_case item_deadline live_deadline 0 1 60 collections install crowdsecurity/x
+check "item install bare deadline: not retried" "1" "$(ncalls item_deadline)"
+check "item install bare deadline: fails" "1" "$([ "$(res item_deadline rc)" != 0 ] && echo 1)"
+
+run_case upgrade_deadline live_deadline 0 1 60 collections upgrade crowdsecurity/x
+check "item upgrade bare deadline: not retried" "1" "$(ncalls upgrade_deadline)"
+
+run_case hubupgrade_deadline live_deadline 0 1 4 hub upgrade
+check "hub upgrade bare deadline: not retried" "1" "$(ncalls hubupgrade_deadline)"
+
+run_case hubupdate_deadline live_deadline 0 1 4 hub update
+check "hub update bare deadline: retried on the derived config" "2" "$(ncalls hubupdate_deadline)"
+check "hub update bare deadline: answered, exit 0" "0" "$(res hubupdate_deadline rc)"
+
+# A client timeout is a transport failure and retries an item install, as on the Go side.
+run_case item_transport live_transport 0 1 60 collections install crowdsecurity/x
+check "item install client timeout: retried through the mirror" "3" "$(ncalls item_transport)"
+check "item install client timeout: mirror mode turned on" "1" "$(res item_transport flag)"
+
+# When config.yaml.local names a template, the prepare fails and cscli_hub does not retry.
+C13="$WORK/c13"
+make_live "$C13"
+printf 'cscli:\n  __hub_url_template__: "https://example.com/%%s/%%s"\n' >"$C13/config.yaml.local"
+(
+    . "$HELPER"
+    FAKE_MODE=live_net
+    FAKE_LOG="$WORK/local_refused.calls"
+    export FAKE_MODE FAKE_LOG
+    : >"$FAKE_LOG"
+    hub_mirror_prepare "$C13/config.yaml" || echo "prepare-failed"
+    cscli_hub 4 hub update >/dev/null 2>&1 || true
+) >"$WORK/local_refused.res" 2>&1
+check "local template set: prepare fails" "1" "$(grep -c '^prepare-failed$' "$WORK/local_refused.res")"
+check "local template set: no retry after the failed prepare" "1" "$(wc -l <"$WORK/local_refused.calls" | tr -d ' ')"
+check "local template set: no derived file left" "" "$(derived_in "$C13")"
 
 run_case mirror_first live_net 1 1 4 hub update
 check "mirror first: the first call is the derived config" \

@@ -180,6 +180,6 @@ func (s *HubService) runHubCSCLI(ctx context.Context, args ...string) ([]byte, e
 // MirrorOptions returns the mirror retry settings of the service: the live configuration of its data directory, the
 // mirror template for MirrorBaseURL, and the shared mirror-first window.
 func (s *HubService) MirrorOptions() HubCSCLIOptions {
-	template, _ := mirrorHubTemplate(s.MirrorBaseURL)
+	template := s.mirrorTemplate.get(s.MirrorBaseURL)
 	return HubCSCLIOptions{ConfigPath: FindConfigFile(s.DataDir), Template: template, Memory: s.mirror}
 }
