@@ -4,6 +4,10 @@ set -e
 # Entrypoint script to run both Caddy and Charon in a single container
 # This simplifies deployment for home users
 
+# Internal state of the hub mirror helper (cscli-hub-mirror.sh). Never taken from the environment: an
+# operator-set path here would be deleted at shutdown.
+unset CHARON_CSCLI_MIRROR_CONFIG CHARON_CSCLI_MIRROR_FIRST
+
 echo "Starting Charon with integrated Caddy..."
 
 # Child PIDs of the background processes started below. Empty until launched.
@@ -37,6 +41,11 @@ shutdown() {
     fi
     # Note: CrowdSec process lifecycle is managed by backend handlers
     # The backend will handle graceful CrowdSec shutdown when the container stops
+    # Remove the derived hub mirror config (a copy of the cscli settings). There is no EXIT trap, so this is the
+    # only cleanup on a stop; a crash leftover is swept by the next startup.
+    if command -v hub_mirror_remove >/dev/null 2>&1; then
+        hub_mirror_remove
+    fi
     exit "$_rc"
 }
 
@@ -93,6 +102,22 @@ run_interruptible() {
     STARTUP_PID=""
     return "$_status"
 }
+
+# hub mirror helper: cscli_hub (cscli with the mirror retry), hub_mirror_prepare and hub_mirror_remove.
+# It needs run_interruptible, so it is sourced after it. Without the helper, cscli_hub runs cscli once, unretried,
+# so the startup still works.
+CS_HUB_MIRROR_HELPER=/usr/local/lib/charon/cscli-hub-mirror.sh
+if [ -r "$CS_HUB_MIRROR_HELPER" ]; then
+    # The helper is linted and tested on its own (scripts/cscli_hub_mirror_test.sh), so it is not followed here.
+    # shellcheck source=/dev/null
+    . "$CS_HUB_MIRROR_HELPER"
+else
+    cscli_hub() {
+        _budget=$1
+        shift
+        run_interruptible timeout "$_budget" cscli "$@"
+    }
+fi
 
 get_group_by_gid() {
     if command -v getent >/dev/null 2>&1; then
@@ -320,7 +345,7 @@ if command -v cscli >/dev/null; then
             echo "DEBUG: Symlink target verification:"
             ls -la /etc/crowdsec 2>/dev/null || echo "  (symlink broken or missing)"
             echo "DEBUG: Directory contents:"
-            ls -la "$CS_CONFIG_DIR/" 2>/dev/null | head -10 || echo "  (directory not found)"
+            find "$CS_CONFIG_DIR" -mindepth 1 -maxdepth 1 -exec ls -ld {} + 2>/dev/null | head -10 || echo "  (directory not found)"
             exit 1
         fi
         echo "✓ /etc/crowdsec/config.yaml is accessible via symlink"
@@ -454,9 +479,15 @@ ACQUIS_EOF
     if [ "${CHARON_SECURITY_TESTS_ENABLED}" = "false" ]; then
         echo "⚡ Skipping CrowdSec hub initialization (CHARON_SECURITY_TESTS_ENABLED=false)"
     else
+        # Derived cscli config that points the hub at the raw mirror, used by the retry in cscli_hub.
+        # Removed again once the hub startup steps are done.
+        if command -v hub_mirror_prepare >/dev/null 2>&1 && ! hub_mirror_prepare "$CS_CONFIG_DIR/config.yaml"; then
+            echo "⚠️ Hub mirror retry unavailable (the cscli config could not be prepared)."
+        fi
+
         # Always refresh hub index on startup (stale index causes hash mismatch errors on collection install)
         echo "Updating CrowdSec hub index..."
-        if ! run_interruptible timeout 60s cscli hub update 2>&1; then
+        if ! cscli_hub 60 hub update; then
             echo "⚠️ Hub index update failed (network issue?). Collections may fail to install."
             echo "   CrowdSec will still start with whatever index is cached."
         fi
@@ -479,7 +510,7 @@ ACQUIS_EOF
         if [ -n "$MISSING_HUB_DATA" ]; then
             echo "⚠️ CrowdSec hub data files missing from $CS_DATA_DIR: $(echo "$MISSING_HUB_DATA" | tr '\n' ' ')"
             echo "Running 'cscli hub upgrade' to restore them (this also upgrades installed hub items)..."
-            if ! run_interruptible timeout 120s cscli hub upgrade 2>&1; then
+            if ! cscli_hub 120 hub upgrade; then
                 echo "⚠️ Hub upgrade failed or timed out. CrowdSec will start, but some detection data may be missing until the next restart."
             fi
             STILL_MISSING="$(list_missing_hub_data_files "$CS_CONFIG_DIR" "$CS_DATA_DIR")"
@@ -488,6 +519,11 @@ ACQUIS_EOF
             else
                 echo "✓ CrowdSec hub data files restored"
             fi
+        fi
+
+        # The derived mirror config is not needed past the hub startup steps. Remove it before the ownership fix.
+        if command -v hub_mirror_remove >/dev/null 2>&1; then
+            hub_mirror_remove
         fi
     fi
 
