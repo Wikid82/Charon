@@ -46,6 +46,18 @@ function presetKey(preset: { type?: string; slug: string }): string {
   return preset.type ? `${preset.type}/${preset.slug}` : preset.slug
 }
 
+/**
+ * A hub-backed row that is not cached and cannot be fetched because the hub is offline.
+ * It stays listed (muted) but is never selected, so no pull is sent for it.
+ */
+function isPresetUnavailableOffline(preset: { requiresHub: boolean; available?: boolean; cached?: boolean }): boolean {
+  return preset.requiresHub && preset.available === false && !preset.cached
+}
+
+function isPresetSelectable(preset: { requiresHub: boolean; available?: boolean; cached?: boolean }): boolean {
+  return !isPresetUnavailableOffline(preset)
+}
+
 /** Prefer the server's `error` message for Axios failures, falling back to the given text. */
 function getServerErrorMessage(err: unknown, fallback: string): string {
   if (isAxiosError(err)) {
@@ -262,12 +274,19 @@ export default function CrowdSecConfig() {
     return result
   }, [presetCatalog, searchQuery, sortBy])
 
+  // Keep the current selection while it is still listed and usable; otherwise select the first usable row
+  // in catalog order, or nothing when no row can be used (the empty key never matches a row).
   useEffect(() => {
     if (!presetCatalog.length) return
-    if (!selectedPresetKey || !presetCatalog.some((preset) => presetKey(preset) === selectedPresetKey)) {
-      setSelectedPresetKey(presetKey(presetCatalog[0]))
-    }
+    const keepsSelection = presetCatalog.some((preset) => presetKey(preset) === selectedPresetKey && isPresetSelectable(preset))
+    if (keepsSelection) return
+    const firstSelectable = presetCatalog.find(isPresetSelectable)
+    setSelectedPresetKey(firstSelectable ? presetKey(firstSelectable) : '')
   }, [presetCatalog, selectedPresetKey])
+
+  const selectPreset = (preset: PresetCatalogEntry) => {
+    if (isPresetSelectable(preset)) setSelectedPresetKey(presetKey(preset))
+  }
 
   // Prefer the enrolled identity over the hostname default, unless the user already edited the field
   useEffect(() => {
@@ -1249,41 +1268,55 @@ export default function CrowdSecConfig() {
 
           <div className="border border-gray-700 rounded-lg max-h-60 overflow-y-auto bg-gray-900">
             {filteredPresets.length > 0 ? (
-              filteredPresets.map((preset) => (
-                <div
-                  key={presetKey(preset)}
-                  onClick={() => setSelectedPresetKey(presetKey(preset))}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      setSelectedPresetKey(presetKey(preset))
-                    }
-                  }}
-                  aria-pressed={selectedPresetKey === presetKey(preset)}
-                  className={`p-3 cursor-pointer hover:bg-gray-800 border-b border-gray-800 last:border-0 outline-none focus-visible:bg-gray-800 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
-                    selectedPresetKey === presetKey(preset) ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
-                  }`}
-                >
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="font-medium text-white">{preset.title}</span>
-                    {preset.source && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        preset.source === 'charon-curated' ? 'bg-purple-900/50 text-purple-300' : 'bg-blue-900/50 text-blue-300'
-                      }`}>
-                        {preset.source === 'charon-curated' ? t('crowdsecConfig.presets.curated') : t('crowdsecConfig.presets.hub')}
-                      </span>
+              filteredPresets.map((preset) => {
+                const selected = selectedPresetKey === presetKey(preset)
+                const selectable = isPresetSelectable(preset)
+                return (
+                  <div
+                    key={presetKey(preset)}
+                    onClick={() => selectPreset(preset)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        selectPreset(preset)
+                      }
+                    }}
+                    aria-pressed={selected}
+                    aria-disabled={selectable ? undefined : true}
+                    className={`p-3 border-b border-gray-800 last:border-0 outline-none focus-visible:bg-gray-800 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
+                      selectable ? 'cursor-pointer hover:bg-gray-800' : 'cursor-not-allowed opacity-60'
+                    } ${
+                      selected ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="font-medium text-white">{preset.title}</span>
+                      {preset.source && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          preset.source === 'charon-curated' ? 'bg-purple-900/50 text-purple-300' : 'bg-blue-900/50 text-blue-300'
+                        }`}>
+                          {preset.source === 'charon-curated' ? t('crowdsecConfig.presets.curated') : t('crowdsecConfig.presets.hub')}
+                        </span>
+                      )}
+                    </div>
+                    {preset.type && <p className="text-xs text-gray-500" data-testid="preset-type">{preset.type}</p>}
+                    <p className="text-xs text-gray-400 line-clamp-1">{preset.description}</p>
+                    {!selectable && (
+                      <p className="text-xs text-gray-500" data-testid="preset-unavailable-offline">{t('crowdsecConfig.presets.unavailableOffline')}</p>
                     )}
                   </div>
-                  {preset.type && <p className="text-xs text-gray-500" data-testid="preset-type">{preset.type}</p>}
-                  <p className="text-xs text-gray-400 line-clamp-1">{preset.description}</p>
-                </div>
-              ))
+                )
+              })
             ) : (
               <div className="p-4 text-center text-gray-500 text-sm">{t('crowdsecConfig.presets.noPresets', { query: searchQuery })}</div>
             )}
           </div>
+
+          {presetsQuery.data?.hub_offline && (
+            <p className="text-xs text-gray-500" data-testid="preset-hub-offline">{t('crowdsecConfig.presets.hubOffline')}</p>
+          )}
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <Button

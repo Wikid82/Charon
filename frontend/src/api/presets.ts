@@ -50,6 +50,13 @@ export interface CrowdsecPresetSummary {
   retrieved_at?: string
 }
 
+/** Response of the preset list. `hub_offline` is true when the list was served without the CrowdSec hub. */
+export interface CrowdsecPresetListResponse {
+  presets: CrowdsecPresetSummary[]
+  /** Optional so that an older server without the field still parses. */
+  hub_offline?: boolean
+}
+
 /** Response from pulling a CrowdSec preset. */
 export interface PullCrowdsecPresetResponse {
   status: string
@@ -100,11 +107,11 @@ export interface CachedCrowdsecPresetPreview {
 
 /**
  * Lists all available CrowdSec presets.
- * @returns Promise resolving to object containing presets array
+ * @returns Promise resolving to the presets array and the hub_offline flag
  * @throws {AxiosError} If the request fails
  */
-export async function listCrowdsecPresets() {
-  const resp = await client.get<{ presets: CrowdsecPresetSummary[] }>('/admin/crowdsec/presets')
+export async function listCrowdsecPresets(): Promise<CrowdsecPresetListResponse> {
+  const resp = await client.get<CrowdsecPresetListResponse>('/admin/crowdsec/presets')
   return resp.data
 }
 
