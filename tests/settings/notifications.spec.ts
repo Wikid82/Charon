@@ -1370,8 +1370,12 @@ test.describe('Notification Providers', () => {
       await test.step('Send test from saved provider row', async () => {
         const providerRow = page.getByTestId('provider-row-discord-regression-id');
         await expect(providerRow).toBeVisible({ timeout: 5000 });
+        const testRequestPromise = page.waitForRequest(
+          (request) => request.method() === 'POST' && /\/api\/v1\/notifications\/providers\/test$/.test(request.url())
+        );
         const sendTestButton = providerRow.getByRole('button', { name: /send test/i });
         await sendTestButton.click();
+        capturedTestPayload = (await (await testRequestPromise).postDataJSON()) as Record<string, unknown>;
       });
 
       await test.step('Assert Discord payload contract remained unchanged', async () => {

@@ -129,6 +129,8 @@ export interface RestoreHubItemsResult {
   remaining: number
   skipped_invalid: number
   reloaded: boolean
+  /** True when the reload was queued until CrowdSec finishes starting. */
+  reload_pending?: boolean
 }
 
 /**

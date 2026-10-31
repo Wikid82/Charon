@@ -1551,6 +1551,7 @@
         "generic": "The hub items could not be installed. Try again."
       }
     },
+    "reloadPending": "The reload is scheduled and will happen once CrowdSec has finished starting.",
     "importSuccess": "CrowdSec config imported (backup created)",
     "importFailed": "Failed to import",
     "importKeptFiles": "These files were not in the archive, so the current ones were kept: {{files}}",
@@ -2490,6 +2491,8 @@
   },
   "crowdsec": {
     "errors": {
+      "engineExited": "CrowdSec stopped right after it started. Check the CrowdSec log for the reason.",
+      "importConfigInvalid": "CrowdSec could not load the imported configuration. Check that config.yaml has a config_paths section and that the folders it names exist.",
       "stateChanged": "CrowdSec was turned off while it was starting.",
       "unavailable": "CrowdSec is not available on this server."
     }

@@ -115,6 +115,8 @@ type hubRestoreResponse struct {
 	Remaining        int                 `json:"remaining"`
 	SkippedInvalid   int                 `json:"skipped_invalid"`
 	Reloaded         bool                `json:"reloaded"`
+	// ReloadPending is true when the engine is still starting and the reload is queued; it is not a request to restart.
+	ReloadPending bool `json:"reload_pending"`
 }
 
 // RestoreHubItems installs the requested hub items that are not installed yet: POST
@@ -174,7 +176,7 @@ func (h *CrowdsecHandler) RestoreHubItems(c *gin.Context) {
 	}
 	readOK := h.restorePass(ctx, limits.item, others, res)
 	if len(res.Installed) > 0 {
-		res.Reloaded = h.reloadAfterRestore(ctx)
+		res.Reloaded, res.ReloadPending = h.reloadAfterRestore(ctx)
 	}
 	if !readOK {
 		// Nothing is reported as not attempted: the client sees what happened and a retry re-diffs.
@@ -347,18 +349,20 @@ func hubItemNotFound(out []byte, it crowdsec.HubItem) bool {
 
 // reloadAfterRestore asks CrowdSec to reload on a detached, bounded context so an install that succeeded
 // just before a client disconnect or the deadline is still picked up. Best-effort: it reports whether a
-// reload was performed.
-func (h *CrowdsecHandler) reloadAfterRestore(ctx context.Context) bool {
+// reload was performed and whether one is queued behind a starting engine.
+func (h *CrowdsecHandler) reloadAfterRestore(ctx context.Context) (reloaded, pending bool) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), hubRestoreReloadTimeout)
 	defer cancel()
 	switch err := h.reloadCrowdSec(rctx); {
 	case err == nil:
-		return true
+		return true, false
+	case errors.Is(err, crowdsec.ErrReloadDeferred):
+		return false, true
 	case errors.Is(err, crowdsec.ErrCrowdSecNotRunning):
 	default:
 		logger.Log().WithField("error", hubLogDetail(err.Error())).Warn("crowdsec hub items restore: reload failed (non-fatal)")
 	}
-	return false
+	return false, false
 }
 
 // hubLogDetail sanitizes and truncates cscli detail for the log; it is never sent to a client.

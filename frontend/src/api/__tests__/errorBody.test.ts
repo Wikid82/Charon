@@ -111,6 +111,8 @@ describe('crowdsecErrorMessage', () => {
     ['file_managed_by_charon', 'translated:crowdsecConfig.toasts.fileManaged'],
     ['crowdsec_state_changed', 'translated:crowdsec.errors.stateChanged'],
     ['crowdsec_unavailable', 'translated:crowdsec.errors.unavailable'],
+    ['crowdsec_engine_exited', 'translated:crowdsec.errors.engineExited'],
+    ['import_config_invalid', 'translated:crowdsec.errors.importConfigInvalid'],
   ])('translates the coded refusal %s instead of keeping the fallback', (code, expected) => {
     expect(crowdsecErrorMessage(axiosError({ error: 'English server text', error_code: code }), t, 'Server text')).toBe(expected)
   })

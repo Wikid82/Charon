@@ -31,16 +31,18 @@ import {
   profilesYaml,
   readTarGzEntry,
 } from '../utils/archive-helpers';
-import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
+import { restoreShippedCrowdsecConfig, SHIPPED_CROWDSEC_FILES } from '../utils/crowdsec-shipped-config';
 
 const ADMIN = '/api/v1/admin/crowdsec';
 const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 
-const VALID_CONFIG = `api:
-  server:
-    listen_uri: 0.0.0.0:8080
-    log_level: info
-`;
+/**
+ * A configuration the engine can load. The import check runs the engine on the archive's config.yaml, and a
+ * minimal file is refused ("no database configuration provided", "no configuration paths"), so every valid
+ * fixture starts from the shipped configuration.
+ */
+const ENGINE_LOADABLE_CONFIG = SHIPPED_CROWDSEC_FILES['config/config.yaml'];
+const VALID_CONFIG = ENGINE_LOADABLE_CONFIG;
 const ACQUIS = `filenames:
   - /var/log/nginx/access.log
   - /var/log/auth.log
@@ -48,10 +50,7 @@ labels:
   type: syslog
 `;
 /** A configuration that is recognisable after a failed import. */
-const BASELINE_CONFIG = `api:
-  server:
-    listen_uri: 127.0.0.1:8085
-# baseline-marker
+const BASELINE_CONFIG = `${ENGINE_LOADABLE_CONFIG}# baseline-marker
 `;
 const BASELINE_ACQUIS = `source: file
 filenames:
@@ -75,6 +74,10 @@ const BASELINE_SIMULATION = `simulation: false
 /** The refusal message for an archive that keeps its configuration at the top level. */
 const FLAT_ARCHIVE_MESSAGE =
   'the archive keeps its configuration at the top level, but this CrowdSec installation reads it from the config folder; export a configuration from this page, or put the files in a config/ folder inside the archive';
+
+/** English text of the refusal shown when CrowdSec cannot load an imported configuration. */
+const IMPORT_CONFIG_INVALID_MESSAGE_EN =
+  'CrowdSec could not load the imported configuration. Check that config.yaml has a config_paths section and that the folders it names exist.';
 
 /** The path of a configuration file as the file API lists and reads it. */
 const cfg = (name: string) => `config/${name}`;
@@ -444,6 +447,37 @@ test.describe('CrowdSec Config Import Validation', () => {
       const body = await response.json();
       expect(body.error).toBe(FLAT_ARCHIVE_MESSAGE);
       expect(body.error_code).toBe('import_flat_archive');
+    });
+  });
+
+  test.describe('Refusal Message', () => {
+    test('shows the load-check message in the UI and keeps the live configuration', async ({ page, request }, testInfo) => {
+      const archive = await createTarGz({ 'config/config.yaml': VALID_CONFIG }, testInfo.outputPath('load-refused.tar.gz'));
+      await page.route(`**${ADMIN}/import`, (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        return route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: IMPORT_CONFIG_INVALID_MESSAGE_EN,
+            error_code: 'import_config_invalid',
+          }),
+        });
+      });
+
+      await test.step('Open the configuration page and choose the archive', async () => {
+        await page.goto('/security/crowdsec');
+        await page.locator('input[type="file"]').setInputFiles(archive);
+      });
+
+      await test.step('Submit the import and see the refusal message', async () => {
+        await page.getByTestId('import-btn').click();
+        await expect(page.getByText(IMPORT_CONFIG_INVALID_MESSAGE_EN)).toBeVisible();
+      });
+
+      await test.step('The live configuration is still the baseline', async () => {
+        expect(await readConfigFile(request, cfg('config.yaml'))).toBe(BASELINE_CONFIG);
+      });
     });
   });
 

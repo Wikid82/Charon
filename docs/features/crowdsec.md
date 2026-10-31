@@ -62,6 +62,8 @@ Charon keeps CrowdSec's allow list (addresses that CrowdSec never blocks) in its
 - **Change the allow list on the Whitelist tab.** Edits you make to `charon-whitelist.yaml` in the config file editor are refused, and any hand edit is replaced the next time CrowdSec starts.
 - **Your other parser files are yours.** Files you add to CrowdSec's parser folder are not changed by Charon.
 - **Importing a configuration keeps this server's allow list.** Charon puts back the allow list from this server, not the one in the archive. If the archive has other allow-list files, Charon lists them after the import and leaves them as they are.
+- **The allow list file always exists.** When the list is empty, Charon keeps a placeholder `charon-whitelist.yaml` that matches nothing, so CrowdSec still starts cleanly. Leave that file alone; Charon rewrites it.
+- **A log warning about the allow list file is informational.** If the logs say the allow list file was written in place because its rename was refused, your change still applied. This happens when the CrowdSec config folder is mounted as a single file, which blocks Charon's usual safe-save method. Charon logs this once each time it runs.
 
 ### Hub Presets
 

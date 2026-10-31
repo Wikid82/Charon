@@ -80,7 +80,7 @@ func TestConfigArchiveValidator_ValidFormats(t *testing.T) {
 			name:   "valid tar.gz with config.yaml",
 			format: "tar.gz",
 			files: map[string]string{
-				"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+				"config.yaml": importableConfig,
 			},
 		},
 	}
@@ -267,7 +267,7 @@ func TestImportConfig_Validation(t *testing.T) {
 		{
 			name: "valid archive",
 			files: map[string]string{
-				"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+				"config.yaml": importableConfig,
 			},
 			wantStatus: http.StatusOK,
 		},

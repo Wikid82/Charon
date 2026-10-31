@@ -285,6 +285,16 @@ These appear when you turn CrowdSec on or off, change its setting, or run an eme
 - **"Charon manages this file. Use the Whitelist tab to change the allow list."** (error code `file_managed_by_charon`, HTTP 400): you tried to save `charon-whitelist.yaml` in the config file editor. The file is not changed. Make your change on the **Whitelist** tab instead, because Charon rewrites this file from that list every time CrowdSec starts. Hand edits to the file are replaced the same way at the next start.
 - **The log says CrowdSec is running while the security suite is off**: this is information, not an error. CrowdSec is running, but your proxy leaves it out until the security suite is turned on again. Turn the security suite on from the Security page if you want CrowdSec to protect your sites.
 
+## Start, reload and import messages
+
+These cover changes made while CrowdSec is still starting, CrowdSec stopping right after it starts, and importing a configuration.
+
+- **Allow list or preset change made while CrowdSec was starting**: nothing is wrong and you do not need to do anything. Charon saves your change right away and applies it once CrowdSec has finished starting. Until then you may see "The reload is scheduled and will happen once CrowdSec has finished starting." If CrowdSec never finishes starting, follow the steps in "CrowdSec stopped right after it started" below.
+- **"CrowdSec stopped right after it started. Check the CrowdSec log for the reason."** (error code `crowdsec_engine_exited`, HTTP 500): CrowdSec started and then quit before it was ready. Charon puts the CrowdSec switch back to off. Run `docker logs charon | grep -i crowdsec | tail -40`, find the last error line, and fix that cause (for example, a broken config file or a missing folder). Then turn the CrowdSec switch on again.
+- **"config validation failed: config.yaml has no config_paths section"** (HTTP 422, no error code): the archive's `config.yaml` has no `config_paths` section, so Charon refuses the archive before CrowdSec is asked to test it. Your current configuration is left unchanged. The simplest fix is to export a configuration from the CrowdSec page and import that file.
+- **"CrowdSec could not load the imported configuration. Check that config.yaml has a config_paths section and that the folders it names exist."** (error code `import_config_invalid`, HTTP 422): CrowdSec itself refused the archive's `config.yaml`, usually because the folders its `config_paths` section names are not in the archive. Your current configuration is left unchanged. The simplest fix is to export a configuration from the CrowdSec page and import that file. Charon also asks CrowdSec to test the imported file. If that test cannot run, or CrowdSec is already running and holds the ports or database, Charon skips the test and still imports. The log shows a warning in that case.
+- **How CrowdSec is started (for reference)**: Charon starts CrowdSec with the reload signal (SIGHUP) ignored until CrowdSec is running. A reload signal that arrives in the first second ends CrowdSec, so this protects it. Helper programs CrowdSec starts during that time also ignore the signal. You do not need to change anything.
+
 ## CrowdSec Not Starting After Container Restart
 
 ### Problem: Toggle shows ON but CrowdSec is not running

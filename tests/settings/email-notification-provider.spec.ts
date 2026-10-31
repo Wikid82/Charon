@@ -494,14 +494,14 @@ test.describe('Email Notification Provider', () => {
     test('should send correct payload for email provider create', async ({ page }) => {
       let capturedPayload: Record<string, unknown> | null = null;
 
-      await test.step('Mock create endpoint to capture payload', async () => {
+      await test.step('Mock create endpoint to fulfil create and list requests', async () => {
         await page.route('**/api/v1/notifications/providers', async (route, request) => {
           if (request.method() === 'POST') {
-            capturedPayload = (await request.postDataJSON()) as Record<string, unknown>;
+            const payload = (await request.postDataJSON()) as Record<string, unknown>;
             await route.fulfill({
               status: 201,
               contentType: 'application/json',
-              body: JSON.stringify({ id: 'email-payload-id', ...capturedPayload }),
+              body: JSON.stringify({ id: 'email-payload-id', ...payload }),
             });
             return;
           }
@@ -527,7 +527,12 @@ test.describe('Email Notification Provider', () => {
         await page.getByTestId('provider-name').fill('payload-test-email');
         await page.getByTestId('provider-url').fill('alert@example.com, ops@example.com');
 
+        // Register the request wait before clicking so the POST cannot be missed.
+        const createRequestPromise = page.waitForRequest(
+          (request) => request.method() === 'POST' && /\/api\/v1\/notifications\/providers$/.test(request.url())
+        );
         await page.getByTestId('provider-save-btn').click();
+        capturedPayload = (await (await createRequestPromise).postDataJSON()) as Record<string, unknown>;
       });
 
       await test.step('Verify email payload contract', async () => {

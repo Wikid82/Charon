@@ -81,6 +81,9 @@ type CrowdsecHandler struct {
 	LAPIPollInterval time.Duration // For testing; 0 means 500ms default
 	dashCache        *dashboardCache
 
+	// engineCheckTimeout bounds the engine's own configuration check during an import.
+	engineCheckTimeout time.Duration
+
 	// validateLAPIURL validates and parses a LAPI base URL.
 	// This field allows tests to inject a permissive validator for mock servers
 	// without mutating package-level state (which causes data races).
@@ -88,6 +91,12 @@ type CrowdsecHandler struct {
 
 	// signalProcess delivers a signal to a PID; overridable in tests.
 	signalProcess func(pid int, sig syscall.Signal) error
+
+	// reloadProbe answers whether LAPI is ready for a reload; nil asks cscli. Overridable in tests.
+	reloadProbe func(ctx context.Context) bool
+	// reloaderState is built once by reloader(); reloaderOnce guards it.
+	reloaderOnce  sync.Once
+	reloaderState *crowdsecReloader
 
 	// registerScriptPath overrides the bouncer registration script location; overridable in tests.
 	registerScriptPath string
@@ -448,7 +457,26 @@ const (
 	codeImportKeepCurrentFailed = "import_keep_current_failed"
 	// codeImportConfigNotFound: the archive has no config.yaml the engine reads.
 	codeImportConfigNotFound = "import_config_not_found"
+	// codeImportConfigInvalid: the engine itself refused the imported configuration (msgImportConfigInvalid).
+	codeImportConfigInvalid = "import_config_invalid"
 )
+
+// msgImportConfigInvalid is the fixed message for an import the engine refused. The engine's output is logged
+// sanitized and never returned.
+const msgImportConfigInvalid = "CrowdSec could not load the imported configuration. Check that config.yaml has a config_paths section and that the folders it names exist."
+
+// crowdsecImportCheckTimeout bounds the engine's configuration check (`crowdsec -t -c`) during an import.
+const crowdsecImportCheckTimeout = 30 * time.Second
+
+// errEngineRejectedConfig means the engine's own configuration check exited non-zero for a reason that is not the
+// environment (see validateWithEngine).
+var errEngineRejectedConfig = errors.New("crowdsec rejected the imported configuration")
+
+// environmentalEngineOutput matches the engine output of a check that could not run against the configuration
+// because the environment is not ready: a running engine holds the ports and the database, and the image ships
+// without the notification plugin directory or binaries that the shipped config names. The plugin alternatives
+// cover the broker's directory and binary load failures, which are not config-content errors.
+var environmentalEngineOutput = regexp.MustCompile(`(?i)address already in use|bind: |database is locked|database table is locked|sqlite_busy|plugin broker|binary for plugin .+ not found`)
 
 // Stable error_code values of the acquisition endpoints (#1708). Both answer 500: the server cannot do the
 // operation until the file's owner, mode or folder permissions are fixed. The messages name the fix, not a path.
@@ -487,12 +515,14 @@ var (
 	errConfigInvalid  = errors.New("config.yaml is not valid YAML")
 	errConfigNotMap   = errors.New("config.yaml must be a YAML mapping")
 	errConfigNoKeys   = errors.New("config.yaml has no CrowdSec configuration sections")
+	errConfigNoPaths  = errors.New("config.yaml has no config_paths section")
 )
 
 // validateYAMLFile checks that path is a size-bounded YAML mapping holding at least one known
-// CrowdSec top-level section. Nested values are left to CrowdSec. Only the first document of a
-// multi-document file is read, matching the engine. Duplicate mapping keys are rejected on purpose:
-// this is stricter than the engine's own loader, which tolerates some duplicates.
+// CrowdSec top-level section and a config_paths section, which the engine needs to find its data and
+// hub folders. Nested values are left to CrowdSec. Only the first document of a multi-document file is
+// read, matching the engine. Duplicate mapping keys are rejected on purpose: this is stricter than the
+// engine's own loader, which tolerates some duplicates.
 func validateYAMLFile(path string) error {
 	data, err := readCapped(path)
 	if errors.Is(err, errFileTooLarge) {
@@ -516,7 +546,7 @@ func validateYAMLFile(path string) error {
 
 	// yaml.v3 coerces scalar keys such as 1 or true into strings when decoding into a map, so key
 	// types are checked on the nodes. Only the top level is inspected; nested content is CrowdSec's.
-	found := false
+	found, hasPaths := false, false
 	mapping := root.Content[0]
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		key := mapping.Content[i]
@@ -526,11 +556,52 @@ func validateYAMLFile(path string) error {
 		if slices.Contains(crowdsecConfigSections, key.Value) {
 			found = true
 		}
+		if key.Value == "config_paths" {
+			hasPaths = true
+		}
 	}
-	if found {
+	if !found {
+		return errConfigNoKeys
+	}
+	if !hasPaths {
+		return errConfigNoPaths
+	}
+	return nil
+}
+
+// validateWithEngine asks the engine to load the configuration at configPath (`crowdsec -t -c`). It returns
+// errEngineRejectedConfig only when the engine itself exits non-zero for a reason that is not the environment.
+// Any other outcome (the binary cannot run, the check times out or is killed, or the output shows a port or
+// database lock held by a running engine) is logged as a Warn and skipped, so the import still stands.
+func (h *CrowdsecHandler) validateWithEngine(ctx context.Context, configPath string) error {
+	// A handler built as a struct literal has no timeout set; a zero bound would expire at once and skip the check.
+	timeout := h.engineCheckTimeout
+	if timeout <= 0 {
+		timeout = crowdsecImportCheckTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	out, err := h.CmdExec.Execute(ctx, h.BinPath, "-t", "-c", configPath)
+	if err == nil {
 		return nil
 	}
-	return errConfigNoKeys
+
+	var exitErr *exec.ExitError
+	// A zero or negative code is a signal kill (or no exit status at all): the check did not finish, so it is skipped.
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() <= 0 || ctx.Err() != nil {
+		logger.Log().WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec import: the engine configuration check could not run; skipped")
+		return nil
+	}
+
+	output := strings.TrimSpace(string(out))
+	if environmentalEngineOutput.MatchString(output) {
+		logger.Log().WithField("output", sanitizeForLog(output)).Warn("crowdsec import: the engine configuration check hit a busy port, database or missing plugin; skipped")
+		return nil
+	}
+
+	logger.Log().WithField("output", sanitizeForLog(output)).Warn("crowdsec import: the engine rejected the imported configuration")
+	return errEngineRejectedConfig
 }
 
 func mapCrowdsecStatus(err error, defaultCode int) int {
@@ -575,6 +646,7 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		mergeNotifications: crowdsec.MergeRedactedNotifications,
 		mergeConfig:        crowdsec.MergeRedactedConfig,
 		scanPlaceholders:   crowdsec.ScanPlaceholders,
+		engineCheckTimeout: crowdsecImportCheckTimeout,
 	}
 	hubSvc.Reload = h.reloadCrowdSec
 	if db != nil {
@@ -962,9 +1034,10 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 	keptFiles = append(keptFiles, keptKeys...)
 
-	// Validate extracted config
+	// Validate extracted config: its YAML shape first, then the engine's own load of it.
+	configPath := crowdsec.FindConfigFile(h.DataDir)
 	validateErr := errConfigFileNotFound
-	if configPath := crowdsec.FindConfigFile(h.DataDir); configPath != "" {
+	if configPath != "" {
 		validateErr = validateYAMLFile(configPath)
 	}
 	if err := validateErr; err != nil {
@@ -977,12 +1050,20 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msg})
 		return
 	}
+	if err := h.validateWithEngine(c.Request.Context(), configPath); err != nil {
+		rollback()
+		respondCoded(c, http.StatusUnprocessableEntity, codeImportConfigInvalid, msgImportConfigInvalid, nil)
+		return
+	}
 
-	// Charon's whitelist file follows this instance's database, not the archive's copy. A failure is logged and
-	// leaves the import standing with the archive's copy of the file.
+	// Charon's whitelist file follows this instance's database, not the archive's copy. A failure leaves the live
+	// configuration as it was before the import.
 	regenerated, wlErr := h.writeWhitelistFile(c.Request.Context())
 	if wlErr != nil {
-		logger.Log().WithField("error", sanitizeForLog(wlErr.Error())).Warn("crowdsec import: regenerating the whitelist file failed (non-fatal)")
+		logger.Log().WithField("error", sanitizeForLog(wlErr.Error())).Error("crowdsec import: regenerating the whitelist file failed")
+		rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to regenerate the whitelist file"})
+		return
 	}
 	resp := gin.H{"status": "imported", "backup": crowdsec.BackupID(backupDir)}
 	if regenerated {
@@ -2774,49 +2855,6 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/whitelist", h.ListWhitelists)
 	rg.POST("/admin/crowdsec/whitelist", h.AddWhitelist)
 	rg.DELETE("/admin/crowdsec/whitelist/:uuid", h.DeleteWhitelist)
-}
-
-// signalOSProcess sends sig to the process with the given PID.
-func signalOSProcess(pid int, sig syscall.Signal) error {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("find process %d: %w", pid, err)
-	}
-	if err := proc.Signal(sig); err != nil {
-		return fmt.Errorf("signal process %d: %w", pid, err)
-	}
-	return nil
-}
-
-// reloadCrowdSec sends SIGHUP to the CrowdSec process Charon manages (tracked via its PID file)
-// so it reloads parsers, scenarios and whitelists. CrowdSec treats SIGHUP as a reload request
-// (the same signal its systemd unit's ExecReload uses). Returns crowdsec.ErrCrowdSecNotRunning
-// when no managed process is running.
-func (h *CrowdsecHandler) reloadCrowdSec(ctx context.Context) error {
-	if h.Executor == nil {
-		return crowdsec.ErrCrowdSecNotRunning
-	}
-	running, pid, err := h.Executor.Status(ctx, h.DataDir)
-	if err != nil {
-		return fmt.Errorf("crowdsec status: %w", err)
-	}
-	if !running || pid <= 0 {
-		return crowdsec.ErrCrowdSecNotRunning
-	}
-	signal := h.signalProcess
-	if signal == nil {
-		signal = signalOSProcess
-	}
-	return signal(pid, syscall.SIGHUP)
-}
-
-// reloadAfterWhitelistChange reloads CrowdSec best-effort; failures never fail the request.
-func (h *CrowdsecHandler) reloadAfterWhitelistChange(ctx context.Context, action string) {
-	switch err := h.reloadCrowdSec(ctx); {
-	case err == nil, errors.Is(err, crowdsec.ErrCrowdSecNotRunning):
-	default:
-		logger.Log().WithError(err).Warnf("crowdsec reload failed after whitelist %s (non-fatal)", action)
-	}
 }
 
 // skipArchiveEntry reports whether an extracted entry must be ignored: it lies at or beneath a kept

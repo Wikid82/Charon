@@ -934,6 +934,8 @@ restart as interrupted and restores the pre-install snapshot. Lock order is busy
 flag, then `dataMu`; `acquisMu` is a leaf lock. The synchronous apply route
 remains but is deprecated for large presets. Job views never expose `backup_path`.
 
+**Start, reload and import checks:** `api/handlers/crowdsec_reload.go` is the only sender of SIGHUP to the managed engine. A reload requested before the engine is ready (LAPI answers and the engine has run for a settle window) is queued as one pending reload, and the apply and restore results report it with `reload_pending`. The engine is launched through a small `sh` wrapper that ignores SIGHUP and then `exec`s the engine, so the process ID is kept; the process-identity check recognises both the wrapper and the engine command line. While Start waits for LAPI it polls the process, and two consecutive not-running polls end the start with `crowdsec_engine_exited` (500) and restore the recorded state, as for a failed spawn. Import validation requires `config_paths` in the archive's `config.yaml`: an archive without it is refused with a plain 422 `config validation failed: config.yaml has no config_paths section` (no error code). The engine's own `crowdsec -t -c` check then runs on the candidate file; only the engine's own non-zero exit refuses the import (422 `import_config_invalid`), while a check that cannot run or hits a busy port or database is logged and skipped. A failed whitelist regeneration during import rolls back to the live configuration.
+
 **Persistent hub data:** CrowdSec's `data_dir` (LAPI database and hub data files
 such as blocklists and the GeoIP database) lives at `/app/data/crowdsec/data`
 on the persistent volume, so it survives container recreation. The entrypoint

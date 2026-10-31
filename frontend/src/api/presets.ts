@@ -79,6 +79,8 @@ export interface ApplyCrowdsecPresetResponse {
   status: string
   backup?: string
   reload_hint?: boolean
+  /** True when a reload was queued until CrowdSec finishes starting; show passive text, not a reload prompt. */
+  reload_pending?: boolean
   used_cscli?: boolean
   cache_key?: string
   slug?: string

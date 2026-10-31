@@ -1546,6 +1546,7 @@
         "generic": "Die Hub-Elemente konnten nicht installiert werden. Versuchen Sie es erneut."
       }
     },
+    "reloadPending": "Das Neuladen ist vorgemerkt und wird ausgeführt, sobald CrowdSec den Start abgeschlossen hat.",
     "importSuccess": "CrowdSec-Konfiguration importiert (Sicherung erstellt)",
     "importFailed": "Import fehlgeschlagen",
     "importKeptFiles": "Diese Dateien waren nicht im Archiv, daher wurden die aktuellen beibehalten: {{files}}",
@@ -2485,6 +2486,8 @@
   },
   "crowdsec": {
     "errors": {
+      "engineExited": "CrowdSec wurde kurz nach dem Start beendet. Den Grund findest du im CrowdSec-Protokoll.",
+      "importConfigInvalid": "CrowdSec konnte die importierte Konfiguration nicht laden. Prüfe, ob config.yaml einen Abschnitt config_paths hat und ob die darin genannten Ordner existieren.",
       "stateChanged": "CrowdSec wurde ausgeschaltet, während es gestartet wurde.",
       "unavailable": "CrowdSec ist auf diesem Server nicht verfügbar."
     }

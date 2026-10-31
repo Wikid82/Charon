@@ -1546,6 +1546,7 @@
         "generic": "无法安装 Hub 项目，请重试。"
       }
     },
+    "reloadPending": "重新加载已排定，将在 CrowdSec 启动完成后执行。",
     "importSuccess": "CrowdSec 配置已导入（已创建备份）",
     "importFailed": "导入失败",
     "importKeptFiles": "归档中没有这些文件，因此保留了当前的文件：{{files}}",
@@ -2485,6 +2486,8 @@
   },
   "crowdsec": {
     "errors": {
+      "engineExited": "CrowdSec 在启动后立即停止。请查看 CrowdSec 日志了解原因。",
+      "importConfigInvalid": "CrowdSec 无法加载导入的配置。请检查 config.yaml 是否包含 config_paths 部分，以及其中指定的文件夹是否存在。",
       "stateChanged": "CrowdSec 在启动过程中被关闭。",
       "unavailable": "此服务器上无法使用 CrowdSec。"
     }

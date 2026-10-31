@@ -1,71 +1,83 @@
-# QA Report: Security Settings Handling
+# QA Report: CrowdSec Start, Reload and Import Readiness
 
-- Head: `2721315e` (14 commits on `development` `690c3319`, branch `fix/security-settings-handling`).
-- Date: 2026-10-27
-- Scope: the security module switches and stored security settings: the status fields that report the applied state, the save path for the stored settings, the settings and config writers, the WAF rule set choice, the rate-limit thresholds, the related integration scripts and E2E specs, and the log lines written by the module-switch writer.
-- Working tree: nothing committed, pushed or opened as a PR by QA. This report is the only tracked file written by QA.
-- **Verdict: READY for merge.** The one blocking item from the run (an integration script check that did not follow a server redirect) was fixed in the script and re-run: block case 403, monitor case 200, shellcheck clean. No product defect was found.
+- Branch: `fix/crowdsec-wait-for-start`, audited at HEAD `2bba3480` (9 CrowdSec commits, patch-identical to the earlier `c2d660d2` tip; the branch was rebased onto the current `origin/development` during the run, which added 6 unrelated base commits: CI pins, i18n languages, agent file names).
+- Date: 2026-10-31
+- Scope: starting the CrowdSec engine, waiting for it to be ready before reloads, keeping the whitelist file present, and checking an imported configuration before it is used.
+- Working tree: nothing committed, staged, stashed or pushed by QA. This report is the only file QA wrote.
+- **Verdict: READY, with three conditions** (see the end of this report).
 
 ## Gate Summary
 
 | # | Gate | Result | Numbers |
 | --- | --- | --- | --- |
-| 1 | `go build ./...` | PASS | clean |
-| 2 | `go test -race -count=1`, all touched backend packages | PASS | models, caddy, cerberus, server, cmd/*, routes, handlers, services (run in two name partitions): 0 failures |
-| 3 | Backend coverage (gate 87%) | PASS | 92.8% of statements, merged profile of all packages (see Notes) |
-| 4 | Frontend coverage | PASS | statements 91.03%, branches 85.01% (6396 of 7524), functions 88.91%, lines 92.05% |
-| 5 | Local patch coverage (`scripts/local-patch-report.sh`) | PASS | overall 741 of 741 changed lines (100%); backend 665 of 665; frontend 76 of 76 |
-| 6 | Vitest (full) | PASS | 318 files, 3986 passed, 4 skipped, 2 todo, 0 failed |
-| 7 | `npm run type-check` | PASS | clean |
-| 8 | `npm run lint` | PASS | 0 errors, 1359 warnings (existing backlog; changed files have no net increase) |
-| 9 | `npm run build` | PASS | clean |
-| 10 | i18n | PASS | i18n test 22 of 22; the new keys are present in every locale that carries the feature text |
-| 11 | `make lint-fast` | PASS | 0 issues (backend and agent) |
-| 12 | `make lint-backend` | PASS | 0 issues |
-| 13 | markdownlint, changed docs | PASS | 0 issues in 10 changed Markdown files |
-| 14 | GORM security scan (`--check`) | PASS | 0 CRITICAL, 0 HIGH |
-| 15 | govulncheck | PASS | 0 vulnerabilities in called code; 1 advisory in a required module that the code does not call (Finding 5) |
-| 16 | CodeQL Go (`lefthook run codeql`) | PASS | 0 blocking results; 4 suppressed, all existing suppressions |
-| 17 | CodeQL JS | PASS | 0 results |
-| 18 | Trivy filesystem | PASS with known items | 0 CRITICAL or HIGH vulnerabilities in tracked manifests; 0 secrets in tracked files; 1 HIGH misconfiguration in `agent/Dockerfile`, file not changed by this branch (Finding 6) |
-| 19 | Trivy image, branch build | PASS with a known item | 0 CRITICAL; 1 HIGH in a third-party component of the bundled CrowdSec binaries, already listed in `.trivyignore` |
-| 20 | `lefthook run pre-commit --all-files` | PASS | every hook passed; Semgrep ran 367 rules on 2278 files with 0 findings |
-| 21 | Playwright, `--project=security-tests`, targeted specs (one project per run) | PASS | group 1 (WAF status, field update, WAF config, rate limiting): 47 of 47 on each of two back-to-back runs; emergency reset and WAF enforcement: 9 of 9; combined enforcement: 7 of 7; CrowdSec lifecycle: 7 of 7 |
-| 22 | Integration: Cerberus script (renamed copy, remapped ports) | PASS | 8 of 8 checks |
-| 23 | Integration: WAF script (renamed copy, remapped ports) | PASS | 16 of 16 checks |
-| 24 | Integration: rate-limit script (renamed copy, remapped ports) | PASS | all checks passed |
-| 25 | Integration: Coraza script (renamed copy, remapped ports) | PASS after fix | the admin-API reads follow the redirect and every request uses the script's own ports; block case 403, monitor case 200 |
-| 26 | Container checks on the branch image | PASS | status fields and reasons; ruleset selection and in-use delete; module key clearing and handler rebuild; start-up reconciliation; rate-limit thresholds; echo save; failed-apply restore on all five writers; validation codes; 30 parallel save pairs; non-admin denial on all writers; reported WAF mode per module state; log line probe |
-| 27 | Invariants | PASS | changelog diff empty; `changelog.json` is `[]`; `go.work.sum` unchanged; no breaking-change marker in any commit; exactly one `(security)` subject; no session link or attribution in commits or code |
-| 28 | Gotify token review | PASS | no token value in the branch diff, the run logs or the probe output |
+| 1 | `cd backend && go build ./...` | PASS | clean |
+| 2 | Backend coverage (`scripts/go-test-coverage.sh`, gate 87%) | PASS (see Notes) | line coverage 91.85% (42258 of 46007); statements 93.0% |
+| 3 | Frontend coverage (`scripts/frontend-test-coverage.sh`, gate 85%) | PASS (see Notes) | lines 91.10% (8421 of 9243); statements 90.09%; branches 84.19%; functions 87.16% |
+| 4 | Local patch coverage (`scripts/local-patch-report.sh`) | PASS | overall 94.0% (313 of 333 changed lines); backend 94.0% (311 of 331); frontend 100% (2 of 2) |
+| 5 | `npm run type-check` | PASS | clean |
+| 6 | `npm run build` | PASS | clean |
+| 7 | `npm run lint` | PASS | 0 errors, 1359 warnings (existing backlog) |
+| 8 | `make lint-fast` (staticcheck, govet, errcheck, ineffassign, unused) | PASS | 0 issues (backend and agent) |
+| 9 | `lefthook run pre-commit` | PASS (no-op) | no files were staged, so every hook skipped; the fast linters were run directly in row 8 |
+| 10 | GORM security scan | NOT REQUIRED | no file under `backend/internal/models/` or any migration changed |
+| 11 | Playwright `tests/security/crowdsec-import.spec.ts` and `tests/security/crowdsec-first-enable.spec.ts` (`--project=security-tests`) | PASS | 62 of 62 on the final build |
+| 12 | Playwright `tests/crowdsec-whitelist.spec.ts` (`--project=firefox`) | PASS | 12 of 12 on the final build |
+| 13 | CodeQL and Trivy | DEFERRED TO CI | the commits are `fix:`, `test:` and `docs:`; no new feature commit; CI runs both on the PR |
 
-## Notes on the gates
+## Container Gate
 
-- Gate 3: the backend coverage script runs `go test -race ./...` in one invocation, which exceeds one tool call. QA ran the same package set without `-race` in chunks, with `-count=1 -coverprofile`, excluding the same packages as the script, then merged the profiles. The `-race` run was done separately (gate 2). CI runs the script in full.
-- Gate 4: the frontend script's combined install and test run exceeded one tool call, so QA ran the same vitest command with coverage directly. The branch figure is 0.01 points above the gate; the margin is small.
-- Gate 5: the patch report was regenerated after the backend coverage profile was refreshed, so it reflects this run.
-- Gate 21: the first group was run twice back to back, and both runs passed. Playwright was run only for the targeted specs, in one project per run. The full suite and cross-browser runs are deferred to CI.
-- Gate 25: the script runs against the Caddy admin API without following redirects. QA ran a throwaway copy with that single request following the redirect and the host-side request pointed at the copy's own port. Both changes were made in the copy only.
-- Gate 26: all checks were run against a throwaway container from the branch image, with its own volume and network, removed afterwards.
+Throwaway containers built from the locally built `charon:local` image, with their own volumes, published on high loopback ports only, and deleted afterwards. The live development container was not touched.
+
+| Gate | Scenario | Repetitions | Result |
+| --- | --- | --- | --- |
+| (a) | Whitelist add at 0.1, 0.5, 1.0, 1.5, 2.0, 2.5 and 3.0 s after Start | 3 each (21 runs) | 21 of 21: engine alive, the add was accepted, the reload was delivered after readiness (`Reload is finished` after the add), the entry was written, no fatal line |
+| (b) | Port 8085 occupied inside the container, then Start | 3 | 3 of 3: HTTP 500 `crowdsec_engine_exited` in about 1.2 s; the engine logged a bind failure on the occupied port |
+| (b2) | Two concurrent Starts | 3 | 3 of 3: one engine process; one request answered 200, the other 409 `crowdsec_busy` |
+| (b2) | Start then Stop 50 ms later | 3 | 3 of 3: Stop answered 200; no engine process left |
+| (c) | Placeholder whitelist file (events parsed, real entry matches, sibling file ignored) | 1 pass | Placeholder present and listed; `cscli explain` on a public test address showed `parser success` with the managed whitelist unchanged; a real entry matched after add, delete (empty) and re-add; the temporary sibling file was not loaded |
+| (c) | Managed-file guard | 1 | the canonical managed path answered 400 `file_managed_by_charon` on write and was readable |
+| (c) | 45 s stress: 8 adds and 8 deletes (16 mutations) | 1 | 41 s elapsed; 9 engine reloads delivered (the reloader coalesced the rest); engine alive at the end; placeholder present; no fatal line |
+| (d) | Import of an archive exported by a real Charon container | 1 | HTTP 200 `imported`; engine still running |
+| (d) | Stock CrowdSec layout (absolute `/etc/crowdsec` paths, missing nginx log file, journald source) | 1 | direct `crowdsec -t` exit 0; import HTTP 200 (engine logged the missing source as an error but the configuration check passed) |
+| (d) | Archive without `config_paths` | 1 | HTTP 422 `config validation failed: config.yaml has no config_paths section`; live configuration byte-identical (checksum) |
+| (d) | Archive with a broken `config_dir` | 1 | HTTP 422 `import_config_invalid`; live configuration byte-identical (checksum) |
+| (d) | `crowdsec -t` while an engine runs | 1 | exit 0 on the live configuration |
+| (e) | Decision ban against a created proxy host | 1 | baseline 200; after `ban` the proxy answered 403 in about 54 s (bouncer poll interval); after `unban` the proxy answered 200 within the next poll cycle (about 60 s) |
+| (e) | T2 refuse-at-once (async non-curated preset apply while a hub restore holds the data lock) | 0 | NOT EXECUTED; see Findings F6 |
+| (f) | Two SIGHUPs 0.2 s apart | 3 | 3 of 3: both signals received and each reload finished (roughly 3 s each, run one after the other); engine alive; no fatal line |
+
+### Output samples for the environmental-error pattern
+
+Captured from the engine log when the port was occupied (matched by the `environmentalEngineOutput` pattern):
+
+```
+level=fatal msg="local API server stopped with error: listening on 127.0.0.1:8085: listen tcp 127.0.0.1:8085: bind: address already in use"
+```
+
+`crowdsec -t` never reported a port or database-lock error in these runs (it exited 0 while the engine was running). A missing notification plugin did not reproduce under `-t` either (the engine loads plugins at start, not during the check). The database-lock and plugin texts are therefore not yet pinned by a captured sample.
 
 ## Findings
 
-**1, fixed in this PR, integration script.** `scripts/coraza_integration.sh` reads the Caddy admin configuration path without a trailing slash and without following redirects. The admin API answers that path with a redirect, so the WAF handler check never sees the configuration and the script stops. The same script also posts one request to a fixed host port that is not its own container's port. Fix: read the admin path with a trailing slash (or follow redirects), and use the script's mapped port for every request. Scope: the script only; no product change. Severity: blocks merge under the Definition of Done (a failing test must be fixed in the same PR).
+| ID | Severity | Summary | Status |
+| --- | --- | --- | --- |
+| F1 | Low | The scope of the managed-file guard in the CrowdSec file editor is narrower than intended. The engine does not read the affected location, so runtime behaviour is unaffected. | Hardening item; tracked privately. Details withheld from this public report. |
+| F2 | Info | The stock CrowdSec layout passes `crowdsec -t`. The hard refusal on the engine's own non-zero exit therefore does not block stock archives in this test. | Result, not a defect. Informs the decision to keep the hard refusal. |
+| F3 | Low | Under rapid whitelist changes the reloader coalesces reloads: 16 mutations in 41 s produced 9 engine reloads. The final engine state matched the last mutation. | Expected behaviour of the coalescing design; the test expectation of one reload per mutation does not hold. Document in the troubleshooting page if it matters to operators. |
+| F4 | Low | A truly concurrent second Start is answered 409 `crowdsec_busy`, not with the existing process as a 200. Only one engine is ever started. A sequential second Start still answers 200 `already_running`. | Safe. Confirm this is the intended contract; the UI should show the busy text. |
+| F5 | Low | Gate (b) checks that the security module setting is unchanged after the failed Start, but the setting was already disabled before the test, so the revert was not exercised. | Test gap. Re-run with the module enabled before the occupied-port Start. |
+| F6 | Medium (test gap) | T2 (refuse at once instead of waiting behind a hub update) was not executed. Reproducing it needs an in-flight hub restore that holds the data lock, and the throwaway container has no outbound hub access. | Carry to a follow-up test in an environment with hub access. Not a regression finding for this branch. |
+| F7 | Info | The database-lock and missing-plugin output samples were not reproduced with `crowdsec -t`. The pattern covers them, but only the bind-failure sample is pinned. | Capture samples when a reproducer is available. |
+| F8 | Info | One test file of the 312 in the frontend suite did not appear in the chunked run's file count (311 reported). The full suite was not run as one process in this session. | Re-check with the CI frontend job. |
 
-**2, tracked follow-up, not blocking.** Several items from the implementation review remain open, in the areas of state restore, metric caching, rate-limit mode handling, documentation and log wording. Each is tracked as a follow-up. Severity: low.
+## Notes on the Gate Runs
 
-**3, follow-up, not blocking.** Input validation on two stored setting paths is looser than on the module switches. The fix belongs in the settings and security config writers. Severity: low; admin-only.
+- The backend and frontend gate scripts run longer than the ten-minute limit of the QA session. The same measurements were produced by running the same packages and the same test files in chunks, merging the profiles with the same exclusions, and applying the script's line-coverage calculation. The numbers above are from those merged profiles. CI runs the scripts unchanged.
+- The frontend profile was merged with the same istanbul libraries used by the test runner. The totals are the coverage summary totals.
+- The Gotify test fixtures in the frontend notification tests use placeholder strings. No real token appeared in test artifacts, logs or screenshots.
+- No Gotify token or other secret was written to this report.
 
-**4, follow-up, not blocking.** Frontend lint reports 1359 warnings repository-wide, and the locale files for most languages lack a share of the English keys. Neither count rises because of this branch. Severity: low.
+## Conditions for Merge
 
-**5, known, not blocking.** govulncheck lists one advisory in a required module (`golang.org/x/crypto`). The code does not call the affected function and no fixed version is listed. Severity: low; documented in `SECURITY.md`.
-
-**6, pre-existing, out of scope.** Trivy reports one HIGH misconfiguration: `agent/Dockerfile` runs as root. This branch does not change that file. Severity: low (pre-existing).
-
-**7, known, not blocking.** Trivy image: one HIGH finding in a third-party dependency of the bundled CrowdSec binaries, already listed in `.trivyignore`. The scan was run outside the repository, so it did not apply that ignore file. Severity: low (known).
-
-**8, tooling.** Semgrep timed out on three rules for one backend test file and skipped them for that file. Severity: low.
-
-## Files
-
-- `docs/reports/qa_report.md` (this report; the only tracked change)
+1. Re-run gate (e) T2 in an environment with hub access (F6), or record the accepted gap in the PR.
+2. Review and fix the managed-file scope item F1 through the private process; it does not block the functional change.
+3. CodeQL and Trivy results from CI must be clean before merge (deferred locally, per the project rule for `fix:`, `test:` and `docs:` commits).

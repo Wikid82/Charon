@@ -264,7 +264,9 @@ func (s *HubService) ApplyWith(ctx context.Context, req ApplyRequest) (ApplyResu
 
 	req.enter(PhaseReload)
 	result.Status = "applied"
-	result.ReloadHint = !s.reloadCrowdSec(applyCtx, "hub preset apply")
+	reloaded, pending := s.reloadCrowdSec(applyCtx, "hub preset apply")
+	result.ReloadHint = !reloaded && !pending
+	result.ReloadPending = pending
 	result.UsedCSCLI = true
 	return result, nil
 }

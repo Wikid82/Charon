@@ -2,7 +2,7 @@
  * CrowdSec Diagnostics E2E Tests
  *
  * The diagnostics, export and file endpoints are served by the real backend, which has no
- * CrowdSec engine in the E2E container (no cscli, nothing running). Each test first imports
+ * CrowdSec engine in the E2E container (cscli is present, but no engine is running). Each test first imports
  * a known configuration archive so the files on disk are fixed, then asserts the exact
  * response the backend produces for that state:
  * - Configuration validation (diagnostics/config)
@@ -22,20 +22,44 @@ import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { createTarGz } from '../utils/archive-helpers';
 import { stubCrowdSecApi, crowdsecFixtures } from '../utils/crowdsec-stubs';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
-import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
+import { restoreShippedCrowdsecConfig, SHIPPED_CROWDSEC_FILES } from '../utils/crowdsec-shipped-config';
 import { promises as fs } from 'fs';
 
 const ADMIN = '/api/v1/admin/crowdsec';
-const CONFIG_YAML = `api:
-  server:
-    listen_uri: 127.0.0.1:8085
-`;
+/**
+ * A configuration the engine can load (the import check refuses one without config_paths). It is the shipped
+ * file, which listens on 127.0.0.1:8085, so the LAPI port the diagnostics report is known.
+ */
+const CONFIG_YAML = SHIPPED_CROWDSEC_FILES['config/config.yaml'];
+/** The shipped configuration listening on every interface, which the diagnostics report has no LAPI port for. */
+const ALL_INTERFACES_CONFIG_YAML = CONFIG_YAML.replace('listen_uri: 127.0.0.1:8085', 'listen_uri: 0.0.0.0:8080');
 const ACQUIS_YAML = `source: file
 filenames:
   - /var/log/e2e.log
 labels:
   type: syslog
 `;
+const NO_DATASOURCE_ACQUIS_YAML = 'labels:\n  type: syslog\n';
+const ACQUIS_NO_DATASOURCE_ERROR =
+  "acquis.yaml missing datasource configuration (expected 'source:' and 'filenames:' or 'filename:')";
+
+/** Uploads an archive built from `files` to the import endpoint and returns the response. */
+async function postArchive(request: APIRequestContext, archivePath: string, files: Record<string, string>) {
+  await createTarGz(files, archivePath);
+  return request.post(`${ADMIN}/import`, {
+    multipart: {
+      file: { name: 'known.tar.gz', mimeType: 'application/gzip', buffer: await fs.readFile(archivePath) },
+    },
+    // The import runs the engine's configuration check, which can take up to its own 30 second bound.
+    timeout: 120_000,
+  });
+}
+
+/** Saves one configuration file through the editor endpoint and expects it to be accepted. */
+async function saveConfigFile(request: APIRequestContext, path: string, content: string) {
+  const response = await request.post(`${ADMIN}/file`, { data: { path, content } });
+  expect(response.status(), await response.text()).toBe(200);
+}
 
 /** Replaces the CrowdSec configuration with a known one, so every test starts from the same files. */
 async function importKnownConfig(
@@ -43,13 +67,8 @@ async function importKnownConfig(
   archivePath: string,
   files: Record<string, string> = { 'config/config.yaml': CONFIG_YAML, 'config/acquis.yaml': ACQUIS_YAML },
 ) {
-  await createTarGz(files, archivePath);
-  const response = await request.post(`${ADMIN}/import`, {
-    multipart: {
-      file: { name: 'known.tar.gz', mimeType: 'application/gzip', buffer: await fs.readFile(archivePath) },
-    },
-  });
-  expect(response.status()).toBe(200);
+  const response = await postArchive(request, archivePath, files);
+  expect(response.status(), await response.text()).toBe(200);
 }
 
 // Every case imports a known configuration; the shipped one goes back afterwards so later specs can start the engine.
@@ -78,20 +97,23 @@ test.describe('CrowdSec Diagnostics', () => {
       });
     });
 
-    test('should report config.yaml invalid with the first cscli line when the configuration is incomplete', async ({ request }) => {
-      const response = await request.get(`${ADMIN}/diagnostics/config`);
-      expect(response.status()).toBe(200);
-      const config = await response.json();
+    test('should refuse an incomplete config.yaml on import and keep the loadable configuration in place', async ({ request }, testInfo) => {
+      // A minimal file without a config_paths section is refused before it can replace the live configuration.
+      const response = await postArchive(request, testInfo.outputPath('incomplete.tar.gz'), {
+        'config/config.yaml': 'api:\n  server:\n    listen_uri: 127.0.0.1:8085\n',
+      });
+      expect(response.status()).toBe(422);
+      expect((await response.json()).error).toBe('config validation failed: config.yaml has no config_paths section');
 
-      // The E2E image bundles cscli, which rejects this minimal configuration (no config_paths section).
-      expect(config.config_valid).toBe(false);
-      expect(config.errors).toHaveLength(1);
-      expect(config.errors[0]).toMatch(/^config\.yaml validation failed: no configuration paths provided/);
+      const config = await (await request.get(`${ADMIN}/diagnostics/config`)).json();
+      expect(config).toMatchObject({ config_exists: true, lapi_port: '8085' });
+      const file = await request.get(`${ADMIN}/file?path=${encodeURIComponent('config/config.yaml')}`);
+      expect((await file.json()).content).toBe(CONFIG_YAML);
     });
 
     test('should keep the current acquisition file and report an empty LAPI port when only config.yaml is imported', async ({ request }, testInfo) => {
       await importKnownConfig(request, testInfo.outputPath('config-only.tar.gz'), {
-        'config/config.yaml': 'api:\n  server:\n    listen_uri: 0.0.0.0:8080\n',
+        'config/config.yaml': ALL_INTERFACES_CONFIG_YAML,
       });
 
       const response = await request.get(`${ADMIN}/diagnostics/config`);
@@ -105,20 +127,16 @@ test.describe('CrowdSec Diagnostics', () => {
       expect((await acquis.json()).content).toBe(ACQUIS_YAML);
     });
 
-    test('should report an acquisition file without a datasource as invalid', async ({ request }, testInfo) => {
-      await importKnownConfig(request, testInfo.outputPath('bad-acquis.tar.gz'), {
-        'config/config.yaml': CONFIG_YAML,
-        'config/acquis.yaml': 'labels:\n  type: syslog\n',
-      });
+    test('should report an acquisition file without a datasource as invalid', async ({ request }) => {
+      // An import refuses this file, so it is saved through the editor, which checks YAML syntax only.
+      await saveConfigFile(request, 'config/acquis.yaml', NO_DATASOURCE_ACQUIS_YAML);
 
       const response = await request.get(`${ADMIN}/diagnostics/config`);
       expect(response.status()).toBe(200);
       const config = await response.json();
 
       expect(config).toMatchObject({ acquis_exists: true, acquis_valid: false });
-      expect(config.errors).toContain(
-        "acquis.yaml missing datasource configuration (expected 'source:' and 'filenames:' or 'filename:')",
-      );
+      expect(config.errors).toContain(ACQUIS_NO_DATASOURCE_ERROR);
     });
   });
 
@@ -264,18 +282,13 @@ test.describe('CrowdSec Diagnostics', () => {
       expect(connectivity.lapi_ready).toBe(false);
     });
 
-    test('should list every problem as a string error', async ({ request }, testInfo) => {
-      await importKnownConfig(request, testInfo.outputPath('no-datasource.tar.gz'), {
-        'config/config.yaml': CONFIG_YAML,
-        'config/acquis.yaml': 'labels:\n  type: syslog\n',
-      });
+    test('should list each problem as a string error', async ({ request }) => {
+      // The loadable config.yaml is valid, so the acquisition file is the only problem left to list.
+      await saveConfigFile(request, 'config/acquis.yaml', NO_DATASOURCE_ACQUIS_YAML);
 
       const config = await (await request.get(`${ADMIN}/diagnostics/config`)).json();
 
-      expect(config.errors).toEqual([
-        expect.stringMatching(/^config\.yaml validation failed/),
-        "acquis.yaml missing datasource configuration (expected 'source:' and 'filenames:' or 'filename:')",
-      ]);
+      expect(config.errors).toEqual([ACQUIS_NO_DATASOURCE_ERROR]);
     });
   });
 });

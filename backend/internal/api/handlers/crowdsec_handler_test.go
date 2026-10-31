@@ -57,7 +57,7 @@ func (f *fakeExec) Status(ctx context.Context, configDir string) (running bool, 
 
 func setupCrowdDB(t *testing.T) *gorm.DB {
 	db := OpenTestDB(t)
-	// Migrate tables needed by CrowdSec handlers
+	// Migrate tables needed by CrowdSec handlers.
 	if err := db.AutoMigrate(&models.SecurityConfig{}, &models.Setting{}); err != nil {
 		t.Fatalf("failed to migrate SecurityConfig: %v", err)
 	}
@@ -79,6 +79,8 @@ func newTestCrowdsecHandler(t *testing.T, db *gorm.DB, executor CrowdsecExecutor
 	h := NewCrowdsecHandler(db, executor, binPath, dataDir, nil)
 	// Override CmdExec to avoid 60s LAPI wait timeout during Start
 	h.CmdExec = &fastCmdExec{}
+	// A test engine is ready unless a test says otherwise, so a reload is signalled at once.
+	h.reloadProbe = func(context.Context) bool { return true }
 	// Set short timeouts for test performance
 	h.LAPIMaxWait = 100 * time.Millisecond
 	h.LAPIPollInterval = 10 * time.Millisecond
@@ -141,7 +143,7 @@ func TestImportConfig(t *testing.T) {
 
 	// Create a valid test archive
 	files := map[string]string{
-		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config.yaml": importableConfig,
 	}
 	archivePath := createTestArchive(t, "tar.gz", files, true)
 
@@ -190,7 +192,7 @@ func TestImportCreatesBackup(t *testing.T) {
 
 	// Create valid archive
 	files := map[string]string{
-		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config.yaml": importableConfig,
 	}
 	archivePath := createTestArchive(t, "tar.gz", files, true)
 	// #nosec G304 -- archivePath is in test temp directory created by t.TempDir()
@@ -3199,7 +3201,7 @@ func TestCrowdsecHandler_ImportConfig_LargeFile(t *testing.T) {
 
 	// Create a valid large archive with config.yaml
 	files := map[string]string{
-		"config.yaml": "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n",
+		"config.yaml": importableConfig,
 	}
 	archivePath := createTestArchive(t, "tar.gz", files, true)
 	// #nosec G304 -- archivePath is in test temp directory created by t.TempDir()
