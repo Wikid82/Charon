@@ -68,9 +68,8 @@ test.describe('Notifications Payload Matrix', () => {
 
         if (request.method() === 'POST') {
           const payload = (await request.postDataJSON()) as Record<string, unknown>;
-          capturedCreatePayloads.push(payload);
           const created = {
-            id: `provider-${capturedCreatePayloads.length}`,
+            id: `provider-${createdProviders.length + 1}`,
             ...payload,
           };
           createdProviders.push(created);
@@ -143,7 +142,14 @@ test.describe('Notifications Payload Matrix', () => {
           await page.getByTestId('provider-gotify-token').fill('tk_ntfy_matrix_token');
         }
 
+        // Wait for each POST to be issued before the next iteration so the
+        // final scenario is not asserted before its request exists.
+        const createRequestPromise = page.waitForRequest(
+          (request) => request.method() === 'POST' && /\/api\/v1\/notifications\/providers$/.test(request.url())
+        );
         await page.getByTestId('provider-save-btn').click();
+        const createRequest = await createRequestPromise;
+        capturedCreatePayloads.push(createRequest.postDataJSON() as Record<string, unknown>);
       });
     }
 
