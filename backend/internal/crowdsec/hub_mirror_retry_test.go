@@ -269,9 +269,7 @@ func TestRunHubCSCLILocalOperatorTemplateFailsClosed(t *testing.T) {
 
 func TestHubServiceMirrorTemplateLogsUnusableBaseOnce(t *testing.T) {
 	// Not parallel: the test swaps the global logger output.
-	var logs bytes.Buffer
-	logger.Init(false, &logs)
-	t.Cleanup(func() { logger.Init(false, os.Stdout) })
+	logs := captureHubLogs(t)
 
 	svc, _ := mirrorTestSetup(t)
 	svc.MirrorBaseURL = "https://example.com/hub/master"
@@ -404,4 +402,73 @@ func TestNewHubServiceSweepsMirrorLeftovers(t *testing.T) {
 
 	require.Equal(t, []string{"config", "config.yaml"}, dirEntryNames(t, dir))
 	require.Empty(t, dirEntryNames(t, filepath.Join(dir, "config")))
+}
+
+// captureHubLogs points the global logger at a buffer until the test ends. A test that uses it must not run in
+// parallel, because the logger output is shared.
+func captureHubLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logs bytes.Buffer
+	logger.Init(false, &logs)
+	t.Cleanup(func() { logger.Init(false, os.Stdout) })
+	return &logs
+}
+
+const (
+	liveFailureRetryLog   = "cscli hub request failed on the live hub address; retrying on the hub mirror"
+	mirrorFailureRetryLog = "cscli hub request failed on the hub mirror; retrying on the live hub address"
+)
+
+func TestRunHubCSCLILiveFailureLogsRetryOnMirror(t *testing.T) {
+	// Not parallel: the test swaps the global logger output.
+	logs := captureHubLogs(t)
+	dir := t.TempDir()
+	live := writeCSCLIConfig(t, dir, "cscli:\n  hub_branch: master\n")
+	exec := &scriptedCSCLI{respond: func(_ context.Context, n int, _ []string) ([]byte, error) {
+		if n == 0 {
+			return []byte(dialFailureText), errLiveCSCLI
+		}
+		return nil, nil
+	}}
+
+	_, err := RunHubCSCLI(context.Background(), exec, mirrorTestOpts(live, NewMirrorMemory(time.Minute, nil)), "collections", "install", "demo")
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(logs.String(), liveFailureRetryLog), logs.String())
+	require.NotContains(t, logs.String(), mirrorFailureRetryLog)
+}
+
+func TestRunHubCSCLIMirrorFailureLogsRetryOnLive(t *testing.T) {
+	// Not parallel: the test swaps the global logger output.
+	logs := captureHubLogs(t)
+	_, live := mirrorTestSetup(t)
+	mem := NewMirrorMemory(time.Minute, nil)
+	mem.Remember()
+	exec := &scriptedCSCLI{respond: func(_ context.Context, n int, _ []string) ([]byte, error) {
+		if n == 0 {
+			return []byte(dialFailureText), errMirrorCSCLI
+		}
+		return nil, nil
+	}}
+
+	_, err := RunHubCSCLI(context.Background(), exec, mirrorTestOpts(live, mem), "collections", "install", "demo")
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(logs.String(), mirrorFailureRetryLog), logs.String())
+	require.NotContains(t, logs.String(), liveFailureRetryLog, "a mirror-first failure never names the live address as the failed one")
+}
+
+func TestRunHubCSCLIDeclinedRetryLogsNoRetryWarning(t *testing.T) {
+	// Not parallel: the test swaps the global logger output.
+	logs := captureHubLogs(t)
+	dir := t.TempDir()
+	live := writeCSCLIConfig(t, dir, "cscli:\n  hub_branch: master\n")
+	require.NoError(t, os.WriteFile(live+".local", []byte("cscli:\n  __hub_url_template__: \"https://hub.example.org/%s/%s\"\n"), 0o600))
+	exec := &scriptedCSCLI{respond: func(_ context.Context, _ int, _ []string) ([]byte, error) {
+		return []byte(dialFailureText), errLiveCSCLI
+	}}
+
+	_, err := RunHubCSCLI(context.Background(), exec, mirrorTestOpts(live, NewMirrorMemory(time.Minute, nil)), "collections", "install", "demo")
+	require.ErrorIs(t, err, errLiveCSCLI)
+	require.Len(t, exec.recorded(), 1)
+	require.NotContains(t, logs.String(), "retrying on", "no retry runs, so no retry warning is printed")
+	require.Contains(t, logs.String(), "hub mirror retry unavailable")
 }

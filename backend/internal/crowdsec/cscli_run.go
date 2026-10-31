@@ -70,13 +70,13 @@ func liveFirst(ctx context.Context, exec CommandExecutor, opts HubCSCLIOptions, 
 	if err == nil || !isRetryableAttempt(ctx, args, out, timedOut, err) {
 		return out, err
 	}
-	logMirrorRetry(args, err)
 	derived, cleanup, derr := mirrorCSCLIConfig(opts.ConfigPath, opts.Template)
 	if derr != nil {
 		logMirrorUnavailable(derr)
 		return out, err
 	}
 	defer cleanup()
+	logHubRetry(args, err, hubAddressLive, hubAddressMirror)
 	retryOut, retryErr := runOnConfig(ctx, exec, derived, args)
 	if retryErr != nil {
 		return retryOut, fmt.Errorf("retry on hub mirror: %w; live hub address: %w", retryErr, err)
@@ -94,7 +94,7 @@ func mirrorFirst(ctx context.Context, exec CommandExecutor, opts HubCSCLIOptions
 	if err == nil || !isRetryableAttempt(ctx, args, out, timedOut, err) {
 		return out, err
 	}
-	logMirrorRetry(args, err)
+	logHubRetry(args, err, hubAddressMirror, hubAddressLive)
 	liveOut, liveErr := runOnConfig(ctx, exec, opts.ConfigPath, args)
 	if liveErr != nil {
 		return liveOut, fmt.Errorf("retry on live hub address: %w; hub mirror: %w", liveErr, err)
@@ -158,9 +158,17 @@ func hubOperation(args []string) string {
 	return util.SanitizeForLog(strings.Join(subcommand(args), " "))
 }
 
-func logMirrorRetry(args []string, err error) {
+// Names of the two hub addresses in retry log lines.
+const (
+	hubAddressLive   = "live hub address"
+	hubAddressMirror = "hub mirror"
+)
+
+// logHubRetry records that a hub request failed on one address and is retried on the other. Callers log it only
+// once the retry is certain to run, so the line never announces a retry that is declined.
+func logHubRetry(args []string, err error, failedOn, retryOn string) {
 	logger.Log().WithField("operation", hubOperation(args)).WithField("error", hubLogText(err.Error())).
-		Warn("cscli hub request failed on the live hub address; retrying on the hub mirror")
+		Warnf("cscli hub request failed on the %s; retrying on the %s", failedOn, retryOn)
 }
 
 func logMirrorUnavailable(err error) {
