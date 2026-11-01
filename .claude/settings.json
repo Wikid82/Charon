@@ -11,19 +11,6 @@
       "Bash(grep:*)"
     ]
   },
-  "worktree": {
-    "bgIsolation": "none"
-  },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "github@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "semgrep@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "aikido@claude-plugins-official": true
-  },
   "hooks": {
     "PreToolUse": [
       {
@@ -36,5 +23,17 @@
         ]
       }
     ]
+  },
+  "worktree": {
+    "bgIsolation": "none"
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "semgrep@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "aikido@claude-plugins-official": true
   }
 }
