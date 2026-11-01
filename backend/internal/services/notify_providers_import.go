@@ -2,7 +2,7 @@ package services
 
 // This file exists solely for its side effects: each blank import below
 // runs that provider package's init(), which self-registers a
-// notify.Factory into the go_notify_yourself registry (notify.Register),
+// notify.Factory into the Hermes registry (notify.Register),
 // making the provider constructible via notify.New(provider.Type, config)
 // from buildNotifySender (notify_provider_adapter.go).
 //

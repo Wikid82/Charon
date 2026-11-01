@@ -82,7 +82,7 @@ func newWebPushTestWrapper(rt http.RoundTripper) *transport.Wrapper {
 
 // validSubscriberKeys generates a fresh, valid P256dh/Auth pair so a
 // subscription can reach webpush.Client.Send's encryption step without
-// error — mirrors go_notify_yourself's own providers/webpush test helper
+// error — mirrors Hermes's own providers/webpush test helper
 // (testSubscriber, webpush_test.go), duplicated here since it's unexported.
 func validSubscriberKeys(t *testing.T) (p256dh, auth string) {
 	t.Helper()

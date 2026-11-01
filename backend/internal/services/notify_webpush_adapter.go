@@ -46,7 +46,7 @@ var providerStatusPattern = regexp.MustCompile(`provider returned status (\d+)`)
 // of a notify.Sender.Send error's message, if one is present.
 //
 // This exists because, per docs/plans/current_spec.md §2.1/§7 risk 1,
-// go_notify_yourself's transport.Wrapper.Send returns non-2xx failures as a
+// Hermes's transport.Wrapper.Send returns non-2xx failures as a
 // plain formatted string (fmt.Errorf("provider returned status %d[: %s]",
 // ...)) with no typed/sentinel error anywhere in transport/ or webpush/ —
 // there is no errors.Is-compatible way to detect the standard Web Push

@@ -139,7 +139,7 @@ func providerConfigMap(provider models.NotificationProvider, w *transport.Wrappe
 }
 
 // registryTypeForProvider resolves a Charon provider.Type discriminator to
-// the name it is registered under in the go_notify_yourself registry.
+// the name it is registered under in the Hermes registry.
 // "generic" is Charon's own alias for the module's "webhook" provider (the
 // pre-registry switch handled both cases identically via webhook.New); the
 // registry itself only knows the canonical "webhook" name, so the alias
