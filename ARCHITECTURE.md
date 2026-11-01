@@ -278,11 +278,14 @@ graph TB
 │   ├── plans/                  # Implementation plans
 │   └── reports/                # QA and audit reports
 │
-├── docs-site/                  # Docusaurus (TypeScript) docs website — separate from frontend/
-│   ├── docs/                   # GENERATED, gitignored — synced from docs/ on every build
-│   ├── scripts/sync-docs.mjs   # Copies the docs-manifest.json allowlist from docs/ here
+├── docs-site/                  # Zensical (Python, docs tooling only) docs website — separate from frontend/
+│   ├── zensical.toml           # Site config: theme, explicit nav (every synced page must appear in it)
+│   ├── requirements.txt        # Pinned zensical version (Renovate tracks it)
+│   ├── index.md                # Landing page (copied into docs/ by the sync)
+│   ├── assets/                 # Logo, favicon, banner (copied into docs/ by the sync)
+│   ├── scripts/sync-docs.sh    # Copies the docs-manifest.json allowlist from docs/ into docs-site/docs/
 │   ├── scripts/docs-manifest.json  # Explicit list of docs/ files+dirs to publish
-│   └── src/pages/              # Landing page and other static pages
+│   └── docs/                   # GENERATED, gitignored — synced from docs/ on every build
 │
 ├── configs/                    # Runtime configuration
 │   └── crowdsec/               # CrowdSec configurations
@@ -318,17 +321,19 @@ graph TB
 - **`docs/plans/`**: Active planning documents (`current_spec.md`)
 - **`docs/ci/`**: CI/build operator runbooks (`toolchain-image.md`)
 - **`test-results/`**: Test artifacts (gitignored)
-- **`docs-site/`**: A standalone Docusaurus static site that publishes `docs/`
+- **`docs-site/`**: A standalone [Zensical](https://zensical.org/) static site that publishes `docs/`
   as a browsable website at <https://wikid82.github.io/Charon/>, deployed by
   `.github/workflows/docs-deploy.yml` on push to `main` (or manual dispatch).
   It is entirely separate from `frontend/` (the app's React SPA) — never
   bundled into the Docker image and never served by `backend/internal/server`.
-  `docs-site/docs/` is not committed; `docs-site/scripts/sync-docs.mjs`
-  regenerates it on every `npm start`/`npm run build` by copying the
-  allowlist in `docs-site/scripts/docs-manifest.json` from the repo-root
-  `docs/`, which remains the single, untouched source of truth for all
-  documentation. Its npm dependencies are updated alongside root and
-  `frontend/` in `scripts/charon_dep_update.sh`.
+  `docs-site/docs/` is not committed; `docs-site/scripts/sync-docs.sh`
+  regenerates it on every build by copying the allowlist in
+  `docs-site/scripts/docs-manifest.json` from the repo-root `docs/`, which
+  remains the single, untouched source of truth for all documentation. The
+  build runs `zensical build --strict`, which fails on broken internal links
+  and anchors. Python here is the documented docs-tooling exception to the
+  "No Python" rule: `docs-site/requirements.txt` pins `zensical`, and Renovate
+  bumps it as `chore:`. The site has no npm dependencies.
 
 **Bundled-toolchain tooling** (see Deployment Architecture → Prebuilt toolchain image):
 `.github/workflows/toolchain-image.yml`, `scripts/toolchain-key.sh`,

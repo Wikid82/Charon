@@ -919,6 +919,16 @@
       "semanticCommitType": "chore"
     },
     {
+      "description": "Docs tooling: the Zensical version pinned in docs-site/requirements.txt is tracked by Renovate's native pip_requirements manager. It does not ship in the Charon container, so bumps stay chore:, not deps:.",
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "matchFileNames": [
+        "docs-site/requirements.txt"
+      ],
+      "semanticCommitType": "chore"
+    },
+    {
       "description": "The ghcr.io/wikid82/charon-toolchain digest pin (Dockerfile ARG CHARON_TOOLCHAIN_TAG / CHARON_TOOLCHAIN_DIGEST) is owned by .github/workflows/toolchain-image.yml's bot PR, NOT Renovate: its content-hash tag (caddy-crowdsec-<hex>) has no version series to follow (spec N7). Disabled here so a stray digest bump cannot land without the matching key change the freshness guard requires.",
       "matchPackageNames": [
         "ghcr.io/wikid82/charon-toolchain"

@@ -1,84 +1,105 @@
 # Charon Documentation Site
 
 The public, browsable Charon documentation site, built with
-[Docusaurus](https://docusaurus.io/). Deployed to GitHub Pages at
-`https://wikid82.github.io/Charon/`.
+[Zensical](https://zensical.org/) (a Python-based static site generator). Deployed
+to GitHub Pages at `https://wikid82.github.io/Charon/`.
 
-This is a standalone Node/TypeScript project, independent of `frontend/`
-(the Charon app UI) — see `docs/plans/current_spec.md` §1.4 for why this does
-not violate the repo's "Single Frontend Source" rule.
+This is docs tooling only. Python is used here and nowhere else in the project,
+and nothing in this directory ships in the Charon container or the `frontend/`
+app (see the documented exception to the "No Python" rule in `CLAUDE.md`).
 
-`docs/` (this directory) is **git-ignored** and populated at build time by
-`scripts/sync-docs.mjs`, which copies a curated subset of the repo-root
-`docs/` directory in. `docs/` at the repo root remains the single source of
-truth for content — never hand-edit files under `docs-site/docs/` directly,
-they will be overwritten on the next `npm start`/`npm run build`.
+`docs-site/docs/` is **git-ignored** and populated at build time by
+`scripts/sync-docs.sh`, which copies a curated subset of the repo-root `docs/`
+directory into it. The repo-root `docs/` remains the single source of truth for
+content. Never hand-edit files under `docs-site/docs/`; they are deleted and
+regenerated on every sync.
 
-## Installation
+## Layout
+
+| Path | Purpose |
+| --- | --- |
+| `zensical.toml` | Site configuration, theme, and the explicit navigation |
+| `requirements.txt` | Pinned Zensical version (Renovate tracks it) |
+| `index.md` | Landing page (copied into the generated `docs/` on every sync) |
+| `assets/` | Logo, favicon, and banner (copied into the generated `docs/` on every sync) |
+| `scripts/sync-docs.sh` | Builds the generated `docs/` tree from the manifest |
+| `scripts/docs-manifest.json` | Allowlist of `docs/` files and directories to publish |
+
+## Prerequisites
+
+- Python 3.11 or newer
+- `jq` (used by the sync script)
+
+## Local Setup
+
+Use a virtual environment outside the repository so the tooling never lands in
+the working tree:
 
 ```bash
-npm install
+python3 -m venv ~/.venvs/charon-docs
+source ~/.venvs/charon-docs/bin/activate
+pip install -r docs-site/requirements.txt
 ```
 
-## Local Development
+## Local Preview
 
 ```bash
-npm start
+cd docs-site
+bash scripts/sync-docs.sh
+zensical serve
 ```
 
-Starts a local dev server with live reload at `http://localhost:3000/Charon/`.
-The `start` script runs `npm run sync-docs` first (`"start": "npm run
-sync-docs && docusaurus start"` in `package.json`) so the site always
-reflects the current repo-root `docs/` content before the dev server boots.
+`zensical serve` rebuilds on change. Re-run `scripts/sync-docs.sh` after editing
+anything under the repo-root `docs/` (the sync copies, it does not watch).
 
 ## Content Sync
 
 ```bash
-npm run sync-docs
+bash docs-site/scripts/sync-docs.sh
 ```
 
-Runs `scripts/sync-docs.mjs`, which wipes and repopulates `docs-site/docs/`
-from the curated subset of the repo-root `docs/` directory listed in
-`scripts/docs-manifest.json`. It also runs automatically as the first step
-of both `npm start` and `npm run build` (chained via `&&` in `package.json`),
-so you rarely need to invoke it directly — it's idempotent and safe to run
-any time. Never hand-edit files under `docs-site/docs/` directly; they are
-deleted and regenerated on every sync.
+The script:
 
-### Adding a New Page
-
-1. Add the Markdown file to the repo-root `docs/` directory as normal (this
-   remains the single source of truth for content).
-2. Add its path to `docs-site/scripts/docs-manifest.json` — either to the
-   `"files"` array (a single file, path relative to `docs/`) or the
-   `"directories"` array (an entire subdirectory, migrated as a unit). Only
-   paths listed in this manifest are copied into the site; anything else
-   under `docs/` stays internal/contributor-facing.
-3. Run `npm start` (or `npm run sync-docs`) to pick up the change — the
-   sidebar is auto-generated from whatever lands in `docs-site/docs/`, so no
-   manual sidebar entry is needed.
+1. Wipes and recreates `docs-site/docs/`, so a page removed from the manifest
+   can never linger.
+2. Copies each `files` entry and each `directories` entry from
+   `scripts/docs-manifest.json` out of the repo-root `docs/`. A missing entry
+   fails the run.
+3. Copies `index.md` and `assets/` from `docs-site/`.
+4. Fails if any synced page is missing from the `nav` in `zensical.toml`, so no
+   page is published as an orphan.
 
 ## Build
 
 ```bash
-npm run build
+cd docs-site
+bash scripts/sync-docs.sh
+zensical build --strict
 ```
 
-Generates static content into `docs-site/build/`, deployable to any static
-hosting (GitHub Pages in this repo's case, via
-`.github/workflows/docs-deploy.yml`).
+Output goes to `docs-site/site/`. `--strict` aborts the build on any broken
+internal link or anchor, matching the old Docusaurus `onBrokenLinks` and
+`onBrokenAnchors: 'throw'` behavior. The CI workflow
+(`.github/workflows/docs-deploy.yml`) runs the same two commands.
 
-## Type Checking
+## Adding a Page
 
-```bash
-npm run type-check
-```
+1. Add the Markdown file under the repo-root `docs/` as normal.
+2. Add its path to `scripts/docs-manifest.json`, either in the `"files"` array
+   (a single file, relative to `docs/`) or by relying on an existing
+   `"directories"` entry.
+3. Add the page to the `nav` in `zensical.toml`, under the right section. The
+   sync script fails until you do.
+4. Run the sync and strict build above to confirm.
 
-## Dependency Audit
+## Deployment
 
-```bash
-npm run audit:ci
-```
+`.github/workflows/docs-deploy.yml` runs on pushes to `main` that touch
+`docs-site/**`, `docs/**`, or the workflow itself. It sets up Python, installs
+`requirements.txt`, runs the sync, runs `zensical build --strict`, and deploys
+`docs-site/site/` to GitHub Pages.
 
-Fails on any high/critical vulnerability per `audit-ci.json` — same pattern
-as the repo root and `frontend/`.
+## Dependency Updates
+
+`zensical` is pinned exactly in `requirements.txt`. Renovate opens `chore:`
+PRs for it, since this is docs tooling and does not ship in the container.

@@ -35,7 +35,7 @@ When policy statements conflict across documentation sources:
 
 - **Single Frontend Source**: All frontend code MUST reside in `frontend/`. NEVER create `backend/frontend/` or any other nested frontend directory.
 - **Single Backend Source**: All backend code MUST reside in `backend/`.
-- **No Python**: This is a Go (Backend) + React/TypeScript (Frontend) project. Do not introduce Python scripts or requirements.
+- **No Python (one documented exception)**: This is a Go (Backend) + React/TypeScript (Frontend) project. Do not introduce Python scripts or requirements. **Exception, docs tooling only:** the public documentation site in `docs-site/` is built with [Zensical](https://zensical.org/), a Python static site generator pinned in `docs-site/requirements.txt`. Python is allowed only for that docs tooling (`docs-site/` and the docs deploy workflow that builds it). It must never be used for application code, backend or frontend tooling, runtime dependencies, or anything shipped in the Charon container.
 
 ## 🛑 Root Cause Analysis Protocol (MANDATORY)
 
@@ -139,7 +139,7 @@ never affected by this.
 
 - **Architecture**: Update `ARCHITECTURE.md` when making changes to system architecture, technology stack, directory structure, deployment model, security architecture, or integration points.
 - **Features**: Update `docs/features.md` when adding capabilities — keep it brief, link to individual docs.
-- **Source of truth vs. published site**: All documentation — dev and user-facing — is authored under the repo-root `docs/`. The public Docusaurus site (`docs-site/`) is a *published view* of a curated subset of it, not a second source: `docs-site/scripts/sync-docs.mjs` wipes and repopulates the git-ignored `docs-site/docs/` from `docs/` per `docs-site/scripts/docs-manifest.json` on every `npm start`/`npm run build`. **Never hand-edit anything under `docs-site/docs/`** — it will be silently overwritten on the next sync. A new file inside an already-manifested directory (`docs/features/`, `docs/configuration/`, `docs/guides/`, `docs/troubleshooting/`, `docs/api/`) publishes automatically; a new *standalone* top-level file (like `docs/getting-started.md`) must also be added to the `"files"` array in `docs-site/scripts/docs-manifest.json` or it stays contributor-only.
+- **Source of truth vs. published site**: All documentation — dev and user-facing — is authored under the repo-root `docs/`. The public documentation site (`docs-site/`, built with Zensical) is a *published view* of a curated subset of it, not a second source: `docs-site/scripts/sync-docs.sh` wipes and repopulates the git-ignored `docs-site/docs/` from `docs/` per `docs-site/scripts/docs-manifest.json` on every build (`bash docs-site/scripts/sync-docs.sh && cd docs-site && zensical build --strict`). **Never hand-edit anything under `docs-site/docs/`** — it will be silently overwritten on the next sync. A new file inside an already-manifested directory (`docs/features/`, `docs/configuration/`, `docs/guides/`, `docs/troubleshooting/`, `docs/api/`) is copied by the sync, but it appears on the site only once its path is in the `nav` in `docs-site/zensical.toml`, and the sync fails until it is. A new *standalone* top-level file (like `docs/getting-started.md`) must also be added to the `"files"` array in `docs-site/scripts/docs-manifest.json` and to the nav.
 
 ## CI/CD & Commit Conventions
 
