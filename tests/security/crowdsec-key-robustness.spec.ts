@@ -7,8 +7,8 @@
  *   `valid` is true exactly when `key_check` is `accepted`.
  * - `GET /admin/crowdsec/bouncer` returns `key_source` (env_var | file | memory | none).
  *
- * Written as `test.fixme` in commit 1 of the CrowdSec key robustness PR, before the
- * `key_check` field and the `memory` key source exist. Commit 8 of that PR removes the fixme.
+ * The assertions accept every documented value, so they hold whether or not the CrowdSec engine
+ * is reachable (`key_check` is `none` or `unknown` when no engine answers).
  *
  * @see /projects/Charon/docs/plans/crowdsec_hardening_batch5_spec.md (section 3t.5, 3t.6, 3t.14)
  */
@@ -21,7 +21,7 @@ const KEY_CHECK_VALUES = ['accepted', 'rejected', 'unknown', 'none'];
 const KEY_SOURCE_VALUES = ['env_var', 'file', 'memory', 'none'];
 
 test.describe('CrowdSec key robustness: key check and key source (API)', () => {
-  test.fixme('key-status reports a key_check whose value agrees with valid', async ({ request }) => {
+  test('key-status reports a key_check whose value agrees with valid', async ({ request }) => {
     const response = await request.get(`${ADMIN}/key-status`);
     expect(response.status()).toBe(200);
 
@@ -30,7 +30,7 @@ test.describe('CrowdSec key robustness: key check and key source (API)', () => {
     expect(body.valid).toBe(body.key_check === 'accepted');
   });
 
-  test.fixme('bouncer info reports a key_source from the allowed set', async ({ request }) => {
+  test('bouncer info reports a key_source from the allowed set', async ({ request }) => {
     const response = await request.get(`${ADMIN}/bouncer`);
     expect(response.status()).toBe(200);
 

@@ -1369,7 +1369,7 @@ services:
       - CHARON_CADDY_BINARY=caddy
       - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
       - CHARON_IMPORT_DIR=/app/data/imports
-      - CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec
+      - CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec  # Where CrowdSec keeps its data and the bouncer key. CHARON_CROWDSEC_DATA is an older name for the same setting; if both are set to different folders, Charon logs a warning and uses CHARON_CROWDSEC_CONFIG_DIR.
 
     extra_hosts:
       - "host.docker.internal:host-gateway"

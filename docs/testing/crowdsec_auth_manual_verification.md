@@ -49,13 +49,13 @@ This document provides step-by-step procedures for manually verifying the Bug #1
 4. **Verify Logs Show Validation Failure**
 
    ```bash
-   docker logs charon --tail 100 | grep -i "invalid"
+   docker logs charon --tail 100 | grep -i "rejected by CrowdSec"
    ```
 
    **Expected Output**:
 
    ```text
-   time="..." level=warning msg="Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid. Either remove it from docker-compose.yml or update it to match the auto-generated key. A new valid key will be generated and saved." masked_key=fake...345
+   time="..." level=warning msg="The configured CrowdSec API key was rejected by CrowdSec and is ignored. Charon uses the key file (permissions 0600); no action is required." bouncer=caddy-bouncer key_file=/app/data/crowdsec/bouncer_key
    ```
 
 5. **Verify New Key Auto-Generated**
@@ -79,13 +79,13 @@ This document provides step-by-step procedures for manually verifying the Bug #1
 7. **Verify Logs Show Success**
 
    ```bash
-   docker logs charon --tail 50 | grep -i "authentication successful"
+   docker logs charon --tail 50 | grep -i "validated successfully"
    ```
 
    **Expected Output**:
 
    ```text
-   time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
+   time="..." level=info msg="CrowdSec bouncer: file-stored key validated successfully" file=/app/data/crowdsec/bouncer_key
    ```
 
 **Success Criteria**:
@@ -134,7 +134,7 @@ This document provides step-by-step procedures for manually verifying the Bug #1
    Look for success message:
 
    ```text
-   time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
+   time="..." level=info msg="CrowdSec bouncer: file-stored key validated successfully" file=/app/data/crowdsec/bouncer_key
    ```
 
 5. **Verify Bouncer Connection**
@@ -173,8 +173,8 @@ This document provides step-by-step procedures for manually verifying the Bug #1
    With new code, same invalid env var should produce:
 
    ```text
-   time="..." level=warning msg="Environment variable CHARON_SECURITY_CROWDSEC_API_KEY is set but invalid..."
-   time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
+   time="..." level=warning msg="The configured CrowdSec API key was rejected by CrowdSec and is ignored. Charon uses the key file (permissions 0600); no action is required."
+   time="..." level=info msg="CrowdSec bouncer: file-stored key validated successfully" file=/app/data/crowdsec/bouncer_key
    ```
 
 **Success Criteria**:
@@ -201,8 +201,10 @@ docker restart charon
 **Expected Log**:
 
 ```text
-time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="vali...test" source=environment_variable
+time="..." level=info msg="CrowdSec bouncer: env var key validated and saved to key file" key_file=/app/data/crowdsec/bouncer_key source=environment_variable
 ```
+
+This line appears on the first start after you set the variable, when no saved key exists yet. Later starts show the file line in 4b instead.
 
 #### 4b. File-Based Key
 
@@ -215,7 +217,7 @@ docker restart charon
 **Expected Log**:
 
 ```text
-time="..." level=info msg="CrowdSec bouncer authentication successful" masked_key="abcd...wxyz" source=file
+time="..." level=info msg="CrowdSec bouncer: file-stored key validated successfully" file=/app/data/crowdsec/bouncer_key
 ```
 
 #### 4c. Auto-Generated Key
@@ -229,13 +231,12 @@ docker restart charon
 **Expected Log**:
 
 ```text
-time="..." level=info msg="Registering new CrowdSec bouncer: caddy-bouncer"
-time="..." level=info msg="CrowdSec bouncer registration successful" masked_key="new-...123" source=auto_generated
+time="..." level=info msg="CrowdSec bouncer: successfully registered and saved key" bouncer=caddy-bouncer key_file=/app/data/crowdsec/bouncer_key
 ```
 
 **Success Criteria**:
 
-- ✅ Logs clearly show `source=environment_variable`, `source=file`, or `source=auto_generated`
+- ✅ Logs clearly show which key is in use: the environment variable line, the file line, or the "successfully registered and saved key" line
 - ✅ User can determine which key is active without reading code
 
 ---
@@ -325,7 +326,7 @@ docker exec charon cscli bouncers list
 ## Notes for QA and Code Review
 
 - **Backward Compatibility**: Old behavior (name-based validation) is preserved in `validateBouncerKey()` for backward compatibility. New authentication logic is in `testKeyAgainstLAPI()`.
-- **Security**: API keys are masked in logs (first 4 + last 4 chars only) to prevent exposure via CWE-312.
+- **Logging**: Log lines name the key file and the outcome. They do not include any part of the key.
 - **File Permissions**: Bouncer key file created with 0600 permissions (read/write owner only), directory with 0700.
 - **Atomic Writes**: `saveKeyToFile()` uses temp file + rename pattern to prevent corruption.
 - **Retry Logic**: Connection refused errors trigger exponential backoff (500ms → 750ms → 1125ms → ..., capped at 5s per attempt, 30s total).
