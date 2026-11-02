@@ -9,11 +9,60 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // DefaultFile is the saved bouncer key location inside the container.
 const DefaultFile = "/app/data/crowdsec/bouncer_key"
+
+// PathEnvName is the environment variable that overrides the key file location.
+const PathEnvName = "CHARON_CROWDSEC_BOUNCER_KEY_PATH"
+
+// keyFileName is the key file name inside a data directory.
+const keyFileName = "bouncer_key"
+
+// PathFor returns the key file location: the PathEnvName override when set, else
+// <dataDir>/bouncer_key when dataDir is set, else DefaultFile.
+func PathFor(dataDir string) string {
+	if override := strings.TrimSpace(os.Getenv(PathEnvName)); override != "" {
+		return filepath.Clean(override)
+	}
+	if dataDir != "" {
+		return filepath.Join(dataDir, keyFileName)
+	}
+	return DefaultFile
+}
+
+// heldKeys maps a key file path to a key that could not be saved to that path.
+// It lives for the process; see Hold.
+var (
+	heldMu   sync.RWMutex
+	heldKeys = map[string]string{}
+)
+
+// Hold remembers key for path after a save to path failed, so readers in this
+// process keep using the key that CrowdSec accepted.
+func Hold(path, key string) {
+	heldMu.Lock()
+	defer heldMu.Unlock()
+	heldKeys[path] = key
+}
+
+// Held returns the key held for path, or "" when none is held.
+func Held(path string) string {
+	heldMu.RLock()
+	defer heldMu.RUnlock()
+	return heldKeys[path]
+}
+
+// Release drops any key held for path.
+func Release(path string) {
+	heldMu.Lock()
+	defer heldMu.Unlock()
+	delete(heldKeys, path)
+}
 
 // envNames lists the environment variables that may carry the bouncer key,
 // in lookup order (the first non-empty value wins).
@@ -63,6 +112,8 @@ const (
 	SourceEnv Source = "env"
 	// SourceNone means no key is available.
 	SourceNone Source = "none"
+	// SourceMemory means the key is held in memory because it could not be saved.
+	SourceMemory Source = "memory"
 )
 
 // Resolve returns the key the proxy uses: the saved key file first, then the
@@ -110,6 +161,9 @@ type EnsureResult struct {
 
 // Ensure decides which bouncer key to use and makes the key file match it.
 //
+// Only a VerdictAccepted from validate keeps or adopts a key. VerdictRejected and
+// VerdictUnknown are both treated as "not accepted" for now.
+//
 // Rules, in order:
 //  1. A saved key that validates is kept. The env value is not tested.
 //  2. Otherwise an env value that differs from the saved key and validates is saved.
@@ -122,7 +176,7 @@ type EnsureResult struct {
 func Ensure(
 	ctx context.Context,
 	path string,
-	validate func(context.Context, string) bool,
+	validate func(context.Context, string) Verdict,
 	register func(context.Context) (string, error),
 	save func(path, key string) error,
 ) (EnsureResult, error) {
@@ -130,14 +184,14 @@ func Ensure(
 	saved := ReadFile(path)
 	res := EnsureResult{EnvKey: env}
 
-	if saved != "" && validate(ctx, saved) {
+	if saved != "" && validate(ctx, saved) == VerdictAccepted {
 		res.Key = saved
 		res.Outcome = OutcomeSavedKeyValid
 		res.EnvKeyIgnored = env != "" && env != saved
 		return res, nil
 	}
 
-	if env != "" && env != saved && validate(ctx, env) {
+	if env != "" && env != saved && validate(ctx, env) == VerdictAccepted {
 		res.Key = env
 		res.Outcome = OutcomeEnvKeySaved
 		res.SaveErr = save(path, env)

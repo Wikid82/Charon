@@ -3884,7 +3884,7 @@ func TestTestKeyAgainstLAPI_ValidKey(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "valid-key-123")
 
-	require.True(t, result, "Valid key should return true")
+	require.Equal(t, bouncerkey.VerdictAccepted, result, "Valid key should be accepted")
 }
 
 // TestTestKeyAgainstLAPI_InvalidKey verifies that invalid API keys are rejected by LAPI.
@@ -3916,7 +3916,7 @@ func TestTestKeyAgainstLAPI_InvalidKey(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "invalid-key-456")
 
-	require.False(t, result, "Invalid key should return false immediately (no retries)")
+	require.Equal(t, bouncerkey.VerdictRejected, result, "Invalid key should be rejected immediately (no retries)")
 }
 
 // TestTestKeyAgainstLAPI_EmptyKey verifies that empty keys are rejected without making requests.
@@ -3929,7 +3929,7 @@ func TestTestKeyAgainstLAPI_EmptyKey(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "")
 
-	require.False(t, result, "Empty key should return false without making request")
+	require.Equal(t, bouncerkey.VerdictRejected, result, "Empty key should be rejected without making request")
 }
 
 // TestTestKeyAgainstLAPI_Timeout verifies that LAPI requests timeout appropriately.
@@ -3957,7 +3957,7 @@ func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "test-key")
 
-	require.False(t, result, "Should return false after timeout")
+	require.Equal(t, bouncerkey.VerdictRejected, result, "Should be rejected after timeout")
 }
 
 // TestTestKeyAgainstLAPI_NonOKStatus verifies that non-200/403 status codes are handled.
@@ -3987,7 +3987,7 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "test-key")
 
-	require.False(t, result, "Should return false for non-OK status")
+	require.Equal(t, bouncerkey.VerdictRejected, result, "Should be rejected for non-OK status")
 }
 
 // TestEnsureBouncerRegistration_ValidEnvKey verifies that valid environment keys are used.

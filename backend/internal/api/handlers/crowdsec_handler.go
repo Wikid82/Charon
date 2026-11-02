@@ -1691,12 +1691,22 @@ type KeyStatusResponse struct {
 	KeyFilePath string `json:"key_file_path"`
 }
 
-// testKeyAgainstLAPI validates an API key by making an authenticated request to LAPI.
+// testKeyAgainstLAPI reports the LAPI verdict for an API key. The probe itself is
+// keyAcceptedByLAPI; a false result is mapped to VerdictRejected until the three-valued
+// Check replaces it.
+func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bouncerkey.Verdict {
+	if h.keyAcceptedByLAPI(ctx, apiKey) {
+		return bouncerkey.VerdictAccepted
+	}
+	return bouncerkey.VerdictRejected
+}
+
+// keyAcceptedByLAPI validates an API key by making an authenticated request to LAPI.
 // Uses /v1/decisions/stream endpoint which requires authentication.
 // Returns true if the key is accepted (200 OK), false otherwise.
 // Implements retry logic with exponential backoff for LAPI startup (connection refused).
 // Fails fast on 403 Forbidden (invalid key - no retries).
-func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bool {
+func (h *CrowdsecHandler) keyAcceptedByLAPI(ctx context.Context, apiKey string) bool {
 	if apiKey == "" {
 		return false
 	}
@@ -1892,7 +1902,7 @@ func ignoredEnvKeyMessage(keyPath string) string {
 func (h *CrowdsecHandler) keyStillValid(c *gin.Context, key string) bool {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
-	return h.testKeyAgainstLAPI(ctx, key)
+	return h.testKeyAgainstLAPI(ctx, key) == bouncerkey.VerdictAccepted
 }
 
 // ensureBouncerRegistration decides which bouncer key to use and makes the key file match it.

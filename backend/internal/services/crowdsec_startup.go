@@ -362,9 +362,14 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	return err
 }
 
-// startupKeyValid tests a key against LAPI for the shared decision.
-func startupKeyValid(_ context.Context, key string) bool {
-	return testKeyAgainstLAPIStartup(key)
+// startupKeyValid tests a key against LAPI for the shared decision. The probe is
+// testKeyAgainstLAPIStartup; a false result is mapped to VerdictRejected until the
+// three-valued Check replaces it.
+func startupKeyValid(_ context.Context, key string) bouncerkey.Verdict {
+	if testKeyAgainstLAPIStartup(key) {
+		return bouncerkey.VerdictAccepted
+	}
+	return bouncerkey.VerdictRejected
 }
 
 // rejectedEnvKeyLogMessage is the Warn text for a rejected key variable whose replacement was
