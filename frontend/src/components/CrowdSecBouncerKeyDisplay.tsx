@@ -13,7 +13,7 @@ import { toast } from '../utils/toast'
 interface BouncerInfo {
   name: string
   key_preview: string
-  key_source: 'env_var' | 'file' | 'none'
+  key_source: 'env_var' | 'file' | 'memory' | 'none'
   file_path: string
   registered: boolean
 }
@@ -132,12 +132,18 @@ export function CrowdSecBouncerKeyDisplay() {
               ? t('security.crowdsec.registered')
               : t('security.crowdsec.notRegistered')}
           </Badge>
-          <Badge variant="outline">
-            {info.key_source === 'env_var'
-              ? t('security.crowdsec.sourceEnvVar')
-              : t('security.crowdsec.sourceFile')}
-          </Badge>
+          {info.key_source !== 'memory' && (
+            <Badge variant="outline">
+              {info.key_source === 'env_var'
+                ? t('security.crowdsec.sourceEnvVar')
+                : t('security.crowdsec.sourceFile')}
+            </Badge>
+          )}
         </div>
+
+        {info.key_source === 'memory' && (
+          <p className="text-xs text-gray-400">{t('security.crowdsec.keyHeldInMemory')}</p>
+        )}
 
         <p className="text-xs text-gray-400">
           {t('security.crowdsec.keyStoredAt')}: <code className="text-gray-300">{info.file_path}</code>

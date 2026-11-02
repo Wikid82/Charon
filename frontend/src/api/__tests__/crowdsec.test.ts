@@ -290,6 +290,22 @@ describe('crowdsec API', () => {
       expect(client.get).toHaveBeenCalledWith('/admin/crowdsec/key-status')
       expect(result).toEqual(mockData)
     })
+
+    it('should pass through a memory-held key with an unknown LAPI check', async () => {
+      const mockData = {
+        key_source: 'memory' as const,
+        key_check: 'unknown' as const,
+        env_key_rejected: false,
+        current_key_preview: 'abc***xyz',
+        message: 'Held in memory',
+      }
+      vi.mocked(client.get).mockResolvedValue({ data: mockData })
+
+      const result = await crowdsec.getCrowdsecKeyStatus()
+
+      expect(result.key_source).toBe('memory')
+      expect(result.key_check).toBe('unknown')
+    })
   })
 
   describe('listWhitelists', () => {
