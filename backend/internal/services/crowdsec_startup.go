@@ -286,8 +286,6 @@ type CommandExecutor interface {
 	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
-const defaultBouncerKeyFile = bouncerkey.DefaultFile
-
 // startupKeyCheckTiming is the retry policy of the boot key check: one window of 10 s, shared with the handler rule.
 // Only Wait, PerAttempt and the backoffs are read; the URL comes from the environment at check time. Tests shorten it.
 var startupKeyCheckTiming = bouncerkey.CheckOptions{
@@ -303,8 +301,9 @@ const startupBouncerName = "caddy-bouncer"
 // ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
 // This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
 // Priority: a valid saved key wins, then a valid env key is saved, then a new key is registered.
+// The key file is bouncerkey.PathFor(dataDir), the file the handlers and the proxy read.
 func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor) error {
-	return ensureBouncerRegistration(dataDir, defaultBouncerKeyFile, cmdExec)
+	return ensureBouncerRegistration(dataDir, bouncerkey.PathFor(dataDir), cmdExec)
 }
 
 // ensureBouncerRegistration implements ensureBouncerRegistrationOnStartup with an explicit key-file path.

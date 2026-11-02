@@ -189,7 +189,6 @@ type CrowdsecHandler struct {
 
 // Bouncer auto-registration constants.
 const (
-	bouncerKeyFile               = bouncerkey.DefaultFile
 	bouncerName                  = "caddy-bouncer"
 	defaultRegisterBouncerScript = "/usr/local/bin/register_bouncer.sh"
 )
@@ -202,14 +201,13 @@ func (h *CrowdsecHandler) resolveLAPIURLValidator(raw string) (*url.URL, error) 
 	return validateCrowdsecLAPIBaseURLDefault(raw)
 }
 
+// bouncerKeyPath is the key file the handlers read and write: bouncerkey.PathFor over the data directory.
 func (h *CrowdsecHandler) bouncerKeyPath() string {
-	if h != nil && strings.TrimSpace(h.DataDir) != "" {
-		return filepath.Join(h.DataDir, "bouncer_key")
+	dataDir := ""
+	if h != nil {
+		dataDir = h.DataDir
 	}
-	if path := strings.TrimSpace(os.Getenv("CHARON_CROWDSEC_BOUNCER_KEY_PATH")); path != "" {
-		return path
-	}
-	return bouncerKeyFile
+	return bouncerkey.PathFor(dataDir)
 }
 
 // lapiKey returns the key for direct local API calls: the saved bouncer key file first,

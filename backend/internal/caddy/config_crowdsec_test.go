@@ -93,7 +93,7 @@ func TestBuildCrowdSecHandler_WithHost(t *testing.T) {
 }
 
 func TestGenerateConfig_WithCrowdSec(t *testing.T) {
-	withTestBouncerKey(t)
+	keyPath := withTestBouncerKey(t)
 	// Test that CrowdSec is configured at app-level when enabled
 	hosts := []models.ProxyHost{
 		{
@@ -111,7 +111,7 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 	}
 
 	// crowdsecEnabled=true should configure app-level CrowdSec
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.HTTP)
 

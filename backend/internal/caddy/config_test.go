@@ -807,7 +807,7 @@ func TestGenerateConfig_DuplicateDomains(t *testing.T) {
 // TestGenerateConfig_WithCrowdSecApp verifies CrowdSec app configuration
 func TestGenerateConfig_WithCrowdSecApp(t *testing.T) {
 	// Point the key file at a missing path so the env var is the key source (the file takes priority over env vars).
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	keyPath := isolateBouncerKeyFile(t)
 
 	hosts := []models.ProxyHost{
 		{
@@ -836,7 +836,7 @@ func TestGenerateConfig_WithCrowdSecApp(t *testing.T) {
 	// Set test API key
 	_ = os.Setenv("CROWDSEC_API_KEY", "test-api-key-12345")
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 
 	// Verify CrowdSec app is configured
@@ -850,7 +850,7 @@ func TestGenerateConfig_WithCrowdSecApp(t *testing.T) {
 
 // TestGenerateConfig_CrowdSecHandlerAdded verifies CrowdSec handler is added to routes
 func TestGenerateConfig_CrowdSecHandlerAdded(t *testing.T) {
-	withTestBouncerKey(t)
+	keyPath := withTestBouncerKey(t)
 	hosts := []models.ProxyHost{
 		{
 			UUID:        "test-uuid",
@@ -861,7 +861,7 @@ func TestGenerateConfig_CrowdSecHandlerAdded(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, nil, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 
 	server := config.Apps.HTTP.Servers["charon_server"]
@@ -1758,15 +1758,6 @@ func TestNormalizeAdvancedConfig_ArrayInput(t *testing.T) {
 	require.Len(t, arr, 1)
 }
 
-// useBouncerKeyFile points getCrowdSecAPIKey at path for the rest of the test.
-// Tests that call it must not use t.Parallel (the package variable is shared).
-func useBouncerKeyFile(t *testing.T, path string) {
-	t.Helper()
-	original := crowdSecBouncerKeyFile
-	crowdSecBouncerKeyFile = path
-	t.Cleanup(func() { crowdSecBouncerKeyFile = original })
-}
-
 // clearCrowdSecKeyEnv blanks every bouncer key variable for the test (restored on cleanup).
 func clearCrowdSecKeyEnv(t *testing.T) {
 	t.Helper()
@@ -1777,20 +1768,20 @@ func clearCrowdSecKeyEnv(t *testing.T) {
 
 // TestGetCrowdSecAPIKey verifies API key retrieval from environment when no key file exists.
 func TestGetCrowdSecAPIKey(t *testing.T) {
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	keyPath := isolateBouncerKeyFile(t)
 	clearCrowdSecKeyEnv(t)
 
 	// No keys set - should return empty
-	require.Equal(t, "", getCrowdSecAPIKey())
+	require.Equal(t, "", getCrowdSecAPIKey(keyPath))
 
 	// Set primary key
 	t.Setenv("CROWDSEC_API_KEY", "primary-key")
-	require.Equal(t, "primary-key", getCrowdSecAPIKey())
+	require.Equal(t, "primary-key", getCrowdSecAPIKey(keyPath))
 
 	// Test fallback priority
 	t.Setenv("CROWDSEC_API_KEY", "")
 	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key")
-	require.Equal(t, "bouncer-key", getCrowdSecAPIKey())
+	require.Equal(t, "bouncer-key", getCrowdSecAPIKey(keyPath))
 }
 
 // TestGetCrowdSecAPIKeyPrefersKeyFile covers the key file branch: a non-empty
@@ -1798,27 +1789,26 @@ func TestGetCrowdSecAPIKey(t *testing.T) {
 // whitespace-only file falls back to the environment.
 func TestGetCrowdSecAPIKeyPrefersKeyFile(t *testing.T) {
 	keyPath := filepath.Join(t.TempDir(), "bouncer_key")
-	useBouncerKeyFile(t, keyPath)
 	clearCrowdSecKeyEnv(t)
 	t.Setenv("CROWDSEC_API_KEY", "env-key")
 
 	require.NoError(t, os.WriteFile(keyPath, []byte("file-key\n"), 0o600))
-	require.Equal(t, "file-key", getCrowdSecAPIKey())
+	require.Equal(t, "file-key", getCrowdSecAPIKey(keyPath))
 
 	require.NoError(t, os.WriteFile(keyPath, []byte(" \n"), 0o600))
-	require.Equal(t, "env-key", getCrowdSecAPIKey(), "whitespace-only file must fall back to env")
+	require.Equal(t, "env-key", getCrowdSecAPIKey(keyPath), "whitespace-only file must fall back to env")
 
 	require.NoError(t, os.WriteFile(keyPath, nil, 0o600))
-	require.Equal(t, "env-key", getCrowdSecAPIKey(), "empty file must fall back to env")
+	require.Equal(t, "env-key", getCrowdSecAPIKey(keyPath), "empty file must fall back to env")
 }
 
 // TestGetCrowdSecAPIKeyMissingFileUsesEnv covers a key path that does not exist.
 func TestGetCrowdSecAPIKeyMissingFileUsesEnv(t *testing.T) {
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "absent"))
+	keyPath := filepath.Join(t.TempDir(), "absent")
 	clearCrowdSecKeyEnv(t)
 	t.Setenv("CERBERUS_SECURITY_CROWDSEC_API_KEY", "cerberus-key")
 
-	require.Equal(t, "cerberus-key", getCrowdSecAPIKey())
+	require.Equal(t, "cerberus-key", getCrowdSecAPIKey(keyPath))
 }
 
 type mockOrthrusResolver struct {

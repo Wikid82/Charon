@@ -3994,14 +3994,14 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 
 // TestEnsureBouncerRegistration_ValidEnvKey verifies that valid environment keys are used.
 func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file to ensure test isolation
-	if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove bouncer key file: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 			t.Logf("Warning: failed to remove bouncer key file: %v", err)
 		}
 	})
@@ -4052,14 +4052,14 @@ func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
 
 // TestEnsureBouncerRegistration_InvalidEnvKeyFallback verifies fallback when env key is invalid.
 func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file to ensure test isolation
-	if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove bouncer key file: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 			t.Logf("Warning: failed to remove bouncer key file: %v", err)
 		}
 	})
@@ -4114,10 +4114,10 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 // TestEnsureBouncerRegistration_ConcurrentCalls verifies that concurrent registration
 // attempts are protected by mutex and only ONE bouncer registration occurs.
 func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file before and after test to ensure isolation
-	testKeyFile := bouncerKeyFile
+	testKeyFile := bouncerkey.DefaultFile
 	if err := os.Remove(testKeyFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove test key file: %v", err)
 	}
@@ -4225,14 +4225,6 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 		CrowdSecAPIURL: lapiServer.URL,
 	}
 	require.NoError(t, db.Create(&cfg).Error)
-
-	// Override bouncerKeyFile for this test (normally a const)
-	// We'll verify by reading from the temp file after registration
-	originalBouncerKeyFile := bouncerKeyFile
-	t.Cleanup(func() {
-		// Restore original (though it's a const, this is to satisfy linters)
-		_ = originalBouncerKeyFile
-	})
 
 	// Execute: Launch 10 concurrent ensureBouncerRegistration() calls
 	const concurrency = 10

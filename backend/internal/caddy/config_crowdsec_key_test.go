@@ -7,9 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/stretchr/testify/require"
 )
 
 // crowdSecNoKeyLogLine is the text the no-key warning must contain exactly once per generated config.
@@ -46,11 +48,11 @@ func routeHasCrowdSecHandler(t *testing.T, routes []*Route) bool {
 }
 
 func TestGenerateConfig_CrowdSecOnWithoutKey_LeavesOutAppAndHandlers(t *testing.T) {
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	keyPath := isolateBouncerKeyFile(t)
 	clearCrowdSecKeyEnv(t)
 	logs := captureCaddyLogs(t)
 
-	cfg, err := GenerateConfig(noKeyHosts(), "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, &models.SecurityConfig{CrowdSecMode: "local"}, nil)
+	cfg, err := GenerateConfig(noKeyHosts(), "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, &models.SecurityConfig{CrowdSecMode: "local"}, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 
 	require.Nil(t, cfg.Apps.CrowdSec, "apps.crowdsec must be left out while no bouncer key exists")
@@ -62,11 +64,11 @@ func TestGenerateConfig_CrowdSecOnWithoutKey_LeavesOutAppAndHandlers(t *testing.
 }
 
 func TestGenerateConfig_CrowdSecOnWithoutKey_KeepsAccessLogPath(t *testing.T) {
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	keyPath := isolateBouncerKeyFile(t)
 	clearCrowdSecKeyEnv(t)
 	captureCaddyLogs(t)
 
-	cfg, err := GenerateConfig(noKeyHosts(), "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, nil, nil)
+	cfg, err := GenerateConfig(noKeyHosts(), "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, nil, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 
 	// The engine still reads the access log while CrowdSec is on, so the log path stays on the CrowdSec location.
@@ -74,7 +76,7 @@ func TestGenerateConfig_CrowdSecOnWithoutKey_KeepsAccessLogPath(t *testing.T) {
 }
 
 func TestGenerateConfig_CrowdSecOff_NoWarningNoAppNoHandler(t *testing.T) {
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	isolateBouncerKeyFile(t)
 	clearCrowdSecKeyEnv(t)
 	logs := captureCaddyLogs(t)
 
@@ -87,12 +89,12 @@ func TestGenerateConfig_CrowdSecOff_NoWarningNoAppNoHandler(t *testing.T) {
 }
 
 func TestGenerateConfig_CrowdSecOnWithEnvKey_IncludesAppAndHandlers(t *testing.T) {
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	keyPath := isolateBouncerKeyFile(t)
 	clearCrowdSecKeyEnv(t)
 	t.Setenv("CROWDSEC_API_KEY", "env-key-for-test")
 	logs := captureCaddyLogs(t)
 
-	cfg, err := GenerateConfig(noKeyHosts(), "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, &models.SecurityConfig{CrowdSecMode: "local"}, nil)
+	cfg, err := GenerateConfig(noKeyHosts(), "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, &models.SecurityConfig{CrowdSecMode: "local"}, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 
 	require.NotNil(t, cfg.Apps.CrowdSec)
@@ -104,10 +106,9 @@ func TestGenerateConfig_CrowdSecOnWithEnvKey_IncludesAppAndHandlers(t *testing.T
 func TestGenerateConfig_CrowdSecOnWithSavedKey_IncludesAppAndHandlers(t *testing.T) {
 	keyPath := filepath.Join(t.TempDir(), "bouncer_key")
 	require.NoError(t, os.WriteFile(keyPath, []byte("saved-key-for-test\n"), 0o600))
-	useBouncerKeyFile(t, keyPath)
 	clearCrowdSecKeyEnv(t)
 
-	cfg, err := GenerateConfig(noKeyHosts(), "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, nil, nil)
+	cfg, err := GenerateConfig(noKeyHosts(), "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, nil, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 
 	// The saved key file is the source GenerateConfig reads, so it counts as a key.
@@ -116,10 +117,22 @@ func TestGenerateConfig_CrowdSecOnWithSavedKey_IncludesAppAndHandlers(t *testing
 	require.True(t, routeHasCrowdSecHandler(t, cfg.Apps.HTTP.Servers["charon_server"].Routes))
 }
 
-// withTestBouncerKey gives the test a bouncer key from the environment and isolates it from any saved key file.
-func withTestBouncerKey(t *testing.T) {
+// isolateBouncerKeyFile points the key file at a path that does not exist and returns it. Pass the path to
+// GenerateConfig with WithBouncerKeyPath; the environment override also covers Manager, which derives its path
+// with bouncerkey.PathFor.
+func isolateBouncerKeyFile(t *testing.T) string {
 	t.Helper()
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	path := filepath.Join(t.TempDir(), "missing_bouncer_key")
+	t.Setenv(bouncerkey.PathEnvName, path)
+	return path
+}
+
+// withTestBouncerKey gives the test a bouncer key from the environment and isolates it from any saved key file.
+// It returns the isolated key file path for GenerateConfig callers.
+func withTestBouncerKey(t *testing.T) string {
+	t.Helper()
+	keyPath := isolateBouncerKeyFile(t)
 	clearCrowdSecKeyEnv(t)
 	t.Setenv("CROWDSEC_API_KEY", "test-env-key")
+	return keyPath
 }
