@@ -1133,6 +1133,8 @@ func getCrowdSecAPIKey() string {
 		logger.Log().WithField("source", "file").WithField("file", crowdSecBouncerKeyFile).Debug("CrowdSec API key loaded from file")
 	case bouncerkey.SourceEnv:
 		logger.Log().WithField("source", "env_var").Debug("CrowdSec API key loaded from environment variable")
+	case bouncerkey.SourceMemory:
+		logger.Log().WithField("source", "memory").Debug("CrowdSec API key held in memory after a failed save")
 	default:
 		logger.Log().Debug("No CrowdSec API key found in file or environment variables")
 	}

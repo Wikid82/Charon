@@ -1790,7 +1790,18 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	// The key check can run while a Start is rotating the key (after its delete, before its save). This status
 	// can then show the old key as rejected for one response. Nothing destructive reads this response, so that
 	// brief display glitch is accepted rather than locking the file and the LAPI check together.
+	// A key held in memory is the key in use while the file holds a different one (mirrors bouncerkey.Resolve).
+	// It is reported with a preview only, never in full. The status and the check come from the one held value.
+	heldKey := bouncerkey.Held(keyPath)
+
 	switch {
+	case heldKey != "" && heldKey != fileKey:
+		response.KeySource = "memory"
+		response.CurrentKeyPreview = util.MaskAPIKey(heldKey)
+		applyKeyCheck(&response, h.keyStillValid(c, heldKey))
+		if response.Message == "" {
+			response.Message = bouncerkey.SaveFailedNotice(keyPath)
+		}
 	case rej.envKeyRejected && fileKey != "" && !rej.saveFailed && !rej.registerFailed:
 		// Charon saved a replacement key, so the file holds it; give the full key so the user can fix docker-compose.yml.
 		// After a failed save or registration the file still holds the rejected key, so it is reported as a file key below.
@@ -1934,6 +1945,8 @@ func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult,
 		}
 	case bouncerkey.OutcomeUnverified:
 		logger.Log().WithField("file", keyPath).Warn(bouncerkey.UnverifiedMessage)
+	case bouncerkey.OutcomeHeldKeyValid:
+		logger.Log().WithField("file", keyPath).Info(bouncerkey.HeldKeyInUseMessage(res.HeldSaveErr == nil))
 	}
 }
 
@@ -2090,6 +2103,8 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 		info.KeySource = "env_var"
 	case bouncerkey.SourceFile:
 		info.KeySource = "file"
+	case bouncerkey.SourceMemory:
+		info.KeySource = "memory"
 	default:
 		info.KeySource = "none"
 	}
@@ -2116,6 +2131,8 @@ func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"key": key, "source": "env_var"})
 	case bouncerkey.SourceFile:
 		c.JSON(http.StatusOK, gin.H{"key": key, "source": "file"})
+	case bouncerkey.SourceMemory:
+		c.JSON(http.StatusOK, gin.H{"key": key, "source": "memory"})
 	default:
 		c.JSON(http.StatusNotFound, gin.H{"error": "No bouncer key configured"})
 	}

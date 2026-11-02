@@ -447,6 +447,8 @@ func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr e
 		}
 	case bouncerkey.OutcomeUnverified:
 		logger.Log().WithField("key_file", keyFile).Warn(bouncerkey.UnverifiedMessage)
+	case bouncerkey.OutcomeHeldKeyValid:
+		logger.Log().WithField("key_file", keyFile).Info(bouncerkey.HeldKeyInUseMessage(res.HeldSaveErr == nil))
 	}
 }
 
