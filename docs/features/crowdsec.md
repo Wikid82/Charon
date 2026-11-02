@@ -191,7 +191,7 @@ The bouncer key is the password Charon's built-in firewall layer uses to talk to
 3. **A key you set in your compose file.** Charon uses it only when there is no working saved key. Charon then saves it to the file, so it is kept after restarts.
 4. **Otherwise,** Charon registers a new key with CrowdSec and saves it.
 
-**When Charon checks the key:** Charon asks CrowdSec whether the saved key still works. Charon replaces a key only when CrowdSec clearly rejects it. If CrowdSec cannot be reached, or its answer is unclear (for example, it is slow, stopped or restarting), Charon keeps the saved key and does not register a new one. It checks again the next time CrowdSec starts.
+**When Charon checks the key:** Charon asks CrowdSec whether the saved key still works. Charon replaces a key only when CrowdSec clearly rejects it. If CrowdSec cannot be reached, or its answer is unclear (for example, it is slow, stopped or restarting), Charon keeps the saved key and does not register a new one. It checks again the next time CrowdSec starts. If there is no saved key yet, Charon keeps using the key it already has (for example, the one from your compose file, which Charon has not been able to check yet) and does not register a new one.
 
 If you set a key in your compose file, use one of these variable names. Charon checks them in this order and uses the first one that is set:
 

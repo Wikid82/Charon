@@ -9,8 +9,6 @@
  *
  * The assertions accept every documented value, so they hold whether or not the CrowdSec engine
  * is reachable (`key_check` is `none` or `unknown` when no engine answers).
- *
- * @see /projects/Charon/docs/plans/crowdsec_hardening_batch5_spec.md (section 3t.5, 3t.6, 3t.14)
  */
 
 import { test, expect } from '@playwright/test';

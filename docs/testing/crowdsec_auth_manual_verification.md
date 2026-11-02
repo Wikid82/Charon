@@ -326,7 +326,7 @@ docker exec charon cscli bouncers list
 ## Notes for QA and Code Review
 
 - **Backward Compatibility**: Old behavior (name-based validation) is preserved in `validateBouncerKey()` for backward compatibility. New authentication logic is in `testKeyAgainstLAPI()`.
-- **Logging**: Log lines name the key file and the outcome. They do not include any part of the key.
+- **Logging**: Log lines name the key file and the outcome.
 - **File Permissions**: Bouncer key file created with 0600 permissions (read/write owner only), directory with 0700.
 - **Atomic Writes**: `saveKeyToFile()` uses temp file + rename pattern to prevent corruption.
 - **Retry Logic**: Connection refused errors trigger exponential backoff (500ms → 750ms → 1125ms → ..., capped at 5s per attempt, 30s total).
