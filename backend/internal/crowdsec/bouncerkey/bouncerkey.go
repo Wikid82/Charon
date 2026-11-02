@@ -140,6 +140,9 @@ const (
 	OutcomeEnvKeySaved
 	// OutcomeRegistered means a new bouncer was registered with LAPI.
 	OutcomeRegistered
+	// OutcomeUnverified means LAPI could not give a verdict on a present key. The key is kept as it
+	// was, nothing is registered, deleted or saved, and the caller reports it as unverified.
+	OutcomeUnverified
 )
 
 // EnsureResult reports the key chosen by Ensure and the facts callers need to
@@ -161,14 +164,22 @@ type EnsureResult struct {
 
 // Ensure decides which bouncer key to use and makes the key file match it.
 //
-// Only a VerdictAccepted from validate keeps or adopts a key. VerdictRejected and
-// VerdictUnknown are both treated as "not accepted" for now.
+// validate returns a three-valued Verdict. Only a definite VerdictRejected may lead to a
+// new bouncer; VerdictUnknown (LAPI unreachable, slow or erroring, or the context ended)
+// is never evidence against a key.
 //
 // Rules, in order:
 //  1. A saved key that validates is kept. The env value is not tested.
+//     An unknown saved key stops the decision as OutcomeUnverified.
 //  2. Otherwise an env value that differs from the saved key and validates is saved.
-//  3. Otherwise a new bouncer is registered and its key saved. An env value
-//     equal to the saved key is not validated again; it counts as rejected.
+//     An unknown env value stops the decision as OutcomeUnverified.
+//  3. Otherwise a new bouncer is registered and its key saved. This runs only when every
+//     present candidate was definitively rejected. A cancelled ctx also stops here as
+//     OutcomeUnverified, so a shutdown never rotates a key. An env value equal to the saved
+//     key is not validated again; it counts as rejected.
+//
+// OutcomeUnverified changes nothing: no register, delete or save, and no rejection facts.
+// Its Key is the saved key, or the unknown env value when no saved key exists.
 //
 // A save failure after rule 2 or 3 is reported in EnsureResult.SaveErr, not as
 // the error. A register failure is returned as the error, with the rejection
@@ -184,18 +195,34 @@ func Ensure(
 	saved := ReadFile(path)
 	res := EnsureResult{EnvKey: env}
 
-	if saved != "" && validate(ctx, saved) == VerdictAccepted {
-		res.Key = saved
-		res.Outcome = OutcomeSavedKeyValid
-		res.EnvKeyIgnored = env != "" && env != saved
-		return res, nil
+	if saved != "" {
+		switch validate(ctx, saved) {
+		case VerdictAccepted:
+			res.Key = saved
+			res.Outcome = OutcomeSavedKeyValid
+			res.EnvKeyIgnored = env != "" && env != saved
+			return res, nil
+		case VerdictUnknown:
+			return unverified(res, saved, ""), nil
+		}
 	}
 
-	if env != "" && env != saved && validate(ctx, env) == VerdictAccepted {
-		res.Key = env
-		res.Outcome = OutcomeEnvKeySaved
-		res.SaveErr = save(path, env)
-		return res, nil
+	if env != "" && env != saved {
+		switch validate(ctx, env) {
+		case VerdictAccepted:
+			res.Key = env
+			res.Outcome = OutcomeEnvKeySaved
+			res.SaveErr = save(path, env)
+			return res, nil
+		case VerdictUnknown:
+			return unverified(res, saved, env), nil
+		}
+	}
+
+	// Every present candidate was definitively rejected here. A cancelled context is not
+	// evidence about the key, so it must not reach the destructive register step.
+	if ctx.Err() != nil {
+		return unverified(res, saved, ""), nil
 	}
 
 	res.EnvKeyRejected = env != ""
@@ -207,6 +234,17 @@ func Ensure(
 	res.Outcome = OutcomeRegistered
 	res.SaveErr = save(path, newKey)
 	return res, nil
+}
+
+// unverified finishes an Ensure result whose key could not be checked. The saved key stays in
+// use; with no saved key, the unknown env value is the key the proxy reads.
+func unverified(res EnsureResult, saved, unknownEnv string) EnsureResult {
+	res.Outcome = OutcomeUnverified
+	res.Key = saved
+	if res.Key == "" {
+		res.Key = unknownEnv
+	}
+	return res
 }
 
 // SaveFailedNotice says the new key could not be written to path. The new key is held nowhere else, so
@@ -222,3 +260,8 @@ func RegisterFailedNotice(path string) string {
 	return "Charon could not register a new key with CrowdSec, so no new key was saved to " + path +
 		". CrowdSec blocking may not work until a key can be registered."
 }
+
+// UnverifiedMessage says a saved key could not be checked, so it was kept unchanged. It is the one
+// wording for every caller (Start warning, handler and startup logs); it names no key material.
+const UnverifiedMessage = "CrowdSec could not be reached to check the key, so Charon keeps the current key " +
+	"and did not register a new one. It checks again at the next start."

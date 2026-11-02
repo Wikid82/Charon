@@ -160,8 +160,16 @@ type CrowdsecHandler struct {
 	applyJobsCfgMu sync.Mutex
 	applyJobsHub   *crowdsec.HubService
 
-	// registrationMutex protects concurrent bouncer registration attempts
+	// decisionMu serializes the bouncer key decision (Ensure, including its LAPI check and any register), so two
+	// decisions never both register. GetKeyStatus never takes it.
+	decisionMu sync.Mutex
+
+	// registrationMutex guards the rejection flags below. It is held only for short reads and writes, never across
+	// a network call, so GetKeyStatus can snapshot the flags while a decision is waiting on LAPI.
 	registrationMutex sync.Mutex
+
+	// keyCheckWait bounds the LAPI key check retries; 0 means defaultLAPIKeyCheckWait. Tests shorten it.
+	keyCheckWait time.Duration
 
 	// envKeyRejected tracks whether the env var key was rejected by LAPI
 	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
@@ -1681,6 +1689,10 @@ type KeyStatusResponse struct {
 	// Message provides user-friendly guidance
 	Message string `json:"message,omitempty"`
 
+	// KeyCheck is the LAPI check of the current key: "accepted", "rejected" (403 only), "unknown" (LAPI could not
+	// answer) or "none" (no key). Valid is true only for "accepted".
+	KeyCheck string `json:"key_check"`
+
 	// Valid indicates whether the current key is valid (authenticated successfully with LAPI)
 	Valid bool `json:"valid"`
 
@@ -1691,27 +1703,27 @@ type KeyStatusResponse struct {
 	KeyFilePath string `json:"key_file_path"`
 }
 
-// testKeyAgainstLAPI reports the LAPI verdict for an API key. The probe itself is
-// keyAcceptedByLAPI; a false result is mapped to VerdictRejected until the three-valued
-// Check replaces it.
-func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bouncerkey.Verdict {
-	if h.keyAcceptedByLAPI(ctx, apiKey) {
-		return bouncerkey.VerdictAccepted
+// defaultLAPIKeyCheckWait is the retry window for one LAPI key check, the same window Start always used.
+const defaultLAPIKeyCheckWait = 30 * time.Second
+
+// lapiKeyCheckOptions returns the retry policy for a handler key check against baseURL.
+func (h *CrowdsecHandler) lapiKeyCheckOptions(baseURL string) bouncerkey.CheckOptions {
+	wait := h.keyCheckWait
+	if wait == 0 {
+		wait = defaultLAPIKeyCheckWait
 	}
-	return bouncerkey.VerdictRejected
+	return bouncerkey.CheckOptions{
+		BaseURL:      strings.TrimRight(baseURL, "/"),
+		Wait:         wait,
+		PerAttempt:   5 * time.Second,
+		FirstBackoff: 500 * time.Millisecond,
+		MaxBackoff:   5 * time.Second,
+	}
 }
 
-// keyAcceptedByLAPI validates an API key by making an authenticated request to LAPI.
-// Uses /v1/decisions/stream endpoint which requires authentication.
-// Returns true if the key is accepted (200 OK), false otherwise.
-// Implements retry logic with exponential backoff for LAPI startup (connection refused).
-// Fails fast on 403 Forbidden (invalid key - no retries).
-func (h *CrowdsecHandler) keyAcceptedByLAPI(ctx context.Context, apiKey string) bool {
-	if apiKey == "" {
-		return false
-	}
-
-	// Get LAPI URL from security config or use default
+// testKeyAgainstLAPI reports the three-valued LAPI verdict for an API key, using the stored LAPI URL and the
+// internal-service client. Only 403 is a rejection; an unreachable, slow or erroring LAPI is Unknown.
+func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bouncerkey.Verdict {
 	lapiURL := "http://127.0.0.1:8085"
 	if h.Security != nil {
 		cfg, err := h.Security.Get()
@@ -1720,115 +1732,45 @@ func (h *CrowdsecHandler) keyAcceptedByLAPI(ctx context.Context, apiKey string) 
 		}
 	}
 
-	// Use /v1/decisions/stream endpoint (guaranteed to require authentication)
-	endpoint := fmt.Sprintf("%s/v1/decisions/stream", strings.TrimRight(lapiURL, "/"))
+	client := network.NewInternalServiceHTTPClient(5 * time.Second)
+	verdict := bouncerkey.Check(ctx, client, apiKey, h.lapiKeyCheckOptions(lapiURL))
+	logger.Log().WithField("verdict", keyCheckName(verdict)).Debug("CrowdSec bouncer key checked against LAPI")
+	return verdict
+}
 
-	// Retry logic for LAPI startup (30s max with exponential backoff)
-	const maxStartupWait = 30 * time.Second
-	const initialBackoff = 500 * time.Millisecond
-	const maxBackoff = 5 * time.Second
-
-	backoff := initialBackoff
-	startTime := time.Now()
-	attempt := 0
-
-	for {
-		attempt++
-
-		// Check for context cancellation before each attempt
-		select {
-		case <-ctx.Done():
-			logger.Log().WithField("attempts", attempt).Debug("Context cancelled during LAPI key validation")
-			return false
-		default:
-			// Continue
-		}
-
-		// Create request with 5s timeout per attempt
-		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		req, err := http.NewRequestWithContext(testCtx, http.MethodGet, endpoint, http.NoBody)
-		if err != nil {
-			cancel()
-			logger.Log().WithError(err).Debug("Failed to create LAPI test request")
-			return false
-		}
-
-		// Set API key header
-		req.Header.Set("X-Api-Key", apiKey)
-
-		// Execute request
-		client := network.NewInternalServiceHTTPClient(5 * time.Second)
-		resp, err := client.Do(req)
-		cancel()
-
-		if err != nil {
-			// Check if connection refused (LAPI not ready yet)
-			if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "connect: connection refused") {
-				// LAPI not ready - retry with backoff if within time limit
-				if time.Since(startTime) < maxStartupWait {
-					logger.Log().WithField("attempt", attempt).WithField("backoff", backoff).WithField("elapsed", time.Since(startTime)).Debug("LAPI not ready, retrying with backoff")
-
-					// Check for context cancellation before sleeping
-					select {
-					case <-ctx.Done():
-						logger.Log().WithField("attempts", attempt).Debug("Context cancelled during LAPI retry")
-						return false
-					case <-time.After(backoff):
-						// Continue with retry
-					}
-
-					// Exponential backoff: 500ms → 750ms → 1125ms → ... (capped at 5s)
-					backoff = time.Duration(float64(backoff) * 1.5)
-					if backoff > maxBackoff {
-						backoff = maxBackoff
-					}
-					continue
-				}
-
-				logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("max_wait", maxStartupWait).Warn("LAPI failed to start within timeout")
-				return false
-			}
-
-			// Other errors (not connection refused)
-			logger.Log().WithError(err).Debug("Failed to connect to LAPI for key validation")
-			return false
-		}
-		// Only the status is needed; close the body now so it is released per attempt.
-		statusCode := resp.StatusCode
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
-		}
-
-		// Check response status
-		if statusCode == http.StatusOK {
-			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).Debug("API key validated successfully against LAPI")
-			return true
-		}
-
-		// 403 Forbidden = bad key, fail fast (no retries)
-		if statusCode == http.StatusForbidden {
-			logger.Log().WithField("status", statusCode).Debug("API key rejected by LAPI (403 Forbidden)")
-			return false
-		}
-
-		// Other non-OK status codes
-		logger.Log().WithField("status", statusCode).Debug("API key validation returned unexpected status")
-		return false
+// keyCheckName is the key_check value of the status response for a verdict.
+func keyCheckName(v bouncerkey.Verdict) string {
+	switch v {
+	case bouncerkey.VerdictAccepted:
+		return "accepted"
+	case bouncerkey.VerdictRejected:
+		return "rejected"
+	default:
+		return "unknown"
 	}
 }
 
 // GetKeyStatus returns the current CrowdSec bouncer key status and any rejection information.
 // This endpoint provides UX feedback when env var keys are rejected by LAPI.
 // @Summary Get CrowdSec API key status
-// @Description Returns current key source, validity, and rejection status if env key was invalid
+// @Description Returns current key source, validity, the LAPI key check and rejection status if env key was invalid
 // @Tags crowdsec
 // @Produce json
 // @Success 200 {object} KeyStatusResponse
 // @Router /admin/crowdsec/key-status [get]
 func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
-	h.registrationMutex.Lock()
-	defer h.registrationMutex.Unlock()
 	keyPath := h.bouncerKeyPath()
+
+	// Snapshot the rejection state under the lock, then release it before any file read or LAPI check. A Start
+	// that is waiting on LAPI must not hold a status request, and every flag below comes from this one snapshot.
+	h.registrationMutex.Lock()
+	rej := rejectionSnapshot{
+		envKeyRejected: h.envKeyRejected,
+		rejectedKey:    h.rejectedEnvKey,
+		saveFailed:     h.rejectedEnvSaveFailed,
+		registerFailed: h.rejectedEnvRegisterFailed,
+	}
+	h.registrationMutex.Unlock()
 
 	response := KeyStatusResponse{
 		BouncerName: bouncerName,
@@ -1836,38 +1778,42 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	}
 
 	// A rejected env key is reported whatever branch below applies.
-	if h.envKeyRejected && h.rejectedEnvKey != "" {
+	if rej.envKeyRejected && rej.rejectedKey != "" {
 		response.EnvKeyRejected = true
-		response.RejectedKeyPreview = util.MaskAPIKey(h.rejectedEnvKey)
-		response.Message = rejectedEnvKeyMessage(keyPath, h.rejectedEnvSaveFailed, h.rejectedEnvRegisterFailed)
+		response.RejectedKeyPreview = util.MaskAPIKey(rej.rejectedKey)
+		response.Message = rejectedEnvKeyMessage(keyPath, rej.saveFailed, rej.registerFailed)
 	}
 
 	envKey, _ := bouncerkey.FromEnv()
 	fileKey := bouncerkey.ReadFile(keyPath)
 
+	// The key check can run while a Start is rotating the key (after its delete, before its save). This status
+	// can then show the old key as rejected for one response. Nothing destructive reads this response, so that
+	// brief display glitch is accepted rather than locking the file and the LAPI check together.
 	switch {
-	case h.envKeyRejected && fileKey != "" && !h.rejectedEnvSaveFailed && !h.rejectedEnvRegisterFailed:
+	case rej.envKeyRejected && fileKey != "" && !rej.saveFailed && !rej.registerFailed:
 		// Charon saved a replacement key, so the file holds it; give the full key so the user can fix docker-compose.yml.
 		// After a failed save or registration the file still holds the rejected key, so it is reported as a file key below.
 		// Security: the caller is an authenticated admin who needs this to correct their config.
 		response.KeySource = "auto-generated"
 		response.FullKey = fileKey
 		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
-		response.Valid = h.keyStillValid(c, fileKey)
+		applyKeyCheck(&response, h.keyStillValid(c, fileKey))
 	case fileKey != "":
 		response.KeySource = "file"
 		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
-		if envKey != "" && envKey != fileKey && !h.envKeyRejected {
+		if envKey != "" && envKey != fileKey && !rej.envKeyRejected {
 			response.Message = ignoredEnvKeyMessage(keyPath)
 		}
-		response.Valid = h.keyStillValid(c, fileKey)
+		applyKeyCheck(&response, h.keyStillValid(c, fileKey))
 	case envKey != "":
 		// No saved file yet (for example a failed save): the env value is what the proxy reads.
 		response.KeySource = "env"
 		response.CurrentKeyPreview = util.MaskAPIKey(envKey)
-		response.Valid = h.keyStillValid(c, envKey)
+		applyKeyCheck(&response, h.keyStillValid(c, envKey))
 	default:
 		response.KeySource = "none"
+		response.KeyCheck = "none"
 		response.Valid = false
 		if response.Message == "" {
 			response.Message = "No CrowdSec API key configured. Start CrowdSec to auto-generate one."
@@ -1875,6 +1821,28 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// rejectionSnapshot is the rejection state GetKeyStatus reads under registrationMutex.
+type rejectionSnapshot struct {
+	envKeyRejected bool
+	rejectedKey    string
+	saveFailed     bool
+	registerFailed bool
+}
+
+// applyKeyCheck records a LAPI verdict on the status response. valid stays true only for an accepted key.
+func applyKeyCheck(response *KeyStatusResponse, verdict bouncerkey.Verdict) {
+	response.KeyCheck = keyCheckName(verdict)
+	response.Valid = verdict == bouncerkey.VerdictAccepted
+}
+
+// unverifiedKeyWarning is the Start warning when the saved key could not be checked, and empty otherwise.
+func unverifiedKeyWarning(res bouncerkey.EnsureResult) string {
+	if res.Outcome == bouncerkey.OutcomeUnverified {
+		return bouncerkey.UnverifiedMessage
+	}
+	return ""
 }
 
 // rejectedEnvKeyMessage explains that an env key was rejected and what Charon did about it. The key file
@@ -1898,21 +1866,24 @@ func ignoredEnvKeyMessage(keyPath string) string {
 		"; remove the variable to silence this note."
 }
 
-// keyStillValid tests key against LAPI with a 5 second budget for status checks.
-func (h *CrowdsecHandler) keyStillValid(c *gin.Context, key string) bool {
+// keyStillValid returns the LAPI verdict for key with a 5 second budget for status checks.
+func (h *CrowdsecHandler) keyStillValid(c *gin.Context, key string) bouncerkey.Verdict {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
-	return h.testKeyAgainstLAPI(ctx, key) == bouncerkey.VerdictAccepted
+	return h.testKeyAgainstLAPI(ctx, key)
 }
 
 // ensureBouncerRegistration decides which bouncer key to use and makes the key file match it.
-// The decision and the rejection state are updated under registrationMutex, which GetKeyStatus also takes.
+// decisionMu makes the decision (LAPI check and any register) one at a time; registrationMutex is taken only
+// to write the rejection flags, so GetKeyStatus can answer while a Start waits on LAPI.
 func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bouncerkey.EnsureResult, error) {
-	h.registrationMutex.Lock()
-	defer h.registrationMutex.Unlock()
+	h.decisionMu.Lock()
+	defer h.decisionMu.Unlock()
 
 	res, err := bouncerkey.Ensure(ctx, h.bouncerKeyPath(), h.testKeyAgainstLAPI, h.registerBouncer, crowdsec.SaveBouncerKey)
 
+	h.registrationMutex.Lock()
+	defer h.registrationMutex.Unlock()
 	if res.EnvKeyRejected {
 		h.envKeyRejected = true
 		h.rejectedEnvKey = res.EnvKey
@@ -1961,6 +1932,8 @@ func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult,
 		if res.EnvKeyIgnored {
 			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: saved key is in use; the key variable is ignored")
 		}
+	case bouncerkey.OutcomeUnverified:
+		logger.Log().WithField("file", keyPath).Warn(bouncerkey.UnverifiedMessage)
 	}
 }
 

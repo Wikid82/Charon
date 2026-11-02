@@ -191,22 +191,6 @@ func (f *fakeLAPI) validate(_ context.Context, key string) Verdict {
 	}
 }
 
-// TestEnsureUnknownVerdictFollowsRejectedPath pins the interim rule of the
-// three-valued refactor: until Ensure learns about Unknown, an unknown saved key
-// takes the same path as a rejected one (register). The next change replaces this.
-func TestEnsureUnknownVerdictFollowsRejectedPath(t *testing.T) {
-	path := seedKeyFile(t, testSavedInvalid)
-	setOnlyEnvKey(t, "")
-	fake := newFakeLAPI()
-	fake.unknown = map[string]bool{testSavedInvalid: true}
-
-	res, err := Ensure(context.Background(), path, fake.validate, fake.register, fake.save)
-
-	require.NoError(t, err)
-	require.Equal(t, OutcomeRegistered, res.Outcome)
-	require.Equal(t, 1, fake.registers)
-}
-
 func (f *fakeLAPI) register(_ context.Context) (string, error) {
 	f.registers++
 	if f.regErr != nil {

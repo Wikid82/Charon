@@ -3945,6 +3945,7 @@ func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler.keyCheckWait = 300 * time.Millisecond
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
@@ -3957,7 +3958,7 @@ func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "test-key")
 
-	require.Equal(t, bouncerkey.VerdictRejected, result, "Should be rejected after timeout")
+	require.Equal(t, bouncerkey.VerdictUnknown, result, "a timed-out check gives no verdict, so it is never a rejection")
 }
 
 // TestTestKeyAgainstLAPI_NonOKStatus verifies that non-200/403 status codes are handled.
@@ -3975,6 +3976,7 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler.keyCheckWait = 300 * time.Millisecond
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
@@ -3987,7 +3989,7 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "test-key")
 
-	require.Equal(t, bouncerkey.VerdictRejected, result, "Should be rejected for non-OK status")
+	require.Equal(t, bouncerkey.VerdictUnknown, result, "a 500 is not a rejection")
 }
 
 // TestEnsureBouncerRegistration_ValidEnvKey verifies that valid environment keys are used.

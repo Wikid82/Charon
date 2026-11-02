@@ -379,6 +379,7 @@ func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartRe
 		Status:       "started",
 		PID:          pid,
 		LAPIReady:    true,
+		Warning:      unverifiedKeyWarning(res),
 		ProxyApplied: h.applyProxyConfig(ctx) == nil,
 	}, nil
 }
