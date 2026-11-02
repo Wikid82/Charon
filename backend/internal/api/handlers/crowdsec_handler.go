@@ -1801,18 +1801,18 @@ func (h *CrowdsecHandler) keyAcceptedByLAPI(ctx context.Context, apiKey string) 
 
 		// Check response status
 		if statusCode == http.StatusOK {
-			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
+			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).Debug("API key validated successfully against LAPI")
 			return true
 		}
 
 		// 403 Forbidden = bad key, fail fast (no retries)
 		if statusCode == http.StatusForbidden {
-			logger.Log().WithField("status", statusCode).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
+			logger.Log().WithField("status", statusCode).Debug("API key rejected by LAPI (403 Forbidden)")
 			return false
 		}
 
 		// Other non-OK status codes
-		logger.Log().WithField("status", statusCode).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
+		logger.Log().WithField("status", statusCode).Debug("API key validation returned unexpected status")
 		return false
 	}
 }
@@ -1936,14 +1936,14 @@ func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult,
 	// The rejection is logged only with the outcome it led to: a failed registration keeps no new key.
 	if regErr != nil {
 		if res.EnvKeyRejected {
-			logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvRegisterFailedLogMessage(keyPath))
+			logger.Log().Warn(rejectedEnvRegisterFailedLogMessage(keyPath))
 		}
 		logger.Log().WithError(regErr).Warn("Failed to register bouncer, CrowdSec may not enforce decisions")
 		return
 	}
 
 	if res.EnvKeyRejected {
-		logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvLogMessage(keyPath, res.SaveErr))
+		logger.Log().Warn(rejectedEnvLogMessage(keyPath, res.SaveErr))
 	}
 
 	if res.SaveErr != nil {
@@ -1952,7 +1952,7 @@ func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult,
 
 	switch res.Outcome {
 	case bouncerkey.OutcomeRegistered:
-		h.logBouncerKeyBanner(res.Key, res.SaveErr)
+		h.logBouncerKeyBanner(res.SaveErr)
 	case bouncerkey.OutcomeEnvKeySaved:
 		if res.SaveErr == nil {
 			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: env var key validated and saved to key file")
@@ -2068,10 +2068,10 @@ func validateAPIKeyFormat(key string) bool {
 	return true
 }
 
-// logBouncerKeyBanner logs the bouncer key with a formatted banner. When saveErr is set the key
-// was not written to the key file, so the banner says CrowdSec blocking depends on the file becoming writable.
-// Security: API key is masked to prevent exposure in logs (CWE-312).
-func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string, saveErr error) {
+// logBouncerKeyBanner logs the registration banner. It takes no key: the key is never logged.
+// When saveErr is set the key was not written to the key file, so the banner says CrowdSec
+// blocking depends on the file becoming writable.
+func (h *CrowdsecHandler) logBouncerKeyBanner(saveErr error) {
 	keyPath := h.bouncerKeyPath()
 
 	storageLine := "Saved To:     " + keyPath
@@ -2090,16 +2090,13 @@ func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string, saveErr error) {
 🔐 CrowdSec Bouncer Registered Successfully
 ────────────────────────────────────────────────────────────────────
 Bouncer Name: %s
-API Key:      %s
 %s
 ────────────────────────────────────────────────────────────────────
 %s
 %s
 🔄 ROTATE: Change API keys regularly and never commit to version control
 ════════════════════════════════════════════════════════════════════`
-	// Security: Mask API key to prevent cleartext exposure in logs
-	maskedKey := util.MaskAPIKey(apiKey)
-	logger.Log().Infof(banner, bouncerName, maskedKey, storageLine, securityLine, tipLine)
+	logger.Log().Infof(banner, bouncerName, storageLine, securityLine, tipLine)
 }
 
 // GetBouncerInfo returns information about the current bouncer key.

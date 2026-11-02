@@ -3849,7 +3849,7 @@ func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 	require.Contains(t, maskedKey, "...wxyz")
 
 	// Call the banner function (it will log, but we've verified masking works)
-	h.logBouncerKeyBanner(testAPIKey, nil)
+	h.logBouncerKeyBanner(nil)
 
 	// If we reach here without panic, the function executed successfully
 	// The actual log output would need to be captured in integration tests

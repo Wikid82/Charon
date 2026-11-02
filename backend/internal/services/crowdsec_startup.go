@@ -399,9 +399,8 @@ func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr e
 	}
 	if res.EnvKeyRejected {
 		fields := map[string]any{
-			"bouncer":    startupBouncerName,
-			"key_file":   keyFile,
-			"masked_key": util.MaskAPIKey(res.EnvKey),
+			"bouncer":  startupBouncerName,
+			"key_file": keyFile,
 		}
 		if regErr != nil {
 			logger.Log().WithFields(fields).Warn(rejectedEnvRegisterFailedLogMessage(keyFile))
@@ -422,17 +421,15 @@ func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr e
 	case bouncerkey.OutcomeEnvKeySaved:
 		if res.SaveErr == nil {
 			logger.Log().WithFields(map[string]any{
-				"source":     "environment_variable",
-				"key_file":   keyFile,
-				"masked_key": util.MaskAPIKey(res.Key),
+				"source":   "environment_variable",
+				"key_file": keyFile,
 			}).Info("CrowdSec bouncer: env var key validated and saved to key file")
 		}
 	case bouncerkey.OutcomeRegistered:
 		if res.SaveErr == nil {
 			logger.Log().WithFields(map[string]any{
-				"bouncer":    startupBouncerName,
-				"key_file":   keyFile,
-				"masked_key": util.MaskAPIKey(res.Key),
+				"bouncer":  startupBouncerName,
+				"key_file": keyFile,
 			}).Info("CrowdSec bouncer: successfully registered and saved key")
 		}
 	}
