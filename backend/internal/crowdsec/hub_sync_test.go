@@ -389,9 +389,7 @@ func TestIndexURLCandidates_GitHubMirror(t *testing.T) {
 	t.Parallel()
 
 	candidates := indexURLCandidates("https://raw.githubusercontent.com/crowdsecurity/hub/master")
-	require.Len(t, candidates, 2)
-	require.Contains(t, candidates, "https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json")
-	require.Contains(t, candidates, "https://raw.githubusercontent.com/crowdsecurity/hub/master/api/index.json")
+	require.Equal(t, []string{"https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json"}, candidates)
 }
 
 func TestHubHTTPErrorMethods(t *testing.T) {

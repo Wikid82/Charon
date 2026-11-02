@@ -313,10 +313,8 @@ test.describe('Backups Page - Remote Targets', () => {
       await loginUser(page, adminUser);
       await setupRemoteTargets(page);
 
-      let deleteCalled = false;
       await page.route('**/api/v1/backups/remote-targets/r1', async (route) => {
         if (route.request().method() === 'DELETE') {
-          deleteCalled = true;
           await route.fulfill({ status: 204 });
         } else {
           await route.continue();
@@ -331,9 +329,13 @@ test.describe('Backups Page - Remote Targets', () => {
 
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
+      // Register the wait before confirming so the DELETE request cannot be missed.
+      const deleteRequestPromise = page.waitForRequest(
+        (request) => request.method() === 'DELETE' && /\/api\/v1\/backups\/remote-targets\/r1$/.test(request.url())
+      );
       await dialog.getByRole('button', { name: /delete/i }).click();
+      await deleteRequestPromise;
 
-      expect(deleteCalled).toBe(true);
       await expect(page.getByTestId('backup-remote-target-row').filter({ hasText: 'Home NAS' })).toHaveCount(0);
     });
   });
@@ -481,7 +483,6 @@ test.describe('Backups Page - Remote Targets', () => {
         let createBody: Record<string, unknown> | undefined;
         await page.route('**/api/v1/backups/remote-targets', async (route) => {
           if (route.request().method() === 'POST') {
-            createBody = route.request().postDataJSON();
             await route.fulfill({ status: 201, json: created });
           } else {
             await route.continue();
@@ -514,7 +515,13 @@ test.describe('Backups Page - Remote Targets', () => {
           // Step 1 (POST remote-targets) + step 2 (POST oauth/start) + the
           // resulting full-page redirect to Dropbox's authorize_url all
           // happen from a single "Save & Connect" click (spec §3.6).
+          // Capture the create body from the outgoing request itself, waiting
+          // for it before any assertion runs.
+          const createRequestPromise = page.waitForRequest(
+            (request) => request.method() === 'POST' && /\/api\/v1\/backups\/remote-targets$/.test(request.url())
+          );
           await dialog.getByRole('button', { name: /save & connect/i }).click();
+          createBody = (await createRequestPromise).postDataJSON() as Record<string, unknown>;
         });
 
         await test.step('Assert the create request has no OAuth token fields yet (spec §3.3 R2)', () => {
@@ -586,7 +593,6 @@ test.describe('Backups Page - Remote Targets', () => {
         let createBody: Record<string, unknown> | undefined;
         await page.route('**/api/v1/backups/remote-targets', async (route) => {
           if (route.request().method() === 'POST') {
-            createBody = route.request().postDataJSON();
             await route.fulfill({ status: 201, json: created });
           } else {
             await route.continue();
@@ -616,7 +622,12 @@ test.describe('Backups Page - Remote Targets', () => {
           await dialog.getByLabel(/client secret/i).fill('google-client-secret-value');
           await dialog.getByLabel(/folder path/i).fill('Charon/Backups');
 
+          // Capture the create body from the outgoing request, awaited before assertions.
+          const createRequestPromise = page.waitForRequest(
+            (request) => request.method() === 'POST' && /\/api\/v1\/backups\/remote-targets$/.test(request.url())
+          );
           await dialog.getByRole('button', { name: /save & connect/i }).click();
+          createBody = (await createRequestPromise).postDataJSON() as Record<string, unknown>;
         });
 
         await test.step('Assert the create request has no OAuth token fields yet (spec §3.3 R2)', () => {

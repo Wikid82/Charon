@@ -18,17 +18,17 @@ the prior draft.
 
 **Two follow-up inputs folded into this same revision:**
 
-1. **The new repo already exists.** The user has created it at `/projects/go_notify_yourself`
-   (sibling to `/projects/Charon`, remote `github.com/Wikid82/go_notify_yourself`), currently just
+1. **The new repo already exists.** The user has created it at `/projects/Hermes`
+   (sibling to `/projects/Charon`, remote `github.com/Wikid82/Hermes`), currently just
    `LICENSE` + a placeholder `README.md` — no `go.mod` yet. Every placeholder module path in this
    spec (`github.com/Wikid82/notifyhttp` in the original draft, briefly `github.com/Wikid82/notify`
    earlier in this revision pass) is now replaced with the real path,
-   **`github.com/Wikid82/go_notify_yourself`**. The extraction session's Phase 1 (§4) scaffolds
+   **`github.com/Wikid82/Hermes`**. The extraction session's Phase 1 (§4) scaffolds
    *into* this existing directory/repo, not a newly-`git init`'d one. The root Go package name is
-   kept as `notify` (not `go_notify_yourself`) since Go package names conventionally avoid
+   kept as `notify` (not `Hermes`) since Go package names conventionally avoid
    underscores — this is a normal, unproblematic mismatch (import path ≠ package identifier; the
    compiler resolves the identifier from each file's `package notify` declaration, so consuming code
-   still just writes `notify.Message` after `import "github.com/Wikid82/go_notify_yourself"`).
+   still just writes `notify.Message` after `import "github.com/Wikid82/Hermes"`).
 2. **Long-term direction vs. near-term scope.** The user's eventual goal is for this module to
    become a Go equivalent of [Apprise](https://github.com/caronc/apprise) — the Python library that
    unifies notification dispatch across a large number of services via a common interface/URL-scheme
@@ -610,14 +610,14 @@ None. This extraction touches zero database schema — all persistence stays in 
 
 Provider-specific senders are now built out for real (the prior draft sketched a `providers/`
 layout as "not built now" — that's flipped). **The repo already exists** at
-`/projects/go_notify_yourself` (`github.com/Wikid82/go_notify_yourself`, currently just `LICENSE` +
+`/projects/Hermes` (`github.com/Wikid82/Hermes`, currently just `LICENSE` +
 a placeholder `README.md`) — the extraction session scaffolds into it, it does not create a new
 repo. The Go package name at the module root is `notify` (see the rev-2 note at the top of this
 document for why that's a deliberate, unproblematic mismatch with the directory/module name).
 
 ```text
-go_notify_yourself/                  # existing repo at /projects/go_notify_yourself — see rev-2 note
-├── go.mod                           # module github.com/Wikid82/go_notify_yourself
+Hermes/                  # existing repo at /projects/Hermes — see rev-2 note
+├── go.mod                           # module github.com/Wikid82/Hermes
 ├── go.sum
 ├── LICENSE                          # match Charon's license
 ├── README.md                        # public API docs, usage examples per provider, SSRF-seam explanation
@@ -674,7 +674,7 @@ go_notify_yourself/                  # existing repo at /projects/go_notify_your
 
 ### 3.6 Migration plan for Charon (after the new module exists)
 
-1. **Add dependency**: `go get github.com/Wikid82/go_notify_yourself@v0.1.0` in `backend/go.mod`.
+1. **Add dependency**: `go get github.com/Wikid82/Hermes@v0.1.0` in `backend/go.mod`.
 2. **Delete extracted files/logic**:
    - Whole files: `backend/internal/notifications/{http_wrapper,http_wrapper_test,http_client_executor,engine,router,router_test}.go`.
    - Function-level deletions inside `notification_service.go` (now that the module owns this
@@ -773,8 +773,8 @@ plan to cover the full provider layer.
 
 ### Phase 1: New-repo scaffolding + shared types + transport (new repo)
 
-- Scaffold into the **existing** `/projects/go_notify_yourself` repo (`LICENSE` already present):
-  `go.mod` (`module github.com/Wikid82/go_notify_yourself`), CI workflow, GoReleaser config (§3.5).
+- Scaffold into the **existing** `/projects/Hermes` repo (`LICENSE` already present):
+  `go.mod` (`module github.com/Wikid82/Hermes`), CI workflow, GoReleaser config (§3.5).
 - Write `message.go` (`Message`, §3.3.2) and `sender.go` (`Sender`, §3.3.3) at the module root.
 - Copy `http_wrapper.go` → `transport/wrapper.go`, renaming exported identifiers per §3.3.1,
   replacing the two Charon imports with the `ClientFactory`/`URLValidator` seam (§3.2).
@@ -800,7 +800,7 @@ plan to cover the full provider layer.
 
 ### Phase 3: Charon-side adapters (Charon repo, this repo)
 
-- Add `github.com/Wikid82/go_notify_yourself` to `backend/go.mod`.
+- Add `github.com/Wikid82/Hermes` to `backend/go.mod`.
 - Write `notify_client_adapter.go` (transport seam, §3.6 step 3).
 - Write `notify_provider_adapter.go` (per-type `Config`/`Sender` factory, §3.6 step 3).
 - Write `notify_email_adapter.go` (`Mailer`/`TemplateRenderer` wiring, §3.6 step 3).
@@ -1012,8 +1012,8 @@ blocks the other six providers' cutover from proceeding.
    `internal/network`. Bounded and low-risk (public CIDR constants, not business logic), but worth
    the user's explicit sign-off since "duplicate SSRF logic" is the kind of thing that should never
    happen by accident.
-3. **Module name/org — RESOLVED.** The repo already exists at `/projects/go_notify_yourself`
-   (`github.com/Wikid82/go_notify_yourself`, remote confirmed via `git remote -v`), so this is no
+3. **Module name/org — RESOLVED.** The repo already exists at `/projects/Hermes`
+   (`github.com/Wikid82/Hermes`, remote confirmed via `git remote -v`), so this is no
    longer an open placeholder question — every reference in this spec now uses that path, with the
    Go package name kept as `notify` at the root (module-path/package-name mismatch is intentional,
    see the rev-2 note at the top of this document). The one remaining sub-decision is whether the
@@ -1055,7 +1055,7 @@ blocks the other six providers' cutover from proceeding.
 
 ## 8. Future Direction (context for whoever picks this up later)
 
-**Long-term goal, stated by the user:** `go_notify_yourself` should eventually become a Go
+**Long-term goal, stated by the user:** `Hermes` should eventually become a Go
 equivalent of [Apprise](https://github.com/caronc/apprise) — the Python library that lets a caller
 dispatch a single notification across a large, open-ended catalog of services through one common
 interface/URL-scheme convention, rather than hand-rolling per-service integration code.

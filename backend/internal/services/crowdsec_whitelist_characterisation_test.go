@@ -95,7 +95,17 @@ func TestWhitelistCharacterisationDuplicateAddLeavesFileUnchanged(t *testing.T) 
 	require.Equal(t, before, readWhitelistFile(t, dataDir))
 }
 
-func TestWhitelistCharacterisationEmptyListRemovesFileAndKeepsDirectory(t *testing.T) {
+// wantWhitelistPlaceholder is the exact file content for an empty allow list. It matches no event (expression false)
+// and carries no ip or cidr list, which CrowdSec would reject as an empty node.
+const wantWhitelistPlaceholder = "name: charon-whitelist\n" +
+	"description: \"Charon-managed IP/CIDR whitelist\"\n" +
+	"filter: \"evt.Meta.service == 'http'\"\n" +
+	"whitelist:\n" +
+	"  reason: \"Charon managed whitelist (no entries)\"\n" +
+	"  expression:\n" +
+	"    - \"false\"\n"
+
+func TestWhitelistCharacterisationEmptyListWritesPlaceholderAndKeepsDirectory(t *testing.T) {
 	t.Parallel()
 	dataDir := t.TempDir()
 	svc := services.NewCrowdSecWhitelistService(openWhitelistTestDB(t), dataDir)
@@ -105,8 +115,8 @@ func TestWhitelistCharacterisationEmptyListRemovesFileAndKeepsDirectory(t *testi
 
 	require.NoError(t, svc.Delete(ctx, only.UUID))
 
-	require.NoFileExists(t, filepath.Join(whitelistDir(dataDir), "charon-whitelist.yaml"))
-	require.DirExists(t, whitelistDir(dataDir), "only the file is removed; its directory stays")
+	require.Equal(t, wantWhitelistPlaceholder, readWhitelistFile(t, dataDir), "an empty list keeps the file as the placeholder")
+	require.DirExists(t, whitelistDir(dataDir))
 
 	// Adding again writes the file back with the single entry.
 	_, err = svc.Add(ctx, "4.4.4.4", "")

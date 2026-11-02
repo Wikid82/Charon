@@ -93,6 +93,9 @@ export default function HubItemsRestorePanel({ hubItems }: HubItemsRestorePanelP
             {result.remaining > 0 && (
               <p className="text-gray-400">{t('crowdsecConfig.hubItems.remaining', { count: result.remaining })}</p>
             )}
+            {result.reload_pending && (
+              <p className="text-gray-400" data-testid="hub-items-reload-pending">{t('crowdsecConfig.reloadPending')}</p>
+            )}
           </>
         )}
       </div>

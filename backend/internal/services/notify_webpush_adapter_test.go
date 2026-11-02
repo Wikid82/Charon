@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wikid82/go_notify_yourself/providers/webpush"
-	"github.com/Wikid82/go_notify_yourself/transport"
+	"github.com/Wikid82/Hermes/providers/webpush"
+	"github.com/Wikid82/Hermes/transport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -82,7 +82,7 @@ func newWebPushTestWrapper(rt http.RoundTripper) *transport.Wrapper {
 
 // validSubscriberKeys generates a fresh, valid P256dh/Auth pair so a
 // subscription can reach webpush.Client.Send's encryption step without
-// error — mirrors go_notify_yourself's own providers/webpush test helper
+// error — mirrors Hermes's own providers/webpush test helper
 // (testSubscriber, webpush_test.go), duplicated here since it's unexported.
 func validSubscriberKeys(t *testing.T) (p256dh, auth string) {
 	t.Helper()

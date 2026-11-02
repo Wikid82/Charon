@@ -62,6 +62,8 @@ Charon keeps CrowdSec's allow list (addresses that CrowdSec never blocks) in its
 - **Change the allow list on the Whitelist tab.** Edits you make to `charon-whitelist.yaml` in the config file editor are refused, and any hand edit is replaced the next time CrowdSec starts.
 - **Your other parser files are yours.** Files you add to CrowdSec's parser folder are not changed by Charon.
 - **Importing a configuration keeps this server's allow list.** Charon puts back the allow list from this server, not the one in the archive. If the archive has other allow-list files, Charon lists them after the import and leaves them as they are.
+- **The allow list file always exists.** When the list is empty, Charon keeps a placeholder `charon-whitelist.yaml` that matches nothing, so CrowdSec still starts cleanly. Leave that file alone; Charon rewrites it.
+- **A log warning about the allow list file is informational.** If the logs say the allow list file was written in place because its rename was refused, your change still applied. This happens when the CrowdSec config folder is mounted as a single file, which blocks Charon's usual safe-save method. Charon logs this once each time it runs.
 
 ### Hub Presets
 
@@ -73,6 +75,8 @@ Access pre-built security configurations from the CrowdSec Hub:
 4. Click **Install** to add to your configuration
 
 Hub presets are installed in two steps. First click **Pull** to download and preview the preset (a pulled preview can be shown again without downloading it again, and pulling a preset without picking a section reuses a recently fetched hub list for 10 minutes when only one section is saved on the server). Then click **Apply** to install exactly what you previewed, using the `cscli` tool that ships with Charon (it also installs anything the preset depends on). If the preview has gone out of date, Charon asks you to pull the preset again. Most installs finish in a few seconds. Large presets install in the background (see below) with a 30 minute limit; a quick install that does not finish within 120 seconds is stopped, rolled back, and your preview is kept. You can apply an already-downloaded preview without internet access if its items are already on the server; otherwise the apply fails and is rolled back, and pulling a preset you never downloaded needs internet access. If a name exists in more than one hub section (for example a parser and a collection with the same name), Charon asks you to choose which one you mean. If the hub cannot be reached, nothing is installed and Charon says so. Charon also checks each downloaded item against the hub's index to catch incomplete or inconsistent updates before keeping it; if an item does not match, Charon refuses it and asks you to try again later. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#hub-preset-messages) if you see a message.
+
+If CrowdSec's main hub address is down, Charon tries a GitHub copy of the same hub, both when it loads the preset list and when it downloads or installs a preset, so a short outage at the main address often goes unnoticed. If the hub list still cannot be loaded, the presets page shows a quiet note saying that only built-in and downloaded presets are shown. Hub presets you have not downloaded yet appear greyed out and cannot be selected until the hub is reachable again. Presets you have already downloaded keep working. For details, see [When the CrowdSec hub cannot be reached](../troubleshooting/crowdsec.md#when-the-crowdsec-hub-cannot-be-reached).
 
 Popular presets include:
 

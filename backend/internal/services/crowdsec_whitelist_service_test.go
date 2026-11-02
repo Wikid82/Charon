@@ -133,7 +133,7 @@ func TestCrowdSecWhitelistService_WriteYAML_CreatesFile(t *testing.T) {
 	assert.Contains(t, s, `"10.0.0.0/8"`)
 }
 
-func TestCrowdSecWhitelistService_WriteYAML_EmptyLists(t *testing.T) {
+func TestCrowdSecWhitelistService_WriteYAML_EmptyListWritesPlaceholder(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	svc := services.NewCrowdSecWhitelistService(openWhitelistTestDB(t), tmpDir)
@@ -141,14 +141,15 @@ func TestCrowdSecWhitelistService_WriteYAML_EmptyLists(t *testing.T) {
 	err := svc.WriteYAML(context.Background())
 	require.NoError(t, err)
 
-	// CrowdSec rejects a parser with empty ip/cidr arrays, so the file must not
-	// exist when there are no whitelist entries.
+	// CrowdSec rejects a parser with empty ip/cidr arrays, so the file carries a never-matching expression instead
+	// of the lists. The file itself stays in place.
 	yamlPath := filepath.Join(tmpDir, "config", "parsers", "s02-enrich", "charon-whitelist.yaml")
-	_, statErr := os.Stat(yamlPath)
-	assert.True(t, os.IsNotExist(statErr), "whitelist YAML should not be written when there are no entries")
+	content, err := os.ReadFile(yamlPath) //nolint:gosec // G304: path built from controlled tmpDir
+	require.NoError(t, err)
+	assert.Equal(t, wantWhitelistPlaceholder, string(content))
 }
 
-func TestCrowdSecWhitelistService_WriteYAML_RemovesFileWhenEmpty(t *testing.T) {
+func TestCrowdSecWhitelistService_WriteYAML_DeleteLastEntryKeepsPlaceholder(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
 	db := openWhitelistTestDB(t)
@@ -160,15 +161,17 @@ func TestCrowdSecWhitelistService_WriteYAML_RemovesFileWhenEmpty(t *testing.T) {
 	yamlPath := filepath.Join(tmpDir, "config", "parsers", "s02-enrich", "charon-whitelist.yaml")
 	require.FileExists(t, yamlPath)
 
-	// Delete the last entry - the file should be removed so CrowdSec does not fail on reload.
+	// Delete the last entry. The file is replaced by the placeholder, never removed: a running engine can die when
+	// its whitelist file disappears between reloads.
 	entries, err := svc.List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	err = svc.Delete(context.Background(), entries[0].UUID)
 	require.NoError(t, err)
 
-	_, statErr := os.Stat(yamlPath)
-	assert.True(t, os.IsNotExist(statErr), "whitelist YAML should be removed when the last entry is deleted")
+	content, err := os.ReadFile(yamlPath) //nolint:gosec // G304: path built from controlled tmpDir
+	require.NoError(t, err)
+	assert.Equal(t, wantWhitelistPlaceholder, string(content))
 }
 
 func TestCrowdSecWhitelistService_List_AfterAdd(t *testing.T) {

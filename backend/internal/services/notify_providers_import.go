@@ -2,7 +2,7 @@ package services
 
 // This file exists solely for its side effects: each blank import below
 // runs that provider package's init(), which self-registers a
-// notify.Factory into the go_notify_yourself registry (notify.Register),
+// notify.Factory into the Hermes registry (notify.Register),
 // making the provider constructible via notify.New(provider.Type, config)
 // from buildNotifySender (notify_provider_adapter.go).
 //
@@ -21,13 +21,13 @@ package services
 // (or equivalent) asserts that allowlist is a subset of
 // notify.RegisteredTypes(), catching drift between the two.
 import (
-	_ "github.com/Wikid82/go_notify_yourself/providers/discord"
-	_ "github.com/Wikid82/go_notify_yourself/providers/email"
-	_ "github.com/Wikid82/go_notify_yourself/providers/gotify"
-	_ "github.com/Wikid82/go_notify_yourself/providers/ntfy"
-	_ "github.com/Wikid82/go_notify_yourself/providers/pushover"
-	_ "github.com/Wikid82/go_notify_yourself/providers/slack"
-	_ "github.com/Wikid82/go_notify_yourself/providers/telegram"
-	_ "github.com/Wikid82/go_notify_yourself/providers/webhook"
-	_ "github.com/Wikid82/go_notify_yourself/providers/webpush"
+	_ "github.com/Wikid82/Hermes/providers/discord"
+	_ "github.com/Wikid82/Hermes/providers/email"
+	_ "github.com/Wikid82/Hermes/providers/gotify"
+	_ "github.com/Wikid82/Hermes/providers/ntfy"
+	_ "github.com/Wikid82/Hermes/providers/pushover"
+	_ "github.com/Wikid82/Hermes/providers/slack"
+	_ "github.com/Wikid82/Hermes/providers/telegram"
+	_ "github.com/Wikid82/Hermes/providers/webhook"
+	_ "github.com/Wikid82/Hermes/providers/webpush"
 )

@@ -3,14 +3,14 @@ package services
 import (
 	"testing"
 
-	notify "github.com/Wikid82/go_notify_yourself"
+	notify "github.com/Wikid82/Hermes"
 )
 
 // TestSupportedProviderAllowlistIsSubsetOfRegisteredTypes is a
 // build-configuration drift guard, not a runtime assertion (per
 // docs/plans/notify_provider_registry_spec.md §3.6.2/§3.10): it asserts
 // that every provider type isSupportedNotificationProviderType claims to
-// support is actually registered in the go_notify_yourself registry given
+// support is actually registered in the Hermes registry given
 // Charon's hand-picked blank imports (notify_providers_import.go).
 //
 // This deliberately does NOT run in the other direction — the registry may

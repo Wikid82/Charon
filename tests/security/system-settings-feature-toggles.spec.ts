@@ -288,8 +288,7 @@ test.describe('System Settings - Feature Toggles', () => {
     test('should show overlay during feature update', async ({ page }) => {
       // Skip: Overlay visibility is transient and race-dependent. The ConfigReloadOverlay
       // may appear for <100ms during config reloads, making reliable E2E assertions impractical.
-      // Feature toggle functionality is verified by security-dashboard toggle tests.
-      // Transient overlay UI state is unreliable for E2E testing. Feature toggles verified in security-dashboard tests.
+      test.skip(true, 'Config-reload overlay visibility is transient and race-dependent');
 
       const cerberusToggle = page
         .getByRole('switch', { name: /cerberus.*toggle/i })

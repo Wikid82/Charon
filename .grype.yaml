@@ -4,6 +4,50 @@
 # Documentation: https://github.com/anchore/grype#specifying-matches-to-ignore
 
 ignore:
+
+  # - CVE-2026-116585:
+  - vulnerability: GHSA-4w3g-jfj2-cw2q
+    package:
+      name: github.com/go-jose/go-jose/v3
+      type: go-module
+    reason: |
+      HIGH — Panic during CBC-HMAC processing
+    expiry: "2026-11-29"
+
+  # - CVE-2026-116586:
+  - vulnerability: GHSA-6mp9-8xrw-74r4
+    package:
+      name: github.com/go-jose/go-jose/v3
+      type: go-module
+    reason: |
+      HIGH — Parsing deeply nested JSON structures can hit Go's stack limit, causing the application to crash.
+    expiry: "2026-11-29"
+
+  # GHSA-mgcc-cww5-fp2q / CVE-2026-116587: Go JOSE: DoS when parsing JWKs that contain RSA keys
+  # Severity: HIGH
+  # Package: github.com/go-jose/go-jose/v3 v3.0.5 (embedded in /usr/bin/caddy)
+  # Status: No v3 patch — fixed only in go-jose/v4 v4.1.6
+  # Note: Grype reports this finding under the GHSA ID (CVE is only a related ID), so the
+  #       rule must match the GHSA; Trivy reports the CVE, so .trivyignore keeps the CVE.
+  #
+  # Review: Revisit once Caddy is rebuilt against go-jose/v4 >= v4.1.6 (or v3 is patched).
+  # Removal criteria: rebuild the image and confirm GHSA-mgcc-cww5-fp2q no longer appears in
+  # the current scan output, then remove this entry and the corresponding .trivyignore entry.
+  - vulnerability: GHSA-mgcc-cww5-fp2q
+    package:
+      name: github.com/go-jose/go-jose/v3
+      type: go-module
+    reason: |
+      Go JOSE provides an implementation of the Javascript Object Signing and Encryption
+      set of standards in Go, including support for JSON Web Encryption (JWE), JSON Web
+      Signature (JWS), and JSON Web Token (JWT) standards. Prior to 4.1.6, go-jose parses
+      attacker-controlled RSA modulus and prime values from JWKs without enforcing size
+      and consistency bounds before passing them to crypto/rsa.PrivateKey.Validate.
+      On Go 1.24 and later, crafted large or degenerate RSA parameters can make that
+      validation consume cubic CPU time, allowing remote denial of service in applications
+      that parse JWKs from untrusted sources.
+    expiry: "2026-11-28"
+
   # GHSA-hrxh-6v49-42gf: grpc-go xDS RBAC and HTTP/2 vulnerabilities
   # Severity: HIGH
   # Package: google.golang.org/grpc (embedded in Caddy, CrowdSec, and cscli binaries)
@@ -1416,6 +1460,15 @@ ignore:
       Alpine/upstream patch.
     expiry: "2026-10-18"  # Review: Initial suppression 2026-09-18. Next review: 2026-10-18.
 
+     # References:
+  # - CVE-2026-116586:
+  - vulnerability: GHSA-6mp9-8xrw-74r4
+    package:
+      name: Go JOSE
+    reason: |
+      HIGH — Parsing deeply nested JSON structures can hit Go's stack limit, causing the application to crash.
+    expiry: "2026-11-23"  # Review: Initial suppression 2026-09-18. Next review: 2026-10-18.
+
     # Action items when this suppression expires:
     # 1. Check Alpine's zlib package tracker for a patched build past 1.3.2-r0
     # 2. If a patched package is available: rebuild Docker image, run security-scan-docker-image,
@@ -1436,10 +1489,11 @@ match:
 
 # Output configuration (optional)
 # These settings can be overridden via CLI flags
-output:
+output: json
+
   # Report only HIGH and CRITICAL by default
   # Medium/Low findings are still logged but don't fail the scan
-  fail-on-severity: high
+fail-on-severity: high
 
 # Check for configuration updates
 # Grype automatically updates its vulnerability database

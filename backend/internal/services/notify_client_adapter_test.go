@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wikid82/go_notify_yourself/transport"
+	"github.com/Wikid82/Hermes/transport"
 )
 
 func TestResolveNotifyAllowHTTP(t *testing.T) {

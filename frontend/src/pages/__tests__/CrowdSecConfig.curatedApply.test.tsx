@@ -149,6 +149,27 @@ describe('CrowdSecConfig curated preset apply', () => {
     expect(toast.error).not.toHaveBeenCalled()
   })
 
+  it('shows passive reload-pending text instead of the reload-required prompt when a reload is queued', async () => {
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({
+      status: 'applied',
+      backup: 'crowdsec.backup.20260101-000000.000000',
+      reload_hint: true,
+      reload_pending: true,
+      used_cscli: true,
+      cache_key: curatedPreset.cache_key,
+      slug: curatedPreset.slug,
+    })
+    await renderPage()
+    await userEvent.click(screen.getByTestId('apply-preset-btn'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Preset applied via backend'))
+    const info = screen.getByTestId('preset-apply-info')
+    expect(screen.getByTestId('preset-reload-pending')).toHaveTextContent(
+      'The reload is scheduled and will happen once CrowdSec has finished starting.',
+    )
+    expect(info).not.toHaveTextContent('Reload: Required')
+    expect(toast.success).not.toHaveBeenCalledWith('Preset applied via backend (reload required)')
+  })
+
   it.each(['failed', 'pending', ''])('never shows success for a 2xx response with status %j', async (status) => {
     vi.mocked(presetsApi.applyCrowdsecPreset).mockResolvedValue({ status })
     await renderPage()

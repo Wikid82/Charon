@@ -131,7 +131,7 @@ graph TB
 | **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
-| **Notifications** | github.com/Wikid82/go_notify_yourself | Current | External delivery-engine module (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push, and email) consumed via Charon-supplied SSRF/SMTP/template adapters — see Service Layer below |
+| **Notifications** | github.com/Wikid82/Hermes | Current | External delivery-engine module (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push, and email) consumed via Charon-supplied SSRF/SMTP/template adapters — see Service Layer below |
 | **Docker Client** | Docker SDK | Latest | Container discovery |
 | **Logging** | Logrus + Lumberjack | Latest | Structured logging with rotation |
 | **Backup Archive Encryption** | filippo.io/age | Latest | Passphrase (scrypt) encryption of backup archives; audited, pure Go, streaming AEAD — avoids buffering whole archives in RAM or hand-rolling chunked AES-GCM |
@@ -278,11 +278,14 @@ graph TB
 │   ├── plans/                  # Implementation plans
 │   └── reports/                # QA and audit reports
 │
-├── docs-site/                  # Docusaurus (TypeScript) docs website — separate from frontend/
-│   ├── docs/                   # GENERATED, gitignored — synced from docs/ on every build
-│   ├── scripts/sync-docs.mjs   # Copies the docs-manifest.json allowlist from docs/ here
+├── docs-site/                  # Zensical (Python, docs tooling only) docs website — separate from frontend/
+│   ├── zensical.toml           # Site config: theme, explicit nav (every synced page must appear in it)
+│   ├── requirements.txt        # Pinned zensical version (Renovate tracks it)
+│   ├── index.md                # Landing page (copied into docs/ by the sync)
+│   ├── assets/                 # Logo, favicon, banner (copied into docs/ by the sync)
+│   ├── scripts/sync-docs.sh    # Copies the docs-manifest.json allowlist from docs/ into docs-site/docs/
 │   ├── scripts/docs-manifest.json  # Explicit list of docs/ files+dirs to publish
-│   └── src/pages/              # Landing page and other static pages
+│   └── docs/                   # GENERATED, gitignored — synced from docs/ on every build
 │
 ├── configs/                    # Runtime configuration
 │   └── crowdsec/               # CrowdSec configurations
@@ -318,17 +321,19 @@ graph TB
 - **`docs/plans/`**: Active planning documents (`current_spec.md`)
 - **`docs/ci/`**: CI/build operator runbooks (`toolchain-image.md`)
 - **`test-results/`**: Test artifacts (gitignored)
-- **`docs-site/`**: A standalone Docusaurus static site that publishes `docs/`
+- **`docs-site/`**: A standalone [Zensical](https://zensical.org/) static site that publishes `docs/`
   as a browsable website at <https://wikid82.github.io/Charon/>, deployed by
   `.github/workflows/docs-deploy.yml` on push to `main` (or manual dispatch).
   It is entirely separate from `frontend/` (the app's React SPA) — never
   bundled into the Docker image and never served by `backend/internal/server`.
-  `docs-site/docs/` is not committed; `docs-site/scripts/sync-docs.mjs`
-  regenerates it on every `npm start`/`npm run build` by copying the
-  allowlist in `docs-site/scripts/docs-manifest.json` from the repo-root
-  `docs/`, which remains the single, untouched source of truth for all
-  documentation. Its npm dependencies are updated alongside root and
-  `frontend/` in `scripts/charon_dep_update.sh`.
+  `docs-site/docs/` is not committed; `docs-site/scripts/sync-docs.sh`
+  regenerates it on every build by copying the allowlist in
+  `docs-site/scripts/docs-manifest.json` from the repo-root `docs/`, which
+  remains the single, untouched source of truth for all documentation. The
+  build runs `zensical build --strict`, which fails on broken internal links
+  and anchors. Python here is the documented docs-tooling exception to the
+  "No Python" rule: `docs-site/requirements.txt` pins `zensical`, and Renovate
+  bumps it as `chore:`. The site has no npm dependencies.
 
 **Bundled-toolchain tooling** (see Deployment Architecture → Prebuilt toolchain image):
 `.github/workflows/toolchain-image.yml`, `scripts/toolchain-key.sh`,
@@ -370,7 +375,7 @@ fork/offline fallback.
 - **CertificateService:** ACME certificate provisioning and renewal
 - **DockerService:** Container discovery and monitoring; also exposes a lightweight local-socket availability probe (`GET /docker/status`) that the Proxy Host form uses to grey out the "Local (Docker Socket)" source when no usable socket is mounted
 - **MailService:** SMTP transport and branded HTML templates for certificate-expiry and other system emails
-- **NotificationService:** GORM CRUD for providers/templates, event-type-to-provider routing, and feature-flag gating (`internal/services/notification_service.go`); outbound dispatch for all eight provider types (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push) plus email is delegated to the external `github.com/Wikid82/go_notify_yourself` module (`v0.3.0+`) through three Charon-supplied adapters — `notify_client_adapter.go` (SSRF-safe HTTP client/URL validation, wired to `internal/network`/`internal/security`), `notify_provider_adapter.go`, and `notify_email_adapter.go` (wraps `MailService` behind the module's `Mailer`/`TemplateRenderer` interfaces). `notify_provider_adapter.go`'s `buildNotifySender` maps a `NotificationProvider` row into a `map[string]any` config (`providerConfigMap`) and constructs the `Sender` by calling the module's self-registering provider factory registry (`notify.New(provider.Type, config)`) rather than a hardcoded per-provider switch/constructor call — `notify_providers_import.go` hand-picks the blank imports (`providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`, `providers/telegram`, `providers/webhook`, `providers/webpush`, `providers/email`) that register those factories at `init()` time, deliberately not importing `providers/all`. Charon's own supported-provider allowlist (`isSupportedNotificationProviderType`, `notification_service.go`) remains independently hardcoded and is not derived from the registry; a unit test asserts it stays a subset of `notify.RegisteredTypes()`. The formerly in-repo delivery engine (`internal/notifications/`) has been removed.
+- **NotificationService:** GORM CRUD for providers/templates, event-type-to-provider routing, and feature-flag gating (`internal/services/notification_service.go`); outbound dispatch for all eight provider types (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push) plus email is delegated to the external `github.com/Wikid82/Hermes` module (`v0.3.0+`) through three Charon-supplied adapters — `notify_client_adapter.go` (SSRF-safe HTTP client/URL validation, wired to `internal/network`/`internal/security`), `notify_provider_adapter.go`, and `notify_email_adapter.go` (wraps `MailService` behind the module's `Mailer`/`TemplateRenderer` interfaces). `notify_provider_adapter.go`'s `buildNotifySender` maps a `NotificationProvider` row into a `map[string]any` config (`providerConfigMap`) and constructs the `Sender` by calling the module's self-registering provider factory registry (`notify.New(provider.Type, config)`) rather than a hardcoded per-provider switch/constructor call — `notify_providers_import.go` hand-picks the blank imports (`providers/discord`, `providers/slack`, `providers/gotify`, `providers/pushover`, `providers/ntfy`, `providers/telegram`, `providers/webhook`, `providers/webpush`, `providers/email`) that register those factories at `init()` time, deliberately not importing `providers/all`. Charon's own supported-provider allowlist (`isSupportedNotificationProviderType`, `notification_service.go`) remains independently hardcoded and is not derived from the registry; a unit test asserts it stays a subset of `notify.RegisteredTypes()`. The formerly in-repo delivery engine (`internal/notifications/`) has been removed.
   - **Web Push** is the one provider type that isn't a single destination: one `NotificationProvider` row (`Type = "webpush"`, a DB-enforced singleton) holds the shared VAPID application identity, while each subscribed browser/device is a row in a separate `WebPushSubscription` model (`internal/models/webpush_subscription.go`) — FK'd to that provider row, with its own `notify_webpush_adapter.go` fan-out path that sends to every subscription individually and auto-prunes rows the push service reports as gone.
 - **SettingsService:** Application settings management
 - **BackupService:** Format-v2 archive creation (manifest + SHA-256 checksums), configurable cron scheduling, the safe-restore pipeline (validate → pre-restore safety backup → apply → reconcile), and optional age/scrypt archive encryption — see "Backup & Restore Subsystem" below
@@ -934,6 +939,8 @@ restart as interrupted and restores the pre-install snapshot. Lock order is busy
 flag, then `dataMu`; `acquisMu` is a leaf lock. The synchronous apply route
 remains but is deprecated for large presets. Job views never expose `backup_path`.
 
+**Start, reload and import checks:** `api/handlers/crowdsec_reload.go` is the only sender of SIGHUP to the managed engine. A reload requested before the engine is ready (LAPI answers and the engine has run for a settle window) is queued as one pending reload, and the apply and restore results report it with `reload_pending`. The engine is launched through a small `sh` wrapper that ignores SIGHUP and then `exec`s the engine, so the process ID is kept; the process-identity check recognises both the wrapper and the engine command line. While Start waits for LAPI it polls the process, and two consecutive not-running polls end the start with `crowdsec_engine_exited` (500) and restore the recorded state, as for a failed spawn. Import validation requires `config_paths` in the archive's `config.yaml`: an archive without it is refused with a plain 422 `config validation failed: config.yaml has no config_paths section` (no error code). The engine's own `crowdsec -t -c` check then runs on the candidate file; only the engine's own non-zero exit refuses the import (422 `import_config_invalid`), while a check that cannot run or hits a busy port or database is logged and skipped. A failed whitelist regeneration during import rolls back to the live configuration.
+
 **Persistent hub data:** CrowdSec's `data_dir` (LAPI database and hub data files
 such as blocklists and the GeoIP database) lives at `/app/data/crowdsec/data`
 on the persistent volume, so it survives container recreation. The entrypoint
@@ -943,9 +950,11 @@ re-download them (startup log line only; no UI). `scripts/crowdsec_data_persiste
 verifies this in the CrowdSec integration job.
 
 **Versioning:** the bundled `cscli` and `crowdsec` binaries report their real
-version (currently v1.8.1); the Docker build fails if they do not. The
+version (currently v1.8.2); the Docker build fails if they do not. The
 entrypoint pins `cscli.hub_branch: master` in the CrowdSec config for
 deterministic hub access (an operator-set value is preserved).
+
+**Hub fallback:** every hub request attempt gets its own share of the remaining time budget (`attemptContext`, `internal/crowdsec/hub_budget.go`, floor 5 s). When `cscli hub update`, upgrade, or an item install fails on the live hub address, Charon runs the same command once more under a derived cscli configuration: a copy of the live file with cscli's hidden `__hub_url_template__` key pointed at the GitHub mirror. The live file is never written, and the copy is removed afterwards. `hub update` gives the live address half of its budget first. A winning mirror retry opens a mirror-first window of 10 minutes (`mirrorMemoryTTL`, not extended by later wins) that the API process keeps in memory. The window applies only to cscli operations (hub update and item installs): if the mirror then fails, cscli tries the live address again. The presets list and preset pulls always try the live address first, so each of those requests can take about 11 seconds longer during an outage. Startup and item installs use the POSIX helper `.docker/cscli-hub-mirror.sh` (installed as `/usr/local/lib/charon/cscli-hub-mirror.sh`, sourced by `.docker/docker-entrypoint.sh` and `configs/crowdsec/install_hub_items.sh`), which keeps its mirror-first flag only for that startup run. The `CHARON_CSCLI_MIRROR_CONFIG` and `CHARON_CSCLI_MIRROR_FIRST` variables are internal state set by that helper; they are not operator settings, and the entrypoint clears them at start. Derived `.charon-hub-mirror-*` files are excluded from listings, reads, exports and imports. The presets list answers 200 with `hub_offline: true` when it was served without a usable hub index; a pull or apply that reaches no hub route answers 503 `hub_unreachable`.
 
 **Modes:**
 

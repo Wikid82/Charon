@@ -98,7 +98,7 @@ func TestImportConfigNotificationReferences(t *testing.T) {
 		{"defined only by file name", map[string]string{"config/config.yaml": importableConfig, "config/profiles.yaml": profiles, "config/notifications/x.yaml": strings.Replace(importNotification, "%s", "y", 1)}, http.StatusUnprocessableEntity},
 		{"legacy archive without profiles", map[string]string{"config/config.yaml": importableConfig}, http.StatusOK},
 		{"root layout refused", map[string]string{"config.yaml": importableConfig, "profiles.yaml": profiles}, http.StatusUnprocessableEntity},
-		{"redirected paths pass", map[string]string{"config/config.yaml": "api:\n  server:\n    profiles_path: /elsewhere/profiles.yaml\n", "config/profiles.yaml": profiles}, http.StatusOK},
+		{"redirected paths pass", map[string]string{"config/config.yaml": "api:\n  server:\n    profiles_path: /elsewhere/profiles.yaml\nconfig_paths:\n  config_dir: /etc/crowdsec\n", "config/profiles.yaml": profiles}, http.StatusOK},
 		{"unparsable profiles pass the check", map[string]string{"config/config.yaml": importableConfig, "config/profiles.yaml": "name: [unclosed\n"}, http.StatusOK},
 	}
 	for _, tc := range cases {

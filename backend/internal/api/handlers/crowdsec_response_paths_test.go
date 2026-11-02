@@ -46,12 +46,6 @@ func TestResponses_FileWriteCarriesBackupNameOnly(t *testing.T) {
 
 func TestResponses_ImportSuccessAndFailuresCarryNoPaths(t *testing.T) {
 	t.Parallel()
-	dir := filepath.Join(t.TempDir(), "crowdsec")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
-	seedEngineState(t, dir)
-	root := filepath.Dir(dir)
-	_, r := newImportRouter(t, dir)
-
 	cases := []struct {
 		name  string
 		files map[string]string
@@ -64,6 +58,14 @@ func TestResponses_ImportSuccessAndFailuresCarryNoPaths(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Each import gets its own flat installation: a successful import writes the whitelist under config/,
+			// which makes the next import's live layout nested.
+			root := t.TempDir()
+			dir := filepath.Join(root, "crowdsec")
+			require.NoError(t, os.MkdirAll(dir, 0o750))
+			seedEngineState(t, dir)
+			_, r := newImportRouter(t, dir)
+
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, importRequest(t, tc.files))
 			require.Equal(t, tc.code, w.Code, w.Body.String())

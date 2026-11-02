@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	notify "github.com/Wikid82/go_notify_yourself"
-	"github.com/Wikid82/go_notify_yourself/providers/email"
+	notify "github.com/Wikid82/Hermes"
+	"github.com/Wikid82/Hermes/providers/email"
 )
 
 // fakeMailServiceForEmailAdapter is a dedicated MailServiceInterface fake for

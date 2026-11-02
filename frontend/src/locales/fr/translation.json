@@ -1546,6 +1546,7 @@
         "generic": "Les éléments du hub n'ont pas pu être installés. Réessayez."
       }
     },
+    "reloadPending": "Le rechargement est programmé et aura lieu une fois que CrowdSec a fini de démarrer.",
     "importSuccess": "Configuration CrowdSec importée (sauvegarde créée)",
     "importFailed": "Échec de l'importation",
     "importKeptFiles": "Ces fichiers n'étaient pas dans l'archive, les fichiers actuels ont donc été conservés : {{files}}",
@@ -1658,6 +1659,8 @@
       "pullPreview": "Récupérer l'aperçu",
       "applyPreset": "Appliquer le préréglage",
       "hubUnreachable": "Hub CrowdSec inaccessible. Les préréglages du hub peuvent ne pas fonctionner.",
+      "hubOffline": "Préréglages intégrés et téléchargés affichés. La liste du hub n'a pas été chargée.",
+      "unavailableOffline": "Nécessite le hub CrowdSec. Indisponible tant que le hub est hors ligne.",
       "retry": "Réessayer",
       "useCached": "Utiliser le cache",
       "typeLabel": "Type d'élément",
@@ -2485,6 +2488,8 @@
   },
   "crowdsec": {
     "errors": {
+      "engineExited": "CrowdSec s'est arrêté juste après son démarrage. Consultez le journal de CrowdSec pour en connaître la raison.",
+      "importConfigInvalid": "CrowdSec n'a pas pu charger la configuration importée. Vérifiez que config.yaml contient une section config_paths et que les dossiers qu'elle indique existent.",
       "stateChanged": "CrowdSec a été désactivé pendant son démarrage.",
       "unavailable": "CrowdSec n'est pas disponible sur ce serveur."
     }

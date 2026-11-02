@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	notify "github.com/Wikid82/go_notify_yourself"
-	"github.com/Wikid82/go_notify_yourself/providers/email"
+	notify "github.com/Wikid82/Hermes"
+	"github.com/Wikid82/Hermes/providers/email"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 )

@@ -182,6 +182,20 @@ func TestApplyReportsReloadHintWithoutReloader(t *testing.T) {
 	res, err := e.apply()
 	require.NoError(t, err)
 	require.True(t, res.ReloadHint)
+	require.False(t, res.ReloadPending)
+}
+
+// A reload queued behind a starting engine is pending, not a request to restart.
+func TestApplyReportsReloadPendingWhileEngineStarts(t *testing.T) {
+	t.Parallel()
+	e := newApplyEnv(t)
+	e.svc.Reload = func(context.Context) error { return ErrReloadDeferred }
+
+	res, err := e.apply()
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+	require.False(t, res.ReloadHint)
+	require.True(t, res.ReloadPending)
 }
 
 func TestApplyRefusesBadInput(t *testing.T) {

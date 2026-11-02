@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-eda056b143a1c1e3
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:d56373f52b371ebf1bacbfa0fa7fcf3b7c28bf932c4e99f533d38f5886092eec
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-fce6d08166e8b2d0
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:e4fef686313ccfeafb959bec2fe35ab12bb82eb202a47eed68e26f73b38dbcea
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -44,7 +44,7 @@ ARG CROWDSEC_VERSION=1.8.2
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.61.0
+ARG XNET_VERSION=0.62.0
 # Shared golang.org/x/crypto pin — consumed by BOTH the caddy-builder and the
 # crowdsec-builder stages so the two never drift. v0.56.0 also carries the
 # golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
@@ -88,7 +88,7 @@ ARG CADDY_CANDIDATE_VERSION=2.11.7
 ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.5.0
+ARG CADDY_SECURITY_VERSION=1.6.2
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.2
 # coraza WAF override: coraza-caddy v2.6.1 requires coraza v3.7.0, which carries a CVE
@@ -273,7 +273,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.24@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS frontend-builder
+RUN npm install -g npm@12.2.1 && npm cache clean --force
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -650,7 +651,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.47.0; \
         # CVE-2026-41889: SQL Injection via placeholder confusion with dollar quoted string literals
         # renovate: datasource=go depName=github.com/jackc/pgx/v5
-        _retry go get github.com/jackc/pgx/v5@v5.11.0; \
+        _retry go get github.com/jackc/pgx/v5@v5.12.0; \
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
         _retry go get github.com/russellhaering/goxmldsig@v1.6.1; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -683,7 +684,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             # failures in authority/provisioner. Keep this pinned to a known-compatible
             # v1.9.x release until upstream stack supports nebula v1.10+.
             # renovate: datasource=go depName=github.com/slackhq/nebula
-            _retry go get github.com/slackhq/nebula@v1.11.2; \
+            _retry go get github.com/slackhq/nebula@v1.12.0; \
         elif [ "${CADDY_PATCH_SCENARIO}" = "B" ] || [ "${CADDY_PATCH_SCENARIO}" = "C" ]; then \
             # Default PR-2 posture: retire explicit nebula pin and use upstream resolution.
             echo "Skipping nebula pin for scenario ${CADDY_PATCH_SCENARIO}"; \
@@ -872,9 +873,9 @@ RUN set -e; \
     _retry go get go.opentelemetry.io/otel@v1.47.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.24; \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.25; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.90.2; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.91.0; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -1022,7 +1023,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=c7b73dd5e1a618c6df2d9a716cf95b939a51016de8978cd317d9ae7ebf3f0b5f
+ARG GEOLITE2_COUNTRY_SHA256=7ef3b24a63044aee370098795c0ed01cb53bb2aaee8407dfc6475c5b42394d87
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
@@ -1156,6 +1157,9 @@ COPY --from=frontend-builder --chown=charon:charon /app/frontend/dist /app/front
 # Copy startup script
 COPY .docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
+
+# Hub mirror retry helper, sourced by the startup script (sourced, not executed, so no chmod)
+COPY .docker/cscli-hub-mirror.sh /usr/local/lib/charon/cscli-hub-mirror.sh
 
 # Copy utility scripts (used for DB recovery and maintenance)
 COPY --chown=charon:charon scripts/ /app/scripts/

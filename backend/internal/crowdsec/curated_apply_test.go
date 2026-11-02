@@ -185,13 +185,15 @@ func TestApplyCuratedHubUpdateFailureIsNonFatal(t *testing.T) {
 
 func TestApplyCuratedReloadOutcomes(t *testing.T) {
 	cases := map[string]struct {
-		reload   ReloadFunc
-		wantHint bool
+		reload      ReloadFunc
+		wantHint    bool
+		wantPending bool
 	}{
-		"success":     {func(context.Context) error { return nil }, false},
-		"failure":     {func(context.Context) error { return errors.New("signal failed") }, true},
-		"not running": {func(context.Context) error { return fmt.Errorf("status: %w", ErrCrowdSecNotRunning) }, true},
-		"no reloader": {nil, true},
+		"success":     {func(context.Context) error { return nil }, false, false},
+		"failure":     {func(context.Context) error { return errors.New("signal failed") }, true, false},
+		"not running": {func(context.Context) error { return fmt.Errorf("status: %w", ErrCrowdSecNotRunning) }, true, false},
+		"no reloader": {nil, true, false},
+		"deferred":    {func(context.Context) error { return ErrReloadDeferred }, false, true},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -203,6 +205,7 @@ func TestApplyCuratedReloadOutcomes(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "applied", res.Status)
 			require.Equal(t, tc.wantHint, res.ReloadHint)
+			require.Equal(t, tc.wantPending, res.ReloadPending)
 			require.Equal(t, 0, exec.count("hub reload"))
 		})
 	}

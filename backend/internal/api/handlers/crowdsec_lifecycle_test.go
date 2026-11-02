@@ -22,6 +22,7 @@ type gatedStartExec struct {
 	releaseOnce sync.Once
 	mu          sync.Mutex
 	stopCalls   int
+	started     bool
 }
 
 func newGatedStartExec() *gatedStartExec {
@@ -35,6 +36,9 @@ func (g *gatedStartExec) unblock() {
 func (g *gatedStartExec) Start(_ context.Context, _, _ string) (int, error) {
 	g.enteredOnce.Do(func() { close(g.entered) })
 	<-g.release
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.started = true
 	return 4242, nil
 }
 
@@ -45,7 +49,13 @@ func (g *gatedStartExec) Stop(_ context.Context, _ string) error {
 	return nil
 }
 
+// Status reports the engine running once the gated Start has returned, as a real engine would.
 func (g *gatedStartExec) Status(_ context.Context, _ string) (running bool, pid int, err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.started {
+		return true, 4242, nil
+	}
 	return false, 0, nil
 }
 
@@ -172,6 +182,12 @@ func TestRespondCrowdsecLifecycleError_MapsEachCause(t *testing.T) {
 			err:  fmt.Errorf("%w: boom", errCrowdsecStop),
 			code: http.StatusInternalServerError,
 			body: `{"error":"failed to stop CrowdSec"}`,
+		},
+		{
+			name: "engine exited",
+			err:  fmt.Errorf("%w: pid 4242", errCrowdsecEngineExited),
+			code: http.StatusInternalServerError,
+			body: `{"error":"CrowdSec stopped right after it started. Check the CrowdSec log for the reason.","error_code":"crowdsec_engine_exited"}`,
 		},
 		{
 			name: "unknown cause",

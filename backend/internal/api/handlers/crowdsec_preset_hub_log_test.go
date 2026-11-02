@@ -27,7 +27,6 @@ func TestPullPresetHandlerLogNamesEveryAttemptedHubURL(t *testing.T) {
 
 	const cdnIndex = "https://cdn-hub.crowdsec.net/crowdsecurity/master/.index.json"
 	const mirrorIndex = "https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json"
-	const mirrorAPIIndex = "https://raw.githubusercontent.com/crowdsecurity/hub/master/api/index.json"
 
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
@@ -55,7 +54,7 @@ func TestPullPresetHandlerLogNamesEveryAttemptedHubURL(t *testing.T) {
 	require.Contains(t, out, `"crowdsec preset pull failed"`)
 	require.Contains(t, out, cdnIndex, "the CDN attempt is named")
 	require.Contains(t, out, mirrorIndex, "the mirror attempt is named")
-	require.Contains(t, out, mirrorAPIIndex, "the second mirror attempt is named")
+	require.NotContains(t, out, "/api/index.json", "the GitHub-hosted mirror has no api/index.json target")
 	require.NotContains(t, out, `"hub_base_url"`, "the configured base is not reported as the URL that failed")
 	require.NotContains(t, out, "s3cret", "credentials in the configured base never reach the log")
 	require.NotContains(t, out, "operator:")

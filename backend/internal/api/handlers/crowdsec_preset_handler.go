@@ -80,10 +80,15 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 		return result[key]
 	}
 
+	// hubOffline is true when the list was served without the hub: no hub service, no index, or the index the
+	// local cscli data listed instead of the HTTP index.
+	hubOffline := h.Hub == nil
+
 	// Merge hub index when available
 	if h.Hub != nil {
 		ctx := c.Request.Context()
 		if idx, err := h.Hub.FetchIndex(ctx); err == nil {
+			hubOffline = idx.Offline()
 			for _, item := range idx.Items {
 				slug := strings.TrimSpace(item.Name)
 				if slug == "" {
@@ -101,6 +106,7 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 				}).Available = true
 			}
 		} else {
+			hubOffline = true
 			logger.Log().WithError(err).Warn("crowdsec hub index unavailable")
 		}
 	}
@@ -129,12 +135,20 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 		}
 	}
 
+	// Without the hub, a hub-backed preset can only be pulled when it is cached already. Curated non-hub presets
+	// and cached presets work offline. Online, availability stays as the index merge set it.
+	if hubOffline {
+		for _, v := range result {
+			v.Available = v.Cached || !v.RequiresHub
+		}
+	}
+
 	list := make([]presetInfo, 0, len(result))
 	for _, v := range result {
 		list = append(list, *v)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"presets": list})
+	c.JSON(http.StatusOK, gin.H{"presets": list, "hub_offline": hubOffline})
 }
 
 // PullPreset downloads and caches a hub preset while returning a preview.

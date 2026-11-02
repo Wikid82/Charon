@@ -1,0 +1,121 @@
+# Zensical configuration for the public Charon docs site.
+#
+# Content is NOT authored here: scripts/sync-docs.sh copies the curated subset of the
+# repo-root docs/ tree (per scripts/docs-manifest.json) plus index.md and assets/ into the
+# git-ignored docs-site/docs/ directory, which is this site's docs_dir. From docs-site/, build with
+# `bash scripts/sync-docs.sh && zensical build --strict`.
+#
+# The nav below is explicit. Every synced page MUST appear in it: scripts/sync-docs.sh fails
+# when a manifested page is missing from this file so no page is silently orphaned.
+
+[project]
+site_name = "Charon"
+site_url = "https://wikid82.github.io/Charon/"
+site_description = "Charon: a self-hosted reverse proxy manager that makes HTTPS, security, and access control easy."
+repo_url = "https://github.com/Wikid82/Charon"
+repo_name = "Wikid82/Charon"
+docs_dir = "docs"
+site_dir = "site"
+copyright = "Copyright &copy; Charon contributors"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting Started" = "getting-started.md" },
+  { "Features" = [
+    "features.md",
+    { "Core" = ["features/web-ui.md", "features/docker-integration.md", "features/ssl-certificates.md", "features/dns-challenge.md", "features/dns-providers.md", "features/dns-auto-detection.md", "features/dns-autodetection.md", "features/caddyfile-import.md", "features/redirection-hosts.md", "features/proxy-headers.md", "features/websocket.md", "features/live-reload.md", "features/ui-themes.md", "features/localization.md", "features/logs.md", "features/uptime-monitoring.md", "features/notifications.md", "features/multi-credential.md", "features/custom-plugins.md", "features/hecate.md", "features/orthrus.md", "features/api.md"] },
+    { "Security" = ["security.md", "features/security.md", "features/access-control.md", "features/waf.md", "features/crowdsec.md", "features/login-protection.md", "features/rate-limiting.md", "features/security-headers.md", "features/user-accounts.md", "features/audit-logging.md", "features/plugin-security.md", "features/supply-chain-security.md", "features/key-rotation.md"] },
+    { "Backup and Recovery" = ["features/backup-restore.md", "features/backup-remote-oauth-setup.md", "features/disaster-recovery.md"] },
+  ] },
+  { "Guides" = [
+    "guides/remote-docker-setup.md",
+    "guides/podman-usage.md",
+    "guides/crowdsec-setup.md",
+    "guides/dns-providers.md",
+    { "DNS provider setup" = ["guides/dns-providers/cloudflare.md", "guides/dns-providers/route53.md", "guides/dns-providers/digitalocean.md", "guides/dns-providers/azure-dns.md", "guides/dns-providers/google-cloud-dns.md"] },
+    "guides/manual-dns-provider.md",
+    "guides/local-key-management.md",
+    "guides/supply-chain-security-user-guide.md",
+    "guides/supply-chain-security-developer-guide.md",
+  ] },
+  { "Configuration" = [
+    "configuration/trusted-proxies.md",
+    "configuration/emergency-setup.md",
+  ] },
+  { "Troubleshooting" = [
+    "troubleshooting/crowdsec.md",
+    "troubleshooting/dns-challenges.md",
+    "troubleshooting/proxy-headers.md",
+    "troubleshooting/websocket.md",
+    "troubleshooting/security-module-applied.md",
+    "troubleshooting/react-production-errors.md",
+    "troubleshooting/e2e-tests.md",
+    "troubleshooting/go-gopls.md",
+    "troubleshooting/release-please-skips.md",
+  ] },
+  { "Reference" = [
+    "api.md",
+    "api/DNS_DETECTION_API.md",
+    "database-schema.md",
+    "cerberus.md",
+    "database-maintenance.md",
+    "acme-staging.md",
+    "import-guide.md",
+    "live-logs-guide.md",
+    "security-incident-response.md",
+    "migration-guide.md",
+    "migration-guide-crowdsec-auto-start.md",
+    "crowdsec-auto-start-quickref.md",
+  ] },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "content.code.copy",
+  "content.code.select",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+favicon = "assets/favicon.png"
+logo = "assets/favicon.png"
+
+# Light/dark palettes follow the operating-system preference by default. The middle entry
+# lets a reader pin light or dark; the first entry returns to the system preference.
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.keys = {}
+pymdownx.superfences = {}
+pymdownx.tabbed.alternate_style = true
+pymdownx.tilde = {}
+
+# Heading anchors must match GitHub's slugger: the repo docs link to anchors such as
+# "#-smart-proxy-headers" (emoji heading) and "...-development--e2e-tests" (ampersand), which
+# GitHub renders. pymdownx.slugs.slugify keeps those dashes; the default toc slugger collapses them.
+[project.markdown_extensions.toc]
+permalink = true
+slugify = { object = "pymdownx.slugs.slugify", kwds = { case = "lower" } }

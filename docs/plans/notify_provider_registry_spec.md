@@ -6,7 +6,7 @@ open branch `feature/notifications-engine-extraction` (PR #1253), across two rep
 
 Owner for this document: **planning** agent.
 Owner for execution (future session): a `management`-orchestrated pipeline for the Charon-side
-commits; direct TDD implementation in `/projects/go_notify_yourself` per that repo's own
+commits; direct TDD implementation in `/projects/Hermes` per that repo's own
 `CLAUDE.md` (which explicitly says not to build out a multi-agent roster there) for the
 module-side commits.
 
@@ -16,7 +16,7 @@ module-side commits.
 
 ### 1.1 Objective
 
-`go_notify_yourself` (`github.com/Wikid82/go_notify_yourself`, currently tagged `v0.1.0`) already
+`Hermes` (`github.com/Wikid82/Hermes`, currently tagged `v0.1.0`) already
 ships seven HTTP notification providers plus email, each a self-contained package exposing a typed
 `Config` struct and a `New(cfg, wrapper) *Client` constructor implementing the shared
 `notify.Sender` interface (confirmed by reading `sender.go`, `message.go`, and the `discord`,
@@ -26,7 +26,7 @@ conscious "not yet" decision, made when there was exactly one consumer (Charon) 
 providers.
 
 That deferred need is now live: the user wants to add a Web Push provider to
-`go_notify_yourself` for another project, and wants any future provider — theirs or a third
+`Hermes` for another project, and wants any future provider — theirs or a third
 party's — to become available to a host application (Charon or otherwise) automatically after a
 version bump, without hand-editing host application code. Confirmed by reading
 `backend/internal/services/notify_provider_adapter.go` (already merged on this branch, commit
@@ -37,7 +37,7 @@ provider today requires a code change in **both** repos.
 
 ### 1.2 Goals
 
-- Design a self-registering factory pattern for `go_notify_yourself` — the `database/sql` /
+- Design a self-registering factory pattern for `Hermes` — the `database/sql` /
   `image` idiom — fitted to what's actually in the repo today (typed per-provider `Config` structs,
   email's non-serializable `Mailer`/`TemplateRenderer` dependencies), not an idealized redesign.
 - Specify the exact `Register`/`New` signatures, resolving the config-typing question (generic map
@@ -47,8 +47,8 @@ provider today requires a code change in **both** repos.
 - Specify how Charon's adapter layer collapses onto the registry, and flag (not silently resolve)
   the allowlist-vs-full-discovery design tension this creates for Charon's own UI/API surface.
 - Specify three documentation deliverables the user explicitly asked for:
-  `go_notify_yourself/ARCHITECTURE.md`, a new README section, and
-  `go_notify_yourself/docs/INTEGRATION.md`.
+  `Hermes/ARCHITECTURE.md`, a new README section, and
+  `Hermes/docs/INTEGRATION.md`.
 - Sequence all of this as additional commits on the existing `feature/notifications-engine-extraction`
   branch/PR — not a new branch, not a new PR.
 
@@ -68,7 +68,7 @@ provider today requires a code change in **both** repos.
 
 ## 2. Research Findings
 
-### 2.1 Current state of `go_notify_yourself` (read in full, not assumed)
+### 2.1 Current state of `Hermes` (read in full, not assumed)
 
 | File | Finding |
 | --- | --- |
@@ -79,7 +79,7 @@ provider today requires a code change in **both** repos.
 | `providers/slack`, `gotify`, `pushover`, `ntfy`, `telegram` | Same `New(cfg, w *transport.Wrapper) *Client` shape (confirmed by reading all five `Config` structs — see table in §3.1). All fields are plain strings (`URL`, `Token`, `UserKey`, `APIToken`, `BotToken`, `ChatID`, `BaseURL`, `Template`, `CustomTemplate`). **All eight non-email packages are pure-data, JSON-serializable configs.** |
 | `providers/email/email.go` | **The odd one out, confirmed by reading it in full.** `Config{Recipients []string, SubjectPrefix string, TemplateName func(msg notify.Message) string, Renderer TemplateRenderer, Mailer Mailer}`. `Mailer` and `TemplateRenderer` are **behavioral interfaces** the host application implements (e.g. Charon's `notify_email_adapter.go` wraps `MailServiceInterface`/`RenderNotificationEmail`); `TemplateName` is a **Go closure**. None of these three fields can round-trip through JSON. `New(cfg Config) *Client` — no `*transport.Wrapper` parameter at all (email never dials HTTP). This asymmetry is the central design constraint for the registry (see §3.2). |
 | `transport/wrapper.go` | `*transport.Wrapper` is constructed once per host application (`transport.NewWrapper(opts...)`) and injected into every HTTP-based provider's `New`. It is itself DI-configured (`ClientFactory`, `URLValidator`, `RetryPolicy`) — the registry must not bypass or duplicate that construction, only thread the already-built `*Wrapper` through. |
-| Module root | `package notify` at `github.com/Wikid82/go_notify_yourself` (no subpackage) — `Register`/`New` naturally belong here, alongside `Message`/`Sender`, per Go convention (mirrors `sql.Register`/`sql.Open` living in `database/sql` itself, not a subpackage). |
+| Module root | `package notify` at `github.com/Wikid82/Hermes` (no subpackage) — `Register`/`New` naturally belong here, alongside `Message`/`Sender`, per Go convention (mirrors `sql.Register`/`sql.Open` living in `database/sql` itself, not a subpackage). |
 
 ### 2.2 Prior art: `database/sql` and `image` self-registration idiom
 
@@ -366,7 +366,7 @@ func RegisteredTypes() []string {
   `Register`/`New` lived in a subpackage that provider packages needed to import, and the root
   `notify` package needed to reference that subpackage's types, the two would have to share
   identifiers anyway. Keeping the registry in the root package (which every provider package
-  already imports, per `discord.go`'s `notify "github.com/Wikid82/go_notify_yourself"` import) is
+  already imports, per `discord.go`'s `notify "github.com/Wikid82/Hermes"` import) is
   the only placement with zero new import edges.
 
 ### 3.4 Provider package migration — each package's `init()`
@@ -381,8 +381,8 @@ package discord
 import (
 	"fmt"
 
-	notify "github.com/Wikid82/go_notify_yourself"
-	"github.com/Wikid82/go_notify_yourself/transport"
+	notify "github.com/Wikid82/Hermes"
+	"github.com/Wikid82/Hermes/transport"
 )
 
 func init() {
@@ -408,7 +408,7 @@ package email
 import (
 	"fmt"
 
-	notify "github.com/Wikid82/go_notify_yourself"
+	notify "github.com/Wikid82/Hermes"
 )
 
 func init() {
@@ -469,7 +469,7 @@ boilerplate across eight `register.go` files — DRY per this repo's own convent
 // registering all of them into the root notify package's registry as a
 // side effect. Import this package for its side effects only —
 //
-//	import _ "github.com/Wikid82/go_notify_yourself/providers/all"
+//	import _ "github.com/Wikid82/Hermes/providers/all"
 //
 // — when you want every built-in provider type available to notify.New
 // without importing each provider package individually. This is the
@@ -481,14 +481,14 @@ boilerplate across eight `register.go` files — DRY per this repo's own convent
 package all
 
 import (
-	_ "github.com/Wikid82/go_notify_yourself/providers/discord"
-	_ "github.com/Wikid82/go_notify_yourself/providers/email"
-	_ "github.com/Wikid82/go_notify_yourself/providers/gotify"
-	_ "github.com/Wikid82/go_notify_yourself/providers/ntfy"
-	_ "github.com/Wikid82/go_notify_yourself/providers/pushover"
-	_ "github.com/Wikid82/go_notify_yourself/providers/slack"
-	_ "github.com/Wikid82/go_notify_yourself/providers/telegram"
-	_ "github.com/Wikid82/go_notify_yourself/providers/webhook"
+	_ "github.com/Wikid82/Hermes/providers/discord"
+	_ "github.com/Wikid82/Hermes/providers/email"
+	_ "github.com/Wikid82/Hermes/providers/gotify"
+	_ "github.com/Wikid82/Hermes/providers/ntfy"
+	_ "github.com/Wikid82/Hermes/providers/pushover"
+	_ "github.com/Wikid82/Hermes/providers/slack"
+	_ "github.com/Wikid82/Hermes/providers/telegram"
+	_ "github.com/Wikid82/Hermes/providers/webhook"
 )
 ```
 
@@ -501,7 +501,7 @@ host's control but means a host must edit its own import list every time it want
 provider, which is exactly the manual step the user is trying to eliminate for *their* project (not
 necessarily for Charon — see §3.6's recommendation, which treats these as two different answers for
 two different consumers). `providers/all` is offered as **one available choice**, not a mandate —
-`go_notify_yourself` ships it for consumers who want zero-touch discovery; a consumer that wants
+`Hermes` ships it for consumers who want zero-touch discovery; a consumer that wants
 tighter control simply doesn't import it and hand-picks instead. Both remain equally supported by
 the registry design; neither requires a different `Register`/`New` API.
 
@@ -526,7 +526,7 @@ pushover's `URL` is a user key; telegram's `URL` is a chat ID). Something in Cha
 decide "for type X, config key `webhook_url` <- `provider.URL`; for type Y, config key `user_key`
 <- `provider.URL`." The registry removes the "which Go constructor do I call" branch; it does
 **not** remove the "which GORM column means what for this type" branch, because that mapping is a
-Charon persistence-schema fact, not something `go_notify_yourself` can know. `providerConfigMap`
+Charon persistence-schema fact, not something `Hermes` can know. `providerConfigMap`
 would likely still contain a `switch provider.Type` internally — smaller in scope (pure data
 mapping, no `discord.New(...)`/`slack.New(...)` calls, no per-package imports needed in this file
 at all once every field name is passed as a map key) but not eliminated outright. This should be
@@ -557,7 +557,7 @@ what the module happens to support. Two options:
   automatically, after a version bump" behavior the user described wanting. **Rationale against**:
   it removes Charon's ability to link a provider package (for binary-size/testing/future-readiness
   reasons) without also immediately exposing it to end users — e.g. Web Push landing in
-  `go_notify_yourself` before Charon has built any UI for it would suddenly appear as a "supported"
+  `Hermes` before Charon has built any UI for it would suddenly appear as a "supported"
   type in Charon's API with no way to configure it meaningfully from the UI, a broken half-feature
   exposed by version bump alone.
 
@@ -571,7 +571,7 @@ user's confirmation before implementation** — flagged here, not silently picke
 **3.6.3 `providers/all` vs. hand-picked imports in Charon — recommendation.**
 
 Recommend Charon **hand-picks** individual provider imports
-(`import _ "github.com/Wikid82/go_notify_yourself/providers/discord"`, one per supported type, in
+(`import _ "github.com/Wikid82/Hermes/providers/discord"`, one per supported type, in
 `notify_provider_adapter.go` or a dedicated `notify_providers_import.go`) rather than importing
 `providers/all`. This is the direct consequence of the Option A recommendation in §3.6.2: if
 Charon's allowlist is the actual gate on what's exposed (not the registry), then importing
@@ -611,7 +611,7 @@ work is planned.
 
 ### 3.7 Documentation deliverables
 
-**3.7.1 `/projects/go_notify_yourself/ARCHITECTURE.md` (new file) — required sections**
+**3.7.1 `/projects/Hermes/ARCHITECTURE.md` (new file) — required sections**
 
 Must be precise enough for a human contributor *or a coding agent* to add a provider without
 guessing. Required sections, in order:
@@ -676,7 +676,7 @@ guessing. Required sections, in order:
    signature is a breaking/major-version change — giving a contributor or agent the semver
    judgment call up front instead of leaving them to guess at PR time.
 
-**3.7.2 New README section (`/projects/go_notify_yourself/README.md`)**
+**3.7.2 New README section (`/projects/Hermes/README.md`)**
 
 Brief — a new `## Provider registry` section (placed after the existing "Provider packages" table,
 before "Transport"), roughly 150–250 words: what `notify.Register`/`notify.New` are, the one-line
@@ -686,7 +686,7 @@ the typed constructors remain the recommended path when a caller doesn't need ru
 (consistent with §3.2's "additive, not a replacement" framing, so the README doesn't contradict
 `ARCHITECTURE.md`).
 
-**3.7.3 `/projects/go_notify_yourself/docs/INTEGRATION.md` (new file) — required structure (Five Ws
+**3.7.3 `/projects/Hermes/docs/INTEGRATION.md` (new file) — required structure (Five Ws
 and One H)**
 
 Written for someone integrating the module into their **own, unrelated** project — not Charon.
@@ -730,7 +730,7 @@ structure:
    registry (this spec) uses `map[string]any` rather than forcing a specific config-file format or
    framework binding (§3.2's rationale, restated briefly for this different audience).
 6. **How to integrate — end-to-end walkthrough**: a real, copy-pasteable sequence —
-   `go get github.com/Wikid82/go_notify_yourself@v0.2.0`; blank-import `providers/all` (or
+   `go get github.com/Wikid82/Hermes@v0.2.0`; blank-import `providers/all` (or
    hand-pick, with the same tradeoff explanation as §3.5, written for this general audience rather
    than Charon-specifically); construct a `transport.Wrapper`; construct one or more senders via
    `notify.New` with a worked `map[string]any` example for at least one HTTP provider and email;
@@ -785,7 +785,7 @@ wired up — explicitly deferred, not part of this spec's implementation.
 
 ## 4. Implementation Plan (for the future execution session — not executed here)
 
-### Phase 1: `go_notify_yourself` — registry core + provider migrations (module repo)
+### Phase 1: `Hermes` — registry core + provider migrations (module repo)
 
 - Write `factory.go` at module root (`Factory`, `Register`, `New`, `RegisteredTypes`, §3.3) +
   `factory_test.go` (duplicate-registration panic, nil-factory panic, unregistered-name error,
@@ -798,7 +798,7 @@ wired up — explicitly deferred, not part of this spec's implementation.
 - `go build ./...`, `go vet ./...`, `staticcheck ./...`, `go test ./...` (≥85% coverage on new
   code) all green.
 
-### Phase 2: `go_notify_yourself` — documentation (module repo)
+### Phase 2: `Hermes` — documentation (module repo)
 
 - Write `ARCHITECTURE.md` per §3.7.1's required sections.
 - Add the README section per §3.7.2.
@@ -809,7 +809,7 @@ wired up — explicitly deferred, not part of this spec's implementation.
 
 ### Phase 3: Charon — adapter simplification (this repo, same branch)
 
-- Bump `backend/go.mod` to `github.com/Wikid82/go_notify_yourself v0.2.0`.
+- Bump `backend/go.mod` to `github.com/Wikid82/Hermes v0.2.0`.
 - Add hand-picked provider imports (§3.6.3) — one `import _ "…/providers/<type>"` line per
   Charon-supported type, in a new small file (e.g. `notify_providers_import.go`) rather than
   scattered across existing files, so the "what's linked" list stays in one obvious place.
@@ -843,7 +843,7 @@ wired up — explicitly deferred, not part of this spec's implementation.
 
 ## 5. Acceptance Criteria
 
-- [ ] `go_notify_yourself`: `Register`/`New`/`RegisteredTypes` exist at module root, `go test
+- [ ] `Hermes`: `Register`/`New`/`RegisteredTypes` exist at module root, `go test
       ./...` and `staticcheck` pass with zero findings, tagged `v0.2.0`.
 - [ ] All eight provider packages self-register via `init()`; `providers/all` blank-imports all
       eight and its count-check test passes.
@@ -876,7 +876,7 @@ repo's own commit-slicing convention, it spans two repositories (module repo, th
 each with its own ordered commit sequence, landing on the *same* existing branch/PR shape the
 original extraction already established (two-repo-two-PR-shaped-as-one-feature, not a new branch).
 
-### `go_notify_yourself` repo — additional commits (same repo, no PR needed there per its own
+### `Hermes` repo — additional commits (same repo, no PR needed there per its own
 
 ### CLAUDE.md's "direct TDD, no multi-agent roster" note — but still ordered/bisectable commits)
 
@@ -911,7 +911,7 @@ existing before this work.
 
 ### branch (same PR #1253)
 
-1. **Commit 1** — Dependency bump: `go.mod`/`go.sum` to `go_notify_yourself v0.2.0`. Gate: `go
+1. **Commit 1** — Dependency bump: `go.mod`/`go.sum` to `Hermes v0.2.0`. Gate: `go
    build ./...`. Dependency: module repo's `v0.2.0` tag must exist first.
 2. **Commit 2** — Registration imports: new `notify_providers_import.go` with hand-picked
    blank-imports (§3.6.3) for Charon's eight currently-supported types. No behavior change yet
@@ -975,7 +975,7 @@ user's other project regardless of exactly how Charon's adapter ends up shaped.
    follow-up work, not part of this commit sequence. Confirm this sequencing is acceptable — i.e.,
    that the user wants the registry to land first, generically, with the schema question addressed
    only once Web Push (or another >2-field provider) is actually being built against
-   `go_notify_yourself`.
+   `Hermes`.
 5. **Frontend schema-driven forms (§3.6.5) — explicitly out of scope for this pass.** Confirm the
    user agrees "drop-in ready" for this round means the Go module/Charon backend only, and that
    frontend auto-generation is a separate, later decision (potentially never, if Charon's product

@@ -1,71 +1,126 @@
-# QA Report: Security Settings Handling
+# QA Report: CrowdSec Hub Outage Fallback
 
-- Head: `2721315e` (14 commits on `development` `690c3319`, branch `fix/security-settings-handling`).
-- Date: 2026-10-27
-- Scope: the security module switches and stored security settings: the status fields that report the applied state, the save path for the stored settings, the settings and config writers, the WAF rule set choice, the rate-limit thresholds, the related integration scripts and E2E specs, and the log lines written by the module-switch writer.
-- Working tree: nothing committed, pushed or opened as a PR by QA. This report is the only tracked file written by QA.
-- **Verdict: READY for merge.** The one blocking item from the run (an integration script check that did not follow a server redirect) was fixed in the script and re-run: block case 403, monitor case 200, shellcheck clean. No product defect was found.
+- Branch: `fix/crowdsec-hub-mirror-fallback`. Re-verified at HEAD `85334c334` (11 commits ahead of `origin/development`). The first audit ran at `e3310bfcc`; this pass re-checks the findings it raised.
+- Date: 2026-10-31
+- Scope: behaviour when the CrowdSec hub CDN is slow, refused or unreachable. Covers the bounded time for the hub index fetch, the mirror retry for cscli hub operations (API and startup), the mirror-first memory, the `hub_offline` indicator on the presets list, and the matching UI note.
+- Working tree: nothing committed, staged, stashed or pushed by QA. This report is the only file QA wrote.
+- **Verdict: READY.** QA-1 and QA-4 are verified fixed at HEAD. QA-3 (the real-cscli contract fixture) was fixed afterwards by removing the unknown `hub_dir` key from the fixture's `cscli` section, a change that had already passed in the container as a scratch copy. QA-2 is amended to a tracked, out-of-scope behaviour (#1796). The coverage and build gates (rows 2-5) were last run at `e3310bfcc`; later changes touched only the shell helper, test files and log wording, and CI repeats the full gates on this PR.
 
 ## Gate Summary
 
-| # | Gate | Result | Numbers |
+Rows marked "re-run" were executed at HEAD `85334c334` in this pass. Rows marked "last run" were executed at `e3310bfcc` and have not been repeated, because the code changed since (`fa3b0aa8f`, `85334c334`). Coverage (rows 2-4) must be re-run before merge.
+
+| # | Gate | Result | Numbers and notes |
 | --- | --- | --- | --- |
-| 1 | `go build ./...` | PASS | clean |
-| 2 | `go test -race -count=1`, all touched backend packages | PASS | models, caddy, cerberus, server, cmd/*, routes, handlers, services (run in two name partitions): 0 failures |
-| 3 | Backend coverage (gate 87%) | PASS | 92.8% of statements, merged profile of all packages (see Notes) |
-| 4 | Frontend coverage | PASS | statements 91.03%, branches 85.01% (6396 of 7524), functions 88.91%, lines 92.05% |
-| 5 | Local patch coverage (`scripts/local-patch-report.sh`) | PASS | overall 741 of 741 changed lines (100%); backend 665 of 665; frontend 76 of 76 |
-| 6 | Vitest (full) | PASS | 318 files, 3986 passed, 4 skipped, 2 todo, 0 failed |
-| 7 | `npm run type-check` | PASS | clean |
-| 8 | `npm run lint` | PASS | 0 errors, 1359 warnings (existing backlog; changed files have no net increase) |
-| 9 | `npm run build` | PASS | clean |
-| 10 | i18n | PASS | i18n test 22 of 22; the new keys are present in every locale that carries the feature text |
-| 11 | `make lint-fast` | PASS | 0 issues (backend and agent) |
-| 12 | `make lint-backend` | PASS | 0 issues |
-| 13 | markdownlint, changed docs | PASS | 0 issues in 10 changed Markdown files |
-| 14 | GORM security scan (`--check`) | PASS | 0 CRITICAL, 0 HIGH |
-| 15 | govulncheck | PASS | 0 vulnerabilities in called code; 1 advisory in a required module that the code does not call (Finding 5) |
-| 16 | CodeQL Go (`lefthook run codeql`) | PASS | 0 blocking results; 4 suppressed, all existing suppressions |
-| 17 | CodeQL JS | PASS | 0 results |
-| 18 | Trivy filesystem | PASS with known items | 0 CRITICAL or HIGH vulnerabilities in tracked manifests; 0 secrets in tracked files; 1 HIGH misconfiguration in `agent/Dockerfile`, file not changed by this branch (Finding 6) |
-| 19 | Trivy image, branch build | PASS with a known item | 0 CRITICAL; 1 HIGH in a third-party component of the bundled CrowdSec binaries, already listed in `.trivyignore` |
-| 20 | `lefthook run pre-commit --all-files` | PASS | every hook passed; Semgrep ran 367 rules on 2278 files with 0 findings |
-| 21 | Playwright, `--project=security-tests`, targeted specs (one project per run) | PASS | group 1 (WAF status, field update, WAF config, rate limiting): 47 of 47 on each of two back-to-back runs; emergency reset and WAF enforcement: 9 of 9; combined enforcement: 7 of 7; CrowdSec lifecycle: 7 of 7 |
-| 22 | Integration: Cerberus script (renamed copy, remapped ports) | PASS | 8 of 8 checks |
-| 23 | Integration: WAF script (renamed copy, remapped ports) | PASS | 16 of 16 checks |
-| 24 | Integration: rate-limit script (renamed copy, remapped ports) | PASS | all checks passed |
-| 25 | Integration: Coraza script (renamed copy, remapped ports) | PASS after fix | the admin-API reads follow the redirect and every request uses the script's own ports; block case 403, monitor case 200 |
-| 26 | Container checks on the branch image | PASS | status fields and reasons; ruleset selection and in-use delete; module key clearing and handler rebuild; start-up reconciliation; rate-limit thresholds; echo save; failed-apply restore on all five writers; validation codes; 30 parallel save pairs; non-admin denial on all writers; reported WAF mode per module state; log line probe |
-| 27 | Invariants | PASS | changelog diff empty; `changelog.json` is `[]`; `go.work.sum` unchanged; no breaking-change marker in any commit; exactly one `(security)` subject; no session link or attribution in commits or code |
-| 28 | Gotify token review | PASS | no token value in the branch diff, the run logs or the probe output |
+| 1 | Container image rebuilt from HEAD (`docker-rebuild-e2e`, no `--clean`) | PASS (re-run) | Built and healthy; `backend/internal/changelog/data/changelog.json` restored with `git checkout` afterwards |
+| 2 | Backend coverage (`scripts/go-test-coverage.sh`, gate 87%) | last run | At `e3310bfcc`: line 92.5%, statements 93.5%. Re-run required at HEAD |
+| 3 | Frontend coverage (`scripts/frontend-test-coverage.sh`, gate 85%) | last run | At `e3310bfcc`: lines 91.85%, statements 90.85%, branches 85.06%, functions 88.3%. Re-run required at HEAD |
+| 4 | Local patch coverage (`scripts/local-patch-report.sh`) | last run | At `e3310bfcc`: overall 98.7%. Re-run required at HEAD |
+| 5 | `npm run type-check`, `npm run build`, `go build ./...` | last run | Clean at `e3310bfcc`. Re-run required at HEAD |
+| 6 | `make lint-fast` (staticcheck, govet, errcheck, ineffassign, unused) | PASS (re-run) | 0 issues (backend and agent) |
+| 7 | shellcheck (`.docker/cscli-hub-mirror.sh`, `.docker/docker-entrypoint.sh`, `configs/crowdsec/install_hub_items.sh`, `scripts/cscli_hub_mirror_test.sh`) | PASS (re-run) | clean |
+| 8 | `scripts/cscli_hub_mirror_test.sh` under bash, dash and busybox sh | PASS (re-run) | 118 passed, 0 failed under each shell (109 at `e3310bfcc`; the new case covers the `terminated signal received` exit shape, QA-1) |
+| 9 | `go test -race -count=1 ./internal/crowdsec/` | PASS (re-run) | `ok` |
+| 10 | `go test -race -count=1 -run 'Hub\|Preset\|Mirror' ./internal/api/handlers/` | PASS (re-run) | `ok` |
+| 11 | Real-cscli contract test `TestCSCLIContractAcceptsMirrorConfig` (cscli 1.8.2, inside the container) | FIXED | Failed at `85334c334` because `cscli.hub_dir` is an unknown key for cscli 1.8.2; the key was removed from the fixture (see QA-3). Passed in the container as a scratch copy |
+| 12 | `hadolint` (`Dockerfile`) | last run | 9 pre-existing findings, the same rule codes as on `origin/development` (O-2) |
+| 13 | GORM security scan | NOT REQUIRED | no file under `backend/internal/models/` and no migration changed |
+| 14 | Playwright `tests/security/crowdsec-hub-offline.spec.ts`, `crowdsec-ui-states`, `crowdsec-import`, `crowdsec-first-enable`, `crowdsec-diagnostics`, `crowdsec-export-redaction` (`--project=security-tests`) | PASS (re-run) | 107 passed, against the image rebuilt at HEAD |
+| 15 | Playwright `tests/crowdsec-whitelist.spec.ts` (`--project=firefox`) | PASS (re-run) | 12 of 12 |
+| 16 | CodeQL and Trivy | DEFERRED TO CI | `fix:`, `test:` and `docs:` commits only; CI runs both on the PR |
 
-## Notes on the gates
+## Container Gate
 
-- Gate 3: the backend coverage script runs `go test -race ./...` in one invocation, which exceeds one tool call. QA ran the same package set without `-race` in chunks, with `-count=1 -coverprofile`, excluding the same packages as the script, then merged the profiles. The `-race` run was done separately (gate 2). CI runs the script in full.
-- Gate 4: the frontend script's combined install and test run exceeded one tool call, so QA ran the same vitest command with coverage directly. The branch figure is 0.01 points above the gate; the margin is small.
-- Gate 5: the patch report was regenerated after the backend coverage profile was refreshed, so it reflects this run.
-- Gate 21: the first group was run twice back to back, and both runs passed. Playwright was run only for the targeted specs, in one project per run. The full suite and cross-browser runs are deferred to CI.
-- Gate 25: the script runs against the Caddy admin API without following redirects. QA ran a throwaway copy with that single request following the redirect and the host-side request pointed at the copy's own port. Both changes were made in the copy only.
-- Gate 26: all checks were run against a throwaway container from the branch image, with its own volume and network, removed afterwards.
+Method: throwaway containers from the locally built `charon:local` image, rebuilt from HEAD for this pass. A netshoot holder container owns the network namespace, and the Charon container joins it. The holder carries the packet rules, so the rules survive Charon restarts. The Docker daemon was the rootless one. No host port was published, no Docker socket was mounted, and the live `charon` container was not touched. Rules were added to the hub CDN and mirror addresses resolved at run time, and removed by the holder's own state file. All QA containers and volumes were deleted by exact name at the end. The standard `charon-e2e` container from the rebuild skill was left running for the Playwright suites.
+
+Hub hosts: the CDN (`cdn-hub.crowdsec.net`) and the GitHub mirror (`raw.githubusercontent.com`). "Refused" means `REJECT` with TCP reset; "hung" means `DROP`.
+
+| Case | What was run | Observed | Result |
+| --- | --- | --- | --- |
+| (e) entrypoint startup, CDN hung, mirror reachable | 3 fresh starts with a new volume | Healthy after 41.2 s, 40.8 s and 41.5 s. The first `cscli hub update` ran its 30 s budget, failed with `terminated signal received`, and the log then shows `cscli hub update did not complete on the CDN; retrying through the hub mirror.` The retry downloaded the index and startup continued. No `.charon-hub-mirror-*` file remained. | PASS (QA-1 verified fixed) |
+| (e) entrypoint startup, CDN refused | 1 fresh start | Healthy after 10.7 s. The connect was refused at once, the mirror retry ran, and the install step followed. No derived file remained. | PASS |
+| (e) entrypoint startup, both hosts refused | 1 fresh start | Healthy after 5.3 s. Both attempts failed at once, then `Hub index update failed (network issue?)`; startup continued. No derived file remained. | PASS (bounded) |
+| (e) entrypoint startup, both hosts hung | 1 fresh start (no cached index, new volume) | Healthy after 66.6 s: two 30 s hub attempts, then the item installs failed fast on the missing index, as designed. No derived file remained. | PASS (bounded) |
+| (e) missing item installed under a hung CDN | One scenario removed from a running container (`http-sqli-probing`), container stopped, CDN hung, container started | The hub update fell back to the mirror after 30 s. The install of the missing scenario ran in about 0.3 s (17:35:57.3 to 17:35:57.6 in the container log) with no CDN connect delay, so it used the mirror-first window. The item was installed afterwards. No derived file remained. The 60 s install bound was not reached. | PASS (mirror-first install observed) |
+| (a) CDN refused, API list, pull and apply | 3 repetitions | List 0.09-0.37 s with `hub_offline` false. Pulls 0.17-0.21 s. Apply completed after the mirror answered the hub update. | PASS (last run at `e3310bfcc`) |
+| (b) CDN hung, API list, pull | 3 repetitions | List 5.07-5.09 s; pulls 5.18-5.27 s, inside the 25 s pull budget. | PASS (last run at `e3310bfcc`) |
+| (c) cscli through the derived config | Apply with CDN refused; apply with CDN hung in mirror-first; restore with both hung | Derived config used and removed; mirror-first apply 0.98-1.1 s; derived file excluded from the file list and export (0 entries). | PASS (last run at `e3310bfcc`) |
+| (d) CDN and mirror both down, API | Presets list, uncached pull, restore with a second restore, whitelist write and preset apply during the restore | List answered in 10.16 s with `hub_offline` true; pull returned 503 `hub_unreachable` in 10.16 s. Second restore returned 409 in 1.8 ms (`a restore is already running`, no `error_code`). Whitelist write 201. Preset apply during the restore waited and returned 200 after 76.7 s. | PASS-with-note (QA-2, tracked as #1796) |
+| (f) operator-set `__hub_url_template__` | Key in `config.yaml` and in `config.yaml.local`; restart with the CDN refused; API apply | Startup logged `Hub mirror retry unavailable (the cscli config could not be prepared)`, no retry, no derived file. The `.local` variant logged the local-override decline, made no retry and left no derived file. The `config.yaml` variant was checked at startup only. | PASS (last run at `e3310bfcc`) |
+| (QA-4) retry log wording, API | Live-first: CDN hung, first preset pull and apply. Mirror-first: CDN restored, mirror hung, second apply. | Live-first: `cscli hub request failed on the live hub address; retrying on the hub mirror`, followed by `cscli hub request answered by the hub mirror`. Mirror-first: `cscli hub request failed on the hub mirror; retrying on the live hub address`, followed by `answered by the live hub address; mirror-first window cleared`. Both wordings match the cause. | PASS (QA-4 verified fixed) |
+| Real cscli contract (QA-3) | `cscli_mirror_contract_test.go` built as a static test binary and run in the container with cscli 1.8.2 | `exec: cscli -c <derived> version` fails: `field hub_dir not found in type csconfig.CscliCfg`. The `config_paths` fix from the earlier run is in place; the new failure is the `hub_dir` key in the `cscli` section of the fixture. | FAIL (QA-3) |
+
+Other observations from the container runs:
+
+- A refused CDN never makes the presets list or a pull slow (about 0.1-0.4 s). A hung CDN costs about 5 s per call.
+- The export logs one warning per symlinked config entry (O-1).
+- The restore returned 502 `msgRestoreHubDown` at 60.0 s in every both-down run at `e3310bfcc`.
 
 ## Findings
 
-**1, fixed in this PR, integration script.** `scripts/coraza_integration.sh` reads the Caddy admin configuration path without a trailing slash and without following redirects. The admin API answers that path with a redirect, so the WAF handler check never sees the configuration and the script stops. The same script also posts one request to a fixed host port that is not its own container's port. Fix: read the admin path with a trailing slash (or follow redirects), and use the script's mapped port for every request. Scope: the script only; no product change. Severity: blocks merge under the Definition of Done (a failing test must be fixed in the same PR).
+Severity follows the public scale (critical, high, medium, low). "Blocking" means the finding must be fixed in this PR under the Definition of Done.
 
-**2, tracked follow-up, not blocking.** Several items from the implementation review remain open, in the areas of state restore, metric caching, rate-limit mode handling, documentation and log wording. Each is tracked as a follow-up. Severity: low.
+| ID | Severity | Status | Title |
+| --- | --- | --- | --- |
+| QA-1 | Medium | Verified fixed | Startup mirror retry did not run when the hub CDN hung |
+| QA-2 | Medium | Amended: PASS-with-note, tracked as #1796 | A conflicting preset apply waits for an in-flight restore instead of refusing at once |
+| QA-3 | Low (test defect) | Fixed in this PR | The real-cscli contract test fails when cscli is installed |
+| QA-4 | Low | Verified fixed | Retry warnings named the wrong hub address and printed before a declined retry |
+| QA-5 | Info | Open (documentation) | Observed budgets differ from the change's design notes |
+| QA-6 | Info | Accepted, may improve | The presets list spends one CDN connect attempt per call while the outage lasts |
 
-**3, follow-up, not blocking.** Input validation on two stored setting paths is looser than on the module switches. The fix belongs in the settings and security config writers. Severity: low; admin-only.
+### QA-1: Startup mirror retry did not run when the hub CDN hung (Medium, verified fixed)
 
-**4, follow-up, not blocking.** Frontend lint reports 1359 warnings repository-wide, and the locale files for most languages lack a share of the English keys. Neither count rises because of this branch. Severity: low.
+- **Where.** `.docker/cscli-hub-mirror.sh` (`_hub_retry_wanted`, `_hub_network_failure`), called from `cscli_hub` for `hub update` in `.docker/docker-entrypoint.sh`.
+- **Original cause.** The retry rule treated an attempt as timed out only on exit status 124 or 143, or on a network-error marker. cscli exits with status 1 and the text `terminated signal received` when its budget runs out, which matched neither rule.
+- **Verification at HEAD.** Three fresh hung-CDN starts each logged the retry line and became healthy at about 41 s. The derived file was absent afterwards. The shell test has the new case, and it passes under bash, dash and busybox sh.
 
-**5, known, not blocking.** govulncheck lists one advisory in a required module (`golang.org/x/crypto`). The code does not call the affected function and no fixed version is listed. Severity: low; documented in `SECURITY.md`.
+### QA-2: A conflicting preset apply waits for an in-flight restore instead of refusing at once (Medium, amended, tracked as #1796)
 
-**6, pre-existing, out of scope.** Trivy reports one HIGH misconfiguration: `agent/Dockerfile` runs as root. This branch does not change that file. Severity: low (pre-existing).
+- **Where.** `backend/internal/api/handlers/crowdsec_handler.go` `holdUnlessBusy` and `backend/internal/crowdsec/apply_jobs.go` `Hold`; the restore handler in `crowdsec_hub_items.go`.
+- **Evidence.** With both hosts hung, a restore was in flight. A preset apply returned 200 after 76.7 s, so it waited for the restore. A second restore returned 409 at once, but the response has no `error_code`.
+- **Decision.** The waiting behaviour is existing behaviour and is out of scope for this change. It is tracked as #1796, which also covers the missing `error_code` on the restore-versus-restore 409. The acceptance criterion for this change is amended to match. Both behaviours stay within their time bounds.
+- **Gate row (d)** is therefore PASS-with-note.
 
-**7, known, not blocking.** Trivy image: one HIGH finding in a third-party dependency of the bundled CrowdSec binaries, already listed in `.trivyignore`. The scan was run outside the repository, so it did not apply that ignore file. Severity: low (known).
+### QA-3: The real-cscli contract test fails when cscli is installed (Low, test defect, fixed)
 
-**8, tooling.** Semgrep timed out on three rules for one backend test file and skipped them for that file. Severity: low.
+- **Where.** `backend/internal/crowdsec/cscli_mirror_contract_test.go`, `contractLiveConfig` (the fixture written by `writeCSCLIConfig`, whose `cscli` section is `{hub_branch: master, hub_dir: <path>}`).
+- **Evidence.** Inside the container with cscli 1.8.2, the derived configuration is rejected: `line 11: field hub_dir not found in type csconfig.CscliCfg`. The earlier `no configuration paths provided` error is fixed; the `config_paths` block is now present. A hand-written configuration with `config_paths` and `cscli: {hub_branch: master}` is accepted (exit 0).
+- **Validation.** In a scratch copy outside the repository, the `"hub_dir"` entry was removed from the `cscli` map in the fixture. The test then passed in the container: `--- PASS: TestCSCLIContractAcceptsMirrorConfig`.
+- **Impact.** The test skips on hosts without cscli, so it passes in those environments and hides the defect. Where cscli is installed it fails.
+- **Remediation (done).** Removed `hub_dir` from the `cscli` section of the fixture (kept in `config_paths`). The fixture still parses on every host; the cscli run itself skips on hosts without cscli.
 
-## Files
+### QA-4: Retry warnings named the wrong hub address and printed before a declined retry (Low, verified fixed)
 
-- `docs/reports/qa_report.md` (this report; the only tracked change)
+- **Where.** `backend/internal/crowdsec/cscli_run.go` `logHubRetry`, `logMirrorUnavailable`.
+- **Verification at HEAD.** The wording is built from the address that failed (live-first and mirror-first both observed in the container logs). The retry line is logged only once the retry is certain to run; a declined retry logs `hub mirror retry unavailable` alone. The shell helper's live-first line names the failed command and the mirror.
+
+### QA-5: Observed budgets differ from the change's design notes (Info, open)
+
+- The restore's hub update budget is 60 s (`hubRestoreUpdateTimeout`, `crowdsec_hub_items.go:39`). The design notes state 20 s.
+- A hung CDN connect fails after about 5 s (the dial timeout), not after the roughly 11 s per-attempt share the notes describe. The bounds still hold with a wide margin.
+- Remediation: correct the design notes, or the constant, so both agree.
+
+### QA-6: The presets list spends one CDN connect attempt per call while the outage lasts (Info, accepted)
+
+- While the cscli mirror-first window is open, the HTTP index walk still tries the CDN first on every list call, costing about 5 s per call under a hang (about 10 s when both hosts are down). This is inside every bound measured. Optionally, reorder the walk to try the mirror first while the window is open, or record the trade-off in the commit body.
+
+## Out-of-scope findings (for filing)
+
+| ID | Severity | Summary | Evidence and suggested approach |
+| --- | --- | --- | --- |
+| #1796 | Tracked (existing issue) | A preset apply during an in-flight hub restore waits for the restore; restore-versus-restore returns 409 without an `error_code`. | Already tracked. Not blocking under the amended criterion (QA-2). |
+| O-1 | Low | The export logs one warning per symlinked config entry, so one export writes dozens of warning lines. | Seen on every export in the container (`skipping non-regular entry config/... during export`). The export code is not in this branch's diff. Suggested: log once per export with a count, or downgrade to debug. |
+| O-2 | Low | The Dockerfile has 9 hadolint findings (DL3003, DL3025, DL3066, DL3067, DL4006, SC2012). | Present on `origin/development` too; not introduced here. Suggested: a hygiene pass on the Dockerfile. |
+| O-3 | Info | The frontend branch coverage (85.06% at `e3310bfcc`) is close to the 85% floor, although the gate passes on lines and statements. | Watch on future frontend changes; re-measure at HEAD before merge. |
+
+## Verdict
+
+**READY**.
+
+- **Fixed in this PR:** QA-3 (contract fixture), QA-1, QA-4.
+- **Left to CI:** the coverage, patch coverage, build, type-check and hadolint gates re-run on the PR (last measured at `e3310bfcc`: backend 92.5% lines, frontend 91.85% lines, patch 98.7%).
+- **Verified fixed:** QA-1 (startup mirror retry on a hung CDN, including the derived-file cleanup), QA-4 (retry wording for live-first and mirror-first).
+- **Amended:** QA-2 (PASS-with-note, tracked as #1796).
+- **Open (documentation):** QA-5 (design notes versus the 60 s restore budget).
+- **Verified and working:** CDN refusal and hang for the presets list and pulls, startup under refused, hung and both-down hub hosts (all bounded), the mirror-first install under a hung CDN, the three shell interpreters, the race-enabled crowdsec and handler suites, and the security and firefox Playwright suites.

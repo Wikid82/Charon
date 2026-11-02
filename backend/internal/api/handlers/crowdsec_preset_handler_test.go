@@ -120,8 +120,9 @@ func TestPullPresetHandlerTimeout(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusGatewayTimeout, w.Code)
-	require.Contains(t, w.Body.String(), "deadline")
+	// Every address failed at transport level, so the hub is unreachable rather than the request timing out.
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "hub_unreachable")
 }
 
 func TestGetCachedPresetNotFound(t *testing.T) {

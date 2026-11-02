@@ -18,7 +18,7 @@ import {
   slackNotificationYamlWithAlias,
   readTarGzEntry,
 } from '../utils/archive-helpers';
-import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
+import { restoreShippedCrowdsecConfig, SHIPPED_CROWDSEC_FILES } from '../utils/crowdsec-shipped-config';
 
 const ADMIN = '/api/v1/admin/crowdsec';
 const NOTIFICATION = 'http_default';
@@ -26,11 +26,8 @@ const NOTIFICATION_PATH = `notifications/${NOTIFICATION}.yaml`;
 const ALIASED = 'slack_alias';
 const ALIASED_PATH = `notifications/${ALIASED}.yaml`;
 
-const VALID_CONFIG = `api:
-  server:
-    listen_uri: 0.0.0.0:8080
-    log_level: info
-`;
+/** A configuration the engine can load: the import check refuses one without config_paths. */
+const VALID_CONFIG = SHIPPED_CROWDSEC_FILES['config/config.yaml'];
 
 /** Fake values planted in the live notification file. */
 const PLANTED = {
@@ -79,7 +76,7 @@ async function seedNotification(
     outputPath,
   );
   const response = await upload(request, archive, 'seed.tar.gz');
-  expect(response.status()).toBe(200);
+  expect(response.status(), await response.text()).toBe(200);
   return response;
 }
 

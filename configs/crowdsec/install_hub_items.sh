@@ -5,6 +5,20 @@
 
 set -e
 
+# Mirror-aware cscli_hub (shared with the entrypoint). When the helper is missing, installs run once each under a
+# plain timeout, so an older image still installs.
+CSCLI_HUB_MIRROR_HELPER=/usr/local/lib/charon/cscli-hub-mirror.sh
+if [ -r "$CSCLI_HUB_MIRROR_HELPER" ]; then
+    # shellcheck source=/dev/null
+    . "$CSCLI_HUB_MIRROR_HELPER"
+else
+    cscli_hub() {
+        _budget=$1
+        shift
+        timeout "$_budget" cscli "$@"
+    }
+fi
+
 echo "Installing CrowdSec hub items for Charon..."
 
 # Hub index update is handled by the entrypoint before this script is called.
@@ -28,7 +42,7 @@ install_if_missing() {
         echo "  ✓ ${label} already installed, skipping"
     else
         echo "  Installing ${label}..."
-        cscli "${type}" install "${name}" || echo "⚠️ Failed to install ${name}"
+        cscli_hub 60 "${type}" install "${name}" || echo "⚠️ Failed to install ${name}"
     fi
 }
 

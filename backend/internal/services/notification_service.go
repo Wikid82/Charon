@@ -12,10 +12,10 @@ import (
 	"text/template"
 	"time"
 
-	notify "github.com/Wikid82/go_notify_yourself"
-	"github.com/Wikid82/go_notify_yourself/providers/email"
-	"github.com/Wikid82/go_notify_yourself/providers/webhook"
-	"github.com/Wikid82/go_notify_yourself/transport"
+	notify "github.com/Wikid82/Hermes"
+	"github.com/Wikid82/Hermes/providers/email"
+	"github.com/Wikid82/Hermes/providers/webhook"
+	"github.com/Wikid82/Hermes/transport"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 

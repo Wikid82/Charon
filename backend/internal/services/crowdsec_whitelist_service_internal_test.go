@@ -79,45 +79,12 @@ func TestWhitelistWriteErrorFromHelperIsWrapped(t *testing.T) {
 	require.ErrorContains(t, err, "write whitelist yaml: write file")
 }
 
-// stubWhitelistRemoval replaces the removal seam for the duration of the test.
-func stubWhitelistRemoval(t *testing.T, fn func(string) error) {
+// stubLegacyTempRemoval replaces the legacy temp removal seam for the duration of the test.
+func stubLegacyTempRemoval(t *testing.T, fn func(string) error) {
 	t.Helper()
-	orig := removeWhitelistPath
-	removeWhitelistPath = fn
-	t.Cleanup(func() { removeWhitelistPath = orig })
-}
-
-func TestWhitelistEmptyListRemoveFailureIsReturned(t *testing.T) {
-	dataDir := t.TempDir()
-	sentinel := errors.New("remove refused")
-	stubWhitelistRemoval(t, func(string) error { return sentinel })
-	svc := NewCrowdSecWhitelistService(openWhitelistSeamDB(t), dataDir)
-
-	err := svc.WriteYAML(context.Background())
-	require.ErrorIs(t, err, sentinel)
-	require.ErrorContains(t, err, "write whitelist yaml: remove empty")
-}
-
-func TestWhitelistEmptyListMissingFileIsNotAnError(t *testing.T) {
-	dataDir := t.TempDir()
-	stubWhitelistRemoval(t, func(path string) error { return &fs.PathError{Op: "remove", Path: path, Err: fs.ErrNotExist} })
-	svc := NewCrowdSecWhitelistService(openWhitelistSeamDB(t), dataDir)
-
-	require.NoError(t, svc.WriteYAML(context.Background()))
-}
-
-func TestWhitelistEmptyListDirectorySyncFailureIsNotFatal(t *testing.T) {
-	dataDir := t.TempDir()
-	dir := filepath.Join(dataDir, "config", "parsers", "s02-enrich")
-	require.NoError(t, os.MkdirAll(dir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "charon-whitelist.yaml"), []byte("stale\n"), 0o600))
-	orig := syncWhitelistDir
-	syncWhitelistDir = func(string) error { return errors.New("sync refused") }
-	t.Cleanup(func() { syncWhitelistDir = orig })
-	svc := NewCrowdSecWhitelistService(openWhitelistSeamDB(t), dataDir)
-
-	require.NoError(t, svc.WriteYAML(context.Background()), "a failed directory sync is logged, not returned")
-	require.NoFileExists(t, filepath.Join(dir, "charon-whitelist.yaml"))
+	orig := removeLegacyTemp
+	removeLegacyTemp = fn
+	t.Cleanup(func() { removeLegacyTemp = orig })
 }
 
 func TestWhitelistLegacyTempRemoveFailureIsNotFatal(t *testing.T) {
@@ -126,11 +93,49 @@ func TestWhitelistLegacyTempRemoveFailureIsNotFatal(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	legacy := filepath.Join(dir, "charon-whitelist.yaml.tmp")
 	require.NoError(t, os.WriteFile(legacy, []byte("stale\n"), 0o600))
-	stubWhitelistRemoval(t, func(string) error { return errors.New("remove refused") })
+	stubLegacyTempRemoval(t, func(string) error { return errors.New("remove refused") })
 	svc := NewCrowdSecWhitelistService(openWhitelistSeamDB(t), dataDir)
 	_, err := svc.Add(context.Background(), "4.3.2.1", "")
 	require.NoError(t, err)
 
 	require.NoError(t, svc.WriteYAML(context.Background()), "a legacy temp that cannot be removed does not fail the write")
 	require.FileExists(t, legacy)
+}
+
+func TestWhitelistInPlaceWriteWarnsOncePerProcess(t *testing.T) {
+	dataDir := t.TempDir()
+	stubWhitelistWriter(t, func(string, []byte, fs.FileMode, crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error) {
+		return crowdsec.AtomicWriteResult{InPlace: true}, nil
+	})
+	var warnings int
+	origLog := logWhitelistInPlace
+	logWhitelistInPlace = func() { warnings++ }
+	t.Cleanup(func() { logWhitelistInPlace = origLog })
+	whitelistInPlaceWarned.Store(false)
+	t.Cleanup(func() { whitelistInPlaceWarned.Store(false) })
+	svc := NewCrowdSecWhitelistService(openWhitelistSeamDB(t), dataDir)
+
+	require.NoError(t, svc.WriteYAML(context.Background()))
+	require.NoError(t, svc.WriteYAML(context.Background()))
+	require.NoError(t, svc.WriteYAML(context.Background()))
+
+	require.Equal(t, 1, warnings, "the in-place warning is logged once per process")
+}
+
+func TestWhitelistRenamedWriteDoesNotWarnInPlace(t *testing.T) {
+	dataDir := t.TempDir()
+	stubWhitelistWriter(t, func(string, []byte, fs.FileMode, crowdsec.AtomicWriteOptions) (crowdsec.AtomicWriteResult, error) {
+		return crowdsec.AtomicWriteResult{OwnerKept: true}, nil
+	})
+	var warnings int
+	origLog := logWhitelistInPlace
+	logWhitelistInPlace = func() { warnings++ }
+	t.Cleanup(func() { logWhitelistInPlace = origLog })
+	whitelistInPlaceWarned.Store(false)
+	t.Cleanup(func() { whitelistInPlaceWarned.Store(false) })
+	svc := NewCrowdSecWhitelistService(openWhitelistSeamDB(t), dataDir)
+
+	require.NoError(t, svc.WriteYAML(context.Background()))
+
+	require.Zero(t, warnings)
 }

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const importableConfig = "api:\n  server:\n    listen_uri: 0.0.0.0:8080\n"
+const importableConfig = "api:\n  server:\n    listen_uri: 0.0.0.0:8080\nconfig_paths:\n  config_dir: /etc/crowdsec\n"
 
 func writeTree(t *testing.T, root string, files map[string]string) {
 	t.Helper()
@@ -212,8 +212,10 @@ func TestImportConfigPrunesSnapshotsToFive(t *testing.T) {
 	_, r := newImportRouter(t, dir)
 
 	for i := 0; i < 7; i++ {
+		// A nested archive: after the first import the whitelist file puts config/ in the live tree, and a flat
+		// archive is then refused by the layout check.
 		w := httptest.NewRecorder()
-		r.ServeHTTP(w, importRequest(t, map[string]string{"config.yaml": importableConfig}))
+		r.ServeHTTP(w, importRequest(t, map[string]string{"config/config.yaml": importableConfig}))
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		time.Sleep(2 * time.Millisecond) // distinct microsecond timestamps even on coarse clocks
 	}
