@@ -531,8 +531,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       )
     } else if (isPrivateOrDockerIP(host)) {
       setForwardHostWarning(
-        'Using a private IP address. If this is a Docker container, the IP may change on restart. ' +
-        'Container names are more reliable for Docker services.'
+        'Using a private IP address. Make sure Charon can reach it (for example over your LAN or VPN). ' +
+        'If this is a Docker container, its IP may change on restart; container names are more reliable.'
       )
     } else {
       setForwardHostWarning(null)
