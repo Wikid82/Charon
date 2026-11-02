@@ -1659,7 +1659,7 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 type BouncerInfo struct {
 	Name       string `json:"name"`
 	KeyPreview string `json:"key_preview"` // First 4 + last 3 chars
-	KeySource  string `json:"key_source"`  // "env_var" | "file" | "none"
+	KeySource  string `json:"key_source"`  // "env_var" | "file" | "memory" | "none"
 	FilePath   string `json:"file_path"`
 	Registered bool   `json:"registered"`
 }
@@ -1668,7 +1668,7 @@ type BouncerInfo struct {
 // This endpoint provides UX feedback when env var keys are rejected by LAPI.
 type KeyStatusResponse struct {
 	// KeySource indicates where the current key came from
-	// Values: "env" (from environment variable), "file" (from bouncer_key file), "auto-generated" (newly generated)
+	// Values: "env" (from environment variable), "file" (from bouncer_key file), "memory" (held in memory after a failed save), "auto-generated" (newly generated)
 	KeySource string `json:"key_source"`
 
 	// EnvKeyRejected is true if an environment variable key was set but rejected by LAPI

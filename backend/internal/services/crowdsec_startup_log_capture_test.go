@@ -20,7 +20,7 @@ import (
 )
 
 // Keys made of distinct characters: every 4-character window is unique, so a
-// leaked fragment is detectable in the captured output.
+// key text in the captured output is detectable.
 const (
 	startupCaptureEnvKey = "Qz7kP2mV9xR4tN6bL1wH8sJ3cF5gD0aY"
 	startupCaptureGenKey = "Mn3pQ8rS1tU6vW0xY4zA9bC2dE7fG5hJ"

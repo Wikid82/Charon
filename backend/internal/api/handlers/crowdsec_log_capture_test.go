@@ -18,7 +18,7 @@ import (
 )
 
 // logCaptureFullKey is a 32-character key made of distinct characters, so every
-// 4-character window of it is unique and a leaked fragment is detectable.
+// 4-character window of it is unique, so any key text in captured output is detectable.
 const logCaptureFullKey = "Qz7kP2mV9xR4tN6bL1wH8sJ3cF5gD0aY"
 
 // captureDebugLogs routes the global logger to a buffer at Debug level and

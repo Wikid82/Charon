@@ -45,13 +45,13 @@ func unreachableURL(t *testing.T) string {
 	return url
 }
 
-// assertNoKeyFragments fails if any 4-character window of key appears in the captured output.
-func assertNoKeyFragments(t *testing.T, out []string, key string) {
+// assertLogsCarryNoKeyText fails if any 4-character window of key appears in the captured output.
+func assertLogsCarryNoKeyText(t *testing.T, out []string, key string) {
 	t.Helper()
 	for i := 0; i+4 <= len(key); i++ {
-		fragment := key[i : i+4]
+		window := key[i : i+4]
 		for _, s := range out {
-			require.NotContains(t, s, fragment, "log output must carry no key characters")
+			require.NotContains(t, s, window, "log output must carry no key characters")
 		}
 	}
 }
@@ -84,7 +84,7 @@ func TestEnsureBouncerRegistrationUnreachableLAPIKeepsSavedKey(t *testing.T) {
 	require.Equal(t, before, after, "the key file is byte-for-byte unchanged")
 	out := h.channels(h.drain())
 	require.Contains(t, strings.Join(out, "\n"), bouncerkey.UnverifiedMessage)
-	assertNoKeyFragments(t, out, logProbeKey)
+	assertLogsCarryNoKeyText(t, out, logProbeKey)
 }
 
 // TestEnsureBouncerRegistrationUnverifiedOutcomesNeverRotate runs the other non-definite answers through the
@@ -169,5 +169,5 @@ func TestLogStartupKeyDecisionUnverifiedIsNeutral(t *testing.T) {
 
 	out := h.channels(h.drain())
 	require.Contains(t, strings.Join(out, "\n"), bouncerkey.UnverifiedMessage)
-	assertNoKeyFragments(t, out, logProbeKey)
+	assertLogsCarryNoKeyText(t, out, logProbeKey)
 }

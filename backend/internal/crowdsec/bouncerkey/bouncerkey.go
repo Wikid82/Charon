@@ -68,6 +68,17 @@ func Release(path string) {
 	delete(heldKeys, path)
 }
 
+// releaseIf drops the hold for path only while it still equals key. Callers read the held key, check it
+// against the key file or a validator, and then release it; a concurrent Hold of a different key in that
+// window must survive, so an unconditional Release is not safe here.
+func releaseIf(path, key string) {
+	heldMu.Lock()
+	defer heldMu.Unlock()
+	if heldKeys[path] == key {
+		delete(heldKeys, path)
+	}
+}
+
 // envNames lists the environment variables that may carry the bouncer key,
 // in lookup order (the first non-empty value wins).
 var envNames = [...]string{
@@ -132,7 +143,7 @@ func Resolve(path string) (key string, src Source) {
 		if held != file {
 			return held, SourceMemory
 		}
-		Release(path)
+		releaseIf(path, held)
 	}
 	if file != "" {
 		return file, SourceFile
@@ -224,7 +235,7 @@ func Ensure(
 
 	if held := Held(path); held != "" {
 		if held == saved {
-			Release(path)
+			releaseIf(path, held)
 		} else {
 			switch validate(ctx, held) {
 			case VerdictAccepted:
@@ -234,7 +245,7 @@ func Ensure(
 				res.Outcome = OutcomeUnverified
 				return res, nil
 			default:
-				Release(path)
+				releaseIf(path, held)
 			}
 		}
 	}
@@ -282,13 +293,14 @@ func Ensure(
 	return res, nil
 }
 
-// settleNewKey records a newly chosen key: a failed save holds it in memory, a successful save releases any hold.
+// settleNewKey records a newly chosen key: a failed save holds it in memory, a successful save releases a
+// hold on that same key.
 func settleNewKey(path string, res *EnsureResult) {
 	if res.SaveErr != nil {
 		Hold(path, res.Key)
 		return
 	}
-	Release(path)
+	releaseIf(path, res.Key)
 }
 
 // heldKeyValid finishes an Ensure result whose held key validated. The key is in use from memory either way.
@@ -299,7 +311,7 @@ func heldKeyValid(res EnsureResult, path, held string, save func(path, key strin
 	res.Outcome = OutcomeHeldKeyValid
 	res.HeldSaveErr = save(path, held)
 	if res.HeldSaveErr == nil {
-		Release(path)
+		releaseIf(path, held)
 	}
 	return res
 }

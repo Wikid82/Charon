@@ -62,5 +62,5 @@ func TestLogStartupKeyDecisionHeldKeyIsInfoWithoutKey(t *testing.T) {
 
 	out := h.channels(h.drain())
 	require.Contains(t, strings.Join(out, "\n"), "still in use")
-	assertNoKeyFragments(t, out, testGeneratedKey)
+	assertLogsCarryNoKeyText(t, out, testGeneratedKey)
 }
