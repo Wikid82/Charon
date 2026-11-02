@@ -32,9 +32,9 @@ func TestEnsureBouncerRegistrationHeldKeySurvivesSecondBoot(t *testing.T) {
 	h.writeFileKey(t, "rejected-saved-key-000000000001")
 	keyDir := filepath.Dir(h.keyFile)
 	require.NoError(t, os.Chmod(h.keyFile, 0o400))
-	require.NoError(t, os.Chmod(keyDir, 0o500))
+	require.NoError(t, os.Chmod(keyDir, 0o500)) //nolint:gosec // G302: test makes its temp directory read-only on purpose
 	t.Cleanup(func() {
-		_ = os.Chmod(keyDir, 0o700)
+		_ = os.Chmod(keyDir, 0o700) //nolint:gosec // G302: test restores its temp directory so cleanup can remove it
 		_ = os.Chmod(h.keyFile, 0o600)
 		bouncerkey.Release(h.keyFile)
 	})

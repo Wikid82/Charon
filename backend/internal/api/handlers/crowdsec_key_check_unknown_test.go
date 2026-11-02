@@ -140,7 +140,7 @@ func TestEnsureBouncerRegistrationUnreachableKeepsSavedKey(t *testing.T) {
 	dataDir := t.TempDir()
 	keyPath := filepath.Join(dataDir, "bouncer_key")
 	writeSavedKey(t, keyPath, precSavedKey)
-	before, err := os.ReadFile(keyPath)
+	before, err := os.ReadFile(keyPath) //nolint:gosec // G304: test reads a key file under t.TempDir()
 	require.NoError(t, err)
 	h := newKeyCheckHandler(t, unreachableLAPIURL(t), dataDir, noCSCLIMock())
 	h.envKeyRejected = true
@@ -152,7 +152,7 @@ func TestEnsureBouncerRegistrationUnreachableKeepsSavedKey(t *testing.T) {
 	require.NoError(t, regErr)
 	require.Equal(t, bouncerkey.OutcomeUnverified, res.Outcome)
 	require.Equal(t, precSavedKey, res.Key)
-	after, err := os.ReadFile(keyPath)
+	after, err := os.ReadFile(keyPath) //nolint:gosec // G304: test reads a key file under t.TempDir()
 	require.NoError(t, err)
 	require.Equal(t, before, after, "the key file is byte-for-byte unchanged")
 	require.True(t, h.envKeyRejected, "an unverified check leaves the rejection state as it was")

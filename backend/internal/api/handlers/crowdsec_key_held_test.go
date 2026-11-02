@@ -63,9 +63,9 @@ func unwritableKeyHandler(t *testing.T) (h *CrowdsecHandler, keyPath string, cmd
 	keyPath = filepath.Join(dataDir, "bouncer_key")
 	writeSavedKey(t, keyPath, precSavedKey)
 	require.NoError(t, os.Chmod(keyPath, 0o400))
-	require.NoError(t, os.Chmod(dataDir, 0o500))
+	require.NoError(t, os.Chmod(dataDir, 0o500)) //nolint:gosec // G302: test makes its temp directory read-only on purpose
 	t.Cleanup(func() {
-		_ = os.Chmod(dataDir, 0o700)
+		_ = os.Chmod(dataDir, 0o700) //nolint:gosec // G302: test restores its temp directory so cleanup can remove it
 		_ = os.Chmod(keyPath, 0o600)
 		bouncerkey.Release(keyPath)
 	})
