@@ -146,16 +146,20 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 		_ = sqlDB.Close()
 	})
 
-	securityModels := []any{
+	// The migrate command shares the server's model list, so tables that the old hand-copied list lacked
+	// (RedirectionHost, EmergencyToken) must exist too.
+	migratedModels := []any{
 		&models.SecurityConfig{},
 		&models.SecurityDecision{},
 		&models.SecurityAudit{},
 		&models.SecurityRuleSet{},
 		&models.CrowdsecPresetEvent{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.RedirectionHost{},
+		&models.EmergencyToken{},
 	}
 
-	for _, model := range securityModels {
+	for _, model := range migratedModels {
 		if !db2.Migrator().HasTable(model) {
 			t.Errorf("Table for %T was not created by migrate command", model)
 		}
@@ -277,16 +281,20 @@ func TestMain_MigrateCommand_InProcess(t *testing.T) {
 		_ = sqlDB.Close()
 	})
 
-	securityModels := []any{
+	// The migrate command shares the server's model list, so tables that the old hand-copied list lacked
+	// (RedirectionHost, EmergencyToken) must exist too.
+	migratedModels := []any{
 		&models.SecurityConfig{},
 		&models.SecurityDecision{},
 		&models.SecurityAudit{},
 		&models.SecurityRuleSet{},
 		&models.CrowdsecPresetEvent{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.RedirectionHost{},
+		&models.EmergencyToken{},
 	}
 
-	for _, model := range securityModels {
+	for _, model := range migratedModels {
 		if !db2.Migrator().HasTable(model) {
 			t.Errorf("Table for %T was not created by migrate command", model)
 		}

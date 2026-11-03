@@ -26,15 +26,15 @@ func whereEqualsKey(key string) func(tx *gorm.DB) bool {
 	}
 }
 
-// A failed write of the deprecated mode key stops the start before the enabled key is written.
-func TestPersistCrowdsecStart_ModeSettingWriteFailureLeavesEnabledKeyUnwritten(t *testing.T) {
+// A failed query on the enabled key during Start's persist step is returned, and the enabled key is not stored.
+func TestPersistCrowdsecStart_EnabledWriteFailureIsReturned(t *testing.T) {
 	db := setupCrowdDB(t)
-	gormfault.Inject(t, db, gormfault.Query, "settings", whereEqualsKey(models.CrowdSecDeprecatedModeSettingKey))
+	gormfault.Inject(t, db, gormfault.Query, "settings", whereEqualsKey(models.CrowdSecEnabledSettingKey))
 	h := &CrowdsecHandler{DB: db}
 
 	err := h.persistCrowdsecStart()
 
-	require.ErrorContains(t, err, "set crowdsec mode setting")
+	require.Error(t, err)
 	_, found := storedSettingValue(t, db, models.CrowdSecEnabledSettingKey)
-	assert.False(t, found, "the enabled key must not be written after the mode key fails")
+	assert.False(t, found, "the enabled key must not be stored after its write fails")
 }

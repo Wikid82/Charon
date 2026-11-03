@@ -1,7 +1,7 @@
 # Emergency Token Rotation Runbook
 
 **Version:** 1.0
-**Last Updated:** January 26, 2026
+**Last Updated:** November 3, 2026
 **Purpose:** Secure procedure for rotating the emergency break glass token
 
 ---
@@ -160,6 +160,8 @@ docker logs charon --tail 20
 [INFO] Emergency bypass middleware enabled
 [INFO] Management CIDRs: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
 ```
+
+**Note on database-stored tokens:** A token saved in Charon's database now works right after a fresh install. Charon creates its tables before its startup checks run, so the database token no longer fails on a brand-new volume. The `CHARON_EMERGENCY_TOKEN` setting above keeps working either way.
 
 ### Step 5: Verify New Token Works
 

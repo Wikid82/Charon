@@ -20,18 +20,16 @@ const crowdSecAbsent = "<absent>"
 // boot reconciliation all read. The same case list exists in the services and handlers test packages.
 type crowdSecPrecedenceCase struct {
 	enabled     string // security.crowdsec.enabled
-	mode        string // deprecated security.crowdsec.mode
+	mode        string // retired security.crowdsec.mode, a leftover that must have no effect
 	row         string // crowd_sec_mode of the default SecurityConfig row
 	cerberusOff bool   // the global switch (SecurityConfig.Enabled) is off
 	wantOn      bool   // CrowdSec decision of the setting/row precedence, before the global switch
 }
 
-func crowdSecWantOn(enabled, mode, row string) bool {
+// crowdSecWantOn is the expected decision: the enabled setting when it has a value, otherwise the default row.
+func crowdSecWantOn(enabled, row string) bool {
 	if enabled != crowdSecAbsent && enabled != "" {
 		return enabled == "true"
-	}
-	if mode != crowdSecAbsent && mode != "" {
-		return mode == "local"
 	}
 	return row == "local"
 }
@@ -45,7 +43,7 @@ func crowdSecPrecedenceCases() []crowdSecPrecedenceCase {
 					enabled: enabled,
 					mode:    mode,
 					row:     row,
-					wantOn:  crowdSecWantOn(enabled, mode, row),
+					wantOn:  crowdSecWantOn(enabled, row),
 				})
 			}
 		}

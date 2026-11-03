@@ -169,11 +169,11 @@ func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 	assert.Equal(t, false, acl["enabled"].(bool))
 }
 
-func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
+func TestSecurityHandler_CrowdSec_EnabledKey_DBOverride(t *testing.T) {
 
 	db := setupTestDB(t)
-	// set DB to configure crowdsec.mode to local
-	if err := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"}).Error; err != nil {
+	// the stored enabled setting turns CrowdSec on, whatever the default row says
+	if err := db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true"}).Error; err != nil {
 		t.Fatalf("failed to insert setting: %v", err)
 	}
 
@@ -195,9 +195,12 @@ func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
 	assert.Equal(t, "local", cs["mode"].(string))
 }
 
-func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing.T) {
+// TestSecurityHandler_CrowdSec_RetiredModeKeyIgnored pins that a stored value under the retired mode key does not
+// affect the status: the static configuration says local, but with no enabled setting and no config row CrowdSec
+// reports disabled.
+func TestSecurityHandler_CrowdSec_RetiredModeKeyIgnored(t *testing.T) {
 	db := setupTestDB(t)
-	// set DB to configure crowdsec.mode to external
+	// a leftover value under the retired key (any value, here an unrecognised one)
 	if err := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "unknown"}).Error; err != nil {
 		t.Fatalf("failed to insert setting: %v", err)
 	}

@@ -1557,6 +1557,7 @@
     "importErrorKeptProfileDuplicate": "Das Archiv enthält keine profiles.yaml, daher wurde die aktuelle beibehalten, aber eine dafür benötigte Benachrichtigungsdatei definiert einen Namen, den das Archiv bereits definiert.",
     "importErrorKeepCurrentFailed": "Die aktuellen CrowdSec-Dateien konnten nicht beibehalten werden, daher wurde der Import abgebrochen. Details finden Sie in den Server-Logs.",
     "importErrorConfigNotFound": "config.yaml wurde weder auf oberster Ebene noch im Ordner config/ des Archivs gefunden.",
+    "importErrorNotWritable": "Charon kann den Ordner der CrowdSec-Konfiguration nicht ändern. Prüfe, ob der Charon-Benutzer ihn besitzt und darin schreiben darf, und ob er nicht schreibgeschützt eingebunden ist.",
     "exportPrompt": "Name für das CrowdSec-Exportarchiv",
     "title": "CrowdSec-Konfiguration",
     "checkNow": "Jetzt prüfen",

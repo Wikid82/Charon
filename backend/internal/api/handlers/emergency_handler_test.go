@@ -161,7 +161,7 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	assert.True(t, response["success"].(bool))
 	assert.NotNil(t, response["disabled_modules"])
 	disabledModules := response["disabled_modules"].([]interface{})
-	assert.GreaterOrEqual(t, len(disabledModules), 5)
+	assert.Len(t, disabledModules, 4)
 
 	// Verify settings were updated
 	// Note: feature.cerberus.enabled is intentionally NOT disabled
@@ -174,11 +174,10 @@ func TestEmergencySecurityReset_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "false", aclSetting.Value)
 
-	// Verify CrowdSec mode is disabled
-	var crowdsecMode models.Setting
-	err = db.Where("key = ?", "security.crowdsec.mode").First(&crowdsecMode).Error
-	require.NoError(t, err)
-	assert.Equal(t, "disabled", crowdsecMode.Value)
+	// The retired CrowdSec mode key is not written by the reset.
+	var modeRows int64
+	require.NoError(t, db.Model(&models.Setting{}).Where("key = ?", "security.crowdsec.mode").Count(&modeRows).Error)
+	assert.Zero(t, modeRows)
 
 	// Verify admin whitelist is cleared
 	var adminWhitelist models.Setting
@@ -242,7 +241,6 @@ func TestEmergencySecurityReset_PinsResponseAndDisabledValues(t *testing.T) {
 		"security.waf.enabled",
 		"security.rate_limit.enabled",
 		"security.crowdsec.enabled",
-		"security.crowdsec.mode",
 	}, body.DisabledModules)
 
 	wantSettings := map[string]string{
@@ -250,7 +248,6 @@ func TestEmergencySecurityReset_PinsResponseAndDisabledValues(t *testing.T) {
 		"security.waf.enabled":        "false",
 		"security.rate_limit.enabled": "false",
 		"security.crowdsec.enabled":   "false",
-		"security.crowdsec.mode":      "disabled",
 		"security.admin_whitelist":    "",
 		"feature.cerberus.enabled":    "true",
 	}

@@ -416,19 +416,15 @@ func (h *CrowdsecHandler) StopCrowdSec(reqCtx context.Context) (CrowdsecStopResu
 	return CrowdsecStopResult{ProxyApplied: h.applyProxyConfig(ctx) == nil}, nil
 }
 
-// persistCrowdsecStopped writes the stopped state: the default row, the enabled setting and the deprecated mode
-// setting. Each write is logged on failure and does not fail the Stop, which has already stopped the engine.
-// The caller holds stateMu.
+// persistCrowdsecStopped writes the stopped state: the default row and the enabled setting. Each write is logged on
+// failure and does not fail the Stop, which has already stopped the engine. The caller holds stateMu.
 func (h *CrowdsecHandler) persistCrowdsecStopped() {
-	// Only the CrowdSec mode and its setting change here. The global security switch is left alone.
+	// Only the CrowdSec decision changes here. The global security switch is left alone.
 	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "disabled"}); err != nil {
 		logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
 	}
 	if err := upsertSetting(h.DB, models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "false", Category: "security", Type: "bool"}); err != nil {
 		logger.Log().WithError(err).Warn("Failed to update CrowdSec setting after stopping CrowdSec")
-	}
-	if err := upsertSetting(h.DB, models.Setting{Key: models.CrowdSecDeprecatedModeSettingKey, Value: "disabled", Category: "security", Type: "string"}); err != nil {
-		logger.Log().WithError(err).Warn("Failed to update CrowdSec mode setting after stopping CrowdSec")
 	}
 }
 

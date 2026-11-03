@@ -34,9 +34,9 @@ var (
 // the PUT handler can answer an unreadable file with its own error_code.
 var errAcquisitionRead = errors.New("read acquisition config")
 
-// acquisitionAccessError reports whether err is a permission or read-only failure, the kind an operator fixes by
+// isAccessError reports whether err is a permission or read-only failure, the kind an operator fixes by
 // changing the file's owner or mode, or its folder's permissions.
-func acquisitionAccessError(err error) bool {
+func isAccessError(err error) bool {
 	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS)
 }
 
@@ -47,9 +47,9 @@ func acquisitionWriteFailure(err error) (code, msg string) {
 	switch {
 	case errors.Is(err, crowdsec.ErrPartialInPlaceWrite):
 		return "", msgAcquisitionWriteFailed
-	case errors.Is(err, errAcquisitionRead) && acquisitionAccessError(err):
+	case errors.Is(err, errAcquisitionRead) && isAccessError(err):
 		return codeAcquisitionUnreadable, msgAcquisitionUnreadable
-	case acquisitionAccessError(err):
+	case isAccessError(err):
 		return codeAcquisitionNotWritable, msgAcquisitionNotWritable
 	default:
 		return "", msgAcquisitionWriteFailed

@@ -16,7 +16,8 @@ import (
 // crowdSecAbsent marks a settings key that is not written at all in a precedence case.
 const crowdSecAbsent = "<absent>"
 
-// crowdSecPrecedenceCase mirrors the case list in the caddy and services test packages.
+// crowdSecPrecedenceCase mirrors the case list in the caddy and services test packages. mode is a retired key that
+// an older build may have left behind; it must have no effect on the decision.
 type crowdSecPrecedenceCase struct {
 	enabled     string
 	mode        string
@@ -25,12 +26,10 @@ type crowdSecPrecedenceCase struct {
 	wantOn      bool
 }
 
-func crowdSecWantOn(enabled, mode, row string) bool {
+// crowdSecWantOn is the expected decision: the enabled key when it has a value, otherwise the default row.
+func crowdSecWantOn(enabled, row string) bool {
 	if enabled != crowdSecAbsent && enabled != "" {
 		return enabled == "true"
-	}
-	if mode != crowdSecAbsent && mode != "" {
-		return mode == "local"
 	}
 	return row == "local"
 }
@@ -44,7 +43,7 @@ func crowdSecPrecedenceCases() []crowdSecPrecedenceCase {
 					enabled: enabled,
 					mode:    mode,
 					row:     row,
-					wantOn:  crowdSecWantOn(enabled, mode, row),
+					wantOn:  crowdSecWantOn(enabled, row),
 				})
 			}
 		}

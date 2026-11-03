@@ -138,7 +138,7 @@ func TestSecurityHandler_Priority_AllModules(t *testing.T) {
 	settings := []models.Setting{
 		{Key: "security.waf.enabled", Value: "true"},
 		{Key: "security.rate_limit.enabled", Value: "false"},
-		{Key: "security.crowdsec.mode", Value: "disabled"},
+		{Key: models.CrowdSecEnabledSettingKey, Value: "false"},
 		{Key: "security.acl.enabled", Value: "true"},
 	}
 	for _, s := range settings {

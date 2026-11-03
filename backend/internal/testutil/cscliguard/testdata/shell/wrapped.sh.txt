@@ -1,0 +1,18 @@
+#!/bin/sh
+cscli -c "$CFG" machines add -a --force
+cscli_cfg machines add -a --force
+cscli_hub 60 hub update
+cscli version
+command -v cscli >/dev/null
+run_interruptible timeout 60 cscli -c "$CFG" hub upgrade
+cscli -c "$CFG" \
+    bouncers list
+x=$(cscli -c "$CFG" parsers list)
+#!/bin/sh
+if command -v cscli >/dev/null; then
+cscli -c "$CFG" machines list
+sudo -E cscli -c "$CFG" machines list
+env CHARON_X=1 cscli -c "$CFG" hub update
+echo sudo cscli machines list
+echo ok && echo cscli machines list
+sudo cscli_cfg machines list

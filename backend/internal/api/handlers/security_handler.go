@@ -144,7 +144,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			}
 		}
 
-		// CrowdSec: the enabled setting, then the deprecated mode setting, then the row (same precedence as the proxy config).
+		// CrowdSec: the enabled setting, then the row (same precedence as the proxy config).
 		crowdSecOn, crowdSecErr := models.CrowdSecEnabled(h.db, crowdSecRow)
 		if crowdSecErr != nil {
 			logger.Log().WithError(crowdSecErr).Warn("Failed to read CrowdSec setting for status, using the default SecurityConfig row")

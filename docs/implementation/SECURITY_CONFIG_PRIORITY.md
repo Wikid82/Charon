@@ -59,7 +59,7 @@ Every write to a module switch goes through one set of helpers (`SetModuleState`
 ### CrowdSec
 
 - `security.crowdsec.enabled` - "true"/"false" - Sets CrowdSec to local/disabled
-- `security.crowdsec.mode` - "local"/"disabled" - Direct mode override
+- `security.crowdsec.mode` - Retired. Nothing reads it. Startup copies an older value into `security.crowdsec.enabled` when that setting has no value, then removes it. The settings API refuses writes to it
 
 ### ACL (Access Control Lists)
 

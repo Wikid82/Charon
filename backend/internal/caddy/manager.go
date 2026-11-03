@@ -759,7 +759,7 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 		logModuleReadError("acl", aclErr)
 		aclEnabled = aclRes.Enabled
 
-		// CrowdSec: the enabled setting, then the deprecated mode setting, then the default row (shared with status and boot).
+		// CrowdSec: the enabled setting, then the default row (shared with status and boot).
 		var crowdSecErr error
 		crowdsecEnabled, crowdSecErr = models.CrowdSecEnabled(m.db, crowdSecRow)
 		if crowdSecErr != nil {

@@ -978,8 +978,8 @@ func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
 	}
 	assert.True(t, found, "ACL handler must be present when ACL enabled via DB")
 
-	// Enable CrowdSec via DB runtime setting (switch from disabled to local)
-	assert.NoError(t, db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"}).Error)
+	// Enable CrowdSec via the DB enabled setting (switch from disabled to on)
+	assert.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true"}).Error)
 	// Next ApplyConfig - CrowdSec enabled
 	assert.NoError(t, manager.ApplyConfig(context.Background()))
 	var body3 []byte

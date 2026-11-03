@@ -474,9 +474,9 @@ func TestCrowdsecLifecycleReset_ThirdWriteFailureStopsEngine(t *testing.T) {
 	require.False(t, eng.isRunning())
 	// The reset failed before its row update, so only the CrowdSec keys it wrote are asserted: both are off.
 	require.Equal(t, "false", lifecycleSettingValue(t, h.DB))
-	var mode models.Setting
-	require.NoError(t, h.DB.Where("key = ?", models.CrowdSecDeprecatedModeSettingKey).First(&mode).Error)
-	require.Equal(t, "disabled", mode.Value)
+	var modeRows int64
+	require.NoError(t, h.DB.Model(&models.Setting{}).Where("key = ?", models.CrowdSecRetiredModeSettingKey).Count(&modeRows).Error)
+	require.Zero(t, modeRows, "the retired mode key is never written")
 }
 
 // TestCrowdsecLifecycleReset_ReadErrorAfterFailedResetDoesNotStop: when a failed reset leaves the decision unreadable,
@@ -521,7 +521,7 @@ func TestCrowdsecLifecycleReset_EngineStopFollowsReplyAndStopsEngine(t *testing.
 	}
 	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &body))
 	require.True(t, body.Success)
-	require.Len(t, body.DisabledModules, 5)
+	require.Len(t, body.DisabledModules, 4)
 }
 
 // TestCrowdsecLifecycleReset_ManyPairsEndConsistent: concurrent Starts and resets end with no stop pending, and the

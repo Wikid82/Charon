@@ -109,6 +109,7 @@ export const IMPORT_ERROR_CODES = [
   'import_kept_profile_duplicate',
   'import_keep_current_failed',
   'import_config_not_found',
+  'import_config_not_writable',
 ] as const
 
 export type CrowdsecImportErrorCode = (typeof IMPORT_ERROR_CODES)[number]
