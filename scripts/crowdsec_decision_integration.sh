@@ -43,7 +43,6 @@ TEST_REASON="Integration test ban"
 API_PORT=8280
 HTTP_PORT=8180
 HTTPS_PORT=8143
-CADDY_ADMIN_PORT=2119
 
 # ============================================================================
 # Colors for output
@@ -165,7 +164,7 @@ log_info "Starting Charon container with CrowdSec features enabled..."
 docker run -d --name ${CONTAINER_NAME} \
     --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
     --network containers_default \
-    -p ${HTTP_PORT}:80 -p ${HTTPS_PORT}:443 -p ${API_PORT}:8080 -p ${CADDY_ADMIN_PORT}:2019 \
+    -p ${HTTP_PORT}:80 -p ${HTTPS_PORT}:443 -p ${API_PORT}:8080 \
     -e CHARON_ENV=development \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \

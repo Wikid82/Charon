@@ -37,8 +37,7 @@ services:
     # No .env file is used in CI as it's gitignored and not available.
     ports:
       - "8080:8080"            # Management UI (Charon)
-      - "127.0.0.1:2019:2019" # Caddy admin API (IPv4 loopback)
-      - "[::1]:2019:2019"     # Caddy admin API (IPv6 loopback)
+      # Caddy admin API is not published: read it with docker exec charon-playwright wget -qO- http://127.0.0.1:2019/config/
       - "2020:2020"           # Emergency tier-2 API (all interfaces for E2E tests)
       - "80:80"               # Caddy proxy (all interfaces for E2E tests)
       - "443:443"             # Caddy proxy HTTPS (all interfaces for E2E tests)

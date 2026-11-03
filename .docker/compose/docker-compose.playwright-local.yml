@@ -27,8 +27,7 @@ services:
       # that runs `npx playwright test` (see tests/utils/api-helpers.ts).
       - "8180:80"
       - "8080:8080"             # Management UI (Charon) - E2E tests verify UI/UX here
-      - "127.0.0.1:2019:2019"  # Caddy admin API (read-only status; keep loopback only)
-      - "[::1]:2019:2019"      # Caddy admin API (IPv6 loopback)
+      # Caddy admin API is not published: read it with docker exec charon-e2e wget -qO- http://127.0.0.1:2019/config/
       - "2020:2020"            # Emergency tier-2 API (all interfaces for E2E tests)
     environment:
       - CHARON_ENV=e2e  # E2E ACME/TLS policies without an ACME email; any non-production value also enables CHARON_CHANGELOG_VERSION

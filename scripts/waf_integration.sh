@@ -30,7 +30,6 @@ TEST_DOMAIN="waf.test.local"
 API_PORT=8380
 HTTP_PORT=8180
 HTTPS_PORT=8143
-CADDY_ADMIN_PORT=2119
 
 # ============================================================================
 # Colors for output
@@ -94,7 +93,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    curl -sL "http://localhost:${CADDY_ADMIN_PORT}/config/" 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Security Config in API ==="
@@ -128,7 +127,7 @@ verify_waf_config() {
 
     for i in $(seq 1 $retries); do
         local caddy_config
-        caddy_config=$(curl -sL "http://localhost:${CADDY_ADMIN_PORT}/config/" 2>/dev/null || echo "")
+        caddy_config=$(docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
 
         if [ -z "$caddy_config" ]; then
             echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
@@ -201,7 +200,7 @@ log_info "Starting Charon container with Cerberus enabled..."
 docker run -d --name ${CONTAINER_NAME} \
     --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
     --network containers_default \
-    -p ${HTTP_PORT}:80 -p ${HTTPS_PORT}:443 -p ${API_PORT}:8080 -p ${CADDY_ADMIN_PORT}:2019 \
+    -p ${HTTP_PORT}:80 -p ${HTTPS_PORT}:443 -p ${API_PORT}:8080 \
     -e CHARON_ENV=development \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \
@@ -567,8 +566,8 @@ assert_http "200" "$RESP" "Combined - Legitimate request passes"
 # ============================================================================
 log_test "TC-9: Verify Caddy Config has WAF Handler"
 
-# Note: Caddy admin API requires trailing slash, and -L follows redirects
-CADDY_CONFIG=$(curl -sL "http://localhost:${CADDY_ADMIN_PORT}/config/" 2>/dev/null || echo "")
+# Note: the Caddy admin API requires a trailing slash
+CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
 
 if echo "$CADDY_CONFIG" | grep -q '"handler":"waf"'; then
     log_info "  ✓ WAF handler found in Caddy config"

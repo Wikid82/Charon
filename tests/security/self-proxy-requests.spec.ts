@@ -11,8 +11,8 @@
  * - the per-process value the proxy attaches to the hop never shows up in API
  *   responses, the proxy access log, the container log or the app log file.
  *
- * The live value is read from the proxy's admin API (published on loopback in
- * the E2E compose files) so the log checks compare against the real value. It
+ * The live value is read from the proxy's admin API inside the E2E container
+ * (docker exec) so the log checks compare against the real value. It
  * is only ever used inside `includes()` checks: never logged, never passed to
  * an assertion message, never attached to the report.
  *
@@ -31,7 +31,6 @@ import { caddyProxyOrigin, getAuthTokenFromPage } from '../utils/api-helpers';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 const CHARON_PORT = 8080;
-const ADMIN_API = process.env.PLAYWRIGHT_CADDY_ADMIN_URL || 'http://127.0.0.1:2019';
 const CONTAINER_CANDIDATES = [
   process.env.PLAYWRIGHT_CONTAINER_NAME,
   'charon-e2e',
@@ -78,13 +77,24 @@ function containerFile(container: string, path: string): string {
   }
 }
 
-/** Extract the live hop value from the proxy's loaded configuration. */
-async function readLiveHopValue(
-  request: import('@playwright/test').APIRequestContext
-): Promise<string> {
-  const response = await request.get(`${ADMIN_API}/config/`);
-  expect(response.ok()).toBeTruthy();
-  const config = await response.text();
+/**
+ * Extract the live hop value from the proxy's loaded configuration.
+ *
+ * The admin interface listens on loopback inside the container, so the read
+ * runs there with docker exec. Returns '' when the read fails; the caller
+ * asserts on the result, so a failed read cannot silently weaken the checks.
+ */
+function readLiveHopValue(container: string): string {
+  let config: string;
+  try {
+    config = execFileSync(
+      'docker',
+      ['exec', container, 'wget', '-qO-', 'http://127.0.0.1:2019/config/'],
+      { stdio: 'pipe', encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }
+    ) as string;
+  } catch {
+    return '';
+  }
   const match = new RegExp(`"${HOP_SECRET_HEADER}":\\["([^"]+)"\\]`).exec(config);
   return match ? match[1] : '';
 }
@@ -255,13 +265,13 @@ test.describe('Requests through a proxy host that targets Charon @security', () 
     });
   });
 
-  test('keeps the per-process hop value out of responses and logs', async ({ page, request }) => {
+  test('keeps the per-process hop value out of responses and logs', async ({ page }) => {
     const container = resolveContainer();
 
-    // The value is read from the proxy's admin API (loopback). If that read
-    // ever stops working this assertion fails rather than silently weakening
+    // The value is read from the proxy's admin API inside the container. If that
+    // read ever stops working this assertion fails rather than silently weakening
     // the log checks below.
-    const live = await readLiveHopValue(request);
+    const live = readLiveHopValue(container);
     expect(live, 'live hop value should be readable from the proxy configuration').toMatch(
       /^[0-9a-f]{32,}$/i
     );

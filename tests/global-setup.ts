@@ -18,35 +18,6 @@ function getBaseURL(): string {
 }
 
 /**
- * Check if Caddy admin API is enabled and healthy (port 2019 - read-only config inspection)
- */
-async function checkCaddyAdminHealth(): Promise<boolean> {
-  const caddyAdminHost = process.env.CADDY_ADMIN_HOST || 'http://localhost:2019';
-  const startTime = Date.now();
-  console.log(`🔍 Checking Caddy admin API health at ${caddyAdminHost}...`);
-
-  const caddyContext = await request.newContext({ baseURL: caddyAdminHost });
-  try {
-    const response = await caddyContext.get('/config', { timeout: 3000 });
-    const elapsed = Date.now() - startTime;
-
-    if (response.ok()) {
-      console.log(`  ✅ Caddy admin API (port 2019) is healthy [${elapsed}ms]`);
-      return true;
-    } else {
-      console.log(`  ⚠️  Caddy admin API returned: ${response.status()} [${elapsed}ms]`);
-      return false;
-    }
-  } catch (e) {
-    const elapsed = Date.now() - startTime;
-    console.log(`  ⏭️  Caddy admin API unavailable (non-blocking) [${elapsed}ms]`);
-    return false;
-  } finally {
-    await caddyContext.dispose();
-  }
-}
-
-/**
  * Wait for container to be ready before running global setup.
  * This prevents 401 errors when global-setup runs before containers finish starting.
  */
@@ -99,14 +70,6 @@ async function globalSetup(): Promise<void> {
   } catch (e) {
     console.log('   ⚠️  Could not parse base URL\n');
   }
-
-  // Health-check Caddy admin and emergency tier-2 servers (non-blocking)
-  console.log('📊 Port Connectivity Checks:');
-  const caddyHealthy = await checkCaddyAdminHealth();
-
-  console.log(
-    `\n✅ Connectivity Summary: Caddy=${caddyHealthy ? '✓' : '✗'}\n`
-  );
 
   // Create a request context
   const requestContext = await request.newContext({

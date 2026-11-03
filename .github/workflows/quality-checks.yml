@@ -125,6 +125,10 @@ jobs:
       - name: bats (Playwright container helpers)
         run: bats scripts/tests/check-playwright-image-version.bats scripts/tests/run-playwright-container.bats
 
+      - name: shellcheck (integration test tooling, severity=error)
+        run: |
+          shellcheck --severity=error scripts/waf_integration.sh scripts/cerberus_integration.sh scripts/crowdsec_decision_integration.sh scripts/rate_limit_integration.sh scripts/security_headers_integration.sh scripts/coraza_integration.sh scripts/debug_rate_limit.sh scripts/integration-test.sh
+
   container-prune-tests:
     name: Container registry prune scripts (bats)
     runs-on: ubuntu-latest

@@ -29,7 +29,6 @@ TEST_DOMAIN="cerberus.test.local"
 API_PORT=8480
 HTTP_PORT=8481
 HTTPS_PORT=8444
-CADDY_ADMIN_PORT=2319
 
 # Rate limit config for testing
 RATE_LIMIT_REQUESTS=5
@@ -97,7 +96,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    curl -sL "http://localhost:${CADDY_ADMIN_PORT}/config/" 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Security Config in API ==="
@@ -185,7 +184,7 @@ log_info "Starting Charon container with ALL Cerberus features enabled..."
 docker run -d --name ${CONTAINER_NAME} \
     --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
     --network containers_default \
-    -p ${HTTP_PORT}:80 -p ${HTTPS_PORT}:443 -p ${API_PORT}:8080 -p ${CADDY_ADMIN_PORT}:2019 \
+    -p ${HTTP_PORT}:80 -p ${HTTPS_PORT}:443 -p ${API_PORT}:8080 \
     -e CHARON_ENV=development \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \
@@ -395,7 +394,7 @@ fi
 # Fetch Caddy config with timeout and retry
 CADDY_CONFIG=""
 for attempt in 1 2 3; do
-    CADDY_CONFIG=$(curl --max-time 10 -sL "http://localhost:${CADDY_ADMIN_PORT}/config/" 2>/dev/null || echo "")
+    CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" wget -T 10 -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
     if [ -n "$CADDY_CONFIG" ]; then
         break
     fi

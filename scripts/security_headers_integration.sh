@@ -30,7 +30,7 @@ set -euo pipefail
 # Overridable environment (all optional):
 #   CHARON_IMAGE   image to test (default charon:local)
 #   SH_PREFIX      name prefix for containers/network/volumes (default secheaders)
-#   SH_HTTP_PORT / SH_HTTPS_PORT / SH_API_PORT / SH_ADMIN_PORT  host ports
+#   SH_HTTP_PORT / SH_HTTPS_PORT / SH_API_PORT  host ports
 
 # Ensure we operate from repo root
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,7 +44,6 @@ SH_PREFIX="${SH_PREFIX:-secheaders}"
 HTTP_PORT="${SH_HTTP_PORT:-8182}"
 HTTPS_PORT="${SH_HTTPS_PORT:-8144}"
 API_PORT="${SH_API_PORT:-8282}"
-ADMIN_PORT="${SH_ADMIN_PORT:-2121}"
 
 CONTAINER_NAME="${SH_PREFIX}-charon"
 UPSTREAM_CONTAINER="${SH_PREFIX}-upstream"
@@ -55,7 +54,6 @@ UPSTREAM_IMAGE="busybox:1.37"
 PROFILE_DOMAIN="secheaders-profile.local"
 PLAIN_DOMAIN="secheaders-plain.local"
 API_URL="http://localhost:${API_PORT}/api/v1"
-ADMIN_URL="http://localhost:${ADMIN_PORT}"
 PROXY_URL="http://localhost:${HTTP_PORT}"
 
 PROFILE_CORP="same-origin"
@@ -112,7 +110,7 @@ on_failure() {
     echo "=== Charon logs (last 100 lines) ==="
     docker logs "${CONTAINER_NAME}" 2>&1 | tail -100 || true
     echo "=== Caddy admin config (first 200 lines) ==="
-    curl -s "${ADMIN_URL}/config/" 2>/dev/null | head -200 || true
+    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -200 || true
     echo "=== Proxy hosts ==="
     curl -s -b "${TMP_COOKIE}" "${API_URL}/proxy-hosts" 2>/dev/null | head -50 || true
     echo "=============================================="
@@ -209,7 +207,7 @@ echo "Starting Charon container..."
 docker run -d --name "${CONTAINER_NAME}" \
     --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
     --network "${NETWORK_NAME}" \
-    -p "${HTTP_PORT}:80" -p "${HTTPS_PORT}:443" -p "${API_PORT}:8080" -p "${ADMIN_PORT}:2019" \
+    -p "${HTTP_PORT}:80" -p "${HTTPS_PORT}:443" -p "${API_PORT}:8080" \
     -e CHARON_ENV=development \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \
@@ -396,7 +394,7 @@ echo ""
 echo "=============================================="
 echo "=== Caddy config: headers handlers are non-deferred + deferred pairs ==="
 echo "=============================================="
-CADDY_CONFIG=$(curl -s "${ADMIN_URL}/config/")
+CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/)
 # The non-deferred set covers Caddy-generated responses (e.g. 502), the deferred
 # set runs after reverse_proxy copied the upstream headers so it replaces them.
 # Count response headers handlers by kind, and count handlers with no partner:
