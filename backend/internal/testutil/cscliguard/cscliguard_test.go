@@ -84,3 +84,64 @@ func TestOffendersErrorsOnUnreadableFile(t *testing.T) {
 	_, err := Offenders(dir, nil, nil)
 	require.ErrorContains(t, err, "read ")
 }
+
+// shellFixture returns the path of a shell fixture. The fixtures end in .sh.txt, so lint tools that match *.sh skip them.
+func shellFixture(name string) string {
+	return filepath.Join("testdata", "shell", name)
+}
+
+// Every executable form that starts cscli without -c is reported, with its line number and the logical line
+// (a continued line is joined). A comment, a quoted message and a wrapper call are not.
+func TestShellOffendersFlagsEveryBareStart(t *testing.T) {
+	t.Parallel()
+	offenders, err := ShellOffenders(shellFixture("bare.sh.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"bare.sh.txt:2: cscli machines add -a --force",
+		"bare.sh.txt:3: if cscli parsers inspect x >/dev/null 2>&1; then",
+		"bare.sh.txt:6: timeout 60 cscli hub update",
+		"bare.sh.txt:8: run_interruptible cscli collections list",
+		"bare.sh.txt:9: x=$(cscli bouncers list)",
+		"bare.sh.txt:10: cscli machines list",
+	}, offenders)
+}
+
+// Calls that carry -c, the version probe, the wrappers and the command lookup are accepted, including a continued line.
+func TestShellOffendersAcceptsConfiguredAndProbeCalls(t *testing.T) {
+	t.Parallel()
+	offenders, err := ShellOffenders(shellFixture("wrapped.sh.txt"))
+	require.NoError(t, err)
+	assert.Empty(t, offenders)
+}
+
+// A deliberate start carries the trailing marker with a reason and is accepted.
+func TestShellOffendersAcceptsTheMarker(t *testing.T) {
+	t.Parallel()
+	offenders, err := ShellOffenders(shellFixture("marker.sh.txt"))
+	require.NoError(t, err)
+	assert.Empty(t, offenders)
+}
+
+// Comments and quoted messages never read as commands, so a message that names cscli is not an offender.
+func TestShellOffendersIgnoresCommentsAndQuotedText(t *testing.T) {
+	t.Parallel()
+	offenders, err := ShellOffenders(shellFixture("comment_and_echo.sh.txt"))
+	require.NoError(t, err)
+	assert.Empty(t, offenders)
+}
+
+// A command substitution inside double quotes runs, so its cscli start is reported.
+func TestShellOffendersReportsStartsInsideCommandSubstitution(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "subst.sh")
+	require.NoError(t, os.WriteFile(path, []byte("echo \"$(cscli machines list)\"\n"), 0o600))
+	offenders, err := ShellOffenders(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"subst.sh:1: echo \"$(cscli machines list)\""}, offenders)
+}
+
+func TestShellOffendersErrorsOnMissingFile(t *testing.T) {
+	t.Parallel()
+	_, err := ShellOffenders(filepath.Join(t.TempDir(), "missing.sh"))
+	require.ErrorContains(t, err, "read ")
+}

@@ -11,6 +11,9 @@
 # exit status, signal text, budget expiry) exists only here: the image runs cscli under busybox timeout, which reports
 # a trapped TERM as the command's own exit 1, and the Go side does not classify exit statuses.
 #
+# Every cscli call names its config file with -c. The live file is CHARON_CSCLI_CONFIG, which the entrypoint sets
+# (never an operator setting); without it the file is cscli's default, /etc/crowdsec/config.yaml.
+#
 # Internal state, set by this helper and not meant for operators:
 #   CHARON_CSCLI_MIRROR_CONFIG  path of the derived config while it exists
 #   CHARON_CSCLI_MIRROR_FIRST   "1" once a mirror retry answered: later cscli_hub calls go mirror-first
@@ -26,6 +29,19 @@ if ! command -v run_interruptible >/dev/null 2>&1; then
         "$@"
     }
 fi
+
+# _hub_live_config
+# Prints the live cscli config file. The entrypoint exports CHARON_CSCLI_CONFIG once it has initialised the config
+# directory; without it (a script run by hand in the image) cscli's own default is named, so the flag is always there.
+_hub_live_config() {
+    printf '%s' "${CHARON_CSCLI_CONFIG:-/etc/crowdsec/config.yaml}"
+}
+
+# cscli_cfg <cscli arguments...>
+# Runs one cscli command on the live config, with no timeout and no mirror retry (quick reads and registration).
+cscli_cfg() {
+    cscli -c "$(_hub_live_config)" "$@"
+}
 
 # hub_mirror_template_valid <template>
 # Succeeds for an https URL with exactly two %s verbs, no other percent sign and no control characters.
@@ -260,8 +276,9 @@ _hub_retry_wanted() {
 }
 
 # _hub_attempt <seconds> <config or empty> <log> <cscli arguments...>
-# Runs one cscli command under timeout with its output in the log, prints the log, and returns the status. It also
-# records the budget and the wall-clock seconds the attempt took, for _hub_timed_out.
+# Runs one cscli command under timeout with its output in the log, prints the log, and returns the status. An empty
+# config means the live one, so every attempt names its file. It also records the budget and the wall-clock seconds
+# the attempt took, for _hub_timed_out.
 _hub_attempt() {
     _secs=$1
     _cfg=$2
@@ -274,12 +291,12 @@ _hub_attempt() {
         : >"$_log"
         return 124
     fi
-    if [ -n "$_cfg" ]; then
-        set -- -c "$_cfg" "$@"
+    if [ -z "$_cfg" ]; then
+        _cfg=$(_hub_live_config)
     fi
     _started=$(date +%s)
     _status=0
-    run_interruptible timeout "$_secs" cscli "$@" >"$_log" 2>&1 || _status=$?
+    run_interruptible timeout "$_secs" cscli -c "$_cfg" "$@" >"$_log" 2>&1 || _status=$?
     _HUB_ATTEMPT_ELAPSED=$(($(date +%s) - _started))
     cat "$_log"
     return "$_status"

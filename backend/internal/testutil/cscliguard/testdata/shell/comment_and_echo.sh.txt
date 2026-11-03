@@ -1,0 +1,5 @@
+#!/bin/sh
+# cscli machines add -a --force
+echo "cscli machines add: skipped"
+printf '%s\n' 'cscli hub update'
+echo "run cscli to see more; then cscli bouncers add" | tee /dev/null

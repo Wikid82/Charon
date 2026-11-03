@@ -7,12 +7,14 @@ set -e
 
 BOUNCER_NAME="${CROWDSEC_BOUNCER_NAME:-caddy-bouncer}"
 API_KEY_FILE="/etc/crowdsec/bouncers/${BOUNCER_NAME}.key"
+# The live cscli config file: the entrypoint exports it, and cscli's default is named when it is not set.
+CSCLI_CONFIG="${CHARON_CSCLI_CONFIG:-/etc/crowdsec/config.yaml}"
 
 # Ensure bouncer directory exists
 mkdir -p /etc/crowdsec/bouncers
 
 # Check if bouncer already registered
-if cscli bouncers list 2>/dev/null | grep -q "${BOUNCER_NAME}"; then
+if cscli -c "$CSCLI_CONFIG" bouncers list 2>/dev/null | grep -q "${BOUNCER_NAME}"; then
     echo "Bouncer '${BOUNCER_NAME}' already registered"
 
     # If key file exists, use it
@@ -24,12 +26,12 @@ if cscli bouncers list 2>/dev/null | grep -q "${BOUNCER_NAME}"; then
 
     # Key file missing but bouncer registered - re-register
     echo "API key file missing, re-registering bouncer..."
-    cscli bouncers delete "${BOUNCER_NAME}" 2>/dev/null || true
+    cscli -c "$CSCLI_CONFIG" bouncers delete "${BOUNCER_NAME}" 2>/dev/null || true
 fi
 
 # Register new bouncer and capture API key
 echo "Registering bouncer '${BOUNCER_NAME}'..."
-API_KEY=$(cscli bouncers add "${BOUNCER_NAME}" -o raw 2>/dev/null)
+API_KEY=$(cscli -c "$CSCLI_CONFIG" bouncers add "${BOUNCER_NAME}" -o raw 2>/dev/null)
 
 if [ -z "$API_KEY" ]; then
     echo "ERROR: Failed to register bouncer" >&2

@@ -1,0 +1,10 @@
+#!/bin/sh
+cscli -c "$CFG" machines add -a --force
+cscli_cfg machines add -a --force
+cscli_hub 60 hub update
+cscli version
+command -v cscli >/dev/null
+run_interruptible timeout 60 cscli -c "$CFG" hub upgrade
+cscli -c "$CFG" \
+    bouncers list
+x=$(cscli -c "$CFG" parsers list)

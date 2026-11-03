@@ -173,11 +173,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck dash busybox
 
-      - name: shellcheck (hub mirror helper, entrypoint and its test)
+      - name: shellcheck (hub mirror helper, entrypoint, install script and its test)
         run: |
           shellcheck --severity=error \
             .docker/cscli-hub-mirror.sh \
             .docker/docker-entrypoint.sh \
+            configs/crowdsec/install_hub_items.sh \
             scripts/cscli_hub_mirror_test.sh
 
       - name: Hub mirror helper tests (bash, dash, busybox sh)
