@@ -319,4 +319,34 @@ test.describe('CrowdSec newer UI states @security', () => {
       await expect(table.getByRole('cell', { name: '—' })).toHaveCount(0);
     });
   });
+
+  // Enabled in the commit that adds the `unknown` registration state (fixme until then).
+  test.describe('Bouncer registration status', () => {
+    test.fixme('should show a neutral badge, not an error badge, when registration is unknown', async ({ page }) => {
+      await page.route('**/api/v1/admin/crowdsec/bouncer', async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          json: {
+            name: 'caddy-bouncer',
+            key_preview: 'e2e-preview',
+            key_source: 'file',
+            file_path: '/app/data/crowdsec/bouncer_key',
+            registered: false,
+            registration: 'unknown',
+          },
+        });
+      });
+      await loadPage(page);
+      await page.getByRole('tab', { name: 'Configuration', exact: true }).click();
+
+      await expect(page.getByText('Status unknown', { exact: true })).toBeVisible();
+      await expect(page.getByText('Not Registered', { exact: true })).toHaveCount(0);
+      await expect(page.locator('.bg-error').filter({ hasText: 'Status unknown' })).toHaveCount(0);
+    });
+  });
 });
