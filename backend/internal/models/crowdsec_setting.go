@@ -91,7 +91,6 @@ func RetireCrowdSecModeSetting(db *gorm.DB) (retired bool, err error) {
 			return enabledErr
 		}
 
-		source = retireSourceEnabledWins
 		switch {
 		case mode == "":
 			source = retireSourceBlankModeValue
@@ -100,6 +99,8 @@ func RetireCrowdSecModeSetting(db *gorm.DB) (retired bool, err error) {
 				return writeErr
 			}
 			source = retireSourceCarriedOver
+		default:
+			source = retireSourceEnabledWins
 		}
 
 		if deleteErr := tx.Where("key = ?", CrowdSecRetiredModeSettingKey).Delete(&Setting{}).Error; deleteErr != nil {

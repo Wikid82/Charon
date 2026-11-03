@@ -8,11 +8,25 @@ import (
 	"strings"
 )
 
+// shellWrapper is one command that runs the command after it: a launcher, a privilege or environment helper, or a
+// redirection placed before the command name. Each alternative ends where the wrapped command word begins, so the
+// caller adds the blank that separates them. `command -v` is a lookup, not a launcher, so only `command -p` is a wrapper.
+const shellWrapper = `timeout\s+\S+` +
+	`|run_interruptible` +
+	`|sudo(?:\s+-\S+(?:\s+\S+)?)*` +
+	`|su-exec\s+\S+` +
+	`|env(?:\s+(?:-\S+|\w+=\S*))*` +
+	`|nohup|exec|command(?:\s+-p)?` +
+	`|xargs(?:\s+-\S+(?:\s+\S+)?)*` +
+	`|\d*[<>]{1,2}\S*`
+
 // shellCommandWord matches cscli in command position: at the start of a command, after a pipe, a list operator, a
-// subshell, a negation, a command substitution, or a keyword that begins a command. It may sit behind `timeout N` or
-// `run_interruptible`. The name must end after "cscli", so cscli_cfg and cscli_hub never match.
+// subshell, a brace group, a negation, a backquote or a $( command substitution, or a keyword that begins a command.
+// Any number of shellWrapper commands may sit in front of it. The name must end after "cscli", so cscli_cfg and
+// cscli_hub never match.
 var shellCommandWord = regexp.MustCompile(
-	`(?:^|[|&;(!{]|\$\(|\b(?:if|then|else|elif|do|while|until|exec)\b)\s*(?:(?:timeout\s+\S+|run_interruptible)\s+)*cscli(?:\s|$)`,
+	"(?:^|[|&;(!{`]|\\$\\(|\\b(?:if|then|else|elif|do|while|until)\\b)\\s*" +
+		`(?:(?:` + shellWrapper + `)\s+)*cscli(?:\s|$)`,
 )
 
 // shellMarker is the trailing comment that accepts one deliberate start without -c. It must carry a reason.

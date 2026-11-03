@@ -1,0 +1,19 @@
+#!/bin/sh
+sudo cscli machines list
+sudo -E cscli machines list
+sudo -u charon cscli machines list
+su-exec charon cscli machines list
+env CHARON_X=1 cscli machines list
+env -i PATH=/bin cscli machines list
+nohup cscli hub update &
+command cscli machines list
+command -p cscli machines list
+exec cscli machines list
+xargs cscli machines delete
+xargs -I {} cscli bouncers delete {}
+echo ok && sudo cscli bouncers list
+run_interruptible sudo cscli hub upgrade
+timeout 60 sudo cscli hub update
+>/dev/null cscli machines list
+2>&1 cscli machines list
+x=$(sudo cscli machines list)
