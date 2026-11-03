@@ -1,102 +1,92 @@
-# QA Report: CrowdSec Boot Tidy (PR 13)
+# QA Report: CrowdSec Bouncer Registration (PR 15)
 
-- Branch: `fix/crowdsec-boot-tidy`, HEAD `fe437327e` (9 commits ahead of `origin/development` `02003edb9`).
+- Branch: `fix/crowdsec-bouncer-registration`, HEAD `5bab022f8` (11 commits ahead of `origin/development` `bdd52d144`).
 - Date: 2026-11-03
-- Spec: `docs/plans/crowdsec_hardening_batch5_spec.md` section 3u (3u.14 and 3u.16 authoritative where they conflict with 3u.1 to 3u.12), gates G1 to G6 in 3u.8, with `SECURITY.md` and `CLAUDE.md`.
-- Scope: CrowdSec startup (`cscli` config flag, schema before reconciliation, the retired mode setting), the import and acquisition write messages, and the matching docs.
-- Working tree: nothing committed, staged, stashed or pushed by QA. This report is the only tracked file QA wrote. Throwaway containers, volumes, images and the isolated E2E stack were removed. The live `charon` container was not touched.
+- Spec: `docs/plans/crowdsec_hardening_batch5_spec.md` section 3w (3w.13 authoritative), gates G1 to G5 from 3w.8, with `SECURITY.md` and `CLAUDE.md`.
+- Scope: test and verification only. No application code, commits or pushes.
 
-**Verdict: PASS.** One lint finding (gosec G304 in a test file added by this branch) was fixed during QA with an annotated read; the pinned `golangci-lint` v2.15.0 then printed 0 issues. Every other Definition of Done gate and every container gate (G1 to G6) passes.
+## Verdict
 
-## Gate Summary
+**Not ready to merge.** Two Definition of Done items fail on this HEAD:
 
-| # | Gate | Result | Numbers and notes |
-| --- | --- | --- | --- |
-| DoD-1 | `cd backend && go build ./...` | PASS | clean |
-| DoD-2 | `go test -race -count=1` on `./internal/api/routes/...`, `./cmd/api/...`, `./internal/testutil/...` | PASS | routes 99 s, cmd/api 100 s, testutil packages ok |
-| DoD-3 | `go test -race -count=1` on `./internal/api/handlers/...`, `./internal/caddy/...`, `./internal/crowdsec/...`, `./internal/models/...`, `./internal/server/...` | PASS | handlers 470 s, caddy, crowdsec, models, server ok |
-| DoD-4 | Services package | PASS | full package without `-race` ok (91 s); CrowdSec-related subset with `-race` ok (105 s) |
-| DoD-5 | `scripts/go-test-coverage.sh` (full `./...` under `-race`, gate 87) | PASS | line coverage 92.0%, statement coverage 93.1%; 45 packages ok; 0 data races reported |
-| DoD-6 | `scripts/local-patch-report.sh` (default baseline) | PASS | overall 201/201 changed lines covered (100.0%), backend 200/200 (100.0%), frontend 1/1 (100.0%), agent 0 changed lines; both artifacts written. `scripts/agent-test-coverage.sh` not needed (no agent changes) |
-| DoD-7 | `scripts/frontend-test-coverage.sh` (gate 87) | PASS | 320 test files, 4040 passed, 4 skipped, 2 todo; statements 90.85%, branches 85.07%, functions 88.3%, lines 91.86% |
-| DoD-8 | `npm run type-check` | PASS | exit 0 |
-| DoD-9 | `npm run build` | PASS | exit 0 |
-| DoD-10 | Pinned lint: `docker run ... golangci/golangci-lint:v2.15.0 golangci-lint run --timeout=25m ./...` (must print 0 issues) | PASS | 1 issue found (gosec G304, blocker B1), fixed with an annotated read; rerun printed `0 issues` |
-| DoD-11 | `./scripts/scan-gorm-security.sh --check` | PASS | 80 Go files scanned; 0 critical, 0 high, 0 medium; 2 informational suggestions; 1 suppressed |
-| DoD-12 | `lefthook run pre-commit --all-files` | PASS | all 18 jobs exit 0 (run as batches to stay under the call cap): end-of-file-fixer, trailing-whitespace, check-yaml, check-lfs-large-files, block-codeql-db, block-data-backups, shellcheck, actionlint, dockerfile-check, go-vet, go-vet-agent, golangci-lint-fast, muzzle-allowlist-parity, golangci-gocritic-parity, frontend-type-check, frontend-lint (0 errors, 1359 warnings), markdownlint, semgrep (367 rules, 2330 files, 0 findings). The auto-fixing hooks left the tree unchanged |
-| DoD-13 | `shellcheck --severity=error` on touched shell scripts | PASS | `.docker/cscli-hub-mirror.sh`, `.docker/docker-entrypoint.sh`, `configs/crowdsec/install_hub_items.sh`, `configs/crowdsec/register_bouncer.sh`, `scripts/cscli_hub_mirror_test.sh` |
-| G6 | `scripts/cscli_hub_mirror_test.sh` under `bash`, `dash` and `busybox sh` | PASS | 142 passed, 0 failed under each shell |
-| G1 | Entrypoint `cscli` capture | PASS | see G1 below |
-| G2 | Fresh boot, migrations before reconciliation, enable and restart | PASS | see G2 below |
-| G3 | Retired mode key cases A, B and C | PASS | see G3 below |
-| G4 | Import into a non-writable configuration folder | PASS for the response and logs; rollback incomplete (observation O1) | see G4 below |
-| G5 | Acquisition save into a non-writable folder, then a read-only file | PASS | see G5 below |
-| PW-1 | `tests/security/crowdsec-config.spec.ts` on `security-tests` (Chromium) | PASS, 34 of 34 | isolated E2E stack (see "Environment") |
-| PW-2 | `tests/security-enforcement/crowdsec-lifecycle.spec.ts` and `tests/security/crowdsec-import.spec.ts` on `security-tests` | PASS, 61 of 61 | the firefox project's `testMatch` does not include these paths (`Error: No tests found` on `--project=firefox`), so they run only in `security-tests` |
-| CS | CodeQL and Trivy | DEFERRED TO CI | `fix:`, `test:` and `docs:` commits with no new feature surface (CLAUDE.md scope rule) |
-| GT | Gotify token review | PASS | no Gotify references in the branch diff, in container logs, or in test output |
+1. Pinned golangci-lint v2.15.0 reports 2 issues in branch test files (required: 0).
+2. Backend unit tests are not green: `internal/api/handlers` has a timing-bounded test that fails under load, and `internal/caddy` has a test that fails only because of a gitignored local compose file (expected, excluded below).
+
+All container gates G1 to G5 passed (G4 partially, see below). The targeted Playwright specs pass (16/16).
 
 ## Blockers
 
-**B1. Lint: gosec G304 in a new test file (CI-blocking).** `backend/internal/api/handlers/crowdsec_mode_retired_guard_test.go:66` reads a file path produced by a directory walk of the repository (`os.ReadFile(path)`). The file was added in `06e7f58f5`. The plan requires `golangci-lint` to print 0 issues.
-- Resolved: the read is annotated with the repository's `//nolint:gosec // G304: <reason>` convention; the pinned run then printed `0 issues`.
-- Re-run the pinned image command after the change and confirm `0 issues`.
+| ID | Item | Evidence | Remediation |
+|---|---|---|---|
+| B1 | Pinned golangci-lint reports 2 issues | `docker run --rm -v $PWD:/app -w /app/backend golangci/golangci-lint:v2.15.0 golangci-lint run --timeout=25m ./...` prints `2 issues`: `internal/api/handlers/crowdsec_registrations_test.go:85:7` errcheck (`Error return value is not checked`; the `case <-drained:` receive in the drain test discards the channel's error value), and `internal/api/handlers/crowdsec_register_outcomes_test.go:84:12` gosec G304 (`os.ReadFile(path)` in `bodyText`). The `golangci-lint-fast` lefthook hook passes, so it does not catch these. | Check or deliberately discard the drain error in the test. In `bodyText`, sanitise the path with `filepath.Clean` (project rule) and/or add a justified `//nolint:gosec` with the reason. Re-run the pinned command until it prints 0 issues. |
+| B2 | `internal/api/handlers` timing assertion fails under load | Full coverage run: `TestRealCommandExecutor_Execute_OutputLimit/output_beyond_the_cap_on_stderr...` asserted `"4.519515962s" is not less than "4s"`. Re-run in isolation (`-count=3`): PASS. The test predates this branch (added in `aa69da135`, reachable from `bdd52d144`). | Relax the bound or use a deadline that does not depend on wall time under load, then re-run. CLAUDE.md does not allow deferring this. |
+| B3 | `-race` perf threshold tests fail under concurrent load | `TestPerf_GetStatus_AssertThreshold` (P95 8.52 ms vs 6.00 ms) and `TestPerf_GetStatus_Parallel_AssertThreshold` (21.9 ms vs 15.0 ms), in the handlers shard that ran alongside the other race shard on 4 cores. Re-run in isolation with `-race -count=2`: PASS. | Treat as load-sensitive. Either run the race handlers shard without a concurrent shard in CI, or give these asserts a race-aware budget. Not a branch regression by evidence so far. |
 
-## Gate Detail
+## Expected or excluded items
 
-### G1: entrypoint `cscli` capture (commit 1)
+- `TestShippedFilesDoNotSetAdminAPIVariable` (`internal/caddy`) fails only on `.docker/compose/docker-compose.test.yml:29` (`CHARON_CADDY_ADMIN_API=http://localhost:2019`). That file is gitignored (`.gitignore:296`) and local-only, as the brief states. It is not tracked, so CI is unaffected. It fails in the coverage run and the race run.
+- `.docker/compose/docker-compose.test.yml` still contains the `API_URL` and duplicate key lines (spec m2 cleanup). That is the same local-only file, so nothing in the branch needs it.
 
-- Image `charon:qa-boot-tidy` built from the branch HEAD. A read-only shim on `PATH` logged each argument vector to a throwaway volume, then ran the real `/usr/local/bin/cscli`. `CHARON_SECURITY_TESTS_ENABLED` unset, so the hub steps ran.
-- Result: 36 `cscli` calls captured, all 36 begin with `-c /app/data/crowdsec/config/config.yaml`, including `hub update`, the install-script `inspect` and `install` calls, `machines add`, and `parsers`/`scenarios`/`collections` `list`. Non-conforming calls: 0.
-- Negative control: image `charon:qa-boot-base` built from `02003edb9` (`git archive`, no worktree) captured 36 calls, all bare (no `-c`). The gate can fail.
+## Gate results
 
-### G2: fresh boot and restart (commit 2)
+| Gate | Command | Result |
+|---|---|---|
+| Backend build | `cd backend && go build ./...` | PASS |
+| Backend coverage | `scripts/go-test-coverage.sh` | Coverage PASS: statements 93.1%, line 92.0%, gate 87%. Script exit 1 because of B2 and the excluded caddy test. |
+| Backend race | `go test -race` (sharded: handlers alone, all other 48 packages with `-p 3`) | Other shard: 43 packages ok, `internal/caddy` fails only on the excluded local-file test. Handlers shard: fails only the two load-sensitive perf asserts (B3). Both pass in isolation. |
+| Frontend coverage | `scripts/frontend-test-coverage.sh` | PASS: 320 files, 4047 tests passed (2 todo). Statements 90.99%, branches 85.12% (floor 85%, margin 0.12 points), functions 88.39%, lines 92.01% (gate 87%). |
+| Frontend type-check | `npm run type-check` | PASS |
+| Frontend build | `npm run build` | PASS |
+| Local patch preflight | `scripts/local-patch-report.sh` (default baseline `origin/development...HEAD`, strict) | PASS. Overall 234/234 (100%), backend 225/225, frontend 9/9. Artifacts written: `test-results/local-patch-report.md` and `.json`. |
+| Pinned lint | golangci-lint v2.15.0 in Docker | FAIL: 2 issues (B1). |
+| GORM security | `./scripts/scan-gorm-security.sh --check` | PASS: 0 issues. |
+| Lefthook | `lefthook run pre-commit --all-files` | PASS (exit 0). Frontend ESLint: 0 errors, 1355 warnings. Semgrep: timeout warnings on three test files. |
+| Shell | `shellcheck` on changed `.sh` files | PASS. The deleted `configs/crowdsec/register_bouncer.sh` is gone from disk. |
+| Workflows | `actionlint .github/workflows/security-pr.yml` | PASS |
+| Hub mirror | `bash scripts/cscli_hub_mirror_test.sh` | PASS: 140 passed, 0 failed |
+| Markdown | `markdownlint` on changed `.md` files | PASS |
+| Playwright | `PLAYWRIGHT_BASE_URL=http://127.0.0.1:18080 PLAYWRIGHT_CADDY_PROXY_PORT=18180 npx playwright test tests/security/crowdsec-ui-states.spec.ts tests/security/crowdsec-key-robustness.spec.ts --project=security-tests` | PASS: 16 of 16. Includes the previously `fixme` "neutral badge when registration is unknown" test, now enabled. No `fixme`/`skip` left in either spec. |
+| Docs build | `bash docs-site/scripts/sync-docs.sh && cd docs-site && zensical build --strict` | NOT RUN: `zensical` is not installed on this host. |
+| CodeQL and Trivy | local scan | Not run. The branch is `fix:`/`test:`/`docs:` only with no new feature surface, so CI owns it (per CLAUDE.md). |
 
-- Empty volume, first boot of each image. Branch log: no `SecurityConfig table not found` line. It has `CrowdSec reconciliation: default SecurityConfig created from Settings preference` (source `settings_table`, mode `disabled`) and the skipped-reconciliation line for a disabled setting.
-- Development control: the same fresh boot logs `CrowdSec reconciliation skipped: SecurityConfig table not found - run 'charon migrate' to fix`.
-- Diff of all warning and error lines between the two boots: the only difference is that one removed line. The `Failed to create log file for LogWatcher` warning appears in both images (unchanged baseline).
-- Fresh database after boot contains `emergency_tokens`, `security_configs`, `settings` and `redirection_hosts`.
-- Enable through the API (`POST /api/v1/security/crowdsec/enable`, HTTP 200, `lapi_ready: true`), restart: the reconciliation starts CrowdSec and verifies it (`successfully started and verified`), LAPI is ready, the bouncer key validates, and the first Caddy `/load` completes after the engine start.
-- Migration pass timing (criterion from M2(c), pass 2 under 250 ms): on a copy seeded with 200,000 `request_logs` and 200,000 `uptime_heartbeats` rows, `charon migrate` in the container took about 0.08 s on each of three repeated passes (measured with `/proc/uptime`, 10 ms resolution). The `.schema` text is identical before and after a pass. The unit test `TestMigrateSchema_SecondPassOnPreviousReleaseSchemaChangesNothing` passed in the race run.
+Not run as a local gate: `docker-rebuild-e2e`. That skill rebuilds `charon:local` and injects a changelog fixture into a tracked file. The brief asked to avoid retagging `charon:local`, so the Playwright run used a separate image (see Container gates).
 
-### G3: retired mode key (commits 3 and 4)
+## Container gates (3w.8)
 
-Each case was run on a copy of the throwaway database, with the container stopped, the database replaced, and the state read back after the next stop.
+Throwaway containers, volumes and images used distinct names (`charon-qa-*`, `charon:qa-bouncer`, `charon:qa-prev`). They were removed at the end. The live `charon` and `charon-e2e` containers and the `charon:local` image were not modified.
 
-- Case A (mode `local`, no enabled key, default row disabled): after boot the enabled key is `true`, the mode row is gone, the log line reads `retired: true, source: carried_over`, and the engine starts. PASS.
-- Case B (mode `disabled`, enabled `true`): after boot the enabled key stays `true`, the mode row is gone (source `enabled_key_wins`), and the engine starts. PASS.
-- Case C (emergency reset, then Start, then Stop, through the API): the mode-key count was 0 after the reset, after Start, and after Stop. The reset response listed `security.crowdsec.enabled` among the disabled modules. PASS.
-- Harness note: a database file copied into a container must be owned by uid 1000 (the `charon` user). Two runs with a host-owned copy hit `attempt to write a readonly database (8)`. The retirement step logged the error, rolled back, and left the mode row in place, as the design states. The gate runs above use the corrected ownership.
+| Gate | Check | Result |
+|---|---|---|
+| G1 (#1819 row sync) | Previous image built from `bdd52d144` (`git archive`, no worktree). Seeded the state the previous build leaves behind: setting `security.crowdsec.enabled=true`, default row `disabled`. Previous image boot: reconciliation starts CrowdSec with `mode=local` and the row stays `disabled`. New image boot on the same volume: row becomes `local`, engine starts and verifies, bouncer validated. Restart: row stays `local`, `enabled` column stays `0`, no sync errors. | PASS |
+| G2 (#1808 register keeps saved key) | `POST /api/v1/admin/crowdsec/bouncer/register` with a valid saved key. Key file sha256 identical before and after, key from `GET .../bouncer/key` identical, `cscli bouncers list` still shows one validated bouncer. | PASS |
+| G3 (#1810 re-registration and shutdown) | (a) `cscli bouncers delete`, then restart: boot re-registers, exactly one validated bouncer and a new saved key. (b) A `cscli` shim (throwaway container only, root) slept 8 s on `bouncers add`; SIGTERM via `docker stop -t 45` landed while `add` was running (marker file confirmed). Container exited with code 0 in about 0.9 s from the stop. The next boot found one validated bouncer and a key that validated. | PASS for the end state. Observation: at boot, the process exited about 2 s after SIGTERM, well before the shim's 8 s sleep finished. The boot-time registration is not tracked by the handler registry (the plan records this as a known limit). The shutdown wait therefore covers only handler-initiated registrations. |
+| G4 (#1809 healthy path) | Healthy state reports `registration: "registered"`, `registered: true` through the API. | PARTIAL: API verified. No spec asserts the healthy badge in the UI. The unknown-state badge is covered by the passing Playwright test. |
+| G5 (O1 / #1722) | Container recreated on the same volume with `CHARON_SECURITY_CROWDSEC_API_URL=http://127.0.0.1:9`. Exactly one `warning` line: `CHARON_SECURITY_CROWDSEC_API_URL is ignored for key checks; remove it from docker-compose.yml`. The log line does not contain the URL value. Saved key file hash unchanged. Bouncer still validated, and `GET .../bouncer` reports `registered`. | PASS |
 
-### G4: import into a non-writable configuration folder (commit 5)
+Container gate notes:
+- G3 signal timing: the stop used a grace period of 45 s. The exit-after-about-2-s behavior above is the one place where the observed behavior differs from the plan's "bounded drain" expectation. The plan records boot-time registration as outside the drain, so this matches the stated limit rather than a new defect.
+- The QA stack's compose copy dropped the host Docker socket mount that the E2E compose file includes. That keeps the test app away from the live Docker host.
 
-- Control: an import into the same container, with no locked entry, returned HTTP 200 with `status: imported`. PASS.
-- Locked case: a root-owned `0755` directory holding one file was created inside the configuration folder. The import returned HTTP 500 with `error_code: import_config_not_writable` and the message "Charon cannot change the CrowdSec configuration folder ...". PASS.
-- Logs: one warning `crowdsec import: write failed` with `stage: clear` and the permission error, followed by `crowdsec import rollback failed; backup retained for manual recovery`. PASS.
-- Retained snapshot: `crowdsec.backup.20261103-071452.881014` (100 config files) was kept in the data folder.
-- Observation O1 (see below): the live configuration folder was not restored. The response and log criteria of gate G4 (m8 wording) pass; the original 3u.8 wording expected the configuration to be restored, which did not happen.
+## Security-sensitive notes (hand-back only, no public issue)
 
-### G5: acquisition save (commit 6)
+- Unauthenticated `POST /api/v1/admin/crowdsec/bouncer/register` and `GET /api/v1/admin/crowdsec/bouncer/key` return 401. The admin role gate on these routes was not exercised with a non-admin account.
+- `GET /api/v1/admin/crowdsec/bouncer/key` returns the full bouncer key to an authenticated caller. This predates the branch. It is an existing admin-only behavior, recorded here for awareness.
+- The register endpoint now refuses with 409 `crowdsec_busy` or 503 when busy or shutting down, as the plan records (W-R9). No caller in the repository depends on the removed script's output.
+- No Gotify token strings were found in the branch diff.
+- Forbidden wording check (`lock-out`, `invalidates the key`, `re-register each start`): no matches in the branch diff.
+- Pre-existing observation, not from this branch: after a container restart the reconciliation logs `PID exists but is not CrowdSec (PID recycled)` as a warning at boot. Not investigated further.
 
-- With the configuration folder root-owned `0755` (the Charon user cannot create files in it): `PUT /api/v1/admin/crowdsec/acquisition` returned HTTP 500 with `error_code: acquisition_config_not_writable` and the new text ("Charon cannot save the acquisition file. Most often the folder that holds it is the cause: check that the Charon user can write to that folder ... A read-only file alone does not block a save."). PASS.
-- Restoring the folder and setting only the file to `0444`: the same `PUT` returned HTTP 200 with `status: updated`. PASS.
+## Environment and process notes
 
-## Observations (not gate failures)
+- Live container change, outside this QA: the live `charon` container (`charon:local`) was recreated at `2026-11-03T22:11:23Z` by a Compose project named `containers` (`charon-e2e` was not affected). None of my commands used that project name or that container name. The source of the recreation was not determined. It is healthy now. Please confirm whether another tool (for example the Dockhand updater) triggered it.
+- Seed-state caveat (G1): my first attempts to seed the pre-carry-over shape were disturbed by WAL and file-ownership issues on the copied database, and I did not complete a clean reproduction of the exact legacy `mode=local` shape. The G1 result above uses the state the previous build actually leaves (setting `true`, row `disabled`), which is the state the new sync must repair.
+- `.docker/compose/docker-compose.test.yml` (gitignored, line 29) is the source of the local-only caddy test failure, as the brief states.
+- Frontend branch coverage has a 0.12 point margin over the 85% floor. Keep the new three-state tests in the suite.
 
-- **O1. Rollback after a failed import leaves the configuration incomplete (medium).** After the G4 failure, the live configuration folder held 89 files against 100 in the retained snapshot, and the acquisition file was absent from the live folder until it was restored from the snapshot. The clear step had already removed entries before the restore failed. The response and logs are correct, and the snapshot is retained for recovery. Suggested approach (file as an issue, do not widen this PR): check that every entry can be removed before the first removal, or make the rollback continue past the locked entry, and document the manual recovery path in the troubleshooting page.
-- **O2. Default SecurityConfig row after a carry-over (low).** In case A the enabled key becomes `true` and the engine starts, but the default `security_configs` row still reads `enabled=0`, `crowd_sec_mode=disabled`. The status endpoint reports `crowdsec.enabled: true, mode: local`, so the visible state is consistent. Suggested approach: confirm whether the row should be updated at carry-over and, if so, add a case to the startup test table.
-- **O3. Frontend lint warnings.** `frontend-lint` reports 1359 warnings and 0 errors. Not blocking; the warnings are not from this branch's new files alone (not compared against the development baseline).
-- **O4. Existing scripts call `python3` internally.** `scripts/frontend-test-coverage.sh` and the key-generation fallback in `scripts/go-test-coverage.sh` invoke `python3`. This branch adds no Python.
+## Remediation order
 
-## Environment
-
-- Host: Docker (rootless daemon on the user socket). Images built with the repository `Dockerfile`: `charon:qa-boot-tidy` (branch) and `charon:qa-boot-base` (`02003edb9`, from `git archive`). Both removed after the run.
-- Throwaway containers used loopback-only host ports (18701 to 18704), then were removed. The E2E stack used a compose copy with project name `qa-e2e`, container `qa-e2e` and the branch image, on ports 8080, 8180, 2019 (loopback) and 2020. It was removed with its volumes after the Playwright runs.
-- Local tooling: Go 1.27.3, Node 24.22.2, Docker Compose v5.7.0, Playwright 1.64.1, lefthook, shellcheck, actionlint, markdownlint, sqlite3.
-- CodeQL and Trivy were not run locally (see the gate table).
-
-## Next Steps
-
-1. B1 is resolved (see above); no open blockers.
-2. File O1 and O2 as issues (not in this PR), with the suggested approaches above.
-3. Re-run the `security-tests` specs in CI on the PR; the isolated stack was run here on Chromium only, as the config requires.
+1. B1: fix the two lint findings and re-run the pinned golangci-lint command to 0 issues.
+2. B2: make the output-limit timing test independent of wall time under load (existing `development` test; fix in this PR per CLAUDE.md).
+3. B3: decide the race-run policy for the perf asserts (CI-side or race-aware budget).
+4. Run the docs build with `zensical` available, or confirm the docs CI job covers it.
+5. Confirm the live container recreation source (owner action).
