@@ -684,13 +684,23 @@ environment:
 
 ---
 
+## Proxy Admin Interface
+
+Charon bundles its own Caddy (the engine that sends traffic to your sites) inside the same container. Caddy has an admin interface on port 2019 that Charon uses to update the proxy's settings.
+
+This interface listens on the loopback address only. Think of it as a staff-only door inside a building: only programs running inside the same container can use it. Computers on your network and on the internet cannot.
+
+You do not need to set anything up. Charon handles this for you.
+
+---
+
 ## Emergency Server Security
 
 ### Why Port 2020 Should NEVER Be Publicly Exposed
 
 The emergency server is designed as a **failsafe access mechanism** with minimal security controls. Exposing it to the public internet creates a high-risk attack surface.
 
-**Note:** Port 2020 is used for the emergency server to avoid conflict with Caddy's admin API on port 2019.
+**Note:** The emergency server uses port 2020. The proxy admin interface on port 2019 is separate and listens on the loopback address only (see [Proxy Admin Interface](#proxy-admin-interface)).
 
 **Risks of public exposure:**
 
@@ -1364,7 +1374,6 @@ services:
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
-      - CHARON_CADDY_ADMIN_API=http://localhost:2019
       - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
       - CHARON_CADDY_BINARY=caddy
       - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
