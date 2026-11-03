@@ -144,7 +144,16 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		logger.Log().WithError(repairErr).Warn("CrowdSec reconciliation: failed to repair default SecurityConfig name, continuing")
 	}
 
+	// Keep the default row in step with the enabled setting before the decision reads it. A failed sync is only logged:
+	// models.CrowdSecEnabled prefers the setting, so the decision does not depend on the row write.
 	cfg, findErr := models.FindDefaultSecurityConfig(db)
+	if findErr == nil {
+		synced, syncErr := models.SyncCrowdSecRowToSetting(db, cfg)
+		if syncErr != nil {
+			logger.Log().WithError(syncErr).Warn("CrowdSec reconciliation: failed to sync default SecurityConfig to the CrowdSec setting, continuing")
+		}
+		cfg = synced
+	}
 	if findErr != nil {
 		if !errors.Is(findErr, gorm.ErrRecordNotFound) {
 			logger.Log().WithError(findErr).Warn("CrowdSec reconciliation: failed to read SecurityConfig")
