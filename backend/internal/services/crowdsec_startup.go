@@ -129,14 +129,16 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 	// anything (including the engine) reads the configuration. This runs whatever the CrowdSec mode is.
 	recoverInterruptedInstalls(db, dataDir)
 
-	// Check if SecurityConfig table exists and has a record with CrowdSecMode = "local"
+	// main runs routes.MigrateSchema before this function, so a missing table means the migration did not complete
+	// or the file is not a Charon database. The guard stays so that a broken schema is reported, not panicked on.
 	if !db.Migrator().HasTable(&models.SecurityConfig{}) {
-		logger.Log().Warn("CrowdSec reconciliation skipped: SecurityConfig table not found - run 'charon migrate' to fix")
+		logger.Log().Warn("CrowdSec reconciliation skipped: the SecurityConfig table is missing; the schema migration did not complete or this is not a Charon database")
 		return
 	}
 
 	// Repair legacy-named rows before reading the default row, so the check below never acts on a stale copy.
-	// Routes migration and seeding run after this function, so this call is needed on the first boot after upgrade.
+	// RegisterWithDeps seeds the default row only after this function runs, so this repair is what keeps the
+	// legacy row readable here on the first boot after an upgrade.
 	if repairErr := models.RepairDefaultSecurityConfigName(db); repairErr != nil {
 		logger.Log().WithError(repairErr).Warn("CrowdSec reconciliation: failed to repair default SecurityConfig name, continuing")
 	}

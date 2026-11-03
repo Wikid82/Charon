@@ -137,44 +137,7 @@ func main() {
 			}
 
 			logger.Log().Info("Running database migrations for all models...")
-			if err := db.AutoMigrate(
-				// Core models
-				&models.ProxyGroup{},
-				&models.ProxyHost{},
-				&models.Location{},
-				&models.CaddyConfig{},
-				&models.RemoteServer{},
-				&models.SSLCertificate{},
-				&models.AccessList{},
-				&models.SecurityHeaderProfile{},
-				&models.User{},
-				&models.Setting{},
-				&models.ImportSession{},
-				&models.Notification{},
-				&models.NotificationProvider{},
-				&models.NotificationTemplate{},
-				&models.NotificationConfig{},
-				&models.UptimeMonitor{},
-				&models.UptimeHeartbeat{},
-				&models.UptimeHost{},
-				&models.UptimeNotificationEvent{},
-				&models.Domain{},
-				&models.UserPermittedHost{},
-				// Security models
-				&models.SecurityConfig{},
-				&models.SecurityDecision{},
-				&models.SecurityAudit{},
-				&models.SecurityRuleSet{},
-				&models.CrowdsecPresetEvent{},
-				&models.CrowdsecConsoleEnrollment{},
-				&models.CrowdsecApplyJob{},
-				&models.EmergencyToken{}, // Phase 2: Database-backed emergency tokens
-				// DNS Provider models (Issue #21)
-				&models.DNSProvider{},
-				&models.DNSProviderCredential{},
-				// Plugin model (Phase 5)
-				&models.Plugin{},
-			); err != nil {
+			if err := routes.MigrateSchema(db); err != nil {
 				log.Fatalf("migration failed: %v", err)
 			}
 
@@ -260,12 +223,16 @@ func main() {
 		log.Fatalf("connect database: %v", err)
 	}
 
-	// Note: All database migrations are centralized in routes.Register()
-	// This ensures migrations run exactly once and in the correct order.
-	// DO NOT add AutoMigrate calls here - they cause "duplicate column" errors.
+	// Create or update the schema before the CrowdSec startup check reads it. RegisterWithDeps runs the same
+	// migration again later (a no-op on an up-to-date schema) before it seeds defaults and registers routes.
+	// The model list lives in routes.MigrateSchema only, so this call and the migrate command cannot drift.
+	if err = routes.MigrateSchema(db); err != nil {
+		log.Fatalf("migration failed: %v", err)
+	}
 
-	// Reconcile CrowdSec state after migrations, before HTTP server starts
-	// This ensures CrowdSec is running if user preference was to have it enabled
+	// Reconcile CrowdSec state after the schema exists and before the HTTP server starts, so CrowdSec is running
+	// if the user preference was to have it enabled. This must stay before RegisterWithDeps, which starts the
+	// first Caddy apply.
 	crowdsecBinPath := os.Getenv("CHARON_CROWDSEC_BIN")
 	if crowdsecBinPath == "" {
 		crowdsecBinPath = "/usr/local/bin/crowdsec"
