@@ -63,7 +63,7 @@ func TestRetiredCrowdSecModeSetting_NoNewWriterOrReader(t *testing.T) {
 		}
 		rel = filepath.ToSlash(rel)
 
-		content, readErr := os.ReadFile(path)
+		content, readErr := os.ReadFile(path) //nolint:gosec // G304: path comes from walking the repository's own source tree
 		if readErr != nil {
 			return readErr
 		}
