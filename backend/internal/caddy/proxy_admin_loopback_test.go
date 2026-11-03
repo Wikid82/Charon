@@ -19,9 +19,9 @@ import (
 // does not rebind the admin interface.
 var adminBootstrapPattern = regexp.MustCompile(`"admin":\{"listen":"127\.0\.0\.1:2019"\}`)
 
-// adminAllInterfacesLiteral is the admin bind on every interface. No shipped file
+// adminDisallowedLiteral is the admin bind on every interface. No shipped file
 // may contain it.
-const adminAllInterfacesLiteral = "0.0.0.0:2019"
+const adminDisallowedLiteral = "0.0.0.0:2019"
 
 // adminURLVariablePattern matches a shipped file that sets the admin URL variable.
 var adminURLVariablePattern = regexp.MustCompile(`(CHARON|CPM)_CADDY_ADMIN_API`)
@@ -54,7 +54,7 @@ func TestProxyAdminAddressIsLoopbackOnly(t *testing.T) {
 		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		violations = append(violations, scanFileLines(t, path, root, regexp.MustCompile(regexp.QuoteMeta(adminAllInterfacesLiteral)))...)
+		violations = append(violations, scanFileLines(t, path, root, regexp.MustCompile(regexp.QuoteMeta(adminDisallowedLiteral)))...)
 		return nil
 	})
 	require.NoError(t, walkErr)
@@ -64,8 +64,21 @@ func TestProxyAdminAddressIsLoopbackOnly(t *testing.T) {
 	require.NoError(t, err)
 	shipped = append(shipped, composes...)
 	for _, path := range shipped {
-		violations = append(violations, scanFileLines(t, path, root, regexp.MustCompile(regexp.QuoteMeta(adminAllInterfacesLiteral)))...)
+		violations = append(violations, scanFileLines(t, path, root, regexp.MustCompile(regexp.QuoteMeta(adminDisallowedLiteral)))...)
 	}
+
+	// Every file under configs/ ships in the repository, so each one is scanned.
+	configsErr := filepath.WalkDir(filepath.Join(root, "configs"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		violations = append(violations, scanFileLines(t, path, root, regexp.MustCompile(regexp.QuoteMeta(adminDisallowedLiteral)))...)
+		return nil
+	})
+	require.NoError(t, configsErr)
 
 	if len(violations) > 0 {
 		t.Errorf("the admin interface must listen on the loopback address only; found:\n  %s",

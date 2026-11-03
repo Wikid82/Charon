@@ -364,6 +364,10 @@ func TestLoad_CaddyAdminAPIRefusesAnotherHost(t *testing.T) {
 		{name: "service name with allowlist", raw: "http://caddy:2019", allowlist: "caddy"},
 		{name: "shortened loopback address", raw: "http://127.1:2019"},
 		{name: "wildcard address", raw: "http://0.0.0.0:2019"},
+		{name: "trailing-dot localhost", raw: "http://localhost.:2019"},
+		{name: "trailing-dot loopback address", raw: "http://127.0.0.1.:2019"},
+		{name: "expanded ipv6 loopback", raw: "http://[0:0:0:0:0:0:0:1]:2019"},
+		{name: "ipv4-mapped loopback address", raw: "http://[::ffff:127.0.0.1]:2019"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -379,13 +383,70 @@ func TestLoad_CaddyAdminAPIRefusesAnotherHost(t *testing.T) {
 }
 
 func TestLoad_CaddyAdminAPIRejectsWrongPort(t *testing.T) {
-	setCaddyAdminTestEnv(t, "http://localhost:2020")
+	cases := []string{
+		"http://localhost:2020",
+		"http://127.0.0.1:2020",
+	}
+	for _, raw := range cases {
+		t.Run(raw, func(t *testing.T) {
+			setCaddyAdminTestEnv(t, raw)
+
+			_, err := Load()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unexpected port")
+		})
+	}
+}
+
+func TestLoad_CaddyAdminAPIRejectsPortOnlyForms(t *testing.T) {
+	// A bare ":2020" does not parse as a URL. A host-less URL is refused as a
+	// non-loopback host because its host is empty.
+	cases := []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{name: "bare port", raw: ":2020", wantErr: "invalid url format"},
+		{name: "host-less url with port", raw: "http://:2020", wantErr: wantCaddyAdminRefusal},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setCaddyAdminTestEnv(t, tc.raw)
+
+			_, err := Load()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestLoad_CaddyAdminAPIRejectsMissingPort(t *testing.T) {
+	setCaddyAdminTestEnv(t, "http://localhost")
 
 	_, err := Load()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unexpected port")
+	assert.Contains(t, err.Error(), "unexpected port: 80")
 }
 
+func TestLoad_CaddyAdminAPIRejectsEmbeddedCredentials(t *testing.T) {
+	setCaddyAdminTestEnv(t, "http://user@localhost:2019")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded credentials")
+	assert.NotContains(t, err.Error(), wantCaddyAdminRefusal)
+}
+
+func TestLoad_CaddyAdminAPINormalizesHTTPSLoopbackToHTTP(t *testing.T) {
+	setCaddyAdminTestEnv(t, "https://localhost:2019")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
+}
+
+// This test writes the package-level CaddyAdminAPIForTests seam, so it must not
+// call t.Parallel.
 func TestLoad_CaddyAdminAPITestOverride(t *testing.T) {
 	setCaddyAdminTestEnv(t, "")
 	previous := CaddyAdminAPIForTests
