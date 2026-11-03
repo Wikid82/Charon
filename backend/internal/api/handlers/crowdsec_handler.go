@@ -172,6 +172,8 @@ type CrowdsecHandler struct {
 	keyCheckWait time.Duration
 	// keyCheck is the LAPI check of the key decision; nil means bouncerkey.Check. Tests set it to answer from a stub.
 	keyCheck func(context.Context, bouncerkey.Doer, string, bouncerkey.CheckOptions) bouncerkey.Verdict
+	// replaceTimings are the bouncer swap budgets; a zero value means the defaults. Tests shorten them.
+	replaceTimings crowdsec.ReplaceTimings
 
 	// envKeyRejected tracks whether the env var key was rejected by LAPI
 	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
@@ -2079,14 +2081,15 @@ func (h *CrowdsecHandler) bouncerRegistration(ctx context.Context) registrationS
 }
 
 // registerBouncer replaces the caddy-bouncer registration and returns the new key. It does not save the key;
-// ensureBouncerRegistration saves whatever Ensure chooses. The swap is counted in the registration drain, so
-// shutdown waits for it (see WaitRegistrations).
+// ensureBouncerRegistration saves whatever Ensure chooses. Only the swap is counted in the registration drain, so
+// shutdown waits for the swap (see WaitRegistrations). Saving the returned key runs in ensureBouncerRegistration
+// after this returns, outside the drain.
 func (h *CrowdsecHandler) registerBouncer(ctx context.Context) (string, error) {
 	if !h.beginRegistration() {
 		return "", errRegistrationRefused
 	}
 	defer h.endRegistration()
-	return crowdsec.ReplaceBouncer(ctx, h.runCSCLI, bouncerName)
+	return crowdsec.ReplaceBouncerWith(ctx, h.runCSCLI, bouncerName, h.replaceTimings)
 }
 
 // validateAPIKeyFormat validates the API key format for security.

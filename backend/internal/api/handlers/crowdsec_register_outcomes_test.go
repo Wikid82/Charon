@@ -7,10 +7,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
@@ -132,7 +134,9 @@ func TestRegisterBouncerKeepsTheSavedKeyWhenLAPIIsDown(t *testing.T) {
 	assert.Equal(t, []string{"list"}, cscliVerbs(ex), "no bouncer is deleted or added while LAPI cannot answer")
 }
 
-func TestRegisterBouncerReportsAnUnreadableListAsNotRegistered(t *testing.T) {
+// TestRegisterBouncerReportsAnUnknownRegistrationAsNotRegistered: the list cannot be read, so the state is unknown
+// and registered is false, even though the key check accepted the saved key.
+func TestRegisterBouncerReportsAnUnknownRegistrationAsNotRegistered(t *testing.T) {
 	ex := registerCSCLI("", nil, "", errors.New("exit status 1"))
 	h := newRegisterFixture(t, ex, map[string]bouncerkey.Verdict{regSavedKey: bouncerkey.VerdictAccepted})
 	writeSavedKey(t, h.bouncerKeyPath(), regSavedKey)
@@ -194,6 +198,33 @@ func TestRegisterBouncerTimeoutIsA504(t *testing.T) {
 
 	require.Equal(t, http.StatusGatewayTimeout, w.Code, w.Body.String())
 	assert.Equal(t, "cscli_timeout", pr4Body(t, w)["error_code"])
+}
+
+// TestRegisterBouncerReplaceBudgetExpiryIsA504 hangs every add, so the swap ends on its total budget (shortened
+// here) and not on a step cap. The error must still map to the coded 504, not a 500.
+func TestRegisterBouncerReplaceBudgetExpiryIsA504(t *testing.T) {
+	ex := &pr4Exec{respond: func(ctx context.Context, args []string) ([]byte, error) {
+		a := pr4StripConfig(args)
+		if len(a) >= 2 && a[1] == "add" {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return []byte("deleted\n"), nil
+	}}
+	h := newRegisterFixture(t, ex, nil)
+	h.replaceTimings = crowdsec.ReplaceTimings{
+		Delete:      10 * time.Millisecond,
+		Add:         100 * time.Millisecond,
+		RetryDelete: 10 * time.Millisecond,
+		RetryAdd:    100 * time.Millisecond,
+		Total:       50 * time.Millisecond,
+	}
+
+	w := pr4Serve(pr4Router(h), http.MethodPost, registerBouncerURL, "")
+
+	require.Equal(t, http.StatusGatewayTimeout, w.Code, w.Body.String())
+	assert.Equal(t, "cscli_timeout", pr4Body(t, w)["error_code"])
+	assert.NoFileExists(t, h.bouncerKeyPath())
 }
 
 func TestRegistrationPreviewIsEmptyWithoutAKey(t *testing.T) {

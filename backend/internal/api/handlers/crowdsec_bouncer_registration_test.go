@@ -89,6 +89,18 @@ func TestGetBouncerInfoRegistrationValues(t *testing.T) {
 	}
 }
 
+// TestGetBouncerInfoMasksAKeyTooShortToPreview: a key of seven characters or fewer has no first-and-last preview,
+// so only the mask is reported.
+func TestGetBouncerInfoMasksAKeyTooShortToPreview(t *testing.T) {
+	t.Setenv("CROWDSEC_API_KEY", "short7")
+
+	h := &CrowdsecHandler{CmdExec: &mockCmdExecutor{output: []byte(`null`)}}
+
+	body := getBouncerInfoBody(t, h)
+
+	assert.Equal(t, "***", body["key_preview"])
+}
+
 // getBouncerInfoBody calls GetBouncerInfo and returns the decoded JSON body.
 func getBouncerInfoBody(t *testing.T, h *CrowdsecHandler) map[string]any {
 	t.Helper()

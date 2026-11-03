@@ -85,21 +85,23 @@ func (r *replayRunner) snapshot() []replayCall {
 	return append([]replayCall(nil), r.calls...)
 }
 
-// shortenReplaceBudget sets the step budgets for one test and restores the defaults afterwards.
-func shortenReplaceBudget(t *testing.T, budget, deleteStep, addStep, retryDeleteStep, retryAddStep time.Duration) {
-	t.Helper()
-	prevBudget, prevDel, prevAdd, prevRetryDel, prevRetryAdd := replaceBudget, replaceDeleteTimeout, replaceAddTimeout, replaceRetryDeleteTimeout, replaceRetryAddTimeout
-	replaceBudget, replaceDeleteTimeout, replaceAddTimeout = budget, deleteStep, addStep
-	replaceRetryDeleteTimeout, replaceRetryAddTimeout = retryDeleteStep, retryAddStep
-	t.Cleanup(func() {
-		replaceBudget, replaceDeleteTimeout, replaceAddTimeout = prevBudget, prevDel, prevAdd
-		replaceRetryDeleteTimeout, replaceRetryAddTimeout = prevRetryDel, prevRetryAdd
-	})
+// shortTimings returns the four step budgets and the total, for tests that must not wait the real 25 s.
+func shortTimings(total, deleteStep, addStep, retryDeleteStep, retryAddStep time.Duration) ReplaceTimings {
+	return ReplaceTimings{Delete: deleteStep, Add: addStep, RetryDelete: retryDeleteStep, RetryAdd: retryAddStep, Total: total}
 }
 
 func TestReplaceBouncer_BudgetMatchesTheStepSum(t *testing.T) {
-	assert.Equal(t, 25*time.Second, replaceBudget)
-	assert.Equal(t, replaceBudget, replaceDeleteTimeout+replaceAddTimeout+replaceRetryDeleteTimeout+replaceRetryAddTimeout)
+	def := DefaultReplaceTimings()
+	assert.Equal(t, 25*time.Second, def.Total)
+	assert.Equal(t, def.Total, def.Delete+def.Add+def.RetryDelete+def.RetryAdd)
+}
+
+func TestReplaceBouncerWith_ZeroFieldsTakeTheDefaults(t *testing.T) {
+	assert.Equal(t, DefaultReplaceTimings(), ReplaceTimings{}.withDefaults())
+
+	partial := ReplaceTimings{Add: time.Second}.withDefaults()
+	assert.Equal(t, time.Second, partial.Add, "a set field is kept")
+	assert.Equal(t, DefaultReplaceTimings().Delete, partial.Delete, "an unset field takes its default")
 }
 
 func TestReplaceBouncer_DeletesThenAddsAndReturnsTrimmedKey(t *testing.T) {
@@ -189,13 +191,14 @@ func TestReplaceBouncer_EmptyKeyIsAFailureOnBothPasses(t *testing.T) {
 
 func TestReplaceBouncer_StepDeadlinesAreTheStatedValues(t *testing.T) {
 	r := &replayRunner{adds: []addResult{{err: errors.New("exit status 1")}}}
+	def := DefaultReplaceTimings()
 
 	_, err := ReplaceBouncer(context.Background(), r.run, "caddy-bouncer")
 
 	require.NoError(t, err)
 	calls := r.snapshot()
 	require.Len(t, calls, 4)
-	want := []time.Duration{replaceDeleteTimeout, replaceAddTimeout, replaceRetryDeleteTimeout, replaceRetryAddTimeout}
+	want := []time.Duration{def.Delete, def.Add, def.RetryDelete, def.RetryAdd}
 	for i, c := range calls {
 		require.True(t, c.hasDeadline, "call %d has a deadline", i)
 		assert.Equal(t, want[i], c.timeout, "call %d timeout argument", i)
@@ -206,14 +209,11 @@ func TestReplaceBouncer_StepDeadlinesAreTheStatedValues(t *testing.T) {
 }
 
 func TestReplaceBouncer_HungAddIsCutAtItsStepTimeoutAndRetried(t *testing.T) {
-	shortenReplaceBudget(t, 5*time.Second, 5*time.Second, 50*time.Millisecond, 5*time.Second, 30*time.Millisecond)
 	r := &replayRunner{hangAdd: true}
 
-	start := time.Now()
-	_, err := ReplaceBouncer(context.Background(), r.run, "caddy-bouncer")
+	_, err := ReplaceBouncerWith(context.Background(), r.run, "caddy-bouncer", shortTimings(5*time.Second, 5*time.Second, 50*time.Millisecond, 5*time.Second, 30*time.Millisecond))
 
 	require.Error(t, err)
-	assert.Less(t, time.Since(start), 2*time.Second)
 	calls := r.snapshot()
 	require.Len(t, calls, 4)
 	assert.Equal(t, 50*time.Millisecond, calls[1].timeout)
@@ -221,12 +221,31 @@ func TestReplaceBouncer_HungAddIsCutAtItsStepTimeoutAndRetried(t *testing.T) {
 }
 
 func TestReplaceBouncer_TotalBudgetCapsTheWholeSequence(t *testing.T) {
-	shortenReplaceBudget(t, 150*time.Millisecond, 2*time.Second, 2*time.Second, 2*time.Second, 2*time.Second)
 	r := &replayRunner{hangAdd: true}
 
 	start := time.Now()
-	_, err := ReplaceBouncer(context.Background(), r.run, "caddy-bouncer")
+	_, err := ReplaceBouncerWith(context.Background(), r.run, "caddy-bouncer", shortTimings(150*time.Millisecond, 2*time.Second, 2*time.Second, 2*time.Second, 2*time.Second))
 
 	require.Error(t, err)
 	assert.Less(t, time.Since(start), 1500*time.Millisecond, "the budget ends the sequence, not the per-step caps")
+}
+
+// TestReplaceBouncer_BothAddsHangStaysWithinTheTotal runs both passes with every add hung. Each add waits for its
+// own context, so the elapsed time is set by the budgets alone, and every call's deadline falls inside the total.
+func TestReplaceBouncer_BothAddsHangStaysWithinTheTotal(t *testing.T) {
+	const total = 100 * time.Millisecond
+	const slack = 500 * time.Millisecond
+	r := &replayRunner{hangAdd: true}
+
+	start := time.Now()
+	_, err := ReplaceBouncerWith(context.Background(), r.run, "caddy-bouncer", shortTimings(total, 20*time.Millisecond, 60*time.Millisecond, 20*time.Millisecond, 60*time.Millisecond))
+
+	require.Error(t, err)
+	assert.Less(t, time.Since(start), total+slack, "the sequence ends within its total budget")
+	calls := r.snapshot()
+	require.Len(t, calls, 4)
+	for i, c := range calls {
+		require.True(t, c.hasDeadline, "call %d has a deadline", i)
+		assert.LessOrEqual(t, c.deadline.Sub(start), total+slack, "call %d deadline is inside the total", i)
+	}
 }

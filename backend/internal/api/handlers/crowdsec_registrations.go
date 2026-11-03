@@ -37,6 +37,8 @@ func (h *CrowdsecHandler) WaitRegistrations(ctx context.Context) error {
 	h.registrationsClosed = true
 	h.registrationGate.Unlock()
 
+	// The goroutine lets the wait stop at ctx.Done(). It exits once the in-flight registrations finish, so a timed-out
+	// wait leaves it running only until then; it holds no lock and no resource beyond the WaitGroup.
 	done := make(chan struct{})
 	go func() {
 		h.registrations.Wait()

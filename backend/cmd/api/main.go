@@ -358,14 +358,7 @@ func main() {
 	runConcurrently(
 		func() {
 			shutdownDrain(gate, dbmaint.ShutdownRunnerWait, func() {
-				if uptimeShutdown == nil {
-					return
-				}
-				drainCtx, drainCancel := context.WithTimeout(context.Background(), 25*time.Second)
-				defer drainCancel()
-				if drainErr := uptimeShutdown(drainCtx); drainErr != nil {
-					logger.Log().WithError(drainErr).Warn("uptime pipeline did not drain within grace period")
-				}
+				drainUptime(uptimeShutdown, uptimeDrainTimeout)
 			})
 		},
 		func() { drainRegistrations(registered.CrowdSec) },

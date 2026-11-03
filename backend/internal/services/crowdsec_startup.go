@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -166,22 +165,12 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 			logger.Log().WithError(seedErr).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
 			return
 		}
-		cfg = *seeded
-
-		var settingOverride struct{ Value string }
-		if rawErr := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; rawErr == nil && settingOverride.Value != "" {
-			logger.Log().WithFields(map[string]any{
-				"setting_value": settingOverride.Value,
-				"enabled":       strings.EqualFold(settingOverride.Value, "true"),
-			}).Info("CrowdSec reconciliation: found existing Settings table preference")
-			if strings.EqualFold(settingOverride.Value, "true") && cfg.CrowdSecMode != "local" {
-				if updErr := db.Model(&cfg).Update("crowd_sec_mode", "local").Error; updErr != nil {
-					logger.Log().WithError(updErr).Error("CrowdSec reconciliation: failed to set crowd_sec_mode from Settings preference")
-					return
-				}
-				cfg.CrowdSecMode = "local"
-			}
+		// The same sync as above, so the seeded row follows the setting. It is a no-op when the setting is absent.
+		synced, syncErr := models.SyncCrowdSecRowToSetting(db, *seeded)
+		if syncErr != nil {
+			logger.Log().WithError(syncErr).Warn("CrowdSec reconciliation: failed to sync seeded SecurityConfig to the CrowdSec setting, continuing")
 		}
+		cfg = synced
 
 		logger.Log().WithFields(map[string]any{
 			"crowdsec_mode": cfg.CrowdSecMode,

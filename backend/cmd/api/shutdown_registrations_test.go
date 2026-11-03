@@ -64,14 +64,33 @@ func TestRunConcurrently_StepsStartBeforeEitherFinishes(t *testing.T) {
 	assert.True(t, bSawA, "step b ran while step a was running")
 }
 
+// TestRunConcurrently_ReturnsOnlyAfterEveryStep holds two steps on channels. The helper must not return while either
+// is still blocked; the release order is driven by the test, so no sleep is involved.
 func TestRunConcurrently_ReturnsOnlyAfterEveryStep(t *testing.T) {
-	done := make([]bool, 3)
-	runConcurrently(
-		func() { time.Sleep(20 * time.Millisecond); done[0] = true },
-		func() { done[1] = true },
-		func() { time.Sleep(5 * time.Millisecond); done[2] = true },
-	)
-	assert.Equal(t, []bool{true, true, true}, done)
+	releaseA, releaseC := make(chan struct{}), make(chan struct{})
+	returned := make(chan struct{})
+	go func() {
+		runConcurrently(
+			func() { <-releaseA },
+			func() {},
+			func() { <-releaseC },
+		)
+		close(returned)
+	}()
+
+	close(releaseA)
+	select {
+	case <-returned:
+		t.Fatal("runConcurrently returned while a step was still running")
+	default:
+	}
+
+	close(releaseC)
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runConcurrently did not return after every step finished")
+	}
 }
 
 func TestRunConcurrently_NoStepsReturns(_ *testing.T) {

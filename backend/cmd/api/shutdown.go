@@ -28,6 +28,23 @@ func shutdownDrain(runner runnerWaiter, runnerWait time.Duration, steps ...func(
 	}
 }
 
+// uptimeDrainTimeout bounds the uptime pipeline drain at shutdown. It runs alongside the registration drain, so the
+// two waits overlap rather than add up.
+const uptimeDrainTimeout = 25 * time.Second
+
+// drainUptime runs the uptime pipeline's shutdown function under a deadline of timeout. A nil function means there is
+// no uptime pipeline, so there is nothing to drain. A drain that fails or runs out of time is logged, not returned.
+func drainUptime(fn func(context.Context) error, timeout time.Duration) {
+	if fn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := fn(ctx); err != nil {
+		logger.Log().WithError(err).Warn("uptime pipeline did not drain within grace period")
+	}
+}
+
 // registrationDrainTimeout bounds the wait for bouncer registrations in flight at shutdown. A swap takes two
 // local cscli calls, so the wait is normally empty; the bound keeps shutdown inside the container stop grace.
 const registrationDrainTimeout = 30 * time.Second
