@@ -446,6 +446,10 @@ const msgImportFlatArchive = "the archive keeps its configuration at the top lev
 // msgKeepCurrentFiles is the fixed message for an import that could not keep the current files.
 const msgKeepCurrentFiles = "failed to keep the current CrowdSec files"
 
+// msgImportConfigNotWritable is the fixed message for an import that could not change the configuration folder
+// because of a permission or read-only failure. It names the folder, which is what the operator fixes.
+const msgImportConfigNotWritable = "Charon cannot change the CrowdSec configuration folder. Check that the Charon user owns it and can write to it, and that it is not mounted read-only."
+
 // Stable error_code values of the import refusals, next to the English error text. The UI translates
 // them; the codes are part of the API and must not be renamed.
 const (
@@ -465,6 +469,9 @@ const (
 	codeImportConfigNotFound = "import_config_not_found"
 	// codeImportConfigInvalid: the engine itself refused the imported configuration (msgImportConfigInvalid).
 	codeImportConfigInvalid = "import_config_invalid"
+	// codeImportConfigNotWritable: a permission or read-only failure stopped the import from changing the
+	// configuration folder (msgImportConfigNotWritable).
+	codeImportConfigNotWritable = "import_config_not_writable"
 )
 
 // msgImportConfigInvalid is the fixed message for an import the engine refused. The engine's output is logged
@@ -497,7 +504,7 @@ const (
 // Acquisition error messages. The generic write message is shared with the failure paths that carry no code.
 const (
 	msgAcquisitionUnreadable  = "Charon cannot read the acquisition file. Check that the Charon user can read it (owner and mode)."
-	msgAcquisitionNotWritable = "Charon cannot write the acquisition file or its backup. Check the owner and mode of the file and its folder."
+	msgAcquisitionNotWritable = "Charon cannot save the acquisition file. Most often the folder that holds it is the cause: check that the Charon user can write to that folder, and that it is not mounted read-only. A read-only file alone does not block a save."
 	msgAcquisitionWriteFailed = "failed to write acquisition config"
 )
 
@@ -883,6 +890,42 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 	})
 }
 
+// importStage names a write step of ImportConfig. The name goes into the log line; the text is the English error
+// answered for a failure that is not a permission problem. configFolder marks the steps that write into the
+// configuration folder (or the snapshot beside it): only their permission failures get the coded answer.
+type importStage struct {
+	name         string
+	text         string
+	configFolder bool
+}
+
+var (
+	importStageTempDir = importStage{name: "temp dir", text: "failed to create temp dir"}
+	importStageUpload  = importStage{name: "upload", text: "failed to save upload"}
+	importStageBackup  = importStage{name: "backup", text: "failed to create backup", configFolder: true}
+	importStageClear   = importStage{name: "clear", text: "failed to clear the CrowdSec configuration", configFolder: true}
+	importStageExtract = importStage{name: "extract", text: "extraction failed", configFolder: true}
+)
+
+// clearConfigKeeping empties the configuration folder except the kept entries. It is a seam so tests can force
+// the clear step to fail without a real permission problem.
+var clearConfigKeeping = crowdsec.ClearConfigKeeping
+
+// saveUploadedFile writes the uploaded archive to dst. It is a seam so tests can force the upload write to fail.
+var saveUploadedFile = (*gin.Context).SaveUploadedFile
+
+// respondImportWriteFailure logs the cause of a failed import write (with its stage) and answers it. A permission
+// or read-only failure in the configuration folder is answered with import_config_not_writable; any other cause
+// keeps the stage text, so the response never claims a permission problem it cannot see.
+func respondImportWriteFailure(c *gin.Context, stage importStage, err error) {
+	logger.Log().WithField("stage", stage.name).WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec import: write failed")
+	if stage.configFolder && isAccessError(err) {
+		respondCoded(c, http.StatusInternalServerError, codeImportConfigNotWritable, msgImportConfigNotWritable, nil)
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": stage.text})
+}
+
 // ImportConfig accepts a tar.gz upload and replaces the CrowdSec configuration in DataDir. The previous
 // configuration is snapshotted first and restored on failure; server-local state (live db, data/,
 // hub_cache/, installed hub items) is never replaced and DataDir itself is never renamed.
@@ -900,14 +943,14 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	tmpDir := os.TempDir()
 	tmpPath := filepath.Join(tmpDir, fmt.Sprintf("crowdsec-import-%d", time.Now().UnixNano()))
 	if err = os.MkdirAll(tmpPath, 0o750); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp dir"})
+		respondImportWriteFailure(c, importStageTempDir, err)
 		return
 	}
 	defer func() { _ = os.RemoveAll(tmpPath) }()
 
 	dst := filepath.Join(tmpPath, file.Filename)
-	if err = c.SaveUploadedFile(file, dst); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save upload"})
+	if err = saveUploadedFile(c, file, dst); err != nil {
+		respondImportWriteFailure(c, importStageUpload, err)
 		return
 	}
 
@@ -959,7 +1002,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 
 	backupDir, err := crowdsec.Snapshot(h.DataDir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
+		respondImportWriteFailure(c, importStageBackup, err)
 		return
 	}
 	defer h.pruneSnapshots()
@@ -976,18 +1019,17 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 
 	// Replace the configuration but keep server-local state: engine-owned data, stored account details,
 	// the installed hub tree and every symlink in the live tree (installed hub items).
-	if err := crowdsec.ClearConfigKeeping(h.DataDir, keep); err != nil {
+	if err := clearConfigKeeping(h.DataDir, keep); err != nil {
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
+		respondImportWriteFailure(c, importStageClear, err)
 		return
 	}
 
 	// Extract archive
 	extractErr := h.extractArchive(dst, h.DataDir, keep)
 	if extractErr != nil {
-		logger.Log().WithField("error", sanitizeForLog(extractErr.Error())).Warn("crowdsec import extraction failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "extraction failed"})
+		respondImportWriteFailure(c, importStageExtract, extractErr)
 		return
 	}
 
@@ -2435,7 +2477,7 @@ func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
 			return
 		}
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to read acquisition config")
-		if acquisitionAccessError(err) {
+		if isAccessError(err) {
 			respondCoded(c, http.StatusInternalServerError, codeAcquisitionUnreadable, msgAcquisitionUnreadable, nil)
 			return
 		}

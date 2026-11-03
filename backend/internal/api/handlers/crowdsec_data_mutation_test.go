@@ -355,7 +355,7 @@ func TestImportConfigClearFailureRollsBackAndReportsBothFailures(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, importRequest(t, map[string]string{"config.yaml": importableConfig}))
 	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
-	require.Contains(t, w.Body.String(), "failed to create config dir")
+	require.JSONEq(t, `{"error":"`+msgImportConfigNotWritable+`","error_code":"import_config_not_writable"}`, w.Body.String())
 
 	matches, err := filepath.Glob(dir + ".backup.*")
 	require.NoError(t, err)
