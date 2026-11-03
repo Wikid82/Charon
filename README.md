@@ -90,7 +90,6 @@ services:
       - "8080:8080"
     volumes:
       - ./charon-data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - TZ=America/New_York
       # Generate with: openssl rand -base64 32

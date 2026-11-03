@@ -1374,7 +1374,7 @@ fails the build on any blocking finding.
 ```yaml
 services:
   charon:
-    image: ghcr.io/wikid82/charon:latest
+    image: wikid82/charon:latest
     restart: unless-stopped
     environment:
       - CHARON_ENV=production
@@ -1382,7 +1382,6 @@ services:
     volumes:
       - ./charon-data:/app/data:rw
       # Optional. Orthrus is the recommended, more secure way to connect Docker (no socket mount in Charon).
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - charon-internal
     cap_drop:
@@ -1394,6 +1393,22 @@ services:
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,nodev
+
+  orthrus-agent:
+    image: wikid82/orthrus:latest
+    container_name: orthrus
+    restart: always
+    environment:
+      # The websocket URL of your Charon instance, e.g. wss://charon.example.com/api/v1/ws/orthrus/connect
+      - ORTHRUS_SERVER_URL=<CHARON_SERVER_URL>
+      # The agent UUID shown when you registered this agent in Charon (Remote Agents -> Add Agent)
+      - ORTHRUS_AGENT_ID=<AGENT_ID>
+      # The one-time auth key shown when you registered this agent
+      - ORTHRUS_AUTH_KEY=<AUTH_KEY>
+    volumes:
+      # Give the agent read-only access to the host Docker socket. The agent is read-only by default;
+      # write access is an explicit per-agent opt-in in Charon (see docs/features/orthrus.md).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 ```
 
 ### Gotify Token Hygiene

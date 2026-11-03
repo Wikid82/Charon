@@ -1458,7 +1458,6 @@ services:
     volumes:
       - ./data:/app/data
       # Optional: direct local discovery. Orthrus is the recommended, more secure alternative (no socket mount in Charon).
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
       - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY}
