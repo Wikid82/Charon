@@ -81,7 +81,7 @@ func newRegisterFixture(t *testing.T, ex *pr4Exec, verdicts map[string]bouncerke
 
 func bodyText(t *testing.T, path string) string {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // G304: path is a test fixture inside t.TempDir()
 	require.NoError(t, err)
 	return strings.TrimSpace(string(b))
 }

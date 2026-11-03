@@ -82,8 +82,8 @@ func TestRegistrations_WaitHoldsForAnInFlightReplace(t *testing.T) {
 	go func() { drained <- h.WaitRegistrations(context.Background()) }()
 
 	select {
-	case <-drained:
-		t.Fatal("the drain returned while a registration was in flight")
+	case err := <-drained:
+		t.Fatalf("the drain returned (%v) while a registration was in flight", err)
 	case <-time.After(50 * time.Millisecond):
 	}
 

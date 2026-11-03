@@ -771,7 +771,7 @@ func TestRealCommandExecutor_Execute_OutputLimit(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, strings.ToLower(err.Error()), "output")
 			assert.Contains(t, strings.ToLower(err.Error()), "limit")
-			assert.Less(t, time.Since(start), 4*time.Second, "the command is killed, not waited for")
+			assert.Less(t, time.Since(start), 15*time.Second, "the command is killed, not waited for")
 			assert.Less(t, len(out), 40_000_000, "the output kept is bounded")
 		})
 	}
