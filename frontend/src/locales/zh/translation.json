@@ -421,6 +421,7 @@
       "noKeyConfigured": "未配置 Bouncer 密钥。启用 CrowdSec 以自动注册。",
       "registered": "已注册",
       "notRegistered": "未注册",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "来自环境变量",
       "sourceFile": "来自文件",
       "keyHeldInMemory": "在内存中保留，直到可以写入密钥文件",

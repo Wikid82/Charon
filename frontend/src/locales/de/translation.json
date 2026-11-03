@@ -421,6 +421,7 @@
       "noKeyConfigured": "Kein Bouncer-Schlüssel konfiguriert. Aktivieren Sie CrowdSec für die automatische Registrierung.",
       "registered": "Registriert",
       "notRegistered": "Nicht registriert",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "Aus Umgebungsvariable",
       "sourceFile": "Aus Datei",
       "keyHeldInMemory": "Im Speicher gehalten, bis die Schlüsseldatei geschrieben werden kann",

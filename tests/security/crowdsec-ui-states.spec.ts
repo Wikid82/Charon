@@ -13,7 +13,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
-import { CROWDSEC_ROUTES, crowdsecFixtures, stubCrowdSecApi } from '../utils/crowdsec-stubs';
+import { CROWDSEC_ROUTES, crowdsecFixtures, ensureCerberusEnabled, stubCrowdSecApi } from '../utils/crowdsec-stubs';
 
 const PRESETS_ROUTE = '**/api/v1/admin/crowdsec/presets';
 const PULL_ROUTE = '**/api/v1/admin/crowdsec/presets/pull';
@@ -320,9 +320,8 @@ test.describe('CrowdSec newer UI states @security', () => {
     });
   });
 
-  // Enabled in the commit that adds the `unknown` registration state (fixme until then).
   test.describe('Bouncer registration status', () => {
-    test.fixme('should show a neutral badge, not an error badge, when registration is unknown', async ({ page }) => {
+    test('should show a neutral badge, not an error badge, when registration is unknown', async ({ page }) => {
       await page.route('**/api/v1/admin/crowdsec/bouncer', async (route) => {
         if (route.request().method() !== 'GET') {
           await route.fallback();
@@ -341,6 +340,9 @@ test.describe('CrowdSec newer UI states @security', () => {
           },
         });
       });
+      // The bouncer card renders only when Cerberus and CrowdSec are both on.
+      await ensureCerberusEnabled(page);
+      await stubCrowdSecApi(page, { crowdsecMode: 'local' });
       await loadPage(page);
       await page.getByRole('tab', { name: 'Configuration', exact: true }).click();
 
