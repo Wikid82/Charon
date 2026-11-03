@@ -656,6 +656,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/russellhaering/goxmldsig@v1.6.1; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
+        # renovate: datasource=go depName=github.com/smallstep/certificates
+        _retry go get github.com/smallstep/certificates@v0.30.2; \
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
         _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
         # renovate: datasource=go depName=github.com/buger/jsonparser
