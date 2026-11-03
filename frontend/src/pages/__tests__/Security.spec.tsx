@@ -119,6 +119,7 @@ describe('Security page', () => {
     vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
       env_key_rejected: false,
       key_source: 'auto-generated',
+      key_check: 'accepted',
       current_key_preview: '...',
       message: 'OK'
     })

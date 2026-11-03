@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -481,6 +482,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		WithEncryptionService(m.encSvc),
 		WithRedirectionHosts(redirectHosts),
 		WithRemoteHosts(remoteHosts),
+		WithBouncerKeyPath(bouncerkey.PathFor(m.securityCfg.CrowdSecConfigDir)),
 		WithEnforcementSink(func(report EnforcementReport) { generatedReport = &report }),
 	}
 	if m.hopSecret != nil {

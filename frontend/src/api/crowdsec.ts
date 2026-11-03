@@ -344,9 +344,15 @@ export async function unbanIP(ip: string): Promise<void> {
   await client.delete(`/admin/crowdsec/ban/${ip.split('/').map(encodeURIComponent).join('/')}`)
 }
 
-/** CrowdSec API key status information for key rejection notifications. */
+export type CrowdSecKeyCheck = 'accepted' | 'rejected' | 'unknown' | 'none'
+
+/**
+ * CrowdSec API key status information for key rejection notifications.
+ * `key_check` is the LAPI check of the current key: `none` when there is no key to check.
+ */
 export interface CrowdSecKeyStatus {
-  key_source: 'env' | 'file' | 'auto-generated' | 'none'
+  key_source: 'env' | 'file' | 'auto-generated' | 'memory' | 'none'
+  key_check: CrowdSecKeyCheck
   env_key_rejected: boolean
   full_key?: string  // Only present when env_key_rejected is true
   current_key_preview: string

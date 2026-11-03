@@ -270,13 +270,9 @@ func main() {
 	if crowdsecBinPath == "" {
 		crowdsecBinPath = "/usr/local/bin/crowdsec"
 	}
-	crowdsecDataDir := os.Getenv("CHARON_CROWDSEC_DATA")
-	if crowdsecDataDir == "" {
-		crowdsecDataDir = "/app/data/crowdsec"
-	}
-
+	// The same data directory the handlers and the proxy use (see config.loadCrowdSecConfigDir).
 	crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
-	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir, nil,
+	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, cfg.Security.CrowdSecConfigDir, nil,
 		services.WithCerberusCheck(services.ProxyCerberusCheck(db, cfg.Security)))
 
 	// Initialize plugin loader and load external DNS provider plugins (Phase 5)

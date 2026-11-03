@@ -85,7 +85,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// crowdsecEnabled, because the engine keeps reading the log.
 	crowdsecInProxy := false
 	if crowdsecEnabled {
-		apiKey := getCrowdSecAPIKey()
+		apiKey := getCrowdSecAPIKey(resolvedOpts.bouncerKeyPath)
 		if apiKey == "" {
 			logger.Log().Warn(crowdSecNoKeyWarning)
 		} else {
@@ -1125,23 +1125,21 @@ func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdse
 // getCrowdSecAPIKey retrieves the CrowdSec bouncer API key the proxy uses.
 // The saved key file wins over the environment variables (see bouncerkey.Resolve),
 // so a key that Charon validated or registered is used even if an invalid
-// variable is still set in docker-compose.yml.
-func getCrowdSecAPIKey() string {
-	key, src := bouncerkey.Resolve(crowdSecBouncerKeyFile)
+// variable is still set in docker-compose.yml. keyPath is the saved key file (see WithBouncerKeyPath).
+func getCrowdSecAPIKey(keyPath string) string {
+	key, src := bouncerkey.Resolve(keyPath)
 	switch src {
 	case bouncerkey.SourceFile:
-		logger.Log().WithField("source", "file").WithField("file", crowdSecBouncerKeyFile).Debug("CrowdSec API key loaded from file")
+		logger.Log().WithField("source", "file").WithField("file", keyPath).Debug("CrowdSec API key loaded from file")
 	case bouncerkey.SourceEnv:
 		logger.Log().WithField("source", "env_var").Debug("CrowdSec API key loaded from environment variable")
+	case bouncerkey.SourceMemory:
+		logger.Log().WithField("source", "memory").Debug("CrowdSec API key held in memory after a failed save")
 	default:
 		logger.Log().Debug("No CrowdSec API key found in file or environment variables")
 	}
 	return key
 }
-
-// crowdSecBouncerKeyFile is the saved bouncer key location. A variable (not a
-// constant) so tests can point the file branch at a temporary file.
-var crowdSecBouncerKeyFile = bouncerkey.DefaultFile
 
 // getAccessLogPath determines the appropriate path for Caddy access logs.
 // When CrowdSec is enabled or running in Docker (detected via /.dockerenv),

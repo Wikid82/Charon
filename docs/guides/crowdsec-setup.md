@@ -144,14 +144,13 @@ When Charon registers a new bouncer key, it writes a short notice to the contain
 docker logs charon
 ```
 
-Look for a section like this. The key is partly hidden on purpose:
+Look for a section like this:
 
 ```text
 ════════════════════════════════════════════════════════════════════
 🔐 CrowdSec Bouncer Registered Successfully
 ────────────────────────────────────────────────────────────────────
 Bouncer Name: caddy-bouncer
-API Key:      (partly hidden)
 Saved To:     /app/data/crowdsec/bouncer_key
 ────────────────────────────────────────────────────────────────────
 ⚠️  SECURITY: Full API key saved to file (permissions: 0600)

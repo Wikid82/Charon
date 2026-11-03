@@ -167,6 +167,7 @@ const (
 // fakeLAPI records every validate, register and save call Ensure makes.
 type fakeLAPI struct {
 	valid     map[string]bool
+	unknown   map[string]bool
 	validated []string
 	registers int
 	regErr    error
@@ -178,9 +179,16 @@ func newFakeLAPI() *fakeLAPI {
 	return &fakeLAPI{valid: map[string]bool{testSavedValid: true, testEnvValid: true}}
 }
 
-func (f *fakeLAPI) validate(_ context.Context, key string) bool {
+func (f *fakeLAPI) validate(_ context.Context, key string) Verdict {
 	f.validated = append(f.validated, key)
-	return f.valid[key]
+	switch {
+	case f.valid[key]:
+		return VerdictAccepted
+	case f.unknown[key]:
+		return VerdictUnknown
+	default:
+		return VerdictRejected
+	}
 }
 
 func (f *fakeLAPI) register(_ context.Context) (string, error) {

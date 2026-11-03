@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
@@ -286,7 +286,14 @@ type CommandExecutor interface {
 	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
-const defaultBouncerKeyFile = bouncerkey.DefaultFile
+// startupKeyCheckTiming is the retry policy of the boot key check: one window of 10 s, shared with the handler rule.
+// Only Wait, PerAttempt and the backoffs are read; the URL comes from the environment at check time. Tests shorten it.
+var startupKeyCheckTiming = bouncerkey.CheckOptions{
+	Wait:         10 * time.Second,
+	PerAttempt:   5 * time.Second,
+	FirstBackoff: 500 * time.Millisecond,
+	MaxBackoff:   5 * time.Second,
+}
 
 // startupBouncerName is the bouncer registered with LAPI at startup.
 const startupBouncerName = "caddy-bouncer"
@@ -294,8 +301,9 @@ const startupBouncerName = "caddy-bouncer"
 // ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
 // This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
 // Priority: a valid saved key wins, then a valid env key is saved, then a new key is registered.
+// The key file is bouncerkey.PathFor(dataDir), the file the handlers and the proxy read.
 func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor) error {
-	return ensureBouncerRegistration(dataDir, defaultBouncerKeyFile, cmdExec)
+	return ensureBouncerRegistration(dataDir, bouncerkey.PathFor(dataDir), cmdExec)
 }
 
 // ensureBouncerRegistration implements ensureBouncerRegistrationOnStartup with an explicit key-file path.
@@ -362,9 +370,18 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	return err
 }
 
-// startupKeyValid tests a key against LAPI for the shared decision.
-func startupKeyValid(_ context.Context, key string) bool {
-	return testKeyAgainstLAPIStartup(key)
+// startupKeyValid returns the LAPI verdict for a key for the shared boot decision. It uses the same
+// three-valued check as the handler: only 403 is a rejection, and an unreachable or erroring LAPI is Unknown.
+// The URL is CHARON_SECURITY_CROWDSEC_API_URL or the local default.
+func startupKeyValid(ctx context.Context, key string) bouncerkey.Verdict {
+	lapiURL := os.Getenv("CHARON_SECURITY_CROWDSEC_API_URL")
+	if lapiURL == "" {
+		lapiURL = "http://127.0.0.1:8085"
+	}
+	opts := startupKeyCheckTiming
+	opts.BaseURL = strings.TrimRight(lapiURL, "/")
+	client := network.NewInternalServiceHTTPClient(opts.PerAttempt)
+	return bouncerkey.Check(ctx, client, key, opts)
 }
 
 // rejectedEnvKeyLogMessage is the Warn text for a rejected key variable whose replacement was
@@ -394,9 +411,8 @@ func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr e
 	}
 	if res.EnvKeyRejected {
 		fields := map[string]any{
-			"bouncer":    startupBouncerName,
-			"key_file":   keyFile,
-			"masked_key": util.MaskAPIKey(res.EnvKey),
+			"bouncer":  startupBouncerName,
+			"key_file": keyFile,
 		}
 		if regErr != nil {
 			logger.Log().WithFields(fields).Warn(rejectedEnvRegisterFailedLogMessage(keyFile))
@@ -417,56 +433,22 @@ func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr e
 	case bouncerkey.OutcomeEnvKeySaved:
 		if res.SaveErr == nil {
 			logger.Log().WithFields(map[string]any{
-				"source":     "environment_variable",
-				"key_file":   keyFile,
-				"masked_key": util.MaskAPIKey(res.Key),
+				"source":   "environment_variable",
+				"key_file": keyFile,
 			}).Info("CrowdSec bouncer: env var key validated and saved to key file")
 		}
 	case bouncerkey.OutcomeRegistered:
 		if res.SaveErr == nil {
 			logger.Log().WithFields(map[string]any{
-				"bouncer":    startupBouncerName,
-				"key_file":   keyFile,
-				"masked_key": util.MaskAPIKey(res.Key),
+				"bouncer":  startupBouncerName,
+				"key_file": keyFile,
 			}).Info("CrowdSec bouncer: successfully registered and saved key")
 		}
+	case bouncerkey.OutcomeUnverified:
+		logger.Log().WithField("key_file", keyFile).Warn(bouncerkey.UnverifiedMessage)
+	case bouncerkey.OutcomeHeldKeyValid:
+		logger.Log().WithField("key_file", keyFile).Info(bouncerkey.HeldKeyInUseMessage(res.HeldSaveErr == nil))
 	}
-}
-
-// Helper functions for startup bouncer registration (minimal dependencies)
-
-func testKeyAgainstLAPIStartup(apiKey string) bool {
-	if apiKey == "" {
-		return false
-	}
-
-	lapiURL := os.Getenv("CHARON_SECURITY_CROWDSEC_API_URL")
-	if lapiURL == "" {
-		lapiURL = "http://127.0.0.1:8085"
-	}
-	endpoint := strings.TrimRight(lapiURL, "/") + "/v1/decisions/stream"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody) //nolint:gosec // G704: endpoint from env config, not user input
-	if err != nil {
-		return false
-	}
-	req.Header.Set("X-Api-Key", apiKey)
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config endpoint
-	if err != nil {
-		return false
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
-		}
-	}()
-
-	return resp.StatusCode == 200
 }
 
 // simpleCommandExecutor provides minimal command execution for startup registration

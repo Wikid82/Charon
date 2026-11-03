@@ -423,6 +423,7 @@
       "notRegistered": "Non enregistré",
       "sourceEnvVar": "Depuis une variable d'environnement",
       "sourceFile": "Depuis un fichier",
+      "keyHeldInMemory": "Conservée en mémoire jusqu'à ce que le fichier de clé puisse être écrit",
       "keyStoredAt": "Clé stockée dans",
       "keyWarning": {
         "title": "Clé API CrowdSec Mise à Jour",

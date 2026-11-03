@@ -129,10 +129,13 @@ func Load() (Config, error) {
 		PluginsDir:      getEnvAny("/app/plugins", "CHARON_PLUGINS_DIR"),
 		CaddyLogDir:     getEnvAny("/var/log/caddy", "CHARON_CADDY_LOG_DIR"),
 		CrowdSecLogDir:  getEnvAny("/var/log/crowdsec", "CHARON_CROWDSEC_LOG_DIR"),
-		Security:        loadSecurityConfig(),
 		Emergency:       loadEmergencyConfig(),
 		Debug:           getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
 	}
+
+	securityCfg, securityWarnings := loadSecurityConfig()
+	cfg.Security = securityCfg
+	cfg.StartupWarnings = append(cfg.StartupWarnings, securityWarnings...)
 
 	trustedProxies, proxyWarnings := ValidateTrustedProxies(cfg.Security.TrustedProxies)
 	cfg.Security.TrustedProxies = trustedProxies
@@ -209,13 +212,38 @@ func loadDBCompactOnStart() (mode string, warnings []string) {
 	}
 }
 
-// loadSecurityConfig loads the security configuration with proper parsing of array fields
-func loadSecurityConfig() SecurityConfig {
+// crowdSecDataAliasEnv is the legacy name for the CrowdSec data directory. It is an alias of
+// CHARON_CROWDSEC_CONFIG_DIR; the config-dir variable wins when both are set and differ.
+const crowdSecDataAliasEnv = "CHARON_CROWDSEC_DATA"
+
+// loadCrowdSecConfigDir returns the CrowdSec data directory shared by the handlers, boot reconciliation and the
+// proxy key file. CHARON_CROWDSEC_CONFIG_DIR (or CPM_CROWDSEC_CONFIG_DIR) wins; CHARON_CROWDSEC_DATA is used
+// only when that is unset, and a warning names the conflict when the two differ.
+func loadCrowdSecConfigDir() (dir string, warnings []string) {
+	configDir := getEnvAny("", "CHARON_CROWDSEC_CONFIG_DIR", "CPM_CROWDSEC_CONFIG_DIR")
+	alias := getEnvAny("", crowdSecDataAliasEnv)
+	switch {
+	case configDir == "" && alias != "":
+		return alias, nil
+	case configDir == "":
+		return filepath.Join("data", "crowdsec"), nil
+	case alias != "" && alias != configDir:
+		return configDir, []string{fmt.Sprintf(
+			"%s=%q is ignored because CHARON_CROWDSEC_CONFIG_DIR=%q is set; keep only CHARON_CROWDSEC_CONFIG_DIR", crowdSecDataAliasEnv, alias, configDir)}
+	default:
+		return configDir, nil
+	}
+}
+
+// loadSecurityConfig loads the security configuration with proper parsing of array fields and returns the
+// startup warnings found while reading it.
+func loadSecurityConfig() (settings SecurityConfig, warnings []string) {
+	crowdSecDir, crowdSecWarnings := loadCrowdSecConfigDir()
 	cfg := SecurityConfig{
 		CrowdSecMode:       getEnvAny("disabled", "CERBERUS_SECURITY_CROWDSEC_MODE", "CHARON_SECURITY_CROWDSEC_MODE", "CPM_SECURITY_CROWDSEC_MODE"),
 		CrowdSecAPIURL:     getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_URL", "CHARON_SECURITY_CROWDSEC_API_URL", "CPM_SECURITY_CROWDSEC_API_URL"),
 		CrowdSecAPIKey:     getEnvAny("", bouncerkey.EnvNames()...),
-		CrowdSecConfigDir:  getEnvAny(filepath.Join("data", "crowdsec"), "CHARON_CROWDSEC_CONFIG_DIR", "CPM_CROWDSEC_CONFIG_DIR"),
+		CrowdSecConfigDir:  crowdSecDir,
 		WAFMode:            getEnvAny("disabled", "CERBERUS_SECURITY_WAF_MODE", "CHARON_SECURITY_WAF_MODE", "CPM_SECURITY_WAF_MODE"),
 		RateLimitMode:      getEnvAny("disabled", "CERBERUS_SECURITY_RATELIMIT_MODE", "CHARON_SECURITY_RATELIMIT_MODE", "CPM_SECURITY_RATELIMIT_MODE"),
 		RateLimitRequests:  getEnvIntAny(100, "CERBERUS_SECURITY_RATELIMIT_REQUESTS", "CHARON_SECURITY_RATELIMIT_REQUESTS"),
@@ -246,7 +274,7 @@ func loadSecurityConfig() SecurityConfig {
 		}
 	}
 
-	return cfg
+	return cfg, crowdSecWarnings
 }
 
 // loadEmergencyConfig loads the emergency server configuration

@@ -39,6 +39,7 @@ describe('CrowdSecKeyWarning English copy', () => {
   it('describes the saved key Charon now uses and asks to remove the stale variable', async () => {
     vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
       key_source: 'auto-generated',
+      key_check: 'accepted',
       env_key_rejected: true,
       full_key: 'generated-key-0123456789abcdef',
       current_key_preview: 'gene...',
@@ -64,6 +65,7 @@ describe('CrowdSecKeyWarning English copy', () => {
   it('renders nothing when the key source is none and no env key was rejected', async () => {
     vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
       key_source: 'none',
+      key_check: 'none',
       env_key_rejected: false,
       current_key_preview: '',
       message: 'No CrowdSec API key configured',

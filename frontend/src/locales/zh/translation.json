@@ -423,6 +423,7 @@
       "notRegistered": "未注册",
       "sourceEnvVar": "来自环境变量",
       "sourceFile": "来自文件",
+      "keyHeldInMemory": "在内存中保留，直到可以写入密钥文件",
       "keyStoredAt": "密钥存储位置",
       "keyWarning": {
         "title": "CrowdSec API密钥已更新",

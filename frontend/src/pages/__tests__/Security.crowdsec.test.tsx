@@ -135,6 +135,7 @@ describe('Security CrowdSec mutation UX', () => {
     vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
       env_key_rejected: false,
       key_source: 'auto-generated',
+      key_check: 'accepted',
       current_key_preview: '...',
       message: 'OK',
     })
@@ -176,6 +177,7 @@ describe('Security CrowdSec mutation UX', () => {
     vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
       env_key_rejected: true,
       key_source: 'env',
+      key_check: 'accepted',
       full_key: 'abc123',
       current_key_preview: 'abc...',
       rejected_key_preview: 'def...',

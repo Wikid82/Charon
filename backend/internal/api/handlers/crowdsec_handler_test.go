@@ -3849,7 +3849,7 @@ func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 	require.Contains(t, maskedKey, "...wxyz")
 
 	// Call the banner function (it will log, but we've verified masking works)
-	h.logBouncerKeyBanner(testAPIKey, nil)
+	h.logBouncerKeyBanner(nil)
 
 	// If we reach here without panic, the function executed successfully
 	// The actual log output would need to be captured in integration tests
@@ -3884,7 +3884,7 @@ func TestTestKeyAgainstLAPI_ValidKey(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "valid-key-123")
 
-	require.True(t, result, "Valid key should return true")
+	require.Equal(t, bouncerkey.VerdictAccepted, result, "Valid key should be accepted")
 }
 
 // TestTestKeyAgainstLAPI_InvalidKey verifies that invalid API keys are rejected by LAPI.
@@ -3916,7 +3916,7 @@ func TestTestKeyAgainstLAPI_InvalidKey(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "invalid-key-456")
 
-	require.False(t, result, "Invalid key should return false immediately (no retries)")
+	require.Equal(t, bouncerkey.VerdictRejected, result, "Invalid key should be rejected immediately (no retries)")
 }
 
 // TestTestKeyAgainstLAPI_EmptyKey verifies that empty keys are rejected without making requests.
@@ -3929,7 +3929,7 @@ func TestTestKeyAgainstLAPI_EmptyKey(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "")
 
-	require.False(t, result, "Empty key should return false without making request")
+	require.Equal(t, bouncerkey.VerdictRejected, result, "Empty key should be rejected without making request")
 }
 
 // TestTestKeyAgainstLAPI_Timeout verifies that LAPI requests timeout appropriately.
@@ -3945,6 +3945,7 @@ func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler.keyCheckWait = 300 * time.Millisecond
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
@@ -3957,7 +3958,7 @@ func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "test-key")
 
-	require.False(t, result, "Should return false after timeout")
+	require.Equal(t, bouncerkey.VerdictUnknown, result, "a timed-out check gives no verdict, so it is never a rejection")
 }
 
 // TestTestKeyAgainstLAPI_NonOKStatus verifies that non-200/403 status codes are handled.
@@ -3975,6 +3976,7 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler.keyCheckWait = 300 * time.Millisecond
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
@@ -3987,19 +3989,19 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "test-key")
 
-	require.False(t, result, "Should return false for non-OK status")
+	require.Equal(t, bouncerkey.VerdictUnknown, result, "a 500 is not a rejection")
 }
 
 // TestEnsureBouncerRegistration_ValidEnvKey verifies that valid environment keys are used.
 func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file to ensure test isolation
-	if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove bouncer key file: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 			t.Logf("Warning: failed to remove bouncer key file: %v", err)
 		}
 	})
@@ -4050,14 +4052,14 @@ func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
 
 // TestEnsureBouncerRegistration_InvalidEnvKeyFallback verifies fallback when env key is invalid.
 func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file to ensure test isolation
-	if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove bouncer key file: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 			t.Logf("Warning: failed to remove bouncer key file: %v", err)
 		}
 	})
@@ -4112,10 +4114,10 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 // TestEnsureBouncerRegistration_ConcurrentCalls verifies that concurrent registration
 // attempts are protected by mutex and only ONE bouncer registration occurs.
 func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file before and after test to ensure isolation
-	testKeyFile := bouncerKeyFile
+	testKeyFile := bouncerkey.DefaultFile
 	if err := os.Remove(testKeyFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove test key file: %v", err)
 	}
@@ -4223,14 +4225,6 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 		CrowdSecAPIURL: lapiServer.URL,
 	}
 	require.NoError(t, db.Create(&cfg).Error)
-
-	// Override bouncerKeyFile for this test (normally a const)
-	// We'll verify by reading from the temp file after registration
-	originalBouncerKeyFile := bouncerKeyFile
-	t.Cleanup(func() {
-		// Restore original (though it's a const, this is to satisfy linters)
-		_ = originalBouncerKeyFile
-	})
 
 	// Execute: Launch 10 concurrent ensureBouncerRegistration() calls
 	const concurrency = 10

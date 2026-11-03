@@ -107,7 +107,7 @@ func TestLogBouncerKeyBanner_SaveSucceededNamesSavedPath(t *testing.T) {
 	buf := captureLogs(t)
 	h := newPrecedenceHandler(t, "http://127.0.0.1:1", t.TempDir(), noCSCLIMock())
 
-	h.logBouncerKeyBanner(precNewKey, nil)
+	h.logBouncerKeyBanner(nil)
 
 	out := buf.String()
 	assert.Contains(t, out, "Saved To:     "+h.bouncerKeyPath())
@@ -120,7 +120,7 @@ func TestLogBouncerKeyBanner_SaveFailedSaysSessionOnly(t *testing.T) {
 	buf := captureLogs(t)
 	h := newPrecedenceHandler(t, "http://127.0.0.1:1", t.TempDir(), noCSCLIMock())
 
-	h.logBouncerKeyBanner(precNewKey, errors.New("disk full"))
+	h.logBouncerKeyBanner(errors.New("disk full"))
 
 	out := buf.String()
 	assert.Contains(t, out, "could not save to "+h.bouncerKeyPath())

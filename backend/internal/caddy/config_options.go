@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security/selfhop"
@@ -28,12 +29,14 @@ type generateConfigOptions struct {
 	selfHop       *selfHopConfig
 	remoteHosts   map[string]struct{}
 	enforcement   func(EnforcementReport)
+	// bouncerKeyPath is the saved CrowdSec bouncer key file the proxy reads.
+	bouncerKeyPath string
 }
 
 // resolveGenerateConfigOptions applies opts in order and returns the
 // resolved options struct GenerateConfig reads from internally.
 func resolveGenerateConfigOptions(opts []GenerateConfigOption) *generateConfigOptions {
-	resolved := &generateConfigOptions{}
+	resolved := &generateConfigOptions{bouncerKeyPath: bouncerkey.DefaultFile}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(resolved)
@@ -73,6 +76,17 @@ func WithRemoteHosts(uuids map[string]struct{}) GenerateConfigOption {
 func (o *generateConfigOptions) isRemoteHost(uuid string) bool {
 	_, ok := o.remoteHosts[uuid]
 	return ok
+}
+
+// WithBouncerKeyPath sets the saved CrowdSec bouncer key file the proxy reads. Manager passes
+// bouncerkey.PathFor(the CrowdSec data directory), the file the handlers and boot use. An empty path keeps
+// the image default, bouncerkey.DefaultFile.
+func WithBouncerKeyPath(path string) GenerateConfigOption {
+	return func(o *generateConfigOptions) {
+		if path != "" {
+			o.bouncerKeyPath = path
+		}
+	}
 }
 
 // WithEnforcementSink receives the enforcement report of one GenerateConfig call. The sink is called on every return

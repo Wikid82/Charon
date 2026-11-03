@@ -45,7 +45,7 @@ func TestGenerateConfig_ZerosslAndBothProviders(t *testing.T) {
 }
 
 func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
-	withTestBouncerKey(t)
+	keyPath := withTestBouncerKey(t)
 	// Create host with a location so location-level handlers are generated
 	ipRules := `[ { "cidr": "192.168.1.0/24" } ]`
 	acl := models.AccessList{ID: 201, Name: "WL2", Enabled: true, Type: "whitelist", IPRules: ipRules}
@@ -56,7 +56,7 @@ func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	// Set rate limit values so rate_limit handler is included (uses caddy-ratelimit format)
 	sec := &models.SecurityConfig{CrowdSecMode: "local", RateLimitRequests: 100, RateLimitWindowSec: 60}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, sec, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, sec, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 
 	server := cfg.Apps.HTTP.Servers["charon_server"]
@@ -383,10 +383,10 @@ func TestGenerateConfig_RateLimitFromSecCfg(t *testing.T) {
 }
 
 func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
-	withTestBouncerKey(t)
+	keyPath := withTestBouncerKey(t)
 	host := models.ProxyHost{UUID: "cs-1", DomainNames: "cs.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	sec := &models.SecurityConfig{CrowdSecMode: "local", CrowdSecAPIURL: "http://cs.local"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, sec, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, sec, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 
 	// Check app-level CrowdSec configuration

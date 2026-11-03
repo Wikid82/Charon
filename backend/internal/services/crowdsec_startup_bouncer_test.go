@@ -20,7 +20,6 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 const (
@@ -258,7 +257,6 @@ func TestEnsureBouncerRegistration_EnvKeyRejected_DiagnosticsRedacted(t *testing
 			joined := strings.Join(channels, "\n")
 			assert.Contains(t, joined, h.keyFile)
 			assert.Contains(t, joined, "0600")
-			assert.Contains(t, joined, util.MaskAPIKey(testRejectedEnvKey))
 		})
 	}
 }
@@ -274,7 +272,7 @@ func TestEnsureBouncerRegistration_EnvKeyRejected_ShortKeyRedacted(t *testing.T)
 	channels := h.channels(h.drain())
 	assertNoSubstring(t, channels, shortKey)
 	assertNoSubstring(t, channels, testGeneratedKey)
-	assert.Contains(t, strings.Join(channels, "\n"), "[REDACTED]")
+	assert.Contains(t, strings.Join(channels, "\n"), h.keyFile, "the rejected-key warning still names the key file")
 }
 
 func TestEnsureBouncerRegistration_RegistrationError_DiagnosticsRedacted(t *testing.T) {

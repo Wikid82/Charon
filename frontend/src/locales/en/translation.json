@@ -428,6 +428,7 @@
       "notRegistered": "Not Registered",
       "sourceEnvVar": "From environment variable",
       "sourceFile": "From file",
+      "keyHeldInMemory": "Held in memory until the key file can be written",
       "keyStoredAt": "Key stored at",
       "keyWarning": {
         "title": "CrowdSec API Key Updated",

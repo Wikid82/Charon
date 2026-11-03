@@ -41,6 +41,7 @@ vi.mock('react-i18next', () => ({
         'security.crowdsec.sourceEnvVar': 'Environment Variable',
         'security.crowdsec.sourceFile': 'File',
         'security.crowdsec.keyStoredAt': 'Key stored at',
+        'security.crowdsec.keyHeldInMemory': 'Held in memory until the key file can be written',
         'common.copy': 'Copy',
         'common.success': 'Success',
       }
@@ -63,6 +64,14 @@ const mockBouncerInfoEnvVar = {
   key_preview: 'env***var',
   key_source: 'env_var' as const,
   file_path: '/etc/crowdsec/bouncers/caddy.key',
+  registered: true,
+}
+
+const mockBouncerInfoMemory = {
+  name: 'caddy-bouncer',
+  key_preview: 'mem***key',
+  key_source: 'memory' as const,
+  file_path: '/app/data/crowdsec/bouncer_key',
   registered: true,
 }
 
@@ -174,6 +183,41 @@ describe('CrowdSecBouncerKeyDisplay', () => {
       await waitFor(() => {
         expect(screen.getByText('Environment Variable')).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Registered Bouncer with Memory Key Source', () => {
+    it('shows the held-in-memory source line', async () => {
+      vi.mocked(client.get).mockResolvedValue({ data: mockBouncerInfoMemory })
+
+      renderComponent()
+
+      await waitFor(() => {
+        expect(screen.getByText('Held in memory until the key file can be written')).toBeInTheDocument()
+      })
+    })
+
+    it('does not label a memory key as coming from a file or environment variable', async () => {
+      vi.mocked(client.get).mockResolvedValue({ data: mockBouncerInfoMemory })
+
+      renderComponent()
+
+      await waitFor(() => {
+        expect(screen.getByText('mem***key')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('File')).not.toBeInTheDocument()
+      expect(screen.queryByText('Environment Variable')).not.toBeInTheDocument()
+    })
+
+    it('does not show the memory line for a file key', async () => {
+      vi.mocked(client.get).mockResolvedValue({ data: mockBouncerInfo })
+
+      renderComponent()
+
+      await waitFor(() => {
+        expect(screen.getByText('File')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Held in memory until the key file can be written')).not.toBeInTheDocument()
     })
   })
 

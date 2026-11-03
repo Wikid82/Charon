@@ -186,9 +186,12 @@ The bouncer key is the password Charon's built-in firewall layer uses to talk to
 
 **Which key Charon uses (in order):**
 
-1. **The saved key file.** If it exists and CrowdSec still accepts it, Charon uses it. This always wins.
-2. **A key you set in your compose file.** Charon uses it only when there is no working saved key. Charon then saves it to the file, so it is kept after restarts.
-3. **Otherwise,** Charon registers a new key with CrowdSec and saves it.
+1. **A key held in memory.** This happens only when Charon got a new key but could not write it to the key file (see "If Charon cannot save the key" below). Charon keeps using it until it restarts.
+2. **The saved key file.** If it exists and CrowdSec accepts it, Charon uses it.
+3. **A key you set in your compose file.** Charon uses it only when there is no working saved key. Charon then saves it to the file, so it is kept after restarts.
+4. **Otherwise,** Charon registers a new key with CrowdSec and saves it.
+
+**When Charon checks the key:** Charon asks CrowdSec whether the saved key still works. Charon replaces a key only when CrowdSec clearly rejects it. If CrowdSec cannot be reached, or its answer is unclear (for example, it is slow, stopped or restarting), Charon keeps the saved key and does not register a new one. It checks again the next time CrowdSec starts. If there is no saved key yet, Charon keeps using the key it already has (for example, the one from your compose file, which Charon has not been able to check yet) and does not register a new one.
 
 If you set a key in your compose file, use one of these variable names. Charon checks them in this order and uses the first one that is set:
 
@@ -197,6 +200,13 @@ If you set a key in your compose file, use one of these variable names. Charon c
 3. `CROWDSEC_BOUNCER_API_KEY`
 4. `CERBERUS_SECURITY_CROWDSEC_API_KEY`
 5. `CPM_SECURITY_CROWDSEC_API_KEY`
+
+**Advanced: folder and file locations (usually left unset):**
+
+- `CHARON_CROWDSEC_CONFIG_DIR` sets the folder where Charon keeps CrowdSec's data. In the container it is `/app/data/crowdsec`.
+- `CHARON_CROWDSEC_DATA` is an older name for the same setting and still works. If both are set to different folders, Charon writes a warning to the log and uses `CHARON_CROWDSEC_CONFIG_DIR`.
+- `CHARON_CROWDSEC_BOUNCER_KEY_PATH` sets the exact file for the key. It now takes priority over the folder setting. If your compose file already sets it, Charon uses a different key file after this update and registers a new key once.
+- Outside the container, Charon keeps CrowdSec's files in `data/crowdsec` inside your Charon folder, the same place the CrowdSec settings pages already use.
 
 **Changing the key through your compose file:** changing the variable alone does not replace a saved key that still works. To switch to the key in your variable, do both of these:
 
@@ -207,7 +217,7 @@ If you set a key in your compose file, use one of these variable names. Charon c
 
 **Symlinks:** if `bouncer_key` is a shortcut (a symlink) to another file, the next save replaces the shortcut with a normal private file. The file the shortcut pointed to is not changed.
 
-**If Charon cannot save the key:** Charon writes an error to the log, and it does not keep the key anywhere else. Blocking may not work until the key file can be written. To fix it, give Charon write access to the data folder, then restart CrowdSec.
+**If Charon cannot save the key:** Charon writes an error to the log and keeps the new key in memory, so it keeps working for now. The CrowdSec page shows the key as "held in memory" until the key file can be written. The key is not kept in a file, so it is lost when Charon restarts. After a restart, Charon starts from the key file again and may register a new key, and blocking may not work until the key file can be written. To fix it, give Charon write access to the data folder, then restart CrowdSec.
 
 **See it in the UI:** Open the CrowdSec page and look at the **Bouncer API Key** card. It shows a shortened preview of the key, whether it is registered, and where the file is stored.
 

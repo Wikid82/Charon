@@ -38,6 +38,7 @@ const createWrapper = () => {
 describe('CrowdSecKeyWarning', () => {
   const defaultStatus = {
     key_source: 'env' as const,
+    key_check: 'accepted' as const,
     env_key_rejected: true,
     full_key: 'new-valid-key',
     current_key_preview: 'old...',
@@ -67,6 +68,7 @@ describe('CrowdSecKeyWarning', () => {
   it('returns null when key is valid (present)', async () => {
     vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
       key_source: 'env',
+      key_check: 'accepted',
       env_key_rejected: false,
       current_key_preview: 'valid...',
       message: 'OK',

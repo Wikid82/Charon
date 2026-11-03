@@ -888,11 +888,14 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 
 **CrowdSec bouncer key precedence:** the bouncer key is the shared secret the Caddy bouncer uses to talk to the CrowdSec Local API. One rule set, in `backend/internal/crowdsec/bouncerkey`, is used by the proxy config, the handlers and startup:
 
-1. A saved key file (`bouncer_key` in the CrowdSec data folder, `/app/data/crowdsec/bouncer_key` by default) that the Local API accepts wins. Environment values are not tested in this case.
+0. A key held in memory (only after a failed save of a new key) is tested first. It is dropped once the key file holds the same key or the Local API rejects it.
+1. A saved key file (`bouncer_key` in the CrowdSec data folder, `/app/data/crowdsec/bouncer_key` by default; one function, `bouncerkey.PathFor`, derives the path for the handlers, startup and the proxy config, and `CHARON_CROWDSEC_BOUNCER_KEY_PATH` overrides it everywhere) that the Local API accepts wins. Environment values are not tested in this case.
 2. Otherwise the first non-empty environment variable is tested and, if accepted, saved to the key file. Lookup order: `CHARON_SECURITY_CROWDSEC_API_KEY`, `CROWDSEC_API_KEY`, `CROWDSEC_BOUNCER_API_KEY`, `CERBERUS_SECURITY_CROWDSEC_API_KEY`, `CPM_SECURITY_CROWDSEC_API_KEY`.
 3. Otherwise a new bouncer is registered and its key saved.
 
 Key writes go through `crowdsec.SaveBouncerKey`: a temporary file is written and renamed over the key (mode `0600`). A bind-mounted single file, where rename is not allowed, falls back to an in-place write. A symlinked key file is replaced by a regular file. A failed save is logged as an error. Nothing keeps the new key in memory: Caddy and the key check read the key file, so blocking may not work until the file can be written (fix write access to the data directory, then restart CrowdSec).
+
+Only a definite rejection (HTTP 403) of every candidate key leads to step 3. An unreachable or unclear Local API answer (timeout, 401, 5xx, redirect) leaves the saved key and the bouncer untouched, and the check runs again at the next start. With no saved key yet, the key already in use (the environment value, not yet checked) stays in use, no new bouncer is registered, and the check runs again at the next start.
 
 **Preset apply and config edits:** Applying a hub preset, importing a
 configuration, and saving a file in the config editor never rename or empty the
