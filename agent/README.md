@@ -29,7 +29,7 @@ docker run \
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `ORTHRUS_SERVER_URL` | — | WebSocket URL of the Charon Orthrus endpoint (`wss://...`) |
+| `ORTHRUS_SERVER_URL` | — | WebSocket URL of the Charon Orthrus endpoint (`wss://...` behind HTTPS, `ws://...` for direct HTTP) |
 | `ORTHRUS_AUTH_KEY` | — | Auth key from the Charon provisioning response (`ch_orthrus_...`) |
 | `ORTHRUS_DOCKER_SOCKET` | `/var/run/docker.sock` | Path to the local Docker socket |
 
@@ -60,6 +60,6 @@ Environment variables take precedence over flags.
 
 **mTLS enrollment** (future): Full mutual TLS enrollment via Certificate Signing Request (CSR) submitted to Charon's internal CA is planned. Currently the agent generates a self-signed ECDSA-P256 certificate in memory for local identification.
 
-**TLS**: All WebSocket connections must use `wss://`. Only `ws://localhost` is permitted for local development.
+**TLS**: Use `wss://` when Charon is behind an HTTPS reverse proxy. Charon itself serves plain HTTP, so when connecting directly to its port (e.g. over Tailscale or a Docker network) use `ws://`; the agent logs a warning for non-localhost `ws://`. Using `wss://` against a plain HTTP port fails with `tls: first record does not look like a TLS handshake`.
 
 **Auth key**: Never logged. The key is read from the `ORTHRUS_AUTH_KEY` environment variable and only appears in logs as `[REDACTED]`.
