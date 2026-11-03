@@ -384,6 +384,8 @@ func (f *fakeCrowdsecLifecycle) ResetCrowdSecState(write func() error) error { r
 
 func (f *fakeCrowdsecLifecycle) StopAfterReset(error) {}
 
+func (*fakeCrowdsecLifecycle) WaitRegistrations(context.Context) error { return nil }
+
 // newCrowdsecSwitchHandler builds a security handler whose CrowdSec switches drive fake.
 func newCrowdsecSwitchHandler(t *testing.T, fake *fakeCrowdsecLifecycle) (*SecurityHandler, *gorm.DB) {
 	t.Helper()

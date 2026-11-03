@@ -74,6 +74,7 @@ func TestCrowdsecWave7_EnsureBouncerRegistration_InvalidFileKeyReRegisters(t *te
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
+	redirectLocalKeyChecks(handler, server.URL)
 	t.Setenv("CHARON_CROWDSEC_BOUNCER_KEY_PATH", keyPath)
 
 	cfg := models.SecurityConfig{

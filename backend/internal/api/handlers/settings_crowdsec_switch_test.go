@@ -32,6 +32,8 @@ func (f *settingsCrowdsecLifecycle) ResetCrowdSecState(write func() error) error
 
 func (f *settingsCrowdsecLifecycle) StopAfterReset(error) {}
 
+func (*settingsCrowdsecLifecycle) WaitRegistrations(context.Context) error { return nil }
+
 func (f *settingsCrowdsecLifecycle) StartCrowdSec(_ context.Context) (CrowdsecStartResult, error) {
 	f.startCalls++
 	if f.startErr != nil {
@@ -339,6 +341,8 @@ func (b *busyCrowdsecLifecycle) StopCrowdSec(_ context.Context) (CrowdsecStopRes
 func (b *busyCrowdsecLifecycle) ResetCrowdSecState(write func() error) error { return write() }
 
 func (b *busyCrowdsecLifecycle) StopAfterReset(error) {}
+
+func (*busyCrowdsecLifecycle) WaitRegistrations(context.Context) error { return nil }
 
 func TestUpdateSetting_CrowdSecEnabledEmptyFailedStartWritesNothing(t *testing.T) {
 	lc := &settingsCrowdsecLifecycle{startErr: fmt.Errorf("%w: boom", errCrowdsecStart)}

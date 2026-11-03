@@ -354,16 +354,22 @@ func main() {
 	// dispatch ctx are born already-done and unwind immediately. The only real
 	// bound left is the HTTP client's own 20s timeout on a socket already
 	// reading a slow body, which fits inside 25s.
-	shutdownDrain(gate, dbmaint.ShutdownRunnerWait, func() {
-		if uptimeShutdown == nil {
-			return
-		}
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), 25*time.Second)
-		defer drainCancel()
-		if drainErr := uptimeShutdown(drainCtx); drainErr != nil {
-			logger.Log().WithError(drainErr).Warn("uptime pipeline did not drain within grace period")
-		}
-	})
+	// The bouncer registrations in flight drain at the same time, so the wait is the longer of the two, not their sum.
+	runConcurrently(
+		func() {
+			shutdownDrain(gate, dbmaint.ShutdownRunnerWait, func() {
+				if uptimeShutdown == nil {
+					return
+				}
+				drainCtx, drainCancel := context.WithTimeout(context.Background(), 25*time.Second)
+				defer drainCancel()
+				if drainErr := uptimeShutdown(drainCtx); drainErr != nil {
+					logger.Log().WithError(drainErr).Warn("uptime pipeline did not drain within grace period")
+				}
+			})
+		},
+		func() { drainRegistrations(registered.CrowdSec) },
+	)
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

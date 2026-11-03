@@ -3873,6 +3873,7 @@ func TestTestKeyAgainstLAPI_ValidKey(t *testing.T) {
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 
+	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
 		UUID:           uuid.New().String(),
@@ -3905,6 +3906,7 @@ func TestTestKeyAgainstLAPI_InvalidKey(t *testing.T) {
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 
+	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
 		UUID:           uuid.New().String(),
@@ -3947,6 +3949,7 @@ func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	handler.keyCheckWait = 300 * time.Millisecond
 
+	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
 		UUID:           uuid.New().String(),
@@ -3978,6 +3981,7 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	handler.keyCheckWait = 300 * time.Millisecond
 
+	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
 		UUID:           uuid.New().String(),
@@ -4031,6 +4035,7 @@ func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	redirectLocalKeyChecks(handler, server.URL)
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
@@ -4092,6 +4097,7 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	handler.CmdExec = mockCmdExec
+	redirectLocalKeyChecks(handler, server.URL)
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{

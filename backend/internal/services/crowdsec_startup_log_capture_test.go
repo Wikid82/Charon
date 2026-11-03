@@ -40,7 +40,7 @@ func TestCrowdSecLogsCarryNoKeyText(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(lapi.Close)
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_URL", lapi.URL)
+	pointStartupKeyChecksAt(t, lapi.URL)
 
 	buf := &bytes.Buffer{}
 	logger.Init(true, buf)

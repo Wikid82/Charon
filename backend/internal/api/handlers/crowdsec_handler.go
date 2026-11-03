@@ -168,8 +168,16 @@ type CrowdsecHandler struct {
 	// a network call, so GetKeyStatus can snapshot the flags while a decision is waiting on LAPI.
 	registrationMutex sync.Mutex
 
+	// registrationGate guards registrationsClosed and orders its change against registrations.Add, so the drain
+	// at shutdown (WaitRegistrations) never races a registration that is starting. See crowdsec_registrations.go.
+	registrationGate    sync.Mutex
+	registrationsClosed bool
+	registrations       sync.WaitGroup
+
 	// keyCheckWait bounds the LAPI key check retries; 0 means defaultLAPIKeyCheckWait. Tests shorten it.
 	keyCheckWait time.Duration
+	// keyCheck is the LAPI check of the key decision; nil means bouncerkey.Check. Tests set it to answer from a stub.
+	keyCheck func(context.Context, bouncerkey.Doer, string, bouncerkey.CheckOptions) bouncerkey.Verdict
 
 	// envKeyRejected tracks whether the env var key was rejected by LAPI
 	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
@@ -1560,7 +1568,7 @@ func validateCrowdsecLAPIBaseURLDefault(raw string) (*url.URL, error) {
 func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	// Get LAPI URL from security config or use default
 	// Default port is 8085 to avoid conflict with Charon management API on port 8080
-	lapiURL := "http://127.0.0.1:8085"
+	lapiURL := crowdsec.LocalLAPIURL
 	if h.Security != nil {
 		cfg, err := h.Security.Get()
 		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
@@ -1759,19 +1767,16 @@ func (h *CrowdsecHandler) lapiKeyCheckOptions(baseURL string) bouncerkey.CheckOp
 	}
 }
 
-// testKeyAgainstLAPI reports the three-valued LAPI verdict for an API key, using the stored LAPI URL and the
-// internal-service client. Only 403 is a rejection; an unreachable, slow or erroring LAPI is Unknown.
+// testKeyAgainstLAPI reports the three-valued LAPI verdict for an API key, against the local engine only (the stored
+// LAPI URL is not read here, so a leftover external address cannot change the verdict). Only 403 is a rejection;
+// an unreachable, slow or erroring LAPI is Unknown.
 func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bouncerkey.Verdict {
-	lapiURL := "http://127.0.0.1:8085"
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
-
 	client := network.NewInternalServiceHTTPClient(5 * time.Second)
-	verdict := bouncerkey.Check(ctx, client, apiKey, h.lapiKeyCheckOptions(lapiURL))
+	check := h.keyCheck
+	if check == nil {
+		check = bouncerkey.Check
+	}
+	verdict := check(ctx, client, apiKey, h.lapiKeyCheckOptions(crowdsec.LocalLAPIURL))
 	logger.Log().WithField("verdict", keyCheckName(verdict)).Debug("CrowdSec bouncer key checked against LAPI")
 	return verdict
 }
@@ -2068,24 +2073,15 @@ func (h *CrowdsecHandler) bouncerRegistration(ctx context.Context) registrationS
 	return registrationNotRegistered
 }
 
-// registerBouncer replaces any stale caddy-bouncer registration and returns the new key.
-// It does not save the key; ensureBouncerRegistration saves whatever Ensure chooses.
+// registerBouncer replaces the caddy-bouncer registration and returns the new key. It does not save the key;
+// ensureBouncerRegistration saves whatever Ensure chooses. The swap is counted in the registration drain, so
+// shutdown waits for it (see WaitRegistrations).
 func (h *CrowdsecHandler) registerBouncer(ctx context.Context) (string, error) {
-	// Delete existing bouncer if present (stale registration)
-	_, _ = h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "delete", bouncerName)
-
-	// Register new bouncer
-	output, err := h.runCSCLI(ctx, bouncerRegisterTimeout, "bouncers", "add", bouncerName, "-o", "raw")
-	if err != nil {
-		return "", fmt.Errorf("bouncer registration failed: %w (%s)", err, util.DescribeCommandOutput(output))
+	if !h.beginRegistration() {
+		return "", errRegistrationRefused
 	}
-
-	apiKey := strings.TrimSpace(string(output))
-	if apiKey == "" {
-		return "", fmt.Errorf("bouncer registration returned empty API key")
-	}
-
-	return apiKey, nil
+	defer h.endRegistration()
+	return crowdsec.ReplaceBouncer(ctx, h.runCSCLI, bouncerName)
 }
 
 // validateAPIKeyFormat validates the API key format for security.
@@ -2195,7 +2191,7 @@ func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
 func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 	// Get LAPI URL from security config or use default
 	// Default port is 8085 to avoid conflict with Charon management API on port 8080
-	lapiURL := "http://127.0.0.1:8085"
+	lapiURL := crowdsec.LocalLAPIURL
 	if h.Security != nil {
 		cfg, err := h.Security.Get()
 		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {

@@ -70,7 +70,7 @@ const logProbeKey = "Q7zX9kP2mW4nB8vC1hL5jR3tY6gF0dS"
 func TestEnsureBouncerRegistrationUnreachableLAPIKeepsSavedKey(t *testing.T) {
 	h := newBouncerHarness(t)
 	shortenStartupKeyCheck(t)
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_URL", unreachableURL(t))
+	pointStartupKeyChecksAt(t, unreachableURL(t))
 	h.writeFileKey(t, logProbeKey)
 	before, err := os.ReadFile(h.keyFile)
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestEnsureBouncerRegistrationUnverifiedOutcomesNeverRotate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newBouncerHarness(t)
 			shortenStartupKeyCheck(t)
-			t.Setenv("CHARON_SECURITY_CROWDSEC_API_URL", tc.url(t))
+			pointStartupKeyChecksAt(t, tc.url(t))
 			h.writeFileKey(t, testFileKey)
 			exec := &scriptedBouncerExecutor{}
 
@@ -135,7 +135,7 @@ func TestEnsureBouncerRegistrationRecoversWithinWindow(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("CHARON_SECURITY_CROWDSEC_API_URL", srv.URL)
+	pointStartupKeyChecksAt(t, srv.URL)
 	h.writeFileKey(t, testFileKey)
 	exec := &scriptedBouncerExecutor{}
 
