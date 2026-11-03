@@ -65,7 +65,6 @@ describe('SystemSettings', () => {
 
     // Default mock responses
     vi.mocked(settingsApi.getSettings).mockResolvedValue({
-      'caddy.admin_api': 'http://localhost:2019',
       'caddy.ssl_provider': 'auto',
       'caddy.keepalive_idle': '',
       'caddy.keepalive_count': '',
@@ -160,22 +159,8 @@ describe('SystemSettings', () => {
       })
     })
 
-    it('loads and displays Caddy Admin API setting', async () => {
-      vi.mocked(settingsApi.getSettings).mockResolvedValue({
-        'caddy.admin_api': 'http://custom:2019',
-      })
-
-      renderWithProviders(<SystemSettings />)
-
-      await waitFor(() => {
-        const input = screen.getByPlaceholderText('http://localhost:2019') as HTMLInputElement
-        expect(input.value).toBe('http://custom:2019')
-      })
-    })
-
     it('loads keepalive settings when present', async () => {
       vi.mocked(settingsApi.getSettings).mockResolvedValue({
-        'caddy.admin_api': 'http://localhost:2019',
         'caddy.ssl_provider': 'auto',
         'caddy.keepalive_idle': '2m',
         'caddy.keepalive_count': '5',
@@ -215,7 +200,7 @@ describe('SystemSettings', () => {
       await user.click(saveButtons[0])
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(6)
+        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(5)
       })
       expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'ui.domain_link_behavior',
@@ -237,12 +222,6 @@ describe('SystemSettings', () => {
         )
       expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'caddy.ssl_provider',
-          expect.any(String),
-          'caddy',
-          'string'
-        )
-      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
-          'caddy.admin_api',
           expect.any(String),
           'caddy',
           'string'
@@ -493,7 +472,6 @@ describe('SystemSettings', () => {
     it('shows loading skeleton when feature flags are not loaded', async () => {
       // Set settings to resolve but feature flags to never resolve (pending state)
       vi.mocked(settingsApi.getSettings).mockResolvedValue({
-        'caddy.admin_api': 'http://localhost:2019',
         'caddy.ssl_provider': 'auto',
         'ui.domain_link_behavior': 'new_tab',
       })
@@ -752,7 +730,6 @@ describe('SystemSettings', () => {
   describe('Uptime Monitoring Engine card', () => {
     const seedUptime = (overrides: Record<string, string> = {}) => {
       vi.mocked(settingsApi.getSettings).mockResolvedValue({
-        'caddy.admin_api': 'http://localhost:2019',
         'caddy.ssl_provider': 'auto',
         'caddy.keepalive_idle': '',
         'caddy.keepalive_count': '',

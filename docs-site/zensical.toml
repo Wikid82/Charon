@@ -53,6 +53,7 @@ nav = [
     "troubleshooting/e2e-tests.md",
     "troubleshooting/go-gopls.md",
     "troubleshooting/release-please-skips.md",
+    "troubleshooting/proxy-admin-address.md",
   ] },
   { "Reference" = [
     "api.md",

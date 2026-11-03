@@ -63,7 +63,6 @@ export default function SystemSettings() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const queryClient = useQueryClient()
-  const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
   const [sslProvider, setSslProvider] = useState('auto')
   const [keepaliveIdle, setKeepaliveIdle] = useState('')
   const [keepaliveCount, setKeepaliveCount] = useState('')
@@ -107,7 +106,6 @@ export default function SystemSettings() {
   // Update local state when settings load
   useEffect(() => {
     if (settings) {
-      if (settings['caddy.admin_api']) setCaddyAdminAPI(settings['caddy.admin_api'])
       // Default to 'auto' if empty or invalid value
       if (settings['caddy.ssl_provider']) {
         const validProviders = ['auto', 'letsencrypt-staging', 'letsencrypt-prod', 'zerossl']
@@ -200,7 +198,6 @@ export default function SystemSettings() {
         throw new Error(t('systemSettings.general.keepaliveValidationFailed'))
       }
 
-      await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
       await updateSetting('caddy.ssl_provider', sslProvider, 'caddy', 'string')
       await updateSetting('caddy.keepalive_idle', keepaliveIdleTrimmed, 'caddy', 'string')
       await updateSetting('caddy.keepalive_count', keepaliveCountTrimmed, 'caddy', 'string')
@@ -441,18 +438,6 @@ export default function SystemSettings() {
             <CardDescription>{t('systemSettings.general.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="caddy-api">{t('systemSettings.general.caddyAdminApi')}</Label>
-              <Input
-                id="caddy-api"
-                type="text"
-                value={caddyAdminAPI}
-                onChange={(e) => setCaddyAdminAPI(e.target.value)}
-                placeholder="http://localhost:2019"
-                helperText={t('systemSettings.general.caddyAdminApiHelper')}
-              />
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="ssl-provider">{t('systemSettings.general.sslProvider')}</Label>
               <Select value={sslProvider} onValueChange={setSslProvider}>

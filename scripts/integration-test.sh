@@ -23,6 +23,8 @@ fi
 
 # Configuration
 API_URL="http://localhost:8080/api/v1"
+# Container whose bundled Caddy admin API (loopback inside the container) is polled.
+CHARON_CONTAINER_NAME="${CHARON_CONTAINER_NAME:-charon-debug}"
 ADMIN_EMAIL="admin@example.com"
 ADMIN_PASSWORD="changeme"
 
@@ -183,7 +185,7 @@ for attempt in 1 2 3 4 5; do
     echo "Warning: failed to apply config on attempt $attempt, retrying..."
     # Wait for Caddy admin API on host to respond to /config to reduce collisions
     for i in $(seq 1 10); do
-      if curl -s -o /dev/null -w "%{http_code}" http://localhost:${CADDY_ADMIN_PORT:-20194}/config/ >/dev/null 2>&1; then
+      if docker exec "${CHARON_CONTAINER_NAME}" wget -qO /dev/null http://127.0.0.1:2019/config/ >/dev/null 2>&1; then
         break
       fi
       sleep 1

@@ -41,7 +41,7 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
        ```
 
     - This ensures the container has the latest code and proper environment variables
-    - The container exposes: port 8080 (app), port 2020 (emergency), port 2019 (Caddy admin)
+    - The container exposes: port 8080 (app), port 2020 (emergency). Port 2019 (Caddy admin) stays inside the container.
     - Verify container is healthy before proceeding
 
 2. **Understand the Flow**:

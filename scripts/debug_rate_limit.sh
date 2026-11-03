@@ -7,7 +7,7 @@ echo "=== Starting debug container ==="
 docker rm -f charon-debug 2>/dev/null || true
 docker run -d --name charon-debug \
     --network containers_default \
-    -p 8180:80 -p 8280:8080 -p 2119:2019 \
+    -p 8180:80 -p 8280:8080 \
     -e CHARON_ENV=development \
     charon:local
 
@@ -58,11 +58,11 @@ curl -s -b /tmp/debug-cookie http://localhost:8280/api/v1/security/config | jq .
 
 echo ""
 echo "=== Caddy config (checking for rate_limit handler) ==="
-curl -s http://localhost:2119/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []' | grep -i rate_limit || echo "No rate_limit handler found"
+docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []' | grep -i rate_limit || echo "No rate_limit handler found"
 
 echo ""
 echo "=== Full Caddy route handlers ==="
-curl -s http://localhost:2119/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
+docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
 
 echo ""
 echo "=== Container logs (last 50 lines) ==="

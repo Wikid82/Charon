@@ -553,7 +553,7 @@ echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 
 # Start Caddy in the background with initial empty config
 # Run Caddy as charon user for security
-echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
+echo '{"admin":{"listen":"127.0.0.1:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
 start_as_charon CADDY_PID caddy run --config /config/caddy.json
 echo "Caddy started (PID: $CADDY_PID)"

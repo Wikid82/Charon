@@ -78,7 +78,7 @@ fi
 
 docker run -d --name "$CONTAINER" --network "$NETWORK" -p "${HOST_PORT}:8080" \
   -e CHARON_ENV=development -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
-  -e CHARON_CADDY_ADMIN_API=http://localhost:2019 -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
+  -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
   -e CHARON_IMPORT_DIR=/app/data/imports -e CHARON_ACME_STAGING=false -e FEATURE_CERBERUS_ENABLED=true \
   -e CHARON_SECURITY_TESTS_ENABLED=false \
   -v "${VOLUME_DATA}:/app/data" -v "${VOLUME_CADDY_DATA}:/data" -v "${VOLUME_CADDY_CONFIG}:/config" \

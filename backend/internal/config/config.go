@@ -4,7 +4,9 @@ package config
 import (
 	crand "crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +21,29 @@ const (
 	DBCompactAuto = "auto"
 	DBCompactOff  = "off"
 )
+
+// CaddyAdminAddress is the only address the bundled Caddy admin API listens on.
+// The backend dials the same address, so the two always agree.
+const CaddyAdminAddress = "127.0.0.1:2019"
+
+// caddyAdminAPIPort is the admin API port the backend expects in its URL.
+const caddyAdminAPIPort = 2019
+
+// caddyAdminLoopbackHosts are the host names that reach this container's loopback interface.
+var caddyAdminLoopbackHosts = map[string]struct{}{
+	"localhost": {},
+	"127.0.0.1": {},
+	"::1":       {},
+}
+
+// caddyAdminRefusedMessage is the startup error for an admin URL that does not
+// name this container. It says what to set instead.
+const caddyAdminRefusedMessage = "CHARON_CADDY_ADMIN_API must point at this container (localhost); using an external proxy is not supported: set it to http://localhost:2019 or remove it"
+
+// CaddyAdminAPIForTests, when non-empty, replaces the admin URL that Load returns.
+// Only the test helpers that run main in a child process set it. Nothing shipped
+// sets it, and no environment variable reaches it.
+var CaddyAdminAPIForTests string
 
 // Config captures runtime configuration sourced from environment variables.
 type Config struct {
@@ -118,7 +143,7 @@ func Load() (Config, error) {
 		DatabasePath:    getEnvAny(filepath.Join("data", "charon.db"), "CHARON_DB_PATH", "CPM_DB_PATH"),
 		ConfigRoot:      getEnvAny("/config", "CHARON_CADDY_CONFIG_ROOT"),
 		FrontendDir:     getEnvAny(filepath.Clean(filepath.Join("..", "frontend", "dist")), "CHARON_FRONTEND_DIR", "CPM_FRONTEND_DIR"),
-		CaddyAdminAPI:   getEnvAny("http://localhost:2019", "CHARON_CADDY_ADMIN_API", "CPM_CADDY_ADMIN_API"),
+		CaddyAdminAPI:   getEnvAny("http://"+CaddyAdminAddress, "CHARON_CADDY_ADMIN_API", "CPM_CADDY_ADMIN_API"),
 		CaddyConfigDir:  getEnvAny(filepath.Join("data", "caddy"), "CHARON_CADDY_CONFIG_DIR", "CPM_CADDY_CONFIG_DIR"),
 		CaddyBinary:     getEnvAny("caddy", "CHARON_CADDY_BINARY", "CPM_CADDY_BINARY"),
 		ImportCaddyfile: getEnvAny("/import/Caddyfile", "CHARON_IMPORT_CADDYFILE", "CPM_IMPORT_CADDYFILE"),
@@ -165,16 +190,14 @@ func Load() (Config, error) {
 		cfg.JWTSecret = os.Getenv("CPM_JWT_SECRET")
 	}
 
-	allowedInternalHosts := security.InternalServiceHostAllowlist()
-	normalizedCaddyAdminURL, err := security.ValidateInternalServiceBaseURL(
-		cfg.CaddyAdminAPI,
-		2019,
-		allowedInternalHosts,
-	)
+	loopbackAdminAPI, err := resolveCaddyAdminAPI(cfg.CaddyAdminAPI)
 	if err != nil {
 		return Config{}, fmt.Errorf("validate caddy admin api url: %w", err)
 	}
-	cfg.CaddyAdminAPI = normalizedCaddyAdminURL.String()
+	cfg.CaddyAdminAPI = loopbackAdminAPI
+	if CaddyAdminAPIForTests != "" {
+		cfg.CaddyAdminAPI = CaddyAdminAPIForTests
+	}
 
 	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o700); err != nil {
 		return Config{}, fmt.Errorf("ensure data directory: %w", err)
@@ -328,4 +351,22 @@ func getEnvIntAny(fallback int, keys ...string) int {
 		return val
 	}
 	return fallback
+}
+
+// resolveCaddyAdminAPI accepts only a URL that names this container's loopback
+// interface on the admin port, and returns the URL the backend dials. The host
+// check runs before the generic validator, so a service name is refused even
+// when it appears in the internal-service allowlist.
+func resolveCaddyAdminAPI(raw string) (string, error) {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid url format: %w", err)
+	}
+	if _, ok := caddyAdminLoopbackHosts[strings.ToLower(u.Hostname())]; !ok {
+		return "", errors.New(caddyAdminRefusedMessage)
+	}
+	if _, err := security.ValidateInternalServiceBaseURL(raw, caddyAdminAPIPort, caddyAdminLoopbackHosts); err != nil {
+		return "", fmt.Errorf("invalid caddy admin api url: %w", err)
+	}
+	return "http://" + CaddyAdminAddress, nil
 }
