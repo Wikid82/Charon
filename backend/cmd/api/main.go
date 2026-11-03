@@ -230,6 +230,12 @@ func main() {
 		log.Fatalf("migration failed: %v", err)
 	}
 
+	// Carry the retired CrowdSec mode setting over to the enabled setting before the reconciliation reads either.
+	// Runs on every start, so a mode row written by an older build is cleaned again.
+	if _, err = models.RetireCrowdSecModeSetting(db); err != nil {
+		log.Fatalf("retire CrowdSec mode setting: %v", err)
+	}
+
 	// Reconcile CrowdSec state after the schema exists and before the HTTP server starts, so CrowdSec is running
 	// if the user preference was to have it enabled. This must stay before RegisterWithDeps, which starts the
 	// first Caddy apply.

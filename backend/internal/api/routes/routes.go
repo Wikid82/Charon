@@ -230,6 +230,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	if err := MigrateSchema(db); err != nil {
 		return Registered{UptimeShutdown: uptimeShutdown}, err
 	}
+	// main.go runs the same carry-over fatally before the reconciliation. This second pass is cleanup of anything an
+	// older build wrote since, so a failure here is logged and the mode row is retried on the next start.
+	if _, err := models.RetireCrowdSecModeSetting(db); err != nil {
+		logger.Log().WithError(err).Warn("Failed to retire CrowdSec mode setting — continuing startup")
+	}
 
 	// Decide synchronously, before the backup scheduler and every pipeline
 	// goroutine exist, whether a database optimization is likely. Planning can
