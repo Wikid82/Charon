@@ -213,7 +213,6 @@ docker run -d --name "${CONTAINER_NAME}" \
     -e CHARON_HTTP_PORT=8080 \
     -e CHARON_DB_PATH=/app/data/charon.db \
     -e CHARON_FRONTEND_DIR=/app/frontend/dist \
-    -e CHARON_CADDY_ADMIN_API=http://localhost:2019 \
     -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
     -e CHARON_CADDY_BINARY=caddy \
     -v "${VOLUMES[0]}:/app/data" \

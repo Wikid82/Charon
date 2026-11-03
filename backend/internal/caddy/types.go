@@ -11,7 +11,7 @@ type Config struct {
 
 // AdminConfig configures Caddy's admin API endpoint.
 type AdminConfig struct {
-	Listen string `json:"listen,omitempty"` // e.g., "0.0.0.0:2019" or ":2019"
+	Listen string `json:"listen,omitempty"` // e.g., "127.0.0.1:2019"
 }
 
 // LoggingConfig configures Caddy's logging facility.

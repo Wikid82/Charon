@@ -23,7 +23,6 @@ services:
       - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
-      - CHARON_CADDY_ADMIN_API=http://localhost:2019
       - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
       # Security Services (Optional)
       # 🚨 DEPRECATED: Use GUI toggle in Security dashboard instead

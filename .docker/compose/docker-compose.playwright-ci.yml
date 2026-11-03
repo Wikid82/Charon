@@ -69,7 +69,6 @@ services:
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
       # Caddy settings
-      - CHARON_CADDY_ADMIN_API=http://localhost:2019
       - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
       - CHARON_CADDY_BINARY=caddy
       # ACME settings (staging for E2E tests)
