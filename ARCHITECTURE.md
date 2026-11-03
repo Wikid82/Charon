@@ -897,6 +897,13 @@ Key writes go through `crowdsec.SaveBouncerKey`: a temporary file is written and
 
 Only a definite rejection (HTTP 403) of every candidate key leads to step 3. An unreachable or unclear Local API answer (timeout, 401, 5xx, redirect) leaves the saved key and the bouncer untouched, and the check runs again at the next start. With no saved key yet, the key already in use (the environment value, not yet checked) stays in use, no new bouncer is registered, and the check runs again at the next start.
 
+**Key check address and registration details:**
+
+- Key checks always use the local engine address (`http://127.0.0.1:8085`). `CHARON_SECURITY_CROWDSEC_API_URL` is ignored for key checks. When it is set to any other value, one warning is logged per start, without the address. The variable still seeds the stored address that the status readers (dashboard, health, decisions, Caddy) use.
+- The manual register endpoint (`POST /admin/crowdsec/bouncer/register`) answers 409 `crowdsec_busy` while another CrowdSec change holds the lock, and 503 `shutting_down` during shutdown. The bouncer status reports `registration: "unknown"` when the bouncer list cannot be read; the UI shows this as "Status unknown", and `registered` is false.
+- The default security row is kept in step with the CrowdSec setting at startup, so the stored row and the setting agree after the first start.
+- Shutdown waits up to 30 seconds for a registration that is already in progress (`WaitRegistrations`, run beside the uptime drain). Registrations that start after shutdown has begun are refused.
+
 **Preset apply and config edits:** Applying a hub preset, importing a
 configuration, and saving a file in the config editor never rename or empty the
 live CrowdSec directory. Each operation first takes a copy-based snapshot

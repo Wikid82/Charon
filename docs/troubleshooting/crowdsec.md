@@ -321,6 +321,10 @@ These cover changes made while CrowdSec is still starting, CrowdSec stopping rig
 - **"CrowdSec could not load the imported configuration. Check that config.yaml has a config_paths section and that the folders it names exist."** (error code `import_config_invalid`, HTTP 422): CrowdSec itself refused the archive's `config.yaml`, usually because the folders its `config_paths` section names are not in the archive. Your current configuration is left unchanged. The simplest fix is to export a configuration from the CrowdSec page and import that file. Charon also asks CrowdSec to test the imported file. If that test cannot run, or CrowdSec is already running and holds the ports or database, Charon skips the test and still imports. The log shows a warning in that case.
 - **How CrowdSec is started (for reference)**: Charon starts CrowdSec with the reload signal (SIGHUP) ignored until CrowdSec is running. A reload signal that arrives in the first second ends CrowdSec, so this protects it. Helper programs CrowdSec starts during that time also ignore the signal. You do not need to change anything.
 
+## Bouncer status messages
+
+- **"Status unknown" badge on the bouncer key card**: Charon could not read the list of bouncers from CrowdSec, so it cannot show whether the key is registered. This is a status message only; it does not change your setup. Wait a few seconds, then reload the Security page. If the badge stays, run `docker exec charon cscli bouncers list` to check that CrowdSec answers. If that command also fails, see [LAPI Initialization and Timing](#lapi-initialization-and-timing) on this page.
+
 ## CrowdSec Not Starting After Container Restart
 
 ### Problem: Toggle shows ON but CrowdSec is not running
