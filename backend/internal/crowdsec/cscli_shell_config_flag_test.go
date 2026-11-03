@@ -16,7 +16,6 @@ var shellScriptsRunningCSCLI = []string{
 	".docker/docker-entrypoint.sh",
 	".docker/cscli-hub-mirror.sh",
 	"configs/crowdsec/install_hub_items.sh",
-	"configs/crowdsec/register_bouncer.sh",
 }
 
 // repoRoot returns the repository root: the parent of the directory that holds backend/go.mod. It walks up from the

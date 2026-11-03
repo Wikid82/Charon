@@ -1,48 +1,35 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
-func registerBouncerPreview(t *testing.T, scriptOutput string) string {
+// registerBouncerPreview registers through the endpoint with add as the new key and returns the preview it reports.
+func registerBouncerPreview(t *testing.T, add string) string {
 	t.Helper()
-	script := filepath.Join(t.TempDir(), "register_bouncer.sh")
-	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n"), 0o600))
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
-	h.registerScriptPath = script
-	h.CmdExec = &mockCmdExecutor{output: []byte(scriptOutput)}
-	r := gin.New()
-	h.RegisterRoutes(r.Group("/api/v1"))
-	w := httptest.NewRecorder()
+	ex := registerCSCLI(add, nil, `[{"name":"caddy-bouncer"}]`, nil)
+	h := newRegisterFixture(t, ex, map[string]bouncerkey.Verdict{regSavedKey: bouncerkey.VerdictRejected})
+	writeSavedKey(t, h.bouncerKeyPath(), regSavedKey)
 
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody))
+	w := pr4Serve(pr4Router(h), http.MethodPost, registerBouncerURL, "")
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var body struct {
-		Preview string `json:"api_key_preview"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	return body.Preview
+	preview, ok := pr4Body(t, w)["api_key_preview"].(string)
+	require.True(t, ok, "api_key_preview is a string")
+	return preview
 }
 
+// The helper uses t.Setenv (through newRegisterFixture), so these tests cannot run in parallel.
 func TestRegisterBouncerPreviewUsesTheSharedMask(t *testing.T) {
-	t.Parallel()
-
-	preview := registerBouncerPreview(t, "Bouncer registered successfully\nabcd0123456789ABCDEFGHIJKLMNwxyz\n")
-
-	require.Equal(t, "abcd...wxyz", preview)
+	require.Equal(t, util.MaskAPIKey(regNewKey), registerBouncerPreview(t, regNewKey))
 }
 
-func TestRegisterBouncerPreviewIsEmptyWithoutAKeyLine(t *testing.T) {
-	t.Parallel()
-
-	require.Empty(t, registerBouncerPreview(t, "Bouncer registered successfully\n"))
+func TestRegisterBouncerPreviewIsTheMaskOfTheKeyInUse(t *testing.T) {
+	require.Equal(t, "abcd...wxyz", registerBouncerPreview(t, "abcd0123456789ABCDEFGHIJKLMNwxyz"))
 }

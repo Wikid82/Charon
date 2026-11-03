@@ -21,8 +21,6 @@ const (
 	// bouncerCheckTimeout bounds the bouncer list command. The registration swap sets its own step budgets
 	// (crowdsec.ReplaceBouncer).
 	bouncerCheckTimeout = 5 * time.Second
-	// registerScriptTimeoutDefault bounds the bouncer registration script, which runs several cscli commands.
-	registerScriptTimeoutDefault = 30 * time.Second
 
 	// msgCSCLIFailed is the soft error of a listing when cscli failed or printed more than the limits allow.
 	msgCSCLIFailed       = "cscli not available or failed"

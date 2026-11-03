@@ -1137,10 +1137,9 @@ RUN if [ ! -f /etc/crowdsec.dist/config.yaml ]; then \
 # Copy CrowdSec configuration templates from source
 COPY configs/crowdsec/acquis.yaml /etc/crowdsec.dist/acquis.yaml
 COPY configs/crowdsec/install_hub_items.sh /usr/local/bin/install_hub_items.sh
-COPY configs/crowdsec/register_bouncer.sh /usr/local/bin/register_bouncer.sh
 
 # Make CrowdSec scripts executable
-RUN chmod +x /usr/local/bin/install_hub_items.sh /usr/local/bin/register_bouncer.sh
+RUN chmod +x /usr/local/bin/install_hub_items.sh
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder --chown=charon:charon /app/backend/charon /app/charon

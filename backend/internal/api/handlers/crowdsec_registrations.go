@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 // errRegistrationRefused is returned by a registration that starts after shutdown has begun.
@@ -45,4 +48,14 @@ func (h *CrowdsecHandler) WaitRegistrations(ctx context.Context) error {
 	case <-ctx.Done():
 		return fmt.Errorf("wait for bouncer registrations: %w", ctx.Err())
 	}
+}
+
+const (
+	codeShuttingDown = "shutting_down"
+	msgShuttingDown  = "CrowdSec is shutting down; try again after Charon restarts"
+)
+
+// respondShuttingDown answers 503 for a registration that arrives after shutdown began.
+func respondShuttingDown(c *gin.Context) {
+	respondCoded(c, http.StatusServiceUnavailable, codeShuttingDown, msgShuttingDown, nil)
 }
