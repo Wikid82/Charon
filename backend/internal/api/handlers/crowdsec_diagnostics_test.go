@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -43,17 +41,11 @@ func TestRegisterBouncer_ErrorOmitsOutput(t *testing.T) {
 
 func TestRegisterBouncer_FailureDetailsFixed(t *testing.T) {
 	buf := captureLogs(t)
-	script := filepath.Join(t.TempDir(), "register_bouncer.sh")
-	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n"), 0o600))
+	ex := registerCSCLI(diagnosticsSentinel+" boom", errors.New("exit status 1"), "", nil)
+	h := newRegisterFixture(t, ex, nil)
 
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
-	h.registerScriptPath = script
-	h.CmdExec = &mockCmdExecutor{output: []byte(diagnosticsSentinel + " boom"), err: errors.New("exit status 1")}
-
-	r := gin.New()
-	h.RegisterRoutes(r.Group("/api/v1"))
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody))
+	pr4Router(h).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody))
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	require.Contains(t, w.Body.String(), `"details":"see server logs"`)

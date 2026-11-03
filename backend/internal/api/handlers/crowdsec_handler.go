@@ -98,12 +98,6 @@ type CrowdsecHandler struct {
 	reloaderOnce  sync.Once
 	reloaderState *crowdsecReloader
 
-	// registerScriptPath overrides the bouncer registration script location; overridable in tests.
-	registerScriptPath string
-
-	// registerScriptTimeout bounds the bouncer registration script; 0 means registerScriptTimeoutDefault. Overridable in tests.
-	registerScriptTimeout time.Duration
-
 	// mergeNotifications, mergeConfig and scanPlaceholders are the import's steps for blanked values; overridable in tests.
 	mergeNotifications func(snapshotDir, dataDir string) error
 	mergeConfig        func(snapshotDir, dataDir string) error
@@ -168,8 +162,18 @@ type CrowdsecHandler struct {
 	// a network call, so GetKeyStatus can snapshot the flags while a decision is waiting on LAPI.
 	registrationMutex sync.Mutex
 
+	// registrationGate guards registrationsClosed and orders its change against registrations.Add, so the drain
+	// at shutdown (WaitRegistrations) never races a registration that is starting. See crowdsec_registrations.go.
+	registrationGate    sync.Mutex
+	registrationsClosed bool
+	registrations       sync.WaitGroup
+
 	// keyCheckWait bounds the LAPI key check retries; 0 means defaultLAPIKeyCheckWait. Tests shorten it.
 	keyCheckWait time.Duration
+	// keyCheck is the LAPI check of the key decision; nil means bouncerkey.Check. Tests set it to answer from a stub.
+	keyCheck func(context.Context, bouncerkey.Doer, string, bouncerkey.CheckOptions) bouncerkey.Verdict
+	// replaceTimings are the bouncer swap budgets; a zero value means the defaults. Tests shorten them.
+	replaceTimings crowdsec.ReplaceTimings
 
 	// envKeyRejected tracks whether the env var key was rejected by LAPI
 	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
@@ -188,10 +192,7 @@ type CrowdsecHandler struct {
 }
 
 // Bouncer auto-registration constants.
-const (
-	bouncerName                  = "caddy-bouncer"
-	defaultRegisterBouncerScript = "/usr/local/bin/register_bouncer.sh"
-)
+const bouncerName = "caddy-bouncer"
 
 // resolveLAPIURLValidator returns the handler's validator or the default.
 func (h *CrowdsecHandler) resolveLAPIURLValidator(raw string) (*url.URL, error) {
@@ -1560,7 +1561,7 @@ func validateCrowdsecLAPIBaseURLDefault(raw string) (*url.URL, error) {
 func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	// Get LAPI URL from security config or use default
 	// Default port is 8085 to avoid conflict with Charon management API on port 8080
-	lapiURL := "http://127.0.0.1:8085"
+	lapiURL := crowdsec.LocalLAPIURL
 	if h.Security != nil {
 		cfg, err := h.Security.Get()
 		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
@@ -1700,6 +1701,8 @@ type BouncerInfo struct {
 	KeySource  string `json:"key_source"`  // "env_var" | "file" | "memory" | "none"
 	FilePath   string `json:"file_path"`
 	Registered bool   `json:"registered"`
+	// Registration is "registered", "not_registered" or "unknown"; Registered is true only for "registered".
+	Registration registrationState `json:"registration"`
 }
 
 // KeyStatusResponse represents the API response for the key-status endpoint.
@@ -1742,11 +1745,12 @@ type KeyStatusResponse struct {
 // defaultLAPIKeyCheckWait is the retry window for one LAPI key check, the same window Start always used.
 const defaultLAPIKeyCheckWait = 30 * time.Second
 
-// lapiKeyCheckOptions returns the retry policy for a handler key check against baseURL.
-func (h *CrowdsecHandler) lapiKeyCheckOptions(baseURL string) bouncerkey.CheckOptions {
+// lapiKeyCheckOptions returns the retry policy for a handler key check against baseURL. The wait is defaultWait
+// unless a test has set keyCheckWait.
+func (h *CrowdsecHandler) lapiKeyCheckOptions(baseURL string, defaultWait time.Duration) bouncerkey.CheckOptions {
 	wait := h.keyCheckWait
 	if wait == 0 {
-		wait = defaultLAPIKeyCheckWait
+		wait = defaultWait
 	}
 	return bouncerkey.CheckOptions{
 		BaseURL:      strings.TrimRight(baseURL, "/"),
@@ -1757,19 +1761,21 @@ func (h *CrowdsecHandler) lapiKeyCheckOptions(baseURL string) bouncerkey.CheckOp
 	}
 }
 
-// testKeyAgainstLAPI reports the three-valued LAPI verdict for an API key, using the stored LAPI URL and the
-// internal-service client. Only 403 is a rejection; an unreachable, slow or erroring LAPI is Unknown.
+// testKeyAgainstLAPI reports the three-valued LAPI verdict for an API key, against the local engine only (the stored
+// LAPI URL is not read here, so a leftover external address cannot change the verdict). Only 403 is a rejection;
+// an unreachable, slow or erroring LAPI is Unknown.
 func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bouncerkey.Verdict {
-	lapiURL := "http://127.0.0.1:8085"
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
+	return h.checkKeyAgainstLAPI(ctx, apiKey, defaultLAPIKeyCheckWait)
+}
 
+// checkKeyAgainstLAPI is testKeyAgainstLAPI with the caller's key-check wait (see lapiKeyCheckOptions).
+func (h *CrowdsecHandler) checkKeyAgainstLAPI(ctx context.Context, apiKey string, keyWait time.Duration) bouncerkey.Verdict {
 	client := network.NewInternalServiceHTTPClient(5 * time.Second)
-	verdict := bouncerkey.Check(ctx, client, apiKey, h.lapiKeyCheckOptions(lapiURL))
+	check := h.keyCheck
+	if check == nil {
+		check = bouncerkey.Check
+	}
+	verdict := check(ctx, client, apiKey, h.lapiKeyCheckOptions(crowdsec.LocalLAPIURL, keyWait))
 	logger.Log().WithField("verdict", keyCheckName(verdict)).Debug("CrowdSec bouncer key checked against LAPI")
 	return verdict
 }
@@ -1924,10 +1930,18 @@ func (h *CrowdsecHandler) keyStillValid(c *gin.Context, key string) bouncerkey.V
 // decisionMu makes the decision (LAPI check and any register) one at a time; registrationMutex is taken only
 // to write the rejection flags, so GetKeyStatus can answer while a Start waits on LAPI.
 func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bouncerkey.EnsureResult, error) {
+	return h.ensureBouncerRegistrationWait(ctx, defaultLAPIKeyCheckWait)
+}
+
+// ensureBouncerRegistrationWait is ensureBouncerRegistration with the LAPI key-check wait of the caller.
+func (h *CrowdsecHandler) ensureBouncerRegistrationWait(ctx context.Context, keyWait time.Duration) (bouncerkey.EnsureResult, error) {
 	h.decisionMu.Lock()
 	defer h.decisionMu.Unlock()
 
-	res, err := bouncerkey.Ensure(ctx, h.bouncerKeyPath(), h.testKeyAgainstLAPI, h.registerBouncer, crowdsec.SaveBouncerKey)
+	validate := func(ctx context.Context, key string) bouncerkey.Verdict {
+		return h.checkKeyAgainstLAPI(ctx, key, keyWait)
+	}
+	res, err := bouncerkey.Ensure(ctx, h.bouncerKeyPath(), validate, h.registerBouncer, crowdsec.SaveBouncerKey)
 
 	h.registrationMutex.Lock()
 	defer h.registrationMutex.Unlock()
@@ -2023,17 +2037,31 @@ func (h *CrowdsecHandler) reapplyCaddyConfig(ctx context.Context) error {
 	return applyProxyConfigDetached(ctx, h.caddyManager, proxyApplyTimeout)
 }
 
-// validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
-func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
+// registrationState is what the bouncer list says about caddy-bouncer. The values are the JSON
+// `registration` field of GET /admin/crowdsec/bouncer.
+type registrationState string
+
+const (
+	// registrationRegistered: the list names caddy-bouncer.
+	registrationRegistered registrationState = "registered"
+	// registrationNotRegistered: the list was read and does not name caddy-bouncer (empty or null included).
+	registrationNotRegistered registrationState = "not_registered"
+	// registrationUnknown: the list could not be read (command failed or timed out, or output did not parse).
+	registrationUnknown registrationState = "unknown"
+)
+
+// bouncerRegistration asks `cscli bouncers list` whether caddy-bouncer is registered. Only a readable
+// answer that omits the bouncer is not registered; a failed or unreadable answer is unknown.
+func (h *CrowdsecHandler) bouncerRegistration(ctx context.Context) registrationState {
 	output, err := h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "list", "-o", "json")
 	if err != nil {
 		logger.Log().WithError(err).Debug("Failed to list bouncers")
-		return false
+		return registrationUnknown
 	}
 
-	// Handle empty or null output
+	// cscli prints nothing or null when no bouncers exist.
 	if len(output) == 0 || string(output) == "null" || string(output) == "null\n" {
-		return false
+		return registrationNotRegistered
 	}
 
 	var bouncers []struct {
@@ -2041,35 +2069,27 @@ func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
 	}
 	if err := crowdsec.UnmarshalCSCLIOutput(output, &bouncers); err != nil {
 		logger.Log().WithError(err).Debug("Failed to parse bouncers list")
-		return false
+		return registrationUnknown
 	}
 
 	for _, b := range bouncers {
 		if b.Name == bouncerName {
-			return true
+			return registrationRegistered
 		}
 	}
-	return false
+	return registrationNotRegistered
 }
 
-// registerBouncer replaces any stale caddy-bouncer registration and returns the new key.
-// It does not save the key; ensureBouncerRegistration saves whatever Ensure chooses.
+// registerBouncer replaces the caddy-bouncer registration and returns the new key. It does not save the key;
+// ensureBouncerRegistration saves whatever Ensure chooses. Only the swap is counted in the registration drain, so
+// shutdown waits for the swap (see WaitRegistrations). Saving the returned key runs in ensureBouncerRegistration
+// after this returns, outside the drain.
 func (h *CrowdsecHandler) registerBouncer(ctx context.Context) (string, error) {
-	// Delete existing bouncer if present (stale registration)
-	_, _ = h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "delete", bouncerName)
-
-	// Register new bouncer
-	output, err := h.runCSCLI(ctx, bouncerRegisterTimeout, "bouncers", "add", bouncerName, "-o", "raw")
-	if err != nil {
-		return "", fmt.Errorf("bouncer registration failed: %w (%s)", err, util.DescribeCommandOutput(output))
+	if !h.beginRegistration() {
+		return "", errRegistrationRefused
 	}
-
-	apiKey := strings.TrimSpace(string(output))
-	if apiKey == "" {
-		return "", fmt.Errorf("bouncer registration returned empty API key")
-	}
-
-	return apiKey, nil
+	defer h.endRegistration()
+	return crowdsec.ReplaceBouncerWith(ctx, h.runCSCLI, bouncerName, h.replaceTimings)
 }
 
 // validateAPIKeyFormat validates the API key format for security.
@@ -2152,8 +2172,9 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 		info.KeyPreview = "***"
 	}
 
-	// Check if bouncer is registered
-	info.Registered = h.validateBouncerKey(ctx)
+	// Registered is true only for a confirmed registration; an unreadable list reports unknown.
+	info.Registration = h.bouncerRegistration(ctx)
+	info.Registered = info.Registration == registrationRegistered
 
 	c.JSON(http.StatusOK, info)
 }
@@ -2178,7 +2199,7 @@ func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
 func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 	// Get LAPI URL from security config or use default
 	// Default port is 8085 to avoid conflict with Charon management API on port 8080
-	lapiURL := "http://127.0.0.1:8085"
+	lapiURL := crowdsec.LocalLAPIURL
 	if h.Security != nil {
 		cfg, err := h.Security.Get()
 		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
@@ -2396,68 +2417,76 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	h.dashCache.Invalidate("dashboard")
 }
 
-// RegisterBouncer registers a new bouncer or returns existing bouncer status.
+// registerKeyCheckWait is the LAPI key-check wait of the registration endpoint: the boot window, so a request answers
+// in bounded time while LAPI is down. The worst case is the check (10 s), the replace (25 s) and the list (5 s).
+const registerKeyCheckWait = 10 * time.Second
+
+// RegisterBouncer checks the saved bouncer key against the local engine and registers a new bouncer only when
+// CrowdSec definitively rejects that key, so a working key is never replaced. It uses the key decision Start uses
+// (ensureBouncerRegistrationWait), so the key file, the proxy and the response agree with the engine.
+//
+// Answers: 200 "registered" when a key is in use; 200 "unverified" when no key could be checked (LAPI down), which
+// changes nothing; 500 when the registration failed; 504 when it ran out of time. A running Start or Stop or an
+// install job answers 409 crowdsec_busy, and a request after shutdown began answers 503 shutting_down. The proxy
+// configuration is applied after every decision. The work runs on the operation context, so a client that
+// leaves does not cut it in half.
 // POST /api/v1/admin/crowdsec/bouncer/register
 func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	// Check if register_bouncer.sh script exists
-	scriptPath := h.registerScriptPath
-	if scriptPath == "" {
-		scriptPath = defaultRegisterBouncerScript
-	}
-	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "bouncer registration script not found"})
+	ctx, releaseOp := h.operationContext(c.Request.Context())
+	defer releaseOp()
+	if !h.lifecycleMu.TryLock() {
+		respondBusy(c, "")
 		return
 	}
-
-	// Run the registration script under its own deadline
-	scriptTimeout := h.registerScriptTimeout
-	if scriptTimeout <= 0 {
-		scriptTimeout = registerScriptTimeoutDefault
+	defer h.lifecycleMu.Unlock()
+	release, jobID, ok := h.ApplyJobs().Hold()
+	if !ok {
+		respondBusy(c, jobID)
+		return
 	}
-	scriptCtx, cancelScript := context.WithTimeout(ctx, scriptTimeout)
-	output, err := h.CmdExec.Execute(scriptCtx, "bash", scriptPath)
-	timedOut := isCSCLITimeout(scriptCtx, err)
-	cancelScript()
-	if err != nil {
-		if timedOut {
-			logger.Log().WithError(err).Warn("Bouncer registration script timed out")
+	defer release()
+	if !h.beginRegistration() {
+		respondShuttingDown(c)
+		return
+	}
+	defer h.endRegistration()
+
+	res, regErr := h.ensureBouncerRegistrationWait(ctx, registerKeyCheckWait)
+	if errors.Is(regErr, errRegistrationRefused) {
+		respondShuttingDown(c)
+		return
+	}
+	h.handleBouncerRegistration(res, regErr)
+	// applyProxyConfig logs its own failure; a failed apply never changes the answer below.
+	_ = h.applyProxyConfig(ctx)
+
+	if regErr != nil {
+		if isCSCLITimeout(ctx, regErr) {
 			respondCSCLITimeout(c)
 			return
 		}
-		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Warn("Failed to register bouncer")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": "see server logs"})
 		return
 	}
 
-	// Parse output for API key (last line typically contains the key)
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var apiKeyPreview string
-	for _, line := range lines {
-		// Look for lines that appear to be an API key (long alphanumeric string)
-		line = strings.TrimSpace(line)
-		if len(line) >= 32 && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
-			apiKeyPreview = util.MaskAPIKey(line)
-			break
-		}
+	status := "registered"
+	if res.Outcome == bouncerkey.OutcomeUnverified {
+		status = "unverified"
 	}
-
-	// Check if bouncer is actually registered by querying cscli
-	checkOutput, checkErr := h.runCSCLI(ctx, cscliListTimeout, "bouncers", "list", "-o", "json")
-	registered := false
-	if checkErr == nil && len(checkOutput) > 0 && string(checkOutput) != "null" {
-		if strings.Contains(string(checkOutput), "caddy-bouncer") {
-			registered = true
-		}
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"status":          "registered",
-		"bouncer_name":    "caddy-bouncer",
-		"api_key_preview": apiKeyPreview,
-		"registered":      registered,
+		"status":          status,
+		"bouncer_name":    bouncerName,
+		"api_key_preview": registrationPreview(res.Key),
+		"registered":      h.bouncerRegistration(ctx) == registrationRegistered,
 	})
+}
+
+// registrationPreview is the masked key the registration response reports; empty when there is no key.
+func registrationPreview(key string) string {
+	if key == "" {
+		return ""
+	}
+	return util.MaskAPIKey(key)
 }
 
 // GetAcquisitionConfig returns the current CrowdSec acquisition configuration.

@@ -65,6 +65,42 @@ export async function statusCrowdsec(): Promise<CrowdSecStatus> {
   return resp.data
 }
 
+/**
+ * Result of checking the bouncer registration against CrowdSec.
+ * `unknown` means the check could not get an answer, not that the bouncer is missing.
+ */
+export type BouncerRegistration = 'registered' | 'not_registered' | 'unknown'
+
+/** Bouncer key details returned by `GET /admin/crowdsec/bouncer`. */
+export interface BouncerInfo {
+  name: string
+  key_preview: string
+  key_source: 'env_var' | 'file' | 'memory' | 'none'
+  file_path: string
+  /** True only when `registration` is `registered`. */
+  registered: boolean
+  /** Absent on servers that predate the three-state check; use `registered` then. */
+  registration?: BouncerRegistration
+}
+
+/**
+ * Reads the bouncer key details and registration state.
+ * @throws {AxiosError} If the request fails
+ */
+export async function getBouncerInfo(): Promise<BouncerInfo> {
+  const resp = await client.get<BouncerInfo>('/admin/crowdsec/bouncer')
+  return resp.data
+}
+
+/**
+ * Reads the full bouncer key for copying.
+ * @throws {AxiosError} If the request fails
+ */
+export async function getBouncerKey(): Promise<string> {
+  const resp = await client.get<{ key: string; source: string }>('/admin/crowdsec/bouncer/key')
+  return resp.data.key
+}
+
 /** A CrowdSec hub item identified by its type and name. */
 export interface HubItem {
   type: string

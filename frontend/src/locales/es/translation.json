@@ -421,6 +421,7 @@
       "noKeyConfigured": "No hay clave de bouncer configurada. Active CrowdSec para el registro automático.",
       "registered": "Registrado",
       "notRegistered": "No registrado",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "Desde variable de entorno",
       "sourceFile": "Desde archivo",
       "keyHeldInMemory": "Se mantiene en memoria hasta que se pueda escribir el archivo de la clave",

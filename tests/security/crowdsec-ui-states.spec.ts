@@ -13,7 +13,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
-import { CROWDSEC_ROUTES, crowdsecFixtures, stubCrowdSecApi } from '../utils/crowdsec-stubs';
+import { CROWDSEC_ROUTES, crowdsecFixtures, ensureCerberusEnabled, stubCrowdSecApi } from '../utils/crowdsec-stubs';
 
 const PRESETS_ROUTE = '**/api/v1/admin/crowdsec/presets';
 const PULL_ROUTE = '**/api/v1/admin/crowdsec/presets/pull';
@@ -317,6 +317,38 @@ test.describe('CrowdSec newer UI states @security', () => {
       await expect(table.getByRole('columnheader', { name: 'Country' })).toHaveCount(0);
       await expect(table.getByRole('cell', { name: '203.0.113.2' })).toBeVisible();
       await expect(table.getByRole('cell', { name: '—' })).toHaveCount(0);
+    });
+  });
+
+  test.describe('Bouncer registration status', () => {
+    test('should show a neutral badge, not an error badge, when registration is unknown', async ({ page }) => {
+      await page.route('**/api/v1/admin/crowdsec/bouncer', async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          json: {
+            name: 'caddy-bouncer',
+            key_preview: 'e2e-preview',
+            key_source: 'file',
+            file_path: '/app/data/crowdsec/bouncer_key',
+            registered: false,
+            registration: 'unknown',
+          },
+        });
+      });
+      // The bouncer card renders only when Cerberus and CrowdSec are both on.
+      await ensureCerberusEnabled(page);
+      await stubCrowdSecApi(page, { crowdsecMode: 'local' });
+      await loadPage(page);
+      await page.getByRole('tab', { name: 'Configuration', exact: true }).click();
+
+      await expect(page.getByText('Status unknown', { exact: true })).toBeVisible();
+      await expect(page.getByText('Not Registered', { exact: true })).toHaveCount(0);
+      await expect(page.locator('.bg-error').filter({ hasText: 'Status unknown' })).toHaveCount(0);
     });
   });
 });

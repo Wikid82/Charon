@@ -68,7 +68,7 @@ func TestReconcile_DefaultRowReadFailureStopsReconciliation(t *testing.T) {
 	requireNotStarted(t, exec)
 }
 
-func TestReconcile_SettingsPreferenceUpdateFailureIsLoggedAndStopsReconciliation(t *testing.T) {
+func TestReconcile_SeededRowSyncFailureIsLoggedAndReconciliationContinues(t *testing.T) {
 	db := newStartupFaultDB(t)
 	require.NoError(t, db.Create(&models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"}).Error)
 	gormfault.Inject(t, db, gormfault.Update, "security_configs", gormfault.UpdateSets("crowd_sec_mode"))
@@ -77,7 +77,8 @@ func TestReconcile_SettingsPreferenceUpdateFailureIsLoggedAndStopsReconciliation
 
 	ReconcileCrowdSecOnStartup(db, exec, "crowdsec", t.TempDir(), &mockCommandExecutor{})
 
-	assert.Contains(t, logs.String(), "CrowdSec reconciliation: failed to set crowd_sec_mode from Settings preference")
+	assert.Contains(t, logs.String(), "CrowdSec reconciliation: failed to sync seeded SecurityConfig to the CrowdSec setting, continuing")
+	assert.Contains(t, logs.String(), "CrowdSec reconciliation: starting, CrowdSec is enabled", "the setting still decides, so a failed row write does not change the decision")
 	requireNotStarted(t, exec)
 }
 

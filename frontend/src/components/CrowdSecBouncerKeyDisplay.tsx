@@ -3,34 +3,27 @@ import { Copy, Check, Key, AlertCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from './ui/Badge'
+import { Badge, type BadgeProps } from './ui/Badge'
 import { Button } from './ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card'
 import { Skeleton } from './ui/Skeleton'
-import client from '../api/client'
+import { type BouncerInfo, type BouncerRegistration, getBouncerInfo, getBouncerKey } from '../api/crowdsec'
 import { toast } from '../utils/toast'
 
-interface BouncerInfo {
-  name: string
-  key_preview: string
-  key_source: 'env_var' | 'file' | 'memory' | 'none'
-  file_path: string
-  registered: boolean
+/** Badge look and label for each registration state. `unknown` is neutral: the check failed, nothing is wrong. */
+const REGISTRATION_BADGE: Record<
+  BouncerRegistration,
+  { variant: BadgeProps['variant']; labelKey: string }
+> = {
+  registered: { variant: 'success', labelKey: 'security.crowdsec.registered' },
+  not_registered: { variant: 'error', labelKey: 'security.crowdsec.notRegistered' },
+  unknown: { variant: 'secondary', labelKey: 'security.crowdsec.registrationUnknown' },
 }
 
-interface BouncerKeyResponse {
-  key: string
-  source: string
-}
-
-async function fetchBouncerInfo(): Promise<BouncerInfo> {
-  const response = await client.get<BouncerInfo>('/admin/crowdsec/bouncer')
-  return response.data
-}
-
-async function fetchBouncerKey(): Promise<string> {
-  const response = await client.get<BouncerKeyResponse>('/admin/crowdsec/bouncer/key')
-  return response.data.key
+/** Servers before the three-state check send only `registered`, so fall back to it. */
+function resolveRegistration(info: BouncerInfo): BouncerRegistration {
+  if (info.registration) return info.registration
+  return info.registered ? 'registered' : 'not_registered'
 }
 
 export function CrowdSecBouncerKeyDisplay() {
@@ -40,7 +33,7 @@ export function CrowdSecBouncerKeyDisplay() {
 
   const { data: info, isLoading, error } = useQuery({
     queryKey: ['crowdsec-bouncer-info'],
-    queryFn: fetchBouncerInfo,
+    queryFn: getBouncerInfo,
     refetchInterval: 30000,
     retry: 1,
   })
@@ -50,7 +43,7 @@ export function CrowdSecBouncerKeyDisplay() {
     setIsCopying(true)
 
     try {
-      const key = await fetchBouncerKey()
+      const key = await getBouncerKey()
       await navigator.clipboard.writeText(key)
       setCopied(true)
       toast.success(t('security.crowdsec.keyCopied'))
@@ -93,6 +86,8 @@ export function CrowdSecBouncerKeyDisplay() {
     )
   }
 
+  const registrationBadge = REGISTRATION_BADGE[resolveRegistration(info)]
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -120,18 +115,14 @@ export function CrowdSecBouncerKeyDisplay() {
             ) : (
               <>
                 <Copy className="mr-1 h-3 w-3" />
-                {t('common.copy') || 'Copy'}
+                {t('common.copy')}
               </>
             )}
           </Button>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Badge variant={info.registered ? 'success' : 'error'}>
-            {info.registered
-              ? t('security.crowdsec.registered')
-              : t('security.crowdsec.notRegistered')}
-          </Badge>
+          <Badge variant={registrationBadge.variant}>{t(registrationBadge.labelKey)}</Badge>
           {info.key_source !== 'memory' && (
             <Badge variant="outline">
               {info.key_source === 'env_var'

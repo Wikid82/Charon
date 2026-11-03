@@ -22,6 +22,8 @@ func (inertCrowdsecLifecycle) ResetCrowdSecState(write func() error) error { ret
 
 func (inertCrowdsecLifecycle) StopAfterReset(error) {}
 
+func (inertCrowdsecLifecycle) WaitRegistrations(context.Context) error { return nil }
+
 func (inertCrowdsecLifecycle) StartCrowdSec(context.Context) (CrowdsecStartResult, error) {
 	return CrowdsecStartResult{Status: "started"}, nil
 }

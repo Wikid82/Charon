@@ -184,6 +184,14 @@ var busyCases = map[string]busyCase{
 			return http.MethodDelete, "/admin/crowdsec/whitelist/00000000-0000-4000-8000-0000000000aa", nil, ""
 		},
 	},
+	"POST /admin/crowdsec/bouncer/register": {
+		request: func(*testing.T, *busyFixture) (string, string, []byte, string) {
+			return http.MethodPost, "/admin/crowdsec/bouncer/register", nil, ""
+		},
+		untouched: func(t *testing.T, f *busyFixture) {
+			require.NoFileExists(t, f.h.bouncerKeyPath(), "no key was written while the job runs")
+		},
+	},
 }
 
 func curatedPresetSlug() string {

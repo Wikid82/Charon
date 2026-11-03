@@ -944,10 +944,10 @@ func TestOversizedCscliOutput_SameSoftError(t *testing.T) {
 		assert.Equal(t, "cscli not available or failed", body["error"])
 	})
 
-	t.Run("bouncer check: oversized output is not a registered bouncer", func(t *testing.T) {
+	t.Run("bouncer check: oversized output is unknown, not not-registered", func(t *testing.T) {
 		t.Parallel()
 		h := pr4Handler(t, &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return over, nil }}, t.TempDir())
-		assert.False(t, h.validateBouncerKey(t.Context()))
+		assert.Equal(t, registrationUnknown, h.bouncerRegistration(t.Context()), "an unreadable answer is unknown, not not-registered")
 	})
 }
 

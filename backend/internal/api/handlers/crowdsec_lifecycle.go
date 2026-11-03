@@ -38,6 +38,9 @@ type CrowdsecLifecycle interface {
 	// StopAfterReset consumes the stop counted by ResetCrowdSecState. resetErr is the reset's result, or an error
 	// when the writes did not complete. The stop runs in a tracked goroutine, so the caller never waits for it.
 	StopAfterReset(resetErr error)
+	// WaitRegistrations closes the bouncer registration gate and waits for the swaps in flight, or for ctx. Shutdown
+	// calls it once, after the app context is cancelled.
+	WaitRegistrations(ctx context.Context) error
 }
 
 // CrowdsecStartResult is the outcome of a Start that did not fail.

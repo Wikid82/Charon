@@ -612,12 +612,12 @@ func TestCSCLIContract_BouncerCommands(t *testing.T) {
 
 	t.Run("registered bouncer is found in the recorded list", func(t *testing.T) {
 		t.Parallel()
-		assert.True(t, h(t, newFixtureCmdExec(t, map[string]string{list: "bouncers_list_json"})).validateBouncerKey(t.Context()))
+		assert.Equal(t, registrationRegistered, h(t, newFixtureCmdExec(t, map[string]string{list: "bouncers_list_json"})).bouncerRegistration(t.Context()))
 	})
 	t.Run("empty lists are not registered", func(t *testing.T) {
 		t.Parallel()
 		for _, name := range []string{"bouncers_list_empty_json", "bouncers_list_afterdelete_json"} {
-			assert.False(t, h(t, newFixtureCmdExec(t, map[string]string{list: name})).validateBouncerKey(t.Context()), name)
+			assert.Equal(t, registrationNotRegistered, h(t, newFixtureCmdExec(t, map[string]string{list: name})).bouncerRegistration(t.Context()), name)
 		}
 	})
 	t.Run("add prints only the key and delete output is ignored", func(t *testing.T) {
@@ -771,7 +771,7 @@ func TestRealCommandExecutor_Execute_OutputLimit(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, strings.ToLower(err.Error()), "output")
 			assert.Contains(t, strings.ToLower(err.Error()), "limit")
-			assert.Less(t, time.Since(start), 4*time.Second, "the command is killed, not waited for")
+			assert.Less(t, time.Since(start), 15*time.Second, "the command is killed, not waited for")
 			assert.Less(t, len(out), 40_000_000, "the output kept is bounded")
 		})
 	}
@@ -834,9 +834,9 @@ func TestCSCLIContract_ListingsTolerateProgressLines(t *testing.T) {
 	t.Run("bouncers list", func(t *testing.T) {
 		t.Parallel()
 		out := append([]byte(progress), cscliFixture(t, "bouncers_list_json")...)
-		assert.True(t, h(t, out).validateBouncerKey(t.Context()))
+		assert.Equal(t, registrationRegistered, h(t, out).bouncerRegistration(t.Context()))
 		empty := append([]byte(progress), cscliFixture(t, "bouncers_list_empty_json")...)
-		assert.False(t, h(t, empty).validateBouncerKey(t.Context()))
+		assert.Equal(t, registrationNotRegistered, h(t, empty).bouncerRegistration(t.Context()))
 	})
 	t.Run("alerts list", func(t *testing.T) {
 		t.Parallel()

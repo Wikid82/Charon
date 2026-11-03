@@ -765,14 +765,6 @@ check "entrypoint fallback: every call carries the live config file" "2" \
     "$(grep -c '^cfg=live ' "$FAKE_LOG")"
 
 # ---------------------------------------------------------------------------
-echo "# register_bouncer.sh"
-BOUNCER_SRC="$REPO_DIR/configs/crowdsec/register_bouncer.sh"
-check "bouncer script: every cscli call carries -c" "0" \
-    "$(grep -E 'cscli ' "$BOUNCER_SRC" | grep -v '^[[:space:]]*#' | grep -vc 'cscli -c ')"
-check "bouncer script: the config file falls back to the default" "1" \
-    "$(grep -c 'CHARON_CSCLI_CONFIG:-/etc/crowdsec/config.yaml' "$BOUNCER_SRC")"
-
-# ---------------------------------------------------------------------------
 echo "# syntax of the helper and the entrypoint"
 for s in sh dash; do
     if command -v "$s" >/dev/null 2>&1; then

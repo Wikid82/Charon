@@ -412,6 +412,7 @@
       "noKeyConfigured": "No bouncer key configured. Enable CrowdSec to auto-register.",
       "registered": "Registered",
       "notRegistered": "Not Registered",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "From environment variable",
       "sourceFile": "From file",
       "keyStoredAt": "Key stored at",
