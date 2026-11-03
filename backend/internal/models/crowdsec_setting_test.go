@@ -32,46 +32,60 @@ func TestCrowdSecSettingOverride_NilDBIsNotFound(t *testing.T) {
 	assert.False(t, found)
 }
 
-func TestCrowdSecSettingOverride_EnabledKeyWins(t *testing.T) {
-	db := openCrowdSecSettingTestDB(t)
-	seedCrowdSecSetting(t, db, models.CrowdSecDeprecatedModeSettingKey, "local")
-	seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, "false")
+func TestCrowdSecSettingOverride_EnabledValueDecides(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "true", value: "true", want: true},
+		{name: "true is case insensitive", value: "TRUE", want: true},
+		{name: "padded true is trimmed", value: "  true  ", want: true},
+		{name: "false", value: "false", want: false},
+		{name: "any other value is off", value: "yes", want: false},
+	}
 
-	enabled, found, err := models.CrowdSecSettingOverride(db)
-	require.NoError(t, err)
-	assert.True(t, found)
-	assert.False(t, enabled)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := openCrowdSecSettingTestDB(t)
+			seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, tt.value)
+
+			enabled, found, err := models.CrowdSecSettingOverride(db)
+			require.NoError(t, err)
+			assert.True(t, found)
+			assert.Equal(t, tt.want, enabled)
+		})
+	}
 }
 
-func TestCrowdSecSettingOverride_EnabledValueIsCaseInsensitive(t *testing.T) {
-	db := openCrowdSecSettingTestDB(t)
-	seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, "TRUE")
+func TestCrowdSecSettingOverride_LeftoverModeKeyIsIgnored(t *testing.T) {
+	tests := []struct {
+		name         string
+		enabledValue *string
+		modeValue    string
+		wantFound    bool
+		wantEnabled  bool
+	}{
+		{name: "enabled absent, mode local", modeValue: "local", wantFound: false},
+		{name: "enabled absent, mode disabled", modeValue: "disabled", wantFound: false},
+		{name: "enabled blank, mode local", enabledValue: strPtr(" \t "), modeValue: "local", wantFound: false},
+		{name: "enabled false, mode local", enabledValue: strPtr("false"), modeValue: "local", wantFound: true, wantEnabled: false},
+	}
 
-	enabled, found, err := models.CrowdSecSettingOverride(db)
-	require.NoError(t, err)
-	assert.True(t, found)
-	assert.True(t, enabled)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := openCrowdSecSettingTestDB(t)
+			seedCrowdSecSetting(t, db, "security.crowdsec.mode", tt.modeValue)
+			if tt.enabledValue != nil {
+				seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, *tt.enabledValue)
+			}
 
-func TestCrowdSecSettingOverride_EmptyEnabledFallsBackToDeprecatedMode(t *testing.T) {
-	db := openCrowdSecSettingTestDB(t)
-	seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, "")
-	seedCrowdSecSetting(t, db, models.CrowdSecDeprecatedModeSettingKey, "local")
-
-	enabled, found, err := models.CrowdSecSettingOverride(db)
-	require.NoError(t, err)
-	assert.True(t, found)
-	assert.True(t, enabled)
-}
-
-func TestCrowdSecSettingOverride_DeprecatedModeOtherThanLocalIsOff(t *testing.T) {
-	db := openCrowdSecSettingTestDB(t)
-	seedCrowdSecSetting(t, db, models.CrowdSecDeprecatedModeSettingKey, "remote")
-
-	enabled, found, err := models.CrowdSecSettingOverride(db)
-	require.NoError(t, err)
-	assert.True(t, found)
-	assert.False(t, enabled)
+			enabled, found, err := models.CrowdSecSettingOverride(db)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantFound, found, "an absent or blank enabled key must not decide from the mode key")
+			assert.Equal(t, tt.wantEnabled, enabled)
+		})
+	}
 }
 
 func TestCrowdSecSettingOverride_NoRowsIsNotFound(t *testing.T) {
@@ -102,6 +116,24 @@ func TestCrowdSecSettingOverride_QueryErrorIsReturned(t *testing.T) {
 	_, found, err := models.CrowdSecSettingOverride(db)
 	require.Error(t, err)
 	assert.False(t, found)
+}
+
+func TestCrowdSecRowEnabled(t *testing.T) {
+	tests := []struct {
+		mode string
+		want bool
+	}{
+		{mode: "local", want: true},
+		{mode: "disabled", want: false},
+		{mode: "external", want: false},
+		{mode: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run("mode "+tt.mode, func(t *testing.T) {
+			assert.Equal(t, tt.want, models.CrowdSecRowEnabled(models.SecurityConfig{CrowdSecMode: tt.mode}))
+		})
+	}
 }
 
 func TestCrowdSecEnabled_SettingOverridesRow(t *testing.T) {
@@ -136,104 +168,37 @@ func TestCrowdSecEnabled_QueryErrorFallsBackToRowAndReturnsError(t *testing.T) {
 	assert.True(t, on)
 }
 
-func TestCrowdSecSettingOverride_WhitespaceOnlyEnabledIsAbsent(t *testing.T) {
-	db := openCrowdSecSettingTestDB(t)
-	seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, " \t ")
-	seedCrowdSecSetting(t, db, models.CrowdSecDeprecatedModeSettingKey, "local")
-
-	enabled, found, err := models.CrowdSecSettingOverride(db)
-	require.NoError(t, err)
-	assert.True(t, found, "a whitespace-only enabled value must fall through to the deprecated mode")
-	assert.True(t, enabled)
-}
-
-func TestCrowdSecSettingOverride_PaddedEnabledValueIsTrimmed(t *testing.T) {
-	db := openCrowdSecSettingTestDB(t)
-	seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, "  true  ")
-
-	enabled, found, err := models.CrowdSecSettingOverride(db)
-	require.NoError(t, err)
-	assert.True(t, found)
-	assert.True(t, enabled)
-}
-
-func TestCrowdSecDecisionWithoutEnabledKey(t *testing.T) {
+// TestCrowdSecEnabled_LeftoverModeKeyHasNoEffect pins that a mode row left by an older build never changes the
+// decision: the enabled key, when it has a value, decides, and otherwise the default row decides.
+func TestCrowdSecEnabled_LeftoverModeKeyHasNoEffect(t *testing.T) {
 	tests := []struct {
-		name     string
-		settings map[string]string
-		row      models.SecurityConfig
-		want     bool
+		name    string
+		enabled *string
+		mode    string
+		row     string
+		want    bool
 	}{
-		{name: "no keys and row local", row: models.SecurityConfig{CrowdSecMode: "local"}, want: true},
-		{name: "no keys and row disabled", row: models.SecurityConfig{CrowdSecMode: "disabled"}, want: false},
-		{
-			name:     "mode key local beats a disabled row",
-			settings: map[string]string{models.CrowdSecDeprecatedModeSettingKey: "local"},
-			row:      models.SecurityConfig{CrowdSecMode: "disabled"},
-			want:     true,
-		},
-		{
-			name:     "mode key disabled beats a local row",
-			settings: map[string]string{models.CrowdSecDeprecatedModeSettingKey: "disabled"},
-			row:      models.SecurityConfig{CrowdSecMode: "local"},
-			want:     false,
-		},
-		{
-			name:     "mode key with any other value is off",
-			settings: map[string]string{models.CrowdSecDeprecatedModeSettingKey: "external"},
-			row:      models.SecurityConfig{CrowdSecMode: "local"},
-			want:     false,
-		},
-		{
-			name:     "empty mode key falls back to the row",
-			settings: map[string]string{models.CrowdSecDeprecatedModeSettingKey: "  "},
-			row:      models.SecurityConfig{CrowdSecMode: "local"},
-			want:     true,
-		},
-		{
-			name:     "enabled key is ignored",
-			settings: map[string]string{models.CrowdSecEnabledSettingKey: "true"},
-			row:      models.SecurityConfig{CrowdSecMode: "disabled"},
-			want:     false,
-		},
-		{
-			name: "enabled key is ignored even when false",
-			settings: map[string]string{
-				models.CrowdSecEnabledSettingKey:        "false",
-				models.CrowdSecDeprecatedModeSettingKey: "local",
-			},
-			row:  models.SecurityConfig{CrowdSecMode: "disabled"},
-			want: true,
-		},
+		{name: "no enabled key, row local, mode disabled", mode: "disabled", row: "local", want: true},
+		{name: "no enabled key, row disabled, mode local", mode: "local", row: "disabled", want: false},
+		{name: "enabled true, row disabled, mode local", enabled: strPtr("true"), mode: "local", row: "disabled", want: true},
+		{name: "enabled false, row local, mode local", enabled: strPtr("false"), mode: "local", row: "local", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := openCrowdSecSettingTestDB(t)
-			for key, value := range tt.settings {
-				seedCrowdSecSetting(t, db, key, value)
+			seedCrowdSecSetting(t, db, "security.crowdsec.mode", tt.mode)
+			if tt.enabled != nil {
+				seedCrowdSecSetting(t, db, models.CrowdSecEnabledSettingKey, *tt.enabled)
 			}
 
-			got, err := models.CrowdSecDecisionWithoutEnabledKey(db, tt.row)
+			got, err := models.CrowdSecEnabled(db, models.SecurityConfig{CrowdSecMode: tt.row})
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
-func TestCrowdSecDecisionWithoutEnabledKey_NilDBUsesRow(t *testing.T) {
-	got, err := models.CrowdSecDecisionWithoutEnabledKey(nil, models.SecurityConfig{CrowdSecMode: "local"})
-	require.NoError(t, err)
-	assert.True(t, got)
-}
-
-func TestCrowdSecDecisionWithoutEnabledKey_QueryErrorReturnsRowDecision(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "charon.db")), &gorm.Config{})
-	require.NoError(t, err)
-	// Same broken table as the override test: the lookup fails while the table exists.
-	require.NoError(t, db.Exec("CREATE TABLE settings (id INTEGER PRIMARY KEY)").Error)
-
-	got, err := models.CrowdSecDecisionWithoutEnabledKey(db, models.SecurityConfig{CrowdSecMode: "local"})
-	require.Error(t, err)
-	assert.True(t, got)
+func strPtr(s string) *string {
+	return &s
 }

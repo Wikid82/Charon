@@ -31,8 +31,8 @@ func readSettingForRetire(t *testing.T, db *gorm.DB, key string) (string, bool) 
 func seedRetireSettings(t *testing.T, db *gorm.DB, enabled, mode string) {
 	t.Helper()
 	for key, value := range map[string]string{
-		models.CrowdSecEnabledSettingKey:        enabled,
-		models.CrowdSecDeprecatedModeSettingKey: mode,
+		models.CrowdSecEnabledSettingKey:     enabled,
+		models.CrowdSecRetiredModeSettingKey: mode,
 	} {
 		if value == retireAbsent {
 			continue
@@ -51,7 +51,7 @@ func assertRetireState(t *testing.T, db *gorm.DB, wantEnabled string, wantModeGo
 		assert.True(t, enabledFound, "enabled key must exist")
 		assert.Equal(t, wantEnabled, enabledValue)
 	}
-	_, modeFound := readSettingForRetire(t, db, models.CrowdSecDeprecatedModeSettingKey)
+	_, modeFound := readSettingForRetire(t, db, models.CrowdSecRetiredModeSettingKey)
 	assert.Equal(t, !wantModeGone, modeFound, "mode key presence")
 }
 
@@ -105,7 +105,7 @@ func TestRetireCrowdSecModeSetting_NamedCases(t *testing.T) {
 }
 
 // TestRetireCrowdSecModeSetting_CombinationMatrix runs every (enabled, mode, default row) combination. The decision
-// of the live reader before the call, of the oracle, and of the reader after the call must all agree.
+// of the oracle and of the reader after the call must agree.
 func TestRetireCrowdSecModeSetting_CombinationMatrix(t *testing.T) {
 	enabledValues := []string{retireAbsent, "", "  ", "true", "false"}
 	modeValues := []string{retireAbsent, "", " ", "local", " local ", "disabled", "remote"}
@@ -119,10 +119,9 @@ func TestRetireCrowdSecModeSetting_CombinationMatrix(t *testing.T) {
 					cfg := models.SecurityConfig{CrowdSecMode: row}
 					rowLocal := row == "local"
 
-					before, beforeErr := models.CrowdSecEnabled(db, cfg)
-					require.NoError(t, beforeErr)
+					// The oracle is the decision the removed reader gave before the call; the reader left after the call
+					// must reproduce it.
 					want := oldCrowdSecDecision(enabledOrEmpty(enabled), enabledOrEmpty(mode), rowLocal)
-					require.Equal(t, want, before, "oracle must match the live reader before the carry-over")
 
 					_, err := models.RetireCrowdSecModeSetting(db)
 					require.NoError(t, err)
@@ -199,7 +198,7 @@ func TestRetireCrowdSecModeSetting_MissingSettingsTableIsNoop(t *testing.T) {
 func TestRetireCrowdSecModeSetting_DeleteFaultRollsBack(t *testing.T) {
 	db := openCrowdSecSettingTestDB(t)
 	seedRetireSettings(t, db, retireAbsent, "local")
-	gormfault.Inject(t, db, gormfault.Delete, "settings", gormfault.VarIs(models.CrowdSecDeprecatedModeSettingKey))
+	gormfault.Inject(t, db, gormfault.Delete, "settings", gormfault.VarIs(models.CrowdSecRetiredModeSettingKey))
 
 	retired, err := models.RetireCrowdSecModeSetting(db)
 	require.Error(t, err)
@@ -213,7 +212,7 @@ func TestRetireCrowdSecModeSetting_DeleteFaultRollsBack(t *testing.T) {
 func TestRetireCrowdSecModeSetting_ModeReadFaultIsReturned(t *testing.T) {
 	db, path := openRetireFileDB(t)
 	seedRetireSettings(t, db, retireAbsent, "local")
-	gormfault.Inject(t, db, gormfault.Query, "settings", gormfault.VarIs(models.CrowdSecDeprecatedModeSettingKey))
+	gormfault.Inject(t, db, gormfault.Query, "settings", gormfault.VarIs(models.CrowdSecRetiredModeSettingKey))
 
 	retired, err := models.RetireCrowdSecModeSetting(db)
 	require.Error(t, err)
@@ -235,4 +234,39 @@ func openRetireFileDB(t *testing.T) (db *gorm.DB, path string) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
 	return db, path
+}
+
+// TestRetireCrowdSecModeSetting_EnabledReadFaultIsReturned covers a failed read of the enabled setting: the error is
+// returned and the mode row stays for the next start.
+func TestRetireCrowdSecModeSetting_EnabledReadFaultIsReturned(t *testing.T) {
+	db, path := openRetireFileDB(t)
+	seedRetireSettings(t, db, retireAbsent, "local")
+	gormfault.Inject(t, db, gormfault.Query, "settings", gormfault.VarIs(models.CrowdSecEnabledSettingKey))
+
+	retired, err := models.RetireCrowdSecModeSetting(db)
+	require.Error(t, err)
+	assert.False(t, retired)
+	assert.True(t, gormfault.IsInjected(err))
+
+	reader, openErr := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, openErr)
+	assertRetireState(t, reader, retireAbsent, false)
+}
+
+// TestRetireCrowdSecModeSetting_EnabledWriteFaultRollsBack covers a failed carry-over write: a trigger rejects the
+// enabled row, the transaction rolls back, and both rows keep their values.
+func TestRetireCrowdSecModeSetting_EnabledWriteFaultRollsBack(t *testing.T) {
+	db, path := openRetireFileDB(t)
+	seedRetireSettings(t, db, retireAbsent, "local")
+	require.NoError(t, db.Exec(`CREATE TRIGGER fail_enabled_write BEFORE INSERT ON settings
+		WHEN NEW.key = 'security.crowdsec.enabled'
+		BEGIN SELECT RAISE(ABORT, 'forced enabled write failure'); END;`).Error)
+
+	retired, err := models.RetireCrowdSecModeSetting(db)
+	require.Error(t, err)
+	assert.False(t, retired)
+
+	reader, openErr := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, openErr)
+	assertRetireState(t, reader, retireAbsent, false)
 }

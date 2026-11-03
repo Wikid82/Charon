@@ -63,7 +63,7 @@ func TestMain_RetireFailureExitsNonZero_Subprocess(t *testing.T) {
 		t.Fatalf("reopen db: %v", openErr)
 	}
 	var modeRows int64
-	if countErr := db.Model(&models.Setting{}).Where("key = ?", models.CrowdSecDeprecatedModeSettingKey).Count(&modeRows).Error; countErr != nil {
+	if countErr := db.Model(&models.Setting{}).Where("key = ?", models.CrowdSecRetiredModeSettingKey).Count(&modeRows).Error; countErr != nil {
 		t.Fatalf("count mode rows: %v", countErr)
 	}
 	if modeRows != 1 {
@@ -82,7 +82,7 @@ func seedRetireFailureDatabase(t *testing.T, dbPath string) {
 	if err = db.AutoMigrate(&models.Setting{}); err != nil {
 		t.Fatalf("migrate settings: %v", err)
 	}
-	if err = db.Create(&models.Setting{Key: models.CrowdSecDeprecatedModeSettingKey, Value: "local", Category: "security", Type: "string"}).Error; err != nil {
+	if err = db.Create(&models.Setting{Key: models.CrowdSecRetiredModeSettingKey, Value: "local", Category: "security", Type: "string"}).Error; err != nil {
 		t.Fatalf("seed mode row: %v", err)
 	}
 	if err = db.Exec(`CREATE TRIGGER block_setting_delete BEFORE DELETE ON settings BEGIN SELECT RAISE(ABORT, 'delete blocked'); END;`).Error; err != nil {

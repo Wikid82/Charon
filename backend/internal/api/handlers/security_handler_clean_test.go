@@ -169,11 +169,11 @@ func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 	assert.Equal(t, false, acl["enabled"].(bool))
 }
 
-func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
+func TestSecurityHandler_CrowdSec_EnabledKey_DBOverride(t *testing.T) {
 
 	db := setupTestDB(t)
-	// set DB to configure crowdsec.mode to local
-	if err := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"}).Error; err != nil {
+	// the stored enabled setting turns CrowdSec on, whatever the default row says
+	if err := db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true"}).Error; err != nil {
 		t.Fatalf("failed to insert setting: %v", err)
 	}
 

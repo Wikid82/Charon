@@ -157,7 +157,6 @@ curl -X POST https://charon.example.com/api/v1/emergency/security-reset \
   "message": "All security modules have been disabled. Please reconfigure security settings.",
   "disabled_modules": [
     "security.crowdsec.enabled",
-    "security.crowdsec.mode",
     "security.acl.enabled",
     "security.waf.enabled",
     "security.rate_limit.enabled"

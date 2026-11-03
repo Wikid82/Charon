@@ -69,7 +69,7 @@ func TestCrowdSecModeCarryOver_StartupPaths(t *testing.T) {
 			if tt.defaultRow {
 				require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, UUID: "default-row", CrowdSecMode: "disabled"}).Error)
 			}
-			require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecDeprecatedModeSettingKey, Value: tt.modeValue, Category: "security", Type: "string"}).Error)
+			require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecRetiredModeSettingKey, Value: tt.modeValue, Category: "security", Type: "string"}).Error)
 
 			retired, err := models.RetireCrowdSecModeSetting(db)
 			require.NoError(t, err)

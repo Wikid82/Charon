@@ -34,8 +34,8 @@ func TestRegisterWithDeps_RetireFailureDoesNotStopStartup(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
-	require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecDeprecatedModeSettingKey, Value: "local", Category: "security", Type: "string"}).Error)
-	gormfault.Inject(t, db, gormfault.Delete, "settings", gormfault.VarIs(models.CrowdSecDeprecatedModeSettingKey))
+	require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecRetiredModeSettingKey, Value: "local", Category: "security", Type: "string"}).Error)
+	gormfault.Inject(t, db, gormfault.Delete, "settings", gormfault.VarIs(models.CrowdSecRetiredModeSettingKey))
 
 	frontend := t.TempDir()
 	cfg := config.Config{JWTSecret: "test-secret", FrontendDir: frontend}
@@ -51,6 +51,6 @@ func TestRegisterWithDeps_RetireFailureDoesNotStopStartup(t *testing.T) {
 	assert.Contains(t, logs.String(), "Failed to retire CrowdSec mode setting")
 	assert.True(t, db.Migrator().HasTable(&models.Setting{}))
 	var modeRows int64
-	require.NoError(t, db.Model(&models.Setting{}).Where("key = ?", models.CrowdSecDeprecatedModeSettingKey).Count(&modeRows).Error)
+	require.NoError(t, db.Model(&models.Setting{}).Where("key = ?", models.CrowdSecRetiredModeSettingKey).Count(&modeRows).Error)
 	assert.Equal(t, int64(1), modeRows, "the mode row is kept so the next start retries the carry-over")
 }

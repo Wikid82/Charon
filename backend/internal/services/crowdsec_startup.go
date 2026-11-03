@@ -98,8 +98,8 @@ type CrowdsecProcessManager interface {
 // 4. HTTP server starts
 // 5. Routes registered
 //
-// Auto-start condition: the CrowdSec decision of models.CrowdSecEnabled is on. The enabled setting wins, then the
-// deprecated mode setting, then SecurityConfig.crowdsec_mode == "local".
+// Auto-start condition: the CrowdSec decision of models.CrowdSecEnabled is on. The enabled setting wins, then
+// SecurityConfig.crowdsec_mode == "local".
 //
 // cmdExec is optional; if nil, a real command executor will be used for bouncer registration.
 // Tests should pass a mock to avoid executing real cscli commands.

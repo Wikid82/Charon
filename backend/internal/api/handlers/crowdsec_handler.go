@@ -808,7 +808,6 @@ type crowdsecStartSnapshot struct {
 // crowdsecStartSettingKeys lists every setting that Start may write.
 var crowdsecStartSettingKeys = []string{
 	models.CrowdSecEnabledSettingKey,
-	models.CrowdSecDeprecatedModeSettingKey,
 	"feature.cerberus.enabled",
 	"security.cerberus.enabled",
 }
@@ -829,16 +828,13 @@ func (h *CrowdsecHandler) snapshotCrowdsecStart() (crowdsecStartSnapshot, error)
 
 // persistCrowdsecStart records the intent of a Start. The global switch and Cerberus go on through
 // the shared helper, which the sibling security modules also use. Then CrowdSec is set to local: the
-// row, the deprecated mode setting and the enabled setting, so every reader of the decision agrees.
+// row and the enabled setting, which are the only stored decision.
 func (h *CrowdsecHandler) persistCrowdsecStart() error {
 	if err := models.EnableSecurityFramework(h.DB); err != nil {
 		return fmt.Errorf("enable security framework: %w", err)
 	}
 	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local"}); err != nil {
 		return fmt.Errorf("set crowd_sec_mode: %w", err)
-	}
-	if err := upsertSetting(h.DB, models.Setting{Key: models.CrowdSecDeprecatedModeSettingKey, Value: "local", Category: "security", Type: "string"}); err != nil {
-		return fmt.Errorf("set crowdsec mode setting: %w", err)
 	}
 
 	return upsertSetting(h.DB, models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true", Category: "security", Type: "bool"})
