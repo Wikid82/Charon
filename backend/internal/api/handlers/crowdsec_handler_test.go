@@ -4281,7 +4281,7 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 	mockCmdExec.AssertExpectations(t)
 }
 
-func TestValidateBouncerKey_BouncerExists(t *testing.T) {
+func TestBouncerRegistration_BouncerExists(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4294,14 +4294,14 @@ func TestValidateBouncerKey_BouncerExists(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
+	assert.Equal(t, registrationRegistered, result)
 
-	assert.True(t, result)
 	require.Len(t, mockExec.calls, 1)
 	assert.Equal(t, "cscli", mockExec.calls[0].name)
 }
 
-func TestValidateBouncerKey_BouncerNotFound(t *testing.T) {
+func TestBouncerRegistration_BouncerNotFound(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4314,12 +4314,12 @@ func TestValidateBouncerKey_BouncerNotFound(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationNotRegistered, result)
 }
 
-func TestValidateBouncerKey_EmptyOutput(t *testing.T) {
+func TestBouncerRegistration_EmptyOutput(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4332,12 +4332,12 @@ func TestValidateBouncerKey_EmptyOutput(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationNotRegistered, result)
 }
 
-func TestValidateBouncerKey_NullOutput(t *testing.T) {
+func TestBouncerRegistration_NullOutput(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4350,12 +4350,12 @@ func TestValidateBouncerKey_NullOutput(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationNotRegistered, result)
 }
 
-func TestValidateBouncerKey_CmdError(t *testing.T) {
+func TestBouncerRegistration_CmdError(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4368,12 +4368,12 @@ func TestValidateBouncerKey_CmdError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationUnknown, result)
 }
 
-func TestValidateBouncerKey_InvalidJSON(t *testing.T) {
+func TestBouncerRegistration_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4386,9 +4386,9 @@ func TestValidateBouncerKey_InvalidJSON(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationUnknown, result)
 }
 
 func TestGetBouncerInfo_FromEnvVar(t *testing.T) {

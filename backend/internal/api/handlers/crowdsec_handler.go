@@ -1700,6 +1700,8 @@ type BouncerInfo struct {
 	KeySource  string `json:"key_source"`  // "env_var" | "file" | "memory" | "none"
 	FilePath   string `json:"file_path"`
 	Registered bool   `json:"registered"`
+	// Registration is "registered", "not_registered" or "unknown"; Registered is true only for "registered".
+	Registration registrationState `json:"registration"`
 }
 
 // KeyStatusResponse represents the API response for the key-status endpoint.
@@ -2023,17 +2025,31 @@ func (h *CrowdsecHandler) reapplyCaddyConfig(ctx context.Context) error {
 	return applyProxyConfigDetached(ctx, h.caddyManager, proxyApplyTimeout)
 }
 
-// validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
-func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
+// registrationState is what the bouncer list says about caddy-bouncer. The values are the JSON
+// `registration` field of GET /admin/crowdsec/bouncer.
+type registrationState string
+
+const (
+	// registrationRegistered: the list names caddy-bouncer.
+	registrationRegistered registrationState = "registered"
+	// registrationNotRegistered: the list was read and does not name caddy-bouncer (empty or null included).
+	registrationNotRegistered registrationState = "not_registered"
+	// registrationUnknown: the list could not be read (command failed or timed out, or output did not parse).
+	registrationUnknown registrationState = "unknown"
+)
+
+// bouncerRegistration asks `cscli bouncers list` whether caddy-bouncer is registered. Only a readable
+// answer that omits the bouncer is not registered; a failed or unreadable answer is unknown.
+func (h *CrowdsecHandler) bouncerRegistration(ctx context.Context) registrationState {
 	output, err := h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "list", "-o", "json")
 	if err != nil {
 		logger.Log().WithError(err).Debug("Failed to list bouncers")
-		return false
+		return registrationUnknown
 	}
 
-	// Handle empty or null output
+	// cscli prints nothing or null when no bouncers exist.
 	if len(output) == 0 || string(output) == "null" || string(output) == "null\n" {
-		return false
+		return registrationNotRegistered
 	}
 
 	var bouncers []struct {
@@ -2041,15 +2057,15 @@ func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
 	}
 	if err := crowdsec.UnmarshalCSCLIOutput(output, &bouncers); err != nil {
 		logger.Log().WithError(err).Debug("Failed to parse bouncers list")
-		return false
+		return registrationUnknown
 	}
 
 	for _, b := range bouncers {
 		if b.Name == bouncerName {
-			return true
+			return registrationRegistered
 		}
 	}
-	return false
+	return registrationNotRegistered
 }
 
 // registerBouncer replaces any stale caddy-bouncer registration and returns the new key.
@@ -2152,8 +2168,9 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 		info.KeyPreview = "***"
 	}
 
-	// Check if bouncer is registered
-	info.Registered = h.validateBouncerKey(ctx)
+	// Registered is true only for a confirmed registration; an unreadable list reports unknown.
+	info.Registration = h.bouncerRegistration(ctx)
+	info.Registered = info.Registration == registrationRegistered
 
 	c.JSON(http.StatusOK, info)
 }
