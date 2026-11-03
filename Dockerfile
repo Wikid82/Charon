@@ -883,7 +883,7 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
     _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    _retry go get github.com/quic-go/quic-go@v0.64.1; \
+    _retry go get github.com/quic-go/quic-go@v0.65.0; \
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.6.1; \
     _retry go get github.com/getkin/kin-openapi@v0.152.0; \
