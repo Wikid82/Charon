@@ -9,11 +9,17 @@ import (
 	"strconv"
 	"strings"
 
+	charonconfig "github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
+
+// AdminListenAddress is the address the generated Caddy config binds its admin
+// API to. It equals the address the backend dials and the entrypoint bootstrap
+// writes, so applying a config never rebinds the interface.
+const AdminListenAddress = charonconfig.CaddyAdminAddress
 
 // serverShutdownGracePeriod bounds how long Caddy's http app waits for open
 // keep-alive and HTTP/3 connections on shutdown. Caddy's default is unbounded,
@@ -46,7 +52,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	shutdownGracePeriod := serverShutdownGracePeriod
 	config := &Config{
 		Admin: &AdminConfig{
-			Listen: "0.0.0.0:2019", // Bind to all interfaces for container access
+			Listen: AdminListenAddress, // listens on the loopback address only
 		},
 		Logging: &LoggingConfig{
 			Logs: map[string]*LogConfig{

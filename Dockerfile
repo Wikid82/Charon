@@ -1169,7 +1169,6 @@ RUN chmod +x /app/scripts/db-recovery.sh
 ENV CHARON_ENV=production \
     CHARON_DB_PATH=/app/data/charon.db \
     CHARON_FRONTEND_DIR=/app/frontend/dist \
-    CHARON_CADDY_ADMIN_API=http://localhost:2019 \
     CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
     CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb \
     CHARON_HTTP_PORT=8080 \

@@ -623,7 +623,7 @@ docker-compose up -d
 - [ ] **Management CIDRs** restricted to minimum necessary networks
 - [ ] **Emergency server** bound to localhost only (127.0.0.1)
 - [ ] **SSH tunneling** used for emergency server access
-- [ ] **Firewall rules** block public access to port 2019
+- [ ] **Firewall rules** block public access to port 2020
 - [ ] **Basic Auth** enabled on emergency server with strong credentials
 - [ ] **Audit logging** monitored for emergency access
 - [ ] **Alerts configured** for emergency token usage

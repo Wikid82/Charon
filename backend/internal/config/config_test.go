@@ -299,30 +299,163 @@ func TestLoad_EmergencyConfig(t *testing.T) {
 	assert.Equal(t, "testpass", cfg.Emergency.BasicAuthPassword)
 }
 
-func TestLoad_CaddyAdminAPIValidationAndNormalization(t *testing.T) {
+// setCaddyAdminTestEnv isolates Load from the host environment and from any
+// admin URL set by another test.
+func setCaddyAdminTestEnv(t *testing.T, adminAPI string) {
+	t.Helper()
 	tempDir := t.TempDir()
 	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
 	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
 	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
 	t.Setenv("CHARON_SSRF_INTERNAL_HOST_ALLOWLIST", "")
-	t.Setenv("CHARON_CADDY_ADMIN_API", "http://localhost:2019/config/")
+	t.Setenv("CHARON_CADDY_ADMIN_API", adminAPI)
+	t.Setenv("CPM_CADDY_ADMIN_API", "")
+}
+
+func TestLoad_CaddyAdminAPIDefaultsToLoopback(t *testing.T) {
+	setCaddyAdminTestEnv(t, "")
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "http://localhost:2019", cfg.CaddyAdminAPI)
+	assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
 }
 
-func TestLoad_CaddyAdminAPIValidationRejectsNonAllowlistedHost(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
-	t.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
-	t.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
-	t.Setenv("CHARON_SSRF_INTERNAL_HOST_ALLOWLIST", "")
-	t.Setenv("CHARON_CADDY_ADMIN_API", "http://example.com:2019")
+func TestLoad_CaddyAdminAPIAcceptsLoopbackSpellingsAndNormalizes(t *testing.T) {
+	cases := []string{
+		"http://localhost:2019",
+		"http://127.0.0.1:2019",
+		"http://[::1]:2019",
+		"http://localhost:2019/config/",
+		"http://LOCALHOST:2019",
+	}
+	for _, raw := range cases {
+		t.Run(raw, func(t *testing.T) {
+			setCaddyAdminTestEnv(t, raw)
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
+		})
+	}
+}
+
+func TestLoad_CaddyAdminAPIAcceptsCPMAlias(t *testing.T) {
+	setCaddyAdminTestEnv(t, "")
+	t.Setenv("CPM_CADDY_ADMIN_API", "http://localhost:2019")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
+}
+
+// wantCaddyAdminRefusal is the exact startup error for any admin URL that does not
+// name this container's loopback interface.
+const wantCaddyAdminRefusal = "CHARON_CADDY_ADMIN_API must point at this container (localhost); using an external proxy is not supported: set it to http://localhost:2019 or remove it"
+
+func TestLoad_CaddyAdminAPIRefusesAnotherHost(t *testing.T) {
+	cases := []struct {
+		name      string
+		raw       string
+		allowlist string
+	}{
+		{name: "external host", raw: "http://example.com:2019"},
+		{name: "private address", raw: "http://10.0.0.5:2019"},
+		{name: "service name without allowlist", raw: "http://caddy:2019"},
+		{name: "service name with allowlist", raw: "http://caddy:2019", allowlist: "caddy"},
+		{name: "shortened loopback address", raw: "http://127.1:2019"},
+		{name: "wildcard address", raw: "http://0.0.0.0:2019"},
+		{name: "trailing-dot localhost", raw: "http://localhost.:2019"},
+		{name: "trailing-dot loopback address", raw: "http://127.0.0.1.:2019"},
+		{name: "expanded ipv6 loopback", raw: "http://[0:0:0:0:0:0:0:1]:2019"},
+		{name: "ipv4-mapped loopback address", raw: "http://[::ffff:127.0.0.1]:2019"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setCaddyAdminTestEnv(t, tc.raw)
+			t.Setenv("CHARON_SSRF_INTERNAL_HOST_ALLOWLIST", tc.allowlist)
+
+			_, err := Load()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "validate caddy admin api url")
+			assert.Contains(t, err.Error(), wantCaddyAdminRefusal)
+		})
+	}
+}
+
+func TestLoad_CaddyAdminAPIRejectsWrongPort(t *testing.T) {
+	cases := []string{
+		"http://localhost:2020",
+		"http://127.0.0.1:2020",
+	}
+	for _, raw := range cases {
+		t.Run(raw, func(t *testing.T) {
+			setCaddyAdminTestEnv(t, raw)
+
+			_, err := Load()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unexpected port")
+		})
+	}
+}
+
+func TestLoad_CaddyAdminAPIRejectsPortOnlyForms(t *testing.T) {
+	// A bare ":2020" does not parse as a URL. A host-less URL is refused as a
+	// non-loopback host because its host is empty.
+	cases := []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{name: "bare port", raw: ":2020", wantErr: "invalid url format"},
+		{name: "host-less url with port", raw: "http://:2020", wantErr: wantCaddyAdminRefusal},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setCaddyAdminTestEnv(t, tc.raw)
+
+			_, err := Load()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestLoad_CaddyAdminAPIRejectsMissingPort(t *testing.T) {
+	setCaddyAdminTestEnv(t, "http://localhost")
 
 	_, err := Load()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "validate caddy admin api url")
+	assert.Contains(t, err.Error(), "unexpected port: 80")
+}
+
+func TestLoad_CaddyAdminAPIRejectsEmbeddedCredentials(t *testing.T) {
+	setCaddyAdminTestEnv(t, "http://user@localhost:2019")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded credentials")
+	assert.NotContains(t, err.Error(), wantCaddyAdminRefusal)
+}
+
+func TestLoad_CaddyAdminAPINormalizesHTTPSLoopbackToHTTP(t *testing.T) {
+	setCaddyAdminTestEnv(t, "https://localhost:2019")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
+}
+
+// This test writes the package-level CaddyAdminAPIForTests seam, so it must not
+// call t.Parallel.
+func TestLoad_CaddyAdminAPITestOverride(t *testing.T) {
+	setCaddyAdminTestEnv(t, "")
+	previous := CaddyAdminAPIForTests
+	CaddyAdminAPIForTests = "http://127.0.0.2:2019"
+	t.Cleanup(func() { CaddyAdminAPIForTests = previous })
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "http://127.0.0.2:2019", cfg.CaddyAdminAPI)
 }
 
 func TestLoad_TrustedProxies(t *testing.T) {

@@ -638,7 +638,7 @@ graph LR
 **3-Tier Recovery System:**
 
 1. **Admin Dashboard:** Standard access recovery via web UI
-2. **Recovery Server:** Localhost-only HTTP server on port 2019
+2. **Recovery Server:** Localhost-only HTTP server on port 2020
 3. **Direct Database Access:** Manual SQLite update as last resort
 
 **Emergency Token:**
@@ -823,7 +823,8 @@ CMD ["/app/charon"]
 | 80 | HTTP | Caddy reverse proxy | 0.0.0.0 |
 | 443 | HTTPS | Caddy reverse proxy (TLS) | 0.0.0.0 |
 | 443 | UDP | HTTP/3 QUIC (optional) | 0.0.0.0 |
-| 2019 | HTTP | Emergency recovery (localhost only) | 127.0.0.1 |
+| 2019 | HTTP | Proxy admin interface (used by Charon inside the container; not exposed) | 127.0.0.1 |
+| 2020 | HTTP | Emergency recovery (localhost only) | 127.0.0.1 |
 
 ### Volume Mounts
 

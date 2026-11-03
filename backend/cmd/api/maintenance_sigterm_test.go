@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/dbmaint"
 )
 
@@ -63,6 +64,9 @@ func TestHelperMainWithCaddyStub(t *testing.T) {
 		})}
 		_ = srv.Serve(ln)
 	}()
+	// The backend dials the stub through the test seam; the loopback-only
+	// admin URL the shipped binary uses is never set in this child.
+	config.CaddyAdminAPIForTests = "http://127.0.0.2:2019"
 	os.Args = []string{"charon"}
 	main()
 }
@@ -84,7 +88,6 @@ func startCharon(t *testing.T, dir, dbPath string, httpPort int) *charonChild {
 		"CHARON_ENV=development",
 		"CHARON_HTTP_PORT="+fmt.Sprint(httpPort),
 		"CHARON_DB_PATH="+dbPath,
-		"CHARON_CADDY_ADMIN_API=http://127.0.0.2:2019",
 		"CHARON_SSRF_INTERNAL_HOST_ALLOWLIST=127.0.0.2",
 		"CHARON_CADDY_CONFIG_DIR="+filepath.Join(dir, "caddy"),
 		"CHARON_IMPORT_DIR="+filepath.Join(dir, "imports"),

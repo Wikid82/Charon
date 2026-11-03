@@ -28,7 +28,6 @@ cd "$PROJECT_ROOT"
 CORAZA_HTTP_PORT="${CORAZA_HTTP_PORT:-80}"
 CORAZA_HTTPS_PORT="${CORAZA_HTTPS_PORT:-443}"
 CORAZA_API_PORT="${CORAZA_API_PORT:-8080}"
-CORAZA_ADMIN_PORT="${CORAZA_ADMIN_PORT:-2019}"
 CORAZA_DEBUG_PORT="${CORAZA_DEBUG_PORT:-2345}"
 
 # ============================================================================
@@ -46,7 +45,7 @@ verify_waf_config() {
     for i in $(seq 1 $retries); do
         # Fetch Caddy config via admin API
         local caddy_config
-        caddy_config=$(curl -s "http://localhost:${CORAZA_ADMIN_PORT}/config/" 2>/dev/null || echo "")
+        caddy_config=$(docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
 
         if [ -z "$caddy_config" ]; then
             echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
@@ -90,7 +89,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    curl -s "http://localhost:${CORAZA_ADMIN_PORT}/config/" 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Ruleset Files in Container ==="
@@ -140,9 +139,9 @@ fi
 # In CI, frontend/dist does not exist (it's built inside the Docker image).
 # Mounting a non-existent directory would override the built frontend with an empty dir.
 # For local development with hot-reload, use .docker/compose/docker-compose.local.yml instead.
-docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p "${CORAZA_HTTP_PORT}":80 -p "${CORAZA_HTTPS_PORT}":443 -p "${CORAZA_API_PORT}":8080 -p "${CORAZA_ADMIN_PORT}":2019 -p "${CORAZA_DEBUG_PORT}":2345 \
+docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p "${CORAZA_HTTP_PORT}":80 -p "${CORAZA_HTTPS_PORT}":443 -p "${CORAZA_API_PORT}":8080 -p "${CORAZA_DEBUG_PORT}":2345 \
   -e CHARON_ENV=development -e CHARON_DEBUG=1 -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
-  -e CHARON_CADDY_ADMIN_API=http://localhost:2019 -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
+  -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
   -e CHARON_IMPORT_DIR=/app/data/imports -e CHARON_ACME_STAGING=false -e CHARON_SECURITY_WAF_MODE=block \
   -v charon_data:/app/data -v caddy_data:/data -v caddy_config:/config -v /var/run/docker.sock:/var/run/docker.sock:ro charon:local
 
@@ -247,7 +246,7 @@ echo "Apply rules and test payload..."
 # create minimal proxy host if needed; omitted here for brevity; test will target local Caddy root
 
 echo "Verifying Caddy config has WAF handler..."
-curl -s "http://localhost:${CORAZA_ADMIN_PORT}/config/" | grep -E '"handler":"waf"' || echo "WARNING: WAF handler not found in initial config check"
+docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ | grep -E '"handler":"waf"' || echo "WARNING: WAF handler not found in initial config check"
 
 echo "Inspecting ruleset file inside container..."
 docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf' || echo "WARNING: Could not read ruleset file"

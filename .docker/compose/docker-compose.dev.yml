@@ -13,7 +13,7 @@ services:
       - "443:443"
       - "443:443/udp"
       - "8080:8080"
-      - "2019:2019"  # Caddy admin API (dev only)
+      # Caddy admin API stays inside the container: docker compose exec app wget -qO- http://127.0.0.1:2019/config/
     environment:
       - CHARON_ENV=development
       - CPM_ENV=development
@@ -23,7 +23,6 @@ services:
       - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
-      - CHARON_CADDY_ADMIN_API=http://localhost:2019
       - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
       # Security Services (Optional)
       # 🚨 DEPRECATED: Use GUI toggle in Security dashboard instead

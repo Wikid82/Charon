@@ -272,13 +272,13 @@ Advanced: each module also has an admin-only API switch. Send an authenticated `
 
 - ✅ VPN or SSH access to Docker host
 - ✅ Emergency server enabled (`CHARON_EMERGENCY_SERVER_ENABLED=true`)
-- ✅ Knowledge of emergency server port (default: 2019)
+- ✅ Knowledge of emergency server port (default: 2020)
 - ✅ Basic Auth credentials (if configured)
 
 ### Architecture Diagram
 
 ```text
-[Public Traffic:443]           [SSH Tunnel:2019]
+[Public Traffic:443]           [SSH Tunnel:2020]
     ↓                               ↓
 [Caddy Reverse Proxy]          [Emergency Server]
     ↓ (WAF, ACL, CrowdSec)         ↓ (Minimal Security)
@@ -304,7 +304,7 @@ docker exec charon env | grep EMERGENCY
 
 # Expected output
 CHARON_EMERGENCY_SERVER_ENABLED=true
-CHARON_EMERGENCY_BIND=127.0.0.1:2019
+CHARON_EMERGENCY_BIND=127.0.0.1:2020
 CHARON_EMERGENCY_USERNAME=admin
 CHARON_EMERGENCY_PASSWORD=<password>
 ```
@@ -314,8 +314,8 @@ CHARON_EMERGENCY_PASSWORD=<password>
 **From your local machine**, create a tunnel to the emergency port:
 
 ```bash
-# Open tunnel (port 2019 on localhost → port 2019 on server)
-ssh -L 2019:localhost:2019 admin@docker-host.example.com
+# Open tunnel (port 2020 on localhost → port 2020 on server)
+ssh -L 2020:localhost:2020 admin@docker-host.example.com
 
 # Keep this terminal open - tunnel stays active
 ```
@@ -326,7 +326,7 @@ ssh -L 2019:localhost:2019 admin@docker-host.example.com
 
 ```bash
 # Health check
-curl http://localhost:2019/health
+curl http://localhost:2020/health
 
 # Expected response
 {"status":"ok","server":"emergency"}
@@ -336,12 +336,12 @@ curl http://localhost:2019/health
 
 ```bash
 # With Basic Auth
-curl -X POST http://localhost:2019/emergency/security-reset \
+curl -X POST http://localhost:2020/emergency/security-reset \
   -H "X-Emergency-Token: your-64-char-hex-token-here" \
   -u admin:your-emergency-password
 
 # Without Basic Auth (if not configured)
-curl -X POST http://localhost:2019/emergency/security-reset \
+curl -X POST http://localhost:2020/emergency/security-reset \
   -H "X-Emergency-Token: your-64-char-hex-token-here"
 ```
 
@@ -372,7 +372,7 @@ kill $SSH_TUNNEL_PID
 
 ### Troubleshooting Tier 2
 
-#### Error: Connection Refused (Port 2019)
+#### Error: Connection Refused (Port 2020)
 
 **Cause:** Emergency server is not enabled or not running.
 
@@ -383,7 +383,7 @@ kill $SSH_TUNNEL_PID
 docker exec charon env | grep CHARON_EMERGENCY_SERVER_ENABLED
 
 # Check if port is listening
-docker exec charon netstat -tlnp | grep 2019
+docker exec charon netstat -tlnp | grep 2020
 ```
 
 **Solution:**
@@ -393,7 +393,7 @@ docker exec charon netstat -tlnp | grep 2019
 ```yaml
 environment:
   - CHARON_EMERGENCY_SERVER_ENABLED=true
-  - CHARON_EMERGENCY_BIND=127.0.0.1:2019
+  - CHARON_EMERGENCY_BIND=127.0.0.1:2020
 ```
 
 1. Restart container:
@@ -437,7 +437,7 @@ sudo ufw status | grep 22
 1. Use alternative port if 22 is blocked:
 
 ```bash
-ssh -p 2222 -L 2019:localhost:2019 admin@server
+ssh -p 2222 -L 2020:localhost:2020 admin@server
 ```
 
 ---
@@ -795,8 +795,8 @@ curl -X POST https://charon.example.com/api/v1/emergency/security-reset \
   -H "X-Emergency-Token: $CHARON_EMERGENCY_TOKEN"
 
 # Test Tier 2 (if enabled)
-ssh -L 2019:localhost:2019 admin@server
-curl http://localhost:2019/health
+ssh -L 2020:localhost:2020 admin@server
+curl http://localhost:2020/health
 
 # Test Tier 3 (in staging environment)
 docker exec charon cscli decisions list
@@ -815,10 +815,10 @@ curl -X POST https://charon.example.com/api/v1/emergency/security-reset \
 
 # ---------- TIER 2: EMERGENCY SERVER ----------
 # 1. SSH tunnel
-ssh -L 2019:localhost:2019 admin@server.example.com
+ssh -L 2020:localhost:2020 admin@server.example.com
 
 # 2. Reset via emergency port
-curl -X POST http://localhost:2019/emergency/security-reset \
+curl -X POST http://localhost:2020/emergency/security-reset \
   -H "X-Emergency-Token: $CHARON_EMERGENCY_TOKEN" \
   -u admin:password
 
@@ -864,7 +864,7 @@ CHARON_MANAGEMENT_CIDRS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 
 # Emergency server (Tier 2)
 CHARON_EMERGENCY_SERVER_ENABLED=true
-CHARON_EMERGENCY_BIND=127.0.0.1:2019
+CHARON_EMERGENCY_BIND=127.0.0.1:2020
 CHARON_EMERGENCY_USERNAME=admin
 CHARON_EMERGENCY_PASSWORD=<password>
 ```

@@ -568,12 +568,12 @@ If the emergency server is enabled (`CHARON_EMERGENCY_SERVER_ENABLED=true`):
 
 ```bash
 # Test emergency server health
-curl http://localhost:2019/health
+curl http://localhost:2020/health
 
 # Expected: {"status":"ok","server":"emergency"}
 
 # Test emergency reset via emergency server
-curl -X POST http://localhost:2019/emergency/security-reset \
+curl -X POST http://localhost:2020/emergency/security-reset \
   -H "X-Emergency-Token: test-emergency-token-for-e2e-32chars" \
   -u admin:changeme
 
@@ -657,10 +657,10 @@ fi
 echo ""
 
 # Test 5: Emergency server (if enabled)
-if curl -s http://localhost:2019/health > /dev/null 2>&1; then
+if curl -s http://localhost:2020/health > /dev/null 2>&1; then
   echo -e "${YELLOW}Test 5: Testing emergency server...${NC}"
 
-  RESPONSE=$(curl -s http://localhost:2019/health)
+  RESPONSE=$(curl -s http://localhost:2020/health)
   if echo "$RESPONSE" | grep -q '"server":"emergency"'; then
     echo -e "${GREEN}✓ Emergency server responding${NC}"
   else
@@ -812,7 +812,7 @@ Run emergency access tests:
 **Emergency server not responding:**
 
 - Verify `CHARON_EMERGENCY_SERVER_ENABLED=true` in environment
-- Check port 2019 is exposed in docker-compose.yml
+- Check port 2020 is exposed in docker-compose.yml
 - Test with Basic Auth if configured: `curl -u admin:password`
 
 ### Related Documentation

@@ -188,7 +188,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
       expect(mainAppResponse.status()).toBe(403);
       console.log('  ✓ Main app (port 8080) blocking requests with ACL');
 
-      // Step 3: Use emergency server (port 2019) to reset security
+      // Step 3: Use emergency server (port 2020) to reset security
       const emergencyRequest = await playwrightRequest.newContext({
         baseURL: EMERGENCY_SERVER.baseURL,
       });
@@ -210,7 +210,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
 
       expect(emergencyResponse.ok()).toBeTruthy();
       expect(emergencyResponse.status()).toBe(200);
-      console.log('  ✓ Emergency server (port 2019) succeeded despite ACL');
+      console.log('  ✓ Emergency server (port 2020) succeeded despite ACL');
 
       // Wait for settings to propagate
       await new Promise(resolve => setTimeout(resolve, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));

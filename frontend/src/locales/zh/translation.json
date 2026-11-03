@@ -1358,8 +1358,6 @@
     "general": {
       "title": "常规配置",
       "description": "配置 Caddy 和 UI 偏好设置。",
-      "caddyAdminApi": "Caddy Admin API 端点",
-      "caddyAdminApiHelper": "Caddy 管理 API 的 URL（通常在端口 2019）",
       "sslProvider": "SSL 提供商",
       "selectSslProvider": "选择 SSL 提供商",
       "sslAuto": "自动（推荐）",

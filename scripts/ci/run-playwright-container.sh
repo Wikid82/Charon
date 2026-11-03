@@ -62,7 +62,7 @@ while IFS= read -r -d '' entry; do
   name="${entry%%=*}"
   case "$name" in
     PLAYWRIGHT_BROWSERS_PATH) ;;
-    PLAYWRIGHT_* | CHARON_* | E2E_* | CADDY_ADMIN_HOST | CI | CI_LOG_LEVEL | DEBUG | TEST_WORKER_INDEX)
+    PLAYWRIGHT_* | CHARON_* | E2E_* | CI | CI_LOG_LEVEL | DEBUG | TEST_WORKER_INDEX)
       forward_args+=(--env "$name")
       ;;
   esac
