@@ -15,7 +15,7 @@ Implemented deterministic fixes for CI flakes in Playwright E2E tests, focusing 
 **File**: `tests/global-setup.ts`
 
 **Changes**:
-- Added `checkEmergencyServerHealth()` function to probe `http://localhost:2019/config` with 3s timeout
+- Added `checkEmergencyServerHealth()` function to probe `http://localhost:2020/config` with 3s timeout
 - Added `checkTier2ServerHealth()` function to probe `http://localhost:2020/health` with 3s timeout
 - Both health checks are non-blocking (skip if unavailable, don't fail setup)
 - Added URL analysis logging (IPv4 vs IPv6, localhost detection) for debugging cookie domain issues
@@ -103,7 +103,7 @@ const host = await testData.createProxyHost(config);
 **Changes**:
 - Added `checkEmergencyServerHealth()` function
 - Added `test.beforeAll()` hook to check health before suite
-- Skips entire suite if emergency server unavailable (port 2019)
+- Skips entire suite if emergency server unavailable (port 2020)
 
 **File**: `tests/emergency-server/tier2-validation.spec.ts`
 
@@ -170,8 +170,8 @@ Example output:
 🧹 Running global test setup...
 📍 Base URL: http://localhost:8080
   🔍 URL Analysis: host=localhost port=8080 IPv6=false localhost=true
-🔍 Checking emergency server health at http://localhost:2019...
-  ✅ Emergency server (port 2019) is healthy
+🔍 Checking emergency server health at http://localhost:2020...
+  ✅ Emergency server (port 2020) is healthy
 🔍 Checking tier-2 server health at http://localhost:2020...
   ⏭️  Tier-2 server unavailable (tests will skip tier-2 features)
 ⏭️  Pre-auth security reset skipped (fresh container, no custom token)

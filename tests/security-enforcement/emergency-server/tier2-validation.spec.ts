@@ -200,7 +200,7 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
 
   test('should provide independent access even when main app is blocking', async ({ request }) => {
     // Scenario: Main app (:8080) might be blocked by ACL/WAF
-    // Emergency server (:2019) should still work
+    // Emergency server (:2020) should still work
 
     // Test emergency server is accessible
     const emergencyHealth = await request.get(`${EMERGENCY_BASE_URL}/health`, {

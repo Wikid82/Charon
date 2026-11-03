@@ -688,7 +688,7 @@ environment:
 
 Charon bundles its own Caddy (the engine that sends traffic to your sites) inside the same container. Caddy has an admin interface on port 2019 that Charon uses to update the proxy's settings.
 
-This interface listens on the loopback address only. Think of it as a staff-only door inside a building: only programs running inside the same container can use it. Computers on your network and on the internet cannot.
+The proxy admin interface listens on the loopback address only and is reached from inside the container.
 
 You do not need to set anything up. Charon handles this for you.
 
