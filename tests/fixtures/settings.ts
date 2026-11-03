@@ -100,7 +100,6 @@ export type DomainLinkBehavior = 'same_tab' | 'new_tab' | 'new_window';
  * System settings interface
  */
 export interface SystemSettings {
-  caddyAdminApi: string;
   sslProvider: SSLProvider;
   domainLinkBehavior: DomainLinkBehavior;
   publicUrl: string;
@@ -111,7 +110,6 @@ export interface SystemSettings {
  * Default system settings matching application defaults
  */
 export const defaultSystemSettings: SystemSettings = {
-  caddyAdminApi: 'http://localhost:2019',
   sslProvider: 'auto',
   domainLinkBehavior: 'new_tab',
   publicUrl: 'http://localhost:8080',
@@ -122,7 +120,6 @@ export const defaultSystemSettings: SystemSettings = {
  * System settings with production-like configuration
  */
 export const productionSystemSettings: SystemSettings = {
-  caddyAdminApi: 'http://caddy:2019',
   sslProvider: 'letsencrypt-prod',
   domainLinkBehavior: 'new_tab',
   publicUrl: 'https://charon.example.com',
@@ -133,8 +130,6 @@ export const productionSystemSettings: SystemSettings = {
  * Invalid system settings for validation testing
  */
 export const invalidSystemSettings = {
-  invalidCaddyApiUrl: { ...defaultSystemSettings, caddyAdminApi: 'not-a-url' },
-  emptyCaddyApiUrl: { ...defaultSystemSettings, caddyAdminApi: '' },
   invalidPublicUrl: { ...defaultSystemSettings, publicUrl: 'not-a-valid-url' },
   emptyPublicUrl: { ...defaultSystemSettings, publicUrl: '' },
 };
@@ -148,13 +143,6 @@ export function generatePublicUrl(valid: boolean = true): string {
     return `https://charon-test-${Date.now()}.example.com`;
   }
   return 'not-a-valid-url';
-}
-
-/**
- * Generate a unique Caddy admin API URL for testing
- */
-export function generateCaddyApiUrl(): string {
-  return `http://caddy-test-${Date.now()}.local:2019`;
 }
 
 // ============================================================================

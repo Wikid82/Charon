@@ -267,13 +267,12 @@ test.describe('Import/Save Route Regression Coverage', () => {
         await page.goto('/settings/system', { waitUntil: 'domcontentloaded' });
         await expect(page.getByRole('heading', { name: /system settings/i })).toBeVisible();
 
-        const caddyApiInput = page.locator('#caddy-api');
-        await expect(caddyApiInput).toBeVisible();
+        const keepaliveIdleInput = page.locator('#keepalive-idle');
+        await expect(keepaliveIdleInput).toBeVisible();
 
-        const originalCaddyApi = await caddyApiInput.inputValue();
-        const requestMarker = `route-regression-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        const updatedCaddyApi = `http://localhost:2019?${requestMarker}=1`;
-        await caddyApiInput.fill(updatedCaddyApi);
+        const originalKeepaliveIdle = await keepaliveIdleInput.inputValue();
+        const updatedKeepaliveIdle = originalKeepaliveIdle === '2m' ? '3m' : '2m';
+        await keepaliveIdleInput.fill(updatedKeepaliveIdle);
 
         const saveButton = page.getByRole('button', { name: /save settings/i }).first();
         await expect(saveButton).toBeEnabled();
@@ -289,20 +288,20 @@ test.describe('Import/Save Route Regression Coverage', () => {
           return (
             response.url().includes('/api/v1/settings') &&
             request.method() === 'POST' &&
-            payload.key === 'caddy.admin_api' &&
-            payload.value === updatedCaddyApi
+            payload.key === 'caddy.keepalive_idle' &&
+            payload.value === updatedKeepaliveIdle
           );
         });
 
         await saveButton.click();
         const saveResponse = await saveResponsePromise;
-        expectCanonicalSuccess(saveResponse.status(), 'POST /api/v1/settings (caddy.admin_api)');
+        expectCanonicalSuccess(saveResponse.status(), 'POST /api/v1/settings (caddy.keepalive_idle)');
 
         // Deterministic UI effect: reloading should preserve the value we just saved.
         await page.reload({ waitUntil: 'domcontentloaded' });
-        await expect(page.locator('#caddy-api')).toHaveValue(updatedCaddyApi);
+        await expect(page.locator('#keepalive-idle')).toHaveValue(updatedKeepaliveIdle);
 
-        await caddyApiInput.fill(originalCaddyApi);
+        await keepaliveIdleInput.fill(originalKeepaliveIdle);
         const restoreResponsePromise = page.waitForResponse((response) => {
           const request = response.request();
           let payload: { key?: string; value?: string } | undefined;
@@ -314,13 +313,13 @@ test.describe('Import/Save Route Regression Coverage', () => {
           return (
             response.url().includes('/api/v1/settings') &&
             request.method() === 'POST' &&
-            payload.key === 'caddy.admin_api' &&
-            payload.value === originalCaddyApi
+            payload.key === 'caddy.keepalive_idle' &&
+            payload.value === originalKeepaliveIdle
           );
         });
         await saveButton.click();
         const restoreResponse = await restoreResponsePromise;
-        expectCanonicalSuccess(restoreResponse.status(), 'POST /api/v1/settings (restore caddy.admin_api)');
+        expectCanonicalSuccess(restoreResponse.status(), 'POST /api/v1/settings (restore caddy.keepalive_idle)');
 
         const wrongSettingsMethod = await page.request.delete('/api/v1/settings', { headers });
         expectPredictableRouteMiss(wrongSettingsMethod.status());

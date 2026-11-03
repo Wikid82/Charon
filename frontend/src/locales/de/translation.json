@@ -1358,8 +1358,6 @@
     "general": {
       "title": "Allgemeine Konfiguration",
       "description": "Konfigurieren Sie Caddy und UI-Einstellungen.",
-      "caddyAdminApi": "Caddy Admin API Endpunkt",
-      "caddyAdminApiHelper": "URL zur Caddy Admin API (normalerweise auf Port 2019)",
       "sslProvider": "SSL-Anbieter",
       "selectSslProvider": "SSL-Anbieter auswählen",
       "sslAuto": "Auto (Empfohlen)",
