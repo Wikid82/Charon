@@ -42,7 +42,7 @@ func TestGenerateConfigAdminListensOnLoopbackOnly(t *testing.T) {
 func TestProxyAdminAddressIsLoopbackOnly(t *testing.T) {
 	root := repoRoot(t)
 
-	entrypoint, err := os.ReadFile(filepath.Join(root, ".docker", "docker-entrypoint.sh"))
+	entrypoint, err := os.ReadFile(filepath.Clean(filepath.Join(root, ".docker", "docker-entrypoint.sh")))
 	require.NoError(t, err)
 	assert.Regexp(t, adminBootstrapPattern, string(entrypoint), "entrypoint bootstrap must bind the loopback address")
 
