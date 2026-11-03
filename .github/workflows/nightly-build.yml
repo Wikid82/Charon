@@ -657,22 +657,6 @@ jobs:
         with:
           name: sbom-nightly
 
-      - name: Scan with Grype
-        uses: step-security/anchore-scan-action@a09aeacdedd17f1a8e912b3519ee9d7ea124498a # v7.4.2
-        with:
-          sbom: sbom-nightly.json
-          fail-build: false
-          severity-cutoff: high
-
-      - name: Scan with Trivy
-        uses: step-security/trivy-action@4d04e2d32ba36aae5693467644b22741d68f9115 # v0.36.0
-        with:
-          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
-          format: 'sarif'
-          output: 'trivy-nightly.sarif'
-          version: 'v0.76.1'
-          trivyignores: '.trivyignore'
-
       # Scheduled runs execute on the default branch, so upload-sarif would
       # attribute these results to main. Pin them to the ref/commit that was
       # actually scanned so they appear under the nightly branch.
@@ -683,6 +667,31 @@ jobs:
         run: |
           echo "ref=${SCANNED_REF}" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Scan with Grype
+        id: grype
+        uses: step-security/anchore-scan-action@a09aeacdedd17f1a8e912b3519ee9d7ea124498a # v7.4.2
+        with:
+          sbom: sbom-nightly.json
+          fail-build: false
+          severity-cutoff: high
+
+      - name: Upload Grype results
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: 'grype-nightly'
+          ref: ${{ steps.scanned.outputs.ref }}
+          sha: ${{ steps.scanned.outputs.sha }}
+
+      - name: Scan with Trivy
+        uses: step-security/trivy-action@4d04e2d32ba36aae5693467644b22741d68f9115 # v0.36.0
+        with:
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-nightly.sarif'
+          version: 'v0.76.1'
+          trivyignores: '.trivyignore'
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
