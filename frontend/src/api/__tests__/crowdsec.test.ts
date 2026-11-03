@@ -383,6 +383,13 @@ describe('getCrowdsecImportError', () => {
   const failure = (data: unknown) =>
     new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, { status: 422, data } as AxiosResponse)
 
+  it('accepts the not-writable refusal code', () => {
+    expect(crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'import_config_not_writable' }))).toEqual({
+      code: 'import_config_not_writable',
+      names: [],
+    })
+  })
+
   it('returns the code and names of a known refusal', () => {
     expect(
       crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'import_kept_profile_undefined', names: ['a', 'b'] })),

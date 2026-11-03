@@ -187,6 +187,27 @@ test.describe('CrowdSec Configuration @security', () => {
       await expect(page.getByTestId('import-file')).toBeVisible();
       await expect(page.getByRole('button', { name: /^import$/i })).toBeVisible();
     });
+
+    test('should explain the configuration folder when an import cannot change it', async ({ page }) => {
+      await openWithStubs(page, {});
+      await page.route(CROWDSEC_ROUTES.importConfig, (route) =>
+        route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          json: { error: 'server text', error_code: 'import_config_not_writable' },
+        }),
+      );
+
+      await page.getByTestId('import-file').setInputFiles({
+        name: 'cfg.tar.gz',
+        mimeType: 'application/gzip',
+        buffer: Buffer.from('not-a-real-archive'),
+      });
+      await page.getByTestId('import-btn').click();
+
+      await expect(page.getByText('Charon cannot change the CrowdSec configuration folder.')).toBeVisible();
+      await expect(page.getByText('server text')).toHaveCount(0);
+    });
   });
 
   test.describe('Console Enrollment', () => {

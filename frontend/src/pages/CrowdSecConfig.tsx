@@ -599,6 +599,8 @@ export default function CrowdSecConfig() {
         return t('crowdsecConfig.importErrorKeepCurrentFailed')
       case 'import_config_not_found':
         return t('crowdsecConfig.importErrorConfigNotFound')
+      case 'import_config_not_writable':
+        return t('crowdsecConfig.importErrorNotWritable')
       default:
         return fallback
     }

@@ -37,6 +37,7 @@ export const CROWDSEC_ROUTES = {
   files: new RegExp(`${ADMIN}/files${END}`),
   file: new RegExp(`${ADMIN}/file${END}`),
   export: new RegExp(`${ADMIN}/export${END}`),
+  importConfig: new RegExp(`${ADMIN}/import${END}`),
   diagnosticsConfig: new RegExp(`${ADMIN}/diagnostics/config${END}`),
   diagnosticsConnectivity: new RegExp(`${ADMIN}/diagnostics/connectivity${END}`),
 } as const;
