@@ -194,6 +194,12 @@ jobs:
             should_skip=false
             echo "Force refresh enabled due to Docker/security workflow changes"
           fi
+          # A manual dispatch is an explicit request to build: never let the
+          # head commit's `chore:` subject skip it.
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            should_skip=false
+            echo "Manual dispatch: building regardless of head commit message"
+          fi
           # Always build on feature branches to ensure artifacts for testing
           # For PRs: use HEAD_REF (actual source branch)
           # For pushes: use REF (refs/heads/branch-name)
