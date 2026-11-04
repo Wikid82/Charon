@@ -10,6 +10,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -21,6 +22,16 @@ import (
 // "nil = default, non-nil = explicit override" convention).
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// newIsolatedMemoryDSN returns a shared-cache in-memory SQLite DSN that is
+// unique per call. A shared-cache memory database lives for as long as the
+// process holds a connection to it, so a DSN derived only from t.Name() would
+// be reused by every -count iteration (and by any test sharing a name) and
+// leak rows between them. The uuid suffix keeps each database private.
+func newIsolatedMemoryDSN(t *testing.T) string {
+	t.Helper()
+	return "file:" + t.Name() + "-" + uuid.NewString() + "?mode=memory&cache=shared"
 }
 
 // newOptionsTestService builds a *BackupService backed by a real on-disk
@@ -40,8 +51,7 @@ func newOptionsTestService(t *testing.T, enc *crypto.EncryptionService) *BackupS
 	dbPath := filepath.Join(dataDir, "charon.db")
 	createSQLiteTestDB(t, dbPath)
 
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(newIsolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Setting{},

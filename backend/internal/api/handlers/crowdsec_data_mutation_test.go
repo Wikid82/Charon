@@ -38,7 +38,12 @@ func readTreeFile(t *testing.T, path string) string {
 
 func importRequest(t *testing.T, files map[string]string) *http.Request {
 	t.Helper()
-	archivePath := createTestArchive(t, "tar.gz", files, true)
+	return importRequestFromArchive(t, createTestArchive(t, "tar.gz", files, true))
+}
+
+// importRequestFromArchive uploads the archive at archivePath as a multipart import request.
+func importRequestFromArchive(t *testing.T, archivePath string) *http.Request {
+	t.Helper()
 	data, err := os.ReadFile(archivePath) //nolint:gosec // G304: archive in the test temp dir
 	require.NoError(t, err)
 	buf := &bytes.Buffer{}
