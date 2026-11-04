@@ -192,7 +192,7 @@ func TestInspectArchiveBounds(t *testing.T) {
 	t.Run("total bytes", func(t *testing.T) {
 		t.Parallel()
 		files := map[string]string{}
-		body := strings.Repeat("#", int(maxInspectEntryBytes)-1)
+		body := incompressible(t, int(maxInspectEntryBytes)-1)
 		for i := 0; i < 9; i++ {
 			files[fmt.Sprintf("notifications/n%d.yaml", i)] = body
 		}

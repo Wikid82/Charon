@@ -25,11 +25,20 @@ func bindSmallJSON(c *gin.Context, obj any, onInvalid func()) bool {
 	if err == nil {
 		return true
 	}
-	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
-		respondCoded(c, http.StatusRequestEntityTooLarge, codeRequestTooLarge, msgRequestTooLarge, nil)
+	if respondIfBodyTooLarge(c, err) {
 		return false
 	}
 	onInvalid()
 	return false
+}
+
+// respondIfBodyTooLarge answers 413 request_too_large when err is a request body passing its limit, and reports
+// whether it did. The request body must already be wrapped in http.MaxBytesReader.
+func respondIfBodyTooLarge(c *gin.Context, err error) bool {
+	var tooLarge *http.MaxBytesError
+	if !errors.As(err, &tooLarge) {
+		return false
+	}
+	respondCoded(c, http.StatusRequestEntityTooLarge, codeRequestTooLarge, msgRequestTooLarge, nil)
+	return true
 }

@@ -239,7 +239,7 @@ func TestExportManifestFailureModes(t *testing.T) {
 func TestWriteHubManifestWriterErrors(t *testing.T) {
 	t.Parallel()
 	dir := realLayoutTree(t)
-	tw := tar.NewWriter(io.Discard)
+	tw := &exportTar{Writer: tar.NewWriter(io.Discard), maxEntries: MaxImportEntries}
 	require.NoError(t, tw.Close())
 	_, err := writeHubManifest(tw, dir, 0, MaxImportUncompressedBytes)
 	require.Error(t, err, "a closed tar writer rejects the header")

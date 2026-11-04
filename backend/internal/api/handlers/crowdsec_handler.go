@@ -3,7 +3,6 @@ package handlers
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -298,20 +297,22 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 		return formatErr
 	}
 
-	// Calculate uncompressed size and check for zip bombs
+	// Sum the declared content sizes. Reading the archive also stops it early if the stream grows past the
+	// limits, so an oversized upload is not read to its end.
 	uncompressedSize, err := calculateUncompressedSize(path)
 	if err != nil {
 		return err
 	}
 
 	if uncompressedSize > v.MaxUncompressed {
-		return fmt.Errorf("uncompressed size exceeds maximum: %d > %d", uncompressedSize, v.MaxUncompressed)
+		return fmt.Errorf("%w: uncompressed size %d > %d", crowdsec.ErrArchiveTooLarge, uncompressedSize, v.MaxUncompressed)
 	}
 
-	// Check compression ratio (zip bomb protection)
+	// The compression ratio rule applies to the declared content against the archive size. The stream limit
+	// is a separate, looser stop that only catches a stream growing past its allowance while it is read.
 	compressionRatio := float64(uncompressedSize) / float64(info.Size())
 	if compressionRatio > v.MaxCompressionRatio {
-		return fmt.Errorf("suspicious compression ratio: %.1fx (potential zip bomb)", compressionRatio)
+		return fmt.Errorf("%w: compression ratio %.1fx", crowdsec.ErrArchiveTooLarge, compressionRatio)
 	}
 
 	// List contents and verify required files
@@ -364,24 +365,15 @@ func requireTarGz(path string) error {
 
 // calculateUncompressedSize calculates the total uncompressed size of the tar.gz archive.
 func calculateUncompressedSize(path string) (int64, error) {
-	// #nosec G304 -- path is validated upstream
-	f, err := os.Open(path)
+	ar, err := crowdsec.OpenImportArchive(path)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open archive: %w", err)
+		return 0, err
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = ar.Close() }()
 
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer func() { _ = gr.Close() }()
-
-	tr := tar.NewReader(gr)
 	var total int64
-
 	for {
-		header, err := tr.Next()
+		header, err := ar.Next()
 		if err == io.EOF {
 			break
 		}
@@ -400,24 +392,15 @@ func calculateUncompressedSize(path string) (int64, error) {
 
 // listArchiveContents lists all regular files in the tar.gz archive.
 func listArchiveContents(path string) ([]string, error) {
-	// #nosec G304 -- path is validated upstream
-	f, err := os.Open(path)
+	ar, err := crowdsec.OpenImportArchive(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open archive: %w", err)
+		return nil, err
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = ar.Close() }()
 
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer func() { _ = gr.Close() }()
-
-	tr := tar.NewReader(gr)
 	var files []string
-
 	for {
-		header, err := tr.Next()
+		header, err := ar.Next()
 		if err == io.EOF {
 			break
 		}
@@ -446,6 +429,20 @@ const msgImportFlatArchive = "the archive keeps its configuration at the top lev
 
 // msgKeepCurrentFiles is the fixed message for an import that could not keep the current files.
 const msgKeepCurrentFiles = "failed to keep the current CrowdSec files"
+
+// msgImportArchiveTooLarge is the fixed message for an archive over the content, ratio or entry limit. It
+// does not name the limit, so the answer does not reveal how the reader is tuned.
+const msgImportArchiveTooLarge = "the archive is larger than the import limit"
+
+// codeImportArchiveTooLarge is the error_code of msgImportArchiveTooLarge.
+const codeImportArchiveTooLarge = "import_archive_too_large"
+
+const (
+	// importUploadBodyLimit caps a whole import request: the archive limit plus room for the multipart framing.
+	importUploadBodyLimit = crowdsec.MaxImportCompressedBytes + crowdsec.MaxImportOverheadBase
+	// importFormMemoryBytes is how much of an upload the multipart parser keeps in memory before it spools.
+	importFormMemoryBytes = 8 << 20
+)
 
 // msgImportConfigNotWritable is the fixed message for an import that could not change the configuration folder
 // because of a permission or read-only failure. It names the folder, which is what the operator fixes.
@@ -934,6 +931,21 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if h.refuseIfBusy(c) {
 		return
 	}
+	// The request is capped before any part is read: the archive limit plus room for the multipart framing.
+	// The parser keeps importFormMemoryBytes in memory and spools the rest, which the cleanup below removes.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, importUploadBodyLimit)
+	if err := c.Request.ParseMultipartForm(importFormMemoryBytes); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
+		return
+	}
+	defer func() {
+		if c.Request.MultipartForm != nil {
+			_ = c.Request.MultipartForm.RemoveAll()
+		}
+	}()
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
@@ -964,6 +976,10 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 
 	if err = validator.Validate(dst); err != nil {
+		if errors.Is(err, crowdsec.ErrArchiveTooLarge) || errors.Is(err, crowdsec.ErrArchiveTooManyEntries) {
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportArchiveTooLarge, msgImportArchiveTooLarge, nil)
+			return
+		}
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
 	}
@@ -1166,20 +1182,11 @@ func (h *CrowdsecHandler) pruneSnapshots() {
 
 // extractArchive extracts a tar.gz archive to the destination directory.
 func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(rel string) bool) error {
-	// #nosec G304 -- archivePath is validated upstream
-	f, err := os.Open(archivePath)
+	ar, err := crowdsec.OpenImportArchive(archivePath)
 	if err != nil {
-		return fmt.Errorf("failed to open archive: %w", err)
+		return err
 	}
-	defer func() { _ = f.Close() }()
-
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer func() { _ = gr.Close() }()
-
-	tr := tar.NewReader(gr)
+	defer func() { _ = ar.Close() }()
 
 	liveDirs, err := liveDirSet(destDir)
 	if err != nil {
@@ -1187,7 +1194,7 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(
 	}
 
 	for {
-		header, err := tr.Next()
+		header, err := ar.Next()
 		if err == io.EOF {
 			break
 		}
@@ -1225,8 +1232,9 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(
 				return fmt.Errorf("failed to create file: %w", err)
 			}
 
-			// #nosec G110 -- We control the tar archive source (uploaded by admin)
-			if _, err := io.Copy(outFile, tr); err != nil {
+			// #nosec G110 -- copy is bounded by the archive reader's limits. CopyN to the declared size is a second,
+			// per-file line: the reader already stops at the content and entry ceilings.
+			if _, err := io.CopyN(outFile, ar, header.Size); err != nil {
 				if closeErr := outFile.Close(); closeErr != nil {
 					return fmt.Errorf("failed to write file: %w (close error: %v)", err, closeErr)
 				}

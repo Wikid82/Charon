@@ -6,21 +6,23 @@ type LocaleFile = { crowdsecConfig?: Record<string, unknown> }
 /** Every locale the app bundles. A new locale file must be counted here, so it cannot skip the key check. */
 const EXPECTED_LOCALE_COUNT = 28
 
-/** Translation key of the message shown when an import cannot change the configuration folder. */
-const NOT_WRITABLE_KEY = 'importErrorNotWritable'
+/** Translation keys of the import refusal messages every locale must carry. */
+const REFUSAL_KEYS = ['importErrorNotWritable', 'importErrorArchiveTooLarge', 'importErrorRequestTooLarge'] as const
 
 const localeFiles = import.meta.glob('../locales/*/translation.json', { import: 'default', eager: true }) as Record<
   string,
   LocaleFile
 >
 
-describe('import_config_not_writable message in every locale', () => {
+describe('import refusal messages in every locale', () => {
   it(`bundles exactly ${EXPECTED_LOCALE_COUNT} locale files`, () => {
     expect(Object.keys(localeFiles)).toHaveLength(EXPECTED_LOCALE_COUNT)
   })
 
-  it.each(Object.entries(localeFiles))('%s has a non-empty crowdsecConfig.importErrorNotWritable', (_path, tree) => {
-    const text: unknown = tree.crowdsecConfig?.[NOT_WRITABLE_KEY]
+  it.each(
+    Object.entries(localeFiles).flatMap(([path, tree]) => REFUSAL_KEYS.map((key) => [path, tree, key] as const)),
+  )('%s has a non-empty crowdsecConfig.%s', (_path, tree, key) => {
+    const text: unknown = tree.crowdsecConfig?.[key]
     expect(typeof text === 'string' && text.trim().length > 0).toBe(true)
   })
 })

@@ -601,6 +601,10 @@ export default function CrowdSecConfig() {
         return t('crowdsecConfig.importErrorConfigNotFound')
       case 'import_config_not_writable':
         return t('crowdsecConfig.importErrorNotWritable')
+      case 'import_archive_too_large':
+        return t('crowdsecConfig.importErrorArchiveTooLarge')
+      case 'request_too_large':
+        return t('crowdsecConfig.importErrorRequestTooLarge')
       default:
         return fallback
     }

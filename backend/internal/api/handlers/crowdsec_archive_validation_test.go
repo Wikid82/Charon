@@ -16,6 +16,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 )
 
 // --- Sprint 2: Archive Validation Tests ---
@@ -181,7 +183,30 @@ func TestConfigArchiveValidator_SizeLimit(t *testing.T) {
 	require.Contains(t, err.Error(), "exceeds maximum size")
 }
 
-// TestConfigArchiveValidator_CompressionRatio tests zip bomb protection.
+// TestConfigArchiveValidator_UncompressedLimit refuses an archive whose declared content is over the limit,
+// even when the compression ratio would pass.
+func TestConfigArchiveValidator_UncompressedLimit(t *testing.T) {
+	t.Parallel()
+
+	validator := &ConfigArchiveValidator{
+		MaxSize:             50 * 1024 * 1024,
+		MaxUncompressed:     1024,
+		MaxCompressionRatio: 1000,
+		RequiredFiles:       []string{"config.yaml"},
+	}
+
+	content := make([]byte, 4096)
+	for i := range content {
+		content[i] = byte(i*7 + i/256) // varied bytes, so the archive does not shrink below the ratio limit
+	}
+	archivePath := createTestArchive(t, "tar.gz", map[string]string{"config.yaml": string(content)}, true)
+
+	err := validator.Validate(archivePath)
+	require.ErrorIs(t, err, crowdsec.ErrArchiveTooLarge)
+	require.ErrorContains(t, err, "uncompressed size")
+}
+
+// TestConfigArchiveValidator_CompressionRatio tests the compression ratio limit.
 func TestConfigArchiveValidator_CompressionRatio(t *testing.T) {
 	t.Parallel()
 
@@ -192,7 +217,7 @@ func TestConfigArchiveValidator_CompressionRatio(t *testing.T) {
 		RequiredFiles:       []string{"config.yaml"},
 	}
 
-	// Create highly compressible content (simulating zip bomb)
+	// Create highly compressible content
 	highlyCompressible := strings.Repeat("AAAAAAAAAA", 10000)
 	files := map[string]string{
 		"config.yaml": highlyCompressible,

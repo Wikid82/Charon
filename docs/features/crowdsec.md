@@ -126,6 +126,21 @@ Hub presets are applied on the server too, with the same safety net: before anyt
 - The CrowdSec import accepts only `.tar.gz` archives and checks that the main configuration file is valid YAML before applying anything. If it isn't, Charon tells you what's wrong, for example `config.yaml is not valid YAML` or `only .tar.gz archives are supported`.
 - Backups are shown by name and are stored next to the CrowdSec data folder (for example `/app/data/`). Full snapshots are named `crowdsec.backup.<timestamp>`, single-file saves `crowdsec.filebackup.<timestamp>`. Saved acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file instead. If Charon cannot keep the acquisition file's original owner, it saves the file as the Charon user. To recover by hand, stop CrowdSec, copy the backup you want back into place, and start it again.
 
+#### Import and Export Size Limits
+
+Charon checks the size of a configuration before it changes anything. A file that is too large is turned away, and your current setup stays as it is.
+
+- **Archive size:** an imported configuration archive (`.tar.gz`) can be up to 50 MiB.
+- **Unpacked size:** once unpacked, its files can total up to 500 MiB.
+- **Compression:** the unpacked size can be at most 100 times the archive size.
+- **File count:** an archive can hold up to 20,000 files and folders, counting folders too.
+
+A small allowance for the archive's own packaging is added on top of these numbers, so a normal archive close to a limit is not refused for that alone.
+
+If the upload is too large to accept at all, the import stops with "the request body is too large". If the archive goes over one of the limits above, the import stops with "the archive is larger than the import limit". In both cases nothing on your system changes.
+
+Exports follow the same limits. Charon never creates an export that an import would refuse. If the configuration is too large, or has more than 20,000 files and folders, the export stops with "crowdsec config is too large to export". If its compression would be too high for an import, the export stops with "crowdsec config cannot be exported in an importable form".
+
 ### Console Enrollment
 
 Connect to the CrowdSec Console for centralized management:

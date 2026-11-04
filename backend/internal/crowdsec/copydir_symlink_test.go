@@ -44,10 +44,15 @@ func TestCopyDirPreservesSymlinks(t *testing.T) {
 	require.Zero(t, info.Mode()&os.ModeSymlink)
 }
 
-func TestCopyDirSymlinkDestinationError(t *testing.T) {
+func TestCopyDirReplacesFileAtSymlinkDestination(t *testing.T) {
 	src := t.TempDir()
 	require.NoError(t, os.Symlink("target", filepath.Join(src, "link")))
 	dst := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dst, "link"), []byte("x"), 0o600))
-	require.Error(t, copyTree(src, dst, nil))
+
+	require.NoError(t, copyTree(src, dst, nil))
+	info, err := os.Lstat(filepath.Join(dst, "link"))
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink, "the snapshot's link replaces the file")
+	require.Equal(t, "target", readLink(t, filepath.Join(dst, "link")))
 }

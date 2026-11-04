@@ -2,7 +2,6 @@ package crowdsec
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -76,26 +75,16 @@ func inspectWanted(rel string) bool {
 // every other entry are skipped unread, and nothing is written to disk.
 func InspectArchive(archivePath string) (ArchiveInfo, error) {
 	info := ArchiveInfo{Files: map[string][]byte{}}
-	f, err := os.Open(filepath.Clean(archivePath))
+	ar, err := OpenImportArchive(archivePath)
 	if err != nil {
-		var pathErr *fs.PathError
-		if errors.As(err, &pathErr) {
-			err = pathErr.Err // the path stays out of the message
-		}
-		return info, fmt.Errorf("open archive: %w", err)
+		return info, err
 	}
-	defer func() { _ = f.Close() }()
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return info, fmt.Errorf("create gzip reader: %w", err)
-	}
-	defer func() { _ = gr.Close() }()
+	defer func() { _ = ar.Close() }()
 
-	tr := tar.NewReader(gr)
 	var total int64
 	manifest := manifestSlot{}
 	for {
-		hdr, err := tr.Next()
+		hdr, err := ar.Next()
 		if errors.Is(err, io.EOF) {
 			info.HubItems = manifest.parse()
 			return info, nil
@@ -108,7 +97,7 @@ func InspectArchive(archivePath string) (ArchiveInfo, error) {
 		}
 		rel, ok := ArchiveEntryRel(hdr.Name)
 		if ok && IsManifestPath(rel) {
-			if readErr := manifest.read(tr, hdr.Size); readErr != nil {
+			if readErr := manifest.read(ar, hdr.Size); readErr != nil {
 				return info, readErr
 			}
 			continue
@@ -127,7 +116,7 @@ func InspectArchive(archivePath string) (ArchiveInfo, error) {
 			info.Incomplete = true
 			continue
 		}
-		data, err := io.ReadAll(io.LimitReader(tr, maxInspectEntryBytes+1))
+		data, err := io.ReadAll(io.LimitReader(ar, maxInspectEntryBytes+1))
 		if err != nil {
 			return info, fmt.Errorf("read archive entry: %w", err)
 		}
