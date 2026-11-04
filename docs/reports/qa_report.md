@@ -1,40 +1,51 @@
-# QA Report: PR 17 (CrowdSec leftovers), branch `fix/crowdsec-leftovers`
+# QA Report: PR 18 (a WAF rule set needs rules), branch `fix/waf-rule-sets-need-rules`
 
-Date: 2026-11-04. Scope: 10 commits ahead of `development`, tree clean at start. Code-scanning (CodeQL/Trivy) is deferred to CI for this fix-scoped change. GORM scan skipped (models unchanged). The docs-site build was not run locally (`zensical` not installed); it runs in CI.
+Date: 2026-11-04. Scope: 7 commits ahead of `development` (plan: `docs/plans/current_spec.md`), tree clean at start and at end. CodeQL and Trivy are deferred to CI (fix-scoped change, no new endpoint or component). The docs-site build was not run locally; it runs in CI.
 
-## Result: PASS after one fix (see Finding 1)
+## Result: PASS
+
+No blocking findings. One low observation and some residual risks are listed below.
 
 | Gate | Result |
 | --- | --- |
-| `scripts/go-test-coverage.sh` | Pass after the fix in Finding 1 (first run: 4 failures in `internal/api/handlers`). Re-run: Statement coverage 93.2%, line coverage 92.1% (min 87%) |
-| `scripts/local-patch-report.sh` | Pass: backend patch coverage 57/57 lines (100%); artifacts in `test-results/` |
-| Pinned golangci-lint v2.15.0 | Pass: 0 issues |
-| `scripts/frontend-test-coverage.sh` | Pass: 321 files, 4131 tests; statements 91.09%, branches 85.6%, lines 92.09% |
-| `npm run type-check` | Pass |
-| `scripts/cscli_hub_mirror_test.sh` | Pass: 144 passed, 0 failed |
-| `scripts/verify-toolchain-pin.sh` | Pass (caddy-crowdsec pin verified) |
+| `cd backend && go build ./...` | Pass |
+| `./scripts/scan-gorm-security.sh --check` | Pass: 0 critical, 0 high, 0 medium (2 informational suggestions, 1 suppressed) |
+| `scripts/go-test-coverage.sh` | Pass: statements 93.2%, lines 92.1% (minimum 87%); all packages ok |
+| `scripts/frontend-test-coverage.sh` | Pass: 321 files, 4138 tests passed, 2 todo; statements 91.11%, branches 85.61%, functions 88.42%, lines 92.11% |
+| `cd frontend && npm run type-check` | Pass |
+| `bash scripts/local-patch-report.sh` | Pass: overall 48/48 changed lines (100%); backend 45/45, frontend 3/3; artifacts in `test-results/` |
+| `lefthook run pre-commit --all-files` | Pass: all 18 hooks green (go vet, golangci-lint fast 0 issues, markdownlint 0 issues, actionlint, shellcheck, frontend type-check and lint with 0 errors, semgrep 367 rules on 2367 files with 0 findings) |
+| Playwright `tests/security/waf-config.spec.ts`, project `security-tests` | Pass: 20 of 20 (including both "Rule set needs rules" cases) |
 
-## Finding 1 (high, FIXED in the same PR): tests still point the stored engine address at a test server
+The branch margin on frontend branches is thin (85.61% against a floor of 85%); it did not drop from before the change.
 
-Failing, deterministically (reproduced in a scoped re-run, port 8085 free):
-- `TestLAPIKey_SavedKeyFileFirst`, `TestLAPIKey_EnvironmentInRuntimeOrder` (`crowdsec_ban_alerts_contract_test.go`, helper `pr4LAPIHandler` at about line 799)
-- `TestCSCLIContract_GetLAPIDecisions_RecordedResponse`, `TestCSCLIContract_DashboardSummary_ActiveDecisionsFromRecordedResponse` (`crowdsec_cscli_contract_test.go`)
+## Container gates
 
-Cause: these tests store a `CrowdSecAPIURL` that names an httptest server and expect the decisions and dashboard readers to call it. After commit 1 the readers always use `crowdsec.LocalLAPIURL`, so the calls miss the test server (500, `-1` count, no header recorded). The behavior is as designed; the tests were not adapted. Fix: have the tests serve the fake engine on the local address, or inject the engine address through a test seam in the handler, then re-run `go test ./internal/api/handlers/`.
+Run against the rebuilt E2E image (`docker-rebuild-e2e`) and a throwaway pair of containers (a second `charon:local` instance as the upstream, a bind-mounted data directory, a private network, host ports 28080 and 28180). The live `charon` container was not touched. The throwaway containers and network were removed.
 
-## Container gates (throwaway image and containers; live `charon` and `charon:local` untouched, all throwaway resources removed)
+- URL-only create (`source_url` set, empty content) returned 400 with `error_code: ruleset_empty`.
+- Comment-only create (`# just a comment` and a commented `SecRule`) returned 400 with `error_code: ruleset_empty`.
+- Updating an existing set with whitespace-only content returned 400 `ruleset_empty`; the stored set kept its 76-byte content.
+- A real `SecRule` set saved (200) and was written to a ruleset file.
+- A legacy empty row (seeded directly in the database, because the API now refuses it) selected as the WAF source:
+  - `/security/status` reported `enforced: false`, `reason: ruleset_empty`, `unprotected_hosts: 1`.
+  - No ruleset file was written for it and the generated proxy config had no WAF handler for the host.
+  - One apply produced exactly one Warn, `skipping WAF rule set that has no rules`, plus the existing summary Warn that names the reason. The log counter went from 3 to 4 across a single config save.
+  - An attack request through the proxy returned 502 (not blocked, since nothing was enforcing; the upstream path does not exist).
+- Selecting the real set as the source: `/security/status` reported `enforced: true`, `unprotected_hosts: 0`, and the same attack request returned 403.
 
-- Step 0 (pre-change behavior of applies during a restore): not run. It needs an image of the base commit, which was not built.
-- Caddy modules: crowdsec bouncer (`crowdsec`, `http.handlers.crowdsec`, `admin.api.crowdsec`, `layer4.matchers.crowdsec`), `http.handlers.waf`, `http.handlers.appsec`, `security`, `rate_limit`, `geoip2`, and 28 `dns.providers.*` are present. The generated proxy config carries `api_url` `http://127.0.0.1:8085`; the bouncer log shows key auth against that address and `started`.
-- G1 pass: stored address `http://203.0.113.9:9999` accepted; decisions answer 200 `source: lapi`, health answers `healthy` at `http://127.0.0.1:8085`, status reports the local address, and the proxy config has only the local address.
-- G2 pass (hub blackholed): with a restore in flight, curated sync, second curated sync, non-curated sync, non-curated async and curated async applies each answered 409 `crowdsec_busy` in under 10 ms; a second restore answered 409 with `error_code: crowdsec_busy`; the first restore ended 502 after 60 s.
-- G3 not run: blocking only the item path on the CDN needs a TLS-terminating proxy with a trusted CA, which this host setup cannot provide quickly. Unit tests are the authoritative check.
-- G4 pass: with the module enabled (`local`) and the engine port occupied, Start answered 500 `crowdsec_engine_exited` in 1.3 s; module state before and after were identical (enabled, `local`); Start succeeded once the port was freed.
-- G5 pass: bouncer reports `registered: true`, `registration: registered`.
-- Playwright `tests/security/crowdsec-ui-states.spec.ts -g "Registered badge"`, project `security-tests`: passed.
+## Notes on test coverage claims
 
-## Re-check after the fix
+- Locale placeholders: `wafConfig.sourceUrlHelper` was reworded in en, de, es, fr and zh. The other 23 locales carry the English sentence as a placeholder (verified: 23 locale files are string-identical to `en`). No claim is made about translation quality for those 23.
+- E2E case (c), a legacy empty row shown as the passive line: the Playwright harness cannot seed such a row, because the API now refuses to store one. That behavior is covered by the Vitest row in `SecurityEnforcementNote.test.tsx` and by the Go enforcement-report test (and was confirmed by hand in the container check above).
 
-The four tests now serve the fake engine at the local address (the same seam the new address tests use), and a grep found no other handler test that stores a test-server address. Re-run results: `go test ./internal/api/handlers/ -count=1` pass; `scripts/go-test-coverage.sh` pass (statements 93.2%, lines 92.1%, minimum 87%); pinned golangci-lint v2.15.0: 0 issues; `go test ./internal/crowdsec/ -run 'Pull|Mirror'` pass.
+## Observations (not blocking)
 
-Review items folded in: the mirror URL builder returns no mirror when the mirror base is empty; two docs sentences corrected; comment placement in the config struct. Note for the PR: a download body that breaks mid-transfer is now classed as a transport failure, so it also triggers the one mirror retry.
+1. Low: when a host carries its own `advanced_config` WAF handler that names a valid rule set, and the global source is an empty legacy row, the proxy config does contain the host's handler and an attack request is blocked (403), yet `/security/status` still counts that host in `unprotected_hosts` (1). Seen on the first pass before the host's own handler was removed. The status counts hosts that lack the global handler and does not look at per-host handlers. This was not changed by this PR and is conservative (it under-reports protection, never over-reports). It can be filed as a separate follow-up.
+
+## Residual risks
+
+- A user who relied on an empty rule set row (including the removed placeholder preset) sees the WAF go from "applied" to "not applied" after upgrading. The row is kept, only the activation stops, and the Security page shows the passive reason line. This is the intended behavior.
+- An `Include` of a missing file is not detected by the rule-line check (accepted in the plan).
+- CodeQL and Trivy have not run locally; CI runs both on the PR.
+- Full-suite and cross-browser Playwright runs are CI-only and were not run.
