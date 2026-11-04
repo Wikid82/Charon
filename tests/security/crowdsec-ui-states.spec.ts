@@ -350,5 +350,35 @@ test.describe('CrowdSec newer UI states @security', () => {
       await expect(page.getByText('Not Registered', { exact: true })).toHaveCount(0);
       await expect(page.locator('.bg-error').filter({ hasText: 'Status unknown' })).toHaveCount(0);
     });
+
+    test('should show a Registered badge, not Not Registered, when the bouncer is registered', async ({ page }) => {
+      await page.route('**/api/v1/admin/crowdsec/bouncer', async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          json: {
+            name: 'caddy-bouncer',
+            key_preview: 'e2e-preview',
+            key_source: 'file',
+            file_path: '/app/data/crowdsec/bouncer_key',
+            registered: true,
+            registration: 'registered',
+          },
+        });
+      });
+      // The bouncer card renders only when Cerberus and CrowdSec are both on.
+      await ensureCerberusEnabled(page);
+      await stubCrowdSecApi(page, { crowdsecMode: 'local' });
+      await loadPage(page);
+      await page.getByRole('tab', { name: 'Configuration', exact: true }).click();
+
+      await expect(page.getByText('Registered', { exact: true })).toBeVisible();
+      await expect(page.getByText('Not Registered', { exact: true })).toHaveCount(0);
+      await expect(page.getByText('Status unknown', { exact: true })).toHaveCount(0);
+    });
   });
 });
