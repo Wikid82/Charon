@@ -91,6 +91,12 @@ describe('CrowdSecConfig import refusals', () => {
     expect(message).toBe("The archive's profiles.yaml names notifications that no file in the archive defines: slack, http")
   })
 
+  it('keeps the server text when a profiles.yaml refusal carries no names', async () => {
+    expect(
+      await importFailing(refusal(422, { error: 'server text', error_code: 'import_profile_names_undefined' })),
+    ).toBe('server text')
+  })
+
   it('lists the undefined names of a kept profile', async () => {
     const message = await importFailing(
       refusal(422, { error: 'server text', error_code: 'import_kept_profile_undefined', names: ['slack'] }),
