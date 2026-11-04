@@ -16,6 +16,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 )
 
 // --- Sprint 2: Archive Validation Tests ---
@@ -179,6 +181,29 @@ func TestConfigArchiveValidator_SizeLimit(t *testing.T) {
 	err = validator.Validate(archivePath)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exceeds maximum size")
+}
+
+// TestConfigArchiveValidator_UncompressedLimit refuses an archive whose declared content is over the limit,
+// even when the compression ratio would pass.
+func TestConfigArchiveValidator_UncompressedLimit(t *testing.T) {
+	t.Parallel()
+
+	validator := &ConfigArchiveValidator{
+		MaxSize:             50 * 1024 * 1024,
+		MaxUncompressed:     1024,
+		MaxCompressionRatio: 1000,
+		RequiredFiles:       []string{"config.yaml"},
+	}
+
+	content := make([]byte, 4096)
+	for i := range content {
+		content[i] = byte(i*7 + i/256) // varied bytes, so the archive does not shrink below the ratio limit
+	}
+	archivePath := createTestArchive(t, "tar.gz", map[string]string{"config.yaml": string(content)}, true)
+
+	err := validator.Validate(archivePath)
+	require.ErrorIs(t, err, crowdsec.ErrArchiveTooLarge)
+	require.ErrorContains(t, err, "uncompressed size")
 }
 
 // TestConfigArchiveValidator_CompressionRatio tests the compression ratio limit.

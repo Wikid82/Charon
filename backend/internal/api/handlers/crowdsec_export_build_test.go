@@ -294,16 +294,39 @@ func TestExportConfigCancelledRequestAbortsWithoutBody(t *testing.T) {
 	requireNoExportTempFiles(t, tmp)
 }
 
+// TestExtractArchiveRefusesATruncatedEntry covers an entry whose header declares more bytes than the stream holds:
+// the copy must fail rather than leave a short file behind.
+func TestExtractArchiveRefusesATruncatedEntry(t *testing.T) {
+	var tarBuf bytes.Buffer
+	tw := tar.NewWriter(&tarBuf)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "config.yaml", Typeflag: tar.TypeReg, Mode: 0o600, Size: 100}))
+	_, err := tw.Write([]byte("0123456789"))
+	require.NoError(t, err)
+	// tw is not closed, so the stream ends inside the declared entry.
+
+	var gz bytes.Buffer
+	gw := gzip.NewWriter(&gz)
+	_, err = gw.Write(tarBuf.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+	truncated := filepath.Join(t.TempDir(), "truncated.tar.gz")
+	require.NoError(t, os.WriteFile(truncated, gz.Bytes(), 0o600))
+
+	dir := t.TempDir()
+	h, _ := newImportRouter(t, dir)
+	require.ErrorContains(t, h.extractArchive(truncated, dir, func(string) bool { return false }), "failed to write file")
+}
+
 func TestExtractArchiveFailures(t *testing.T) {
 	dir := t.TempDir()
 	h, _ := newImportRouter(t, dir)
 	noKeep := func(string) bool { return false }
 
-	require.ErrorContains(t, h.extractArchive(filepath.Join(dir, "missing.tar.gz"), dir, noKeep), "open archive")
+	require.ErrorContains(t, h.extractArchive(filepath.Join(dir, "missing.tar.gz"), dir, noKeep), "failed to open archive")
 
 	notGzip := filepath.Join(t.TempDir(), "plain.tar.gz")
 	require.NoError(t, os.WriteFile(notGzip, []byte("not gzip"), 0o600))
-	require.ErrorContains(t, h.extractArchive(notGzip, dir, noKeep), "create gzip reader")
+	require.ErrorContains(t, h.extractArchive(notGzip, dir, noKeep), "failed to create gzip reader")
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)

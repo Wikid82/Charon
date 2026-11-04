@@ -79,6 +79,10 @@ type ImportArchive struct {
 	bounds  archiveBounds
 }
 
+// statArchiveFile reads the size of an open archive. It is a variable so a test can fail the stat, which a
+// regular file on a healthy filesystem never does.
+var statArchiveFile = (*os.File).Stat
+
 // OpenImportArchive opens an uploaded tar.gz under the import limits.
 func OpenImportArchive(path string) (*ImportArchive, error) {
 	return openImportArchive(path, defaultArchiveBounds())
@@ -91,9 +95,9 @@ func openImportArchive(path string, bounds archiveBounds) (*ImportArchive, error
 		if errors.As(err, &pathErr) {
 			err = pathErr.Err // the path stays out of the message
 		}
-		return nil, fmt.Errorf("open archive: %w", err)
+		return nil, fmt.Errorf("failed to open archive: %w", err)
 	}
-	info, err := f.Stat()
+	info, err := statArchiveFile(f)
 	if err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("stat archive: %w", err)
@@ -101,7 +105,7 @@ func openImportArchive(path string, bounds archiveBounds) (*ImportArchive, error
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("create gzip reader: %w", err)
+		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	ar := &ImportArchive{file: f, gz: gz, bounds: bounds}
 	ar.src = &boundedStream{r: gz, bounds: bounds, compressed: info.Size(), entries: &ar.entries}

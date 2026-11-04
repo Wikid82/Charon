@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,6 +65,27 @@ func TestImportArchiveCountsEveryEntryAgainstTheBound(t *testing.T) {
 
 	_, err = readArchiveEntryNames(t, archiveWithEntries(t, 4), bounds)
 	require.ErrorIs(t, err, ErrArchiveTooManyEntries, "zero-size entries count too")
+}
+
+func TestImportArchiveRefusesReadsPastTheCeiling(t *testing.T) {
+	t.Parallel()
+	entries := 0
+	s := &boundedStream{r: bytes.NewReader([]byte("data")), bounds: defaultArchiveBounds(), compressed: 10, entries: &entries}
+	s.read = s.ceiling() + 1
+
+	_, err := s.Read(make([]byte, 8))
+	require.ErrorIs(t, err, ErrArchiveTooLarge, "a stream that has already passed its ceiling yields nothing more")
+}
+
+// TestImportArchiveReportsAStatFailure swaps statArchiveFile, so it must not run in parallel.
+func TestImportArchiveReportsAStatFailure(t *testing.T) {
+	orig := statArchiveFile
+	statArchiveFile = func(*os.File) (fs.FileInfo, error) { return nil, fs.ErrClosed }
+	t.Cleanup(func() { statArchiveFile = orig })
+
+	_, err := OpenImportArchive(archiveWithEntries(t, 1))
+	require.ErrorContains(t, err, "stat archive")
+	require.ErrorIs(t, err, fs.ErrClosed)
 }
 
 func TestImportArchiveReadsAcrossGzipMembers(t *testing.T) {
