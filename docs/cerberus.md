@@ -118,7 +118,7 @@ type SecurityConfig struct {
     Enabled              bool   `json:"enabled"`
     AdminWhitelist       string `json:"admin_whitelist"`        // CSV of IPs/CIDRs
     CrowdsecMode         string `json:"crowdsec_mode"`          // disabled, local, external
-    CrowdsecAPIURL       string `json:"crowdsec_api_url"`
+    CrowdsecAPIURL       string `json:"crowdsec_api_url"` // ignored: Charon always uses its own CrowdSec engine
     CrowdsecAPIKey       string `json:"crowdsec_api_key"`
     WafMode              string `json:"waf_mode"`               // disabled, monitor, block
     WafRulesSource       string `json:"waf_rules_source"`       // Rule set name, or an http(s) URL
@@ -136,7 +136,7 @@ If no database config exists, Charon reads from environment:
 
 - `CERBERUS_SECURITY_WAF_MODE` — `disabled` | `monitor` | `block`
 - 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_MODE` — Use GUI toggle instead (see below)
-- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_URL` — External mode is no longer supported
+- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_URL` — External mode is no longer supported, and the value is ignored. Charon always uses its own CrowdSec engine.
 - 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_KEY` — External mode is no longer supported. The name is still read as a bouncer key fallback, after the saved key file and the newer `CHARON_SECURITY_CROWDSEC_API_KEY` (see the [CrowdSec feature guide](features/crowdsec.md)).
 - `CERBERUS_SECURITY_ACL_ENABLED` — `true` | `false`
 - `CERBERUS_SECURITY_RATELIMIT_ENABLED` — `true` | `false`

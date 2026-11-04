@@ -58,7 +58,7 @@ Relevant generated artifacts:
 ### Residual risks / follow-up watch
 
 1. Caddy advisories with reserved or evolving CVE enrichment may change exploitability interpretation; recheck cadence remains active.
-2. Caddy bootstrap still binds admin listener to container interface (`0.0.0.0:2019`) for compatibility, so operator misconfiguration that publishes port `2019` can expand attack surface; production compose defaults avoid publishing this port.
+2. Caddy's admin listener is bound to the loopback address (`127.0.0.1:2019`), so it is reachable only from inside the container. Publishing port `2019` to other machines does not expose it, and production compose defaults still do not publish this port.
 
 ### PR-2 closure statement
 

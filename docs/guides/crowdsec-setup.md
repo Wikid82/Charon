@@ -460,7 +460,7 @@ If you're behind a corporate firewall, you may need to allow these connections.
 
 ### Using an External CrowdSec Instance (No Longer Supported)
 
-Connecting Charon to a CrowdSec server you run somewhere else is not supported. If your compose file still has `CHARON_SECURITY_CROWDSEC_API_URL`, remove that line and restart Charon. The startup key check always uses the CrowdSec engine inside Charon, so this variable is ignored for that check. Charon writes a single warning to the log when the variable is set to another address.
+Connecting Charon to a CrowdSec server you run somewhere else is not supported. If your compose file still has `CHARON_SECURITY_CROWDSEC_API_URL`, remove that line and restart Charon. Charon always talks to the CrowdSec engine that runs inside Charon, so this variable is ignored, and so is any CrowdSec address saved in Charon's settings. Charon writes a single warning to the log when the variable is set to another address.
 
 ---
 

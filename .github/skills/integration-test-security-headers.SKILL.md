@@ -105,7 +105,6 @@ CHARON_IMAGE=charon:my-build SH_PREFIX=sh-test .github/skills/scripts/skill-runn
 | SH_HTTP_PORT | No | 8182 | Host port for Caddy HTTP |
 | SH_HTTPS_PORT | No | 8144 | Host port for Caddy HTTPS |
 | SH_API_PORT | No | 8282 | Host port for the Charon API |
-| SH_ADMIN_PORT | No | 2121 | Host port for the Caddy admin API |
 
 ## Outputs
 
