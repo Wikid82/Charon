@@ -18,6 +18,7 @@ describe('wafErrorMessage', () => {
     ['waf_rules_source_unknown', 'translated:wafConfig.errors.waf_rules_source_unknown'],
     ['waf_ruleset_in_use', 'translated:wafConfig.errors.waf_ruleset_in_use'],
     ['invalid_waf_mode', 'translated:wafConfig.errors.invalid_waf_mode'],
+    ['ruleset_empty', 'translated:wafConfig.errors.ruleset_empty'],
   ])('maps the %s code to its translated text', (code, expected) => {
     expect(wafErrorMessage(axiosError({ error_code: code }), t, 'fallback')).toBe(expected)
   })

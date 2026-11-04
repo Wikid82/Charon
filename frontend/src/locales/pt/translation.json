@@ -660,7 +660,7 @@
     "blockingDescription": "Malicious requests will be blocked with HTTP 403",
     "detectionDescription": "Malicious requests will be logged but not blocked",
     "sourceUrl": "Source URL (optional)",
-    "sourceUrlHelper": "URL to fetch rules from. Leave empty to use inline content.",
+    "sourceUrlHelper": "Optional. The address is stored for reference and is not downloaded.",
     "ruleContent": "Rule Content",
     "ruleContentHelper": "ModSecurity/Coraza rule syntax. Each SecRule should be on its own line.",
     "source": "Source",

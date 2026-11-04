@@ -683,7 +683,7 @@
     "blockingDescription": "恶意请求将被HTTP 403阻止",
     "detectionDescription": "恶意请求将被记录但不会被阻止",
     "sourceUrl": "源URL（可选）",
-    "sourceUrlHelper": "获取规则的URL。留空以使用内联内容。",
+    "sourceUrlHelper": "可选。该地址仅作参考保存，不会被下载。",
     "ruleContent": "规则内容",
     "ruleContentHelper": "ModSecurity/Coraza规则语法。每个SecRule应在单独的行上。",
     "source": "源",
@@ -715,7 +715,8 @@
     "errors": {
       "waf_rules_source_unknown": "该规则集不存在。请从列表中选择。",
       "waf_ruleset_in_use": "这是 WAF 正在使用的规则集。请先选择其他规则集。",
-      "invalid_waf_mode": "WAF 模式无效。请重新加载页面后重试。"
+      "invalid_waf_mode": "WAF 模式无效。请重新加载页面后重试。",
+      "ruleset_empty": "规则集至少需要一条规则。请添加一行 SecRule。"
     },
     "detectionMode": "没有自身模式的规则集只会在已保存的 WAF 模式为检测时记录匹配的请求。模式设为阻止的规则集会阻止匹配的请求。"
   },

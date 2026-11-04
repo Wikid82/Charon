@@ -683,7 +683,7 @@
     "blockingDescription": "Las solicitudes maliciosas serán bloqueadas con HTTP 403",
     "detectionDescription": "Las solicitudes maliciosas serán registradas pero no bloqueadas",
     "sourceUrl": "URL de Origen (opcional)",
-    "sourceUrlHelper": "URL para obtener reglas. Déjalo vacío para usar contenido en línea.",
+    "sourceUrlHelper": "Opcional. La dirección se guarda solo como referencia y no se descarga.",
     "ruleContent": "Contenido de Reglas",
     "ruleContentHelper": "Sintaxis de reglas ModSecurity/Coraza. Cada SecRule debe estar en su propia línea.",
     "source": "Origen",
@@ -715,7 +715,8 @@
     "errors": {
       "waf_rules_source_unknown": "Ese conjunto de reglas no existe. Elige uno de la lista.",
       "waf_ruleset_in_use": "Este conjunto de reglas es el que usa el WAF. Elige primero otro conjunto de reglas.",
-      "invalid_waf_mode": "El modo del WAF no es válido. Recarga la página e inténtalo de nuevo."
+      "invalid_waf_mode": "El modo del WAF no es válido. Recarga la página e inténtalo de nuevo.",
+      "ruleset_empty": "Un conjunto de reglas necesita al menos una regla. Añade una línea SecRule."
     },
     "detectionMode": "Los conjuntos de reglas sin modo propio solo registran las solicitudes coincidentes mientras el modo WAF guardado sea detección. Un conjunto de reglas con modo bloqueo bloquea las solicitudes coincidentes."
   },

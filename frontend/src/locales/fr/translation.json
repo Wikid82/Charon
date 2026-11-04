@@ -683,7 +683,7 @@
     "blockingDescription": "Les requêtes malveillantes seront bloquées avec HTTP 403",
     "detectionDescription": "Les requêtes malveillantes seront journalisées mais non bloquées",
     "sourceUrl": "URL Source (optionnel)",
-    "sourceUrlHelper": "URL pour récupérer les règles. Laissez vide pour utiliser le contenu en ligne.",
+    "sourceUrlHelper": "Facultatif. L'adresse est enregistrée à titre indicatif et n'est pas téléchargée.",
     "ruleContent": "Contenu des Règles",
     "ruleContentHelper": "Syntaxe de règles ModSecurity/Coraza. Chaque SecRule doit être sur sa propre ligne.",
     "source": "Source",
@@ -715,7 +715,8 @@
     "errors": {
       "waf_rules_source_unknown": "Ce jeu de règles n'existe pas. Choisissez-en un dans la liste.",
       "waf_ruleset_in_use": "Ce jeu de règles est celui utilisé par le WAF. Choisissez d'abord un autre jeu de règles.",
-      "invalid_waf_mode": "Le mode du WAF n'est pas valide. Rechargez la page et réessayez."
+      "invalid_waf_mode": "Le mode du WAF n'est pas valide. Rechargez la page et réessayez.",
+      "ruleset_empty": "Un jeu de règles doit contenir au moins une règle. Ajoutez une ligne SecRule."
     },
     "detectionMode": "Les jeux de règles sans mode propre ne journalisent les requêtes correspondantes que lorsque le mode WAF enregistré est la détection. Un jeu de règles réglé sur blocage bloque les requêtes correspondantes."
   },

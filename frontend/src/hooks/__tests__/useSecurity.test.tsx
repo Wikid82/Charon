@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
+import { AxiosError, type AxiosResponse } from 'axios'
 import toast from 'react-hot-toast'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -193,6 +194,24 @@ describe('useSecurity hooks', () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true))
       expect(toast.error).toHaveBeenCalledWith('Failed to save rule set: Save failed')
+    })
+
+    it('should show the rule-set-empty text when the server refuses a rule set without rules', async () => {
+      const error = new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 400,
+        statusText: 'Bad Request',
+        headers: {},
+        config: {},
+        data: { error: 'A rule set needs at least one rule.', error_code: 'ruleset_empty' },
+      } as AxiosResponse)
+      vi.mocked(securityApi.upsertRuleSet).mockRejectedValue(error)
+
+      const { result } = renderHook(() => useUpsertRuleSet(), { wrapper })
+
+      result.current.mutate({ name: 'Blank', content: '# only a comment', mode: 'blocking' })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(toast.error).toHaveBeenCalledWith('A rule set needs at least one rule. Add a SecRule line.')
     })
   })
 

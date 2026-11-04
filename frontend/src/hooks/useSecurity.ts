@@ -82,6 +82,7 @@ export function useRuleSets() {
 
 export function useUpsertRuleSet() {
   const qc = useQueryClient()
+  const { t } = useTranslation()
   return useMutation({
     mutationFn: (payload: UpsertRuleSetPayload) => upsertRuleSet(payload),
     onSuccess: () => {
@@ -89,7 +90,7 @@ export function useUpsertRuleSet() {
       toast.success('Rule set saved successfully')
     },
     onError: (err: Error) => {
-      toast.error(`Failed to save rule set: ${err.message}`)
+      toast.error(wafErrorMessage(err, t, `Failed to save rule set: ${err.message}`))
     },
   })
 }

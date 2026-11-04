@@ -688,7 +688,7 @@
     "blockingDescription": "Malicious requests will be blocked with HTTP 403",
     "detectionDescription": "Malicious requests will be logged but not blocked",
     "sourceUrl": "Source URL (optional)",
-    "sourceUrlHelper": "URL to fetch rules from. Leave empty to use inline content.",
+    "sourceUrlHelper": "Optional. The address is stored for reference and is not downloaded.",
     "ruleContent": "Rule Content",
     "ruleContentHelper": "ModSecurity/Coraza rule syntax. Each SecRule should be on its own line.",
     "source": "Source",
@@ -720,7 +720,8 @@
     "errors": {
       "waf_rules_source_unknown": "That rule set does not exist. Choose one from the list.",
       "waf_ruleset_in_use": "This rule set is the one the WAF uses. Choose another rule set first.",
-      "invalid_waf_mode": "The WAF mode is not valid. Reload the page and try again."
+      "invalid_waf_mode": "The WAF mode is not valid. Reload the page and try again.",
+      "ruleset_empty": "A rule set needs at least one rule. Add a SecRule line."
     },
     "detectionMode": "Rule sets without a mode of their own only log matching requests while the saved WAF mode is detection. A rule set set to blocking blocks matching requests."
   },
