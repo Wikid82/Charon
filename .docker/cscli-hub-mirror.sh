@@ -318,8 +318,9 @@ _hub_retry() {
 
 # cscli_hub <budget seconds> <cscli arguments...>
 # Runs a cscli command with the retry rules above, all within the budget:
-#   hub update, hub upgrade   attempt 1 gets half the budget; the retry gets the rest
-#   <type> install|upgrade    attempt 1 gets the whole budget; the retry gets the rest
+#   hub update                attempt 1 gets half the budget; the retry gets the rest
+#   hub upgrade, <type> install|upgrade
+#                             attempt 1 gets the whole budget; the retry gets the rest
 #   anything else             one attempt, no retry
 # The retry uses the derived mirror config when one was prepared. When the mirror is the first choice (after an
 # earlier mirror win), the live config is the retry. Before a retry of an install, an upgrade or `hub upgrade`,
@@ -339,8 +340,8 @@ cscli_hub() {
                 _first=$((_budget / 2))
                 ;;
             upgrade)
+                # A healthy upgrade may run for most of its budget, so it gets the whole share (as Go does).
                 _kind=hub
-                _first=$((_budget / 2))
                 ;;
         esac
     else

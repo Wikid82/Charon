@@ -45,6 +45,7 @@ TEMPLATE_LINE="  __hub_url_template__: \"$TEMPLATE\""
 #   live_term    the live config traps TERM, runs past its budget, prints "terminated signal received" and exits 1
 #                (the shape the real cscli shows when `timeout` ends it); the derived config succeeds
 #   live_quiet   the live config traps TERM, runs past its budget and exits 1 with no text; the derived config succeeds
+#   live_slow    the live config is a healthy run that takes 3 seconds and then succeeds; the derived config succeeds
 #   derived_net  the derived config fails with a network error; the live config succeeds
 #   both_net     both fail with a network error
 cat >"$FAKEBIN/cscli" <<'FAKE'
@@ -79,7 +80,7 @@ deadline="context deadline exceeded"
 transport="Get \"https://cdn-hub.crowdsec.net/x\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"
 if [ "$kind" = derived ]; then
     case "$FAKE_MODE" in
-        live_ok|live_net|live_bad|live_hang|live_deadline|live_transport|live_term|live_quiet) echo ok; exit 0 ;;
+        live_ok|live_net|live_bad|live_hang|live_deadline|live_transport|live_term|live_quiet|live_slow) echo ok; exit 0 ;;
         derived_net|both_net) echo "$net"; exit 1 ;;
     esac
 else
@@ -92,6 +93,7 @@ else
         live_transport) echo "$transport"; exit 1 ;;
         live_term) trap 'echo "terminated signal received"; exit 1' TERM; sleep 30 & wait $!; exit 1 ;;
         live_quiet) trap 'exit 1' TERM; sleep 30 & wait $!; exit 1 ;;
+        live_slow) sleep 3; echo ok; exit 0 ;;
         derived_net) echo ok; exit 0 ;;
         both_net) echo "$net"; exit 1 ;;
     esac
@@ -460,6 +462,17 @@ check "item upgrade bare deadline: not retried" "1" "$(ncalls upgrade_deadline)"
 
 run_case hubupgrade_deadline live_deadline 0 1 4 hub upgrade
 check "hub upgrade bare deadline: not retried" "1" "$(ncalls hubupgrade_deadline)"
+
+# A healthy hub upgrade gets the whole budget for its first attempt, as Go does (runShare): a 3 second run inside a
+# 4 second budget is answered in one call. A hub update still gets half its budget, so the same run is cut and retried.
+run_case upgrade_slow live_slow 0 1 4 hub upgrade
+check "hub upgrade slow healthy run: exit 0 on the first attempt" "0" "$(res upgrade_slow rc)"
+check "hub upgrade slow healthy run: one call, not cut at half the budget" "1" "$(ncalls upgrade_slow)"
+
+run_case update_slow live_slow 0 1 4 hub update
+check "hub update slow run: cut at half the budget and retried" "2" "$(ncalls update_slow)"
+check "hub update slow run: the retry is on the derived config" \
+    "cfg=derived tpl=1 local=1 args=hub update" "$(call update_slow 2)"
 
 run_case hubupdate_deadline live_deadline 0 1 4 hub update
 check "hub update bare deadline: retried on the derived config" "2" "$(ncalls hubupdate_deadline)"
