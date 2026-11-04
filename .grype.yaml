@@ -5,6 +5,94 @@
 
 ignore:
 
+  # SQLite 3.53.4-r0 (Alpine `sqlite` CLI + `sqlite-libs`): CVE-2026-119373, CVE-2026-119374,
+  # CVE-2026-119379, CVE-2026-119586
+  # Severity: HIGH
+  #   - CVE-2026-119373: FTS5 heap buffer overflow in fts5MergeRowidLists()
+  #   - CVE-2026-119374: FTS5 heap buffer overflow in fts5DoSecureDelete()
+  #   - CVE-2026-119379: session-extension heap buffer overflow
+  #   - CVE-2026-119586: sqlite3 CLI shell `.recover` command injection
+  # Status: No fix available — grype reports fix state "unknown" (fixed upstream in SQLite 3.54.0,
+  #         not yet packaged by Alpine; Alpine still ships 3.53.4-r0).
+  #
+  # Risk Assessment: ACCEPTED (not reachable through Charon's runtime paths)
+  # - Charon's own Go backend uses pure-Go SQLite (glebarez/sqlite -> modernc.org/sqlite) and never
+  #   loads Alpine's libsqlite3; the Caddy/CrowdSec binaries bundle their own SQLite or none.
+  # - The Alpine packages exist for the `sqlite3` CLI, which is intentionally shipped as operator
+  #   tooling (scripts/db-recovery.sh, docs/database-maintenance.md, `docker exec charon sqlite3`).
+  #   It only runs when an operator invokes it against their own database, so exploiting these
+  #   requires attacker-controlled SQL or a crafted database file handed to that CLI by the operator.
+  #
+  # Review: Revisit when Alpine publishes sqlite >= 3.54.x. Removal criteria: rebuild the image,
+  # confirm the CVEs no longer appear in grype-results.json, then remove these entries and the
+  # matching .trivyignore entries together.
+  # Matched by CVE + package name only (no version) so an Alpine -rN bump does not silently
+  # re-open the finding while the CVEs still apply.
+  - vulnerability: CVE-2026-119373
+    package:
+      name: sqlite
+      type: apk
+    reason: |
+      HIGH — SQLite FTS5 heap overflow (fts5MergeRowidLists). No Alpine fix yet; only reachable
+      via the operator-run sqlite3 CLI. See block comment above.
+    expiry: "2026-12-04"
+  - vulnerability: CVE-2026-119373
+    package:
+      name: sqlite-libs
+      type: apk
+    reason: |
+      HIGH — SQLite FTS5 heap overflow (fts5MergeRowidLists). No Alpine fix yet; sqlite-libs is
+      only a dependency of the sqlite3 CLI. See block comment above.
+    expiry: "2026-12-04"
+  - vulnerability: CVE-2026-119374
+    package:
+      name: sqlite
+      type: apk
+    reason: |
+      HIGH — SQLite FTS5 heap overflow (fts5DoSecureDelete). No Alpine fix yet; only reachable
+      via the operator-run sqlite3 CLI. See block comment above.
+    expiry: "2026-12-04"
+  - vulnerability: CVE-2026-119374
+    package:
+      name: sqlite-libs
+      type: apk
+    reason: |
+      HIGH — SQLite FTS5 heap overflow (fts5DoSecureDelete). No Alpine fix yet; sqlite-libs is
+      only a dependency of the sqlite3 CLI. See block comment above.
+    expiry: "2026-12-04"
+  - vulnerability: CVE-2026-119379
+    package:
+      name: sqlite
+      type: apk
+    reason: |
+      HIGH — SQLite session-extension heap overflow. No Alpine fix yet; only reachable via the
+      operator-run sqlite3 CLI. See block comment above.
+    expiry: "2026-12-04"
+  - vulnerability: CVE-2026-119379
+    package:
+      name: sqlite-libs
+      type: apk
+    reason: |
+      HIGH — SQLite session-extension heap overflow. No Alpine fix yet; sqlite-libs is only a
+      dependency of the sqlite3 CLI. See block comment above.
+    expiry: "2026-12-04"
+  - vulnerability: CVE-2026-119586
+    package:
+      name: sqlite
+      type: apk
+    reason: |
+      HIGH — sqlite3 CLI `.recover` command injection. No Alpine fix yet; triggers only if an
+      operator runs `.recover` on an untrusted database. See block comment above.
+    expiry: "2026-12-04"
+  - vulnerability: CVE-2026-119586
+    package:
+      name: sqlite-libs
+      type: apk
+    reason: |
+      HIGH — sqlite3 CLI `.recover` command injection (reported against sqlite-libs by the same
+      advisory). No Alpine fix yet. See block comment above.
+    expiry: "2026-12-04"
+
   # - CVE-2026-116585:
   - vulnerability: GHSA-4w3g-jfj2-cw2q
     package:
