@@ -36,6 +36,14 @@ Protected attack types include:
 
 The WAF page shows the rule sets you have and their modes. If the WAF is on but no rule set can be used yet, the Security page says so and tells you the reason.
 
+### Rule Sets Need Rules
+
+A rule set must contain at least one rule line. A rule line starts with `SecRule`. Charon refuses to save a rule set that is empty or that has only comments or settings in it, and tells you to add a rule.
+
+If the rule set the WAF is using has no rules, the Security page shows a short note saying so. Open the WAF page and add rules to clear it.
+
+Rule sets you created before this change are kept, but they are not used until they have at least one rule. You can edit them to add rules. Charon does not delete them for you.
+
 ### Operating Modes
 
 Each rule set has its own mode:
@@ -50,6 +58,8 @@ Each rule set has its own mode:
 ### After Upgrading
 
 After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them. A rule set with no mode of its own follows the saved WAF mode (detection when it is set to monitor, blocking otherwise).
+
+The WAF page no longer offers a built-in "OWASP Core Rule Set" choice, because that choice did not contain any rules. To use OWASP rules, paste the rule text into a rule set yourself.
 
 ### Per-Host Configuration
 
