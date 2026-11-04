@@ -372,8 +372,18 @@ jobs:
         id: grype-scan
         run: |
           echo "🔍 Scanning SBOM for vulnerabilities..."
-          grype sbom:sbom.cyclonedx.json --config .grype.yaml -o json > grype-results.json
-          grype sbom:sbom.cyclonedx.json --config .grype.yaml -o sarif > grype-results.sarif
+          # .grype.yaml sets fail-on-severity, so grype exits 2 when findings meet the
+          # threshold. Tolerate that exit code here so the SARIF upload, artifacts and
+          # PR comment still run; the "Fail on Critical/High" step enforces the gate.
+          # Any other non-zero exit is a real scan error and still fails the step.
+          for fmt in json sarif; do
+            rc=0
+            grype sbom:sbom.cyclonedx.json --config .grype.yaml -o "${fmt}" > "grype-results.${fmt}" || rc=$?
+            if [[ "${rc}" -ne 0 && "${rc}" -ne 2 ]]; then
+              echo "::error::grype ${fmt} scan failed with exit code ${rc}"
+              exit "${rc}"
+            fi
+          done
 
       - name: Debug Output Files
         if: steps.set-target.outputs.image_name != ''
