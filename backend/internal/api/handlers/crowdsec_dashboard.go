@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
@@ -200,13 +201,8 @@ func (h *CrowdsecHandler) DashboardSummary(c *gin.Context) {
 // fetchActiveDecisionCount queries LAPI for active decisions count.
 // Returns -1 when LAPI is unreachable.
 func (h *CrowdsecHandler) fetchActiveDecisionCount(ctx context.Context) int64 {
-	lapiURL := "http://127.0.0.1:8085"
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
+	// The engine address is the local one (crowdsec.LocalLAPIURL); the stored settings value is not read.
+	lapiURL := crowdsec.LocalLAPIURL
 
 	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
 	if err != nil {

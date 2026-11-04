@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // exitScriptEngine is a CrowdSec engine stand-in for the LAPI wait. Status reports not running until Start, then
@@ -88,6 +90,29 @@ func TestStartCrowdSec_EngineExitsDuringLAPIWait(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, before, after, "a Start whose engine exited must revert to its exact snapshot")
 	requireCrowdSecOff(t, h.DB)
+	require.Equal(t, 0, applier.count(), "a failed start must not apply the proxy")
+}
+
+// TestStartCrowdSec_EngineExitWhileEnabledRevertsToEnabledSnapshot: a Start whose engine exits while the module is
+// already enabled reverts to the enabled snapshot, not to the disabled default.
+func TestStartCrowdSec_EngineExitWhileEnabledRevertsToEnabledSnapshot(t *testing.T) {
+	eng := &exitScriptEngine{running: []bool{false}}
+	applier := &recordingApplier{}
+	h := newResetLifecycleHandlerSeeded(t, eng, &lifecycleLAPIFake{readyAt: 0}, applier, true)
+	before, err := h.snapshotCrowdsecStart()
+	require.NoError(t, err)
+
+	_, err = h.StartCrowdSec(context.Background())
+
+	require.ErrorIs(t, err, errCrowdsecEngineExited)
+	after, err := h.snapshotCrowdsecStart()
+	require.NoError(t, err)
+	require.Equal(t, before, after, "a Start whose engine exited must revert to the enabled snapshot")
+	require.Equal(t, "true", lifecycleSettingValue(t, h.DB))
+	var cfg models.SecurityConfig
+	require.NoError(t, h.DB.Where("name = ?", models.DefaultSecurityConfigName).First(&cfg).Error)
+	require.True(t, cfg.Enabled)
+	require.Equal(t, "local", cfg.CrowdSecMode)
 	require.Equal(t, 0, applier.count(), "a failed start must not apply the proxy")
 }
 

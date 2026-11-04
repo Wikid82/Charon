@@ -135,6 +135,8 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 		return 0, nil, err
 	}
 
+	// Non-regular entries are counted and summarised once after the walk, not warned about one by one.
+	skippedNonRegular := 0
 	walkErr := filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -161,7 +163,8 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 			return nil
 		}
 		if !d.Type().IsRegular() {
-			logger.Log().Warnf("skipping non-regular entry %s during export", util.SanitizeForLog(rel))
+			skippedNonRegular++
+			logger.Log().Debugf("skipping non-regular entry %s during export", util.SanitizeForLog(rel))
 			return nil
 		}
 		slash := filepath.ToSlash(rel)
@@ -179,6 +182,9 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 	})
 	if walkErr != nil {
 		return total, nil, fmt.Errorf("export walk: %w", walkErr)
+	}
+	if skippedNonRegular > 0 {
+		logger.Log().Infof("skipped %d non-regular export entries (symlinks, pipes, sockets, devices)", skippedNonRegular)
 	}
 	n, manifestErr := writeHubManifest(tw, dataDir, total, maxBytes)
 	total += n

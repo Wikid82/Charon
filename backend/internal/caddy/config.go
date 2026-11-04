@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	charonconfig "github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -96,14 +97,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			logger.Log().Warn(crowdSecNoKeyWarning)
 		} else {
 			crowdsecInProxy = true
-			apiURL := "http://127.0.0.1:8085"
-			if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
-				apiURL = secCfg.CrowdSecAPIURL
-			}
 			enableStreaming := true
 
 			config.Apps.CrowdSec = &CrowdSecApp{
-				APIUrl:          apiURL,
+				APIUrl:          crowdsec.LocalLAPIURL,
 				APIKey:          apiKey,
 				TickerInterval:  "60s",
 				EnableStreaming: &enableStreaming,

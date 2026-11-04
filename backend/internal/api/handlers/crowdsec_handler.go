@@ -1567,15 +1567,8 @@ func validateCrowdsecLAPIBaseURLDefault(raw string) (*url.URL, error) {
 //   - scope: filter by scope (e.g., "ip", "range")
 //   - type: filter by decision type (e.g., "ban", "captcha")
 func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
-	// Get LAPI URL from security config or use default
-	// Default port is 8085 to avoid conflict with Charon management API on port 8080
+	// The engine address is the local one (crowdsec.LocalLAPIURL); the stored settings value is not read.
 	lapiURL := crowdsec.LocalLAPIURL
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
 
 	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
 	if err != nil {
@@ -2205,15 +2198,8 @@ func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
 
 // CheckLAPIHealth verifies that CrowdSec LAPI is responding.
 func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
-	// Get LAPI URL from security config or use default
-	// Default port is 8085 to avoid conflict with Charon management API on port 8080
+	// The engine address is the local one (crowdsec.LocalLAPIURL); the stored settings value is not read.
 	lapiURL := crowdsec.LocalLAPIURL
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
 
 	// Create health check request
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)

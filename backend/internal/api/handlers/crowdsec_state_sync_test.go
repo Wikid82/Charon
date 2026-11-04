@@ -26,11 +26,10 @@ func TestStartSyncsSettingsTable(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	// Create SecurityConfig with mock LAPI URL so testKeyAgainstLAPI uses it
+	// Create the settings row; the engine address is not read from it.
 	secCfg := models.SecurityConfig{
-		UUID:           "test-uuid",
-		Name:           "default",
-		CrowdSecAPIURL: mockLAPI.URL,
+		UUID: "test-uuid",
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&secCfg).Error)
 
@@ -89,11 +88,10 @@ func TestStopSyncsSettingsTable(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	// Create SecurityConfig with mock LAPI URL so testKeyAgainstLAPI uses it
+	// Create the settings row; the engine address is not read from it.
 	secCfg := models.SecurityConfig{
-		UUID:           "test-uuid",
-		Name:           "default",
-		CrowdSecAPIURL: mockLAPI.URL,
+		UUID: "test-uuid",
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&secCfg).Error)
 
@@ -156,11 +154,10 @@ func TestStartAndStopStateConsistency(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	// Create SecurityConfig with mock LAPI URL so testKeyAgainstLAPI uses it
+	// Create the settings row; the engine address is not read from it.
 	secCfg := models.SecurityConfig{
-		UUID:           "test-uuid",
-		Name:           "default",
-		CrowdSecAPIURL: mockLAPI.URL,
+		UUID: "test-uuid",
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&secCfg).Error)
 
@@ -227,11 +224,10 @@ func TestExistingSettingIsUpdated(t *testing.T) {
 	}))
 	defer mockLAPI.Close()
 
-	// Create SecurityConfig with mock LAPI URL so testKeyAgainstLAPI uses it
+	// Create the settings row; the engine address is not read from it.
 	secCfg := models.SecurityConfig{
-		UUID:           "test-uuid",
-		Name:           "default",
-		CrowdSecAPIURL: mockLAPI.URL,
+		UUID: "test-uuid",
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&secCfg).Error)
 

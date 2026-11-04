@@ -79,7 +79,7 @@ type Config struct {
 // SecurityConfig holds configuration for optional security services.
 type SecurityConfig struct {
 	CrowdSecMode       string
-	CrowdSecAPIURL     string
+	CrowdSecAPIURL     string // ignored: CrowdSec readers always use the local engine address
 	CrowdSecAPIKey     string
 	CrowdSecConfigDir  string
 	WAFMode            string

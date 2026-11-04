@@ -135,8 +135,7 @@ func TestStartRestoreJob_LockNotLeakedOnPersistenceFailure(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(backupDir, "existing.zip"), []byte("PK\x03\x04fake"), 0o600))
 
 	// Deliberately un-migrated DB: db.Create(&job) will fail.
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(newIsolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	svc := &BackupService{

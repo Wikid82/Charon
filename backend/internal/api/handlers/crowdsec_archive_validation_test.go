@@ -62,6 +62,32 @@ func createTestArchive(t *testing.T, format string, files map[string]string, com
 	return archivePath
 }
 
+// tarEntry is one regular file in an archive built by createOrderedTarGz.
+type tarEntry struct{ name, content string }
+
+// createOrderedTarGz writes a gzipped tar whose entries follow the given order. createTestArchive ranges over a
+// map, so its entry order is random; use this when the order decides which entry fails.
+func createOrderedTarGz(t *testing.T, entries []tarEntry) string {
+	t.Helper()
+	archivePath := filepath.Join(t.TempDir(), "ordered.tar.gz")
+
+	// #nosec G304 -- archivePath is in test temp directory created by t.TempDir()
+	f, err := os.Create(archivePath)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+
+	gw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gw)
+	for _, e := range entries {
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: e.name, Size: int64(len(e.content)), Mode: 0o644}))
+		_, err := tw.Write([]byte(e.content))
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+	return archivePath
+}
+
 // TestConfigArchiveValidator_ValidFormats tests that valid archive formats are accepted.
 func TestConfigArchiveValidator_ValidFormats(t *testing.T) {
 	t.Parallel()

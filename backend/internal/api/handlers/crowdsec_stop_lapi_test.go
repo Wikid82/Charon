@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -15,11 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
-
-// permissiveLAPIURLValidator allows any localhost URL for testing with mock servers.
-func permissiveLAPIURLValidator(raw string) (*url.URL, error) {
-	return url.Parse(raw)
-}
 
 // mockStopExecutor is a mock for the CrowdsecExecutor interface for Stop tests
 type mockStopExecutor struct {
@@ -173,7 +167,7 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
 	// Create security config with mock LAPI URL
-	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -182,7 +176,7 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 		Security:        secSvc,
 		CmdExec:         &mockCommandExecutor{},
 		DataDir:         t.TempDir(),
-		validateLAPIURL: permissiveLAPIURLValidator,
+		validateLAPIURL: redirectLocalLAPI(mockLAPI.URL),
 	}
 
 	r := gin.New()
@@ -216,7 +210,7 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -225,7 +219,7 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 		Security:        secSvc,
 		CmdExec:         &mockCommandExecutor{},
 		DataDir:         t.TempDir(),
-		validateLAPIURL: permissiveLAPIURLValidator,
+		validateLAPIURL: redirectLocalLAPI(mockLAPI.URL),
 	}
 
 	r := gin.New()
@@ -251,7 +245,7 @@ func TestGetLAPIDecisions_NullResponse(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -260,7 +254,7 @@ func TestGetLAPIDecisions_NullResponse(t *testing.T) {
 		Security:        secSvc,
 		CmdExec:         &mockCommandExecutor{},
 		DataDir:         t.TempDir(),
-		validateLAPIURL: permissiveLAPIURLValidator,
+		validateLAPIURL: redirectLocalLAPI(mockLAPI.URL),
 	}
 
 	r := gin.New()
@@ -291,15 +285,16 @@ func TestGetLAPIDecisions_NonJSONContentType(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
 	h := &CrowdsecHandler{
-		DB:       db,
-		Security: secSvc,
-		CmdExec:  &mockCommandExecutor{output: []byte(`[]`)}, // Fallback mock
-		DataDir:  t.TempDir(),
+		DB:              db,
+		Security:        secSvc,
+		CmdExec:         &mockCommandExecutor{output: []byte(`[]`)}, // Fallback mock
+		validateLAPIURL: redirectLocalLAPI(mockLAPI.URL),
+		DataDir:         t.TempDir(),
 	}
 
 	r := gin.New()
@@ -329,7 +324,7 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -338,7 +333,7 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 		Security:        secSvc,
 		CmdExec:         &mockCommandExecutor{},
 		DataDir:         t.TempDir(),
-		validateLAPIURL: permissiveLAPIURLValidator,
+		validateLAPIURL: redirectLocalLAPI(mockLAPI.URL),
 	}
 
 	r := gin.New()
@@ -375,7 +370,7 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
-	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName, CrowdSecAPIURL: mockLAPI.URL}
+	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	secSvc := createTestSecurityService(t, db)
@@ -384,7 +379,7 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 		Security:        secSvc,
 		CmdExec:         &mockCommandExecutor{},
 		DataDir:         t.TempDir(),
-		validateLAPIURL: permissiveLAPIURLValidator,
+		validateLAPIURL: redirectLocalLAPI(mockLAPI.URL),
 	}
 
 	r := gin.New()

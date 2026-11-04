@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -109,9 +110,20 @@ func (g *gatedApplier) ApplyConfig(context.Context) error {
 // disabled and the enabled setting is false. The engine, the cscli stand-in and the proxy applier belong to the test.
 func newResetLifecycleHandler(t *testing.T, eng CrowdsecExecutor, cmd CommandExecutor, applier CaddyConfigManager) *CrowdsecHandler {
 	t.Helper()
+	return newResetLifecycleHandlerSeeded(t, eng, cmd, applier, false)
+}
+
+// newResetLifecycleHandlerSeeded is newResetLifecycleHandler with the module seeded enabled or disabled. An enabled
+// seed is a local-mode default row and an enabled setting of "true".
+func newResetLifecycleHandlerSeeded(t *testing.T, eng CrowdsecExecutor, cmd CommandExecutor, applier CaddyConfigManager, enabled bool) *CrowdsecHandler {
+	t.Helper()
 	db := setupCrowdDB(t)
-	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: false, CrowdSecMode: "disabled"}).Error)
-	require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "false", Category: "security", Type: "bool"}).Error)
+	mode := "disabled"
+	if enabled {
+		mode = "local"
+	}
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: enabled, CrowdSecMode: mode}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: strconv.FormatBool(enabled), Category: "security", Type: "bool"}).Error)
 	h := newTestCrowdsecHandler(t, db, eng, "/bin/false", t.TempDir())
 	h.CmdExec = cmd
 	h.caddyManager = applier

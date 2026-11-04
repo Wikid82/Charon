@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/require"
@@ -391,7 +392,7 @@ func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
 
 	// Check app-level CrowdSec configuration
 	require.NotNil(t, cfg.Apps.CrowdSec, "CrowdSec app config should be present")
-	require.Equal(t, "http://cs.local", cfg.Apps.CrowdSec.APIUrl, "API URL should match SecurityConfig")
+	require.Equal(t, crowdsec.LocalLAPIURL, cfg.Apps.CrowdSec.APIUrl, "API URL is the local engine address, not the stored value")
 
 	// Check server-level trusted_proxies is configured
 	server := cfg.Apps.HTTP.Servers["charon_server"]

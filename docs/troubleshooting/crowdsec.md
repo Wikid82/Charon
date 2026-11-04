@@ -262,8 +262,9 @@ The mirror is used in these places:
 - **Preset list and downloads.** The presets page and the **Pull** button try the main address first, then the mirror.
 - **Starting CrowdSec.** The hub update that runs when the container starts, and the installs of missing hub items, try the mirror too.
 - **Installing items.** Charon's `cscli` tool (CrowdSec's command-line helper, which ships inside Charon) retries on the mirror when a hub update or item install fails on the main address.
+- **Single hub items.** If the download of one hub item fails on the main address, Charon tries the mirror once for that item.
 
-**Slow connections.** A slow link can make the main address take a long time to fail before the mirror is tried. For `hub update`, Charon gives the main address about half of its time limit, then uses the rest for the mirror. For item installs, the main address gets the full time, so a slow install that runs out of time does not get a mirror retry. When the container starts, the `hub upgrade` step gives the main address about half its time (60 of 120 seconds) before the mirror is tried. On a very slow link, both attempts can run out of time where one longer attempt used to succeed. `hub update` and item installs behave as described above. If that happens, wait a few minutes and try again.
+**Slow connections.** A slow link can make the main address take a long time to fail before the mirror is tried. For `hub update`, Charon gives the main address about half of its time limit, then uses the rest for the mirror. For item installs and for the `hub upgrade` step that runs when the container starts, the main address gets the full time, so a slow run that runs out of time does not get a mirror retry. On a very slow link, a `hub update` can run out of time on both attempts where one longer attempt used to succeed. If that happens, wait a few minutes and try again.
 
 **Staying on the mirror.** This applies only to the `cscli` operations (the hub update and item installs). After the mirror answers once, `cscli` tries the mirror first for up to 10 minutes. If the mirror itself then fails, `cscli` tries the main address again. The presets list and preset downloads always try the main address first, so during an outage each of those requests can take about 11 seconds longer before the mirror answers.
 
@@ -294,6 +295,8 @@ Applying a hub preset shows one of these messages when it cannot finish or needs
 
 - **"CrowdSec is busy installing a preset; try again when it finishes."** (HTTP 409, `crowdsec_busy`): a preset install is running in the background, and other CrowdSec changes are paused until it ends. Wait for the progress row to finish, or click **Cancel** on it, then try again.
 - **"CrowdSec is finishing another change. Try again in a moment."** (HTTP 409, `crowdsec_busy`, no install running): you tried to start a preset install while another CrowdSec change, such as turning CrowdSec on or off, was still finishing. Wait a moment and try again.
+- **A preset install during a hub item restore** (HTTP 409, `crowdsec_busy`): a restore of hub items is running, so the preset install is refused right away. Wait for the restore to finish, then try again.
+- **A second Start** (HTTP 409, `crowdsec_busy`): you pressed Start while CrowdSec was already starting. Wait for the first start to finish, then check the status on the CrowdSec page.
 - **The install shows as interrupted**: Charon restarted while the install was running. Your previous settings were restored automatically. Start the install again.
 - **The install shows as cancelled**: you cancelled it. Your previous settings were put back. Nothing else is needed.
 - **The install shows as timed out**: it did not finish within 30 minutes and was rolled back. Check the container's internet connection, then try again. For very large collections you can also run `docker exec charon cscli collections install <name>`.

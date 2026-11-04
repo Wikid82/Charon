@@ -139,7 +139,7 @@ func (h *CrowdsecHandler) RestoreHubItems(c *gin.Context) {
 	}
 
 	if !h.restore.running.CompareAndSwap(false, true) {
-		c.JSON(http.StatusConflict, gin.H{"error": msgRestoreRunning})
+		respondCoded(c, http.StatusConflict, codeCrowdsecBusy, msgRestoreRunning, nil)
 		return
 	}
 	defer h.restore.running.Store(false)

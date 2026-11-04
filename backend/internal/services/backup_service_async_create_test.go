@@ -20,8 +20,7 @@ import (
 // dependents, SecurityAudit for the audit-logging tests).
 func newAsyncJobsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(newIsolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 	// Match production's single-connection pool (database.go). Shared-cache
 	// SQLite reports concurrent table access from separate connections as an
@@ -143,8 +142,7 @@ func TestStartCreateBackupJob_LockNotLeakedOnPersistenceFailure(t *testing.T) {
 	// Deliberately un-migrated DB: db.Create(&job) will fail with "no such
 	// table: backup_jobs", simulating a persistence failure that happens
 	// AFTER the lock succeeds but before any goroutine exists.
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(newIsolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
 	svc := &BackupService{

@@ -1700,10 +1700,10 @@ func TestCrowdsecHandler_CheckLAPIHealth_InvalidURL(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
-	// Create config with invalid URL
+	// The stored address is ignored; the local engine address is used.
 	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:           "default",
-		CrowdSecAPIURL: "http://evil.external.com:8080", // Should be blocked by SSRF policy
+		CrowdSecAPIURL: "http://evil.external.com:8080", // Ignored: the local engine address is used
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -1741,10 +1741,10 @@ func TestCrowdsecHandler_GetLAPIDecisions_Fallback(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
-	// Create config with invalid URL to trigger fallback
+	// The stored address is ignored; the local engine address is used.
 	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:           "default",
-		CrowdSecAPIURL: "http://external.evil.com:8080",
+		CrowdSecAPIURL: "http://external.evil.com:8080", // Ignored: the local engine address is used
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3739,9 +3739,8 @@ func TestTestKeyAgainstLAPI_ValidKey(t *testing.T) {
 	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3772,9 +3771,8 @@ func TestTestKeyAgainstLAPI_InvalidKey(t *testing.T) {
 	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3815,9 +3813,8 @@ func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
 	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3847,9 +3844,8 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3902,9 +3898,8 @@ func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -3964,9 +3959,8 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -4089,9 +4083,8 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 
 	// Create security config with mock LAPI URL
 	cfg := models.SecurityConfig{
-		UUID:           "test-uuid",
-		Name:           "default",
-		CrowdSecAPIURL: lapiServer.URL,
+		UUID: "test-uuid",
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 

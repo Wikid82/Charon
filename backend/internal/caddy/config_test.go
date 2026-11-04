@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -841,7 +842,7 @@ func TestGenerateConfig_WithCrowdSecApp(t *testing.T) {
 
 	// Verify CrowdSec app is configured
 	require.NotNil(t, config.Apps.CrowdSec)
-	require.Equal(t, "http://crowdsec:8080", config.Apps.CrowdSec.APIUrl)
+	require.Equal(t, crowdsec.LocalLAPIURL, config.Apps.CrowdSec.APIUrl)
 	require.Equal(t, "test-api-key-12345", config.Apps.CrowdSec.APIKey)
 	require.Equal(t, "60s", config.Apps.CrowdSec.TickerInterval)
 	require.NotNil(t, config.Apps.CrowdSec.EnableStreaming)

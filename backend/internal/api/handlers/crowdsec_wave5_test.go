@@ -35,10 +35,10 @@ func TestCrowdsecWave5_GetLAPIDecisions_Unauthorized(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, UUID: "default", CrowdSecAPIURL: server.URL}).Error)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, UUID: "default"}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
-	h.validateLAPIURL = url.Parse
+	h.validateLAPIURL = redirectLocalLAPI(server.URL)
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
@@ -62,10 +62,10 @@ func TestCrowdsecWave5_GetLAPIDecisions_NonJSONContentTypeFallsBack(t *testing.T
 	}))
 	t.Cleanup(server.Close)
 
-	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, UUID: "default", CrowdSecAPIURL: server.URL}).Error)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, UUID: "default"}).Error)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
-	h.validateLAPIURL = url.Parse
+	h.validateLAPIURL = redirectLocalLAPI(server.URL)
 	h.CmdExec = &mockCmdExecutor{output: []byte("[]"), err: nil}
 	r := gin.New()
 	g := r.Group("/api/v1")

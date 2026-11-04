@@ -327,6 +327,11 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 
 	// The cheap gates above answer first (a malformed request is a 400 whether or not a job runs); the lock-free
 	// busy check spares a refused request the wait for dataMu, and the recheck below is the authoritative one.
+	// A running hub restore holds dataMu for its whole hub update, so every apply flavour is refused while it runs.
+	if h.restore.running.Load() {
+		respondBusy(c, "")
+		return
+	}
 	if h.refuseIfBusy(c) {
 		return
 	}
