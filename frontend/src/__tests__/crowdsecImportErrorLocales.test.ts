@@ -7,7 +7,7 @@ type LocaleFile = { crowdsecConfig?: Record<string, unknown> }
 const EXPECTED_LOCALE_COUNT = 28
 
 /** Translation keys of the import refusal messages every locale must carry. */
-const REFUSAL_KEYS = ['importErrorNotWritable', 'importErrorArchiveTooLarge'] as const
+const REFUSAL_KEYS = ['importErrorNotWritable', 'importErrorArchiveTooLarge', 'importErrorRequestTooLarge'] as const
 
 const localeFiles = import.meta.glob('../locales/*/translation.json', { import: 'default', eager: true }) as Record<
   string,

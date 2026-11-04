@@ -147,6 +147,7 @@ export const IMPORT_ERROR_CODES = [
   'import_config_not_found',
   'import_config_not_writable',
   'import_archive_too_large',
+  'request_too_large',
 ] as const
 
 export type CrowdsecImportErrorCode = (typeof IMPORT_ERROR_CODES)[number]

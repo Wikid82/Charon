@@ -383,6 +383,13 @@ describe('getCrowdsecImportError', () => {
   const failure = (data: unknown) =>
     new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, { status: 422, data } as AxiosResponse)
 
+  it('accepts the request-too-large refusal code', () => {
+    expect(crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'request_too_large' }))).toEqual({
+      code: 'request_too_large',
+      names: [],
+    })
+  })
+
   it('accepts the archive-too-large refusal code', () => {
     expect(crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'import_archive_too_large' }))).toEqual({
       code: 'import_archive_too_large',

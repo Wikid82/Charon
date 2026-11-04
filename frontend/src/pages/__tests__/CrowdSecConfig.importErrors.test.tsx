@@ -65,6 +65,7 @@ describe('CrowdSecConfig import refusals', () => {
     [422, 'import_config_not_found', 'config.yaml was not found at the top level or in the config/ folder of the archive.'],
     [500, 'import_config_not_writable', 'Charon cannot change the CrowdSec configuration folder. Check that the Charon user owns it and can write to it, and that it is not mounted read-only.'],
     [422, 'import_archive_too_large', 'The archive is larger than the import limit. Nothing was changed.'],
+    [413, 'request_too_large', 'The file is too large to import.'],
   ])('translates %i %s', async (status, code, text) => {
     expect(await importFailing(refusal(status, { error: 'english server text', error_code: code }))).toBe(text)
   })
