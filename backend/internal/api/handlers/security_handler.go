@@ -443,6 +443,10 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 		return
 	}
 	if err := h.svc.UpsertRuleSet(&payload); err != nil {
+		if errors.Is(err, services.ErrRuleSetEmpty) {
+			respondCoded(c, http.StatusBadRequest, codeRulesetEmpty, msgRulesetEmpty, nil)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert ruleset"})
 		return
 	}

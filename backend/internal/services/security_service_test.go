@@ -120,7 +120,7 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
 	assert.False(t, rs.LastUpdated.IsZero())
 
 	// Test updating existing ruleset
-	rs.Content = "rule: 2"
+	rs.Content = "SecRule ARGS \"@contains test\" \"id:2,phase:1,deny\""
 	rs.Mode = "updated"
 	err = svc.UpsertRuleSet(rs)
 	assert.NoError(t, err)
@@ -129,7 +129,7 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(list), 1)
 	assert.Equal(t, "owasp-crs", list[0].Name)
-	assert.Equal(t, "rule: 2", list[0].Content)
+	assert.Equal(t, rs.Content, list[0].Content)
 	assert.Equal(t, "updated", list[0].Mode)
 
 	// Test nil ruleset

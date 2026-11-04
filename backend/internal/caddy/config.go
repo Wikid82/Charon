@@ -1230,15 +1230,23 @@ func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.Securit
 	// 4. Fallback to the OWASP CRS ruleset (name matched loosely, see isOWASPCRSName)
 	// 5. Fallback to the only ruleset, if exactly one exists
 	var selected *models.SecurityRuleSet
-	var hostRulesetMatch, appMatch, owaspFallback *models.SecurityRuleSet
+	var hostRulesetMatch, appMatch, owaspFallback, lone *models.SecurityRuleSet
+	usableCount := 0
 
 	// First pass: find all potential matches
 	for i, r := range rulesets {
-		// Priority 1: Global WAF rules source - highest priority, select immediately
+		// Priority 1: Global WAF rules source - highest priority, select immediately. Stays strict: an empty
+		// set chosen here is not replaced by another set.
 		if secCfg != nil && secCfg.WAFRulesSource != "" && r.Name == secCfg.WAFRulesSource {
 			selected = &rulesets[i]
 			break
 		}
+		// Priorities 2 to 5 only consider sets that have rules, so a legacy empty row never hides a valid set.
+		if !models.HasRuleLines(r.Content) {
+			continue
+		}
+		usableCount++
+		lone = &rulesets[i]
 		// Priority 2: Per-host ruleset name from advanced_config
 		if hostRulesetName != "" && r.Name == hostRulesetName && hostRulesetMatch == nil {
 			hostRulesetMatch = &rulesets[i]
@@ -1263,10 +1271,10 @@ func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.Securit
 			selected = appMatch
 		case owaspFallback != nil:
 			selected = owaspFallback
-		case len(rulesets) == 1:
-			// Priority 5: a lone ruleset is unambiguous. Without this a WAF that the UI
+		case usableCount == 1:
+			// Priority 5: a lone usable ruleset is unambiguous. Without this a WAF that the UI
 			// shows as enabled silently protects nothing.
-			selected = &rulesets[0]
+			selected = lone
 		}
 	}
 

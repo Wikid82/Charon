@@ -395,6 +395,12 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			logger.Log().WithError(err).Warn("failed to create coraza rulesets dir")
 		}
 		for _, rs := range rulesets {
+			// A rule set without a rule line would load a WAF that blocks nothing. Skip it before the engine directives
+			// are prepended below, which would otherwise make the file look non-empty. Its old file is removed as stale.
+			if !models.HasRuleLines(rs.Content) {
+				logger.Log().WithField("ruleset", rs.Name).Warn("skipping WAF rule set that has no rules")
+				continue
+			}
 			// Sanitize name to a safe filename - prevent path traversal and special chars
 			safeName := strings.ToLower(rs.Name)
 			safeName = strings.ReplaceAll(safeName, " ", "-")

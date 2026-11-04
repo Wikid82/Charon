@@ -124,7 +124,7 @@ func TestProxyApplyDetached_SecurityUpsertRuleSetRequestCancelled(t *testing.T) 
 	h, db, applier := securityApplyHandler(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
 
-	c, w := proxyApplyAdminContext(http.MethodPost, "/security/rulesets", []byte(`{"name":"ruleset-a"}`), cancelledRequestContext())
+	c, w := proxyApplyAdminContext(http.MethodPost, "/security/rulesets", []byte(`{"name":"ruleset-a","content":"SecRule ARGS x id:1,deny"}`), cancelledRequestContext())
 	h.UpsertRuleSet(c)
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
