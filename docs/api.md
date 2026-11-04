@@ -269,13 +269,13 @@ Payload:
 ```json
 {
   "name": "my-first-rules",
-  "source_url": "https://example.com/owasp-crs.txt",
+  "source_url": "https://example.com/my-rules.txt",
   "mode": "detection",
   "content": "SecRule REQUEST_URI \"@contains /blocked-example\" \"id:100001,phase:1,deny,status:403\""
 }
 ```
 
-`content` must contain at least one rule line (a line that starts with `SecRule`). Empty content, or content with only comments or settings lines, is refused.
+`content` must contain at least one rule line (a line that starts with `SecRule`, `SecAction` or `Include`). Empty content, or content with only comments or settings lines, is refused.
 
 `source_url` is optional. It is stored for reference only. Charon does not download it.
 

@@ -347,7 +347,7 @@ graph TB
 #### Security Suite (`internal/cerberus/`)
 
 - **ACL (Access Control Lists):** IP-based allow/deny rules, GeoIP blocking
-- **WAF (Web Application Firewall):** Coraza engine with OWASP CRS
+- **WAF (Web Application Firewall):** Coraza engine with user-provided rule sets (CRS-compatible)
 - **CrowdSec:** Behavior-based threat detection with global intelligence
 - **Rate Limiter:** Per-IP request throttling
 
@@ -547,7 +547,7 @@ graph LR
     RateLimit -->|Throttled| CrowdSec[CrowdSec Bouncer]
     CrowdSec -->|Threat Intel| ACL[Access Control Lists]
     ACL -->|IP Whitelist| WAF[Web Application Firewall]
-    WAF -->|OWASP CRS| Caddy[Caddy Proxy]
+    WAF -->|User rule sets| Caddy[Caddy Proxy]
     Caddy -->|Proxied| Upstream[Upstream Server]
 
     style RateLimit fill:#f9f,stroke:#333,stroke-width:2px
@@ -605,7 +605,7 @@ graph LR
 
 **Purpose:** Inspect HTTP requests for malicious payloads
 
-**Engine:** Coraza with OWASP Core Rule Set (CRS)
+**Engine:** Coraza with user-provided rule sets (CRS-compatible)
 
 **Detection Categories:**
 

@@ -874,7 +874,7 @@ annotations:
 | 1 | WAF placeholder + metrics | ✅ Complete |
 | 2 | ACL implementation | ✅ Complete |
 | 3 | Break-glass token | ✅ Complete |
-| 4 | Coraza CRS integration | ✅ Complete |
+| 4 | Coraza rule set support (paste in CRS-compatible rules) | ✅ Complete |
 | 5 | CrowdSec local agent | 📋 Planned |
 | 6 | Rate limiting enforcement | ✅ Complete |
 | 7 | Adaptive learning/tuning | 🔮 Future |

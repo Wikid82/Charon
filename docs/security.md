@@ -1626,7 +1626,7 @@ See [SECURITY.md](https://github.com/Wikid82/Charon/blob/main/SECURITY.md) for f
 
 ### How It Works
 
-The WAF (Coraza) uses the OWASP Core Rule Set to detect attack patterns. Even if the exploit is brand new, the pattern is usually recognizable.
+The WAF (Coraza) checks requests against the rule sets you add, such as the OWASP Core Rule Set (CRS). Rule sets describe known attack patterns. Even if the exploit is brand new, it may still match a pattern the rules already recognize.
 
 **Example:** A zero-day SQLi exploit discovered today:
 
