@@ -97,10 +97,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
   });
 
   const [selectedCountries, setSelectedCountries] = useState<string[]>(() => {
-    if (initialData?.country_codes) {
-      return initialData.country_codes.split(',').map((c) => c.trim());
-    }
-    return [];
+    return initialData?.country_codes ? initialData.country_codes.split(',').map((c) => c.trim()) : [];
   });
 
   const [newIP, setNewIP] = useState('');

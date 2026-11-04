@@ -251,8 +251,7 @@ function parseOmittedHeader(raw: unknown): Pick<ExportCrowdsecResult, 'omitted' 
   if (!Array.isArray(parsed)) return { omitted: [], omittedMore: 0 }
   const entries = parsed.filter((e): e is string => typeof e === 'string')
   const more = entries.length > 0 ? OMITTED_MORE_PATTERN.exec(entries[entries.length - 1]) : null
-  if (more) return { omitted: entries.slice(0, -1), omittedMore: Number(more[1]) }
-  return { omitted: entries, omittedMore: 0 }
+  return more ? { omitted: entries.slice(0, -1), omittedMore: Number(more[1]) } : { omitted: entries, omittedMore: 0 };
 }
 
 /**

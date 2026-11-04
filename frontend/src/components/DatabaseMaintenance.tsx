@@ -2,13 +2,14 @@ import { Info } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from './ui/Button'
+import { useCancelOptimize, useRequestOptimize } from '../hooks/useDatabaseMaintenance'
+import { formatBytes } from '../utils/formatBytes'
+import { toast } from '../utils/toast'
+
 import type {
   DatabaseNotice as DatabaseNoticeData,
   DatabaseStatus,
 } from '../api/databaseMaintenance'
-import { useCancelOptimize, useRequestOptimize } from '../hooks/useDatabaseMaintenance'
-import { formatBytes } from '../utils/formatBytes'
-import { toast } from '../utils/toast'
 
 /** Matches the server's `MinReclaimableBytes` floor (100 MiB). */
 const MIN_RECLAIMABLE_BYTES = 100 * 1024 * 1024

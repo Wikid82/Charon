@@ -56,11 +56,13 @@ func TestLogStartupKeyDecisionHeldKeyIsInfoWithoutKey(t *testing.T) {
 
 	logStartupKeyDecision(bouncerkey.EnsureResult{
 		Outcome:     bouncerkey.OutcomeHeldKeyValid,
-		Key:         testGeneratedKey,
+		Key:         logProbeKey,
 		HeldSaveErr: errors.New("read-only file system"),
 	}, h.keyFile, nil)
 
 	out := h.channels(h.drain())
 	require.Contains(t, strings.Join(out, "\n"), "still in use")
-	assertLogsCarryNoKeyText(t, out, testGeneratedKey)
+	// logProbeKey, not testGeneratedKey: that one holds "0123…", which collides with the random digits
+	// in the temp-dir path the log line carries.
+	assertLogsCarryNoKeyText(t, out, logProbeKey)
 }
