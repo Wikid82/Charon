@@ -179,6 +179,8 @@ Applies to every session (planning, implementation, review, QA, live testing). W
 
 ## ✅ Task Completion Protocol (Definition of Done)
 
+**Who runs what (usage control):** `backend-dev` and `frontend-dev` run only scoped tests for the packages/files they touched (no full suite, no coverage scripts, no `local-patch-report.sh`, no manual `lefthook run pre-commit`). The Definition of Done gates below — full suites, patch-coverage preflight, coverage, security scans — are run once by `qa-security` (or the main session), which sends the work back to the dev agent with the uncovered files if coverage falls short. Lefthook runs automatically on commit; the main session relays any hook failure to the dev agent to fix. Dev agents stop and report after 2 failed attempts at the same failure.
+
 Before marking an implementation task as complete, perform the following in order:
 
 1. **Playwright E2E Tests** (MANDATORY — Run First):
