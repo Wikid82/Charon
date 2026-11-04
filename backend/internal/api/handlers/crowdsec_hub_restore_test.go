@@ -668,8 +668,9 @@ func TestRestoreHubItemsReleasesTheLockBetweenItems(t *testing.T) {
 	require.Equal(t, items, res.Installed)
 }
 
-// TestRestoreHubItemsSerializesWithPresetApply proves ApplyCurated cannot overlap an install.
-func TestRestoreHubItemsSerializesWithPresetApply(t *testing.T) {
+// TestRestoreHubItemsRefusesPresetApplyWhileItRuns proves a curated apply cannot overlap an install: it is refused at
+// once with the busy code and makes no hub call.
+func TestRestoreHubItemsRefusesPresetApplyWhileItRuns(t *testing.T) {
 	c := newCuratedHarness(t, nil)
 	ex := &hubFakeExec{dataDir: t.TempDir()}
 	b := newBlockingInstall()
@@ -692,9 +693,10 @@ func TestRestoreHubItemsSerializesWithPresetApply(t *testing.T) {
 		applyDone <- code
 	}()
 	select {
-	case <-applyDone:
-		t.Fatal("the preset apply ran during an install")
+	case code := <-applyDone:
+		require.Equal(t, http.StatusConflict, code, "a preset apply is refused at once while a restore runs")
 	case <-time.After(300 * time.Millisecond):
+		t.Fatal("the preset apply waited for the restore instead of refusing")
 	}
 	c.exec.mu.Lock()
 	require.Empty(t, c.exec.calls, "no hub call of the preset apply while the install runs")
@@ -702,7 +704,6 @@ func TestRestoreHubItemsSerializesWithPresetApply(t *testing.T) {
 
 	b.release <- struct{}{}
 	require.Equal(t, http.StatusOK, (<-restoreDone).Code)
-	require.Equal(t, http.StatusOK, <-applyDone)
 }
 
 func TestRestoreHubItemsMaximumRequest(t *testing.T) {

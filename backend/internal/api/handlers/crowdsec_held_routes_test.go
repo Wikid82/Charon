@@ -188,6 +188,7 @@ func TestSecondRestoreAnswersRestoreRunningWhileOneRuns(t *testing.T) {
 	w := restore()
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 	require.Equal(t, msgRestoreRunning, decodeBody(t, w)["error"])
+	require.Equal(t, codeCrowdsecBusy, decodeBody(t, w)["error_code"])
 
 	g.open()
 	<-done

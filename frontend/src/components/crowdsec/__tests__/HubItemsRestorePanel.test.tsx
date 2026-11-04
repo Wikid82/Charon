@@ -222,6 +222,24 @@ describe('HubItemsRestorePanel', () => {
     expect(screen.queryByText(BUSY_TEXT)).not.toBeInTheDocument()
   })
 
+  it('shows the other-change message for a coded restore-already-running refusal', async () => {
+    vi.mocked(api.restoreHubItems).mockRejectedValue(
+      new AxiosError('failed', undefined, undefined, undefined, {
+        status: 409,
+        statusText: '409',
+        headers: {},
+        config: {},
+        data: { error: 'a restore is already running', error_code: 'crowdsec_busy' },
+      } as never),
+    )
+    renderPanel()
+
+    await userEvent.click(installButton())
+
+    expect(await screen.findByText('CrowdSec is finishing another change. Try again in a moment.')).toBeInTheDocument()
+    expect(installButton()).toBeEnabled()
+  })
+
   it('shows the generic message for a non-HTTP error', async () => {
     vi.mocked(api.restoreHubItems).mockRejectedValue(new Error('network down'))
     renderPanel()
