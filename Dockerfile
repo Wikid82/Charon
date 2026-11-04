@@ -206,6 +206,12 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 ## upstream caddy image tags while still shipping a pinned caddy binary.
 ## Alpine 3.23 base to reduce glibc CVE exposure and image size.
 
+# Patch known CVEs in Alpine's SQLite and SQLite-libs packages when fix is published upstream. 
+# CVE-2026-119591, CVE-2026-119372, CVE-2026-119378, CVE-2026-119375, CVE-2026-119371, CVE-2026-119376, CVE-2026-119377
+# Renovate tracking requires a matching rule for repology
+# renovate: datasource=repology depName=alpine_3_24/sqlite
+ARG SQLITE_VERSION=3.53.4
+
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb1226db190d0a984118f62ee02a91b77d99448d28264a6 AS xx
@@ -330,6 +336,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG SQLITE_VERSION
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
@@ -1003,6 +1010,9 @@ ARG ZLIB_VERSION=1.3.2-r1
 # renovate: datasource=repology depName=alpine_3_24/ca-certificates versioning=loose
 ARG CA_CERTIFICATES_VERSION=20261020-r0
 # hadolint ignore=DL3018
+
+ARG SQLITE_VERSION
+
 RUN apk add --no-cache \
     bash "ca-certificates>=${CA_CERTIFICATES_VERSION}" "ca-certificates-bundle>=${CA_CERTIFICATES_VERSION}" sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
