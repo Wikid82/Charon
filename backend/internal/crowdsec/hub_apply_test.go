@@ -336,6 +336,32 @@ func TestApplyInstallFailureRestoresSnapshot(t *testing.T) {
 	require.FileExists(t, filepath.Join(e.dir, "hub_cache", "collections", "test", "preset", "item.yaml"), "the cache entry survives the restore")
 }
 
+func TestApplyInstallFailureRestoresSymlinkEntries(t *testing.T) {
+	t.Parallel()
+	e := newApplyEnv(t)
+	link := filepath.Join(e.dir, "config", "link.yaml")
+	e.script = func(_ context.Context, cmd string, _ int) *cscliReply {
+		if cmd == applyInstall {
+			// The failed install replaces the hub symlink with a regular file.
+			require.NoError(e.t, os.Remove(link))
+			writeFile(e.t, link, "replaced")
+			return &cscliReply{err: errors.New("exit status 1")}
+		}
+		return nil
+	}
+
+	res, err := e.apply()
+	require.ErrorContains(t, err, "install collections test/preset")
+	require.Equal(t, "failed", res.Status)
+	e.requireRolledBack()
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink, "the hub link is a symlink again")
+	target, err := os.Readlink(link)
+	require.NoError(t, err)
+	require.Equal(t, "../hub/x.yaml", target)
+}
+
 func TestApplyReportsItemUnknownToCSCLIAsOutdated(t *testing.T) {
 	t.Parallel()
 	for name, out := range map[string]string{

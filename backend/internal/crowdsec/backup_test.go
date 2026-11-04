@@ -229,6 +229,22 @@ func TestRestoreRecreatesMissingDataDir(t *testing.T) {
 	require.Empty(t, entries)
 }
 
+func TestRestoreRecreatesSymlinkUnderRemovedDirectory(t *testing.T) {
+	t.Parallel()
+	dir := seedPersistentTree(t)
+	svc := NewHubService(nil, nil, dir)
+	path, err := svc.snapshot()
+	require.NoError(t, err)
+
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "config")))
+
+	require.NoError(t, svc.restore(path))
+	target, err := os.Readlink(filepath.Join(dir, "config", "link.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "../hub/x.yaml", target)
+	require.Equal(t, "original: true\n", readFile(t, filepath.Join(dir, "config", "config.yaml")))
+}
+
 func TestRestoreErrors(t *testing.T) {
 	t.Parallel()
 	t.Run("data dir cannot be created", func(t *testing.T) {
