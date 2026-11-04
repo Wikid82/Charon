@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-137450b956973fcf
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:5435cc06a9e7f3fc8b19ba2ba85713597b46e59c7c448a87d7fc4ef39c199f15
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-8929b2ed89c42f0b
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:ffe25cfcfdbd72de7ff4498558b77bc69ea45bac9c7203427526bc8c48a058b8
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -206,6 +206,12 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 ## upstream caddy image tags while still shipping a pinned caddy binary.
 ## Alpine 3.23 base to reduce glibc CVE exposure and image size.
 
+# Patch known CVEs in Alpine's SQLite and SQLite-libs packages when fix is published upstream. 
+# CVE-2026-119591, CVE-2026-119372, CVE-2026-119378, CVE-2026-119375, CVE-2026-119371, CVE-2026-119376, CVE-2026-119377
+# Renovate tracking requires a matching rule for repology
+# renovate: datasource=repology depName=alpine_3_24/sqlite
+ARG SQLITE_VERSION=3.53.4
+
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb1226db190d0a984118f62ee02a91b77d99448d28264a6 AS xx
@@ -330,6 +336,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG SQLITE_VERSION
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
@@ -875,9 +882,9 @@ RUN set -e; \
     _retry go get go.opentelemetry.io/otel@v1.47.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.25; \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.26; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.91.0; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.91.1; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -1003,6 +1010,9 @@ ARG ZLIB_VERSION=1.3.2-r1
 # renovate: datasource=repology depName=alpine_3_24/ca-certificates versioning=loose
 ARG CA_CERTIFICATES_VERSION=20261020-r0
 # hadolint ignore=DL3018
+
+ARG SQLITE_VERSION
+
 RUN apk add --no-cache \
     bash "ca-certificates>=${CA_CERTIFICATES_VERSION}" "ca-certificates-bundle>=${CA_CERTIFICATES_VERSION}" sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
