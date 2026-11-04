@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	securitypkg "github.com/Wikid82/charon/backend/internal/security"
@@ -98,7 +99,6 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	wafMode := h.cfg.WAFMode
 	rateLimitMode := h.cfg.RateLimitMode
 	crowdSecMode := h.cfg.CrowdSecMode
-	crowdSecAPIURL := h.cfg.CrowdSecAPIURL
 	aclMode := h.cfg.ACLMode
 	// The CrowdSec decision reads the default row, or the static mode when no row exists. This matches the proxy
 	// config (caddy manager), so an empty row mode stays off instead of falling back to the static mode.
@@ -120,9 +120,6 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 				rateLimitMode = sc.RateLimitMode
 			} else if sc.RateLimitEnable {
 				rateLimitMode = "enabled"
-			}
-			if sc.CrowdSecAPIURL != "" {
-				crowdSecAPIURL = sc.CrowdSecAPIURL
 			}
 		}
 
@@ -214,7 +211,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		"cerberus": gin.H{"enabled": enabled},
 		"crowdsec": gin.H{
 			"mode":    crowdSecMode,
-			"api_url": crowdSecAPIURL,
+			"api_url": crowdsec.LocalLAPIURL,
 			"enabled": crowdsecEnabled,
 		},
 		"waf":        wafStatus,

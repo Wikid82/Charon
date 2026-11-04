@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -60,4 +61,28 @@ func TestGetStatus_NoRowFallsBackToStaticLocal(t *testing.T) {
 
 	assert.Equal(t, "local", mode)
 	assert.True(t, enabled)
+}
+
+// The status reports the local engine address even when the static config carries another one.
+func TestGetStatus_CrowdSecAPIURLReportsLocalEngineAddress(t *testing.T) {
+	db := setupCrowdDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "sc-default", Name: models.DefaultSecurityConfigName, Enabled: true, CrowdSecMode: "local", CrowdSecAPIURL: "http://other.example:9999"}).Error)
+
+	manager := caddy.NewManager(noopCaddyClient{}, db, t.TempDir(), "", false, config.SecurityConfig{})
+	h := NewSecurityHandler(config.SecurityConfig{CrowdSecAPIURL: "http://static.example:9999"}, db, manager)
+	t.Cleanup(h.Close)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/security/status", http.NoBody)
+	h.GetStatus(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var body struct {
+		CrowdSec struct {
+			APIURL string `json:"api_url"`
+		} `json:"crowdsec"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, crowdsec.LocalLAPIURL, body.CrowdSec.APIURL)
 }

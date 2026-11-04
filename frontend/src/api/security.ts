@@ -109,6 +109,7 @@ export interface SecurityConfigPayload {
   admin_whitelist?: string
   /** Managed by the CrowdSec switch and ignored by the security config save. */
   crowdsec_mode?: string
+  /** Ignored: CrowdSec readers always use the local engine address. */
   crowdsec_api_url?: string
   waf_mode?: string
   waf_rules_source?: string
