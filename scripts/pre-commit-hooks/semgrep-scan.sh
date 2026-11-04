@@ -45,8 +45,17 @@ else
   OUTPUT_FLAGS=(--error)
 fi
 
+# Optional worker cap. Semgrep opens one io_uring ring per worker; on hosts with
+# a low RLIMIT_MEMLOCK (e.g. 8 MB) many workers fail with "Cannot allocate
+# memory io_uring_queue_init". Set SEMGREP_JOBS=1 to work around it locally.
+JOBS_FLAGS=()
+if [ -n "${SEMGREP_JOBS:-}" ]; then
+  JOBS_FLAGS=(--jobs "${SEMGREP_JOBS}")
+fi
+
 semgrep scan \
   "${SEMGREP_CONFIGS[@]}" \
+  "${JOBS_FLAGS[@]}" \
   --severity ERROR \
   --severity WARNING \
   "${OUTPUT_FLAGS[@]}" \
