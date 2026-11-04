@@ -84,6 +84,50 @@ func TestImportConfigClearPermissionFailureAnswersNotWritable(t *testing.T) {
 	assertEngineStateIntact(t, dir)
 }
 
+// TestImportConfigLockedEntryKeepsTheFolderComplete makes a real locked directory stop the clear partway: the
+// refusal is unchanged and the rollback still returns the whole folder to its state before the import.
+func TestImportConfigLockedEntryKeepsTheFolderComplete(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based failure cannot be provoked as root")
+	}
+	dir := t.TempDir()
+	seedRealLayout(t, dir)
+	writeTree(t, dir, map[string]string{
+		"config/config.yaml":         "live: true\n",
+		"config/zz-locked/f.yaml":    "live",
+		"config/zz-locked/keep.yaml": "live",
+	})
+	before := countConfigFiles(t, dir)
+	locked := filepath.Join(dir, "config", "zz-locked")
+	require.NoError(t, os.Chmod(locked, 0o500))       //nolint:gosec // G302: test needs a restricted dir
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) //nolint:gosec // G302: restore owner access so cleanup can remove it
+	_, r := newImportRouter(t, dir)
+
+	w := importStatus(t, r, map[string]string{"config/config.yaml": importableConfig})
+
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	require.Equal(t, "import_config_not_writable", decodeRefusal(t, w).ErrorCode)
+	require.Equal(t, before, countConfigFiles(t, dir), "the rollback restores every entry the failed clear removed")
+	require.Equal(t, "live: true\n", readTreeFile(t, filepath.Join(dir, "config", "config.yaml")))
+	require.Equal(t, "filenames: [x]\n", readTreeFile(t, filepath.Join(dir, "config", "acquis.yaml")))
+}
+
+// countConfigFiles counts the regular files under the configuration folder.
+func countConfigFiles(t *testing.T, dir string) int {
+	t.Helper()
+	count := 0
+	require.NoError(t, filepath.WalkDir(filepath.Join(dir, "config"), func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type().IsRegular() {
+			count++
+		}
+		return nil
+	}))
+	return count
+}
+
 // TestImportConfigClearFailureWithoutAccessCauseKeepsStageText covers a clear failure that is not a permission
 // problem: the answer keeps the stage text and carries no code.
 func TestImportConfigClearFailureWithoutAccessCauseKeepsStageText(t *testing.T) {

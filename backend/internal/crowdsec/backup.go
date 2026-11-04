@@ -137,15 +137,16 @@ func Restore(snapshotPath, dataDir string) error {
 }
 
 // RestoreKeeping is Restore for callers that preserve more than engine-owned state: entries for which
-// keep(rel) returns true are neither removed from dataDir nor overwritten from the snapshot.
+// keep(rel) returns true are neither removed from dataDir nor overwritten from the snapshot. The copy runs
+// even when the clear could not remove every entry, so a partly cleared folder is still brought back to the
+// snapshot; the joined error reports both steps.
 func RestoreKeeping(snapshotPath, dataDir string, keep func(rel string) bool) error {
-	if err := ClearConfigKeeping(dataDir, keep); err != nil {
-		return err
+	clearErr := ClearConfigKeeping(dataDir, keep)
+	copyErr := copyTree(snapshotPath, dataDir, keep)
+	if copyErr != nil {
+		copyErr = fmt.Errorf("restore backup: %w", copyErr)
 	}
-	if err := copyTree(snapshotPath, dataDir, keep); err != nil {
-		return fmt.Errorf("restore backup: %w", err)
-	}
-	return nil
+	return errors.Join(clearErr, copyErr)
 }
 
 // ClearConfig creates dataDir when missing and removes everything in it except engine-owned state
@@ -180,30 +181,38 @@ func emptyDirExceptRel(dir, rel string, keep func(rel string) bool) error {
 		}
 		return err
 	}
+	// Every entry is attempted: one entry that cannot be removed must not stop the others from being removed.
+	var errs []error
 	for _, entry := range entries {
 		entryRel := filepath.Join(rel, entry.Name())
 		if keep(entryRel) {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name())
-		if entry.IsDir() {
-			if err := emptyDirExceptRel(path, entryRel, keep); err != nil {
-				return err
-			}
-			// A directory that still holds kept files cannot be removed; leave it in place.
-			if remaining, rerr := os.ReadDir(path); rerr == nil && len(remaining) > 0 {
-				continue
-			}
-		}
-		if err := os.Remove(path); err != nil {
-			return err
+		if err := removeEntryExcept(filepath.Join(dir, entry.Name()), entry.IsDir(), entryRel, keep); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
+}
+
+// removeEntryExcept removes one entry that keep does not protect. A directory is emptied first and removed
+// only when nothing kept remains inside it; a directory whose entries could not all be removed is left alone.
+func removeEntryExcept(path string, isDir bool, rel string, keep func(rel string) bool) error {
+	if isDir {
+		if err := emptyDirExceptRel(path, rel, keep); err != nil {
+			return err
+		}
+		// A directory that still holds kept files cannot be removed; leave it in place.
+		if remaining, rerr := os.ReadDir(path); rerr == nil && len(remaining) > 0 {
+			return nil
+		}
+	}
+	return os.Remove(path)
 }
 
 // copyTree recursively copies src into dst (which must exist), skipping entries whose path relative
-// to src makes skip return true. Symlinks are preserved literally and never followed.
+// to src makes skip return true. Symlinks are preserved literally and never followed. Every entry is
+// attempted and the failures are joined, so one bad entry does not leave the rest of the tree behind.
 func copyTree(src, dst string, skip func(rel string) bool) error {
 	return copyTreeRel(src, dst, "", skip)
 }
@@ -220,38 +229,96 @@ func copyTreeRel(src, dst, rel string, skip func(rel string) bool) error {
 	if err != nil {
 		return fmt.Errorf("read dir: %w", err)
 	}
+	var errs []error
 	for _, entry := range entries {
 		entryRel := filepath.Join(rel, entry.Name())
 		if skip != nil && skip(entryRel) {
 			continue
 		}
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		switch {
-		case entry.Type()&fs.ModeSymlink != 0:
-			// Hub item entries are symlinks, and dangling links must survive a backup/restore round trip.
-			target, err := os.Readlink(srcPath)
-			if err != nil {
-				return fmt.Errorf("readlink %s: %w", srcPath, err)
-			}
-			if err := os.Symlink(target, dstPath); err != nil {
-				return fmt.Errorf("symlink %s: %w", dstPath, err)
-			}
-		case entry.IsDir():
-			if err := os.MkdirAll(dstPath, 0o700); err != nil {
-				return fmt.Errorf("mkdir %s: %w", dstPath, err)
-			}
-			if err := copyTreeRel(srcPath, dstPath, entryRel, skip); err != nil {
-				return err
-			}
-		default:
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return err
-			}
+		if err := copyTreeEntry(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name()), entry, entryRel, skip); err != nil {
+			errs = append(errs, err)
 		}
 	}
+	return errors.Join(errs...)
+}
+
+// copyTreeEntry copies one entry of a tree from srcPath to dstPath. Whatever already sits at dstPath is
+// replaced when it does not match the snapshot; a link there is removed, never followed.
+func copyTreeEntry(srcPath, dstPath string, entry fs.DirEntry, entryRel string, skip func(rel string) bool) error {
+	switch {
+	case entry.Type()&fs.ModeSymlink != 0:
+		// Hub item entries are symlinks, and dangling links must survive a backup/restore round trip.
+		target, err := os.Readlink(srcPath)
+		if err != nil {
+			return fmt.Errorf("readlink %s: %w", srcPath, err)
+		}
+		return replaceSymlink(target, dstPath)
+	case entry.IsDir():
+		if err := prepareDir(dstPath); err != nil {
+			return err
+		}
+		return copyTreeRel(srcPath, dstPath, entryRel, skip)
+	default:
+		return copyFileReplacing(srcPath, dstPath)
+	}
+}
+
+// replaceSymlink makes dst a symlink to target. A link already pointing at target is kept; any other entry
+// at dst is removed first.
+func replaceSymlink(target, dst string) error {
+	info, err := os.Lstat(dst)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return fmt.Errorf("stat %s: %w", dst, err)
+	default:
+		if info.Mode()&fs.ModeSymlink != 0 {
+			if current, rerr := os.Readlink(dst); rerr == nil && current == target {
+				return nil
+			}
+		}
+		if err := os.Remove(dst); err != nil {
+			return fmt.Errorf("remove %s: %w", dst, err)
+		}
+	}
+	if err := os.Symlink(target, dst); err != nil {
+		return fmt.Errorf("symlink %s: %w", dst, err)
+	}
 	return nil
+}
+
+// prepareDir makes dst an existing directory. A link at dst is removed first, so the entries copied into it
+// can never land in the directory the link points to.
+func prepareDir(dst string) error {
+	if info, err := os.Lstat(dst); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		if err := os.Remove(dst); err != nil {
+			return fmt.Errorf("remove %s: %w", dst, err)
+		}
+	}
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dst, err)
+	}
+	return nil
+}
+
+// copyFileReplacing copies src over dst during a restore. A link or special file already at dst is removed
+// first and the copy is created exclusively, so nothing is written through the link. A regular file is
+// overwritten as before, and a directory at dst still fails the copy.
+func copyFileReplacing(src, dst string) error {
+	info, err := os.Lstat(dst)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return copyFile(src, dst)
+	case err != nil:
+		return fmt.Errorf("stat %s: %w", dst, err)
+	case info.Mode()&fs.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()):
+		if err := os.Remove(dst); err != nil {
+			return fmt.Errorf("remove %s: %w", dst, err)
+		}
+		return copyFileExclusive(src, dst)
+	default:
+		return copyFile(src, dst)
+	}
 }
 
 // pruneAfterApply prunes snapshots, logging (never returning) any failure.
