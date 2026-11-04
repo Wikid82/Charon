@@ -88,7 +88,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	require.GreaterOrEqual(t, len(listResp["decisions"]), 1)
 
 	// Now test ruleset upsert
-	rpayload := `{"name":"owasp-crs","source_url":"https://example.com/owasp","mode":"owasp","content":"test"}`
+	rpayload := `{"name":"owasp-crs","source_url":"https://example.com/owasp","mode":"owasp","content":"SecRule ARGS x id:1,deny"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/security/rulesets", strings.NewReader(rpayload))
 	req.Header.Set("Content-Type", "application/json")
 	resp = httptest.NewRecorder()
@@ -183,7 +183,7 @@ func TestSecurityHandler_UpsertDeleteTriggersApplyConfig(t *testing.T) {
 	api.DELETE("/security/rulesets/:id", h.DeleteRuleSet)
 
 	// Upsert ruleset should trigger manager.ApplyConfig -> POST /load
-	rpayload := `{"name":"owasp-crs","source_url":"https://example.com/owasp","mode":"owasp","content":"test"}`
+	rpayload := `{"name":"owasp-crs","source_url":"https://example.com/owasp","mode":"owasp","content":"SecRule ARGS x id:1,deny"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/security/rulesets", strings.NewReader(rpayload))
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()

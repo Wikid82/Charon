@@ -134,7 +134,7 @@ func TestProxyApplyDetached_SecurityUpsertRuleSetRequestCancelled(t *testing.T) 
 func TestProxyApplyDetached_SecurityDeleteRuleSetRequestCancelled(t *testing.T) {
 	h, db, applier := securityApplyHandler(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityRuleSet{}))
-	ruleSet := models.SecurityRuleSet{Name: "ruleset-a"}
+	ruleSet := models.SecurityRuleSet{Name: "ruleset-a", Content: "SecRule ARGS x id:1,deny"}
 	require.NoError(t, db.Create(&ruleSet).Error)
 
 	c, w := proxyApplyAdminContext(http.MethodDelete, "/security/rulesets", nil, cancelledRequestContext())

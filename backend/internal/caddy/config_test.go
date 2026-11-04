@@ -1060,7 +1060,7 @@ func TestBuildWAFHandler_ParanoiaLevel(t *testing.T) {
 		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
 	}
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
 	}
 
 	tests := []struct {
@@ -1104,7 +1104,7 @@ func TestBuildWAFHandler_Exclusions(t *testing.T) {
 		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
 	}
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
 	}
 
 	// Test exclusions without targets (full rule removal)
@@ -1129,7 +1129,7 @@ func TestBuildWAFHandler_ExclusionsWithTarget(t *testing.T) {
 		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
 	}
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
 	}
 
 	// Test exclusions with targets (partial rule exclusion)
@@ -1154,7 +1154,7 @@ func TestBuildWAFHandler_PerHostDisabled(t *testing.T) {
 		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
 	}
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
 	}
 	secCfg := &models.SecurityConfig{
 		WAFMode:        "block",
@@ -1186,7 +1186,7 @@ func TestBuildWAFHandler_MonitorMode(t *testing.T) {
 		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
 	}
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
 	}
 
 	// Monitor mode
@@ -1222,7 +1222,7 @@ func TestBuildWAFHandler_GlobalDisabled(t *testing.T) {
 		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
 	}
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
 	}
 
 	// WAF disabled via wafEnabled flag
@@ -1332,7 +1332,7 @@ func TestGenerateConfig_WithWAFPerHostDisabled(t *testing.T) {
 		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
 	}
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
 	}
 	secCfg := &models.SecurityConfig{
 		WAFMode:        "block",

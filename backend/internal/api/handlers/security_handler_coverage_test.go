@@ -343,7 +343,7 @@ func TestSecurityHandler_UpsertRuleSet_Success(t *testing.T) {
 	payload := map[string]any{
 		"name":    "test-ruleset",
 		"mode":    "blocking",
-		"content": "# Test rules",
+		"content": "SecRule ARGS x id:1,deny",
 	}
 	body, _ := json.Marshal(payload)
 
@@ -370,7 +370,7 @@ func TestSecurityHandler_UpsertRuleSet_MissingName(t *testing.T) {
 
 	payload := map[string]any{
 		"mode":    "blocking",
-		"content": "# Test rules",
+		"content": "SecRule ARGS x id:1,deny",
 	}
 	body, _ := json.Marshal(payload)
 
