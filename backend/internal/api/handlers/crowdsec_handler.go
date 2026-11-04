@@ -297,8 +297,8 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 		return formatErr
 	}
 
-	// Sum the declared content sizes. The archive reader refuses the upload while it is read once the
-	// content, ratio or entry limit is passed, so the checks below run on an archive that fits the reader's bounds.
+	// Sum the declared content sizes. Reading the archive also stops it early if the stream grows past the
+	// limits, so an oversized upload is not read to its end.
 	uncompressedSize, err := calculateUncompressedSize(path)
 	if err != nil {
 		return err
@@ -308,8 +308,8 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 		return fmt.Errorf("%w: uncompressed size %d > %d", crowdsec.ErrArchiveTooLarge, uncompressedSize, v.MaxUncompressed)
 	}
 
-	// The exact ratio rule stays as well: the reader's ceiling only starts refusing once a small archive also
-	// clears its allowance for tar headers.
+	// The compression ratio rule applies to the declared content against the archive size. The stream limit
+	// is a separate, looser stop that only catches a stream growing past its allowance while it is read.
 	compressionRatio := float64(uncompressedSize) / float64(info.Size())
 	if compressionRatio > v.MaxCompressionRatio {
 		return fmt.Errorf("%w: compression ratio %.1fx", crowdsec.ErrArchiveTooLarge, compressionRatio)

@@ -195,6 +195,10 @@ func emptyDirExceptRel(dir, rel string, keep func(rel string) bool) error {
 	return errors.Join(errs...)
 }
 
+// removeEntry removes one entry during a clear or a restore. It is a variable so tests can refuse a removal
+// without relying on the file modes the test process runs with.
+var removeEntry = os.Remove
+
 // removeEntryExcept removes one entry that keep does not protect. A directory is emptied first and removed
 // only when nothing kept remains inside it; a directory whose entries could not all be removed is left alone.
 func removeEntryExcept(path string, isDir bool, rel string, keep func(rel string) bool) error {
@@ -207,7 +211,7 @@ func removeEntryExcept(path string, isDir bool, rel string, keep func(rel string
 			return nil
 		}
 	}
-	return os.Remove(path)
+	return removeEntry(path)
 }
 
 // copyTree recursively copies src into dst (which must exist), skipping entries whose path relative
@@ -277,7 +281,7 @@ func replaceSymlink(target, dst string) error {
 				return nil
 			}
 		}
-		if err := os.Remove(dst); err != nil {
+		if err := removeEntry(dst); err != nil {
 			return fmt.Errorf("remove %s: %w", dst, err)
 		}
 	}
@@ -291,7 +295,7 @@ func replaceSymlink(target, dst string) error {
 // can never land in the directory the link points to.
 func prepareDir(dst string) error {
 	if info, err := os.Lstat(dst); err == nil && info.Mode()&fs.ModeSymlink != 0 {
-		if err := os.Remove(dst); err != nil {
+		if err := removeEntry(dst); err != nil {
 			return fmt.Errorf("remove %s: %w", dst, err)
 		}
 	}
@@ -312,7 +316,7 @@ func copyFileReplacing(src, dst string) error {
 	case err != nil:
 		return fmt.Errorf("stat %s: %w", dst, err)
 	case info.Mode()&fs.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()):
-		if err := os.Remove(dst); err != nil {
+		if err := removeEntry(dst); err != nil {
 			return fmt.Errorf("remove %s: %w", dst, err)
 		}
 		return copyFileExclusive(src, dst)

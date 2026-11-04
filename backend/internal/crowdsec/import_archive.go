@@ -39,12 +39,14 @@ type boundedStream struct {
 	read       int64 // decompressed bytes handed out so far
 }
 
-// ceiling is the most decompressed bytes the archive may yield now. It is the content limit plus the tar
-// header allowance of every entry read so far, and it is also capped at the compression ratio limit plus the
-// archive allowance, so a highly compressed archive is refused early.
+// ceiling is the most decompressed bytes the archive may yield now. Both terms allow for tar headers and
+// padding: each entry read so far adds MaxImportEntryOverhead, and the archive adds MaxImportOverheadBase. The
+// content term is the uncompressed limit; the ratio term is the compression ratio limit applied to the archive
+// size. The stream is refused at the smaller of the two, so a highly compressed archive is refused early.
 func (s *boundedStream) ceiling() int64 {
-	byContent := s.bounds.uncompressed + MaxImportOverheadBase + MaxImportEntryOverhead*int64(*s.entries)
-	byRatio := int64(s.bounds.ratio*float64(s.compressed)) + MaxImportOverheadBase
+	overhead := MaxImportOverheadBase + MaxImportEntryOverhead*int64(*s.entries)
+	byContent := s.bounds.uncompressed + overhead
+	byRatio := int64(s.bounds.ratio*float64(s.compressed)) + overhead
 	return min(byContent, byRatio)
 }
 
@@ -109,6 +111,10 @@ func openImportArchive(path string, bounds archiveBounds) (*ImportArchive, error
 
 // Next advances to the next entry and returns its header. io.EOF marks the end of the archive; an archive over
 // the entry limit fails with ErrArchiveTooManyEntries on the entry that passes it.
+//
+// Deliberate deviation: tar.Reader.Next folds pax and global extended headers into the entry that follows
+// them, so those records are not counted here. Their bytes still pass through the stream and count against the
+// byte ceiling, so an archive cannot use them to exceed the limits.
 func (a *ImportArchive) Next() (*tar.Header, error) {
 	hdr, err := a.tr.Next()
 	if err != nil {

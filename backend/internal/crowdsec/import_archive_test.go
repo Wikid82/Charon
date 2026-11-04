@@ -35,7 +35,7 @@ func writeArchiveFile(t *testing.T, data []byte) string {
 	return path
 }
 
-// countEntries reads every entry of the archive at path and returns their names.
+// readArchiveEntryNames reads every entry header of the archive at path and returns their names.
 func readArchiveEntryNames(t *testing.T, path string, bounds archiveBounds) ([]string, error) {
 	t.Helper()
 	ar, err := openImportArchive(path, bounds)
@@ -177,4 +177,60 @@ func incompressible(t *testing.T, n int) string {
 	_, err := rand.Read(buf)
 	require.NoError(t, err)
 	return string(buf)
+}
+
+// nearRatioArchive writes an archive of n entries of size bytes each. The entries repeat a seeded set of
+// blocks, so the declared content stays just under the compression ratio limit and the tar headers are what
+// adds the rest of the stream. It returns the path and the declared content total.
+func nearRatioArchive(t *testing.T, n, size, blockCount int) (path string, content int64) {
+	t.Helper()
+	// A fixed xorshift sequence keeps the fixture reproducible without a random source.
+	state := uint32(2463534242)
+	next := func() int {
+		state ^= state << 13
+		state ^= state >> 17
+		state ^= state << 5
+		return int(state % 26)
+	}
+	const letters = "abcdefghijklmnopqrstuvwxyz"
+	blocks := make([][]byte, blockCount)
+	for i := range blocks {
+		blocks[i] = make([]byte, 256)
+		for j := range blocks[i] {
+			blocks[i][j] = letters[next()]
+		}
+	}
+	var raw bytes.Buffer
+	tw := tar.NewWriter(&raw)
+
+	for i := range n {
+		body := make([]byte, 0, size)
+		for len(body) < size {
+			body = append(body, blocks[(i+len(body)/256)%blockCount]...)
+		}
+		body = body[:size]
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: fmt.Sprintf("d/f%05d.yaml", i), Typeflag: tar.TypeReg, Size: int64(size), Mode: 0o600}))
+		_, err := tw.Write(body)
+		require.NoError(t, err)
+		content += int64(size)
+	}
+	require.NoError(t, tw.Close())
+	var gz bytes.Buffer
+	gw := gzip.NewWriter(&gz)
+	_, err := gw.Write(raw.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+	return writeArchiveFile(t, gz.Bytes()), content
+}
+
+func TestImportAcceptsManySmallEntriesNearTheRatioLimit(t *testing.T) {
+	t.Parallel()
+	path, content := nearRatioArchive(t, 5000, 4096, 21)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.LessOrEqual(t, float64(content)/float64(info.Size()), MaxImportCompressionRatio, "the declared content stays within the ratio rule")
+
+	names, err := readArchiveEntryNames(t, path, defaultArchiveBounds())
+	require.NoError(t, err, "tar headers and padding do not push a rule-abiding archive over its size allowance")
+	require.Len(t, names, 5000)
 }

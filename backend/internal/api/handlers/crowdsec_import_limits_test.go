@@ -36,6 +36,19 @@ func archiveWithEntryCount(t *testing.T, n int) []byte {
 	return buf.Bytes()
 }
 
+func TestImportAcceptsArchiveAtTheEntryLimit(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seedRealLayout(t, dir)
+	_, r := newImportRouter(t, dir)
+
+	// config.yaml plus MaxImportEntries-1 more entries is exactly the limit.
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, importBytesRequest(t, archiveWithEntryCount(t, crowdsec.MaxImportEntries-1)))
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+}
+
 func TestImportRefusesArchiveAboveEntryLimit(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

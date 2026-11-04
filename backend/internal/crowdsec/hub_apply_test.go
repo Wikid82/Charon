@@ -358,6 +358,26 @@ func TestApplyRollbackRestoresTheTreeAfterALockedEntry(t *testing.T) {
 	e.requireRolledBack()
 }
 
+func TestApplyRollbackRestoresTheTreeAfterARefusedRemoval(t *testing.T) {
+	// Not parallel: the refused removal is installed through the shared removeEntry seam.
+	e := newApplyEnv(t)
+	locked := filepath.Join(e.dir, "a-locked")
+	e.script = func(_ context.Context, cmd string, _ int) *cscliReply {
+		if cmd == applyInstall {
+			writeFile(e.t, filepath.Join(locked, "f.yaml"), "partial")
+			refuseRemovalUnder(e.t, locked)
+			writeFile(e.t, filepath.Join(e.dir, "config", "config.yaml"), "original: false\n")
+			return &cscliReply{err: errors.New("exit status 1")}
+		}
+		return nil
+	}
+
+	res, err := e.apply()
+	require.Error(t, err)
+	require.Equal(t, "failed", res.Status)
+	e.requireRolledBack()
+}
+
 func TestApplyInstallFailureRestoresSymlinkEntries(t *testing.T) {
 	t.Parallel()
 	e := newApplyEnv(t)
