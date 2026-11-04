@@ -596,7 +596,8 @@
       "waf": {
         "no_ruleset": "El WAF está activado, pero no hay ningún conjunto de reglas disponible para inspeccionar las solicitudes. Añade un conjunto de reglas en la página del WAF.",
         "ruleset_not_selected": "El WAF está activado, pero hay varios conjuntos de reglas y ninguno está seleccionado. Elige el conjunto de reglas en la página del WAF.",
-        "ruleset_unavailable": "El WAF está activado, pero no se pudo cargar el conjunto de reglas seleccionado. Revísalo en la página del WAF."
+        "ruleset_unavailable": "El WAF está activado, pero no se pudo cargar el conjunto de reglas seleccionado. Revísalo en la página del WAF.",
+        "ruleset_empty": "El conjunto de reglas seleccionado no tiene reglas, así que todavía no protege nada. Añádele reglas o elige otro."
       },
       "rate_limit": {
         "thresholds_unset": "El límite de velocidad está activado, pero todavía no hay límites definidos. Define las solicitudes y la ventana en la página de límite de velocidad."

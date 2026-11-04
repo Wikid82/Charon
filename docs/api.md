@@ -113,7 +113,8 @@ The `reason` value is one of these:
 
 - `no_ruleset`: the WAF is on, but no rule set exists yet.
 - `ruleset_not_selected`: rule sets exist, but none is chosen for the host.
-- `ruleset_unavailable`: the chosen rule set has no file ready to load.
+- `ruleset_unavailable`: the chosen rule set has rules but no file ready to load.
+- `ruleset_empty`: the chosen rule set has no rules (for example, only comments), so nothing is loaded. Edit the rule set to add a rule.
 - `thresholds_unset`: the rate limit is on, but its request count or time window is not set. See the rate limit rules under Upsert below.
 
 #### Get Global Security Config

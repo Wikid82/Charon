@@ -144,7 +144,7 @@ func failSettingsQueries(db *gorm.DB) {
 }
 
 // TestEnforcementReport_ReasonsAndCounts describes the enforcement report the proxy stores after an apply:
-// reasons no_ruleset, ruleset_not_selected, ruleset_unavailable and thresholds_unset, counts for eligible
+// reasons no_ruleset, ruleset_not_selected, ruleset_unavailable, ruleset_empty and thresholds_unset, counts for eligible
 // and protected hosts, and zero eligible hosts (enforced omitted).
 func TestEnforcementReport_ReasonsAndCounts(t *testing.T) {
 	twoHosts := []models.ProxyHost{
@@ -183,6 +183,18 @@ func TestEnforcementReport_ReasonsAndCounts(t *testing.T) {
 			name: "selected ruleset has no file", hosts: twoHosts, wafOn: true, secCfg: blockRow,
 			rulesets: owasp, paths: map[string]string{},
 			wantWAF: ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetUnavailable},
+		},
+		{
+			name: "explicit empty rules source", hosts: twoHosts, wafOn: true,
+			secCfg:   &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "blank"},
+			rulesets: []models.SecurityRuleSet{{Name: "blank", Content: "# no rules yet"}, owasp[0]},
+			paths:    owaspPath,
+			wantWAF:  ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetEmpty},
+		},
+		{
+			name: "every candidate empty", hosts: twoHosts, wafOn: true, secCfg: blockRow,
+			rulesets: []models.SecurityRuleSet{{Name: "alpha", Content: ""}, {Name: "beta", Content: "SecRuleEngine On"}},
+			wantWAF:  ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetEmpty},
 		},
 		{
 			name: "every host protected", hosts: twoHosts, wafOn: true, rlOn: true, secCfg: thresholds,
@@ -333,6 +345,12 @@ func TestBuildWAFDirectives_UnresolvedRulesetReportsReason(t *testing.T) {
 	handler, reason = buildWAFHandlerWithReason(host, owasp, map[string]string{}, block)
 	require.Nil(t, handler)
 	require.Equal(t, ReasonRulesetUnavailable, reason)
+
+	// A chosen set whose content has no rule line is empty, whether or not a file exists for it.
+	empty := []models.SecurityRuleSet{{Name: "owasp-crs", Content: "# comment only"}}
+	handler, reason = buildWAFHandlerWithReason(host, empty, map[string]string{"owasp-crs": "/data/owasp-crs.conf"}, block)
+	require.Nil(t, handler)
+	require.Equal(t, ReasonRulesetEmpty, reason)
 
 	handler, reason = buildWAFHandlerWithReason(host, owasp, map[string]string{"owasp-crs": "/data/owasp-crs.conf"}, block)
 	require.NotNil(t, handler)

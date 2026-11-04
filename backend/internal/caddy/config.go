@@ -1295,16 +1295,31 @@ func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.Securit
 }
 
 // unresolvedRulesetReason names why no WAF directives were built: there is no ruleset at all, none is chosen for the
-// host, or the chosen ruleset has no file on disk.
+// host, every ruleset is empty, the chosen ruleset has no rules, or the chosen ruleset has rules but no file on disk.
+// The rules are read from the content, not the file, because an empty set is never written to disk.
 func unresolvedRulesetReason(rulesets []models.SecurityRuleSet, selected *models.SecurityRuleSet) string {
 	switch {
+	case selected != nil && !models.HasRuleLines(selected.Content):
+		return ReasonRulesetEmpty
 	case selected != nil:
 		return ReasonRulesetUnavailable
 	case len(rulesets) == 0:
 		return ReasonNoRuleset
+	case allRulesetsEmpty(rulesets):
+		return ReasonRulesetEmpty
 	default:
 		return ReasonRulesetNotSelected
 	}
+}
+
+// allRulesetsEmpty reports whether no ruleset has a rule line.
+func allRulesetsEmpty(rulesets []models.SecurityRuleSet) bool {
+	for _, r := range rulesets {
+		if models.HasRuleLines(r.Content) {
+			return false
+		}
+	}
+	return true
 }
 
 // isOWASPCRSName reports whether a ruleset name refers to the OWASP Core Rule Set,

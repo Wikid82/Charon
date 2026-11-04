@@ -596,7 +596,8 @@
       "waf": {
         "no_ruleset": "Le WAF est activé, mais aucun jeu de règles n'est disponible pour inspecter les requêtes. Ajoutez un jeu de règles sur la page du WAF.",
         "ruleset_not_selected": "Le WAF est activé, mais plusieurs jeux de règles existent et aucun n'est sélectionné. Choisissez le jeu de règles sur la page du WAF.",
-        "ruleset_unavailable": "Le WAF est activé, mais le jeu de règles sélectionné n'a pas pu être chargé. Vérifiez-le sur la page du WAF."
+        "ruleset_unavailable": "Le WAF est activé, mais le jeu de règles sélectionné n'a pas pu être chargé. Vérifiez-le sur la page du WAF.",
+        "ruleset_empty": "Le jeu de règles sélectionné ne contient aucune règle, il ne protège donc encore rien. Ajoutez-y des règles ou choisissez-en un autre."
       },
       "rate_limit": {
         "thresholds_unset": "La limitation de débit est activée, mais aucune limite n'est encore définie. Définissez les requêtes et la fenêtre sur la page de limitation de débit."

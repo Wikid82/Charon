@@ -596,7 +596,8 @@
       "waf": {
         "no_ruleset": "Die WAF ist aktiv, aber es ist keine Regelsammlung verfügbar, um Anfragen zu prüfen. Lege auf der WAF-Seite eine Regelsammlung an.",
         "ruleset_not_selected": "Die WAF ist aktiv, aber es gibt mehrere Regelsammlungen und keine ist ausgewählt. Wähle die Regelsammlung auf der WAF-Seite aus.",
-        "ruleset_unavailable": "Die WAF ist aktiv, aber die ausgewählte Regelsammlung konnte nicht geladen werden. Prüfe sie auf der WAF-Seite."
+        "ruleset_unavailable": "Die WAF ist aktiv, aber die ausgewählte Regelsammlung konnte nicht geladen werden. Prüfe sie auf der WAF-Seite.",
+        "ruleset_empty": "Die ausgewählte Regelsammlung enthält keine Regeln und schützt daher noch nichts. Füge ihr Regeln hinzu oder wähle eine andere."
       },
       "rate_limit": {
         "thresholds_unset": "Die Ratenbegrenzung ist aktiv, aber es sind noch keine Grenzwerte festgelegt. Lege Anfragen und Zeitfenster auf der Seite Ratenbegrenzung fest."

@@ -157,6 +157,26 @@ func TestSecurityStatus_StaleEnforcementReportNotTrusted(t *testing.T) {
 	})
 }
 
+// TestSecurityStatus_EmptySelectedRulesetReportsReason describes a WAF whose chosen rule set has no rules: the applied
+// state reports reason ruleset_empty and the module is not enforced.
+func TestSecurityStatus_EmptySelectedRulesetReportsReason(t *testing.T) {
+	row := models.SecurityConfig{
+		Enabled:        true,
+		WAFMode:        "block",
+		WAFRulesSource: "owasp-crs",
+	}
+	h, db := newStatusApplyFixture(t, row, noopCaddyClient{})
+	require.NoError(t, db.Model(&models.SecurityRuleSet{}).
+		Where("uuid = ?", ruleSetUUID).
+		Update("content", "# no rules yet").Error)
+	mustApplyConfig(t, h)
+
+	waf := getSecurityStatus(t, h)["waf"].(map[string]any)
+	assert.Equal(t, "ruleset_empty", waf["reason"])
+	assert.Equal(t, false, waf["enforced"])
+	assert.Equal(t, float64(1), waf["unprotected_hosts"])
+}
+
 // TestSecurityStatus_RoutesUseRealManagerReportAccessor describes the route wiring: the real caddy manager satisfies
 // the optional report accessor the status handler type-asserts on.
 func TestSecurityStatus_RoutesUseRealManagerReportAccessor(t *testing.T) {

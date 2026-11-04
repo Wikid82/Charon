@@ -67,6 +67,24 @@ func TestManager_EnforcementReport_StoredAfterSuccessfulApply(t *testing.T) {
 	require.Equal(t, ModuleEnforcement{Eligible: 1, Protected: 1}, report.WAF)
 }
 
+// TestManager_EnforcementReport_SeededEmptySelectedRulesetReportsEmpty pins that a legacy empty rule set chosen as the
+// WAF source is reported as ruleset_empty after a real apply, and that no handler is built for the host.
+func TestManager_EnforcementReport_SeededEmptySelectedRulesetReportsEmpty(t *testing.T) {
+	db := openEnforcementApplyDB(t)
+	require.NoError(t, db.Create(&models.SecurityRuleSet{UUID: "rs-empty", Name: "legacy-empty", Content: "# no rules"}).Error)
+	require.NoError(t, db.Model(&models.SecurityConfig{}).
+		Where("name = ?", models.DefaultSecurityConfigName).
+		Update("waf_rules_source", "legacy-empty").Error)
+
+	manager := NewManager(&switchableCaddyClient{}, db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	require.NoError(t, manager.ApplyConfig(context.Background()))
+
+	report, ok := manager.EnforcementReport()
+	require.True(t, ok)
+	require.Equal(t, ModuleEnforcement{Eligible: 1, Reason: ReasonRulesetEmpty}, report.WAF)
+	require.False(t, report.WAF.Enforced())
+}
+
 // TestManager_EnforcementReport_FailedApplyDropsReport pins that a failed apply leaves no report behind, so a report
 // from an earlier successful apply is never trusted for a configuration that did not load.
 func TestManager_EnforcementReport_FailedApplyDropsReport(t *testing.T) {
