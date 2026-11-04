@@ -299,11 +299,11 @@ func TestExtractArchiveFailures(t *testing.T) {
 	h, _ := newImportRouter(t, dir)
 	noKeep := func(string) bool { return false }
 
-	require.ErrorContains(t, h.extractArchive(filepath.Join(dir, "missing.tar.gz"), dir, noKeep), "failed to open archive")
+	require.ErrorContains(t, h.extractArchive(filepath.Join(dir, "missing.tar.gz"), dir, noKeep), "open archive")
 
 	notGzip := filepath.Join(t.TempDir(), "plain.tar.gz")
 	require.NoError(t, os.WriteFile(notGzip, []byte("not gzip"), 0o600))
-	require.ErrorContains(t, h.extractArchive(notGzip, dir, noKeep), "failed to create gzip reader")
+	require.ErrorContains(t, h.extractArchive(notGzip, dir, noKeep), "create gzip reader")
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)

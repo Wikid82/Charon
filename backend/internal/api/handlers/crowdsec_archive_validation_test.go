@@ -181,7 +181,7 @@ func TestConfigArchiveValidator_SizeLimit(t *testing.T) {
 	require.Contains(t, err.Error(), "exceeds maximum size")
 }
 
-// TestConfigArchiveValidator_CompressionRatio tests zip bomb protection.
+// TestConfigArchiveValidator_CompressionRatio tests the compression ratio limit.
 func TestConfigArchiveValidator_CompressionRatio(t *testing.T) {
 	t.Parallel()
 
@@ -192,7 +192,7 @@ func TestConfigArchiveValidator_CompressionRatio(t *testing.T) {
 		RequiredFiles:       []string{"config.yaml"},
 	}
 
-	// Create highly compressible content (simulating zip bomb)
+	// Create highly compressible content
 	highlyCompressible := strings.Repeat("AAAAAAAAAA", 10000)
 	files := map[string]string{
 		"config.yaml": highlyCompressible,

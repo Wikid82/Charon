@@ -1559,6 +1559,7 @@
     "importErrorKeepCurrentFailed": "No se pudieron conservar los archivos actuales de CrowdSec, por lo que se detuvo la importación. Consulte los registros del servidor para más detalles.",
     "importErrorConfigNotFound": "No se encontró config.yaml en el nivel superior ni en la carpeta config/ del archivo comprimido.",
     "importErrorNotWritable": "Charon no puede modificar la carpeta de configuración de CrowdSec. Comprueba que el usuario de Charon sea su propietario y pueda escribir en ella, y que no esté montada en modo de solo lectura.",
+    "importErrorArchiveTooLarge": "The archive is larger than the import limit. Nothing was changed.",
     "exportPrompt": "Nombre del archivo de exportación de CrowdSec",
     "title": "Configuración de CrowdSec",
     "checkNow": "Comprobar ahora",
