@@ -1400,7 +1400,9 @@ image build. Instead:
   version ARG (incl. the pinned xcaddy plugins — 2 security/observability
   plugins plus the 27 `caddy-dns/*` DNS-01 provider modules and 2 forced
   transitive `libdns/*` pins, see `docs/plans/current_spec.md` §4.1) + the
-  digest-pinned `golang`/`xx` bases + `.trivyignore`. `scripts/verify-toolchain-pin.sh` runs on
+  digest-pinned `golang`/`xx` bases + a `SCHEMA_VERSION`. Scan ignore lists
+  (`.trivyignore`, `.grype.yaml`) are intentionally **not** inputs: they are
+  scan-time filters that never change the image bytes. `scripts/verify-toolchain-pin.sh` runs on
   every PR (required check) and is **failure-closed** on trusted same-repo runs:
   it fails if the Dockerfile's pinned tag/digest is stale for the current
   recipe. When the daily rebuild produces a new digest, a bot opens

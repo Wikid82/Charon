@@ -15,12 +15,16 @@
 #      transitive libdns/* pins, GitHub #1361)
 #   4. the `tonistiigi/xx` pin line and the digest-pinned `golang:*-alpine`
 #      builder-base lines of both inline stages (N4)
-#   5. sha256 of .trivyignore
-#   6. a SCHEMA_VERSION constant (bump to force a global rebuild if this
+#   5. a SCHEMA_VERSION constant (bump to force a global rebuild if this
 #      extraction logic itself changes)
 #
 # Because the stage *bodies* only interpolate ${ARG}, a bump to e.g. CADDY_VERSION
 # would not change (1)/(2); (3) is what makes such a bump change the key.
+#
+# Scan ignore lists (.trivyignore, .grype.yaml) are intentionally NOT inputs:
+# they are scan-time filters applied by the Trivy/Grype gates to an already
+# built image and never change the image bytes. The toolchain Trivy gate reads
+# .trivyignore from the checkout at scan time instead.
 #
 # Usage:  scripts/toolchain-key.sh [path/to/Dockerfile]
 
@@ -31,7 +35,10 @@ set -euo pipefail
 # rev-3: added the 27 caddy-dns/* DNS-01 provider module version ARGs plus the
 # 2 forced-transitive libdns/* version ARGs (LIBDNS_NAMEDOTCOM_VERSION,
 # LIBDNS_VERCEL_VERSION) to the hashed input set (GitHub #1361 Commit 2b).
-SCHEMA_VERSION=3
+# rev-4: removed sha256 of .trivyignore from the hashed input set. It is a
+# scan-time filter that never changes the built image, so editing it must not
+# force a toolchain rebuild or a pin bump.
+SCHEMA_VERSION=4
 
 df="${1:-Dockerfile}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,16 +48,6 @@ source "$here/lib/dockerfile-stage.sh"
 
 if [[ ! -f "$df" ]]; then
   echo "toolchain-key: Dockerfile not found: $df" >&2
-  exit 2
-fi
-
-df_dir="$(cd "$(dirname "$df")" && pwd)"
-if [[ -f "$df_dir/.trivyignore" ]]; then
-  trivyignore="$df_dir/.trivyignore"
-elif [[ -f .trivyignore ]]; then
-  trivyignore=".trivyignore"
-else
-  echo "toolchain-key: .trivyignore not found (looked in $df_dir and CWD)" >&2
   exit 2
 fi
 
@@ -79,7 +76,6 @@ key="$(
     printf '%s\n' "$crowdsec_stage"
     grep -E "$arg_re" "$df"
     grep -E 'tonistiigi/xx:|^FROM .*golang:.*-alpine@sha256:' "$df"
-    sha256sum "$trivyignore" | cut -d' ' -f1
   } | sha256sum | cut -c1-16
 )"
 

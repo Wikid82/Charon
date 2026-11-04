@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Shared bats helper: builds an isolated fake repo containing the real
 # scripts/lib/dockerfile-stage.sh + scripts/toolchain-key.sh +
-# scripts/verify-toolchain-pin.sh alongside a synthetic Dockerfile / .trivyignore
-# fixture that is structurally valid for toolchain-key.sh's sanity checks
+# scripts/verify-toolchain-pin.sh alongside a synthetic Dockerfile fixture (plus a
+# .trivyignore that the key must NOT depend on) that is structurally valid for toolchain-key.sh's sanity checks
 # (>= 20 body lines per inline stage, each containing a `go build` / `xx-go build`).
 #
 # Usage from a .bats file:

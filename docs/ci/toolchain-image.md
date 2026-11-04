@@ -14,7 +14,7 @@ every CI image build.
 | `Dockerfile` `toolchain-runtime` stage | `docker buildx build --target toolchain-runtime` → the publishable image. |
 | `Dockerfile` `ARG CHARON_TOOLCHAIN_TAG` / `CHARON_TOOLCHAIN_DIGEST` | The pin. `DIGEST` is the arch-independent manifest-list (OCI index) digest. Bot-owned — do **not** hand-edit. |
 | `Dockerfile` `ARG CADDY_BUILDER_SRC` / `CROWDSEC_BUILDER_SRC` | Selector: `toolchain-prebuilt` (default) or `caddy-inline` / `crowdsec-inline`. |
-| `scripts/toolchain-key.sh` | Prints `caddy-crowdsec-<16hex>` — a content hash of the two inline stage bodies + every consumed version ARG (incl. the two pinned xcaddy plugins) + the digest-pinned `golang`/`xx` bases + `.trivyignore` + a `SCHEMA_VERSION`. |
+| `scripts/toolchain-key.sh` | Prints `caddy-crowdsec-<16hex>` — a content hash of the two inline stage bodies + every consumed version ARG (incl. the two pinned xcaddy plugins) + the digest-pinned `golang`/`xx` bases + a `SCHEMA_VERSION`. Scan ignore lists (`.trivyignore`, `.grype.yaml`) are deliberately not inputs: they don't change image bytes. |
 | `scripts/verify-toolchain-pin.sh` | Required PR check. Failure-closed on trusted same-repo runs: needs `regctl` + `GHCR_READ_TOKEN`, resolves `:$KEY` in GHCR, and asserts the pinned digest matches. A fork PR degrades to a tag-only check with a `::warning::`. |
 | `scripts/lib/dockerfile-stage.sh` | Shared `extract_stage` used by both scripts. |
 | `.github/workflows/toolchain-image.yml` | Builds / publishes / scans. |
