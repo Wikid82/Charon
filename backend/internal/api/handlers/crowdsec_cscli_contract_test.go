@@ -357,9 +357,9 @@ func newLAPIHandler(t *testing.T, lapiURL string) *CrowdsecHandler {
 	t.Helper()
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", Name: "default", CrowdSecAPIURL: lapiURL}).Error)
+	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", Name: "default"}).Error)
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
+	h.validateLAPIURL = redirectLocalLAPI(lapiURL)
 	return h
 }
 

@@ -799,8 +799,8 @@ func pr4ClearKeyEnv(t *testing.T) {
 func pr4LAPIHandler(t *testing.T, lapiURL string, ex CommandExecutor) *CrowdsecHandler {
 	t.Helper()
 	h := pr4Handler(t, ex, t.TempDir())
-	require.NoError(t, h.DB.Create(&models.SecurityConfig{UUID: "default", Name: "default", CrowdSecAPIURL: lapiURL}).Error)
-	h.validateLAPIURL = url.Parse
+	require.NoError(t, h.DB.Create(&models.SecurityConfig{UUID: "default", Name: "default"}).Error)
+	h.validateLAPIURL = redirectLocalLAPI(lapiURL)
 	return h
 }
 

@@ -176,6 +176,10 @@ func TestPullMirrorItemURLDerivesPathUnderMirrorBase(t *testing.T) {
 	svc.MirrorBaseURL = cdnItemPrefix[:len(cdnItemPrefix)-1]
 	_, ok = svc.mirrorItemURL(cdnSSHDItemURL)
 	require.False(t, ok, "a download already on the mirror base has nothing to retry")
+
+	svc.MirrorBaseURL = ""
+	_, ok = svc.mirrorItemURL(cdnSSHDItemURL)
+	require.False(t, ok, "without a mirror base there is no mirror location")
 }
 
 // brokenBody is a response body that fails after the status line, as a connection reset mid-download does.

@@ -976,10 +976,11 @@ func (s *HubService) mirrorItemURL(downloadURL string) (string, bool) {
 			base = prefix
 		}
 	}
-	if base == "" {
+	mirrorBase := strings.TrimRight(s.MirrorBaseURL, "/")
+	if base == "" || mirrorBase == "" {
 		return "", false
 	}
-	mirrorURL := strings.TrimRight(s.MirrorBaseURL, "/") + "/" + strings.TrimPrefix(downloadURL, base)
+	mirrorURL := mirrorBase + "/" + strings.TrimPrefix(downloadURL, base)
 	if mirrorURL == downloadURL {
 		return "", false
 	}

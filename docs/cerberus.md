@@ -118,7 +118,7 @@ type SecurityConfig struct {
     Enabled              bool   `json:"enabled"`
     AdminWhitelist       string `json:"admin_whitelist"`        // CSV of IPs/CIDRs
     CrowdsecMode         string `json:"crowdsec_mode"`          // disabled, local, external
-    CrowdsecAPIURL       string `json:"crowdsec_api_url"` // ignored: Charon always uses its own CrowdSec engine
+    CrowdsecAPIURL       string `json:"crowdsec_api_url"`       // ignored: Charon always uses its own CrowdSec engine
     CrowdsecAPIKey       string `json:"crowdsec_api_key"`
     WafMode              string `json:"waf_mode"`               // disabled, monitor, block
     WafRulesSource       string `json:"waf_rules_source"`       // Rule set name, or an http(s) URL
