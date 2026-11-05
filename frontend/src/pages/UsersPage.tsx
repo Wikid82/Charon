@@ -49,6 +49,15 @@ import { toast } from '../utils/toast'
 
 
 
+/**
+ * Builds a handler that adds a host id to a selection, or removes it when already selected.
+ * Shared by the invite and permissions modals so the toggle logic lives in one place.
+ */
+const createHostToggle =
+  (setSelectedHosts: (updater: (prev: number[]) => number[]) => void) =>
+  (hostId: number) =>
+    setSelectedHosts((prev) => (prev.includes(hostId) ? prev.filter((id) => id !== hostId) : [...prev, hostId]))
+
 interface InviteModalProps {
   isOpen: boolean
   onClose: () => void
@@ -133,11 +142,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
         emailSent: data.email_sent,
         expiresAt: data.expires_at,
       })
-      if (data.email_sent) {
-        toast.success(t('users.inviteSent'))
-      } else {
-        toast.success(t('users.inviteCreated'))
-      }
+      toast.success(data.email_sent ? t('users.inviteSent') : t('users.inviteCreated'))
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
@@ -178,11 +183,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     onClose()
   }
 
-  const toggleHost = (hostId: number) => {
-    setSelectedHosts((prev) =>
-      prev.includes(hostId) ? prev.filter((id) => id !== hostId) : [...prev, hostId]
-    )
-  }
+  const toggleHost = createHostToggle(setSelectedHosts)
 
   if (!isOpen) return null
 
@@ -456,11 +457,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
     },
   })
 
-  const toggleHost = (hostId: number) => {
-    setSelectedHosts((prev) =>
-      prev.includes(hostId) ? prev.filter((id) => id !== hostId) : [...prev, hostId]
-    )
-  }
+  const toggleHost = createHostToggle(setSelectedHosts)
 
   if (!isOpen || !user) return null
 
@@ -611,10 +608,7 @@ function UserDetailModal({ isOpen, onClose, user, isSelf }: UserDetailModalProps
 
   const profileMutation = useMutation({
     mutationFn: async () => {
-      if (isSelf) {
-        return updateProfile({ name, email })
-      }
-      return updateUser(user!.id, { name, email })
+      return isSelf ? updateProfile({ name, email }) : updateUser(user!.id, { name, email })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
@@ -842,11 +836,7 @@ export default function UsersPage() {
     mutationFn: resendInvite,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
-      if (data.email_sent) {
-        toast.success(t('users.inviteResent'))
-      } else {
-        toast.success(t('users.inviteCreatedNoEmail'))
-      }
+      toast.success(data.email_sent ? t('users.inviteResent') : t('users.inviteCreatedNoEmail'))
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }

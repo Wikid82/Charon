@@ -30,8 +30,7 @@ export function AlertsList({ range }: AlertsListProps) {
   })
 
   const totalPages = useMemo(() => {
-    if (!data?.total) return 0
-    return Math.ceil(data.total / PAGE_SIZE)
+    return !data?.total ? 0 : Math.ceil(data.total / PAGE_SIZE)
   }, [data?.total])
 
   const handlePreviousPage = () => {

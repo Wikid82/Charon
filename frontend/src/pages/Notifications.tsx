@@ -15,11 +15,9 @@ import { urlBase64ToUint8Array } from '../utils/webpush';
 const DISCORD_PROVIDER_TYPE: SupportedNotificationProviderType = 'discord';
 
 const isSupportedProviderType = (providerType: string | undefined): providerType is SupportedNotificationProviderType => {
-  if (!providerType) {
-    return false;
-  }
-
-  return SUPPORTED_NOTIFICATION_PROVIDER_TYPES.includes(providerType.toLowerCase() as SupportedNotificationProviderType);
+  return !providerType
+    ? false
+    : SUPPORTED_NOTIFICATION_PROVIDER_TYPES.includes(providerType.toLowerCase() as SupportedNotificationProviderType);
 };
 
 // supportsJSONTemplates returns true if the provider type can use JSON templates
@@ -32,11 +30,9 @@ const supportsJSONTemplates = (providerType: string | undefined): boolean => {
 const isUnsupportedProviderType = (providerType: string | undefined): boolean => !isSupportedProviderType(providerType);
 
 const normalizeProviderType = (providerType: string | undefined): SupportedNotificationProviderType => {
-  if (!isSupportedProviderType(providerType)) {
-    return DISCORD_PROVIDER_TYPE;
-  }
-
-  return providerType.toLowerCase() as SupportedNotificationProviderType;
+  return !isSupportedProviderType(providerType)
+    ? DISCORD_PROVIDER_TYPE
+    : (providerType.toLowerCase() as SupportedNotificationProviderType);
 };
 
 const normalizeProviderPayloadForSubmit = (data: Partial<NotificationProvider>): Partial<NotificationProvider> => {
@@ -135,10 +131,10 @@ const ProviderForm: FC<{
       // If using an external saved template (id), call previewExternalTemplate with template_id
       if (formData.template && typeof formData.template === 'string' && formData.template.length === 36) {
         const res = await previewExternalTemplate(formData.template);
-        if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
+        setPreviewContent(res.parsed ? JSON.stringify(res.parsed, null, 2) : res.rendered);
       } else {
         const res = await previewProvider({ ...formData, type: normalizeProviderType(formData.type) } as Partial<NotificationProvider>);
-        if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
+        setPreviewContent(res.parsed ? JSON.stringify(res.parsed, null, 2) : res.rendered);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -176,10 +172,7 @@ const ProviderForm: FC<{
     if (!value) return true;
     try {
       const parsed = new URL(value);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return t('notificationProviders.invalidUrl');
-      }
-      return true;
+      return parsed.protocol !== 'http:' && parsed.protocol !== 'https:' ? t('notificationProviders.invalidUrl') : true;
     } catch {
       return t('notificationProviders.invalidUrl');
     }
@@ -453,7 +446,7 @@ const TemplateForm: FC<{
     const form = watch();
     try {
       const res = await previewExternalTemplate(undefined, form.config, { Title: 'Preview Title', Message: 'Preview Message', Time: new Date().toISOString(), EventType: 'preview' });
-      if (res.parsed) setPreview(JSON.stringify(res.parsed, null, 2)); else setPreview(res.rendered);
+      setPreview(res.parsed ? JSON.stringify(res.parsed, null, 2) : res.rendered);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setPreviewErr(msg || 'Preview failed');

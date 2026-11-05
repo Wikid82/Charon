@@ -256,6 +256,20 @@ describe('AccessLists', () => {
     })
   })
 
+  it('shows the deny badge for blacklist access lists and the allow badge for whitelists', async () => {
+    vi.mocked(useAccessLists).mockReturnValue(
+      createQueryResult([
+        createAccessList({ uuid: 'wl-1', name: 'AllowedList', type: 'whitelist' }),
+        createAccessList({ uuid: 'bl-1', name: 'BlockedList', type: 'blacklist' }),
+      ])
+    )
+
+    renderWithQueryClient(<AccessLists />)
+
+    expect(await screen.findByText('accessLists.allow')).toBeInTheDocument()
+    expect(screen.getByText('accessLists.deny')).toBeInTheDocument()
+  })
+
   it('deletes access list with backup', async () => {
     const deleteMutation = deleteMutationMock()
     vi.mocked(useDeleteAccessList).mockReturnValue(deleteMutation)

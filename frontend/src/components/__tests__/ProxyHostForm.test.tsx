@@ -209,6 +209,21 @@ describe('ProxyHostForm', () => {
     vi.clearAllMocks()
   })
 
+  it('ignores a health response that does not include an internal IP', async () => {
+    mockFetch.mockResolvedValue({
+      json: () => Promise.resolve({}),
+    })
+
+    await renderWithClientAct(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/v1/health')
+    })
+    expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
+  })
+
   it('handles scheme selection', async () => {
     await renderWithClientAct(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
@@ -426,6 +441,21 @@ describe('ProxyHostForm', () => {
         expect(screen.getByText('Plex Remote Access Setup')).toBeInTheDocument()
         expect(screen.getByText('https://plex.mydomain.com:443')).toBeInTheDocument()
       })
+    })
+
+    it('shows the plex helper without an external URL when the first domain is blank', async () => {
+      await renderWithClientAct(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // A leading comma leaves the first domain empty while domain_names stays truthy
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), ',')
+      await selectComboboxOption(/Application Preset/i, 'Plex - Media server with remote access')
+
+      await waitFor(() => {
+        expect(screen.getByText('Plex Remote Access Setup')).toBeInTheDocument()
+      })
+      expect(screen.queryByText(/:443$/)).not.toBeInTheDocument()
     })
 
     it('shows jellyfin config helper with internal IP', async () => {

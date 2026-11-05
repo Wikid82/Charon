@@ -61,7 +61,7 @@ describe('useDatabaseMaintenance hooks', () => {
     const spy = vi.spyOn(queryClient, 'invalidateQueries')
     const { result } = renderHook(() => useRequestOptimize(), { wrapper })
     await act(async () => {
-      await result.current.mutateAsync().catch(() => undefined)
+      await result.current.mutateAsync().catch(() => {})
     })
     expect(spy).toHaveBeenCalledWith({ queryKey: DATABASE_STATUS_QUERY_KEY })
   })

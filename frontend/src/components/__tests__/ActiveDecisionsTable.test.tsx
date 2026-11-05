@@ -84,6 +84,20 @@ describe('ActiveDecisionsTable', () => {
     expect(ipHeader).toHaveAttribute('aria-sort', 'ascending')
   })
 
+  it('sorts the alerts count numerically rather than lexically', async () => {
+    const user = userEvent.setup()
+    const data: TopIP[] = [
+      { ip: '1.1.1.1', count: 25, last_seen: new Date().toISOString(), country: 'US' },
+      { ip: '2.2.2.2', count: 9, last_seen: new Date().toISOString(), country: 'DE' },
+    ]
+    render(<ActiveDecisionsTable data={data} isLoading={false} isError={false} />)
+
+    await user.click(screen.getByRole('button', { name: /Sort by Alerts/i }))
+
+    const ips = screen.getAllByText(/^\d+\.\d+\.\d+\.\d+$/).map(el => el.textContent)
+    expect(ips).toEqual(['2.2.2.2', '1.1.1.1'])
+  })
+
   it('shows dash for empty country when another row has one', () => {
     const data: TopIP[] = [
       { ip: '1.2.3.4', count: 1, last_seen: new Date().toISOString(), country: '' },

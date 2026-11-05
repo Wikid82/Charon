@@ -35,11 +35,7 @@ export function useProxyGroupDnD({
     (event: DragStartEvent) => {
       const uuid = event.active.id as string
       setActiveDragId(uuid)
-      if (selectedHosts.has(uuid)) {
-        setHostsBeingDragged([...selectedHosts])
-      } else {
-        setHostsBeingDragged([uuid])
-      }
+      setHostsBeingDragged(selectedHosts.has(uuid) ? [...selectedHosts] : [uuid])
     },
     [selectedHosts],
   )

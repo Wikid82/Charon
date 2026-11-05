@@ -39,8 +39,7 @@ vi.mock('../../components/hecate/HecateTunnelForm', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts?.count !== undefined) return `${String(opts.count)} tunnels`
-      return key
+      return opts?.count !== undefined ? `${String(opts.count)} tunnels` : key
     },
   }),
 }))

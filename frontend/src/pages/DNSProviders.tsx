@@ -147,9 +147,7 @@ export default function DNSProviders() {
               return
             }
 
-            void loadManualChallenge(providerId).then((hasChallenge) => {
-              setIsManualChallengeOpen(hasChallenge)
-            })
+            void loadManualChallenge(providerId).then((hasChallenge) => setIsManualChallengeOpen(hasChallenge))
           }}
           onCancel={() => {
             setManualChallenge(null)

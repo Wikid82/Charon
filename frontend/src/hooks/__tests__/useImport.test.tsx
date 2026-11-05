@@ -141,8 +141,7 @@ describe('useImport', () => {
       let isCommitted = false
       vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
       vi.mocked(api.getImportStatus).mockImplementation(async () => {
-        if (isCommitted) return { has_pending: false }
-        return { has_pending: true, session: mockSession }
+        return isCommitted ? { has_pending: false } : { has_pending: true, session: mockSession }
       })
       vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
       vi.mocked(api.commitImport).mockImplementation(async () => {
@@ -187,8 +186,7 @@ describe('useImport', () => {
       let isCancelled = false
       vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
       vi.mocked(api.getImportStatus).mockImplementation(async () => {
-        if (isCancelled) return { has_pending: false }
-        return { has_pending: true, session: mockSession }
+        return isCancelled ? { has_pending: false } : { has_pending: true, session: mockSession }
       })
       vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
       vi.mocked(api.cancelImport).mockImplementation(async () => {
@@ -283,8 +281,7 @@ describe('useImport', () => {
       let isCommitted = false
       vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
       vi.mocked(api.getImportStatus).mockImplementation(async () => {
-        if (isCommitted) return { has_pending: false }
-        return { has_pending: true, session: mockSession }
+        return isCommitted ? { has_pending: false } : { has_pending: true, session: mockSession }
       })
       vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
       vi.mocked(api.commitImport).mockImplementation(async () => {
@@ -333,8 +330,7 @@ describe('useImport', () => {
       let isCommitted = false
       vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
       vi.mocked(api.getImportStatus).mockImplementation(async () => {
-        if (isCommitted) return { has_pending: false }
-        return { has_pending: true, session: mockSession }
+        return isCommitted ? { has_pending: false } : { has_pending: true, session: mockSession }
       })
       vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
       vi.mocked(api.commitImport).mockImplementation(async () => {
@@ -757,8 +753,7 @@ describe('useImport', () => {
       let cancelled = false
       vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
       vi.mocked(api.getImportStatus).mockImplementation(async () => {
-        if (cancelled) return { has_pending: false }
-        return { has_pending: true, session: mockSession }
+        return cancelled ? { has_pending: false } : { has_pending: true, session: mockSession }
       })
       vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
       vi.mocked(api.cancelImport).mockImplementation(async () => {

@@ -188,10 +188,7 @@ describe('crowdsecExport', () => {
       }
 
       vi.spyOn(document, 'createElement').mockImplementation((tag) => {
-        if (tag === 'a') {
-          return anchorElement as unknown as HTMLAnchorElement
-        }
-        return document.createElement(tag)
+        return tag === 'a' ? (anchorElement as unknown as HTMLAnchorElement) : document.createElement(tag)
       })
 
       appendChildSpy = vi.fn((node: Node) => node)

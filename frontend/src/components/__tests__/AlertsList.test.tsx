@@ -10,8 +10,7 @@ vi.mock('react-i18next', () => ({
     t: (key: string, fallbackOrOpts?: string | Record<string, unknown>, opts?: Record<string, unknown>) => {
       const fallback = typeof fallbackOrOpts === 'string' ? fallbackOrOpts : key
       const params = typeof fallbackOrOpts === 'object' ? fallbackOrOpts : opts
-      if (!params) return fallback
-      return fallback.replace(/\{\{(\w+)\}\}/g, (_, k) => String(params[k] ?? ''))
+      return !params ? fallback : fallback.replace(/\{\{(\w+)\}\}/g, (_, k) => String(params[k] ?? ''))
     },
   }),
 }))

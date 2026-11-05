@@ -492,8 +492,7 @@ export default function ProxyHosts() {
   // Helper: display label for group during accessibility announcements
   const getGroupName = useCallback(
     (id: string): string => {
-      if (id === 'ungrouped') return t('proxyGroups.ungrouped')
-      return groups.find((g) => g.uuid === id)?.name ?? id
+      return id === 'ungrouped' ? t('proxyGroups.ungrouped') : groups.find((g) => g.uuid === id)?.name ?? id
     },
     [groups, t],
   )

@@ -234,8 +234,7 @@ export default function SystemSettings() {
       return t('systemSettings.uptime.intervalFloorError')
     }
     const { min, max } = UPTIME_BOUNDS[key]
-    if (n < min || n > max) return t(uptimeErrorI18n[key])
-    return undefined
+    return n < min || n > max ? t(uptimeErrorI18n[key]) : undefined
   }
 
   const uptimeClientErrors: Record<string, string | undefined> = {

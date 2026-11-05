@@ -31,8 +31,7 @@ vi.mock('../../components/hecate/TunnelStatusBadge', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts?.name) return `${key}:${String(opts.name)}`
-      return key
+      return opts?.name ? `${key}:${String(opts.name)}` : key
     },
   }),
 }))

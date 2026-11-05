@@ -165,21 +165,8 @@ function normalizeNullableID(value: unknown): number | null | undefined {
   return undefined
 }
 
-function normalizeAccessListReference(value: unknown): number | string | null | undefined {
-  const numericValue = normalizeNullableID(value)
-  if (numericValue !== undefined) {
-    return numericValue
-  }
-
-  if (typeof value !== 'string') {
-    return undefined
-  }
-
-  const trimmed = value.trim()
-  return trimmed === '' ? null : trimmed
-}
-
-function normalizeSecurityHeaderReference(value: unknown): number | string | null | undefined {
+/** Normalizes a reference to another entity (access list, certificate, security header profile). */
+function normalizeReferenceID(value: unknown): number | string | null | undefined {
   const numericValue = normalizeNullableID(value)
   if (numericValue !== undefined) {
     return numericValue
@@ -284,11 +271,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   useEffect(() => {
     fetch('/api/v1/health')
       .then(res => res.json())
-      .then(data => {
-        if (data.internal_ip) {
-          setCharonInternalIP(data.internal_ip)
-        }
-      })
+      .then(data => (data.internal_ip ? setCharonInternalIP(data.internal_ip) : undefined))
       .catch(() => {})
   }, [])
 
@@ -383,8 +366,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   // Get the external URL for this proxy host
   const getExternalUrl = () => {
     const domain = (formData.domain_names ?? '').split(',')[0]?.trim()
-    if (!domain) return ''
-    return `https://${domain}:443`
+    return !domain ? '' : `https://${domain}:443`
   }
 
   const { servers: remoteServers } = useRemoteServers()
@@ -584,9 +566,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       const submitPayload: Partial<ProxyHost> = {
         ...payloadWithoutUptime,
-        access_list_id: normalizeAccessListReference(payloadWithoutUptime.access_list_id),
-        security_header_profile_id: normalizeSecurityHeaderReference(payloadWithoutUptime.security_header_profile_id),
-        certificate_id: normalizeAccessListReference(payloadWithoutUptime.certificate_id),
+        access_list_id: normalizeReferenceID(payloadWithoutUptime.access_list_id),
+        security_header_profile_id: normalizeReferenceID(payloadWithoutUptime.security_header_profile_id),
+        certificate_id: normalizeReferenceID(payloadWithoutUptime.certificate_id),
       }
 
       const res = await onSubmit(submitPayload)

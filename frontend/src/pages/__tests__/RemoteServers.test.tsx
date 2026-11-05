@@ -129,7 +129,7 @@ describe('RemoteServers', () => {
   it('does not show TunnelStatusBadge for direct server', () => {
     vi.mocked(hecateHook.useHecate).mockReturnValue({
       ...vi.mocked(hecateHook.useHecate).mock.results[0]?.value,
-      getStatus: () => undefined,
+      getStatus: () => {},
       tunnels: [],
       statuses: [],
       loadingTunnels: false,
@@ -292,7 +292,7 @@ describe('RemoteServers', () => {
       error: null,
       tunnelsError: null,
       statusError: null,
-      getStatus: () => undefined,
+      getStatus: () => {},
       createTunnel: vi.fn(),
       updateTunnel: vi.fn(),
       deleteTunnel: vi.fn(),

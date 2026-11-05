@@ -6,7 +6,7 @@ import { AgentExternalProxyDialog } from '../AgentExternalProxyDialog';
 
 const mockPatch = vi.fn();
 const mockRefetchStatus = vi.fn();
-let mockProxyStatus: Record<string, unknown> | undefined = undefined;
+let mockProxyStatus: Record<string, unknown> | undefined;
 
 vi.mock('../../../hooks/useOrthrus', () => ({
   usePatchAgent: () => ({ mutate: mockPatch, isPending: false }),

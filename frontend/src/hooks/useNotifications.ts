@@ -29,10 +29,7 @@ export function useUpdateSecurityNotificationSettings() {
 
       // Optimistically update to the new value
       queryClient.setQueryData(['security-notification-settings'], (old: unknown) => {
-        if (old && typeof old === 'object') {
-          return { ...old, ...newSettings };
-        }
-        return old;
+        return old && typeof old === 'object' ? { ...old, ...newSettings } : old;
       });
 
       return { previousSettings };

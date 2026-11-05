@@ -17,8 +17,7 @@ vi.mock('react-hot-toast', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts && typeof opts.count === 'number') return `${key}:${opts.count}`
-      return key
+      return opts && typeof opts.count === 'number' ? `${key}:${opts.count}` : key
     },
   }),
 }))

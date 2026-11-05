@@ -38,10 +38,7 @@ vi.mock('react-i18next', () => ({
         'common.update': 'Update',
         'common.save': 'Save',
       };
-      if (key === 'proxyGroups.colorPreset' && options?.color) {
-        return `Color ${options.color}`;
-      }
-      return map[key] ?? key;
+      return key === 'proxyGroups.colorPreset' && options?.color ? `Color ${options.color}` : map[key] ?? key;
     },
   }),
 }));

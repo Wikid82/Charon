@@ -285,6 +285,22 @@ describe('CertificateList', () => {
     expect(activeCheckbox).not.toBeChecked()
   })
 
+  it('drops selected ids that disappear from the certificate list', async () => {
+    const user = userEvent.setup()
+    const qc = createTestQueryClient()
+    const { rerender } = render(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+    const customRow = (await screen.findAllByRole('row')).find(r => r.textContent?.includes('CustomCert'))!
+    await user.click(within(customRow).getByRole('checkbox'))
+    expect(screen.getByRole('status')).toBeInTheDocument()
+
+    const remaining = createCertificatesValue().certificates.filter(c => c.uuid !== 'cert-1')
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesValue({ certificates: remaining }))
+    // A fresh element is required so React re-renders instead of bailing out on identical props
+    rerender(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+  })
+
   it('clicking the toolbar Delete button opens BulkDeleteCertificateDialog', async () => {
     const user = userEvent.setup()
     renderWithClient(<CertificateList />)

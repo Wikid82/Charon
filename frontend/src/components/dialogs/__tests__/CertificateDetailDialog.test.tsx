@@ -38,8 +38,7 @@ const mockDetail: CertificateDetail = {
 
 vi.mock('../../../hooks/useCertificates', () => ({
   useCertificateDetail: vi.fn((uuid: string | null) => {
-    if (!uuid) return { detail: undefined, isLoading: false }
-    return { detail: mockDetail, isLoading: false }
+    return { detail: !uuid ? undefined : mockDetail, isLoading: false }
   }),
 }))
 

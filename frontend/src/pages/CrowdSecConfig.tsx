@@ -265,8 +265,7 @@ export default function CrowdSecConfig() {
       if (sortBy === 'source') {
         const sourceA = a.source || 'z'
         const sourceB = b.source || 'z'
-        if (sourceA !== sourceB) return sourceA.localeCompare(sourceB)
-        return a.title.localeCompare(b.title)
+        return sourceA !== sourceB ? sourceA.localeCompare(sourceB) : a.title.localeCompare(b.title)
       }
       return a.title.localeCompare(b.title)
     })

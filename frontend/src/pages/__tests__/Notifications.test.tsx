@@ -495,6 +495,92 @@ describe('Notifications', () => {
     })
   })
 
+  it('shows the parsed JSON preview for a provider when the server returns one', async () => {
+    vi.mocked(notificationsApi.previewProvider).mockResolvedValue({
+      rendered: 'raw-provider-output',
+      parsed: { text: 'parsed-provider-output' },
+    })
+
+    const user = userEvent.setup({ delay: null })
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.type(screen.getByTestId('provider-name'), 'Parsed Provider')
+    await user.type(screen.getByTestId('provider-url'), 'https://example.com/webhook')
+    await user.click(screen.getByTestId('provider-preview-btn'))
+
+    expect(await screen.findByText(/parsed-provider-output/)).toBeInTheDocument()
+    expect(screen.queryByText('raw-provider-output')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['parsed', { rendered: 'raw-saved-output', parsed: { text: 'parsed-saved-output' } }, 'parsed-saved-output'],
+    ['rendered-only', { rendered: 'rendered-saved-output', parsed: undefined }, 'rendered-saved-output'],
+  ])('previews a saved external template chosen in the provider form with a %s response', async (_label, response, expectedText) => {
+    const savedTemplateId = '0123abcd-0123-4abc-8def-0123456789ab'
+    vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([
+      {
+        id: savedTemplateId,
+        name: 'Saved Payload',
+        description: 'Saved template',
+        template: 'custom' as const,
+        config: '{"text":"{{.Message}}"}',
+        created_at: '2024-01-01T00:00:00Z',
+      },
+    ])
+    vi.mocked(notificationsApi.previewExternalTemplate).mockResolvedValue(response)
+
+    const user = userEvent.setup({ delay: null })
+    renderWithQueryClient(<Notifications />)
+
+    await user.click(await screen.findByTestId('add-provider-btn'))
+    await user.type(screen.getByTestId('provider-name'), 'Saved Template Provider')
+    let templateSelect: HTMLElement | undefined
+    await waitFor(() => {
+      templateSelect = screen
+        .getAllByRole('combobox')
+        .find((select) => within(select).queryByRole('option', { name: 'Saved Payload' }) !== null)
+      expect(templateSelect).toBeDefined()
+    })
+    await user.selectOptions(templateSelect!, savedTemplateId)
+    await user.click(screen.getByTestId('provider-preview-btn'))
+
+    await waitFor(() => {
+      expect(notificationsApi.previewExternalTemplate).toHaveBeenCalledWith(savedTemplateId)
+    })
+    expect(await screen.findByText(expectedText, { exact: false })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['parsed', { rendered: 'raw-template-output', parsed: { text: 'parsed-template-output' } }, 'parsed-template-output'],
+    ['rendered-only', { rendered: 'rendered-template-output', parsed: undefined }, 'rendered-template-output'],
+  ])('previews an external template with a %s response', async (_label, response, expectedText) => {
+    const template = {
+      id: 'template-preview',
+      name: 'Preview Payload',
+      description: 'Template used for preview',
+      template: 'custom' as const,
+      config: '{"text":"{{.Message}}"}',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-01T00:00:00Z',
+    }
+    vi.mocked(notificationsApi.getExternalTemplates).mockResolvedValue([template])
+    vi.mocked(notificationsApi.previewExternalTemplate).mockResolvedValue(response)
+
+    const user = userEvent.setup({ delay: null })
+    renderWithQueryClient(<Notifications />)
+    await user.click(await screen.findByRole('button', { name: 'notificationProviders.manageTemplates' }))
+    await user.click(await screen.findByTestId('external-template-edit-template-preview'))
+    await user.click(screen.getByTestId('template-preview-btn'))
+
+    expect(notificationsApi.previewExternalTemplate).toHaveBeenCalledWith(
+      undefined,
+      template.config,
+      expect.objectContaining({ EventType: 'preview' })
+    )
+    expect(await screen.findByText(expectedText, { exact: false })).toBeInTheDocument()
+  })
+
   it('treats empty legacy type as unsupported and keeps row read-only', async () => {
     const emptyTypeProvider: NotificationProvider = {
       ...baseProvider,

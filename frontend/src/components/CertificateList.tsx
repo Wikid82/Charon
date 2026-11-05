@@ -41,8 +41,7 @@ export default function CertificateList() {
     setSelectedIds(prev => {
       const validIds = new Set(certificates.map(c => c.uuid).filter(Boolean))
       const reconciled = new Set([...prev].filter(id => validIds.has(id)))
-      if (reconciled.size === prev.size) return prev
-      return reconciled
+      return reconciled.size === prev.size ? prev : reconciled
     })
   }, [certificates])
 
@@ -100,11 +99,7 @@ export default function CertificateList() {
     selectedIds.size > 0 && selectedIds.size < selectableCertIds.size
 
   const handleSelectAll = () => {
-    if (selectedIds.size === selectableCertIds.size) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(selectableCertIds))
-    }
+    setSelectedIds(selectedIds.size === selectableCertIds.size ? new Set() : new Set(selectableCertIds))
   }
 
   const handleSelectRow = (uuid: string) => {

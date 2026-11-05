@@ -48,12 +48,10 @@ export function ActiveDecisionsTable({ data, isLoading, isError }: ActiveDecisio
     return [...data].sort((a, b) => {
       const aVal = a[effectiveSortKey]
       const bVal = b[effectiveSortKey]
-      let cmp: number
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        cmp = aVal - bVal
-      } else {
-        cmp = String(aVal ?? '').localeCompare(String(bVal ?? ''), undefined, { numeric: true })
-      }
+      const cmp =
+        typeof aVal === 'number' && typeof bVal === 'number'
+          ? aVal - bVal
+          : String(aVal ?? '').localeCompare(String(bVal ?? ''), undefined, { numeric: true })
       return effectiveSortDir === 'asc' ? cmp : -cmp
     })
   }, [data, effectiveSortKey, effectiveSortDir])

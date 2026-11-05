@@ -181,11 +181,10 @@ export default function AccessLists() {
 
   const getTypeBadge = (acl: AccessList) => {
     const type = acl.type;
-    if (type === 'whitelist' || type === 'geo_whitelist') {
-      return <Badge variant="success" size="sm">{t('accessLists.allow')}</Badge>;
-    }
     // blacklist or geo_blacklist
-    return <Badge variant="error" size="sm">{t('accessLists.deny')}</Badge>;
+    return type === 'whitelist' || type === 'geo_whitelist'
+      ? <Badge variant="success" size="sm">{t('accessLists.allow')}</Badge>
+      : <Badge variant="error" size="sm">{t('accessLists.deny')}</Badge>;
   };
 
   const columns: Column<AccessList>[] = [

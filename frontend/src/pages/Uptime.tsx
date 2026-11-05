@@ -27,11 +27,7 @@ const isQueueFull = (err: unknown): boolean =>
 
 const normalizeMonitorStatus = (status: string | undefined): BaseMonitorStatus => {
   const normalized = status?.toLowerCase();
-  if (normalized === 'up' || normalized === 'down' || normalized === 'pending') {
-    return normalized;
-  }
-
-  return 'down';
+  return normalized === 'up' || normalized === 'down' || normalized === 'pending' ? normalized : 'down';
 };
 
 const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummary) => void; t: (key: string, options?: Record<string, unknown>) => string }> = ({ monitor, onEdit, t }) => {
@@ -443,11 +439,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                             onChange={(e) => {
                                 const newType = e.target.value as 'http' | 'tcp';
                                 setType(newType);
-                                if (newType === 'tcp' && url.trim().includes('://')) {
-                                    setUrlError(t('uptime.invalidTcpFormat'));
-                                } else {
-                                    setUrlError('');
-                                }
+                                setUrlError(newType === 'tcp' && url.trim().includes('://') ? t('uptime.invalidTcpFormat') : '');
                             }}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
@@ -467,11 +459,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                             onChange={(e) => {
                                 const val = e.target.value;
                                 setUrl(val);
-                                if (type === 'tcp' && val.includes('://')) {
-                                    setUrlError(t('uptime.invalidTcpFormat'));
-                                } else {
-                                    setUrlError('');
-                                }
+                                setUrlError(type === 'tcp' && val.includes('://') ? t('uptime.invalidTcpFormat') : '');
                             }}
                             required
                             aria-invalid={urlError ? true : undefined}

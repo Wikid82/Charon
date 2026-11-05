@@ -31,11 +31,7 @@ const Setup: FC = () => {
   });
 
   useEffect(() => {
-    if (formData.email) {
-      setEmailValid(isValidEmail(formData.email));
-    } else {
-      setEmailValid(null);
-    }
+    setEmailValid(formData.email ? isValidEmail(formData.email) : null);
   }, [formData.email]);
 
   useEffect(() => {
@@ -48,11 +44,7 @@ const Setup: FC = () => {
     }
 
     // If setup is NOT required, redirect based on auth
-    if (isAuthenticated) {
-      navigate('/');
-    } else {
-      navigate('/login');
-    }
+    navigate(isAuthenticated ? '/' : '/login');
   }, [status, statusLoading, isAuthenticated, navigate]);
 
   const mutation = useMutation({
