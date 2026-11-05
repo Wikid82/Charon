@@ -545,10 +545,14 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// eligible, so it is left out of the enforcement counts.
 		if wafEnabled && !host.WAFDisabled {
 			wafH, reason := buildWAFHandlerWithReason(&host, rulesets, rulesetPaths, secCfg)
-			report.WAF.record(wafH != nil, reason)
 			if wafH != nil {
 				securityHandlers = append(securityHandlers, wafH)
-			} else {
+			}
+			// A host whose own advanced_config WAF handler has directives is protected even when the global
+			// source gives no handler. Only the count changes; no second global handler is added for it.
+			protected := wafH != nil || hostHasOwnWAFHandler(&host, rulesetPaths)
+			report.WAF.record(protected, reason)
+			if !protected {
 				wafUnprotectedHosts++
 			}
 		}
@@ -628,17 +632,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					if _, ok := v["handler"]; ok {
 						// Capture ruleset_name if present, remove it from advanced_config,
 						// and set up 'directives' with Include statement for coraza-caddy plugin.
-						if rn, has := v["ruleset_name"]; has {
-							if rnStr, ok := rn.(string); ok && rnStr != "" {
-								// Set 'directives' with Include statement for coraza-caddy
-								if rulesetPaths != nil {
-									if p, ok := rulesetPaths[rnStr]; ok && p != "" {
-										v["directives"] = fmt.Sprintf("Include %s", p)
-									}
-								}
-							}
-							delete(v, "ruleset_name")
+						if inc := rulesetIncludeDirective(v, rulesetPaths); inc != "" {
+							v["directives"] = inc
 						}
+						delete(v, "ruleset_name")
 						normalizeHandlerHeaders(v)
 						handlers = append(handlers, Handler(v))
 					} else {
@@ -647,16 +644,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				case []any:
 					for _, it := range v {
 						if m, ok := it.(map[string]any); ok {
-							if rn, has := m["ruleset_name"]; has {
-								if rnStr, ok := rn.(string); ok && rnStr != "" {
-									if rulesetPaths != nil {
-										if p, ok := rulesetPaths[rnStr]; ok && p != "" {
-											m["directives"] = fmt.Sprintf("Include %s", p)
-										}
-									}
-								}
-								delete(m, "ruleset_name")
+							if inc := rulesetIncludeDirective(m, rulesetPaths); inc != "" {
+								m["directives"] = inc
 							}
+							delete(m, "ruleset_name")
 							normalizeHandlerHeaders(m)
 							if _, ok2 := m["handler"]; ok2 {
 								handlers = append(handlers, Handler(m))
@@ -1292,6 +1283,55 @@ func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.Securit
 	}
 
 	return h, ""
+}
+
+// rulesetIncludeDirective returns the Include directive for the ruleset_name of an advanced_config handler, or "" when
+// the name is missing or has no file on disk. It is the single place that turns a per-host ruleset name into a file.
+func rulesetIncludeDirective(handler map[string]any, rulesetPaths map[string]string) string {
+	name, _ := handler["ruleset_name"].(string)
+	if name == "" {
+		return ""
+	}
+	p := rulesetPaths[name]
+	if p == "" {
+		return ""
+	}
+	return fmt.Sprintf("Include %s", p)
+}
+
+// hostHasOwnWAFHandler reports whether the host's advanced_config carries a WAF handler with directives: an explicit
+// non-blank directives string, or a ruleset_name that resolves in rulesetPaths. It only reads the host. The handler
+// itself is built by the advanced_config processing in GenerateConfig.
+func hostHasOwnWAFHandler(host *models.ProxyHost, rulesetPaths map[string]string) bool {
+	if host == nil || host.AdvancedConfig == "" {
+		return false
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+		return false
+	}
+	switch v := parsed.(type) {
+	case map[string]any:
+		return isWAFHandlerWithDirectives(v, rulesetPaths)
+	case []any:
+		for _, it := range v {
+			if m, ok := it.(map[string]any); ok && isWAFHandlerWithDirectives(m, rulesetPaths) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isWAFHandlerWithDirectives reports whether one advanced_config handler is a WAF handler that has directives.
+func isWAFHandlerWithDirectives(handler map[string]any, rulesetPaths map[string]string) bool {
+	if handler["handler"] != "waf" {
+		return false
+	}
+	if d, ok := handler["directives"].(string); ok && strings.TrimSpace(d) != "" {
+		return true
+	}
+	return rulesetIncludeDirective(handler, rulesetPaths) != ""
 }
 
 // unresolvedRulesetReason names why no WAF directives were built: there is no ruleset at all, none is chosen for the
