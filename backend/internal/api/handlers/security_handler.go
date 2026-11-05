@@ -1192,7 +1192,10 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, settingKey); err != nil {
 			return err
 		}
-		return writeModuleToggle(tx, settingKey, enabled, actor)
+		if err := writeModuleToggle(tx, settingKey, enabled, actor); err != nil {
+			return err
+		}
+		return snapshot.Seal(tx)
 	})
 	if err != nil {
 		log.WithError(err).Errorf("Failed to update security module setting %s", settingKey)

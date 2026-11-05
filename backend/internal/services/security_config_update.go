@@ -378,6 +378,10 @@ func (s *SecurityService) ApplyUpdate(actor, name string, u SecurityConfigUpdate
 			}
 		}
 
+		if err := snapshot.Seal(tx); err != nil {
+			return fmt.Errorf("seal security state %q: %w", name, err)
+		}
+
 		if err := tx.Where("name = ?", name).First(&stored).Error; err != nil {
 			return fmt.Errorf("read security config %q: %w", name, err)
 		}
